@@ -64,6 +64,22 @@
       letter-spacing: -0.01em;
     }
 
+    /* Baseline visible focus ring for every interactive element on this page
+       (links, buttons, inputs, and div-based custom controls like
+       .hw-check-circle) — keyboard-only, via :focus-visible, so mouse/touch
+       taps stay clean. Individual controls with a specific tokenized surface
+       (chip/pill buttons, steppers) may override with an inset variant, but
+       nothing on this page should ship with an invisible focus state. */
+    a:focus-visible,
+    button:focus-visible,
+    input:focus-visible,
+    textarea:focus-visible,
+    [tabindex]:focus-visible {
+      outline: 2px solid #2b4ca8;
+      outline-offset: 2px;
+      border-radius: 4px;
+    }
+
     /* ---- PAGE ----
        Widened from 760px (home v2 layout follow-up #2): the unified dashboard
        grid below needs real desktop width to pack 3-4 widgets per row —
@@ -263,185 +279,12 @@
     .grp-training { background: linear-gradient(150deg, var(--shell-1), var(--shell-2)); }
     .grp-weight   { background: linear-gradient(150deg, var(--amber-tint-1), var(--amber-tint-2)); }
 
-    /* ---- READINESS HERO CARD ---- */
-    .readiness {
-      background: linear-gradient(135deg, var(--hero-1) 0%, var(--hero-2) 100%);
-      color: #0b1530;
-      border: 0;
-      padding: 28px;
-      position: relative;
-      overflow: hidden;
-      min-height: 280px;
-    }
-    .readiness .lbl {
-      font-size: 11px;
-      color: rgba(11, 21, 48, 0.6);
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      font-weight: 500;
-    }
-    .readiness h2 {
-      margin: 8px 0 8px;
-      font-size: 28px;
-      font-weight: 600;
-      letter-spacing: -0.02em;
-      max-width: 65%;
-      line-height: 1.2;
-    }
-    .readiness .sub {
-      font-size: 14px;
-      color: rgba(11, 21, 48, 0.7);
-      max-width: 65%;
-      line-height: 1.5;
-      margin: 0;
-    }
-    .readiness .status-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 8px 16px;
-      border-radius: 999px;
-      font-size: 13px;
-      font-weight: 500;
-      margin-top: 16px;
-    }
-    .readiness .status-pill.pill-green { background: var(--accent); color: var(--accent-text); }
-    .readiness .status-pill.pill-amber { background: var(--amber-soft); color: var(--amber); }
-    .readiness .status-pill.pill-red   { background: var(--red-soft);   color: var(--red); }
-    .readiness .score-block {
-      position: absolute;
-      right: 28px;
-      top: 28px;
-      text-align: right;
-    }
-    .readiness .score-label {
-      font-size: 10px;
-      color: rgba(11, 21, 48, 0.55);
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      font-weight: 500;
-    }
-    .readiness .score {
-      font-size: 96px;
-      font-weight: 700;
-      line-height: 1;
-      letter-spacing: -0.045em;
-      margin-top: 4px;
-    }
-    .readiness .score small {
-      font-size: 22px;
-      font-weight: 500;
-      opacity: 0.5;
-      margin-left: 2px;
-    }
-    .readiness .score-avg {
-      font-size: 12px;
-      color: rgba(11, 21, 48, 0.6);
-      margin-top: 4px;
-    }
-    .readiness .components {
-      display: flex;
-      gap: 10px;
-      margin-top: auto;
-      padding-top: 20px;
-    }
-    .component {
-      background: rgba(255, 255, 255, 0.55);
-      backdrop-filter: blur(10px);
-      border-radius: 13px;
-      padding: 11px 14px;
-      flex: 1;
-    }
-    .component .l {
-      font-size: 10px;
-      color: rgba(11, 21, 48, 0.6);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      font-weight: 500;
-    }
-    .component .v {
-      font-size: 17px;
-      font-weight: 600;
-      margin-top: 3px;
-      letter-spacing: -0.01em;
-    }
-    .delta {
-      font-size: 10.5px;
-      margin-left: 4px;
-      font-weight: 500;
-    }
-    .delta.up   { color: var(--green); }
-    .delta.down { color: var(--red); }
-    .delta.flat { color: var(--text-tertiary); }
-
-    /* CTA / empty states */
-    .readiness-cta-body,
-    .readiness-empty-body {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: flex-start;
-      justify-content: center;
-      gap: 14px;
-    }
-    .readiness-cta-msg,
-    .readiness-empty-msg {
-      margin: 0;
-      font-size: 15px;
-      color: rgba(11, 21, 48, 0.7);
-      line-height: 1.5;
-    }
-    .readiness-cta-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      background: #0b1530;
-      color: #fff;
-      border: 0;
-      border-radius: 999px;
-      padding: 10px 20px;
-      font-family: inherit;
-      font-size: 13.5px;
-      font-weight: 500;
-      cursor: pointer;
-      letter-spacing: -0.01em;
-    }
-    .readiness-cta-btn:disabled { opacity: 0.6; cursor: default; }
-    .readiness-cta-btn i { font-size: 16px; }
-
-    /* ---- Readiness contributor list ---- */
-    .rd-contributors {
-      margin-top: 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      max-width: 60%;
-    }
-    .rd-contributor {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 13.5px;
-    }
-    .rd-factor-name {
-      font-weight: 600;
-      min-width: 50px;
-    }
+    /* ---- Readiness factor arrows (shared by the compact readiness tile's
+       top-3-factors row, #home-top-row-right .rd-tile-factor) ---- */
     .rd-arrow { font-size: 14px; font-weight: 700; }
     .rd-arrow--positive { color: var(--green); }
     .rd-arrow--negative { color: var(--red); }
     .rd-arrow--neutral  { color: var(--text-tertiary); }
-    .rd-factor-val {
-      font-size: 13px;
-      color: rgba(11, 21, 48, 0.75);
-    }
-
-    /* ---- PR trend icon ---- */
-    .pr-trend { display: inline-flex; align-items: center; font-weight: 600; font-size: 14px; }
-    .pr-trend--green { color: var(--green); }
-    .pr-trend--red   { color: var(--red); }
-    .pr-trend--flat  { color: var(--text-tertiary); }
-    .pr-dash { color: var(--text-tertiary); }
 
     /* ---- SLEEP HERO CARD ---- */
     .sleep-card {
@@ -481,75 +324,15 @@
     .sleep-card .slp-quality {
       font-size: 13px;
       color: rgba(255,255,255,0.7);
-      margin: 4px 0 16px;
+      margin: 4px 0 0;
     }
-    .sleep-card .slp-meta {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 14px;
-      margin-bottom: 16px;
-    }
-    .sleep-card .slp-m-l {
-      font-size: 10px;
+    /* Fills the gap below slp-quality with the numeric Quality X/5 readout
+       (was previously unstyled — inherited body defaults with no size/
+       spacing rule at all, so it rendered oversized and mismatched). */
+    .sleep-card .slp-quality-detail {
+      font-size: 12px;
       color: rgba(255,255,255,0.55);
-      text-transform: uppercase;
-      letter-spacing: 0.07em;
-      font-weight: 500;
-    }
-    .sleep-card .slp-m-v {
-      font-size: 19px;
-      font-weight: 600;
-      margin-top: 4px;
-    }
-    .sleep-card .slp-stages {
-      margin-top: auto;
-    }
-    .sleep-card .slp-stages-lbl {
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.07em;
-      color: rgba(255,255,255,0.55);
-      font-weight: 500;
-      margin-bottom: 7px;
-    }
-    .sleep-card .slp-stages-bar {
-      display: flex;
-      height: 9px;
-      border-radius: 5px;
-      overflow: hidden;
-      margin-bottom: 10px;
-    }
-    .slp-seg-deep  { background: #1f6feb; }
-    .slp-seg-rem   { background: #a86eff; }
-    .slp-seg-light { background: rgba(255,255,255,0.4); }
-    .sleep-card .slp-legend {
-      display: flex;
-      justify-content: space-between;
-      font-size: 11.5px;
-      color: rgba(255,255,255,0.7);
-      margin-bottom: 6px;
-    }
-    .sleep-card .slp-legend-item {
-      display: flex;
-      align-items: center;
-      gap: 5px;
-    }
-    .slp-dot {
-      display: inline-block;
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-    .sleep-card .slp-pct {
-      color: rgba(255,255,255,0.55);
-      font-size: 11px;
-    }
-    .sleep-card .slp-demo-note {
-      font-size: 10.5px;
-      color: rgba(255,255,255,0.4);
-      font-style: italic;
-      margin-top: 2px;
+      margin: 2px 0 16px;
     }
     .sleep-card .slp-empty {
       flex: 1;
@@ -580,9 +363,6 @@
 
     /* ---- PERSONAL RECORDS CARD (home v3, Task 6 — 10K/Half/Marathon tiles
        from /api/athletes/{id}/run-personal-records, see loadPerformanceCard) ---- */
-    .icon-wrap.run  { background: var(--blue-soft);   color: var(--blue-text); }
-    .icon-wrap.lift { background: var(--purple-soft); color: var(--purple-text); }
-
     .pr-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
     .pr-tile {
       background: var(--chip-bg);
@@ -609,47 +389,8 @@
     }
     .perf-empty a { color: #2b4ca8; text-decoration: none; }
 
-    /* ---- RECENT WORKOUTS CARD ---- */
-    .icon-wrap.wod  { background: var(--orange-soft); color: var(--orange-text); }
-    .icon-wrap.bike { background: var(--teal-soft);   color: var(--teal-text); }
-
-    .workouts .list { display: flex; flex-direction: column; gap: 4px; }
-    .workout {
-      display: flex; align-items: center; gap: 12px;
-      padding: 10px 0; border-bottom: 1px solid var(--card-divider);
-    }
-    .workout:last-child { border: 0; padding-bottom: 0; }
-    .workout .icon-wrap {
-      width: 36px; height: 36px; border-radius: 11px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 18px; flex-shrink: 0;
-    }
-    .workout .info { flex: 1; min-width: 0; }
-    .workout .ttl {
-      font-size: 13px; font-weight: 500;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    .workout .meta {
-      font-size: 11.5px; color: var(--text-secondary); margin-top: 2px;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    .workout .sources { display: flex; gap: 4px; flex-shrink: 0; }
-    /* Zone-2 badge (issue #441) */
-    .z2-badge {
-      font-size: 10px; font-weight: 700; letter-spacing: 0.03em;
-      background: rgba(16,185,129,0.12); color: #047857;
-      border-radius: 5px; padding: 2px 6px; flex-shrink: 0;
-      align-self: center; white-space: nowrap;
-    }
-    .src-badge {
-      width: 26px; height: 26px; border-radius: 7px;
-      display: flex; align-items: center; justify-content: center;
-      background: var(--chip-bg); color: var(--text-secondary);
-      font-size: 11px; font-weight: 700;
-    }
-    .src-badge.strava { background: #fc4c02; color: #fff; }
-    .src-badge.stryd  { background: #ff6b1a; color: #fff; }
-    .src-badge.manual { background: var(--chip-bg); color: var(--text-secondary); }
+    /* ---- RECENT WORKOUTS (rendered as .nw-row entries inside
+       #home-recent-workout-section — see NEXT WORKOUT CARD rules below) ---- */
     .workouts-empty {
       font-size: 13.5px; color: var(--text-secondary);
       padding: 16px 4px; line-height: 1.5;
@@ -677,190 +418,6 @@
     .strava-stale-msg { flex: 1; }
     .strava-stale-banner a { color: #FC4C02; font-weight: 600; text-decoration: none; }
     .strava-stale-banner a:hover { text-decoration: underline; }
-
-    /* ---- ROW 3: TREND CARDS (HRV · Weekly TSS · RHR · Weight) ---- */
-    #row-3 {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 16px;
-    }
-
-    .trend-card {
-      background: #fff;
-      border-radius: 20px;
-      border: 1px solid var(--card-border);
-      padding: 18px 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-
-    .trend-card-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .trend-card-title {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text-primary);
-      flex: 1;
-    }
-
-    .trend-card-period {
-      font-size: 11px;
-      color: var(--text-tertiary);
-      background: var(--chip-bg);
-      padding: 2px 8px;
-      border-radius: 999px;
-      font-weight: 500;
-    }
-
-    .trend-card-stat {
-      display: flex;
-      align-items: baseline;
-      gap: 6px;
-      flex-wrap: wrap;
-    }
-
-    .trend-card-big {
-      font-size: 28px;
-      font-weight: 700;
-      letter-spacing: -0.025em;
-      line-height: 1;
-    }
-
-    .trend-card-unit {
-      font-size: 13px;
-      color: var(--text-tertiary);
-      font-weight: 500;
-    }
-
-    .trend-delta-pill {
-      margin-left: auto;
-      font-size: 11px;
-      font-weight: 600;
-      padding: 3px 9px;
-      border-radius: 999px;
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-
-    .trend-delta-pill--up   { background: var(--green-soft); color: var(--green); }
-    .trend-delta-pill--down { background: var(--red-soft);   color: var(--red); }
-    .trend-delta-pill--flat { background: var(--chip-bg);    color: var(--text-tertiary); }
-
-    .trend-sparkline {
-      width: 100%;
-      height: 48px;
-      display: block;
-      overflow: visible;
-      flex-shrink: 0;
-    }
-
-    .trend-card-footer {
-      display: flex;
-      justify-content: space-between;
-      font-size: 11px;
-      color: var(--text-tertiary);
-      margin-top: auto;
-    }
-
-    .trend-card-error {
-      flex: 1;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 13px;
-      color: var(--text-tertiary);
-      text-align: center;
-      padding: 10px 0;
-      min-height: 60px;
-    }
-
-    .trend-quick-input {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-    }
-
-    .trend-quick-input input[type="number"] {
-      flex: 1;
-      min-width: 0;
-      padding: 6px 10px;
-      border: 1px solid var(--card-border);
-      border-radius: 8px;
-      font-size: 13px;
-      font-family: inherit;
-      background: #f7f9fd;
-      color: var(--text-primary);
-    }
-
-    .trend-quick-input input[type="number"]:focus {
-      outline: none;
-      border-color: #2b4ca8;
-      background: #fff;
-    }
-
-    .trend-quick-save-btn {
-      padding: 6px 14px;
-      background: #0b1530;
-      color: #fff;
-      border: 0;
-      border-radius: 8px;
-      font-family: inherit;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-
-    .trend-quick-save-btn:disabled { opacity: 0.6; cursor: default; }
-
-    .trend-skeleton-line {
-      background: linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%);
-      background-size: 200% 100%;
-      animation: trend-shimmer 1.3s infinite;
-      border-radius: 4px;
-    }
-
-    @keyframes trend-shimmer {
-      0%   { background-position: 200% 0; }
-      100% { background-position: -200% 0; }
-    }
-
-    /* ---- WEIGHT WIDGET ---- */
-    .ww-stat { display: flex; align-items: baseline; gap: 5px; margin-top: 4px; }
-    .ww-current { font-size: 28px; font-weight: 700; letter-spacing: -0.025em; line-height: 1; }
-    .ww-unit { font-size: 13px; color: var(--text-tertiary); font-weight: 500; }
-    .ww-avg { font-size: 12px; color: var(--text-secondary); margin-top: 3px; }
-    .ww-pills { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
-    .ww-pill {
-      font-size: 11px; font-weight: 600;
-      padding: 3px 9px; border-radius: 999px; white-space: nowrap;
-    }
-    .ww-pill--green { background: var(--green-soft); color: var(--green); }
-    .ww-pill--red   { background: var(--red-soft);   color: var(--red); }
-    .ww-pill--flat  { background: var(--chip-bg);    color: var(--text-tertiary); }
-    .ww-sparkline { width: 100%; height: 40px; display: block; overflow: visible; flex-shrink: 0; margin-top: 8px; }
-    .ww-progress-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-    .ww-progress-bar {
-      flex: 1; height: 5px; border-radius: 3px;
-      background: var(--chip-bg); overflow: hidden;
-    }
-    .ww-progress-fill { height: 100%; border-radius: 3px; background: #2b4ca8; }
-    .ww-status-pill {
-      font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap;
-    }
-    .ww-status--green { background: var(--green-soft); color: var(--green); }
-    .ww-status--amber { background: var(--amber-soft); color: var(--amber); }
-    .ww-status--blue  { background: var(--blue-soft);  color: var(--blue-text); }
-    .ww-set-target { margin-top: 8px; font-size: 12px; }
-    .ww-empty { font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin-top: 8px; }
-    .ww-error { font-size: 13px; color: var(--text-secondary); margin-top: 8px; display: flex; align-items: center; }
-    .ww-on_track { background: var(--green-soft); color: var(--green); }
 
     /* ---- BODY-MODIFIER GUARDRAIL WARNING (issue #1161) ---- */
     .bm-guardrail {
@@ -933,7 +490,7 @@
     }
     .hww-step-input::-webkit-outer-spin-button,
     .hww-step-input::-webkit-inner-spin-button { -webkit-appearance: none; }
-    .hww-step-input:focus { outline: none; }
+    .hww-step-input:focus { outline: none; box-shadow: inset 0 0 0 2px #2b4ca8; border-radius: 6px; }
     .hww-log-btn {
       width: 100%; padding: 14px 20px; background: var(--accent);
       color: var(--accent-text); border: 0; border-radius: 12px;
@@ -957,165 +514,9 @@
       .hww-current { font-size: 32px; }
     }
 
-    /* ---- LOG TODAY CARD (legacy date-nav form) ---- */
+    /* #row-log wraps the live Fast-log form (revealed by the Log-today
+       strip's CTA — see FAST LOG FORM rules below and home-strip-habits.js). */
     #row-log { margin-bottom: 16px; }
-    .log-today { padding: 18px 22px; border-left: 3px solid #2b4ca8; }
-    .lt-date-nav { display: flex; align-items: center; gap: 4px; }
-    .lt-nav-btn {
-      padding: 2px 7px;
-      border: 1px solid var(--card-border);
-      border-radius: 6px;
-      background: var(--chip-bg);
-      color: var(--text-primary);
-      font-size: 15px;
-      line-height: 1.2;
-      cursor: pointer;
-      font-family: inherit;
-    }
-    .lt-nav-btn:hover:not(:disabled) { background: #e0e7f7; }
-    .lt-nav-btn:disabled { opacity: 0.35; cursor: default; }
-    .lt-today-btn {
-      padding: 2px 10px;
-      border: 1px solid var(--card-border);
-      border-radius: 6px;
-      background: var(--chip-bg);
-      color: var(--text-secondary);
-      font-size: 11px;
-      font-weight: 500;
-      cursor: pointer;
-      font-family: inherit;
-    }
-    .lt-today-btn:hover:not(:disabled) { background: #e0e7f7; }
-    .lt-today-btn--active,
-    .lt-today-btn:disabled {
-      background: var(--blue-soft);
-      color: var(--blue-text);
-      cursor: default;
-    }
-    .lt-date-input {
-      padding: 2px 10px;
-      border: 1px solid var(--card-border);
-      border-radius: 999px;
-      font-size: 11px;
-      font-family: inherit;
-      font-weight: 500;
-      background: var(--chip-bg);
-      color: var(--text-primary);
-      cursor: pointer;
-    }
-    .lt-date-input:focus { outline: none; border-color: #2b4ca8; }
-    .lt-form { margin-top: 10px; }
-    .lt-grid {
-      display: grid;
-      grid-template-columns: repeat(6, 1fr);
-      gap: 10px;
-    }
-    .lt-field { display: flex; flex-direction: column; gap: 4px; }
-    .lt-label {
-      font-size: 10px;
-      color: var(--text-tertiary);
-      text-transform: uppercase;
-      letter-spacing: 0.07em;
-      font-weight: 500;
-    }
-    .lt-required { color: #dc2626; margin-left: 2px; }
-    .lt-input {
-      padding: 7px 10px;
-      border: 1px solid var(--card-border);
-      border-radius: 8px;
-      font-size: 13px;
-      font-family: inherit;
-      background: #f7f9fd;
-      color: var(--text-primary);
-      width: 100%;
-      -moz-appearance: textfield;
-    }
-    .lt-input::-webkit-outer-spin-button,
-    .lt-input::-webkit-inner-spin-button { -webkit-appearance: none; }
-    .lt-input:focus { outline: none; border-color: #2b4ca8; background: #fff; }
-    .lt-error {
-      font-size: 10.5px;
-      color: #dc2626;
-      min-height: 14px;
-      line-height: 1.3;
-    }
-    .lt-actions {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-top: 12px;
-    }
-    .lt-save-btn {
-      padding: 7px 20px;
-      background: #0b1530;
-      color: #fff;
-      border: 0;
-      border-radius: 8px;
-      font-family: inherit;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      letter-spacing: -0.01em;
-    }
-    .lt-save-btn:disabled { opacity: 0.6; cursor: default; }
-    .lt-feedback { font-size: 12px; font-weight: 500; }
-    .lt-feedback--ok  { color: var(--green); }
-    .lt-feedback--err { color: #dc2626; }
-
-    /* ---- LOG TODAY BANNER ---- */
-    #log-today-banner {
-      margin-bottom: 16px;
-      border-radius: 18px;
-      background: linear-gradient(100deg, #2b4ca8 0%, #1a3080 100%);
-      padding: 14px 20px;
-    }
-    .ltb-inner {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-    }
-    .ltb-icon {
-      width: 40px; height: 40px;
-      border-radius: 12px;
-      background: rgba(255,255,255,0.15);
-      display: flex; align-items: center; justify-content: center;
-      font-size: 20px; color: #fff; flex-shrink: 0;
-    }
-    .ltb-msg {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-    .ltb-msg strong {
-      font-size: 14px;
-      font-weight: 600;
-      color: #fff;
-      letter-spacing: -0.01em;
-    }
-    .ltb-msg span {
-      font-size: 12px;
-      color: rgba(255,255,255,0.72);
-    }
-    .ltb-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 10px 18px;
-      background: var(--accent);
-      color: var(--accent-text);
-      border: 0;
-      border-radius: 999px;
-      font-family: inherit;
-      font-size: 13px;
-      font-weight: 700;
-      cursor: pointer;
-      white-space: nowrap;
-      flex-shrink: 0;
-      min-height: 44px;
-      letter-spacing: -0.01em;
-    }
-    .ltb-btn i { font-size: 15px; }
 
     /* ---- FAST LOG FORM ---- */
     .fast-log {
@@ -1205,7 +606,7 @@
     }
     .fm-input::-webkit-outer-spin-button,
     .fm-input::-webkit-inner-spin-button { -webkit-appearance: none; }
-    .fm-input:focus { outline: none; }
+    .fm-input:focus { outline: none; box-shadow: inset 0 0 0 2px #2b4ca8; border-radius: 6px; }
 
     /* Segmented pill groups */
     .fm-pills {
@@ -1280,188 +681,16 @@
     .fm-feedback--err { color: #dc2626; }
 
     @media (max-width: 880px) {
-      /* Banner: stack on narrow viewports */
-      .ltb-inner { flex-wrap: wrap; gap: 10px; }
-      .ltb-btn { width: 100%; justify-content: center; }
-
       /* Fast log: already single-column, just widen stepper */
       .fm-stepper { border-radius: 10px; }
       .fm-step-btn { width: 52px; }
     }
-
-    /* ---- ROW 4 LAYOUT ---- */
-    #row-4 { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: start; }
-
-    /* ---- HABITS GRID CARD ---- */
-    .habits .week-grid { display: flex; flex-direction: column; gap: 8px; }
-    .habits .week-row {
-      display: grid;
-      grid-template-columns: 1fr repeat(7, 28px) 52px;
-      gap: 6px;
-      align-items: center;
-    }
-    .habits .week-header {
-      font-size: 10px; color: var(--text-tertiary);
-      text-transform: uppercase; letter-spacing: 0.08em; font-weight: 500;
-      text-align: center;
-    }
-    .habits .week-header.first { text-align: left; }
-    .habits .habit-name {
-      font-size: 13px; font-weight: 500;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    .habits .day-cell {
-      width: 28px; height: 28px; border-radius: 50%;
-      background: var(--chip-bg);
-      display: flex; align-items: center; justify-content: center;
-      cursor: pointer; border: 1.5px solid transparent;
-      flex-shrink: 0;
-    }
-    .habits .day-cell.done { background: #0b1530; color: #fff; }
-    .habits .day-cell.done i { font-size: 13px; }
-    .habits .day-cell.today { border-color: #2b4ca8; }
-    .habits .day-cell.future { opacity: 0.35; cursor: default; pointer-events: none; }
-    .habits .streak-col {
-      font-family: 'JetBrains Mono', monospace; font-size: 12px;
-      color: var(--text-secondary); text-align: right; font-weight: 500;
-    }
-    .habits .streak-col .num { color: var(--text-primary); font-weight: 600; }
-    .habits-streak-footer { display: none; }
-    .habits-empty {
-      font-size: 13.5px; color: var(--text-secondary);
-      padding: 16px 4px; line-height: 1.5;
-    }
-    .habits-empty a { color: #2b4ca8; text-decoration: none; }
-
-    /* ---- HABITS STATS GRAPH CARD ---- */
-    .habits-graph { padding: 22px; }
-    .hg-body {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 22px;
-      align-items: stretch;
-    }
-    .hg-bars { display: flex; flex-direction: column; gap: 8px; }
-    .hg-label {
-      font-size: 10px; color: var(--text-tertiary);
-      text-transform: uppercase; letter-spacing: 0.08em; font-weight: 500;
-    }
-    .hg-chart {
-      display: grid;
-      grid-template-columns: repeat(7, 1fr);
-      gap: 6px;
-      align-items: end;
-      flex: 1;
-      min-height: 120px;
-    }
-    .hg-day { display: flex; flex-direction: column; align-items: center; height: 100%; gap: 4px; }
-    .hg-day .bar-wrap {
-      width: 100%; flex: 1;
-      display: flex; align-items: flex-end;
-      border-bottom: 1px solid var(--card-divider);
-    }
-    .hg-day .bar {
-      width: 100%; background: #2b4ca8;
-      border-radius: 4px 4px 0 0; min-height: 4px;
-    }
-    .hg-day.today .bar { background: #0b1530; }
-    .hg-day.future .bar { background: var(--chip-bg); }
-    .hg-day .bar-val {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 10px; color: var(--text-tertiary);
-      margin-bottom: 3px; font-weight: 500;
-    }
-    .hg-day .dow { font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; }
-    .hg-day.today .dow { color: #0b1530; font-weight: 600; }
-    .hg-stats { display: flex; flex-direction: column; gap: 14px; justify-content: center; }
-    .hg-stat { display: flex; flex-direction: column; gap: 2px; }
-    .hg-stat .l { font-size: 10.5px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.07em; font-weight: 500; }
-    .hg-stat .v { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
-    .hg-stat .v .sub { font-size: 11px; color: var(--text-tertiary); font-weight: 500; margin-left: 4px; }
-    .hg-stat .v.bar-stat .pct-bar {
-      display: inline-block; width: 60px; height: 5px;
-      border-radius: 3px; background: var(--chip-bg);
-      position: relative; margin-left: 8px; vertical-align: 2px;
-    }
-    .hg-stat .v.bar-stat .pct-bar .fill {
-      position: absolute; left: 0; top: 0; bottom: 0;
-      background: #2b4ca8; border-radius: 3px;
-    }
-
-    /* ---- ROW 5: WEEKLY SUMMARY ---- */
-    #row-5 { margin-bottom: 16px; }
-
-    .wks-card { padding: 22px; }
-    .wks-body {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 20px;
-      align-items: start;
-    }
-    .wks-stats { display: flex; flex-direction: column; gap: 12px; }
-    .wks-count-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-    .wks-count { font-size: 32px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }
-    .wks-count-lbl { font-size: 13px; color: var(--text-secondary); font-weight: 500; }
-    .wks-rest { font-size: 12px; color: var(--text-tertiary); margin-left: auto; }
-    .wks-types { display: flex; gap: 8px; flex-wrap: wrap; }
-    .wks-type {
-      display: inline-flex; align-items: center; gap: 5px;
-      background: var(--chip-bg); border-radius: 8px;
-      padding: 4px 10px; font-size: 12px; font-weight: 600;
-      color: var(--text-secondary);
-    }
-    .wks-type i { font-size: 14px; }
-    .wks-type-none { font-size: 13px; color: var(--text-tertiary); }
-    .wks-totals { display: flex; gap: 12px; flex-wrap: wrap; }
-    .wks-total-item { display: flex; align-items: baseline; gap: 3px; }
-    .wks-v { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--text-primary); }
-    .wks-deltas { display: flex; gap: 6px; flex-wrap: wrap; }
-    .wks-pill {
-      font-size: 11px; font-weight: 600;
-      padding: 3px 9px; border-radius: 999px; white-space: nowrap;
-    }
-    .wks-pill--green { background: var(--green-soft); color: var(--green); }
-    .wks-pill--red   { background: var(--red-soft);   color: var(--red); }
-    .wks-pill--flat  { background: var(--chip-bg);    color: var(--text-tertiary); }
-    .wks-chart { display: flex; align-items: center; justify-content: center; }
-    .wks-bar-chart { width: 100%; height: 90px; display: block; overflow: visible; }
 
     /* ---- RESPONSIVE: <= 640px ---- */
     @media (max-width: 640px) {
       .page { padding: 16px 14px 8px; }
       .greeting h1 { font-size: 22px; }
       .greeting p { font-size: 12.5px; }
-
-      .workout-desktop-only { display: none; }
-
-      .perf-cell-m.pred-cell-m .mc-value { color: #2b4ca8; }
-
-      /* Readiness card: mobile — centre-aligned, score on top */
-      .readiness { text-align: center; padding: 22px; }
-      .readiness .lbl  { order: 0; }
-      .readiness .score-block {
-        position: static;
-        order: 1;
-        text-align: center;
-        margin: 8px 0;
-      }
-      .readiness h2    { order: 2; max-width: 100%; font-size: 20px; }
-      .readiness .sub  { order: 3; max-width: 100%; font-size: 13px; }
-      .readiness .status-pill { order: 4; margin-top: 12px; }
-      .readiness .components  {
-        order: 5;
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        padding-top: 0;
-        margin-top: 16px;
-        text-align: left;
-      }
-      .readiness .score { font-size: 88px; }
-      .readiness-cta-body,
-      .readiness-empty-body {
-        align-items: center;
-        text-align: center;
-      }
 
       /* Sleep card: mobile — score and quality on the same top row */
       .sleep-card .slp-top {
@@ -1477,52 +706,6 @@
         text-align: right;
         font-size: 12px;
         margin: 0 0 6px;
-      }
-
-      .lt-grid { grid-template-columns: repeat(3, 1fr); }
-
-      /* Row 3: HRV and RHR hidden on mobile; TSS + Weight stack full-width */
-      #row-3 { grid-template-columns: 1fr; }
-      #trend-card-hrv,
-      #trend-card-rhr { display: none; }
-
-      /* Habits grid: mobile — single column, bigger cells, streak footer */
-      #row-4 { grid-template-columns: 1fr; }
-
-      /* Weekly summary: single column on mobile */
-      .wks-body { grid-template-columns: 1fr; }
-
-      /* Habits stats graph: mobile — bars on top, stats 2×2 below */
-      .habits-graph .hg-body { display: flex; flex-direction: column; gap: 18px; }
-      .hg-chart { min-height: 110px; }
-      .hg-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-      .habits .week-row {
-        grid-template-columns: 1fr repeat(7, 36px);
-        gap: 4px;
-      }
-      .habits .day-cell { width: 36px; height: 36px; }
-      .habits .day-cell.done i { font-size: 15px; }
-      .habits .week-header.streak-hdr { display: none; }
-      .habits .streak-col { display: none; }
-      .habits-streak-footer {
-        display: flex;
-        align-items: center;
-        flex-wrap: wrap;
-        margin-top: 4px;
-        padding-top: 12px;
-        border-top: 1px solid var(--card-divider);
-        font-size: 11.5px;
-        color: var(--text-secondary);
-        gap: 6px;
-      }
-      .habits-streak-footer .badge {
-        font-family: 'JetBrains Mono', monospace;
-        background: var(--chip-bg);
-        color: var(--text-primary);
-        font-weight: 600;
-        padding: 3px 8px;
-        border-radius: 6px;
-        font-size: 11px;
       }
     }
   </style>
@@ -1617,14 +800,18 @@
       color: var(--text-tertiary);
       flex-shrink: 0;
     }
-    /* Today-check circle */
+    /* Today-check circle (44px — WCAG 2.5.5 minimum tap target; was 40px) */
     .hw-check-circle {
-      width: 40px; height: 40px; border-radius: 50%;
+      width: 44px; height: 44px; border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
       cursor: pointer; flex-shrink: 0;
       font-size: 15px; font-weight: 700;
       transition: background 0.12s, color 0.12s, border-color 0.12s;
       -webkit-tap-highlight-color: transparent;
+    }
+    .hw-check-circle:focus-visible {
+      outline: 2px solid #2b4ca8;
+      outline-offset: 2px;
     }
     .hw-check-circle--empty {
       border: 2px dashed var(--text-tertiary);
@@ -1848,72 +1035,6 @@
       #row-training-sleep { grid-template-columns: 1fr; }
     }
 
-    /* ---- HABITS PROGRESS WIDGET ---- */
-    #habits-progress-widget { margin-bottom: 16px; }
-    .hp-widget .card-head { margin-bottom: 12px; }
-    .hp-body { display: flex; flex-direction: column; gap: 2px; }
-    .hp-row {
-      display: flex; align-items: center; gap: 10px;
-      padding: 9px 10px; border-radius: 12px;
-      text-decoration: none; color: var(--text-primary);
-      transition: background 0.12s;
-      cursor: pointer;
-    }
-    .hp-row:hover { background: var(--shell-1); }
-    .hp-row--complete { opacity: 0.7; }
-    .hp-icon {
-      width: 32px; height: 32px; border-radius: 9px;
-      background: var(--chip-bg); display: flex; align-items: center;
-      justify-content: center; font-size: 15px; color: var(--text-secondary);
-      flex-shrink: 0;
-    }
-    .hp-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-    .hp-name-row { display: flex; align-items: center; gap: 6px; }
-    .hp-name {
-      font-size: 13px; font-weight: 500;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1;
-    }
-    .hp-check { color: var(--teal-text); font-size: 13px; flex-shrink: 0; }
-    .hp-days { font-size: 11px; color: var(--text-tertiary); flex-shrink: 0; }
-    .hp-meta { font-size: 11.5px; color: var(--text-secondary); }
-    .hp-bar-outer {
-      height: 5px; border-radius: 3px; background: var(--shell-2); overflow: hidden;
-    }
-    .hp-bar-inner {
-      height: 100%; border-radius: 3px; background: var(--bg-1);
-      transition: width 0.25s;
-    }
-    .hp-row--complete .hp-bar-inner { background: var(--teal-text); }
-    .hp-empty { font-size: 13.5px; color: var(--text-secondary); padding: 12px 4px; }
-    .hp-empty a { color: var(--blue-text); text-decoration: none; }
-    .hp-error { font-size: 13px; color: var(--text-secondary); padding: 12px 4px; }
-    .hp-retry {
-      background: none; border: 1px solid var(--card-border); border-radius: 6px;
-      padding: 3px 10px; font-size: 12px; cursor: pointer; font-family: inherit;
-      color: var(--text-primary); margin-left: 6px;
-    }
-    .hp-retry:hover { background: var(--shell-1); }
-    /* Skeleton rows */
-    .hp-skel-row {
-      display: flex; align-items: center; gap: 10px; padding: 9px 10px;
-    }
-    .hp-skel {
-      background: var(--shell-2); border-radius: 4px; animation: hp-pulse 1.4s ease-in-out infinite;
-    }
-    @keyframes hp-pulse {
-      0%, 100% { opacity: 1; }
-      50%       { opacity: 0.45; }
-    }
-    .hp-skel--icon { width: 32px; height: 32px; border-radius: 9px; flex-shrink: 0; }
-    .hp-skel-info { flex: 1; display: flex; flex-direction: column; gap: 6px; }
-    .hp-skel--name { height: 11px; width: 55%; }
-    .hp-skel--bar  { height: 5px;  width: 80%; border-radius: 3px; }
-
-    .habit-inline-error {
-      font-size: 12px;
-      color: #dc2626;
-      padding: 6px 4px 2px;
-    }
     /* ==== HOME V2 ==== */
 
     /* ---- READINESS CTL/ATL/TSB TRIO (extends home-top-row-right) ---- */

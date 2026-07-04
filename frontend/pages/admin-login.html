@@ -4,29 +4,32 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Admin – perf-coach</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/styles.css">
   <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css" rel="stylesheet">
   <style>
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-    html, body { margin: 0; padding: 0; min-height: 100vh; }
+    html, body { min-height: 100vh; }
     body {
-      font-family: 'Inter Tight', system-ui, sans-serif;
-      background: radial-gradient(ellipse at top left, #5a8dee 0%, #1f3b8a 70%);
+      background: var(--surface-2);
       display: flex;
       align-items: center;
       justify-content: center;
       min-height: 100vh;
       padding: 24px;
-      letter-spacing: -0.01em;
+    }
+
+    main {
+      width: 100%;
+      max-width: 380px;
     }
 
     .login-card {
-      background: #fff;
-      border-radius: 24px;
-      padding: 40px 36px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 36px 32px;
       width: 100%;
-      max-width: 380px;
-      box-shadow: 0 8px 40px rgba(11, 21, 48, 0.18);
+      box-shadow: 0 1px 2px rgba(17, 24, 39, 0.04), 0 12px 32px rgba(17, 24, 39, 0.08);
     }
 
     .brand {
@@ -36,10 +39,10 @@
       margin-bottom: 28px;
     }
     .brand-mark {
-      width: 34px;
-      height: 34px;
+      width: 36px;
+      height: 36px;
       border-radius: 10px;
-      background: linear-gradient(135deg, #6e90f0, #2b4ca8);
+      background: var(--ink);
       color: #fff;
       display: flex;
       align-items: center;
@@ -50,101 +53,116 @@
     .brand-text {
       font-weight: 700;
       font-size: 16px;
-      letter-spacing: -0.02em;
-      color: #0b1530;
+      letter-spacing: -0.01em;
+      color: var(--text);
     }
 
     h1 {
       margin: 0 0 6px;
       font-size: 22px;
       font-weight: 700;
-      color: #0b1530;
-      letter-spacing: -0.025em;
+      color: var(--text);
+      letter-spacing: -0.01em;
     }
     .subtitle {
       margin: 0 0 24px;
       font-size: 13px;
-      color: #5c6886;
+      color: var(--text-sub);
     }
 
-    .field {
-      margin-bottom: 16px;
-    }
+    .field { margin-bottom: 16px; }
     .field label {
       display: block;
       font-size: 12.5px;
       font-weight: 600;
-      color: #5c6886;
+      color: var(--text-sub);
       margin-bottom: 6px;
       text-transform: uppercase;
       letter-spacing: 0.04em;
     }
     .field input {
       width: 100%;
+      min-height: 44px;
       padding: 10px 14px;
-      border: 1.5px solid rgba(13, 30, 67, 0.14);
+      border: 1.5px solid var(--border-input);
       border-radius: 10px;
-      font-size: 14px;
+      font-size: 16px;
       font-family: inherit;
-      color: #0b1530;
-      background: #f7f9fd;
+      color: var(--text);
+      background: var(--surface-2);
       outline: none;
-      transition: border-color 0.15s, background 0.15s;
+      transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
     }
     .field input:focus {
-      border-color: #2b4ca8;
-      background: #fff;
+      border-color: var(--ink);
+      background: var(--surface);
+      box-shadow: 0 0 0 4px var(--focus-ring);
+    }
+    .field input[aria-invalid="true"] {
+      border-color: var(--danger);
+    }
+    .field input[aria-invalid="true"]:focus {
+      box-shadow: 0 0 0 4px var(--danger-soft);
     }
 
     .error-msg {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       gap: 8px;
-      background: #ffd9d9;
-      color: #7a1a1a;
-      border-radius: 9px;
+      background: var(--danger-soft);
+      color: var(--danger-dark);
+      border-radius: 8px;
       padding: 10px 14px;
       font-size: 13px;
       font-weight: 500;
       margin-bottom: 16px;
     }
-    .error-msg i { font-size: 15px; flex-shrink: 0; }
+    .error-msg i { font-size: 15px; flex-shrink: 0; margin-top: 1px; }
 
     .submit-btn {
       width: 100%;
+      min-height: 44px;
       padding: 12px;
-      background: #0b1530;
+      background: var(--ink);
       color: #fff;
       border: 0;
-      border-radius: 12px;
+      border-radius: 10px;
       font-family: inherit;
-      font-size: 14px;
+      font-size: 15px;
       font-weight: 600;
       cursor: pointer;
-      letter-spacing: -0.01em;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 8px;
       transition: opacity 0.15s;
     }
+    .submit-btn:hover:not(:disabled) { opacity: 0.9; }
+    .submit-btn:focus-visible {
+      outline: 2px solid var(--ink);
+      outline-offset: 2px;
+    }
     .submit-btn:disabled { opacity: 0.6; cursor: default; }
     .submit-btn .spinner {
       width: 16px;
       height: 16px;
-      border: 2px solid rgba(255,255,255,0.35);
+      border: 2px solid rgba(255, 255, 255, 0.35);
       border-top-color: #fff;
       border-radius: 50%;
       animation: spin 0.7s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) {
+      .submit-btn .spinner { animation-duration: 1.4s; }
+    }
 
     @media (max-width: 440px) {
-      .login-card { padding: 32px 22px; }
+      .login-card { padding: 28px 20px; }
     }
   </style>
 </head>
 <body>
+<main>
 <div class="login-card">
   <div class="brand">
     <span class="brand-mark"><i class="ti ti-shield-lock" aria-hidden="true"></i></span>
@@ -155,9 +173,10 @@
   <form id="admin-form" novalidate>
     <div class="field">
       <label for="secret">Secret</label>
-      <input type="password" id="secret" name="secret" autocomplete="off" required autofocus>
+      <input type="password" id="secret" name="secret" autocomplete="off" required autofocus
+             aria-invalid="false" aria-describedby="error-text">
     </div>
-    <div id="error-msg" class="error-msg" hidden>
+    <div id="error-msg" class="error-msg" role="alert" aria-live="assertive" hidden>
       <i class="ti ti-alert-circle" aria-hidden="true"></i>
       <span id="error-text"></span>
     </div>
@@ -166,6 +185,7 @@
     </button>
   </form>
 </div>
+</main>
 <script>
 (function () {
   'use strict';
@@ -175,6 +195,7 @@
   var btnLabel = document.getElementById('btn-label');
   var errorMsg = document.getElementById('error-msg');
   var errorText = document.getElementById('error-text');
+  var secretInput = document.getElementById('secret');
 
   function setLoading(on) {
     btn.disabled = on;
@@ -194,17 +215,19 @@
   function showError(msg) {
     errorText.textContent = msg;
     errorMsg.hidden = false;
+    secretInput.setAttribute('aria-invalid', 'true');
   }
 
   function hideError() {
     errorMsg.hidden = true;
+    secretInput.setAttribute('aria-invalid', 'false');
   }
 
   form.addEventListener('submit', function (e) {
     e.preventDefault();
     hideError();
 
-    var secret = document.getElementById('secret').value;
+    var secret = secretInput.value;
     if (!secret) {
       showError('Please enter the admin secret.');
       return;

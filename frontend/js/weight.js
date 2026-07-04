@@ -189,9 +189,14 @@ function _syncLegend(chartData) {
 function _initModeToggle() {
   const current = WeightChart.getMode ? WeightChart.getMode() : 'basic';
   document.querySelectorAll('.mode-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.mode === current);
+    const isActive = btn.dataset.mode === current;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('active', b === btn));
+      document.querySelectorAll('.mode-btn').forEach(b => {
+        b.classList.toggle('active', b === btn);
+        b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
+      });
       if (WeightChart.setMode) WeightChart.setMode(btn.dataset.mode);
       if (_chartData) _syncLegend(_chartData);
     });
@@ -1376,9 +1381,13 @@ function _initEditPanel() {
 
 function _initRangeTabs() {
   document.querySelectorAll('.range-tab').forEach(btn => {
+    btn.setAttribute('aria-pressed', btn.classList.contains('active') ? 'true' : 'false');
     btn.addEventListener('click', async () => {
       _currentRange = btn.dataset.range;
-      document.querySelectorAll('.range-tab').forEach(b => b.classList.toggle('active', b === btn));
+      document.querySelectorAll('.range-tab').forEach(b => {
+        b.classList.toggle('active', b === btn);
+        b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
+      });
 
       if (_rangeAbortController) _rangeAbortController.abort();
       _rangeAbortController = new AbortController();
@@ -1527,9 +1536,14 @@ function _renderPastTargetsTable(filter) {
 function _initTargetHistoryFilters() {
   const pills = document.querySelectorAll('#target-filter-pills .th-fb');
   pills.forEach(pill => {
+    pill.setAttribute('aria-pressed', pill.classList.contains('active') ? 'true' : 'false');
     pill.addEventListener('click', () => {
-      pills.forEach(p => p.classList.remove('active'));
+      pills.forEach(p => {
+        p.classList.remove('active');
+        p.setAttribute('aria-pressed', 'false');
+      });
       pill.classList.add('active');
+      pill.setAttribute('aria-pressed', 'true');
       _targetHistoryFilter = pill.dataset.filter;
       _renderPastTargetsTable(_targetHistoryFilter);
     });

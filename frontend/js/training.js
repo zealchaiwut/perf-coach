@@ -58,7 +58,9 @@
   function switchTab(name) {
     currentView = name;
     document.querySelectorAll('.training-tab').forEach(function (btn) {
-      btn.classList.toggle('active', btn.dataset.tab === name);
+      var isActive = btn.dataset.tab === name;
+      btn.classList.toggle('active', isActive);
+      btn.setAttribute('aria-selected', String(isActive));
     });
     document.getElementById('view-new').style.display = name === 'new' ? '' : 'none';
     document.getElementById('view-history').style.display = name === 'history' ? '' : 'none';
@@ -84,11 +86,14 @@
       btn.type = 'button';
       btn.className = 'type-chip' + (DISABLED_TYPES[type] ? ' type-chip-disabled' : '');
       btn.dataset.value = type;
-      btn.textContent = type;
       if (DISABLED_TYPES[type]) {
+        // Visible "Soon" badge, not just a hover title — titles never surface on touch.
+        btn.innerHTML = type + ' <span class="chip-soon">Soon</span>';
         btn.disabled = true;
         btn.title = 'Coming soon';
       } else {
+        btn.textContent = type;
+        btn.setAttribute('aria-pressed', 'false');
         btn.addEventListener('click', function () { selectChip(type); });
       }
       container.appendChild(btn);
@@ -97,7 +102,7 @@
     customBtn.type = 'button';
     customBtn.className = 'type-chip type-chip-disabled';
     customBtn.dataset.value = '__custom__';
-    customBtn.textContent = '+ Custom';
+    customBtn.innerHTML = '+ Custom <span class="chip-soon">Soon</span>';
     customBtn.disabled = true;
     customBtn.title = 'Coming soon';
     container.appendChild(customBtn);
@@ -108,7 +113,9 @@
   function selectChip(value) {
     var customInput = document.getElementById('custom-type-input');
     document.querySelectorAll('.type-chip').forEach(function (b) {
-      b.classList.toggle('active', b.dataset.value === value);
+      var isActive = b.dataset.value === value;
+      b.classList.toggle('active', isActive);
+      if (!b.disabled) b.setAttribute('aria-pressed', String(isActive));
     });
     customInput.style.display = value === '__custom__' ? 'block' : 'none';
     if (value !== '__custom__') customInput.value = '';
@@ -497,8 +504,8 @@
     inputs +=
       '<input type="number" class="seg-val" inputmode="decimal" min="0" step="' + (unit === 'min' ? '1' : '0.1') + '" placeholder="—" value="' + (data.value != null ? data.value : '') + '">' +
       '<span class="seg-unit-toggle" role="group" aria-label="Unit">' +
-        '<button type="button" class="seg-unit' + (unit === 'km' ? ' active' : '') + '" data-unit="km">km</button>' +
-        '<button type="button" class="seg-unit' + (unit === 'min' ? ' active' : '') + '" data-unit="min">min</button>' +
+        '<button type="button" class="seg-unit' + (unit === 'km' ? ' active' : '') + '" data-unit="km" aria-pressed="' + (unit === 'km') + '">km</button>' +
+        '<button type="button" class="seg-unit' + (unit === 'min' ? ' active' : '') + '" data-unit="min" aria-pressed="' + (unit === 'min') + '">min</button>' +
       '</span>' +
       '<input type="text" class="seg-pace" inputmode="numeric" placeholder="pace" title="Pace min/km, e.g. 5:30" value="' + (data.paceSec != null ? fmtPaceSec(data.paceSec) : '') + '">' +
       '<span class="seg-suffix">/km</span>' +
@@ -522,6 +529,7 @@
         row.dataset.unit = ub.dataset.unit;
         row.querySelectorAll('.seg-unit').forEach(function (b) {
           b.classList.toggle('active', b === ub);
+          b.setAttribute('aria-pressed', String(b === ub));
         });
         var valEl = row.querySelector('.seg-val');
         if (valEl) valEl.step = ub.dataset.unit === 'min' ? '1' : '0.1';
@@ -1714,17 +1722,24 @@
       var row = document.createElement('div');
       row.className = 'history-row';
       var count = w.exercise_count || 0;
+      row.setAttribute('role', 'button');
+      row.setAttribute('tabindex', '0');
+      row.setAttribute('aria-label', w.name + ', ' + relativeDate(w.workout_date) + ', ' + w.workout_type);
       row.innerHTML =
+        '<span class="history-icon" aria-hidden="true">' + typeIcon(w.workout_type) + '</span>' +
         '<div class="history-main">' +
           '<span class="history-name">' + escapeHtml(w.name) + '</span>' +
           '<span class="history-meta">' +
             '<span class="history-date">' + relativeDate(w.workout_date) + '</span>' +
-            '<span class="history-type">' + typeIcon(w.workout_type) + ' ' + escapeHtml(w.workout_type) + '</span>' +
+            '<span class="history-type">' + escapeHtml(w.workout_type) + '</span>' +
             '<span class="history-count">' + count + ' exercise' + (count !== 1 ? 's' : '') + '</span>' +
           '</span>' +
         '</div>' +
-        '<span class="history-chevron">›</span>';
+        '<span class="history-chevron" aria-hidden="true">›</span>';
       row.addEventListener('click', function () { openDetail(w); });
+      row.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(w); }
+      });
       list.appendChild(row);
     });
   }

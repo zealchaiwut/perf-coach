@@ -87,13 +87,18 @@
       return '<div class="hw-autofill-marker" title="Auto-filled from ' +
         _esc(habit.auto_fill_source) + '" aria-label="Auto-filled">&#8226;</div>';
     }
+    var name = _esc(habit.name || 'habit');
     if (isChecked) {
       return '<div class="hw-check-circle hw-check-circle--done"' +
-        ' data-habit-id="' + _esc(habit.id) + '" title="Tap to uncheck">' +
+        ' data-habit-id="' + _esc(habit.id) + '" title="Tap to uncheck"' +
+        ' role="button" tabindex="0" aria-pressed="true"' +
+        ' aria-label="' + name + ', done today. Activate to uncheck.">' +
         '<i class="ti ti-check"></i></div>';
     }
     return '<div class="hw-check-circle hw-check-circle--empty"' +
-      ' data-habit-id="' + _esc(habit.id) + '" title="Tap to check">+</div>';
+      ' data-habit-id="' + _esc(habit.id) + '" title="Tap to check"' +
+      ' role="button" tabindex="0" aria-pressed="false"' +
+      ' aria-label="' + name + ', not done today. Activate to check.">+</div>';
   }
 
   /* ── Habits widget ── */
@@ -187,6 +192,16 @@
       if (el._hasListener) return;
       el._hasListener = true;
 
+      /* Keyboard activation — the circle is a div with role="button" (no
+         native activation keys), so Enter/Space must be wired up by hand
+         to match native <button> behavior for keyboard users. */
+      el.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+          e.preventDefault();
+          el.click();
+        }
+      });
+
       el.addEventListener('click', async function () {
         var hid     = el.getAttribute('data-habit-id');
         var habit   = habitMap[hid];
@@ -198,9 +213,11 @@
         if (isDone) {
           el.classList.replace('hw-check-circle--done', 'hw-check-circle--empty');
           el.innerHTML = '+';
+          el.setAttribute('aria-pressed', 'false');
         } else {
           el.classList.replace('hw-check-circle--empty', 'hw-check-circle--done');
           el.innerHTML = '<i class="ti ti-check"></i>';
+          el.setAttribute('aria-pressed', 'true');
         }
 
         try {
@@ -252,9 +269,11 @@
           if (isDone) {
             el.classList.replace('hw-check-circle--empty', 'hw-check-circle--done');
             el.innerHTML = '<i class="ti ti-check"></i>';
+            el.setAttribute('aria-pressed', 'true');
           } else {
             el.classList.replace('hw-check-circle--done', 'hw-check-circle--empty');
             el.innerHTML = '+';
+            el.setAttribute('aria-pressed', 'false');
           }
           _showToast('Could not save — try again', true);
         }

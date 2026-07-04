@@ -43,21 +43,9 @@
 
   /* ---- Readiness card helpers ---- */
 
-  function isoDate(d) {
-    return d.getFullYear() + '-' +
-      String(d.getMonth() + 1).padStart(2, '0') + '-' +
-      String(d.getDate()).padStart(2, '0');
-  }
-
   // Returns today's date string (YYYY-MM-DD) in Asia/Bangkok timezone.
   function bangkokTodayStr() {
     return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
-  }
-
-  function addISODays(isoStr, n) {
-    var d = new Date(isoStr + 'T00:00:00');
-    d.setDate(d.getDate() + n);
-    return isoDate(d);
   }
 
   /* ---- Personal records card helpers (home v3, Task 6) ----
@@ -142,79 +130,6 @@
 
   /* ---- Recent Workouts card helpers ---- */
 
-  var WORKOUT_TYPE_ICON = {
-    run:      { cls: 'run',  icon: 'ti-run' },
-    ride:     { cls: 'bike', icon: 'ti-bike' },
-    bike:     { cls: 'bike', icon: 'ti-bike' },
-    cycle:    { cls: 'bike', icon: 'ti-bike' },
-    lift:     { cls: 'lift', icon: 'ti-barbell' },
-    strength: { cls: 'lift', icon: 'ti-barbell' },
-    wod:      { cls: 'wod',  icon: 'ti-flame' },
-    crossfit: { cls: 'wod',  icon: 'ti-flame' },
-  };
-
-  function workoutTypeIcon(type) {
-    return WORKOUT_TYPE_ICON[(type || '').toLowerCase()] || { cls: 'run', icon: 'ti-run' };
-  }
-
-  function fmtWorkoutDuration(seconds) {
-    if (seconds == null) return null;
-    var s = Math.round(seconds);
-    if (s < 3600) {
-      return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
-    }
-    return Math.floor(s / 3600) + ':' + String(Math.floor((s % 3600) / 60)).padStart(2, '0');
-  }
-
-  function workoutDayOfWeek(isoStr) {
-    var p = isoStr.split('-');
-    var d = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
-    return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
-  }
-
-  function buildWorkoutRow(w, extraCls) {
-    var ic = workoutTypeIcon(w.workout_type);
-
-    var titleText = esc(w.name);
-    if (w.distance_km != null) {
-      titleText += ' · ' + Number(w.distance_km).toFixed(1) + ' km';
-    }
-
-    var metaParts = [workoutDayOfWeek(w.workout_date)];
-    var dur = fmtWorkoutDuration(w.duration_seconds);
-    if (dur) metaParts.push(dur);
-    if (w.tss != null) metaParts.push('TSS ' + Math.round(w.tss));
-
-    var src = w.source || '';
-    var hasStrava = src.indexOf('strava') !== -1 || !!w.strava_activity_url;
-    var hasStryd  = src.indexOf('stryd')  !== -1;
-    var isManual  = !hasStrava && !hasStryd;
-
-    var badgesHTML = '';
-    if (isManual) {
-      badgesHTML = '<div class="src-badge manual" title="Manual"><i class="ti ti-pencil" style="font-size:12px;"></i></div>';
-    } else {
-      if (hasStryd)  badgesHTML += '<div class="src-badge stryd"  title="Stryd">S</div>';
-      if (hasStrava) badgesHTML += '<div class="src-badge strava" title="Strava">St</div>';
-    }
-
-    // Zone-2 badge (issue #441): minutes spent in Z2 when the backend reports it
-    var z2HTML = '';
-    if (w.zone2_minutes != null) {
-      z2HTML = '<div class="z2-badge" title="Zone 2 minutes">Z2 ' + w.zone2_minutes + '</div>';
-    }
-
-    return '<div class="workout' + (extraCls ? ' ' + extraCls : '') + '">' +
-      '<div class="icon-wrap ' + ic.cls + '"><i class="ti ' + ic.icon + '"></i></div>' +
-      '<div class="info">' +
-        '<div class="ttl">' + titleText + '</div>' +
-        '<div class="meta">' + metaParts.join(' · ') + '</div>' +
-      '</div>' +
-      z2HTML +
-      '<div class="sources">' + badgesHTML + '</div>' +
-    '</div>';
-  }
-
   /* Recent workout — merged into #home-next-workout-card (home v3, Task 1).
      Fills only its sub-section (#home-recent-workout-section), built by
      home-readiness-training-sleep.js's renderNextWorkoutCard skeleton; the
@@ -227,10 +142,8 @@
      state regardless of real data (pre-existing bug, not introduced by the
      merge — same wrong access was already in the old standalone card).
      Also, that block's items are a lightweight summary shape (name,
-     workout_type, relative_day, summary) — not a full Workout row — so this
-     builds its own compact row instead of reusing buildWorkoutRow(), which
-     expects raw Workout fields (workout_date, distance_km, source, ...)
-     that this summary doesn't have. */
+     workout_type, relative_day, summary) — not a full Workout row, so this
+     builds its own compact row matching the "Next workout" rows above it. */
   function _recentWorkoutBadgeCls(t) {
     return (t === 'strength' || t === 'plyo') ? 'lift' : 'run';
   }
@@ -266,184 +179,6 @@
           '</span>' +
         '</div>';
     }).join('');
-  }
-
-  /* ---- Log Today card ---- */
-
-  function renderLogTodayCard(card, existing, userId, selectedDate, todayStr) {
-    var v = existing || {};
-
-    function field(id, label, required, value, placeholder) {
-      var req = required ? '<span class="lt-required">*</span>' : '';
-      var val = value != null ? ' value="' + value + '"' : '';
-      return '<div class="lt-field">' +
-        '<label class="lt-label" for="lt-' + id + '">' + label + req + '</label>' +
-        '<input class="lt-input" type="number" id="lt-' + id + '" name="' + id + '"' +
-          (required ? ' data-required="1"' : '') +
-          (placeholder ? ' placeholder="' + placeholder + '"' : '') +
-          val + ' step="any">' +
-        '<div class="lt-error" id="lt-err-' + id + '"></div>' +
-      '</div>';
-    }
-
-    var isOnToday = selectedDate === todayStr;
-    card.innerHTML =
-      '<div class="card-head">' +
-        '<div class="ttl"><i class="ti ti-pencil-plus"></i>Log Today</div>' +
-        '<div class="lt-date-nav">' +
-          '<button class="lt-nav-btn" id="lt-prev-btn" type="button" aria-label="Previous day">&#8249;</button>' +
-          '<input type="date" id="lt-date-picker" class="lt-date-input"' +
-            ' value="' + selectedDate + '" max="' + todayStr + '">' +
-          '<button class="lt-today-btn' + (isOnToday ? ' lt-today-btn--active' : '') + '"' +
-            ' id="lt-today-btn" type="button"' + (isOnToday ? ' disabled' : '') + '>Today</button>' +
-          '<button class="lt-nav-btn" id="lt-next-btn" type="button" aria-label="Next day"' +
-            (isOnToday ? ' disabled' : '') + '>&#8250;</button>' +
-        '</div>' +
-      '</div>' +
-      '<form class="lt-form" id="lt-form" novalidate>' +
-        '<div class="lt-grid">' +
-          field('sleep_hours',   'Sleep hours',   true,  v.sleep_hours,   '0–24') +
-          field('sleep_quality', 'Sleep quality', true,  v.sleep_quality, '1–5') +
-          field('energy',        'Energy',        true,  v.energy,        '1–5') +
-          field('mood',          'Mood',          true,  v.mood,          '1–5') +
-          field('resting_hr',    'Resting HR',    false, v.resting_hr,    'bpm') +
-          field('hrv',           'HRV',           false, v.hrv,           'ms') +
-        '</div>' +
-        '<div class="lt-actions">' +
-          '<button class="lt-save-btn" type="submit" id="lt-save-btn">Save</button>' +
-          '<div class="lt-feedback" id="lt-feedback"></div>' +
-        '</div>' +
-      '</form>';
-
-    var initialValues = {
-      sleep_hours:   v.sleep_hours   != null ? String(v.sleep_hours)   : '',
-      sleep_quality: v.sleep_quality != null ? String(v.sleep_quality) : '',
-      energy:        v.energy        != null ? String(v.energy)        : '',
-      mood:          v.mood          != null ? String(v.mood)          : '',
-      resting_hr:    v.resting_hr    != null ? String(v.resting_hr)    : '',
-      hrv:           v.hrv           != null ? String(v.hrv)           : ''
-    };
-
-    async function navigateDateTo(newDate) {
-      if (!newDate || newDate > todayStr || newDate === selectedDate) return;
-      var newExisting = null;
-      try {
-        var r = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + newDate);
-        if (r.ok) newExisting = await r.json();
-      } catch (_) { /* network error, render with no existing data */ }
-      renderLogTodayCard(card, newExisting, userId, newDate, todayStr);
-    }
-
-    var datePicker = card.querySelector('#lt-date-picker');
-    datePicker.addEventListener('change', function () { navigateDateTo(this.value); });
-
-    var prevBtn = card.querySelector('#lt-prev-btn');
-    if (prevBtn) prevBtn.addEventListener('click', function () { navigateDateTo(addISODays(selectedDate, -1)); });
-
-    var nextBtn = card.querySelector('#lt-next-btn');
-    if (nextBtn) nextBtn.addEventListener('click', function () { navigateDateTo(addISODays(selectedDate, 1)); });
-
-    var todayNavBtn = card.querySelector('#lt-today-btn');
-    if (todayNavBtn) todayNavBtn.addEventListener('click', function () { navigateDateTo(todayStr); });
-
-
-    card.querySelector('#lt-form').addEventListener('submit', async function (e) {
-      e.preventDefault();
-      card.querySelectorAll('.lt-error').forEach(function (el) { el.textContent = ''; });
-
-      var valid = true;
-
-      function val(name) {
-        var el = card.querySelector('#lt-' + name);
-        return el ? el.value.trim() : '';
-      }
-      function err(name, msg) { var el = card.querySelector('#lt-err-' + name); if (el) el.textContent = msg; valid = false; }
-
-      var shStr  = val('sleep_hours');
-      var sqStr  = val('sleep_quality');
-      var enStr  = val('energy');
-      var moStr  = val('mood');
-      var rhrStr = val('resting_hr');
-      var hrvStr = val('hrv');
-
-      if (shStr === '') {
-        err('sleep_hours', 'Required');
-      } else {
-        var sh = parseFloat(shStr);
-        if (isNaN(sh) || sh < 0 || sh > 24) err('sleep_hours', 'Must be 0–24');
-      }
-      if (sqStr === '') {
-        err('sleep_quality', 'Required');
-      } else {
-        var sq = parseInt(sqStr, 10);
-        if (isNaN(sq) || sq < 1 || sq > 5) err('sleep_quality', 'Must be 1–5');
-      }
-      if (enStr === '') {
-        err('energy', 'Required');
-      } else {
-        var en = parseInt(enStr, 10);
-        if (isNaN(en) || en < 1 || en > 5) err('energy', 'Must be 1–5');
-      }
-      if (moStr === '') {
-        err('mood', 'Required');
-      } else {
-        var mo = parseInt(moStr, 10);
-        if (isNaN(mo) || mo < 1 || mo > 5) err('mood', 'Must be 1–5');
-      }
-      if (rhrStr !== '') {
-        var rhr = parseInt(rhrStr, 10);
-        if (isNaN(rhr) || rhr < 1 || String(rhr) !== rhrStr) err('resting_hr', 'Positive integer');
-      }
-      if (hrvStr !== '') {
-        var hrv2 = parseInt(hrvStr, 10);
-        if (isNaN(hrv2) || hrv2 < 1 || String(hrv2) !== hrvStr) err('hrv', 'Positive integer');
-      }
-
-      if (!valid) return;
-
-      var btn = card.querySelector('#lt-save-btn');
-      var feedback = card.querySelector('#lt-feedback');
-      btn.disabled = true;
-      btn.textContent = 'Saving…';
-      feedback.className = 'lt-feedback';
-      feedback.textContent = '';
-
-      var payload = {
-        sleep_hours:   parseFloat(shStr),
-        sleep_quality: parseInt(sqStr, 10),
-        energy:        parseInt(enStr, 10),
-        mood:          parseInt(moStr, 10)
-      };
-      if (rhrStr !== '') payload.resting_hr = parseInt(rhrStr, 10);
-      if (hrvStr !== '') payload.hrv = parseInt(hrvStr, 10);
-
-      try {
-        var res = await fetch('/api/daily-metrics/' + encodeURIComponent(userId) + '/' + selectedDate, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        if (res.ok) {
-          UIStates.showToast('Saved');
-          feedback.className = 'lt-feedback lt-feedback--ok';
-          feedback.textContent = 'Saved';
-          setTimeout(function () { feedback.textContent = ''; }, 3000);
-          initialValues = { sleep_hours: shStr, sleep_quality: sqStr, energy: enStr, mood: moStr, resting_hr: rhrStr, hrv: hrvStr };
-
-        } else {
-          var errData = null;
-          try { errData = await res.json(); } catch (_) { /* non-JSON response body is fine */ }
-          feedback.className = 'lt-feedback lt-feedback--err';
-          feedback.textContent = (errData && errData.detail) ? String(errData.detail) : 'Save failed (' + res.status + ')';
-        }
-      } catch (_) {
-        feedback.className = 'lt-feedback lt-feedback--err';
-        feedback.textContent = 'Network error — try again';
-      }
-
-      btn.disabled = false;
-      btn.textContent = 'Save';
-    });
   }
 
   /* ---- Fast-log form (issue #394: mobile-optimised daily metrics) ---- */

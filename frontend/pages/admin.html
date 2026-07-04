@@ -4,27 +4,22 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Admin – perf-coach</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/styles.css">
   <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css" rel="stylesheet">
   <style>
-    * { box-sizing: border-box; }
-    html, body { margin: 0; padding: 0; min-height: 100vh; }
-    body {
-      font-family: 'Inter Tight', system-ui, sans-serif;
-      background: #f0f4fb;
-      color: #0b1530;
-      letter-spacing: -0.01em;
-    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body { background: var(--surface-2); color: var(--text); }
 
     .topbar {
-      background: #0b1530;
+      background: var(--ink);
       color: #fff;
-      padding: 0 28px;
-      height: 54px;
+      padding: 0 20px;
+      min-height: 54px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 16px;
+      flex-wrap: wrap;
     }
     .topbar-brand {
       display: flex;
@@ -32,13 +27,14 @@
       gap: 10px;
       font-weight: 700;
       font-size: 15px;
-      letter-spacing: -0.02em;
+      letter-spacing: -0.01em;
+      padding: 10px 0;
     }
-    .topbar-brand i { font-size: 18px; color: #6e90f0; }
+    .topbar-brand i { font-size: 18px; color: var(--primary); }
     .topbar-tag {
       font-size: 11px;
       font-weight: 600;
-      background: #1f3b8a;
+      background: rgba(255, 255, 255, 0.14);
       border-radius: 6px;
       padding: 2px 8px;
       letter-spacing: 0.05em;
@@ -46,9 +42,10 @@
     }
     .logout-btn {
       background: transparent;
-      border: 1.5px solid rgba(255,255,255,0.2);
+      border: 1.5px solid rgba(255, 255, 255, 0.25);
       color: #fff;
       border-radius: 8px;
+      min-height: 36px;
       padding: 6px 14px;
       font-family: inherit;
       font-size: 13px;
@@ -59,38 +56,40 @@
       gap: 6px;
       transition: background 0.15s;
     }
-    .logout-btn:hover { background: rgba(255,255,255,0.08); }
+    .logout-btn:hover { background: rgba(255, 255, 255, 0.1); }
+    .logout-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 
     .container {
       max-width: 1100px;
-      margin: 40px auto;
-      padding: 0 24px;
+      margin: 0 auto;
+      padding: 32px 20px 40px;
     }
 
     h1 {
-      font-size: 26px;
+      font-size: 24px;
       font-weight: 700;
       margin: 0 0 4px;
-      letter-spacing: -0.025em;
+      letter-spacing: -0.01em;
     }
-    .subtitle { color: #5c6886; font-size: 14px; margin: 0 0 32px; }
+    .subtitle { color: var(--text-sub); font-size: 14px; margin: 0 0 28px; }
 
     .section {
-      background: #fff;
-      border-radius: 16px;
-      padding: 28px;
-      box-shadow: 0 2px 12px rgba(11,21,48,0.07);
-      margin-bottom: 28px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 1px 2px rgba(17, 24, 39, 0.04);
+      margin-bottom: 24px;
     }
     .section-title {
-      font-size: 16px;
+      font-size: 15px;
       font-weight: 700;
-      margin: 0 0 20px;
+      margin: 0 0 18px;
       display: flex;
       align-items: center;
       gap: 8px;
     }
-    .section-title i { color: #2b4ca8; }
+    .section-title i { color: var(--primary); }
 
     /* Create User form */
     .create-form {
@@ -103,38 +102,58 @@
       .create-form { grid-template-columns: 1fr; }
     }
     .form-group { display: flex; flex-direction: column; gap: 5px; }
-    .form-group label { font-size: 12px; font-weight: 600; color: #5c6886; }
+    .form-group label { font-size: 12px; font-weight: 600; color: var(--text-sub); }
     .form-group input[type="text"],
     .form-group input[type="password"] {
-      border: 1.5px solid #d4ddf0;
+      border: 1.5px solid var(--border-input);
       border-radius: 8px;
       padding: 8px 12px;
+      min-height: 36px;
       font-family: inherit;
       font-size: 13px;
       outline: none;
-      transition: border-color 0.15s;
+      transition: border-color 0.15s, box-shadow 0.15s;
     }
-    .form-group input:focus { border-color: #6e90f0; }
+    .form-group input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--focus-ring);
+    }
+    .form-group select {
+      border: 1.5px solid var(--border-input);
+      border-radius: 8px;
+      padding: 8px 12px;
+      min-height: 36px;
+      font-family: inherit;
+      font-size: 13px;
+      background: var(--surface);
+      color: var(--text);
+    }
+    .form-group select:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--focus-ring);
+    }
     .toggle-group {
       display: flex;
       flex-direction: column;
       gap: 5px;
     }
-    .toggle-group label.label-text { font-size: 12px; font-weight: 600; color: #5c6886; }
+    .toggle-group label.label-text { font-size: 12px; font-weight: 600; color: var(--text-sub); }
     .toggle-row {
       display: flex;
       align-items: center;
       gap: 8px;
-      height: 36px;
+      min-height: 36px;
     }
-    .toggle-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+    .toggle-row input[type="checkbox"] { width: 17px; height: 17px; cursor: pointer; }
     .toggle-row span { font-size: 13px; }
     .btn-primary {
-      background: #2b4ca8;
+      background: var(--primary);
       color: #fff;
       border: none;
       border-radius: 8px;
       padding: 9px 18px;
+      min-height: 36px;
       font-family: inherit;
       font-size: 13px;
       font-weight: 600;
@@ -143,7 +162,8 @@
       transition: background 0.15s;
       align-self: end;
     }
-    .btn-primary:hover { background: #1f3b8a; }
+    .btn-primary:hover:not(:disabled) { background: var(--primary-dark); }
+    .btn-primary:focus-visible { outline: 2px solid var(--primary-dark); outline-offset: 2px; }
     .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
     .form-feedback {
       margin-top: 10px;
@@ -151,12 +171,19 @@
       font-weight: 500;
       display: none;
     }
-    .form-feedback.error { color: #c0392b; }
-    .form-feedback.success { color: #1a7a45; }
+    .form-feedback.error { color: var(--danger-dark); }
+    .form-feedback.success { color: var(--success); }
 
     /* Users table */
+    .table-scroll {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      margin: 0 -4px;
+      padding: 0 4px;
+    }
     .users-table {
       width: 100%;
+      min-width: 720px;
       border-collapse: collapse;
       font-size: 13px;
     }
@@ -167,12 +194,12 @@
       font-weight: 700;
       letter-spacing: 0.04em;
       text-transform: uppercase;
-      color: #5c6886;
-      border-bottom: 1.5px solid #e8edf8;
+      color: var(--text-sub);
+      border-bottom: 1.5px solid var(--border);
     }
     .users-table td {
       padding: 10px 12px;
-      border-bottom: 1px solid #f0f4fb;
+      border-bottom: 1px solid var(--surface-2);
       vertical-align: middle;
     }
     .users-table tbody tr:last-child td { border-bottom: none; }
@@ -184,12 +211,12 @@
       border-radius: 20px;
     }
     .badge-admin { background: #dbeafe; color: #1e40af; }
-    .badge-user { background: #f0f0f0; color: #555; }
-    .badge-active { background: #d1fae5; color: #065f46; }
-    .badge-disabled { background: #fee2e2; color: #991b1b; }
+    .badge-user { background: var(--surface-2); color: var(--text-sub); }
+    .badge-active { background: #dcfce7; color: #065f46; }
+    .badge-disabled { background: var(--danger-soft); color: var(--danger-dark); }
     .table-empty {
       text-align: center;
-      color: #5c6886;
+      color: var(--text-sub);
       padding: 24px;
     }
 
@@ -200,6 +227,7 @@
       font-size: 11px;
       font-weight: 600;
       padding: 4px 9px;
+      min-height: 28px;
       border-radius: 6px;
       border: 1.5px solid transparent;
       cursor: pointer;
@@ -208,15 +236,16 @@
     }
     .btn-action:last-child { margin-right: 0; }
     .btn-action:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-action:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
     .btn-action-default {
       background: #eef2ff;
-      color: #2b4ca8;
+      color: var(--primary-dark);
       border-color: #c7d4f8;
     }
     .btn-action-default:hover:not(:disabled) { background: #dbe4fd; }
     .btn-action-warning {
       background: #fffbeb;
-      color: #92400e;
+      color: var(--warning);
       border-color: #fcd34d;
     }
     .btn-action-warning:hover:not(:disabled) { background: #fef3c7; }
@@ -227,48 +256,56 @@
     }
     .btn-action-success:hover:not(:disabled) { background: #d1fae5; }
     .btn-action-danger {
-      background: #fff1f2;
-      color: #9f1239;
+      background: var(--danger-soft);
+      color: var(--danger-dark);
       border-color: #fca5a5;
     }
     .btn-action-danger:hover:not(:disabled) { background: #ffe4e6; }
+
+    @media (max-width: 640px) {
+      .btn-action { min-height: 44px; padding: 4px 12px; font-size: 12px; }
+    }
 
     /* Modal */
     .modal-backdrop {
       display: none;
       position: fixed;
       inset: 0;
-      background: rgba(11,21,48,0.45);
+      background: rgba(11, 21, 48, 0.45);
       z-index: 100;
       align-items: center;
       justify-content: center;
+      padding: 20px;
     }
     .modal-backdrop.open { display: flex; }
     .modal {
-      background: #fff;
-      border-radius: 16px;
-      padding: 28px;
+      background: var(--surface);
+      border-radius: 14px;
+      padding: 24px;
       width: 360px;
-      max-width: 90vw;
-      box-shadow: 0 8px 40px rgba(11,21,48,0.18);
+      max-width: 100%;
+      box-shadow: 0 8px 40px rgba(11, 21, 48, 0.18);
     }
     .modal h2 { font-size: 17px; font-weight: 700; margin: 0 0 6px; }
-    .modal p { font-size: 13px; color: #5c6886; margin: 0 0 16px; }
+    .modal p { font-size: 13px; color: var(--text-sub); margin: 0 0 16px; }
     .modal .form-group { margin-bottom: 16px; }
-    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .modal .form-group input { font-size: 16px; min-height: 44px; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
     .btn-cancel {
-      background: #f0f4fb;
-      color: #0b1530;
+      background: var(--surface-2);
+      color: var(--text);
       border: none;
       border-radius: 8px;
       padding: 8px 16px;
+      min-height: 40px;
       font-family: inherit;
       font-size: 13px;
       font-weight: 600;
       cursor: pointer;
     }
-    .btn-cancel:hover { background: #e2e8f5; }
-    .modal-feedback { font-size: 12px; color: #c0392b; margin-top: 8px; display: none; }
+    .btn-cancel:hover { background: var(--border); }
+    .btn-cancel:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    .modal-feedback { font-size: 12px; color: var(--danger-dark); margin-top: 8px; display: none; }
 
     /* Google Login section */
     .config-row {
@@ -277,21 +314,22 @@
       justify-content: space-between;
       gap: 16px;
       padding: 10px 0;
-      border-bottom: 1px solid #f0f4fb;
+      border-bottom: 1px solid var(--surface-2);
+      flex-wrap: wrap;
     }
     .config-row:last-child { border-bottom: none; }
-    .config-label { font-size: 13px; font-weight: 600; color: #0b1530; }
-    .config-value { font-size: 13px; color: #5c6886; }
-    .badge-on { background: #d1fae5; color: #065f46; }
-    .badge-off { background: #fee2e2; color: #991b1b; }
-    .badge-warn { background: #fef3c7; color: #92400e; }
+    .config-label { font-size: 13px; font-weight: 600; color: var(--text); }
+    .config-value { font-size: 13px; color: var(--text-sub); }
+    .badge-on { background: #dcfce7; color: #065f46; }
+    .badge-off { background: var(--danger-soft); color: var(--danger-dark); }
+    .badge-warn { background: #fef3c7; color: var(--warning); }
     .warning-box {
       background: #fef3c7;
       border: 1px solid #fcd34d;
       border-radius: 8px;
       padding: 10px 14px;
       font-size: 13px;
-      color: #92400e;
+      color: var(--warning);
       margin-top: 14px;
       display: flex;
       align-items: flex-start;
@@ -302,18 +340,22 @@
       font-size: 12px;
       font-weight: 600;
       padding: 5px 12px;
+      min-height: 32px;
       border-radius: 7px;
       border: none;
       cursor: pointer;
       transition: opacity 0.15s;
     }
     .config-toggle-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-    .config-toggle-btn.btn-enable { background: #d1fae5; color: #065f46; }
-    .config-toggle-btn.btn-disable { background: #fee2e2; color: #991b1b; }
+    .config-toggle-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+    .config-toggle-btn.btn-enable { background: #dcfce7; color: #065f46; }
+    .config-toggle-btn.btn-disable { background: var(--danger-soft); color: var(--danger-dark); }
+
+    .section-copy { color: var(--text-sub); margin: 0 0 12px; font-size: 13px; }
   </style>
 </head>
 <body>
-<div class="topbar">
+<header class="topbar">
   <div class="topbar-brand">
     <i class="ti ti-shield-lock" aria-hidden="true"></i>
     perf-coach
@@ -323,31 +365,31 @@
     <i class="ti ti-logout" aria-hidden="true"></i>
     Log out
   </button>
-</div>
+</header>
 
-<div class="container">
+<main class="container">
   <h1>Admin dashboard</h1>
   <p class="subtitle">Server-enforced admin session active.</p>
 
-  <div class="section">
-    <div class="section-title">
+  <section class="section" aria-labelledby="create-user-heading">
+    <h2 class="section-title" id="create-user-heading">
       <i class="ti ti-user-plus" aria-hidden="true"></i>
-      Create User
-    </div>
+      Create user
+    </h2>
     <form id="create-user-form" autocomplete="off">
       <div class="create-form">
         <div class="form-group">
           <label for="new-username">Username</label>
-          <input id="new-username" type="text" placeholder="e.g. jane" maxlength="100" required>
+          <input id="new-username" type="text" placeholder="e.g. jane" maxlength="100" required autocomplete="off">
         </div>
         <div class="form-group">
           <label for="new-password">Password</label>
-          <input id="new-password" type="password" placeholder="Min 8 characters" required>
+          <input id="new-password" type="password" placeholder="Min 8 characters" required autocomplete="new-password">
         </div>
         <div class="toggle-group">
-          <span class="label-text">Admin</span>
+          <span class="label-text" id="new-is-admin-label">Admin</span>
           <div class="toggle-row">
-            <input id="new-is-admin" type="checkbox">
+            <input id="new-is-admin" type="checkbox" aria-labelledby="new-is-admin-label">
             <span>Is admin</span>
           </div>
         </div>
@@ -357,60 +399,62 @@
         </button>
       </div>
     </form>
-    <div id="form-feedback" class="form-feedback" role="alert"></div>
-  </div>
+    <div id="form-feedback" class="form-feedback" role="alert" aria-live="polite"></div>
+  </section>
 
-  <div class="section" id="google-login-section">
-    <div class="section-title">
+  <section class="section" id="google-login-section" aria-labelledby="google-login-heading">
+    <h2 class="section-title" id="google-login-heading">
       <i class="ti ti-brand-google" aria-hidden="true"></i>
-      Google Login
-    </div>
+      Google login
+    </h2>
     <div id="google-login-body">Loading…</div>
-  </div>
+  </section>
 
-  <div class="section">
-    <div class="section-title">
+  <section class="section" aria-labelledby="users-heading">
+    <h2 class="section-title" id="users-heading">
       <i class="ti ti-users" aria-hidden="true"></i>
       Users
+    </h2>
+    <div class="table-scroll">
+      <table class="users-table" id="users-table">
+        <thead>
+          <tr>
+            <th scope="col">Username</th>
+            <th scope="col">Role</th>
+            <th scope="col">Status</th>
+            <th scope="col">Integrations</th>
+            <th scope="col">Created</th>
+            <th scope="col">Last login</th>
+            <th scope="col">Workouts</th>
+            <th scope="col">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="users-tbody">
+          <tr><td colspan="8" class="table-empty">Loading…</td></tr>
+        </tbody>
+      </table>
     </div>
-    <table class="users-table" id="users-table">
-      <thead>
-        <tr>
-          <th>Username</th>
-          <th>Role</th>
-          <th>Status</th>
-          <th>Integrations</th>
-          <th>Created</th>
-          <th>Last login</th>
-          <th>Workouts</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody id="users-tbody">
-        <tr><td colspan="8" class="table-empty">Loading…</td></tr>
-      </tbody>
-    </table>
-  </div>
+  </section>
 
-  <div class="section" id="db-backup-section">
-    <div class="section-title">
+  <section class="section" id="db-backup-section" aria-labelledby="db-backup-heading">
+    <h2 class="section-title" id="db-backup-heading">
       <i class="ti ti-database-export" aria-hidden="true"></i>
-      Database Backup
-    </div>
-    <p style="color:#5c6886;margin:0 0 12px;">
+      Database backup
+    </h2>
+    <p class="section-copy">
       Download a full pg_dump of the current environment's database. Restore is
       CLI-only for safety — use <code>scripts/db_restore.py</code>.
     </p>
     <button class="btn-primary" id="db-backup-btn">Download backup</button>
-    <div id="db-backup-feedback" class="form-feedback"></div>
-  </div>
+    <div id="db-backup-feedback" class="form-feedback" role="status" aria-live="polite"></div>
+  </section>
 
-  <div class="section" id="copy-user-section">
-    <div class="section-title">
+  <section class="section" id="copy-user-section" aria-labelledby="copy-user-heading">
+    <h2 class="section-title" id="copy-user-heading">
       <i class="ti ti-copy" aria-hidden="true"></i>
-      Copy User (PRD → UAT)
-    </div>
-    <p style="color:#5c6886;margin:0 0 12px;">
+      Copy user (PRD → UAT)
+    </h2>
+    <p class="section-copy">
       Clone a PRD user's full data (workouts, activities, habits, metrics,
       integrations) into UAT. Preserves ids; safe to re-run.
     </p>
@@ -418,36 +462,36 @@
       <label for="copy-user-select">PRD user</label>
       <select id="copy-user-select"><option value="">Loading…</option></select>
     </div>
-    <label style="display:flex;align-items:center;gap:8px;margin:8px 0;">
+    <label style="display:flex;align-items:center;gap:8px;margin:12px 0;font-size:13px;">
       <input id="copy-user-overwrite" type="checkbox">
       Re-run if already in UAT (adds missing rows only)
     </label>
     <button class="btn-primary" id="copy-user-btn" disabled>Copy to UAT</button>
-    <div id="copy-user-feedback" class="form-feedback"></div>
-  </div>
-</div>
+    <div id="copy-user-feedback" class="form-feedback" role="status" aria-live="polite"></div>
+  </section>
+</main>
 
 <!-- Reset Password Modal -->
-<div class="modal-backdrop" id="reset-pw-modal">
+<div class="modal-backdrop" id="reset-pw-modal" role="dialog" aria-modal="true" aria-labelledby="reset-pw-title">
   <div class="modal">
-    <h2>Reset Password</h2>
+    <h2 id="reset-pw-title">Reset password</h2>
     <p id="reset-pw-label">Set a new password for <strong id="reset-pw-username"></strong>.</p>
     <div class="form-group">
-      <label for="reset-pw-input">New Password</label>
+      <label for="reset-pw-input">New password</label>
       <input id="reset-pw-input" type="password" placeholder="Min 8 characters" autocomplete="new-password">
     </div>
-    <div id="reset-pw-feedback" class="modal-feedback"></div>
+    <div id="reset-pw-feedback" class="modal-feedback" role="alert" aria-live="polite"></div>
     <div class="modal-actions">
       <button class="btn-cancel" id="reset-pw-cancel">Cancel</button>
-      <button class="btn-primary" id="reset-pw-submit">Reset Password</button>
+      <button class="btn-primary" id="reset-pw-submit">Reset password</button>
     </div>
   </div>
 </div>
 
-<div class="modal-backdrop" id="activities-modal">
+<div class="modal-backdrop" id="activities-modal" role="dialog" aria-modal="true" aria-labelledby="activities-title">
   <div class="modal">
     <h2 id="activities-title">Recent activity</h2>
-    <div id="activities-body"><p style="color:#5c6886;">Loading…</p></div>
+    <div id="activities-body"><p style="color:var(--text-sub);">Loading…</p></div>
     <div class="modal-actions">
       <button class="btn-cancel" id="activities-close">Close</button>
     </div>
@@ -558,15 +602,15 @@
       var workoutsCell = wc > 0
         ? '<button class="btn-action btn-action-default" data-action="activities"'
           + ' data-id="' + u.id + '" data-name="' + escHtml(u.username) + '">' + wc + ' ›</button>'
-        : '<span style="color:#9aa3b2;">0</span>';
+        : '<span style="color:var(--text-sub);">0</span>';
 
       return '<tr>'
-        + '<td>' + escHtml(u.username) + (isSelf ? ' <span style="font-size:10px;color:#5c6886;">(you)</span>' : '') + '</td>'
+        + '<td>' + escHtml(u.username) + (isSelf ? ' <span style="font-size:10px;color:var(--text-sub);">(you)</span>' : '') + '</td>'
         + '<td>' + roleBadge + '</td>'
         + '<td>' + statusBadge + '</td>'
         + '<td>' + u.integration_count + '</td>'
         + '<td>' + formatDate(u.created_at) + '</td>'
-        + '<td>' + (u.last_login_at ? formatDate(u.last_login_at) : '<span style="color:#9aa3b2;">never</span>') + '</td>'
+        + '<td>' + (u.last_login_at ? formatDate(u.last_login_at) : '<span style="color:var(--text-sub);">never</span>') + '</td>'
         + '<td>' + workoutsCell + '</td>'
         + '<td class="actions-cell">' + resetBtn + ' ' + toggleAdminBtn + ' ' + disableBtn + (deleteBtn ? ' ' + deleteBtn : '') + '</td>'
         + '</tr>';
@@ -579,7 +623,7 @@
       .then(renderUsers)
       .catch(function () {
         document.getElementById('users-tbody').innerHTML =
-          '<tr><td colspan="6" class="table-empty">Failed to load users.</td></tr>';
+          '<tr><td colspan="8" class="table-empty">Failed to load users.</td></tr>';
       });
   }
 
@@ -614,7 +658,7 @@
     var titleEl = document.getElementById('activities-title');
     var bodyEl = document.getElementById('activities-body');
     if (titleEl) titleEl.textContent = username + ' · recent activity';
-    if (bodyEl) bodyEl.innerHTML = '<p style="color:#5c6886;">Loading…</p>';
+    if (bodyEl) bodyEl.innerHTML = '<p style="color:var(--text-sub);">Loading…</p>';
     modal.classList.add('open');
 
     fetch('/api/admin/users/' + encodeURIComponent(userId) + '/recent-activities',
@@ -622,7 +666,7 @@
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
       .then(function (acts) {
         if (!acts.length) {
-          bodyEl.innerHTML = '<p style="color:#5c6886;">No workouts yet.</p>';
+          bodyEl.innerHTML = '<p style="color:var(--text-sub);">No workouts yet.</p>';
           return;
         }
         bodyEl.innerHTML = acts.map(function (a) {
@@ -634,15 +678,15 @@
             bits.push(m + ' min');
           }
           var meta = bits.length ? ' · ' + bits.join(' · ') : '';
-          return '<div style="padding:10px 0;border-bottom:1px solid #f0f4fb;">'
-            + '<div style="font-size:12px;color:#5c6886;">' + (a.date || '—') + '</div>'
+          return '<div style="padding:10px 0;border-bottom:1px solid var(--surface-2);">'
+            + '<div style="font-size:12px;color:var(--text-sub);">' + (a.date || '—') + '</div>'
             + '<div style="font-weight:600;">' + escHtml(a.name || 'Untitled') + '</div>'
-            + '<div style="font-size:12px;color:#5c6886;">' + escHtml(type) + meta + '</div>'
+            + '<div style="font-size:12px;color:var(--text-sub);">' + escHtml(type) + meta + '</div>'
             + '</div>';
         }).join('');
       })
       .catch(function () {
-        bodyEl.innerHTML = '<p style="color:#c0392b;">Failed to load activity.</p>';
+        bodyEl.innerHTML = '<p style="color:var(--danger-dark);">Failed to load activity.</p>';
       });
   }
 
@@ -720,6 +764,12 @@
 
   resetPwModal.addEventListener('click', function (e) {
     if (e.target === resetPwModal) closeResetPwModal();
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    if (resetPwModal.classList.contains('open')) closeResetPwModal();
+    if (document.getElementById('activities-modal').classList.contains('open')) closeActivitiesModal();
   });
 
   resetPwSubmit.addEventListener('click', function () {
