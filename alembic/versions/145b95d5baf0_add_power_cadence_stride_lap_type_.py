@@ -34,6 +34,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 _CK_LAP_TYPE = "ck_workout_splits_lap_type_values"
 
+# Set to True by upgrade() when this migration creates lap_type from scratch.
+# downgrade() uses the flag to decide whether to drop the column (it was
+# added here) or revert it to nullable (it pre-existed from an earlier migration).
+_lap_type_was_added: bool = False
+
 
 def _constraint_exists(table: str, name: str) -> bool:
     bind = op.get_bind()
@@ -94,7 +99,9 @@ def upgrade() -> None:
         )
 
     # --- lap_type: NOT NULL, default 'auto', check constraint ---
+    global _lap_type_was_added
     if not column_exists("workout_splits", "lap_type"):
+        _lap_type_was_added = True
         op.add_column(
             "workout_splits",
             sa.Column(
@@ -132,14 +139,18 @@ def downgrade() -> None:
     if _constraint_exists("workout_splits", _CK_LAP_TYPE):
         op.drop_constraint(_CK_LAP_TYPE, "workout_splits", type_="check")
 
-    # Revert lap_type to nullable (upgrade always tightens it to NOT NULL).
     if column_exists("workout_splits", "lap_type"):
-        op.alter_column(
-            "workout_splits",
-            "lap_type",
-            existing_type=sa.String(10),
-            nullable=True,
-        )
+        if _lap_type_was_added:
+            # This migration created the column — remove it entirely on downgrade.
+            op.drop_column("workout_splits", "lap_type")
+        else:
+            # Column pre-existed as nullable; restore that state.
+            op.alter_column(
+                "workout_splits",
+                "lap_type",
+                existing_type=sa.String(10),
+                nullable=True,
+            )
 
     for col in ("stride_length_m", "cadence_spm", "avg_power"):
         if column_exists("workout_splits", col):
