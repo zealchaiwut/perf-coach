@@ -25,7 +25,6 @@ from sqlalchemy.orm import Session as _OrmSess
 
 from backend.auth import CSRF_COOKIE_NAME, hash_password as _hash_pw
 from backend.models import User as _UserModel
-from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE_URL = os.environ.get("UAT_BASE_URL") or "http://localhost:" + os.environ.get("UAT_PORT", "9001")
 if not BASE_URL.startswith("http"):
@@ -48,18 +47,16 @@ def _require_engine():
 @pytest.fixture(scope="module")
 def user_id():
     _require_engine()
-    name = f"tester1196_{uuid.uuid4().hex[:8]}"
-    r = httpx.post(f"{BASE_URL}/api/users", json={"name": name}, timeout=10.0, cookies=_admin_cookies())
-    assert r.status_code == 201, f"Failed to create user: {r.text}"
-    uid = r.json()["id"]
+    uid = uuid.uuid4()
+    name = f"tester1196_{uid.hex[:8]}"
     pw_hash = _hash_pw(_TEST_PW)
     with _OrmSess(_engine) as db:
-        u = db.get(_UserModel, uuid.UUID(uid))
-        u.password_hash = pw_hash
+        u = _UserModel(id=uid, name=name, password_hash=pw_hash)
+        db.add(u)
         db.commit()
-    yield uid
+    yield str(uid)
     with _OrmSess(_engine) as db:
-        u = db.get(_UserModel, uuid.UUID(uid))
+        u = db.get(_UserModel, uid)
         if u:
             db.delete(u)
             db.commit()
