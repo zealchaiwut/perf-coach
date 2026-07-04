@@ -11901,6 +11901,81 @@ def get_training_load(
     })
 
 
+@app.get("/api/training-load/weekly")
+def get_training_load_weekly(
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+    current_user: User = Depends(resolve_user),
+):
+    """Return weekly TSS/distance aggregates for the volume chart.
+
+    Each week bucket contains only run_tss, strength_tss, total_tss, and
+    total_distance_km — no per-workout serialization.  Week boundaries are
+    Monday-to-Sunday (ISO week semantics).
+    """
+    import re as _re
+
+    uid = current_user.id
+    today = _date.today()
+
+    try:
+        from_d = _date.fromisoformat(from_date) if from_date else today - _timedelta(days=90)
+        to_d = _date.fromisoformat(to_date) if to_date else today
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid date format; use YYYY-MM-DD")
+
+    if from_d > to_d:
+        raise HTTPException(status_code=422, detail="'from' must not be after 'to'")
+
+    _RUN_RE = _re.compile(r"^run(ning)?$|^race$|^(bike|ride|cycl)", _re.IGNORECASE)
+    _LIFT_RE = _re.compile(r"^(lift|strength|wod|crossfit)", _re.IGNORECASE)
+
+    with Session(engine) as session:
+        workouts = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= from_d,
+                Workout.workout_date <= to_d,
+            )
+            .order_by(Workout.workout_date)
+            .all()
+        )
+
+    weeks_map: dict = {}
+    for w in workouts:
+        mon_key, _ = _week_key_and_bounds(w.workout_date)
+        if mon_key not in weeks_map:
+            weeks_map[mon_key] = {"run_tss": 0.0, "strength_tss": 0.0, "total_distance_km": 0.0}
+        tss = float(w.tss) if w.tss is not None else 0.0
+        dist = float(w.distance_km) if w.distance_km is not None else 0.0
+        wt = (w.workout_type or "").strip()
+        if _RUN_RE.match(wt):
+            weeks_map[mon_key]["run_tss"] += tss
+        elif _LIFT_RE.match(wt):
+            weeks_map[mon_key]["strength_tss"] += tss
+        elif dist > 0:
+            weeks_map[mon_key]["run_tss"] += tss
+        else:
+            weeks_map[mon_key]["strength_tss"] += tss
+        weeks_map[mon_key]["total_distance_km"] += dist
+
+    weeks = []
+    for mon_key in sorted(weeks_map):
+        agg = weeks_map[mon_key]
+        run_tss = round(agg["run_tss"], 2)
+        strength_tss = round(agg["strength_tss"], 2)
+        weeks.append({
+            "week_start": mon_key,
+            "run_tss": run_tss,
+            "strength_tss": strength_tss,
+            "total_tss": round(run_tss + strength_tss, 2),
+            "total_distance_km": round(agg["total_distance_km"], 2),
+        })
+
+    return JSONResponse({"weeks": weeks})
+
+
 @app.post("/api/training-load/recompute")
 def recompute_training_load(
     from_date: str = Query(alias="from"),

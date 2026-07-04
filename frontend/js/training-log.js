@@ -827,14 +827,8 @@
     }
 
     var fromStr = toISODate(startMonday);
-    // Separate fetch WITHOUT include_load_context so load_context stays a
-    // single computation on the main list request (AC5).
     fetch(
-      "/api/training-log?from=" +
-        fromStr +
-        "&to=" +
-        toISO +
-        "&include_rest=false",
+      "/api/training-load/weekly?from=" + fromStr + "&to=" + toISO,
     )
       .then(function (res) {
         if (!res.ok) throw new Error("HTTP " + res.status);
@@ -859,11 +853,10 @@
           var wkIso = toISODate(cur);
           if (wkIso === nowMondayStr) currentWeekIdx = wkIdx;
           var wk = byStart[wkIso] || {};
-          var agg = weekVolumeByType(wk.workouts || []);
           labels.push(volumeWeekLabel(cur));
-          runTssVals.push(agg.runTss);
-          strengthTssVals.push(agg.strengthTss);
-          distVals.push(agg.distKm);
+          runTssVals.push(wk.run_tss || 0);
+          strengthTssVals.push(wk.strength_tss || 0);
+          distVals.push(wk.total_distance_km || 0);
           cur.setDate(cur.getDate() + 7);
           wkIdx++;
         }
