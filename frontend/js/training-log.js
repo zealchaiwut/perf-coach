@@ -5169,6 +5169,17 @@
     if (data.form_tsb_change != null && data.form_tsb_change !== 0) {
       var fStr = _fmtDelta(data.form_tsb_change, '');
       if (fStr) add('Form', fStr, 'b', _formBand(data.form_tsb_change));
+    } else if (data.fitness_ctl_change != null) {
+      // Monthly API returns fitness_ctl_change + form_recovered instead of form_tsb_change
+      var fStr = _fmtDelta(data.fitness_ctl_change, '');
+      var recov = data.form_recovered != null
+        ? (data.form_recovered ? 'Recovered' : 'Not recovered')
+        : null;
+      if (fStr) {
+        add('Form', fStr, _lrxChipClass(data.fitness_ctl_change), recov);
+      } else if (recov) {
+        add('Form', recov, data.form_recovered ? 'g' : 'r');
+      }
     }
     return has ? '<div class="lrx-chips">' + chips + '</div>' : '';
   }
