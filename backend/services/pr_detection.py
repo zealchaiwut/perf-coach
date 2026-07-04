@@ -665,9 +665,24 @@ def fetch_and_detect_records(user_id, db):
         for r in runs
     ]
 
-    # Build a pace duration curve from per-workout average pace.
-    # Each run contributes one point: duration in seconds, pace equals
-    # duration divided by distance in kilometres.
+    # Build a pace duration curve from per-workout overall average pace.
+    #
+    # Simplification note — overall average pace per workout:
+    #   Each completed run contributes exactly one point to the curve, keyed by
+    #   the run's full duration, with pace = full_duration / full_distance_km
+    #   (seconds per kilometre).  This means sub-distance record detection (e.g.
+    #   estimating a 5 km best from a 15 km long run) uses the overall 15 km
+    #   average pace rather than the runner's actual fastest 5 km split.  When the
+    #   target distance equals the full run distance the two values converge, so
+    #   full-distance records are unaffected; only sub-distance interpolation
+    #   carries this approximation error.
+    #
+    #   Future improvement: AthleteDurationCurve already stores per-duration
+    #   best-effort values aggregated across all runs.  Replacing the
+    #   overall-average approach with a pace variant of AthleteDurationCurve
+    #   (using merge_best_effort with higher_is_better=False) would yield the
+    #   athlete's true fastest split at every duration and eliminate the
+    #   sub-distance accuracy trade-off described above.
     pace_curve = []
     runs_by_id = {r["id"]: r for r in completed_runs}
     for run in completed_runs:
