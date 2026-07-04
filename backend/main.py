@@ -7249,6 +7249,13 @@ def duplicate_workout(workout_id: str, body: WorkoutDuplicateIn, user: User = De
             .all()
         )
 
+        src_splits = (
+            session.query(WorkoutSplit)
+            .filter(WorkoutSplit.workout_id == wid)
+            .order_by(WorkoutSplit.split_index)
+            .all()
+        )
+
         copy = Workout(
             user_id=user.id,
             name=src.name,
@@ -7286,6 +7293,20 @@ def duplicate_workout(workout_id: str, body: WorkoutDuplicateIn, user: User = De
             )
             session.add(e)
             new_exercises.append(e)
+
+        for sp in src_splits:
+            session.add(WorkoutSplit(
+                workout_id=copy.id,
+                split_index=sp.split_index,
+                distance_km=sp.distance_km,
+                duration_seconds=sp.duration_seconds,
+                avg_hr=sp.avg_hr,
+                avg_power=sp.avg_power,
+                cadence_spm=sp.cadence_spm,
+                stride_length_m=sp.stride_length_m,
+                lap_type=sp.lap_type,
+                intensity_band=sp.intensity_band,
+            ))
 
         session.commit()
         session.refresh(copy)
