@@ -85,7 +85,7 @@ def backfill_performance_for_athlete(user_id, db) -> dict:
         db.query(Workout)
         .filter(
             Workout.user_id == user_id,
-            Workout.workout_type.ilike("%run%"),
+            Workout.workout_type == "run",
         )
         .count()
     )
