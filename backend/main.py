@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from backend.auth import require_admin
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, DriveSleepConnection, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession
+from backend.models import AppConfig, DailyMetric, DriveSleepConnection, EconomyCeilingSnapshot, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values, clean_hr
 from backend.services.tss import compute_running_tss as _compute_running_tss
@@ -14032,6 +14032,17 @@ def _race_readiness_impl(
                 if user_prefs_row else None
             )
 
+        # Fetch per-user stimulus history for the economy ceiling bonus.
+        _snap_rows = (
+            db.query(EconomyCeilingSnapshot)
+            .filter(EconomyCeilingSnapshot.user_id == user.id)
+            .order_by(EconomyCeilingSnapshot.snapshot_date.asc())
+            .all()
+        )
+        _stimulus_history = [
+            (row.snapshot_date, row.economy_stimulus) for row in _snap_rows
+        ]
+
     import types as _types
 
     recent_runs = [
@@ -14096,7 +14107,11 @@ def _race_readiness_impl(
     def _base_ceiling(ctl_value):
         if _race_anchor_ceiling is not None:
             return _race_anchor_ceiling
-        return _projected_ctl_to_score_ceiling(ctl_value)["endurance_ceiling"]
+        return _projected_ctl_to_score_ceiling(
+            ctl_value,
+            stimulus_history=_stimulus_history,
+            reference_date=today,
+        )["endurance_ceiling"]
 
     # History: last 90 days of load_curves → expressible score → estimated finish time
     _tc_history_cutoff = today - _timedelta(days=90)
