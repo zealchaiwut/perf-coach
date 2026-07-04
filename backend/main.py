@@ -22,9 +22,10 @@ from fastapi import BackgroundTasks, Body, Depends, FastAPI, File, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import exc as sa_exc
+from sqlalchemy import exc as sa_exc, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload
+from zoneinfo import ZoneInfo
 
 from backend.auth import require_admin
 from backend.db import check_db, engine, environment
@@ -122,7 +123,6 @@ app.include_router(_strength_sessions_router)
 
 def _today_bkk() -> _date:
     """Return today's date in Asia/Bangkok (UTC+7) timezone."""
-    from zoneinfo import ZoneInfo
     return _datetime.now(ZoneInfo("Asia/Bangkok")).date()
 
 
@@ -286,7 +286,6 @@ def get_about():
 @app.get("/api/users", dependencies=[Depends(require_admin)])
 def get_users():
     try:
-        from sqlalchemy import func, select
         with Session(engine) as session:
             wcount_sub = (
                 select(WeightEntry.user_id, func.count().label("wcount"))
@@ -737,7 +736,7 @@ def list_weight_entries(
 ):
     uid = user.id
 
-    today = _date.today()
+    today = _today_bkk()
     if from_date is None and to_date is None:
         from_d = today - _timedelta(days=89)
         to_d = today
@@ -1185,7 +1184,6 @@ def get_weight_target_history(
 def get_weight_target_history_summary(user: User = Depends(resolve_user)):
     """All-time stats, past attempts comparison, completed target rows, and total entry count."""
     uid = user.id
-    from sqlalchemy import func as _sa_func
     with Session(engine) as session:
 
         completed_targets = (
@@ -1202,7 +1200,7 @@ def get_weight_target_history_summary(user: User = Depends(resolve_user)):
         )
 
         total_entries = (
-            session.query(_sa_func.count(WeightEntry.id))
+            session.query(func.count(WeightEntry.id))
             .filter(WeightEntry.user_id == uid)
             .scalar()
         ) or 0
@@ -2745,7 +2743,6 @@ def get_home_weekly_summary(
     uid = current_user.id
 
     if week_start is None:
-        from zoneinfo import ZoneInfo
         _bkk = ZoneInfo("Asia/Bangkok")
         today_bkk = _datetime.now(_bkk).date()
         ws = today_bkk - _timedelta(days=today_bkk.weekday())
@@ -3402,8 +3399,7 @@ def get_home_summary(current_user: User = Depends(resolve_user)):
     """
     uid = current_user.id
 
-    from zoneinfo import ZoneInfo as _ZoneInfo
-    _BKK = _ZoneInfo("Asia/Bangkok")
+    _BKK = ZoneInfo("Asia/Bangkok")
     today_bkk: _date = _datetime.now(_BKK).date()
     ws = _week_start_bangkok(today_bkk)
 
@@ -3839,7 +3835,6 @@ def reorder_habit(
 # ── Habit log + progress endpoints (issue #388) ───────────────────────────────
 
 def _bangkok_today() -> _date:
-    from zoneinfo import ZoneInfo
     return _datetime.now(ZoneInfo("Asia/Bangkok")).date()
 
 
@@ -4255,7 +4250,6 @@ def get_habits_week(
     week_start defaults to the current Monday in Asia/Bangkok timezone.
     Non-Monday week_start values are rejected with 422.
     """
-    from zoneinfo import ZoneInfo
     _BANGKOK = ZoneInfo("Asia/Bangkok")
     today_bkk: _date = _datetime.now(_BANGKOK).date()
 
@@ -5990,7 +5984,6 @@ def get_workouts(
         to_d = _date.fromisoformat(to_date)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
-    from sqlalchemy import func as _sa_func
     with Session(engine) as session:
         workouts = (
             session.query(Workout)
@@ -6012,7 +6005,7 @@ def get_workouts(
             rows = (
                 session.query(
                     WorkoutExercise.workout_id,
-                    _sa_func.count().label("cnt"),
+                    func.count().label("cnt"),
                 )
                 .filter(WorkoutExercise.workout_id.in_(workout_ids))
                 .group_by(WorkoutExercise.workout_id)
@@ -9041,7 +9034,6 @@ def get_training_log(
             raise HTTPException(status_code=400, detail="Invalid to date; use YYYY-MM-DD")
 
     with Session(engine) as session:
-        from sqlalchemy import or_, func as _func
         q = session.query(Workout).filter(
             Workout.workout_date >= from_d,
             Workout.workout_date <= to_d,
@@ -9049,7 +9041,7 @@ def get_training_log(
         )
         if types and types != "all":
             type_list = [t.strip().lower() for t in types.split(",") if t.strip()]
-            q = q.filter(_func.lower(Workout.workout_type).in_(type_list))
+            q = q.filter(func.lower(Workout.workout_type).in_(type_list))
         if search:
             like = f"%{search}%"
             q = q.filter(or_(Workout.name.ilike(like), Workout.remarks.ilike(like)))
@@ -9351,8 +9343,7 @@ def patch_personal_record(record_id: str, body: PersonalRecordPatch, current_use
             pr.track_name = body.track_name.strip()
         if "source" in body.model_fields_set:
             pr.source = body.source
-        from sqlalchemy.sql import func as _func
-        pr.updated_at = _func.now()
+        pr.updated_at = func.now()
         session.commit()
         session.refresh(pr)
         return JSONResponse(_pr_dict(pr))
@@ -9928,7 +9919,6 @@ _sync_pool = _ThreadPoolExecutor(max_workers=3, thread_name_prefix="sync")
 def _default_strava_since_date(user_id: _uuid.UUID) -> str:
     """Return YYYY-MM-DD lower bound for incremental Strava pulls."""
     from datetime import date as _date_cls, timedelta as _timedelta
-    from sqlalchemy import func, select
 
     try:
         with Session(engine) as session:
@@ -10317,8 +10307,6 @@ def strava_sync_latest(
     With user_id query param: returns full SyncJob dict (any status) for that user; 404 if none.
     Without user_id: returns legacy summary dict for session user (backwards-compatible).
     """
-    from sqlalchemy import func, select
-
     if user_id is not None:
         # New path: full SyncJob dict, any status
         with Session(engine) as session:
@@ -10397,25 +10385,25 @@ def strava_data_quality(current_user: User = Depends(resolve_user)):
     """Return data quality counts for a user's Strava/workout sync state."""
     uid = current_user.id
     with Session(engine) as session:
-        from sqlalchemy import func as _func, select as _sel, text as _text
+        from sqlalchemy import text as _text
         strava_count = session.execute(
-            _sel(_func.count(StravaActivity.id)).where(StravaActivity.user_id == uid)
+            select(func.count(StravaActivity.id)).where(StravaActivity.user_id == uid)
         ).scalar() or 0
 
         w_strava_count = session.execute(
-            _sel(_func.count(Workout.id))
+            select(func.count(Workout.id))
             .where(Workout.user_id == uid)
             .where(Workout.source.in_(["strava", "both", "strava,stryd", "stryd,strava"]))
         ).scalar() or 0
 
         w_no_source_count = session.execute(
-            _sel(_func.count(Workout.id))
+            select(func.count(Workout.id))
             .where(Workout.user_id == uid)
             .where((Workout.source.is_(None)) | (Workout.source == ""))
         ).scalar() or 0
 
         stryd_synced_count = session.execute(
-            _sel(_func.count(Workout.id))
+            select(func.count(Workout.id))
             .where(Workout.user_id == uid)
             .where(Workout.stryd_activity_pk.isnot(None))
         ).scalar() or 0
@@ -10486,27 +10474,26 @@ def stryd_sync_latest(
 @app.get("/api/sync/stryd/data-quality")
 def stryd_data_quality(current_user: User = Depends(resolve_user)):
     """Data-quality counts for a user's Stryd/workout sync state."""
-    from sqlalchemy import func as _func, select as _sel
     uid = current_user.id
     with Session(engine) as session:
         stryd_count = session.execute(
-            _sel(_func.count(StrydActivity.id)).where(StrydActivity.user_id == uid)
+            select(func.count(StrydActivity.id)).where(StrydActivity.user_id == uid)
         ).scalar() or 0
         w_stryd_count = session.execute(
-            _sel(_func.count(Workout.id)).where(Workout.user_id == uid)
+            select(func.count(Workout.id)).where(Workout.user_id == uid)
             .where(Workout.stryd_activity_pk.isnot(None))
         ).scalar() or 0
         w_strava_synced = session.execute(
-            _sel(_func.count(Workout.id)).where(Workout.user_id == uid)
+            select(func.count(Workout.id)).where(Workout.user_id == uid)
             .where(Workout.strava_activity_pk.isnot(None))
         ).scalar() or 0
         w_both = session.execute(
-            _sel(_func.count(Workout.id)).where(Workout.user_id == uid)
+            select(func.count(Workout.id)).where(Workout.user_id == uid)
             .where(Workout.stryd_activity_pk.isnot(None))
             .where(Workout.strava_activity_pk.isnot(None))
         ).scalar() or 0
         w_tss = session.execute(
-            _sel(_func.count(Workout.id)).where(Workout.user_id == uid)
+            select(func.count(Workout.id)).where(Workout.user_id == uid)
             .where(Workout.tss.isnot(None))
         ).scalar() or 0
     return JSONResponse({
@@ -12318,7 +12305,6 @@ def admin_create_user(body: AdminUserCreateIn):
 
 @app.get("/api/admin/users", dependencies=[Depends(require_admin)])
 def admin_list_users():
-    from sqlalchemy import select, func
     with Session(engine) as session:
         strava_sub = select(StravaToken.user_id).subquery()
         google_sub = select(GoogleOAuthCredentials.user_id).subquery()
@@ -14096,13 +14082,12 @@ def _build_user_power_curve(session, user_id) -> dict:
     a shorter individual duration than the full workout can also contribute
     (same ≥ D rule applied to split.duration_seconds).
     """
-    from sqlalchemy import func as _sa_func
 
     curve: dict = {}
     for d in _POWER_DURATION_LADDER:
         # Workout-level aggregate power
         w_best = (
-            session.query(_sa_func.max(Workout.avg_power))
+            session.query(func.max(Workout.avg_power))
             .filter(
                 Workout.user_id == user_id,
                 Workout.duration_seconds >= d,
@@ -14112,7 +14097,7 @@ def _build_user_power_curve(session, user_id) -> dict:
         )
         # Split-level power (can be higher than workout average)
         s_best = (
-            session.query(_sa_func.max(WorkoutSplit.avg_power))
+            session.query(func.max(WorkoutSplit.avg_power))
             .join(Workout, WorkoutSplit.workout_id == Workout.id)
             .filter(
                 Workout.user_id == user_id,
@@ -14972,12 +14957,11 @@ _SUMMARY_CACHE: dict = {}
 
 
 def _summary_signature(session, user_id) -> str:
-    from sqlalchemy import func as _sf
     row = (
         session.query(
-            _sf.max(Workout.created_at),
-            _sf.count(Workout.id),
-            _sf.max(Workout.updated_at),
+            func.max(Workout.created_at),
+            func.count(Workout.id),
+            func.max(Workout.updated_at),
         )
         .filter(Workout.user_id == user_id)
         .one()
@@ -15108,8 +15092,7 @@ def get_athlete_weekly_summary(athlete_id: str, user: User = Depends(resolve_use
         if athlete is None:
             raise HTTPException(status_code=404, detail="Athlete not found")
 
-        from zoneinfo import ZoneInfo as _ZI
-        _bkk = _ZI("Asia/Bangkok")
+        _bkk = ZoneInfo("Asia/Bangkok")
         today = _datetime.now(_bkk).date()
         ws = today - _timedelta(days=today.weekday())   # Monday
         we = ws + _timedelta(days=6)                     # Sunday
@@ -15513,34 +15496,33 @@ def _plan_signature(session, user_id, plan) -> str:
     bump race_checkpoints; ramp/taper edits bump the plan — so any of those
     changes the signature and forces a recompute.
     """
-    from sqlalchemy import func as _sa_func
 
     # MAX(created_at)+COUNT catches new synced rows; MAX(updated_at) catches
     # in-place edits to an existing workout (e.g. PATCH /api/workouts/{id}),
     # which created_at+count alone would miss. Single SELECT with scalar
     # subqueries instead of round trips per signal.
     row = session.query(
-        session.query(_sa_func.max(Workout.created_at))
+        session.query(func.max(Workout.created_at))
         .filter(Workout.user_id == user_id)
         .scalar_subquery()
         .label("max_wo"),
-        session.query(_sa_func.count(Workout.id))
+        session.query(func.count(Workout.id))
         .filter(Workout.user_id == user_id)
         .scalar_subquery()
         .label("wo_count"),
-        session.query(_sa_func.max(Workout.updated_at))
+        session.query(func.max(Workout.updated_at))
         .filter(Workout.user_id == user_id)
         .scalar_subquery()
         .label("max_wo_updated"),
-        session.query(_sa_func.max(Race.updated_at))
+        session.query(func.max(Race.updated_at))
         .filter(Race.user_id == user_id)
         .scalar_subquery()
         .label("max_race"),
-        session.query(_sa_func.max(Race.created_at))
+        session.query(func.max(Race.created_at))
         .filter(Race.user_id == user_id)
         .scalar_subquery()
         .label("max_race_created"),
-        session.query(_sa_func.max(RaceCheckpoint.updated_at))
+        session.query(func.max(RaceCheckpoint.updated_at))
         .filter(RaceCheckpoint.user_id == user_id)
         .scalar_subquery()
         .label("max_checkpoint_updated"),
@@ -16214,7 +16196,6 @@ def get_athlete_monthly_summary(
             )
         month_start = parsed
     else:
-        from zoneinfo import ZoneInfo
         _bkk = ZoneInfo("Asia/Bangkok")
         today_bkk = _datetime.now(_bkk).date()
         month_start = today_bkk.replace(day=1)

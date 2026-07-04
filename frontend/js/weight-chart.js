@@ -48,6 +48,7 @@ const WeightChart = (() => {
 
   let _tooltip = null;
   let _activeDots = [];
+  let _activeTapDate = null; // date string of the currently-shown tap tooltip, null when hidden
   let _VH = VH; // render-time viewBox height (taller on mobile)
   let _CH = CH;
 
@@ -782,7 +783,17 @@ const WeightChart = (() => {
         const t = ev.touches[0];
         if (!t) return;
         const near = _findNearestDot(svg, t.clientX, t.clientY);
-        if (near) _showTooltip(svg, t.clientX, t.clientY, near.date, near.kg);
+        if (near) {
+          if (_activeTapDate === near.date) {
+            // Second tap on the same dot — dismiss
+            _hideTooltip();
+            _activeTapDate = null;
+          } else {
+            // New dot — show and remember it
+            _showTooltip(svg, t.clientX, t.clientY, near.date, near.kg);
+            _activeTapDate = near.date;
+          }
+        }
       },
       { passive: true },
     );
@@ -796,7 +807,6 @@ const WeightChart = (() => {
       },
       { passive: true },
     );
-    svg.addEventListener("touchend", () => _hideTooltip());
   }
 
   return { render: render, setMode: setMode, getMode: getMode };
