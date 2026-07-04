@@ -60,211 +60,29 @@
     return isoDate(d);
   }
 
-  /* ---- Performance card helpers ---- */
+  /* ---- Personal records card helpers (home v3, Task 6) ----
+     Pulls the SAME auto-computed run PRs the Performance tab shows (10K /
+     Half marathon / Marathon), via /api/athletes/{id}/run-personal-records
+     — NOT the old /api/personal-records + TRACK_CONFIGS custom-track
+     widget this replaced (that was user-configured "which tracks do you
+     care about" data, a different concept, and had drifted from what the
+     Performance tab actually surfaces). athleteId === userId in this app
+     (single athlete per user), matching the convention already used by
+     renderPerformanceCard's own /api/athletes/{userId}/performance call. */
+  var PR_TILES = [
+    { key: '10km', label: '10K' },
+    { key: 'half_marathon', label: 'Half' },
+    { key: 'marathon', label: 'Marathon' }
+  ];
 
-  var TRACK_CONFIGS = {
-    'half_marathon': {
-      workout_type_re: /run/i,
-      dist_min: 20, dist_max: 22,
-      value_source: 'duration',
-      icon_cls: 'run', icon: 'ti-run', sub: '21.1 km'
-    },
-    '10k': {
-      workout_type_re: /run/i,
-      dist_min: 9, dist_max: 11,
-      value_source: 'duration',
-      icon_cls: 'run', icon: 'ti-run', sub: '10.0 km'
-    },
-    'squat_1rm': {
-      workout_type_re: /strength/i,
-      dist_min: null, dist_max: null,
-      value_source: 'exercise_weight',
-      exercise_re: /squat/i,
-      icon_cls: 'lift', icon: 'ti-barbell', sub: '1-rep max'
-    }
-  };
-
-  function fmtSeconds(sec) {
-    var s = Math.round(sec);
+  function formatRunPrValue(value) {
+    if (value == null) return '—';
+    var s = Math.round(value);
     var h = Math.floor(s / 3600);
     var m = Math.floor((s % 3600) / 60);
-    var ss = s % 60;
-    if (h > 0) {
-      return h + ':' + String(m).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
-    }
-    return String(m).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
-  }
-
-  function fmtTimeDelta(diffSec) {
-    var abs = Math.abs(Math.round(diffSec));
-    var h = Math.floor(abs / 3600);
-    var m = Math.floor((abs % 3600) / 60);
-    var s = abs % 60;
-    var sign = diffSec >= 0 ? '+' : '−';
-    if (h > 0) {
-      return sign + h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + ' from PR';
-    }
-    if (m > 0) {
-      return sign + m + ':' + String(s).padStart(2, '0') + ' from PR';
-    }
-    return sign + s + 's from PR';
-  }
-
-  function fmtWeightDelta(diff) {
-    var sign = diff >= 0 ? '+' : '−';
-    return sign + Math.abs(diff).toFixed(diff % 1 === 0 ? 0 : 1) + ' kg from PR';
-  }
-
-  function fmtDate(isoStr) {
-    if (!isoStr) return '';
-    var parts = isoStr.split('-');
-    var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return months[parseInt(parts[1], 10) - 1] + ' ' + parseInt(parts[2], 10) + ', ' + parts[0];
-  }
-
-  function fmtDateShort(isoStr) {
-    if (!isoStr) return '';
-    var parts = isoStr.split('-');
-    var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return months[parseInt(parts[1], 10) - 1] + ' ' + parseInt(parts[2], 10);
-  }
-
-  function matchesTrack(workout, cfg) {
-    if (!cfg.workout_type_re.test(workout.workout_type || '')) return false;
-    if (cfg.dist_min !== null) {
-      var d = workout.distance_km;
-      if (d == null || d < cfg.dist_min || d > cfg.dist_max) return false;
-    }
-    return true;
-  }
-
-  /* Returns {value, date} or null for a given track + sorted workouts list.
-     For exercise_weight tracks, fetches the workout detail. */
-  async function resolveRecentValue(cfg, sortedWorkouts) {
-    var match = null;
-    for (var i = 0; i < sortedWorkouts.length; i++) {
-      if (matchesTrack(sortedWorkouts[i], cfg)) { match = sortedWorkouts[i]; break; }
-    }
-    if (!match) return null;
-
-    if (cfg.value_source === 'duration') {
-      if (match.duration_seconds == null) return null;
-      return { value: match.duration_seconds, date: match.workout_date };
-    }
-
-    if (cfg.value_source === 'exercise_weight') {
-      var detail = null;
-      try {
-        var r = await fetch('/api/workouts/' + match.id);
-        if (r.ok) detail = await r.json();
-      } catch (_) { return null; }
-      if (!detail || !Array.isArray(detail.exercises)) return null;
-      var maxW = null;
-      detail.exercises.forEach(function (ex) {
-        if (cfg.exercise_re.test(ex.name || '') && ex.weight_kg != null) {
-          if (maxW === null || ex.weight_kg > maxW) maxW = ex.weight_kg;
-        }
-      });
-      if (maxW === null) return null;
-      return { value: maxW, date: match.workout_date };
-    }
-
-    return null;
-  }
-
-  function buildPrValueHTML(pr) {
-    if (pr.track_type === 'time') {
-      return '<span class="pc-value">' + fmtSeconds(pr.value_numeric) + '</span>';
-    }
-    return '<span class="pc-value">' + pr.value_numeric + '<span class="pc-unit">kg</span></span>';
-  }
-
-  function buildRecentValueHTML(pr, recent) {
-    if (!recent) {
-      return '<span class="pc-dash">—</span>';
-    }
-    var valHTML, delta, deltaClass;
-    if (pr.track_type === 'time') {
-      valHTML = '<span class="pc-value">' + fmtSeconds(recent.value) + '</span>';
-      delta   = recent.value - pr.value_numeric;
-      deltaClass = delta > 0 ? 'behind' : 'ahead';
-    } else {
-      valHTML = '<span class="pc-value">' + recent.value + '<span class="pc-unit">kg</span></span>';
-      delta   = recent.value - pr.value_numeric;
-      deltaClass = delta < 0 ? 'behind' : 'ahead';
-    }
-    var deltaText = pr.track_type === 'time' ? fmtTimeDelta(delta) : fmtWeightDelta(delta);
-    return valHTML +
-      '<div class="pc-date">' + fmtDateShort(recent.date) + '</div>' +
-      '<div class="pc-delta ' + deltaClass + '">' + deltaText + '</div>';
-  }
-
-  function buildRecentValueMobileHTML(pr, recent) {
-    if (!recent) return '<div class="mc-value">—</div>';
-    var valHTML, delta, deltaClass, deltaText;
-    if (pr.track_type === 'time') {
-      valHTML    = '<div class="mc-value">' + fmtSeconds(recent.value) + '</div>';
-      delta      = recent.value - pr.value_numeric;
-      deltaClass = delta > 0 ? 'behind' : 'ahead';
-      deltaText  = fmtTimeDelta(delta);
-    } else {
-      valHTML    = '<div class="mc-value">' + recent.value + '<span class="mc-unit">kg</span></div>';
-      delta      = recent.value - pr.value_numeric;
-      deltaClass = delta < 0 ? 'behind' : 'ahead';
-      deltaText  = fmtWeightDelta(delta);
-    }
-    return valHTML +
-      '<div class="mc-meta">' + fmtDateShort(recent.date) + '</div>' +
-      '<div class="mc-delta ' + deltaClass + '">' + deltaText + '</div>';
-  }
-
-  function buildDesktopRow(pr, cfg, recent, isLast) {
-    var rowCls = 'perf-row' + (isLast ? ' perf-row-last' : '');
-    var predicted =
-      '<span class="pc-dash" title="Prediction model not yet built">—</span>';
-    return '<div class="' + rowCls + '">' +
-      '<div class="perf-track">' +
-        '<div class="icon-wrap ' + cfg.icon_cls + '"><i class="ti ' + cfg.icon + '"></i></div>' +
-        '<div><div class="trk-name">' + esc(pr.track_name) + '</div>' +
-             '<div class="trk-sub">' + cfg.sub + '</div></div>' +
-      '</div>' +
-      '<div>' +
-        buildPrValueHTML(pr) +
-        '<div class="pc-trophy"><i class="ti ti-trophy-filled"></i>' + fmtDate(pr.achieved_on) + '</div>' +
-      '</div>' +
-      '<div>' + buildRecentValueHTML(pr, recent) + '</div>' +
-      '<div>' + predicted + '</div>' +
-    '</div>';
-  }
-
-  function buildMobileBlock(pr, cfg, recent) {
-    var blockCls = 'perf-track-block';
-    var prVal    = pr.track_type === 'time'
-      ? fmtSeconds(pr.value_numeric)
-      : pr.value_numeric + '<span class="mc-unit">kg</span>';
-
-    return '<div class="' + blockCls + '">' +
-      '<div class="perf-track-head">' +
-        '<div class="icon-wrap ' + cfg.icon_cls + '"><i class="ti ' + cfg.icon + '"></i></div>' +
-        '<div><div class="trk-name">' + esc(pr.track_name) + '</div>' +
-             '<div class="trk-sub">' + cfg.sub + '</div></div>' +
-      '</div>' +
-      '<div class="perf-cells">' +
-        '<div class="perf-cell-m pr-cell-m">' +
-          '<div class="mc-label"><i class="ti ti-trophy-filled"></i>PR</div>' +
-          '<div class="mc-value">' + prVal + '</div>' +
-          '<div class="mc-meta">' + fmtDateShort(pr.achieved_on) + '</div>' +
-        '</div>' +
-        '<div class="perf-cell-m">' +
-          '<div class="mc-label">Current</div>' +
-          buildRecentValueMobileHTML(pr, recent) +
-        '</div>' +
-        '<div class="perf-cell-m pred-cell-m">' +
-          '<div class="mc-label">Predicted</div>' +
-          '<div class="mc-value" title="Prediction model not yet built">—</div>' +
-        '</div>' +
-      '</div>' +
-    '</div>';
+    var sec = s % 60;
+    if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+    return m + ':' + String(sec).padStart(2, '0');
   }
 
   async function loadPerformanceCard(userId) {
@@ -276,89 +94,51 @@
     if (!card) {
       card = document.createElement('div');
       card.id = 'perf-card';
-      card.className = 'card';
+      card.className = 'card grp-training';
       row2.insertBefore(card, row2.firstChild);
     }
 
-    var perfHeader =
+    var header =
       '<div class="card-head">' +
-        '<div class="ttl"><a href="/settings#personal-records" style="color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:7px;"><i class="ti ti-trophy" style="color:var(--gold);"></i>Personal records</a></div>' +
-        '<a href="/settings#personal-records">All tracks →</a>' +
+        '<div class="ttl"><a href="/log#performance" style="color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:7px;"><i class="ti ti-trophy" style="color:var(--gold);"></i>Personal records</a></div>' +
+        '<a href="/log#performance">All PRs &#8594;</a>' +
       '</div>';
-    card.innerHTML = perfHeader + UIStates.loadingHTML();
+    card.innerHTML = header + UIStates.loadingHTML();
 
-    var prs = [];
+    var data = null;
     try {
-      var r = await fetch('/api/personal-records');
-      if (r.ok) prs = await r.json();
-    } catch (_) { prs = []; }
+      var r = await fetch('/api/athletes/' + userId + '/run-personal-records');
+      if (r.ok) data = await r.json();
+    } catch (_) { data = null; }
 
-    var configuredPrs = prs.filter(function (pr) { return TRACK_CONFIGS[pr.track_key]; });
-
-    if (configuredPrs.length === 0) {
-      var emptyLoading = card.querySelector('.ui-loading');
-      if (emptyLoading) emptyLoading.remove();
-      var emptyEl = document.createElement('div');
-      emptyEl.className = 'perf-empty';
-      emptyEl.innerHTML =
-        '<a href="/settings#personal-records">Set your personal records →</a>';
-      card.appendChild(emptyEl);
-      return;
-    }
-
-    /* Fetch 6 months of workouts once */
-    var today = new Date();
-    var from6m = new Date(today);
-    from6m.setMonth(from6m.getMonth() - 6);
-    var allWorkouts = [];
-    try {
-      var wr = await fetch(
-        '/api/workouts?from=' + isoDate(from6m) + '&to=' + isoDate(today)
-      );
-      if (wr.ok) allWorkouts = await wr.json();
-    } catch (_) { allWorkouts = []; }
-
-    allWorkouts.sort(function (a, b) {
-      return a.workout_date < b.workout_date ? 1 : -1;
-    });
-
-    /* Resolve most-recent values (may involve detail fetches for weight tracks) */
-    var recentValues = [];
-    for (var i = 0; i < configuredPrs.length; i++) {
-      var cfg = TRACK_CONFIGS[configuredPrs[i].track_key];
-      var rv = await resolveRecentValue(cfg, allWorkouts);
-      recentValues.push(rv);
-    }
-
-    /* Build HTML */
-    var desktopRows = '';
-    var mobileBlocks = '';
-    for (var j = 0; j < configuredPrs.length; j++) {
-      var pr  = configuredPrs[j];
-      var cfgJ = TRACK_CONFIGS[pr.track_key];
-      var rv2  = recentValues[j];
-      var last = j === configuredPrs.length - 1;
-      desktopRows  += buildDesktopRow(pr, cfgJ, rv2, last);
-      mobileBlocks += buildMobileBlock(pr, cfgJ, rv2);
-    }
+    var speed = data && data.speedRecords && !data.speedRecords.reason ? data.speedRecords : null;
+    var tiles = PR_TILES
+      .map(function (t) { return { label: t.label, rec: speed ? speed[t.key] : null }; })
+      .filter(function (t) { return t.rec && t.rec.value != null; });
 
     var loadingEl = card.querySelector('.ui-loading');
     if (loadingEl) loadingEl.remove();
 
-    var contentEl = document.createElement('div');
-    contentEl.innerHTML =
-      '<div class="perf-grid">' +
-        '<div class="perf-hdr">' +
-          '<div>Track</div><div>Personal best</div>' +
-          '<div>Most recent</div><div>Predicted next</div>' +
-        '</div>' +
-        desktopRows +
-      '</div>' +
-      '<div class="perf-mobile">' + mobileBlocks + '</div>';
+    if (!tiles.length) {
+      var emptyEl = document.createElement('div');
+      emptyEl.className = 'perf-empty';
+      emptyEl.innerHTML = '<a href="/log#performance">Set your personal records &#8594;</a>';
+      card.appendChild(emptyEl);
+      return;
+    }
 
-    card.appendChild(contentEl.firstChild);
-    card.appendChild(contentEl.firstChild);
+    var grid = document.createElement('div');
+    grid.className = 'pr-grid';
+    grid.innerHTML = tiles.map(function (t) {
+      return '<div class="pr-tile">' +
+        '<div class="pr-lbl">' + esc(t.label) + '</div>' +
+        '<div class="pr-val">' + esc(formatRunPrValue(t.rec.value)) + '</div>' +
+        '<div class="pr-date">' + esc(t.rec.date || '—') + '</div>' +
+      '</div>';
+    }).join('');
+    card.appendChild(grid);
   }
+
 
   /* ---- Recent Workouts card helpers ---- */
 
@@ -435,46 +215,57 @@
     '</div>';
   }
 
+  /* Recent workout — merged into #home-next-workout-card (home v3, Task 1).
+     Fills only its sub-section (#home-recent-workout-section), built by
+     home-readiness-training-sleep.js's renderNextWorkoutCard skeleton; the
+     "Next workout" sub-section above it is that file's own concern.
+
+     Data source is /api/home/summary's "recent_workouts" block, which is a
+     bare array (see backend _build_recent_workouts_block) — NOT
+     {workouts:[...]}. The previous code read workoutsBlock.workouts, which
+     is always undefined on an array, so this always rendered the empty
+     state regardless of real data (pre-existing bug, not introduced by the
+     merge — same wrong access was already in the old standalone card).
+     Also, that block's items are a lightweight summary shape (name,
+     workout_type, relative_day, summary) — not a full Workout row — so this
+     builds its own compact row instead of reusing buildWorkoutRow(), which
+     expects raw Workout fields (workout_date, distance_km, source, ...)
+     that this summary doesn't have. */
+  function _recentWorkoutBadgeCls(t) {
+    return (t === 'strength' || t === 'plyo') ? 'lift' : 'run';
+  }
+  function _recentWorkoutBadgeLabel(t) {
+    if (t === 'strength') return 'Strength';
+    if (t === 'plyo') return 'Plyo';
+    return 'Run';
+  }
   function loadRecentWorkoutsCard(userId, workoutsBlock) {
-    var row2 = document.getElementById('home-workouts-container') ||
-               document.getElementById('row-2');
-    if (!row2) return;
+    var sectionEl = document.getElementById('home-recent-workout-section');
+    if (!sectionEl) return;
 
-    var card = document.getElementById('workouts-card');
-    if (!card) {
-      card = document.createElement('div');
-      card.id = 'workouts-card';
-      card.className = 'card workouts';
-      row2.appendChild(card);
-    }
-
-    card.innerHTML = UIStates.loadingHTML();
-
-    var workouts = (workoutsBlock && workoutsBlock.workouts) ? workoutsBlock.workouts : [];
-
-    var header =
-      '<div class="card-head">' +
-        '<div class="ttl"><i class="ti ti-run"></i>Recent workouts</div>' +
-        '<span style="display:inline-flex;align-items:center;gap:10px;">' +
-          '<a class="rw-log-btn" href="/training?return=/home"><i class="ti ti-plus"></i>Log workout</a>' +
-          '<a href="/log">View all →</a>' +
-        '</span>' +
-      '</div>';
+    var workouts = Array.isArray(workoutsBlock) ? workoutsBlock : [];
 
     if (!workouts.length) {
-      card.innerHTML = header +
+      sectionEl.innerHTML =
         '<div class="workouts-empty">No workouts yet — ' +
         '<a href="/training?return=/home">log your first</a>.</div>';
       return;
     }
 
-    var top4 = workouts.slice(0, 4);
-    var listHTML = '';
-    top4.forEach(function (w, i) {
-      listHTML += buildWorkoutRow(w, i === 3 ? 'workout-desktop-only' : '');
-    });
+    sectionEl.innerHTML = workouts.map(function (w) {
+      var cls = _recentWorkoutBadgeCls(w.workout_type);
+      var label = _recentWorkoutBadgeLabel(w.workout_type);
+      var metaParts = [w.relative_day];
+      if (w.summary) metaParts.push(w.summary);
 
-    card.innerHTML = header + '<div class="list">' + listHTML + '</div>';
+      return '<div class="nw-row">' +
+          '<span class="nw-badge nw-badge--' + cls + '">' + label + '</span>' +
+          '<span class="nw-info">' +
+            '<span class="nw-name">' + esc(w.name || 'Workout') + '</span>' +
+            '<span class="nw-meta">' + esc(metaParts.filter(Boolean).join(' · ')) + '</span>' +
+          '</span>' +
+        '</div>';
+    }).join('');
   }
 
   /* ---- Log Today card ---- */
@@ -1112,7 +903,7 @@
     var card = container.querySelector('.card.hww-card');
     if (!card) {
       card = document.createElement('div');
-      card.className = 'card hww-card';
+      card.className = 'card hww-card grp-weight';
       container.appendChild(card);
     }
 
@@ -1187,9 +978,10 @@
         HomeStripHabits.render(summary);
       }
 
-      /* Readiness tile + training card + sleep card */
+      /* Readiness tile + training card + sleep card + next-workout +
+         performance widget (home v2) */
       if (window.HomeRTS) {
-        HomeRTS.render(summary);
+        HomeRTS.render(summary, userId);
       }
 
       /* Body-modifier guardrail warning (issue #1161) */
@@ -1198,9 +990,8 @@
       /* Weight widget (using summary.weight block) */
       _renderHomeWeightWidget(summary.weight, userId);
 
-      /* Performance card (fetches own data, uses summary.performance for context) */
-      var _perfBlock = summary.performance;
-      loadPerformanceCard(userId, _perfBlock);
+      /* Personal records card (fetches its own data — see loadPerformanceCard) */
+      loadPerformanceCard(userId);
 
       /* Recent workouts card (fetches own data, uses summary.recent_workouts for context) */
       var _workoutsBlock = summary.recent_workouts;

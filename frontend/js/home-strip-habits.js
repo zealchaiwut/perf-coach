@@ -63,6 +63,12 @@
       var btn = document.getElementById('lts-cta-btn');
       if (btn) {
         btn.addEventListener('click', function () {
+          // Reveal the fast-log row (hidden by default; idempotent — if it's
+          // already visible from a previous tap, this is a no-op and the
+          // scroll/focus below still just re-scrolls/re-focuses, not a toggle).
+          var rowLog = document.getElementById('row-log');
+          if (rowLog && rowLog.hidden) rowLog.hidden = false;
+
           var target = document.getElementById('fast-log-section');
           if (target) {
             target.scrollIntoView({ behavior: 'smooth', block: 'start' });

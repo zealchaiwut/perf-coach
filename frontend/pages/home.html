@@ -16,7 +16,11 @@
       --card-border: rgba(13, 30, 67, 0.06);
       --text-primary: #0b1530;
       --text-secondary: #5c6886;
-      --text-tertiary: #8b95ad;
+      /* #8b95ad (the previous value) failed WCAG AA at 3.0:1 on white —
+         DESIGN.md documents this exact failure and its retirement to
+         #6b7280 (4.9:1) for the instrument palette; applying the same fix
+         here since --text-tertiary carries 50+ small labels site-wide. */
+      --text-tertiary: #6b7280;
       --accent: #e4ff52;
       --accent-text: #1a2400;
       --hero-1: #b6c5ff;
@@ -40,6 +44,14 @@
       --orange-soft: #ffe1d4;
       --teal-text: #1e6438;
       --teal-soft: #d4f0e2;
+      /* Home v3 color grouping (Task 4) — paired tint stops following the
+         existing --bg-1/--bg-2, --hero-1/--hero-2, --sleep-1/--sleep-2
+         naming convention. Blue tint reuses the existing --shell-1/--shell-2
+         pair directly (no new tokens needed); amber tint is new since no
+         light/dark amber PAIR existed (--amber/--amber-soft are text/chip
+         colors, not a gradient pair). */
+      --amber-tint-1: #fffaf0;
+      --amber-tint-2: #fdecc8;
     }
 
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -52,9 +64,16 @@
       letter-spacing: -0.01em;
     }
 
-    /* ---- PAGE ---- */
+    /* ---- PAGE ----
+       Widened from 760px (home v2 layout follow-up #2): the unified dashboard
+       grid below needs real desktop width to pack 3-4 widgets per row —
+       760px only ever fit 2 columns of a sane card width, so the auto-fit
+       grid's column count is capped by THIS max-width, not just its own
+       minmax floor. 1320 fits 4 columns of minmax(280px,1fr) + 16px gaps
+       (4*280 + 3*16 = 1168 <= 1320 - 2*28 padding = 1264) at 1280-1440
+       viewport widths. */
     .page {
-      max-width: 760px;
+      max-width: 1320px;
       margin: 0 auto;
       padding: 28px;
     }
@@ -73,16 +92,156 @@
       font-size: 14px;
     }
 
-    /* ---- ROWS ---- */
-    #home-training-row { margin-bottom: 16px; }
-    #home-lower-row {
+    /* ---- DASHBOARD GRID (home v3 bento layouts) ----
+       Four explicit, hand-placed layouts (Wide/Medium/Narrow/Mobile) replace
+       the previous single fluid repeat(auto-fit,minmax(280px,1fr)) grid —
+       that auto-fit grid packed cards wherever they happened to fit, which
+       drifted at odd widths and gave no control over which widgets sit next
+       to each other. Each breakpoint below hand-places all 8 widgets by id
+       via grid-column/grid-row so the layout is exact and predictable at
+       every width. #home-log-today-strip, #body-modifier-guardrail,
+       #strava-stale-banner, and #row-log stay OUTSIDE this grid. */
+    #home-dashboard-grid {
       display: grid;
-      grid-template-columns: 2fr 1fr;
-      gap: 16px;
+      grid-template-columns: repeat(8, 1fr);
+      grid-auto-rows: 100px;
+      gap: 14px;
       margin-bottom: 16px;
-      align-items: start;
+      /* align-items defaults to stretch (not "start") so two cards sharing
+         the same grid-row span (e.g. Next+Recent / Performance) render at
+         the SAME height regardless of how much content each has — with
+         "start" every card shrank to its own content height, so a short
+         card (Performance, two small tiles) looked visibly shorter than its
+         taller neighbor even though both were assigned the same row span. */
     }
-    #home-right-stack { display: flex; flex-direction: column; gap: 16px; }
+    /* Wide (>=1000px, unqualified — the base rule above is the widest
+       breakpoint, so no media query needed here).
+       Row spans below are sized from measured rendered content height,
+       re-verified against a standalone static harness (real markup emitted
+       by home.js / home-readiness-training-sleep.js / home-strip-habits.js,
+       reconstructed with realistic full data — not the live app; see
+       docs note below) at 1120/820/620/390px. The previous commit's claim
+       of a live-Playwright measurement pass did not hold up: #home-perf-
+       container ("Personal records") was still undersized here (row span 2
+       = 214px vs ~249px of real content with 2 PR tracks), overlapping
+       #home-habits-widget below by ~21px. Bumped to span 3 and pushed
+       Habits down one row to match. */
+    #home-top-row-right      { grid-column: 1 / span 4; grid-row: 1 / span 4; }
+    #home-next-workout-card  { grid-column: 5 / span 2; grid-row: 1 / span 4; }
+    #home-performance-card   { grid-column: 7 / span 2; grid-row: 1 / span 4; }
+    #home-training-card      { grid-column: 5 / span 4; grid-row: 5 / span 3; }
+    #home-sleep-card         { grid-column: 1 / span 4; grid-row: 5 / span 2; }
+    #home-perf-container     { grid-column: 5 / span 2; grid-row: 8 / span 2; }
+    #home-habits-widget      { grid-column: 7 / span 2; grid-row: 8 / span 3; }
+    #home-weight-widget      { grid-column: 1 / span 4; grid-row: 7 / span 3; }
+    /* Next+Recent now lists 3 upcoming + 3 recent sessions (was 1+1), so it
+       needs the full 4-row track Readiness gets, not 3. Personal records is
+       now a compact 3-tile row (was a multi-track table) — much shorter, so
+       it pairs with Habits instead of stacking below it. */
+
+    @media (max-width: 999px) {
+      #home-dashboard-grid {
+        grid-template-columns: repeat(6, 1fr);
+        grid-auto-rows: 100px;
+        gap: 14px;
+      }
+      #home-top-row-right      { grid-column: 1 / span 4; grid-row: 1  / span 4; }
+      #home-next-workout-card  { grid-column: 5 / span 2; grid-row: 1  / span 5; }
+      #home-performance-card   { grid-column: 5 / span 2; grid-row: 6  / span 2; }
+      #home-sleep-card         { grid-column: 5 / span 2; grid-row: 8  / span 2; }
+      #home-training-card      { grid-column: 1 / span 4; grid-row: 5  / span 3; }
+      #home-perf-container     { grid-column: 1 / span 2; grid-row: 8  / span 2; }
+      #home-habits-widget      { grid-column: 3 / span 2; grid-row: 8  / span 3; }
+      #home-weight-widget      { grid-column: 1 / span 6; grid-row: 11 / span 4; }
+      /* Next+Recent (3 upcoming + 3 recent sessions) needs a much taller
+         track in this narrow 2-wide column than the old 1+1 layout did.
+         Personal records is now a compact 3-tile row — pairs with Habits
+         instead of the old PRs/Weight pairing; Weight moves to its own
+         full-width row below both. */
+    }
+
+    @media (max-width: 759px) {
+      .page { padding: 14px; }
+      .card { padding: 12px; }
+      /* Third tighter-padding step (13px) — card-head's default 14px
+         margin-bottom is the next-biggest whitespace cost inside a
+         12px-padded card, so it gets pulled in a notch too. */
+      .card-head { margin-bottom: 13px; }
+      /* These 4 widgets set their own (id-selector) padding, which beats
+         the .card override above on specificity — restate it here so
+         Narrow's tighter padding actually reaches them too. */
+      #home-top-row-right,
+      #home-habits-widget,
+      #home-training-card,
+      #home-weight-widget .card { padding: 12px; }
+      #home-dashboard-grid {
+        grid-template-columns: repeat(4, 1fr);
+        grid-auto-rows: 90px;
+        gap: 10px;
+      }
+      #home-top-row-right      { grid-column: 1 / span 4; grid-row: 1  / span 4; }
+      #home-next-workout-card  { grid-column: 1 / span 2; grid-row: 5  / span 5; }
+      #home-performance-card   { grid-column: 3 / span 2; grid-row: 5  / span 5; }
+      #home-sleep-card         { grid-column: 1 / span 2; grid-row: 10 / span 2; }
+      #home-training-card      { grid-column: 1 / span 4; grid-row: 12 / span 3; }
+      #home-perf-container     { grid-column: 1 / span 2; grid-row: 15 / span 2; }
+      #home-habits-widget      { grid-column: 3 / span 2; grid-row: 15 / span 3; }
+      #home-weight-widget      { grid-column: 1 / span 4; grid-row: 18 / span 4; }
+      /* Next+Recent (3 upcoming + 3 recent sessions) needs a much taller
+         track than the old 1+1 layout at this 2-wide column width. Personal
+         records is now a compact 3-tile row — pairs with Habits instead of
+         stacking below it; both re-measured against the new markup (see
+         static-harness note at the top of #home-dashboard-grid's Wide
+         rules). */
+    }
+
+    @media (max-width: 479px) {
+      #home-dashboard-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      /* DOM order (see markup below) already matches the required Mobile
+         stack order — flex just follows document order, no per-widget rule
+         needed here. */
+    }
+
+    /* Card affordance: hover lift conveys "this is interactive" (most tiles
+       carry a "-> " link or clickable row) — state, not decoration. Instant
+       fallback under reduced motion. */
+    .card {
+      transition: box-shadow 200ms cubic-bezier(0.22, 1, 0.36, 1),
+                  transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .card:hover {
+      box-shadow: 0 10px 28px rgba(13, 30, 67, 0.12), 0 2px 8px rgba(13, 30, 67, 0.06);
+      transform: translateY(-2px);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .card { transition: none; }
+      .card:hover { transform: none; }
+    }
+
+    /* Dashboard load reveal: a light stagger on the grid's own children.
+       Cards are markup-visible by default (no JS gate) — this only enhances
+       an already-rendered page; disabled entirely under reduced motion. */
+    @media (prefers-reduced-motion: no-preference) {
+      #home-dashboard-grid > * {
+        animation: hv2-tile-in 420ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+      }
+      #home-dashboard-grid > *:nth-child(1) { animation-delay: 0ms; }
+      #home-dashboard-grid > *:nth-child(2) { animation-delay: 30ms; }
+      #home-dashboard-grid > *:nth-child(3) { animation-delay: 60ms; }
+      #home-dashboard-grid > *:nth-child(4) { animation-delay: 90ms; }
+      #home-dashboard-grid > *:nth-child(5) { animation-delay: 120ms; }
+      #home-dashboard-grid > *:nth-child(6) { animation-delay: 150ms; }
+      #home-dashboard-grid > *:nth-child(7) { animation-delay: 180ms; }
+      #home-dashboard-grid > *:nth-child(8) { animation-delay: 210ms; }
+    }
+    @keyframes hv2-tile-in {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
 
     /* ---- CARD ---- */
     .card {
@@ -93,6 +252,16 @@
       display: flex;
       flex-direction: column;
     }
+
+    /* ---- HOME V3 COLOR GROUPING (Task 4) ----
+       Training cluster (Readiness/Next+Recent/Performance/Training/Personal
+       records/Habits) shares one light blue tint; Weight gets its own soft
+       amber tint. Sleep is untouched (keeps its own dark indigo background).
+       Habits follows the prose spec here, NOT the reference mock's separate
+       green .grp-habits class — the mock's own markup contradicted its
+       prose on this point; prose wins. */
+    .grp-training { background: linear-gradient(150deg, var(--shell-1), var(--shell-2)); }
+    .grp-weight   { background: linear-gradient(150deg, var(--amber-tint-1), var(--amber-tint-2)); }
 
     /* ---- READINESS HERO CARD ---- */
     .readiness {
@@ -396,67 +565,41 @@
     /* ---- CARD HEADER (shared) ---- */
     .card-head {
       display: flex; align-items: center; justify-content: space-between;
+      /* Narrower tiles (home v2 unified grid, ~280-340px) can't always fit
+         title + trailing link on one line — wrap instead of letting them
+         crowd/touch ("PerformanceView trends →"). row-gap keeps the wrapped
+         link from sitting flush under the title. */
+      flex-wrap: wrap;
+      row-gap: 4px;
       margin-bottom: 14px;
     }
-    .card-head .ttl { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; }
+    .card-head .ttl { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; min-width: 0; }
     .card-head .ttl i { font-size: 17px; color: var(--text-tertiary); }
-    .card-head a { font-size: 12px; color: #2b4ca8; text-decoration: none; }
+    .card-head a { font-size: 12px; color: #2b4ca8; text-decoration: none; white-space: nowrap; }
     .card-head .meta { font-size: 12px; color: var(--text-tertiary); }
 
-    /* ---- PERFORMANCE CARD ---- */
+    /* ---- PERSONAL RECORDS CARD (home v3, Task 6 — 10K/Half/Marathon tiles
+       from /api/athletes/{id}/run-personal-records, see loadPerformanceCard) ---- */
     .icon-wrap.run  { background: var(--blue-soft);   color: var(--blue-text); }
     .icon-wrap.lift { background: var(--purple-soft); color: var(--purple-text); }
 
-    .perf-grid {
-      display: grid;
-      grid-template-columns: 1.4fr 1fr 1fr 1fr;
+    .pr-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .pr-tile {
+      background: var(--chip-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 10px 9px;
+      text-align: center;
     }
-    .perf-hdr { display: contents; }
-    .perf-row { display: contents; }
-    .perf-hdr > div {
-      font-size: 10px; color: var(--text-tertiary);
-      text-transform: uppercase; letter-spacing: 0.08em; font-weight: 500;
-      padding: 4px 14px 10px;
-      border-bottom: 1px solid var(--card-divider);
+    .pr-lbl {
+      font-size: 8px; font-weight: 800; color: var(--text-tertiary);
+      text-transform: uppercase; letter-spacing: 0.03em;
     }
-    .perf-row > div {
-      padding: 14px;
-      border-bottom: 1px solid var(--card-divider);
-      display: flex; flex-direction: column; justify-content: center;
+    .pr-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 16px; font-weight: 800; margin-top: 5px;
     }
-    .perf-hdr > div:first-child,
-    .perf-row > div:first-child { padding-left: 4px; }
-    .perf-row-last > div { border-bottom: 0; }
-
-    .perf-track { display: flex; align-items: center; gap: 11px; }
-    .perf-track .icon-wrap {
-      width: 38px; height: 38px; border-radius: 11px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 18px; flex-shrink: 0;
-    }
-    .perf-track .trk-name { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
-    .perf-track .trk-sub { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; }
-
-    .pc-value {
-      font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 600;
-      letter-spacing: -0.02em; color: var(--text-primary); line-height: 1.1;
-    }
-    .pc-unit { font-size: 11px; color: var(--text-tertiary); font-weight: 500; margin-left: 3px; font-family: 'Inter Tight', sans-serif; }
-    .pc-date { font-size: 10.5px; color: var(--text-tertiary); margin-top: 4px; }
-    .pc-delta { font-size: 11px; margin-top: 4px; font-weight: 500; }
-    .pc-delta.behind { color: var(--amber); }
-    .pc-delta.ahead  { color: var(--green); font-weight: 600; }
-    .pc-trophy { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--gold); margin-top: 4px; }
-    .pc-trophy i { font-size: 12px; }
-    .pc-dash { font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 600; color: var(--text-tertiary); }
-
-    .perf-mobile { display: none; }
-    .perf-track-block {
-      padding: 14px 0;
-      border-bottom: 1px solid var(--card-divider);
-    }
-    .perf-track-block:first-of-type { padding-top: 4px; }
-    .perf-track-block:last-of-type  { padding-bottom: 0; border-bottom: 0; }
+    .pr-date { font-size: 9px; color: var(--text-tertiary); font-family: 'JetBrains Mono', monospace; margin-top: 3px; }
 
     .perf-empty {
       padding: 28px 4px;
@@ -512,12 +655,21 @@
       padding: 16px 4px; line-height: 1.5;
     }
 
-    /* ---- Strava stale sync banner ---- */
+    /* ---- Strava stale sync banner ----
+       Card-treatment matching .bm-guardrail's small-notice pattern
+       (background/border/radius/padding scale) — was bare floating text
+       directly on the page's blue gradient background, which now sits right
+       after the log-today strip (above the dashboard grid) instead of nestled
+       between two large cards, so the lack of a container reads as broken. */
     .strava-stale-banner {
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 7px 0 9px;
+      background: #fff;
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 10px 16px;
+      margin-bottom: 14px;
       font-size: 12.5px;
       color: #64748b;
     }
@@ -1280,29 +1432,8 @@
       .greeting h1 { font-size: 22px; }
       .greeting p { font-size: 12.5px; }
 
-      #home-lower-row { grid-template-columns: 1fr; }
-
       .workout-desktop-only { display: none; }
 
-      /* Performance: hide desktop grid, show mobile blocks */
-      .perf-grid   { display: none; }
-      .perf-mobile { display: block; }
-      .perf-track-head { display: flex; align-items: center; gap: 11px; margin-bottom: 10px; }
-      .perf-track-head .icon-wrap { width: 36px; height: 36px; border-radius: 11px; display: flex; align-items: center; justify-content: center; font-size: 17px; flex-shrink: 0; }
-      .perf-cells { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
-      .perf-cell-m { background: #f7f9fd; border-radius: 10px; padding: 10px 11px; }
-      .perf-cell-m .mc-label { font-size: 9.5px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.07em; font-weight: 500; margin-bottom: 5px; display: flex; align-items: center; gap: 3px; }
-      .perf-cell-m .mc-label i { font-size: 11px; }
-      .perf-cell-m .mc-value { font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 600; letter-spacing: -0.02em; color: var(--text-primary); line-height: 1.1; }
-      .perf-cell-m .mc-unit { font-size: 10px; color: var(--text-tertiary); font-weight: 500; margin-left: 2px; font-family: 'Inter Tight', sans-serif; }
-      .perf-cell-m .mc-meta { font-size: 10px; color: var(--text-tertiary); margin-top: 3px; }
-      .perf-cell-m .mc-delta { font-size: 10px; margin-top: 3px; font-weight: 500; }
-      .perf-cell-m .mc-delta.behind { color: var(--amber); }
-      .perf-cell-m .mc-delta.ahead  { color: var(--green); font-weight: 600; }
-      .perf-cell-m.pr-cell-m  { background: rgba(184, 137, 60, 0.08); }
-      .perf-cell-m.pr-cell-m .mc-label { color: var(--gold); }
-      .perf-cell-m.pred-cell-m { background: rgba(43, 76, 168, 0.06); }
-      .perf-cell-m.pred-cell-m .mc-label { color: #2b4ca8; }
       .perf-cell-m.pred-cell-m .mc-value { color: #2b4ca8; }
 
       /* Readiness card: mobile — centre-aligned, score on top */
@@ -1439,14 +1570,6 @@
     }
     .lts-cta-btn i { font-size: 15px; }
 
-    /* ---- HOME TOP ROW (habits widget left + future right) ---- */
-    #home-top-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-      margin-bottom: 16px;
-      align-items: start;
-    }
 
     /* ---- HABITS WIDGET (home-habits-widget) ---- */
     #home-habits-widget {
@@ -1549,16 +1672,15 @@
       .lts-inner { flex-wrap: wrap; gap: 10px; }
       .lts-cta-btn { width: 100%; justify-content: center; }
 
-      /* Home top row: stack on mobile */
-      #home-top-row { grid-template-columns: 1fr; }
-
       .hw-wheel-svg { width: 88px; height: 88px; }
     }
   </style>
   <style>
     /* ---- READINESS TILE (compact, home-top-row-right) ---- */
     #home-top-row-right {
-      background: linear-gradient(135deg, var(--hero-1) 0%, var(--hero-2) 100%);
+      /* background now comes from the .grp-training class (Task 4 — Home v3
+         color grouping) so Readiness matches the rest of the training
+         cluster instead of carrying its own one-off hero gradient. */
       border: 0;
       border-radius: 20px;
       padding: 20px 22px;
@@ -1792,18 +1914,185 @@
       color: #dc2626;
       padding: 6px 4px 2px;
     }
-    .rw-log-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
+    /* ==== HOME V2 ==== */
+
+    /* ---- READINESS CTL/ATL/TSB TRIO (extends home-top-row-right) ---- */
+    .rd-ctl-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid rgba(11, 21, 48, 0.08);
+    }
+    .rd-ctl-card {
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid #dde3f6;
+      border-radius: 10px;
+      padding: 9px 8px;
+      text-align: center;
+    }
+    .rd-ctl-v {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 17px;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .rd-ctl-l {
+      font-size: 8px;
+      color: var(--text-tertiary);
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      margin-top: 3px;
+    }
+    .rd-ctl-band {
+      height: 4px;
+      border-radius: 3px;
+      margin: 8px 0 4px;
+      position: relative;
+    }
+    .rd-ctl-mk {
+      position: absolute;
+      top: -2px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #fff;
+      border: 1.5px solid #475569;
+      transform: translateX(-50%);
+    }
+    .rd-ctl-stat { font-size: 8.5px; font-weight: 800; letter-spacing: 0.03em; }
+    .rd-ctl-spark { width: 100%; height: 24px; margin-top: 5px; display: block; }
+    .rd-ctl-bb {
       font-size: 12.5px;
-      font-weight: 700;
-      color: #fff !important;
-      background: #5a8dee;
-      border-radius: 8px;
-      padding: 5px 11px;
+      color: rgba(11, 21, 48, 0.72);
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid rgba(11, 21, 48, 0.08);
+      line-height: 1.5;
+    }
+
+    /* ---- NEXT WORKOUT CARD (home-next-workout-card) ----
+       home v3 (Task 1): this card now holds two merged sub-sections (Next
+       workout / Recent workout), each with its own sub-head + link row
+       (.nw-worksub/.nw-subhead) and a thin divider (.nw-sep) between them —
+       "nw-" prefix kept for the whole card, not renamed to a shared
+       cross-widget name, since it's still this one card's own scoped
+       vocabulary. */
+    .nw-worksub {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .nw-subhead {
+      font-size: 10px;
+      font-weight: 800;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .nw-worksub a { font-size: 12px; color: #2b4ca8; text-decoration: none; white-space: nowrap; }
+    .nw-sep {
+      border-top: 1px solid var(--card-divider);
+      margin: 13px 0;
+    }
+    .nw-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
       text-decoration: none;
-      white-space: nowrap;
+      color: inherit;
+    }
+    .nw-badge {
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      padding: 3px 8px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+    .nw-badge--run  { background: var(--blue-soft);   color: var(--blue-text); }
+    .nw-badge--lift { background: var(--purple-soft); color: var(--purple-text); }
+    .nw-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .nw-name {
+      font-size: 13.5px; font-weight: 700; color: var(--text-primary);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .nw-meta {
+      font-size: 11px; color: var(--text-secondary); font-family: 'JetBrains Mono', monospace;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .nw-arrow { font-size: 14px; color: #2b4ca8; font-weight: 700; flex-shrink: 0; }
+    .nw-empty, .nw-loading { font-size: 13.5px; color: var(--text-secondary); padding: 4px 0; }
+    .nw-empty a { color: #2b4ca8; text-decoration: none; }
+
+    /* ---- TRAINING CARD: 8-week trend link-out ---- */
+    .tw-trendlink {
+      font-size: 11px;
+      font-weight: 700;
+      color: #2b4ca8;
+      margin-top: 9px;
+      display: inline-block;
+      text-decoration: none;
+    }
+
+    /* ---- PERFORMANCE CARD (home-performance-card) ----
+       Distinct "hperf-" prefix — #home-perf-container's "Personal records"
+       card already owns the "perf-" prefix; unrelated widget, same-name
+       coincidence only, do not collide with or touch it. */
+    /* Stacked (1 column, "2 lines") instead of side-by-side — frees up width
+       so each tile can run full-card-width, letting the score number itself
+       be sized up instead of being squeezed into a half-width tile. */
+    .hperf-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+    /* Card now stretches to match its neighbor's height (align-items:stretch
+       on the grid) — center the tiles in whatever extra height that leaves,
+       instead of leaving dead space pinned below them. */
+    #home-performance-card .hperf-grid { flex: 1; align-content: center; }
+    .hperf-tile {
+      background: var(--chip-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 11px;
+      padding: 16px 18px;
+    }
+    .hperf-lbl {
+      font-size: 9.5px; font-weight: 800; color: var(--text-tertiary);
+      text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .hperf-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 32px; font-weight: 800; line-height: 1; margin-top: 6px;
+    }
+    .hperf-tile--e .hperf-val { color: var(--green); }
+    .hperf-tile--s .hperf-val { color: var(--orange-text); }
+    .hperf-dash { color: var(--text-tertiary); }
+    .hperf-delta { font-size: 10.5px; font-family: 'JetBrains Mono', monospace; margin-top: 4px; font-weight: 600; }
+    .hperf-delta--up   { color: var(--green); }
+    .hperf-delta--down { color: var(--red); }
+    .hperf-delta--flat { color: var(--text-tertiary); }
+    .hperf-msg, .hperf-loading { font-size: 13.5px; color: var(--text-secondary); padding: 4px 0; line-height: 1.5; }
+    .hperf-msg a { color: #2b4ca8; text-decoration: none; }
+
+    /* ---- HOME V2: mobile (home.html's own breakpoint is 640px, not 880) ---- */
+    @media (max-width: 640px) {
+      .rd-ctl-row  { gap: 6px; }
+      .rd-ctl-card { padding: 7px 5px; }
+      .rd-ctl-v    { font-size: 14px; }
+      .rd-ctl-l    { font-size: 7px; }
+      .rd-ctl-stat { font-size: 8px; }
+      .nw-name     { font-size: 12.5px; }
+      .nw-meta     { font-size: 10px; }
+      .hperf-val   { font-size: 24px; }
+    }
+
+    /* Mobile (<=479px, home v3): the daily-signal block (ring/score/hint/
+       4-tile factor row) stays visible — only the CTL/ATL/TSB trio, a denser
+       second data set below it, is dropped to keep the stacked mobile card
+       scannable. */
+    @media (max-width: 479px) {
+      .rd-ctl-row { display: none; }
     }
   </style>
 </head>
@@ -1819,35 +2108,38 @@
   <!-- Log-today strip (rendered by JS) -->
   <div id="home-log-today-strip"></div>
 
-  <!-- Top 2-up row: habits widget (left) + future widget (right) -->
-  <div id="home-top-row">
-    <div id="home-habits-widget" class="card"></div>
-    <div id="home-top-row-right"></div>
-  </div>
-
-  <!-- Row 2: Weight (full-width) -->
+  <!-- Banners — stay outside the dashboard grid below, in their own full-width
+       block, so they don't have to interrupt a single continuous grid flow. -->
   <div id="body-modifier-guardrail"></div>
-  <div id="home-weight-widget" style="margin-bottom:16px;"></div>
-
-  <!-- Strava stale banner (shown when sync is needed) -->
   <div id="strava-stale-banner"></div>
 
-  <!-- Lower row 1: This week's training (full-width) -->
-  <div id="home-training-row">
-    <div id="home-training-card" class="card"></div>
-  </div>
-
-  <!-- Lower row 2: Performance (left) + [Recent Workouts + Sleep stacked] (right) -->
-  <div id="home-lower-row">
+  <!-- Unified dashboard grid (home v3 bento layouts). Wide/Medium/Narrow
+       hand-place every widget by grid-column/grid-row (see CSS above), so
+       DOM order doesn't affect those three. Mobile (<=479px) switches to a
+       plain flex column and follows DOM order — this order (Readiness →
+       Next+Recent → Performance → Training → Personal records → Habits →
+       Weight → Sleep) IS the required Mobile stack order. Each widget still
+       finds its own container by the SAME element id it always used — only
+       the parent/grid-column/DOM-order changed. #home-workouts-container
+       (recent workouts) is gone: merged into #home-next-workout-card, see
+       home.js's loadRecentWorkoutsCard / home-readiness-training-sleep.js's
+       renderNextWorkoutCard. -->
+  <div id="home-dashboard-grid">
+    <div id="home-top-row-right" class="grp-training"></div>
+    <div id="home-next-workout-card" class="card grp-training"></div>
+    <div id="home-performance-card" class="card grp-training"></div>
+    <div id="home-training-card" class="card grp-training"></div>
     <div id="home-perf-container"></div>
-    <div id="home-right-stack">
-      <div id="home-workouts-container"></div>
-      <div id="home-sleep-card" class="card sleep-card"></div>
-    </div>
+    <div id="home-habits-widget" class="card grp-training"></div>
+    <div id="home-weight-widget"></div>
+    <div id="home-sleep-card" class="card sleep-card"></div>
   </div>
 
-  <!-- Fast-log form: revealed when Log Today strip CTA is tapped -->
-  <div id="row-log" style="margin-top:16px;">
+  <!-- Fast-log form: revealed when Log Today strip CTA is tapped.
+       hidden by default (frontend/js/home-strip-habits.js's lts-cta-btn click
+       handler removes the attribute) — the "revealed when tapped" comment
+       above was previously aspirational: nothing actually hid this before. -->
+  <div id="row-log" style="margin-top:16px;" hidden>
     <section id="fast-log-section" class="card fast-log">
       <div class="card-head">
         <div class="ttl"><i class="ti ti-pencil-plus"></i>Log Today</div>

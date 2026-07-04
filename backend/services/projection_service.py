@@ -30,6 +30,9 @@ def race_to_dict(race: Race) -> dict:
         "type": race.race_type or "race",
         "priority": race.priority,
         "goal_time_seconds": race.goal_time_seconds,
+        # Goal pace derived from goal_time / distance (issue #1247). Surfaced for
+        # both races and checkpoints so the card can render pace identically.
+        "goal_pace_seconds_per_km": race.goal_pace_seconds_per_km,
         "actual_time_seconds": race.actual_time_seconds,
         "status": race.status,
         "name": race.name,
@@ -95,6 +98,10 @@ def create_race(
             status=status,
             actual_time_seconds=actual_time_seconds,
         )
+        # Derive goal pace on create (mirrors update_race) so a race OR a
+        # distance-defined checkpoint created with a goal stores its pace.
+        pace, _ = _compute_goal_pace(goal_time_seconds, distance)
+        race.goal_pace_seconds_per_km = pace
         db.add(race)
         db.commit()
         db.refresh(race)

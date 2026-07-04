@@ -3362,6 +3362,7 @@ def _build_recent_workouts_block(uid, today_bkk):
             z2 = None
         result.append({
             "name": getattr(w, "name", None) or getattr(w, "workout_type", "Workout"),
+            "workout_type": getattr(w, "workout_type", None),
             "relative_day": _rel(w.workout_date),
             "summary": _summary(w),
             "zone2_minutes": z2,
@@ -5284,6 +5285,8 @@ class WorkoutPatch(BaseModel):
     # Environmental conditions for heat/humidity normalization (issue #1168)
     temperature_c: Optional[float] = None
     humidity_pct: Optional[float] = None
+    # Self-reported effort feeling (issue #1241): 'hard' | 'ok' | 'easy' | null.
+    feeling: Optional[str] = None
 
 
 class WorkoutDuplicateIn(BaseModel):
@@ -5381,6 +5384,8 @@ def _normalize_workout_type(t: str | None) -> str | None:
 
 # Allowed run-subtype values (issue: run subtype as its own column). None clears it.
 _RUN_SUBTYPE_VALUES = {"interval", "longrun", "easy", "tempo"}
+# Self-reported effort feeling (issue #1241).
+_FEELING_VALUES = frozenset({"hard", "ok", "easy"})
 
 
 def _workout_signal_scores(session, workout) -> dict:
@@ -5741,6 +5746,7 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "avg_stride_m": float(w.avg_stride_m) if w.avg_stride_m is not None else None,
         "temperature_c": w.temperature_c,
         "humidity_pct": w.humidity_pct,
+        "feeling": w.feeling,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
         **_best_values_dict(w),
@@ -5960,6 +5966,7 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "elevation_m": w.elevation_m,
         "zone2_minutes": w.zone2_minutes,
         "exercise_count": exercise_count,
+        "feeling": w.feeling,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         **_best_values_dict(w),
     }
@@ -6010,6 +6017,56 @@ def get_workouts(
             for w in workouts
         ]
         return JSONResponse(result)
+
+
+def _recent_workout_dict(w) -> dict:
+    """Compact recent-workout row for the 24h attach/override picker (issue #1242)."""
+    dist = float(w.distance_km) if w.distance_km is not None else None
+    dur_min = round(w.duration_seconds / 60) if w.duration_seconds else None
+    bits = []
+    if dur_min:
+        bits.append(str(dur_min) + "min")
+    if dist:
+        bits.append(("%.1f" % dist) + " km")
+    if w.tss is not None:
+        bits.append(str(round(float(w.tss))) + " TSS")
+    return {
+        "id": str(w.id),
+        "name": w.name,
+        "workout_type": w.workout_type,
+        "run_subtype": w.run_subtype,
+        "source": w.source,
+        "created_at": w.created_at.isoformat() if w.created_at else None,
+        "start_time": w.start_time.isoformat() if w.start_time else None,
+        "duration_seconds": w.duration_seconds,
+        "distance_km": dist,
+        "meta": " · ".join(bits),
+    }
+
+
+@app.get("/api/workouts/recent")
+def get_recent_workouts(
+    hours: int = Query(24, ge=1, le=168),
+    user: User = Depends(resolve_user),
+):
+    """Workouts logged/synced in the last ``hours`` (default 24) for the user.
+
+    Ordered newest-first by created_at (when it was logged or synced — catches a
+    just-synced run and a just-entered manual workout alike). Includes manual
+    entries (source='manual'). Powers the Plan card's attach/override picker.
+    """
+    cutoff = _datetime.now(_timezone.utc) - _timedelta(hours=hours)
+    with Session(engine) as session:
+        workouts = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == user.id,
+                Workout.created_at >= cutoff,
+            )
+            .order_by(Workout.created_at.desc())
+            .all()
+        )
+        return JSONResponse([_recent_workout_dict(w) for w in workouts])
 
 
 @app.get("/api/workouts/recent-type")
@@ -6699,6 +6756,19 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             workout.temperature_c = body.temperature_c
         if 'humidity_pct' in body.model_fields_set:
             workout.humidity_pct = body.humidity_pct
+        if 'feeling' in body.model_fields_set:
+            # None/empty clears it; otherwise must be one of the allowed values.
+            fl = body.feeling
+            if fl is None or (isinstance(fl, str) and fl.strip() == ""):
+                workout.feeling = None
+            else:
+                fl = fl.strip().lower()
+                if fl not in _FEELING_VALUES:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="feeling must be one of: " + ", ".join(sorted(_FEELING_VALUES)),
+                    )
+                workout.feeling = fl
         # Stamp updated_at so edits (e.g. marking a run as an interval) change the
         # workout-set fingerprint — the summary/performance cache signature
         # includes MAX(updated_at), so a type edit busts the cache and the
@@ -6858,6 +6928,7 @@ def _workout_actual_summary(w) -> dict:
         "distance_km": dist,
         "duration_seconds": w.duration_seconds,
         "tss": float(w.tss) if w.tss is not None else None,
+        "feeling": w.feeling,
         "meta": " · ".join(bits),
     }
 
@@ -7107,6 +7178,21 @@ def miss_planned_session(ps_id: str, user: User = Depends(resolve_user)):
         row = _get_planned_session_or_404(session, ps_id, user)
         row.matched_workout_id = None
         row.status = "missed"
+        row.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+        session.refresh(row)
+        return JSONResponse(_planned_session_dict(row))
+
+
+@app.post("/api/planned-sessions/{ps_id}/mark-done")
+def mark_done_planned_session(ps_id: str, user: User = Depends(resolve_user)):
+    """Manually mark a session complete with no linked workout data — for when
+    sync never captured it (e.g. the watch wasn't started). Distinct from
+    /match, which always links a real Workout row."""
+    with Session(engine) as session:
+        row = _get_planned_session_or_404(session, ps_id, user)
+        row.matched_workout_id = None
+        row.status = "done_manual"
         row.updated_at = _datetime.now(_timezone.utc)
         session.commit()
         session.refresh(row)
@@ -15455,7 +15541,12 @@ def _plan_signature(session, user_id, plan) -> str:
         prefs_pace_stamp, prefs_updated_at,
     ) = row
     prefs_stamp = prefs_pace_stamp or prefs_updated_at
+    # Bundle-shape version: bump when the cached bundle gains/changes a key so
+    # existing computed_cache rows (old shape) invalidate on deploy instead of
+    # being served stale. bundle-v2 = folded in the primary race's `readiness`.
+    _BUNDLE_VERSION = "bundle-v2"
     parts = [
+        _BUNDLE_VERSION,
         str(max_wo), str(wo_count), str(max_wo_updated),
         str(max_race), str(max_race_created), str(max_checkpoint_updated),
         str(prefs_stamp),
@@ -15541,7 +15632,7 @@ def _compute_plan_bundle(user) -> dict:
 
     # Current athlete scores.
     try:
-        perf = _decode(get_athlete_performance(user=user)) or {}
+        perf = _decode(get_athlete_performance(str(user.id), user=user)) or {}
     except HTTPException:
         perf = {}
     p_state = perf.get("state")
@@ -15598,6 +15689,12 @@ def _compute_plan_bundle(user) -> dict:
             next((r for r in races if r.race_type == "race"), None),
         )
         primary_time_curve = None
+        # Full readiness of the primary race, captured from the same
+        # _race_readiness_impl call the estimate loop already makes (reused, not
+        # recomputed) and folded into the bundle under "readiness" so the
+        # Projection tab renders time/form curves + on-track + specificity from
+        # ONE cached call instead of a separate ~1.5s /api/races/{id}/readiness.
+        primary_readiness = None
         primary_race_id = str(primary_race.id) if primary_race else None
         race_out = []
         for race in races:
@@ -15623,6 +15720,7 @@ def _compute_plan_bundle(user) -> dict:
                     and readiness
                 ):
                     primary_time_curve = readiness.get("time_curve")
+                    primary_readiness = readiness
                 if readiness and readiness.get("time_curve"):
                     proj = readiness["time_curve"].get("projection") or []
                     hist = readiness["time_curve"].get("history") or []
@@ -15660,6 +15758,11 @@ def _compute_plan_bundle(user) -> dict:
             "primary_race_id": primary_race_id,
             "time_curve": primary_time_curve,
         },
+        # Full primary-race readiness (time_curve, form_curve, on_track,
+        # specificity_progress, building_baseline, projected_form) so the
+        # Projection tab renders everything from this one cached bundle. Null
+        # when there is no upcoming primary race.
+        "readiness": primary_readiness,
         "races": race_out,
     }
 
