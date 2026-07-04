@@ -12,7 +12,6 @@ Acceptance Criteria:
 import uuid
 import unittest.mock as mock
 
-import pytest
 from fastapi.testclient import TestClient
 
 from backend.main import app, resolve_user
