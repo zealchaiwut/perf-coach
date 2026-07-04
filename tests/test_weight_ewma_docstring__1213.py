@@ -94,3 +94,85 @@ class TestFunctionDocstring:
         assert result[0] == 75.0
         assert result[1] == 75.0
         assert result[2] == 75.0
+
+
+# ---------------------------------------------------------------------------
+# AC3 — No code changes, runtime behavior preserved
+# ---------------------------------------------------------------------------
+
+class TestNoCodeChanges:
+    """AC3: No logic, constants, or runtime behaviour changed."""
+
+    def test_compute_ewma_signature_unchanged(self):
+        sig = inspect.signature(compute_ewma)
+        params = list(sig.parameters.keys())
+        assert params == ["entries", "span", "alpha"], (
+            f"Function signature should be unchanged; got {params}"
+        )
+
+    def test_alpha_clamping_works_as_documented(self):
+        """Verify alpha is truly clamped (not converted) to [0.0, 1.0]."""
+        import datetime
+        entries = [
+            {"date": datetime.date(2026, 1, 1), "weight_kg": 75.0},
+            {"date": datetime.date(2026, 1, 2), "weight_kg": 80.0},
+        ]
+
+        # alpha < 0 should be clamped to 0
+        result_neg = compute_ewma(entries, alpha=-0.5)
+        assert result_neg[1] == 75.0, (
+            "alpha < 0 should be clamped to 0, freezing at first value"
+        )
+
+        # alpha > 1 should be clamped to 1
+        result_over = compute_ewma(entries, alpha=2.0)
+        assert result_over[1] == 80.0, (
+            "alpha > 1 should be clamped to 1, yielding raw value"
+        )
+
+
+# ---------------------------------------------------------------------------
+# AC5 — Existing tests still pass
+# ---------------------------------------------------------------------------
+
+class TestExistingBehavior:
+    """AC5: All existing weight_ewma behavior is preserved."""
+
+    def test_empty_list_returns_empty(self):
+        result = compute_ewma([])
+        assert result == []
+
+    def test_single_entry_returns_single_value(self):
+        import datetime
+        entries = [{"date": datetime.date(2026, 1, 1), "weight_kg": 75.0}]
+        result = compute_ewma(entries)
+        assert len(result) == 1
+        assert result[0] == 75.0
+
+    def test_constant_weight_stays_flat(self):
+        import datetime
+        entries = [
+            {"date": datetime.date(2026, 1, i + 1), "weight_kg": 75.0}
+            for i in range(5)
+        ]
+        result = compute_ewma(entries)
+        for v in result:
+            assert abs(v - 75.0) < 1e-9
+
+    def test_spike_resistance_with_default_span_14(self):
+        """AC3 from the original #1154: +5kg spike shifts EWMA <1kg."""
+        import datetime
+        n = 14
+        base = 75.0
+        spike = base + 5.0
+        entries = []
+        for i in range(n):
+            w = spike if i == n // 2 else base
+            entries.append({"date": datetime.date(2026, 1, i + 1), "weight_kg": w})
+        result = compute_ewma(entries)
+        spike_idx = n // 2
+        spike_shift = result[spike_idx] - base
+        assert spike_shift < 1.0, (
+            f"Spike of +5 kg caused EWMA shift of {spike_shift:.3f} kg "
+            f"(must be < 1 kg) with default span=14"
+        )
