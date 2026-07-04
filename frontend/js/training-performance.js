@@ -34,6 +34,9 @@
   var _activeRange  = DEFAULT_RANGE;
   var _initialized  = false;
   var _planEntityId = null;
+  // Per-user IANA timezone resolved from /api/user-preferences in _boot().
+  // Falls back to 'UTC' when the preferences fetch fails or returns no value.
+  var _tz           = 'UTC';
   // Per-date score contributions from the Performance endpoint (endurance/speed),
   // keyed by ISO date. Used to show each feeding session's contribution chip.
   var _contribs     = { endurance: null, speed: null };
@@ -50,13 +53,23 @@
 
   function _boot() {
     var userId = window.getCurrentUserId ? window.getCurrentUserId() : null;
+    function _resolvePrefsAndLoad() {
+      fetch('/api/user-preferences', { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+        .then(function (data) {
+          var tz = data && data.row && data.row.timezone;
+          if (tz && typeof tz === 'string') _tz = tz;
+        })
+        .catch(function () { /* keep _tz fallback */ })
+        .then(function () { _loadAll(); });
+    }
     if (userId) {
       _athleteId = userId;
-      _loadAll();
+      _resolvePrefsAndLoad();
     } else {
       window.addEventListener('userReady', function (e) {
         _athleteId = e.detail.userId;
-        _loadAll();
+        _resolvePrefsAndLoad();
       }, { once: true });
     }
   }
@@ -74,12 +87,12 @@
   // ── Small helpers ─────────────────────────────────────────────────────────
 
   function _today() {
-    return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    return new Date().toLocaleDateString('en-CA', { timeZone: _tz });
   }
   function _dateMinusDays(days) {
     var d = new Date();
     d.setDate(d.getDate() - days);
-    return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    return d.toLocaleDateString('en-CA', { timeZone: _tz });
   }
   function _esc(str) {
     return String(str)
