@@ -10,7 +10,6 @@ Acceptance Criteria anchored:
 import pathlib
 import re
 import subprocess
-import sys
 
 ROOT = pathlib.Path(__file__).parent.parent
 TRENDS_JS = ROOT / "frontend" / "js" / "trends.js"
