@@ -11,8 +11,6 @@ Acceptance criteria verified:
 import inspect
 from datetime import date, timedelta
 
-import pytest
-
 from backend.services.training_load import (
     TARGET_FORM_LOWER,
     taper_recommendation,
@@ -81,13 +79,13 @@ def test_ac2_target_form_referenced_in_function_body():
     src = inspect.getsource(taper_recommendation)
     # Strip the def line and docstring to look only at the logic body
     lines = src.split("\n")
-    body_lines = [l for l in lines if "target_form" in l]
+    body_lines = [ln for ln in lines if "target_form" in ln]
     # Must appear at least once outside of parameter declaration and None-check
-    uses = [l.strip() for l in body_lines
-            if "def taper_recommendation" not in l
-            and "target_form is None" not in l
-            and "target_form:" not in l
-            and "target_form =" not in l  # skip docstring-only assignments
+    uses = [ln.strip() for ln in body_lines
+            if "def taper_recommendation" not in ln
+            and "target_form is None" not in ln
+            and "target_form:" not in ln
+            and "target_form =" not in ln  # skip docstring-only assignments
             ]
     assert uses, (
         "target_form must be referenced in the computation body of taper_recommendation "
