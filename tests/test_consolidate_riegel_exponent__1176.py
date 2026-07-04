@@ -167,7 +167,7 @@ def test_payload_half_race_equivalent_shorter_than_full():
 
 def test_payload_half_race_equivalent_value_matches_formula():
     """AC3: half_race_equivalent_seconds matches compute_half_race_equivalent output."""
-    from backend.services.projection import compute_half_race_equivalent, RIEGEL_EXPONENT
+    from backend.services.projection import compute_half_race_equivalent
     result = _make_payload()
     entry = result["races"][0]
     est = entry["estimated_finish_seconds"]
