@@ -11,7 +11,6 @@ import inspect
 from datetime import date
 
 
-
 # ── AC3: Import guard — no circular imports ───────────────────────────────────
 
 class TestNoCicularImport:
@@ -114,8 +113,6 @@ class TestWindowBoundariesMatchMainPyBkk:
 
         captured_today = {}
 
-        original_fn = bm.get_body_modifier_guardrail_for_user
-
         def _capturing_guardrail(user_id, as_of_date=None):
             from backend.utils.time import today_bangkok as _tbkk
             captured_today["resolved"] = _tbkk() if as_of_date is None else as_of_date
@@ -140,8 +137,6 @@ class TestWindowBoundariesMatchMainPyBkk:
 
         fixed_date = date(2025, 1, 15)
         captured = {}
-
-        original = bm.get_body_modifier_guardrail_for_user
 
         def _stub(user_id, as_of_date=None):
             captured["as_of_date"] = as_of_date
