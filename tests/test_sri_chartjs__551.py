@@ -1,5 +1,4 @@
 """Tests for issue #551: Add SRI hash to Chart.js CDN script in training-log.html (runs against UAT)"""
-import os
 import re
 from pathlib import Path
 from html.parser import HTMLParser
