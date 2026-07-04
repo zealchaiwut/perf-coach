@@ -5745,6 +5745,7 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "avg_stride_m": float(w.avg_stride_m) if w.avg_stride_m is not None else None,
         "temperature_c": w.temperature_c,
         "humidity_pct": w.humidity_pct,
+        "flat_equivalent_pace": float(w.flat_equivalent_pace) if w.flat_equivalent_pace is not None else None,
         "feeling": w.feeling,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],

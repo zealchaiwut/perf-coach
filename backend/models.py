@@ -279,6 +279,9 @@ class Workout(Base):
     efficiency_first_half = Column(Float, nullable=True)
     efficiency_second_half = Column(Float, nullable=True)
     endurance_signal_source = Column(String(20), nullable=True)
+    # Flat-equivalent pace for treadmill activities (issue #1219): computed from
+    # normalize_treadmill_signal via the Minetti NGP formula. None for outdoor runs.
+    flat_equivalent_pace = Column(Float, nullable=True)
     # Self-reported effort feeling (issue #1241): 'hard' | 'ok' | 'easy' | NULL.
     # One shared column tagged from either the Plan tab (matched workout) or the
     # Log tab. Does not affect scores.
@@ -657,6 +660,9 @@ class StrydActivity(Base):
     streams_payload = Column(JSONB, nullable=True)
     raw_payload = Column(JSONB, nullable=False)
     synced_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+    # Treadmill incline extracted from the Stryd raw payload (average_incline field).
+    # Present only for treadmill activities; None for outdoor runs.
+    grade_percent = Column(Float, nullable=True)
 
     __table_args__ = (
         Index("ix_stryd_activities_user_start_time", "user_id", "start_time"),
