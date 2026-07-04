@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import math
 from datetime import date, timedelta
-from typing import Optional
+from typing import Optional, Sequence, Tuple
 
 from backend.services.fitness_model import (
     ATL_TIME_CONSTANT,
@@ -374,6 +374,8 @@ def build_plan_projection_payload(
     body_modifier: float = 1.0,
     b_race_result: "Optional[dict]" = None,
     current_score: "Optional[float]" = None,
+    stimulus_history: "Optional[Sequence[Tuple[date, float]]]" = None,
+    reference_date: "Optional[date]" = None,
 ) -> dict:
     """Assemble the full projection payload for /plans/{plan_id}/projection.
 
@@ -498,6 +500,8 @@ def build_plan_projection_payload(
                 projected_ctl,
                 current_score=current_score,
                 race_ceiling=_race_ceil_val,
+                stimulus_history=stimulus_history,
+                reference_date=reference_date,
             )
         # Apply the power-to-weight body modifier to the projected endurance
         # score before converting to a race finish time estimate.

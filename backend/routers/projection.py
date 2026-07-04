@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session as _Session
 from backend.auth import resolve_user
 from backend.db import engine as _engine
 from backend.models import (
+    EconomyCeilingSnapshot as _EconomyCeilingSnapshot,
     Race as _Race,
     TrainingPlan as _TrainingPlan,
     User,
@@ -453,6 +454,7 @@ async def get_plan_projection(
     # Querying at request time means delete/edit propagates naturally (AC4).
     today = _date.today()
     b_race_result = None
+    stimulus_history = []
     with _Session(_engine) as db:
         b_race_rows = (
             db.query(_Race)
@@ -472,6 +474,18 @@ async def get_plan_projection(
                 "distance_km": float(b_race_rows.distance_km),
             }
 
+        # Fetch per-user stimulus history from economy_ceiling_snapshots so the
+        # economy ceiling bonus is reflected in the projected score ceiling.
+        snap_rows = (
+            db.query(_EconomyCeilingSnapshot)
+            .filter(_EconomyCeilingSnapshot.user_id == user.id)
+            .order_by(_EconomyCeilingSnapshot.snapshot_date.asc())
+            .all()
+        )
+        stimulus_history = [
+            (row.snapshot_date, row.economy_stimulus) for row in snap_rows
+        ]
+
     payload = _proj.build_plan_projection_payload(
         start_ctl=start_ctl,
         start_atl=start_atl,
@@ -481,5 +495,7 @@ async def get_plan_projection(
         thresholds=thresholds,
         b_race_result=b_race_result,
         current_score=_current_score,
+        stimulus_history=stimulus_history,
+        reference_date=today,
     )
     return JSONResponse(payload)
