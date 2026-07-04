@@ -20,7 +20,13 @@ def client():
 @pytest.fixture
 def auth_session(client):
     """Authenticate and return a session cookie."""
-    login_resp = client.post("/api/auth/login", json={"username": "test_user", "password": "test_pass"})
+    try:
+        login_resp = client.post(
+            "/api/auth/login",
+            json={"username": "test_user", "password": "test_pass"},
+        )
+    except Exception:
+        pytest.skip("UAT server not available")
     if login_resp.status_code == 401:
         pytest.skip("test_user not set up in UAT")
     assert login_resp.status_code == 200, f"Login failed: {login_resp.text}"
