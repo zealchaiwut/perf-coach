@@ -12,7 +12,6 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, validator
 
 from backend.auth import resolve_user
-from backend.models import User
 from backend.services import strength_sessions_service as _svc
 
 router = APIRouter()

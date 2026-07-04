@@ -8,7 +8,6 @@ Acceptance criteria verified:
 - AC5: Plan router endpoints reject unauthenticated requests (no session → 401/403)
 - AC6: Plan router endpoints return valid responses with a valid session cookie
 """
-import ast
 import os
 import pathlib
 import uuid

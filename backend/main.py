@@ -15015,7 +15015,7 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
 
     except HTTPException:
         raise
-    except Exception as exc:
+    except Exception:
         _performance_log.exception("unexpected error in performance endpoint")
         return JSONResponse(
             status_code=500,
