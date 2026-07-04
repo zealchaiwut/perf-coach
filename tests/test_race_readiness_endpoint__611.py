@@ -510,7 +510,7 @@ def test_form_curve_zone_labels_are_configurable():
 
     def fake_get_app_config(key, default=""):
         cfg = {
-            "readiness.form_buried_ceiling": "-3.0",   # -5.0 < -3.0 → accumulated_fatigue
+            "readiness.form_buried_ceiling": "-3.0",   # -5.0 < -3.0 → buried
             "readiness.form_fresh_floor": "10.0",
             "readiness.min_history_weeks": "",
             "readiness.peak_tracking_tolerance": "",
@@ -536,9 +536,9 @@ def test_form_curve_zone_labels_are_configurable():
         body = json.loads(result.body)
 
     zones = {entry["zone"] for entry in body["form_curve"]}
-    # With buried_ceiling=-3.0, TSB=-5.0 should be classified as accumulated_fatigue
-    assert "accumulated_fatigue" in zones, (
-        f"Expected accumulated_fatigue zone when TSB=-5.0 < buried_ceiling=-3.0; got {zones}"
+    # With buried_ceiling=-3.0, TSB=-5.0 should be classified as buried
+    assert "buried" in zones, (
+        f"Expected buried zone when TSB=-5.0 < buried_ceiling=-3.0; got {zones}"
     )
 
 
@@ -576,7 +576,7 @@ def test_form_curve_entries_have_required_keys():
         assert "date" in entry
         assert "form" in entry
         assert "zone" in entry
-        assert entry["zone"] in ("accumulated_fatigue", "optimal", "freshness")
+        assert entry["zone"] in ("buried", "neutral", "fresh")
 
 
 # ── AC5: on_track has boolean + status_summary ───────────────────────────────
