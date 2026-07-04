@@ -143,6 +143,7 @@ def backfill_signals_for_athlete(user_id, db) -> dict:
                 workout.id, exc, exc_info=True,
             )
 
+    commit_failure_reason = None
     try:
         db.commit()
     except Exception as exc:
@@ -150,21 +151,23 @@ def backfill_signals_for_athlete(user_id, db) -> dict:
             "backfill_signals: commit failed for user %s: %s",
             user_id, exc, exc_info=True,
         )
+        commit_failure_reason = "commit failed — changes not saved"
 
-    _log.info(
-        "backfill_signals complete",
-        extra={
-            "user_id": str(user_id),
-            "runs_processed": len(run_workouts),
-            "speed_computed": speed_computed,
-            "endurance_computed": endurance_computed,
-        },
-    )
+    if commit_failure_reason is None:
+        _log.info(
+            "backfill_signals complete",
+            extra={
+                "user_id": str(user_id),
+                "runs_processed": len(run_workouts),
+                "speed_computed": speed_computed,
+                "endurance_computed": endurance_computed,
+            },
+        )
 
     return {
         "thresholds_found": True,
         "runs_processed": len(run_workouts),
         "speed_computed": speed_computed,
         "endurance_computed": endurance_computed,
-        "reason": None,
+        "reason": commit_failure_reason,
     }
