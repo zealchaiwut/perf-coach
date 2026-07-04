@@ -60,6 +60,7 @@ from backend.services.training_load import (
     MAX_CTL_DAYS,
     BASELINE_WINDOW_DAYS,
     BASELINE_MIN_WORKOUT_DAYS,
+    get_weekly_volume as _get_weekly_volume,
 )
 from backend.services.specificity_progress import specificity_progress as _specificity_progress
 from backend.services.daily_load import daily_load_series as _daily_load_series
@@ -15235,34 +15236,11 @@ def get_athlete_weekly_summary(athlete_id: str, user: User = Depends(resolve_use
             return JSONResponse(_cached)
 
         # ── Weekly volume (AC8) ───────────────────────────────────────────────
-        current_week_workouts = (
-            session.query(Workout)
-            .filter(
-                Workout.user_id == uid,
-                Workout.workout_date >= ws,
-                Workout.workout_date <= we,
-            )
-            .all()
-        )
-        session_count = len(current_week_workouts)
-
-        def _sf(v):
-            try:
-                return float(v) if v is not None else None
-            except Exception:
-                return None
-
-        def _sum_attr(workouts, attr):
-            vals = [_sf(getattr(w, attr)) for w in workouts if getattr(w, attr, None) is not None]
-            return round(sum(vals), 3) if vals else None
-
-        distance_km = _sum_attr(current_week_workouts, "distance_km")
-        raw_tss = _sum_attr(current_week_workouts, "tss")
-        total_tss = round(raw_tss, 2) if raw_tss is not None else 0.0
-        if distance_km is None:
-            distance_km = 0.0
-
-        workout_types = [w.workout_type for w in current_week_workouts]
+        _volume = _get_weekly_volume(str(uid), ws, we)
+        session_count = _volume["session_count"]
+        distance_km = _volume["distance_km"]
+        total_tss = _volume["total_tss"]
+        workout_types = _volume["workout_types"]
 
         # ── TSB / load (AC5, AC9) ─────────────────────────────────────────────
         warmup_start = ws - _timedelta(days=180)

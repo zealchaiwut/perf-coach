@@ -31,7 +31,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
 from backend.db import engine
-from backend.models import TrainingLoadSnapshot, UserPreferences
+from backend.models import TrainingLoadSnapshot, UserPreferences, Workout
 
 # ── EWMA time constants ───────────────────────────────────────────────────────
 # Chronic Training Load time constant (days).  The standard Banister value.
@@ -1044,3 +1044,57 @@ def compute_fitness_series(
     """
     daily_series = daily_tss_series(user_id, from_date, to_date)
     return compute_load_curves(daily_series)
+
+
+def get_weekly_volume(user_id: str, week_start: date, week_end: date) -> dict:
+    """Return aggregated weekly volume for a user over the given date range.
+
+    Encapsulates the Workout query so endpoints do not re-aggregate from raw
+    records (AC requirement from issue #1120 / original AC8 from #1055).
+
+    Args:
+        user_id: the authenticated user's UUID as a string.
+        week_start: first day of the window (inclusive).
+        week_end: last day of the window (inclusive).
+
+    Returns:
+        dict with keys:
+            distance_km   -- total distance in km (float, 0.0 when none)
+            total_tss     -- sum of TSS across all workouts (float, 0.0 when none)
+            session_count -- number of workouts in the window (int)
+            workout_types -- list of workout_type strings (one per workout)
+    """
+    uid = _uuid_mod.UUID(str(user_id))
+
+    def _to_float(v):
+        try:
+            return float(v) if v is not None else None
+        except Exception:
+            return None
+
+    def _sum_float_attr(workouts, attr):
+        vals = [_to_float(getattr(w, attr)) for w in workouts if getattr(w, attr, None) is not None]
+        return round(sum(vals), 3) if vals else None
+
+    with Session(engine) as session:
+        workouts = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= week_start,
+                Workout.workout_date <= week_end,
+            )
+            .all()
+        )
+
+    session_count = len(workouts)
+    raw_distance = _sum_float_attr(workouts, "distance_km")
+    raw_tss = _sum_float_attr(workouts, "tss")
+    workout_types = [w.workout_type for w in workouts]
+
+    return {
+        "distance_km": raw_distance if raw_distance is not None else 0.0,
+        "total_tss": round(raw_tss, 2) if raw_tss is not None else 0.0,
+        "session_count": session_count,
+        "workout_types": workout_types,
+    }
