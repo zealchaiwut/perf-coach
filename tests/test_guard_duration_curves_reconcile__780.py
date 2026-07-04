@@ -1,10 +1,8 @@
 """Tests for issue #780: guard _update_duration_curves with try/except in reconcile_workouts."""
 import logging
 import uuid
-from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
-import pytest
 
 from backend.services import sync_jobs
 from backend.services.reconcile import reconcile_workouts
