@@ -107,7 +107,13 @@ def compute_body_modifier(
     Returns
     -------
     dict with keys:
-        ``modifier`` — fractional modifier to apply to power/endurance outputs.
+        ``modifier`` — **fractional delta** in [-0.15, +0.05] (e.g. 0.02 = +2 %).
+                       This is *not* a multiplier — it is additive relative to 1.0.
+                       To obtain a score multiplier, use ``1.0 + result['modifier']``.
+                       Passing ``result['modifier']`` directly into
+                       ``compute_endurance_score`` / ``compute_speed_score`` /
+                       ``build_plan_projection_payload`` (which expect a multiplier
+                       centered at 1.0) will nearly zero the score.
         ``branch``   — which branch was dominant: ``"uplift"``, ``"penalty"``,
                        or ``"neutral"`` (at the transition midpoint).
     """
