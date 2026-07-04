@@ -1,5 +1,15 @@
 # Changelog
 
+## Sprint 87.5 — Same-as-last button state-ownership refactor
+
+- #509: [follow-up] Remove side effect from _updateSameAsLastBtn (state mutation)
+
+## Sprint 87.4 — Weight-page unit toggle follow-ups and main.py import cleanup
+
+- #506: [follow-up] Move ZoneInfo and func imports to top-level in main.py
+- #510: [follow-up] Remove dead variable _cardBEntryNotes in weight.js
+- #512: [follow-up] _applyUnit() does not convert stepper displayed value on unit switch
+
 ## Sprint 87.2 — Weight timezone fix, chart tap-toggle, and inline-edit listener cleanup
 
 - #505: [follow-up] Unify list_weight_entries default range to Bangkok timezone
