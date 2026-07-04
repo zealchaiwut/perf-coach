@@ -7,14 +7,9 @@ AC coverage:
 - AC4: The resolved window boundaries match the same 'today' used by the rest of the backend
 - AC5: Existing tests for get_body_modifier_guardrail_for_user pass with BKK-local semantics
 """
-import importlib
 import inspect
-import re
-import textwrap
-from datetime import date, timedelta
-from unittest.mock import MagicMock, patch
+from datetime import date
 
-import pytest
 
 
 # ── AC3: Import guard — no circular imports ───────────────────────────────────
