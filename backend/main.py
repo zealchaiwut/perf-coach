@@ -16282,7 +16282,7 @@ def get_athlete_monthly_summary(
         month: YYYY-MM string selecting the target month (default: current month).
 
     Returns a flat JSON object with exactly 14 keys.
-    Returns HTTP 424 when no weekly aggregation data is available for the month.
+    Returns HTTP 424 when no training sessions found for the requested month.
     """
     import calendar as _calendar
 
@@ -16359,14 +16359,11 @@ def get_athlete_monthly_summary(
             .all()
         )
 
-    # ── Dependency check — 424 when no training data ───────────────────────────
+    # ── Guard — 424 when no training sessions for this month ──────────────────
     if not workouts:
         raise HTTPException(
             status_code=424,
-            detail=(
-                f"No training sessions found for {month_start.strftime('%B %Y')}. "
-                "Weekly aggregation data is required to compute the monthly summary."
-            ),
+            detail=f"No training sessions found for {month_start.strftime('%B %Y')}.",
         )
 
     # ── Training aggregate fields ─────────────────────────────────────────────
