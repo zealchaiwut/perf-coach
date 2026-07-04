@@ -8985,9 +8985,14 @@ def _trigger_performance_backfill_background(user_id) -> None:
             from sqlalchemy.orm import Session as _Session
             from backend.services.backfill_signals import backfill_signals_for_athlete as _backfill_signals
             with _Session(engine) as _db:
-                _backfill_signals(user_id, _db)
+                _sig_result = _backfill_signals(user_id, _db)
+            if _sig_result.get("reason") is not None:
+                _backfill_log.error(
+                    "background signal backfill commit failed for user %s: %s",
+                    user_id, _sig_result["reason"],
+                )
         except Exception as _exc:
-            _backfill_log.warning(
+            _backfill_log.error(
                 "background signal backfill failed for user %s: %s",
                 user_id, _exc, exc_info=True,
             )
