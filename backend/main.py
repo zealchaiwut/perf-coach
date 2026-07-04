@@ -24,7 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import exc as sa_exc
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from backend.auth import require_admin
 from backend.db import check_db, engine, environment
@@ -6124,6 +6124,58 @@ def get_exercise_names(user: User = Depends(resolve_user)):
 # ── Intensity distribution chart data ───────────────────────────────────────
 # Declared BEFORE /api/workouts/{workout_id} so the literal path isn't parsed as an id.
 
+
+def _accumulate_intensity_window(workouts, prefs_dict):
+    """Duration-weighted rolling-window aggregation shared by intensity-distribution
+    and polarized-check endpoints.
+
+    Each Workout in *workouts* must have its .splits already loaded (e.g. via
+    selectinload) so this function issues no additional DB queries.
+
+    Returns:
+        sessions_out   list of per-workout dicts (date, workout_id, name,
+                       duration_seconds, low_pct, moderate_pct, high_pct)
+        rolling_window dict with low_pct / moderate_pct / high_pct, all None
+                       when no workouts have classifiable band data.
+    """
+    sessions_out = []
+    total_dur = 0.0
+    total_low = 0.0
+    total_mod = 0.0
+    total_high = 0.0
+
+    for w in workouts:
+        zones = _agg_zones(w.splits, prefs_dict)
+        dur = w.duration_seconds or 0
+
+        if zones["low_pct"] is not None and dur > 0:
+            total_dur += dur
+            total_low  += dur * zones["low_pct"]
+            total_mod  += dur * zones["moderate_pct"]
+            total_high += dur * zones["high_pct"]
+
+        sessions_out.append({
+            "date":             w.workout_date.isoformat(),
+            "workout_id":       str(w.id),
+            "name":             w.name,
+            "duration_seconds": dur or None,
+            "low_pct":          zones["low_pct"],
+            "moderate_pct":     zones["moderate_pct"],
+            "high_pct":         zones["high_pct"],
+        })
+
+    if total_dur == 0:
+        rolling_window = {"low_pct": None, "moderate_pct": None, "high_pct": None}
+    else:
+        rolling_window = {
+            "low_pct":      round(total_low  / total_dur, 2),
+            "moderate_pct": round(total_mod  / total_dur, 2),
+            "high_pct":     round(total_high / total_dur, 2),
+        }
+
+    return sessions_out, rolling_window
+
+
 @app.get("/api/workouts/intensity-distribution")
 def get_intensity_distribution(
     from_date: str = Query(alias="from"),
@@ -6159,6 +6211,7 @@ def get_intensity_distribution(
 
         workouts = (
             session.query(Workout)
+            .options(selectinload(Workout.splits))
             .filter(
                 Workout.user_id == uid,
                 Workout.workout_date >= from_d,
@@ -6168,47 +6221,7 @@ def get_intensity_distribution(
             .all()
         )
 
-        sessions_out = []
-        total_dur = 0.0
-        total_low = 0.0
-        total_mod = 0.0
-        total_high = 0.0
-
-        for w in workouts:
-            split_rows = (
-                session.query(WorkoutSplit)
-                .filter(WorkoutSplit.workout_id == w.id)
-                .order_by(WorkoutSplit.split_index)
-                .all()
-            )
-            zones = _agg_zones(split_rows, prefs_dict)
-            dur = w.duration_seconds or 0
-
-            # Accumulate rolling window totals (only when band data exists)
-            if zones["low_pct"] is not None and dur > 0:
-                total_dur += dur
-                total_low  += dur * zones["low_pct"]
-                total_mod  += dur * zones["moderate_pct"]
-                total_high += dur * zones["high_pct"]
-
-            sessions_out.append({
-                "date":             w.workout_date.isoformat(),
-                "workout_id":       str(w.id),
-                "name":             w.name,
-                "duration_seconds": dur or None,
-                "low_pct":          zones["low_pct"],
-                "moderate_pct":     zones["moderate_pct"],
-                "high_pct":         zones["high_pct"],
-            })
-
-    if total_dur == 0:
-        rolling_window = {"low_pct": None, "moderate_pct": None, "high_pct": None}
-    else:
-        rolling_window = {
-            "low_pct":      round(total_low  / total_dur, 2),
-            "moderate_pct": round(total_mod  / total_dur, 2),
-            "high_pct":     round(total_high / total_dur, 2),
-        }
+        sessions_out, rolling_window = _accumulate_intensity_window(workouts, prefs_dict)
 
     return JSONResponse({"sessions": sessions_out, "rolling_window": rolling_window})
 
@@ -6256,6 +6269,7 @@ def get_polarized_check(
 
         workouts = (
             session.query(Workout)
+            .options(selectinload(Workout.splits))
             .filter(
                 Workout.user_id == uid,
                 Workout.workout_date >= from_d,
@@ -6265,29 +6279,11 @@ def get_polarized_check(
             .all()
         )
 
-        total_dur = 0.0
-        total_low = 0.0
-        total_mod = 0.0
-        total_high = 0.0
-
-        for w in workouts:
-            split_rows = (
-                session.query(WorkoutSplit)
-                .filter(WorkoutSplit.workout_id == w.id)
-                .order_by(WorkoutSplit.split_index)
-                .all()
-            )
-            zones = _agg_zones(split_rows, prefs_dict)
-            dur = w.duration_seconds or 0
-            if zones["low_pct"] is not None and dur > 0:
-                total_dur += dur
-                total_low  += dur * zones["low_pct"]
-                total_mod  += dur * zones["moderate_pct"]
-                total_high += dur * zones["high_pct"]
+        _, rolling_window = _accumulate_intensity_window(workouts, prefs_dict)
 
     targets = {k: list(v) for k, v in _POLARIZED_BOUNDS.items()}
 
-    if total_dur == 0:
+    if rolling_window["low_pct"] is None:
         return JSONResponse({
             "verdict":    None,
             "actual":     None,
@@ -6296,9 +6292,9 @@ def get_polarized_check(
             "grey_zone":  False,
         })
 
-    actual_low  = round(total_low  / total_dur, 2)
-    actual_mod  = round(total_mod  / total_dur, 2)
-    actual_high = round(total_high / total_dur, 2)
+    actual_low  = rolling_window["low_pct"]
+    actual_mod  = rolling_window["moderate_pct"]
+    actual_high = rolling_window["high_pct"]
 
     check = _check_polarized_split(actual_low, actual_mod, actual_high)
 
