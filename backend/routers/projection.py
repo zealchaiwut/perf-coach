@@ -400,21 +400,13 @@ async def get_plan_projection(
     user: User = Depends(_resolve_user),
 ):
     """Return CTL/ATL/TSB projection, per-race estimates, and fitness band for a plan."""
-    try:
-        pid = _uuid.UUID(plan_id)
-    except (ValueError, AttributeError):
-        raise HTTPException(status_code=400, detail="invalid plan_id")
+    pid = _parse_plan_id(plan_id)
+    _check_plan_access(pid, user)
 
     with _Session(_engine) as db:
-        plan = db.get(_TrainingPlan, pid)
-        if plan is None:
-            raise HTTPException(status_code=404, detail="plan not found")
-        if plan.user_id != user.id:
-            raise HTTPException(status_code=403, detail="Forbidden")
-
         prefs = (
             db.query(_UserPreferences)
-            .filter(_UserPreferences.user_id == plan.user_id)
+            .filter(_UserPreferences.user_id == user.id)
             .first()
         )
         thresholds = (
@@ -423,7 +415,7 @@ async def get_plan_projection(
             else None
         )
 
-    races = _svc.list_races(plan.user_id)
+    races = _svc.list_races(pid)
 
     # Athlete's current VDOT-band Endurance score (same scale as Performance),
     # so the CTL ceiling stays sane relative to what's demonstrated now.
@@ -431,12 +423,12 @@ async def get_plan_projection(
     try:
         from backend.main import _athlete_scores_as_of as _scores_as_of
         with _Session(_engine) as _sdb:
-            _cur = _scores_as_of(_sdb, plan.user_id, _date.today())
+            _cur = _scores_as_of(_sdb, user.id, _date.today())
         _current_score = _cur.get("endurance")
     except Exception:
         _current_score = None
 
-    load_state = _current_load(str(plan.user_id))
+    load_state = _current_load(str(user.id))
     start_date: _date = load_state["date"]
     start_ctl: float = load_state["ctl"]
     start_atl: float = load_state["atl"]
@@ -449,7 +441,7 @@ async def get_plan_projection(
         n_days = _DEFAULT_PROJECTION_DAYS
 
     window_start = start_date - _timedelta(days=27)
-    recent_series = _daily_tss_series(str(plan.user_id), window_start, start_date)
+    recent_series = _daily_tss_series(str(user.id), window_start, start_date)
     avg_load = (
         sum(tss for _, tss in recent_series) / len(recent_series)
         if recent_series else 0.0
@@ -474,7 +466,7 @@ async def get_plan_projection(
         b_race_rows = (
             db.query(_Race)
             .filter(
-                _Race.user_id == plan.user_id,
+                _Race.user_id == user.id,
                 _Race.priority == "B",
                 _Race.actual_time_seconds.isnot(None),
                 _Race.race_date <= today,
