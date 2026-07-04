@@ -11,10 +11,8 @@ Acceptance criteria verified:
 - AC5: The ORM model's server_default=text("now()") is present on
        Race.updated_at (no model changes needed).
 """
-import inspect as _inspect
 import os
 import pathlib
-import uuid
 
 import pytest
 from dotenv import dotenv_values
@@ -25,7 +23,10 @@ from backend.models import Race
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 _env_vals = dotenv_values(_ROOT / ".env")
-_uat_url = _env_vals.get("DATABASE_URL_UAT") or os.environ.get("DATABASE_URL_UAT")
+_uat_url = (
+    _env_vals.get("DATABASE_URL_UAT")
+    or os.environ.get("DATABASE_URL_UAT")
+)
 _engine = create_engine(_uat_url, pool_pre_ping=True) if _uat_url else None
 
 _MIGRATION_DIR = _ROOT / "alembic" / "versions"
@@ -38,16 +39,20 @@ def test_ac1_migration_file_exists():
     files = list(_MIGRATION_DIR.glob("f31dde78c681_*.py"))
     assert files, (
         "Migration f31dde78c681 not found under alembic/versions/. "
-        "Expected file: f31dde78c681_set_races_updated_at_server_default.py"
+        "Expected file: "
+        "f31dde78c681_set_races_updated_at_server_default.py"
     )
 
 
 def test_ac1_migration_contains_alter_column_set_default():
-    """AC1: The migration's upgrade() body contains the ALTER TABLE ... SET DEFAULT now() statement."""
+    """AC1: upgrade() contains the ALTER TABLE ... SET DEFAULT now() stmt."""
     files = list(_MIGRATION_DIR.glob("f31dde78c681_*.py"))
     assert files, "Migration f31dde78c681 not found"
     src = files[0].read_text()
-    assert "ALTER TABLE races ALTER COLUMN updated_at SET DEFAULT now()" in src, (
+    assert (
+        "ALTER TABLE races ALTER COLUMN updated_at SET DEFAULT now()"
+        in src
+    ), (
         "upgrade() must contain: "
         "ALTER TABLE races ALTER COLUMN updated_at SET DEFAULT now()"
     )
@@ -56,19 +61,22 @@ def test_ac1_migration_contains_alter_column_set_default():
 # ── AC2: idempotency guard present in the migration source ───────────────────
 
 def test_ac2_migration_has_idempotency_guard():
-    """AC2: The migration file uses inspector.get_columns to guard against re-running."""
+    """AC2: Migration uses inspector.get_columns to guard re-running."""
     files = list(_MIGRATION_DIR.glob("f31dde78c681_*.py"))
     assert files, "Migration f31dde78c681 not found"
     src = files[0].read_text()
     assert "get_columns" in src, (
-        "upgrade() must inspect current column defaults via inspector.get_columns"
+        "upgrade() must inspect current column defaults via "
+        "inspector.get_columns"
     )
 
 
 def test_ac2_db_updated_at_has_default_after_migration():
-    """AC2 (UAT): races.updated_at column has a DB-level DEFAULT after migration."""
+    """AC2 (UAT): races.updated_at has a DB-level DEFAULT after migration."""
     if _engine is None:
-        pytest.skip("DATABASE_URL_UAT not configured — skipping live DB test")
+        pytest.skip(
+            "DATABASE_URL_UAT not configured — skipping live DB test"
+        )
     with _engine.connect() as conn:
         row = conn.execute(text(
             "SELECT column_default FROM information_schema.columns "
@@ -78,10 +86,11 @@ def test_ac2_db_updated_at_has_default_after_migration():
     assert row is not None, "races.updated_at column not found in DB"
     assert row[0] is not None, (
         "races.updated_at must have a DB-level DEFAULT after migration; "
-        f"got NULL — migration f31dde78c681 may not have been applied"
+        "got NULL — migration f31dde78c681 may not have been applied"
     )
     assert "now" in str(row[0]).lower(), (
-        f"races.updated_at DEFAULT must reference now(), got: {row[0]}"
+        "races.updated_at DEFAULT must reference now(), got: "
+        + str(row[0])
     )
 
 
@@ -92,7 +101,9 @@ def test_ac3_migration_downgrade_drops_default():
     files = list(_MIGRATION_DIR.glob("f31dde78c681_*.py"))
     assert files, "Migration f31dde78c681 not found"
     src = files[0].read_text()
-    assert "ALTER TABLE races ALTER COLUMN updated_at DROP DEFAULT" in src, (
+    assert (
+        "ALTER TABLE races ALTER COLUMN updated_at DROP DEFAULT" in src
+    ), (
         "downgrade() must contain: "
         "ALTER TABLE races ALTER COLUMN updated_at DROP DEFAULT"
     )
@@ -103,15 +114,19 @@ def test_ac3_downgrade_function_exists():
     files = list(_MIGRATION_DIR.glob("f31dde78c681_*.py"))
     assert files, "Migration f31dde78c681 not found"
     src = files[0].read_text()
-    assert "def downgrade()" in src, "Migration must define a downgrade() function"
+    assert "def downgrade()" in src, (
+        "Migration must define a downgrade() function"
+    )
 
 
 # ── AC4: inserting without updated_at gives non-NULL timestamp ───────────────
 
 def test_ac4_insert_without_updated_at_gives_nonnull_timestamp():
-    """AC4 (UAT): A new Race inserted without updated_at stores a non-NULL timestamp."""
+    """AC4 (UAT): A new Race without updated_at stores a non-NULL stamp."""
     if _engine is None:
-        pytest.skip("DATABASE_URL_UAT not configured — skipping live DB test")
+        pytest.skip(
+            "DATABASE_URL_UAT not configured — skipping live DB test"
+        )
 
     with _engine.connect() as conn:
         user_row = conn.execute(
@@ -140,7 +155,8 @@ def test_ac4_insert_without_updated_at_gives_nonnull_timestamp():
         reloaded = session.get(Race, race_id)
         assert reloaded is not None
         assert reloaded.updated_at is not None, (
-            "updated_at must be non-NULL after INSERT — DB DEFAULT now() not applied. "
+            "updated_at must be non-NULL after INSERT — "
+            "DB DEFAULT now() not applied. "
             "Migration f31dde78c681 may not have been run."
         )
         session.delete(reloaded)
@@ -150,14 +166,15 @@ def test_ac4_insert_without_updated_at_gives_nonnull_timestamp():
 # ── AC5: ORM model server_default is consistent ──────────────────────────────
 
 def test_ac5_orm_model_has_server_default_on_updated_at():
-    """AC5: Race.updated_at ORM column declares server_default=text("now()")."""
+    """AC5: Race.updated_at declares server_default=text("now()")."""
     col = Race.__table__.c["updated_at"]
     assert col.server_default is not None, (
         "Race.updated_at must declare server_default in the ORM model"
     )
     sd_text = str(col.server_default.arg).lower()
     assert "now()" in sd_text, (
-        f"Race.updated_at server_default must reference now(), got: {sd_text!r}"
+        "Race.updated_at server_default must reference now(), got: "
+        + repr(sd_text)
     )
 
 
@@ -169,5 +186,6 @@ def test_ac5_orm_model_has_onupdate_on_updated_at():
     )
     ou_text = str(col.onupdate.arg).lower()
     assert "now()" in ou_text, (
-        f"Race.updated_at onupdate must reference now(), got: {ou_text!r}"
+        "Race.updated_at onupdate must reference now(), got: "
+        + repr(ou_text)
     )
