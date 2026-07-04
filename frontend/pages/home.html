@@ -127,16 +127,17 @@
        #home-habits-widget below by ~21px. Bumped to span 3 and pushed
        Habits down one row to match. */
     #home-top-row-right      { grid-column: 1 / span 4; grid-row: 1 / span 4; }
-    #home-next-workout-card  { grid-column: 5 / span 2; grid-row: 1 / span 3; }
-    #home-performance-card   { grid-column: 7 / span 2; grid-row: 1 / span 3; }
-    #home-training-card      { grid-column: 5 / span 4; grid-row: 4 / span 3; }
+    #home-next-workout-card  { grid-column: 5 / span 2; grid-row: 1 / span 4; }
+    #home-performance-card   { grid-column: 7 / span 2; grid-row: 1 / span 4; }
+    #home-training-card      { grid-column: 5 / span 4; grid-row: 5 / span 3; }
     #home-sleep-card         { grid-column: 1 / span 4; grid-row: 5 / span 2; }
-    #home-perf-container     { grid-column: 5 / span 4; grid-row: 7  / span 3; }
-    #home-weight-widget      { grid-column: 1 / span 4; grid-row: 7  / span 3; }
-    #home-habits-widget      { grid-column: 5 / span 4; grid-row: 10 / span 3; }
-    /* Performance is padded to match Next+Recent's row-3 height so the two
-       top-right cards share a bottom edge — the extra space inside
-       Performance's own box is an intentional, expected gap, not a bug. */
+    #home-perf-container     { grid-column: 5 / span 2; grid-row: 8 / span 2; }
+    #home-habits-widget      { grid-column: 7 / span 2; grid-row: 8 / span 3; }
+    #home-weight-widget      { grid-column: 1 / span 4; grid-row: 7 / span 3; }
+    /* Next+Recent now lists 3 upcoming + 3 recent sessions (was 1+1), so it
+       needs the full 4-row track Readiness gets, not 3. Personal records is
+       now a compact 3-tile row (was a multi-track table) — much shorter, so
+       it pairs with Habits instead of stacking below it. */
 
     @media (max-width: 999px) {
       #home-dashboard-grid {
@@ -145,19 +146,18 @@
         gap: 14px;
       }
       #home-top-row-right      { grid-column: 1 / span 4; grid-row: 1  / span 4; }
-      #home-next-workout-card  { grid-column: 5 / span 2; grid-row: 1  / span 3; }
-      #home-performance-card   { grid-column: 5 / span 2; grid-row: 4  / span 2; }
-      #home-sleep-card         { grid-column: 5 / span 2; grid-row: 6  / span 2; }
+      #home-next-workout-card  { grid-column: 5 / span 2; grid-row: 1  / span 5; }
+      #home-performance-card   { grid-column: 5 / span 2; grid-row: 6  / span 2; }
+      #home-sleep-card         { grid-column: 5 / span 2; grid-row: 8  / span 2; }
       #home-training-card      { grid-column: 1 / span 4; grid-row: 5  / span 3; }
-      #home-habits-widget      { grid-column: 1 / span 4; grid-row: 8  / span 3; }
-      #home-perf-container     { grid-column: 1 / span 3; grid-row: 11 / span 3; }
-      #home-weight-widget      { grid-column: 4 / span 3; grid-row: 11 / span 4; }
-      /* PRs/Weight stay paired side by side (spec's "3x2 paired" intent) —
-         Weight's real content needs more height than PRs at this width, so
-         the pair no longer shares a bottom edge; that height mismatch is
-         expected, not an overlap bug. PRs bumped from span 2 to span 3 —
-         measured content (2 PR tracks, desktop .perf-grid table at this
-         width) was ~277px, taller than span 2's 214px track. */
+      #home-perf-container     { grid-column: 1 / span 2; grid-row: 8  / span 2; }
+      #home-habits-widget      { grid-column: 3 / span 2; grid-row: 8  / span 3; }
+      #home-weight-widget      { grid-column: 1 / span 6; grid-row: 11 / span 4; }
+      /* Next+Recent (3 upcoming + 3 recent sessions) needs a much taller
+         track in this narrow 2-wide column than the old 1+1 layout did.
+         Personal records is now a compact 3-tile row — pairs with Habits
+         instead of the old PRs/Weight pairing; Weight moves to its own
+         full-width row below both. */
     }
 
     @media (max-width: 759px) {
@@ -180,20 +180,19 @@
         gap: 10px;
       }
       #home-top-row-right      { grid-column: 1 / span 4; grid-row: 1  / span 4; }
-      #home-next-workout-card  { grid-column: 1 / span 2; grid-row: 5  / span 3; }
-      #home-performance-card   { grid-column: 3 / span 2; grid-row: 5  / span 3; }
-      #home-sleep-card         { grid-column: 1 / span 2; grid-row: 8  / span 2; }
-      #home-training-card      { grid-column: 1 / span 4; grid-row: 10 / span 3; }
-      #home-habits-widget      { grid-column: 1 / span 4; grid-row: 13 / span 3; }
-      /* #home-perf-container switches to its .perf-mobile block (buildMobileBlock
-         per track) below the page's own 640px breakpoint, which is narrower than
-         this 759px one — so at Narrow it's ALWAYS the taller mobile-block markup,
-         not the desktop .perf-grid table. Measured ~375px for 2 PR tracks; the
-         previous span 2 (190px) was undersized by ~185px, which is the overlap
-         the user saw ("worst at Narrow"). Bumped to span 5 (490px); Weight is
-         pushed down to start after it (was row 18, now row 21). */
-      #home-perf-container     { grid-column: 1 / span 4; grid-row: 16 / span 5; }
-      #home-weight-widget      { grid-column: 1 / span 4; grid-row: 21 / span 4; }
+      #home-next-workout-card  { grid-column: 1 / span 2; grid-row: 5  / span 5; }
+      #home-performance-card   { grid-column: 3 / span 2; grid-row: 5  / span 5; }
+      #home-sleep-card         { grid-column: 1 / span 2; grid-row: 10 / span 2; }
+      #home-training-card      { grid-column: 1 / span 4; grid-row: 12 / span 3; }
+      #home-perf-container     { grid-column: 1 / span 2; grid-row: 15 / span 2; }
+      #home-habits-widget      { grid-column: 3 / span 2; grid-row: 15 / span 3; }
+      #home-weight-widget      { grid-column: 1 / span 4; grid-row: 18 / span 4; }
+      /* Next+Recent (3 upcoming + 3 recent sessions) needs a much taller
+         track than the old 1+1 layout at this 2-wide column width. Personal
+         records is now a compact 3-tile row — pairs with Habits instead of
+         stacking below it; both re-measured against the new markup (see
+         static-harness note at the top of #home-dashboard-grid's Wide
+         rules). */
     }
 
     @media (max-width: 479px) {
@@ -579,60 +578,28 @@
     .card-head a { font-size: 12px; color: #2b4ca8; text-decoration: none; white-space: nowrap; }
     .card-head .meta { font-size: 12px; color: var(--text-tertiary); }
 
-    /* ---- PERFORMANCE CARD ---- */
+    /* ---- PERSONAL RECORDS CARD (home v3, Task 6 — 10K/Half/Marathon tiles
+       from /api/athletes/{id}/run-personal-records, see loadPerformanceCard) ---- */
     .icon-wrap.run  { background: var(--blue-soft);   color: var(--blue-text); }
     .icon-wrap.lift { background: var(--purple-soft); color: var(--purple-text); }
 
-    .perf-grid {
-      display: grid;
-      grid-template-columns: 1.4fr 1fr 1fr 1fr;
+    .pr-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .pr-tile {
+      background: var(--chip-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 10px 9px;
+      text-align: center;
     }
-    .perf-hdr { display: contents; }
-    .perf-row { display: contents; }
-    .perf-hdr > div {
-      font-size: 10px; color: var(--text-tertiary);
-      text-transform: uppercase; letter-spacing: 0.08em; font-weight: 500;
-      padding: 4px 14px 10px;
-      border-bottom: 1px solid var(--card-divider);
+    .pr-lbl {
+      font-size: 8px; font-weight: 800; color: var(--text-tertiary);
+      text-transform: uppercase; letter-spacing: 0.03em;
     }
-    .perf-row > div {
-      padding: 14px;
-      border-bottom: 1px solid var(--card-divider);
-      display: flex; flex-direction: column; justify-content: center;
+    .pr-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 16px; font-weight: 800; margin-top: 5px;
     }
-    .perf-hdr > div:first-child,
-    .perf-row > div:first-child { padding-left: 4px; }
-    .perf-row-last > div { border-bottom: 0; }
-
-    .perf-track { display: flex; align-items: center; gap: 11px; }
-    .perf-track .icon-wrap {
-      width: 38px; height: 38px; border-radius: 11px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 18px; flex-shrink: 0;
-    }
-    .perf-track .trk-name { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
-    .perf-track .trk-sub { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; }
-
-    .pc-value {
-      font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 600;
-      letter-spacing: -0.02em; color: var(--text-primary); line-height: 1.1;
-    }
-    .pc-unit { font-size: 11px; color: var(--text-tertiary); font-weight: 500; margin-left: 3px; font-family: 'Inter Tight', sans-serif; }
-    .pc-date { font-size: 10.5px; color: var(--text-tertiary); margin-top: 4px; }
-    .pc-delta { font-size: 11px; margin-top: 4px; font-weight: 500; }
-    .pc-delta.behind { color: var(--amber); }
-    .pc-delta.ahead  { color: var(--green); font-weight: 600; }
-    .pc-trophy { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--gold); margin-top: 4px; }
-    .pc-trophy i { font-size: 12px; }
-    .pc-dash { font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 600; color: var(--text-tertiary); }
-
-    .perf-mobile { display: none; }
-    .perf-track-block {
-      padding: 14px 0;
-      border-bottom: 1px solid var(--card-divider);
-    }
-    .perf-track-block:first-of-type { padding-top: 4px; }
-    .perf-track-block:last-of-type  { padding-bottom: 0; border-bottom: 0; }
+    .pr-date { font-size: 9px; color: var(--text-tertiary); font-family: 'JetBrains Mono', monospace; margin-top: 3px; }
 
     .perf-empty {
       padding: 28px 4px;
@@ -1467,25 +1434,6 @@
 
       .workout-desktop-only { display: none; }
 
-      /* Performance: hide desktop grid, show mobile blocks */
-      .perf-grid   { display: none; }
-      .perf-mobile { display: block; }
-      .perf-track-head { display: flex; align-items: center; gap: 11px; margin-bottom: 10px; }
-      .perf-track-head .icon-wrap { width: 36px; height: 36px; border-radius: 11px; display: flex; align-items: center; justify-content: center; font-size: 17px; flex-shrink: 0; }
-      .perf-cells { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
-      .perf-cell-m { background: #f7f9fd; border-radius: 10px; padding: 10px 11px; }
-      .perf-cell-m .mc-label { font-size: 9.5px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.07em; font-weight: 500; margin-bottom: 5px; display: flex; align-items: center; gap: 3px; }
-      .perf-cell-m .mc-label i { font-size: 11px; }
-      .perf-cell-m .mc-value { font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 600; letter-spacing: -0.02em; color: var(--text-primary); line-height: 1.1; }
-      .perf-cell-m .mc-unit { font-size: 10px; color: var(--text-tertiary); font-weight: 500; margin-left: 2px; font-family: 'Inter Tight', sans-serif; }
-      .perf-cell-m .mc-meta { font-size: 10px; color: var(--text-tertiary); margin-top: 3px; }
-      .perf-cell-m .mc-delta { font-size: 10px; margin-top: 3px; font-weight: 500; }
-      .perf-cell-m .mc-delta.behind { color: var(--amber); }
-      .perf-cell-m .mc-delta.ahead  { color: var(--green); font-weight: 600; }
-      .perf-cell-m.pr-cell-m  { background: rgba(184, 137, 60, 0.08); }
-      .perf-cell-m.pr-cell-m .mc-label { color: var(--gold); }
-      .perf-cell-m.pred-cell-m { background: rgba(43, 76, 168, 0.06); }
-      .perf-cell-m.pred-cell-m .mc-label { color: #2b4ca8; }
       .perf-cell-m.pred-cell-m .mc-value { color: #2b4ca8; }
 
       /* Readiness card: mobile — centre-aligned, score on top */
@@ -2095,7 +2043,10 @@
        Distinct "hperf-" prefix — #home-perf-container's "Personal records"
        card already owns the "perf-" prefix; unrelated widget, same-name
        coincidence only, do not collide with or touch it. */
-    .hperf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    /* Stacked (1 column, "2 lines") instead of side-by-side — frees up width
+       so each tile can run full-card-width, letting the score number itself
+       be sized up instead of being squeezed into a half-width tile. */
+    .hperf-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
     /* Card now stretches to match its neighbor's height (align-items:stretch
        on the grid) — center the tiles in whatever extra height that leaves,
        instead of leaving dead space pinned below them. */
@@ -2104,15 +2055,15 @@
       background: var(--chip-bg);
       border: 1px solid var(--card-border);
       border-radius: 11px;
-      padding: 11px 13px;
+      padding: 16px 18px;
     }
     .hperf-lbl {
-      font-size: 9px; font-weight: 800; color: var(--text-tertiary);
+      font-size: 9.5px; font-weight: 800; color: var(--text-tertiary);
       text-transform: uppercase; letter-spacing: 0.04em;
     }
     .hperf-val {
       font-family: 'JetBrains Mono', monospace;
-      font-size: 24px; font-weight: 800; line-height: 1; margin-top: 5px;
+      font-size: 32px; font-weight: 800; line-height: 1; margin-top: 6px;
     }
     .hperf-tile--e .hperf-val { color: var(--green); }
     .hperf-tile--s .hperf-val { color: var(--orange-text); }
@@ -2133,7 +2084,7 @@
       .rd-ctl-stat { font-size: 8px; }
       .nw-name     { font-size: 12.5px; }
       .nw-meta     { font-size: 10px; }
-      .hperf-val   { font-size: 20px; }
+      .hperf-val   { font-size: 24px; }
     }
 
     /* Mobile (<=479px, home v3): the daily-signal block (ring/score/hint/
