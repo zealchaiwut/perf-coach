@@ -57,7 +57,11 @@ def _parse_checkpoint_id(checkpoint_id: str) -> _uuid.UUID:
 
 
 def _check_plan_access(plan_id: _uuid.UUID, user: User) -> None:
-    if plan_id != user.id:
+    with _Session(_engine) as db:
+        plan = db.get(_TrainingPlan, plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="plan not found")
+    if plan.user_id != user.id:
         raise HTTPException(status_code=403, detail="Forbidden")
 
 
