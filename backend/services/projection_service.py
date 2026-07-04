@@ -55,10 +55,14 @@ def checkpoint_to_dict(cp: RaceCheckpoint) -> dict:
 # ── Race operations ───────────────────────────────────────────────────────────
 
 def list_races(plan_id: _uuid.UUID) -> list[dict]:
+    from backend.models import TrainingPlan
     with Session(engine) as db:
+        plan = db.get(TrainingPlan, plan_id)
+        if plan is None:
+            return []
         rows = (
             db.query(Race)
-            .filter(Race.user_id == plan_id)
+            .filter(Race.user_id == plan.user_id)
             .order_by(Race.race_date)
             .all()
         )
@@ -66,9 +70,13 @@ def list_races(plan_id: _uuid.UUID) -> list[dict]:
 
 
 def get_race(plan_id: _uuid.UUID, race_id: _uuid.UUID) -> Optional[dict]:
+    from backend.models import TrainingPlan
     with Session(engine) as db:
+        plan = db.get(TrainingPlan, plan_id)
+        if plan is None:
+            return None
         race = db.get(Race, race_id)
-        if race is None or race.user_id != plan_id:
+        if race is None or race.user_id != plan.user_id:
             return None
         return race_to_dict(race)
 
@@ -85,9 +93,13 @@ def create_race(
     actual_time_seconds: Optional[int] = None,
     duration_seconds: Optional[int] = None,
 ) -> dict:
+    from backend.models import TrainingPlan
     with Session(engine) as db:
+        plan = db.get(TrainingPlan, plan_id)
+        if plan is None:
+            raise ValueError(f"plan {plan_id} not found")
         race = Race(
-            user_id=plan_id,
+            user_id=plan.user_id,
             race_date=date,
             distance_km=distance,
             duration_seconds=duration_seconds,
@@ -120,9 +132,13 @@ def update_race(
     goal_time_set: bool = False,
     priority: Optional[str] = None,
 ) -> Optional[dict]:
+    from backend.models import TrainingPlan
     with Session(engine) as db:
+        plan = db.get(TrainingPlan, plan_id)
+        if plan is None:
+            return None
         race = db.get(Race, race_id)
-        if race is None or race.user_id != plan_id:
+        if race is None or race.user_id != plan.user_id:
             return None
         if date is not None:
             race.race_date = date
@@ -148,9 +164,13 @@ def update_race(
 
 
 def delete_race(plan_id: _uuid.UUID, race_id: _uuid.UUID) -> bool:
+    from backend.models import TrainingPlan
     with Session(engine) as db:
+        plan = db.get(TrainingPlan, plan_id)
+        if plan is None:
+            return False
         race = db.get(Race, race_id)
-        if race is None or race.user_id != plan_id:
+        if race is None or race.user_id != plan.user_id:
             return False
         db.delete(race)
         db.commit()
@@ -160,9 +180,13 @@ def delete_race(plan_id: _uuid.UUID, race_id: _uuid.UUID) -> bool:
 # ── Checkpoint operations ─────────────────────────────────────────────────────
 
 def list_checkpoints(plan_id: _uuid.UUID, race_id: _uuid.UUID) -> Optional[list[dict]]:
+    from backend.models import TrainingPlan
     with Session(engine) as db:
+        plan = db.get(TrainingPlan, plan_id)
+        if plan is None:
+            return None
         race = db.get(Race, race_id)
-        if race is None or race.user_id != plan_id:
+        if race is None or race.user_id != plan.user_id:
             return None
         rows = (
             db.query(RaceCheckpoint)
@@ -179,13 +203,17 @@ def create_checkpoint(
     cp_type: str,
     distance: Optional[float] = None,
 ) -> Optional[dict]:
+    from backend.models import TrainingPlan
     with Session(engine) as db:
+        plan = db.get(TrainingPlan, plan_id)
+        if plan is None:
+            return None
         race = db.get(Race, race_id)
-        if race is None or race.user_id != plan_id:
+        if race is None or race.user_id != plan.user_id:
             return None
         cp = RaceCheckpoint(
             race_id=race_id,
-            user_id=plan_id,
+            user_id=plan.user_id,
             label=cp_type,
             target_date=race.race_date,
             target_distance_km=distance,
@@ -205,9 +233,13 @@ def update_checkpoint(
     distance: Optional[float] = None,
     distance_set: bool = False,
 ) -> Optional[dict]:
+    from backend.models import TrainingPlan
     with Session(engine) as db:
+        plan = db.get(TrainingPlan, plan_id)
+        if plan is None:
+            return None
         race = db.get(Race, race_id)
-        if race is None or race.user_id != plan_id:
+        if race is None or race.user_id != plan.user_id:
             return None
         cp = db.get(RaceCheckpoint, checkpoint_id)
         if cp is None or cp.race_id != race_id:
@@ -227,9 +259,13 @@ def delete_checkpoint(
     race_id: _uuid.UUID,
     checkpoint_id: _uuid.UUID,
 ) -> bool:
+    from backend.models import TrainingPlan
     with Session(engine) as db:
+        plan = db.get(TrainingPlan, plan_id)
+        if plan is None:
+            return False
         race = db.get(Race, race_id)
-        if race is None or race.user_id != plan_id:
+        if race is None or race.user_id != plan.user_id:
             return False
         cp = db.get(RaceCheckpoint, checkpoint_id)
         if cp is None or cp.race_id != race_id:
