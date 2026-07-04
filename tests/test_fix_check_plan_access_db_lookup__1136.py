@@ -9,7 +9,6 @@ Acceptance criteria verified:
 - AC5: Implementation mirrors the existing pattern in get_plan_projection
 """
 import ast
-import inspect
 import os
 import pathlib
 import uuid
@@ -140,9 +139,6 @@ def owner_client_and_plan():
     r = client.post("/api/plans", json={
         "name": "Test Plan 1136",
         "ramp_rate": 5.0,
-        "taper_start": "2027-06-01",
-        "taper_length": 14,
-        "taper_shape": "linear",
     })
     assert r.status_code == 201, f"create plan failed: {r.text}"
     plan_id = r.json()["id"]
