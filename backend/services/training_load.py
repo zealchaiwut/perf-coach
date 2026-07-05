@@ -54,6 +54,7 @@ def resolve_user_ewma_days(user_id: str) -> tuple[int, int]:
     atl_days = prefs.atl_days if prefs and prefs.atl_days else ATL_DAYS
     return ctl_days, atl_days
 
+
 # ── Form-zone band constants ───────────────────────────────────────────────────
 # TSB (Training Stress Balance) below this threshold = overreached / buried.
 FORM_BURIED_CEILING: float = -10.0
