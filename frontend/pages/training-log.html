@@ -173,8 +173,7 @@
         cursor: not-allowed;
       }
 
-      /* ── Mobile: keep the action buttons on the title row (icon-only), and
-       hide the week-strip calendar (revisit later). ─────────────────────── */
+      /* ── Mobile: keep the action buttons on the title row (icon-only). ── */
       @media (max-width: 599px) {
         .log-page-header {
           flex-wrap: nowrap;
@@ -201,9 +200,6 @@
         }
         .log-page-header .sync-chip {
           padding: 0 8px;
-        }
-        .log-card--week {
-          display: none;
         }
       }
 
@@ -419,13 +415,13 @@
       }
       .sync-row-time {
         font-size: 10px;
-        color: #94a3b8;
+        color: var(--text-tertiary, #69748c);
         font-family: "JetBrains Mono", monospace;
         line-height: 1.3;
       }
       .sync-row-soon {
         font-size: 9.5px;
-        color: #94a3b8;
+        color: var(--text-tertiary, #69748c);
         background: #f1f5f9;
         border-radius: 4px;
         padding: 1px 5px;
@@ -507,42 +503,6 @@
         display: flex;
         flex-direction: column;
         gap: 12px;
-      }
-
-      .tab-coming-soon {
-        background: var(--card-bg);
-        border-radius: var(--card-radius);
-        border: 1px solid var(--card-border);
-        box-shadow: var(--card-shadow);
-        padding: 56px 24px;
-        text-align: center;
-      }
-
-      .tab-coming-soon-text {
-        margin: 0;
-        font-size: 14px;
-        font-weight: 500;
-        color: var(--text-tertiary);
-      }
-
-      .btn-coming-soon {
-        position: relative;
-      }
-
-      .btn-coming-soon::after {
-        content: "soon";
-        position: absolute;
-        top: -7px;
-        right: -4px;
-        font-size: 0.5625rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        background: #f59e0b;
-        color: #fff;
-        padding: 1px 4px;
-        border-radius: 3px;
-        line-height: 1.4;
       }
 
       /* ── Week strip (issue #639: mobile only — hidden on tablet and desktop) ── */
@@ -3968,36 +3928,49 @@
           class="training-sub-tabs"
           id="training-sub-tabs"
           aria-label="Training sub-tabs"
+          role="tablist"
         >
           <button
+            id="log-tab-log"
             class="training-sub-tab active"
             data-tab="log"
             type="button"
+            role="tab"
             aria-selected="true"
+            aria-controls="layout-wrapper"
           >
             Log
           </button>
           <button
+            id="log-tab-plan"
             class="training-sub-tab"
             data-tab="plan"
             type="button"
+            role="tab"
             aria-selected="false"
+            aria-controls="training-panel-plan"
           >
             Plan
           </button>
           <button
+            id="log-tab-projection"
             class="training-sub-tab"
             data-tab="projection"
             type="button"
+            role="tab"
             aria-selected="false"
+            aria-controls="training-panel-projection"
           >
             Projection
           </button>
           <button
+            id="log-tab-performance"
             class="training-sub-tab"
             data-tab="performance"
             type="button"
+            role="tab"
             aria-selected="false"
+            aria-controls="training-panel-performance"
           >
             Performance
           </button>
@@ -4131,16 +4104,30 @@
     </main>
 
     <!-- Plan panel (new weekly training schedule — window.TrainingPlan) -->
-    <div id="training-panel-plan" class="tab-panel-placeholder plan-panel" hidden>
+    <div
+      id="training-panel-plan"
+      class="tab-panel-placeholder plan-panel"
+      role="tabpanel"
+      aria-labelledby="log-tab-plan"
+      tabindex="0"
+      hidden
+    >
       <div id="plan-week-section"></div>
       <div id="plan-add-section"></div>
       <div id="plan-detail-section"></div>
     </div>
 
     <!-- Projection panel (issue #650) -->
-    <div id="training-panel-projection" class="tab-panel-placeholder" hidden>
+    <div
+      id="training-panel-projection"
+      class="tab-panel-placeholder"
+      role="tabpanel"
+      aria-labelledby="log-tab-projection"
+      tabindex="0"
+      hidden
+    >
       <!-- ── Projection tab panel ───────────────────────────────────── -->
-      <div id="plan-tab-panel" role="tabpanel" aria-labelledby="log-tab-plan">
+      <div id="plan-tab-panel">
         <!-- ── Merged Plan panel (mock: plan-merge) ─────────────────────── -->
         <div class="plan-merged">
           <!-- Row: A-race header + calibration status -->
@@ -4336,6 +4323,9 @@
     <div
       id="training-panel-performance"
       class="tab-panel-placeholder perf-panel"
+      role="tabpanel"
+      aria-labelledby="log-tab-performance"
+      tabindex="0"
       hidden
     >
       <!-- ── Score cards: Endurance + Speed (2-up) ─────────────────────────── -->
@@ -4539,7 +4529,7 @@
                 </div>
               </div>
               <a class="perf-plink" href="#projection"
-                >Full projection on Projection →</a
+                >See full projection →</a
               >
             </div>
             <div class="perf-proj-empty" id="perf-proj-empty" hidden>
@@ -4566,7 +4556,7 @@
         --pm-card: #fff;
         --pm-ink: #1b2340;
         --pm-muted: #6b7280;
-        --pm-faint: #9aa3b8;
+        --pm-faint: var(--text-tertiary, #69748c);
         --pm-line: #eceef4;
         --pm-tile: #f6f7fb;
         --pm-blue: #4f6ef7;
@@ -6708,7 +6698,13 @@
   </style>
 
 
-  <div id="layout-wrapper" class="log-layout">
+  <div
+    id="layout-wrapper"
+    class="log-layout"
+    role="tabpanel"
+    aria-labelledby="log-tab-log"
+    tabindex="0"
+  >
     <div id="list-main" class="log-page-body">
       <!-- Summary digest card (issue #1058) -->
       <div id="summary-digest-card" class="log-card" hidden>
@@ -6763,7 +6759,7 @@
 
         <div id="log-empty-msg" style="display:none" class="empty-state">
           <div class="empty-state-icon">🏃</div>
-          <p>No workouts logged yet. Start tracking your training!</p>
+          <p>No workouts logged yet.</p>
           <button id="log-empty-cta" class="btn-accent" type="button">Log your first workout</button>
         </div>
       </div>

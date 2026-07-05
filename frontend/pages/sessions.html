@@ -16,6 +16,8 @@
       color: var(--text-primary);
       letter-spacing: -0.01em;
     }
+    .se-main :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    .se-add-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 
     /* ── Page layout ─────────────────────────────────────────────────────── */
     .se-main {
@@ -24,41 +26,51 @@
       padding: 24px 16px 64px;
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 20px;
     }
 
     /* ── Page header ─────────────────────────────────────────────────────── */
     .se-page-header {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: space-between;
       flex-wrap: wrap;
       gap: 12px;
       color: #fff;
     }
+    .se-page-heading { display: flex; flex-direction: column; gap: 4px; }
     .se-page-title {
-      font-size: 22px;
+      font-size: 24px;
       font-weight: 700;
       letter-spacing: -0.025em;
       margin: 0;
+    }
+    .se-page-sub {
+      margin: 0;
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.72);
+      font-weight: 500;
     }
     .se-add-btn {
       display: inline-flex;
       align-items: center;
       gap: 6px;
       background: var(--accent, #e4ff52);
-      color: #0b1530;
+      color: var(--accent-text, #1a2400);
       border: none;
       border-radius: 8px;
-      padding: 8px 16px;
+      padding: 10px 18px;
       font-family: inherit;
       font-size: 13px;
       font-weight: 700;
       cursor: pointer;
       letter-spacing: -0.01em;
-      transition: opacity 0.15s;
+      transition: opacity 0.15s, transform 0.1s;
+      flex-shrink: 0;
+      min-height: 44px;
     }
     .se-add-btn:hover { opacity: 0.88; }
+    .se-add-btn:active { transform: scale(0.98); }
 
     /* ── Card ────────────────────────────────────────────────────────────── */
     .se-card {
@@ -78,6 +90,8 @@
     }
 
     /* ── Type picker ─────────────────────────────────────────────────────── */
+    /* Category colors reuse app tokens: Strength = instrument navy (--ink),
+       Plyo = primary blue (--primary/--primary-dark) — no invented hues. */
     .se-type-row {
       display: flex;
       gap: 10px;
@@ -86,6 +100,7 @@
     .se-type-btn {
       flex: 1;
       min-width: 100px;
+      min-height: 44px;
       padding: 12px 16px;
       border: 2px solid var(--card-border, rgba(13,30,67,0.06));
       border-radius: 10px;
@@ -97,17 +112,18 @@
       cursor: pointer;
       transition: border-color 0.15s, color 0.15s, background 0.15s;
     }
-    .se-type-btn:hover { border-color: #8b5cf6; color: #0b1530; }
+    .se-type-btn:hover { border-color: var(--ink-2, #5c6886); color: var(--ink, #0b1530); }
     .se-type-btn.is-active {
-      border-color: #8b5cf6;
-      background: #f5f3ff;
-      color: #5b21b6;
+      border-color: var(--ink, #0b1530);
+      background: var(--tile, #f7f9fd);
+      color: var(--ink, #0b1530);
     }
     .se-type-btn.plyo.is-active {
-      border-color: #2563eb;
-      background: #eff6ff;
-      color: #1e40af;
+      border-color: var(--primary, #3b82f6);
+      background: var(--focus-ring, rgba(59,130,246,0.18));
+      color: var(--primary-dark, #2563eb);
     }
+    .se-type-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
     /* ── Date row ────────────────────────────────────────────────────────── */
     .se-date-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -115,6 +131,7 @@
     .se-date-input {
       flex: 1;
       min-width: 140px;
+      min-height: 40px;
       padding: 8px 12px;
       border: 1px solid var(--border-input, #d1d5db);
       border-radius: 8px;
@@ -123,14 +140,18 @@
       background: #fff;
       color: var(--text-primary, #0b1530);
     }
-    .se-date-input:focus { outline: 2px solid #8b5cf6; outline-offset: 1px; }
+    .se-date-input:focus {
+      outline: none;
+      border-color: var(--primary, #3b82f6);
+      box-shadow: 0 0 0 2px var(--focus-ring, rgba(59,130,246,0.18));
+    }
 
     /* ── Exercise rows ───────────────────────────────────────────────────── */
     .se-exercises { display: flex; flex-direction: column; gap: 10px; }
     .se-ex-row {
       display: grid;
       gap: 8px;
-      background: #f7f9fd;
+      background: var(--tile, #f7f9fd);
       border-radius: 10px;
       padding: 12px;
       position: relative;
@@ -161,11 +182,18 @@
       box-sizing: border-box;
     }
     .se-ex-input[type="number"] {
-      font-family: "JetBrains Mono", monospace;
+      font-family: var(--mono, "JetBrains Mono", monospace);
       font-size: 13px;
     }
-    .se-ex-input:focus, .se-ex-select:focus { outline: 2px solid #8b5cf6; outline-offset: 1px; border-color: transparent; }
+    .se-ex-input:focus, .se-ex-select:focus {
+      outline: none;
+      border-color: var(--primary, #3b82f6);
+      box-shadow: 0 0 0 2px var(--focus-ring, rgba(59,130,246,0.18));
+    }
     .se-ex-input.has-error, .se-ex-select.has-error { border-color: var(--danger, #dc2626); }
+    .se-ex-input.has-error:focus, .se-ex-select.has-error:focus {
+      box-shadow: 0 0 0 2px rgba(220,38,38,0.18);
+    }
     .se-ex-errors {
       grid-area: err;
       display: flex;
@@ -188,13 +216,17 @@
     /* ── Delete row button ───────────────────────────────────────────────── */
     .se-ex-delete {
       position: absolute;
-      top: 8px;
-      right: 8px;
+      top: 6px;
+      right: 6px;
+      width: 32px;
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       background: none;
       border: none;
-      padding: 4px 6px;
-      border-radius: 4px;
-      font-size: 14px;
+      border-radius: 6px;
+      font-size: 16px;
       color: var(--text-secondary, #5c6886);
       cursor: pointer;
       line-height: 1;
@@ -207,13 +239,16 @@
       display: inline-flex;
       align-items: center;
       gap: 5px;
+      min-height: 36px;
       background: none;
       border: none;
-      padding: 6px 0;
+      padding: 6px 4px;
+      margin-left: -4px;
+      border-radius: 6px;
       font-family: inherit;
       font-size: 13px;
       font-weight: 600;
-      color: #5b21b6;
+      color: var(--primary-dark, #2563eb);
       cursor: pointer;
       letter-spacing: -0.01em;
     }
@@ -228,6 +263,7 @@
       padding-top: 4px;
     }
     .se-btn-cancel {
+      min-height: 40px;
       padding: 9px 18px;
       border: 1px solid var(--border-input, #d1d5db);
       border-radius: 8px;
@@ -237,13 +273,15 @@
       font-weight: 600;
       color: var(--text-secondary, #5c6886);
       cursor: pointer;
+      transition: background 0.15s;
     }
-    .se-btn-cancel:hover { background: #f7f9fd; }
+    .se-btn-cancel:hover { background: var(--tile, #f7f9fd); }
     .se-btn-submit {
+      min-height: 40px;
       padding: 9px 20px;
       border: none;
       border-radius: 8px;
-      background: #5b21b6;
+      background: var(--primary-dark, #2563eb);
       font-family: inherit;
       font-size: 13px;
       font-weight: 700;
@@ -271,7 +309,7 @@
       padding: 14px 16px;
       border-bottom: 1px solid var(--card-border, rgba(13,30,67,0.06));
     }
-    .se-session-meta { display: flex; align-items: center; gap: 10px; }
+    .se-session-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .se-session-badge {
       display: inline-block;
       font-size: 10px;
@@ -281,41 +319,31 @@
       padding: 3px 8px;
       border-radius: 4px;
       color: #fff;
-      background: #5b21b6;
+      background: var(--ink, #0b1530);
     }
-    .se-session-badge.strength { background: #5b21b6; }
-    .se-session-badge.plyo { background: #1d4ed8; }
+    .se-session-badge.strength { background: var(--ink, #0b1530); }
+    .se-session-badge.plyo { background: var(--primary-dark, #2563eb); }
     .se-session-date {
       font-size: 13px;
       font-weight: 600;
       color: var(--text-primary, #0b1530);
     }
-    .se-session-actions { display: flex; gap: 6px; }
-    .se-session-btn {
-      padding: 5px 10px;
-      border-radius: 6px;
-      font-family: inherit;
+    .se-session-count {
       font-size: 12px;
-      font-weight: 600;
-      border: none;
-      cursor: pointer;
-      transition: opacity 0.15s;
+      color: var(--text-secondary, #5c6886);
     }
-    .se-session-btn.edit { background: #f7f9fd; color: #0b1530; }
-    .se-session-btn.edit:hover { background: #e8edfa; }
-    .se-session-btn.del { background: var(--danger-soft, #fee2e2); color: var(--danger, #dc2626); }
-    .se-session-btn.del:hover { background: #fca5a5; }
 
     /* ── Exercise rows in list ───────────────────────────────────────────── */
-    .se-ex-list { padding: 10px 16px; display: flex; flex-direction: column; gap: 6px; }
+    .se-ex-list { padding: 6px 16px 10px; display: flex; flex-direction: column; }
     .se-ex-item {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
       font-size: 13px;
       flex-wrap: wrap;
-      padding: 6px 0;
-      border-bottom: 1px solid #f0f2f7;
+      padding: 10px 0;
+      min-height: 44px;
+      border-bottom: 1px solid var(--tile, #f0f2f7);
     }
     .se-ex-item:last-child { border-bottom: none; }
     .se-ex-dot {
@@ -324,41 +352,78 @@
       border-radius: 50%;
       flex-shrink: 0;
     }
-    .se-ex-dot.strength { background: #8b5cf6; }
-    .se-ex-dot.plyo { background: #2563eb; }
-    .se-ex-item-name { font-weight: 600; flex: 1; min-width: 80px; }
-    .se-ex-item-detail { color: var(--text-secondary, #5c6886); font-size: 12px; font-family: "JetBrains Mono", monospace; }
-    .se-ex-item-actions { display: flex; gap: 4px; margin-left: auto; }
+    .se-ex-dot.strength { background: var(--ink, #0b1530); }
+    .se-ex-dot.plyo { background: var(--primary, #3b82f6); }
+    .se-ex-item-name { font-weight: 600; flex: 1; min-width: 100px; }
+    .se-ex-item-detail { color: var(--ink-2, #5c6886); font-size: 12px; font-family: var(--mono, "JetBrains Mono", monospace); }
+    .se-ex-item-actions { display: flex; gap: 6px; margin-left: auto; }
     .se-ex-item-btn {
-      padding: 3px 8px;
-      border-radius: 5px;
+      min-height: 32px;
+      padding: 6px 10px;
+      border-radius: 6px;
       font-family: inherit;
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 600;
       border: none;
       cursor: pointer;
+      transition: background 0.15s;
     }
-    .se-ex-item-btn.edit { background: #f7f9fd; color: #0b1530; }
-    .se-ex-item-btn.edit:hover { background: #e8edfa; }
+    .se-ex-item-btn.edit { background: var(--tile, #f7f9fd); color: var(--ink, #0b1530); }
+    .se-ex-item-btn.edit:hover { background: var(--focus-ring, #e8edfa); }
     .se-ex-item-btn.del { background: var(--danger-soft, #fee2e2); color: var(--danger, #dc2626); }
     .se-ex-item-btn.del:hover { background: #fca5a5; }
 
     /* -- Empty state --------------------------------------------------------- */
     .se-empty {
       text-align: center;
-      padding: 40px 20px;
+      padding: 48px 20px;
       color: var(--text-secondary, #5c6886);
       font-size: 14px;
     }
+    .se-empty-icon {
+      color: var(--text-tertiary, #69748c);
+      margin: 0 auto 14px;
+      display: block;
+    }
     .se-empty strong { display: block; font-size: 15px; color: var(--text-primary, #0b1530); margin-bottom: 6px; }
-    .se-empty span { font-family: "JetBrains Mono", monospace; }
+    .se-empty p { margin: 0; max-width: 42ch; margin-inline: auto; }
+
+    /* ── Loading skeleton ─────────────────────────────────────────────────── */
+    .se-skel-card {
+      background: var(--card-bg, #fff);
+      border-radius: 14px;
+      border: 1px solid var(--card-border, rgba(13,30,67,0.06));
+      box-shadow: var(--card-shadow);
+      overflow: hidden;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .se-skel-line {
+      height: 12px;
+      border-radius: 6px;
+      background: linear-gradient(90deg, var(--tile, #f7f9fd) 25%, #eef1f8 37%, var(--tile, #f7f9fd) 63%);
+      background-size: 400% 100%;
+      animation: se-shimmer 1.4s ease infinite;
+    }
+    .se-skel-line.w-40 { width: 40%; }
+    .se-skel-line.w-70 { width: 70%; }
+    .se-skel-line.w-100 { width: 100%; }
+    @keyframes se-shimmer {
+      0% { background-position: 100% 50%; }
+      100% { background-position: 0 50%; }
+    }
 
     /* ── Toast ───────────────────────────────────────────────────────────── */
     .se-toast {
       position: fixed;
       bottom: 24px;
       right: 24px;
-      background: #0b1530;
+      left: 24px;
+      margin: 0 auto;
+      max-width: fit-content;
+      background: var(--ink, #0b1530);
       color: #fff;
       padding: 10px 18px;
       border-radius: 10px;
@@ -372,8 +437,14 @@
       pointer-events: none;
     }
     .se-toast.is-visible { opacity: 1; transform: translateY(0); }
-    .se-toast.success { background: #166534; }
-    .se-toast.error { background: #991b1b; }
+    .se-toast.success { background: var(--green, #166534); }
+    .se-toast.error { background: var(--red, #991b1b); }
+
+    /* ── Reduced motion ──────────────────────────────────────────────────── */
+    @media (prefers-reduced-motion: reduce) {
+      .se-toast, .se-add-btn, .se-btn-submit, .se-ex-item-btn, .se-ex-delete { transition: none; }
+      .se-skel-line { animation: none; background: var(--tile, #f7f9fd); }
+    }
 
     /* ── Error banner ────────────────────────────────────────────────────── */
     .se-error-banner {
@@ -402,7 +473,16 @@
           "contacts phase"
           "err      err";
       }
-      .se-session-actions { flex-wrap: wrap; }
+      /* Stacked layout puts the name field under the top-right delete button;
+         pad it clear so typed text never runs under the control. */
+      .se-ex-field[data-area="name"] input { padding-right: 36px; }
+      .se-ex-item-btn { min-height: 36px; padding: 8px 12px; font-size: 12.5px; }
+      .se-toast { left: 16px; right: 16px; bottom: 16px; max-width: none; text-align: center; }
+    }
+
+    @media (max-width: 400px) {
+      .se-page-header { flex-direction: column; align-items: stretch; }
+      .se-add-btn { justify-content: center; }
     }
   </style>
 </head>
@@ -411,7 +491,10 @@
 
   <main class="se-main">
     <div class="se-page-header">
-      <h1 class="se-page-title">Sessions</h1>
+      <div class="se-page-heading">
+        <h1 class="se-page-title">Sessions</h1>
+        <p class="se-page-sub">Log strength and plyometric work</p>
+      </div>
       <button type="button" class="se-add-btn" id="se-add-btn">+ Add Session</button>
     </div>
 
@@ -420,11 +503,11 @@
       <p class="se-card-label">New Session</p>
 
       <!-- Type selector -->
-      <div class="se-type-row" id="se-type-row">
-        <button type="button" class="se-type-btn is-active" id="se-type-strength" data-type="strength">
+      <div class="se-type-row" id="se-type-row" role="group" aria-label="Session type">
+        <button type="button" class="se-type-btn is-active" id="se-type-strength" data-type="strength" aria-pressed="true">
           🏋️ Strength
         </button>
-        <button type="button" class="se-type-btn plyo" id="se-type-plyo" data-type="plyo">
+        <button type="button" class="se-type-btn plyo" id="se-type-plyo" data-type="plyo" aria-pressed="false">
           🦘 Plyo
         </button>
       </div>
@@ -453,14 +536,22 @@
     </div>
 
     <!-- Session list -->
-    <div id="se-list-container">
-      <div class="se-card se-empty" id="se-loading">
-        <span>Loading…</span>
+    <div id="se-list-container" aria-busy="true" aria-live="polite">
+      <div class="se-list" id="se-loading" aria-hidden="true">
+        <div class="se-skel-card">
+          <div class="se-skel-line w-40"></div>
+          <div class="se-skel-line w-100"></div>
+          <div class="se-skel-line w-70"></div>
+        </div>
+        <div class="se-skel-card">
+          <div class="se-skel-line w-40"></div>
+          <div class="se-skel-line w-100"></div>
+        </div>
       </div>
     </div>
   </main>
 
-  <div class="se-toast" id="se-toast"></div>
+  <div class="se-toast" id="se-toast" role="status" aria-live="polite"></div>
 
   <script src="js/lib/sync-poller.js"></script>
 

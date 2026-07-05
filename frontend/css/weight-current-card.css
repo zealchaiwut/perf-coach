@@ -109,7 +109,7 @@
 .ewma-rate-label {
   font-size: 11px;
   font-weight: 600;
-  color: var(--text-tertiary, #8fa0be);
+  color: var(--text-tertiary, #69748c);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -130,4 +130,13 @@
 
 @media (max-width: 480px) {
   .hca-weight { font-size: 36px; }
+  .hca-col { min-width: 72px; gap: 3px; }
+  .hca-col-label { font-size: 8.5px; }
+  .hca-avg { font-size: 15px; }
+}
+
+@media (max-width: 360px) {
+  .hca-middle { gap: 4px; }
+  .hca-col { min-width: 64px; }
+  .hca-weight { font-size: 32px; }
 }
