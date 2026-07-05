@@ -1,5 +1,9 @@
 # Changelog
 
+## Sprint 98.3 — Follow-up hardening: session-signal 40-min boundary fix
+
+- #1093: Align `_compute_session_signals` 40-min threshold to use `<=` (matching `compute_endurance_signal`), so a run of exactly 2400 s reports "run under 40 min" instead of "insufficient data"
+
 ## Sprint 98.1 — Follow-up hardening: atomic session submit, Riegel consolidation, migration/backfill fixes
 
 - #542: Pin Chart.js CDN to a specific version (4.4.4) in training-log.html
