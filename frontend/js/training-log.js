@@ -152,7 +152,12 @@
 
   // Run-subtype display labels (run_subtype is a run-only column; the run keeps
   // workout_type='run'). Rendered as a separate tag next to the run type badge.
-  var SUBTYPE_LABELS = { interval: "interval", longrun: "long run", easy: "easy", tempo: "tempo" };
+  var SUBTYPE_LABELS = {
+    interval: "interval",
+    longrun: "long run",
+    easy: "easy",
+    tempo: "tempo",
+  };
 
   // Segment label → intensity key (timeline colors + segment dots), derived
   // from the shared segment definitions (issue #531).
@@ -203,14 +208,22 @@
   function setWorkoutURLParam(workoutId) {
     var p = new URLSearchParams(window.location.search);
     p.set("workout", workoutId);
-    history.replaceState(null, "", window.location.pathname + "?" + p.toString());
+    history.replaceState(
+      null,
+      "",
+      window.location.pathname + "?" + p.toString(),
+    );
   }
 
   function clearWorkoutURLParam() {
     var p = new URLSearchParams(window.location.search);
     p.delete("workout");
     var qs = p.toString();
-    history.replaceState(null, "", window.location.pathname + (qs ? "?" + qs : ""));
+    history.replaceState(
+      null,
+      "",
+      window.location.pathname + (qs ? "?" + qs : ""),
+    );
   }
 
   // Called once after the first successful fetchAndRender — opens the panel
@@ -246,7 +259,9 @@
   function _scrollListToWorkout(wid) {
     var MAX_BATCHES = 200; // safety cap; each batch is ~30 workouts
     function rowFor() {
-      return document.querySelector('.entry-row[data-workout-id="' + wid + '"]');
+      return document.querySelector(
+        '.entry-row[data-workout-id="' + wid + '"]',
+      );
     }
     // Force-render successive batches SYNCHRONOUSLY until the row is in the DOM
     // (or all days are rendered). Rendering everything up front means the
@@ -268,7 +283,8 @@
     if (!row) return; // not in the loaded range — drawer stays open, nothing to scroll
 
     // Reuse the existing active-row styling + tracking.
-    if (activeRowEl && activeRowEl !== row) activeRowEl.classList.remove("is-active");
+    if (activeRowEl && activeRowEl !== row)
+      activeRowEl.classList.remove("is-active");
     activeRowEl = row;
     row.classList.add("is-active");
 
@@ -314,12 +330,18 @@
     if (!bar) return;
 
     // Type pills row — All / Run / Lift (WOD and Bike disabled for now)
-    var chipsRow = document.createElement('div');
-    chipsRow.className = 'fb-chips-row';
-    var TYPE_OPTS   = ['all','run','lift'];
-    var TYPE_LABELS = { all:'All', run:'Run', lift:'Lift', wod:'WOD', bike:'Bike' };
+    var chipsRow = document.createElement("div");
+    chipsRow.className = "fb-chips-row";
+    var TYPE_OPTS = ["all", "run", "lift"];
+    var TYPE_LABELS = {
+      all: "All",
+      run: "Run",
+      lift: "Lift",
+      wod: "WOD",
+      bike: "Bike",
+    };
     // A stale ?type=wod/bike URL would filter to a now-hidden pill — fall back to All.
-    if (TYPE_OPTS.indexOf(filters.type) === -1) filters.type = 'all';
+    if (TYPE_OPTS.indexOf(filters.type) === -1) filters.type = "all";
     TYPE_OPTS.forEach(function (t) {
       var chip = document.createElement("button");
       chip.type = "button";
@@ -339,22 +361,22 @@
     bar.appendChild(chipsRow);
 
     // Search field
-    var searchWrap = document.createElement('div');
-    searchWrap.className = 'fb-search-wrap';
-    var searchInner = document.createElement('div');
-    searchInner.className = 'fb-search';
-    var searchIcon = document.createElement('i');
-    searchIcon.className = 'ti ti-search';
-    searchIcon.setAttribute('aria-hidden', 'true');
+    var searchWrap = document.createElement("div");
+    searchWrap.className = "fb-search-wrap";
+    var searchInner = document.createElement("div");
+    searchInner.className = "fb-search";
+    var searchIcon = document.createElement("i");
+    searchIcon.className = "ti ti-search";
+    searchIcon.setAttribute("aria-hidden", "true");
     searchInner.appendChild(searchIcon);
-    var searchInput = document.createElement('input');
-    searchInput.type         = 'search';
-    searchInput.id           = 'log-search';
-    searchInput.placeholder  = 'Search workouts';
-    searchInput.setAttribute('aria-label', 'Search workouts');
-    searchInput.value        = filters.search;
-    searchInput.spellcheck   = false;
-    searchInput.autocomplete = 'off';
+    var searchInput = document.createElement("input");
+    searchInput.type = "search";
+    searchInput.id = "log-search";
+    searchInput.placeholder = "Search workouts";
+    searchInput.setAttribute("aria-label", "Search workouts");
+    searchInput.value = filters.search;
+    searchInput.spellcheck = false;
+    searchInput.autocomplete = "off";
     searchInner.appendChild(searchInput);
     searchWrap.appendChild(searchInner);
     bar.appendChild(searchWrap);
@@ -381,35 +403,38 @@
 
   // ── Client-side filter (issue #637) ──────────────────────────────────────
   function applyClientFilter() {
-    var typeKey    = (filters.type || 'all').toLowerCase();
-    var searchTerm = (filters.search || '').toLowerCase().trim();
+    var typeKey = (filters.type || "all").toLowerCase();
+    var searchTerm = (filters.search || "").toLowerCase().trim();
     var anyVisible = false;
 
-    document.querySelectorAll('.day-group').forEach(function (group) {
+    document.querySelectorAll(".day-group").forEach(function (group) {
       var groupHasVisible = false;
-      group.querySelectorAll('.entry-row').forEach(function (row) {
-        var matchesType = typeKey === 'all' ||
-          (row.dataset.workoutType || '').toLowerCase() === typeKey;
-        var matchesSearch = !searchTerm ||
-          (row.dataset.workoutTitle || '').toLowerCase().indexOf(searchTerm) !== -1;
+      group.querySelectorAll(".entry-row").forEach(function (row) {
+        var matchesType =
+          typeKey === "all" ||
+          (row.dataset.workoutType || "").toLowerCase() === typeKey;
+        var matchesSearch =
+          !searchTerm ||
+          (row.dataset.workoutTitle || "").toLowerCase().indexOf(searchTerm) !==
+            -1;
         var visible = matchesType && matchesSearch;
-        row.style.display = visible ? '' : 'none';
+        row.style.display = visible ? "" : "none";
         if (visible) groupHasVisible = true;
       });
-      group.style.display = groupHasVisible ? '' : 'none';
+      group.style.display = groupHasVisible ? "" : "none";
       if (groupHasVisible) anyVisible = true;
     });
 
-    var filterEmpty = document.getElementById('log-empty-filter');
-    var mainEmpty   = document.getElementById('log-empty-msg');
-    var listEl      = document.getElementById('log-list');
-    var hasAnyRows  = listEl && listEl.querySelector('.entry-row') !== null;
+    var filterEmpty = document.getElementById("log-empty-filter");
+    var mainEmpty = document.getElementById("log-empty-msg");
+    var listEl = document.getElementById("log-list");
+    var hasAnyRows = listEl && listEl.querySelector(".entry-row") !== null;
 
     if (filterEmpty) {
-      filterEmpty.style.display = (hasAnyRows && !anyVisible) ? '' : 'none';
+      filterEmpty.style.display = hasAnyRows && !anyVisible ? "" : "none";
     }
     if (mainEmpty) {
-      mainEmpty.style.display = (!hasAnyRows && !anyVisible) ? '' : 'none';
+      mainEmpty.style.display = !hasAnyRows && !anyVisible ? "" : "none";
     }
   }
 
@@ -467,10 +492,15 @@
   function _paceSecPerKm(type, durationSeconds, distanceKm) {
     var t = (type || "").toLowerCase().trim();
     var isPaced =
-      t === "run" || t === "running" || t === "race" ||
-      t.indexOf("bike") === 0 || t.indexOf("ride") === 0 || t.indexOf("cycl") === 0;
+      t === "run" ||
+      t === "running" ||
+      t === "race" ||
+      t.indexOf("bike") === 0 ||
+      t.indexOf("ride") === 0 ||
+      t.indexOf("cycl") === 0;
     if (!isPaced) return null;
-    if (durationSeconds == null || distanceKm == null || +distanceKm === 0) return null;
+    if (durationSeconds == null || distanceKm == null || +distanceKm === 0)
+      return null;
     return Math.round((durationSeconds / distanceKm) * 100) / 100;
   }
 
@@ -483,11 +513,17 @@
       title: w.name,
       duration_seconds: w.duration_seconds,
       duration_minutes:
-        w.duration_seconds != null ? Math.round((w.duration_seconds / 60) * 100) / 100 : null,
+        w.duration_seconds != null
+          ? Math.round((w.duration_seconds / 60) * 100) / 100
+          : null,
       distance_km: w.distance_km != null ? w.distance_km : null,
       avg_hr: w.avg_hr,
       elevation_m: w.elevation_m,
-      average_pace_seconds_per_km: _paceSecPerKm(w.workout_type, w.duration_seconds, w.distance_km),
+      average_pace_seconds_per_km: _paceSecPerKm(
+        w.workout_type,
+        w.duration_seconds,
+        w.distance_km,
+      ),
       tss: w.tss != null ? w.tss : null,
       run_subtype: w.run_subtype,
       feeling: w.feeling != null ? w.feeling : null,
@@ -585,9 +621,9 @@
     var today = todayISO();
     var params = new URLSearchParams();
 
-    params.set('from', '2010-01-01');
-    params.set('to',   today);
-    params.set('include_rest', 'false');
+    params.set("from", "2010-01-01");
+    params.set("to", today);
+    params.set("include_rest", "false");
     // issue #528: pull CTL/ATL/TSB on the SAME request as the list so the
     // readiness widget is fed from one computation (no duplicate load_context).
     params.set("include_load_context", "true");
@@ -639,7 +675,8 @@
     requestAnimationFrame(function () {
       requestAnimationFrame(function () {
         if (_lastReadinessData) renderReadinessWidget(_lastReadinessData);
-        if (volumeChart && typeof volumeChart.resize === "function") volumeChart.resize();
+        if (volumeChart && typeof volumeChart.resize === "function")
+          volumeChart.resize();
       });
     });
   }
@@ -658,8 +695,10 @@
     var svg = document.getElementById(svgId);
     if (!svg || !pts || pts.length < 2) return;
     while (svg.firstChild) svg.removeChild(svg.firstChild);
-    var W = 120, H = 52;
-    var mn = Math.min.apply(null, pts), mx = Math.max.apply(null, pts);
+    var W = 120,
+      H = 52;
+    var mn = Math.min.apply(null, pts),
+      mx = Math.max.apply(null, pts);
     var d = pts
       .map(function (v, i) {
         var x = (i / (pts.length - 1)) * W;
@@ -711,7 +750,7 @@
   var _LRX_TREND_COLOR = { ctl: "#4f6ef7", atl: "#dc2626", tsb: "#16a34a" };
 
   function renderReadinessWidget(data) {
-    var el = document.getElementById('readiness-widget');
+    var el = document.getElementById("readiness-widget");
     if (!el) return;
     _lastReadinessData = data;
 
@@ -724,41 +763,77 @@
     }
 
     var series = data.series || [];
-    var rlabel = data.readiness_label || '';
+    var rlabel = data.readiness_label || "";
 
     function rcard(metric, val, abbr, label, chartId) {
       var st = _lrxReadStatus(metric, val);
       var pct = _lrxMarkerPct(metric, val);
-      return '<div class="lrx-rcard">' +
-        '<div class="rv">' + esc(fmtLoadNum(val)) + '</div>' +
-        '<div class="rl">' + abbr + ' · ' + label + '</div>' +
-        '<div class="lrx-rband" style="background:' + _LRX_BAND[metric] + '">' +
-          '<div class="mk" style="left:' + pct.toFixed(0) + '%"></div></div>' +
-        '<div class="lrx-rstatus" style="color:' + st.color + '">' + st.word + '</div>' +
-        '<svg class="lrx-rchart" id="' + chartId + '"></svg>' +
-      '</div>';
+      return (
+        '<div class="lrx-rcard">' +
+        '<div class="rv">' +
+        esc(fmtLoadNum(val)) +
+        "</div>" +
+        '<div class="rl">' +
+        abbr +
+        " · " +
+        label +
+        "</div>" +
+        '<div class="lrx-rband" style="background:' +
+        _LRX_BAND[metric] +
+        '">' +
+        '<div class="mk" style="left:' +
+        pct.toFixed(0) +
+        '%"></div></div>' +
+        '<div class="lrx-rstatus" style="color:' +
+        st.color +
+        '">' +
+        st.word +
+        "</div>" +
+        '<svg class="lrx-rchart" id="' +
+        chartId +
+        '"></svg>' +
+        "</div>"
+      );
     }
 
     el.innerHTML =
       '<div class="lrx-chead">' +
-        '<span class="lrx-sectitle">Readiness</span>' +
-        (rlabel ? '<span class="lrx-chip b">' + esc(rlabel) + '</span>' : '') +
-      '</div>' +
+      '<span class="lrx-sectitle">Readiness</span>' +
+      (rlabel ? '<span class="lrx-chip b">' + esc(rlabel) + "</span>" : "") +
+      "</div>" +
       '<div class="lrx-readfull">' +
-        rcard('ctl', data.ctl, 'CTL', 'Fitness',   'lrx-r-ctl') +
-        rcard('atl', data.atl, 'ATL', 'Fatigue',   'lrx-r-atl') +
-        rcard('tsb', data.tsb, 'TSB', 'Freshness', 'lrx-r-tsb') +
-      '</div>';
+      rcard("ctl", data.ctl, "CTL", "Fitness", "lrx-r-ctl") +
+      rcard("atl", data.atl, "ATL", "Fatigue", "lrx-r-atl") +
+      rcard("tsb", data.tsb, "TSB", "Freshness", "lrx-r-tsb") +
+      "</div>";
     el.hidden = false;
-    _lrxTrendLine('lrx-r-ctl', series.map(function (d) { return d.ctl; }), _LRX_TREND_COLOR.ctl);
-    _lrxTrendLine('lrx-r-atl', series.map(function (d) { return d.atl; }), _LRX_TREND_COLOR.atl);
-    _lrxTrendLine('lrx-r-tsb', series.map(function (d) { return d.tsb; }), _LRX_TREND_COLOR.tsb);
+    _lrxTrendLine(
+      "lrx-r-ctl",
+      series.map(function (d) {
+        return d.ctl;
+      }),
+      _LRX_TREND_COLOR.ctl,
+    );
+    _lrxTrendLine(
+      "lrx-r-atl",
+      series.map(function (d) {
+        return d.atl;
+      }),
+      _LRX_TREND_COLOR.atl,
+    );
+    _lrxTrendLine(
+      "lrx-r-tsb",
+      series.map(function (d) {
+        return d.tsb;
+      }),
+      _LRX_TREND_COLOR.tsb,
+    );
   }
 
   function fetchReadinessWidget() {
-    var el = document.getElementById('readiness-widget');
+    var el = document.getElementById("readiness-widget");
     if (!el) return;
-    fetch('/api/readiness')
+    fetch("/api/readiness")
       .then(function (res) {
         if (!res.ok) {
           el.hidden = true;
@@ -827,9 +902,7 @@
     }
 
     var fromStr = toISODate(startMonday);
-    fetch(
-      "/api/training-load/weekly?from=" + fromStr + "&to=" + toISO,
-    )
+    fetch("/api/training-load/weekly?from=" + fromStr + "&to=" + toISO)
       .then(function (res) {
         if (!res.ok) throw new Error("HTTP " + res.status);
         return res.json();
@@ -882,8 +955,9 @@
 
         // Read tick colour from CSS structural token (--text-tertiary).
         var rootStyle = getComputedStyle(document.documentElement);
-        var tickColor = rootStyle.getPropertyValue('--text-tertiary').trim() || '#69748c';
-        var tickFont  = { size: 10 };
+        var tickColor =
+          rootStyle.getPropertyValue("--text-tertiary").trim() || "#69748c";
+        var tickFont = { size: 10 };
 
         // Gradient background factory for stacked bars with current-week emphasis.
         // Scriptable: Chart.js calls this per data-point so gradients are recreated
@@ -895,7 +969,12 @@
             if (!area) {
               return isCurrent ? loA : loB;
             }
-            var g = context.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+            var g = context.chart.ctx.createLinearGradient(
+              0,
+              area.top,
+              0,
+              area.bottom,
+            );
             g.addColorStop(0, isCurrent ? hiA : hiB);
             g.addColorStop(1, isCurrent ? loA : loB);
             return g;
@@ -903,12 +982,16 @@
         }
 
         var runBg = makeBarBg(
-          'rgba(96,165,250,0.95)', 'rgba(37,99,235,0.88)',
-          'rgba(96,165,250,0.38)', 'rgba(37,99,235,0.28)'
+          "rgba(96,165,250,0.95)",
+          "rgba(37,99,235,0.88)",
+          "rgba(96,165,250,0.38)",
+          "rgba(37,99,235,0.28)",
         );
         var liftBg = makeBarBg(
-          'rgba(167,139,250,0.95)', 'rgba(109,40,217,0.88)',
-          'rgba(167,139,250,0.38)', 'rgba(109,40,217,0.28)'
+          "rgba(167,139,250,0.95)",
+          "rgba(109,40,217,0.88)",
+          "rgba(167,139,250,0.38)",
+          "rgba(109,40,217,0.28)",
         );
 
         // Update the existing chart in place when possible (avoids the
@@ -942,18 +1025,23 @@
                 yAxisID: "y",
               },
               {
-                label: 'Lift TSS',
+                label: "Lift TSS",
                 data: strengthTssVals,
                 backgroundColor: liftBg,
-                borderRadius: { topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 },
+                borderRadius: {
+                  topLeft: 4,
+                  topRight: 4,
+                  bottomLeft: 0,
+                  bottomRight: 0,
+                },
                 maxBarThickness: 36,
                 stack: "tss",
                 order: 2,
                 yAxisID: "y",
               },
               {
-                label: 'Distance',
-                type: 'line',
+                label: "Distance",
+                type: "line",
                 data: distVals,
                 borderColor: "#f59e0b",
                 backgroundColor: "#f59e0b",
@@ -1063,46 +1151,46 @@
     // Week separators use the mock's .lrx-wkhdr (label + "N TSS · N km").
     // Month separators are rendered as a light label row (kept minimal so the
     // week headers carry the totals, matching the mock's week-grouped list).
-    if (variant === 'week-sep') {
-      var sep = document.createElement('div');
-      sep.className = 'lrx-wkhdr';
+    if (variant === "week-sep") {
+      var sep = document.createElement("div");
+      sep.className = "lrx-wkhdr";
       var tss = agg ? Math.round((agg.runTss || 0) + (agg.liftTss || 0)) : 0;
-      var km = agg ? (Math.round(agg.km * 10) / 10) : 0;
-      var wl = document.createElement('span');
-      wl.className = 'wl';
-      wl.textContent = (titleText || '').replace(/^Week of\s*/, '');
-      var wr = document.createElement('span');
-      wr.className = 'wr';
-      wr.textContent = tss + ' TSS · ' + km + ' km';
+      var km = agg ? Math.round(agg.km * 10) / 10 : 0;
+      var wl = document.createElement("span");
+      wl.className = "wl";
+      wl.textContent = (titleText || "").replace(/^Week of\s*/, "");
+      var wr = document.createElement("span");
+      wr.className = "wr";
+      wr.textContent = tss + " TSS · " + km + " km";
       sep.appendChild(wl);
       sep.appendChild(wr);
       return sep;
     }
 
-    var sep = document.createElement('div');
-    sep.className = 'month-sep' + (variant ? ' ' + variant : '');
+    var sep = document.createElement("div");
+    sep.className = "month-sep" + (variant ? " " + variant : "");
 
-    var title = document.createElement('div');
-    title.className = 'month-sep-title';
+    var title = document.createElement("div");
+    title.className = "month-sep-title";
     title.textContent = titleText;
     sep.appendChild(title);
 
-    var stats = document.createElement('div');
-    stats.className = 'month-sep-stats';
+    var stats = document.createElement("div");
+    stats.className = "month-sep-stats";
     var parts = [
-      ['Run TSS', agg ? Math.round(agg.runTss) : 0],
-      ['Lift TSS', agg ? Math.round(agg.liftTss) : 0],
-      ['Time', (agg && agg.secs) ? fmtDuration(agg.secs) : '0min'],
-      ['KM', agg ? (Math.round(agg.km * 10) / 10) : 0],
+      ["Run TSS", agg ? Math.round(agg.runTss) : 0],
+      ["Lift TSS", agg ? Math.round(agg.liftTss) : 0],
+      ["Time", agg && agg.secs ? fmtDuration(agg.secs) : "0min"],
+      ["KM", agg ? Math.round(agg.km * 10) / 10 : 0],
     ];
     parts.forEach(function (p) {
-      var chip = document.createElement('span');
-      chip.className = 'month-stat';
-      var val = document.createElement('span');
-      val.className = 'month-stat-val';
+      var chip = document.createElement("span");
+      chip.className = "month-stat";
+      var val = document.createElement("span");
+      val.className = "month-stat-val";
       val.textContent = p[1];
-      var lbl = document.createElement('span');
-      lbl.className = 'month-stat-lbl';
+      var lbl = document.createElement("span");
+      lbl.className = "month-stat-lbl";
       lbl.textContent = p[0];
       chip.appendChild(val);
       chip.appendChild(lbl);
@@ -1113,27 +1201,34 @@
   }
 
   function _monthTitle(dateStr) {
-    var d = new Date(dateStr + 'T00:00:00');
-    return isNaN(d.getMonth()) ? (dateStr || '').slice(0, 7)
-      : MONTHS[d.getMonth()] + ' ' + d.getFullYear();
+    var d = new Date(dateStr + "T00:00:00");
+    return isNaN(d.getMonth())
+      ? (dateStr || "").slice(0, 7)
+      : MONTHS[d.getMonth()] + " " + d.getFullYear();
   }
   function _mondayOf(dateStr) {
-    var d = new Date(dateStr + 'T00:00:00');
-    var dow = d.getDay(), diff = dow === 0 ? -6 : 1 - dow;
+    var d = new Date(dateStr + "T00:00:00");
+    var dow = d.getDay(),
+      diff = dow === 0 ? -6 : 1 - dow;
     d.setDate(d.getDate() + diff);
     return d;
   }
   function _weekKey(dateStr) {
     var m = _mondayOf(dateStr);
-    return m.getFullYear() + '-' + pad(m.getMonth() + 1) + '-' + pad(m.getDate());
+    return (
+      m.getFullYear() + "-" + pad(m.getMonth() + 1) + "-" + pad(m.getDate())
+    );
   }
   function _weekTitle(dateStr) {
-    var mon = _mondayOf(dateStr), sun = new Date(mon);
+    var mon = _mondayOf(dateStr),
+      sun = new Date(mon);
     sun.setDate(mon.getDate() + 6);
-    var a = MONTHS[mon.getMonth()] + ' ' + mon.getDate();
-    var b = mon.getMonth() === sun.getMonth() ? ('' + sun.getDate())
-      : (MONTHS[sun.getMonth()] + ' ' + sun.getDate());
-    return 'Week of ' + a + ' – ' + b;
+    var a = MONTHS[mon.getMonth()] + " " + mon.getDate();
+    var b =
+      mon.getMonth() === sun.getMonth()
+        ? "" + sun.getDate()
+        : MONTHS[sun.getMonth()] + " " + sun.getDate();
+    return "Week of " + a + " – " + b;
   }
 
   // Incremental render state — the full history can be hundreds of workouts, so
@@ -1150,13 +1245,13 @@
     var entries = [];
     (weeks || []).forEach(function (week) {
       (week.entries || []).forEach(function (entry) {
-        if (entry.type !== 'rest') entries.push(entry);
+        if (entry.type !== "rest") entries.push(entry);
       });
     });
 
     if (!entries.length) {
-      var emptyEl = document.getElementById('log-empty-msg');
-      if (emptyEl) emptyEl.style.display = '';
+      var emptyEl = document.getElementById("log-empty-msg");
+      if (emptyEl) emptyEl.style.display = "";
       _listState = null;
       return;
     }
@@ -1167,37 +1262,47 @@
     var days = [];
     var dayMap = {};
     entries.forEach(function (entry) {
-      var date = entry.date || '';
+      var date = entry.date || "";
       if (!dayMap[date]) {
         dayMap[date] = [];
         days.push(date);
       }
       dayMap[date].push(entry);
     });
-    days.sort(function (a, b) { return a < b ? 1 : a > b ? -1 : 0; });
+    days.sort(function (a, b) {
+      return a < b ? 1 : a > b ? -1 : 0;
+    });
 
     // Full month + week rollups up front, so each separator shows correct totals
     // even before the whole period has been rendered.
     function addAgg(map, key, e) {
       if (!map[key]) map[key] = { runTss: 0, liftTss: 0, secs: 0, km: 0 };
-      var tk = normalizeTypeKey(e.type), tss = Number(e.tss) || 0;
-      if (tk === 'run') map[key].runTss += tss;
-      else if (tk === 'lift') map[key].liftTss += tss;
+      var tk = normalizeTypeKey(e.type),
+        tss = Number(e.tss) || 0;
+      if (tk === "run") map[key].runTss += tss;
+      else if (tk === "lift") map[key].liftTss += tss;
       if (e.duration_seconds) map[key].secs += Number(e.duration_seconds) || 0;
       if (e.distance_km) map[key].km += Number(e.distance_km) || 0;
     }
-    var monthAgg = {}, weekAgg = {};
+    var monthAgg = {},
+      weekAgg = {};
     entries.forEach(function (e) {
-      var mk = (e.date || '').slice(0, 7);
+      var mk = (e.date || "").slice(0, 7);
       if (mk) addAgg(monthAgg, mk, e);
       if (e.date) addAgg(weekAgg, _weekKey(e.date), e);
     });
 
     _listState = {
-      container: container, days: days, dayMap: dayMap,
-      monthAgg: monthAgg, weekAgg: weekAgg,
-      cursor: 0, lastMonthKey: null, lastWeekKey: null,
-      sentinel: null, observer: null,
+      container: container,
+      days: days,
+      dayMap: dayMap,
+      monthAgg: monthAgg,
+      weekAgg: weekAgg,
+      cursor: 0,
+      lastMonthKey: null,
+      lastWeekKey: null,
+      sentinel: null,
+      observer: null,
     };
     renderNextBatch();
   }
@@ -1205,7 +1310,8 @@
   function renderNextBatch() {
     var st = _listState;
     if (!st) return;
-    if (st.sentinel && st.sentinel.parentNode) st.sentinel.parentNode.removeChild(st.sentinel);
+    if (st.sentinel && st.sentinel.parentNode)
+      st.sentinel.parentNode.removeChild(st.sentinel);
 
     var rendered = 0;
     while (st.cursor < st.days.length && rendered < _LIST_BATCH) {
@@ -1214,27 +1320,36 @@
       if (monthKey !== st.lastMonthKey) {
         st.lastMonthKey = monthKey;
         st.lastWeekKey = null;
-        st.container.appendChild(buildSeparator(_monthTitle(dateStr), st.monthAgg[monthKey], ''));
+        st.container.appendChild(
+          buildSeparator(_monthTitle(dateStr), st.monthAgg[monthKey], ""),
+        );
       }
       var wk = _weekKey(dateStr);
       if (wk !== st.lastWeekKey) {
         st.lastWeekKey = wk;
-        st.container.appendChild(buildSeparator(_weekTitle(dateStr), st.weekAgg[wk], 'week-sep'));
+        st.container.appendChild(
+          buildSeparator(_weekTitle(dateStr), st.weekAgg[wk], "week-sep"),
+        );
       }
 
-      var d = new Date(dateStr + 'T00:00:00');
-      var dayGroup = document.createElement('div');
-      dayGroup.className = 'day-group';
+      var d = new Date(dateStr + "T00:00:00");
+      var dayGroup = document.createElement("div");
+      dayGroup.className = "day-group";
       dayGroup.dataset.date = dateStr;
 
-      var header = document.createElement('div');
-      header.className = 'day-group-header';
-      header.textContent = isNaN(d.getDay()) ? dateStr :
-        DAY_ABBR[d.getDay()] + ', ' + MONTHS[d.getMonth()] + ' ' + d.getDate();
+      var header = document.createElement("div");
+      header.className = "day-group-header";
+      header.textContent = isNaN(d.getDay())
+        ? dateStr
+        : DAY_ABBR[d.getDay()] +
+          ", " +
+          MONTHS[d.getMonth()] +
+          " " +
+          d.getDate();
       dayGroup.appendChild(header);
 
-      var rowsEl = document.createElement('div');
-      rowsEl.className = 'day-group-rows';
+      var rowsEl = document.createElement("div");
+      rowsEl.className = "day-group-rows";
       st.dayMap[dateStr].forEach(function (entry) {
         rowsEl.appendChild(buildEntryRow(entry));
         rendered++;
@@ -1244,30 +1359,39 @@
     }
 
     if (st.cursor < st.days.length) {
-      var sentinel = document.createElement('div');
-      sentinel.className = 'log-load-more-sentinel lrx-sentinel';
-      sentinel.innerHTML = '<span class="lrx-spin"></span> Loading older weeks…';
+      var sentinel = document.createElement("div");
+      sentinel.className = "log-load-more-sentinel lrx-sentinel";
+      sentinel.innerHTML =
+        '<span class="lrx-spin"></span> Loading older weeks…';
       st.container.appendChild(sentinel);
       st.sentinel = sentinel;
-      if ('IntersectionObserver' in window) {
+      if ("IntersectionObserver" in window) {
         if (!st.observer) {
-          st.observer = new IntersectionObserver(function (ents) {
-            if (ents.some(function (en) { return en.isIntersecting; })) renderNextBatch();
-          }, { rootMargin: '600px 0px' });
+          st.observer = new IntersectionObserver(
+            function (ents) {
+              if (
+                ents.some(function (en) {
+                  return en.isIntersecting;
+                })
+              )
+                renderNextBatch();
+            },
+            { rootMargin: "600px 0px" },
+          );
         }
         st.observer.observe(sentinel);
       } else {
-        sentinel.className = 'log-load-more lrx-sentinel';
-        sentinel.textContent = 'Load more';
-        sentinel.addEventListener('click', renderNextBatch);
+        sentinel.className = "log-load-more lrx-sentinel";
+        sentinel.textContent = "Load more";
+        sentinel.addEventListener("click", renderNextBatch);
       }
     } else {
       st.sentinel = null;
       if (st.observer) st.observer.disconnect();
       // End-of-log marker (mock: "— end of log —").
-      var endEl = document.createElement('div');
-      endEl.className = 'lrx-sentinel';
-      endEl.textContent = '— end of log —';
+      var endEl = document.createElement("div");
+      endEl.className = "lrx-sentinel";
+      endEl.textContent = "— end of log —";
       st.container.appendChild(endEl);
     }
   }
@@ -1404,9 +1528,14 @@
       row.setAttribute("aria-label", ariaBits.join(", ") + ". Open details");
       row.dataset.workoutId = w.id;
       var rowRef = row;
-      row.addEventListener("click", function () { openDetailPanel(w.id, rowRef); });
+      row.addEventListener("click", function () {
+        openDetailPanel(w.id, rowRef);
+      });
       row.addEventListener("keydown", function (e) {
-        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDetailPanel(w.id, rowRef); }
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openDetailPanel(w.id, rowRef);
+        }
       });
     }
 
@@ -1415,8 +1544,12 @@
     var lday = document.createElement("div");
     lday.className = "lday";
     lday.innerHTML =
-      '<div class="d">' + (isNaN(d.getDate()) ? "" : d.getDate()) + "</div>" +
-      '<div class="m">' + (isNaN(d.getMonth()) ? "" : MONTHS[d.getMonth()]) + "</div>";
+      '<div class="d">' +
+      (isNaN(d.getDate()) ? "" : d.getDate()) +
+      "</div>" +
+      '<div class="m">' +
+      (isNaN(d.getMonth()) ? "" : MONTHS[d.getMonth()]) +
+      "</div>";
 
     // Name + type badge + meta line.
     var metaParts = [];
@@ -1680,7 +1813,11 @@
         return res.json();
       })
       .then(function () {
-        UIStates.showToast(subtype ? (_RUN_SUBTYPE_TOAST[subtype] || "Subtype set") : "Subtype cleared");
+        UIStates.showToast(
+          subtype
+            ? _RUN_SUBTYPE_TOAST[subtype] || "Subtype set"
+            : "Subtype cleared",
+        );
         // Re-fetch the detail (updates cachedDetailWorkout + menu state) and
         // refresh the list so the row badge updates.
         fetchAndRenderDetail(activeDetailWorkoutId);
@@ -1845,7 +1982,9 @@
     // option PATCHes run_subtype; the current subtype is marked. workout_type is
     // never changed, so the run stays in the full run pipeline.
     if (subtypeGroup) {
-      var tk = hasWorkout ? normalizeTypeKey(workout.workout_type || workout.type) : null;
+      var tk = hasWorkout
+        ? normalizeTypeKey(workout.workout_type || workout.type)
+        : null;
       var isRun = hasWorkout && tk === "run";
       subtypeGroup.style.display = isRun ? "" : "none";
       if (isRun) {
@@ -1995,8 +2134,12 @@
         resolve();
         return;
       }
-      var activeBtn = toggle.querySelector(".rd4-lm-btn--on") || toggle.querySelector(".rd4-lm-btn");
-      var activeMode = activeBtn ? activeBtn.getAttribute("data-lap-mode") : "distance";
+      var activeBtn =
+        toggle.querySelector(".rd4-lm-btn--on") ||
+        toggle.querySelector(".rd4-lm-btn");
+      var activeMode = activeBtn
+        ? activeBtn.getAttribute("data-lap-mode")
+        : "distance";
 
       var overlay = document.createElement("div");
       overlay.style.cssText =
@@ -2018,13 +2161,22 @@
         b.style.cssText =
           "display:block;width:100%;padding:11px;margin-bottom:8px;cursor:pointer;" +
           "border-radius:9px;font-size:14px;font-weight:600;" +
-          "border:1.5px solid " + (isActive ? "#2563eb" : "#e0e4f0") + ";" +
-          "background:" + (isActive ? "#2563eb" : "#fff") + ";" +
-          "color:" + (isActive ? "#fff" : "#374151") + ";";
+          "border:1.5px solid " +
+          (isActive ? "#2563eb" : "#e0e4f0") +
+          ";" +
+          "background:" +
+          (isActive ? "#2563eb" : "#fff") +
+          ";" +
+          "color:" +
+          (isActive ? "#fff" : "#374151") +
+          ";";
         b.addEventListener("click", function () {
           document.body.removeChild(overlay);
-          var target = toggle.querySelector('.rd4-lm-btn[data-lap-mode="' + mode + '"]');
-          if (target && !target.classList.contains("rd4-lm-btn--on")) target.click();
+          var target = toggle.querySelector(
+            '.rd4-lm-btn[data-lap-mode="' + mode + '"]',
+          );
+          if (target && !target.classList.contains("rd4-lm-btn--on"))
+            target.click();
           resolve();
         });
         return b;
@@ -2034,7 +2186,10 @@
       box.appendChild(makeBtn("Manual laps", "manual"));
       overlay.appendChild(box);
       overlay.addEventListener("click", function (e) {
-        if (e.target === overlay) { document.body.removeChild(overlay); resolve(); }
+        if (e.target === overlay) {
+          document.body.removeChild(overlay);
+          resolve();
+        }
       });
       document.body.appendChild(overlay);
     });
@@ -2322,13 +2477,28 @@
     var count, repsAgg, wAgg, rpeAgg;
     if (use) {
       count = use.length;
-      repsAgg = _setAgg(use.map(function (s) { return s.reps; }));
-      wAgg = _setAgg(use.map(function (s) { return s.weight; }));
-      rpeAgg = _setAgg(use.map(function (s) { return s.rpe; }));
+      repsAgg = _setAgg(
+        use.map(function (s) {
+          return s.reps;
+        }),
+      );
+      wAgg = _setAgg(
+        use.map(function (s) {
+          return s.weight;
+        }),
+      );
+      rpeAgg = _setAgg(
+        use.map(function (s) {
+          return s.rpe;
+        }),
+      );
     } else {
       count = ex.sets != null ? ex.sets : null;
       repsAgg = { value: ex.reps != null ? ex.reps : null, uniform: true };
-      wAgg = { value: ex.weight_kg != null ? ex.weight_kg : null, uniform: true };
+      wAgg = {
+        value: ex.weight_kg != null ? ex.weight_kg : null,
+        uniform: true,
+      };
       rpeAgg = { value: ex.rpe != null ? ex.rpe : null, uniform: true };
     }
 
@@ -3106,15 +3276,27 @@
         var r = _strengthExRow(ex);
         exRows +=
           "<tr>" +
-          '<td class="dp-ex-td-name">' + esc(r.name) + "</td>" +
-          '<td class="dp-ex-td-num">' + esc(r.setsTxt) + "</td>" +
-          '<td class="dp-ex-td-num">' + esc(r.weightTxt) + "</td>" +
+          '<td class="dp-ex-td-name">' +
+          esc(r.name) +
+          "</td>" +
+          '<td class="dp-ex-td-num">' +
+          esc(r.setsTxt) +
+          "</td>" +
+          '<td class="dp-ex-td-num">' +
+          esc(r.weightTxt) +
+          "</td>" +
           '<td class="dp-ex-td-num">' +
           (r.rpeTxt !== "\u2014"
-            ? '<span class="dp-ex-rpe-pill ' + r.rpeClass + '">' + esc(r.rpeTxt) + "</span>"
+            ? '<span class="dp-ex-rpe-pill ' +
+              r.rpeClass +
+              '">' +
+              esc(r.rpeTxt) +
+              "</span>"
             : "\u2014") +
           "</td>" +
-          '<td class="dp-ex-td-num">' + esc(r.volTxt) + "</td>" +
+          '<td class="dp-ex-td-num">' +
+          esc(r.volTxt) +
+          "</td>" +
           "</tr>";
       });
       var avgRpeFoot = rpeCount ? (rpeSum / rpeCount).toFixed(1) : "\u2014";
@@ -3168,7 +3350,9 @@
     // the HTML string is injected). Shares patchFeeling with the log-list row.
     var feelHost = document.getElementById("dp-feeling");
     if (feelHost && workout.id) {
-      feelHost.appendChild(buildFeelingRow(workout.id, workout.feeling, "dp-feel"));
+      feelHost.appendChild(
+        buildFeelingRow(workout.id, workout.feeling, "dp-feel"),
+      );
     }
 
     // Workout-id copy button (dev/testing helper — grab the id for /api/workouts/{id}/full).
@@ -3605,7 +3789,8 @@
       })
       .then(function (rows) {
         if (!rows || !rows.length) {
-          list.innerHTML = '<div class="removed-empty">No removed workouts.</div>';
+          list.innerHTML =
+            '<div class="removed-empty">No removed workouts.</div>';
           return;
         }
         list.innerHTML = "";
@@ -3613,22 +3798,33 @@
           var row = document.createElement("div");
           row.className = "removed-row";
           var src = (r.source || "").toLowerCase();
-          var meta = [fmtDate(r.workout_date), src ? src.charAt(0).toUpperCase() + src.slice(1) : ""]
-            .filter(Boolean).join(" · ");
+          var meta = [
+            fmtDate(r.workout_date),
+            src ? src.charAt(0).toUpperCase() + src.slice(1) : "",
+          ]
+            .filter(Boolean)
+            .join(" · ");
           row.innerHTML =
             '<div class="removed-row-info">' +
-            '<div class="removed-row-name">' + esc(r.name || "Workout") + "</div>" +
-            '<div class="removed-row-meta">' + esc(meta) + "</div>" +
+            '<div class="removed-row-name">' +
+            esc(r.name || "Workout") +
+            "</div>" +
+            '<div class="removed-row-meta">' +
+            esc(meta) +
+            "</div>" +
             "</div>" +
             '<button class="removed-row-restore" type="button">Restore</button>';
-          row.querySelector(".removed-row-restore").addEventListener("click", function () {
-            restoreRemoved(r.id, row);
-          });
+          row
+            .querySelector(".removed-row-restore")
+            .addEventListener("click", function () {
+              restoreRemoved(r.id, row);
+            });
           list.appendChild(row);
         });
       })
       .catch(function () {
-        list.innerHTML = '<div class="removed-empty">Could not load removed workouts.</div>';
+        list.innerHTML =
+          '<div class="removed-empty">Could not load removed workouts.</div>';
       });
   }
 
@@ -3645,11 +3841,15 @@
         if (rowEl && rowEl.parentNode) rowEl.parentNode.removeChild(rowEl);
         var list = document.getElementById("removed-modal-list");
         if (list && !list.querySelector(".removed-row"))
-          list.innerHTML = '<div class="removed-empty">No removed workouts.</div>';
+          list.innerHTML =
+            '<div class="removed-empty">No removed workouts.</div>';
         fetchAndRender();
       })
       .catch(function () {
-        UIStates.showToast("Could not restore workout. Please try again.", true);
+        UIStates.showToast(
+          "Could not restore workout. Please try again.",
+          true,
+        );
         if (btn) {
           btn.disabled = false;
           btn.textContent = "Restore";
@@ -3741,7 +3941,12 @@
   }
 
   function _syncSetBusy(busy) {
-    ["sync-btn-strava", "sync-btn-stryd", "sync-all-btn", "sync-strava-btn"].forEach(function (id) {
+    [
+      "sync-btn-strava",
+      "sync-btn-stryd",
+      "sync-all-btn",
+      "sync-strava-btn",
+    ].forEach(function (id) {
       var btn = document.getElementById(id);
       if (btn) btn.disabled = busy;
     });
@@ -3818,11 +4023,14 @@
       try {
         var parsed = JSON.parse(text);
         if (parsed && parsed.detail) {
-          msg = typeof parsed.detail === "string"
-            ? parsed.detail
-            : JSON.stringify(parsed.detail);
+          msg =
+            typeof parsed.detail === "string"
+              ? parsed.detail
+              : JSON.stringify(parsed.detail);
         }
-      } catch (e) { /* keep raw text */ }
+      } catch (e) {
+        /* keep raw text */
+      }
       return msg;
     });
   }
@@ -3841,7 +4049,8 @@
   function _syncBuildBody(options) {
     options = options || {};
     if (options.full) return JSON.stringify({ full: true });
-    if (options.sinceDate) return JSON.stringify({ since_date: options.sinceDate });
+    if (options.sinceDate)
+      return JSON.stringify({ since_date: options.sinceDate });
     return "{}";
   }
 
@@ -3880,9 +4089,11 @@
         errors.push((err && err.message) || "Strava: Sync failed");
       })
       .then(function () {
-        return _syncProvider("Stryd", "/api/stryd/sync", incremental).catch(function (err) {
-          errors.push((err && err.message) || "Stryd: Sync failed");
-        });
+        return _syncProvider("Stryd", "/api/stryd/sync", incremental).catch(
+          function (err) {
+            errors.push((err && err.message) || "Stryd: Sync failed");
+          },
+        );
       })
       .then(function () {
         if (errors.length) throw new Error(errors.join(" · "));
@@ -3892,7 +4103,9 @@
   function _onSyncAllClick() {
     _syncClearFeedback();
     _syncSetBusy(true);
-    var ready = window.ensureCsrfReady ? window.ensureCsrfReady(true) : Promise.resolve();
+    var ready = window.ensureCsrfReady
+      ? window.ensureCsrfReady(true)
+      : Promise.resolve();
     ready
       .then(function () {
         return _syncAllProviders();
@@ -3908,7 +4121,9 @@
               throw new Error(data.error || "Sync failed");
             }
             _syncLastTerminalStatus = _syncTerminalKey(
-              data && data.status === "success" ? data : { status: "success", finished_at: "manual" },
+              data && data.status === "success"
+                ? data
+                : { status: "success", finished_at: "manual" },
             );
             _loadSyncChip();
             fetchAndRender();
@@ -3916,7 +4131,7 @@
           });
       })
       .catch(function (err) {
-        var msg = (err && err.message) ? err.message : "Sync failed";
+        var msg = err && err.message ? err.message : "Sync failed";
         _syncToast(msg, true);
       })
       .finally(function () {
@@ -3927,7 +4142,9 @@
   function _onSyncProviderClick(label, url) {
     _syncClearFeedback();
     _syncSetBusy(true);
-    var ready = window.ensureCsrfReady ? window.ensureCsrfReady(true) : Promise.resolve();
+    var ready = window.ensureCsrfReady
+      ? window.ensureCsrfReady(true)
+      : Promise.resolve();
     ready
       .then(function () {
         return _syncProvider(label, url, { full: false });
@@ -3935,13 +4152,17 @@
       .then(function () {
         if (window.syncBarRefresh) window.syncBarRefresh();
         return fetch("/api/sync/status")
-          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (r) {
+            return r.ok ? r.json() : null;
+          })
           .then(function (data) {
             if (data && data.status === "error") {
               throw new Error(data.error || "Sync failed");
             }
             _syncLastTerminalStatus = _syncTerminalKey(
-              data && data.status === "success" ? data : { status: "success", finished_at: "manual" }
+              data && data.status === "success"
+                ? data
+                : { status: "success", finished_at: "manual" },
             );
             _loadSyncChip();
             fetchAndRender();
@@ -3949,7 +4170,7 @@
           });
       })
       .catch(function (err) {
-        var msg = (err && err.message) ? err.message : "Sync failed";
+        var msg = err && err.message ? err.message : "Sync failed";
         _syncToast(msg, true);
       })
       .finally(function () {
@@ -3970,7 +4191,11 @@
     });
 
     document.addEventListener("click", function (e) {
-      if (!panel.hidden && !panel.contains(e.target) && e.target !== toggleBtn) {
+      if (
+        !panel.hidden &&
+        !panel.contains(e.target) &&
+        e.target !== toggleBtn
+      ) {
         panel.hidden = true;
         toggleBtn.setAttribute("aria-expanded", "false");
       }
@@ -3984,8 +4209,20 @@
     });
 
     Promise.all([
-      fetch("/api/strava/status").then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }),
-      fetch("/api/stryd/status").then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }),
+      fetch("/api/strava/status")
+        .then(function (r) {
+          return r.ok ? r.json() : null;
+        })
+        .catch(function () {
+          return null;
+        }),
+      fetch("/api/stryd/status")
+        .then(function (r) {
+          return r.ok ? r.json() : null;
+        })
+        .catch(function () {
+          return null;
+        }),
     ]).then(function (results) {
       var stravaConnected = results[0] && results[0].connected;
       var strydConnected = results[1] && results[1].connected;
@@ -4129,7 +4366,10 @@
       menuDelete.addEventListener("click", function () {
         closeOverflowMenu();
         if (activeDetailWorkoutId)
-          deleteWorkout(activeDetailWorkoutId, isSyncedWorkout(cachedDetailWorkout));
+          deleteWorkout(
+            activeDetailWorkoutId,
+            isSyncedWorkout(cachedDetailWorkout),
+          );
       });
 
     document.addEventListener("click", function (e) {
@@ -4393,8 +4633,8 @@
     return month + " " + monday.getDate() + " – " + sunday.getDate();
   }
 
-  var currentMonday    = parseWeekParam();
-  var stripSelectedDate = null;   // ISO date of the highlighted mobile strip pill
+  var currentMonday = parseWeekParam();
+  var stripSelectedDate = null; // ISO date of the highlighted mobile strip pill
 
   async function loadAndRender(monday) {
     var sunday = new Date(monday);
@@ -4410,7 +4650,7 @@
       toStr +
       "&include_rest=false";
 
-    var dotsByDate   = {};
+    var dotsByDate = {};
     var countsByDate = {};
     try {
       var res = await fetch(url);
@@ -4436,7 +4676,7 @@
   }
 
   function render(monday, dotsByDate, countsByDate) {
-    var strip = document.getElementById('week-strip');
+    var strip = document.getElementById("week-strip");
     if (!strip) return;
 
     countsByDate = countsByDate || {};
@@ -4471,13 +4711,16 @@
         .join("");
 
       // Descriptive aria-label: "Wednesday June 18, 2 activities" (issue #639 AC10).
-      var ariaLabel = d.toLocaleDateString('en-US', {
-        weekday: 'long', month: 'long', day: 'numeric'
+      var ariaLabel = d.toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
       });
       var actCount = countsByDate[dateStr] || 0;
-      ariaLabel += actCount > 0
-        ? ', ' + actCount + ' ' + (actCount === 1 ? 'activity' : 'activities')
-        : ', no activities';
+      ariaLabel +=
+        actCount > 0
+          ? ", " + actCount + " " + (actCount === 1 ? "activity" : "activities")
+          : ", no activities";
 
       pillsHtml +=
         '<button type="button" class="day-pill' +
@@ -4544,17 +4787,19 @@
 
     // issue #639: wire each day pill to the scroll-based selection handler.
     // Real <button>s already fire click on Enter & Space.
-    var pillEls = strip.querySelectorAll('.day-pill');
+    var pillEls = strip.querySelectorAll(".day-pill");
     Array.prototype.forEach.call(pillEls, function (pill) {
-      pill.addEventListener('click', function () {
-        stripSelectDay(pill.getAttribute('data-date'));
+      pill.addEventListener("click", function () {
+        stripSelectDay(pill.getAttribute("data-date"));
       });
     });
 
     // Bring the selected pill — or today's pill on the current week — into view.
     var focusDate = stripSelectedDate
-                  ? stripSelectedDate
-                  : (isCurrentWeek ? todayStr : null);
+      ? stripSelectedDate
+      : isCurrentWeek
+        ? todayStr
+        : null;
     if (focusDate) {
       var target = strip.querySelector(
         '.day-pill[data-date="' + focusDate + '"]',
@@ -4577,22 +4822,33 @@
   // If no entry exists for that exact date, scroll to the nearest preceding entry.
   // Never filters or hides entries — full history stays visible.
   function stripScrollToDate(dateStr) {
-    var listEl = document.getElementById('log-list');
+    var listEl = document.getElementById("log-list");
     if (!listEl) return;
-    var target = listEl.querySelector('.day-group[data-date="' + dateStr + '"]');
-    if (target) { target.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    var target = listEl.querySelector(
+      '.day-group[data-date="' + dateStr + '"]',
+    );
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
     // Find nearest preceding day-group (groups are newest-first in DOM)
     var groups = Array.prototype.slice.call(
-      listEl.querySelectorAll('.day-group[data-date]')
+      listEl.querySelectorAll(".day-group[data-date]"),
     );
     var nearest = null;
     for (var i = 0; i < groups.length; i++) {
-      if (groups[i].dataset.date <= dateStr) { nearest = groups[i]; break; }
+      if (groups[i].dataset.date <= dateStr) {
+        nearest = groups[i];
+        break;
+      }
     }
     if (nearest) {
-      nearest.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      nearest.scrollIntoView({ behavior: "smooth", block: "start" });
     } else if (groups.length) {
-      groups[groups.length - 1].scrollIntoView({ behavior: 'smooth', block: 'start' });
+      groups[groups.length - 1].scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
     }
   }
 
@@ -4641,13 +4897,15 @@
     var inner = document.querySelector(".log-page-header-inner");
     var actions = document.querySelector(".log-page-header-actions");
     if (inner) {
-      var CONTENT_MAX = 1000, PAD = 24;
+      var CONTENT_MAX = 1000,
+        PAD = 24;
       var vw = document.documentElement.clientWidth;
       var contentLeft = Math.max(0, (vw - CONTENT_MAX) / 2) + PAD;
       inner.style.paddingLeft = contentLeft + "px";
       inner.style.paddingRight = contentLeft + "px";
       if (actions) {
-        var DRAWER_INSET = 12, DRAWER_W = Math.min(600, Math.round(vw * 0.94));
+        var DRAWER_INSET = 12,
+          DRAWER_W = Math.min(600, Math.round(vw * 0.94));
         var drawerLeft = Math.max(0, vw - DRAWER_INSET - DRAWER_W);
         actions.style.left = drawerLeft + "px";
         actions.style.right = "auto";
@@ -4662,27 +4920,40 @@
   // Desktop-only (CSS hides #log-calendar below 1024 px). Reads from lastWeeks
   // already in memory — no additional API calls.
 
-  var calCurrentMonth = null;   // Date at the 1st of displayed month
-  var calSelectedDate = null;   // ISO date string of the highlighted cell
-  var calDayData      = {};     // date → { types: string[], totalTss: number }
-  var calPlannedData  = {};     // date → [{ type: session_type, status }, ...] (from Plan)
+  var calCurrentMonth = null; // Date at the 1st of displayed month
+  var calSelectedDate = null; // ISO date string of the highlighted cell
+  var calDayData = {}; // date → { types: string[], totalTss: number }
+  var calPlannedData = {}; // date → [{ type: session_type, status }, ...] (from Plan)
   var calPlannedMonthKey = null; // 'YYYY-MM' currently loaded into calPlannedData
 
   var CAL_MONTH_NAMES = [
-    'January','February','March','April','May','June',
-    'July','August','September','October','November','December'
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
   ];
 
-  var CAL_WEEKDAY_ABBR = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+  var CAL_WEEKDAY_ABBR = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
   function buildCalDayData(weeks) {
     calDayData = {};
     (weeks || []).forEach(function (week) {
       (week.entries || []).forEach(function (entry) {
-        if (entry.type === 'rest' || !entry.date) return;
+        if (entry.type === "rest" || !entry.date) return;
         var d = calDayData[entry.date];
-        if (!d) { d = { types: [], totalTss: 0, km: 0 }; calDayData[entry.date] = d; }
-        var t = (entry.type || '').toLowerCase();
+        if (!d) {
+          d = { types: [], totalTss: 0, km: 0 };
+          calDayData[entry.date] = d;
+        }
+        var t = (entry.type || "").toLowerCase();
         if (t && d.types.indexOf(t) === -1) d.types.push(t);
         if (entry.tss > 0) d.totalTss += entry.tss;
         if (entry.distance_km > 0) d.km += entry.distance_km;
@@ -4692,34 +4963,44 @@
 
   // Normalize a raw workout_type to the two calendar dot families.
   function _calDotType(t) {
-    t = (t || '').toLowerCase();
-    if (t === 'run' || t === 'bike') return 'run';
-    return 'lift'; // strength/lift/wod → violet
+    t = (t || "").toLowerCase();
+    if (t === "run" || t === "bike") return "run";
+    return "lift"; // strength/lift/wod → violet
   }
 
   // Planned-session tags (issue: see Plan sessions on the Log calendar).
   // Bucket run vs everything else (strength/plyo → "Strength", same family
   // split as the existing dots) and fetch on demand per displayed month.
   function _calPlannedFamily(t) {
-    return (t || '').toLowerCase() === 'run' ? 'run' : 'lift';
+    return (t || "").toLowerCase() === "run" ? "run" : "lift";
   }
-  function _calPlannedLabel(fam) { return fam === 'run' ? 'Run' : 'Strength'; }
-  function _calIsDoneStatus(s) { return s === 'done_auto' || s === 'done_manual'; }
+  function _calPlannedLabel(fam) {
+    return fam === "run" ? "Run" : "Strength";
+  }
+  function _calIsDoneStatus(s) {
+    return s === "done_auto" || s === "done_manual";
+  }
 
   function _calFetchPlanned(year, month) {
-    var key = year + '-' + pad(month + 1);
+    var key = year + "-" + pad(month + 1);
     if (calPlannedMonthKey === key) return;
-    var from = key + '-01';
-    var to = key + '-' + pad(new Date(year, month + 1, 0).getDate());
-    fetch('/api/planned-sessions?from=' + from + '&to=' + to)
-      .then(function (r) { return r.ok ? r.json() : null; })
+    var from = key + "-01";
+    var to = key + "-" + pad(new Date(year, month + 1, 0).getDate());
+    fetch("/api/planned-sessions?from=" + from + "&to=" + to)
+      .then(function (r) {
+        return r.ok ? r.json() : null;
+      })
       .then(function (data) {
         calPlannedData = {};
-        (data && data.days || []).forEach(function (day) {
+        ((data && data.days) || []).forEach(function (day) {
           (day.planned || []).forEach(function (p) {
-            if (p.session_type === 'rest') return;
+            if (p.session_type === "rest") return;
             if (!calPlannedData[day.date]) calPlannedData[day.date] = [];
-            calPlannedData[day.date].push({ id: p.id, type: p.session_type, status: p.status });
+            calPlannedData[day.date].push({
+              id: p.id,
+              type: p.session_type,
+              status: p.status,
+            });
           });
         });
         calPlannedMonthKey = key;
@@ -4732,19 +5013,28 @@
   // "planned" if a day has more than one session in the same family.
   function _calPlannedTagsHtml(dateStr) {
     var pd = calPlannedData[dateStr];
-    if (!pd || !pd.length) return '';
+    if (!pd || !pd.length) return "";
     var byFam = {};
     pd.forEach(function (p) {
       var fam = _calPlannedFamily(p.type);
       var done = _calIsDoneStatus(p.status);
-      if (!byFam[fam] || (done && !byFam[fam].done)) byFam[fam] = { done: done, id: p.id };
+      if (!byFam[fam] || (done && !byFam[fam].done))
+        byFam[fam] = { done: done, id: p.id };
     });
-    var html = '';
-    ['run', 'lift'].forEach(function (fam) {
+    var html = "";
+    ["run", "lift"].forEach(function (fam) {
       if (!byFam[fam]) return;
-      html += '<div class="lrx-caltag ' + fam + (byFam[fam].done ? ' done' : ' planned') +
-        '" data-plan-session="' + byFam[fam].id + '" data-plan-date="' + dateStr + '" title="Open in Plan">[' +
-        _calPlannedLabel(fam) + ']</div>';
+      html +=
+        '<div class="lrx-caltag ' +
+        fam +
+        (byFam[fam].done ? " done" : " planned") +
+        '" data-plan-session="' +
+        byFam[fam].id +
+        '" data-plan-date="' +
+        dateStr +
+        '" title="Open in Plan">[' +
+        _calPlannedLabel(fam) +
+        "]</div>";
     });
     return html;
   }
@@ -4752,43 +5042,51 @@
   // Displayed month as 'YYYY-MM' — consumed by the summary (decision 3).
   function _calMonthKey() {
     if (!calCurrentMonth) return null;
-    return calCurrentMonth.getFullYear() + '-' + pad(calCurrentMonth.getMonth() + 1);
+    return (
+      calCurrentMonth.getFullYear() + "-" + pad(calCurrentMonth.getMonth() + 1)
+    );
   }
   function _calMarkMonthScoped() {
-    var t = document.getElementById('log-cal-title');
-    if (t) t.classList.add('scoped');
+    var t = document.getElementById("log-cal-title");
+    if (t) t.classList.add("scoped");
     _calClearWeekSel();
   }
   function _calClearScope() {
-    var t = document.getElementById('log-cal-title');
-    if (t) t.classList.remove('scoped');
+    var t = document.getElementById("log-cal-title");
+    if (t) t.classList.remove("scoped");
     _calClearWeekSel();
   }
   function _calClearWeekSel() {
-    var el = document.getElementById('log-calendar');
-    if (el) el.querySelectorAll('.lrx-calrow.sel').forEach(function (r) { r.classList.remove('sel'); });
+    var el = document.getElementById("log-calendar");
+    if (el)
+      el.querySelectorAll(".lrx-calrow.sel").forEach(function (r) {
+        r.classList.remove("sel");
+      });
     _clearLogWeekHl();
   }
   function _clearLogWeekHl() {
-    document.querySelectorAll('#log-list .day-group.lrx-week-hl')
-      .forEach(function (g) { g.classList.remove('lrx-week-hl'); });
+    document
+      .querySelectorAll("#log-list .day-group.lrx-week-hl")
+      .forEach(function (g) {
+        g.classList.remove("lrx-week-hl");
+      });
   }
   // Highlight the log-list day-groups within [ws, we] (ISO dates) and scroll the
   // first into view, so clicking a calendar week points at it in the list too.
   function _highlightLogWeek(ws, we) {
     if (!ws || !we) return;
     var first = null;
-    document.querySelectorAll('#log-list .day-group').forEach(function (g) {
+    document.querySelectorAll("#log-list .day-group").forEach(function (g) {
       var d = g.dataset.date;
       var inWk = d && d >= ws && d <= we;
-      g.classList.toggle('lrx-week-hl', inWk);
+      g.classList.toggle("lrx-week-hl", inWk);
       if (inWk && !first) first = g;
     });
-    if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (first) first.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
   function renderCalendar() {
-    var el = document.getElementById('log-calendar');
+    var el = document.getElementById("log-calendar");
     if (!el) return;
 
     var now = new Date();
@@ -4796,18 +5094,23 @@
       calCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     }
 
-    var year  = calCurrentMonth.getFullYear();
+    var year = calCurrentMonth.getFullYear();
     var month = calCurrentMonth.getMonth();
-    var todayStr = pad(now.getFullYear()) + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
+    var todayStr =
+      pad(now.getFullYear()) +
+      "-" +
+      pad(now.getMonth() + 1) +
+      "-" +
+      pad(now.getDate());
     var lastDayNum = new Date(year, month + 1, 0).getDate();
     var isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
     _calFetchPlanned(year, month); // async; re-renders itself once loaded
 
     // Week starts Monday.
-    var firstDow    = new Date(year, month, 1).getDay();
+    var firstDow = new Date(year, month, 1).getDay();
     var startOffset = (firstDow + 6) % 7;
-    var totalCells  = startOffset + lastDayNum;
-    var rows        = Math.ceil(totalCells / 7);
+    var totalCells = startOffset + lastDayNum;
+    var rows = Math.ceil(totalCells / 7);
 
     // Build per-week aggregates (Mon–Sun rows over this month's cells).
     var weekAgg = [];
@@ -4817,92 +5120,138 @@
       for (var col = 0; col < 7; col++) {
         var cellIdx = row * 7 + col;
         if (cellIdx >= startOffset && dayNum <= lastDayNum) {
-          var ds = year + '-' + pad(month + 1) + '-' + pad(dayNum);
+          var ds = year + "-" + pad(month + 1) + "-" + pad(dayNum);
           if (!w.startDate) w.startDate = ds;
           w.endDate = ds;
           var dd = calDayData[ds];
-          if (dd) { w.tss += dd.totalTss; w.km += dd.km; if (dd.totalTss > 0 || dd.types.length) w.sessions += 1; }
+          if (dd) {
+            w.tss += dd.totalTss;
+            w.km += dd.km;
+            if (dd.totalTss > 0 || dd.types.length) w.sessions += 1;
+          }
           dayNum++;
         }
       }
       weekAgg.push(w);
     }
-    var maxWk = Math.max.apply(null, weekAgg.map(function (w) { return w.tss; }).concat([1]));
+    var maxWk = Math.max.apply(
+      null,
+      weekAgg
+        .map(function (w) {
+          return w.tss;
+        })
+        .concat([1]),
+    );
 
     var html =
       '<div class="lrx-chead">' +
-        '<div class="lrx-calnav">' +
-          '<button type="button" id="log-cal-prev" class="lrx-arw" aria-label="Previous month">&#8249;</button>' +
-          '<span id="log-cal-title" class="mtitle" role="button" tabindex="0">' +
-            CAL_MONTH_NAMES[month] + ' ' + year + '</span>' +
-          '<button type="button" id="log-cal-next" class="lrx-arw" aria-label="Next month">&#8250;</button>' +
-        '</div>' +
-        '<button type="button" id="log-cal-today" class="lrx-today"' +
-          (isCurrentMonth ? ' disabled' : '') + '>Today</button>' +
-      '</div>' +
+      '<div class="lrx-calnav">' +
+      '<button type="button" id="log-cal-prev" class="lrx-arw" aria-label="Previous month">&#8249;</button>' +
+      '<span id="log-cal-title" class="mtitle" role="button" tabindex="0">' +
+      CAL_MONTH_NAMES[month] +
+      " " +
+      year +
+      "</span>" +
+      '<button type="button" id="log-cal-next" class="lrx-arw" aria-label="Next month">&#8250;</button>' +
+      "</div>" +
+      '<button type="button" id="log-cal-today" class="lrx-today"' +
+      (isCurrentMonth ? " disabled" : "") +
+      ">Today</button>" +
+      "</div>" +
       '<table class="lrx-cal"><thead><tr>';
-    CAL_WEEKDAY_ABBR.forEach(function (a) { html += '<th>' + esc(a) + '</th>'; });
+    CAL_WEEKDAY_ABBR.forEach(function (a) {
+      html += "<th>" + esc(a) + "</th>";
+    });
     html += '<th class="wk">Week</th></tr></thead><tbody>';
 
     dayNum = 1;
     for (var r2 = 0; r2 < rows; r2++) {
       var wa = weekAgg[r2];
-      html += '<tr class="lrx-calrow" data-wk-start="' + esc(wa.startDate || '') +
-              '" data-wk-end="' + esc(wa.endDate || '') + '">';
+      html +=
+        '<tr class="lrx-calrow" data-wk-start="' +
+        esc(wa.startDate || "") +
+        '" data-wk-end="' +
+        esc(wa.endDate || "") +
+        '">';
       for (var c2 = 0; c2 < 7; c2++) {
         var ci = r2 * 7 + c2;
         if (ci < startOffset || dayNum > lastDayNum) {
           html += '<td class="out"></td>';
         } else {
-          var dStr = year + '-' + pad(month + 1) + '-' + pad(dayNum);
-          var dd2  = calDayData[dStr];
-          var dots = '';
+          var dStr = year + "-" + pad(month + 1) + "-" + pad(dayNum);
+          var dd2 = calDayData[dStr];
+          var dots = "";
           if (dd2 && dd2.types.length) {
             var fam = {};
-            dd2.types.forEach(function (t) { fam[_calDotType(t)] = 1; });
-            ['run', 'lift'].forEach(function (f) {
+            dd2.types.forEach(function (t) {
+              fam[_calDotType(t)] = 1;
+            });
+            ["run", "lift"].forEach(function (f) {
               if (fam[f]) dots += '<div class="lrx-dot ' + f + '"></div>';
             });
           }
-          html += '<td data-date="' + dStr + '"><span class="dnum">' + dayNum + '</span>' + dots +
-            _calPlannedTagsHtml(dStr) + '</td>';
+          html +=
+            '<td data-date="' +
+            dStr +
+            '"><span class="dnum">' +
+            dayNum +
+            "</span>" +
+            dots +
+            _calPlannedTagsHtml(dStr) +
+            "</td>";
           dayNum++;
         }
       }
-      var barPct = wa.tss > 0 ? (wa.tss / maxWk * 100) : 0;
-      html += '<td class="lrx-wkcell">' +
-                '<div class="wt">' + Math.round(wa.tss) + ' TSS</div>' +
-                '<div class="wkkm">' + wa.km.toFixed(1) + ' km</div>' +
-                '<div class="lrx-wkbar"><span style="width:' + barPct.toFixed(0) + '%"></span></div>' +
-              '</td>';
-      html += '</tr>';
+      var barPct = wa.tss > 0 ? (wa.tss / maxWk) * 100 : 0;
+      html +=
+        '<td class="lrx-wkcell">' +
+        '<div class="wt">' +
+        Math.round(wa.tss) +
+        " TSS</div>" +
+        '<div class="wkkm">' +
+        wa.km.toFixed(1) +
+        " km</div>" +
+        '<div class="lrx-wkbar"><span style="width:' +
+        barPct.toFixed(0) +
+        '%"></span></div>' +
+        "</td>";
+      html += "</tr>";
     }
-    html += '</tbody></table>' +
+    html +=
+      "</tbody></table>" +
       '<div class="lrx-callegend">' +
-        '<span><b style="background:var(--lrx-run)"></b>Run</span>' +
-        '<span><b style="background:var(--lrx-lift)"></b>Lift</span>' +
-        '<span><span class="lrx-caltag run done">[Run]</span>Plan session — done</span>' +
-        '<span><span class="lrx-caltag run planned">[Run]</span>Plan session — not yet done</span>' +
-        '<span style="color:var(--lrx-faint)">click a week to scope · click the month title for the month total</span>' +
-      '</div>';
+      '<span><b style="background:var(--lrx-run)"></b>Run</span>' +
+      '<span><b style="background:var(--lrx-lift)"></b>Lift</span>' +
+      '<span><span class="lrx-caltag run done">[Run]</span>Plan session — done</span>' +
+      '<span><span class="lrx-caltag run planned">[Run]</span>Plan session — not yet done</span>' +
+      '<span style="color:var(--lrx-faint)">click a week to scope · click the month title for the month total</span>' +
+      "</div>";
     el.innerHTML = html;
 
     // Nav
-    var prevBtn = document.getElementById('log-cal-prev');
-    var nextBtn = document.getElementById('log-cal-next');
-    var todayBtn = document.getElementById('log-cal-today');
-    var title = document.getElementById('log-cal-title');
-    if (prevBtn) prevBtn.addEventListener('click', function () {
-      calCurrentMonth = new Date(year, month - 1, 1); renderCalendar(); _calSyncScopeFollow();
-    });
-    if (nextBtn) nextBtn.addEventListener('click', function () {
-      calCurrentMonth = new Date(year, month + 1, 1); renderCalendar(); _calSyncScopeFollow();
-    });
-    if (todayBtn) todayBtn.addEventListener('click', function () {
-      calCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      renderCalendar();
-      if (window.LogSummary && window.LogSummary.showThisWeek) window.LogSummary.showThisWeek();
-    });
+    var prevBtn = document.getElementById("log-cal-prev");
+    var nextBtn = document.getElementById("log-cal-next");
+    var todayBtn = document.getElementById("log-cal-today");
+    var title = document.getElementById("log-cal-title");
+    if (prevBtn)
+      prevBtn.addEventListener("click", function () {
+        calCurrentMonth = new Date(year, month - 1, 1);
+        renderCalendar();
+        _calSyncScopeFollow();
+      });
+    if (nextBtn)
+      nextBtn.addEventListener("click", function () {
+        calCurrentMonth = new Date(year, month + 1, 1);
+        renderCalendar();
+        _calSyncScopeFollow();
+      });
+    if (todayBtn)
+      todayBtn.addEventListener("click", function () {
+        calCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        renderCalendar();
+        if (window.LogSummary && window.LogSummary.showThisWeek)
+          window.LogSummary.showThisWeek();
+      });
     // Month title → scope summary to the displayed whole month (decision 3).
     if (title) {
       var scopeMonth = function () {
@@ -4911,47 +5260,66 @@
           window.LogSummary.scopeMonth(_calMonthKey());
         }
       };
-      title.addEventListener('click', scopeMonth);
-      title.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); scopeMonth(); }
+      title.addEventListener("click", scopeMonth);
+      title.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          scopeMonth();
+        }
       });
     }
 
     // Week-row click → scope the summary to that week ONLY (decision 2). Day
     // cells inside still scroll the log list to that date (keep existing UX).
-    var tbody = el.querySelector('tbody');
+    var tbody = el.querySelector("tbody");
     if (tbody) {
-      tbody.addEventListener('click', function (e) {
+      tbody.addEventListener("click", function (e) {
         // Plan-session tag → deep link to Plan, skip the week-scope/scroll
         // behavior below entirely (this is a navigation, not a scope click).
-        var tag = e.target.closest('.lrx-caltag');
+        var tag = e.target.closest(".lrx-caltag");
         if (tag) {
           e.stopPropagation();
-          document.dispatchEvent(new CustomEvent('plan:open-session', {
-            detail: { sessionId: tag.getAttribute('data-plan-session'), date: tag.getAttribute('data-plan-date') }
-          }));
+          document.dispatchEvent(
+            new CustomEvent("plan:open-session", {
+              detail: {
+                sessionId: tag.getAttribute("data-plan-session"),
+                date: tag.getAttribute("data-plan-date"),
+              },
+            }),
+          );
           return;
         }
-        var cell = e.target.closest('td[data-date]');
-        var rowEl = e.target.closest('.lrx-calrow');
-        if (cell && cell.getAttribute('data-date')) {
-          calScrollToDate(cell.getAttribute('data-date'));
+        var cell = e.target.closest("td[data-date]");
+        var rowEl = e.target.closest(".lrx-calrow");
+        if (cell && cell.getAttribute("data-date")) {
+          calScrollToDate(cell.getAttribute("data-date"));
         }
         if (!rowEl) return;
         _calClearScope();
-        rowEl.classList.add('sel');
-        var ws = rowEl.getAttribute('data-wk-start');
-        var we = rowEl.getAttribute('data-wk-end');
+        rowEl.classList.add("sel");
+        var ws = rowEl.getAttribute("data-wk-start");
+        var we = rowEl.getAttribute("data-wk-end");
         // Aggregate this row's totals from calDayData.
-        var tss = 0, km = 0, sess = 0;
-        el.querySelectorAll('.lrx-calrow.sel td[data-date]').forEach(function (td) {
-          var dd = calDayData[td.getAttribute('data-date')];
-          if (dd) { tss += dd.totalTss; km += dd.km; if (dd.totalTss > 0 || dd.types.length) sess += 1; }
-        });
+        var tss = 0,
+          km = 0,
+          sess = 0;
+        el.querySelectorAll(".lrx-calrow.sel td[data-date]").forEach(
+          function (td) {
+            var dd = calDayData[td.getAttribute("data-date")];
+            if (dd) {
+              tss += dd.totalTss;
+              km += dd.km;
+              if (dd.totalTss > 0 || dd.types.length) sess += 1;
+            }
+          },
+        );
         var label = _calWkLabel(ws, we);
         if (window.LogSummary && window.LogSummary.scopeWeek) {
           window.LogSummary.scopeWeek({
-            label: label, distance_km: km, total_tss: tss, session_count: sess,
+            label: label,
+            distance_km: km,
+            total_tss: tss,
+            session_count: sess,
           });
         }
         // Also highlight + scroll to that week's groups in the log list below.
@@ -4963,20 +5331,24 @@
   // "Jun 29 – Jul 5" style label from ISO start/end dates.
   function _calWkLabel(startIso, endIso) {
     function short(iso) {
-      if (!iso) return '';
-      var p = iso.split('-');
+      if (!iso) return "";
+      var p = iso.split("-");
       var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
-      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
     }
-    return short(startIso) + ' – ' + short(endIso);
+    return short(startIso) + " – " + short(endIso);
   }
 
   // When paging months while the month-scope is active, keep the summary on
   // the newly displayed month (decision 3).
   function _calSyncScopeFollow() {
-    var title = document.getElementById('log-cal-title');
-    if (title && title.classList.contains('scoped') &&
-        window.LogSummary && window.LogSummary.scopeMonth) {
+    var title = document.getElementById("log-cal-title");
+    if (
+      title &&
+      title.classList.contains("scoped") &&
+      window.LogSummary &&
+      window.LogSummary.scopeMonth
+    ) {
       window.LogSummary.scopeMonth(_calMonthKey());
     }
   }
@@ -4989,23 +5361,34 @@
   };
 
   function calScrollToDate(dateStr) {
-    var listEl = document.getElementById('log-list');
+    var listEl = document.getElementById("log-list");
     if (!listEl) return;
     // Try exact match first
-    var target = listEl.querySelector('.day-group[data-date="' + dateStr + '"]');
-    if (target) { target.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    var target = listEl.querySelector(
+      '.day-group[data-date="' + dateStr + '"]',
+    );
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
     // Find nearest preceding entry (groups are newest-first in DOM)
     var groups = Array.prototype.slice.call(
-      listEl.querySelectorAll('.day-group[data-date]')
+      listEl.querySelectorAll(".day-group[data-date]"),
     );
     var nearest = null;
     for (var i = 0; i < groups.length; i++) {
-      if (groups[i].dataset.date <= dateStr) { nearest = groups[i]; break; }
+      if (groups[i].dataset.date <= dateStr) {
+        nearest = groups[i];
+        break;
+      }
     }
     if (nearest) {
-      nearest.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      nearest.scrollIntoView({ behavior: "smooth", block: "start" });
     } else if (groups.length) {
-      groups[groups.length - 1].scrollIntoView({ behavior: 'smooth', block: 'start' });
+      groups[groups.length - 1].scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
     }
   }
 
@@ -5013,14 +5396,14 @@
     buildCalDayData(lastWeeks);
     renderCalendar();
   }
-}());
+})();
 
 // ── Summary Digest Card (issue #1058) ─────────────────────────────────────────
 (function () {
-  'use strict';
+  "use strict";
 
-  var _athleteId   = null;
-  var _activePeriod = 'week';
+  var _athleteId = null;
+  var _activePeriod = "week";
   // Displayed calendar month (YYYY-MM) the monthly summary should follow, and
   // whether a calendar week-scope is currently pinned (summary-only).
   var _scopeMonth = null;
@@ -5029,30 +5412,33 @@
   var _summaryCache = {};
 
   function _setScopeLabel(text) {
-    var el = document.getElementById('lrx-scope');
+    var el = document.getElementById("lrx-scope");
     if (el) el.textContent = text;
   }
   function _monthLabel(ym) {
     // ym = 'YYYY-MM' → 'July 2026'
-    if (!ym) return '';
-    var parts = ym.split('-');
+    if (!ym) return "";
+    var parts = ym.split("-");
     var d = new Date(Number(parts[0]), Number(parts[1]) - 1, 1);
-    return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
 
   function _esc(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
   }
 
   function _fmtDelta(val, unit) {
     if (val == null) return null;
     var n = Number(val);
     if (!isFinite(n)) return null;
-    var sign = n > 0 ? '+' : '';
-    return sign + n.toFixed(unit === 'kg' ? 1 : 1) + (unit ? ' ' + unit : '');
+    var sign = n > 0 ? "+" : "";
+    return sign + n.toFixed(unit === "kg" ? 1 : 1) + (unit ? " " + unit : "");
   }
 
   // ── Skeleton ─────────────────────────────────────────────────────────────────
@@ -5060,28 +5446,32 @@
   function _renderSkeleton() {
     return (
       '<div class="sd-skeleton-tiles">' +
-        '<div class="sd-skeleton-tile"></div>' +
-        '<div class="sd-skeleton-tile"></div>' +
-        '<div class="sd-skeleton-tile"></div>' +
-      '</div>' +
+      '<div class="sd-skeleton-tile"></div>' +
+      '<div class="sd-skeleton-tile"></div>' +
+      '<div class="sd-skeleton-tile"></div>' +
+      "</div>" +
       '<div class="sd-skeleton-chips">' +
-        '<div class="sd-skeleton-chip"></div>' +
-        '<div class="sd-skeleton-chip"></div>' +
-        '<div class="sd-skeleton-chip"></div>' +
-      '</div>'
+      '<div class="sd-skeleton-chip"></div>' +
+      '<div class="sd-skeleton-chip"></div>' +
+      '<div class="sd-skeleton-chip"></div>' +
+      "</div>"
     );
   }
 
   // ── Guardrail warning ────────────────────────────────────────────────────────
 
   function _renderGuardrailWarn(data) {
-    if (data.guardrail_state !== 'warn') return '';
-    var msg = data.guardrail_message || 'Training load caution — review your workload this week.';
+    if (data.guardrail_state !== "warn") return "";
+    var msg =
+      data.guardrail_message ||
+      "Training load caution — review your workload this week.";
     return (
       '<div class="sd-guardrail-warn">' +
-        '<span class="sd-guardrail-warn-icon" aria-hidden="true">&#9888;</span>' +
-        '<span>' + _esc(msg) + '</span>' +
-      '</div>'
+      '<span class="sd-guardrail-warn-icon" aria-hidden="true">&#9888;</span>' +
+      "<span>" +
+      _esc(msg) +
+      "</span>" +
+      "</div>"
     );
   }
 
@@ -5096,30 +5486,42 @@
       return '<div class="lrx-delta flat">—</div>';
     }
     var n = Number(change);
-    var cls = n > 0 ? 'up' : n < 0 ? 'down' : 'flat';
-    var arrow = n > 0 ? '▲ ' : n < 0 ? '▼ ' : '= ';
-    var txt = arrow + (n > 0 ? '+' : '') + n.toFixed(1) + (unit ? ' ' + unit : '') +
-              (noun ? ' ' + noun : '');
-    return '<div class="lrx-delta ' + cls + '">' + _esc(txt) + '</div>';
+    var cls = n > 0 ? "up" : n < 0 ? "down" : "flat";
+    var arrow = n > 0 ? "▲ " : n < 0 ? "▼ " : "= ";
+    var txt =
+      arrow +
+      (n > 0 ? "+" : "") +
+      n.toFixed(1) +
+      (unit ? " " + unit : "") +
+      (noun ? " " + noun : "");
+    return '<div class="lrx-delta ' + cls + '">' + _esc(txt) + "</div>";
   }
   function _sdTiles(data) {
     function tile(label, val, unit, deltaHtml) {
       return (
         '<div class="lrx-sumtile">' +
-          '<div class="lab">' + label + '</div>' +
-          '<div class="val">' + _esc(val) +
-            (unit ? ' <small>' + unit + '</small>' : '') +
-          '</div>' + (deltaHtml || '<div class="lrx-delta flat">—</div>') +
-        '</div>'
+        '<div class="lab">' +
+        label +
+        "</div>" +
+        '<div class="val">' +
+        _esc(val) +
+        (unit ? " <small>" + unit + "</small>" : "") +
+        "</div>" +
+        (deltaHtml || '<div class="lrx-delta flat">—</div>') +
+        "</div>"
       );
     }
     return (
       '<div class="lrx-sumgrid">' +
-        tile('Volume', (data.distance_km || 0).toFixed(1), 'km', null) +
-        tile('Load', Math.round(data.total_tss || 0), 'TSS',
-             _sdDelta(data.form_tsb_change, null, 'form')) +
-        tile('Sessions', data.session_count || 0, '', null) +
-      '</div>'
+      tile("Volume", (data.distance_km || 0).toFixed(1), "km", null) +
+      tile(
+        "Load",
+        Math.round(data.total_tss || 0),
+        "TSS",
+        _sdDelta(data.form_tsb_change, null, "form"),
+      ) +
+      tile("Sessions", data.session_count || 0, "", null) +
+      "</div>"
     );
   }
 
@@ -5129,55 +5531,83 @@
     if (tsbChange == null) return null;
     var n = Number(tsbChange);
     if (!isFinite(n)) return null;
-    if (n >= 3) return 'fresh';
-    if (n <= -12) return 'overreaching';
-    if (n <= -3) return 'productive';
-    return 'steady';
+    if (n >= 3) return "fresh";
+    if (n <= -12) return "overreaching";
+    if (n <= -3) return "productive";
+    return "steady";
   }
 
   // Separate Endurance / Speed / Weight / Form chips (design mock).
   // chip colour: g = good/up, r = bad/down, b = neutral/info (mock classes).
   function _lrxChipClass(val) {
-    if (val == null) return 'b';
+    if (val == null) return "b";
     var n = Number(val);
-    if (n > 0) return 'g';
-    if (n < 0) return 'r';
-    return 'b';
+    if (n > 0) return "g";
+    if (n < 0) return "r";
+    return "b";
   }
   function _sdChips(data) {
-    var chips = '';
+    var chips = "";
     var has = false;
     function add(label, val, cls, suffix) {
       chips +=
-        '<span class="lrx-chip ' + cls + '">' + label + ' ' + _esc(val) +
-        (suffix ? ' · ' + _esc(suffix) : '') + '</span>';
+        '<span class="lrx-chip ' +
+        cls +
+        '">' +
+        label +
+        " " +
+        _esc(val) +
+        (suffix ? " · " + _esc(suffix) : "") +
+        "</span>";
       has = true;
     }
-    if (data.endurance_score_change != null && data.endurance_score_change !== 0) {
-      var eStr = _fmtDelta(data.endurance_score_change, '');
-      if (eStr) add('Endurance', eStr, _lrxChipClass(data.endurance_score_change));
+    if (
+      data.endurance_score_change != null &&
+      data.endurance_score_change !== 0
+    ) {
+      var eStr = _fmtDelta(data.endurance_score_change, "");
+      if (eStr)
+        add("Endurance", eStr, _lrxChipClass(data.endurance_score_change));
     }
     if (data.speed_score_change != null && data.speed_score_change !== 0) {
-      var sStr = _fmtDelta(data.speed_score_change, '');
-      if (sStr) add('Speed', sStr, _lrxChipClass(data.speed_score_change));
+      var sStr = _fmtDelta(data.speed_score_change, "");
+      if (sStr) add("Speed", sStr, _lrxChipClass(data.speed_score_change));
     }
     if (data.weight_change_kg != null) {
-      var wStr = _fmtDelta(data.weight_change_kg, 'kg');
+      var wStr = _fmtDelta(data.weight_change_kg, "kg");
       // Weight up is neutral-ish; keep the mock's green for a logged change.
-      if (wStr) add('Weight', wStr, 'g');
+      if (wStr) add("Weight", wStr, "g");
     }
     if (data.form_tsb_change != null && data.form_tsb_change !== 0) {
-      var fStr = _fmtDelta(data.form_tsb_change, '');
-      if (fStr) add('Form', fStr, 'b', _formBand(data.form_tsb_change));
+      var fStr = _fmtDelta(data.form_tsb_change, "");
+      if (fStr) add("Form", fStr, "b", _formBand(data.form_tsb_change));
+    } else if (data.fitness_ctl_change != null) {
+      // Monthly API returns fitness_ctl_change + form_recovered instead of form_tsb_change
+      var fStr = _fmtDelta(data.fitness_ctl_change, "");
+      var recov =
+        data.form_recovered != null
+          ? data.form_recovered
+            ? "Recovered"
+            : "Not recovered"
+          : null;
+      if (fStr) {
+        add("Form", fStr, _lrxChipClass(data.fitness_ctl_change), recov);
+      } else if (recov) {
+        add("Form", recov, data.form_recovered ? "g" : "r");
+      }
     }
-    return has ? '<div class="lrx-chips">' + chips + '</div>' : '';
+    return has ? '<div class="lrx-chips">' + chips + "</div>" : "";
   }
 
   // ── Render weekly view ───────────────────────────────────────────────────────
 
   function _renderWeek(data) {
-    var noteHtml = data.note ? '<div class="sd-note">' + _esc(data.note) + '</div>' : '';
-    return _sdTiles(data) + _sdChips(data) + noteHtml + _renderGuardrailWarn(data);
+    var noteHtml = data.note
+      ? '<div class="sd-note">' + _esc(data.note) + "</div>"
+      : "";
+    return (
+      _sdTiles(data) + _sdChips(data) + noteHtml + _renderGuardrailWarn(data)
+    );
   }
 
   // ── Render monthly view ──────────────────────────────────────────────────────
@@ -5187,23 +5617,39 @@
     var chipsHtml = _sdChips(data);
 
     // Supercompensation section
-    var state = data.supercompensation_state || 'flat';
-    var badgeClass = state === 'working' ? 'sd-supercomp-badge--working'
-                   : state === 'digging' ? 'sd-supercomp-badge--digging'
-                   : 'sd-supercomp-badge--flat';
-    var badgeLabel = state === 'working' ? 'Primed' : state === 'digging' ? 'Digging' : 'Maintaining';
+    var state = data.supercompensation_state || "flat";
+    var badgeClass =
+      state === "working"
+        ? "sd-supercomp-badge--working"
+        : state === "digging"
+          ? "sd-supercomp-badge--digging"
+          : "sd-supercomp-badge--flat";
+    var badgeLabel =
+      state === "working"
+        ? "Primed"
+        : state === "digging"
+          ? "Digging"
+          : "Maintaining";
 
     var supercompHtml =
       '<div class="sd-supercomp">' +
-        '<div class="sd-supercomp-row">' +
-          '<span class="sd-supercomp-badge ' + badgeClass + '">' + _esc(badgeLabel) + '</span>' +
-          (data.call_to_action ? '<span class="sd-supercomp-cta">' + _esc(data.call_to_action) + '</span>' : '') +
-        '</div>' +
-        '<div class="sd-supercomp-links">' +
-          '<a class="sd-supercomp-link" href="training-log.html#projection">&#8594; Projection</a>' +
-          '<a class="sd-supercomp-link" href="training-log.html#performance">&#8594; Performance</a>' +
-        '</div>' +
-      '</div>';
+      '<div class="sd-supercomp-row">' +
+      '<span class="sd-supercomp-badge ' +
+      badgeClass +
+      '">' +
+      _esc(badgeLabel) +
+      "</span>" +
+      (data.call_to_action
+        ? '<span class="sd-supercomp-cta">' +
+          _esc(data.call_to_action) +
+          "</span>"
+        : "") +
+      "</div>" +
+      '<div class="sd-supercomp-links">' +
+      '<a class="sd-supercomp-link" href="training-log.html#projection">&#8594; Projection</a>' +
+      '<a class="sd-supercomp-link" href="training-log.html#performance">&#8594; Performance</a>' +
+      "</div>" +
+      "</div>";
 
     return tiles + chipsHtml + supercompHtml + _renderGuardrailWarn(data);
   }
@@ -5211,17 +5657,17 @@
   // ── Fetch & render ───────────────────────────────────────────────────────────
 
   function _renderError() {
-    var body = document.getElementById('sd-body');
+    var body = document.getElementById("sd-body");
     if (!body) return;
     body.innerHTML = '<div class="sd-error">Could not load summary.</div>';
   }
 
   function _applyData(period, data) {
-    var body = document.getElementById('sd-body');
+    var body = document.getElementById("sd-body");
     if (!body) return;
-    var card = document.getElementById('summary-digest-card');
+    var card = document.getElementById("summary-digest-card");
 
-    if (period === 'week') {
+    if (period === "week") {
       body.innerHTML = _renderWeek(data);
     } else {
       body.innerHTML = _renderMonth(data);
@@ -5234,39 +5680,47 @@
     if (!_athleteId) return;
 
     // Cache key includes the scoped month so paging months fetches each.
-    var cacheKey = period === 'month' && _scopeMonth ? 'month:' + _scopeMonth : period;
+    var cacheKey =
+      period === "month" && _scopeMonth ? "month:" + _scopeMonth : period;
 
     if (_summaryCache[cacheKey]) {
       _applyData(period, _summaryCache[cacheKey]);
       return;
     }
 
-    var body = document.getElementById('sd-body');
+    var body = document.getElementById("sd-body");
     if (body) body.innerHTML = _renderSkeleton();
 
-    var card = document.getElementById('summary-digest-card');
+    var card = document.getElementById("summary-digest-card");
     if (card) card.hidden = false;
 
-    var endpoint = period === 'week'
-      ? '/api/athletes/' + _athleteId + '/summary/weekly'
-      : '/api/athletes/' + _athleteId + '/summary/monthly' +
-        (_scopeMonth ? '?month=' + _scopeMonth : '');
+    var endpoint =
+      period === "week"
+        ? "/api/athletes/" + _athleteId + "/summary/weekly"
+        : "/api/athletes/" +
+          _athleteId +
+          "/summary/monthly" +
+          (_scopeMonth ? "?month=" + _scopeMonth : "");
 
     fetch(endpoint)
       .then(function (res) {
         if (!res.ok) {
           // Monthly returns 424 when no training data; treat as empty rather than crash
-          if (period === 'month' && res.status === 424) {
+          if (period === "month" && res.status === 424) {
             _summaryCache[cacheKey] = {
-              distance_km: 0, total_tss: 0, session_count: 0,
-              supercompensation_state: 'flat', call_to_action: null,
-              weight_change_kg: null, endurance_score_change: 0,
-              speed_score_change: 0
+              distance_km: 0,
+              total_tss: 0,
+              session_count: 0,
+              supercompensation_state: "flat",
+              call_to_action: null,
+              weight_change_kg: null,
+              endurance_score_change: 0,
+              speed_score_change: 0,
             };
             _applyData(period, _summaryCache[cacheKey]);
             return null;
           }
-          throw new Error('HTTP ' + res.status);
+          throw new Error("HTTP " + res.status);
         }
         return res.json();
       })
@@ -5283,29 +5737,31 @@
   // ── Toggle ───────────────────────────────────────────────────────────────────
 
   function _syncSeg(period) {
-    document.querySelectorAll('.sd-toggle-btn').forEach(function (btn) {
-      var active = btn.getAttribute('data-period') === period;
-      btn.classList.toggle('is-active', active);
-      btn.classList.toggle('on', active);
-      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    document.querySelectorAll(".sd-toggle-btn").forEach(function (btn) {
+      var active = btn.getAttribute("data-period") === period;
+      btn.classList.toggle("is-active", active);
+      btn.classList.toggle("on", active);
+      btn.setAttribute("aria-pressed", active ? "true" : "false");
     });
   }
 
   function _setActivePeriod(period) {
     _activePeriod = period;
     _syncSeg(period);
-    if (period === 'week') {
+    if (period === "week") {
       // Manual "This week" clears any calendar month/week scope.
       _scopeMonth = null;
-      _setScopeLabel('This week');
-      if (window.LogCalendar && window.LogCalendar.clearScope) window.LogCalendar.clearScope();
+      _setScopeLabel("This week");
+      if (window.LogCalendar && window.LogCalendar.clearScope)
+        window.LogCalendar.clearScope();
     } else {
       // Follow the displayed calendar month (decision 3).
       if (window.LogCalendar && window.LogCalendar.getDisplayedMonth) {
         _scopeMonth = window.LogCalendar.getDisplayedMonth();
       }
-      _setScopeLabel(_monthLabel(_scopeMonth) || 'This month');
-      if (window.LogCalendar && window.LogCalendar.markMonthScoped) window.LogCalendar.markMonthScoped();
+      _setScopeLabel(_monthLabel(_scopeMonth) || "This month");
+      if (window.LogCalendar && window.LogCalendar.markMonthScoped)
+        window.LogCalendar.markMonthScoped();
     }
     _fetchSummary(period);
   }
@@ -5314,11 +5770,11 @@
   // scopeWeek: render a specific week's totals into the summary (summary-only;
   // does NOT filter the log list — decision 2).
   function _scopeWeek(w) {
-    _activePeriod = 'week';
+    _activePeriod = "week";
     _syncSeg(null); // no seg lit while a specific week is scoped
-    _setScopeLabel('Week of ' + w.label);
-    var body = document.getElementById('sd-body');
-    var card = document.getElementById('summary-digest-card');
+    _setScopeLabel("Week of " + w.label);
+    var body = document.getElementById("sd-body");
+    var card = document.getElementById("summary-digest-card");
     if (card) card.hidden = false;
     if (body) {
       var data = {
@@ -5329,31 +5785,36 @@
       body.innerHTML =
         '<div class="lrx-sumgrid">' +
         '<div class="lrx-sumtile"><div class="lab">Volume</div><div class="val">' +
-          data.distance_km.toFixed(1) + ' <small>km</small></div>' +
-          '<div class="lrx-delta flat">selected week</div></div>' +
+        data.distance_km.toFixed(1) +
+        " <small>km</small></div>" +
+        '<div class="lrx-delta flat">selected week</div></div>' +
         '<div class="lrx-sumtile"><div class="lab">Load</div><div class="val">' +
-          Math.round(data.total_tss) + ' <small>TSS</small></div>' +
-          '<div class="lrx-delta flat">selected week</div></div>' +
+        Math.round(data.total_tss) +
+        " <small>TSS</small></div>" +
+        '<div class="lrx-delta flat">selected week</div></div>' +
         '<div class="lrx-sumtile"><div class="lab">Sessions</div><div class="val">' +
-          data.session_count + '</div>' +
-          '<div class="lrx-delta flat">selected week</div></div>' +
-        '</div>';
+        data.session_count +
+        "</div>" +
+        '<div class="lrx-delta flat">selected week</div></div>' +
+        "</div>";
     }
   }
 
   // scopeMonth: switch the summary to the displayed calendar month.
   function _scopeMonthFor(ym) {
     _scopeMonth = ym;
-    _activePeriod = 'month';
-    _syncSeg('month');
-    _setScopeLabel(_monthLabel(ym) || 'This month');
-    _fetchSummary('month');
+    _activePeriod = "month";
+    _syncSeg("month");
+    _setScopeLabel(_monthLabel(ym) || "This month");
+    _fetchSummary("month");
   }
 
   window.LogSummary = {
     scopeWeek: _scopeWeek,
     scopeMonth: _scopeMonthFor,
-    showThisWeek: function () { _setActivePeriod('week'); },
+    showThisWeek: function () {
+      _setActivePeriod("week");
+    },
   };
 
   // ── Init ─────────────────────────────────────────────────────────────────────
@@ -5361,29 +5822,29 @@
   function _init(athleteId) {
     _athleteId = athleteId;
 
-    var toggleContainer = document.querySelector('.sd-toggle');
+    var toggleContainer = document.querySelector(".sd-toggle");
     if (toggleContainer) {
-      toggleContainer.addEventListener('click', function (e) {
-        var btn = e.target.closest('.sd-toggle-btn');
+      toggleContainer.addEventListener("click", function (e) {
+        var btn = e.target.closest(".sd-toggle-btn");
         if (!btn) return;
-        var period = btn.getAttribute('data-period');
+        var period = btn.getAttribute("data-period");
         if (period) _setActivePeriod(period);
       });
     }
 
     // Fetch weekly summary immediately (default tab)
-    _fetchSummary('week');
+    _fetchSummary("week");
   }
 
   // Grab the user ID — user.js fires userReady once auth/me resolves
-  window.addEventListener('userReady', function (e) {
+  window.addEventListener("userReady", function (e) {
     var uid = e.detail && e.detail.userId;
     if (uid && !_athleteId) _init(uid);
   });
 
   // Fallback: if user.js already ran before this listener registered
-  document.addEventListener('DOMContentLoaded', function () {
+  document.addEventListener("DOMContentLoaded", function () {
     var uid = window.getCurrentUserId ? window.getCurrentUserId() : null;
     if (uid && !_athleteId) _init(uid);
   });
-}());
+})();
