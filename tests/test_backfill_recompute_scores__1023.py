@@ -207,10 +207,10 @@ class TestRecomputeAfterBackfillAC2:
         prefs_obj = _make_prefs()
         mock_db = mock.MagicMock()
         mock_db.query.return_value.filter.return_value.first.return_value = prefs_obj
-        mock_db.query.return_value.filter.return_value.count.return_value = 7
 
         with mock.patch(
-            "backend.services.backfill_performance.recompute_user_running_tss"
+            "backend.services.backfill_performance.recompute_user_running_tss",
+            return_value=7,
         ), mock.patch(
             "backend.services.backfill_performance.rebuild_athlete_duration_curve"
         ) as mock_curve:
