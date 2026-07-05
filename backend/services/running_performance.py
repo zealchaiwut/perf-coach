@@ -38,8 +38,11 @@ qualifying hard effort.
 """
 from __future__ import annotations
 
+import logging
 from datetime import date, timedelta
 from typing import Any
+
+_log = logging.getLogger(__name__)
 
 from backend.services.vdot import (
     vdot_from_pace_duration,
@@ -391,6 +394,12 @@ def _filter_trailing_window(items: list[dict], window_days: int) -> list[dict]:
     valid_dates = [d for _, d in dated if d is not None]
     if not valid_dates:
         return items
+    n_bad = sum(1 for _, d in dated if d is None)
+    if n_bad:
+        _log.warning(
+            "dropping %d run(s) from trailing window: unparseable workout_date",
+            n_bad,
+        )
     latest = max(valid_dates)
     cutoff = latest - timedelta(days=window_days)
     return [item for item, d in dated if d is not None and d >= cutoff]
