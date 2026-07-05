@@ -172,7 +172,9 @@
       spark:  card.querySelector('.perf-spark'),
       bb:     card.querySelector('.perf-building-baseline'),
       thresh: card.querySelector('.perf-threshold-hint'),
-      error:  card.querySelector('.perf-error')
+      error:  card.querySelector('.perf-error'),
+      warn:   card.querySelector('.perf-speed-warn'),
+      band:   card.querySelector('.perf-speed-band')
     };
   }
 
@@ -181,6 +183,8 @@
     if (p.bb)     p.bb.hidden = true;
     if (p.thresh) p.thresh.hidden = true;
     if (p.error)  p.error.hidden = true;
+    if (p.warn)   p.warn.hidden = true;
+    if (p.band)   p.band.hidden = true;
   }
 
   function _renderScoreCard(type, data) {
@@ -228,6 +232,24 @@
       _drawTrend(p.spark, trend, TREND_COLOR[type]);
     } else if (p.spark) {
       p.spark.innerHTML = '';
+    }
+
+    // Speed-only: low_data_warning badge and confidence_band display.
+    if (p.warn) {
+      var hasWarning = data.low_data_warning === true;
+      p.warn.hidden = !hasWarning;
+    }
+    if (p.band) {
+      var cb = data.confidence_band;
+      if (cb && typeof cb === 'object' && cb.lower != null && cb.upper != null) {
+        p.band.hidden = false;
+        var lowerEl = p.band.querySelector('b:first-child');
+        var upperEl = p.band.querySelector('b:last-child');
+        if (lowerEl) lowerEl.textContent = Math.round(cb.lower);
+        if (upperEl) upperEl.textContent = Math.round(cb.upper);
+      } else {
+        p.band.hidden = true;
+      }
     }
   }
 

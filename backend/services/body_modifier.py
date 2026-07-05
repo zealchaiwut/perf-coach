@@ -221,15 +221,16 @@ def get_body_modifier_for_user(user_id, as_of_date=None) -> float:
 
     Falls back to 1.0 (neutral) when insufficient data is available.
     """
-    from datetime import date, timedelta
+    from datetime import timedelta
 
     from sqlalchemy import text
 
     from backend.db import engine
     from backend.services.weight_ewma import compute_ewma
     from backend.services.weight_ewma_rate import compute_weekly_pct_bw_rate_of_change
+    from backend.utils.time import today_bangkok
 
-    today = as_of_date if as_of_date is not None else date.today()
+    today = as_of_date if as_of_date is not None else today_bangkok()
     seven_days_ago = today - timedelta(days=7)
 
     weight_sql = text(
@@ -291,15 +292,16 @@ def get_body_modifier_guardrail_for_user(user_id, as_of_date=None) -> dict:
       normalised to [0, 1] as ``(avg_energy − 1) / 4``.
       Falls back to 1.0 (fully fuelled, no EA warning) when no energy data is available.
     """
-    from datetime import date, timedelta
+    from datetime import timedelta
 
     from sqlalchemy import text
 
     from backend.db import engine
     from backend.services.weight_ewma import compute_ewma
     from backend.services.weight_ewma_rate import compute_weekly_pct_bw_rate_of_change
+    from backend.utils.time import today_bangkok
 
-    today = as_of_date if as_of_date is not None else date.today()
+    today = as_of_date if as_of_date is not None else today_bangkok()
     seven_days_ago = today - timedelta(days=7)
 
     # ── Weight loss rate ──────────────────────────────────────────────────────
