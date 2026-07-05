@@ -13,7 +13,6 @@ Acceptance criteria verified:
 """
 import os
 import pathlib
-import re
 import uuid
 
 import httpx
