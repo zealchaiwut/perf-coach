@@ -11,8 +11,6 @@ Acceptance Criteria covered:
 
 import logging
 
-import pytest
-
 from backend.services.running_performance import _filter_trailing_window
 
 

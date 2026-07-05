@@ -42,14 +42,14 @@ import logging
 from datetime import date, timedelta
 from typing import Any
 
-_log = logging.getLogger(__name__)
-
 from backend.services.vdot import (
     vdot_from_pace_duration,
     rescale_to_score,
     decay_points,
     TOP_K,
 )
+
+_log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Configuration
