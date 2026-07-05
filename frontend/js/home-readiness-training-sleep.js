@@ -653,9 +653,7 @@
     var pfEl  = document.getElementById('home-performance-card');
 
     if (rdEl) {
-      if (!rdEl.classList.contains('card')) {
-        rdEl.className = 'card';
-      }
+      rdEl.classList.add('card');
       var readinessData = summary && summary.readiness ? summary.readiness : null;
       // Render immediately from the summary data (daily signal), then again
       // once the separate CTL/ATL/TSB fetch resolves — the trio is a second,

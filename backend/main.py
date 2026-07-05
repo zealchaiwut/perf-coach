@@ -9112,6 +9112,7 @@ def get_training_log(
             "has_strava": "strava" in (w.source or "") or w.strava_activity_pk is not None,
             "has_stryd": "stryd" in (w.source or "") or w.stryd_activity_pk is not None,
             "notes": w.remarks or "",
+            "feeling": w.feeling,
             "weight_context": w.remarks,
         }
         for w in workouts

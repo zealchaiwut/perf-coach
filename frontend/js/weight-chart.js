@@ -803,7 +803,10 @@ const WeightChart = (() => {
         const t = ev.touches[0];
         if (!t) return;
         const near = _findNearestDot(svg, t.clientX, t.clientY);
-        if (near) _showTooltip(svg, t.clientX, t.clientY, near.date, near.kg);
+        if (near) {
+          _showTooltip(svg, t.clientX, t.clientY, near.date, near.kg);
+          _activeTapDate = near.date;
+        }
       },
       { passive: true },
     );

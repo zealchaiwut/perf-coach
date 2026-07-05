@@ -120,12 +120,11 @@
        re-verified against a standalone static harness (real markup emitted
        by home.js / home-readiness-training-sleep.js / home-strip-habits.js,
        reconstructed with realistic full data — not the live app; see
-       docs note below) at 1120/820/620/390px. The previous commit's claim
-       of a live-Playwright measurement pass did not hold up: #home-perf-
-       container ("Personal records") was still undersized here (row span 2
-       = 214px vs ~249px of real content with 2 PR tracks), overlapping
-       #home-habits-widget below by ~21px. Bumped to span 3 and pushed
-       Habits down one row to match. */
+       docs note below) at 1120/820/620/390px. #home-perf-container
+       ("Personal records") is now a compact 3-tile row (span 2), sized to
+       pair with #home-habits-widget alongside it rather than stack below it
+       — see the follow-up comment near the rules below for the current
+       pairing rationale. */
     #home-top-row-right      { grid-column: 1 / span 4; grid-row: 1 / span 4; }
     #home-next-workout-card  { grid-column: 5 / span 2; grid-row: 1 / span 4; }
     #home-performance-card   { grid-column: 7 / span 2; grid-row: 1 / span 4; }

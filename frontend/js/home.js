@@ -142,79 +142,6 @@
 
   /* ---- Recent Workouts card helpers ---- */
 
-  var WORKOUT_TYPE_ICON = {
-    run:      { cls: 'run',  icon: 'ti-run' },
-    ride:     { cls: 'bike', icon: 'ti-bike' },
-    bike:     { cls: 'bike', icon: 'ti-bike' },
-    cycle:    { cls: 'bike', icon: 'ti-bike' },
-    lift:     { cls: 'lift', icon: 'ti-barbell' },
-    strength: { cls: 'lift', icon: 'ti-barbell' },
-    wod:      { cls: 'wod',  icon: 'ti-flame' },
-    crossfit: { cls: 'wod',  icon: 'ti-flame' },
-  };
-
-  function workoutTypeIcon(type) {
-    return WORKOUT_TYPE_ICON[(type || '').toLowerCase()] || { cls: 'run', icon: 'ti-run' };
-  }
-
-  function fmtWorkoutDuration(seconds) {
-    if (seconds == null) return null;
-    var s = Math.round(seconds);
-    if (s < 3600) {
-      return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
-    }
-    return Math.floor(s / 3600) + ':' + String(Math.floor((s % 3600) / 60)).padStart(2, '0');
-  }
-
-  function workoutDayOfWeek(isoStr) {
-    var p = isoStr.split('-');
-    var d = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
-    return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
-  }
-
-  function buildWorkoutRow(w, extraCls) {
-    var ic = workoutTypeIcon(w.workout_type);
-
-    var titleText = esc(w.name);
-    if (w.distance_km != null) {
-      titleText += ' · ' + Number(w.distance_km).toFixed(1) + ' km';
-    }
-
-    var metaParts = [workoutDayOfWeek(w.workout_date)];
-    var dur = fmtWorkoutDuration(w.duration_seconds);
-    if (dur) metaParts.push(dur);
-    if (w.tss != null) metaParts.push('TSS ' + Math.round(w.tss));
-
-    var src = w.source || '';
-    var hasStrava = src.indexOf('strava') !== -1 || !!w.strava_activity_url;
-    var hasStryd  = src.indexOf('stryd')  !== -1;
-    var isManual  = !hasStrava && !hasStryd;
-
-    var badgesHTML = '';
-    if (isManual) {
-      badgesHTML = '<div class="src-badge manual" title="Manual"><i class="ti ti-pencil" style="font-size:12px;"></i></div>';
-    } else {
-      if (hasStryd)  badgesHTML += '<div class="src-badge stryd"  title="Stryd">S</div>';
-      if (hasStrava) badgesHTML += '<div class="src-badge strava" title="Strava">St</div>';
-    }
-
-    // Zone-2 badge (issue #441): minutes spent in Z2 when the backend reports it
-    var z2HTML = '';
-    if (w.zone2_minutes != null) {
-      z2HTML = '<div class="z2-badge" title="Zone 2 minutes">Z2 ' + w.zone2_minutes + '</div>';
-    }
-
-    return '<div class="workout' + (extraCls ? ' ' + extraCls : '') + '">' +
-      '<div class="icon-wrap ' + ic.cls + '"><i class="ti ' + ic.icon + '"></i></div>' +
-      '<div class="info">' +
-        '<div class="ttl">' + titleText + '</div>' +
-        '<div class="meta">' + metaParts.join(' · ') + '</div>' +
-      '</div>' +
-      z2HTML +
-      '<div class="sources">' + badgesHTML + '</div>' +
-    '</div>';
-  }
-
   /* Recent workout — merged into #home-next-workout-card (home v3, Task 1).
      Fills only its sub-section (#home-recent-workout-section), built by
      home-readiness-training-sleep.js's renderNextWorkoutCard skeleton; the
@@ -228,9 +155,8 @@
      merge — same wrong access was already in the old standalone card).
      Also, that block's items are a lightweight summary shape (name,
      workout_type, relative_day, summary) — not a full Workout row — so this
-     builds its own compact row instead of reusing buildWorkoutRow(), which
-     expects raw Workout fields (workout_date, distance_km, source, ...)
-     that this summary doesn't have. */
+     builds its own compact row rather than a raw Workout row (workout_date,
+     distance_km, source, ...) that this summary doesn't have. */
   function _recentWorkoutBadgeCls(t) {
     return (t === 'strength' || t === 'plyo') ? 'lift' : 'run';
   }
