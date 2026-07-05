@@ -4,11 +4,8 @@ Verifies that a new Alembic migration sets the DB-level DEFAULT now() on races.u
 to match the ORM model's server_default declaration.
 """
 import os
-import subprocess
-from datetime import datetime, timezone
 import pytest
 import httpx
-from uuid import uuid4
 
 
 BASE_URL = os.environ.get("UAT_BASE_URL") or "http://localhost:" + os.environ.get("UAT_PORT", "")
@@ -27,7 +24,7 @@ def client():
 # --- Acceptance Criteria ---
 
 def test_race_updated_at_migration_file_exists():
-    """AC1: A new Alembic migration file exists that executes ALTER TABLE races ALTER COLUMN updated_at SET DEFAULT now()."""
+    """AC1: Migration exists that runs ALTER TABLE races ALTER COLUMN updated_at SET DEFAULT now()."""
     migration_file = (
         "/Users/zeal-server/dev/perf-coach/tester/alembic/versions"
         "/f31dde78c681_set_races_updated_at_server_default.py"

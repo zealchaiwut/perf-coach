@@ -5,7 +5,6 @@ This test verifies that the endpoint calling taper_recommendation (via the
 race-readiness endpoint) continues to work correctly after the target_form fix.
 """
 import os
-from datetime import date, timedelta
 
 import pytest
 import httpx
