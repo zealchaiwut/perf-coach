@@ -992,7 +992,7 @@ function _showLoggedMode(weightKg) {
   const loggedTxt = document.getElementById('logged-text');
   if (wrap)   wrap.hidden   = true;
   if (logged) logged.hidden = false;
-  if (loggedTxt) loggedTxt.textContent = `✓ Logged today · ${weightKg.toFixed(1)} kg · `;
+  if (loggedTxt) loggedTxt.textContent = `✓ Logged today · ${kgToDisplay(weightKg).toFixed(1)} ${unitLabel()} · `;
 }
 
 async function _submitCardB(displayVal) {
@@ -1084,14 +1084,16 @@ function _initCardB() {
   // Stepper ± buttons
   if (decBtn) {
     decBtn.addEventListener('click', () => {
-      const v = _clampStepperValue(parseFloat(input.value) - 0.1);
+      const step = _weightUnit === 'lb' ? 0.5 : 0.1;
+      const v = _clampStepperValue(parseFloat(input.value) - step);
       input.value = v.toFixed(1);
       _updateLogBtnLabel();
     });
   }
   if (incBtn) {
     incBtn.addEventListener('click', () => {
-      const v = _clampStepperValue(parseFloat(input.value) + 0.1);
+      const step = _weightUnit === 'lb' ? 0.5 : 0.1;
+      const v = _clampStepperValue(parseFloat(input.value) + step);
       input.value = v.toFixed(1);
       _updateLogBtnLabel();
     });
@@ -1144,7 +1146,10 @@ function _updateSameAsLastBtn(todayLogged, lastWeightKg) {
 
 function _initUnitToggle() {
   const stored = localStorage.getItem('weight_unit');
-  if (stored === 'lb' || stored === 'kg') _weightUnit = stored;
+  if (stored === 'lb' || stored === 'kg') {
+    _weightUnit = stored;
+    _applyUnit();
+  }
 
   const toggle = document.getElementById('unit-toggle');
   if (!toggle) return;

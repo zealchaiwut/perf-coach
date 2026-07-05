@@ -98,10 +98,6 @@ def create_race(
             status=status,
             actual_time_seconds=actual_time_seconds,
         )
-        # Derive goal pace on create (mirrors update_race) so a race OR a
-        # distance-defined checkpoint created with a goal stores its pace.
-        pace, _ = _compute_goal_pace(goal_time_seconds, distance)
-        race.goal_pace_seconds_per_km = pace
         db.add(race)
         db.commit()
         db.refresh(race)
