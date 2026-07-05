@@ -68,3 +68,21 @@ same endpoint and are independent.
 | Training Log page (`training-log.js`) | 3 000 ms |
 
 Polling stops automatically once the job status leaves `running`.
+
+## Compute worker (scheduled syncs on zeal-server)
+
+Everything above describes the webapp's user-triggered sync. The same sync
+core also runs on the standalone compute worker (`backend/worker_app.py`,
+port 9100 on zeal-server) — the shared implementation lives in
+`backend/services/sync_runner.py` behind a `SyncRecorder` protocol:
+
+| | Webapp (`main.py`) | Worker (`worker_app.py`) |
+|---|---|---|
+| Trigger | User clicks sync (`POST /api/strava/sync`) | Schedule (`WORKER_SYNC_TIMES`, default 06:00/18:00 BKK) or manual `POST /internal/sync/run` |
+| Job state | In-memory registry (`sync_jobs.py`), lost on restart | `worker_job_runs` DB table (persistent audit trail) |
+| Single-flight | 409 per user via registry lock | Lock + 2h stale-guard query on `worker_job_runs` |
+| Scope | Session user only | One user or all connected users |
+
+Both paths are safe to overlap because every upsert is idempotent
+(`ON CONFLICT DO UPDATE`) — worst case is duplicate work, not duplicate data.
+Full worker reference (endpoints, auth, deploy): `docs/worker.md`.

@@ -21,6 +21,9 @@ and a daily **readiness** score is computed from the wellness metrics.
 ## Project Structure
 
     backend/main.py               FastAPI app — most API endpoints live here
+    backend/worker_app.py         Standalone compute-worker FastAPI app (port
+                                  9100, runs on zeal-server, shares the Neon DB;
+                                  never imports main.py) — see docs/worker.md
     backend/routers/              Extracted routers (plan.py, strength_sessions.py)
     backend/models.py             SQLAlchemy models (source of truth for schema;
                                   human-readable reference: root SCHEMA.md)
@@ -29,6 +32,8 @@ and a daily **readiness** score is computed from the wellness metrics.
     backend/seed.py               Seed/sample data
     backend/services/             Domain logic: strava.py, stryd.py, crypto.py,
                                   reconcile.py, workout_merge.py, sync_jobs.py,
+                                  sync_runner.py (shared sync core used by both
+                                  main.py and worker_app.py),
                                   training_load.py, tss.py, …
     backend/utils/                Shared helpers (errors, logging, time)
     scripts/                      One-off CLIs (set_user_password.py, seed_mock_user.py)
@@ -129,6 +134,14 @@ and a daily **readiness** score is computed from the wellness metrics.
   single-flight), NOT a DB table — intentionally lost on restart, which is safe
   because every upsert is idempotent (`ON CONFLICT DO UPDATE`). **`docs/sync.md`
   is the full reference** (job model, phases, cancel hook, polling cadence).
+- The sync core (pull loops + reconcile + plan matcher) lives in
+  `backend/services/sync_runner.py` behind a `SyncRecorder` protocol; `main.py`
+  drives it with the in-memory registry above, and `backend/worker_app.py`
+  (the compute worker on zeal-server, port 9100) drives the same code on a
+  schedule, persisting job runs to the `worker_job_runs` table. The heavy
+  paths (stream ingest, performance backfill, weekly Banister refit) belong on
+  the worker — **`docs/worker.md`** is the reference (endpoints, manual
+  trigger, deploy).
 
 ## Local Development
 

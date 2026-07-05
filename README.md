@@ -157,6 +157,39 @@ Each script:
 - **PRD** — real data, the source of truth. Treat it carefully.
 - **UAT** — for testing new features before promoting to PRD. Data here can be wiped freely. Because Neon branches are completely isolated, data written to UAT never appears in PRD.
 
+## Compute worker (zeal-server)
+
+The RAM/CPU-heavy paths — Strava/Stryd sync (pull + reconcile + per-second
+stream ingest), performance backfill, and the weekly Banister refit — can run
+on a separate machine via `backend/worker_app.py` (port 9100, same Neon DB).
+The Render webapp keeps its own manual sync feature; the worker is an
+additional, separately-scheduled writer. Full reference: [docs/worker.md](docs/worker.md).
+
+Start it (on zeal-server, from a clone with `.env` filled in):
+
+    ./start_worker.sh
+
+It syncs all connected users automatically at `WORKER_SYNC_TIMES`
+(default `06:00,18:00` Asia/Bangkok). To trigger a sync manually:
+
+    # all users, incremental
+    curl -X POST http://localhost:9100/internal/sync/run \
+      -H "X-Worker-Secret: $WORKER_SHARED_SECRET" \
+      -H "Content-Type: application/json" -d '{}'
+
+    # one user, full history
+    curl -X POST http://localhost:9100/internal/sync/run \
+      -H "X-Worker-Secret: $WORKER_SHARED_SECRET" \
+      -H "Content-Type: application/json" \
+      -d '{"user_id": "<uuid>", "full": true}'
+
+    # check results (audit trail in worker_job_runs table)
+    curl http://localhost:9100/internal/jobs?limit=20 \
+      -H "X-Worker-Secret: $WORKER_SHARED_SECRET"
+
+All `/internal/*` endpoints (except `/internal/health`) require the
+`X-Worker-Secret` header matching `WORKER_SHARED_SECRET` in `.env`.
+
 ## API
 
 | Endpoint | Description |
