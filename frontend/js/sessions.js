@@ -372,15 +372,14 @@
     btn.disabled = true;
     btn.textContent = "Saving…";
 
-    var endpoint =
+    var batchEndpoint =
       state.sessionType === "strength"
-        ? "/api/strength-sessions"
-        : "/api/plyo-sessions";
+        ? "/api/strength-sessions/batch"
+        : "/api/plyo-sessions/batch";
 
-    var promises = state.exercises.map(function (ex) {
-      var payload;
+    var exercises = state.exercises.map(function (ex) {
       if (state.sessionType === "strength") {
-        payload = {
+        return {
           session_date: dateVal,
           exercise_name: ex.exercise_name.trim(),
           sets: ex.sets !== "" ? parseInt(ex.sets, 10) : null,
@@ -388,28 +387,37 @@
           load: ex.load !== "" ? parseFloat(ex.load) : null,
           load_unit: ex.load_unit || "kg",
         };
-      } else {
-        payload = {
-          session_date: dateVal,
-          exercise_name: ex.exercise_name.trim(),
-          foot_contacts: parseInt(ex.foot_contacts, 10),
-          plyo_phase: ex.plyo_phase || "intro",
-        };
       }
-      return apiFetch(endpoint, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
+      return {
+        session_date: dateVal,
+        exercise_name: ex.exercise_name.trim(),
+        foot_contacts: parseInt(ex.foot_contacts, 10),
+        plyo_phase: ex.plyo_phase || "intro",
+      };
     });
 
-    Promise.all(promises)
+    apiFetch(batchEndpoint, {
+      method: "POST",
+      body: JSON.stringify({ exercises: exercises }),
+    })
       .then(function () {
         showToast("Session saved!", "success");
         hideForm();
         loadAll();
       })
       .catch(function (err) {
-        showToast("Save failed: " + err.message, "error");
+        var detail = "Unknown error";
+        if (err.data && err.data.detail) {
+          if (typeof err.data.detail === "string") {
+            detail = err.data.detail;
+          } else if (Array.isArray(err.data.detail) && err.data.detail.length > 0) {
+            var first = err.data.detail[0];
+            detail = first.msg || JSON.stringify(first);
+          }
+        } else if (err.message) {
+          detail = err.message;
+        }
+        showToast("Session not saved — " + detail, "error");
       })
       .finally(function () {
         btn.disabled = false;

@@ -48,6 +48,7 @@ from backend.services.fitness_model import (
     TSB_FRESH_MIN,
     TSB_OPTIMAL_MIN,
 )
+from backend.services.riegel import RIEGEL_EXPONENT
 
 # ── Decay factors derived from Layer-1 time constants ────────────────────────
 # These are the per-day persistence fractions: how much of yesterday's load
@@ -293,22 +294,23 @@ def apply_expressible_scores(
 
 
 # ── Riegel race-equivalence ─────────────────────────────────────────────
-
-# Riegel exponent used for cross-distance time prediction.
-# t2 = t1 * (d2/d1)^RIEGEL_EXPONENT
-RIEGEL_EXPONENT: float = 1.06
+# RIEGEL_EXPONENT is imported from backend.services.riegel (single source of truth).
 
 
-def compute_half_equivalent(
+def compute_half_race_equivalent(
     estimated_finish_seconds: "Optional[int]",
     distance_km: "Optional[float]",
 ) -> "Optional[int]":
-    """Predict finish time for half the race distance using the Riegel formula.
+    """Predict finish time for half the race's own distance using the Riegel formula.
 
     Applies the Riegel race-equivalence exponent so that longer distances are
     proportionally harder:
 
         half_time = finish_time * 0.5^RIEGEL_EXPONENT
+
+    Note: this computes half of the race's *own* distance, not a half-marathon
+    equivalent.  For the canonical half-marathon equivalent use
+    :func:`backend.services.riegel.riegel_half_equivalent`.
 
     Parameters
     ----------
@@ -328,6 +330,10 @@ def compute_half_equivalent(
     if distance_km <= 0:
         return None
     return int(round(estimated_finish_seconds * (0.5 ** RIEGEL_EXPONENT)))
+
+
+# Backward-compatibility alias: tests written before #1176 import this name directly.
+compute_half_equivalent = compute_half_race_equivalent
 
 
 # ── Fitness band ────────────────────────────────────────────────────────
@@ -401,12 +407,20 @@ def build_plan_projection_payload(
         User preference dict.  Must contain ``"threshold_pace_seconds_per_km"``
         to compute non-null estimated times.  None yields null estimates.
     body_modifier:
-        Multiplicative factor applied to the power-to-weight score used in
-        race finish-time estimation.  1.0 is neutral (default — no regression
-        for athletes without body composition data).  Values > 1.0 improve
-        (lighter athlete, better power-to-weight); < 1.0 reduce it.  Use
-        ``backend.services.body_modifier.compute_body_modifier`` to derive
-        this value.
+        **Multiplier** centered at 1.0 (valid range 0.85–1.05) applied to the
+        power-to-weight score in race finish-time estimation.  1.0 is neutral
+        (default — no adjustment for athletes without body composition data).
+        Values > 1.0 improve the estimate (lighter athlete, better
+        power-to-weight); < 1.0 reduce it.
+
+        Derive from body-composition data via::
+
+            1.0 + compute_body_modifier(weekly_pct_bw_rate, ea_proxy)['modifier']
+
+        **Do not** pass the raw ``'modifier'`` delta directly —
+        ``compute_body_modifier`` returns a fractional delta in [-0.15, +0.05]
+        (e.g. 0.02 for +2 %), not a multiplier.  Passing the raw delta would
+        multiply scores by ~0.02, effectively zeroing them.
     b_race_result:
         Optional dict representing the most recent past B race with an actual
         result.  When provided, race projections for dates strictly after
@@ -425,7 +439,7 @@ def build_plan_projection_payload(
         ``tsb``   — list of floats
         ``races`` — list of dicts, one per race, each with
                     ``estimated_time``, ``estimated_finish_seconds``,
-                    ``half_equivalent``, ``half_equivalent_seconds``,
+                    ``half_race_equivalent``, ``half_race_equivalent_seconds``,
                     ``date``, ``distance_km``, ``name``
         ``band``  — fitness band string from TSB (start_ctl − start_atl)
     """
@@ -511,7 +525,7 @@ def build_plan_projection_payload(
         est_seconds = est["estimated_finish_seconds"]
         est_time = est["estimated_finish_time"]
 
-        half_seconds = compute_half_equivalent(est_seconds, dist)
+        half_seconds = compute_half_race_equivalent(est_seconds, dist)
         half_time = _format_hhmmss(
             half_seconds) if half_seconds is not None else None
 
@@ -521,6 +535,9 @@ def build_plan_projection_payload(
             "distance_km": dist,
             "estimated_time": est_time,
             "estimated_finish_seconds": est_seconds,
+            "half_race_equivalent": half_time,
+            "half_race_equivalent_seconds": half_seconds,
+            # Backward-compat aliases for pre-#1176 test files.
             "half_equivalent": half_time,
             "half_equivalent_seconds": half_seconds,
         })

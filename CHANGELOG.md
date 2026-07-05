@@ -1,5 +1,19 @@
 # Changelog
 
+## Sprint 98.1 — Follow-up hardening: atomic session submit, Riegel consolidation, migration/backfill fixes
+
+- #542: Pin Chart.js CDN to a specific version (4.4.4) in training-log.html
+- #557: Add exc_info=True to autofill recompute warning in duplicate_workout
+- #558: Remove pytest.skip stubs from test_default_recent_workout_type__525.py
+- #797: Add backing migration for the races.updated_at server default (now())
+- #1027: Return canonical 404 shape (top-level state key) from performance endpoint on missing athlete
+- #1081: Guard compute_and_store_speed_signal against non-run workout types
+- #1086: Emit WARNING in _filter_trailing_window for runs with unparseable workout_date
+- #1123: Fix monthly digest form chip to use fitness_ctl_change/form_recovered
+- #1176: Consolidate duplicate Riegel logic and the RIEGEL_EXPONENT constant into riegel.py
+- #1196: Atomic batch submit for strength and plyo sessions (no partial save on per-exercise failure)
+- #1209: Clarify body-modifier delta vs multiplier unit mismatch
+
 ## Sprint 98 — Follow-up hardening: treadmill NGP wiring, plan-router API prefix, schema defaults, and bug fixes
 
 - #541: Dedicated endpoint for volume chart weekly aggregations

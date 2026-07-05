@@ -27,7 +27,7 @@ from backend.services.strength_pr import (  # noqa: E402
     beats_record,
     compare_sets_to_records,
 )
-from tests._admin_helpers import admin_cookies as _admin_cookies
+from tests._admin_helpers import admin_cookies as _admin_cookies  # noqa: E402
 
 # ── Integration tests need a live server ──────────────────────────────────────
 BASE_URL = os.environ.get("UAT_BASE_URL", "http://127.0.0.1:9001")

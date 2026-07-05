@@ -159,6 +159,26 @@ class _PlyoCreateBody(BaseModel):
         return v
 
 
+class _StrengthBatchBody(BaseModel):
+    exercises: list[_StrengthCreateBody]
+
+    @validator("exercises")
+    def _not_empty(cls, v):  # noqa: N805
+        if not v:
+            raise ValueError("exercises must not be empty")
+        return v
+
+
+class _PlyoBatchBody(BaseModel):
+    exercises: list[_PlyoCreateBody]
+
+    @validator("exercises")
+    def _not_empty(cls, v):  # noqa: N805
+        if not v:
+            raise ValueError("exercises must not be empty")
+        return v
+
+
 class _PlyoPatchBody(BaseModel):
     session_date: Optional[str] = None
     exercise_name: Optional[str] = None
@@ -189,6 +209,14 @@ class _PlyoPatchBody(BaseModel):
 
 
 # ── Strength session endpoints ─────────────────────────────────────────────────
+
+@router.post("/api/strength-sessions/batch", status_code=201)
+async def create_strength_sessions_batch(body: _StrengthBatchBody, request: Request):
+    user = await resolve_user(request)
+    exercises = [ex.dict() for ex in body.exercises]
+    result = _svc.create_strength_sessions_batch(user_id=user.id, exercises=exercises)
+    return JSONResponse(result, status_code=201)
+
 
 @router.get("/api/strength-sessions")
 async def list_strength_sessions(request: Request):
@@ -246,6 +274,14 @@ async def delete_strength_session(session_id: str, request: Request):
 
 
 # ── Plyo session endpoints ─────────────────────────────────────────────────────
+
+@router.post("/api/plyo-sessions/batch", status_code=201)
+async def create_plyo_sessions_batch(body: _PlyoBatchBody, request: Request):
+    user = await resolve_user(request)
+    exercises = [ex.dict() for ex in body.exercises]
+    result = _svc.create_plyo_sessions_batch(user_id=user.id, exercises=exercises)
+    return JSONResponse(result, status_code=201)
+
 
 @router.get("/api/plyo-sessions")
 async def list_plyo_sessions(request: Request):
