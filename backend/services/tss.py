@@ -1299,13 +1299,16 @@ def compute_running_tss_pace_from_prefs(
     )
 
 
-def recompute_user_running_tss(user_id, session) -> None:
+def recompute_user_running_tss(user_id, session) -> int:
     """Recompute TSS for every running workout owned by user_id.
 
     Called when the user's threshold preferences change so that all stored TSS
     values reflect the new thresholds on next fetch.  Only workouts with
     workout_type matching 'run' (case-insensitive) are processed.  The caller
     must commit the session after this function returns.
+
+    Returns the number of workouts processed so callers can report it without
+    running an independent count query that might diverge from this filter.
     """
     from backend.models import Workout
 
@@ -1317,3 +1320,4 @@ def recompute_user_running_tss(user_id, session) -> None:
     )
     for w in workouts:
         persist_running_tss(w.id, session)
+    return len(workouts)
