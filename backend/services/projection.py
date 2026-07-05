@@ -401,12 +401,20 @@ def build_plan_projection_payload(
         User preference dict.  Must contain ``"threshold_pace_seconds_per_km"``
         to compute non-null estimated times.  None yields null estimates.
     body_modifier:
-        Multiplicative factor applied to the power-to-weight score used in
-        race finish-time estimation.  1.0 is neutral (default — no regression
-        for athletes without body composition data).  Values > 1.0 improve
-        (lighter athlete, better power-to-weight); < 1.0 reduce it.  Use
-        ``backend.services.body_modifier.compute_body_modifier`` to derive
-        this value.
+        **Multiplier** centered at 1.0 (valid range 0.85–1.05) applied to the
+        power-to-weight score in race finish-time estimation.  1.0 is neutral
+        (default — no adjustment for athletes without body composition data).
+        Values > 1.0 improve the estimate (lighter athlete, better
+        power-to-weight); < 1.0 reduce it.
+
+        Derive from body-composition data via::
+
+            1.0 + compute_body_modifier(weekly_pct_bw_rate, ea_proxy)['modifier']
+
+        **Do not** pass the raw ``'modifier'`` delta directly —
+        ``compute_body_modifier`` returns a fractional delta in [-0.15, +0.05]
+        (e.g. 0.02 for +2 %), not a multiplier.  Passing the raw delta would
+        multiply scores by ~0.02, effectively zeroing them.
     b_race_result:
         Optional dict representing the most recent past B race with an actual
         result.  When provided, race projections for dates strictly after

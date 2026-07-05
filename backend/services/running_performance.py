@@ -88,9 +88,27 @@ def compute_endurance_score(
     Requires ``threshold_hr`` in preferences (HR extrapolation) → missing
     returns the ``needs_thresholds`` state. See module docstring for the method.
 
+    ``body_modifier``: **multiplier** centered at 1.0 (valid range 0.85–1.05).
+        1.0 is neutral; > 1.0 improves the score (lighter, better power-to-weight);
+        < 1.0 reduces it (excessive deficit or low EA).
+        Derive from body-composition data via::
+
+            1.0 + compute_body_modifier(weekly_pct_bw_rate, ea_proxy)['modifier']
+
+        Do **not** pass the raw ``'modifier'`` delta directly — that value is in
+        [-0.15, +0.05] and would multiply the score by ~0.02, effectively zeroing it.
+        Raises ``ValueError`` if ``body_modifier`` is outside [0.5, 2.0].
+
     ``race_perf`` (optional): ``{"perf": float, "date": "YYYY-MM-DD"}`` — a race
     VDOT-band point that enters the pool and enforces a decayed floor.
     """
+    if not (0.5 <= body_modifier <= 2.0):
+        raise ValueError(
+            f"body_modifier={body_modifier!r} is outside the valid multiplier range "
+            "[0.5, 2.0]. It must be a multiplier centered at 1.0 (e.g. 0.85–1.05). "
+            "If you have a raw delta from compute_body_modifier(), convert it first: "
+            "1.0 + result['modifier']."
+        )
     zc = _resolve_zone_constants(zone_constants)
 
     if preferences is None:
@@ -166,7 +184,24 @@ def compute_speed_score(
     run by ``_speed_effort_pace_duration`` (hard laps → power/pace-basis
     speed_signal fallback), so intervals whose real reps live in the Stryd
     streams (not the 1 km auto-splits) still score.
+
+    ``body_modifier``: **multiplier** centered at 1.0 (valid range 0.85–1.05).
+        1.0 is neutral; > 1.0 improves the score; < 1.0 reduces it.
+        Derive from body-composition data via::
+
+            1.0 + compute_body_modifier(weekly_pct_bw_rate, ea_proxy)['modifier']
+
+        Do **not** pass the raw ``'modifier'`` delta directly — that value is in
+        [-0.15, +0.05] and would nearly zero the score.
+        Raises ``ValueError`` if ``body_modifier`` is outside [0.5, 2.0].
     """
+    if not (0.5 <= body_modifier <= 2.0):
+        raise ValueError(
+            f"body_modifier={body_modifier!r} is outside the valid multiplier range "
+            "[0.5, 2.0]. It must be a multiplier centered at 1.0 (e.g. 0.85–1.05). "
+            "If you have a raw delta from compute_body_modifier(), convert it first: "
+            "1.0 + result['modifier']."
+        )
     zc = _resolve_zone_constants(zone_constants)
 
     if preferences is None:
