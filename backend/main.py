@@ -5684,7 +5684,7 @@ def _compute_session_signals(w: Workout) -> dict:
 
     dur = w.duration_seconds or 0
     if es is None:
-        if dur < 40 * 60:
+        if dur <= 40 * 60:
             endurance_note = "— run under 40 min"
         else:
             endurance_note = "— insufficient data"
