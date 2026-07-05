@@ -2,8 +2,6 @@
 import os
 import pytest
 import httpx
-import json
-from datetime import date, datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 
 

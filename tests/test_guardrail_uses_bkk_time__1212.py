@@ -7,9 +7,7 @@ AC coverage:
 - AC4: Resolved window boundaries match the same "today" used by the rest of the backend (main.py)
 - AC5: Existing tests pass with BKK-local semantics (UTC midnight edge behavior updated if needed)
 """
-import os
-from datetime import date, timedelta
-from zoneinfo import ZoneInfo
+from datetime import date
 
 import pytest
 
@@ -121,7 +119,6 @@ class TestBodyModifierGuardrailUseBkkTime:
     def test_guardrail_window_boundary_logic_uses_correct_today(self):
         """AC4: Guardrail window boundaries use BKK date semantics, matching main.py."""
         from backend.services.body_modifier import get_body_modifier_guardrail_for_user
-        from backend.main import _today_bkk
         import inspect
 
         # Verify that the function source code uses _today_bkk or imports it
@@ -147,7 +144,6 @@ class TestBodyModifierGuardrailUseBkkTime:
         from backend.services.body_modifier import (
             compute_body_modifier_guardrail,
             RATE_ZERO_CROSSING,
-            EA_LOW_THRESHOLD,
         )
 
         # Run a basic sanity test: safe conditions should return ok
