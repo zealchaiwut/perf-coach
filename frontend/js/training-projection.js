@@ -16,8 +16,6 @@
   // /api/plans ENTITY id for ramp/taper settings. Null until a plan exists —
   // savePlanSettings then POSTs to create one (fixes "Training plan not found").
   var _planEntityId = null;
-  // Per-race readiness cache: raceId -> readiness response (or null if none).
-  var _raceReadiness = {};
   // Athlete current performance scores (GET /api/athletes/{id}/performance).
   // Null until loaded; only rendered when .state === "scored".
   var _athletePerf = null;
@@ -134,6 +132,19 @@
   }
   function clearSvg(svg) {
     while (svg && svg.firstChild) svg.removeChild(svg.firstChild);
+  }
+
+  // Measure the chart's real rendered width so the SVG viewBox is built to match
+  // (1 unit ≈ 1 real pixel). The SVG is width:100%, so its own bounding box is
+  // the true content width (no card padding) — this is what keeps mobile labels
+  // at their nominal px instead of the ~3× downscale from a hardcoded 1140-unit
+  // viewBox. Falls back to the parent width, floored at 280 (e.g. tab hidden).
+  function measureChartW(svg) {
+    var w = svg && svg.getBoundingClientRect ? svg.getBoundingClientRect().width : 0;
+    if (!w && svg && svg.parentElement) {
+      w = svg.parentElement.getBoundingClientRect().width;
+    }
+    return Math.max(280, Math.round(w || 0));
   }
 
   // ── Plan ID ───────────────────────────────────────────────────────────────
@@ -368,7 +379,22 @@
       _hideProjNow();
     }
 
-    var W = 1140, H = 200, p = { l: 54, r: 30, t: 14, b: 26 };
+    // Responsive sizing: build the coordinate space to the measured render
+    // width so 1 unit ≈ 1px on any viewport (fixes the ~3× mobile downscale).
+    var W = measureChartW(svg);
+    var mobile = W < 480;
+    var H = mobile ? 240 : 200;
+    // Trim l/r on mobile so the plot area isn't tiny inside the narrow card.
+    var p = mobile
+      ? { l: 46, r: 16, t: 14, b: 30 }
+      : { l: 54, r: 30, t: 14, b: 26 };
+    // viewBox + CSS height must move together, else it letterboxes.
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    svg.style.height = H + "px";
+    // Floor every label at 10px (several are 8–9 today → unreadable on mobile).
+    var FS = function (n) { return Math.max(10, n); };
+    // Thicker data lines on mobile.
+    var LWmain = mobile ? 2.8 : 2.4;
 
     // ── Tight y-domain ────────────────────────────────────────────────────────
     // Early low-fitness history estimates can be wildly large (e.g. 7h for a
@@ -434,7 +460,7 @@
     ticks.forEach(function (v) {
       svg.appendChild(E("line", { x1: p.l, x2: W - p.r, y1: y(v), y2: y(v), stroke: "#eef1f7" }));
       var lab = E("text", {
-        x: p.l - 8, y: y(v) + 3, "font-size": 10,
+        x: p.l - 8, y: y(v) + 3, "font-size": FS(10),
         "font-family": "JetBrains Mono", fill: "#9aa3b8", "text-anchor": "end",
       });
       lab.textContent = fmtTime(Math.round(v));
@@ -467,7 +493,7 @@
       .map(function (e, i) { return [xHist(i), y(e.estimated_finish_seconds)]; });
     if (histPts.length)
       svg.appendChild(E("path", {
-        d: Path(histPts), fill: "none", stroke: "#4f6ef7", "stroke-width": 2.4,
+        d: Path(histPts), fill: "none", stroke: "#4f6ef7", "stroke-width": LWmain,
       }));
 
     // projection center (dashed)
@@ -481,7 +507,7 @@
     if (projPts.length)
       svg.appendChild(E("path", {
         d: Path(projPts), fill: "none", stroke: "#4f6ef7",
-        "stroke-width": 2.4, "stroke-dasharray": "5 4",
+        "stroke-width": LWmain, "stroke-dasharray": "5 4",
       }));
 
     // goal line
@@ -491,7 +517,7 @@
         stroke: "#16a34a", "stroke-width": 1.5, "stroke-dasharray": "7 5",
       }));
       var gl = E("text", {
-        x: p.l + 4, y: y(goalSec) - 5, "font-size": 9,
+        x: p.l + 4, y: y(goalSec) - 5, "font-size": FS(9),
         "font-family": "Inter Tight", fill: "#16a34a", "font-weight": 700,
       });
       gl.textContent = "A goal " + fmtTime(goalSec);
@@ -504,7 +530,7 @@
       stroke: "#cbd5e1", "stroke-dasharray": "3 3",
     }));
     var nt = E("text", {
-      x: nowX + 3, y: p.t + 8, "font-size": 8, "font-family": "JetBrains Mono",
+      x: nowX + 3, y: p.t + 8, "font-size": FS(8), "font-family": "JetBrains Mono",
       fill: "#9aa3b8", "text-anchor": "start", "font-weight": 700,
     });
     nt.textContent = "NOW";
@@ -528,7 +554,7 @@
         "stroke-opacity": 0.6,
       }));
       var t = E("text", {
-        x: mx, y: H - 7, "font-size": 9, "font-family": "JetBrains Mono",
+        x: mx, y: H - 7, "font-size": FS(9), "font-family": "JetBrains Mono",
         fill: "#9aa3b8", "text-anchor": "middle", "font-weight": 700,
       });
       t.textContent = m.priority || "•";
@@ -647,6 +673,16 @@
     );
   }
 
+  // Priority/type badge. Checkpoints get a distinct "CP" text badge (teal) so
+  // they never read as a C-priority race; races keep the A/B/C letter square.
+  function _priorityBadge(isCheckpoint, priority) {
+    if (isCheckpoint) {
+      return '<span class="pm-rclet pm-rclet--cp">CP</span>';
+    }
+    return '<span class="pm-rclet" style="background:' +
+      (_LET_BG[priority] || "#6b7280") + '">' + esc(priority) + "</span>";
+  }
+
   // Build a full-width UPCOMING card (Goal + Estimated columns).
   function _buildUpcomingCard(r) {
     var isCheckpoint = r.type === "checkpoint";
@@ -670,8 +706,7 @@
 
     var head =
       '<div class="pm-rchd">' +
-      '<span class="pm-rclet" style="background:' +
-      (_LET_BG[priority] || "#6b7280") + '">' + esc(priority) + "</span>" +
+      _priorityBadge(isCheckpoint, priority) +
       '<span class="pm-rcname">' + esc(r.name || "Unnamed") + "</span>" +
       '<span class="pm-typetag">' +
       (isCheckpoint ? "CHECKPOINT" : "RACE") + "</span>" +
@@ -743,8 +778,7 @@
 
     var head =
       '<div class="pm-rchd">' +
-      '<span class="pm-rclet" style="background:' +
-      (_LET_BG[priority] || "#6b7280") + '">' + esc(priority) + "</span>" +
+      _priorityBadge(isCheckpoint, priority) +
       '<span class="pm-rcname">' + esc(r.name || "Unnamed") + "</span>" +
       '<span class="pm-typetag">' +
       (isCheckpoint ? "CHECKPOINT" : "RACE") + "</span>" +
@@ -886,7 +920,18 @@
     if (emptyEl) emptyEl.style.display = "none";
     svg.style.display = "";
 
-    var W = 1140, H = 300, p = { l: 44, r: 20, t: 12, b: 28 };
+    // Responsive sizing: match the measured render width (1 unit ≈ 1px). This
+    // card sits in a 2-col row on desktop (~half width) and full width on mobile,
+    // so a hardcoded 1140 mis-scaled it on BOTH — measuring fixes both.
+    var W = measureChartW(svg);
+    var mobile = W < 480;
+    var H = mobile ? 260 : 300;
+    var p = mobile
+      ? { l: 36, r: 14, t: 12, b: 30 }
+      : { l: 44, r: 20, t: 12, b: 28 };
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    svg.style.height = H + "px";
+    var FS = function (n) { return Math.max(10, n); };
     var vmin = -25, vmax = 10;
     // widen range if data exceeds defaults
     formCurve.forEach(function (pt) {
@@ -918,7 +963,7 @@
         x1: p.l, x2: W - p.r, y1: y(v), y2: y(v), stroke: "#eef1f7",
       }));
       var lab = E("text", {
-        x: p.l - 8, y: y(v) + 3, "font-size": 10, "font-family": "JetBrains Mono",
+        x: p.l - 8, y: y(v) + 3, "font-size": FS(10), "font-family": "JetBrains Mono",
         fill: "#9aa3b8", "text-anchor": "end",
       });
       lab.textContent = Math.round(v);
@@ -930,16 +975,16 @@
       return [x(i, N), y(pt.form)];
     });
     svg.appendChild(E("path", {
-      d: Path(pts), fill: "none", stroke: "#4f6ef7", "stroke-width": 1.8,
+      d: Path(pts), fill: "none", stroke: "#4f6ef7", "stroke-width": mobile ? 2.4 : 1.8,
       "stroke-linejoin": "round",
     }));
 
-    // date ticks: first, ~mid, last
+    // date ticks: first, ~mid, last (3 — kept sparse so mobile isn't crowded).
     var idxs = [0, Math.floor(N * 0.6), N - 1];
     idxs.forEach(function (i, k) {
       var xx = x(i, N);
       var t = E("text", {
-        x: xx, y: H - 8, "font-size": 10, "font-family": "JetBrains Mono",
+        x: xx, y: H - 8, "font-size": FS(10), "font-family": "JetBrains Mono",
         fill: "#9aa3b8",
         "text-anchor": k === 0 ? "start" : k === idxs.length - 1 ? "end" : "middle",
       });
@@ -1062,23 +1107,6 @@
       })
       .join("");
   }
-
-  // ── Data loading ──────────────────────────────────────────────────────────
-  function loadReadiness(done) {
-    if (!_primaryRace) {
-      _readiness = null;
-      if (done) done();
-      return;
-    }
-    apiGet("/api/races/" + _primaryRace.id + "/readiness", function (data) {
-      _readiness = data;
-      // Cache under the race id so renderRaceCards can surface the Estimated
-      // column for the primary race (also drives the form/time curves).
-      _raceReadiness[_primaryRace.id] = data;
-      if (done) done();
-    });
-  }
-
 
   // ── Plan settings ─────────────────────────────────────────────────────────
   function _validateSettingsInputs() {
@@ -1219,13 +1247,12 @@
       b_race_recalibration_date: proj.b_race_recalibration_date,
       building_baseline: proj.building_baseline,
     };
-    // Synthetic readiness for the primary race — drives the time/form curves.
-    _readiness = {
-      building_baseline: proj.building_baseline,
-      form_curve: proj.form_curve,
-      projected_form: proj.projected_form,
-      time_curve: proj.time_curve,
-    };
+    // Primary-race readiness now rides the cached bundle (folded server-side),
+    // so the tab needs no separate /api/races/{id}/readiness call. Carries the
+    // full readiness (time_curve, form_curve, on_track, specificity_progress,
+    // building_baseline, projected_form). Null when there is no primary race —
+    // renderTimeCurve/FormCurve/SpecBars all guard on that and degrade cleanly.
+    _readiness = bundle.readiness || null;
 
     renderCalibration(bundle.calibration || {});
     renderAll();
@@ -1334,6 +1361,10 @@
     // Races always use distance; checkpoints follow the toggle.
     _show("plan-modal-distance-field", !byDuration);
     _show("plan-modal-duration-field", byDuration);
+    // Goal-time field: a distance-defined checkpoint takes a goal time exactly
+    // like a race (pace derives from the distance); a duration-defined
+    // checkpoint has no distance, so hide the goal (the duration is the target).
+    if (isCheckpoint) _show("plan-modal-goal-field", !byDuration);
   }
 
   function _setCheckpointMeasure(measure) {
@@ -1939,6 +1970,19 @@
     }
     refresh();
   }
+
+  // Redraw both charts on viewport resize / rotation so they adapt (they're
+  // drawn once on load otherwise). Debounced ~150ms; both fns guard internally
+  // (they return early when their SVG or data is missing), and each call is
+  // wrapped so a not-yet-loaded chart can't break the other.
+  var _resizeTimer = null;
+  window.addEventListener("resize", function () {
+    if (_resizeTimer) clearTimeout(_resizeTimer);
+    _resizeTimer = setTimeout(function () {
+      try { renderTimeCurve(); } catch (e) {}
+      try { renderFormCurve(); } catch (e) {}
+    }, 150);
+  });
 
   window.TrainingProjection = { init: init };
 })();

@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="css/styles.css" />
     <link rel="stylesheet" href="css/training-form.css" />
     <link rel="stylesheet" href="css/training-detail.css" />
-    <link rel="stylesheet" href="css/run-detail-v4.css" />
+    <link rel="stylesheet" href="css/run-detail-v4.css?v=20260703c" />
     <link
       href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css"
       rel="stylesheet"
@@ -1394,7 +1394,8 @@
       /* Selected row */
       .entry-row.is-active {
         background: #f0f5ff;
-        box-shadow: inset 3px 0 0 #2b4ca8;
+        border-color: #2b4ca8;
+        box-shadow: inset 2px 0 0 #2b4ca8, 0 0 0 1px #2b4ca8;
         padding-left: 1px;
       }
 
@@ -4923,6 +4924,16 @@
         justify-content: center;
         flex-shrink: 0;
       }
+      /* Checkpoint "CP" badge — a teal pill, distinct from the A/B/C letter
+         squares so it never reads as a C-priority race. The compound selector
+         also wins over the mobile .pm-rclet width override. */
+      .plan-merged .pm-rclet.pm-rclet--cp {
+        width: auto;
+        min-width: 24px;
+        padding: 0 6px;
+        background: #0d9488;
+        letter-spacing: 0.02em;
+      }
       .plan-merged .pm-rcname {
         font-size: 14px;
         font-weight: 700;
@@ -6424,7 +6435,7 @@
       padding: 18px 20px;
     }
     .lrx-sectitle {
-      font-size: 11px;
+      font-size: 13px;
       font-weight: 800;
       letter-spacing: 0.07em;
       color: var(--lrx-faint);
@@ -6441,7 +6452,7 @@
 
     /* ── Summary ─────────────────────────────────────────────────────────── */
     .lrx-scope {
-      font-size: 11.5px;
+      font-size: 14px;
       font-weight: 600;
       color: var(--lrx-lavHi);
       background: var(--lrx-blueSoft);
@@ -6458,7 +6469,7 @@
       gap: 2px;
     }
     .lrx-seg button {
-      font-size: 12px;
+      font-size: 14px;
       font-weight: 600;
       color: var(--lrx-muted);
       background: none;
@@ -6481,26 +6492,26 @@
       padding: 13px 15px;
     }
     .lrx-sumtile .lab {
-      font-size: 10px;
+      font-size: 12px;
       font-weight: 800;
       letter-spacing: 0.06em;
       color: var(--lrx-faint);
       text-transform: uppercase;
     }
     .lrx-sumtile .val {
-      font-size: 26px;
+      font-size: 31px;
       font-weight: 700;
       font-family: var(--lrx-mono);
       line-height: 1;
       margin-top: 7px;
     }
-    .lrx-sumtile .val small { font-size: 12px; color: var(--lrx-muted); font-weight: 600; }
-    .lrx-delta { font-size: 11px; font-family: var(--lrx-mono); margin-top: 7px; font-weight: 600; min-height: 1em; }
+    .lrx-sumtile .val small { font-size: 14px; color: var(--lrx-muted); font-weight: 600; }
+    .lrx-delta { font-size: 13px; font-family: var(--lrx-mono); margin-top: 7px; font-weight: 600; min-height: 1em; }
     .lrx-delta.up { color: var(--lrx-green); }
     .lrx-delta.down { color: var(--lrx-red); }
     .lrx-delta.flat { color: var(--lrx-faint); }
     .lrx-chips { display: flex; gap: 7px; margin-top: 12px; flex-wrap: wrap; }
-    .lrx-chip { font-size: 11px; font-weight: 700; padding: 4px 9px; border-radius: 6px; }
+    .lrx-chip { font-size: 13px; font-weight: 700; padding: 4px 9px; border-radius: 6px; }
     .lrx-chip.g { background: var(--lrx-greenSoft); color: var(--lrx-green); }
     .lrx-chip.r { background: var(--lrx-redSoft); color: var(--lrx-red); }
     .lrx-chip.b { background: var(--lrx-blueSoft); color: var(--lrx-lavHi); }
@@ -6514,47 +6525,75 @@
       border-radius: 12px;
       padding: 15px 16px;
     }
-    .lrx-rcard .rv { font-size: 30px; font-weight: 700; font-family: var(--lrx-mono); text-align: center; line-height: 1; }
-    .lrx-rcard .rl { font-size: 10.5px; color: var(--lrx-muted); text-align: center; font-weight: 700; letter-spacing: 0.04em; margin-top: 4px; text-transform: uppercase; }
+    .lrx-rcard .rv { font-size: 36px; font-weight: 700; font-family: var(--lrx-mono); text-align: center; line-height: 1; }
+    .lrx-rcard .rl { font-size: 13px; color: var(--lrx-muted); text-align: center; font-weight: 700; letter-spacing: 0.04em; margin-top: 4px; text-transform: uppercase; }
     .lrx-rband { height: 6px; border-radius: 4px; margin: 14px 0 5px; position: relative; }
     .lrx-rband .mk { position: absolute; top: -3px; width: 12px; height: 12px; border-radius: 50%; background: #fff; border: 2px solid #475569; transform: translateX(-50%); }
-    .lrx-rstatus { font-size: 11px; font-weight: 800; text-align: center; letter-spacing: 0.06em; }
+    .lrx-rstatus { font-size: 13px; font-weight: 800; text-align: center; letter-spacing: 0.06em; }
     .lrx-rchart { width: 100%; height: 52px; margin-top: 8px; display: block; }
 
     /* ── Calendar (week-volume column + nav) ─────────────────────────────── */
     .lrx-calnav { display: flex; align-items: center; gap: 10px; }
-    .lrx-calnav .mtitle { font-size: 13px; font-weight: 800; color: var(--lrx-ink); cursor: pointer; padding: 4px 10px; border-radius: 8px; }
+    .lrx-calnav .mtitle { font-size: 16px; font-weight: 800; color: var(--lrx-ink); cursor: pointer; padding: 4px 10px; border-radius: 8px; }
     .lrx-calnav .mtitle:hover { background: var(--lrx-tile); }
     .lrx-calnav .mtitle.scoped { background: var(--lrx-blueSoft); color: var(--lrx-lavHi); }
-    .lrx-arw { width: 28px; height: 28px; border: 1px solid var(--lrx-line); background: var(--lrx-tile); border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--lrx-muted); }
-    .lrx-today { font-size: 11px; font-weight: 600; color: var(--lrx-muted); background: var(--lrx-tile); border: 1px solid var(--lrx-line); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+    .lrx-arw { width: 32px; height: 32px; border: 1px solid var(--lrx-line); background: var(--lrx-tile); border-radius: 8px; cursor: pointer; font-size: 16px; color: var(--lrx-muted); }
+    .lrx-today { font-size: 13px; font-weight: 600; color: var(--lrx-muted); background: var(--lrx-tile); border: 1px solid var(--lrx-line); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
     table.lrx-cal { width: 100%; border-collapse: separate; border-spacing: 0; }
-    table.lrx-cal th { font-size: 9px; font-weight: 800; letter-spacing: 0.06em; color: var(--lrx-faint); text-transform: uppercase; padding: 0 0 8px; text-align: center; }
+    table.lrx-cal th { font-size: 11px; font-weight: 800; letter-spacing: 0.06em; color: var(--lrx-faint); text-transform: uppercase; padding: 0 0 8px; text-align: center; }
     table.lrx-cal th.wk { text-align: right; padding-right: 2px; }
     .lrx-calrow { cursor: pointer; }
-    .lrx-calrow td { border-top: 1px solid var(--lrx-line); height: 54px; vertical-align: top; text-align: center; }
-    .lrx-calrow .dnum { font-size: 12px; font-family: var(--lrx-mono); color: var(--lrx-ink); padding-top: 7px; display: inline-block; }
+    /* Fixed 92px keeps EVERY week row the same height whether or not its days
+       carry planned-session tags. 92px fits the worst case (day number + up to
+       two dots + up to two stacked tags ≈ 78px) so a tagged day never grows
+       its row taller than an untagged one. `height` on a table cell is a
+       minimum and all cells in a row share the row height, so this evens them. */
+    .lrx-calrow td { border-top: 1px solid var(--lrx-line); height: 92px; vertical-align: top; text-align: center; }
+    .lrx-calrow .dnum { font-size: 14px; font-family: var(--lrx-mono); color: var(--lrx-ink); padding-top: 7px; display: inline-block; }
     .lrx-calrow td.out .dnum { color: #cbd2e0; }
+    /* Today marker: a ring inside the day cell (inset shadow avoids disturbing
+       the table's border-collapse layout) plus a bolded accent day number. */
+    .lrx-calrow td.is-today { box-shadow: inset 0 0 0 2px var(--lrx-run); border-radius: 10px; }
+    .lrx-calrow td.is-today .dnum { color: var(--lrx-run); font-weight: 700; }
+    /* Deep-linked workout's day (#5): a darker ring in the same accent as the
+       .entry-row.is-active list row, so the one workout reads as flagged in
+       both views. Wins over the today ring when they coincide (later rule). */
+    .lrx-calrow td.cal-day.deep-linked { box-shadow: inset 0 0 0 2px #2b4ca8; border-radius: 10px; }
     .lrx-dot { width: 6px; height: 6px; border-radius: 50%; margin: 3px auto 0; }
     .lrx-dot.run { background: var(--lrx-run); }
     .lrx-dot.lift { background: var(--lrx-lift); }
-    .lrx-wkcell { text-align: right; padding: 7px 2px 0 8px; width: 118px; }
-    .lrx-wkcell .wt { font-size: 12px; font-weight: 700; font-family: var(--lrx-mono); }
-    .lrx-wkcell .wkkm { font-size: 10px; color: var(--lrx-muted); font-family: var(--lrx-mono); }
+    /* Planned-session tags (from Plan) — filled once done, outlined while
+       still planned/missed/needs-review, so status reads at a glance. Plain
+       block in the calendar cell (stacks under .dnum on its own line, same
+       as .lrx-dot already does); the legend overrides to inline-block. */
+    .lrx-caltag { font-size: 8.5px; font-weight: 800; font-family: var(--lrx-mono); border-radius: 4px; padding: 1px 4px; margin: 3px auto 0; width: fit-content; letter-spacing: -0.02em; line-height: 1.5; cursor: pointer; }
+    .lrx-caltag:hover { filter: brightness(0.94); }
+    .lrx-caltag.run.done { background: var(--lrx-runSoft); color: var(--lrx-run); }
+    .lrx-caltag.lift.done { background: var(--lrx-liftSoft); color: var(--lrx-lift); }
+    .lrx-caltag.run.planned { background: none; border: 1px solid var(--lrx-run); color: var(--lrx-run); }
+    .lrx-caltag.lift.planned { background: none; border: 1px solid var(--lrx-lift); color: var(--lrx-lift); }
+    .lrx-callegend .lrx-caltag { display: inline-block; margin: 0 5px 0 0; cursor: default; }
+    .lrx-wkcell { text-align: right; padding: 7px 2px 0 8px; width: 128px; }
+    .lrx-wkcell .wt { font-size: 14px; font-weight: 700; font-family: var(--lrx-mono); }
+    .lrx-wkcell .wkkm { font-size: 12px; color: var(--lrx-muted); font-family: var(--lrx-mono); }
     .lrx-wkbar { height: 5px; background: var(--lrx-tile); border-radius: 3px; margin-top: 5px; overflow: hidden; }
     .lrx-wkbar span { display: block; height: 100%; background: linear-gradient(90deg, #6366f1, #4f6ef7); border-radius: 3px; }
-    .lrx-calrow.sel td { background: #dbe4ff; }
-    .lrx-calrow.sel td:first-child { box-shadow: inset 3px 0 0 var(--lrx-run); }
+    /* Selected week: a border ring around the whole row (top+bottom on every
+       cell, plus the outer edges) so the scoped week reads as a bordered band,
+       mirrored by .day-group.lrx-week-hl in the log list below. */
+    .lrx-calrow.sel td { background: #dbe4ff; box-shadow: inset 0 2px 0 var(--lrx-run), inset 0 -2px 0 var(--lrx-run); }
+    .lrx-calrow.sel td:first-child { box-shadow: inset 0 2px 0 var(--lrx-run), inset 0 -2px 0 var(--lrx-run), inset 2px 0 0 var(--lrx-run); }
+    .lrx-calrow.sel td:last-child { box-shadow: inset 0 2px 0 var(--lrx-run), inset 0 -2px 0 var(--lrx-run), inset -2px 0 0 var(--lrx-run); }
     .lrx-calrow.sel .lrx-wkcell { background: #c7d2fe; }
     .lrx-calrow:hover td { background: #f6f8ff; }
-    .lrx-callegend { display: flex; gap: 14px; margin-top: 12px; font-size: 11px; color: var(--lrx-muted); flex-wrap: wrap; }
+    .lrx-callegend { display: flex; gap: 14px; margin-top: 12px; font-size: 13px; color: var(--lrx-muted); flex-wrap: wrap; }
     .lrx-callegend b { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
 
     /* ── Log list (week-grouped, typed rows) ─────────────────────────────── */
     .lrx-wkhdr { display: flex; align-items: center; justify-content: space-between; margin: 16px 0 8px; }
     .lrx-wkhdr:first-child { margin-top: 2px; }
-    .lrx-wkhdr .wl { font-size: 12px; font-weight: 800; color: var(--lrx-ink); }
-    .lrx-wkhdr .wr { font-size: 11px; color: var(--lrx-muted); font-family: var(--lrx-mono); }
+    .lrx-wkhdr .wl { font-size: 14px; font-weight: 800; color: var(--lrx-ink); }
+    .lrx-wkhdr .wr { font-size: 13px; color: var(--lrx-muted); font-family: var(--lrx-mono); }
     .lrx-logrow {
       display: flex; align-items: center; gap: 12px; padding: 11px 12px;
       border: 1px solid var(--lrx-line); border-left-width: 3px; border-left-color: transparent;
@@ -6563,21 +6602,32 @@
     .lrx-logrow:hover { background: #f9faff; }
     .lrx-logrow.run { border-left-color: var(--lrx-run); }
     .lrx-logrow.lift { border-left-color: var(--lrx-lift); }
-    .lrx-logrow .lday { width: 42px; text-align: center; flex-shrink: 0; }
-    .lrx-logrow .lday .d { font-size: 16px; font-weight: 700; font-family: var(--lrx-mono); line-height: 1; }
-    .lrx-logrow .lday .m { font-size: 9px; color: var(--lrx-faint); text-transform: uppercase; font-weight: 700; }
+    .lrx-logrow .lday { width: 48px; text-align: center; flex-shrink: 0; }
+    .lrx-logrow .lday .d { font-size: 19px; font-weight: 700; font-family: var(--lrx-mono); line-height: 1; }
+    .lrx-logrow .lday .m { font-size: 11px; color: var(--lrx-faint); text-transform: uppercase; font-weight: 700; }
     .lrx-logrow .lname { flex: 1; min-width: 0; }
-    .lrx-logrow .lname .n { font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
-    .lrx-logrow .lname .meta { font-size: 11px; color: var(--lrx-muted); font-family: var(--lrx-mono); margin-top: 2px; }
-    .lrx-logrow .lstat { font-size: 11px; font-family: var(--lrx-mono); color: var(--lrx-muted); text-align: right; flex-shrink: 0; }
+    .lrx-logrow .lname .n { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+    .lrx-logrow .lname .meta { font-size: 13px; color: var(--lrx-muted); font-family: var(--lrx-mono); margin-top: 2px; }
+    /* Quick-tag effort feeling (😩/😐/😊). Faint until tagged, then only the
+       selected icon shows. Shared markup: .feel-row + .feel-btn. */
+    .feel-row { display: flex; gap: 3px; align-items: center; }
+    .feel-btn { background: none; border: none; padding: 0 1px; line-height: 1; cursor: pointer; opacity: 0.3; filter: grayscale(0.6); transition: opacity .12s, filter .12s, transform .12s; }
+    .feel-btn:hover { opacity: 0.78; filter: grayscale(0); }
+    .feel-btn.is-on { opacity: 1; filter: none; transform: scale(1.1); }
+    .feel-btn.is-hidden { display: none; }
+    .lrx-feel { margin-top: 3px; }
+    .lrx-feel .feel-btn { font-size: 13px; }
+    .dp-feel { margin-top: 8px; gap: 6px; }
+    .dp-feel .feel-btn { font-size: 20px; padding: 0 3px; }
+    .lrx-logrow .lstat { font-size: 13px; font-family: var(--lrx-mono); color: var(--lrx-muted); text-align: right; flex-shrink: 0; }
     .lrx-logrow .lstat b { color: var(--lrx-ink); font-weight: 700; }
-    .lrx-tbadge { font-size: 9px; font-weight: 800; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; }
+    .lrx-tbadge { font-size: 11px; font-weight: 800; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; }
     .lrx-tbadge.run { background: var(--lrx-runSoft); color: var(--lrx-run); }
     .lrx-tbadge.lift { background: var(--lrx-liftSoft); color: #7c3aed; }
     /* Run subtype tag — separate, outlined/lighter chip next to the run badge:
        [run] [interval]. Still run-family (blue) but visually secondary. */
-    .lrx-subtag { font-size: 9px; font-weight: 800; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 5px; text-transform: uppercase; margin-left: 5px; background: transparent; color: var(--lrx-run); border: 1px solid var(--lrx-run); }
-    .lrx-sentinel { display: flex; align-items: center; justify-content: center; gap: 9px; padding: 16px; color: var(--lrx-muted); font-size: 12px; }
+    .lrx-subtag { font-size: 11px; font-weight: 800; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 5px; text-transform: uppercase; margin-left: 5px; background: transparent; color: var(--lrx-run); border: 1px solid var(--lrx-run); }
+    .lrx-sentinel { display: flex; align-items: center; justify-content: center; gap: 9px; padding: 16px; color: var(--lrx-muted); font-size: 14px; }
     .lrx-spin { width: 15px; height: 15px; border: 2px solid var(--lrx-line); border-top-color: var(--lrx-run); border-radius: 50%; animation: lrxsp 0.7s linear infinite; }
     @keyframes lrxsp { to { transform: rotate(360deg); } }
 
@@ -6613,11 +6663,20 @@
     #layout-wrapper .detail-panel .dp-topbar { border-radius: 16px 16px 0 0; }
     /* Inset the drawer top bar to match the card padding (item: "same as summary"). */
     #layout-wrapper .detail-panel .dp-topbar { padding: 0 18px; }
-    /* Highlight the log-list day-groups belonging to a calendar-selected week. */
+    /* Highlight the log-list day-groups belonging to a calendar-selected week —
+       a full border ring mirrors the calendar's selected-week border (#4). */
     .day-group.lrx-week-hl {
       background: #eef2ff;
       border-radius: 12px;
-      box-shadow: inset 3px 0 0 var(--lrx-run, #4f6ef7);
+      border: 2px solid var(--lrx-run, #4f6ef7);
+      padding: 6px 8px;
+    }
+    /* Today's day-group in the log list — same accent ring the calendar's
+       today cell uses, so "today" reads consistently in both places (#4). */
+    .day-group.is-today-group {
+      border-radius: 12px;
+      box-shadow: inset 0 0 0 2px var(--lrx-run, #4f6ef7);
+      padding: 6px 8px;
     }
     .detail-panel-overlay {
       position: fixed;
@@ -6643,7 +6702,7 @@
 
     @media (max-width: 640px) {
       .lrx-sumgrid, .lrx-readfull { flex-direction: column; }
-      .lrx-wkcell { width: 86px; }
+      .lrx-wkcell { width: 96px; }
       #layout-wrapper .detail-panel { width: 100vw; max-width: 100vw; }
     }
   </style>
@@ -7640,6 +7699,18 @@
           });
         }
 
+        // Log calendar [Run]/[Strength] tag → jump to the Plan tab with that
+        // session's detail panel open. openSession() must run BEFORE
+        // activateTab('plan') so its init() picks up the right week/session.
+        document.addEventListener("plan:open-session", function (e) {
+          if (window.TrainingPlan && window.TrainingPlan.openSession) {
+            window.TrainingPlan.openSession(e.detail.sessionId, e.detail.date);
+          }
+          history.pushState({ tab: "plan" }, "",
+            window.location.pathname + window.location.search + "#plan");
+          activateTab("plan");
+        });
+
         // Session-signal card (in the workout detail panel) → close the panel
         // and open the Performance tab, scrolled to the score cards.
         document.addEventListener("rd4:open-performance-signal", function () {
@@ -7651,6 +7722,24 @@
           var target = document.getElementById("perf-score-endurance");
           if (target && target.scrollIntoView) {
             target.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+        });
+
+        // Plan card "View full workout →" → switch to Log, set ?workout=<id>,
+        // and open that workout's detail drawer (reuses the deep-link path).
+        document.addEventListener("plan:view-workout", function (e) {
+          var wid = e && e.detail && e.detail.workoutId;
+          if (!wid) return;
+          var params = new URLSearchParams(window.location.search);
+          params.set("workout", wid);
+          history.pushState(
+            { tab: "log" },
+            "",
+            window.location.pathname + "?" + params.toString()
+          );
+          activateTab("log");
+          if (window.TrainingLog && window.TrainingLog.openWorkout) {
+            window.TrainingLog.openWorkout(wid);
           }
         });
 

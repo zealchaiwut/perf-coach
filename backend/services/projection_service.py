@@ -30,6 +30,9 @@ def race_to_dict(race: Race) -> dict:
         "type": race.race_type or "race",
         "priority": race.priority,
         "goal_time_seconds": race.goal_time_seconds,
+        # Goal pace derived from goal_time / distance (issue #1247). Surfaced for
+        # both races and checkpoints so the card can render pace identically.
+        "goal_pace_seconds_per_km": race.goal_pace_seconds_per_km,
         "actual_time_seconds": race.actual_time_seconds,
         "status": race.status,
         "name": race.name,

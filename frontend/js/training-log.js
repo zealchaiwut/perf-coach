@@ -230,6 +230,19 @@
     _scrollListToWorkout(wid);
   }
 
+  // Re-entrant open (for cross-tab "View full workout →" from the Plan card).
+  // Opens the drawer + scrolls to the row immediately; if the list hasn't
+  // rendered yet, the guarded handleDeepLink() picks up ?workout= on first
+  // render. Safe to call repeatedly.
+  function openWorkoutDeepLink(wid) {
+    if (!wid) return;
+    _deepLinkHandled = true; // suppress the one-shot init handler; we drive it here
+    openDetailPanel(wid, null);
+    _scrollListToWorkout(wid);
+  }
+  window.TrainingLog = window.TrainingLog || {};
+  window.TrainingLog.openWorkout = openWorkoutDeepLink;
+
   function _scrollListToWorkout(wid) {
     var MAX_BATCHES = 200; // safety cap; each batch is ~30 workouts
     function rowFor() {
@@ -258,6 +271,15 @@
     if (activeRowEl && activeRowEl !== row) activeRowEl.classList.remove("is-active");
     activeRowEl = row;
     row.classList.add("is-active");
+
+    // Mirror the highlight onto the matching calendar day cell (#5): read the
+    // deep-linked workout's date from its day-group and border that day in the
+    // month calendar too, so the same workout is flagged in both views.
+    var group = row.closest(".day-group");
+    var dateStr = group && group.dataset ? group.dataset.date : null;
+    if (dateStr && window.LogCalendar && window.LogCalendar.markDeepLinkedDay) {
+      window.LogCalendar.markDeepLinkedDay(dateStr);
+    }
 
     // Scroll after layout settles (two rAFs: one for the just-appended batches,
     // one for the drawer-open reflow). Use INSTANT scroll, not smooth: a smooth
@@ -476,6 +498,8 @@
       elevation_m: w.elevation_m,
       average_pace_seconds_per_km: _paceSecPerKm(w.workout_type, w.duration_seconds, w.distance_km),
       tss: w.tss != null ? w.tss : null,
+      run_subtype: w.run_subtype,
+      feeling: w.feeling != null ? w.feeling : null,
       source: source,
       strava_activity_url: w.strava_activity_url,
       is_stryd_synced: !!w.stryd_activity_pk,
@@ -1216,7 +1240,7 @@
 
       var d = new Date(dateStr + 'T00:00:00');
       var dayGroup = document.createElement('div');
-      dayGroup.className = 'day-group';
+      dayGroup.className = 'day-group' + (dateStr === todayISO() ? ' is-today-group' : '');
       dayGroup.dataset.date = dateStr;
 
       var header = document.createElement('div');
@@ -1296,6 +1320,75 @@
   // Reworked to the mock's .lrx-logrow (typed left accent, day block, name +
   // meta, TSS at right) while keeping ALL existing wiring: entry-row classes +
   // data-workout-* attrs (filtering/syncActiveRow), click/keydown → detail.
+  // ── Quick-tag effort feeling (😩 hard / 😐 ok / 😊 easy) ───────────────────
+  // Shared by the log list row and the detail drawer. Untagged → all three
+  // faint; tagged → only the selected icon shown filled. Tap overwrites
+  // immediately (PATCH workouts.feeling), then updates every feeling row for
+  // that workout in place so Plan/Log stay consistent after the next refresh.
+  var FEELINGS = [
+    { key: "hard", icon: "😩", label: "Hard" },
+    { key: "ok", icon: "😐", label: "OK" },
+    { key: "easy", icon: "😊", label: "Easy" },
+  ];
+
+  function buildFeelingRow(workoutId, current, extraClass) {
+    var wrap = document.createElement("div");
+    wrap.className = "feel-row" + (extraClass ? " " + extraClass : "");
+    wrap.dataset.feelWorkout = workoutId;
+    renderFeelingButtons(wrap, workoutId, current);
+    return wrap;
+  }
+
+  function renderFeelingButtons(wrap, workoutId, current) {
+    var tagged = current === "hard" || current === "ok" || current === "easy";
+    wrap.dataset.feelValue = tagged ? current : "";
+    wrap.innerHTML = "";
+    FEELINGS.forEach(function (f) {
+      var on = current === f.key;
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "feel-btn" + (on ? " is-on" : tagged ? " is-hidden" : "");
+      btn.textContent = f.icon;
+      btn.title = f.label;
+      btn.setAttribute("aria-label", f.label);
+      if (on) btn.setAttribute("aria-pressed", "true");
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        patchFeeling(workoutId, f.key);
+      });
+      wrap.appendChild(btn);
+    });
+  }
+
+  function patchFeeling(workoutId, value) {
+    fetch("/api/workouts/" + workoutId, {
+      method: "PATCH",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ feeling: value }),
+    })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (updated) {
+        var val = updated && updated.feeling != null ? updated.feeling : value;
+        // Update every feeling row for this workout in place (list + drawer).
+        document
+          .querySelectorAll('.feel-row[data-feel-workout="' + workoutId + '"]')
+          .forEach(function (wrap) {
+            renderFeelingButtons(wrap, workoutId, val);
+          });
+        if (cachedDetailWorkout && cachedDetailWorkout.id === workoutId) {
+          cachedDetailWorkout.feeling = val;
+        }
+      })
+      .catch(function () {
+        if (window.UIStates && window.UIStates.showToast)
+          window.UIStates.showToast("Could not save feeling", true);
+      });
+  }
+
   function buildEntryRow(w) {
     var typeKey = normalizeTypeKey(w.type);
     // Mock has two families: run(blue) and lift(violet). bike→run, wod→lift.
@@ -1374,6 +1467,10 @@
       metaEl.className = "meta";
       metaEl.textContent = metaParts.join(" · ");
       lname.appendChild(metaEl);
+    }
+    // Quick-tag effort feeling (compact) — only for real workouts (with an id).
+    if (w.id) {
+      lname.appendChild(buildFeelingRow(w.id, w.feeling, "lrx-feel"));
     }
 
     // Right-side stat: TSS (or em-dash for strength with no TSS).
@@ -2456,6 +2553,13 @@
       stravaLatest: stravaLatest,
       strydLatest: strydLatest,
     });
+    // Mount the quick-tag feeling row into the run view header (the view builds
+    // its own DOM string; we add the interactive row after render).
+    var w = full.workout || {};
+    var feelHost = document.getElementById("rd4-feeling");
+    if (feelHost && w.id) {
+      feelHost.appendChild(buildFeelingRow(w.id, w.feeling, "dp-feel"));
+    }
   }
 
   function renderDetailContent(workout, splits) {
@@ -2529,6 +2633,8 @@
         ? '<span class="dp-hero-sources">' + sourceHtml + "</span>"
         : "") +
       "</div>" +
+      // Quick-tag effort feeling — populated after injection (needs listeners).
+      (workout.id ? '<div class="dp-feeling" id="dp-feeling"></div>' : "") +
       "</div>";
 
     // ── Stats ─────────────────────────────────────────────────────────────────
@@ -3073,6 +3179,13 @@
       exercisesHtml +
       notesHtml +
       "</div>";
+
+    // Quick-tag effort feeling in the drawer header (interactive → mount after
+    // the HTML string is injected). Shares patchFeeling with the log-list row.
+    var feelHost = document.getElementById("dp-feeling");
+    if (feelHost && workout.id) {
+      feelHost.appendChild(buildFeelingRow(workout.id, workout.feeling, "dp-feel"));
+    }
 
     // Workout-id copy button (dev/testing helper — grab the id for /api/workouts/{id}/full).
     var copyBtn = document.getElementById("dp-id-copy");
@@ -4535,21 +4648,24 @@
       gh + hh + "px",
     );
 
-    // Align the two nav clusters with the columns below them: brand+tabs to the
-    // content column's left edge, actions to the detail drawer's left edge.
+    // Brand+tabs align to the shared centered content box's left edge (same as
+    // #plan-race-header / any .pm-card); computed from geometry (all four tabs
+    // share max-width:1000 + 24px padding, border-box) rather than measuring
+    // #list-main, which is display:none on Plan/Projection/Performance.
+    // The actions cluster starts at the detail window's LEFT edge (the drawer:
+    // width 600, inset 12 from the right) so it sits above that column.
     var inner = document.querySelector(".log-page-header-inner");
-    var col = document.getElementById("list-main");
     var actions = document.querySelector(".log-page-header-actions");
     if (inner) {
-      var innerLeft = inner.getBoundingClientRect().left;
-      if (col) {
-        var contentLeft = col.getBoundingClientRect().left;
-        inner.style.paddingLeft = Math.max(0, contentLeft - innerLeft) + "px";
-      }
+      var CONTENT_MAX = 1000, PAD = 24;
+      var vw = document.documentElement.clientWidth;
+      var contentLeft = Math.max(0, (vw - CONTENT_MAX) / 2) + PAD;
+      inner.style.paddingLeft = contentLeft + "px";
+      inner.style.paddingRight = contentLeft + "px";
       if (actions) {
-        var DRAWER_W = 440, DRAWER_INSET = 12;
-        var drawerLeft = window.innerWidth - DRAWER_INSET - DRAWER_W;
-        actions.style.left = Math.max(0, drawerLeft - innerLeft) + "px";
+        var DRAWER_INSET = 12, DRAWER_W = Math.min(600, Math.round(vw * 0.94));
+        var drawerLeft = Math.max(0, vw - DRAWER_INSET - DRAWER_W);
+        actions.style.left = drawerLeft + "px";
         actions.style.right = "auto";
       }
     }
@@ -4565,6 +4681,8 @@
   var calCurrentMonth = null;   // Date at the 1st of displayed month
   var calSelectedDate = null;   // ISO date string of the highlighted cell
   var calDayData      = {};     // date → { types: string[], totalTss: number }
+  var calPlannedData  = {};     // date → [{ type: session_type, status }, ...] (from Plan)
+  var calPlannedMonthKey = null; // 'YYYY-MM' currently loaded into calPlannedData
 
   var CAL_MONTH_NAMES = [
     'January','February','March','April','May','June',
@@ -4593,6 +4711,58 @@
     t = (t || '').toLowerCase();
     if (t === 'run' || t === 'bike') return 'run';
     return 'lift'; // strength/lift/wod → violet
+  }
+
+  // Planned-session tags (issue: see Plan sessions on the Log calendar).
+  // Bucket run vs everything else (strength/plyo → "Strength", same family
+  // split as the existing dots) and fetch on demand per displayed month.
+  function _calPlannedFamily(t) {
+    return (t || '').toLowerCase() === 'run' ? 'run' : 'lift';
+  }
+  function _calPlannedLabel(fam) { return fam === 'run' ? 'Run' : 'Strength'; }
+  function _calIsDoneStatus(s) { return s === 'done_auto' || s === 'done_manual'; }
+
+  function _calFetchPlanned(year, month) {
+    var key = year + '-' + pad(month + 1);
+    if (calPlannedMonthKey === key) return;
+    var from = key + '-01';
+    var to = key + '-' + pad(new Date(year, month + 1, 0).getDate());
+    fetch('/api/planned-sessions?from=' + from + '&to=' + to)
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        calPlannedData = {};
+        (data && data.days || []).forEach(function (day) {
+          (day.planned || []).forEach(function (p) {
+            if (p.session_type === 'rest') return;
+            if (!calPlannedData[day.date]) calPlannedData[day.date] = [];
+            calPlannedData[day.date].push({ id: p.id, type: p.session_type, status: p.status });
+          });
+        });
+        calPlannedMonthKey = key;
+        renderCalendar();
+      })
+      .catch(function () {});
+  }
+
+  // Per-day tag HTML: one tag per family (run/lift), "done" wins over
+  // "planned" if a day has more than one session in the same family.
+  function _calPlannedTagsHtml(dateStr) {
+    var pd = calPlannedData[dateStr];
+    if (!pd || !pd.length) return '';
+    var byFam = {};
+    pd.forEach(function (p) {
+      var fam = _calPlannedFamily(p.type);
+      var done = _calIsDoneStatus(p.status);
+      if (!byFam[fam] || (done && !byFam[fam].done)) byFam[fam] = { done: done, id: p.id };
+    });
+    var html = '';
+    ['run', 'lift'].forEach(function (fam) {
+      if (!byFam[fam]) return;
+      html += '<div class="lrx-caltag ' + fam + (byFam[fam].done ? ' done' : ' planned') +
+        '" data-plan-session="' + byFam[fam].id + '" data-plan-date="' + dateStr + '" title="Open in Plan">[' +
+        _calPlannedLabel(fam) + ']</div>';
+    });
+    return html;
   }
 
   // Displayed month as 'YYYY-MM' — consumed by the summary (decision 3).
@@ -4647,6 +4817,7 @@
     var todayStr = pad(now.getFullYear()) + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
     var lastDayNum = new Date(year, month + 1, 0).getDate();
     var isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
+    _calFetchPlanned(year, month); // async; re-renders itself once loaded
 
     // Week starts Monday.
     var firstDow    = new Date(year, month, 1).getDay();
@@ -4687,7 +4858,7 @@
       '</div>' +
       '<table class="lrx-cal"><thead><tr>';
     CAL_WEEKDAY_ABBR.forEach(function (a) { html += '<th>' + esc(a) + '</th>'; });
-    html += '<th class="wk">Week</th></tr></thead><tbody>';
+    html += '<th class="wk">Total</th></tr></thead><tbody>';
 
     dayNum = 1;
     for (var r2 = 0; r2 < rows; r2++) {
@@ -4709,7 +4880,10 @@
               if (fam[f]) dots += '<div class="lrx-dot ' + f + '"></div>';
             });
           }
-          html += '<td data-date="' + dStr + '"><span class="dnum">' + dayNum + '</span>' + dots + '</td>';
+          var todayCls = (dStr === todayStr) ? ' is-today' : '';
+          html += '<td class="cal-day' + todayCls + '" data-date="' + dStr + '">' +
+            '<span class="dnum">' + dayNum + '</span>' + dots +
+            _calPlannedTagsHtml(dStr) + '</td>';
           dayNum++;
         }
       }
@@ -4725,6 +4899,8 @@
       '<div class="lrx-callegend">' +
         '<span><b style="background:var(--lrx-run)"></b>Run</span>' +
         '<span><b style="background:var(--lrx-lift)"></b>Lift</span>' +
+        '<span><span class="lrx-caltag run done">[Run]</span>Plan session — done</span>' +
+        '<span><span class="lrx-caltag run planned">[Run]</span>Plan session — not yet done</span>' +
         '<span style="color:var(--lrx-faint)">click a week to scope · click the month title for the month total</span>' +
       '</div>';
     el.innerHTML = html;
@@ -4764,6 +4940,16 @@
     var tbody = el.querySelector('tbody');
     if (tbody) {
       tbody.addEventListener('click', function (e) {
+        // Plan-session tag → deep link to Plan, skip the week-scope/scroll
+        // behavior below entirely (this is a navigation, not a scope click).
+        var tag = e.target.closest('.lrx-caltag');
+        if (tag) {
+          e.stopPropagation();
+          document.dispatchEvent(new CustomEvent('plan:open-session', {
+            detail: { sessionId: tag.getAttribute('data-plan-session'), date: tag.getAttribute('data-plan-date') }
+          }));
+          return;
+        }
         var cell = e.target.closest('td[data-date]');
         var rowEl = e.target.closest('.lrx-calrow');
         if (cell && cell.getAttribute('data-date')) {
@@ -4814,10 +5000,25 @@
   }
 
   // Public API for the summary card to query/mark scope.
+  // Border the calendar day cell for a deep-linked workout (#5). Clears any
+  // previous deep-link mark first so only one day is flagged at a time; a
+  // no-op when that date isn't in the currently displayed month.
+  function _calMarkDeepLinkedDay(dateStr) {
+    var el = document.getElementById('log-calendar');
+    if (!el) return;
+    el.querySelectorAll('.cal-day.deep-linked').forEach(function (c) {
+      c.classList.remove('deep-linked');
+    });
+    if (!dateStr) return;
+    var cell = el.querySelector('.cal-day[data-date="' + dateStr + '"]');
+    if (cell) cell.classList.add('deep-linked');
+  }
+
   window.LogCalendar = {
     getDisplayedMonth: _calMonthKey,
     markMonthScoped: _calMarkMonthScoped,
     clearScope: _calClearScope,
+    markDeepLinkedDay: _calMarkDeepLinkedDay,
   };
 
   function calScrollToDate(dateStr) {
