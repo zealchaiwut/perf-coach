@@ -232,8 +232,10 @@ def test_batch_plyo_atomic_invalid_phase(client):
 
     r = client.post("/api/plyo-sessions/batch", json={
         "exercises": [
-            {"session_date": "2099-07-13", "exercise_name": "Hurdle Hop", "foot_contacts": 60, "plyo_phase": "build"},
-            {"session_date": "2099-07-13", "exercise_name": "Bad Phase", "foot_contacts": 40, "plyo_phase": "invalid_phase"},
+            {"session_date": "2099-07-13", "exercise_name": "Hurdle Hop",
+             "foot_contacts": 60, "plyo_phase": "build"},
+            {"session_date": "2099-07-13", "exercise_name": "Bad Phase",
+             "foot_contacts": 40, "plyo_phase": "invalid_phase"},
         ]
     })
     assert r.status_code in (400, 422)
@@ -311,7 +313,10 @@ def test_batch_plyo_requires_auth():
     """POST /api/plyo-sessions/batch without auth returns 401 (security)."""
     r = httpx.post(
         f"{BASE_URL}/api/plyo-sessions/batch",
-        json={"exercises": [{"session_date": "2099-01-01", "exercise_name": "test", "foot_contacts": 10, "plyo_phase": "intro"}]},
+        json={"exercises": [
+            {"session_date": "2099-01-01", "exercise_name": "test",
+             "foot_contacts": 10, "plyo_phase": "intro"}
+        ]},
         timeout=10.0,
     )
     assert r.status_code == 401
