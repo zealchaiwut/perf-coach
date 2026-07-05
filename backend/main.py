@@ -14808,18 +14808,37 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
 
     HTTP 200 for scored, needs_thresholds, and building_baseline.
     HTTP 500 for unexpected server-side failures (state='error').
-    HTTP 404 when the athlete ID does not exist.
+    HTTP 404 when the athlete ID does not exist — body uses _build_performance_response
+    so the canonical shape (including state key) is always present (issue #1027).
     """
+    generated_at = _datetime.now(_timezone.utc).isoformat()
+
     try:
         if _uuid.UUID(athlete_id) != user.id:
-            raise HTTPException(status_code=404, detail="Athlete not found")
+            return JSONResponse(
+                status_code=404,
+                content=_build_performance_response(
+                    state="error",
+                    endurance=None,
+                    speed=None,
+                    generated_at=generated_at,
+                    reason="athlete not found",
+                ),
+            )
     except ValueError:
-        raise HTTPException(status_code=404, detail="Athlete not found")
+        return JSONResponse(
+            status_code=404,
+            content=_build_performance_response(
+                state="error",
+                endurance=None,
+                speed=None,
+                generated_at=generated_at,
+                reason="athlete not found",
+            ),
+        )
     from backend.services.running_performance import compute_endurance_score, compute_speed_score
     from backend.services.zone_constants import make_zone_constants
     from backend.services.lap_classify import classify_laps
-
-    generated_at = _datetime.now(_timezone.utc).isoformat()
 
     try:
         from backend.services.aerobic_decoupling import compute_decoupling
@@ -14832,7 +14851,16 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
         with Session(engine) as session:
             athlete = session.get(User, uid)
             if athlete is None:
-                raise HTTPException(status_code=404, detail="Athlete not found")
+                return JSONResponse(
+                    status_code=404,
+                    content=_build_performance_response(
+                        state="error",
+                        endurance=None,
+                        speed=None,
+                        generated_at=generated_at,
+                        reason="athlete not found",
+                    ),
+                )
 
             # Load user preferences; None means preferences row absent
             prefs_row = (
