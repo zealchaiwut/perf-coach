@@ -117,16 +117,21 @@
     var fullDays = _WH
       ? (wheel || []).filter(function (w) { return w.state === 'full'; }).length
       : 0;
-    var top3     = (habits.top_habits && habits.top_habits.length > 0
-                    ? habits.top_habits : habits.daily_habits).slice(0, 3);
-    var remaining = habits.remaining_count != null ? habits.remaining_count : 0;
+    // Show up to 5 (was 3) — the card now sits full-width under Weight and
+    // needs the extra rows to fill that larger footprint. remaining is derived
+    // from what's actually shown so "+N more" stays correct at the new count.
+    var source = (habits.top_habits && habits.top_habits.length > 0)
+                    ? habits.top_habits : habits.daily_habits;
+    var shownHabits = source.slice(0, 5);
+    var totalDaily = (habits.daily_habits || []).length;
+    var remaining = Math.max(0, totalDaily - shownHabits.length);
 
     /* Wheel */
     var wheelHTML = _WH ? _WH.buildWheelSvg(wheel, pct, { fullDays: fullDays }) : '';
 
     /* Habit rows */
     var rowsHTML = '';
-    top3.forEach(function (h) {
+    shownHabits.forEach(function (h) {
       var isChecked  = !!h.today_checked;
       var streak     = h.streak != null ? h.streak : 0;
       var weekCount  = h.week_count != null ? h.week_count : 0;

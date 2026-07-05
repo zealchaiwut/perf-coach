@@ -129,14 +129,16 @@
     #home-next-workout-card  { grid-column: 5 / span 2; grid-row: 1 / span 4; }
     #home-performance-card   { grid-column: 7 / span 2; grid-row: 1 / span 4; }
     #home-training-card      { grid-column: 5 / span 4; grid-row: 5 / span 3; }
-    #home-sleep-card         { grid-column: 1 / span 4; grid-row: 5 / span 2; }
+    #home-weight-widget      { grid-column: 1 / span 4; grid-row: 5 / span 3; }
+    #home-habits-widget      { grid-column: 1 / span 4; grid-row: 8 / span 3; }
     #home-perf-container     { grid-column: 5 / span 2; grid-row: 8 / span 2; }
-    #home-habits-widget      { grid-column: 7 / span 2; grid-row: 8 / span 3; }
-    #home-weight-widget      { grid-column: 1 / span 4; grid-row: 7 / span 3; }
-    /* Next+Recent now lists 3 upcoming + 3 recent sessions (was 1+1), so it
-       needs the full 4-row track Readiness gets, not 3. Personal records is
-       now a compact 3-tile row (was a multi-track table) — much shorter, so
-       it pairs with Habits instead of stacking below it. */
+    #home-sleep-card         { grid-column: 7 / span 2; grid-row: 8 / span 2; }
+    /* Habits now sits full-width in the LEFT column directly under Weight (both
+       4 cols wide, 3 rows tall = matched size); Sleep moved to the right to
+       pair with Personal records. Next+Recent fills its 4-row track by
+       backfilling recent workouts (see _nwFill). The one empty cell block at
+       cols 5-8 / row 11 is the expected odd-piece leftover (Readiness is the
+       only 4-row-tall widget), not a packing bug. */
 
     @media (max-width: 999px) {
       #home-dashboard-grid {
@@ -145,18 +147,16 @@
         gap: 14px;
       }
       #home-top-row-right      { grid-column: 1 / span 4; grid-row: 1  / span 4; }
-      #home-next-workout-card  { grid-column: 5 / span 2; grid-row: 1  / span 5; }
-      #home-performance-card   { grid-column: 5 / span 2; grid-row: 6  / span 2; }
-      #home-sleep-card         { grid-column: 5 / span 2; grid-row: 8  / span 2; }
-      #home-training-card      { grid-column: 1 / span 4; grid-row: 5  / span 3; }
-      #home-perf-container     { grid-column: 1 / span 2; grid-row: 8  / span 2; }
-      #home-habits-widget      { grid-column: 3 / span 2; grid-row: 8  / span 3; }
-      #home-weight-widget      { grid-column: 1 / span 6; grid-row: 11 / span 4; }
-      /* Next+Recent (3 upcoming + 3 recent sessions) needs a much taller
-         track in this narrow 2-wide column than the old 1+1 layout did.
-         Personal records is now a compact 3-tile row — pairs with Habits
-         instead of the old PRs/Weight pairing; Weight moves to its own
-         full-width row below both. */
+      #home-next-workout-card  { grid-column: 5 / span 2; grid-row: 1  / span 4; }
+      #home-training-card      { grid-column: 1 / span 4; grid-row: 5  / span 4; }
+      #home-performance-card   { grid-column: 5 / span 2; grid-row: 5  / span 2; }
+      #home-sleep-card         { grid-column: 5 / span 2; grid-row: 7  / span 2; }
+      #home-perf-container     { grid-column: 1 / span 6; grid-row: 9  / span 2; }
+      #home-weight-widget      { grid-column: 1 / span 6; grid-row: 11 / span 3; }
+      #home-habits-widget      { grid-column: 1 / span 6; grid-row: 14 / span 3; }
+      /* Weight and Habits are full-width stacked rows at the bottom (Habits
+         directly under Weight, matched size); Personal records is a full-width
+         3-tile row above them. */
     }
 
     @media (max-width: 759px) {
@@ -182,16 +182,12 @@
       #home-next-workout-card  { grid-column: 1 / span 2; grid-row: 5  / span 5; }
       #home-performance-card   { grid-column: 3 / span 2; grid-row: 5  / span 5; }
       #home-sleep-card         { grid-column: 1 / span 2; grid-row: 10 / span 2; }
+      #home-perf-container     { grid-column: 3 / span 2; grid-row: 10 / span 2; }
       #home-training-card      { grid-column: 1 / span 4; grid-row: 12 / span 3; }
-      #home-perf-container     { grid-column: 1 / span 2; grid-row: 15 / span 2; }
-      #home-habits-widget      { grid-column: 3 / span 2; grid-row: 15 / span 3; }
-      #home-weight-widget      { grid-column: 1 / span 4; grid-row: 18 / span 4; }
-      /* Next+Recent (3 upcoming + 3 recent sessions) needs a much taller
-         track than the old 1+1 layout at this 2-wide column width. Personal
-         records is now a compact 3-tile row — pairs with Habits instead of
-         stacking below it; both re-measured against the new markup (see
-         static-harness note at the top of #home-dashboard-grid's Wide
-         rules). */
+      #home-weight-widget      { grid-column: 1 / span 4; grid-row: 15 / span 3; }
+      #home-habits-widget      { grid-column: 1 / span 4; grid-row: 18 / span 3; }
+      /* Weight and Habits are full-width stacked rows (Habits directly under
+         Weight, matched size). Sleep and Personal records pair above Training. */
     }
 
     @media (max-width: 479px) {
@@ -1588,12 +1584,12 @@
       flex-shrink: 0;
     }
     .hw-wheel-svg {
-      width: 100px; height: 100px;
+      width: 118px; height: 118px;
       display: block;
     }
     .hw-habits-list {
       flex: 1;
-      display: flex; flex-direction: column; gap: 6px;
+      display: flex; flex-direction: column; gap: 8px;
     }
     .hw-habit-row {
       display: flex; align-items: center; gap: 10px;
@@ -1997,8 +1993,14 @@
       border-top: 1px solid var(--card-divider);
       margin: 13px 0;
     }
+    /* Rows are a 3-column grid — [fixed label col][name/meta][arrow] — so the
+       name column starts at the same x on every row (Next and Recent alike),
+       regardless of whether the badge reads RUN or STRENGTH. Recent rows omit
+       the arrow; the auto arrow column collapses to 0 so names still align. */
+    #home-next-workout-section, #home-recent-workout-section { display: flex; flex-direction: column; gap: 9px; }
     .nw-row {
-      display: flex;
+      display: grid;
+      grid-template-columns: 62px 1fr auto;
       align-items: center;
       gap: 10px;
       text-decoration: none;
@@ -2008,14 +2010,15 @@
       font-size: 9px;
       font-weight: 800;
       letter-spacing: 0.04em;
-      padding: 3px 8px;
+      padding: 3px 0;
       border-radius: 6px;
       text-transform: uppercase;
-      flex-shrink: 0;
+      text-align: center;
+      justify-self: stretch;
     }
     .nw-badge--run  { background: var(--blue-soft);   color: var(--blue-text); }
     .nw-badge--lift { background: var(--purple-soft); color: var(--purple-text); }
-    .nw-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .nw-info { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
     .nw-name {
       font-size: 13.5px; font-weight: 700; color: var(--text-primary);
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -2129,8 +2132,8 @@
     <div id="home-performance-card" class="card grp-training"></div>
     <div id="home-training-card" class="card grp-training"></div>
     <div id="home-perf-container"></div>
-    <div id="home-habits-widget" class="card grp-training"></div>
     <div id="home-weight-widget"></div>
+    <div id="home-habits-widget" class="card grp-training"></div>
     <div id="home-sleep-card" class="card sleep-card"></div>
   </div>
 

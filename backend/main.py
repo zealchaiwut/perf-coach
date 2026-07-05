@@ -3319,13 +3319,19 @@ def _build_performance_block(uid):
 
 
 def _build_recent_workouts_block(uid, today_bkk):
-    """Return last 3 workouts, or empty list when none exist."""
+    """Return the most recent workouts (up to 12), or empty list when none exist.
+
+    The Home "Next + Recent" card sizes itself to its grid track and backfills
+    with recent workouts to fill the space (see loadRecentWorkoutsCard), so it
+    needs more than the old fixed 3 to work with; the frontend caps how many it
+    actually shows based on available card height.
+    """
     with Session(engine) as session:
         rows = (
             session.query(Workout)
             .filter(Workout.user_id == uid)
             .order_by(Workout.workout_date.desc(), Workout.created_at.desc())
-            .limit(3)
+            .limit(12)
             .all()
         )
 

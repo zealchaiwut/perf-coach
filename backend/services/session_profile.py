@@ -74,6 +74,27 @@ from backend.services.interval_detector import detect_intervals, detect_sets
 # lap_types treated as auto uniform splits that carry no useful phase structure
 _AUTO_LAP_TYPES = frozenset({"auto_1km", "auto_1mi", "auto_km", "auto_mile"})
 
+MIN_WORK_RECOVERY_RATIO_GAP = 0.15
+"""Minimum intensity separation between work reps and recoveries to call a run 'Intervals'.
+
+detect_intervals works purely on the classified band labels (tempo/threshold =
+hard, easy/steady = recovery). Because bands are quantized at fixed ratio
+boundaries (0.80 / 0.90 / 1.00 / 1.06), a run of *near-uniform* laps whose
+intensity hovers right on a boundary gets a false hard/recovery alternation —
+e.g. six ~6:30/km laps at 0.86, 0.91, 0.89, 0.91, 0.83, 0.86 power-ratio read as
+work(0.91)/recovery(0.86) pairs even though every lap is essentially the same
+effort. That is not intervals; it is just an easy run split into km laps.
+
+This gate runs at the pipeline level (where the continuous ratio each lap was
+classified on is available, unlike the band-only detector) and rejects the
+interval labeling when the median work-rep ratio does not exceed the median
+recovery ratio by at least this gap. A genuine interval has a large gap (an
+8×400m might be work≈1.25 vs jog≈0.62, gap 0.63); the false positive above has
+gap ≈ 0.05. 0.15 is a little more than one band-boundary straddle, so it rejects
+boundary-noise while still accepting real work/float structures (e.g. threshold
+reps at 1.02 with steady floats at 0.85, gap 0.17). Tunable.
+"""
+
 _MISSING_INPUT = {
     "phases": [],
     "reps_detected": None,
@@ -283,20 +304,31 @@ def detect_session_profile(splits, prefs):
     sets_detected = None
     reps_per_set = None
     lap_roles = None
+    interval_reason = None
     interval_phase, _ = detect_intervals(merged_laps)
     if interval_phase is not None:
-        # Interval pattern found — refine by splitting on long recoveries
-        updated_phase, _ = detect_sets(interval_phase, merged_laps)
-        if updated_phase is not None:
-            reps_detected = updated_phase.get("reps_detected")
-            sets_detected = updated_phase.get("sets_detected")
-            reps_per_set = updated_phase.get("reps_per_set")
-            # Derive the per-lap work/recovery role map so the frontend can
-            # number pairs (Set 1..N). Purely derived from the detector output.
-            lap_roles = _build_lap_roles(
-                interval_phase, updated_phase, len(merged_laps)
-            )
+        # Band-based detection found an alternating pattern, but bands are
+        # quantized — verify the work reps are actually harder than the
+        # recoveries by a meaningful margin before labeling this Intervals.
+        contrast_ok, interval_reason = _intervals_have_contrast(
+            interval_phase, debug_laps
+        )
+        if contrast_ok:
+            # Interval pattern confirmed — refine by splitting on long recoveries
+            updated_phase, _ = detect_sets(interval_phase, merged_laps)
+            if updated_phase is not None:
+                reps_detected = updated_phase.get("reps_detected")
+                sets_detected = updated_phase.get("sets_detected")
+                reps_per_set = updated_phase.get("reps_per_set")
+                # Derive the per-lap work/recovery role map so the frontend can
+                # number pairs (Set 1..N). Purely derived from the detector output.
+                lap_roles = _build_lap_roles(
+                    interval_phase, updated_phase, len(merged_laps)
+                )
 
+    debug = {"laps": debug_laps}
+    if interval_reason:
+        debug["interval_rejected"] = interval_reason
     return {
         "phases": phases,
         "reps_detected": reps_detected,
@@ -305,8 +337,55 @@ def detect_session_profile(splits, prefs):
         "lap_roles": lap_roles,
         "basis": basis,
         "confident": True,
-        "debug": {"laps": debug_laps},
+        "debug": debug,
     }
+
+
+def _intervals_have_contrast(interval_phase, debug_laps):
+    """Return (True, None) when the detected work reps are meaningfully harder
+    than their recoveries; (False, reason) when the pattern is boundary noise.
+
+    ``interval_phase["lap_indexes"]`` is interleaved [work, recovery, work,
+    recovery, …]; ``debug_laps[i]["ratio"]`` is the continuous intensity ratio
+    lap i was classified on (same basis for every lap in a session). Compares
+    the median work ratio to the median recovery ratio and requires the gap to
+    be at least MIN_WORK_RECOVERY_RATIO_GAP. When ratios are missing (basis
+    could not be established) the guard passes — detection could not have run
+    without bands, so there is nothing to second-guess.
+    """
+    if not isinstance(interval_phase, dict):
+        return True, None
+    lap_indexes = interval_phase.get("lap_indexes") or []
+    if len(lap_indexes) < 4:
+        return True, None
+
+    def _ratio(i):
+        if 0 <= i < len(debug_laps):
+            return debug_laps[i].get("ratio")
+        return None
+
+    work_ratios = [r for r in (_ratio(i) for i in lap_indexes[0::2]) if r is not None]
+    rec_ratios = [r for r in (_ratio(i) for i in lap_indexes[1::2]) if r is not None]
+    if not work_ratios or not rec_ratios:
+        return True, None
+
+    gap = _median(work_ratios) - _median(rec_ratios)
+    if gap >= MIN_WORK_RECOVERY_RATIO_GAP:
+        return True, None
+    return False, (
+        "work/recovery intensity gap %.2f below %.2f — laps too uniform for intervals"
+        % (gap, MIN_WORK_RECOVERY_RATIO_GAP)
+    )
+
+
+def _median(values):
+    """Plain median (no imports) — middle of odd list, mean of middle pair for even."""
+    s = sorted(values)
+    n = len(s)
+    mid = n // 2
+    if n % 2 == 1:
+        return float(s[mid])
+    return (s[mid - 1] + s[mid]) / 2.0
 
 
 def _build_lap_roles(interval_phase, updated_phase, lap_count):
