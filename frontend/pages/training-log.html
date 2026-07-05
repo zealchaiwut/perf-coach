@@ -1354,7 +1354,8 @@
       /* Selected row */
       .entry-row.is-active {
         background: #f0f5ff;
-        box-shadow: inset 3px 0 0 #2b4ca8;
+        border-color: #2b4ca8;
+        box-shadow: inset 2px 0 0 #2b4ca8, 0 0 0 1px #2b4ca8;
         padding-left: 1px;
       }
 
@@ -6532,9 +6533,22 @@
     table.lrx-cal th { font-size: 11px; font-weight: 800; letter-spacing: 0.06em; color: var(--lrx-faint); text-transform: uppercase; padding: 0 0 8px; text-align: center; }
     table.lrx-cal th.wk { text-align: right; padding-right: 2px; }
     .lrx-calrow { cursor: pointer; }
-    .lrx-calrow td { border-top: 1px solid var(--lrx-line); height: 78px; vertical-align: top; text-align: center; }
+    /* Fixed 92px keeps EVERY week row the same height whether or not its days
+       carry planned-session tags. 92px fits the worst case (day number + up to
+       two dots + up to two stacked tags ≈ 78px) so a tagged day never grows
+       its row taller than an untagged one. `height` on a table cell is a
+       minimum and all cells in a row share the row height, so this evens them. */
+    .lrx-calrow td { border-top: 1px solid var(--lrx-line); height: 92px; vertical-align: top; text-align: center; }
     .lrx-calrow .dnum { font-size: 14px; font-family: var(--lrx-mono); color: var(--lrx-ink); padding-top: 7px; display: inline-block; }
     .lrx-calrow td.out .dnum { color: #cbd2e0; }
+    /* Today marker: a ring inside the day cell (inset shadow avoids disturbing
+       the table's border-collapse layout) plus a bolded accent day number. */
+    .lrx-calrow td.is-today { box-shadow: inset 0 0 0 2px var(--lrx-run); border-radius: 10px; }
+    .lrx-calrow td.is-today .dnum { color: var(--lrx-run); font-weight: 700; }
+    /* Deep-linked workout's day (#5): a darker ring in the same accent as the
+       .entry-row.is-active list row, so the one workout reads as flagged in
+       both views. Wins over the today ring when they coincide (later rule). */
+    .lrx-calrow td.cal-day.deep-linked { box-shadow: inset 0 0 0 2px #2b4ca8; border-radius: 10px; }
     .lrx-dot { width: 6px; height: 6px; border-radius: 50%; margin: 3px auto 0; }
     .lrx-dot.run { background: var(--lrx-run); }
     .lrx-dot.lift { background: var(--lrx-lift); }
@@ -6554,8 +6568,12 @@
     .lrx-wkcell .wkkm { font-size: 12px; color: var(--lrx-muted); font-family: var(--lrx-mono); }
     .lrx-wkbar { height: 5px; background: var(--lrx-tile); border-radius: 3px; margin-top: 5px; overflow: hidden; }
     .lrx-wkbar span { display: block; height: 100%; background: linear-gradient(90deg, #6366f1, #4f6ef7); border-radius: 3px; }
-    .lrx-calrow.sel td { background: #dbe4ff; }
-    .lrx-calrow.sel td:first-child { box-shadow: inset 3px 0 0 var(--lrx-run); }
+    /* Selected week: a border ring around the whole row (top+bottom on every
+       cell, plus the outer edges) so the scoped week reads as a bordered band,
+       mirrored by .day-group.lrx-week-hl in the log list below. */
+    .lrx-calrow.sel td { background: #dbe4ff; box-shadow: inset 0 2px 0 var(--lrx-run), inset 0 -2px 0 var(--lrx-run); }
+    .lrx-calrow.sel td:first-child { box-shadow: inset 0 2px 0 var(--lrx-run), inset 0 -2px 0 var(--lrx-run), inset 2px 0 0 var(--lrx-run); }
+    .lrx-calrow.sel td:last-child { box-shadow: inset 0 2px 0 var(--lrx-run), inset 0 -2px 0 var(--lrx-run), inset -2px 0 0 var(--lrx-run); }
     .lrx-calrow.sel .lrx-wkcell { background: #c7d2fe; }
     .lrx-calrow:hover td { background: #f6f8ff; }
     .lrx-callegend { display: flex; gap: 14px; margin-top: 12px; font-size: 13px; color: var(--lrx-muted); flex-wrap: wrap; }
@@ -6635,11 +6653,20 @@
     #layout-wrapper .detail-panel .dp-topbar { border-radius: 16px 16px 0 0; }
     /* Inset the drawer top bar to match the card padding (item: "same as summary"). */
     #layout-wrapper .detail-panel .dp-topbar { padding: 0 18px; }
-    /* Highlight the log-list day-groups belonging to a calendar-selected week. */
+    /* Highlight the log-list day-groups belonging to a calendar-selected week —
+       a full border ring mirrors the calendar's selected-week border (#4). */
     .day-group.lrx-week-hl {
       background: #eef2ff;
       border-radius: 12px;
-      box-shadow: inset 3px 0 0 var(--lrx-run, #4f6ef7);
+      border: 2px solid var(--lrx-run, #4f6ef7);
+      padding: 6px 8px;
+    }
+    /* Today's day-group in the log list — same accent ring the calendar's
+       today cell uses, so "today" reads consistently in both places (#4). */
+    .day-group.is-today-group {
+      border-radius: 12px;
+      box-shadow: inset 0 0 0 2px var(--lrx-run, #4f6ef7);
+      padding: 6px 8px;
     }
     .detail-panel-overlay {
       position: fixed;

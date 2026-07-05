@@ -128,58 +128,11 @@
   }
 
 
-  /* ---- Recent Workouts card helpers ---- */
-
-  /* Recent workout — merged into #home-next-workout-card (home v3, Task 1).
-     Fills only its sub-section (#home-recent-workout-section), built by
-     home-readiness-training-sleep.js's renderNextWorkoutCard skeleton; the
-     "Next workout" sub-section above it is that file's own concern.
-
-     Data source is /api/home/summary's "recent_workouts" block, which is a
-     bare array (see backend _build_recent_workouts_block) — NOT
-     {workouts:[...]}. The previous code read workoutsBlock.workouts, which
-     is always undefined on an array, so this always rendered the empty
-     state regardless of real data (pre-existing bug, not introduced by the
-     merge — same wrong access was already in the old standalone card).
-     Also, that block's items are a lightweight summary shape (name,
-     workout_type, relative_day, summary) — not a full Workout row, so this
-     builds its own compact row matching the "Next workout" rows above it. */
-  function _recentWorkoutBadgeCls(t) {
-    return (t === 'strength' || t === 'plyo') ? 'lift' : 'run';
-  }
-  function _recentWorkoutBadgeLabel(t) {
-    if (t === 'strength') return 'Strength';
-    if (t === 'plyo') return 'Plyo';
-    return 'Run';
-  }
-  function loadRecentWorkoutsCard(userId, workoutsBlock) {
-    var sectionEl = document.getElementById('home-recent-workout-section');
-    if (!sectionEl) return;
-
-    var workouts = Array.isArray(workoutsBlock) ? workoutsBlock : [];
-
-    if (!workouts.length) {
-      sectionEl.innerHTML =
-        '<div class="workouts-empty">No workouts yet — ' +
-        '<a href="/training?return=/home">log your first</a>.</div>';
-      return;
-    }
-
-    sectionEl.innerHTML = workouts.map(function (w) {
-      var cls = _recentWorkoutBadgeCls(w.workout_type);
-      var label = _recentWorkoutBadgeLabel(w.workout_type);
-      var metaParts = [w.relative_day];
-      if (w.summary) metaParts.push(w.summary);
-
-      return '<div class="nw-row">' +
-          '<span class="nw-badge nw-badge--' + cls + '">' + label + '</span>' +
-          '<span class="nw-info">' +
-            '<span class="nw-name">' + esc(w.name || 'Workout') + '</span>' +
-            '<span class="nw-meta">' + esc(metaParts.filter(Boolean).join(' · ')) + '</span>' +
-          '</span>' +
-        '</div>';
-    }).join('');
-  }
+  /* Recent workouts are now rendered by home-readiness-training-sleep.js's
+     renderNextWorkoutCard, which owns the whole merged "Next + Recent" card so
+     it can budget Next vs Recent rows against one shared capacity (see
+     _nwFill / _nwFillCounts there). home.js passes summary.recent_workouts in
+     via HomeRTS.render(summary, userId); it no longer fills the section here. */
 
   /* ---- Fast-log form (issue #394: mobile-optimised daily metrics) ---- */
 
@@ -728,9 +681,8 @@
       /* Personal records card (fetches its own data — see loadPerformanceCard) */
       loadPerformanceCard(userId);
 
-      /* Recent workouts card (fetches own data, uses summary.recent_workouts for context) */
-      var _workoutsBlock = summary.recent_workouts;
-      loadRecentWorkoutsCard(userId, _workoutsBlock);
+      /* Recent workouts are rendered inside the merged Next+Recent card by
+         HomeRTS.render (called just above with summary.recent_workouts). */
 
       initFastLogForm(userId);
 
