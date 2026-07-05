@@ -7,27 +7,28 @@ Acceptance criteria verified:
 - AC4: POST to race create with "priority": "Z" returns 422 identifying priority as invalid (not 500).
 - AC5: PATCH/PUT to race update with "status": "invalid" returns 422 identifying status as invalid (not 500).
 - AC6: Valid values ("A"/"B"/"C" for priority; "planned"/"done"/"abandoned" for status) are accepted and persisted.
+
+Runs against the live UAT server at UAT_BASE_URL (default http://127.0.0.1:9001).
 """
 import os
 import pathlib
 import uuid
 
+import httpx
 import pytest
 from dotenv import dotenv_values
-from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session as _OrmSess
 
 from backend.auth import CSRF_COOKIE_NAME, hash_password as _hash_pw
-from backend.main import app as _app
 from backend.models import Race as _Race, User as _UserModel
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
+BASE_URL = os.environ.get("UAT_BASE_URL", "http://127.0.0.1:9001")
 _TEST_PW = "races679-test-pw"
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 _env_vals = dotenv_values(_ROOT / ".env")
-# Only use DATABASE_URL_UAT — do NOT fall back to DATABASE_URL because
-# conftest.py stubs that to sqlite:///./test_perf_coach.db and SQLite has no tables.
 _uat_url = (
     _env_vals.get("DATABASE_URL_UAT")
     or os.environ.get("DATABASE_URL_UAT")
@@ -36,17 +37,23 @@ _engine = create_engine(_uat_url, pool_pre_ping=True) if _uat_url else None
 
 
 @pytest.fixture(scope="module")
-def user_id():
+def client():
+    with httpx.Client(base_url=BASE_URL, timeout=10.0) as c:
+        yield c
+
+
+@pytest.fixture(scope="module")
+def user_id(client):
     if _engine is None:
         pytest.skip("DATABASE_URL_UAT not configured")
     name = f"tester679_{uuid.uuid4().hex[:8]}"
+    r = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
+    assert r.status_code == 201, r.text
+    uid = r.json()["id"]
     pw_hash = _hash_pw(_TEST_PW)
-    uid = None
     with _OrmSess(_engine) as db:
-        u = _UserModel(name=name, password_hash=pw_hash)
-        db.add(u)
-        db.flush()
-        uid = str(u.id)
+        u = db.get(_UserModel, uuid.UUID(uid))
+        u.password_hash = pw_hash
         db.commit()
     yield uid
     with _OrmSess(_engine) as db:
@@ -58,21 +65,23 @@ def user_id():
 
 @pytest.fixture(scope="module")
 def authed(user_id):
-    """TestClient backed by the in-process app; session + CSRF established via login."""
+    """Authenticated httpx.Client with session + CSRF pre-configured."""
     with _OrmSess(_engine) as db:
         u = db.get(_UserModel, uuid.UUID(user_id))
         name = u.name
-    with TestClient(_app, raise_server_exceptions=False) as c:
-        res = c.post("/api/auth/login", json={"username": name, "password": _TEST_PW})
-        assert res.status_code == 200, res.text
-        session_val = res.cookies.get("session")
-        csrf_token = res.cookies.get(CSRF_COOKIE_NAME)
-        if session_val:
-            c.cookies.set("session", session_val)
-        if csrf_token:
-            c.cookies.set(CSRF_COOKIE_NAME, csrf_token)
-            c.headers["X-CSRF-Token"] = csrf_token
-        yield c
+    with httpx.Client(base_url=BASE_URL, timeout=10.0) as bare:
+        res = bare.post("/api/auth/login", json={"username": name, "password": _TEST_PW})
+    assert res.status_code == 200, res.text
+    session_cookie = res.cookies.get("session")
+    csrf_token = res.cookies.get(CSRF_COOKIE_NAME)
+    c = httpx.Client(
+        base_url=BASE_URL,
+        timeout=10.0,
+        cookies={"session": session_cookie, CSRF_COOKIE_NAME: csrf_token},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    yield c
+    c.close()
 
 
 # ── AC1: _RaceCreateBody.priority rejects values outside {"A", "B", "C"} ─────
@@ -147,7 +156,6 @@ def test_ac2_create_invalid_status_running_returns_422(authed):
 
 def test_ac3_update_invalid_priority_returns_422(authed):
     """AC3/AC5: PATCH /api/races/{id} with priority="X" returns 422 naming priority."""
-    # Create a valid race first
     r1 = authed.post("/api/races", json={
         "race_date": "2026-11-01",
         "distance_km": 10.0,
