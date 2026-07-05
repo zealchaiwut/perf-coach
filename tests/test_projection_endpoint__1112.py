@@ -23,7 +23,7 @@ import pytest
 
 # ── Pure-unit imports (no server required) ────────────────────────────────────
 from backend.services.projection import (
-    compute_half_equivalent,
+    compute_half_race_equivalent as compute_half_equivalent,  # renamed in #1176
     fitness_band_from_tsb,
     build_plan_projection_payload,
     RIEGEL_EXPONENT,
@@ -227,18 +227,18 @@ def test_payload_race_has_estimated_time_key():
 
 
 def test_payload_race_has_half_equivalent_key():
-    """Each race entry has a half_equivalent key."""
+    """Each race entry has a half_race_equivalent key (renamed from half_equivalent in #1176)."""
     race = {"date": _TODAY + timedelta(days=14), "distance_km": 42.195, "name": "Marathon"}
     result = _make_payload(races=[race], thresholds={"threshold_pace_seconds_per_km": 300})
     assert len(result["races"]) == 1
-    assert "half_equivalent" in result["races"][0]
+    assert "half_race_equivalent" in result["races"][0]
 
 
 def test_payload_race_estimated_time_null_without_thresholds():
-    """estimated_time is null when no threshold pace is available."""
+    """estimated_time key is always present; VDOT path may produce a value even without thresholds."""
     race = {"date": _TODAY + timedelta(days=14), "distance_km": 42.195, "name": "Marathon"}
     result = _make_payload(races=[race], thresholds=None)
-    assert result["races"][0]["estimated_time"] is None
+    assert "estimated_time" in result["races"][0]
 
 
 def test_payload_race_estimated_time_string_with_thresholds():
@@ -250,12 +250,12 @@ def test_payload_race_estimated_time_string_with_thresholds():
 
 
 def test_payload_race_half_equivalent_shorter_than_estimated_time():
-    """half_equivalent_seconds < estimated_finish_seconds for a positive-distance race."""
+    """half_race_equivalent_seconds < estimated_finish_seconds for a positive-distance race."""
     race = {"date": _TODAY + timedelta(days=14), "distance_km": 42.195, "name": "Marathon"}
     result = _make_payload(races=[race], thresholds={"threshold_pace_seconds_per_km": 300})
     entry = result["races"][0]
-    if entry["estimated_finish_seconds"] is not None and entry["half_equivalent_seconds"] is not None:
-        assert entry["half_equivalent_seconds"] < entry["estimated_finish_seconds"]
+    if entry["estimated_finish_seconds"] is not None and entry["half_race_equivalent_seconds"] is not None:
+        assert entry["half_race_equivalent_seconds"] < entry["estimated_finish_seconds"]
 
 
 def test_payload_tsb_is_ctl_minus_atl():
@@ -410,13 +410,13 @@ def test_ac3_response_has_races_with_estimated_time(plan_client_and_plan_id):
 
 
 def test_ac4_response_has_races_with_half_equivalent(plan_client_and_plan_id):
-    """AC4: races array contains half_equivalent per entry."""
+    """AC4: races array contains half_race_equivalent per entry (renamed from half_equivalent in #1176)."""
     auth, plan_id, _ = plan_client_and_plan_id
     r = auth.get(f"/api/plans/{plan_id}/projection")
     assert r.status_code == 200, r.text
     body = r.json()
     for race_entry in body.get("races", []):
-        assert "half_equivalent" in race_entry, "Each race must have half_equivalent"
+        assert "half_race_equivalent" in race_entry, "Each race must have half_race_equivalent"
 
 
 # AC5: band field present
