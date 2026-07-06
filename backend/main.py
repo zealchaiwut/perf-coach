@@ -2892,6 +2892,125 @@ def get_home_weekly_summary(
     })
 
 
+# ── Weekly summary narrative endpoint (issue #1314) ──────────────────────────
+
+@app.get("/api/weekly-summary")
+def get_weekly_summary(
+    week: Optional[str] = Query(default=None),
+    current_user: User = Depends(resolve_user),
+):
+    """Return a coach-style weekly narrative + key facts.
+
+    week: ISO date of the week's Monday (defaults to current week start).
+    Response: {week_start, facts, narrative, source: "llm"|"fallback"}
+    """
+    from datetime import date as _date_cls, timedelta as _td
+    from backend.services.weekly_summary import (
+        assemble_facts,
+        get_narrative,
+        build_response,
+    )
+    from backend.services.guardrail import get_guardrail_result
+    from backend.services.training_load import current_load
+
+    uid = current_user.id
+
+    if week is None:
+        _bkk = ZoneInfo("Asia/Bangkok")
+        today_bkk = _datetime.now(_bkk).date()
+        week_start = today_bkk - _timedelta(days=today_bkk.weekday())
+    else:
+        try:
+            week_start = _date_cls.fromisoformat(week)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid week format; use YYYY-MM-DD")
+
+    week_end = week_start + _timedelta(days=6)
+    prev_week_start = week_start - _timedelta(days=7)
+    prev_week_end = week_start - _timedelta(days=1)
+
+    with Session(engine) as session:
+        from backend.models import PersonalRecord
+
+        curr_workouts_orm = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= week_start,
+                Workout.workout_date <= week_end,
+            )
+            .all()
+        )
+        prev_workouts_orm = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= prev_week_start,
+                Workout.workout_date <= prev_week_end,
+            )
+            .all()
+        )
+        prs_orm = (
+            session.query(PersonalRecord)
+            .filter(
+                PersonalRecord.user_id == uid,
+                PersonalRecord.achieved_on >= week_start,
+                PersonalRecord.achieved_on <= week_end,
+            )
+            .all()
+        )
+
+        def _w_dict(w):
+            return {
+                "workout_date": w.workout_date.isoformat() if w.workout_date else None,
+                "tss": float(w.tss) if w.tss is not None else None,
+                "distance_km": float(w.distance_km) if w.distance_km is not None else None,
+                "duration_seconds": w.duration_seconds,
+                "workout_type": w.workout_type or "",
+            }
+
+        curr_workouts = [_w_dict(w) for w in curr_workouts_orm]
+        prev_workouts = [_w_dict(w) for w in prev_workouts_orm]
+        prs = [
+            {
+                "track_name": pr.track_name,
+                "track_key": pr.track_key,
+                "value_numeric": str(pr.value_numeric),
+                "achieved_on": pr.achieved_on.isoformat() if pr.achieved_on else None,
+            }
+            for pr in prs_orm
+        ]
+
+    # CTL/ATL/TSB at week start and end
+    load_start = current_load(str(uid), as_of=prev_week_end)
+    load_end = current_load(str(uid), as_of=week_end)
+
+    # Guardrail flags for the current week
+    guardrail = get_guardrail_result(str(uid), as_of_date=week_end)
+
+    facts = assemble_facts(
+        week_start=week_start,
+        current_workouts=curr_workouts,
+        prev_workouts=prev_workouts,
+        ctl_start=load_start["ctl"],
+        ctl_end=load_end["ctl"],
+        atl_start=load_start["atl"],
+        atl_end=load_end["atl"],
+        tsb_start=load_start["tsb"],
+        tsb_end=load_end["tsb"],
+        guardrail=guardrail,
+        prs=prs,
+    )
+
+    narrative, source = get_narrative(user_id=str(uid), week_start=week_start.isoformat(), facts=facts)
+    return JSONResponse(build_response(
+        week_start=week_start.isoformat(),
+        facts=facts,
+        narrative=narrative,
+        source=source,
+    ))
+
+
 # ── Home summary aggregator endpoint (issue #437) ────────────────────────────
 
 _HOME_SUMMARY_LOG = _logging.getLogger(__name__)
