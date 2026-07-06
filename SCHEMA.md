@@ -327,7 +327,7 @@ Raw activities pulled from Strava. Reconciled into `workouts` by `reconcile.py`.
 
 ---
 
-## stryd_activities _(streams_payload added Sprint 63; grade_percent added Sprint 98)_
+## stryd_activities _(streams_payload added Sprint 63; grade_percent added Sprint 98; manual_laps added Sprint 101)_
 
 Raw activities from Stryd. Reconciled into `workouts` by `reconcile.py`.
 
@@ -345,6 +345,7 @@ Raw activities from Stryd. Reconciled into `workouts` by `reconcile.py`.
 | streams_payload | jsonb | nullable — raw per-point streams (timestamp_list, total_power_list, etc.); used by reconcile to populate `activity_streams` |
 | raw_payload | jsonb | |
 | grade_percent | float | nullable — treadmill incline extracted from the raw payload's `average_incline`; present only for treadmill activities, None for outdoor runs (Sprint 98 / #1219). Migration `4753105d42ae` |
+| manual_laps | jsonb | nullable — computed at sync time by `compute_manual_laps`; avoids materialising `streams_payload` on the workout detail request path (Sprint 101 / #1295). Migration `c764aa719` |
 | synced_at | timestamptz | |
 
 ---
