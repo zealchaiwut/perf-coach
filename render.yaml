@@ -57,10 +57,6 @@ services:
         value: "false"  # set to "true" in Render dashboard when GROQ_API_KEY is provided
       - key: GROQ_API_KEY
         sync: false  # set via Render dashboard — see docs/llm-coaching.md
-      - key: LLM_COACH_ENABLED
-        value: "false"  # set to "true" in Render dashboard when GROQ_API_KEY is provided
-      - key: GROQ_API_KEY
-        sync: false  # set via Render dashboard — see docs/llm-coaching.md
 
   - type: web
     name: perf-coach-prd
