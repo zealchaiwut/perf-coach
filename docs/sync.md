@@ -1,5 +1,18 @@
 # Sync Architecture
 
+## Heavy-path delegation (issue #1297)
+
+`POST /api/strava/sync` and `POST /api/stryd/sync` with `full=true` are
+delegated to the compute worker (`/internal/sync/run`) when `WORKER_BASE_URL`
+is set. Incremental syncs (`full=false` or omitted) continue to run in-process.
+
+The worker records job progress in `worker_job_runs` (shared Neon DB).
+`GET /api/sync/status` checks `worker_job_runs` when no in-process job exists,
+so the nav status bar shows progress for delegated syncs.
+
+See `docs/worker.md` → "Webapp delegation config" for env vars and
+worker-unreachable behavior.
+
 ## One-job-per-user model
 
 Each user has at most one active sync job at a time. Jobs are stored in an

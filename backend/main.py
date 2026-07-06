@@ -103,6 +103,7 @@ from backend.services.lap_classify import aggregate_intensity_zones as _agg_zone
 from backend.services.polarized_split import check_polarized_split as _check_polarized_split, _DEFAULT_BOUNDS as _POLARIZED_BOUNDS
 from backend.services.lap_classify import classify_laps as _classify_laps
 from backend.services.intensity_distribution import compute_polarized_check as _compute_polarized_check
+from backend.services import worker_client as _worker_client
 
 # Ceiling TSB used when computing expressible scores from historical/projected TSB.
 # 20.0 matches the representative value established in issue #1107.
@@ -8951,44 +8952,58 @@ def get_performance_chart(
 def post_performance_backfill(user: User = Depends(resolve_user)):
     """Trigger the full performance backfill pipeline for the authenticated athlete.
 
-    Recomputes running TSS for all historical run workouts and rebuilds the
-    best-effort duration curve so that performance scores (endurance, speed) and
-    the fitness/fatigue/form chart reflect the current thresholds immediately.
+    Delegated to the compute worker when WORKER_BASE_URL is configured.
+    Returns 202 {"worker_delegated": true} when the worker accepts the job.
+    Returns 503 when the worker is unreachable and ROUTE_BACKFILL_FALLBACK_TO_INPROCESS
+    is not set to "1".
 
-    Idempotent — safe to call more than once.  The response reports what was done
-    so the caller can decide whether to poll for completion or simply proceed.
-
-    Returns 200 with a summary dict:
-        {
-          "thresholds_found": true,
-          "runs_processed": 12,
-          "tss_recomputed": true,
-          "curve_rebuilt": true,
-          "reason": null
-        }
-
-    Returns 200 with ``thresholds_found: false`` when no thresholds have been
-    configured — the caller should direct the athlete to set thresholds first.
+    When WORKER_BASE_URL is not set (local dev / no worker configured), falls back
+    to the synchronous in-process pipeline and returns 200 with the summary dict.
     """
     uid = user.id
+    worker_base_url = _worker_client.get_worker_base_url()
+    if worker_base_url:
+        try:
+            _worker_client.delegate_backfill(str(uid))
+            return JSONResponse({"worker_delegated": True, "started": True}, status_code=202)
+        except _worker_client.WorkerUnavailable as exc:
+            if os.getenv("ROUTE_BACKFILL_FALLBACK_TO_INPROCESS", "0") != "1":
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Compute worker unavailable — cannot run backfill: {exc}",
+                )
+            _logging.getLogger(__name__).warning(
+                "Worker unavailable for backfill (user %s); falling back to in-process: %s",
+                uid, exc,
+            )
     with Session(engine) as session:
         result = _backfill_performance_for_athlete(uid, session)
     return JSONResponse(result)
 
 
 def _trigger_performance_backfill_background(user_id) -> None:
-    """Fire-and-forget: run the full performance backfill pipeline in a daemon thread.
+    """Fire-and-forget: trigger the full performance backfill pipeline.
 
     Called after threshold saves so TSS and the duration curve are consistent
     with the new thresholds without blocking the HTTP response.  Errors are
     logged but do not propagate.
 
-    Pipeline order:
-      1. M0: TSS recompute + duration curve rebuild (backfill_performance_for_athlete)
-      2. Speed + endurance signal backfill (backfill_signals_for_athlete) — chains
-         after M0 so signals are computed against up-to-date thresholds and curves.
+    When WORKER_BASE_URL is configured, delegates to the compute worker instead
+    of spawning a daemon thread in the web process.  Falls back to a daemon
+    thread only when the worker is not configured (WORKER_BASE_URL unset).
     """
     _backfill_log = _logging.getLogger(__name__)
+
+    if _worker_client.get_worker_base_url():
+        try:
+            _worker_client.delegate_backfill(str(user_id))
+            return
+        except _worker_client.WorkerUnavailable as _exc:
+            _backfill_log.warning(
+                "Worker unavailable for background backfill (user %s): %s — skipping (not falling back in-process)",
+                user_id, _exc,
+            )
+            return
 
     def _run():
         try:
@@ -10014,6 +10029,10 @@ def strava_sync(body: _StravaSyncBody = Body(default=None), user: User = Depends
     Default (incremental): since last synced activity minus 1 day, or 90-day
     lookback on first sync. Pass full=true to fetch entire Strava history.
     Optional since_date (YYYY-MM-DD) overrides the incremental window.
+
+    full=true: delegated to the compute worker (/internal/sync/run).
+    Returns 503 if the worker is unreachable and ROUTE_FULL_SYNC_FALLBACK_TO_INPROCESS
+    is not set to "1".
     """
     uid = user.id
     since = None
@@ -10021,6 +10040,22 @@ def strava_sync(body: _StravaSyncBody = Body(default=None), user: User = Depends
     if body is not None:
         since = body.since_date
         full = body.full
+
+    if full:
+        try:
+            result = _worker_client.delegate_sync(str(uid), sources=["strava"], full=True)
+            return JSONResponse({"started": True, "worker_delegated": True, **result}, status_code=202)
+        except _worker_client.WorkerUnavailable as exc:
+            if os.getenv("ROUTE_FULL_SYNC_FALLBACK_TO_INPROCESS", "0") != "1":
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Compute worker unavailable — cannot run full sync: {exc}",
+                )
+            _logging.getLogger(__name__).warning(
+                "Worker unavailable for full Strava sync (user %s); falling back to in-process: %s",
+                uid, exc,
+            )
+
     try:
         _sync_jobs.start(uid, "strava")
     except _sync_jobs.SyncInProgress:
@@ -10047,6 +10082,10 @@ def stryd_sync(body: _StrydSyncBody = Body(default=None), user: User = Depends(r
     Default (incremental): since last completed sync minus 1 day, or 90-day
     lookback on first sync. Pass full=true for a multi-year history pull.
     Optional since_date (YYYY-MM-DD) overrides the incremental window.
+
+    full=true: delegated to the compute worker (/internal/sync/run).
+    Returns 503 if the worker is unreachable and ROUTE_FULL_SYNC_FALLBACK_TO_INPROCESS
+    is not set to "1".
     """
     uid = user.id
     with Session(engine) as session:
@@ -10058,6 +10097,22 @@ def stryd_sync(body: _StrydSyncBody = Body(default=None), user: User = Depends(r
     if body is not None:
         since = body.since_date
         full = body.full
+
+    if full:
+        try:
+            result = _worker_client.delegate_sync(str(uid), sources=["stryd"], full=True)
+            return JSONResponse({"started": True, "worker_delegated": True, **result}, status_code=202)
+        except _worker_client.WorkerUnavailable as exc:
+            if os.getenv("ROUTE_FULL_SYNC_FALLBACK_TO_INPROCESS", "0") != "1":
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Compute worker unavailable — cannot run full sync: {exc}",
+                )
+            _logging.getLogger(__name__).warning(
+                "Worker unavailable for full Stryd sync (user %s); falling back to in-process: %s",
+                uid, exc,
+            )
+
     try:
         _sync_jobs.start(uid, "stryd")
     except _sync_jobs.SyncInProgress:
@@ -10077,9 +10132,17 @@ async def post_sync_strava(
     body: _SyncStravaTriggerBody = Body(default=None),
     user: User = Depends(resolve_user),
 ):
-    """Trigger a Strava sync; returns 202 immediately. Sync runs via BackgroundTasks.
-    Falls back to synchronous execution if BackgroundTasks is unavailable.
+    """Legacy Strava sync endpoint (BackgroundTasks path).
+
+    Disabled by default (returns 410 Gone). Enable by setting
+    LEGACY_SYNC_STRAVA_ENABLED=1. Use POST /api/strava/sync instead.
     """
+    if os.getenv("LEGACY_SYNC_STRAVA_ENABLED", "0") != "1":
+        raise HTTPException(
+            status_code=410,
+            detail="This endpoint is disabled. Use POST /api/strava/sync instead.",
+        )
+
     from backend.services.strava_sync import sync_strava_activities as _strava_bg_sync
     from sqlalchemy import select
 
@@ -12571,14 +12634,48 @@ def admin_copy_user_to_uat(body: AdminCopyUserIn):
 @app.get("/api/sync/status")
 async def get_sync_status(user: User = Depends(resolve_user)):
     job = _sync_jobs.snapshot(user.id)
-    if job is None:
-        return JSONResponse({"status": "idle"})
-    serialized = {
-        **job,
-        "started_at": job["started_at"].isoformat() if job["started_at"] else None,
-        "finished_at": job["finished_at"].isoformat() if job["finished_at"] else None,
-    }
-    return JSONResponse(serialized)
+    if job is not None:
+        serialized = {
+            **job,
+            "started_at": job["started_at"].isoformat() if job["started_at"] else None,
+            "finished_at": job["finished_at"].isoformat() if job["finished_at"] else None,
+        }
+        return JSONResponse(serialized)
+
+    # No in-process job — check worker_job_runs for a delegated job.
+    from backend.models import WorkerJobRun as _WorkerJobRun
+    from sqlalchemy import select as _sel, or_ as _or
+    from datetime import datetime, timezone as _tz, timedelta as _td
+    _cutoff = datetime.now(_tz.utc) - _td(minutes=10)
+    try:
+        with Session(engine) as _db:
+            wjr = _db.execute(
+                _sel(_WorkerJobRun)
+                .where(_WorkerJobRun.user_id == user.id)
+                .where(
+                    _or(
+                        _WorkerJobRun.status == "running",
+                        _WorkerJobRun.started_at >= _cutoff,
+                    )
+                )
+                .order_by(_WorkerJobRun.started_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+        if wjr is not None:
+            return JSONResponse({
+                "status": wjr.status,
+                "phase": wjr.phase,
+                "source": "worker",
+                "job_type": wjr.job_type,
+                "items_synced": wjr.items_synced,
+                "error": wjr.error,
+                "started_at": wjr.started_at.isoformat() if wjr.started_at else None,
+                "finished_at": wjr.finished_at.isoformat() if wjr.finished_at else None,
+            })
+    except Exception:
+        pass
+
+    return JSONResponse({"status": "idle"})
 
 
 @app.get("/api/sync/history")
