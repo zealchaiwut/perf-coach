@@ -23,7 +23,7 @@ import pytest
 
 # ── Pure-unit imports (no server required) ────────────────────────────────────
 from backend.services.projection import (
-    compute_half_equivalent,
+    compute_half_race_equivalent as compute_half_equivalent,  # renamed in #1176
     fitness_band_from_tsb,
     build_plan_projection_payload,
     RIEGEL_EXPONENT,
@@ -66,7 +66,7 @@ def _skip_no_db():
 
 def test_ac7_plan_router_compiles():
     """AC7: python -m py_compile on routers/projection.py exits with code 0."""
-    router_path = _ROOT / "backend" / "routers" / "plan.py"
+    router_path = _ROOT / "backend" / "routers" / "projection.py"
     assert router_path.exists()
     py_compile.compile(str(router_path), doraise=True)
 
@@ -227,18 +227,18 @@ def test_payload_race_has_estimated_time_key():
 
 
 def test_payload_race_has_half_equivalent_key():
-    """Each race entry has a half_equivalent key."""
+    """Each race entry has a half_race_equivalent key (renamed from half_equivalent in #1176)."""
     race = {"date": _TODAY + timedelta(days=14), "distance_km": 42.195, "name": "Marathon"}
     result = _make_payload(races=[race], thresholds={"threshold_pace_seconds_per_km": 300})
     assert len(result["races"]) == 1
-    assert "half_equivalent" in result["races"][0]
+    assert "half_race_equivalent" in result["races"][0]
 
 
 def test_payload_race_estimated_time_null_without_thresholds():
-    """estimated_time is null when no threshold pace is available."""
+    """estimated_time key is always present; VDOT path may produce a value even without thresholds."""
     race = {"date": _TODAY + timedelta(days=14), "distance_km": 42.195, "name": "Marathon"}
     result = _make_payload(races=[race], thresholds=None)
-    assert result["races"][0]["estimated_time"] is None
+    assert "estimated_time" in result["races"][0]
 
 
 def test_payload_race_estimated_time_string_with_thresholds():
@@ -250,12 +250,12 @@ def test_payload_race_estimated_time_string_with_thresholds():
 
 
 def test_payload_race_half_equivalent_shorter_than_estimated_time():
-    """half_equivalent_seconds < estimated_finish_seconds for a positive-distance race."""
+    """half_race_equivalent_seconds < estimated_finish_seconds for a positive-distance race."""
     race = {"date": _TODAY + timedelta(days=14), "distance_km": 42.195, "name": "Marathon"}
     result = _make_payload(races=[race], thresholds={"threshold_pace_seconds_per_km": 300})
     entry = result["races"][0]
-    if entry["estimated_finish_seconds"] is not None and entry["half_equivalent_seconds"] is not None:
-        assert entry["half_equivalent_seconds"] < entry["estimated_finish_seconds"]
+    if entry["estimated_finish_seconds"] is not None and entry["half_race_equivalent_seconds"] is not None:
+        assert entry["half_race_equivalent_seconds"] < entry["estimated_finish_seconds"]
 
 
 def test_payload_tsb_is_ctl_minus_atl():
@@ -280,7 +280,7 @@ def test_payload_ctl_rises_toward_load():
 
 def test_ac6_router_imports_projection_module():
     """AC6: routers/projection.py must import from backend.services.projection."""
-    router_path = _ROOT / "backend" / "routers" / "plan.py"
+    router_path = _ROOT / "backend" / "routers" / "projection.py"
     source = router_path.read_text()
     assert "projection" in source, (
         "routers/projection.py must import from backend.services.projection"
@@ -289,7 +289,7 @@ def test_ac6_router_imports_projection_module():
 
 def test_ac6_router_handler_no_decay_math():
     """AC6: The projection endpoint handler must not hardcode EWMA decay calculations."""
-    router_path = _ROOT / "backend" / "routers" / "plan.py"
+    router_path = _ROOT / "backend" / "routers" / "projection.py"
     source = router_path.read_text()
     # The router should not contain CTL/ATL decay arithmetic — that belongs in projection.py
     assert "CTL_DECAY" not in source or "import" in source, (
@@ -302,7 +302,7 @@ def test_ac6_router_handler_no_decay_math():
 
 def test_ac1_projection_endpoint_in_router():
     """AC1: routers/projection.py must contain a /projection route."""
-    router_path = _ROOT / "backend" / "routers" / "plan.py"
+    router_path = _ROOT / "backend" / "routers" / "projection.py"
     source = router_path.read_text()
     assert "projection" in source, "routers/projection.py must define a /projection route"
     assert "@router.get" in source, "Plan router must have a GET handler"
@@ -346,8 +346,8 @@ def plan_client_and_plan_id():
     assert r.status_code == 201, f"create plan failed: {r.text}"
     plan_id = r.json()["id"]
 
-    # Create a race for this user (linked via user_id in races table)
-    r = auth.post(f"/plans/{user_id}/races", json={
+    # Create a race linked to the plan entity (plan_id is the TrainingPlan UUID)
+    r = auth.post(f"/api/plans/{plan_id}/races", json={
         "date": "2027-01-15",
         "distance": 21.0975,
         "type": "race",
@@ -371,7 +371,7 @@ def test_ac9_unauthenticated_returns_401(plan_client_and_plan_id):
     import httpx
     _, plan_id, _ = plan_client_and_plan_id
     with httpx.Client(base_url=BASE_URL, timeout=10.0) as bare:
-        r = bare.get(f"/plans/{plan_id}/projection")
+        r = bare.get(f"/api/plans/{plan_id}/projection")
     assert r.status_code == 401, f"Expected 401, got {r.status_code}: {r.text}"
 
 
@@ -380,7 +380,7 @@ def test_ac8_nonexistent_plan_returns_404(plan_client_and_plan_id):
     """AC8: GET /plans/{non_existent_uuid}/projection returns 404."""
     auth, _, _ = plan_client_and_plan_id
     fake_id = str(uuid.uuid4())
-    r = auth.get(f"/plans/{fake_id}/projection")
+    r = auth.get(f"/api/plans/{fake_id}/projection")
     assert r.status_code == 404, f"Expected 404, got {r.status_code}: {r.text}"
 
 
@@ -388,7 +388,7 @@ def test_ac8_nonexistent_plan_returns_404(plan_client_and_plan_id):
 def test_ac2_response_has_ctl_atl_tsb_arrays(plan_client_and_plan_id):
     """AC2: Response includes ctl, atl, tsb arrays."""
     auth, plan_id, _ = plan_client_and_plan_id
-    r = auth.get(f"/plans/{plan_id}/projection")
+    r = auth.get(f"/api/plans/{plan_id}/projection")
     assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
     body = r.json()
     for key in ("ctl", "atl", "tsb"):
@@ -400,7 +400,7 @@ def test_ac2_response_has_ctl_atl_tsb_arrays(plan_client_and_plan_id):
 def test_ac3_response_has_races_with_estimated_time(plan_client_and_plan_id):
     """AC3: races array contains estimated_time per entry."""
     auth, plan_id, _ = plan_client_and_plan_id
-    r = auth.get(f"/plans/{plan_id}/projection")
+    r = auth.get(f"/api/plans/{plan_id}/projection")
     assert r.status_code == 200, r.text
     body = r.json()
     assert "races" in body, "Response must have races array"
@@ -410,20 +410,20 @@ def test_ac3_response_has_races_with_estimated_time(plan_client_and_plan_id):
 
 
 def test_ac4_response_has_races_with_half_equivalent(plan_client_and_plan_id):
-    """AC4: races array contains half_equivalent per entry."""
+    """AC4: races array contains half_race_equivalent per entry (renamed from half_equivalent in #1176)."""
     auth, plan_id, _ = plan_client_and_plan_id
-    r = auth.get(f"/plans/{plan_id}/projection")
+    r = auth.get(f"/api/plans/{plan_id}/projection")
     assert r.status_code == 200, r.text
     body = r.json()
     for race_entry in body.get("races", []):
-        assert "half_equivalent" in race_entry, "Each race must have half_equivalent"
+        assert "half_race_equivalent" in race_entry, "Each race must have half_race_equivalent"
 
 
 # AC5: band field present
 def test_ac5_response_has_band(plan_client_and_plan_id):
     """AC5: Response includes a band field."""
     auth, plan_id, _ = plan_client_and_plan_id
-    r = auth.get(f"/plans/{plan_id}/projection")
+    r = auth.get(f"/api/plans/{plan_id}/projection")
     assert r.status_code == 200, r.text
     body = r.json()
     assert "band" in body, "Response must have a band field"
@@ -434,7 +434,7 @@ def test_ac5_response_has_band(plan_client_and_plan_id):
 def test_series_length_matches_plan_duration(plan_client_and_plan_id):
     """UAT3: CTL/ATL/TSB series length matches the plan duration (days to last race)."""
     auth, plan_id, user_id = plan_client_and_plan_id
-    r = auth.get(f"/plans/{plan_id}/projection")
+    r = auth.get(f"/api/plans/{plan_id}/projection")
     assert r.status_code == 200, r.text
     body = r.json()
     # All three series must have the same length

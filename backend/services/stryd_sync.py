@@ -202,6 +202,7 @@ def map_stryd_activity(raw: dict, user_id: str) -> dict:
         "seconds_in_zones": raw.get("seconds_in_zones"),
         "ftp": raw.get("ftp"),
     } if (raw.get("zones") or raw.get("seconds_in_zones")) else None
+    raw_incline = _first(raw, "average_incline")
     return {
         "user_id": user_id,
         "stryd_activity_id": str(_first(raw, "id", "timestamp")),
@@ -217,6 +218,7 @@ def map_stryd_activity(raw: dict, user_id: str) -> dict:
         "splits": None,   # filled by enrichment (compute_km_splits) at sync time
         "raw_payload": _slim_payload(raw),
         "synced_at": datetime.now(tz=timezone.utc),
+        "grade_percent": float(raw_incline) if raw_incline is not None else None,
     }
 
 
@@ -225,7 +227,7 @@ def _already_enriched_ids(session: Session, ids: list) -> set:
     streams. Evaluated server-side with jsonb_path_exists so the (large)
     streams_payload JSONB never leaves Postgres — pulling it client-side just to
     check timestamp_list presence costs ~600 MB of heap per sync."""
-    from sqlalchemy import func, select
+    from sqlalchemy import func
 
     return set(session.execute(
         select(StrydActivity.stryd_activity_id)
@@ -239,7 +241,7 @@ def _heal_candidate_ids(session: Session, uid, processed: set) -> list:
     """IDs of this user's activities still missing per-point streams, newest
     first, excluding ``processed``. Same server-side predicate rationale as
     _already_enriched_ids."""
-    from sqlalchemy import func, select
+    from sqlalchemy import func
 
     rows = session.execute(
         select(StrydActivity.stryd_activity_id)
@@ -409,6 +411,7 @@ def sync_stryd_activities(
                         "tss": ins.excluded.tss,
                         "power_zones": ins.excluded.power_zones,
                         "raw_payload": ins.excluded.raw_payload,
+                        "grade_percent": ins.excluded.grade_percent,
                         "synced_at": now,
                     },
                 )

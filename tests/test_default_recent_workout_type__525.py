@@ -48,27 +48,3 @@ def test_default_recent_workout_type__endpoint_returns_most_recent_type(client):
         data = r.json()
         # Should have 'workout_type' key
         assert "workout_type" in data
-
-
-def test_default_recent_workout_type__respects_user_override(client):
-    """AC: User can override the pre-selected type before submitting"""
-    # The form's submitQuickAdd (training-log.js) posts /api/workouts with the user's
-    # chosen type, regardless of what was pre-selected. This test verifies the form
-    # logic (not the API). Tested via UAT browser steps (Step 6).
-    pytest.skip("manual — form override behavior tested via browser interaction in UAT steps")
-
-
-def test_default_recent_workout_type__persisted_per_user_session(client):
-    """AC: Selection is persisted per user (not per browser session)"""
-    # The /api/workouts/recent-type endpoint uses resolve_user (session auth) to
-    # scope results to the session user, so persistence is automatic per user.
-    # Verified via UAT steps: different users see different defaults.
-    pytest.skip("manual — per-user isolation verified via browser interaction in UAT steps")
-
-
-def test_default_recent_workout_type__visual_parity_no_indicator(client):
-    """AC: Pre-selected value is visually identical to a manual selection (no special indicator needed)"""
-    # The frontend uses setSelectedType() for both hardcoded and fetched defaults,
-    # so the select value is updated without any visual marker. Same CSS applied.
-    # Verified via UAT steps: no asterisk, badge, or visual distinction.
-    pytest.skip("manual — visual rendering verified via browser inspection in UAT steps")

@@ -1,12 +1,15 @@
 """Reconcile source activities (Strava, Stryd) into unified workout rows."""
 from __future__ import annotations
 
+import logging
 import uuid as _uuid
 from datetime import date, timedelta, timezone
 from types import SimpleNamespace
 
 from sqlalchemy import and_ as _and, or_ as _or
 from sqlalchemy.orm import Session as _Session, defer as _defer
+
+_log = logging.getLogger(__name__)
 
 
 _TOLERANCE = timedelta(minutes=5)
@@ -94,6 +97,8 @@ def _apply_best(workout, best: dict) -> None:
 
 def _apply_stryd_metrics(workout, act) -> None:
     """Copy workout-level Stryd power/cadence/stride aggregates onto the workout."""
+    from backend.services.treadmill_ngp import normalize_treadmill_signal
+
     fm = getattr(act, "form_metrics", None) or {}
     if getattr(act, "avg_power_w", None) is not None:
         workout.avg_power = int(act.avg_power_w)
@@ -105,6 +110,17 @@ def _apply_stryd_metrics(workout, act) -> None:
         workout.avg_cadence_spm = int(round(fm["cadence_spm"]))
     if fm.get("stride_length_m") is not None:
         workout.avg_stride_m = round(float(fm["stride_length_m"]), 2)
+
+    # Treadmill NGP normalization (issue #1219): single canonical call site.
+    grade = getattr(act, "grade_percent", None)
+    distance_km = getattr(act, "distance_km", None)
+    duration_seconds = getattr(act, "duration_seconds", None)
+    if grade is not None and distance_km and duration_seconds:
+        pace_s_per_km = float(duration_seconds) / float(distance_km)
+        signal = {"pace_seconds_per_km": pace_s_per_km, "grade_percent": float(grade)}
+        normalized = normalize_treadmill_signal(signal)
+        if "flat_equivalent_pace" in normalized:
+            workout.flat_equivalent_pace = round(normalized["flat_equivalent_pace"], 2)
 
 
 def _sync_splits(session, workout, act) -> None:
@@ -464,10 +480,15 @@ def reconcile_workouts(
     )
 
     # Update the per-athlete best-effort duration curve for touched runs only.
-    _update_duration_curves(
-        uid,
-        workout_ids=affected_workout_ids if incremental else None,
-    )
+    try:
+        _update_duration_curves(
+            uid,
+            workout_ids=affected_workout_ids if incremental else None,
+        )
+    except Exception:
+        _log.exception(
+            "Duration curve update failed for user %s; sync will still complete", uid
+        )
 
 
 def compute_run_metrics(user_id, workout_ids: set | list | None = None) -> None:

@@ -34,6 +34,9 @@
   var _activeRange  = DEFAULT_RANGE;
   var _initialized  = false;
   var _planEntityId = null;
+  // Per-user IANA timezone resolved from /api/user-preferences in _boot().
+  // Falls back to 'UTC' when the preferences fetch fails or returns no value.
+  var _tz           = 'UTC';
   // Per-date score contributions from the Performance endpoint (endurance/speed),
   // keyed by ISO date. Used to show each feeding session's contribution chip.
   var _contribs     = { endurance: null, speed: null };
@@ -50,13 +53,23 @@
 
   function _boot() {
     var userId = window.getCurrentUserId ? window.getCurrentUserId() : null;
+    function _resolvePrefsAndLoad() {
+      fetch('/api/user-preferences', { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+        .then(function (data) {
+          var tz = data && data.row && data.row.timezone;
+          if (tz && typeof tz === 'string') _tz = tz;
+        })
+        .catch(function () { /* keep _tz fallback */ })
+        .then(function () { _loadAll(); });
+    }
     if (userId) {
       _athleteId = userId;
-      _loadAll();
+      _resolvePrefsAndLoad();
     } else {
       window.addEventListener('userReady', function (e) {
         _athleteId = e.detail.userId;
-        _loadAll();
+        _resolvePrefsAndLoad();
       }, { once: true });
     }
   }
@@ -74,12 +87,12 @@
   // ── Small helpers ─────────────────────────────────────────────────────────
 
   function _today() {
-    return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    return new Date().toLocaleDateString('en-CA', { timeZone: _tz });
   }
   function _dateMinusDays(days) {
     var d = new Date();
     d.setDate(d.getDate() - days);
-    return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    return d.toLocaleDateString('en-CA', { timeZone: _tz });
   }
   function _esc(str) {
     return String(str)
@@ -159,7 +172,9 @@
       spark:  card.querySelector('.perf-spark'),
       bb:     card.querySelector('.perf-building-baseline'),
       thresh: card.querySelector('.perf-threshold-hint'),
-      error:  card.querySelector('.perf-error')
+      error:  card.querySelector('.perf-error'),
+      warn:   card.querySelector('.perf-speed-warn'),
+      band:   card.querySelector('.perf-speed-band')
     };
   }
 
@@ -168,6 +183,8 @@
     if (p.bb)     p.bb.hidden = true;
     if (p.thresh) p.thresh.hidden = true;
     if (p.error)  p.error.hidden = true;
+    if (p.warn)   p.warn.hidden = true;
+    if (p.band)   p.band.hidden = true;
   }
 
   function _renderScoreCard(type, data) {
@@ -215,6 +232,24 @@
       _drawTrend(p.spark, trend, TREND_COLOR[type]);
     } else if (p.spark) {
       p.spark.innerHTML = '';
+    }
+
+    // Speed-only: low_data_warning badge and confidence_band display.
+    if (p.warn) {
+      var hasWarning = data.low_data_warning === true;
+      p.warn.hidden = !hasWarning;
+    }
+    if (p.band) {
+      var cb = data.confidence_band;
+      if (cb && typeof cb === 'object' && cb.lower != null && cb.upper != null) {
+        p.band.hidden = false;
+        var lowerEl = p.band.querySelector('b:first-child');
+        var upperEl = p.band.querySelector('b:last-child');
+        if (lowerEl) lowerEl.textContent = Math.round(cb.lower);
+        if (upperEl) upperEl.textContent = Math.round(cb.upper);
+      } else {
+        p.band.hidden = true;
+      }
     }
   }
 
@@ -664,7 +699,7 @@
         var plan = Array.isArray(plans) && plans.length ? plans[0] : null;
         if (!plan || !plan.id) { _renderProjEmpty(); return; }
         _planEntityId = plan.id;
-        return fetch('/plans/' + _planEntityId + '/projection', { credentials: 'same-origin' })
+        return fetch('/api/plans/' + _planEntityId + '/projection', { credentials: 'same-origin' })
           .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
           .then(function (data) { _renderProjection(data); });
       })

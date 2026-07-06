@@ -115,6 +115,7 @@ def _call_endpoint(race, series, curves, run_rows=None, marker_rows=None):
         patch("backend.main.compute_load_curves", return_value=curves),
         patch("backend.main._get_app_config", return_value=""),
         patch("backend.main._specificity_progress", return_value={"reason": "no goal pace"}),
+        patch("backend.main.resolve_user_ewma_days", return_value=(42, 7)),
     ):
         MockSession.return_value = mock_db
         result = get_race_readiness(str(race.id), user)
@@ -236,6 +237,7 @@ def test_valid_race_returns_200():
         patch("backend.main.compute_load_curves", return_value=curves),
         patch("backend.main._get_app_config", return_value=""),
         patch("backend.main._specificity_progress", return_value={"reason": "no goal pace"}),
+        patch("backend.main.resolve_user_ewma_days", return_value=(42, 7)),
     ):
         MockSession.return_value = mock_db
         result = get_race_readiness(str(race.id), user)
@@ -261,7 +263,7 @@ def test_form_curve_present_and_annotated():
     assert isinstance(body["form_curve"], list)
     assert len(body["form_curve"]) > 0
 
-    valid_zones = {"freshness", "optimal", "accumulated_fatigue"}
+    valid_zones = {"buried", "neutral", "fresh"}
     for entry in body["form_curve"][:5]:
         assert "date" in entry
         assert "form" in entry
@@ -536,12 +538,13 @@ def test_zone_labels_respect_config_thresholds():
         patch("backend.main.compute_load_curves", return_value=curves),
         patch("backend.main._get_app_config", side_effect=fake_cfg),
         patch("backend.main._specificity_progress", return_value={"reason": "no goal pace"}),
+        patch("backend.main.resolve_user_ewma_days", return_value=(42, 7)),
     ):
         MockSession.return_value = mock_db
         result = get_race_readiness(str(race.id), user)
 
     body = json.loads(result.body)
     zones = {e["zone"] for e in body["form_curve"]}
-    assert "accumulated_fatigue" in zones, (
-        f"TSB=-5.0 with buried_ceiling=-3.0 must classify as accumulated_fatigue; got {zones}"
+    assert "buried" in zones, (
+        f"TSB=-5.0 with buried_ceiling=-3.0 must classify as buried; got {zones}"
     )

@@ -183,14 +183,22 @@ def compute_and_store_speed_signal(workout_id, session) -> tuple[bool, str | Non
     Returns
     -------
     ``(True, None)`` on success.
-    ``(False, reason_string)`` when prerequisites are not met (e.g. workout
-    not found, workout type is not a run, or no thresholds configured).
+    ``(False, reason_string)`` when prerequisites are not met:
+
+    - ``"workout <id> not found"`` — no row with the given id exists.
+    - ``"workout is not a run type"`` — ``workout.workout_type`` does not
+      contain ``"run"`` (case-insensitive), matching the ``ilike("%run%")``
+      filter used by ``backfill_signals.py``.
+    - Any other reason string if the signal cannot be computed.
     """
     from backend.models import Workout, WorkoutSplit, UserPreferences
 
     workout = session.query(Workout).filter(Workout.id == workout_id).first()
     if workout is None:
         return False, f"workout {workout_id} not found"
+
+    if "run" not in (workout.workout_type or "").lower():
+        return False, "workout is not a run type"
 
     splits = (
         session.query(WorkoutSplit)

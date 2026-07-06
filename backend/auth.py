@@ -276,3 +276,11 @@ async def get_current_user(request: Request) -> User:
         raise HTTPException(status_code=403, detail="Account disabled")
 
     return user
+
+
+async def resolve_user(request: Request) -> User:
+    """Shared FastAPI dependency: resolve the session user or raise 401."""
+    token = request.cookies.get(COOKIE_NAME)
+    if token:
+        return await get_current_user(request)
+    raise HTTPException(status_code=401, detail="Not authenticated")

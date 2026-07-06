@@ -14,7 +14,7 @@ Default polarized model bounds:
 _DEFAULT_BOUNDS = {
     "low":      [75, 85],
     "moderate": [5, 10],
-    "high":     [10, 20],
+    "high":     [15, 20],  # authoritative bound: [15, 20] per original AC (#1131) and docstring
 }
 
 
