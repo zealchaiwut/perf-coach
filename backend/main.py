@@ -2717,12 +2717,46 @@ def get_home_readiness(
     )
     score = int(round(min(100.0, max(0.0, total))))
 
+    factors_for_explanation = [
+        {"factor": "sleep_hours", "value": float(metrics.sleep_hours) if metrics.sleep_hours is not None else None,
+         "score": sleep_score, "impact": _impact(sleep_score)},
+        {"factor": "hrv", "value": float(metrics.hrv) if metrics.hrv is not None else None,
+         "score": hrv_score, "impact": _impact(hrv_score)},
+        {"factor": "rhr", "value": float(metrics.resting_hr) if metrics.resting_hr is not None else None,
+         "score": rhr_score, "impact": _impact(rhr_score)},
+        {"factor": "mood", "value": float(metrics.mood) if metrics.mood is not None else None,
+         "score": mood_score, "impact": _impact(mood_score)},
+        {"factor": "energy", "value": float(metrics.energy) if metrics.energy is not None else None,
+         "score": energy_score, "impact": _impact(energy_score)},
+    ]
+    explanation_facts = {
+        "score": score,
+        "label": _readiness_score_label(score),
+        "sleep_hours": float(metrics.sleep_hours) if metrics.sleep_hours is not None else None,
+        "hrv": float(metrics.hrv) if metrics.hrv is not None else None,
+        "rhr": float(metrics.resting_hr) if metrics.resting_hr is not None else None,
+        "sleep_quality": float(metrics.sleep_quality) if metrics.sleep_quality is not None else None,
+        "energy": float(metrics.energy) if metrics.energy is not None else None,
+        "mood": float(metrics.mood) if metrics.mood is not None else None,
+        "sleep_hours_baseline": rolling_baseline["sleep_7d_avg_hours"],
+        "hrv_baseline": rolling_baseline["hrv_7d_avg"],
+        "rhr_baseline": rolling_baseline["rhr_7d_avg"],
+    }
+    from backend.services.readiness_explanation import get_readiness_explanation
+    explanation = get_readiness_explanation(
+        user_id=str(uid),
+        target_date=query_date.isoformat(),
+        facts=explanation_facts,
+        fallback_factors=factors_for_explanation,
+    )
+
     return JSONResponse({
         "date": query_date.isoformat(),
         "score": score,
         "score_label": _readiness_score_label(score),
         "contributors": contributors,
         "rolling_baseline": rolling_baseline,
+        "explanation": explanation,
     })
 
 
@@ -3165,11 +3199,33 @@ def _build_readiness_block(uid, today_bkk):
     top_factors = sorted(factors, key=lambda f: abs(f["score"] - 50), reverse=True)[:3]
     top_factors_clean = [{"factor": f["factor"], "value": f["value"], "impact": f["impact"]} for f in top_factors]
 
+    explanation_facts = {
+        "score": score,
+        "label": _readiness_score_label(score),
+        "sleep_hours": float(metrics.sleep_hours) if metrics.sleep_hours is not None else None,
+        "hrv": float(metrics.hrv) if metrics.hrv is not None else None,
+        "rhr": float(metrics.resting_hr) if metrics.resting_hr is not None else None,
+        "sleep_quality": float(metrics.sleep_quality) if metrics.sleep_quality is not None else None,
+        "energy": float(metrics.energy) if metrics.energy is not None else None,
+        "mood": float(metrics.mood) if metrics.mood is not None else None,
+        "sleep_hours_baseline": sleep_7d_avg,
+        "hrv_baseline": hrv_7d_avg,
+        "rhr_baseline": rhr_7d_avg,
+    }
+    from backend.services.readiness_explanation import get_readiness_explanation
+    explanation = get_readiness_explanation(
+        user_id=str(uid),
+        target_date=str(today_bkk),
+        facts=explanation_facts,
+        fallback_factors=factors,
+    )
+
     return {
         "logged": True,
         "score": score,
         "label": _readiness_score_label(score),
         "top_factors": top_factors_clean,
+        "explanation": explanation,
     }
 
 
