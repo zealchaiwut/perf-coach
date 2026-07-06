@@ -26,6 +26,28 @@ function rangeFromDate(range) {
   return addDays(todayISO(), offsets[range] ?? -29);
 }
 
+// ── Unit system ───────────────────────────────────────────────────────────
+
+let _weightUnit = 'kg';  // 'kg' or 'lb'; persisted via localStorage('weight_unit')
+
+const KG_TO_LB = 2.20462;
+const LB_TO_KG = 0.453592;
+
+function kgToDisplay(kg) {
+  if (kg == null) return null;
+  return _weightUnit === 'lb' ? +(kg * KG_TO_LB) : kg;
+}
+
+function displayToKg(val) {
+  if (val == null) return null;
+  return _weightUnit === 'lb' ? +(val * LB_TO_KG) : val;
+}
+
+function unitLabel() { return _weightUnit; }
+
+function displayMin() { return _weightUnit === 'lb' ? Math.round(20 * KG_TO_LB) : 20; }
+function displayMax() { return _weightUnit === 'lb' ? Math.round(300 * KG_TO_LB) : 300; }
+
 // ── State ──────────────────────────────────────────────────────────────────
 
 let _userId = null;
@@ -36,6 +58,8 @@ let _recentEntries = [];     // entries for last 14 days
 let _historySummary = null;  // last /api/weight-targets/history-summary response
 let _rangeAbortController = null;
 let _rangeFetchSeq = 0;
+let _lastEntryWeight = null;   // most recent logged weight in display units — drives same-as-last btn
+let _lastEntryWeightKg = null; // raw kg of the same entry — needed to re-derive display value on unit switch
 
 // ── API helpers ────────────────────────────────────────────────────────────
 
@@ -123,7 +147,7 @@ function renderStreakAndAdherence(entries) {
   const adherence = _computeAdherence(entries);
 
   if (streakEl) {
-    streakEl.textContent = streak === 1 ? '1-day streak' : `${streak}-day streak`;
+    streakEl.textContent = streak === 0 ? 'No streak yet' : streak === 1 ? '1-day streak' : `${streak}-day streak`;
   }
   if (adherenceEl) {
     adherenceEl.textContent = `${adherence} / 14 days`;
@@ -189,9 +213,14 @@ function _syncLegend(chartData) {
 function _initModeToggle() {
   const current = WeightChart.getMode ? WeightChart.getMode() : 'basic';
   document.querySelectorAll('.mode-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.mode === current);
+    const isActive = btn.dataset.mode === current;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('active', b === btn));
+      document.querySelectorAll('.mode-btn').forEach(b => {
+        b.classList.toggle('active', b === btn);
+        b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
+      });
       if (WeightChart.setMode) WeightChart.setMode(btn.dataset.mode);
       if (_chartData) _syncLegend(_chartData);
     });
@@ -681,6 +710,7 @@ function openInlineEdit(row, entryId, currentWeight, currentDate) {
       if (idx !== -1) {
         _recentEntries[idx] = { ..._recentEntries[idx], weight_kg: updated.weight_kg };
       }
+      row.removeEventListener('keydown', onEscape);
       renderRecentEntries(_recentEntries, _activeTarget, _historySummary ? _historySummary.total_entries : null);
     } catch (e) {
       if (e.message === 'conflict') {
@@ -938,18 +968,19 @@ function _updateLogBtnLabel() {
   const btn   = document.getElementById('log-submit-btn');
   if (!input || !btn) return;
   const v = parseFloat(input.value);
-  btn.textContent = isNaN(v) ? 'Log -- kg' : `Log ${v.toFixed(1)} kg`;
+  btn.textContent = isNaN(v) ? `Log -- ${unitLabel()}` : `Log ${v.toFixed(1)} ${unitLabel()}`;
 }
 
 function _clampStepperValue(v) {
-  if (isNaN(v)) return 20;
-  return Math.max(20, Math.min(300, v));
+  if (isNaN(v)) return displayMin();
+  return Math.max(displayMin(), Math.min(displayMax(), v));
 }
 
-function _prefillStepper(weight) {
+function _prefillStepper(weightKg) {
   const input = document.getElementById('stepper-input');
   if (!input) return;
-  input.value = weight != null ? weight.toFixed(1) : '';
+  const displayVal = weightKg != null ? kgToDisplay(weightKg) : null;
+  input.value = displayVal != null ? displayVal.toFixed(1) : '';
   _updateLogBtnLabel();
 }
 
@@ -966,20 +997,22 @@ function _showLoggedMode(weightKg) {
   const loggedTxt = document.getElementById('logged-text');
   if (wrap)   wrap.hidden   = true;
   if (logged) logged.hidden = false;
-  if (loggedTxt) loggedTxt.textContent = `✓ Logged today · ${weightKg.toFixed(1)} kg · `;
+  if (loggedTxt) loggedTxt.textContent = `✓ Logged today · ${kgToDisplay(weightKg).toFixed(1)} ${unitLabel()} · `;
 }
 
-async function _submitCardB(weightKg) {
+async function _submitCardB(displayVal) {
   const errEl = document.getElementById('hcb-error');
   const btn   = document.getElementById('log-submit-btn');
   if (errEl) errEl.textContent = '';
   showPageError('');
 
-  if (isNaN(weightKg) || weightKg < 20 || weightKg > 300) {
-    if (errEl) errEl.textContent = 'Enter a valid weight (20–300 kg).';
+  const dMin = displayMin(), dMax = displayMax();
+  if (isNaN(displayVal) || displayVal < dMin || displayVal > dMax) {
+    if (errEl) errEl.textContent = `Enter a valid weight (${dMin}–${dMax} ${unitLabel()}).`;
     return;
   }
 
+  const weightKg = displayToKg(displayVal);
   if (btn) btn.disabled = true;
 
   const dateInput = document.getElementById('log-date-input');
@@ -1056,14 +1089,16 @@ function _initCardB() {
   // Stepper ± buttons
   if (decBtn) {
     decBtn.addEventListener('click', () => {
-      const v = _clampStepperValue(parseFloat(input.value) - 0.1);
+      const step = _weightUnit === 'lb' ? 0.5 : 0.1;
+      const v = _clampStepperValue(parseFloat(input.value) - step);
       input.value = v.toFixed(1);
       _updateLogBtnLabel();
     });
   }
   if (incBtn) {
     incBtn.addEventListener('click', () => {
-      const v = _clampStepperValue(parseFloat(input.value) + 0.1);
+      const step = _weightUnit === 'lb' ? 0.5 : 0.1;
+      const v = _clampStepperValue(parseFloat(input.value) + step);
       input.value = v.toFixed(1);
       _updateLogBtnLabel();
     });
@@ -1077,7 +1112,7 @@ function _initCardB() {
     await _submitCardB(parseFloat(input.value));
   });
 
-  // Edit link: restore stepper with logged value
+  // Edit link: restore stepper with logged value (stored in kg)
   if (editBtn) {
     editBtn.addEventListener('click', () => {
       const logged = document.getElementById('logged-strip');
@@ -1086,6 +1121,84 @@ function _initCardB() {
       _showStepperMode();
       input.focus();
     });
+  }
+
+  // Same-as-last: one-tap log of the previous entry weight
+  const sameAsLastBtn = document.getElementById('same-as-last-btn');
+  if (sameAsLastBtn) {
+    sameAsLastBtn.addEventListener('click', async () => {
+      if (_lastEntryWeight == null) return;
+      sameAsLastBtn.disabled = true;
+      await _submitCardB(_lastEntryWeight);
+      sameAsLastBtn.disabled = false;
+    });
+  }
+}
+
+// View-only: reads _lastEntryWeight but never assigns it. Callers own the
+// _lastEntryWeight / _lastEntryWeightKg state and must set it before calling
+// (see _cardBSetLoggedState and _applyUnit).
+function _updateSameAsLastBtn(todayLogged, lastWeightKg) {
+  const btn = document.getElementById('same-as-last-btn');
+  if (!btn) return;
+  if (todayLogged || lastWeightKg == null || _lastEntryWeight == null) {
+    btn.hidden = true;
+    return;
+  }
+  btn.hidden = false;
+  btn.textContent = `Log same as last (${_lastEntryWeight.toFixed(1)} ${unitLabel()})`;
+}
+
+function _initUnitToggle() {
+  const stored = localStorage.getItem('weight_unit');
+  if (stored === 'lb' || stored === 'kg') {
+    _weightUnit = stored;
+    _applyUnit();
+  }
+
+  const toggle = document.getElementById('unit-toggle');
+  if (!toggle) return;
+
+  toggle.querySelectorAll('.unit-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.unit === _weightUnit);
+    btn.addEventListener('click', () => {
+      if (btn.dataset.unit === _weightUnit) return;
+      _weightUnit = btn.dataset.unit;
+      localStorage.setItem('weight_unit', _weightUnit);
+      toggle.querySelectorAll('.unit-btn').forEach(b =>
+        b.classList.toggle('active', b === btn)
+      );
+      _applyUnit();
+    });
+  });
+}
+
+function _applyUnit() {
+  const input = document.getElementById('stepper-input');
+  if (input) {
+    input.min  = displayMin();
+    input.max  = displayMax();
+    input.step = _weightUnit === 'lb' ? 0.5 : 0.1;
+    input.setAttribute('aria-label', `Weight in ${unitLabel()}`);
+
+    // AC1/AC2/AC5: reconvert the stepper's displayed value to the new unit.
+    // Retrieve stored kg from logged-strip.dataset.weight and re-prefill so
+    // the display shows the correct lb or kg equivalent (#512).
+    const logged = document.getElementById('logged-strip');
+    const storedKg = logged ? parseFloat(logged.dataset.weight) : NaN;
+    if (!isNaN(storedKg)) {
+      _prefillStepper(storedKg);
+    } else {
+      // AC6: no stored weight (fresh state) — just update the button label
+      _updateLogBtnLabel();
+    }
+  }
+
+  // Refresh same-as-last button label using stored raw kg; re-derive the
+  // display-unit value here since _updateSameAsLastBtn no longer owns state.
+  if (_lastEntryWeightKg != null) {
+    _lastEntryWeight = kgToDisplay(_lastEntryWeightKg);
+    _updateSameAsLastBtn(false, _lastEntryWeightKg);
   }
 }
 
@@ -1098,11 +1211,17 @@ function _cardBSetLoggedState(entries, fallbackWeight) {
     if (logged) logged.dataset.weight = todayEntry.weight_kg;
     _prefillStepper(todayEntry.weight_kg);
     _showLoggedMode(todayEntry.weight_kg);
+    _lastEntryWeight = null;
+    _lastEntryWeightKg = null;
+    _updateSameAsLastBtn(true, null);
   } else {
     _cardBEntryId = null;
     // Prefill stepper with most recent entry (fallback from chart stats)
     if (fallbackWeight != null) _prefillStepper(fallbackWeight);
     _showStepperMode();
+    _lastEntryWeightKg = fallbackWeight != null ? fallbackWeight : null;
+    _lastEntryWeight = kgToDisplay(_lastEntryWeightKg);
+    _updateSameAsLastBtn(false, fallbackWeight);
   }
 }
 
@@ -1376,9 +1495,13 @@ function _initEditPanel() {
 
 function _initRangeTabs() {
   document.querySelectorAll('.range-tab').forEach(btn => {
+    btn.setAttribute('aria-pressed', btn.classList.contains('active') ? 'true' : 'false');
     btn.addEventListener('click', async () => {
       _currentRange = btn.dataset.range;
-      document.querySelectorAll('.range-tab').forEach(b => b.classList.toggle('active', b === btn));
+      document.querySelectorAll('.range-tab').forEach(b => {
+        b.classList.toggle('active', b === btn);
+        b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
+      });
 
       if (_rangeAbortController) _rangeAbortController.abort();
       _rangeAbortController = new AbortController();
@@ -1527,9 +1650,14 @@ function _renderPastTargetsTable(filter) {
 function _initTargetHistoryFilters() {
   const pills = document.querySelectorAll('#target-filter-pills .th-fb');
   pills.forEach(pill => {
+    pill.setAttribute('aria-pressed', pill.classList.contains('active') ? 'true' : 'false');
     pill.addEventListener('click', () => {
-      pills.forEach(p => p.classList.remove('active'));
+      pills.forEach(p => {
+        p.classList.remove('active');
+        p.setAttribute('aria-pressed', 'false');
+      });
       pill.classList.add('active');
+      pill.setAttribute('aria-pressed', 'true');
       _targetHistoryFilter = pill.dataset.filter;
       _renderPastTargetsTable(_targetHistoryFilter);
     });
@@ -1600,6 +1728,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
+  _initUnitToggle();
   _initCardB();
   _initRangeTabs();
   _initModeToggle();

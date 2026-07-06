@@ -818,31 +818,6 @@
       justify-content: flex-end;
     }
 
-    /* ── Toast ── */
-    #toast {
-      position: fixed;
-      bottom: 1.5rem;
-      left: 50%;
-      transform: translateX(-50%);
-      padding: 0.65rem 1.5rem;
-      border-radius: 6px;
-      font-size: 0.9375rem;
-      font-weight: 500;
-      z-index: 9999;
-      display: none;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
-    }
-
-    #toast.toast-ok {
-      background: var(--text);
-      color: #fff;
-    }
-
-    #toast.toast-error {
-      background: var(--danger);
-      color: #fff;
-    }
-
     /* ── Responsive ── */
     @media (max-width: 600px) {
       .workout-meta {
@@ -987,7 +962,8 @@
     #run-error:empty, .run-section .field-error:empty { display: none; }
     .run-section.rl-card { padding-bottom: 16px; }
     .run-secondary { margin-bottom: 0; }
-    .type-chip-disabled { opacity: 0.4; color: #9aa3b2 !important; background: #fff !important; border-color: var(--card-border) !important; cursor: not-allowed; pointer-events: none; }
+    .type-chip-disabled { opacity: 0.55; color: #9aa3b2 !important; background: #fff !important; border-color: var(--card-border) !important; cursor: not-allowed; pointer-events: none; }
+    .chip-soon { font-size: 8.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: #9aa3b2; margin-left: 2px; }
     /* ── Strength exercise builder ──────────────────────────────────────────── */
     .exercise-list { display: flex; flex-direction: column; gap: 10px; }
     .exercise { border: 1.5px solid var(--card-border); border-radius: 12px; overflow: hidden; }
@@ -1028,6 +1004,110 @@
     .str-v { font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; color: var(--text-primary); }
     .str-v .su { font-size: 10px; color: var(--text-tertiary); font-family: 'Inter Tight'; font-weight: 500; margin-left: 2px; }
     @media (max-width: 560px) { .set-cols, .set-row { grid-template-columns: 38px 1fr 1fr 46px minmax(40px,1fr) 22px; gap: 5px; } }
+
+    /* ── History view — brought in line with the rl- gradient/instrument system
+       (was still the legacy light-card style; clashed with the New-workout tab). ── */
+    #history-list { display: flex; flex-direction: column; gap: 8px; }
+
+    .history-row {
+      display: flex; align-items: center; gap: 12px;
+      background: var(--card-bg); border: 1px solid var(--card-border);
+      border-radius: 12px; box-shadow: var(--card-shadow);
+      padding: 12px 14px; margin: 0; cursor: pointer;
+      min-height: 44px;
+      transition: transform 0.12s ease-out, box-shadow 0.12s ease-out;
+    }
+    .history-row:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(13,30,67,0.14), 0 1px 3px rgba(13,30,67,0.08); }
+    .history-row:active { transform: translateY(0); }
+
+    .history-icon {
+      width: 34px; height: 34px; border-radius: 9px; background: var(--rl-tile);
+      display: flex; align-items: center; justify-content: center; font-size: 15px;
+      flex-shrink: 0;
+    }
+
+    .history-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+
+    .history-name {
+      font-weight: 600; font-size: 14px; color: var(--text-primary);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    .history-meta {
+      display: flex; gap: 10px; flex-wrap: wrap;
+      font-size: 11.5px; color: var(--text-tertiary); font-family: var(--mono);
+    }
+
+    .history-chevron { font-size: 18px; color: var(--text-tertiary); flex-shrink: 0; }
+
+    /* Shared loading / empty / error states injected by ui-states.js — restyle
+       their hardcoded grays to match the page's own tokens instead of leaving
+       orphaned system-gray text inside a gradient page. */
+    #history-list .ui-loading,
+    #template-list .loading-msg {
+      color: var(--text-tertiary); font-size: 13px; justify-content: center; padding: 20px 0;
+    }
+    #history-list .ui-empty,
+    #template-list .empty-msg {
+      color: var(--text-secondary); font-size: 13.5px; text-align: center;
+      padding: 32px 16px; background: var(--card-bg); border: 1px dashed var(--card-border);
+      border-radius: 12px;
+    }
+    #history-list .ui-empty a { color: #3563d4; font-weight: 600; }
+    #history-list .ui-error,
+    #template-list .error-msg {
+      color: var(--red); background: var(--red-soft); border-radius: 10px;
+      padding: 12px 14px; font-size: 13px; text-align: center;
+    }
+
+    /* ── Modals (detail / template picker) — match the rl-card surface instead
+       of the legacy flat-white/sharp-corner style. ── */
+    .modal-overlay { padding: 16px; box-sizing: border-box; }
+    .detail-box {
+      background: var(--card-bg); border-radius: 16px; border: 1px solid var(--card-border);
+      box-shadow: 0 20px 60px rgba(8,18,48,0.28);
+    }
+    .detail-title { color: var(--text-primary); font-size: 1.05rem; }
+    .detail-meta-text { color: var(--text-tertiary); font-family: var(--mono); font-size: 0.8125rem; }
+    .detail-table th { background: var(--rl-tile); color: var(--text-tertiary); border-bottom-color: var(--card-border); }
+    .detail-table td { color: var(--text-primary); font-family: var(--mono); border-bottom-color: #f0f2f8; }
+    .detail-table td:first-child { font-family: inherit; font-weight: 500; }
+    .detail-close { color: var(--text-tertiary); width: 32px; height: 32px; border-radius: 8px; }
+    .detail-close:hover { color: var(--text-primary); background: var(--rl-tile); }
+
+    #template-list .empty-msg,
+    #template-list .loading-msg { margin: 0; }
+
+    /* ── Accessibility: visible focus for every interactive control ── */
+    a:focus-visible,
+    button:focus-visible,
+    input:focus-visible,
+    textarea:focus-visible,
+    summary:focus-visible,
+    .history-row:focus-visible {
+      outline: 2px solid #3563d4;
+      outline-offset: 2px;
+      border-radius: 4px;
+    }
+    .rl-tabs .training-tab:focus-visible { outline-offset: -2px; }
+
+    /* ── Reduced motion ── */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+    }
+
+    /* ── Mobile: guarantee ≥44px tap targets on the small, icon-only buttons ── */
+    @media (max-width: 640px) {
+      .rl-tabs .training-tab { padding: 11px 16px; min-height: 44px; }
+      .remove-row-btn, .ex-remove, .set-x, .detail-close { min-width: 40px; min-height: 40px; }
+      .seg-unit { padding: 8px 10px; }
+      .rl-save-bar .save, .rl-save-bar .cancel, .rl-save-bar .more-summary { min-height: 44px; }
+      .rl-save-bar { flex-wrap: wrap; row-gap: 10px; }
+      .rl-save-right { width: 100%; }
+      .rl-save-right .save { flex: 1; }
+      .run-primary, .run-secondary { grid-template-columns: repeat(2, 1fr); }
+      .history-row { align-items: flex-start; }
+    }
   </style>
 </head>
 <body>
@@ -1035,9 +1115,9 @@
   <main>
     <div class="rl-head">
       <h1>Log workout</h1>
-      <div class="rl-tabs">
-        <button class="training-tab active" data-tab="new">New workout</button>
-        <button class="training-tab" data-tab="history">History</button>
+      <div class="rl-tabs" role="tablist" aria-label="Training view">
+        <button class="training-tab active" data-tab="new" role="tab" aria-selected="true" aria-controls="view-new" id="tab-new">New workout</button>
+        <button class="training-tab" data-tab="history" role="tab" aria-selected="false" aria-controls="view-history" id="tab-history">History</button>
       </div>
     </div>
 
@@ -1052,7 +1132,7 @@
     </div>
 
     <!-- ── New workout view ── -->
-    <div id="view-new">
+    <div id="view-new" role="tabpanel" aria-labelledby="tab-new">
       <!-- Workout basics -->
       <div class="workout-meta rl-card">
         <div class="rl-card-label">Workout basics</div>
@@ -1060,7 +1140,7 @@
           <label for="workout-name">Name <span style="color:var(--danger)">*</span></label>
           <input id="workout-name" type="text" placeholder="e.g. Morning Strength" maxlength="200" autocomplete="off" list="workout-name-suggestions">
           <datalist id="workout-name-suggestions"></datalist>
-          <p id="name-error" class="field-error"></p>
+          <p id="name-error" class="field-error" aria-live="polite"></p>
         </div>
 
         <div class="meta-field">
@@ -1069,8 +1149,8 @@
         </div>
 
         <div class="meta-field full-width">
-          <label>Workout type</label>
-          <div id="type-chips" class="chip-group"></div>
+          <label id="workout-type-label">Workout type</label>
+          <div id="type-chips" class="chip-group" role="group" aria-labelledby="workout-type-label"></div>
           <input id="custom-type-input" type="text" placeholder="Type name…" style="display:none" maxlength="50">
         </div>
 
@@ -1168,7 +1248,7 @@
           </div>
         </div>
 
-        <p id="run-error" class="field-error"></p>
+        <p id="run-error" class="field-error" aria-live="polite"></p>
       </div>
 
       <!-- Exercise table -->
@@ -1176,7 +1256,7 @@
         <div class="rl-card-label">Exercises</div>
         <div id="exercises-tbody" class="exercise-list"></div>
         <datalist id="exercise-name-suggestions"></datalist>
-        <p id="exercises-error" class="error-msg"></p>
+        <p id="exercises-error" class="error-msg" aria-live="polite"></p>
         <div class="ex-add-row">
           <button id="add-exercise-btn" type="button" class="add-ex"><span aria-hidden="true">+</span> Add exercise</button>
         </div>
@@ -1216,8 +1296,8 @@
     </div>
 
     <!-- ── History view ── -->
-    <div id="view-history" style="display:none">
-      <div id="history-list"></div>
+    <div id="view-history" role="tabpanel" aria-labelledby="tab-history" style="display:none">
+      <div id="history-list" aria-live="polite"></div>
       <p style="margin-top:1.5rem"><a href="/home">Back</a> &middot; <a href="/habits">Habits</a></p>
     </div>
   </main>
@@ -1262,8 +1342,6 @@
       </div>
     </div>
   </div>
-
-  <div id="toast"></div>
 
   <script src="js/lib/sync-poller.js"></script>
 

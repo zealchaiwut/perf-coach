@@ -19,7 +19,7 @@
     main.rb-main {
       max-width: 860px;
       margin: 0 auto;
-      padding: 24px 16px 56px;
+      padding: 24px 16px calc(92px + env(safe-area-inset-bottom));
       display: flex;
       flex-direction: column;
       gap: 12px;
@@ -30,6 +30,7 @@
       --rv-lime: var(--accent);
       --rv-teal: #14b8a6;
       --rv-purple: #8b5cf6;
+      --rb-z-sticky-footer: 40; /* nav bar: 100, nav dropdown: 200, modal: 1000 */
     }
 
     /* ── Card shell (14 px radius, same shadow as Run View) ─────────────── */
@@ -50,8 +51,17 @@
       text-transform: uppercase;
       letter-spacing: 0.06em;
       color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
     .rb-empty { color: var(--text-tertiary); font-size: 13px; margin: 0; }
+
+    /* Visually-hidden but screen-reader accessible (scoped to this page) */
+    .rb-sr-only {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+    }
 
     /* ── Import strip ───────────────────────────────────────────────────── */
     .rb-import-strip {
@@ -68,21 +78,24 @@
     }
     .rb-import-strip strong { color: var(--text-primary); }
     .rb-import-btn {
-      padding: 5px 12px;
-      border-radius: 6px;
+      min-height: 44px;
+      padding: 6px 16px;
+      border-radius: 8px;
       border: 1px solid var(--border-input, #d1d5db);
       background: var(--card-bg);
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 600;
       cursor: pointer;
       color: var(--text-primary);
     }
     .rb-import-btn:hover { background: var(--shell-1, #eaf0fb); }
+    .rb-import-btn:focus-visible { outline: 2px solid var(--primary, #3b82f6); outline-offset: 2px; }
     .rb-import-badge--strava { color: #fc4c02; }
     .rb-import-badge--stryd  { color: #0ea5e9; }
 
     /* ── Field groups ───────────────────────────────────────────────────── */
-    .rb-field-group { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
+    .rb-field-group { display: flex; flex-direction: column; gap: 5px; margin-bottom: 16px; }
+    .rb-field-group:last-child { margin-bottom: 0; }
     .rb-label {
       font-size: 12px;
       font-weight: 600;
@@ -90,31 +103,52 @@
       text-transform: uppercase;
       letter-spacing: 0.05em;
     }
+    .rb-req { color: var(--danger, #dc2626); margin-left: 2px; }
+    .rb-hint { font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 11px; color: var(--text-tertiary); }
     .rb-input {
-      padding: 9px 11px;
-      border: 1px solid var(--border-input, #d1d5db);
+      min-height: 44px;
+      padding: 9px 12px;
+      border: 1.5px solid var(--border-input, #d1d5db);
       border-radius: 8px;
       font-family: inherit;
-      font-size: 14px;
+      font-size: 16px;
       color: var(--text-primary);
       background: var(--surface, #fff);
       width: 100%;
     }
-    .rb-input:focus { outline: 2px solid var(--primary, #3b82f6); border-color: transparent; }
-    textarea.rb-input { resize: vertical; min-height: 72px; }
+    .rb-input:focus-visible, .rb-input:focus {
+      outline: none;
+      border-color: var(--primary, #3b82f6);
+      box-shadow: 0 0 0 3px var(--focus-ring, rgba(59,130,246,0.18));
+    }
+    .rb-input[aria-invalid="true"] {
+      border-color: var(--danger, #dc2626);
+      background: var(--danger-soft, #fee2e2);
+    }
+    .rb-input[aria-invalid="true"]:focus { box-shadow: 0 0 0 3px rgba(220,38,38,0.18); }
+    textarea.rb-input { resize: vertical; min-height: 80px; }
+    .rb-field-error {
+      font-size: 12.5px;
+      color: var(--danger, #dc2626);
+      margin: 0;
+    }
+    .rb-field-error:empty { display: none; }
 
     /* ── Workout type pills ─────────────────────────────────────────────── */
-    .rb-type-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+    .rb-type-pills { display: flex; gap: 8px; flex-wrap: wrap; }
     .rb-type-pill {
-      padding: 6px 14px;
+      min-height: 44px;
+      padding: 6px 18px;
       border-radius: 20px;
-      border: 1px solid var(--border-input, #d1d5db);
+      border: 1.5px solid var(--border-input, #d1d5db);
       background: none;
       cursor: pointer;
-      font-size: 13px;
+      font-size: 13.5px;
       font-weight: 500;
       color: var(--text-secondary);
     }
+    .rb-type-pill:hover { border-color: #9aa3b2; }
+    .rb-type-pill:focus-visible { outline: 2px solid var(--primary, #3b82f6); outline-offset: 2px; }
     .rb-type-pill--active {
       background: var(--rv-lime);
       color: var(--accent-text, #1a2400);
@@ -140,79 +174,92 @@
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 8px 10px;
+      flex-wrap: wrap;
+      padding: 10px 12px;
       background: var(--tile, #f7f9fd);
       border-radius: 8px;
       margin-bottom: 6px;
-      position: relative;
-      border-left: 4px solid transparent;
     }
-    .rb-seg-border {
-      position: absolute;
-      left: 0;
-      top: 0;
-      bottom: 0;
-      width: 4px;
-      border-radius: 8px 0 0 8px;
-    }
-    .rb-seg-bullet { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .rb-seg-bullet { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
     .rb-seg-effort {
-      padding: 4px 6px; border-radius: 6px; border: 1px solid var(--border-input, #d1d5db);
-      font-size: 13px; font-family: inherit;
+      min-height: 40px;
+      padding: 6px 8px; border-radius: 6px; border: 1.5px solid var(--border-input, #d1d5db);
+      font-size: 16px; font-family: inherit; background: var(--surface, #fff);
+      color: var(--text-primary);
     }
     .rb-seg-label { font-size: 11px; color: var(--text-tertiary); white-space: nowrap; }
     .rb-seg-input {
-      width: 72px; padding: 4px 7px; border-radius: 6px;
-      border: 1px solid var(--border-input, #d1d5db);
-      font-size: 13px; font-family: inherit;
+      min-height: 40px;
+      width: 82px; padding: 6px 8px; border-radius: 6px;
+      border: 1.5px solid var(--border-input, #d1d5db);
+      font-size: 16px; font-family: inherit; background: var(--surface, #fff);
+      color: var(--text-primary);
     }
-    .rb-seg-pace { width: 90px; }
+    .rb-seg-dur { width: 88px; }
+    .rb-seg-pace { width: 104px; background: var(--shell-2, #d8e3f5); color: var(--text-secondary); }
+    .rb-seg-pace[readonly] { cursor: default; }
     .rb-unit { font-size: 12px; color: var(--text-tertiary); }
     .rb-seg-del {
       margin-left: auto; background: none; border: none; cursor: pointer;
-      color: var(--text-tertiary); font-size: 14px;
+      color: var(--text-tertiary); font-size: 15px;
+      width: 40px; height: 40px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
     }
-    .rb-seg-del:hover { color: var(--danger, #dc2626); }
+    .rb-seg-del:hover { color: var(--danger, #dc2626); background: var(--danger-soft, #fee2e2); }
+    .rb-seg-del:focus-visible { outline: 2px solid var(--danger, #dc2626); outline-offset: 1px; }
     .rb-add-btn {
       display: flex; align-items: center; gap: 6px;
-      padding: 8px 14px; border-radius: 8px;
-      border: 1px dashed var(--border-input, #d1d5db);
-      background: none; cursor: pointer; font-size: 13px;
+      min-height: 44px;
+      padding: 8px 16px; border-radius: 8px;
+      border: 1.5px dashed var(--border-input, #d1d5db);
+      background: none; cursor: pointer; font-size: 13.5px;
       color: var(--text-secondary); font-weight: 600; margin-top: 6px;
     }
-    .rb-add-btn:hover { background: var(--shell-2, #d8e3f5); }
+    .rb-add-btn:hover { background: var(--shell-2, #d8e3f5); border-color: #9aa3b2; }
+    .rb-add-btn:focus-visible { outline: 2px solid var(--primary, #3b82f6); outline-offset: 2px; }
 
     /* ── Lap mode toggle ────────────────────────────────────────────────── */
-    .rb-lap-mode { display: flex; gap: 8px; margin-bottom: 12px; }
-    .rb-lap-radio { display: none; }
+    .rb-lap-mode { display: flex; gap: 8px; margin-bottom: 12px; border: 0; padding: 0; }
+    .rb-lap-radio { position: absolute; opacity: 0; width: 1px; height: 1px; }
     .rb-lap-label {
-      padding: 7px 16px; border-radius: 8px;
-      border: 1px solid var(--border-input, #d1d5db);
-      cursor: pointer; font-size: 13px; font-weight: 500;
+      min-height: 44px;
+      display: flex; align-items: center;
+      padding: 7px 18px; border-radius: 8px;
+      border: 1.5px solid var(--border-input, #d1d5db);
+      cursor: pointer; font-size: 13.5px; font-weight: 500;
       color: var(--text-secondary);
     }
     .rb-lap-radio:checked + .rb-lap-label {
-      background: var(--rv-teal); color: #fff; border-color: var(--rv-teal); font-weight: 600;
+      background: var(--rv-lime); color: var(--accent-text, #1a2400); border-color: var(--rv-lime); font-weight: 700;
+    }
+    .rb-lap-radio:focus-visible + .rb-lap-label {
+      outline: 2px solid var(--primary, #3b82f6); outline-offset: 2px;
     }
     .rb-auto-preview { font-size: 12px; color: var(--text-tertiary); margin-bottom: 6px; }
 
     /* ── Manual lap rows ────────────────────────────────────────────────── */
     .rb-mlap-row {
-      display: flex; align-items: center; gap: 6px;
+      display: flex; align-items: center; gap: 8px;
       background: var(--tile, #f7f9fd); border-radius: 8px;
-      padding: 8px 10px; margin-bottom: 6px; flex-wrap: wrap;
+      padding: 10px 12px; margin-bottom: 6px; flex-wrap: wrap;
       font-size: 13px;
     }
     .rb-mlap-num { font-weight: 700; min-width: 20px; }
     .rb-mlap-row label { font-size: 11px; color: var(--text-tertiary); }
     .rb-mlap-row input {
-      width: 64px; padding: 4px 7px; border-radius: 6px;
-      border: 1px solid var(--border-input, #d1d5db); font-size: 13px;
+      min-height: 40px;
+      width: 76px; padding: 6px 8px; border-radius: 6px;
+      border: 1.5px solid var(--border-input, #d1d5db); font-size: 16px;
+      font-family: inherit; background: var(--surface, #fff); color: var(--text-primary);
     }
     .rb-mlap-del {
       margin-left: auto; background: none; border: none; cursor: pointer;
-      color: var(--text-tertiary); font-size: 13px;
+      color: var(--text-tertiary); font-size: 14px;
+      width: 40px; height: 40px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
     }
+    .rb-mlap-del:hover { color: var(--danger, #dc2626); background: var(--danger-soft, #fee2e2); }
+    .rb-mlap-del:focus-visible { outline: 2px solid var(--danger, #dc2626); outline-offset: 1px; }
 
     /* ── Totals grid ────────────────────────────────────────────────────── */
     #rb-totals {
@@ -237,36 +284,70 @@
     /* ── SYNC fields ────────────────────────────────────────────────────── */
     .rb-sync-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
       gap: 10px;
     }
-    .rb-sync-field { display: flex; flex-direction: column; gap: 4px; }
+    .rb-sync-field { display: flex; flex-direction: column; gap: 5px; }
     .rb-sync-label {
       font-size: 11px; font-weight: 600; color: var(--text-secondary);
       text-transform: uppercase; letter-spacing: 0.04em; display: flex; align-items: center; gap: 4px;
     }
     .rb-sync-input {
-      padding: 7px 10px; border: 1px solid var(--border-input, #d1d5db); border-radius: 8px;
-      font-size: 14px; font-family: 'JetBrains Mono', monospace;
+      min-height: 44px;
+      padding: 7px 10px; border: 1.5px solid var(--border-input, #d1d5db); border-radius: 8px;
+      font-size: 16px; font-family: 'JetBrains Mono', monospace; width: 100%;
+      background: var(--surface, #fff); color: var(--text-primary);
+    }
+    .rb-sync-input:focus-visible, .rb-sync-input:focus {
+      outline: none; border-color: var(--primary, #3b82f6); box-shadow: 0 0 0 3px var(--focus-ring, rgba(59,130,246,0.18));
     }
 
-    /* ── Form actions ───────────────────────────────────────────────────── */
+    /* ── Save bar (fixed, always reachable — mandate: reachable submit) ──── */
+    .rb-save-bar {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: var(--rb-z-sticky-footer);
+      padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+      background: rgba(255,255,255,0.94);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border-top: 1px solid var(--card-border);
+      box-shadow: 0 -6px 20px rgba(8,18,48,0.12);
+    }
+    .rb-save-bar > * { max-width: 828px; margin: 0 auto; }
+    .rb-form-error {
+      color: var(--danger, #dc2626);
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 0 0 10px;
+    }
+    .rb-form-error:empty { display: none; margin: 0; }
     .rb-actions {
-      display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px;
+      display: flex; justify-content: flex-end; gap: 10px;
     }
     .rb-btn-primary {
-      padding: 10px 24px; border-radius: 8px; border: none;
+      min-height: 44px;
+      padding: 10px 26px; border-radius: 8px; border: none;
       background: var(--primary, #3b82f6); color: #fff;
-      font-size: 14px; font-weight: 600; cursor: pointer;
+      font-size: 14.5px; font-weight: 600; cursor: pointer;
+      flex: 1;
     }
     .rb-btn-primary:hover { background: var(--primary-dark, #2563eb); }
+    .rb-btn-primary:focus-visible { outline: 2px solid var(--primary-dark, #2563eb); outline-offset: 2px; }
+    .rb-btn-primary:disabled { opacity: 0.65; cursor: not-allowed; }
     .rb-btn-secondary {
-      padding: 10px 24px; border-radius: 8px;
-      border: 1px solid var(--border-input, #d1d5db); background: none;
-      font-size: 14px; font-weight: 500; cursor: pointer; color: var(--text-secondary);
+      min-height: 44px;
+      padding: 10px 22px; border-radius: 8px;
+      border: 1.5px solid var(--border-input, #d1d5db); background: none;
+      font-size: 14.5px; font-weight: 500; cursor: pointer; color: var(--text-secondary);
+      flex: 0 0 auto;
     }
     .rb-btn-secondary:hover { background: var(--shell-2, #d8e3f5); }
-    .rb-form-error { color: var(--danger, #dc2626); font-size: 13px; min-height: 18px; }
+    .rb-btn-secondary:focus-visible { outline: 2px solid var(--primary, #3b82f6); outline-offset: 2px; }
 
     /* ── Page header ────────────────────────────────────────────────────── */
     .rb-page-header { padding: 0 2px 12px; }
@@ -276,7 +357,20 @@
       letter-spacing: -0.025em; color: #fff;
       text-shadow: 0 1px 8px rgba(0,0,0,0.15);
     }
-    .rb-page-sub { margin: 0; font-size: 13px; color: rgba(255,255,255,0.78); }
+    .rb-page-sub { margin: 0; font-size: 13.5px; color: rgba(255,255,255,0.92); }
+
+    /* ── Mobile (<640px) ──────────────────────────────────────────────────
+       DESIGN.md breakpoint: mobile < 640px. Inputs kept at 16px (above) to
+       avoid iOS Safari zoom-on-focus; tap targets kept >= 44px throughout. */
+    @media (max-width: 640px) {
+      main.rb-main { padding: 16px 12px calc(88px + env(safe-area-inset-bottom)); gap: 10px; }
+      .rb-card { padding: 16px; }
+      .rb-seg-effort { flex: 1 1 100%; order: -1; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { transition-duration: 0.001ms !important; animation-duration: 0.001ms !important; scroll-behavior: auto !important; }
+    }
   </style>
 </head>
 <body>
@@ -295,8 +389,8 @@
       <div class="rb-card">
         <div class="rb-import-strip">
           <strong>Pull from device:</strong>
-          <button type="button" class="rb-import-btn rb-import-badge--strava">Strava</button>
-          <button type="button" class="rb-import-btn rb-import-badge--stryd">Stryd</button>
+          <button type="button" class="rb-import-btn rb-import-badge--strava" id="rb-import-strava">Strava</button>
+          <button type="button" class="rb-import-btn rb-import-badge--stryd" id="rb-import-stryd">Stryd</button>
           <span>or log manually below</span>
         </div>
       </div>
@@ -306,23 +400,25 @@
         <h2 class="rb-section-title">Workout Basics</h2>
 
         <div class="rb-field-group">
-          <label class="rb-label" for="rb-name">Name</label>
-          <input id="rb-name" class="rb-input" type="text" placeholder="e.g. Morning Tempo Run" required>
+          <label class="rb-label" for="rb-name">Name <span class="rb-req" aria-hidden="true">*</span></label>
+          <input id="rb-name" class="rb-input" type="text" placeholder="e.g. Morning Tempo Run" required aria-required="true" aria-describedby="rb-name-error">
+          <p class="rb-field-error" id="rb-name-error" role="alert"></p>
         </div>
 
         <div class="rb-field-group">
-          <label class="rb-label" for="rb-date">Date</label>
-          <input id="rb-date" class="rb-input" type="date" required>
+          <label class="rb-label" for="rb-date">Date <span class="rb-req" aria-hidden="true">*</span></label>
+          <input id="rb-date" class="rb-input" type="date" required aria-required="true" aria-describedby="rb-date-error">
+          <p class="rb-field-error" id="rb-date-error" role="alert"></p>
         </div>
 
         <div class="rb-field-group">
-          <span class="rb-label">Type</span>
-          <div class="rb-type-pills">
-            <button type="button" class="rb-type-pill" data-type="strength">Strength</button>
-            <button type="button" class="rb-type-pill rb-type-pill--active" data-type="run">Running</button>
-            <button type="button" class="rb-type-pill" data-type="race">Race</button>
-            <button type="button" class="rb-type-pill" data-type="yoga">Yoga</button>
-            <button type="button" class="rb-type-pill" data-type="custom">Custom</button>
+          <span class="rb-label" id="rb-type-label">Type</span>
+          <div class="rb-type-pills" role="group" aria-labelledby="rb-type-label">
+            <button type="button" class="rb-type-pill" data-type="strength" aria-pressed="false">Strength</button>
+            <button type="button" class="rb-type-pill rb-type-pill--active" data-type="run" aria-pressed="true">Running</button>
+            <button type="button" class="rb-type-pill" data-type="race" aria-pressed="false">Race</button>
+            <button type="button" class="rb-type-pill" data-type="yoga" aria-pressed="false">Yoga</button>
+            <button type="button" class="rb-type-pill" data-type="custom" aria-pressed="false">Custom</button>
           </div>
         </div>
 
@@ -332,7 +428,7 @@
         </div>
 
         <div class="rb-field-group">
-          <label class="rb-label" for="rb-tss">TSS <span style="font-weight:400;text-transform:none;font-size:11px">(optional — leave blank to enter later)</span></label>
+          <label class="rb-label" for="rb-tss">TSS <span class="rb-hint">(optional — leave blank to enter later)</span></label>
           <input id="rb-tss" class="rb-input" type="number" min="0" step="1" placeholder="Auto-estimated when blank" style="max-width:160px">
         </div>
       </div>
@@ -368,12 +464,13 @@
       <div class="rb-card">
         <h2 class="rb-section-title">Laps</h2>
 
-        <div class="rb-lap-mode">
+        <fieldset class="rb-lap-mode">
+          <legend class="rb-sr-only">Lap mode</legend>
           <input type="radio" id="rb-lap-auto" name="rb-lap-mode" value="auto" class="rb-lap-radio" checked>
           <label for="rb-lap-auto" class="rb-lap-label">Auto 1 km splits</label>
           <input type="radio" id="rb-lap-manual" name="rb-lap-mode" value="manual" class="rb-lap-radio">
           <label for="rb-lap-manual" class="rb-lap-label">Manual laps</label>
-        </div>
+        </fieldset>
 
         <!-- Auto lap preview -->
         <div id="rb-auto-lap-section">
@@ -427,12 +524,12 @@
         </div>
       </div>
 
-      <!-- Save actions -->
-      <div class="rb-card">
+      <!-- Save actions: sticky so it stays reachable without scrolling through the whole form -->
+      <div class="rb-save-bar">
         <div class="rb-form-error" id="rb-form-error" role="alert"></div>
         <div class="rb-actions">
           <button type="button" class="rb-btn-secondary" onclick="history.back()">Cancel</button>
-          <button type="submit" class="rb-btn-primary">Save Run</button>
+          <button type="submit" class="rb-btn-primary" id="rb-submit-btn">Save Run</button>
         </div>
       </div>
 

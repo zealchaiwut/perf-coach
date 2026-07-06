@@ -173,8 +173,7 @@
         cursor: not-allowed;
       }
 
-      /* ── Mobile: keep the action buttons on the title row (icon-only), and
-       hide the week-strip calendar (revisit later). ─────────────────────── */
+      /* ── Mobile: keep the action buttons on the title row (icon-only). ── */
       @media (max-width: 599px) {
         .log-page-header {
           flex-wrap: nowrap;
@@ -201,9 +200,6 @@
         }
         .log-page-header .sync-chip {
           padding: 0 8px;
-        }
-        .log-card--week {
-          display: none;
         }
       }
 
@@ -419,13 +415,13 @@
       }
       .sync-row-time {
         font-size: 10px;
-        color: #94a3b8;
+        color: var(--text-tertiary, #69748c);
         font-family: "JetBrains Mono", monospace;
         line-height: 1.3;
       }
       .sync-row-soon {
         font-size: 9.5px;
-        color: #94a3b8;
+        color: var(--text-tertiary, #69748c);
         background: #f1f5f9;
         border-radius: 4px;
         padding: 1px 5px;
@@ -507,42 +503,6 @@
         display: flex;
         flex-direction: column;
         gap: 12px;
-      }
-
-      .tab-coming-soon {
-        background: var(--card-bg);
-        border-radius: var(--card-radius);
-        border: 1px solid var(--card-border);
-        box-shadow: var(--card-shadow);
-        padding: 56px 24px;
-        text-align: center;
-      }
-
-      .tab-coming-soon-text {
-        margin: 0;
-        font-size: 14px;
-        font-weight: 500;
-        color: var(--text-tertiary);
-      }
-
-      .btn-coming-soon {
-        position: relative;
-      }
-
-      .btn-coming-soon::after {
-        content: "soon";
-        position: absolute;
-        top: -7px;
-        right: -4px;
-        font-size: 0.5625rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        background: #f59e0b;
-        color: #fff;
-        padding: 1px 4px;
-        border-radius: 3px;
-        line-height: 1.4;
       }
 
       /* ── Week strip (issue #639: mobile only — hidden on tablet and desktop) ── */
@@ -1394,7 +1354,8 @@
       /* Selected row */
       .entry-row.is-active {
         background: #f0f5ff;
-        box-shadow: inset 3px 0 0 #2b4ca8;
+        border-color: #2b4ca8;
+        box-shadow: inset 2px 0 0 #2b4ca8, 0 0 0 1px #2b4ca8;
         padding-left: 1px;
       }
 
@@ -3967,36 +3928,49 @@
           class="training-sub-tabs"
           id="training-sub-tabs"
           aria-label="Training sub-tabs"
+          role="tablist"
         >
           <button
+            id="log-tab-log"
             class="training-sub-tab active"
             data-tab="log"
             type="button"
+            role="tab"
             aria-selected="true"
+            aria-controls="layout-wrapper"
           >
             Log
           </button>
           <button
+            id="log-tab-plan"
             class="training-sub-tab"
             data-tab="plan"
             type="button"
+            role="tab"
             aria-selected="false"
+            aria-controls="training-panel-plan"
           >
             Plan
           </button>
           <button
+            id="log-tab-projection"
             class="training-sub-tab"
             data-tab="projection"
             type="button"
+            role="tab"
             aria-selected="false"
+            aria-controls="training-panel-projection"
           >
             Projection
           </button>
           <button
+            id="log-tab-performance"
             class="training-sub-tab"
             data-tab="performance"
             type="button"
+            role="tab"
             aria-selected="false"
+            aria-controls="training-panel-performance"
           >
             Performance
           </button>
@@ -4130,16 +4104,30 @@
     </main>
 
     <!-- Plan panel (new weekly training schedule — window.TrainingPlan) -->
-    <div id="training-panel-plan" class="tab-panel-placeholder plan-panel" hidden>
+    <div
+      id="training-panel-plan"
+      class="tab-panel-placeholder plan-panel"
+      role="tabpanel"
+      aria-labelledby="log-tab-plan"
+      tabindex="0"
+      hidden
+    >
       <div id="plan-week-section"></div>
       <div id="plan-add-section"></div>
       <div id="plan-detail-section"></div>
     </div>
 
     <!-- Projection panel (issue #650) -->
-    <div id="training-panel-projection" class="tab-panel-placeholder" hidden>
+    <div
+      id="training-panel-projection"
+      class="tab-panel-placeholder"
+      role="tabpanel"
+      aria-labelledby="log-tab-projection"
+      tabindex="0"
+      hidden
+    >
       <!-- ── Projection tab panel ───────────────────────────────────── -->
-      <div id="plan-tab-panel" role="tabpanel" aria-labelledby="log-tab-plan">
+      <div id="plan-tab-panel">
         <!-- ── Merged Plan panel (mock: plan-merge) ─────────────────────── -->
         <div class="plan-merged">
           <!-- Row: A-race header + calibration status -->
@@ -4336,6 +4324,9 @@
     <div
       id="training-panel-performance"
       class="tab-panel-placeholder perf-panel"
+      role="tabpanel"
+      aria-labelledby="log-tab-performance"
+      tabindex="0"
       hidden
     >
       <!-- ── Score cards: Endurance + Speed (2-up) ─────────────────────────── -->
@@ -4541,7 +4532,7 @@
                 </div>
               </div>
               <a class="perf-plink" href="#projection"
-                >Full projection on Projection →</a
+                >See full projection →</a
               >
             </div>
             <div class="perf-proj-empty" id="perf-proj-empty" hidden>
@@ -4568,7 +4559,7 @@
         --pm-card: #fff;
         --pm-ink: #1b2340;
         --pm-muted: #6b7280;
-        --pm-faint: #9aa3b8;
+        --pm-faint: var(--text-tertiary, #69748c);
         --pm-line: #eceef4;
         --pm-tile: #f6f7fb;
         --pm-blue: #4f6ef7;
@@ -6568,9 +6559,22 @@
     table.lrx-cal th { font-size: 11px; font-weight: 800; letter-spacing: 0.06em; color: var(--lrx-faint); text-transform: uppercase; padding: 0 0 8px; text-align: center; }
     table.lrx-cal th.wk { text-align: right; padding-right: 2px; }
     .lrx-calrow { cursor: pointer; }
-    .lrx-calrow td { border-top: 1px solid var(--lrx-line); height: 78px; vertical-align: top; text-align: center; }
+    /* Fixed 92px keeps EVERY week row the same height whether or not its days
+       carry planned-session tags. 92px fits the worst case (day number + up to
+       two dots + up to two stacked tags ≈ 78px) so a tagged day never grows
+       its row taller than an untagged one. `height` on a table cell is a
+       minimum and all cells in a row share the row height, so this evens them. */
+    .lrx-calrow td { border-top: 1px solid var(--lrx-line); height: 92px; vertical-align: top; text-align: center; }
     .lrx-calrow .dnum { font-size: 14px; font-family: var(--lrx-mono); color: var(--lrx-ink); padding-top: 7px; display: inline-block; }
     .lrx-calrow td.out .dnum { color: #cbd2e0; }
+    /* Today marker: a ring inside the day cell (inset shadow avoids disturbing
+       the table's border-collapse layout) plus a bolded accent day number. */
+    .lrx-calrow td.is-today { box-shadow: inset 0 0 0 2px var(--lrx-run); border-radius: 10px; }
+    .lrx-calrow td.is-today .dnum { color: var(--lrx-run); font-weight: 700; }
+    /* Deep-linked workout's day (#5): a darker ring in the same accent as the
+       .entry-row.is-active list row, so the one workout reads as flagged in
+       both views. Wins over the today ring when they coincide (later rule). */
+    .lrx-calrow td.cal-day.deep-linked { box-shadow: inset 0 0 0 2px #2b4ca8; border-radius: 10px; }
     .lrx-dot { width: 6px; height: 6px; border-radius: 50%; margin: 3px auto 0; }
     .lrx-dot.run { background: var(--lrx-run); }
     .lrx-dot.lift { background: var(--lrx-lift); }
@@ -6590,8 +6594,12 @@
     .lrx-wkcell .wkkm { font-size: 12px; color: var(--lrx-muted); font-family: var(--lrx-mono); }
     .lrx-wkbar { height: 5px; background: var(--lrx-tile); border-radius: 3px; margin-top: 5px; overflow: hidden; }
     .lrx-wkbar span { display: block; height: 100%; background: linear-gradient(90deg, #6366f1, #4f6ef7); border-radius: 3px; }
-    .lrx-calrow.sel td { background: #dbe4ff; }
-    .lrx-calrow.sel td:first-child { box-shadow: inset 3px 0 0 var(--lrx-run); }
+    /* Selected week: a border ring around the whole row (top+bottom on every
+       cell, plus the outer edges) so the scoped week reads as a bordered band,
+       mirrored by .day-group.lrx-week-hl in the log list below. */
+    .lrx-calrow.sel td { background: #dbe4ff; box-shadow: inset 0 2px 0 var(--lrx-run), inset 0 -2px 0 var(--lrx-run); }
+    .lrx-calrow.sel td:first-child { box-shadow: inset 0 2px 0 var(--lrx-run), inset 0 -2px 0 var(--lrx-run), inset 2px 0 0 var(--lrx-run); }
+    .lrx-calrow.sel td:last-child { box-shadow: inset 0 2px 0 var(--lrx-run), inset 0 -2px 0 var(--lrx-run), inset -2px 0 0 var(--lrx-run); }
     .lrx-calrow.sel .lrx-wkcell { background: #c7d2fe; }
     .lrx-calrow:hover td { background: #f6f8ff; }
     .lrx-callegend { display: flex; gap: 14px; margin-top: 12px; font-size: 13px; color: var(--lrx-muted); flex-wrap: wrap; }
@@ -6671,11 +6679,20 @@
     #layout-wrapper .detail-panel .dp-topbar { border-radius: 16px 16px 0 0; }
     /* Inset the drawer top bar to match the card padding (item: "same as summary"). */
     #layout-wrapper .detail-panel .dp-topbar { padding: 0 18px; }
-    /* Highlight the log-list day-groups belonging to a calendar-selected week. */
+    /* Highlight the log-list day-groups belonging to a calendar-selected week —
+       a full border ring mirrors the calendar's selected-week border (#4). */
     .day-group.lrx-week-hl {
       background: #eef2ff;
       border-radius: 12px;
-      box-shadow: inset 3px 0 0 var(--lrx-run, #4f6ef7);
+      border: 2px solid var(--lrx-run, #4f6ef7);
+      padding: 6px 8px;
+    }
+    /* Today's day-group in the log list — same accent ring the calendar's
+       today cell uses, so "today" reads consistently in both places (#4). */
+    .day-group.is-today-group {
+      border-radius: 12px;
+      box-shadow: inset 0 0 0 2px var(--lrx-run, #4f6ef7);
+      padding: 6px 8px;
     }
     .detail-panel-overlay {
       position: fixed;
@@ -6707,7 +6724,13 @@
   </style>
 
 
-  <div id="layout-wrapper" class="log-layout">
+  <div
+    id="layout-wrapper"
+    class="log-layout"
+    role="tabpanel"
+    aria-labelledby="log-tab-log"
+    tabindex="0"
+  >
     <div id="list-main" class="log-page-body">
       <!-- Summary digest card (issue #1058) -->
       <div id="summary-digest-card" class="log-card" hidden>
@@ -6762,7 +6785,7 @@
 
         <div id="log-empty-msg" style="display:none" class="empty-state">
           <div class="empty-state-icon">🏃</div>
-          <p>No workouts logged yet. Start tracking your training!</p>
+          <p>No workouts logged yet.</p>
           <button id="log-empty-cta" class="btn-accent" type="button">Log your first workout</button>
         </div>
       </div>

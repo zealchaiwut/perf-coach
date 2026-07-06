@@ -255,6 +255,10 @@ information about.
           '<button class="pl-arw" id="pl-next" aria-label="Next week">›</button>' +
         '</div>' +
         '<div class="pl-btnrow">' +
+          /* "Suggest sessions" is disabled ("coming soon") — the assembled-prompt
+             flow that used to back this button (_openSuggest/_suggestHtml and
+             friends) was dead code (button never enabled) and has been removed;
+             see git history if it's revived. */
           '<button class="pl-btn pl-ghost" id="pl-suggest" disabled title="Coming soon">✨ Suggest sessions</button>' +
           '<button class="pl-btn pl-dark" id="pl-add">+ Add</button>' +
         '</div></div>' +
@@ -1085,129 +1089,9 @@ information about.
   }
   function _closeDetail() { _panel.open = null; _detail = null; _renderDetailSection(); }
 
-  // ── ITEM 4: Suggest = assemble a copyable planning prompt (NO model call) ────
-  // Verbatim kickoff template with Q4 pre-filled from last week's real bundle.
-  var _suggestPrompt = null;   // assembled text (null → not open)
-
-  function _feelWord(f) {
-    return f === 'hard' ? 'felt hard' : f === 'ok' ? 'felt ok' : f === 'easy' ? 'felt easy' : '';
-  }
-  function _statusWord(status) {
-    if (status === 'done_auto' || status === 'done_manual') return 'done';
-    if (status === 'missed') return 'missed';
-    if (status === 'needs_review') return 'needs-review';
-    return 'planned';
-  }
-
-  // One compact line per planned session for the pre-filled Q4 block.
-  function _lastWeekLine(p) {
-    var when = _fmtDayDate(p.planned_date);
-    var label = (p.name || p.session_type || 'session');
-    var planned = (_plannedMeta(p) || '').trim();
-    var parts = ['- ' + when + ' — ' + label + (p.session_type ? ' (' + p.session_type + ')' : '')];
-    if (planned) parts.push('planned: ' + planned);
-    parts.push('status: ' + _statusWord(p.status));
-    var isDone = (p.status === 'done_auto' || p.status === 'done_manual');
-    if (isDone && p.actual && p.actual.meta) parts.push('actual: ' + p.actual.meta);
-    if (isDone && p.actual && p.actual.feeling) parts.push(_feelWord(p.actual.feeling));
-    return parts.join('; ');
-  }
-
-  // Build the assembled prompt: template verbatim, with the Q4 line replaced by
-  // a pre-filled last-week block. Untagged completed sessions get an explicit
-  // "ask how it felt" instruction so the interview gap is filled only for them.
-  function _buildSuggestPrompt(lastBundle, lastMon, lastSun) {
-    var sessions = (lastBundle && Array.isArray(lastBundle.sessions)) ? lastBundle.sessions.slice() : [];
-    sessions.sort(function (a, b) { return String(a.planned_date).localeCompare(String(b.planned_date)); });
-
-    var lines = [];
-    var untaggedAsks = [];
-    sessions.forEach(function (p) {
-      lines.push(_lastWeekLine(p));
-      var isDone = (p.status === 'done_auto' || p.status === 'done_manual');
-      if (isDone && !(p.actual && p.actual.feeling)) {
-        untaggedAsks.push('  - ' + _fmtDayDate(p.planned_date) + ' — ' + (p.name || p.session_type || 'session'));
-      }
-    });
-
-    var block = '4. **Last week\'s plan and how it felt** (pre-filled from perf-coach — ' +
-      _fmtDayDate(_iso(lastMon)) + ' to ' + _fmtDayDate(_iso(lastSun)) + '):\n';
-    if (lines.length) {
-      block += lines.join('\n') + '\n';
-    } else {
-      block += '- (no planned sessions recorded last week)\n';
-    }
-    if (untaggedAsks.length) {
-      block += '\n   Before finalizing, ASK me how each of these COMPLETED but un-rated ' +
-        'sessions felt (I have not tagged them yet):\n' + untaggedAsks.join('\n') + '\n';
-    }
-
-    // Substitute the template's optional Q4 line (item 4 of the intake list)
-    // with the pre-filled block. Anchor on the literal "4. *(Optional)*" line
-    // and replace through the end of its paragraph.
-    var tpl = KICKOFF_PROMPT_TEMPLATE;
-    var q4Re = /4\. \*\(Optional\)\* \*\*Paste last week's plan and how it felt\*\*[\s\S]*?too easy\/hard\)\.\n/;
-    if (q4Re.test(tpl)) {
-      return tpl.replace(q4Re, block);
-    }
-    // Fallback: if the anchor ever drifts, append the block rather than drop it.
-    return tpl + '\n\n' + block;
-  }
-
-  function _openSuggest() {
-    _panel.open = 'suggest';
-    _suggestPrompt = null;
-    _detail = null;
-    _renderDetailSection();
-    _renderAddSection();
-    var el = document.getElementById('plan-detail-section');
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-    // Previous week Mon–Sun relative to today.
-    var lastMon = _addDays(_mondayOf(new Date()), -7);
-    var lastSun = _addDays(lastMon, 6);
-    _api('GET', '/api/planned-sessions?from=' + _iso(lastMon) + '&to=' + _iso(lastSun))
-      .then(function (bundle) {
-        _suggestPrompt = _buildSuggestPrompt(bundle, lastMon, lastSun);
-        _renderDetailSection();
-      })
-      .catch(function () {
-        // Even on fetch failure, hand back the blank template so the user is
-        // never stuck (they can still fill Q4 by hand).
-        _suggestPrompt = KICKOFF_PROMPT_TEMPLATE;
-        _renderDetailSection();
-      });
-  }
-  function _closeSuggest() { _panel.open = null; _suggestPrompt = null; _renderDetailSection(); }
-
-  function _suggestHtml() {
-    var loading = _suggestPrompt == null;
-    return '<div class="pl-card pl-panelcard">' +
-      '<div class="pl-panelhead" style="margin-bottom:2px;"><span class="pl-sectitle">Suggest sessions — planning prompt</span>' +
-        '<button class="pl-closepanel" id="pl-sug-close">✕</button></div>' +
-      '<div class="pl-infobanner" style="margin-bottom:12px;">This assembles a <b>copyable prompt</b> — the canonical kickoff template with last week’s results pre-filled. Copy it into a Claude chat, answer the questions, then paste the JSON it hands back into <b>+ Add week → Bulk JSON</b>. No plan is generated here.</div>' +
-      (loading
-        ? '<div class="pl-loading">Assembling prompt from last week’s plan…</div>'
-        : '<div class="pl-exportbox"><div class="pl-eh"><span class="pl-et">Planning prompt (copy into a new Claude chat)</span>' +
-            '<button class="pl-copybtn" id="pl-sug-copy">Copy</button></div>' +
-            '<pre id="pl-sug-pre">' + esc(_suggestPrompt) + '</pre></div>') +
-      '</div>';
-  }
-
   function _renderDetailSection() {
     var host = document.getElementById('plan-detail-section');
     if (!host) return;
-    if (_panel.open === 'suggest') {
-      host.innerHTML = _suggestHtml();
-      var sclose = document.getElementById('pl-sug-close');
-      if (sclose) sclose.onclick = _closeSuggest;
-      var scopy = document.getElementById('pl-sug-copy');
-      if (scopy) scopy.onclick = function () {
-        var pre = document.getElementById('pl-sug-pre');
-        _copyText(pre ? pre.textContent : (_suggestPrompt || ''), scopy);
-      };
-      return;
-    }
     if (_panel.open !== 'detail' || !_detail) { host.innerHTML = ''; return; }
     var p = _detail;
     var isRun = p.session_type === 'run';

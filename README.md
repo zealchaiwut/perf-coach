@@ -5,7 +5,7 @@ Personal performance dashboard. Tracks weight, habits, readiness, training log, 
 ## Features
 
 - **Weight plans** — structured goal plans per user (`weight_plans` table); phase (`cut`/`bulk`/`maintain`), start/goal weights, optional target rate and goal date; one active plan per user enforced; `recompute_plan_from_progress(plan, actual_trend, today)` pure function anchors a new forward plan segment at today's actual trend weight while preserving the original segment, enabling charts to show a plan line grounded in current reality; CRUD endpoints: `POST /api/weight-plans`, `GET /api/weight-plans/active`, `PATCH /api/weight-plans/{id}`, `DELETE /api/weight-plans/{id}` (soft-deactivates)
-- **Weight tracking** — daily log; gradient-design weight page with two-card hero (current weight + log-today); custom SVG trend chart (v8) with three-zone BMI axes, moving average, range tabs (7D / 30D / 90D / 6M / 1Y / All); plan overlay, milestones, projected goal-hit date (7-day pace), and slide-in target-edit panel; `/weight/targets` removed — target editing is now inline on the weight page; logging streak badge and 14-day adherence counter shown below the hero; mobile touch: tap-to-reveal tooltip on chart, persistent labels for current weight, plan, gap, and milestone values
+- **Weight tracking** — daily log; gradient-design weight page with two-card hero (current weight + log-today); custom SVG trend chart (v8) with three-zone BMI axes, moving average, range tabs (7D / 30D / 90D / 6M / 1Y / All); plan overlay, milestones, projected goal-hit date (7-day pace), and slide-in target-edit panel; `/weight/targets` removed — target editing is now inline on the weight page; logging streak badge and 14-day adherence counter shown below the hero; kg/lb unit toggle on the log-today card (persisted via `localStorage`, converts the stepper's displayed value and min/max/step in place on switch — weights are always stored in kg); one-tap "Log same as last" button that re-logs the most recent entry weight when today is not yet logged; mobile touch: tap-to-reveal tooltip on chart, persistent labels for current weight, plan, gap, and milestone values
 - **Daily bodyweight upsert** _(Sprint 95)_ — `PUT /api/weight-entries/by-date` upserts one bodyweight entry per calendar date for the session user: an existing date-keyed entry (`entry_time = NULL`) is updated in place, otherwise a new row is created (201), so submitting twice for the same date never creates a duplicate; body `{entry_date (YYYY-MM-DD), weight_kg, notes?}`; validates `weight_kg` in 20–300, `notes` ≤ 500 chars, and rejects dates more than 1 day in the future (422)
 - **Bodyweight EWMA trend** _(Sprint 95)_ — `backend/services/weight_ewma.py` `compute_ewma(entries, *, span=14, alpha=None)` smooths chronologically-ordered bodyweight entries via an exponentially-weighted moving average (`alpha = 2/(span+1)`); missing days are skipped, never zero-filled; `backend/services/weight_ewma_rate.py` `compute_weekly_pct_bw_rate_of_change(ewma_values)` derives the weekly percent-bodyweight rate of change from a window of EWMA values (`((end-start)/start)*100`; negative = loss, positive = gain; `None` for <2 points; raises on a zero start weight); `GET /api/weight-chart` now also returns a dense daily `ewma` series (last value carried forward across gaps) plus `stats.weekly_rate_ewma_kg` (EWMA slope over the trailing 7 days) and `stats.ewma_alpha`; the weight chart renders the EWMA line in amber overlaid on raw entries (`frontend/js/weight-chart.js`), splitting into segments across data gaps
 - **Energy-availability proxy** _(Sprint 95)_ — `backend/services/ea_proxy.py` `compute_ea_proxy(*, intake, training_load)` computes a relative energy-availability proxy as `intake / training_load` and raises a `low_ea` flag when the ratio falls below `LOW_EA_THRESHOLD` (1.0); when `training_load` is zero the proxy is `None` and `low_ea` is `False` (absence of load is not an insufficiency event); a sufficiency signal only — no calorie prescriptions or absolute targets
@@ -156,6 +156,39 @@ Each script:
 
 - **PRD** — real data, the source of truth. Treat it carefully.
 - **UAT** — for testing new features before promoting to PRD. Data here can be wiped freely. Because Neon branches are completely isolated, data written to UAT never appears in PRD.
+
+## Compute worker (zeal-server)
+
+The RAM/CPU-heavy paths — Strava/Stryd sync (pull + reconcile + per-second
+stream ingest), performance backfill, and the weekly Banister refit — can run
+on a separate machine via `backend/worker_app.py` (port 9100, same Neon DB).
+The Render webapp keeps its own manual sync feature; the worker is an
+additional, separately-scheduled writer. Full reference: [docs/worker.md](docs/worker.md).
+
+Start it (on zeal-server, from a clone with `.env` filled in):
+
+    ./start_worker.sh
+
+It syncs all connected users automatically at `WORKER_SYNC_TIMES`
+(default `06:00,18:00` Asia/Bangkok). To trigger a sync manually:
+
+    # all users, incremental
+    curl -X POST http://localhost:9100/internal/sync/run \
+      -H "X-Worker-Secret: $WORKER_SHARED_SECRET" \
+      -H "Content-Type: application/json" -d '{}'
+
+    # one user, full history
+    curl -X POST http://localhost:9100/internal/sync/run \
+      -H "X-Worker-Secret: $WORKER_SHARED_SECRET" \
+      -H "Content-Type: application/json" \
+      -d '{"user_id": "<uuid>", "full": true}'
+
+    # check results (audit trail in worker_job_runs table)
+    curl http://localhost:9100/internal/jobs?limit=20 \
+      -H "X-Worker-Secret: $WORKER_SHARED_SECRET"
+
+All `/internal/*` endpoints (except `/internal/health`) require the
+`X-Worker-Secret` header matching `WORKER_SHARED_SECRET` in `.env`.
 
 ## API
 

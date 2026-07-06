@@ -124,10 +124,6 @@ def main() -> int:
                 rows = [dict(r._mapping) for r in sc.execute(q)]
                 if rows:
                     pk = [c.name for c in t.primary_key.columns]
-                    ins = t.insert()
-                    if pk:
-                        ins = ins.on_conflict_do_nothing(index_elements=pk) \
-                            if hasattr(ins, "on_conflict_do_nothing") else ins
                     if args.commit:
                         # psycopg/pg: use ON CONFLICT DO NOTHING via raw for safety
                         from sqlalchemy.dialects.postgresql import insert as pg_insert

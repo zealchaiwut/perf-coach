@@ -4,29 +4,40 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Log In – perf-coach</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/styles.css">
   <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css" rel="stylesheet">
   <style>
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-    html, body { margin: 0; padding: 0; min-height: 100vh; }
+    html, body { min-height: 100vh; }
     body {
-      font-family: 'Inter Tight', system-ui, sans-serif;
-      background: radial-gradient(ellipse at top left, #5a8dee 0%, #1f3b8a 70%);
+      background: var(--surface-2);
       display: flex;
       align-items: center;
       justify-content: center;
       min-height: 100vh;
       padding: 24px;
-      letter-spacing: -0.01em;
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      body { animation: page-in 0.35s ease-out both; }
+    }
+    @keyframes page-in {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    main {
+      width: 100%;
+      max-width: 380px;
+      padding: 0;
     }
 
     .login-card {
-      background: #fff;
-      border-radius: 24px;
-      padding: 40px 36px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 36px 32px;
       width: 100%;
-      max-width: 380px;
-      box-shadow: 0 8px 40px rgba(11, 21, 48, 0.18);
+      box-shadow: 0 1px 2px rgba(17, 24, 39, 0.04), 0 12px 32px rgba(17, 24, 39, 0.08);
     }
 
     .brand {
@@ -36,10 +47,10 @@
       margin-bottom: 28px;
     }
     .brand-mark {
-      width: 34px;
-      height: 34px;
+      width: 36px;
+      height: 36px;
       border-radius: 10px;
-      background: linear-gradient(135deg, #6e90f0, #2b4ca8);
+      background: var(--primary);
       color: #fff;
       display: flex;
       align-items: center;
@@ -50,50 +61,52 @@
     .brand-text {
       font-weight: 700;
       font-size: 16px;
-      letter-spacing: -0.02em;
-      color: #0b1530;
+      letter-spacing: -0.01em;
+      color: var(--text);
     }
 
     h1 {
       margin: 0 0 24px;
       font-size: 22px;
       font-weight: 700;
-      color: #0b1530;
-      letter-spacing: -0.025em;
+      color: var(--text);
+      letter-spacing: -0.01em;
     }
 
-    .field {
-      margin-bottom: 16px;
-    }
+    .field { margin-bottom: 16px; }
     .field label {
       display: block;
       font-size: 12.5px;
       font-weight: 600;
-      color: #5c6886;
+      color: var(--text-sub);
       margin-bottom: 6px;
       text-transform: uppercase;
       letter-spacing: 0.04em;
     }
     .field input {
       width: 100%;
+      min-height: 44px;
       padding: 11px 14px;
-      border: 1.5px solid rgba(13, 30, 67, 0.14);
-      border-radius: 12px;
-      font-size: 14px;
+      border: 1.5px solid var(--border-input);
+      border-radius: 10px;
+      font-size: 16px;
       font-family: inherit;
-      color: #0b1530;
-      background: #fff;
+      color: var(--text);
+      background: var(--surface);
       outline: none;
-      transition: border-color 0.15s;
-      box-shadow: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
       -webkit-appearance: none;
       appearance: none;
     }
-    .field input:invalid {
-      box-shadow: none;
-    }
     .field input:focus {
-      border-color: #2b4ca8;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 4px var(--focus-ring);
+    }
+    .field input[aria-invalid="true"] {
+      border-color: var(--danger);
+    }
+    .field input[aria-invalid="true"]:focus {
+      box-shadow: 0 0 0 4px var(--danger-soft);
     }
     /* Hide browser autofill / keychain chips inside text fields */
     .field input::-webkit-credentials-auto-fill-button,
@@ -108,26 +121,32 @@
     .password-wrap {
       display: flex;
       align-items: stretch;
-      border: 1.5px solid rgba(13, 30, 67, 0.14);
-      border-radius: 12px;
-      background: #fff;
+      border: 1.5px solid var(--border-input);
+      border-radius: 10px;
+      background: var(--surface);
       overflow: hidden;
-      transition: border-color 0.15s;
+      transition: border-color 0.15s, box-shadow 0.15s;
     }
     .password-wrap:focus-within {
-      border-color: #2b4ca8;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 4px var(--focus-ring);
+    }
+    .password-wrap.has-error {
+      border-color: var(--danger);
+    }
+    .password-wrap.has-error:focus-within {
+      box-shadow: 0 0 0 4px var(--danger-soft);
     }
     .password-wrap input {
       flex: 1;
       min-width: 0;
+      min-height: 44px;
       border: 0;
       border-radius: 0;
       background: transparent;
       padding: 11px 8px 11px 14px;
     }
-    .password-wrap input:focus {
-      border-color: transparent;
-    }
+    .password-wrap input:focus { box-shadow: none; }
     .password-wrap input::-webkit-credentials-auto-fill-button,
     .password-wrap input::-webkit-strong-password-auto-fill-button {
       visibility: hidden;
@@ -136,19 +155,17 @@
     }
     .reveal-btn {
       flex-shrink: 0;
-      align-self: center;
-      width: 38px;
-      height: 38px;
-      margin: 4px 5px 4px 0;
+      align-self: stretch;
+      width: 44px;
       display: flex;
       align-items: center;
       justify-content: center;
-      background: #eef2f8;
+      background: transparent;
       border: 0;
-      border-radius: 9px;
+      border-left: 1px solid var(--border);
       padding: 0;
       cursor: pointer;
-      color: #5c6886;
+      color: var(--text-sub);
       transition: background 0.15s, color 0.15s;
     }
     .reveal-btn svg {
@@ -162,13 +179,10 @@
       display: block;
       flex-shrink: 0;
     }
-    .reveal-btn:hover {
-      color: #0b1530;
-      background: #e4eaf4;
-    }
+    .reveal-btn:hover { color: var(--text); background: var(--surface-2); }
     .reveal-btn:focus-visible {
-      outline: 2px solid #2b4ca8;
-      outline-offset: 1px;
+      outline: 2px solid var(--primary);
+      outline-offset: -2px;
     }
     .reveal-btn .eye-off { display: none; }
     .reveal-btn.is-revealed .eye-on { display: none; }
@@ -176,77 +190,83 @@
 
     .error-msg {
       display: none;
-      align-items: center;
+      align-items: flex-start;
       gap: 8px;
-      background: #ffd9d9;
-      color: #7a1a1a;
-      border-radius: 9px;
+      background: var(--danger-soft);
+      color: var(--danger-dark);
+      border-radius: 8px;
       padding: 10px 14px;
       font-size: 13px;
       font-weight: 500;
       margin-bottom: 16px;
     }
-    .error-msg.is-visible {
-      display: flex;
-    }
-    .error-msg i { font-size: 15px; flex-shrink: 0; }
+    .error-msg.is-visible { display: flex; }
+    .error-msg i { font-size: 15px; flex-shrink: 0; margin-top: 1px; }
 
     .submit-btn {
       width: 100%;
+      min-height: 44px;
       padding: 12px;
-      background: #0b1530;
+      background: var(--primary);
       color: #fff;
       border: 0;
-      border-radius: 12px;
+      border-radius: 10px;
       font-family: inherit;
-      font-size: 14px;
+      font-size: 15px;
       font-weight: 600;
       cursor: pointer;
-      letter-spacing: -0.01em;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 8px;
-      transition: opacity 0.15s;
+      transition: background 0.15s, opacity 0.15s;
     }
-    .submit-btn:disabled { opacity: 0.6; cursor: default; }
+    .submit-btn:hover:not(:disabled) { background: var(--primary-dark); }
+    .submit-btn:focus-visible {
+      outline: 2px solid var(--primary-dark);
+      outline-offset: 2px;
+    }
+    .submit-btn:disabled { opacity: 0.65; cursor: default; }
     .submit-btn .spinner {
       width: 16px;
       height: 16px;
-      border: 2px solid rgba(255,255,255,0.35);
+      border: 2px solid rgba(255, 255, 255, 0.4);
       border-top-color: #fff;
       border-radius: 50%;
       animation: spin 0.7s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) {
+      .submit-btn .spinner { animation-duration: 1.4s; }
+    }
 
     .divider {
       display: flex;
       align-items: center;
       gap: 10px;
       margin: 18px 0;
-      color: #b0b8cc;
+      color: var(--text-sub);
       font-size: 12px;
     }
     .divider::before, .divider::after {
       content: '';
       flex: 1;
       height: 1px;
-      background: #e8edf8;
+      background: var(--border);
     }
 
     .google-btn {
       width: 100%;
+      min-height: 44px;
       padding: 11px;
-      background: #fff;
-      color: #0b1530;
-      border: 1.5px solid #d4ddf0;
-      border-radius: 12px;
+      background: var(--surface);
+      color: var(--text);
+      border: 1.5px solid var(--border-input);
+      border-radius: 10px;
       font-family: inherit;
-      font-size: 14px;
+      font-size: 15px;
       font-weight: 600;
       cursor: pointer;
-      letter-spacing: -0.01em;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -254,27 +274,27 @@
       transition: background 0.15s, border-color 0.15s;
       text-decoration: none;
     }
-    .google-btn:hover { background: #f7f9fd; border-color: #b0b8cc; }
-    .google-btn svg { flex-shrink: 0; }
-
-    @media (max-width: 440px) {
-      .login-card { padding: 32px 22px; }
+    .google-btn:hover { background: var(--surface-2); border-color: var(--text-sub); }
+    .google-btn:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
     }
+    .google-btn svg { flex-shrink: 0; }
 
     .env-badge {
       margin-top: 20px;
       padding: 8px 12px;
-      background: #f0f4ff;
-      border: 1px solid #d4ddf0;
-      border-radius: 10px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
       font-size: 11.5px;
-      color: #5c6886;
+      color: var(--text-sub);
       display: flex;
       align-items: center;
       gap: 8px;
     }
     .env-badge .env-pill {
-      background: #2b4ca8;
+      background: var(--primary);
       color: #fff;
       border-radius: 5px;
       padding: 1px 7px;
@@ -284,16 +304,21 @@
       letter-spacing: 0.06em;
       flex-shrink: 0;
     }
-    .env-badge .env-pill.prd { background: #c0392b; }
-    .env-badge .env-pill.local { background: #27ae60; }
+    .env-badge .env-pill.prd { background: var(--danger); }
+    .env-badge .env-pill.local { background: var(--success); }
     .env-badge .db-host {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+
+    @media (max-width: 440px) {
+      .login-card { padding: 28px 20px; }
+    }
   </style>
 </head>
 <body>
+<main>
 <div class="login-card">
   <div class="brand">
     <span class="brand-mark"><i class="ti ti-activity-heartbeat" aria-hidden="true"></i></span>
@@ -303,14 +328,16 @@
   <form id="login-form" novalidate>
     <div class="field">
       <label for="username">Username</label>
-      <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+      <input type="text" id="username" name="username" autocomplete="username" required autofocus
+             aria-invalid="false" aria-describedby="error-text">
     </div>
     <div class="field">
       <label for="password">Password</label>
-      <div class="password-wrap">
+      <div class="password-wrap" id="password-wrap">
         <input type="password" id="password" name="password" autocomplete="current-password"
                autocorrect="off" autocapitalize="off" spellcheck="false"
-               data-1p-ignore data-lpignore="true" required>
+               data-1p-ignore data-lpignore="true" required
+               aria-invalid="false" aria-describedby="error-text">
         <button type="button" id="reveal-btn" class="reveal-btn" aria-label="Show password" aria-pressed="false">
           <svg class="eye-on" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/>
@@ -325,7 +352,7 @@
         </button>
       </div>
     </div>
-    <div id="error-msg" class="error-msg" role="alert">
+    <div id="error-msg" class="error-msg" role="alert" aria-live="assertive">
       <i class="ti ti-alert-circle" aria-hidden="true"></i>
       <span id="error-text"></span>
     </div>
@@ -351,6 +378,7 @@
     </a>
   </div>
 </div>
+</main>
 <script>
 (function () {
   'use strict';
@@ -360,6 +388,9 @@
   var btnLabel = document.getElementById('btn-label');
   var errorMsg = document.getElementById('error-msg');
   var errorText = document.getElementById('error-text');
+  var usernameInput = document.getElementById('username');
+  var passwordInput = document.getElementById('password');
+  var passwordWrap = document.getElementById('password-wrap');
 
   function setLoading(on) {
     btn.disabled = on;
@@ -379,15 +410,20 @@
   function showError(msg) {
     errorText.textContent = msg;
     errorMsg.classList.add('is-visible');
+    usernameInput.setAttribute('aria-invalid', 'true');
+    passwordInput.setAttribute('aria-invalid', 'true');
+    passwordWrap.classList.add('has-error');
   }
 
   function hideError() {
     errorText.textContent = '';
     errorMsg.classList.remove('is-visible');
+    usernameInput.setAttribute('aria-invalid', 'false');
+    passwordInput.setAttribute('aria-invalid', 'false');
+    passwordWrap.classList.remove('has-error');
   }
 
   var revealBtn = document.getElementById('reveal-btn');
-  var passwordInput = document.getElementById('password');
   revealBtn.addEventListener('click', function () {
     var show = passwordInput.type === 'password';
     passwordInput.type = show ? 'text' : 'password';
@@ -409,8 +445,8 @@
     e.preventDefault();
     hideError();
 
-    var username = document.getElementById('username').value.trim();
-    var password = document.getElementById('password').value;
+    var username = usernameInput.value.trim();
+    var password = passwordInput.value;
 
     if (!username || !password) {
       showError('Please enter your username and password.');

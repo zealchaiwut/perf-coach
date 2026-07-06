@@ -87,13 +87,18 @@
       return '<div class="hw-autofill-marker" title="Auto-filled from ' +
         _esc(habit.auto_fill_source) + '" aria-label="Auto-filled">&#8226;</div>';
     }
+    var name = _esc(habit.name || 'habit');
     if (isChecked) {
       return '<div class="hw-check-circle hw-check-circle--done"' +
-        ' data-habit-id="' + _esc(habit.id) + '" title="Tap to uncheck">' +
+        ' data-habit-id="' + _esc(habit.id) + '" title="Tap to uncheck"' +
+        ' role="button" tabindex="0" aria-pressed="true"' +
+        ' aria-label="' + name + ', done today. Activate to uncheck.">' +
         '<i class="ti ti-check"></i></div>';
     }
     return '<div class="hw-check-circle hw-check-circle--empty"' +
-      ' data-habit-id="' + _esc(habit.id) + '" title="Tap to check">+</div>';
+      ' data-habit-id="' + _esc(habit.id) + '" title="Tap to check"' +
+      ' role="button" tabindex="0" aria-pressed="false"' +
+      ' aria-label="' + name + ', not done today. Activate to check.">+</div>';
   }
 
   /* ── Habits widget ── */
@@ -117,16 +122,21 @@
     var fullDays = _WH
       ? (wheel || []).filter(function (w) { return w.state === 'full'; }).length
       : 0;
-    var top3     = (habits.top_habits && habits.top_habits.length > 0
-                    ? habits.top_habits : habits.daily_habits).slice(0, 3);
-    var remaining = habits.remaining_count != null ? habits.remaining_count : 0;
+    // Show up to 5 (was 3) — the card now sits full-width under Weight and
+    // needs the extra rows to fill that larger footprint. remaining is derived
+    // from what's actually shown so "+N more" stays correct at the new count.
+    var source = (habits.top_habits && habits.top_habits.length > 0)
+                    ? habits.top_habits : habits.daily_habits;
+    var shownHabits = source.slice(0, 5);
+    var totalDaily = (habits.daily_habits || []).length;
+    var remaining = Math.max(0, totalDaily - shownHabits.length);
 
     /* Wheel */
     var wheelHTML = _WH ? _WH.buildWheelSvg(wheel, pct, { fullDays: fullDays }) : '';
 
     /* Habit rows */
     var rowsHTML = '';
-    top3.forEach(function (h) {
+    shownHabits.forEach(function (h) {
       var isChecked  = !!h.today_checked;
       var streak     = h.streak != null ? h.streak : 0;
       var weekCount  = h.week_count != null ? h.week_count : 0;
@@ -187,6 +197,16 @@
       if (el._hasListener) return;
       el._hasListener = true;
 
+      /* Keyboard activation — the circle is a div with role="button" (no
+         native activation keys), so Enter/Space must be wired up by hand
+         to match native <button> behavior for keyboard users. */
+      el.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+          e.preventDefault();
+          el.click();
+        }
+      });
+
       el.addEventListener('click', async function () {
         var hid     = el.getAttribute('data-habit-id');
         var habit   = habitMap[hid];
@@ -198,9 +218,11 @@
         if (isDone) {
           el.classList.replace('hw-check-circle--done', 'hw-check-circle--empty');
           el.innerHTML = '+';
+          el.setAttribute('aria-pressed', 'false');
         } else {
           el.classList.replace('hw-check-circle--empty', 'hw-check-circle--done');
           el.innerHTML = '<i class="ti ti-check"></i>';
+          el.setAttribute('aria-pressed', 'true');
         }
 
         try {
@@ -252,9 +274,11 @@
           if (isDone) {
             el.classList.replace('hw-check-circle--empty', 'hw-check-circle--done');
             el.innerHTML = '<i class="ti ti-check"></i>';
+            el.setAttribute('aria-pressed', 'true');
           } else {
             el.classList.replace('hw-check-circle--done', 'hw-check-circle--empty');
             el.innerHTML = '+';
+            el.setAttribute('aria-pressed', 'false');
           }
           _showToast('Could not save — try again', true);
         }

@@ -151,6 +151,22 @@
 - #1023: Add POST /api/performance/backfill and full backfill pipeline to recompute historical run TSS and duration curve
 - #1024: Fix Fitness Fatigue Form chart building_baseline propagation from endurance/speed score readiness
 
+## Sprint 87.5 — Same-as-last button state-ownership refactor
+
+- #509: [follow-up] Remove side effect from _updateSameAsLastBtn (state mutation)
+
+## Sprint 87.4 — Weight-page unit toggle follow-ups and main.py import cleanup
+
+- #506: [follow-up] Move ZoneInfo and func imports to top-level in main.py
+- #510: [follow-up] Remove dead variable _cardBEntryNotes in weight.js
+- #512: [follow-up] _applyUnit() does not convert stepper displayed value on unit switch
+
+## Sprint 87.2 — Weight timezone fix, chart tap-toggle, and inline-edit listener cleanup
+
+- #505: [follow-up] Unify list_weight_entries default range to Bangkok timezone
+- #536: [follow-up] Weight chart tap-to-show: touchend hides tooltip immediately
+- #537: [follow-up] Weight inline-edit: remove onEscape listener explicitly on save success
+
 ## Sprint 86 — Habits timezone fix, weight validation, range-token clarity, and test coverage
 
 - #450: Memoize autofill computation per source in GET /api/habits/week
