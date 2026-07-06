@@ -5873,3 +5873,79 @@
     if (uid && !_athleteId) _init(uid);
   });
 })();
+
+// ── Weekly coach summary card (issue #1314) ──────────────────────────────────
+(function () {
+  "use strict";
+
+  function _isoWeekStart(d) {
+    var day = d.getDay();
+    var diff = (day === 0 ? -6 : 1 - day);
+    var mon = new Date(d);
+    mon.setDate(d.getDate() + diff);
+    return mon.toISOString().slice(0, 10);
+  }
+
+  function _fmtWeekLabel(weekStart) {
+    var d = new Date(weekStart + "T00:00:00");
+    var end = new Date(d);
+    end.setDate(d.getDate() + 6);
+    var opts = { month: "short", day: "numeric" };
+    return d.toLocaleDateString("en-US", opts) + " – " + end.toLocaleDateString("en-US", opts);
+  }
+
+  function _renderFacts(factsEl, facts) {
+    var parts = [];
+    if (facts.total_tss != null) parts.push(facts.total_tss.toFixed(0) + " TSS");
+    if (facts.total_distance_km != null) parts.push(facts.total_distance_km.toFixed(1) + " km");
+    if (facts.total_duration_minutes != null) parts.push(facts.total_duration_minutes.toFixed(0) + " min");
+    if (facts.workout_count) parts.push(facts.workout_count + " sessions");
+    if (facts.ctl_end != null) parts.push("CTL " + facts.ctl_end.toFixed(1));
+    if (facts.tsb_end != null) {
+      var tsb = facts.tsb_end.toFixed(1);
+      parts.push("TSB " + tsb);
+    }
+    if (facts.prs_achieved && facts.prs_achieved.length) {
+      var prNames = facts.prs_achieved.map(function (p) { return p.track_name; }).join(", ");
+      parts.push("PR: " + prNames);
+    }
+    factsEl.textContent = parts.join(" · ");
+    factsEl.hidden = parts.length === 0;
+  }
+
+  function loadWeeklySummary() {
+    var card = document.getElementById("weekly-summary-card");
+    if (!card) return;
+
+    var weekStart = _isoWeekStart(new Date());
+    var label = document.getElementById("wsc-week-label");
+    if (label) label.textContent = _fmtWeekLabel(weekStart);
+
+    fetch("/api/weekly-summary?week=" + weekStart)
+      .then(function (r) {
+        if (!r.ok) throw new Error("status " + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        var narrativeEl = document.getElementById("wsc-narrative");
+        var factsEl = document.getElementById("wsc-facts");
+        var emptyEl = document.getElementById("wsc-empty");
+        var facts = data.facts || {};
+
+        if (narrativeEl) narrativeEl.textContent = data.narrative || "";
+        if (factsEl) _renderFacts(factsEl, facts);
+
+        if (facts.workout_count === 0) {
+          if (narrativeEl) narrativeEl.hidden = false;
+          if (emptyEl) emptyEl.hidden = true;
+        }
+
+        card.hidden = false;
+      })
+      .catch(function () {
+        // Silently hide on error — don't break the page
+      });
+  }
+
+  document.addEventListener("DOMContentLoaded", loadWeeklySummary);
+})();
