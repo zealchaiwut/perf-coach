@@ -4753,6 +4753,7 @@ def get_habits_adherence(user: User = Depends(resolve_user)):
 
 from backend.services.habit_insights import (  # noqa: E402
     build_insights as _build_insights,
+    apply_llm_insights as _apply_llm_insights,
     OUTCOME_FIELDS as _INSIGHT_OUTCOME_FIELDS,
 )
 
@@ -4819,6 +4820,9 @@ def get_habit_insights(user: User = Depends(resolve_user)):
         outcome_series_by_name=outcome_series_by_name,
     )
 
+    if not building and insights:
+        insights = _apply_llm_insights(insights, user_id=str(uid))
+
     return JSONResponse({
         "insights": insights,
         "building": building,
@@ -4832,7 +4836,7 @@ from backend.services.habit_adherence import (  # noqa: E402
     compute_adherence_breakdown as _compute_adherence_breakdown,
     detect_slipping_habits as _detect_slipping_habits,
 )
-from backend.services.habit_nudges import build_nudges as _build_nudges  # noqa: E402
+from backend.services.habit_nudges import build_nudges as _build_nudges, apply_llm_nudges as _apply_llm_nudges  # noqa: E402
 
 
 @app.get("/api/adherence-nudges")
@@ -4911,6 +4915,12 @@ def get_adherence_nudges(user: User = Depends(resolve_user)):
         for entry in current_per_habit
     }
     nudge_result = _build_nudges(adherence_breakdowns_by_name, slipping_habits)
+    nudge_result = _apply_llm_nudges(
+        nudge_result,
+        adherence_breakdowns_by_name,
+        slipping_habits,
+        user_id=str(uid),
+    )
 
     return JSONResponse({
         "per_habit": current_per_habit,
