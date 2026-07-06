@@ -13,7 +13,7 @@ import time
 import uuid as _uuid
 from datetime import date as _date, datetime as _datetime, timezone as _timezone, timedelta as _timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 from urllib.parse import urlencode as _urlencode
 import urllib.request as _urllib_request
 import urllib.error as _urllib_error
@@ -12961,8 +12961,8 @@ class _RaceCreateBody(BaseModel):
     distance_km: float
     goal_time_seconds: Optional[int] = None
     name: Optional[str] = None
-    priority: Optional[str] = None
-    status: Optional[str] = None
+    priority: Optional[Literal["A", "B", "C"]] = None
+    status: Optional[Literal["planned", "done", "abandoned"]] = None
     race_type: Optional[str] = None
 
 
@@ -12973,8 +12973,8 @@ class _RaceUpdateBody(BaseModel):
     distance_km: Optional[float] = None
     goal_time_seconds: Optional[int] = None
     name: Optional[str] = None
-    priority: Optional[str] = None
-    status: Optional[str] = None
+    priority: Optional[Literal["A", "B", "C"]] = None
+    status: Optional[Literal["planned", "done", "abandoned"]] = None
     race_type: Optional[str] = None
 
 
