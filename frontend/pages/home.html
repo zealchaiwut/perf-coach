@@ -6,6 +6,11 @@
   <title>Home – perf-coach</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" rel="stylesheet">
+  <!-- gridstack.js: Home dashboard layout engine (see js/home-grid.js). extra
+       css is required for column counts other than 12 (we use 8/6/4/1). -->
+  <link href="https://cdn.jsdelivr.net/npm/gridstack@10/dist/gridstack.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/gridstack@10/dist/gridstack-extra.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/gridstack@10/dist/gridstack-all.js"></script>
   <link rel="stylesheet" href="css/weight-current-card.css">
   <style>
     :root {
@@ -108,113 +113,42 @@
       font-size: 14px;
     }
 
-    /* ---- DASHBOARD GRID (home v3 bento layouts) ----
-       Four explicit, hand-placed layouts (Wide/Medium/Narrow/Mobile) replace
-       the previous single fluid repeat(auto-fit,minmax(280px,1fr)) grid —
-       that auto-fit grid packed cards wherever they happened to fit, which
-       drifted at odd widths and gave no control over which widgets sit next
-       to each other. Each breakpoint below hand-places all 8 widgets by id
-       via grid-column/grid-row so the layout is exact and predictable at
-       every width. #home-log-today-strip, #body-modifier-guardrail,
-       #strava-stale-banner, and #row-log stay OUTSIDE this grid. */
-    #home-dashboard-grid {
-      display: grid;
-      grid-template-columns: repeat(8, 1fr);
-      grid-auto-rows: 100px;
-      gap: 14px;
-      margin-bottom: 16px;
-      /* align-items defaults to stretch (not "start") so two cards sharing
-         the same grid-row span (e.g. Next+Recent / Performance) render at
-         the SAME height regardless of how much content each has — with
-         "start" every card shrank to its own content height, so a short
-         card (Performance, two small tiles) looked visibly shorter than its
-         taller neighbor even though both were assigned the same row span. */
+    /* ---- DASHBOARD GRID (gridstack.js — see js/home-grid.js) ----
+       gridstack packs the widgets (float:false auto-compaction) and sizes each
+       item's height to its content (sizeToContent), driven by the registry in
+       home-grid.js — no hand-placed grid-column/grid-row and no per-breakpoint
+       @media grid rules here anymore. These rules only strip gridstack's own
+       chrome so each widget's existing .card styling shows through unchanged.
+       #home-log-today-strip, #body-modifier-guardrail, #strava-stale-banner,
+       and #row-log stay OUTSIDE this grid. */
+    #home-dashboard-grid.grid-stack { margin-bottom: 16px; }
+    #home-dashboard-grid .grid-stack-item-content {
+      background: transparent;
+      border-radius: 20px;
+      overflow: visible;
+      inset: 0;
+      padding: 0;
     }
-    /* Wide (>=1000px, unqualified — the base rule above is the widest
-       breakpoint, so no media query needed here).
-       Row spans below are sized from measured rendered content height,
-       re-verified against a standalone static harness (real markup emitted
-       by home.js / home-readiness-training-sleep.js / home-strip-habits.js,
-       reconstructed with realistic full data — not the live app; see
-       docs note below) at 1120/820/620/390px. #home-perf-container
-       ("Personal records") is now a compact 3-tile row (span 2), sized to
-       pair with #home-habits-widget alongside it rather than stack below it
-       — see the follow-up comment near the rules below for the current
-       pairing rationale. */
-    #home-top-row-right      { grid-column: 1 / span 4; grid-row: 1 / span 4; }
-    #home-next-workout-card  { grid-column: 5 / span 2; grid-row: 1 / span 4; }
-    #home-performance-card   { grid-column: 7 / span 2; grid-row: 1 / span 4; }
-    #home-training-card      { grid-column: 5 / span 4; grid-row: 5 / span 3; }
-    #home-weight-widget      { grid-column: 1 / span 4; grid-row: 5 / span 3; }
-    #home-habits-widget      { grid-column: 1 / span 4; grid-row: 8 / span 3; }
-    #home-perf-container     { grid-column: 5 / span 2; grid-row: 8 / span 2; }
-    #home-sleep-card         { grid-column: 7 / span 2; grid-row: 8 / span 2; }
-    /* Habits now sits full-width in the LEFT column directly under Weight (both
-       4 cols wide, 3 rows tall = matched size); Sleep moved to the right to
-       pair with Personal records. Next+Recent fills its 4-row track by
-       backfilling recent workouts (see _nwFill). The one empty cell block at
-       cols 5-8 / row 11 is the expected odd-piece leftover (Readiness is the
-       only 4-row-tall widget), not a packing bug. */
-
-    @media (max-width: 999px) {
-      #home-dashboard-grid {
-        grid-template-columns: repeat(6, 1fr);
-        grid-auto-rows: 100px;
-        gap: 14px;
-      }
-      #home-top-row-right      { grid-column: 1 / span 4; grid-row: 1  / span 4; }
-      #home-next-workout-card  { grid-column: 5 / span 2; grid-row: 1  / span 4; }
-      #home-training-card      { grid-column: 1 / span 4; grid-row: 5  / span 4; }
-      #home-performance-card   { grid-column: 5 / span 2; grid-row: 5  / span 2; }
-      #home-sleep-card         { grid-column: 5 / span 2; grid-row: 7  / span 2; }
-      #home-perf-container     { grid-column: 1 / span 6; grid-row: 9  / span 2; }
-      #home-weight-widget      { grid-column: 1 / span 6; grid-row: 11 / span 3; }
-      #home-habits-widget      { grid-column: 1 / span 6; grid-row: 14 / span 3; }
-      /* Weight and Habits are full-width stacked rows at the bottom (Habits
-         directly under Weight, matched size); Personal records is a full-width
-         3-tile row above them. */
+    /* The widget container inside each item fills the item's width; its own
+       height is natural (sizeToContent measures it). */
+    #home-dashboard-grid .grid-stack-item-content > * {
+      width: 100%;
+      height: 100%;
     }
 
     @media (max-width: 759px) {
       .page { padding: 14px; }
       .card { padding: 12px; }
-      /* Third tighter-padding step (13px) — card-head's default 14px
-         margin-bottom is the next-biggest whitespace cost inside a
-         12px-padded card, so it gets pulled in a notch too. */
+      /* card-head's default 14px margin-bottom is the next-biggest whitespace
+         cost inside a 12px-padded card, so it gets pulled in a notch too. */
       .card-head { margin-bottom: 13px; }
-      /* These 4 widgets set their own (id-selector) padding, which beats
-         the .card override above on specificity — restate it here so
-         Narrow's tighter padding actually reaches them too. */
+      /* These widgets set their own id-selector padding, which beats the .card
+         override above on specificity — restate it so the tighter padding
+         actually reaches them. */
       #home-top-row-right,
       #home-habits-widget,
       #home-training-card,
       #home-weight-widget .card { padding: 12px; }
-      #home-dashboard-grid {
-        grid-template-columns: repeat(4, 1fr);
-        grid-auto-rows: 90px;
-        gap: 10px;
-      }
-      #home-top-row-right      { grid-column: 1 / span 4; grid-row: 1  / span 4; }
-      #home-next-workout-card  { grid-column: 1 / span 2; grid-row: 5  / span 5; }
-      #home-performance-card   { grid-column: 3 / span 2; grid-row: 5  / span 5; }
-      #home-sleep-card         { grid-column: 1 / span 2; grid-row: 10 / span 2; }
-      #home-perf-container     { grid-column: 3 / span 2; grid-row: 10 / span 2; }
-      #home-training-card      { grid-column: 1 / span 4; grid-row: 12 / span 3; }
-      #home-weight-widget      { grid-column: 1 / span 4; grid-row: 15 / span 3; }
-      #home-habits-widget      { grid-column: 1 / span 4; grid-row: 18 / span 3; }
-      /* Weight and Habits are full-width stacked rows (Habits directly under
-         Weight, matched size). Sleep and Personal records pair above Training. */
-    }
-
-    @media (max-width: 479px) {
-      #home-dashboard-grid {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-      }
-      /* DOM order (see markup below) already matches the required Mobile
-         stack order — flex just follows document order, no per-widget rule
-         needed here. */
     }
 
     /* Card affordance: hover lift conveys "this is interactive" (most tiles
@@ -231,27 +165,6 @@
     @media (prefers-reduced-motion: reduce) {
       .card { transition: none; }
       .card:hover { transform: none; }
-    }
-
-    /* Dashboard load reveal: a light stagger on the grid's own children.
-       Cards are markup-visible by default (no JS gate) — this only enhances
-       an already-rendered page; disabled entirely under reduced motion. */
-    @media (prefers-reduced-motion: no-preference) {
-      #home-dashboard-grid > * {
-        animation: hv2-tile-in 420ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
-      }
-      #home-dashboard-grid > *:nth-child(1) { animation-delay: 0ms; }
-      #home-dashboard-grid > *:nth-child(2) { animation-delay: 30ms; }
-      #home-dashboard-grid > *:nth-child(3) { animation-delay: 60ms; }
-      #home-dashboard-grid > *:nth-child(4) { animation-delay: 90ms; }
-      #home-dashboard-grid > *:nth-child(5) { animation-delay: 120ms; }
-      #home-dashboard-grid > *:nth-child(6) { animation-delay: 150ms; }
-      #home-dashboard-grid > *:nth-child(7) { animation-delay: 180ms; }
-      #home-dashboard-grid > *:nth-child(8) { animation-delay: 210ms; }
-    }
-    @keyframes hv2-tile-in {
-      from { opacity: 0; transform: translateY(8px); }
-      to   { opacity: 1; transform: translateY(0); }
     }
 
     /* ---- CARD ---- */
@@ -1236,25 +1149,25 @@
   <div id="body-modifier-guardrail"></div>
   <div id="strava-stale-banner"></div>
 
-  <!-- Unified dashboard grid (home v3 bento layouts). Wide/Medium/Narrow
-       hand-place every widget by grid-column/grid-row (see CSS above), so
-       DOM order doesn't affect those three. Mobile (<=479px) switches to a
-       plain flex column and follows DOM order — this order (Readiness →
-       Next+Recent → Performance → Training → Personal records → Habits →
-       Weight → Sleep) IS the required Mobile stack order. Each widget still
-       finds its own container by the SAME element id it always used — only
-       the parent/grid-column/DOM-order changed. #home-workouts-container
-       (recent workouts) is gone: merged into #home-next-workout-card, see
-       home-readiness-training-sleep.js's renderNextWorkoutCard / _nwFill. -->
-  <div id="home-dashboard-grid">
-    <div id="home-top-row-right" class="grp-training"></div>
-    <div id="home-next-workout-card" class="card grp-training"></div>
-    <div id="home-performance-card" class="card grp-training"></div>
-    <div id="home-training-card" class="card grp-training"></div>
-    <div id="home-perf-container"></div>
-    <div id="home-weight-widget"></div>
-    <div id="home-habits-widget" class="card grp-training"></div>
-    <div id="home-sleep-card" class="card sleep-card"></div>
+  <!-- Dashboard grid — gridstack.js engine (js/home-grid.js). Each widget is a
+       .grid-stack-item wrapping the SAME container id it always used; the
+       renderers (home.js / home-readiness-training-sleep.js /
+       home-strip-habits.js) fill those ids unchanged. gridstack owns width +
+       position from home-grid.js's registry (this DOM order = the fixed widget
+       order: Readiness → Next+Recent → Performance → Training → Personal
+       records → Habits → Weight → Sleep) and auto-fits each item's height to
+       content. gs-w is stamped by home-grid.js per breakpoint before init.
+       #home-log-today-strip, #body-modifier-guardrail, #strava-stale-banner,
+       and #row-log stay OUTSIDE this grid. -->
+  <div id="home-dashboard-grid" class="grid-stack">
+    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-top-row-right" class="grp-training"></div></div></div>
+    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-next-workout-card" class="card grp-training"></div></div></div>
+    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-performance-card" class="card grp-training"></div></div></div>
+    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-training-card" class="card grp-training"></div></div></div>
+    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-perf-container"></div></div></div>
+    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-habits-widget" class="card grp-training"></div></div></div>
+    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-weight-widget"></div></div></div>
+    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-sleep-card" class="card sleep-card"></div></div></div>
   </div>
 
   <!-- Fast-log form: revealed when Log Today strip CTA is tapped.
@@ -1397,6 +1310,7 @@
 <script src="js/home-readiness-training-sleep.js"></script>
 <script src="js/lib/weight-current-card.js"></script>
 <script src="js/home.js"></script>
+<script src="js/home-grid.js"></script>
 
 <script src="js/env.js"></script>
 </body>
