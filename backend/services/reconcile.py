@@ -7,7 +7,7 @@ from datetime import date, timedelta, timezone
 from types import SimpleNamespace
 
 from sqlalchemy import and_ as _and, or_ as _or
-from sqlalchemy.orm import Session as _Session, defer as _defer
+from sqlalchemy.orm import Session as _Session, defer as _defer, load_only as _load_only
 
 _log = logging.getLogger(__name__)
 
@@ -294,6 +294,15 @@ def reconcile_workouts(
                 session.query(StravaActivity)
                 .filter(StravaActivity.user_id == uid)
                 .options(
+                    _load_only(
+                        StravaActivity.id, StravaActivity.user_id,
+                        StravaActivity.strava_activity_id, StravaActivity.start_time,
+                        StravaActivity.activity_type, StravaActivity.name,
+                        StravaActivity.distance_km, StravaActivity.duration_seconds,
+                        StravaActivity.avg_hr, StravaActivity.avg_power_w,
+                        StravaActivity.max_hr, StravaActivity.elevation_m,
+                        StravaActivity.is_stryd_synced,
+                    ),
                     _defer(StravaActivity.streams_payload),
                     _defer(StravaActivity.detail_payload),
                 )
@@ -316,7 +325,17 @@ def reconcile_workouts(
                 stryd_acts = None if strava_activity_ids is not None else (
                     session.query(StrydActivity)
                     .filter(StrydActivity.user_id == uid)
-                    .options(_defer(StrydActivity.streams_payload))
+                    .options(
+                        _load_only(
+                            StrydActivity.id, StrydActivity.user_id,
+                            StrydActivity.stryd_activity_id, StrydActivity.start_time,
+                            StrydActivity.name, StrydActivity.distance_km,
+                            StrydActivity.duration_seconds, StrydActivity.avg_hr,
+                            StrydActivity.avg_power_w, StrydActivity.tss,
+                            StrydActivity.grade_percent, StrydActivity.power_zones,
+                        ),
+                        _defer(StrydActivity.streams_payload),
+                    )
                     .all()
                 )
         except Exception:
