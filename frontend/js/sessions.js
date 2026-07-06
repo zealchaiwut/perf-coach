@@ -35,7 +35,9 @@
 
   function today() {
     var d = new Date();
-    return d.toISOString().slice(0, 10);
+    var mm = String(d.getMonth() + 1).padStart(2, "0");
+    var dd = String(d.getDate()).padStart(2, "0");
+    return d.getFullYear() + "-" + mm + "-" + dd;
   }
 
   function fmtDate(str) {
