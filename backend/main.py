@@ -5755,15 +5755,23 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
     }
 
 
-def _strava_source_dict(sa) -> dict | None:
+def _strava_source_dict(sa, prebuilt_streams: dict | None = None) -> dict | None:
     """Full Strava capture for a workout: promoted columns + everything inside the
     detail_payload (laps, per-km splits, best efforts, GPS polyline) and the raw
-    per-point streams. Nothing dropped — the union endpoint surfaces all of it."""
+    per-point streams. Nothing dropped — the union endpoint surfaces all of it.
+
+    When ``prebuilt_streams`` is supplied (from the activity_streams table, already
+    downsampled to ≤1 Hz), it is used directly and ``sa.streams_payload`` is never
+    accessed, avoiding a 1-5 MB JSONB load per request (issue #1295).
+    """
     if sa is None:
         return None
     detail = sa.detail_payload or {}
-    streams = sa.streams_payload if isinstance(sa.streams_payload, dict) else {}
     raw = sa.raw_payload or {}
+    if prebuilt_streams is not None:
+        streams = prebuilt_streams
+    else:
+        streams = sa.streams_payload if isinstance(sa.streams_payload, dict) else {}
     map_obj = detail.get("map") or raw.get("map") or {}
     return {
         "strava_activity_id": sa.strava_activity_id,
@@ -5801,11 +5809,16 @@ def _stryd_source_dict(sta) -> dict | None:
     """Full Stryd capture: power-based TSS + running dynamics Strava cannot give."""
     if sta is None:
         return None
-    # Stryd has no precomputed laps array — manual lap presses are boundary
-    # timestamps. Compute per-lap metrics from the per-point streams.
-    from backend.services.stryd_laps import compute_manual_laps
-    streams = sta.streams_payload if isinstance(sta.streams_payload, dict) else {}
-    laps = compute_manual_laps(streams) or ((sta.raw_payload or {}).get("laps") or [])
+    # Use pre-computed laps persisted at sync-time (issue #1295).  Avoids
+    # materialising the full streams_payload (can be several MB) on every request.
+    # Falls back to computing from streams_payload for rows synced before this change.
+    manual_laps = getattr(sta, "manual_laps", None)
+    if manual_laps is not None:
+        laps = manual_laps
+    else:
+        from backend.services.stryd_laps import compute_manual_laps
+        streams = sta.streams_payload if isinstance(sta.streams_payload, dict) else {}
+        laps = compute_manual_laps(streams) or ((sta.raw_payload or {}).get("laps") or [])
     return {
         "stryd_activity_id": sta.stryd_activity_id,
         "name": sta.name,
@@ -6439,7 +6452,11 @@ def get_workout_full(
             .first()
         )
         tss_result = _compute_running_tss(workout, split_rows, prefs or UserPreferences())
-        strava = _strava_source_dict(getattr(workout, "strava_activity", None))
+        from backend.models import ActivityStream as _ActivityStream
+        from backend.services.activity_streams import activity_streams_to_strava_dict as _as_to_strava
+        _stream_row = session.get(_ActivityStream, workout.id)
+        _prebuilt_streams = _as_to_strava(_stream_row) if _stream_row else None
+        strava = _strava_source_dict(getattr(workout, "strava_activity", None), prebuilt_streams=_prebuilt_streams)
         stryd = _stryd_source_dict(getattr(workout, "stryd_activity", None))
         unified = _unified_workout_dict(workout, strava, stryd)
         # Derive metrics from the full streams BEFORE downsampling for transport.
@@ -6491,17 +6508,24 @@ def get_workout_full(
         }
         # Authoritative TSS: manual entry wins; fall back to freshly-computed value.
         authoritative_tss = int(workout.tss) if workout.tss is not None else tss_result["tss"]
-        # Manual lap presses (from the Stryd streams) expose real interval reps
-        # that the stored 1 km splits hide; pass them so detection/pairing runs
-        # on them. Keeps session_profile_caller DB-free — we load here.
+        # Manual lap presses expose real interval reps that stored 1 km splits hide;
+        # pass them so detection/pairing runs on them.  Use the persisted manual_laps
+        # column (issue #1295) to avoid re-materialising streams_payload.
         _manual_laps_for_profile = None
         try:
             _sta = getattr(workout, "stryd_activity", None)
-            _streams = _sta.streams_payload if _sta is not None and isinstance(_sta.streams_payload, dict) else None
-            if _streams:
-                from backend.services.stryd_laps import compute_manual_laps as _cml
+            if _sta is not None:
+                _persisted = getattr(_sta, "manual_laps", None)
+                if _persisted is not None:
+                    _mlaps = _persisted
+                else:
+                    _streams = _sta.streams_payload if isinstance(_sta.streams_payload, dict) else None
+                    from backend.services.stryd_laps import compute_manual_laps as _cml
+                    _mlaps = _cml(_streams) if _streams else []
+            else:
+                _mlaps = []
+            if _mlaps:
                 from types import SimpleNamespace as _SNS
-                _mlaps = _cml(_streams) or []
                 _manual_laps_for_profile = [
                     _SNS(
                         split_index=_i + 1,
