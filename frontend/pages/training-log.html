@@ -4115,6 +4115,21 @@
       <div id="plan-week-section"></div>
       <div id="plan-add-section"></div>
       <div id="plan-detail-section"></div>
+      <!-- ── AI suggestions panel (issue #1315) ─────────────────────────── -->
+      <div id="plan-suggestions-panel" style="display:none;" class="pl-suggestions-panel">
+        <div class="pl-sug-header">
+          <span class="pl-sug-title">Next-week suggestions</span>
+          <span id="plan-suggestions-source" class="pl-sug-source"></span>
+          <button id="plan-suggestions-refresh" class="pl-sug-btn-sm" type="button" title="Regenerate suggestions">↻</button>
+          <button id="plan-suggestions-dismiss" class="pl-sug-btn-sm" type="button" title="Dismiss">✕</button>
+        </div>
+        <div id="plan-suggestions-loading" style="display:none;" class="pl-sug-loading">Loading suggestions…</div>
+        <div id="plan-suggestions-list"></div>
+      </div>
+      <!-- ── Show suggestions button ────────────────────────────────────── -->
+      <div id="plan-suggestions-trigger-row" class="pl-sug-trigger-row" style="display:none;">
+        <button id="plan-suggestions-trigger" class="pl-sug-trigger-btn" type="button">✨ Show AI next-week suggestions</button>
+      </div>
     </div>
 
     <!-- Projection panel (issue #650) -->

@@ -386,6 +386,19 @@ async def delete_checkpoint(
 _DEFAULT_PROJECTION_DAYS = 90
 
 
+@router.get("/plan/suggestions")
+def get_plan_suggestions(user: User = Depends(resolve_user)):
+    """Return LLM-proposed next-week training suggestions with facts and source tag.
+
+    Response shape: {facts: {...}, suggestions: [{day_offset, workout_type,
+    target_tss, duration_minutes, intent}], source: "llm"|"fallback"}
+    """
+    from backend.services.plan_suggestions import get_suggestions as _get_suggestions
+
+    result = _get_suggestions(str(user.id))
+    return JSONResponse(result)
+
+
 @router.get("/plans/{plan_id}/projection")
 async def get_plan_projection(
     plan_id: str,
