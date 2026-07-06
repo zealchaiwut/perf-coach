@@ -39,7 +39,7 @@ def rebuild_athlete_duration_curve(user_id, db):
         string on failure or when no run workouts exist.
     """
     from sqlalchemy.orm.attributes import flag_modified
-    from backend.models import AthleteDurationCurve, Workout
+    from backend.models import ActivityStream, AthleteDurationCurve, Workout
     from backend.services.duration_curve import fetch_and_compute_curves
     from backend.services.duration_curve_best_effort import merge_best_effort
 
@@ -66,12 +66,26 @@ def rebuild_athlete_duration_curve(user_id, db):
     # skipped if its lap classification data becomes available after an earlier rebuild.
     merged_curve: dict = {}
     for workout in run_workouts:
-        curves = fetch_and_compute_curves(workout.id, db)
+        try:
+            curves = fetch_and_compute_curves(workout.id, db)
+        except Exception as _exc:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "rebuild_athlete_duration_curve: skipping workout %s: %s",
+                workout.id, _exc,
+            )
+            curves = {"power_curve": []}
         new_points = curves.get("power_curve", [])
         merged_curve, reason = merge_best_effort(merged_curve, new_points, higher_is_better=True)
         if reason is not None:
             # Log and continue — one bad workout doesn't abort the entire rebuild
             merged_curve = merged_curve or {}
+        # Release the ActivityStream from the identity map so its payload can be GC'd.
+        # fetch_and_compute_curves loads it via db.get(ActivityStream, workout_id);
+        # expunging removes the reference so Python can reclaim the arrays (~1–2 MB/run).
+        _stream = db.get(ActivityStream, workout.id)
+        if _stream is not None:
+            db.expunge(_stream)
 
     # Persist the rebuilt curve
     record = db.get(AthleteDurationCurve, user_id)

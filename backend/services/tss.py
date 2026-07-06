@@ -1320,4 +1320,9 @@ def recompute_user_running_tss(user_id, session) -> int:
     )
     for w in workouts:
         persist_running_tss(w.id, session)
+        # Expire the workout row so its loaded attribute values can be GC'd
+        # before the next iteration; the dirty TSS/tss_method fields are kept
+        # in the session's unit-of-work pending state and will be flushed on
+        # the caller's commit.
+        session.expire(w)
     return len(workouts)
