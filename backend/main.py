@@ -5088,6 +5088,17 @@ app.add_api_route("/login", _serve_login, include_in_schema=False)
 app.add_api_route("/login.html", _serve_login, include_in_schema=False)
 
 
+def _serve_dev_mobile():
+    """Local/UAT mobile preview frame (Chrome DevTools–style device width)."""
+    env = os.getenv("ENVIRONMENT", "local").lower()
+    if env not in ("uat", "local"):
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(str(_static_root / "frontend" / "pages" / "dev-mobile.html"))
+
+
+app.add_api_route("/dev/mobile", _serve_dev_mobile, include_in_schema=False)
+
+
 def _serve_weight_targets():
     return RedirectResponse(url="/weight", status_code=302)
 
@@ -15079,13 +15090,21 @@ def _performance_signature(session, user_id, prefs_row) -> str:
 
 
 @app.get("/api/athletes/{athlete_id}/summary/weekly")
-def get_athlete_weekly_summary(athlete_id: str, user: User = Depends(resolve_user)):
-    """Return a flat weekly summary for the current ISO week.
+def get_athlete_weekly_summary(
+    athlete_id: str,
+    user: User = Depends(resolve_user),
+    week: Optional[str] = Query(default=None),
+):
+    """Return a flat weekly summary for an ISO week.
 
     Aggregates volume (distance_km, total_tss, session_count), fitness signal
     changes (endurance_score_change, speed_score_change), load form
     (form_tsb_change, readiness_next_week), and weight trend (weight_change_kg)
-    into a single response keyed to the current Monday–Sunday ISO week.
+    into a single response keyed to a Monday–Sunday ISO week.
+
+    Query params:
+        week: optional YYYY-MM-DD date inside the target week (normalized to
+              that week's Monday). Defaults to the current ISO week.
 
     Returns 200 for any valid authenticated athlete.  Returns zeros for
     numeric fields and null for weight when no data exists.  Returns 404
@@ -15110,7 +15129,17 @@ def get_athlete_weekly_summary(athlete_id: str, user: User = Depends(resolve_use
 
         _bkk = ZoneInfo("Asia/Bangkok")
         today = _datetime.now(_bkk).date()
-        ws = today - _timedelta(days=today.weekday())   # Monday
+        if week is not None:
+            try:
+                ref = _date.fromisoformat(week)
+            except ValueError:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"week must be in YYYY-MM-DD format, got {week!r}",
+                )
+            ws = ref - _timedelta(days=ref.weekday())   # Monday of that ISO week
+        else:
+            ws = today - _timedelta(days=today.weekday())   # Monday
         we = ws + _timedelta(days=6)                     # Sunday
         # Cap the load series end at today — daily_tss_series rejects future dates.
         load_end = min(we, today)

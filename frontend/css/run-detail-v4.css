@@ -176,10 +176,12 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-tertiary);
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
+}
+
+.rd4-stat-pill {
+  margin-top: 4px;
+  min-height: 14px;
+  line-height: 1;
 }
 
 .rd4-stat-val {
@@ -887,10 +889,10 @@
 }
 
 .rd4-signal-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 10px 16px;
 }
 
 .rd4-signal-lbl {
@@ -903,8 +905,10 @@
 .rd4-signal-vwrap {
   display: inline-flex;
   align-items: baseline;
+  justify-content: flex-end;
   gap: 6px;
   text-align: right;
+  min-width: 0;
 }
 
 .rd4-signal-val {
@@ -912,7 +916,8 @@
   font-size: 1rem;
   font-weight: 700;
   color: #4f46e5;
-  display: inline-flex;
+  display: inline-grid;
+  grid-template-columns: 2.75ch auto;
   align-items: baseline;
   gap: 6px;
 }
@@ -922,6 +927,8 @@
   font-weight: 700;
   color: #1b2340;
   font-size: 1.05rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 /* This session's signed contribution to the score (the per-session figure). */

@@ -356,6 +356,52 @@
         margin-top: 4px;
       }
 
+      /* Unit toggle + same-as-last shortcut */
+      .unit-toggle {
+        display: inline-flex;
+        background: var(--w-tile);
+        border: 1px solid var(--w-line);
+        border-radius: 8px;
+        padding: 3px;
+        gap: 2px;
+        margin-bottom: 10px;
+      }
+      .unit-btn {
+        padding: 6px 14px;
+        border: none;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        font-family: "Inter Tight", sans-serif;
+        background: transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+        line-height: 1.4;
+      }
+      .unit-btn.active {
+        background: #fff;
+        color: var(--text-primary);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+      }
+      .same-as-last-btn {
+        width: 100%;
+        margin-top: 8px;
+        padding: 9px 12px;
+        border: 1px solid var(--w-line);
+        border-radius: 9px;
+        background: #fff;
+        font-size: 13px;
+        font-weight: 500;
+        font-family: "Inter Tight", sans-serif;
+        color: var(--text-secondary);
+        cursor: pointer;
+        text-align: center;
+      }
+      .same-as-last-btn:hover {
+        background: var(--w-tile-3);
+        color: var(--text-primary);
+      }
+
       /* ── Chart card ───────────────────────────────────────────────────────── */
       /* Controls row: Basic/Advanced toggle (left) + range tabs (right) */
       .chart-controls {
@@ -1479,21 +1525,118 @@
       /* ── Responsive ≤768px ────────────────────────────────────────────────── */
       @media (max-width: 768px) {
         main {
-          padding: 16px 16px 20px;
+          padding: 14px 14px 24px;
+          gap: 12px;
         }
         .weight-page-header h1 {
           font-size: 22px;
+        }
+        .card,
+        .hero-card {
+          padding: 14px 14px;
         }
       }
 
       /* ── Responsive ≤640px — hero stacks; panel becomes bottom sheet ─────── */
       @media (max-width: 640px) {
+        main {
+          padding: 12px 12px 20px;
+          gap: 10px;
+        }
+
+        .weight-page-header {
+          flex-direction: column;
+          align-items: stretch;
+          gap: 12px;
+          padding: 14px 14px;
+          border-radius: 12px;
+        }
+
+        .header-actions {
+          width: 100%;
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+        }
+
+        .header-actions .btn-secondary,
+        .header-actions .manage-target-btn {
+          width: 100%;
+          justify-content: center;
+          min-height: 40px;
+          font-size: 12.5px;
+          padding: 8px 10px;
+        }
+
+        .streak-adherence-row {
+          margin-top: 8px;
+        }
+
+        .page-subtitle {
+          font-size: 12px;
+          line-height: 1.45;
+        }
+
         .hero-2col {
           grid-template-columns: 1fr;
         }
         .target-history-grid {
           grid-template-columns: 1fr;
         }
+
+        .log-weight-section {
+          padding: 14px 12px;
+          border-radius: 12px;
+        }
+
+        .hcb-top {
+          margin-bottom: 2px;
+        }
+
+        .stepper {
+          border-radius: 12px;
+        }
+
+        .stepper-input {
+          font-size: 1.2rem;
+          height: 48px;
+        }
+
+        .log-submit-btn {
+          padding: 13px 1rem;
+          font-size: 15px;
+          font-weight: 700;
+          border-radius: 10px;
+          margin-top: 10px;
+        }
+
+        .progress-stat-row {
+          grid-template-columns: 1fr 1fr;
+          gap: 10px 8px;
+          text-align: left;
+        }
+
+        .progress-stat-row > div {
+          background: var(--w-tile-3);
+          border: 1px solid var(--w-line);
+          border-radius: 10px;
+          padding: 8px 10px;
+        }
+
+        .progress-card-hdr {
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+
+        .merged-sep {
+          margin: 8px 0 14px;
+        }
+
+        .card-header-row {
+          flex-wrap: wrap;
+          gap: 6px;
+        }
+
         .range-tab[data-range="6m"],
         .range-tab[data-range="all"] {
           display: none;
@@ -1538,23 +1681,26 @@
         }
       }
 
-      /* ── Responsive ≤480px (360px mobile) ────────────────────────────────── */
+      /* ── Responsive ≤480px (narrow phones) ───────────────────────────────── */
       @media (max-width: 480px) {
         main {
-          padding: 12px 12px 16px;
+          padding: 10px 10px 16px;
         }
         .weight-page-header h1 {
           font-size: 20px;
         }
         .header-actions {
-          flex-wrap: wrap;
-          gap: 6px;
+          grid-template-columns: 1fr;
+        }
+        .card,
+        .hero-card {
+          padding: 12px 12px;
         }
         .pstat-val {
           font-size: 15px;
         }
         .progress-stat-row {
-          gap: 4px;
+          gap: 8px;
         }
         .re-row {
           grid-template-columns: 64px 1fr 56px 34px 20px;
@@ -1564,8 +1710,19 @@
         .re-note {
           font-size: 11px;
         }
+        .unit-btn {
+          flex: 1;
+          text-align: center;
+          padding: 8px 12px;
+        }
+        #unit-toggle {
+          display: flex !important;
+          width: 100%;
+        }
       }
       /* Visible keyboard focus on all interactive controls (WCAG 2.4.7) */
+      .unit-btn:focus-visible,
+      .same-as-last-btn:focus-visible,
       .stepper-btn:focus-visible,
       .range-tab:focus-visible,
       .log-submit-btn:focus-visible,
@@ -1635,7 +1792,9 @@
         .mode-btn,
         .th-fb,
         .entry-menu-btn,
-        .wcal-nav {
+        .wcal-nav,
+        .unit-btn,
+        .same-as-last-btn {
           min-height: 40px;
           display: inline-flex;
           align-items: center;
@@ -2145,7 +2304,7 @@
                 <span class="hcb-label">LOG WEIGHT</span>
                 <span class="hcb-date" id="hcb-date"></span>
               </div>
-              <div id="unit-toggle" class="unit-toggle" style="display:flex;gap:4px;margin-bottom:8px">
+              <div id="unit-toggle" class="unit-toggle">
                 <button class="unit-btn active" data-unit="kg" type="button">kg</button>
                 <button class="unit-btn" data-unit="lb" type="button">lb</button>
               </div>

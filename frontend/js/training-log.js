@@ -51,6 +51,20 @@
     "Nov",
     "Dec",
   ];
+  var MONTHS_FULL = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ];
   var DAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
   function esc(s) {
@@ -87,6 +101,16 @@
     if (h > 0 && m > 0) return h + "h " + m + "min";
     if (h > 0) return h + "h";
     return m + "min";
+  }
+
+  // Compact rollup for month headers: 3h3m, 45m, 2h.
+  function fmtDurationCompact(secs) {
+    if (!secs) return "0m";
+    var h = Math.floor(secs / 3600),
+      m = Math.floor((secs % 3600) / 60);
+    if (h > 0 && m > 0) return h + "h" + m + "m";
+    if (h > 0) return h + "h";
+    return m + "m";
   }
 
   // issue #531: render an already-computed seconds-per-km via the shared
@@ -334,9 +358,13 @@
   }
 
   // ── Build filter bar (issue #637: type pills + search, client-side) ─────────
+  var filterBarBuilt = false;
+
   function buildFilterBar() {
     var bar = document.getElementById("filter-bar");
-    if (!bar) return;
+    if (!bar || filterBarBuilt) return;
+    filterBarBuilt = true;
+    bar.innerHTML = "";
 
     // Type pills row — All / Run / Lift (WOD and Bike disabled for now)
     var chipsRow = document.createElement("div");
@@ -1156,6 +1184,13 @@
 
   // issue #637: day-grouped list — replaces week-grouped rendering for Log sub-tab.
   // Month separator with a monthly rollup (Run TSS / Lift TSS / Time / KM).
+  function _hdrValSpan(n) {
+    var el = document.createElement("span");
+    el.className = "log-hdr-val";
+    el.textContent = n;
+    return el;
+  }
+
   function buildSeparator(titleText, agg, variant) {
     // Week separators use the mock's .lrx-wkhdr (label + "N TSS · N km").
     // Month separators are rendered as a light label row (kept minimal so the
@@ -1170,7 +1205,10 @@
       wl.textContent = (titleText || "").replace(/^Week of\s*/, "");
       var wr = document.createElement("span");
       wr.className = "wr";
-      wr.textContent = tss + " TSS · " + km + " km";
+      wr.appendChild(_hdrValSpan(tss));
+      wr.appendChild(document.createTextNode(" TSS · "));
+      wr.appendChild(_hdrValSpan(km));
+      wr.appendChild(document.createTextNode(" km"));
       sep.appendChild(wl);
       sep.appendChild(wr);
       return sep;
@@ -1189,7 +1227,7 @@
     var parts = [
       ["Run TSS", agg ? Math.round(agg.runTss) : 0],
       ["Lift TSS", agg ? Math.round(agg.liftTss) : 0],
-      ["Time", agg && agg.secs ? fmtDuration(agg.secs) : "0min"],
+      ["Time", agg && agg.secs ? fmtDurationCompact(agg.secs) : "0m"],
       ["KM", agg ? Math.round(agg.km * 10) / 10 : 0],
     ];
     parts.forEach(function (p) {
@@ -1213,7 +1251,7 @@
     var d = new Date(dateStr + "T00:00:00");
     return isNaN(d.getMonth())
       ? (dateStr || "").slice(0, 7)
-      : MONTHS[d.getMonth()] + " " + d.getFullYear();
+      : MONTHS_FULL[d.getMonth()] + " " + d.getFullYear();
   }
   function _mondayOf(dateStr) {
     var d = new Date(dateStr + "T00:00:00");
@@ -1346,20 +1384,40 @@
       dayGroup.className = "day-group" + (dateStr === todayISO() ? " is-today-group" : "");
       dayGroup.dataset.date = dateStr;
 
+      var dayEntries = st.dayMap[dateStr];
+      var dayTss = 0;
+      var hasDayTss = false;
+      dayEntries.forEach(function (e) {
+        if (e.tss != null) {
+          dayTss += Number(e.tss) || 0;
+          hasDayTss = true;
+        }
+      });
+
       var header = document.createElement("div");
       header.className = "day-group-header";
-      header.textContent = isNaN(d.getDay())
+      var dayLabel = document.createElement("span");
+      dayLabel.className = "day-group-label";
+      dayLabel.textContent = isNaN(d.getDay())
         ? dateStr
         : DAY_ABBR[d.getDay()] +
           ", " +
           MONTHS[d.getMonth()] +
           " " +
           d.getDate();
+      header.appendChild(dayLabel);
+      if (hasDayTss) {
+        var dayTssEl = document.createElement("span");
+        dayTssEl.className = "day-group-tss";
+        dayTssEl.appendChild(_hdrValSpan(Math.round(dayTss)));
+        dayTssEl.appendChild(document.createTextNode(" TSS"));
+        header.appendChild(dayTssEl);
+      }
       dayGroup.appendChild(header);
 
       var rowsEl = document.createElement("div");
       rowsEl.className = "day-group-rows";
-      st.dayMap[dateStr].forEach(function (entry) {
+      dayEntries.forEach(function (entry) {
         rowsEl.appendChild(buildEntryRow(entry));
         rendered++;
       });
@@ -1560,7 +1618,6 @@
       (isNaN(d.getMonth()) ? "" : MONTHS[d.getMonth()]) +
       "</div>";
 
-    // Name + type badge + meta line.
     var metaParts = [];
     if (w.duration_seconds) metaParts.push(fmtDurationRow(w.duration_seconds));
     if (isRunLike && w.distance_km != null)
@@ -1572,21 +1629,25 @@
 
     var lname = document.createElement("div");
     lname.className = "lname";
-    var nEl = document.createElement("div");
-    nEl.className = "n";
+    var ltags = document.createElement("div");
+    ltags.className = "ltags";
     var badge = document.createElement("span");
     badge.className = "lrx-tbadge " + fam;
-    // The type badge always shows the family label ("run"/"lift"). A run with a
-    // subtype gets a SEPARATE outlined subtype tag right after it: [run] [interval].
     badge.textContent = fam === "run" ? "run" : "lift";
-    nEl.appendChild(badge);
+    ltags.appendChild(badge);
     if (fam === "run" && SUBTYPE_LABELS[runSubtype]) {
       var subtag = document.createElement("span");
       subtag.className = "lrx-subtag";
       subtag.textContent = SUBTYPE_LABELS[runSubtype];
-      nEl.appendChild(subtag);
+      ltags.appendChild(subtag);
     }
-    nEl.appendChild(document.createTextNode(" " + (w.title || "Workout")));
+    lname.appendChild(ltags);
+    var nEl = document.createElement("div");
+    nEl.className = "n";
+    var titleEl = document.createElement("span");
+    titleEl.className = "ntitle";
+    titleEl.textContent = w.title || "Workout";
+    nEl.appendChild(titleEl);
     lname.appendChild(nEl);
     if (metaParts.length) {
       var metaEl = document.createElement("div");
@@ -1594,21 +1655,12 @@
       metaEl.textContent = metaParts.join(" · ");
       lname.appendChild(metaEl);
     }
-    // Quick-tag effort feeling (compact) — only for real workouts (with an id).
-    if (w.id) {
-      lname.appendChild(buildFeelingRow(w.id, w.feeling, "lrx-feel"));
-    }
-
-    // Right-side stat: TSS (or em-dash for strength with no TSS).
-    var lstat = document.createElement("div");
-    lstat.className = "lstat";
-    var b = document.createElement("b");
-    b.textContent = w.tss != null ? Math.round(w.tss) + " TSS" : "—";
-    lstat.appendChild(b);
 
     row.appendChild(lday);
     row.appendChild(lname);
-    row.appendChild(lstat);
+    if (w.id) {
+      row.appendChild(buildFeelingRow(w.id, w.feeling, "lrx-feel"));
+    }
     return row;
   }
 
@@ -1696,6 +1748,27 @@
     return window.innerWidth >= 880;
   }
 
+  function lockPageScroll() {
+    if (isDesktop()) return;
+    var sbw = window.innerWidth - document.documentElement.clientWidth;
+    document.body.style.overflow = "hidden";
+    if (sbw > 0) {
+      document.body.style.paddingRight = sbw + "px";
+      var gnav = document.querySelector(".global-nav");
+      if (gnav) gnav.style.paddingRight = sbw + "px";
+    }
+  }
+
+  function unlockPageScroll() {
+    document.body.style.overflow = "";
+    document.body.style.paddingRight = "";
+    var gnav = document.querySelector(".global-nav");
+    if (gnav) gnav.style.paddingRight = "";
+    _positionNav();
+    var navLinks = document.querySelector(".global-nav .gn-links");
+    if (navLinks) navLinks.scrollLeft = 0;
+  }
+
   // ── Detail panel open / close / modes ─────────────────────────────────────
   function openPanelShell(triggerEl) {
     var overlay = document.getElementById("detail-overlay");
@@ -1715,7 +1788,7 @@
       if (wrapper) wrapper.classList.add("has-panel");
       reflowPanelCharts();
     } else {
-      document.body.style.overflow = "hidden";
+      lockPageScroll();
     }
 
     if (triggerEl) {
@@ -1730,9 +1803,9 @@
     var posGroup = document.querySelector(".dp-position-group");
     var overflowBtn = document.getElementById("dp-overflow-btn");
     var topbarEnd = document.querySelector(".dp-topbar-end");
-    if (posGroup) posGroup.style.display = "";
-    if (overflowBtn) overflowBtn.style.display = "";
-    if (topbarEnd) topbarEnd.style.display = "";
+    if (posGroup) posGroup.style.removeProperty("display");
+    if (overflowBtn) overflowBtn.style.removeProperty("display");
+    if (topbarEnd) topbarEnd.style.removeProperty("display");
     var navLinks = document.querySelector(".global-nav .gn-links");
     if (navLinks) navLinks.scrollLeft = 0;
   }
@@ -1947,7 +2020,7 @@
       overlay.setAttribute("aria-hidden", "true");
     }
     if (wrapper) wrapper.classList.remove("has-panel");
-    document.body.style.overflow = "";
+    unlockPageScroll();
     if (isDesktop()) reflowPanelCharts();
 
     var formWrap = document.getElementById("dp-form-wrap");
@@ -4644,6 +4717,25 @@
 
   var currentMonday = parseWeekParam();
   var stripSelectedDate = null; // ISO date of the highlighted mobile strip pill
+  var stripCountsByDate = {}; // activity counts for the displayed week (pill fallback)
+
+  // First Mon→Sun day in monday's week that has at least one activity.
+  function stripFirstDayWithActivity(monday, countsByDate) {
+    for (var i = 0; i < 7; i++) {
+      var d = new Date(monday);
+      d.setDate(d.getDate() + i);
+      var dateStr = toISODate(d);
+      if ((countsByDate[dateStr] || 0) > 0) return dateStr;
+    }
+    return null;
+  }
+
+  // Empty/future days snap to the first in-week day with a workout.
+  function stripResolveDay(dateStr, monday, countsByDate) {
+    if ((countsByDate[dateStr] || 0) > 0) return dateStr;
+    var first = stripFirstDayWithActivity(monday, countsByDate);
+    return first || dateStr;
+  }
 
   async function loadAndRender(monday) {
     var sunday = new Date(monday);
@@ -4679,6 +4771,18 @@
       }
     } catch (_) {
       // network error — render with empty dots
+    }
+
+    stripCountsByDate = countsByDate;
+
+    // Keep selection inside the displayed week; empty days snap to first activity.
+    if (stripSelectedDate) {
+      if (stripSelectedDate < fromStr || stripSelectedDate > toStr) {
+        stripSelectedDate = null;
+      } else if (!(countsByDate[stripSelectedDate] || 0)) {
+        var resolved = stripFirstDayWithActivity(monday, countsByDate);
+        stripSelectedDate = resolved || stripSelectedDate;
+      }
     }
 
     render(monday, dotsByDate, countsByDate);
@@ -4865,9 +4969,10 @@
   // and scrolls the log list — it never filters or hides other entries.
   function stripSelectDay(dateStr) {
     if (!dateStr) return;
-    stripSelectedDate = dateStr;
+    var resolved = stripResolveDay(dateStr, currentMonday, stripCountsByDate);
+    stripSelectedDate = resolved;
     loadAndRender(currentMonday); // re-render strip to update is-selected
-    stripScrollToDate(dateStr);
+    stripScrollToDate(resolved);
   }
 
   document.addEventListener("DOMContentLoaded", function () {
@@ -4897,28 +5002,40 @@
       gh + hh + "px",
     );
 
+    var inner = document.querySelector(".log-page-header-inner");
+    var actions = document.querySelector(".log-page-header-actions");
+    if (!inner) return;
+
+    // On phones/tablets the drawer is full-width — desktop column alignment
+    // would park the action buttons on top of the title row.
+    if (!isDesktop()) {
+      inner.style.removeProperty("padding-left");
+      inner.style.removeProperty("padding-right");
+      if (actions) {
+        actions.style.removeProperty("left");
+        actions.style.removeProperty("right");
+      }
+      return;
+    }
+
     // Brand+tabs align to the shared centered content box's left edge (same as
     // #plan-race-header / any .pm-card); computed from geometry (all four tabs
     // share max-width:1000 + 24px padding, border-box) rather than measuring
     // #list-main, which is display:none on Plan/Projection/Performance.
     // The actions cluster starts at the detail window's LEFT edge (the drawer:
     // width 600, inset 12 from the right) so it sits above that column.
-    var inner = document.querySelector(".log-page-header-inner");
-    var actions = document.querySelector(".log-page-header-actions");
-    if (inner) {
-      var CONTENT_MAX = 1000,
-        PAD = 24;
-      var vw = document.documentElement.clientWidth;
-      var contentLeft = Math.max(0, (vw - CONTENT_MAX) / 2) + PAD;
-      inner.style.paddingLeft = contentLeft + "px";
-      inner.style.paddingRight = contentLeft + "px";
-      if (actions) {
-        var DRAWER_INSET = 12,
-          DRAWER_W = Math.min(600, Math.round(vw * 0.94));
-        var drawerLeft = Math.max(0, vw - DRAWER_INSET - DRAWER_W);
-        actions.style.left = drawerLeft + "px";
-        actions.style.right = "auto";
-      }
+    var CONTENT_MAX = 1000,
+      PAD = 24;
+    var vw = document.documentElement.clientWidth;
+    var contentLeft = Math.max(0, (vw - CONTENT_MAX) / 2) + PAD;
+    inner.style.paddingLeft = contentLeft + "px";
+    inner.style.paddingRight = contentLeft + "px";
+    if (actions) {
+      var DRAWER_INSET = 12,
+        DRAWER_W = Math.min(600, Math.round(vw * 0.94));
+      var drawerLeft = Math.max(0, vw - DRAWER_INSET - DRAWER_W);
+      actions.style.left = drawerLeft + "px";
+      actions.style.right = "auto";
     }
   }
   window.addEventListener("load", _positionNav);
@@ -5429,12 +5546,54 @@
 
   var _athleteId = null;
   var _activePeriod = "week";
+  var _when = "last"; // "last" (default) | "this"
   // Displayed calendar month (YYYY-MM) the monthly summary should follow, and
   // whether a calendar week-scope is currently pinned (summary-only).
   var _scopeMonth = null;
+  var _calendarScoped = false;
 
-  // Cache: keyed by 'week' or 'month' (+ month key), value = fetched data
+  // Cache: keyed by period+when+target, value = fetched data
   var _summaryCache = {};
+
+  function _pad2(n) {
+    return String(n).padStart(2, "0");
+  }
+
+  function _mondayOf(d) {
+    var date = new Date(d);
+    date.setHours(0, 0, 0, 0);
+    var dow = date.getDay();
+    var diff = dow === 0 ? -6 : 1 - dow;
+    date.setDate(date.getDate() + diff);
+    return date;
+  }
+
+  function _isoDate(d) {
+    return (
+      d.getFullYear() +
+      "-" +
+      _pad2(d.getMonth() + 1) +
+      "-" +
+      _pad2(d.getDate())
+    );
+  }
+
+  function _targetWeekMonday() {
+    var monday = _mondayOf(new Date());
+    if (_when === "last") monday.setDate(monday.getDate() - 7);
+    return _isoDate(monday);
+  }
+
+  function _targetMonthKey() {
+    var d = new Date();
+    if (_when === "last") d.setMonth(d.getMonth() - 1);
+    return d.getFullYear() + "-" + _pad2(d.getMonth() + 1);
+  }
+
+  function _scopeLabelText() {
+    var whenWord = _when === "last" ? "Last" : "This";
+    return whenWord + (_activePeriod === "week" ? " week" : " month");
+  }
 
   function _setScopeLabel(text) {
     var el = document.getElementById("lrx-scope");
@@ -5704,9 +5863,11 @@
   function _fetchSummary(period) {
     if (!_athleteId) return;
 
-    // Cache key includes the scoped month so paging months fetches each.
     var cacheKey =
-      period === "month" && _scopeMonth ? "month:" + _scopeMonth : period;
+      period === "week"
+        ? "week:" + _when + ":" + _targetWeekMonday()
+        : "month:" +
+          (_scopeMonth && _calendarScoped ? _scopeMonth : _when + ":" + _targetMonthKey());
 
     if (_summaryCache[cacheKey]) {
       _applyData(period, _summaryCache[cacheKey]);
@@ -5719,13 +5880,19 @@
     var card = document.getElementById("summary-digest-card");
     if (card) card.hidden = false;
 
-    var endpoint =
-      period === "week"
-        ? "/api/athletes/" + _athleteId + "/summary/weekly"
-        : "/api/athletes/" +
-          _athleteId +
-          "/summary/monthly" +
-          (_scopeMonth ? "?month=" + _scopeMonth : "");
+    var endpoint;
+    if (period === "week") {
+      endpoint =
+        "/api/athletes/" +
+        _athleteId +
+        "/summary/weekly?week=" +
+        _targetWeekMonday();
+    } else {
+      var monthKey =
+        _scopeMonth && _calendarScoped ? _scopeMonth : _targetMonthKey();
+      endpoint =
+        "/api/athletes/" + _athleteId + "/summary/monthly?month=" + monthKey;
+    }
 
     fetch(endpoint)
       .then(function (res) {
@@ -5761,34 +5928,44 @@
 
   // ── Toggle ───────────────────────────────────────────────────────────────────
 
-  function _syncSeg(period) {
-    document.querySelectorAll(".sd-toggle-btn").forEach(function (btn) {
-      var active = btn.getAttribute("data-period") === period;
+  function _syncWhen(when) {
+    document.querySelectorAll(".sd-when button[data-when]").forEach(function (btn) {
+      var active = when != null && btn.getAttribute("data-when") === when;
       btn.classList.toggle("is-active", active);
       btn.classList.toggle("on", active);
       btn.setAttribute("aria-pressed", active ? "true" : "false");
     });
   }
 
+  function _syncSeg(period) {
+    document.querySelectorAll(".sd-toggle-btn").forEach(function (btn) {
+      var active = period != null && btn.getAttribute("data-period") === period;
+      btn.classList.toggle("is-active", active);
+      btn.classList.toggle("on", active);
+      btn.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+  }
+
+  function _refreshSummary() {
+    _calendarScoped = false;
+    _scopeMonth = null;
+    _setScopeLabel(_scopeLabelText());
+    if (window.LogCalendar && window.LogCalendar.clearScope)
+      window.LogCalendar.clearScope();
+    _fetchSummary(_activePeriod);
+  }
+
+  function _setWhen(when) {
+    if (when !== "last" && when !== "this") return;
+    _when = when;
+    _syncWhen(when);
+    _refreshSummary();
+  }
+
   function _setActivePeriod(period) {
     _activePeriod = period;
     _syncSeg(period);
-    if (period === "week") {
-      // Manual "This week" clears any calendar month/week scope.
-      _scopeMonth = null;
-      _setScopeLabel("This week");
-      if (window.LogCalendar && window.LogCalendar.clearScope)
-        window.LogCalendar.clearScope();
-    } else {
-      // Follow the displayed calendar month (decision 3).
-      if (window.LogCalendar && window.LogCalendar.getDisplayedMonth) {
-        _scopeMonth = window.LogCalendar.getDisplayedMonth();
-      }
-      _setScopeLabel(_monthLabel(_scopeMonth) || "This month");
-      if (window.LogCalendar && window.LogCalendar.markMonthScoped)
-        window.LogCalendar.markMonthScoped();
-    }
-    _fetchSummary(period);
+    _refreshSummary();
   }
 
   // ── Public API for calendar binding ───────────────────────────────────────────
@@ -5796,7 +5973,9 @@
   // does NOT filter the log list — decision 2).
   function _scopeWeek(w) {
     _activePeriod = "week";
+    _calendarScoped = true;
     _syncSeg(null); // no seg lit while a specific week is scoped
+    _syncWhen(null);
     _setScopeLabel("Week of " + w.label);
     var body = document.getElementById("sd-body");
     var card = document.getElementById("summary-digest-card");
@@ -5829,7 +6008,9 @@
   function _scopeMonthFor(ym) {
     _scopeMonth = ym;
     _activePeriod = "month";
+    _calendarScoped = true;
     _syncSeg("month");
+    _syncWhen(null);
     _setScopeLabel(_monthLabel(ym) || "This month");
     _fetchSummary("month");
   }
@@ -5838,6 +6019,8 @@
     scopeWeek: _scopeWeek,
     scopeMonth: _scopeMonthFor,
     showThisWeek: function () {
+      _when = "this";
+      _syncWhen("this");
       _setActivePeriod("week");
     },
   };
@@ -5846,6 +6029,16 @@
 
   function _init(athleteId) {
     _athleteId = athleteId;
+
+    var whenContainer = document.querySelector(".sd-when");
+    if (whenContainer) {
+      whenContainer.addEventListener("click", function (e) {
+        var btn = e.target.closest("button[data-when]");
+        if (!btn) return;
+        var when = btn.getAttribute("data-when");
+        if (when) _setWhen(when);
+      });
+    }
 
     var toggleContainer = document.querySelector(".sd-toggle");
     if (toggleContainer) {
@@ -5857,7 +6050,7 @@
       });
     }
 
-    // Fetch weekly summary immediately (default tab)
+    _setScopeLabel(_scopeLabelText());
     _fetchSummary("week");
   }
 
