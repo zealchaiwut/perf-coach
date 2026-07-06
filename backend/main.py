@@ -9944,7 +9944,7 @@ def stryd_configured():
 
 # Caps concurrent background syncs — prevents a burst of requests from spawning
 # unlimited threads and exhausting memory.
-_sync_pool = _ThreadPoolExecutor(max_workers=3, thread_name_prefix="sync")
+_sync_pool = _ThreadPoolExecutor(max_workers=1, thread_name_prefix="sync")
 
 
 class _InMemoryRecorder:
