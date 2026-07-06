@@ -640,9 +640,15 @@ def fetch_and_detect_records(user_id, db):
                               endpoint before returning JSON to the client.
     """
     from backend.models import Workout, AthleteDurationCurve
+    from sqlalchemy.orm import load_only as _load_only
 
     runs = (
         db.query(Workout)
+        .options(_load_only(
+            Workout.id, Workout.user_id, Workout.workout_date,
+            Workout.distance_km, Workout.duration_seconds,
+            Workout.tss, Workout.avg_power, Workout.name, Workout.workout_type,
+        ))
         .filter(
             Workout.user_id == user_id,
             Workout.workout_type.ilike("%run%"),

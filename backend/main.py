@@ -22,9 +22,10 @@ from fastapi import BackgroundTasks, Body, Depends, FastAPI, File, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import exc as sa_exc, func, or_, select
+from sqlalchemy import cast as _sa_cast, exc as sa_exc, func, or_, select
+from sqlalchemy.types import DateTime as _sa_DateTime
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
-from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.orm import Session, joinedload, load_only, selectinload
 from zoneinfo import ZoneInfo
 
 from backend.auth import require_admin
@@ -5428,9 +5429,22 @@ def _workout_signal_scores(session, workout) -> dict:
     except Exception:
         compute_decoupling = None
 
+    _today = _date.today()
+    _window_start = _today - _timedelta(days=89)
     run_workouts = (
         session.query(Workout)
-        .filter(Workout.user_id == workout.user_id, Workout.workout_type == "run")
+        .options(load_only(
+            Workout.id, Workout.user_id, Workout.workout_date, Workout.start_time,
+            Workout.workout_type, Workout.duration_seconds, Workout.distance_km,
+            Workout.tss, Workout.avg_hr, Workout.avg_power, Workout.name,
+            Workout.speed_signal, Workout.speed_signal_basis,
+            Workout.speed_signal_window_seconds,
+        ))
+        .filter(
+            Workout.user_id == workout.user_id,
+            Workout.workout_type == "run",
+            Workout.workout_date >= _window_start,
+        )
         .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
         .all()
     )
@@ -5440,6 +5454,12 @@ def _workout_signal_scores(session, workout) -> dict:
     if wids:
         for s in (
             session.query(WorkoutSplit)
+            .options(load_only(
+                WorkoutSplit.workout_id, WorkoutSplit.split_index,
+                WorkoutSplit.avg_power, WorkoutSplit.avg_hr,
+                WorkoutSplit.distance_km, WorkoutSplit.duration_seconds,
+                WorkoutSplit.intensity_band,
+            ))
             .filter(WorkoutSplit.workout_id.in_(wids))
             .order_by(WorkoutSplit.split_index)
             .all()
@@ -5510,7 +5530,6 @@ def _workout_signal_scores(session, workout) -> dict:
         return runs
 
     d = workout.workout_date
-    _today = _date.today()
 
     def _score(fn, runs, race_perf):
         r = fn(runs, prefs_dict or None, zone_constants, race_perf=race_perf)
@@ -5585,9 +5604,22 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
     except Exception:
         compute_decoupling = None
 
+    _window_start = as_of_date - _timedelta(days=89)
     run_workouts = (
         session.query(Workout)
-        .filter(Workout.user_id == user_id, Workout.workout_type == "run")
+        .options(load_only(
+            Workout.id, Workout.user_id, Workout.workout_date, Workout.start_time,
+            Workout.workout_type, Workout.duration_seconds, Workout.distance_km,
+            Workout.tss, Workout.avg_hr, Workout.avg_power, Workout.name,
+            Workout.speed_signal, Workout.speed_signal_basis,
+            Workout.speed_signal_window_seconds,
+        ))
+        .filter(
+            Workout.user_id == user_id,
+            Workout.workout_type == "run",
+            Workout.workout_date >= _window_start,
+            Workout.workout_date <= as_of_date,
+        )
         .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
         .all()
     )
@@ -5596,6 +5628,12 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
     if wids:
         for s in (
             session.query(WorkoutSplit)
+            .options(load_only(
+                WorkoutSplit.workout_id, WorkoutSplit.split_index,
+                WorkoutSplit.avg_power, WorkoutSplit.avg_hr,
+                WorkoutSplit.distance_km, WorkoutSplit.duration_seconds,
+                WorkoutSplit.intensity_band,
+            ))
             .filter(WorkoutSplit.workout_id.in_(wids))
             .order_by(WorkoutSplit.split_index)
             .all()
@@ -6224,7 +6262,18 @@ def get_intensity_distribution(
 
         workouts = (
             session.query(Workout)
-            .options(selectinload(Workout.splits))
+            .options(
+                load_only(
+                    Workout.id, Workout.workout_date, Workout.name,
+                    Workout.duration_seconds, Workout.workout_type, Workout.created_at,
+                ),
+                selectinload(Workout.splits).options(load_only(
+                    WorkoutSplit.workout_id, WorkoutSplit.split_index,
+                    WorkoutSplit.avg_power, WorkoutSplit.avg_hr,
+                    WorkoutSplit.distance_km, WorkoutSplit.duration_seconds,
+                    WorkoutSplit.intensity_band,
+                )),
+            )
             .filter(
                 Workout.user_id == uid,
                 Workout.workout_date >= from_d,
@@ -11891,29 +11940,47 @@ def get_training_load_weekly(
     if from_d > to_d:
         raise HTTPException(status_code=422, detail="'from' must not be after 'to'")
 
+    if (to_d - from_d).days > 365:
+        raise HTTPException(status_code=422, detail="Date range cannot exceed 365 days")
+
     _RUN_RE = _re.compile(r"^run(ning)?$|^race$|^(bike|ride|cycl)", _re.IGNORECASE)
     _LIFT_RE = _re.compile(r"^(lift|strength|wod|crossfit)", _re.IGNORECASE)
 
     with Session(engine) as session:
-        workouts = (
-            session.query(Workout)
+        # SQL-side GROUP BY (week_monday, workout_type) so we aggregate TSS and
+        # distance in the database rather than loading every Workout row.
+        week_monday = func.date_trunc(
+            "week", _sa_cast(Workout.workout_date, _sa_DateTime),
+        )
+        rows = (
+            session.query(
+                week_monday.label("week_mon"),
+                Workout.workout_type,
+                func.coalesce(func.sum(Workout.tss), 0).label("sum_tss"),
+                func.coalesce(func.sum(Workout.distance_km), 0).label("sum_dist"),
+            )
             .filter(
                 Workout.user_id == uid,
                 Workout.workout_date >= from_d,
                 Workout.workout_date <= to_d,
             )
-            .order_by(Workout.workout_date)
+            .group_by(week_monday, Workout.workout_type)
             .all()
         )
 
     weeks_map: dict = {}
-    for w in workouts:
-        mon_key, _ = _week_key_and_bounds(w.workout_date)
+    for row in rows:
+        # date_trunc returns a datetime; convert to ISO date string (Monday)
+        wm = row.week_mon
+        if hasattr(wm, "date"):
+            mon_key = wm.date().isoformat()
+        else:
+            mon_key = str(wm)[:10]
         if mon_key not in weeks_map:
             weeks_map[mon_key] = {"run_tss": 0.0, "strength_tss": 0.0, "total_distance_km": 0.0}
-        tss = float(w.tss) if w.tss is not None else 0.0
-        dist = float(w.distance_km) if w.distance_km is not None else 0.0
-        wt = (w.workout_type or "").strip()
+        tss = float(row.sum_tss or 0)
+        dist = float(row.sum_dist or 0)
+        wt = (row.workout_type or "").strip()
         if _RUN_RE.match(wt):
             weeks_map[mon_key]["run_tss"] += tss
         elif _LIFT_RE.match(wt):
