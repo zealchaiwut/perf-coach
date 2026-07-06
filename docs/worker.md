@@ -9,9 +9,11 @@ listening on port 9100, and shares the same Neon Postgres as the webapp.
 ## Architecture
 
 - The worker and the webapp are two independent processes hitting the same
-  Neon database. There is no webapp -> worker RPC call yet — Render's UI
-  still triggers the webapp's own manual sync endpoints for now. The worker
-  is an additional, separately-scheduled writer.
+  Neon database. Heavy paths (full syncs, backfill) are **delegated** from
+  the webapp to the worker via plain HTTP (`backend/services/worker_client.py`).
+  The webapp's sync endpoints proxy full-sync requests to the worker's
+  `/internal/sync/run`; backfill calls go to `/internal/performance/backfill`.
+  Incremental syncs still run in-process (bounded, fast).
 - `backend/worker_app.py` never imports `backend.main` (which starts daemon
   threads — sleep sync, banister refit — at import time). It only imports
   `backend.db`, `backend.models`, and `backend.services.*`, and does so
@@ -20,6 +22,32 @@ listening on port 9100, and shares the same Neon Postgres as the webapp.
 - Every job run (sync, backfill, banister refit) is recorded in the
   `worker_job_runs` table via `DbRecorder`, which is the audit trail for
   what the worker has done, when, and with what result.
+- The webapp's `GET /api/sync/status` checks `worker_job_runs` (shared DB) for
+  recent delegated jobs when no in-process job is active, so the nav sync
+  status bar shows progress for worker-delegated syncs without new infra.
+
+## Webapp delegation config
+
+Set these env vars on the Render webapp service (not the worker):
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `WORKER_BASE_URL` | _(unset)_ | Worker base URL, e.g. `http://zeal-server:9100`. When unset, heavy paths run in-process (local dev). |
+| `WORKER_SHARED_SECRET` | _(unset)_ | Same secret as the worker's `WORKER_SHARED_SECRET`. |
+| `ROUTE_FULL_SYNC_FALLBACK_TO_INPROCESS` | `0` | Set `1` to allow in-process fallback when the worker is down. **Off by default** — an unreachable worker returns 503. |
+| `ROUTE_BACKFILL_FALLBACK_TO_INPROCESS` | `0` | Same for backfill. |
+| `LEGACY_SYNC_STRAVA_ENABLED` | `0` | Set `1` to re-enable the deprecated `POST /api/sync/strava` BackgroundTasks endpoint. Disabled (410) by default. |
+
+### Worker-unreachable behavior
+
+When `WORKER_BASE_URL` is set but the worker is unreachable:
+- `POST /api/strava/sync?full=true` and `POST /api/stryd/sync?full=true` → **503**
+- `POST /api/performance/backfill` → **503**
+- Background threshold-save trigger → logs a warning and skips (does not block the HTTP response)
+
+Set `ROUTE_FULL_SYNC_FALLBACK_TO_INPROCESS=1` or `ROUTE_BACKFILL_FALLBACK_TO_INPROCESS=1`
+only as a temporary safety net — it runs the heavy path in the web dyno, which defeats
+the purpose of the worker.
 
 ## Endpoints
 
