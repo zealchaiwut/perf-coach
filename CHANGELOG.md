@@ -1,5 +1,10 @@
 # Changelog
 
+## Sprint 100 — Memory config hardening and deferred JSONB payload columns
+
+- #1292: Memory config hardening for Render free tier (pool_size 10→3, max_overflow 20→2, sync pool workers 3→1, BANISTER_REFIT_ENABLED=0 on web dynos)
+- #1293: Defer JSONB payload columns on StravaActivity, StrydActivity, ActivityStream to eliminate bulk-loading of large blobs on list queries
+
 ## Sprint 98.2 — Follow-up hardening: taper achievability fix, backfill count alignment, BKK-time guardrail, speed-score warning UI
 
 - #685: Use the target_form parameter in the taper_recommendation achievability check (previously required but unused)
