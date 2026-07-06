@@ -1,5 +1,13 @@
 # Changelog
 
+## Sprint 102 — LLM coaching layer: Groq client, habit insights, readiness narrative, weekly summary, plan suggestions
+
+- #1311: Groq LLM client service: httpx provider, JSON-schema output, llm_generations cache table, fail-safe off by default
+- #1312: Coaching text via Groq: habit insights + nudges LLM-phrased with coaching_voice template fallback
+- #1313: Readiness explanation: LLM 'why this score' narrative with rule-based fallback
+- #1314: Weekly summary narrative: coach-style weekly report from load/guardrail/PR facts
+- #1315: Training plan suggestions: LLM-proposed next-week sessions, validated + one-tap add, never auto-applied
+
 ## Sprint 101 — Query tightening, worker delegation, stream slimming, session hygiene
 
 - #1294: Per-workout session hygiene in duration-curve rebuild and signal/TSS backfill loops

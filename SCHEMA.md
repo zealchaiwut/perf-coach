@@ -860,3 +860,21 @@ A hand-entered planned training session for the Plan tab. Distinct from Projecti
 Index: `ix_planned_sessions_user_date` on `(user_id, planned_date)`. Migration: `6ce18fda0701_add_planned_sessions`.
 
 Index: `ix_user_banister_params_user_fitted_at` on `(user_id, fitted_at)`. Migration: `5552a8d45c57`.
+
+---
+
+## llm_generations _(added Sprint 102)_
+
+Durable cache for LLM-generated coaching text. One row per `(user_id, surface, input_signature)` — if a call with the same inputs is made again, the cached `payload` is returned without a new API call.
+
+| column | type | notes |
+|--------|------|-------|
+| id | integer PK | autoincrement |
+| user_id | UUID FK→users | CASCADE; indexed |
+| surface | varchar(100) | NOT NULL — which coaching surface generated this (e.g. `readiness_explanation`, `weekly_summary`, `habit_insights`, `habit_nudges`, `plan_suggestions`) |
+| input_signature | varchar(64) | NOT NULL — SHA-256 hex digest of the canonical input dict |
+| payload | JSONB | NOT NULL — full LLM response payload |
+| model | varchar(100) | NOT NULL — model id used (e.g. `llama-3.1-8b-instant`) |
+| created_at | timestamptz | server default now() |
+
+Unique: `(user_id, surface, input_signature)` (`uq_llm_generations_user_surface_sig`). Indexes: `ix_llm_generations_user_id` on `user_id`; `ix_llm_generations_user_surface_sig` on `(user_id, surface, input_signature)`. Migration: `54c084f3e59f_add_llm_generations_table`.
