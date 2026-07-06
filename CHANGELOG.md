@@ -1,5 +1,15 @@
 # Changelog
 
+## Sprint 98.2 — Follow-up hardening: taper achievability fix, backfill count alignment, BKK-time guardrail, speed-score warning UI
+
+- #685: Use the target_form parameter in the taper_recommendation achievability check (previously required but unused)
+- #1028: Derive runs_processed from the recompute_user_running_tss return value so the count matches workouts actually processed in backfill
+- #1212: Use today_bangkok() instead of date.today() for the body_modifier guardrail window
+- #1218: Surface the speed-score low-data warning and confidence band in the UI
+## Sprint 98.3 — Follow-up hardening: session-signal 40-min boundary fix
+
+- #1093: Align `_compute_session_signals` 40-min threshold to use `<=` (matching `compute_endurance_signal`), so a run of exactly 2400 s reports "run under 40 min" instead of "insufficient data"
+
 ## Sprint 98.1 — Follow-up hardening: atomic session submit, Riegel consolidation, migration/backfill fixes
 
 - #542: Pin Chart.js CDN to a specific version (4.4.4) in training-log.html

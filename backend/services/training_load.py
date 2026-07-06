@@ -54,6 +54,7 @@ def resolve_user_ewma_days(user_id: str) -> tuple[int, int]:
     atl_days = prefs.atl_days if prefs and prefs.atl_days else ATL_DAYS
     return ctl_days, atl_days
 
+
 # ── Form-zone band constants ───────────────────────────────────────────────────
 # TSB (Training Stress Balance) below this threshold = overreached / buried.
 FORM_BURIED_CEILING: float = -10.0
@@ -643,7 +644,8 @@ def taper_recommendation(fitness_state, race_date, target_form) -> dict:
             The target race date.  Must be in the future (strictly after today).
         target_form:
             The athlete's desired TSB value on race day.  Must not be None.
-            Used to validate that the caller has specified a form target.
+            The achievability check compares projected race-day form against
+            this value: achievable is True when projected form >= target_form.
 
     Returns:
         On invalid input:
@@ -655,7 +657,7 @@ def taper_recommendation(fitness_state, race_date, target_form) -> dict:
                                     DEFAULT_TAPER_DAYS).
             ``message``          -- plain-language guidance string.
             ``achievable``       -- True when projected race-day form reaches
-                                    TARGET_FORM_LOWER; False otherwise.
+                                    target_form; False otherwise.
             ``reason``           -- empty string on success.
 
     Worked example 1 — Normal 2-week taper:
@@ -667,7 +669,7 @@ def taper_recommendation(fitness_state, race_date, target_form) -> dict:
         With zero load for 21 days, ATL (time constant 7 days) decays from 60
         to roughly 3 (exp(-21/7) ≈ 0.05); CTL (time constant 42 days) decays
         from 50 to roughly 30 (exp(-21/42) ≈ 0.61).  Race-day form ≈ 30 − 3 = 27,
-        which is above TARGET_FORM_LOWER (5.0), so achievable is True.
+        which is above target_form (10.0), so achievable is True.
 
         Expected output:
             taper_start_date = 2024-11-30  (14 days before race)
@@ -683,7 +685,7 @@ def taper_recommendation(fitness_state, race_date, target_form) -> dict:
         With zero load for 4 days, ATL decays from 90 to roughly 51 (each day
         ATL drops by alpha_atl ≈ 0.133 of the gap to zero).  CTL decays from 50
         to roughly 45.  Race-day form ≈ 45 − 51 = −6, which is below
-        TARGET_FORM_LOWER (5.0), so achievable is False.
+        target_form (10.0), so achievable is False.
 
         Expected output:
             taper_start_date = 2024-11-29  (14 days before race, now in the past)
@@ -722,9 +724,9 @@ def taper_recommendation(fitness_state, race_date, target_form) -> dict:
     # Race-day form is the last projected day in the series
     projected_race_form = projection["days"][-1]["form"]
 
-    # Achievable when projected form reaches the lower bound of the positive band;
-    # below TARGET_FORM_LOWER the athlete will not be in a peaked state on race day
-    achievable = projected_race_form >= TARGET_FORM_LOWER
+    # Achievable when projected form reaches the caller's target; below target_form
+    # the athlete will not be in the desired peaked state on race day
+    achievable = projected_race_form >= target_form
 
     if achievable:
         # Format dates for readability: "Nov 30", "Dec 14"
