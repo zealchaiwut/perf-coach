@@ -9,7 +9,10 @@ automatically.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+import re
 import statistics
 from typing import Any
 
@@ -344,3 +347,108 @@ def build_habit_outcome_insights(
         return [], "no habit-outcome pairs met the confidence minimum (min_n or min_r)"
 
     return insights, ""
+
+
+# ── LLM coaching overlay (issue #1312) ────────────────────────────────────────
+
+_MAX_INSIGHT_LINE_LEN = 250
+_MEDICAL_TERMS = ("doctor", "injury", "medical", "diagnos", "treat", "pain", "consult")
+
+_INSIGHTS_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "lines": {
+            "type": "array",
+            "items": {"type": "string"},
+        }
+    },
+    "required": ["lines"],
+    "additionalProperties": False,
+}
+
+
+def _insights_facts_text(insights: list[dict]) -> str:
+    facts = [{k: v for k, v in ins.items() if k != "line"} for ins in insights]
+    return json.dumps(facts, sort_keys=True)
+
+
+def _insights_signature(insights: list[dict]) -> str:
+    return hashlib.sha256(_insights_facts_text(insights).encode()).hexdigest()
+
+
+def _validate_insight_lines(lines: list[str], facts_text: str, expected_count: int) -> bool:
+    if len(lines) != expected_count:
+        return False
+    for line in lines:
+        if len(line) > _MAX_INSIGHT_LINE_LEN:
+            return False
+        for num in re.findall(r"\d+(?:\.\d+)?", line):
+            if num not in facts_text:
+                return False
+        if any(term in line.lower() for term in _MEDICAL_TERMS):
+            return False
+    return True
+
+
+def apply_llm_insights(
+    insights: list[dict],
+    user_id: str,
+    db=None,
+) -> list[dict]:
+    """Replace insight 'line' values with LLM prose when LLM is enabled.
+
+    Falls back to the original coaching_voice lines on any failure.
+    Pure-function callers (build_insights) are not modified.
+    """
+    if not insights:
+        return insights
+
+    import backend.services.llm as _llm  # lazy to avoid circular at module load
+
+    if not _llm.llm_enabled():
+        return insights
+
+    facts_text = _insights_facts_text(insights)
+    sig = _insights_signature(insights)
+
+    system = (
+        "You are a performance coach writing concise, factual habit insights. "
+        "Rules: one line per insight, max 250 characters, no medical or injury advice, "
+        "use only numbers given in the facts (no invented figures), "
+        "no exclamation marks, no emoji, associative language only (not causal)."
+    )
+    facts_lines = [
+        f"{i+1}. Habit '{ins['habit_name']}' vs '{ins['outcome_name']}': "
+        f"r={ins['coefficient']}, n={ins['sample_size']}, lag={ins['lag_days']}d"
+        for i, ins in enumerate(insights)
+    ]
+    user = (
+        "Write one coaching insight line per numbered entry below. "
+        "Return JSON: {\"lines\": [...]}.\n" + "\n".join(facts_lines)
+    )
+
+    def _generate():
+        return _llm.complete_structured(
+            system=system,
+            user=user,
+            schema_name="habit_insights_lines",
+            json_schema=_INSIGHTS_JSON_SCHEMA,
+            model_tier="fast",
+        )
+
+    result = _llm.get_or_generate(
+        user_id=user_id,
+        surface="habit_insights",
+        signature=sig,
+        generate_fn=_generate,
+        db=db,
+    )
+
+    if result is None:
+        return insights
+
+    lines = result.get("lines", [])
+    if not _validate_insight_lines(lines, facts_text, len(insights)):
+        return insights
+
+    return [{**ins, "line": lines[i]} for i, ins in enumerate(insights)]
