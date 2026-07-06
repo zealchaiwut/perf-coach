@@ -11,6 +11,7 @@ in ONE place so fixing the shape is a single-file change.
 reconcile.py already consumes stryd_activities, so no reconcile change is needed.
 """
 import json as _json
+import os as _os
 import uuid as _uuid
 import urllib.error as _urllib_error
 import urllib.request as _urllib_request
@@ -67,17 +68,24 @@ def fetch_stryd_activities(
             pass
         raise RuntimeError(f"Stryd API error: {exc.code} {body}") from exc
 
+    acts: list[dict] | None = None
     if isinstance(data, list):
-        return data
-    if isinstance(data, dict):
+        acts = data
+    elif isinstance(data, dict):
         for key in ("activities", "data", "results", "calendar_items"):
             if isinstance(data.get(key), list):
-                return data[key]
-    logger.warning(
-        "stryd calendar: unexpected response shape",
-        extra={"keys": list(data) if isinstance(data, dict) else type(data).__name__},
-    )
-    return []
+                acts = data[key]
+                break
+    if acts is None:
+        logger.warning(
+            "stryd calendar: unexpected response shape",
+            extra={"keys": list(data) if isinstance(data, dict) else type(data).__name__},
+        )
+        return []
+    # Strip per-point *_list stream arrays immediately so we never hold the full
+    # lifetime calendar (stream arrays included) alongside the mapped copy in memory.
+    # Streams are fetched per-activity via _enrich_one / fetch_stryd_activity_streams.
+    return [{k: v for k, v in a.items() if not k.endswith("_list")} for a in acts]
 
 
 def fetch_stryd_activity_streams(token: str, activity_id) -> dict:
@@ -258,7 +266,10 @@ def _heal_candidate_ids(session: Session, uid, processed: set) -> list:
 # Max streams-less activities to backfill per full-sync heal pass (rate-limit guard).
 _STREAM_HEAL_CAP = 60
 # Parallel workers for per-activity stream fetches (each is an independent HTTP call).
-_ENRICH_WORKERS = 4
+# Defaults to 2 so the web process holds at most 2 full stream payloads in flight.
+# Set STRYD_ENRICH_WORKERS=4 (or higher) on the compute worker where memory is less
+# constrained and throughput matters more.
+_ENRICH_WORKERS = int(_os.environ.get("STRYD_ENRICH_WORKERS", "2"))
 
 
 def _enrich_one(token: str, aid, base_form: dict | None = None) -> bool:
