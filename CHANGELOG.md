@@ -1,5 +1,13 @@
 # Changelog
 
+## Sprint 101 — Query tightening, worker delegation, stream slimming, session hygiene
+
+- #1294: Per-workout session hygiene in duration-curve rebuild and signal/TSS backfill loops
+- #1295: Serve workout detail from downsampled activity_streams instead of decoding raw streams_payload per request
+- #1296: Stryd calendar sync: stop materializing full lifetime per-point streams in one json.loads
+- #1297: Route heavy paths (full syncs, performance backfill, threshold-save rebuilds) to compute worker
+- #1298: Query tightening: date-bound + column-only loads for scores/PR/weekly/reconcile; drop avatar bytes from resolve_user
+
 ## Sprint 100 — Memory config hardening and deferred JSONB payload columns
 
 - #1292: Memory config hardening for Render free tier (pool_size 10→3, max_overflow 20→2, sync pool workers 3→1, BANISTER_REFIT_ENABLED=0 on web dynos)

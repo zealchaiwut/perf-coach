@@ -98,6 +98,8 @@ def backfill_signals_for_athlete(user_id, db) -> dict:
 
     for workout in run_workouts:
         # Speed signal — delegated entirely to the live-path thin caller.
+        # compute_and_store_speed_signal expires StrydActivity.streams_payload
+        # after use, so the large JSONB payload is not retained across iterations.
         try:
             ok, _ = compute_and_store_speed_signal(workout.id, db)
             if ok and workout.speed_signal is not None:
@@ -137,6 +139,15 @@ def backfill_signals_for_athlete(user_id, db) -> dict:
             workout.endurance_signal_source = es["endurance_signal_source"]
             if es["endurance_signal"] is not None:
                 endurance_computed += 1
+            # Expunge loaded splits from the identity map so their memory can be
+            # reclaimed before the next iteration.  The computed values have already
+            # been written back to workout attributes above and will be committed at
+            # the end of the loop.
+            for s in splits:
+                try:
+                    db.expunge(s)
+                except Exception:
+                    pass
         except Exception as exc:
             _log.warning(
                 "backfill_signals: endurance signal failed for workout %s: %s",

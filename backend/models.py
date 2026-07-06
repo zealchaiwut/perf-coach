@@ -659,6 +659,9 @@ class StrydActivity(Base):
     splits = deferred(Column(JSONB, nullable=True))
     streams_payload = deferred(Column(JSONB, nullable=True))
     raw_payload = deferred(Column(JSONB, nullable=False))
+    # Computed at sync time by compute_manual_laps; avoids materialising streams_payload
+    # on the detail request path (issue #1295).
+    manual_laps = deferred(Column(JSONB, nullable=True))
     synced_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
     # Treadmill incline extracted from the Stryd raw payload (average_incline field).
     # Present only for treadmill activities; None for outdoor runs.

@@ -13,7 +13,9 @@ Acceptance Criteria:
 """
 import re
 import uuid
+from datetime import date, datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -43,6 +45,38 @@ def _teardown():
     app.dependency_overrides.pop(resolve_user, None)
 
 
+def _week_monday(workout_date_str: str) -> datetime:
+    """Return the Monday of the ISO week containing workout_date_str."""
+    d = date.fromisoformat(workout_date_str)
+    mon = d - __import__("datetime").timedelta(days=d.weekday())
+    return datetime(mon.year, mon.month, mon.day, tzinfo=timezone.utc)
+
+
+def _make_row(
+    workout_type: str,
+    tss: float,
+    distance_km: float,
+    workout_date: str,
+):
+    """Create a mock GROUP BY row matching the new SQL aggregation query shape.
+
+    The endpoint now runs:
+      SELECT date_trunc('week', workout_date), workout_type,
+             SUM(tss), SUM(distance_km)
+      FROM workouts ... GROUP BY week, workout_type
+
+    Each row has: week_mon (datetime), workout_type (str), sum_tss, sum_dist.
+    """
+    return SimpleNamespace(
+        week_mon=_week_monday(workout_date),
+        workout_type=workout_type,
+        sum_tss=tss,
+        sum_dist=distance_km,
+    )
+
+
+# Legacy alias so existing test bodies don't need rewriting: _make_workout now
+# creates a GROUP BY row (same interface as before for single-type tests).
 def _make_workout(
     workout_type: str,
     tss: float,
@@ -50,22 +84,15 @@ def _make_workout(
     workout_date: str,
     uid=_USER_ID,
 ):
-    w = MagicMock()
-    w.user_id = uid
-    w.workout_type = workout_type
-    w.tss = tss
-    w.distance_km = distance_km
-    from datetime import date
-    w.workout_date = date.fromisoformat(workout_date)
-    return w
+    return _make_row(workout_type, tss, distance_km, workout_date)
 
 
-def _mock_session(workouts):
+def _mock_session(rows):
     mock_session = MagicMock()
     mock_session.__enter__ = MagicMock(return_value=mock_session)
     mock_session.__exit__ = MagicMock(return_value=False)
-    # Endpoint: session.query(Workout).filter(...).order_by(...).all()
-    mock_session.query.return_value.filter.return_value.order_by.return_value.all.return_value = workouts
+    # Endpoint now uses: session.query(...).filter(...).group_by(...).all()
+    mock_session.query.return_value.filter.return_value.group_by.return_value.all.return_value = rows
     return mock_session
 
 

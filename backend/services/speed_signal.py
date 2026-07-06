@@ -235,6 +235,10 @@ def compute_and_store_speed_signal(workout_id, session) -> tuple[bool, str | Non
                     avg_hr=lap.get("avg_hr"),
                 )
             )
+        # Expire streams_payload so the large JSONB array can be GC'd; the
+        # manual_laps list above already holds everything we need from it.
+        if sta is not None and hasattr(session, "expire"):
+            session.expire(sta, ["streams_payload"])
 
     prefs_row = (
         session.query(UserPreferences)

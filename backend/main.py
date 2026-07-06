@@ -22,9 +22,10 @@ from fastapi import BackgroundTasks, Body, Depends, FastAPI, File, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import exc as sa_exc, func, or_, select
+from sqlalchemy import cast as _sa_cast, exc as sa_exc, func, or_, select
+from sqlalchemy.types import DateTime as _sa_DateTime
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
-from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.orm import Session, joinedload, load_only, selectinload
 from zoneinfo import ZoneInfo
 
 from backend.auth import require_admin
@@ -103,6 +104,7 @@ from backend.services.lap_classify import aggregate_intensity_zones as _agg_zone
 from backend.services.polarized_split import check_polarized_split as _check_polarized_split, _DEFAULT_BOUNDS as _POLARIZED_BOUNDS
 from backend.services.lap_classify import classify_laps as _classify_laps
 from backend.services.intensity_distribution import compute_polarized_check as _compute_polarized_check
+from backend.services import worker_client as _worker_client
 
 # Ceiling TSB used when computing expressible scores from historical/projected TSB.
 # 20.0 matches the representative value established in issue #1107.
@@ -5427,9 +5429,22 @@ def _workout_signal_scores(session, workout) -> dict:
     except Exception:
         compute_decoupling = None
 
+    _today = _date.today()
+    _window_start = _today - _timedelta(days=89)
     run_workouts = (
         session.query(Workout)
-        .filter(Workout.user_id == workout.user_id, Workout.workout_type == "run")
+        .options(load_only(
+            Workout.id, Workout.user_id, Workout.workout_date, Workout.start_time,
+            Workout.workout_type, Workout.duration_seconds, Workout.distance_km,
+            Workout.tss, Workout.avg_hr, Workout.avg_power, Workout.name,
+            Workout.speed_signal, Workout.speed_signal_basis,
+            Workout.speed_signal_window_seconds,
+        ))
+        .filter(
+            Workout.user_id == workout.user_id,
+            Workout.workout_type == "run",
+            Workout.workout_date >= _window_start,
+        )
         .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
         .all()
     )
@@ -5439,6 +5454,12 @@ def _workout_signal_scores(session, workout) -> dict:
     if wids:
         for s in (
             session.query(WorkoutSplit)
+            .options(load_only(
+                WorkoutSplit.workout_id, WorkoutSplit.split_index,
+                WorkoutSplit.avg_power, WorkoutSplit.avg_hr,
+                WorkoutSplit.distance_km, WorkoutSplit.duration_seconds,
+                WorkoutSplit.intensity_band,
+            ))
             .filter(WorkoutSplit.workout_id.in_(wids))
             .order_by(WorkoutSplit.split_index)
             .all()
@@ -5509,7 +5530,6 @@ def _workout_signal_scores(session, workout) -> dict:
         return runs
 
     d = workout.workout_date
-    _today = _date.today()
 
     def _score(fn, runs, race_perf):
         r = fn(runs, prefs_dict or None, zone_constants, race_perf=race_perf)
@@ -5584,9 +5604,22 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
     except Exception:
         compute_decoupling = None
 
+    _window_start = as_of_date - _timedelta(days=89)
     run_workouts = (
         session.query(Workout)
-        .filter(Workout.user_id == user_id, Workout.workout_type == "run")
+        .options(load_only(
+            Workout.id, Workout.user_id, Workout.workout_date, Workout.start_time,
+            Workout.workout_type, Workout.duration_seconds, Workout.distance_km,
+            Workout.tss, Workout.avg_hr, Workout.avg_power, Workout.name,
+            Workout.speed_signal, Workout.speed_signal_basis,
+            Workout.speed_signal_window_seconds,
+        ))
+        .filter(
+            Workout.user_id == user_id,
+            Workout.workout_type == "run",
+            Workout.workout_date >= _window_start,
+            Workout.workout_date <= as_of_date,
+        )
         .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
         .all()
     )
@@ -5595,6 +5628,12 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
     if wids:
         for s in (
             session.query(WorkoutSplit)
+            .options(load_only(
+                WorkoutSplit.workout_id, WorkoutSplit.split_index,
+                WorkoutSplit.avg_power, WorkoutSplit.avg_hr,
+                WorkoutSplit.distance_km, WorkoutSplit.duration_seconds,
+                WorkoutSplit.intensity_band,
+            ))
             .filter(WorkoutSplit.workout_id.in_(wids))
             .order_by(WorkoutSplit.split_index)
             .all()
@@ -5755,15 +5794,23 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
     }
 
 
-def _strava_source_dict(sa) -> dict | None:
+def _strava_source_dict(sa, prebuilt_streams: dict | None = None) -> dict | None:
     """Full Strava capture for a workout: promoted columns + everything inside the
     detail_payload (laps, per-km splits, best efforts, GPS polyline) and the raw
-    per-point streams. Nothing dropped — the union endpoint surfaces all of it."""
+    per-point streams. Nothing dropped — the union endpoint surfaces all of it.
+
+    When ``prebuilt_streams`` is supplied (from the activity_streams table, already
+    downsampled to ≤1 Hz), it is used directly and ``sa.streams_payload`` is never
+    accessed, avoiding a 1-5 MB JSONB load per request (issue #1295).
+    """
     if sa is None:
         return None
     detail = sa.detail_payload or {}
-    streams = sa.streams_payload if isinstance(sa.streams_payload, dict) else {}
     raw = sa.raw_payload or {}
+    if prebuilt_streams is not None:
+        streams = prebuilt_streams
+    else:
+        streams = sa.streams_payload if isinstance(sa.streams_payload, dict) else {}
     map_obj = detail.get("map") or raw.get("map") or {}
     return {
         "strava_activity_id": sa.strava_activity_id,
@@ -5801,11 +5848,16 @@ def _stryd_source_dict(sta) -> dict | None:
     """Full Stryd capture: power-based TSS + running dynamics Strava cannot give."""
     if sta is None:
         return None
-    # Stryd has no precomputed laps array — manual lap presses are boundary
-    # timestamps. Compute per-lap metrics from the per-point streams.
-    from backend.services.stryd_laps import compute_manual_laps
-    streams = sta.streams_payload if isinstance(sta.streams_payload, dict) else {}
-    laps = compute_manual_laps(streams) or ((sta.raw_payload or {}).get("laps") or [])
+    # Use pre-computed laps persisted at sync-time (issue #1295).  Avoids
+    # materialising the full streams_payload (can be several MB) on every request.
+    # Falls back to computing from streams_payload for rows synced before this change.
+    manual_laps = getattr(sta, "manual_laps", None)
+    if manual_laps is not None:
+        laps = manual_laps
+    else:
+        from backend.services.stryd_laps import compute_manual_laps
+        streams = sta.streams_payload if isinstance(sta.streams_payload, dict) else {}
+        laps = compute_manual_laps(streams) or ((sta.raw_payload or {}).get("laps") or [])
     return {
         "stryd_activity_id": sta.stryd_activity_id,
         "name": sta.name,
@@ -6210,7 +6262,18 @@ def get_intensity_distribution(
 
         workouts = (
             session.query(Workout)
-            .options(selectinload(Workout.splits))
+            .options(
+                load_only(
+                    Workout.id, Workout.workout_date, Workout.name,
+                    Workout.duration_seconds, Workout.workout_type, Workout.created_at,
+                ),
+                selectinload(Workout.splits).options(load_only(
+                    WorkoutSplit.workout_id, WorkoutSplit.split_index,
+                    WorkoutSplit.avg_power, WorkoutSplit.avg_hr,
+                    WorkoutSplit.distance_km, WorkoutSplit.duration_seconds,
+                    WorkoutSplit.intensity_band,
+                )),
+            )
             .filter(
                 Workout.user_id == uid,
                 Workout.workout_date >= from_d,
@@ -6439,7 +6502,11 @@ def get_workout_full(
             .first()
         )
         tss_result = _compute_running_tss(workout, split_rows, prefs or UserPreferences())
-        strava = _strava_source_dict(getattr(workout, "strava_activity", None))
+        from backend.models import ActivityStream as _ActivityStream
+        from backend.services.activity_streams import activity_streams_to_strava_dict as _as_to_strava
+        _stream_row = session.get(_ActivityStream, workout.id)
+        _prebuilt_streams = _as_to_strava(_stream_row) if _stream_row else None
+        strava = _strava_source_dict(getattr(workout, "strava_activity", None), prebuilt_streams=_prebuilt_streams)
         stryd = _stryd_source_dict(getattr(workout, "stryd_activity", None))
         unified = _unified_workout_dict(workout, strava, stryd)
         # Derive metrics from the full streams BEFORE downsampling for transport.
@@ -6491,17 +6558,24 @@ def get_workout_full(
         }
         # Authoritative TSS: manual entry wins; fall back to freshly-computed value.
         authoritative_tss = int(workout.tss) if workout.tss is not None else tss_result["tss"]
-        # Manual lap presses (from the Stryd streams) expose real interval reps
-        # that the stored 1 km splits hide; pass them so detection/pairing runs
-        # on them. Keeps session_profile_caller DB-free — we load here.
+        # Manual lap presses expose real interval reps that stored 1 km splits hide;
+        # pass them so detection/pairing runs on them.  Use the persisted manual_laps
+        # column (issue #1295) to avoid re-materialising streams_payload.
         _manual_laps_for_profile = None
         try:
             _sta = getattr(workout, "stryd_activity", None)
-            _streams = _sta.streams_payload if _sta is not None and isinstance(_sta.streams_payload, dict) else None
-            if _streams:
-                from backend.services.stryd_laps import compute_manual_laps as _cml
+            if _sta is not None:
+                _persisted = getattr(_sta, "manual_laps", None)
+                if _persisted is not None:
+                    _mlaps = _persisted
+                else:
+                    _streams = _sta.streams_payload if isinstance(_sta.streams_payload, dict) else None
+                    from backend.services.stryd_laps import compute_manual_laps as _cml
+                    _mlaps = _cml(_streams) if _streams else []
+            else:
+                _mlaps = []
+            if _mlaps:
                 from types import SimpleNamespace as _SNS
-                _mlaps = _cml(_streams) or []
                 _manual_laps_for_profile = [
                     _SNS(
                         split_index=_i + 1,
@@ -8927,44 +9001,58 @@ def get_performance_chart(
 def post_performance_backfill(user: User = Depends(resolve_user)):
     """Trigger the full performance backfill pipeline for the authenticated athlete.
 
-    Recomputes running TSS for all historical run workouts and rebuilds the
-    best-effort duration curve so that performance scores (endurance, speed) and
-    the fitness/fatigue/form chart reflect the current thresholds immediately.
+    Delegated to the compute worker when WORKER_BASE_URL is configured.
+    Returns 202 {"worker_delegated": true} when the worker accepts the job.
+    Returns 503 when the worker is unreachable and ROUTE_BACKFILL_FALLBACK_TO_INPROCESS
+    is not set to "1".
 
-    Idempotent — safe to call more than once.  The response reports what was done
-    so the caller can decide whether to poll for completion or simply proceed.
-
-    Returns 200 with a summary dict:
-        {
-          "thresholds_found": true,
-          "runs_processed": 12,
-          "tss_recomputed": true,
-          "curve_rebuilt": true,
-          "reason": null
-        }
-
-    Returns 200 with ``thresholds_found: false`` when no thresholds have been
-    configured — the caller should direct the athlete to set thresholds first.
+    When WORKER_BASE_URL is not set (local dev / no worker configured), falls back
+    to the synchronous in-process pipeline and returns 200 with the summary dict.
     """
     uid = user.id
+    worker_base_url = _worker_client.get_worker_base_url()
+    if worker_base_url:
+        try:
+            _worker_client.delegate_backfill(str(uid))
+            return JSONResponse({"worker_delegated": True, "started": True}, status_code=202)
+        except _worker_client.WorkerUnavailable as exc:
+            if os.getenv("ROUTE_BACKFILL_FALLBACK_TO_INPROCESS", "0") != "1":
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Compute worker unavailable — cannot run backfill: {exc}",
+                )
+            _logging.getLogger(__name__).warning(
+                "Worker unavailable for backfill (user %s); falling back to in-process: %s",
+                uid, exc,
+            )
     with Session(engine) as session:
         result = _backfill_performance_for_athlete(uid, session)
     return JSONResponse(result)
 
 
 def _trigger_performance_backfill_background(user_id) -> None:
-    """Fire-and-forget: run the full performance backfill pipeline in a daemon thread.
+    """Fire-and-forget: trigger the full performance backfill pipeline.
 
     Called after threshold saves so TSS and the duration curve are consistent
     with the new thresholds without blocking the HTTP response.  Errors are
     logged but do not propagate.
 
-    Pipeline order:
-      1. M0: TSS recompute + duration curve rebuild (backfill_performance_for_athlete)
-      2. Speed + endurance signal backfill (backfill_signals_for_athlete) — chains
-         after M0 so signals are computed against up-to-date thresholds and curves.
+    When WORKER_BASE_URL is configured, delegates to the compute worker instead
+    of spawning a daemon thread in the web process.  Falls back to a daemon
+    thread only when the worker is not configured (WORKER_BASE_URL unset).
     """
     _backfill_log = _logging.getLogger(__name__)
+
+    if _worker_client.get_worker_base_url():
+        try:
+            _worker_client.delegate_backfill(str(user_id))
+            return
+        except _worker_client.WorkerUnavailable as _exc:
+            _backfill_log.warning(
+                "Worker unavailable for background backfill (user %s): %s — skipping (not falling back in-process)",
+                user_id, _exc,
+            )
+            return
 
     def _run():
         try:
@@ -9990,6 +10078,10 @@ def strava_sync(body: _StravaSyncBody = Body(default=None), user: User = Depends
     Default (incremental): since last synced activity minus 1 day, or 90-day
     lookback on first sync. Pass full=true to fetch entire Strava history.
     Optional since_date (YYYY-MM-DD) overrides the incremental window.
+
+    full=true: delegated to the compute worker (/internal/sync/run).
+    Returns 503 if the worker is unreachable and ROUTE_FULL_SYNC_FALLBACK_TO_INPROCESS
+    is not set to "1".
     """
     uid = user.id
     since = None
@@ -9997,6 +10089,22 @@ def strava_sync(body: _StravaSyncBody = Body(default=None), user: User = Depends
     if body is not None:
         since = body.since_date
         full = body.full
+
+    if full:
+        try:
+            result = _worker_client.delegate_sync(str(uid), sources=["strava"], full=True)
+            return JSONResponse({"started": True, "worker_delegated": True, **result}, status_code=202)
+        except _worker_client.WorkerUnavailable as exc:
+            if os.getenv("ROUTE_FULL_SYNC_FALLBACK_TO_INPROCESS", "0") != "1":
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Compute worker unavailable — cannot run full sync: {exc}",
+                )
+            _logging.getLogger(__name__).warning(
+                "Worker unavailable for full Strava sync (user %s); falling back to in-process: %s",
+                uid, exc,
+            )
+
     try:
         _sync_jobs.start(uid, "strava")
     except _sync_jobs.SyncInProgress:
@@ -10023,6 +10131,10 @@ def stryd_sync(body: _StrydSyncBody = Body(default=None), user: User = Depends(r
     Default (incremental): since last completed sync minus 1 day, or 90-day
     lookback on first sync. Pass full=true for a multi-year history pull.
     Optional since_date (YYYY-MM-DD) overrides the incremental window.
+
+    full=true: delegated to the compute worker (/internal/sync/run).
+    Returns 503 if the worker is unreachable and ROUTE_FULL_SYNC_FALLBACK_TO_INPROCESS
+    is not set to "1".
     """
     uid = user.id
     with Session(engine) as session:
@@ -10034,6 +10146,22 @@ def stryd_sync(body: _StrydSyncBody = Body(default=None), user: User = Depends(r
     if body is not None:
         since = body.since_date
         full = body.full
+
+    if full:
+        try:
+            result = _worker_client.delegate_sync(str(uid), sources=["stryd"], full=True)
+            return JSONResponse({"started": True, "worker_delegated": True, **result}, status_code=202)
+        except _worker_client.WorkerUnavailable as exc:
+            if os.getenv("ROUTE_FULL_SYNC_FALLBACK_TO_INPROCESS", "0") != "1":
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Compute worker unavailable — cannot run full sync: {exc}",
+                )
+            _logging.getLogger(__name__).warning(
+                "Worker unavailable for full Stryd sync (user %s); falling back to in-process: %s",
+                uid, exc,
+            )
+
     try:
         _sync_jobs.start(uid, "stryd")
     except _sync_jobs.SyncInProgress:
@@ -10053,9 +10181,17 @@ async def post_sync_strava(
     body: _SyncStravaTriggerBody = Body(default=None),
     user: User = Depends(resolve_user),
 ):
-    """Trigger a Strava sync; returns 202 immediately. Sync runs via BackgroundTasks.
-    Falls back to synchronous execution if BackgroundTasks is unavailable.
+    """Legacy Strava sync endpoint (BackgroundTasks path).
+
+    Disabled by default (returns 410 Gone). Enable by setting
+    LEGACY_SYNC_STRAVA_ENABLED=1. Use POST /api/strava/sync instead.
     """
+    if os.getenv("LEGACY_SYNC_STRAVA_ENABLED", "0") != "1":
+        raise HTTPException(
+            status_code=410,
+            detail="This endpoint is disabled. Use POST /api/strava/sync instead.",
+        )
+
     from backend.services.strava_sync import sync_strava_activities as _strava_bg_sync
     from sqlalchemy import select
 
@@ -11804,29 +11940,47 @@ def get_training_load_weekly(
     if from_d > to_d:
         raise HTTPException(status_code=422, detail="'from' must not be after 'to'")
 
+    if (to_d - from_d).days > 365:
+        raise HTTPException(status_code=422, detail="Date range cannot exceed 365 days")
+
     _RUN_RE = _re.compile(r"^run(ning)?$|^race$|^(bike|ride|cycl)", _re.IGNORECASE)
     _LIFT_RE = _re.compile(r"^(lift|strength|wod|crossfit)", _re.IGNORECASE)
 
     with Session(engine) as session:
-        workouts = (
-            session.query(Workout)
+        # SQL-side GROUP BY (week_monday, workout_type) so we aggregate TSS and
+        # distance in the database rather than loading every Workout row.
+        week_monday = func.date_trunc(
+            "week", _sa_cast(Workout.workout_date, _sa_DateTime),
+        )
+        rows = (
+            session.query(
+                week_monday.label("week_mon"),
+                Workout.workout_type,
+                func.coalesce(func.sum(Workout.tss), 0).label("sum_tss"),
+                func.coalesce(func.sum(Workout.distance_km), 0).label("sum_dist"),
+            )
             .filter(
                 Workout.user_id == uid,
                 Workout.workout_date >= from_d,
                 Workout.workout_date <= to_d,
             )
-            .order_by(Workout.workout_date)
+            .group_by(week_monday, Workout.workout_type)
             .all()
         )
 
     weeks_map: dict = {}
-    for w in workouts:
-        mon_key, _ = _week_key_and_bounds(w.workout_date)
+    for row in rows:
+        # date_trunc returns a datetime; convert to ISO date string (Monday)
+        wm = row.week_mon
+        if hasattr(wm, "date"):
+            mon_key = wm.date().isoformat()
+        else:
+            mon_key = str(wm)[:10]
         if mon_key not in weeks_map:
             weeks_map[mon_key] = {"run_tss": 0.0, "strength_tss": 0.0, "total_distance_km": 0.0}
-        tss = float(w.tss) if w.tss is not None else 0.0
-        dist = float(w.distance_km) if w.distance_km is not None else 0.0
-        wt = (w.workout_type or "").strip()
+        tss = float(row.sum_tss or 0)
+        dist = float(row.sum_dist or 0)
+        wt = (row.workout_type or "").strip()
         if _RUN_RE.match(wt):
             weeks_map[mon_key]["run_tss"] += tss
         elif _LIFT_RE.match(wt):
@@ -12547,14 +12701,48 @@ def admin_copy_user_to_uat(body: AdminCopyUserIn):
 @app.get("/api/sync/status")
 async def get_sync_status(user: User = Depends(resolve_user)):
     job = _sync_jobs.snapshot(user.id)
-    if job is None:
-        return JSONResponse({"status": "idle"})
-    serialized = {
-        **job,
-        "started_at": job["started_at"].isoformat() if job["started_at"] else None,
-        "finished_at": job["finished_at"].isoformat() if job["finished_at"] else None,
-    }
-    return JSONResponse(serialized)
+    if job is not None:
+        serialized = {
+            **job,
+            "started_at": job["started_at"].isoformat() if job["started_at"] else None,
+            "finished_at": job["finished_at"].isoformat() if job["finished_at"] else None,
+        }
+        return JSONResponse(serialized)
+
+    # No in-process job — check worker_job_runs for a delegated job.
+    from backend.models import WorkerJobRun as _WorkerJobRun
+    from sqlalchemy import select as _sel, or_ as _or
+    from datetime import datetime, timezone as _tz, timedelta as _td
+    _cutoff = datetime.now(_tz.utc) - _td(minutes=10)
+    try:
+        with Session(engine) as _db:
+            wjr = _db.execute(
+                _sel(_WorkerJobRun)
+                .where(_WorkerJobRun.user_id == user.id)
+                .where(
+                    _or(
+                        _WorkerJobRun.status == "running",
+                        _WorkerJobRun.started_at >= _cutoff,
+                    )
+                )
+                .order_by(_WorkerJobRun.started_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+        if wjr is not None:
+            return JSONResponse({
+                "status": wjr.status,
+                "phase": wjr.phase,
+                "source": "worker",
+                "job_type": wjr.job_type,
+                "items_synced": wjr.items_synced,
+                "error": wjr.error,
+                "started_at": wjr.started_at.isoformat() if wjr.started_at else None,
+                "finished_at": wjr.finished_at.isoformat() if wjr.finished_at else None,
+            })
+    except Exception:
+        pass
+
+    return JSONResponse({"status": "idle"})
 
 
 @app.get("/api/sync/history")
