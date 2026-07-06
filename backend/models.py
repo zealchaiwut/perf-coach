@@ -1407,3 +1407,31 @@ class PlannedSession(Base):
     __table_args__ = (
         Index("ix_planned_sessions_user_date", "user_id", "planned_date"),
     )
+
+
+class LlmGeneration(Base):
+    """Cached LLM-generated text payloads keyed by (user, surface, input_signature).
+
+    Re-used when inputs haven't changed; invalidated by signature mismatch.
+    Created by backend/services/llm.py get_or_generate().
+    """
+
+    __tablename__ = "llm_generations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    surface = Column(String(100), nullable=False)
+    input_signature = Column(String(64), nullable=False)
+    payload = Column(JSONB, nullable=False)
+    model = Column(String(100), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "surface", "input_signature", name="uq_llm_generations_user_surface_sig"),
+        Index("ix_llm_generations_user_surface_sig", "user_id", "surface", "input_signature"),
+    )

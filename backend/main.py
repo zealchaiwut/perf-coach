@@ -2717,12 +2717,46 @@ def get_home_readiness(
     )
     score = int(round(min(100.0, max(0.0, total))))
 
+    factors_for_explanation = [
+        {"factor": "sleep_hours", "value": float(metrics.sleep_hours) if metrics.sleep_hours is not None else None,
+         "score": sleep_score, "impact": _impact(sleep_score)},
+        {"factor": "hrv", "value": float(metrics.hrv) if metrics.hrv is not None else None,
+         "score": hrv_score, "impact": _impact(hrv_score)},
+        {"factor": "rhr", "value": float(metrics.resting_hr) if metrics.resting_hr is not None else None,
+         "score": rhr_score, "impact": _impact(rhr_score)},
+        {"factor": "mood", "value": float(metrics.mood) if metrics.mood is not None else None,
+         "score": mood_score, "impact": _impact(mood_score)},
+        {"factor": "energy", "value": float(metrics.energy) if metrics.energy is not None else None,
+         "score": energy_score, "impact": _impact(energy_score)},
+    ]
+    explanation_facts = {
+        "score": score,
+        "label": _readiness_score_label(score),
+        "sleep_hours": float(metrics.sleep_hours) if metrics.sleep_hours is not None else None,
+        "hrv": float(metrics.hrv) if metrics.hrv is not None else None,
+        "rhr": float(metrics.resting_hr) if metrics.resting_hr is not None else None,
+        "sleep_quality": float(metrics.sleep_quality) if metrics.sleep_quality is not None else None,
+        "energy": float(metrics.energy) if metrics.energy is not None else None,
+        "mood": float(metrics.mood) if metrics.mood is not None else None,
+        "sleep_hours_baseline": rolling_baseline["sleep_7d_avg_hours"],
+        "hrv_baseline": rolling_baseline["hrv_7d_avg"],
+        "rhr_baseline": rolling_baseline["rhr_7d_avg"],
+    }
+    from backend.services.readiness_explanation import get_readiness_explanation
+    explanation = get_readiness_explanation(
+        user_id=str(uid),
+        target_date=query_date.isoformat(),
+        facts=explanation_facts,
+        fallback_factors=factors_for_explanation,
+    )
+
     return JSONResponse({
         "date": query_date.isoformat(),
         "score": score,
         "score_label": _readiness_score_label(score),
         "contributors": contributors,
         "rolling_baseline": rolling_baseline,
+        "explanation": explanation,
     })
 
 
@@ -2856,6 +2890,125 @@ def get_home_weekly_summary(
         "vs_prev_week": vs_prev_week,
         "daily_load": daily_load,
     })
+
+
+# ── Weekly summary narrative endpoint (issue #1314) ──────────────────────────
+
+@app.get("/api/weekly-summary")
+def get_weekly_summary(
+    week: Optional[str] = Query(default=None),
+    current_user: User = Depends(resolve_user),
+):
+    """Return a coach-style weekly narrative + key facts.
+
+    week: ISO date of the week's Monday (defaults to current week start).
+    Response: {week_start, facts, narrative, source: "llm"|"fallback"}
+    """
+    from datetime import date as _date_cls, timedelta as _td
+    from backend.services.weekly_summary import (
+        assemble_facts,
+        get_narrative,
+        build_response,
+    )
+    from backend.services.guardrail import get_guardrail_result
+    from backend.services.training_load import current_load
+
+    uid = current_user.id
+
+    if week is None:
+        _bkk = ZoneInfo("Asia/Bangkok")
+        today_bkk = _datetime.now(_bkk).date()
+        week_start = today_bkk - _timedelta(days=today_bkk.weekday())
+    else:
+        try:
+            week_start = _date_cls.fromisoformat(week)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid week format; use YYYY-MM-DD")
+
+    week_end = week_start + _timedelta(days=6)
+    prev_week_start = week_start - _timedelta(days=7)
+    prev_week_end = week_start - _timedelta(days=1)
+
+    with Session(engine) as session:
+        from backend.models import PersonalRecord
+
+        curr_workouts_orm = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= week_start,
+                Workout.workout_date <= week_end,
+            )
+            .all()
+        )
+        prev_workouts_orm = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= prev_week_start,
+                Workout.workout_date <= prev_week_end,
+            )
+            .all()
+        )
+        prs_orm = (
+            session.query(PersonalRecord)
+            .filter(
+                PersonalRecord.user_id == uid,
+                PersonalRecord.achieved_on >= week_start,
+                PersonalRecord.achieved_on <= week_end,
+            )
+            .all()
+        )
+
+        def _w_dict(w):
+            return {
+                "workout_date": w.workout_date.isoformat() if w.workout_date else None,
+                "tss": float(w.tss) if w.tss is not None else None,
+                "distance_km": float(w.distance_km) if w.distance_km is not None else None,
+                "duration_seconds": w.duration_seconds,
+                "workout_type": w.workout_type or "",
+            }
+
+        curr_workouts = [_w_dict(w) for w in curr_workouts_orm]
+        prev_workouts = [_w_dict(w) for w in prev_workouts_orm]
+        prs = [
+            {
+                "track_name": pr.track_name,
+                "track_key": pr.track_key,
+                "value_numeric": str(pr.value_numeric),
+                "achieved_on": pr.achieved_on.isoformat() if pr.achieved_on else None,
+            }
+            for pr in prs_orm
+        ]
+
+    # CTL/ATL/TSB at week start and end
+    load_start = current_load(str(uid), as_of=prev_week_end)
+    load_end = current_load(str(uid), as_of=week_end)
+
+    # Guardrail flags for the current week
+    guardrail = get_guardrail_result(str(uid), as_of_date=week_end)
+
+    facts = assemble_facts(
+        week_start=week_start,
+        current_workouts=curr_workouts,
+        prev_workouts=prev_workouts,
+        ctl_start=load_start["ctl"],
+        ctl_end=load_end["ctl"],
+        atl_start=load_start["atl"],
+        atl_end=load_end["atl"],
+        tsb_start=load_start["tsb"],
+        tsb_end=load_end["tsb"],
+        guardrail=guardrail,
+        prs=prs,
+    )
+
+    narrative, source = get_narrative(user_id=str(uid), week_start=week_start.isoformat(), facts=facts)
+    return JSONResponse(build_response(
+        week_start=week_start.isoformat(),
+        facts=facts,
+        narrative=narrative,
+        source=source,
+    ))
 
 
 # ── Home summary aggregator endpoint (issue #437) ────────────────────────────
@@ -3165,11 +3318,33 @@ def _build_readiness_block(uid, today_bkk):
     top_factors = sorted(factors, key=lambda f: abs(f["score"] - 50), reverse=True)[:3]
     top_factors_clean = [{"factor": f["factor"], "value": f["value"], "impact": f["impact"]} for f in top_factors]
 
+    explanation_facts = {
+        "score": score,
+        "label": _readiness_score_label(score),
+        "sleep_hours": float(metrics.sleep_hours) if metrics.sleep_hours is not None else None,
+        "hrv": float(metrics.hrv) if metrics.hrv is not None else None,
+        "rhr": float(metrics.resting_hr) if metrics.resting_hr is not None else None,
+        "sleep_quality": float(metrics.sleep_quality) if metrics.sleep_quality is not None else None,
+        "energy": float(metrics.energy) if metrics.energy is not None else None,
+        "mood": float(metrics.mood) if metrics.mood is not None else None,
+        "sleep_hours_baseline": sleep_7d_avg,
+        "hrv_baseline": hrv_7d_avg,
+        "rhr_baseline": rhr_7d_avg,
+    }
+    from backend.services.readiness_explanation import get_readiness_explanation
+    explanation = get_readiness_explanation(
+        user_id=str(uid),
+        target_date=str(today_bkk),
+        facts=explanation_facts,
+        fallback_factors=factors,
+    )
+
     return {
         "logged": True,
         "score": score,
         "label": _readiness_score_label(score),
         "top_factors": top_factors_clean,
+        "explanation": explanation,
     }
 
 
@@ -4753,6 +4928,7 @@ def get_habits_adherence(user: User = Depends(resolve_user)):
 
 from backend.services.habit_insights import (  # noqa: E402
     build_insights as _build_insights,
+    apply_llm_insights as _apply_llm_insights,
     OUTCOME_FIELDS as _INSIGHT_OUTCOME_FIELDS,
 )
 
@@ -4819,6 +4995,9 @@ def get_habit_insights(user: User = Depends(resolve_user)):
         outcome_series_by_name=outcome_series_by_name,
     )
 
+    if not building and insights:
+        insights = _apply_llm_insights(insights, user_id=str(uid))
+
     return JSONResponse({
         "insights": insights,
         "building": building,
@@ -4832,7 +5011,7 @@ from backend.services.habit_adherence import (  # noqa: E402
     compute_adherence_breakdown as _compute_adherence_breakdown,
     detect_slipping_habits as _detect_slipping_habits,
 )
-from backend.services.habit_nudges import build_nudges as _build_nudges  # noqa: E402
+from backend.services.habit_nudges import build_nudges as _build_nudges, apply_llm_nudges as _apply_llm_nudges  # noqa: E402
 
 
 @app.get("/api/adherence-nudges")
@@ -4911,6 +5090,12 @@ def get_adherence_nudges(user: User = Depends(resolve_user)):
         for entry in current_per_habit
     }
     nudge_result = _build_nudges(adherence_breakdowns_by_name, slipping_habits)
+    nudge_result = _apply_llm_nudges(
+        nudge_result,
+        adherence_breakdowns_by_name,
+        slipping_habits,
+        user_id=str(uid),
+    )
 
     return JSONResponse({
         "per_habit": current_per_habit,

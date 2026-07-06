@@ -224,6 +224,13 @@
         '</div>';
       }).join('');
 
+      var explanationHTML = '';
+      if (readiness.explanation) {
+        explanationHTML = '<p class="rd-tile-explanation">' +
+          readiness.explanation.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') +
+        '</p>';
+      }
+
       body =
         '<div class="rd-tile-body">' +
           '<div class="rd-tile-ring-wrap">' +
@@ -231,7 +238,8 @@
             '<div class="rd-tile-score-label" style="color:' + color + ';">' + label + '</div>' +
           '</div>' +
           '<div class="rd-tile-factors">' + factorsHTML + '</div>' +
-        '</div>';
+        '</div>' +
+        explanationHTML;
     }
 
     // CTL/ATL/TSB trio appended below the daily-signal block, inside the same
