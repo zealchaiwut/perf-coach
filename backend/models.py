@@ -833,6 +833,27 @@ class SyncJob(Base):
     )
 
 
+class WorkerJobRun(Base):
+    __tablename__ = "worker_job_runs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    job_type = Column(String(30), nullable=False)  # 'strava_sync'|'stryd_sync'|'backfill'|'banister_refit'
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    status = Column(String(10), nullable=False, server_default=text("'running'"), default="running")  # running|success|error
+    phase = Column(String(30), nullable=True)
+    items_synced = Column(Integer, nullable=False, server_default=text("0"), default=0)
+    error = Column(Text, nullable=True)
+    triggered_by = Column(String(10), nullable=False, server_default=text("'manual'"), default="manual")  # manual|schedule
+    stats = Column(JSONB, nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_worker_job_runs_user_started_at", "user_id", "started_at"),
+        Index("ix_worker_job_runs_job_type_started_at", "job_type", "started_at"),
+    )
+
+
 class ActivityStream(Base):
     """Per-sample time-series channel data for a workout.
 
