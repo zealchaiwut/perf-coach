@@ -1,0 +1,70 @@
+# LLM Coaching
+
+Foundation module (`backend/services/llm.py`) for the Groq-backed coaching layer.
+Everything is OFF by default — zero behavior change until explicitly enabled.
+
+## Env Vars
+
+| Variable | Default | Description |
+|---|---|---|
+| `LLM_COACH_ENABLED` | `false` | Master kill switch. Set to `true` to enable. |
+| `GROQ_API_KEY` | _(unset)_ | Groq API key. **Required when enabled.** Get one at https://console.groq.com/keys |
+| `GROQ_MODEL_FAST` | `llama-3.1-8b-instant` | Model used for the `fast` tier (low latency). |
+| `GROQ_MODEL_DEEP` | `openai/gpt-oss-120b` | Model used for the `deep` tier (higher quality). |
+
+Both `LLM_COACH_ENABLED=false` and `GROQ_API_KEY` absent are set in `render.yaml`
+for both services (UAT + PRD). Override in the Render dashboard to enable.
+
+## Fail-Safe Contract
+
+`complete_structured()` and `get_or_generate()` **never raise**. Every failure
+path — missing key, disabled flag, HTTP error, network timeout, schema-invalid
+JSON, DB error — returns `None`. Callers check for `None` and fall back to their
+existing behavior (no LLM text displayed).
+
+One `INFO` log line is emitted at startup to indicate whether LLM coaching is
+enabled or why it is unavailable. No repeated warnings.
+
+## Cache Model
+
+Generated text is stored in the `llm_generations` table keyed by
+`(user_id, surface, input_signature)`:
+
+- `surface` — a short string naming the coaching feature (e.g. `habit_insights`).
+- `input_signature` — sha256 of the canonical inputs. When inputs change the
+  signature changes and a fresh generation is triggered; the old row is superseded
+  on the next unique (user, surface, sig) write.
+- `payload` — JSONB; the parsed dict returned by Groq.
+
+The helper `get_or_generate(user_id, surface, signature, generate_fn, *, db=None)`:
+1. Looks up `(user_id, surface, signature)` in `llm_generations`.
+2. On hit: returns `cached.payload` immediately (no HTTP call).
+3. On miss: calls `generate_fn()` (which internally calls `complete_structured`).
+4. On success: inserts a new row and returns the payload.
+5. On failure (`generate_fn` returns `None` or raises): returns `None`, nothing stored.
+
+## How Later Surfaces Plug In
+
+```python
+from backend.services.llm import get_or_generate, complete_structured
+import hashlib, json
+
+def get_habit_insights_text(user_id, habits_data, db):
+    sig = hashlib.sha256(json.dumps(habits_data, sort_keys=True).encode()).hexdigest()
+
+    def generate():
+        return complete_structured(
+            system="You are a concise fitness coach...",
+            user=json.dumps(habits_data),
+            schema_name="habit_insights",
+            json_schema={"type": "object", "properties": {"summary": {"type": "string"}}, ...},
+            model_tier="fast",
+        )
+
+    return get_or_generate(user_id, "habit_insights", sig, generate, db=db)
+    # Returns dict | None — caller renders text or skips the LLM block
+```
+
+No SDK is used. Transport is raw `httpx` (already a dependency) with
+`response_format={"type":"json_schema",...}` (Groq's OpenAI-compatible endpoint).
+Timeout: 60 s total, 10 s connect. No retries inside the provider.
