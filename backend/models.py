@@ -1,6 +1,6 @@
 from sqlalchemy import BigInteger, Boolean, Column, Index, Integer, LargeBinary, String, Numeric, Float, Date, DateTime, Time, ForeignKey, UniqueConstraint, CheckConstraint, text, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.orm import declarative_base, relationship, validates
+from sqlalchemy.orm import declarative_base, deferred, relationship, validates
 
 Base = declarative_base()
 
@@ -603,11 +603,11 @@ class StravaActivity(Base):
     device_name = Column(String(255), nullable=True)
     external_id = Column(String(255), nullable=True)
     is_stryd_synced = Column(Boolean, server_default=text("false"), nullable=False)
-    raw_payload = Column(JSONB, nullable=False)
+    raw_payload = deferred(Column(JSONB, nullable=False))
     # Full-capture blobs — everything Strava exposes per activity (decide what to
     # surface later). detail_payload = /activities/{id}; streams_payload = its /streams.
-    detail_payload = Column(JSONB, nullable=True)
-    streams_payload = Column(JSONB, nullable=True)
+    detail_payload = deferred(Column(JSONB, nullable=True))
+    streams_payload = deferred(Column(JSONB, nullable=True))
     synced_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
 
     __table_args__ = (
@@ -654,11 +654,11 @@ class StrydActivity(Base):
     avg_power_w = Column(Integer, nullable=True)
     avg_hr = Column(Integer, nullable=True)
     tss = Column(Integer, nullable=True)
-    form_metrics = Column(JSONB, nullable=True)
+    form_metrics = deferred(Column(JSONB, nullable=True))
     power_zones = Column(JSONB, nullable=True)
-    splits = Column(JSONB, nullable=True)
-    streams_payload = Column(JSONB, nullable=True)
-    raw_payload = Column(JSONB, nullable=False)
+    splits = deferred(Column(JSONB, nullable=True))
+    streams_payload = deferred(Column(JSONB, nullable=True))
+    raw_payload = deferred(Column(JSONB, nullable=False))
     synced_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
     # Treadmill incline extracted from the Stryd raw payload (average_incline field).
     # Present only for treadmill activities; None for outdoor runs.
@@ -904,15 +904,15 @@ class ActivityStream(Base):
     )
     sample_interval_seconds = Column(Integer, nullable=True)
     source = Column(String(20), nullable=True)
-    time_offset_seconds = Column(JSONB, nullable=True)
-    power_w = Column(JSONB, nullable=True)
-    heart_rate_bpm = Column(JSONB, nullable=True)
-    pace_seconds_per_km = Column(JSONB, nullable=True)
-    cadence_spm = Column(JSONB, nullable=True)
-    altitude_m = Column(JSONB, nullable=True)
-    latitude = Column(JSONB, nullable=True)
-    longitude = Column(JSONB, nullable=True)
-    channel_attribution = Column(JSONB, nullable=True)
+    time_offset_seconds = deferred(Column(JSONB, nullable=True))
+    power_w = deferred(Column(JSONB, nullable=True))
+    heart_rate_bpm = deferred(Column(JSONB, nullable=True))
+    pace_seconds_per_km = deferred(Column(JSONB, nullable=True))
+    cadence_spm = deferred(Column(JSONB, nullable=True))
+    altitude_m = deferred(Column(JSONB, nullable=True))
+    latitude = deferred(Column(JSONB, nullable=True))
+    longitude = deferred(Column(JSONB, nullable=True))
+    channel_attribution = deferred(Column(JSONB, nullable=True))
 
     __table_args__ = (
         CheckConstraint(

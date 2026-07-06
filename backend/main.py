@@ -31,7 +31,7 @@ from backend.auth import require_admin
 from backend.db import check_db, engine, environment
 from backend.models import AppConfig, DailyMetric, DriveSleepConnection, EconomyCeilingSnapshot, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
-from backend.services.workout_merge import compute_best_values, clean_hr
+from backend.services.workout_merge import compute_best_values
 from backend.services.tss import compute_running_tss as _compute_running_tss
 from backend.services.tss import persist_running_tss as _persist_running_tss
 from backend.services.tss import recompute_user_running_tss as _recompute_user_running_tss
@@ -9944,7 +9944,7 @@ def stryd_configured():
 
 # Caps concurrent background syncs — prevents a burst of requests from spawning
 # unlimited threads and exhausting memory.
-_sync_pool = _ThreadPoolExecutor(max_workers=3, thread_name_prefix="sync")
+_sync_pool = _ThreadPoolExecutor(max_workers=1, thread_name_prefix="sync")
 
 
 class _InMemoryRecorder:

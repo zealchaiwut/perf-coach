@@ -49,6 +49,8 @@ services:
         sync: false  # set via Render dashboard — see top of file
       - key: ADMIN_SECRET_UAT
         sync: false  # set via Render dashboard — see top of file
+      - key: BANISTER_REFIT_ENABLED
+        value: "0"  # refit runs on compute worker (zeal-server); disable on web dyno to save RAM
       - key: GOOGLE_LOGIN_ENABLED
         value: "false"  # toggle in Render dashboard to enable Google login
 
@@ -74,5 +76,7 @@ services:
         sync: false  # set via Render dashboard — see top of file
       - key: ADMIN_SECRET_PRD
         sync: false  # set via Render dashboard — see top of file
+      - key: BANISTER_REFIT_ENABLED
+        value: "0"  # refit runs on compute worker (zeal-server); disable on web dyno to save RAM
       - key: GOOGLE_LOGIN_ENABLED
         value: "false"  # toggle in Render dashboard to enable Google login
