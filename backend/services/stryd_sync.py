@@ -275,6 +275,8 @@ def _enrich_one(token: str, aid, base_form: dict | None = None) -> bool:
             fm["np_w"] = np
         if powers:
             fm["max_power_w"] = round(max(powers))
+        from backend.services.stryd_laps import compute_manual_laps
+        manual_laps = compute_manual_laps(streams)
         vals: dict = {}
         if splits:
             vals["splits"] = splits
@@ -282,6 +284,8 @@ def _enrich_one(token: str, aid, base_form: dict | None = None) -> bool:
             vals["form_metrics"] = fm
         if streams.get("timestamp_list"):
             vals["streams_payload"] = streams
+        # Persist computed laps so detail requests avoid re-materialising streams_payload.
+        vals["manual_laps"] = manual_laps if manual_laps is not None else []
         if vals:
             with Session(engine) as session:
                 session.query(StrydActivity).filter(
