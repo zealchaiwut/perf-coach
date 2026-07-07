@@ -2011,7 +2011,8 @@
       '</div>';
     formStack.parentNode.insertBefore(jsonPanel, formStack.nextSibling);
 
-    // Wire tab switching
+    // Wire tab switching — hide the bottom Form action bar when JSON is active
+    // (prevents accidentally clicking the TrainingEditor Save button which ignores JSON edits)
     tabBar.addEventListener("click", function (ev) {
       var btn = ev.target.closest("[data-dpet]");
       if (!btn) return;
@@ -2021,6 +2022,8 @@
       });
       formStack.hidden = tab === "json";
       jsonPanel.hidden = tab !== "json";
+      var formActions = document.getElementById("dp-actions-form");
+      if (formActions) formActions.style.display = tab === "json" ? "none" : "";
     });
 
     // Wire save — sanitizes fields and submits via PATCH + exercises/replace
@@ -2101,9 +2104,8 @@
           return r.json();
         })
         .then(function () {
-          msgEl.textContent = "Saved!";
-          msgEl.className = "dp-json-msg dp-json-msg--ok";
           saveBtn.disabled = false;
+          UIStates.showToast("Workout saved!");
           setPanelMode("view");
           setTimeout(function () {
             fetchAndRenderDetail(wid);
