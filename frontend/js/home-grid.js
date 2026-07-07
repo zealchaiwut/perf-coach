@@ -115,7 +115,10 @@
       // Small cell unit: sizeToContent rounds each item's height up to the
       // nearest cell, so a small unit keeps the fit tight (no big dead gap).
       cellHeight: 10,
-      margin: 7,
+      // gridstack insets each item's content by this margin on all sides, so the
+      // visible gap between two adjacent widgets is ~2×margin ≈ 16px — matching
+      // the 16px spacing around the "Log today's metrics" banner above the grid.
+      margin: 8,
       float: false,
       animate: false,
       staticGrid: true,

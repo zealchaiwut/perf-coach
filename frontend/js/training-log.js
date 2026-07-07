@@ -5975,12 +5975,9 @@
   // ── Render weekly view ───────────────────────────────────────────────────────
 
   function _renderWeek(data) {
-    var noteHtml = data.note
-      ? '<div class="sd-note">' + _esc(data.note) + "</div>"
-      : "";
-    return (
-      _sdTiles(data) + _sdChips(data) + noteHtml + _renderGuardrailWarn(data)
-    );
+    // The one-line note ("N runs, X km covered, …") is dropped — the merged
+    // Weekly coach report below the tiles covers the same ground in prose.
+    return _sdTiles(data) + _sdChips(data) + _renderGuardrailWarn(data);
   }
 
   // ── Render monthly view ──────────────────────────────────────────────────────
@@ -6262,10 +6259,14 @@
 
   function _isoWeekStart(d) {
     var day = d.getDay();
-    var diff = (day === 0 ? -6 : 1 - day);
+    var diff = (day === 0 ? -6 : 1 - day); // 0=Sun → back to Mon
     var mon = new Date(d);
     mon.setDate(d.getDate() + diff);
-    return mon.toISOString().slice(0, 10);
+    // Format in LOCAL time — toISOString() would convert to UTC, and in a
+    // UTC-ahead timezone (this app is Asia/Bangkok, UTC+7) that rolls local
+    // Monday 00:00 back to Sunday, so the week read Sun–Sat instead of Mon–Sun.
+    var p = function (n) { return (n < 10 ? "0" : "") + n; };
+    return mon.getFullYear() + "-" + p(mon.getMonth() + 1) + "-" + p(mon.getDate());
   }
 
   function _fmtWeekLabel(weekStart) {
@@ -6276,27 +6277,48 @@
     return d.toLocaleDateString("en-US", opts) + " – " + end.toLocaleDateString("en-US", opts);
   }
 
-  function _renderFacts(factsEl, facts) {
-    var parts = [];
-    if (facts.total_tss != null) parts.push(facts.total_tss.toFixed(0) + " TSS");
-    if (facts.total_distance_km != null) parts.push(facts.total_distance_km.toFixed(1) + " km");
-    if (facts.total_duration_minutes != null) parts.push(facts.total_duration_minutes.toFixed(0) + " min");
-    if (facts.workout_count) parts.push(facts.workout_count + " sessions");
-    if (facts.ctl_end != null) parts.push("CTL " + facts.ctl_end.toFixed(1));
-    if (facts.tsb_end != null) {
-      var tsb = facts.tsb_end.toFixed(1);
-      parts.push("TSB " + tsb);
-    }
-    if (facts.prs_achieved && facts.prs_achieved.length) {
-      var prNames = facts.prs_achieved.map(function (p) { return p.track_name; }).join(", ");
-      parts.push("PR: " + prNames);
-    }
-    factsEl.textContent = parts.join(" · ");
-    factsEl.hidden = parts.length === 0;
+  function _esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  // Make the prose scannable: put every number in the mono highlight font (same
+  // family the Summary card's stat numbers use) and colour the trend arrows so
+  // "down" reads red and "up" green at a glance. Text is escaped first, then
+  // spans are woven in — the number pattern requires a digit at both ends so a
+  // trailing sentence period isn't swallowed into the number.
+  function _highlightNarrative(text) {
+    var s = _esc(text);
+    s = s.replace(/[▲↑]/g, '<span class="wsc-up">▲</span>')
+         .replace(/[▼↓]/g, '<span class="wsc-down">▼</span>');
+    s = s.replace(/(-?\d(?:[\d.,:]*\d)?)/g, '<span class="wsc-num">$1</span>');
+    return s;
+  }
+
+  // Break the narrative into 3 readable lines: (1) the sessions + totals
+  // sentence, (2) the load-vs-last-week sentence, (3) fitness + form. Split on
+  // sentence boundaries ("period + space"; decimals like 22.8 have no space so
+  // they don't split), re-add the stripped period, then group everything from
+  // the 3rd sentence on into the last line. Each line is number-highlighted.
+  function _renderNarrative(text) {
+    var raw = String(text || "").trim();
+    if (!raw) return "";
+    var sentences = raw.split(/\.\s+/).map(function (s) {
+      s = s.trim();
+      return s ? (/\.$/.test(s) ? s : s + ".") : "";
+    }).filter(Boolean);
+    var lines = sentences.length >= 3
+      ? [sentences[0], sentences[1], sentences.slice(2).join(" ")]
+      : sentences;
+    return lines.map(function (ln) {
+      return '<div class="wsc-line">' + _highlightNarrative(ln) + "</div>";
+    }).join("");
   }
 
   function loadWeeklySummary() {
-    var card = document.getElementById("weekly-summary-card");
+    // The coach report now lives as a section inside the Summary card.
+    var card = document.getElementById("wsc-section");
     if (!card) return;
 
     var weekStart = _isoWeekStart(new Date());
@@ -6310,12 +6332,10 @@
       })
       .then(function (data) {
         var narrativeEl = document.getElementById("wsc-narrative");
-        var factsEl = document.getElementById("wsc-facts");
         var emptyEl = document.getElementById("wsc-empty");
         var facts = data.facts || {};
 
-        if (narrativeEl) narrativeEl.textContent = data.narrative || "";
-        if (factsEl) _renderFacts(factsEl, facts);
+        if (narrativeEl) narrativeEl.innerHTML = _renderNarrative(data.narrative || "");
 
         if (facts.workout_count === 0) {
           if (narrativeEl) narrativeEl.hidden = false;
