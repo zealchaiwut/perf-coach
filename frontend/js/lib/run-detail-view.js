@@ -1636,12 +1636,20 @@
       var hmax = hValid.length ? Math.max.apply(null, hValid) : 0;
       var hrng = hmax - hmin || 1;
       var n = laps.length;
+      // Vertical band the HR curve occupies (viewBox 0..100). The old scale used
+      // 8..88 (span 80), which slammed the lowest lap onto the chart baseline —
+      // a warm-up lap (the HR minimum) read like a dropped/zero value — and
+      // jammed the mid-run plateau against the ceiling. Padding both ends to
+      // 19..81 (span 62) floats every point off the floor and ceiling so the
+      // curve reads as one band with air above and below.
+      var HR_PAD = 19;      // % margin at top and bottom
+      var HR_SPAN = 100 - 2 * HR_PAD;
       var pts = [];
       laps.forEach(function (lap, i) {
         var hv = lap.split.avg_hr;
         if (hv == null || hv <= 0) return;
         var x = ((i + 0.5) / n) * 100;
-        var y = 100 - (((hv - hmin) / hrng) * 80 + 8);
+        var y = 100 - (((hv - hmin) / hrng) * HR_SPAN + HR_PAD);
         pts.push(x.toFixed(2) + "," + y.toFixed(2));
       });
       var svg = container.querySelector("#rd4-lap-hr");
