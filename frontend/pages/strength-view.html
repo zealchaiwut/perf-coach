@@ -458,6 +458,209 @@
         }
       }
 
+      /* ── Body-part TSS card ─────────────────────────────────────────────── */
+      .sv-bp-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 14px;
+      }
+      .sv-bp-head .sv-section-title { margin-bottom: 0; }
+      .sv-bp-edit-btn {
+        appearance: none;
+        border: 1px solid var(--border, #e5e7eb);
+        border-radius: 6px;
+        background: transparent;
+        color: var(--text-secondary);
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 4px 10px;
+        cursor: pointer;
+        transition: background 0.12s, color 0.12s;
+      }
+      .sv-bp-edit-btn:hover { background: var(--tile, #f7f9fd); color: var(--text-primary); }
+      .sv-bp-rows { display: flex; flex-direction: column; gap: 8px; }
+      .sv-bp-row {
+        display: grid;
+        grid-template-columns: 90px 1fr 42px;
+        align-items: center;
+        gap: 10px;
+      }
+      .sv-bp-label {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        text-transform: capitalize;
+        white-space: nowrap;
+      }
+      .sv-bp-bar-wrap {
+        background: var(--tile, #f7f9fd);
+        border-radius: 4px;
+        height: 10px;
+        overflow: hidden;
+      }
+      .sv-bp-bar {
+        height: 100%;
+        border-radius: 4px;
+        transition: width 0.3s;
+        min-width: 4px;
+      }
+      .sv-bp-val {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--ink, #0b1530);
+        text-align: right;
+      }
+      .sv-bp-pending {
+        font-size: 11px;
+        color: var(--text-tertiary);
+        margin: 10px 0 0;
+        font-style: italic;
+      }
+      .sv-bp-pill {
+        display: inline-block;
+        font-size: 10px;
+        font-weight: 700;
+        color: #fff;
+        padding: 2px 7px;
+        border-radius: 3px;
+        margin: 2px 2px 2px 0;
+      }
+      .sv-bp-unset {
+        font-size: 11px;
+        color: var(--text-tertiary);
+        font-style: italic;
+      }
+
+      /* ── Body-part editor modal ──────────────────────────────────────────── */
+      .sv-modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.45);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        padding: 16px;
+      }
+      .sv-modal {
+        background: var(--card-bg);
+        border-radius: 14px;
+        border: 1px solid var(--card-border);
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        width: 100%;
+        max-width: 520px;
+        max-height: 80vh;
+        overflow-y: auto;
+        padding: 20px;
+      }
+      .sv-modal-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
+      }
+      .sv-modal-title {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--text-primary);
+      }
+      .sv-modal-close {
+        appearance: none;
+        border: none;
+        background: transparent;
+        font-size: 18px;
+        cursor: pointer;
+        color: var(--text-secondary);
+        padding: 4px;
+        line-height: 1;
+      }
+      .sv-modal-close:hover { color: var(--text-primary); }
+      .sv-bpe-list { display: flex; flex-direction: column; gap: 12px; }
+      .sv-bpe-item {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 12px;
+        background: var(--tile, #f7f9fd);
+        border-radius: 10px;
+      }
+      .sv-bpe-name {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+      .sv-bpe-pills { display: flex; flex-wrap: wrap; gap: 4px; min-height: 20px; }
+      .sv-bpe-open-btn { align-self: flex-start; }
+      .sv-btn-sm { font-size: 11px; padding: 5px 10px; min-height: 28px; }
+      .sv-btn-ghost {
+        background: transparent;
+        color: var(--text-secondary);
+        border: 1px solid var(--border, #e5e7eb);
+      }
+      .sv-btn-ghost:hover { background: var(--tile, #f7f9fd); color: var(--text-primary); }
+      .sv-bpe-form {
+        margin-top: 14px;
+        padding: 14px;
+        background: var(--card-bg);
+        border: 1px solid var(--border, #e5e7eb);
+        border-radius: 10px;
+      }
+      .sv-bpe-form-hint {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin: 0 0 12px;
+      }
+      .sv-bpe-part-row {
+        display: grid;
+        grid-template-columns: 100px 1fr 20px;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      .sv-bpe-part-label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+      .sv-bpe-part-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      .sv-bpe-pct-input {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 12px;
+        background: var(--tile, #f7f9fd);
+        border: 1px solid var(--border, #e5e7eb);
+        border-radius: 6px;
+        padding: 5px 8px;
+        width: 100%;
+        box-sizing: border-box;
+        text-align: right;
+        color: var(--ink, #0b1530);
+        outline: none;
+      }
+      .sv-bpe-pct-input:focus { border-color: var(--primary, #3b82f6); }
+      .sv-bpe-pct-symbol { font-size: 11px; color: var(--text-secondary); }
+      .sv-bpe-form-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 12px;
+        flex-wrap: wrap;
+      }
+      .sv-bpe-msg { font-size: 12px; color: var(--text-secondary); }
+      .sv-bpe-msg-err { color: var(--danger, #ef4444); }
+      .sv-bpe-msg-ok  { color: var(--success, #22c55e); }
+
       /* ── Tab bar ────────────────────────────────────────────────────────── */
       .sv-tabs {
         display: flex;

@@ -30,7 +30,7 @@ from zoneinfo import ZoneInfo
 
 from backend.auth import require_admin
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, DriveSleepConnection, EconomyCeilingSnapshot, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession
+from backend.models import AppConfig, DailyMetric, DriveSleepConnection, EconomyCeilingSnapshot, ExerciseCatalog, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values
 from backend.services.tss import compute_running_tss as _compute_running_tss
@@ -5014,6 +5014,7 @@ from backend.services.habit_adherence import (  # noqa: E402
     detect_slipping_habits as _detect_slipping_habits,
 )
 from backend.services.habit_nudges import build_nudges as _build_nudges, apply_llm_nudges as _apply_llm_nudges  # noqa: E402
+from backend.services.exercise_classifier import get_or_classify as _get_or_classify, normalize_name as _normalize_exercise_name, VALID_BODY_PARTS as _VALID_BODY_PARTS  # noqa: E402
 
 
 @app.get("/api/adherence-nudges")
@@ -7849,6 +7850,92 @@ def compute_workout_tss(workout_id: str, body: ComputeTSSIn, user: User = Depend
             **_workout_dict(workout, exercises),
             "tss_debug": result.get("debug"),
         })
+
+
+# ── Exercise catalog endpoints ────────────────────────────────────────────────
+
+def _catalog_dict(row: ExerciseCatalog) -> dict:
+    return {
+        "name": row.name,
+        "body_parts": row.body_parts or [],
+        "source": row.source,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+class ExerciseCatalogLookupIn(BaseModel):
+    names: list[str]
+
+
+class ExerciseCatalogPatchIn(BaseModel):
+    body_parts: list[dict]  # [{part: str, ratio: float}, ...]
+
+
+@app.post("/api/exercise-catalog/lookup-batch", status_code=200)
+def lookup_exercise_catalog_batch(body: ExerciseCatalogLookupIn, user: User = Depends(resolve_user)):
+    """Return catalog entries for given exercise names, classifying any unknowns via LLM.
+
+    The LLM call is synchronous but fast (<2 s on Groq's fast tier). Unknown
+    exercises with LLM disabled return {status: "pending"} so the UI can render
+    gracefully without blocking. Existing and newly classified entries are saved
+    once per unique normalised name.
+    """
+    from backend.services.llm import llm_enabled as _llm_enabled
+
+    unique_keys = list({_normalize_exercise_name(n) for n in body.names if n and n.strip()})
+    if not unique_keys:
+        return JSONResponse({"results": {}})
+
+    results = {}
+    with Session(engine) as session:
+        for key in unique_keys:
+            entry = _get_or_classify(key, session)
+            if entry is not None:
+                results[key] = {**entry, "status": "ok"}
+            else:
+                results[key] = {"name": key, "body_parts": [], "source": None, "status": "pending" if not _llm_enabled() else "error"}
+        try:
+            session.commit()
+        except Exception:
+            session.rollback()
+    return JSONResponse({"results": results})
+
+
+@app.patch("/api/exercise-catalog/{name}", status_code=200)
+def patch_exercise_catalog(name: str, body: ExerciseCatalogPatchIn, user: User = Depends(resolve_user)):
+    """Manually override the body-part classification for an exercise."""
+    from backend.services.exercise_classifier import _validate_body_parts, normalize_name as _norm
+
+    key = _norm(name)
+    if not key:
+        raise HTTPException(status_code=400, detail="Exercise name is required")
+
+    validated = _validate_body_parts(body.body_parts)
+    if not validated:
+        raise HTTPException(status_code=422, detail="body_parts must contain valid parts with positive ratios")
+
+    from datetime import datetime, timezone as _tz
+    with Session(engine) as session:
+        row = session.query(ExerciseCatalog).filter_by(name=key).first()
+        if row is None:
+            row = ExerciseCatalog(name=key, body_parts=validated, source="manual",
+                                  updated_at=datetime.now(_tz.utc))
+            session.add(row)
+        else:
+            row.body_parts = validated
+            row.source = "manual"
+            row.updated_at = datetime.now(_tz.utc)
+        session.commit()
+        session.refresh(row)
+        return JSONResponse(_catalog_dict(row))
+
+
+@app.get("/api/exercise-catalog", status_code=200)
+def list_exercise_catalog(user: User = Depends(resolve_user)):
+    """Return the full exercise catalog (admin/debug view)."""
+    with Session(engine) as session:
+        rows = session.query(ExerciseCatalog).order_by(ExerciseCatalog.name).all()
+        return JSONResponse([_catalog_dict(r) for r in rows])
 
 
 # ── Workout template endpoints ────────────────────────────────────────────────

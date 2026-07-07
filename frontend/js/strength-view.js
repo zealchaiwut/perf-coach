@@ -51,6 +51,10 @@
     return t === "strength" || t === "lift" || t.indexOf("weight") !== -1;
   }
 
+  function normalizeName(n) {
+    return (n || "").trim().toLowerCase().replace(/\s+/g, " ");
+  }
+
   // ── RPE tier ───────────────────────────────────────────────────────────────
 
   var RPE_TIERS = [
@@ -310,6 +314,197 @@
     return TYPE_COLOR_DEFAULT;
   }
 
+  // ── Body-part TSS ─────────────────────────────────────────────────────────
+
+  var PART_COLORS = {
+    chest:      "#6366f1",
+    back:       "#3b82f6",
+    shoulders:  "#06b6d4",
+    biceps:     "#10b981",
+    triceps:    "#84cc16",
+    core:       "#f59e0b",
+    quads:      "#f97316",
+    hamstrings: "#ef4444",
+    glutes:     "#ec4899",
+    calves:     "#a855f7",
+  };
+  var PART_LABELS = {
+    chest: "Chest", back: "Back", shoulders: "Shoulders",
+    biceps: "Biceps", triceps: "Triceps", core: "Core",
+    quads: "Quads", hamstrings: "Hamstrings", glutes: "Glutes", calves: "Calves",
+  };
+
+  // Compute per-exercise stress contribution (pre-scale, same basis as TSS numerator).
+  function exerciseStress(ex) {
+    var raw = parseSets(ex);
+    if (raw.length) {
+      return raw.reduce(function (sum, s) {
+        if (s.rpe != null && s.reps != null) {
+          return sum + s.reps * Math.pow(s.rpe / 10, 2);
+        }
+        return sum;
+      }, 0);
+    }
+    if (ex.rpe != null && ex.reps != null) {
+      var sets = ex.sets || 1;
+      return sets * ex.reps * Math.pow(ex.rpe / 10, 2);
+    }
+    return 0;
+  }
+
+  // Given exercises + catalog map {normalizedName → body_parts[]},
+  // return [{part, tss, color}] sorted by tss desc.
+  function computeBodyPartTss(exercises, catalog, totalTss) {
+    var totals = {};
+    var totalStress = 0;
+
+    exercises.forEach(function (ex) {
+      var s = exerciseStress(ex);
+      totalStress += s;
+    });
+
+    if (totalStress === 0 && totalTss != null && exercises.length > 0) {
+      // Fallback: distribute totalTss equally across exercises that have catalog entries
+      var perEx = totalTss / exercises.length;
+      exercises.forEach(function (ex) {
+        var key = normalizeName(ex.name);
+        var parts = catalog[key];
+        if (!parts || !parts.length) return;
+        parts.forEach(function (p) {
+          totals[p.part] = (totals[p.part] || 0) + perEx * p.ratio;
+        });
+      });
+    } else {
+      var scale = 5.85; // STRENGTH_TSS_SCALE default
+      exercises.forEach(function (ex) {
+        var s = exerciseStress(ex);
+        if (!s) return;
+        var key = normalizeName(ex.name);
+        var parts = catalog[key];
+        if (!parts || !parts.length) return;
+        var exTss = s * scale;
+        parts.forEach(function (p) {
+          totals[p.part] = (totals[p.part] || 0) + exTss * p.ratio;
+        });
+      });
+    }
+
+    var result = [];
+    Object.keys(totals).forEach(function (part) {
+      if (totals[part] >= 0.5) {
+        result.push({
+          part: part,
+          tss: Math.round(totals[part] * 10) / 10,
+          color: PART_COLORS[part] || "#94a3b8",
+          label: PART_LABELS[part] || part,
+        });
+      }
+    });
+    result.sort(function (a, b) { return b.tss - a.tss; });
+    return result;
+  }
+
+  function renderBodyPartCard(breakdown, pendingCount) {
+    if (!breakdown.length && !pendingCount) return "";
+
+    var maxTss = breakdown.length ? breakdown[0].tss : 1;
+
+    var rows = breakdown.map(function (item) {
+      var pct = maxTss > 0 ? (item.tss / maxTss * 100).toFixed(1) : 0;
+      return (
+        '<div class="sv-bp-row">' +
+        '<span class="sv-bp-label">' + esc(item.label) + "</span>" +
+        '<div class="sv-bp-bar-wrap">' +
+        '<div class="sv-bp-bar" style="width:' + pct + '%;background:' + item.color + '"></div>' +
+        "</div>" +
+        '<span class="sv-bp-val">' + item.tss + "</span>" +
+        "</div>"
+      );
+    }).join("");
+
+    var pendingNote = pendingCount
+      ? '<p class="sv-bp-pending">' + pendingCount + ' exercise' + (pendingCount > 1 ? 's' : '') + ' not yet classified — edit body parts to add them.</p>'
+      : "";
+
+    return (
+      '<div class="sv-card sv-bp-card" id="sv-bp-card">' +
+      '<div class="sv-bp-head">' +
+      '<h2 class="sv-section-title">TSS by Body Part</h2>' +
+      '<button type="button" class="sv-bp-edit-btn" id="sv-bp-edit-btn" title="Edit body-part classifications">Edit</button>' +
+      "</div>" +
+      (rows ? '<div class="sv-bp-rows">' + rows + "</div>" : "") +
+      pendingNote +
+      "</div>"
+    );
+  }
+
+  // ── Body-part editor modal ─────────────────────────────────────────────────
+
+  var ALL_PARTS = ["chest","back","shoulders","biceps","triceps","core","quads","hamstrings","glutes","calves"];
+
+  function renderEditorModal(exercises, catalog) {
+    var items = exercises.map(function (ex) {
+      var key = normalizeName(ex.name);
+      var parts = (catalog[key] || []);
+      var partsJson = JSON.stringify(parts);
+      var pillsHtml = parts.map(function (p) {
+        return '<span class="sv-bp-pill" style="background:' + (PART_COLORS[p.part] || "#94a3b8") + '">' +
+          esc(PART_LABELS[p.part] || p.part) + ' ' + Math.round(p.ratio * 100) + '%</span>';
+      }).join("");
+      return (
+        '<div class="sv-bpe-item" data-key="' + esc(key) + '">' +
+        '<div class="sv-bpe-name">' + esc(ex.name) + "</div>" +
+        '<div class="sv-bpe-pills" id="bpe-pills-' + esc(key) + '">' + (pillsHtml || '<span class="sv-bp-unset">Unclassified</span>') + "</div>" +
+        '<button type="button" class="sv-bpe-open-btn sv-btn sv-btn-sm" data-bpe-key="' + esc(key) + '" data-bpe-parts="' + esc(partsJson) + '">Edit</button>' +
+        "</div>"
+      );
+    }).filter(function (_, i, arr) {
+      // dedup by exercise name
+      return exercises.findIndex(function (e) { return normalizeName(e.name) === normalizeName(exercises[i].name); }) === i;
+    });
+
+    return (
+      '<div class="sv-modal-overlay" id="sv-bp-modal">' +
+      '<div class="sv-modal">' +
+      '<div class="sv-modal-head">' +
+      '<h3 class="sv-modal-title">Body Part Classifications</h3>' +
+      '<button type="button" class="sv-modal-close" id="sv-bp-modal-close">✕</button>' +
+      "</div>" +
+      '<div class="sv-bpe-list">' + items.join("") + "</div>" +
+      '<div id="sv-bpe-form-area"></div>' +
+      "</div></div>"
+    );
+  }
+
+  function renderPartForm(key, currentParts) {
+    var byPart = {};
+    currentParts.forEach(function (p) { byPart[p.part] = Math.round(p.ratio * 100); });
+
+    var inputs = ALL_PARTS.map(function (part) {
+      var val = byPart[part] || 0;
+      return (
+        '<div class="sv-bpe-part-row">' +
+        '<label class="sv-bpe-part-label">' +
+        '<span class="sv-bpe-part-dot" style="background:' + (PART_COLORS[part] || "#94a3b8") + '"></span>' +
+        esc(PART_LABELS[part]) + "</label>" +
+        '<input type="number" class="sv-bpe-pct-input" min="0" max="100" data-part="' + esc(part) + '" value="' + val + '"/>' +
+        '<span class="sv-bpe-pct-symbol">%</span>' +
+        "</div>"
+      );
+    }).join("");
+
+    return (
+      '<div class="sv-bpe-form" id="sv-bpe-form" data-key="' + esc(key) + '">' +
+      '<p class="sv-bpe-form-hint">Enter % for each muscle group. Leave unused at 0. Values are auto-normalised.</p>' +
+      inputs +
+      '<div class="sv-bpe-form-actions">' +
+      '<button type="button" class="sv-btn" id="sv-bpe-save-btn">Save</button>' +
+      '<button type="button" class="sv-btn sv-btn-ghost" id="sv-bpe-cancel-btn">Cancel</button>' +
+      '<span id="sv-bpe-msg" class="sv-bpe-msg"></span>' +
+      "</div></div>"
+    );
+  }
+
   // ── TSS prompt ─────────────────────────────────────────────────────────────
 
   function renderTssPrompt() {
@@ -371,6 +566,7 @@
 
   var _currentWorkout = null;
   var _activeTab = "view";
+  var _catalog = {};  // normalized name → body_parts array
 
   // ── Tab wiring ─────────────────────────────────────────────────────────────
 
@@ -505,6 +701,11 @@
           }
           // Update JSON textarea with canonical server response
           if (ta) ta.value = JSON.stringify(workoutToJson(data), null, 2);
+          // Reload body-part breakdown for any new exercises
+          var updatedExercises = data.exercises || [];
+          if (updatedExercises.length && isStrength(data.workout_type || "")) {
+            loadAndRenderBodyParts(updatedExercises, data.tss, workoutId);
+          }
         })
         .catch(function (err) {
           saveBtn.disabled = false;
@@ -540,6 +741,159 @@
       renderExercisesList(exercises) +
       "</div>"
     );
+  }
+
+  // ── Catalog fetch + body-part card injection ───────────────────────────────
+
+  function loadAndRenderBodyParts(exercises, totalTss, workoutId) {
+    var names = exercises.map(function (ex) { return ex.name; }).filter(Boolean);
+    if (!names.length) return;
+
+    fetch("/api/exercise-catalog/lookup-batch", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() },
+      body: JSON.stringify({ names: names }),
+    })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data || !data.results) return;
+        var newCatalog = {};
+        Object.keys(data.results).forEach(function (k) {
+          newCatalog[k] = data.results[k].body_parts || [];
+        });
+        _catalog = newCatalog;
+
+        var breakdown = computeBodyPartTss(exercises, _catalog, totalTss);
+        var pendingCount = names.filter(function (n) {
+          var k = normalizeName(n);
+          return !_catalog[k] || !_catalog[k].length;
+        }).length;
+
+        var bpHtml = renderBodyPartCard(breakdown, pendingCount);
+        if (!bpHtml) return;
+
+        // Inject body part card before the TSS prompt (or at end of view panel)
+        var promptEl = document.getElementById("sv-tss-prompt");
+        var viewPanel = document.getElementById("sv-view-panel");
+        if (!viewPanel) return;
+
+        var bpEl = document.getElementById("sv-bp-card");
+        if (bpEl) bpEl.outerHTML = bpHtml;
+        else {
+          var tmpDiv = document.createElement("div");
+          tmpDiv.innerHTML = bpHtml;
+          var newCard = tmpDiv.firstElementChild;
+          if (promptEl) viewPanel.insertBefore(newCard, promptEl);
+          else viewPanel.appendChild(newCard);
+        }
+
+        wireBpEditor(exercises, workoutId);
+      })
+      .catch(function () {});
+  }
+
+  function getCsrfToken() {
+    var match = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
+    return match ? match[1] : "";
+  }
+
+  // ── Body-part editor wiring ────────────────────────────────────────────────
+
+  function wireBpEditor(exercises, workoutId) {
+    var editBtn = document.getElementById("sv-bp-edit-btn");
+    if (!editBtn) return;
+
+    editBtn.onclick = function () {
+      var existing = document.getElementById("sv-bp-modal");
+      if (existing) existing.remove();
+      var tmpDiv = document.createElement("div");
+      tmpDiv.innerHTML = renderEditorModal(exercises, _catalog);
+      document.body.appendChild(tmpDiv.firstElementChild);
+
+      var modal = document.getElementById("sv-bp-modal");
+      if (!modal) return;
+
+      modal.querySelector("#sv-bp-modal-close").onclick = function () { modal.remove(); };
+      modal.addEventListener("click", function (e) { if (e.target === modal) modal.remove(); });
+
+      modal.addEventListener("click", function (e) {
+        var btn = e.target.closest("[data-bpe-key]");
+        if (!btn) return;
+        var key = btn.getAttribute("data-bpe-key");
+        var rawParts = btn.getAttribute("data-bpe-parts");
+        var currentParts = [];
+        try { currentParts = JSON.parse(rawParts); } catch (_) {}
+        var formArea = document.getElementById("sv-bpe-form-area");
+        if (!formArea) return;
+        formArea.innerHTML = renderPartForm(key, currentParts);
+
+        var saveBtn = document.getElementById("sv-bpe-save-btn");
+        var cancelBtn = document.getElementById("sv-bpe-cancel-btn");
+        var msgEl = document.getElementById("sv-bpe-msg");
+
+        if (cancelBtn) cancelBtn.onclick = function () { formArea.innerHTML = ""; };
+
+        if (saveBtn) {
+          saveBtn.onclick = function () {
+            var inputs = formArea.querySelectorAll(".sv-bpe-pct-input");
+            var bodyParts = [];
+            inputs.forEach(function (inp) {
+              var part = inp.getAttribute("data-part");
+              var val = parseFloat(inp.value) || 0;
+              if (val > 0) bodyParts.push({ part: part, ratio: val / 100 });
+            });
+            if (!bodyParts.length) {
+              if (msgEl) { msgEl.textContent = "Set at least one muscle group > 0%."; msgEl.className = "sv-bpe-msg sv-bpe-msg-err"; }
+              return;
+            }
+            saveBtn.disabled = true;
+            if (msgEl) { msgEl.textContent = "Saving…"; msgEl.className = "sv-bpe-msg"; }
+            fetch("/api/exercise-catalog/" + encodeURIComponent(key), {
+              method: "PATCH",
+              credentials: "include",
+              headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() },
+              body: JSON.stringify({ body_parts: bodyParts }),
+            })
+              .then(function (r) { return r.ok ? r.json() : r.json().then(function (e) { throw new Error(e.detail || "Save failed"); }); })
+              .then(function (data) {
+                _catalog[key] = data.body_parts || [];
+                if (msgEl) { msgEl.textContent = "Saved!"; msgEl.className = "sv-bpe-msg sv-bpe-msg-ok"; }
+                saveBtn.disabled = false;
+                // Refresh pills in the list
+                var pillsEl = document.getElementById("bpe-pills-" + key);
+                if (pillsEl) {
+                  pillsEl.innerHTML = (data.body_parts || []).map(function (p) {
+                    return '<span class="sv-bp-pill" style="background:' + (PART_COLORS[p.part] || "#94a3b8") + '">' +
+                      esc(PART_LABELS[p.part] || p.part) + ' ' + Math.round(p.ratio * 100) + '%</span>';
+                  }).join("") || '<span class="sv-bp-unset">Unclassified</span>';
+                }
+                // Re-render body part card
+                var breakdown = computeBodyPartTss(exercises, _catalog, _currentWorkout && _currentWorkout.tss);
+                var pendingCount = exercises.filter(function (ex) {
+                  var k = normalizeName(ex.name);
+                  return !_catalog[k] || !_catalog[k].length;
+                }).length;
+                var bpEl = document.getElementById("sv-bp-card");
+                if (bpEl) {
+                  var tmpDiv = document.createElement("div");
+                  tmpDiv.innerHTML = renderBodyPartCard(breakdown, pendingCount);
+                  bpEl.replaceWith(tmpDiv.firstElementChild);
+                  wireBpEditor(exercises, workoutId);
+                }
+                // Update btn data-bpe-parts so re-open shows current values
+                var openBtn = modal && modal.querySelector('[data-bpe-key="' + key + '"]');
+                if (openBtn) openBtn.setAttribute("data-bpe-parts", JSON.stringify(data.body_parts || []));
+                setTimeout(function () { formArea.innerHTML = ""; }, 800);
+              })
+              .catch(function (err) {
+                saveBtn.disabled = false;
+                if (msgEl) { msgEl.textContent = err.message; msgEl.className = "sv-bpe-msg sv-bpe-msg-err"; }
+              });
+          };
+        }
+      });
+    };
   }
 
   // ── Main render ───────────────────────────────────────────────────────────
@@ -602,6 +956,11 @@
 
     if (needTss) wireTssPrompt(workoutId);
     wireJsonPanel(workoutId);
+
+    // Load body-part catalog asynchronously for strength workouts with exercises
+    if (exercises.length && isStrength(w.workout_type)) {
+      loadAndRenderBodyParts(exercises, w.tss, workoutId);
+    }
   }
 
   // ── Error / loading states ───────────────────────────────────────────────
