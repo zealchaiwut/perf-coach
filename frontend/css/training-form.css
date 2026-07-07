@@ -188,17 +188,26 @@
     .ec-in:focus { outline: none; border-color: #3563d4; }
     .ec-sets   { width: 38px; }
     .ec-reps   { width: 42px; }
+    .ec-dur    { width: 44px; }
     .ec-weight { width: 52px; }
     .ec-rpe    { width: 38px; }
     .ec-rest   { width: 44px; }
     .ec-sep   { font-size: 12px; color: var(--text-tertiary); font-weight: 600; }
     .ec-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-tertiary); }
     .ec-unit  { font-size: 9px; color: var(--text-tertiary); }
+    .ec-mode-btn { padding: 2px 6px; border: 1.5px solid var(--card-border); border-radius: 6px; background: transparent; font: inherit; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-tertiary); cursor: pointer; }
+    .ec-mode-btn:hover { border-color: #3563d4; color: #3563d4; background: rgba(53,99,212,0.06); }
     .ec-expand-btn { margin-left: auto; padding: 3px 8px; border: 1.5px solid var(--card-border); border-radius: 7px; background: transparent; font: inherit; font-size: 10px; font-weight: 600; color: var(--text-secondary); cursor: pointer; white-space: nowrap; }
     .ec-expand-btn:hover { border-color: #4f3c8c; color: #4f3c8c; background: rgba(79,60,140,0.06); }
     .ec-collapse-btn { display: inline-flex; align-items: center; gap: 4px; margin-top: 8px; padding: 3px 8px; border: 1.5px solid var(--card-border); border-radius: 7px; background: transparent; font: inherit; font-size: 10px; font-weight: 600; color: var(--text-secondary); cursor: pointer; }
     .ec-collapse-btn:hover { border-color: #4f3c8c; color: #4f3c8c; background: rgba(79,60,140,0.06); }
     .ex-compact-row.ec-mixed::after { content: 'varies'; font-size: 9px; color: var(--amber, #d97706); font-weight: 600; margin-left: 2px; }
+    /* Duration toggle: show/hide reps vs duration inputs */
+    .exercise:not(.is-duration) .set-dur,
+    .exercise:not(.is-duration) .set-dur-unit,
+    .exercise:not(.is-duration) .ec-dur { display: none; }
+    .exercise.is-duration .set-reps,
+    .exercise.is-duration .ec-reps { display: none; }
     /* ── Strength body in slide-over ────────────────────────────────────────── */
     #dp-form-wrap .exercises-section { padding-top: 4px; }
     #dp-form-wrap .str-profile-wrap { margin-bottom: 8px; }

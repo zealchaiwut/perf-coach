@@ -1981,6 +1981,7 @@
         if (ex.reps != null) e.reps = ex.reps;
         if (ex.weight_kg != null) e.weight_kg = parseFloat(ex.weight_kg);
         if (ex.rpe != null) e.rpe = ex.rpe;
+        if (ex.duration_seconds != null) e.duration_seconds = ex.duration_seconds;
         return e;
       });
     }
@@ -2761,9 +2762,20 @@
       rpeAgg = { value: ex.rpe != null ? ex.rpe : null, uniform: true };
     }
 
+    // Duration aggregation (for timed exercises like planks)
+    var durAgg = null;
+    if (use) {
+      durAgg = _setAgg(use.map(function (s) { return s.duration_seconds != null ? s.duration_seconds : null; }));
+    } else if (ex.duration_seconds != null) {
+      durAgg = { value: ex.duration_seconds, uniform: true };
+    }
+
     var setsTxt = "—";
     if (count != null) {
-      if (repsAgg.value != null) {
+      if (durAgg && durAgg.value != null) {
+        var durVal = durAgg.uniform ? durAgg.value : Math.round(durAgg.value);
+        setsTxt = count + " × " + durVal + "s";
+      } else if (repsAgg.value != null) {
         var repsTxt = repsAgg.uniform
           ? String(repsAgg.value)
           : "~" + Math.round(repsAgg.value);

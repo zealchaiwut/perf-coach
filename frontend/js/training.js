@@ -178,32 +178,39 @@
     var cards = document.querySelectorAll('#exercises-tbody .exercise');
     var result = [];
     cards.forEach(function (card, i) {
+      var isDur = card.classList.contains('is-duration');
       var sets = [];
       card.querySelectorAll('.set-row').forEach(function (r) {
         var w = parseFloat(r.querySelector('.set-weight').value);
-        var reps = parseInt(r.querySelector('.set-reps').value, 10);
+        var reps = isDur ? null : parseInt(r.querySelector('.set-reps').value, 10);
+        var durSec = isDur ? parseInt(r.querySelector('.set-dur').value, 10) : null;
         var rpe = parseFloat(r.querySelector('.set-rpe').value);
         var rest = parseInt(r.querySelector('.set-rest').value, 10);
         sets.push({
           type: r.dataset.setType || 'working',
           weight: isFinite(w) ? w : null,
           reps: isFinite(reps) ? reps : null,
+          duration_seconds: isFinite(durSec) ? durSec : null,
           rpe: isFinite(rpe) ? rpe : null,
           rest: isFinite(rest) ? rest : null,
         });
       });
       var working = sets.filter(function (s) { return SET_TYPES[s.type] && SET_TYPES[s.type].working; });
       var top = null;
+      // For reps exercises: top = heaviest set. For duration: top = first working set.
       working.forEach(function (s) { if (s.weight != null && (!top || s.weight > top.weight)) top = s; });
+      if (!top && working.length) top = working[0];
       var first = sets[0] || {};
+      var topRpe = top && top.rpe != null ? Math.round(top.rpe) : (first.rpe != null ? Math.round(first.rpe) : null);
       result.push({
         display_order: i,
         name: card.querySelector('.ex-name').value.trim(),
         sets: working.length || null,
-        reps: top ? top.reps : (first.reps != null ? first.reps : null),
+        reps: isDur ? null : (top ? top.reps : (first.reps != null ? first.reps : null)),
         weight_kg: top ? top.weight : (first.weight != null ? first.weight : null),
-        rpe: (top && top.rpe != null) ? Math.round(top.rpe) : null,
+        rpe: topRpe,
         duration: null,
+        duration_seconds: isDur ? (top ? top.duration_seconds : (first.duration_seconds || null)) : null,
         sets_json: sets.length ? JSON.stringify(sets) : null,
       });
     });
@@ -248,29 +255,38 @@
 
   function _updateExerciseVolume(card) {
     if (!card) return;
-    var vol = 0;
-    card.querySelectorAll('.set-row').forEach(function (r) {
-      var w = parseFloat(r.querySelector('.set-weight').value) || 0;
-      var reps = parseInt(r.querySelector('.set-reps').value, 10) || 0;
-      vol += w * reps;
-    });
     var el = card.querySelector('.ex-vol strong');
-    if (el) el.textContent = vol ? (Math.round(vol).toLocaleString() + ' kg') : '—';
+    if (card.classList.contains('is-duration')) {
+      var totalSec = 0;
+      card.querySelectorAll('.set-row').forEach(function (r) {
+        totalSec += parseInt(r.querySelector('.set-dur').value, 10) || 0;
+      });
+      if (el) el.textContent = totalSec > 0 ? (totalSec + 's') : '—';
+    } else {
+      var vol = 0;
+      card.querySelectorAll('.set-row').forEach(function (r) {
+        var w = parseFloat(r.querySelector('.set-weight').value) || 0;
+        var reps = parseInt(r.querySelector('.set-reps').value, 10) || 0;
+        vol += w * reps;
+      });
+      if (el) el.textContent = vol ? (Math.round(vol).toLocaleString() + ' kg') : '—';
+    }
     _updateExerciseBullet(card);
   }
 
   function recomputeStrengthTotals() {
     var vol = 0, total = 0, working = 0, topW = 0, topReps = 0;
     document.querySelectorAll('#exercises-tbody .exercise').forEach(function (card) {
+      var isDur = card.classList.contains('is-duration');
       card.querySelectorAll('.set-row').forEach(function (r) {
         var w = parseFloat(r.querySelector('.set-weight').value);
         var reps = parseInt(r.querySelector('.set-reps').value, 10);
         var hasW = isFinite(w) && w > 0;
         var hasR = isFinite(reps) && reps > 0;
-        // Flag rows where only one of weight/reps is filled (incomplete)
-        r.classList.toggle('is-incomplete', (hasW && !hasR) || (!hasW && hasR));
-        // Only count complete rows in totals
-        if (hasW && hasR) {
+        // Duration-mode rows are never "incomplete" (no reps expected)
+        r.classList.toggle('is-incomplete', !isDur && ((hasW && !hasR) || (!hasW && hasR)));
+        // Only count complete reps-based rows in totals
+        if (!isDur && hasW && hasR) {
           vol += w * reps; total += 1;
           var type = r.dataset.setType || 'working';
           if (SET_TYPES[type] && SET_TYPES[type].working) working += 1;
@@ -298,7 +314,10 @@
     row.innerHTML =
       '<button type="button" class="set-badge" title="Cycle set type"></button>' +
       '<div class="set-cell"><input type="number" class="set-in set-weight" inputmode="decimal" step="0.5" min="0" placeholder="—" value="' + v(sd.weight) + '"></div>' +
-      '<div class="set-cell"><input type="number" class="set-in set-reps" inputmode="numeric" min="0" placeholder="—" value="' + v(sd.reps) + '"></div>' +
+      '<div class="set-cell">' +
+        '<input type="number" class="set-in set-reps" inputmode="numeric" min="0" placeholder="—" value="' + v(sd.reps) + '">' +
+        '<input type="number" class="set-in set-dur" inputmode="numeric" min="0" placeholder="s" value="' + v(sd.duration_seconds) + '"><span class="set-dur-unit u">s</span>' +
+      '</div>' +
       '<div class="set-cell rpe-cell"><input type="number" class="set-in set-rpe" inputmode="decimal" min="1" max="10" step="0.5" placeholder="—" value="' + v(sd.rpe) + '"></div>' +
       '<div class="set-cell"><input type="number" class="set-in set-rest" inputmode="numeric" min="0" placeholder="—" value="' + v(sd.rest) + '"><span class="u">s</span></div>' +
       '<button type="button" class="set-x" title="Remove set">✕</button>';
@@ -319,7 +338,7 @@
     var card = document.createElement('div');
     card.className = 'exercise';
 
-    // Parse sets_json for uniformity detection
+    // Parse sets_json for uniformity and duration detection
     var setsArr = null;
     if (data && data.sets_json) {
       try {
@@ -328,25 +347,32 @@
       } catch (e) {}
     }
 
-    // Decide initial mode and compact seed values
+    // Detect duration mode (duration_seconds in data or sets_json)
+    var isDuration = (data && data.duration_seconds != null) ||
+      (setsArr && setsArr.some(function (s) { return s.duration_seconds != null && s.duration_seconds > 0; }));
+
+    // Decide initial expanded/compact and seed values
     var startExpanded = false;
-    var cd = { sets: 1, reps: null, weight: null, rpe: null, rest: null };
+    var cd = { sets: 1, reps: null, dur: null, weight: null, rpe: null, rest: null };
     if (setsArr) {
-      var working = setsArr.filter(function (s) { return s.type !== 'warmup'; });
-      var src = working.length ? working : setsArr;
+      var _wk = setsArr.filter(function (s) { return s.type !== 'warmup'; });
+      var src = _wk.length ? _wk : setsArr;
       var f = src[0];
       var uniform = src.every(function (s) {
-        return s.weight === f.weight && s.reps === f.reps && s.rpe === f.rpe;
+        return s.weight === f.weight && s.rpe === f.rpe &&
+               (isDuration ? s.duration_seconds === f.duration_seconds : s.reps === f.reps);
       });
       if (!uniform) {
         startExpanded = true;
       } else {
-        cd = { sets: src.length, reps: f.reps, weight: f.weight, rpe: f.rpe, rest: f.rest || null };
+        cd = { sets: src.length, reps: f.reps || null, dur: f.duration_seconds || null,
+               weight: f.weight || null, rpe: f.rpe || null, rest: f.rest || null };
       }
     } else if (data) {
       cd = {
         sets: (data.sets != null && data.sets > 0) ? data.sets : 1,
         reps: data.reps != null ? data.reps : null,
+        dur: data.duration_seconds != null ? data.duration_seconds : null,
         weight: data.weight_kg != null ? data.weight_kg : null,
         rpe: data.rpe != null ? data.rpe : null,
         rest: null,
@@ -368,7 +394,9 @@
         '<input type="number" class="ec-in ec-sets" min="1" max="50" step="1" inputmode="numeric" placeholder="1" value="' + vn(cd.sets) + '">' +
         '<span class="ec-sep">×</span>' +
         '<input type="number" class="ec-in ec-reps" min="0" inputmode="numeric" placeholder="reps" value="' + vn(cd.reps) + '">' +
-        '<span class="ec-unit">reps @</span>' +
+        '<input type="number" class="ec-in ec-dur" min="0" inputmode="numeric" placeholder="s" value="' + vn(cd.dur) + '">' +
+        '<button type="button" class="ec-mode-btn" title="Toggle reps / duration">reps</button>' +
+        '<span class="ec-unit ec-sep">@</span>' +
         '<input type="number" class="ec-in ec-weight" step="0.5" min="0" inputmode="decimal" placeholder="kg" value="' + vn(cd.weight) + '">' +
         '<span class="ec-unit">kg</span>' +
         '<span class="ec-sep">·</span>' +
@@ -381,7 +409,7 @@
         '<button type="button" class="ec-expand-btn" title="Edit individual sets">Sets ▾</button>' +
       '</div>' +
       '<div class="set-table">' +
-        '<div class="set-cols"><span>Set</span><span class="r">Weight</span><span class="r">Reps</span><span class="r rpe-cell">RPE</span><span class="r">Rest</span><span></span></div>' +
+        '<div class="set-cols"><span>Set</span><span class="r">Weight</span><span class="r set-col-qty">Reps</span><span class="r rpe-cell">RPE</span><span class="r">Rest</span><span></span></div>' +
         '<button type="button" class="add-set"><span aria-hidden="true">+</span> Add set</button>' +
       '</div>';
 
@@ -389,6 +417,23 @@
 
     var compactRow = card.querySelector('.ex-compact-row');
     var setTable = card.querySelector('.set-table');
+    var modeBtn = card.querySelector('.ec-mode-btn');
+
+    // Apply duration mode class + labels
+    function applyMode(dur) {
+      card.classList.toggle('is-duration', dur);
+      modeBtn.textContent = dur ? 's' : 'reps';
+      var qtyLabel = card.querySelector('.set-col-qty');
+      if (qtyLabel) qtyLabel.textContent = dur ? 'Duration' : 'Reps';
+    }
+    applyMode(isDuration);
+
+    // Mode toggle button
+    modeBtn.addEventListener('click', function () {
+      var nowDur = !card.classList.contains('is-duration');
+      applyMode(nowDur);
+      recomputeStrengthTotals();
+    });
 
     // Initial visibility
     if (startExpanded) {
@@ -403,7 +448,8 @@
     rmBtn.addEventListener('click', function () {
       var exName = (card.querySelector('.ex-name').value || 'this exercise').trim();
       var hasData = [].slice.call(card.querySelectorAll('.set-row')).some(function (r) {
-        return r.querySelector('.set-weight').value || r.querySelector('.set-reps').value || r.querySelector('.set-rpe').value;
+        return r.querySelector('.set-weight').value || r.querySelector('.set-reps').value ||
+               r.querySelector('.set-dur').value || r.querySelector('.set-rpe').value;
       });
       if (hasData && !confirm('Remove "' + exName + '" and all its sets?')) return;
       card.remove();
@@ -417,7 +463,8 @@
     } else {
       var n = cd.sets || 1;
       for (var k = 0; k < n; k++) {
-        addSetRow(setTable, { type: 'working', weight: cd.weight, reps: cd.reps, rpe: cd.rpe });
+        addSetRow(setTable, { type: 'working', weight: cd.weight, reps: cd.reps,
+                              duration_seconds: cd.dur, rpe: cd.rpe });
       }
     }
     _relabelSets(card);
@@ -426,13 +473,17 @@
     // ── Compact ↔ per-set sync helpers ───────────────────────────────────
 
     function syncCompactToRows() {
+      var isDur = card.classList.contains('is-duration');
       var w = card.querySelector('.ec-weight').value;
-      var r = card.querySelector('.ec-reps').value;
+      var qty = isDur ? card.querySelector('.ec-dur').value : card.querySelector('.ec-reps').value;
       var rpe = card.querySelector('.ec-rpe').value;
       var rest = card.querySelector('.ec-rest').value;
       card.querySelectorAll('.set-row').forEach(function (row) {
         if (w !== '') row.querySelector('.set-weight').value = w;
-        if (r !== '') row.querySelector('.set-reps').value = r;
+        if (qty !== '') {
+          if (isDur) row.querySelector('.set-dur').value = qty;
+          else row.querySelector('.set-reps').value = qty;
+        }
         if (rpe !== '') row.querySelector('.set-rpe').value = rpe;
         if (rest !== '') row.querySelector('.set-rest').value = rest;
       });
@@ -440,23 +491,24 @@
     }
 
     function syncRowsToCompact() {
+      var isDur = card.classList.contains('is-duration');
       var rows = [].slice.call(card.querySelectorAll('.set-row'));
       if (!rows.length) return;
-      var wkg = [].filter.call(rows, function (r) { return r.dataset.setType !== 'warmup'; });
+      var wkg = rows.filter(function (r) { return r.dataset.setType !== 'warmup'; });
       var src = wkg.length ? wkg : rows;
       var f = src[0];
       var fw = f.querySelector('.set-weight').value;
-      var fr = f.querySelector('.set-reps').value;
+      var fqty = isDur ? f.querySelector('.set-dur').value : f.querySelector('.set-reps').value;
       var frpe = f.querySelector('.set-rpe').value;
       var frest = f.querySelector('.set-rest').value;
       var uniform = src.every(function (r) {
-        return r.querySelector('.set-weight').value === fw &&
-               r.querySelector('.set-reps').value === fr &&
-               r.querySelector('.set-rpe').value === frpe;
+        var qty = isDur ? r.querySelector('.set-dur').value : r.querySelector('.set-reps').value;
+        return r.querySelector('.set-weight').value === fw && qty === fqty && r.querySelector('.set-rpe').value === frpe;
       });
       card.querySelector('.ec-sets').value = src.length;
       card.querySelector('.ec-weight').value = fw;
-      card.querySelector('.ec-reps').value = fr;
+      if (isDur) card.querySelector('.ec-dur').value = fqty;
+      else card.querySelector('.ec-reps').value = fqty;
       card.querySelector('.ec-rpe').value = frpe;
       card.querySelector('.ec-rest').value = frest;
       compactRow.classList.toggle('ec-mixed', !uniform);
@@ -467,13 +519,15 @@
     card.querySelector('.ec-sets').addEventListener('blur', function () {
       var target = parseInt(this.value, 10);
       if (!isFinite(target) || target < 1) { this.value = 1; target = 1; }
+      var isDur = card.classList.contains('is-duration');
       var rows = card.querySelectorAll('.set-row');
       while (rows.length < target) {
         var last = rows[rows.length - 1];
         addSetRow(setTable, {
           type: 'working',
           weight: last ? last.querySelector('.set-weight').value : card.querySelector('.ec-weight').value,
-          reps: last ? last.querySelector('.set-reps').value : card.querySelector('.ec-reps').value,
+          reps: isDur ? null : (last ? last.querySelector('.set-reps').value : card.querySelector('.ec-reps').value),
+          duration_seconds: !isDur ? null : (last ? last.querySelector('.set-dur').value : card.querySelector('.ec-dur').value),
           rpe: last ? last.querySelector('.set-rpe').value : card.querySelector('.ec-rpe').value,
         });
         rows = card.querySelectorAll('.set-row');
@@ -486,8 +540,8 @@
       recomputeStrengthTotals();
     });
 
-    // ec-reps/weight/rpe/rest: propagate to all rows on input
-    ['ec-reps', 'ec-weight', 'ec-rpe', 'ec-rest'].forEach(function (cls) {
+    // ec-reps/dur/weight/rpe/rest: propagate to all rows on input
+    ['ec-reps', 'ec-dur', 'ec-weight', 'ec-rpe', 'ec-rest'].forEach(function (cls) {
       var inp = card.querySelector('.' + cls);
       if (inp) inp.addEventListener('input', syncCompactToRows);
     });
@@ -499,7 +553,6 @@
 
     // Expand: show per-set table
     card.querySelector('.ec-expand-btn').addEventListener('click', function () {
-      // Sync compact → rows before showing (in case count changed)
       syncCompactToRows();
       compactRow.hidden = true;
       setTable.style.display = '';
@@ -519,17 +572,18 @@
 
     // Add set: seed from last row's values (helps with progressive loading)
     card.querySelector('.add-set').addEventListener('click', function () {
+      var isDur = card.classList.contains('is-duration');
       var rows = card.querySelectorAll('.set-row');
       var last = rows.length ? rows[rows.length - 1] : null;
       addSetRow(setTable, {
         type: 'working',
         weight: last ? parseFloat(last.querySelector('.set-weight').value) || null : null,
-        reps: last ? parseInt(last.querySelector('.set-reps').value, 10) || null : null,
+        reps: isDur ? null : (last ? parseInt(last.querySelector('.set-reps').value, 10) || null : null),
+        duration_seconds: !isDur ? null : (last ? parseInt(last.querySelector('.set-dur').value, 10) || null : null),
         rpe: last ? parseFloat(last.querySelector('.set-rpe').value) || null : null,
       });
       _relabelSets(card);
       recomputeStrengthTotals();
-      // Keep compact sets count in sync
       var allRows = card.querySelectorAll('.set-row');
       var wkRows = [].filter.call(allRows, function (r) { return r.dataset.setType !== 'warmup'; });
       card.querySelector('.ec-sets').value = wkRows.length || allRows.length;
