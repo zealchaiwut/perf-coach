@@ -5975,12 +5975,9 @@
   // ── Render weekly view ───────────────────────────────────────────────────────
 
   function _renderWeek(data) {
-    var noteHtml = data.note
-      ? '<div class="sd-note">' + _esc(data.note) + "</div>"
-      : "";
-    return (
-      _sdTiles(data) + _sdChips(data) + noteHtml + _renderGuardrailWarn(data)
-    );
+    // The one-line note ("N runs, X km covered, …") is dropped — the merged
+    // Weekly coach report below the tiles covers the same ground in prose.
+    return _sdTiles(data) + _sdChips(data) + _renderGuardrailWarn(data);
   }
 
   // ── Render monthly view ──────────────────────────────────────────────────────
@@ -6276,27 +6273,53 @@
     return d.toLocaleDateString("en-US", opts) + " – " + end.toLocaleDateString("en-US", opts);
   }
 
+  function _esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  // Make the prose scannable: put every number in the mono highlight font (same
+  // family the Summary card's stat numbers use) and colour the trend arrows so
+  // "down" reads red and "up" green at a glance. Text is escaped first, then
+  // spans are woven in — the number pattern requires a digit at both ends so a
+  // trailing sentence period isn't swallowed into the number.
+  function _highlightNarrative(text) {
+    var s = _esc(text);
+    s = s.replace(/[▲↑]/g, '<span class="wsc-up">▲</span>')
+         .replace(/[▼↓]/g, '<span class="wsc-down">▼</span>');
+    s = s.replace(/(-?\d(?:[\d.,:]*\d)?)/g, '<span class="wsc-num">$1</span>');
+    return s;
+  }
+
+  // A stat chip: optional leading label, the mono value, optional trailing unit.
+  function _factChip(pre, val, post) {
+    return '<span class="wsc-chip">' +
+      (pre ? '<span class="wsc-unit">' + pre + "</span> " : "") +
+      '<b class="wsc-num">' + val + "</b>" +
+      (post ? ' <span class="wsc-unit">' + post + "</span>" : "") +
+      "</span>";
+  }
+
   function _renderFacts(factsEl, facts) {
-    var parts = [];
-    if (facts.total_tss != null) parts.push(facts.total_tss.toFixed(0) + " TSS");
-    if (facts.total_distance_km != null) parts.push(facts.total_distance_km.toFixed(1) + " km");
-    if (facts.total_duration_minutes != null) parts.push(facts.total_duration_minutes.toFixed(0) + " min");
-    if (facts.workout_count) parts.push(facts.workout_count + " sessions");
-    if (facts.ctl_end != null) parts.push("CTL " + facts.ctl_end.toFixed(1));
-    if (facts.tsb_end != null) {
-      var tsb = facts.tsb_end.toFixed(1);
-      parts.push("TSB " + tsb);
-    }
+    var chips = [];
+    if (facts.total_tss != null) chips.push(_factChip("", facts.total_tss.toFixed(0), "TSS"));
+    if (facts.total_distance_km != null) chips.push(_factChip("", facts.total_distance_km.toFixed(1), "km"));
+    if (facts.total_duration_minutes != null) chips.push(_factChip("", facts.total_duration_minutes.toFixed(0), "min"));
+    if (facts.workout_count) chips.push(_factChip("", facts.workout_count, facts.workout_count === 1 ? "session" : "sessions"));
+    if (facts.ctl_end != null) chips.push(_factChip("CTL", facts.ctl_end.toFixed(1), ""));
+    if (facts.tsb_end != null) chips.push(_factChip("TSB", facts.tsb_end.toFixed(1), ""));
     if (facts.prs_achieved && facts.prs_achieved.length) {
-      var prNames = facts.prs_achieved.map(function (p) { return p.track_name; }).join(", ");
-      parts.push("PR: " + prNames);
+      var prNames = facts.prs_achieved.map(function (p) { return _esc(p.track_name); }).join(", ");
+      chips.push('<span class="wsc-chip wsc-chip--pr">PR: ' + prNames + "</span>");
     }
-    factsEl.textContent = parts.join(" · ");
-    factsEl.hidden = parts.length === 0;
+    factsEl.innerHTML = chips.join('<span class="wsc-sep">·</span>');
+    factsEl.hidden = chips.length === 0;
   }
 
   function loadWeeklySummary() {
-    var card = document.getElementById("weekly-summary-card");
+    // The coach report now lives as a section inside the Summary card.
+    var card = document.getElementById("wsc-section");
     if (!card) return;
 
     var weekStart = _isoWeekStart(new Date());
@@ -6314,7 +6337,7 @@
         var emptyEl = document.getElementById("wsc-empty");
         var facts = data.facts || {};
 
-        if (narrativeEl) narrativeEl.textContent = data.narrative || "";
+        if (narrativeEl) narrativeEl.innerHTML = _highlightNarrative(data.narrative || "");
         if (factsEl) _renderFacts(factsEl, facts);
 
         if (facts.workout_count === 0) {

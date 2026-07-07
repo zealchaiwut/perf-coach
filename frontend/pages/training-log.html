@@ -6317,16 +6317,6 @@
     .sd-chip--neu { background: #f0f4fa; color: var(--text-secondary); }
 
     /* Weekly note */
-    .sd-note {
-      font-size: 12.5px;
-      line-height: 1.5;
-      color: var(--text-secondary);
-      padding: 8px 10px;
-      background: var(--tile, #f7f9fd);
-      border-radius: 7px;
-    }
-
-    .sd-note:empty { display: none; }
 
     /* Supercompensation section (monthly only) */
     .sd-supercomp {
@@ -6622,6 +6612,36 @@
       margin-bottom: 12px;
       flex-wrap: wrap;
     }
+
+    /* ── Weekly coach report (merged into the Summary card) ──────────────── */
+    .wsc-section { margin-top: 2px; }
+    .wsc-divider { border-top: 1px solid var(--lrx-line); margin: 16px 0; }
+    .wsc-narrative {
+      font-size: 14px;
+      line-height: 1.65;
+      color: var(--lrx-ink);
+      margin: 0 0 14px;
+    }
+    /* Numbers in the prose + facts share the mono highlight the Summary card's
+       stat numbers use, so key figures pop out of the sentence. */
+    .wsc-num { font-family: var(--lrx-mono); font-weight: 700; color: var(--lrx-ink); }
+    .wsc-up { color: #16a34a; font-weight: 700; }
+    .wsc-down { color: #dc2626; font-weight: 700; }
+    .wsc-facts {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 7px 12px;
+    }
+    .wsc-chip { display: inline-flex; align-items: baseline; gap: 4px; }
+    .wsc-chip .wsc-num { font-size: 16px; }
+    .wsc-unit {
+      font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em;
+      text-transform: uppercase; color: var(--lrx-faint);
+    }
+    .wsc-chip--pr { font-size: 12px; font-weight: 700; color: var(--lrx-lavHi); }
+    .wsc-sep { color: var(--lrx-faint); }
+    .wsc-empty { font-size: 14px; color: var(--lrx-muted); margin: 0; }
 
     /* ── Summary ─────────────────────────────────────────────────────────── */
     .lrx-scope {
@@ -7223,20 +7243,21 @@
           </div>
         </div>
         <div id="sd-body">
-          <!-- Populated by JS: sumtiles + chips + note (→ supercomp on month) -->
+          <!-- Populated by JS: sumtiles + chips (→ supercomp on month) -->
         </div>
-      </div>
-
-      <!-- Weekly coach summary card (issue #1314) -->
-      <div id="weekly-summary-card" class="log-card" hidden>
-        <div class="lrx-chead">
-          <span class="lrx-sectitle">Weekly coach report</span>
-          <span id="wsc-week-label" class="lrx-scope"></span>
-        </div>
-        <div id="wsc-body">
-          <p id="wsc-narrative" class="wsc-narrative"></p>
-          <div id="wsc-facts" class="wsc-facts" hidden></div>
-          <p id="wsc-empty" class="wsc-empty" hidden>No training logged this week.</p>
+        <!-- Weekly coach report (issue #1314) — merged into the Summary card,
+             below a divider, sharing its layout. Shown once its data loads. -->
+        <div id="wsc-section" class="wsc-section" hidden>
+          <div class="wsc-divider"></div>
+          <div class="lrx-chead">
+            <span class="lrx-sectitle">Weekly coach report</span>
+            <span id="wsc-week-label" class="lrx-scope"></span>
+          </div>
+          <div id="wsc-body">
+            <p id="wsc-narrative" class="wsc-narrative"></p>
+            <div id="wsc-facts" class="wsc-facts" hidden></div>
+            <p id="wsc-empty" class="wsc-empty" hidden>No training logged this week.</p>
+          </div>
         </div>
       </div>
 
