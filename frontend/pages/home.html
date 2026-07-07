@@ -129,11 +129,14 @@
       inset: 0;
       padding: 0;
     }
-    /* The widget container inside each item fills the item's width; its own
-       height is natural (sizeToContent measures it). */
+    /* The widget container fills the item's WIDTH; its height must stay natural
+       (auto) so gridstack's sizeToContent can measure the real content height —
+       forcing height:100% here collapses that measurement to the item's current
+       (often still-empty) height and the content then overflows into its
+       neighbours. */
     #home-dashboard-grid .grid-stack-item-content > * {
       width: 100%;
-      height: 100%;
+      height: auto;
     }
 
     @media (max-width: 759px) {
