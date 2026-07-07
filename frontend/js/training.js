@@ -318,6 +318,43 @@
     var list = document.getElementById('exercises-tbody');
     var card = document.createElement('div');
     card.className = 'exercise';
+
+    // Parse sets_json for uniformity detection
+    var setsArr = null;
+    if (data && data.sets_json) {
+      try {
+        var _p = JSON.parse(data.sets_json);
+        if (Array.isArray(_p) && _p.length) setsArr = _p;
+      } catch (e) {}
+    }
+
+    // Decide initial mode and compact seed values
+    var startExpanded = false;
+    var cd = { sets: 1, reps: null, weight: null, rpe: null, rest: null };
+    if (setsArr) {
+      var working = setsArr.filter(function (s) { return s.type !== 'warmup'; });
+      var src = working.length ? working : setsArr;
+      var f = src[0];
+      var uniform = src.every(function (s) {
+        return s.weight === f.weight && s.reps === f.reps && s.rpe === f.rpe;
+      });
+      if (!uniform) {
+        startExpanded = true;
+      } else {
+        cd = { sets: src.length, reps: f.reps, weight: f.weight, rpe: f.rpe, rest: f.rest || null };
+      }
+    } else if (data) {
+      cd = {
+        sets: (data.sets != null && data.sets > 0) ? data.sets : 1,
+        reps: data.reps != null ? data.reps : null,
+        weight: data.weight_kg != null ? data.weight_kg : null,
+        rpe: data.rpe != null ? data.rpe : null,
+        rest: null,
+      };
+    }
+
+    function vn(x) { return (x != null && x !== '') ? x : ''; }
+
     card.innerHTML =
       '<div class="exercise-head">' +
         '<span class="grip" title="Reorder">⠿</span>' +
@@ -327,11 +364,40 @@
         '<div class="ex-vol">volume<strong>—</strong></div>' +
         '<button type="button" class="remove-row-btn" title="Remove exercise">✕</button>' +
       '</div>' +
+      '<div class="ex-compact-row">' +
+        '<input type="number" class="ec-in ec-sets" min="1" max="50" step="1" inputmode="numeric" placeholder="1" value="' + vn(cd.sets) + '">' +
+        '<span class="ec-sep">×</span>' +
+        '<input type="number" class="ec-in ec-reps" min="0" inputmode="numeric" placeholder="reps" value="' + vn(cd.reps) + '">' +
+        '<span class="ec-unit">reps @</span>' +
+        '<input type="number" class="ec-in ec-weight" step="0.5" min="0" inputmode="decimal" placeholder="kg" value="' + vn(cd.weight) + '">' +
+        '<span class="ec-unit">kg</span>' +
+        '<span class="ec-sep">·</span>' +
+        '<span class="ec-label">RPE</span>' +
+        '<input type="number" class="ec-in ec-rpe" min="1" max="10" step="0.5" inputmode="decimal" placeholder="—" value="' + vn(cd.rpe) + '">' +
+        '<span class="ec-sep">·</span>' +
+        '<span class="ec-label">Rest</span>' +
+        '<input type="number" class="ec-in ec-rest" min="0" inputmode="numeric" placeholder="—" value="' + vn(cd.rest) + '">' +
+        '<span class="ec-unit">s</span>' +
+        '<button type="button" class="ec-expand-btn" title="Edit individual sets">Sets ▾</button>' +
+      '</div>' +
       '<div class="set-table">' +
         '<div class="set-cols"><span>Set</span><span class="r">Weight</span><span class="r">Reps</span><span class="r rpe-cell">RPE</span><span class="r">Rest</span><span></span></div>' +
         '<button type="button" class="add-set"><span aria-hidden="true">+</span> Add set</button>' +
       '</div>';
+
     list.appendChild(card);
+
+    var compactRow = card.querySelector('.ex-compact-row');
+    var setTable = card.querySelector('.set-table');
+
+    // Initial visibility
+    if (startExpanded) {
+      compactRow.hidden = true;
+    } else {
+      setTable.style.display = 'none';
+    }
+
+    // Remove button
     var rmBtn = card.querySelector('.remove-row-btn');
     rmBtn.classList.add('ex-remove');
     rmBtn.addEventListener('click', function () {
@@ -343,22 +409,132 @@
       card.remove();
       recomputeStrengthTotals();
     });
-    var setTable = card.querySelector('.set-table');
-    card.querySelector('.add-set').addEventListener('click', function () { addSetRow(setTable, { type: 'working' }); _relabelSets(card); recomputeStrengthTotals(); });
     card.querySelector('.ex-name').addEventListener('input', recomputeStrengthTotals);
 
-    var seeded = false;
-    if (data && data.sets_json) {
-      try { var arr = JSON.parse(data.sets_json); if (Array.isArray(arr) && arr.length) { arr.forEach(function (sd) { addSetRow(setTable, sd); }); seeded = true; } } catch (e) {}
+    // Seed per-set rows (always kept in sync; getExerciseRows reads from them)
+    if (setsArr) {
+      setsArr.forEach(function (sd) { addSetRow(setTable, sd); });
+    } else {
+      var n = cd.sets || 1;
+      for (var k = 0; k < n; k++) {
+        addSetRow(setTable, { type: 'working', weight: cd.weight, reps: cd.reps, rpe: cd.rpe });
+      }
     }
-    if (!seeded && data && (data.sets != null || data.weight_kg != null || data.reps != null)) {
-      var n = (data.sets != null && data.sets > 0) ? data.sets : 1;
-      for (var k = 0; k < n; k++) addSetRow(setTable, { type: 'working', weight: data.weight_kg, reps: data.reps, rpe: data.rpe });
-      seeded = true;
-    }
-    if (!seeded) addSetRow(setTable, { type: 'working' });
     _relabelSets(card);
     recomputeStrengthTotals();
+
+    // ── Compact ↔ per-set sync helpers ───────────────────────────────────
+
+    function syncCompactToRows() {
+      var w = card.querySelector('.ec-weight').value;
+      var r = card.querySelector('.ec-reps').value;
+      var rpe = card.querySelector('.ec-rpe').value;
+      var rest = card.querySelector('.ec-rest').value;
+      card.querySelectorAll('.set-row').forEach(function (row) {
+        if (w !== '') row.querySelector('.set-weight').value = w;
+        if (r !== '') row.querySelector('.set-reps').value = r;
+        if (rpe !== '') row.querySelector('.set-rpe').value = rpe;
+        if (rest !== '') row.querySelector('.set-rest').value = rest;
+      });
+      recomputeStrengthTotals();
+    }
+
+    function syncRowsToCompact() {
+      var rows = [].slice.call(card.querySelectorAll('.set-row'));
+      if (!rows.length) return;
+      var wkg = [].filter.call(rows, function (r) { return r.dataset.setType !== 'warmup'; });
+      var src = wkg.length ? wkg : rows;
+      var f = src[0];
+      var fw = f.querySelector('.set-weight').value;
+      var fr = f.querySelector('.set-reps').value;
+      var frpe = f.querySelector('.set-rpe').value;
+      var frest = f.querySelector('.set-rest').value;
+      var uniform = src.every(function (r) {
+        return r.querySelector('.set-weight').value === fw &&
+               r.querySelector('.set-reps').value === fr &&
+               r.querySelector('.set-rpe').value === frpe;
+      });
+      card.querySelector('.ec-sets').value = src.length;
+      card.querySelector('.ec-weight').value = fw;
+      card.querySelector('.ec-reps').value = fr;
+      card.querySelector('.ec-rpe').value = frpe;
+      card.querySelector('.ec-rest').value = frest;
+      compactRow.classList.toggle('ec-mixed', !uniform);
+      _updateExerciseBullet(card);
+    }
+
+    // ec-sets: add/remove rows to match target count (on blur to avoid mid-type jitter)
+    card.querySelector('.ec-sets').addEventListener('blur', function () {
+      var target = parseInt(this.value, 10);
+      if (!isFinite(target) || target < 1) { this.value = 1; target = 1; }
+      var rows = card.querySelectorAll('.set-row');
+      while (rows.length < target) {
+        var last = rows[rows.length - 1];
+        addSetRow(setTable, {
+          type: 'working',
+          weight: last ? last.querySelector('.set-weight').value : card.querySelector('.ec-weight').value,
+          reps: last ? last.querySelector('.set-reps').value : card.querySelector('.ec-reps').value,
+          rpe: last ? last.querySelector('.set-rpe').value : card.querySelector('.ec-rpe').value,
+        });
+        rows = card.querySelectorAll('.set-row');
+      }
+      while (rows.length > target) {
+        rows[rows.length - 1].remove();
+        rows = card.querySelectorAll('.set-row');
+      }
+      _relabelSets(card);
+      recomputeStrengthTotals();
+    });
+
+    // ec-reps/weight/rpe/rest: propagate to all rows on input
+    ['ec-reps', 'ec-weight', 'ec-rpe', 'ec-rest'].forEach(function (cls) {
+      var inp = card.querySelector('.' + cls);
+      if (inp) inp.addEventListener('input', syncCompactToRows);
+    });
+
+    // Compact inputs also refresh bullet/volume
+    compactRow.querySelectorAll('input').forEach(function (inp) {
+      inp.addEventListener('input', function () { _updateExerciseBullet(card); _updateExerciseVolume(card); });
+    });
+
+    // Expand: show per-set table
+    card.querySelector('.ec-expand-btn').addEventListener('click', function () {
+      // Sync compact → rows before showing (in case count changed)
+      syncCompactToRows();
+      compactRow.hidden = true;
+      setTable.style.display = '';
+    });
+
+    // Collapse: read rows → compact, show compact row
+    var collapseBtn = document.createElement('button');
+    collapseBtn.type = 'button';
+    collapseBtn.className = 'ec-collapse-btn';
+    collapseBtn.textContent = '▲ Compact';
+    setTable.appendChild(collapseBtn);
+    collapseBtn.addEventListener('click', function () {
+      syncRowsToCompact();
+      setTable.style.display = 'none';
+      compactRow.hidden = false;
+    });
+
+    // Add set: seed from last row's values (helps with progressive loading)
+    card.querySelector('.add-set').addEventListener('click', function () {
+      var rows = card.querySelectorAll('.set-row');
+      var last = rows.length ? rows[rows.length - 1] : null;
+      addSetRow(setTable, {
+        type: 'working',
+        weight: last ? parseFloat(last.querySelector('.set-weight').value) || null : null,
+        reps: last ? parseInt(last.querySelector('.set-reps').value, 10) || null : null,
+        rpe: last ? parseFloat(last.querySelector('.set-rpe').value) || null : null,
+      });
+      _relabelSets(card);
+      recomputeStrengthTotals();
+      // Keep compact sets count in sync
+      var allRows = card.querySelectorAll('.set-row');
+      var wkRows = [].filter.call(allRows, function (r) { return r.dataset.setType !== 'warmup'; });
+      card.querySelector('.ec-sets').value = wkRows.length || allRows.length;
+    });
+
     if (!data || !data.name) card.querySelector('.ex-name').focus();
   }
 
