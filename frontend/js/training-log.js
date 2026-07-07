@@ -6259,10 +6259,14 @@
 
   function _isoWeekStart(d) {
     var day = d.getDay();
-    var diff = (day === 0 ? -6 : 1 - day);
+    var diff = (day === 0 ? -6 : 1 - day); // 0=Sun → back to Mon
     var mon = new Date(d);
     mon.setDate(d.getDate() + diff);
-    return mon.toISOString().slice(0, 10);
+    // Format in LOCAL time — toISOString() would convert to UTC, and in a
+    // UTC-ahead timezone (this app is Asia/Bangkok, UTC+7) that rolls local
+    // Monday 00:00 back to Sunday, so the week read Sun–Sat instead of Mon–Sun.
+    var p = function (n) { return (n < 10 ? "0" : "") + n; };
+    return mon.getFullYear() + "-" + p(mon.getMonth() + 1) + "-" + p(mon.getDate());
   }
 
   function _fmtWeekLabel(weekStart) {
@@ -6292,29 +6296,24 @@
     return s;
   }
 
-  // A stat chip: optional leading label, the mono value, optional trailing unit.
-  function _factChip(pre, val, post) {
-    return '<span class="wsc-chip">' +
-      (pre ? '<span class="wsc-unit">' + pre + "</span> " : "") +
-      '<b class="wsc-num">' + val + "</b>" +
-      (post ? ' <span class="wsc-unit">' + post + "</span>" : "") +
-      "</span>";
-  }
-
-  function _renderFacts(factsEl, facts) {
-    var chips = [];
-    if (facts.total_tss != null) chips.push(_factChip("", facts.total_tss.toFixed(0), "TSS"));
-    if (facts.total_distance_km != null) chips.push(_factChip("", facts.total_distance_km.toFixed(1), "km"));
-    if (facts.total_duration_minutes != null) chips.push(_factChip("", facts.total_duration_minutes.toFixed(0), "min"));
-    if (facts.workout_count) chips.push(_factChip("", facts.workout_count, facts.workout_count === 1 ? "session" : "sessions"));
-    if (facts.ctl_end != null) chips.push(_factChip("CTL", facts.ctl_end.toFixed(1), ""));
-    if (facts.tsb_end != null) chips.push(_factChip("TSB", facts.tsb_end.toFixed(1), ""));
-    if (facts.prs_achieved && facts.prs_achieved.length) {
-      var prNames = facts.prs_achieved.map(function (p) { return _esc(p.track_name); }).join(", ");
-      chips.push('<span class="wsc-chip wsc-chip--pr">PR: ' + prNames + "</span>");
-    }
-    factsEl.innerHTML = chips.join('<span class="wsc-sep">·</span>');
-    factsEl.hidden = chips.length === 0;
+  // Break the narrative into 3 readable lines: (1) the sessions + totals
+  // sentence, (2) the load-vs-last-week sentence, (3) fitness + form. Split on
+  // sentence boundaries ("period + space"; decimals like 22.8 have no space so
+  // they don't split), re-add the stripped period, then group everything from
+  // the 3rd sentence on into the last line. Each line is number-highlighted.
+  function _renderNarrative(text) {
+    var raw = String(text || "").trim();
+    if (!raw) return "";
+    var sentences = raw.split(/\.\s+/).map(function (s) {
+      s = s.trim();
+      return s ? (/\.$/.test(s) ? s : s + ".") : "";
+    }).filter(Boolean);
+    var lines = sentences.length >= 3
+      ? [sentences[0], sentences[1], sentences.slice(2).join(" ")]
+      : sentences;
+    return lines.map(function (ln) {
+      return '<div class="wsc-line">' + _highlightNarrative(ln) + "</div>";
+    }).join("");
   }
 
   function loadWeeklySummary() {
@@ -6333,12 +6332,10 @@
       })
       .then(function (data) {
         var narrativeEl = document.getElementById("wsc-narrative");
-        var factsEl = document.getElementById("wsc-facts");
         var emptyEl = document.getElementById("wsc-empty");
         var facts = data.facts || {};
 
-        if (narrativeEl) narrativeEl.innerHTML = _highlightNarrative(data.narrative || "");
-        if (factsEl) _renderFacts(factsEl, facts);
+        if (narrativeEl) narrativeEl.innerHTML = _renderNarrative(data.narrative || "");
 
         if (facts.workout_count === 0) {
           if (narrativeEl) narrativeEl.hidden = false;
