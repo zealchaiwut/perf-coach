@@ -457,6 +457,155 @@
           background: #eef1f7;
         }
       }
+
+      /* ── Tab bar ────────────────────────────────────────────────────────── */
+      .sv-tabs {
+        display: flex;
+        gap: 4px;
+        align-self: flex-start;
+      }
+      .sv-tab {
+        appearance: none;
+        border: 1px solid rgba(255,255,255,0.22);
+        border-radius: 8px;
+        background: rgba(255,255,255,0.08);
+        color: var(--text-secondary);
+        font: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 7px 14px;
+        cursor: pointer;
+        transition: background 0.15s, color 0.15s;
+      }
+      .sv-tab:hover {
+        background: rgba(255,255,255,0.16);
+        color: var(--text-primary);
+      }
+      .sv-tab.sv-tab-on {
+        background: var(--primary, #3b82f6);
+        border-color: var(--primary, #3b82f6);
+        color: #fff;
+      }
+      .sv-tab:focus-visible {
+        outline: 2px solid var(--primary, #3b82f6);
+        outline-offset: 2px;
+      }
+
+      /* ── Shared button ──────────────────────────────────────────────────── */
+      .sv-btn {
+        appearance: none;
+        border: none;
+        border-radius: 8px;
+        background: var(--primary, #3b82f6);
+        color: #fff;
+        font: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 10px 16px;
+        min-height: 38px;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+      .sv-btn:hover { background: var(--primary-dark, #2563eb); }
+      .sv-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+      .sv-btn:focus-visible {
+        outline: 2px solid var(--primary, #3b82f6);
+        outline-offset: 2px;
+        box-shadow: 0 0 0 4px var(--focus-ring);
+      }
+
+      /* ── TSS prompt card ─────────────────────────────────────────────────── */
+      .sv-tss-hint {
+        font-size: 13px;
+        color: var(--text-secondary);
+        margin: 0 0 14px;
+      }
+      .sv-tss-rpe-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 14px;
+        flex-wrap: wrap;
+      }
+      .sv-tss-label {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-primary);
+        white-space: nowrap;
+      }
+      .sv-tss-slider {
+        flex: 1 1 160px;
+        accent-color: var(--primary, #3b82f6);
+        height: 4px;
+        min-width: 0;
+      }
+      .sv-tss-rpe-val {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 20px;
+        font-weight: 700;
+        color: var(--ink, #0b1530);
+        min-width: 24px;
+        text-align: center;
+      }
+      .sv-tss-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .sv-tss-msg {
+        font-size: 12px;
+        color: var(--text-secondary);
+      }
+      .sv-tss-msg-err { color: var(--danger, #ef4444); }
+
+      /* ── JSON editor ─────────────────────────────────────────────────────── */
+      .sv-json-hint {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin: 0 0 10px;
+      }
+      .sv-json-hint code {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 11px;
+        background: rgba(11,21,48,0.07);
+        padding: 1px 4px;
+        border-radius: 3px;
+      }
+      .sv-json-ta {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+        min-height: 260px;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 12px;
+        line-height: 1.55;
+        background: var(--tile, #f7f9fd);
+        border: 1px solid var(--border, #e5e7eb);
+        border-radius: 8px;
+        padding: 10px 12px;
+        color: var(--ink, #0b1530);
+        resize: vertical;
+        outline: none;
+        transition: border-color 0.15s;
+      }
+      .sv-json-ta:focus {
+        border-color: var(--primary, #3b82f6);
+        box-shadow: 0 0 0 3px var(--focus-ring);
+      }
+      .sv-json-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-top: 12px;
+        flex-wrap: wrap;
+      }
+      .sv-json-msg {
+        font-size: 12px;
+        color: var(--text-secondary);
+      }
+      .sv-json-msg-err { color: var(--danger, #ef4444); }
+      .sv-json-msg-ok  { color: var(--success, #22c55e); }
     </style>
   </head>
   <body>

@@ -34,6 +34,8 @@ from backend.models import AppConfig, DailyMetric, DriveSleepConnection, Economy
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values
 from backend.services.tss import compute_running_tss as _compute_running_tss
+from backend.services.tss import compute_strength_tss as _compute_strength_tss
+from backend.services.tss import STRENGTH_TSS_SCALE as _STRENGTH_TSS_SCALE, STRENGTH_TSS_MAX as _STRENGTH_TSS_MAX
 from backend.services.tss import persist_running_tss as _persist_running_tss
 from backend.services.tss import recompute_user_running_tss as _recompute_user_running_tss
 from backend.services.training_load import (
@@ -7736,6 +7738,117 @@ def delete_exercise(workout_id: str, exercise_id: str, user: User = Depends(reso
         session.delete(ex)
         session.commit()
     return Response(status_code=204)
+
+
+class ExercisesReplaceIn(BaseModel):
+    exercises: list[ExerciseIn]
+
+
+@app.post("/api/workouts/{workout_id}/exercises/replace", status_code=200)
+def replace_exercises(workout_id: str, body: ExercisesReplaceIn, user: User = Depends(resolve_user)):
+    try:
+        wid = _uuid.UUID(workout_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid workout_id")
+    for ex in body.exercises:
+        _validate_exercise(ex)
+    with Session(engine) as session:
+        workout = session.get(Workout, wid)
+        if workout is None:
+            raise HTTPException(status_code=404, detail="Workout not found")
+        if workout.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        session.query(WorkoutExercise).filter(WorkoutExercise.workout_id == wid).delete()
+        new_exercises = []
+        for i, ex in enumerate(body.exercises):
+            new_ex = WorkoutExercise(
+                workout_id=wid,
+                display_order=i,
+                name=ex.name.strip(),
+                sets=ex.sets,
+                reps=ex.reps,
+                weight_kg=ex.weight_kg,
+                duration=ex.duration,
+                rpe=ex.rpe,
+                distance_km=ex.distance_km,
+                duration_seconds=ex.duration_seconds,
+                avg_hr=ex.avg_hr,
+                sets_json=ex.sets_json,
+            )
+            session.add(new_ex)
+            new_exercises.append(new_ex)
+        session.commit()
+        for ex in new_exercises:
+            session.refresh(ex)
+        session.refresh(workout)
+        return JSONResponse(_workout_dict(workout, new_exercises))
+
+
+class ComputeTSSIn(BaseModel):
+    session_rpe: Optional[int] = None  # 1-10; if provided, overrides workout.session_rpe
+
+
+@app.post("/api/workouts/{workout_id}/compute-tss", status_code=200)
+def compute_workout_tss(workout_id: str, body: ComputeTSSIn, user: User = Depends(resolve_user)):
+    try:
+        wid = _uuid.UUID(workout_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid workout_id")
+    if body.session_rpe is not None and not (1 <= body.session_rpe <= 10):
+        raise HTTPException(status_code=422, detail="session_rpe must be between 1 and 10")
+    with Session(engine) as session:
+        workout = session.get(Workout, wid)
+        if workout is None:
+            raise HTTPException(status_code=404, detail="Workout not found")
+        if workout.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        exercises = (
+            session.query(WorkoutExercise)
+            .filter(WorkoutExercise.workout_id == wid)
+            .order_by(WorkoutExercise.display_order)
+            .all()
+        )
+        prefs = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == workout.user_id)
+            .first()
+        ) or UserPreferences()
+
+        # Build lightweight proxies so compute_strength_tss can do dict/attr access.
+        # Apply module-level defaults for scale/max when user prefs are unset.
+        class _WorkoutProxy:
+            def __init__(self, w, rpe_override):
+                self.duration_seconds = w.duration_seconds
+                self.session_rpe = rpe_override if rpe_override is not None else getattr(w, 'session_rpe', None)
+            def __getitem__(self, k):
+                return getattr(self, k)
+
+        class _PrefsProxy:
+            def __init__(self, p):
+                self.strength_tss_scale = getattr(p, 'strength_tss_scale', None) or _STRENGTH_TSS_SCALE
+                self.strength_tss_max = getattr(p, 'strength_tss_max', None) or _STRENGTH_TSS_MAX
+            def __getitem__(self, k):
+                return getattr(self, k)
+
+        proxy = _WorkoutProxy(workout, body.session_rpe)
+        prefs_proxy = _PrefsProxy(prefs)
+        result = _compute_strength_tss(proxy, exercises, prefs_proxy)
+
+        if result["tss"] is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Cannot compute TSS: " + result.get("debug", {}).get("reason", "missing inputs")
+            )
+
+        workout.tss = result["tss"]
+        workout.tss_source = "calculated"
+        workout.tss_method = result["method"]
+        session.commit()
+        session.refresh(workout)
+        return JSONResponse({
+            **_workout_dict(workout, exercises),
+            "tss_debug": result.get("debug"),
+        })
 
 
 # ── Workout template endpoints ────────────────────────────────────────────────
