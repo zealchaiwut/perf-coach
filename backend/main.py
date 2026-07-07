@@ -30,10 +30,12 @@ from zoneinfo import ZoneInfo
 
 from backend.auth import require_admin
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, DriveSleepConnection, EconomyCeilingSnapshot, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession
+from backend.models import AppConfig, DailyMetric, DriveSleepConnection, EconomyCeilingSnapshot, ExerciseCatalog, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values
 from backend.services.tss import compute_running_tss as _compute_running_tss
+from backend.services.tss import compute_strength_tss as _compute_strength_tss
+from backend.services.tss import STRENGTH_TSS_SCALE as _STRENGTH_TSS_SCALE, STRENGTH_TSS_MAX as _STRENGTH_TSS_MAX
 from backend.services.tss import persist_running_tss as _persist_running_tss
 from backend.services.tss import recompute_user_running_tss as _recompute_user_running_tss
 from backend.services.training_load import (
@@ -5012,6 +5014,7 @@ from backend.services.habit_adherence import (  # noqa: E402
     detect_slipping_habits as _detect_slipping_habits,
 )
 from backend.services.habit_nudges import build_nudges as _build_nudges, apply_llm_nudges as _apply_llm_nudges  # noqa: E402
+from backend.services.exercise_classifier import get_or_classify as _get_or_classify, normalize_name as _normalize_exercise_name, VALID_BODY_PARTS as _VALID_BODY_PARTS  # noqa: E402
 
 
 @app.get("/api/adherence-nudges")
@@ -7736,6 +7739,203 @@ def delete_exercise(workout_id: str, exercise_id: str, user: User = Depends(reso
         session.delete(ex)
         session.commit()
     return Response(status_code=204)
+
+
+class ExercisesReplaceIn(BaseModel):
+    exercises: list[ExerciseIn]
+
+
+@app.post("/api/workouts/{workout_id}/exercises/replace", status_code=200)
+def replace_exercises(workout_id: str, body: ExercisesReplaceIn, user: User = Depends(resolve_user)):
+    try:
+        wid = _uuid.UUID(workout_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid workout_id")
+    for ex in body.exercises:
+        _validate_exercise(ex)
+    with Session(engine) as session:
+        workout = session.get(Workout, wid)
+        if workout is None:
+            raise HTTPException(status_code=404, detail="Workout not found")
+        if workout.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        session.query(WorkoutExercise).filter(WorkoutExercise.workout_id == wid).delete()
+        new_exercises = []
+        for i, ex in enumerate(body.exercises):
+            new_ex = WorkoutExercise(
+                workout_id=wid,
+                display_order=i,
+                name=ex.name.strip(),
+                sets=ex.sets,
+                reps=ex.reps,
+                weight_kg=ex.weight_kg,
+                duration=ex.duration,
+                rpe=ex.rpe,
+                distance_km=ex.distance_km,
+                duration_seconds=ex.duration_seconds,
+                avg_hr=ex.avg_hr,
+                sets_json=ex.sets_json,
+            )
+            session.add(new_ex)
+            new_exercises.append(new_ex)
+        session.commit()
+        for ex in new_exercises:
+            session.refresh(ex)
+        session.refresh(workout)
+        return JSONResponse(_workout_dict(workout, new_exercises))
+
+
+class ComputeTSSIn(BaseModel):
+    session_rpe: Optional[int] = None  # 1-10; if provided, overrides workout.session_rpe
+
+
+@app.post("/api/workouts/{workout_id}/compute-tss", status_code=200)
+def compute_workout_tss(workout_id: str, body: ComputeTSSIn, user: User = Depends(resolve_user)):
+    try:
+        wid = _uuid.UUID(workout_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid workout_id")
+    if body.session_rpe is not None and not (1 <= body.session_rpe <= 10):
+        raise HTTPException(status_code=422, detail="session_rpe must be between 1 and 10")
+    with Session(engine) as session:
+        workout = session.get(Workout, wid)
+        if workout is None:
+            raise HTTPException(status_code=404, detail="Workout not found")
+        if workout.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        exercises = (
+            session.query(WorkoutExercise)
+            .filter(WorkoutExercise.workout_id == wid)
+            .order_by(WorkoutExercise.display_order)
+            .all()
+        )
+        prefs = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == workout.user_id)
+            .first()
+        ) or UserPreferences()
+
+        # Build lightweight proxies so compute_strength_tss can do dict/attr access.
+        # Apply module-level defaults for scale/max when user prefs are unset.
+        class _WorkoutProxy:
+            def __init__(self, w, rpe_override):
+                self.duration_seconds = w.duration_seconds
+                self.session_rpe = rpe_override if rpe_override is not None else getattr(w, 'session_rpe', None)
+            def __getitem__(self, k):
+                return getattr(self, k)
+
+        class _PrefsProxy:
+            def __init__(self, p):
+                self.strength_tss_scale = getattr(p, 'strength_tss_scale', None) or _STRENGTH_TSS_SCALE
+                self.strength_tss_max = getattr(p, 'strength_tss_max', None) or _STRENGTH_TSS_MAX
+            def __getitem__(self, k):
+                return getattr(self, k)
+
+        proxy = _WorkoutProxy(workout, body.session_rpe)
+        prefs_proxy = _PrefsProxy(prefs)
+        result = _compute_strength_tss(proxy, exercises, prefs_proxy)
+
+        if result["tss"] is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Cannot compute TSS: " + result.get("debug", {}).get("reason", "missing inputs")
+            )
+
+        workout.tss = result["tss"]
+        workout.tss_source = "calculated"
+        workout.tss_method = result["method"]
+        session.commit()
+        session.refresh(workout)
+        return JSONResponse({
+            **_workout_dict(workout, exercises),
+            "tss_debug": result.get("debug"),
+        })
+
+
+# ── Exercise catalog endpoints ────────────────────────────────────────────────
+
+def _catalog_dict(row: ExerciseCatalog) -> dict:
+    return {
+        "name": row.name,
+        "body_parts": row.body_parts or [],
+        "source": row.source,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+class ExerciseCatalogLookupIn(BaseModel):
+    names: list[str]
+
+
+class ExerciseCatalogPatchIn(BaseModel):
+    body_parts: list[dict]  # [{part: str, ratio: float}, ...]
+
+
+@app.post("/api/exercise-catalog/lookup-batch", status_code=200)
+def lookup_exercise_catalog_batch(body: ExerciseCatalogLookupIn, user: User = Depends(resolve_user)):
+    """Return catalog entries for given exercise names, classifying any unknowns via LLM.
+
+    The LLM call is synchronous but fast (<2 s on Groq's fast tier). Unknown
+    exercises with LLM disabled return {status: "pending"} so the UI can render
+    gracefully without blocking. Existing and newly classified entries are saved
+    once per unique normalised name.
+    """
+    from backend.services.llm import llm_enabled as _llm_enabled
+
+    unique_keys = list({_normalize_exercise_name(n) for n in body.names if n and n.strip()})
+    if not unique_keys:
+        return JSONResponse({"results": {}})
+
+    results = {}
+    with Session(engine) as session:
+        for key in unique_keys:
+            entry = _get_or_classify(key, session)
+            if entry is not None:
+                results[key] = {**entry, "status": "ok"}
+            else:
+                results[key] = {"name": key, "body_parts": [], "source": None, "status": "pending" if not _llm_enabled() else "error"}
+        try:
+            session.commit()
+        except Exception:
+            session.rollback()
+    return JSONResponse({"results": results})
+
+
+@app.patch("/api/exercise-catalog/{name}", status_code=200)
+def patch_exercise_catalog(name: str, body: ExerciseCatalogPatchIn, user: User = Depends(resolve_user)):
+    """Manually override the body-part classification for an exercise."""
+    from backend.services.exercise_classifier import _validate_body_parts, normalize_name as _norm
+
+    key = _norm(name)
+    if not key:
+        raise HTTPException(status_code=400, detail="Exercise name is required")
+
+    validated = _validate_body_parts(body.body_parts)
+    if not validated:
+        raise HTTPException(status_code=422, detail="body_parts must contain valid parts with positive ratios")
+
+    from datetime import datetime, timezone as _tz
+    with Session(engine) as session:
+        row = session.query(ExerciseCatalog).filter_by(name=key).first()
+        if row is None:
+            row = ExerciseCatalog(name=key, body_parts=validated, source="manual",
+                                  updated_at=datetime.now(_tz.utc))
+            session.add(row)
+        else:
+            row.body_parts = validated
+            row.source = "manual"
+            row.updated_at = datetime.now(_tz.utc)
+        session.commit()
+        session.refresh(row)
+        return JSONResponse(_catalog_dict(row))
+
+
+@app.get("/api/exercise-catalog", status_code=200)
+def list_exercise_catalog(user: User = Depends(resolve_user)):
+    """Return the full exercise catalog (admin/debug view)."""
+    with Session(engine) as session:
+        rows = session.query(ExerciseCatalog).order_by(ExerciseCatalog.name).all()
+        return JSONResponse([_catalog_dict(r) for r in rows])
 
 
 # ── Workout template endpoints ────────────────────────────────────────────────

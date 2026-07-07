@@ -2633,6 +2633,87 @@
         margin: 0;
       }
 
+      /* ── Workout JSON editor (in drawer) ── */
+      .dp-json-tabs {
+        display: flex;
+        gap: 4px;
+        padding: 12px 16px 0;
+      }
+      .dp-json-tab {
+        appearance: none;
+        border: 1px solid var(--border, #e5e7eb);
+        border-radius: 7px;
+        background: transparent;
+        color: var(--ink-2);
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 5px 12px;
+        cursor: pointer;
+        transition: background 0.12s, color 0.12s;
+      }
+      .dp-json-tab:hover { background: var(--tile); color: var(--ink); }
+      .dp-json-tab.dp-json-tab--on {
+        background: var(--primary, #3b82f6);
+        border-color: var(--primary, #3b82f6);
+        color: #fff;
+      }
+      .dp-json-hint {
+        font-size: 11px;
+        color: var(--ink-2);
+        margin: 0 0 8px;
+      }
+      .dp-json-hint code {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 10px;
+        background: rgba(11,21,48,0.07);
+        padding: 1px 3px;
+        border-radius: 3px;
+      }
+      .dp-json-ta {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+        min-height: 220px;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 11px;
+        line-height: 1.55;
+        background: var(--tile);
+        border: 1px solid var(--border, #e5e7eb);
+        border-radius: 8px;
+        padding: 10px 12px;
+        color: var(--ink);
+        resize: vertical;
+        outline: none;
+        transition: border-color 0.15s;
+      }
+      .dp-json-ta:focus { border-color: var(--primary, #3b82f6); }
+      .dp-json-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 10px;
+        flex-wrap: wrap;
+      }
+      .dp-json-save-btn {
+        appearance: none;
+        border: none;
+        border-radius: 8px;
+        background: var(--primary, #3b82f6);
+        color: #fff;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 8px 14px;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+      .dp-json-save-btn:hover { background: var(--primary-dark, #2563eb); }
+      .dp-json-save-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+      .dp-json-msg { font-size: 11px; color: var(--ink-2); }
+      .dp-json-msg--err { color: var(--danger, #ef4444); }
+      .dp-json-msg--ok  { color: var(--success, #22c55e); }
+
       /* ── Action bar ── */
       .dp-actions-bar {
         display: flex;

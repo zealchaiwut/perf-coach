@@ -1409,6 +1409,24 @@ class PlannedSession(Base):
     )
 
 
+class ExerciseCatalog(Base):
+    """Global catalog of exercises with body-part ratios, LLM- or manually classified.
+
+    name is normalized (stripped, lowercased) to dedup across users and workout sources.
+    body_parts: [{part: str, ratio: float}, ...] — ratios sum to ~1.0.
+    source: 'llm' | 'manual'
+    """
+
+    __tablename__ = "exercise_catalog"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    name = Column(String(200), nullable=False, unique=True, index=True)
+    body_parts = Column(JSONB, nullable=False, default=list)
+    source = Column(String(20), nullable=False, default="llm")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+
 class LlmGeneration(Base):
     """Cached LLM-generated text payloads keyed by (user, surface, input_signature).
 

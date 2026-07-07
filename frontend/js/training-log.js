@@ -1847,8 +1847,16 @@
       var saveBtn = document.getElementById("dp-save-btn");
       if (saveBtn)
         saveBtn.textContent = mode === "edit" ? "Save changes" : "Save workout";
-    } else if (pill) {
-      updatePositionPill();
+    } else {
+      // Clean up JSON tab injected by injectEditJsonTab
+      var oldTabs = document.getElementById("dp-edit-json-tabs");
+      if (oldTabs) oldTabs.remove();
+      var oldPanel = document.getElementById("dp-edit-json-panel");
+      if (oldPanel) oldPanel.remove();
+      // Restore form-stack visibility in case it was hidden by JSON tab
+      var fStack = formWrap && formWrap.querySelector(".training-form-stack");
+      if (fStack) fStack.hidden = false;
+      if (pill) updatePositionPill();
     }
   }
 
@@ -1944,6 +1952,175 @@
     if (nameInput) nameInput.focus();
   }
 
+  // Injects Form/JSON tab bar + JSON panel into dp-form-wrap for non-cardio workouts.
+  // Called from applyEdit inside switchToEditMode; cleaned up by setPanelMode.
+  function injectEditJsonTab(workout) {
+    var _tk = normalizeTypeKey(workout.workout_type);
+    if (_tk === "run" || _tk === "bike") return;
+
+    var formWrap = document.getElementById("dp-form-wrap");
+    if (!formWrap) return;
+
+    // Remove any leftover from a previous edit session
+    var oldTabs = document.getElementById("dp-edit-json-tabs");
+    if (oldTabs) oldTabs.remove();
+    var oldPanel = document.getElementById("dp-edit-json-panel");
+    if (oldPanel) oldPanel.remove();
+
+    var formStack = formWrap.querySelector(".training-form-stack");
+    if (!formStack) return;
+
+    // Build pre-filled JSON
+    var exercises = workout.exercises || [];
+    var jsonObj = { name: workout.name || "", date: workout.workout_date || "", type: workout.workout_type || "" };
+    if (workout.remarks) jsonObj.remarks = workout.remarks;
+    if (exercises.length) {
+      jsonObj.exercises = exercises.map(function (ex) {
+        var e = { name: ex.name || "" };
+        if (ex.sets != null) e.sets = ex.sets;
+        if (ex.reps != null) e.reps = ex.reps;
+        if (ex.weight_kg != null) e.weight_kg = parseFloat(ex.weight_kg);
+        if (ex.rpe != null) e.rpe = ex.rpe;
+        if (ex.duration_seconds != null) e.duration_seconds = ex.duration_seconds;
+        return e;
+      });
+    }
+    var jsonStr = JSON.stringify(jsonObj, null, 2);
+
+    // Tab bar — inserted before the form stack
+    var tabBar = document.createElement("div");
+    tabBar.id = "dp-edit-json-tabs";
+    tabBar.className = "dp-json-tabs";
+    tabBar.innerHTML =
+      '<button type="button" class="dp-json-tab dp-json-tab--on" data-dpet="form">Form</button>' +
+      '<button type="button" class="dp-json-tab" data-dpet="json">JSON</button>';
+    formStack.parentNode.insertBefore(tabBar, formStack);
+
+    // JSON panel — inserted after the form stack
+    var jsonPanel = document.createElement("div");
+    jsonPanel.id = "dp-edit-json-panel";
+    jsonPanel.hidden = true;
+    jsonPanel.className = "dp-section";
+    jsonPanel.innerHTML =
+      '<p class="dp-json-hint">Supported fields: <code>name</code>, <code>date</code>, <code>remarks</code> (or <code>notes</code>). ' +
+      'Exercises: <code>name</code>, <code>sets</code>, <code>reps</code>, <code>weight_kg</code>, <code>rpe</code>. ' +
+      'Unknown fields like <code>block</code> or <code>load</code> are silently ignored.</p>' +
+      '<textarea id="dp-edit-json-ta" class="dp-json-ta" spellcheck="false">' + esc(jsonStr) + '</textarea>' +
+      '<div class="dp-json-actions">' +
+      '<button type="button" class="dp-json-save-btn" id="dp-edit-json-save">Save changes</button>' +
+      '<span id="dp-edit-json-msg" class="dp-json-msg"></span>' +
+      '</div>';
+    formStack.parentNode.insertBefore(jsonPanel, formStack.nextSibling);
+
+    // Wire tab switching — hide the bottom Form action bar when JSON is active
+    // (prevents accidentally clicking the TrainingEditor Save button which ignores JSON edits)
+    tabBar.addEventListener("click", function (ev) {
+      var btn = ev.target.closest("[data-dpet]");
+      if (!btn) return;
+      var tab = btn.getAttribute("data-dpet");
+      tabBar.querySelectorAll("[data-dpet]").forEach(function (b) {
+        b.classList.toggle("dp-json-tab--on", b.getAttribute("data-dpet") === tab);
+      });
+      formStack.hidden = tab === "json";
+      jsonPanel.hidden = tab !== "json";
+      var formActions = document.getElementById("dp-actions-form");
+      if (formActions) formActions.style.display = tab === "json" ? "none" : "";
+    });
+
+    // Wire save — sanitizes fields and submits via PATCH + exercises/replace
+    var saveBtn = document.getElementById("dp-edit-json-save");
+    var msgEl = document.getElementById("dp-edit-json-msg");
+    if (!saveBtn) return;
+
+    saveBtn.addEventListener("click", function () {
+      var ta = document.getElementById("dp-edit-json-ta");
+      var parsed;
+      try {
+        parsed = JSON.parse(ta.value);
+      } catch (e) {
+        msgEl.textContent = "Invalid JSON: " + e.message;
+        msgEl.className = "dp-json-msg dp-json-msg--err";
+        return;
+      }
+
+      saveBtn.disabled = true;
+      msgEl.textContent = "Saving…";
+      msgEl.className = "dp-json-msg";
+
+      var patchBody = {};
+      if (parsed.name != null) patchBody.name = parsed.name;
+      if (parsed.date != null) patchBody.workout_date = parsed.date;
+      if (parsed.type != null) patchBody.workout_type = parsed.type;
+      // accept both "remarks" and "notes" (notes is more natural to users)
+      if ("remarks" in parsed) patchBody.remarks = parsed.remarks || null;
+      if ("notes" in parsed) patchBody.remarks = parsed.notes || null;
+
+      // Allowed exercise fields; coerce numeric strings to int/null
+      var EXERCISE_ALLOWED = { name: 1, sets: 1, reps: 1, weight_kg: 1, rpe: 1, duration: 1, distance_km: 1, duration_seconds: 1, avg_hr: 1 };
+      var newExercises = (parsed.exercises || []).map(function (ex) {
+        var clean = {};
+        Object.keys(ex).forEach(function (k) {
+          if (!EXERCISE_ALLOWED[k]) return;
+          var v = ex[k];
+          if (k === "reps" || k === "sets" || k === "rpe" || k === "avg_hr") {
+            if (typeof v === "string") {
+              var n = parseInt(v, 10);
+              v = isNaN(n) ? null : n;
+            }
+          }
+          clean[k] = v;
+        });
+        return clean;
+      });
+
+      var wid = workout.id;
+
+      function fmtDetail(body) {
+        var d = body && body.detail;
+        if (!d) return "Request failed";
+        if (Array.isArray(d)) return d.map(function (x) { return x.msg || JSON.stringify(x); }).join("; ");
+        return String(d);
+      }
+
+      fetch("/api/workouts/" + wid, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patchBody),
+      })
+        .then(function (r) {
+          if (!r.ok) return r.json().then(function (b) { throw new Error(fmtDetail(b)); });
+          return r.json();
+        })
+        .then(function () {
+          return fetch("/api/workouts/" + wid + "/exercises/replace", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ exercises: newExercises }),
+          });
+        })
+        .then(function (r) {
+          if (!r.ok) return r.json().then(function (b) { throw new Error(fmtDetail(b)); });
+          return r.json();
+        })
+        .then(function () {
+          saveBtn.disabled = false;
+          UIStates.showToast("Workout saved!");
+          setPanelMode("view");
+          setTimeout(function () {
+            fetchAndRenderDetail(wid);
+            fetchAndRender();
+          }, 400);
+        })
+        .catch(function (err) {
+          saveBtn.disabled = false;
+          msgEl.textContent = err.message;
+          msgEl.className = "dp-json-msg dp-json-msg--err";
+        });
+    });
+  }
+
   function switchToEditMode() {
     if (!activeDetailWorkoutId) return;
     closeOverflowMenu();
@@ -1955,6 +2132,7 @@
         TrainingEditor.fillForm(workout);
         TrainingEditor.setEditingId(workout.id);
       }
+      injectEditJsonTab(workout);
       var scrollEl = document.getElementById("dp-scroll");
       if (scrollEl) scrollEl.scrollTop = 0;
       var nameInput = document.getElementById("workout-name");
@@ -2584,9 +2762,20 @@
       rpeAgg = { value: ex.rpe != null ? ex.rpe : null, uniform: true };
     }
 
+    // Duration aggregation (for timed exercises like planks)
+    var durAgg = null;
+    if (use) {
+      durAgg = _setAgg(use.map(function (s) { return s.duration_seconds != null ? s.duration_seconds : null; }));
+    } else if (ex.duration_seconds != null) {
+      durAgg = { value: ex.duration_seconds, uniform: true };
+    }
+
     var setsTxt = "—";
     if (count != null) {
-      if (repsAgg.value != null) {
+      if (durAgg && durAgg.value != null) {
+        var durVal = durAgg.uniform ? durAgg.value : Math.round(durAgg.value);
+        setsTxt = count + " × " + durVal + "s";
+      } else if (repsAgg.value != null) {
         var repsTxt = repsAgg.uniform
           ? String(repsAgg.value)
           : "~" + Math.round(repsAgg.value);
