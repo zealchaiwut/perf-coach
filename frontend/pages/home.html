@@ -126,8 +126,10 @@
       background: transparent;
       border-radius: 20px;
       overflow: visible;
-      inset: 0;
       padding: 0;
+      /* No `inset:0` here — gridstack insets the content by its `margin` option
+         (see home-grid.js) to create the gaps between widgets; overriding inset
+         would collapse those gaps. */
     }
     /* The widget container fills the item's WIDTH; its height must stay natural
        (auto) so gridstack's sizeToContent can measure the real content height —
