@@ -3417,7 +3417,42 @@
         "</div>";
     }
 
+    // ── JSON editor (strength workouts only) ─────────────────────────────────
+    var jsonTabHtml = "";
+    var jsonPanelHtml = "";
+    if (!isCardio && workout.id) {
+      var jsonObj = { name: workout.name || "", date: workout.workout_date || "", type: workout.workout_type || "" };
+      if (workout.remarks) jsonObj.remarks = workout.remarks;
+      if (exercises.length) {
+        jsonObj.exercises = exercises.map(function (ex) {
+          var e = { name: ex.name || "" };
+          if (ex.sets != null) e.sets = ex.sets;
+          if (ex.reps != null) e.reps = ex.reps;
+          if (ex.weight_kg != null) e.weight_kg = parseFloat(ex.weight_kg);
+          if (ex.rpe != null) e.rpe = ex.rpe;
+          return e;
+        });
+      }
+      var jsonStr = JSON.stringify(jsonObj, null, 2);
+      jsonTabHtml = '<div class="dp-json-tabs" id="dp-json-tabs">' +
+        '<button type="button" class="dp-json-tab dp-json-tab--on" id="dp-tab-view" data-dp-tab="view">View</button>' +
+        '<button type="button" class="dp-json-tab" id="dp-tab-json" data-dp-tab="json">JSON</button>' +
+        '</div>';
+      jsonPanelHtml = '<div id="dp-json-panel" hidden>' +
+        '<div class="dp-section">' +
+        '<p class="dp-json-hint">Edit workout details and exercises. Fields: <code>name</code>, <code>date</code>, <code>remarks</code>, exercises (<code>name</code>, <code>sets</code>, <code>reps</code>, <code>weight_kg</code>, <code>rpe</code>).</p>' +
+        '<textarea id="dp-json-ta" class="dp-json-ta" spellcheck="false">' + esc(jsonStr) + '</textarea>' +
+        '<div class="dp-json-actions">' +
+        '<button type="button" class="dp-json-save-btn" id="dp-json-save-btn">Save changes</button>' +
+        '<span id="dp-json-msg" class="dp-json-msg"></span>' +
+        '</div>' +
+        '</div>' +
+        '</div>';
+    }
+
     contentEl.innerHTML =
+      jsonTabHtml +
+      '<div id="dp-view-panel">' +
       '<div class="dp-view-stack">' +
       heroHtml +
       statsHtml +
@@ -3426,7 +3461,90 @@
       splitsHtml +
       exercisesHtml +
       notesHtml +
-      "</div>";
+      "</div>" +
+      "</div>" +
+      jsonPanelHtml;
+
+    // Wire JSON tab switching
+    if (!isCardio && workout.id) {
+      contentEl.addEventListener("click", function (e) {
+        var tab = e.target && e.target.getAttribute("data-dp-tab");
+        if (!tab) return;
+        var viewPanel = document.getElementById("dp-view-panel");
+        var jsonPanel = document.getElementById("dp-json-panel");
+        var tabView = document.getElementById("dp-tab-view");
+        var tabJson = document.getElementById("dp-tab-json");
+        if (tab === "json") {
+          if (viewPanel) viewPanel.hidden = true;
+          if (jsonPanel) jsonPanel.hidden = false;
+          if (tabView) tabView.classList.remove("dp-json-tab--on");
+          if (tabJson) tabJson.classList.add("dp-json-tab--on");
+        } else {
+          if (viewPanel) viewPanel.hidden = false;
+          if (jsonPanel) jsonPanel.hidden = true;
+          if (tabView) tabView.classList.add("dp-json-tab--on");
+          if (tabJson) tabJson.classList.remove("dp-json-tab--on");
+        }
+      });
+
+      // Wire JSON save
+      var dpJsonSaveBtn = document.getElementById("dp-json-save-btn");
+      if (dpJsonSaveBtn) {
+        dpJsonSaveBtn.addEventListener("click", function () {
+          var ta = document.getElementById("dp-json-ta");
+          var msg = document.getElementById("dp-json-msg");
+          var parsed;
+          try { parsed = JSON.parse(ta.value); } catch (e) {
+            if (msg) { msg.textContent = "Invalid JSON: " + e.message; msg.className = "dp-json-msg dp-json-msg--err"; }
+            return;
+          }
+          dpJsonSaveBtn.disabled = true;
+          if (msg) { msg.textContent = "Saving…"; msg.className = "dp-json-msg"; }
+
+          var patchBody = {};
+          if (parsed.name != null) patchBody.name = parsed.name;
+          if (parsed.date != null) patchBody.workout_date = parsed.date;
+          if (parsed.type != null) patchBody.workout_type = parsed.type;
+          if ("remarks" in parsed) patchBody.remarks = parsed.remarks || null;
+          var newExercises = parsed.exercises || [];
+
+          fetch("/api/workouts/" + workout.id, {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(patchBody),
+          })
+            .then(function (r) {
+              if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "Patch failed"); });
+              return r.json();
+            })
+            .then(function () {
+              return fetch("/api/workouts/" + workout.id + "/exercises/replace", {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ exercises: newExercises }),
+              });
+            })
+            .then(function (r) {
+              if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "Replace failed"); });
+              return r.json();
+            })
+            .then(function (data) {
+              if (msg) { msg.textContent = "Saved!"; msg.className = "dp-json-msg dp-json-msg--ok"; }
+              dpJsonSaveBtn.disabled = false;
+              setTimeout(function () {
+                fetchAndRenderDetail(workout.id);
+                fetchAndRender();
+              }, 600);
+            })
+            .catch(function (err) {
+              dpJsonSaveBtn.disabled = false;
+              if (msg) { msg.textContent = err.message; msg.className = "dp-json-msg dp-json-msg--err"; }
+            });
+        });
+      }
+    }
 
     // Quick-tag effort feeling in the drawer header (interactive → mount after
     // the HTML string is injected). Shares patchFeeling with the log-list row.
