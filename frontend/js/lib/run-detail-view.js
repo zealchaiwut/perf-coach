@@ -689,8 +689,8 @@
       '">' +
       '<div class="rd4-stat-lbl">' +
       esc(label) +
-      (opts.pill || "") +
       "</div>" +
+      (opts.pill ? '<div class="rd4-stat-pill">' + opts.pill + "</div>" : "") +
       '<div class="rd4-stat-val">' +
       esc(value) +
       (unit ? '<span class="rd4-stat-unit">' + esc(unit) + "</span>" : "") +
@@ -835,17 +835,17 @@
       renderTssTile(tssOptions, defaultTssId) +
       statTile("Zone 2", dash(w.zone2_minutes), w.zone2_minutes != null ? "min" : "") +
       statTile(
-        "Elevation",
-        dash(elevation),
-        elevation != null ? "m" : "",
-        { pill: elevFromStrava ? sourcePill("strava") : "" },
+        "Cadence",
+        dash(w.avg_cadence_spm),
+        w.avg_cadence_spm != null ? "spm" : "",
+        { pill: w.avg_cadence_spm != null ? sourcePill("stryd") : "" },
       ) +
       statTile("Avg HR", dash(w.avg_hr), w.avg_hr != null ? "bpm" : "") +
       statTile(
-        "Max HR",
-        dash(maxHr),
-        maxHr != null ? "bpm" : "",
-        { pill: maxHrFromStrava ? sourcePill("strava") : "" },
+        "NP",
+        dash(w.np),
+        w.np != null ? "W" : "",
+        { pill: w.np != null ? sourcePill("stryd") : "" },
       ) +
       statTile(
         "Avg power",
@@ -854,10 +854,10 @@
         { pill: w.avg_power != null ? sourcePill("stryd") : "" },
       ) +
       statTile(
-        "NP",
-        dash(w.np),
-        w.np != null ? "W" : "",
-        { pill: w.np != null ? sourcePill("stryd") : "" },
+        "Max HR",
+        dash(maxHr),
+        maxHr != null ? "bpm" : "",
+        { pill: maxHrFromStrava ? sourcePill("strava") : "" },
       ) +
       statTile(
         "Stride",
@@ -866,10 +866,10 @@
         { pill: w.avg_stride_m != null ? sourcePill("stryd") : "" },
       ) +
       statTile(
-        "Cadence",
-        dash(w.avg_cadence_spm),
-        w.avg_cadence_spm != null ? "spm" : "",
-        { pill: w.avg_cadence_spm != null ? sourcePill("stryd") : "" },
+        "Elevation",
+        dash(elevation),
+        elevation != null ? "m" : "",
+        { pill: elevFromStrava ? sourcePill("strava") : "" },
       );
 
     var tssNote = buildTssFootnote(tssOptions, defaultTssId);
@@ -1003,15 +1003,10 @@
         (shortDev.length >= 2 && domShare >= 0.45)
       );
 
-      var basis = detected.basis && detected.basis !== "none" ? esc(detected.basis) : "—";
-      var confNote = detected.confident === false
-        ? '<p class="rd4-muted">Flat lap profile — phase detection not confident.</p>'
-        : '<p class="rd4-muted">Detected profile · basis ' + basis +
-          (detected.reps_detected != null ? " · reps " + detected.reps_detected : "") + "</p>";
-      var head = '<section class="rd4-card"><h2 class="rd4-sec-title">Session profile · effort</h2>';
+      var head = '<section class="rd4-card"><h2 class="rd4-sec-title">Effort</h2>';
 
       if (!variable) {
-        // ── STRUCTURED: bars + named brackets (grouped by smoothed key) ──
+        // ── STRUCTURED: lap bars only (phase brackets removed — crowded on mobile) ──
         var sBars = distanceLapMeta.map(function (m, i) {
           var k = smoothKey[i];
           var col = m.anomaly ? "#94a3b8" : PHASE_COLOR2[k] || bandColor(bandMap[m.index] || "steady");
@@ -1019,22 +1014,10 @@
           return '<div class="rd4-cell2" style="flex:' + lapW(i) + ' 0 0">' +
             '<div class="rd4-prof2-bar' + z2 + brk + '" style="height:' + hpxOf(m) + "px;background:" + col + '"></div></div>';
         }).join("");
-        var grp = [], cg = null;
-        smoothKey.forEach(function (k, i) {
-          if (!cg || cg.key !== k) { cg = { key: k, from: i, to: i, w: lapW(i) }; grp.push(cg); }
-          else { cg.to = i; cg.w += lapW(i); }
-        });
-        var brackets = grp.map(function (g) {
-          var range = "lap " + lapRange2(g.from + 1, g.to + 1);
-          return '<div class="rd4-cell2 rd4-bracket2" style="flex:' + g.w + ' 0 0">' +
-            '<div class="rd4-bracket2-line"></div>' +
-            '<div class="rd4-bracket2-name" style="color:' + (PHASE_COLOR2[g.key] || "#22c55e") + '">' + esc(PHASE_NAME2[g.key] || g.key) + "</div>" +
-            '<div class="rd4-bracket2-range">' + range + "</div></div>";
-        }).join("");
         profileBlock = head +
           '<div class="rd4-prof2-chart"><div class="rd4-grid2">' + gridSpans2(4) + "</div>" +
           '<div class="rd4-row2 rd4-prof2-bars">' + sBars + "</div></div>" +
-          '<div class="rd4-row2 rd4-bracket2-row">' + brackets + "</div>" + confNote + "</section>";
+          "</section>";
       } else {
         // ── VARIABLE / RACE: dominant headline + deviation chips ──
         var devDir = {};
@@ -1082,7 +1065,7 @@
         profileBlock = head +
           '<div class="rd4-prof2-chart"><div class="rd4-grid2">' + gridSpans2(4) + "</div>" +
           '<div class="rd4-row2 rd4-prof2-bars">' + vBars + "</div></div>" +
-          headline + (chips ? '<div class="rd4-dev-chips">' + chips + "</div>" : "") + confNote + "</section>";
+          headline + (chips ? '<div class="rd4-dev-chips">' + chips + "</div>" : "") + "</section>";
       }
     }
 
@@ -1269,8 +1252,8 @@
         '<section class="rd4-card rd4-signal rd4-signal--link" role="button" tabindex="0" aria-label="Open Performance tab">' +
         signalTitle +
         '<div class="rd4-signal-rows">' +
-        sigRow("Endurance signal", eDelta, eCur, esNote) +
-        sigRow("Speed signal", sDelta, sCur, ssNote) +
+        sigRow("Endurance", eDelta, eCur, esNote) +
+        sigRow("Speed", sDelta, sCur, ssNote) +
         "</div>" +
         (hint ? '<p class="rd4-signal-hint">' + esc(hint) + "</p>" : "") +
         "</section>";

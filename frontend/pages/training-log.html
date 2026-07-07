@@ -16,6 +16,13 @@
       rel="stylesheet"
     />
     <link
+      rel="preload"
+      href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/fonts/tabler-icons.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
       href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap"
       rel="stylesheet"
     />
@@ -1153,12 +1160,11 @@
       /* Month separator with monthly rollup */
       .month-sep {
         display: flex;
-        align-items: center;
-        justify-content: space-between;
-        flex-wrap: wrap;
-        gap: 8px 14px;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
         margin: 18px 0 6px;
-        padding: 10px 12px;
+        padding: 10px 12px 11px;
         background: #eaf1ff; /* light blue month band */
         border-radius: 10px;
       }
@@ -1196,45 +1202,76 @@
         color: var(--text-primary);
       }
       .month-sep-title {
-        font-size: 13px;
-        font-weight: 700;
-        letter-spacing: -0.01em;
+        font-size: 18px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        line-height: 1.2;
         color: var(--text-primary);
+        width: 100%;
       }
       .month-sep-stats {
         display: flex;
         align-items: center;
-        gap: 14px;
+        gap: 8px 14px;
         flex-wrap: wrap;
+        width: 100%;
       }
       .month-stat {
         display: inline-flex;
         align-items: baseline;
         gap: 4px;
+        white-space: nowrap;
       }
       .month-stat-val {
         font-family: var(--mono, "JetBrains Mono", monospace);
         font-size: 13px;
-        font-weight: 600;
-        color: var(--text-primary);
+        font-weight: 700;
+        color: #1e4fd6;
       }
       .month-stat-lbl {
-        font-size: 9.5px;
+        font-size: 8.5px;
         font-weight: 700;
         text-transform: uppercase;
-        letter-spacing: 0.06em;
+        letter-spacing: 0.04em;
         color: var(--text-tertiary);
       }
 
       .day-group-header {
-        padding: 8px 4px 6px;
-        font-size: 10.5px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.09em;
-        color: var(--text-tertiary);
-        border-bottom: 1px solid rgba(13, 30, 67, 0.06);
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 8px 4px 7px;
         margin: 0;
+        border-bottom: 1px solid rgba(13, 30, 67, 0.12);
+        font-family: inherit;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--text-tertiary);
+      }
+      .day-group-label {
+        min-width: 0;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+      }
+      .day-group-tss {
+        flex-shrink: 0;
+        font-size: 11px;
+        font-weight: 700;
+        font-family: inherit;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--text-tertiary);
+      }
+      .log-hdr-val {
+        color: #1e4fd6;
+        font-weight: 800;
+        font-family: var(--mono, "JetBrains Mono", monospace);
+        letter-spacing: 0;
+        text-transform: none;
       }
 
       .day-group-rows .entry-row {
@@ -1744,7 +1781,8 @@
         /* issue #527: keep glanceable metrics + source badges on phones.
          Wrap the row so distance/pace/duration + badges drop to their own
          line instead of being hidden or forcing horizontal scroll. */
-        .entry-row {
+        /* issue #527: legacy entry-row wrap — skip lrx-logrow grid rows */
+        .entry-row:not(.lrx-logrow) {
           flex-wrap: wrap;
           gap: 0.5rem 0.75rem;
         }
@@ -1978,6 +2016,7 @@
 
       /* Top-bar control icons (Tabler webfont) — match the screenshot button */
       .dp-nav-btn .ti {
+        display: block;
         font-size: 1rem;
         line-height: 1;
       }
@@ -2748,6 +2787,7 @@
       }
 
       .dp-icon-btn .ti {
+        display: block;
         font-size: 1.125rem;
         line-height: 1;
       }
@@ -3961,7 +4001,8 @@
             aria-selected="false"
             aria-controls="training-panel-projection"
           >
-            Projection
+            <span class="tab-label-long">Projection</span
+            ><span class="tab-label-short" aria-hidden="true">Proj</span>
           </button>
           <button
             id="log-tab-performance"
@@ -3972,7 +4013,8 @@
             aria-selected="false"
             aria-controls="training-panel-performance"
           >
-            Performance
+            <span class="tab-label-long">Performance</span
+            ><span class="tab-label-short" aria-hidden="true">Perf</span>
           </button>
         </nav>
         <span class="log-nav-spacer"></span>
@@ -6074,6 +6116,19 @@
       color: var(--text-primary);
     }
 
+    /* Summary controls: Last/This + Week/Month */
+    .sd-ctrl {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .sd-when {
+      /* reuses .lrx-seg pill styling */
+    }
+
     /* Toggle pill (mirrors glass-pill pattern on light card) */
     .sd-toggle {
       display: inline-flex;
@@ -6405,11 +6460,17 @@
       border: none;
       background: none;
     }
-    .log-page-header .training-sub-tab.active {
-      background: #fff;
-      color: var(--lrx-ink);
+    .log-page-header .training-sub-tab .tab-label-long {
+      display: inline;
     }
-    .log-nav-spacer { flex: 1; }
+    .log-page-header .training-sub-tab .tab-label-short {
+      display: none;
+    }
+      .log-page-header .training-sub-tab.active {
+        background: #fff;
+        color: var(--lrx-ink);
+      }
+      .log-nav-spacer { flex: 1; }
     /* Recolor the action buttons to the mock's translucent + lime primary */
     .log-page-header .btn-secondary,
     .log-page-header .sync-chip {
@@ -6621,24 +6682,96 @@
     .lrx-callegend b { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
 
     /* ── Log list (week-grouped, typed rows) ─────────────────────────────── */
-    .lrx-wkhdr { display: flex; align-items: center; justify-content: space-between; margin: 16px 0 8px; }
+    .lrx-wkhdr {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      margin: 16px 0 8px;
+      padding: 8px 4px 7px;
+      border-bottom: 1px solid rgba(13, 30, 67, 0.12);
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-tertiary);
+    }
     .lrx-wkhdr:first-child { margin-top: 2px; }
-    .lrx-wkhdr .wl { font-size: 14px; font-weight: 800; color: var(--lrx-ink); }
-    .lrx-wkhdr .wr { font-size: 13px; color: var(--lrx-muted); font-family: var(--lrx-mono); }
+    .lrx-wkhdr .wl {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      color: var(--text-tertiary);
+    }
+    .lrx-wkhdr .wr {
+      font-size: 11px;
+      font-weight: 700;
+      font-family: inherit;
+      letter-spacing: 0.06em;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+    }
     .lrx-logrow {
-      display: flex; align-items: center; gap: 12px; padding: 11px 12px;
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr) auto;
+      column-gap: 10px;
+      row-gap: 3px;
+      align-items: start;
+      padding: 11px 12px;
       border: 1px solid var(--lrx-line); border-left-width: 3px; border-left-color: transparent;
       border-radius: 11px; margin-bottom: 8px; background: #fff; cursor: pointer; transition: background 0.12s;
     }
     .lrx-logrow:hover { background: #f9faff; }
     .lrx-logrow.run { border-left-color: var(--lrx-run); }
     .lrx-logrow.lift { border-left-color: var(--lrx-lift); }
-    .lrx-logrow .lday { width: 48px; text-align: center; flex-shrink: 0; }
+    .lrx-logrow .lday {
+      grid-column: 1;
+      grid-row: 1 / span 3;
+      text-align: center;
+      width: 34px;
+      flex-shrink: 0;
+      align-self: start;
+    }
     .lrx-logrow .lday .d { font-size: 19px; font-weight: 700; font-family: var(--lrx-mono); line-height: 1; }
     .lrx-logrow .lday .m { font-size: 11px; color: var(--lrx-faint); text-transform: uppercase; font-weight: 700; }
-    .lrx-logrow .lname { flex: 1; min-width: 0; }
-    .lrx-logrow .lname .n { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
-    .lrx-logrow .lname .meta { font-size: 13px; color: var(--lrx-muted); font-family: var(--lrx-mono); margin-top: 2px; }
+    .lrx-logrow .lname { display: contents; }
+    .lrx-logrow .ltags {
+      grid-column: 2;
+      grid-row: 1;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 4px;
+      flex-wrap: wrap;
+      text-transform: capitalize;
+    }
+    .lrx-logrow .lname .n {
+      grid-column: 2;
+      grid-row: 2;
+      font-size: 15px;
+      font-weight: 600;
+      display: block;
+      min-width: 0;
+    }
+    .lrx-logrow .lname .n .ntitle {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .lrx-logrow .lname .meta {
+      grid-column: 2;
+      grid-row: 3;
+      font-size: 12px;
+      color: var(--lrx-muted);
+      font-family: var(--lrx-mono);
+      line-height: 1.35;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
     /* Quick-tag effort feeling (😩/😐/😊). Faint until tagged, then only the
        selected icon shows. Shared markup: .feel-row + .feel-btn. */
     .feel-row { display: flex; gap: 3px; align-items: center; }
@@ -6646,18 +6779,23 @@
     .feel-btn:hover { opacity: 0.78; filter: grayscale(0); }
     .feel-btn.is-on { opacity: 1; filter: none; transform: scale(1.1); }
     .feel-btn.is-hidden { display: none; }
-    .lrx-feel { margin-top: 3px; }
-    .lrx-feel .feel-btn { font-size: 13px; }
+    .lrx-feel {
+      grid-column: 3;
+      grid-row: 1;
+      align-self: start;
+      justify-self: end;
+      margin-top: 0;
+      flex-shrink: 0;
+    }
+    .lrx-feel .feel-btn { font-size: 16px; }
     .dp-feel { margin-top: 8px; gap: 6px; }
     .dp-feel .feel-btn { font-size: 20px; padding: 0 3px; }
-    .lrx-logrow .lstat { font-size: 13px; font-family: var(--lrx-mono); color: var(--lrx-muted); text-align: right; flex-shrink: 0; }
-    .lrx-logrow .lstat b { color: var(--lrx-ink); font-weight: 700; }
     .lrx-tbadge { font-size: 11px; font-weight: 800; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; }
     .lrx-tbadge.run { background: var(--lrx-runSoft); color: var(--lrx-run); }
     .lrx-tbadge.lift { background: var(--lrx-liftSoft); color: #7c3aed; }
     /* Run subtype tag — separate, outlined/lighter chip next to the run badge:
        [run] [interval]. Still run-family (blue) but visually secondary. */
-    .lrx-subtag { font-size: 11px; font-weight: 800; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 5px; text-transform: uppercase; margin-left: 5px; background: transparent; color: var(--lrx-run); border: 1px solid var(--lrx-run); }
+    .lrx-subtag { font-size: 11px; font-weight: 800; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 5px; text-transform: uppercase; margin-left: 0; background: transparent; color: var(--lrx-run); border: 1px solid var(--lrx-run); }
     .lrx-sentinel { display: flex; align-items: center; justify-content: center; gap: 9px; padding: 16px; color: var(--lrx-muted); font-size: 14px; }
     .lrx-spin { width: 15px; height: 15px; border: 2px solid var(--lrx-line); border-top-color: var(--lrx-run); border-radius: 50%; animation: lrxsp 0.7s linear infinite; }
     @keyframes lrxsp { to { transform: rotate(360deg); } }
@@ -6732,9 +6870,247 @@
     }
 
     @media (max-width: 640px) {
-      .lrx-sumgrid, .lrx-readfull { flex-direction: column; }
       .lrx-wkcell { width: 96px; }
       #layout-wrapper .detail-panel { width: 100vw; max-width: 100vw; }
+    }
+
+    /* Mobile: stack the sticky training header; don't use desktop drawer alignment */
+    @media (max-width: 879px) {
+      .log-page-header {
+        width: 100%;
+        margin-left: 0;
+      }
+      .log-page-header-inner {
+        flex-wrap: wrap;
+        align-items: center;
+        padding: 12px 14px 14px;
+        column-gap: 10px;
+        row-gap: 14px;
+      }
+      .log-page-header-info {
+        order: 1;
+        flex: 1 1 0;
+        min-width: 0;
+        padding-right: 6px;
+      }
+      .log-nav-spacer {
+        display: none;
+      }
+      .log-page-header-actions {
+        order: 2;
+        position: static;
+        transform: none;
+        margin-left: auto;
+        flex-shrink: 0;
+        gap: 10px;
+        align-self: center;
+      }
+      .log-page-header .training-sub-tabs {
+        order: 3;
+        display: flex;
+        flex: 1 1 100%;
+        width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+        gap: 4px;
+        padding: 5px;
+        margin: 2px 0 0;
+      }
+      .log-page-header .training-sub-tab {
+        flex: 1 1 0;
+        min-width: 0;
+        padding: 8px 4px;
+        font-size: 11.5px;
+        font-weight: 700;
+        text-align: center;
+        white-space: nowrap;
+        border-radius: 8px;
+      }
+      .log-page-header .training-sub-tab .tab-label-long {
+        display: none;
+      }
+      .log-page-header .training-sub-tab .tab-label-short {
+        display: inline;
+      }
+      #log-tab-log .tab-label-short,
+      #log-tab-plan .tab-label-short {
+        display: none;
+      }
+      #log-tab-log .tab-label-long,
+      #log-tab-plan .tab-label-long {
+        display: inline;
+      }
+      #layout-wrapper .detail-panel {
+        top: 0;
+        right: 0;
+        left: 0;
+        height: 100vh;
+        height: 100dvh;
+        max-width: none;
+        width: auto;
+        border-radius: 0;
+        transform: translateX(100%);
+        z-index: 201;
+      }
+      .detail-panel-overlay {
+        z-index: 200;
+      }
+      #layout-wrapper .detail-panel .dp-topbar {
+        border-radius: 0;
+      }
+
+      /* Summary + readiness: stay 3-across, compact tiles on phones */
+      .log-layout {
+        padding: 12px 12px 48px;
+      }
+      .log-card--week {
+        margin-left: 12px;
+        margin-right: 12px;
+        width: auto;
+        box-sizing: border-box;
+        padding: 12px 14px;
+      }
+      #week-strip {
+        padding: 2px 2px;
+      }
+      .ws-pills {
+        padding-left: 2px;
+        padding-right: 2px;
+      }
+      #layout-wrapper .log-card,
+      #summary-digest-card,
+      #readiness-widget.readiness-widget {
+        padding: 12px;
+      }
+      .lrx-chead {
+        margin-bottom: 8px;
+        gap: 6px;
+      }
+      .lrx-sectitle {
+        font-size: 11px;
+      }
+      .lrx-scope {
+        font-size: 11px;
+        padding: 3px 7px;
+      }
+      .lrx-seg button,
+      .sd-toggle-btn {
+        font-size: 11px;
+        padding: 5px 8px;
+      }
+      .sd-ctrl {
+        gap: 4px;
+      }
+      .lrx-sumgrid,
+      .lrx-readfull {
+        flex-direction: row;
+        gap: 6px;
+      }
+      .lrx-sumtile {
+        padding: 8px 6px;
+        border-radius: 10px;
+        min-width: 0;
+      }
+      .lrx-sumtile .lab {
+        font-size: 8px;
+        letter-spacing: 0.05em;
+      }
+      .lrx-sumtile .val {
+        font-size: 18px;
+        margin-top: 4px;
+      }
+      .lrx-sumtile .val small {
+        font-size: 10px;
+      }
+      .lrx-delta {
+        font-size: 10px;
+        margin-top: 3px;
+        min-height: 0;
+      }
+      .lrx-chips {
+        margin-top: 8px;
+        gap: 5px;
+      }
+      .lrx-chip {
+        font-size: 11px;
+        padding: 3px 7px;
+      }
+      .lrx-rcard {
+        padding: 8px 5px;
+        border-radius: 10px;
+        min-width: 0;
+      }
+      .lrx-rcard .rv {
+        font-size: 20px;
+      }
+      .lrx-rcard .rl {
+        font-size: 8px;
+        margin-top: 2px;
+        letter-spacing: 0.03em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .lrx-rband {
+        margin: 5px 0 2px;
+        height: 5px;
+      }
+      .lrx-rband .mk {
+        width: 8px;
+        height: 8px;
+        top: -2px;
+      }
+      .lrx-rstatus {
+        font-size: 8px;
+      }
+      .lrx-rchart {
+        height: 26px;
+        margin-top: 3px;
+      }
+      .rw-baseline-msg {
+        font-size: 12px;
+        padding: 0.25rem 0;
+      }
+
+      /* Month rollup + workout rows — tighter on phones */
+      .month-sep {
+        padding: 9px 10px 10px;
+        gap: 5px;
+      }
+      .month-sep-title {
+        font-size: 17px;
+      }
+      .month-sep-stats {
+        gap: 6px 10px;
+      }
+      .month-stat-val {
+        font-size: 12px;
+      }
+      .month-stat-lbl {
+        font-size: 7.5px;
+      }
+      .lrx-logrow {
+        grid-template-columns: 30px minmax(0, 1fr) auto;
+        column-gap: 8px;
+        padding: 10px 8px;
+      }
+      .lrx-logrow .lday {
+        width: 30px;
+      }
+      .lrx-logrow .lname .n {
+        font-size: 14px;
+      }
+      .lrx-logrow .lname .meta {
+        font-size: 11px;
+      }
+      .lrx-tbadge,
+      .lrx-subtag {
+        font-size: 9.5px;
+        padding: 1px 5px;
+      }
+      .lrx-logrow .lstat {
+        font-size: 12px;
+      }
     }
   </style>
 
@@ -6752,11 +7128,17 @@
         <div class="lrx-chead">
           <div style="display:flex;align-items:center;gap:10px;">
             <span class="lrx-sectitle">Summary</span>
-            <span class="lrx-scope" id="lrx-scope">This week</span>
+            <span class="lrx-scope" id="lrx-scope">Last week</span>
           </div>
-          <div class="lrx-seg sd-toggle" role="group" aria-label="Summary period">
-            <button type="button" class="sd-toggle-btn on is-active" data-period="week" aria-pressed="true">This week</button>
-            <button type="button" class="sd-toggle-btn" data-period="month" aria-pressed="false">This month</button>
+          <div class="sd-ctrl">
+            <div class="lrx-seg sd-when" role="group" aria-label="Summary time range">
+              <button type="button" class="on is-active" data-when="last" aria-pressed="true">Last</button>
+              <button type="button" data-when="this" aria-pressed="false">This</button>
+            </div>
+            <div class="lrx-seg sd-toggle" role="group" aria-label="Summary period">
+              <button type="button" class="sd-toggle-btn on is-active" data-period="week" aria-pressed="true">Week</button>
+              <button type="button" class="sd-toggle-btn" data-period="month" aria-pressed="false">Month</button>
+            </div>
           </div>
         </div>
         <div id="sd-body">

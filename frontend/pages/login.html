@@ -18,11 +18,12 @@
       padding: 24px;
     }
     @media (prefers-reduced-motion: no-preference) {
-      body { animation: page-in 0.35s ease-out both; }
+      /* Opacity only — transform on body breaks clicks in some embedded browsers (e.g. Cursor Simple Browser). */
+      .login-card { animation: page-in 0.35s ease-out both; }
     }
     @keyframes page-in {
-      from { opacity: 0; transform: translateY(6px); }
-      to   { opacity: 1; transform: translateY(0); }
+      from { opacity: 0; }
+      to   { opacity: 1; }
     }
 
     main {
@@ -459,7 +460,7 @@
     // (nav.js/user.js), so attach the token manually. Fetch /api/csrf-token
     // first to ensure the csrf-token cookie exists, then send it as a header —
     // required when a (possibly stale) session cookie is already present.
-    fetch('/api/csrf-token', { method: 'GET' })
+    fetch('/api/csrf-token', { method: 'GET', credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : { csrf_token: '' }; })
       .catch(function () { return { csrf_token: '' }; })
       .then(function (tok) {
@@ -467,6 +468,7 @@
         if (tok && tok.csrf_token) { headers['X-CSRF-Token'] = tok.csrf_token; }
         return fetch('/api/auth/login', {
           method: 'POST',
+          credentials: 'same-origin',
           headers: headers,
           body: JSON.stringify({ username: username, password: password }),
         });

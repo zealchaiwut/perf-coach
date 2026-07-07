@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mobile preview – perf-coach</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        min-height: 100vh;
+      }
+      body {
+        font-family: system-ui, -apple-system, sans-serif;
+        background: #12141f;
+        color: #e8eaf2;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 16px;
+        gap: 14px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 600;
+        color: #aab2c8;
+      }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: center;
+        align-items: center;
+        max-width: 960px;
+      }
+      .toolbar label {
+        font-size: 12px;
+        color: #8b95ad;
+      }
+      .toolbar select,
+      .toolbar input {
+        height: 36px;
+        border-radius: 8px;
+        border: 1px solid #2f3548;
+        background: #1c2030;
+        color: #fff;
+        font: inherit;
+        padding: 0 10px;
+      }
+      .toolbar input {
+        width: min(280px, 70vw);
+      }
+      .toolbar button {
+        height: 36px;
+        border: 0;
+        border-radius: 8px;
+        background: #4f6ef7;
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        padding: 0 14px;
+        cursor: pointer;
+      }
+      .toolbar button.secondary {
+        background: #2a3044;
+      }
+      .stage {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+      }
+      .phone {
+        position: relative;
+        background: #0b0d14;
+        border: 10px solid #2a2f3f;
+        border-radius: 36px;
+        overflow: hidden;
+        box-shadow:
+          0 24px 60px rgba(0, 0, 0, 0.45),
+          inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+      }
+      .phone-notch {
+        position: absolute;
+        top: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 108px;
+        height: 24px;
+        background: #2a2f3f;
+        border-radius: 0 0 14px 14px;
+        z-index: 2;
+        pointer-events: none;
+      }
+      .phone iframe {
+        display: block;
+        width: 100%;
+        height: 100%;
+        border: 0;
+        background: #fff;
+      }
+      .hint {
+        margin: 0;
+        font-size: 12px;
+        color: #7d869c;
+        text-align: center;
+        max-width: 420px;
+        line-height: 1.45;
+      }
+      .quick-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        justify-content: center;
+      }
+      .quick-links button {
+        height: 30px;
+        border: 1px solid #343b50;
+        border-radius: 999px;
+        background: #1c2030;
+        color: #c5cce0;
+        font-size: 12px;
+        padding: 0 12px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Mobile preview (Chrome DevTools–style)</h1>
+
+    <div class="toolbar">
+      <label for="device">Device</label>
+      <select id="device" aria-label="Device preset">
+        <option value="393,852" data-physical="1179×2556" data-dpr="3" selected>
+          iPhone 14 Pro — 393×852 CSS
+        </option>
+        <option value="402,874" data-physical="1206×2622" data-dpr="3">
+          iPhone 17 Pro — 402×874 CSS
+        </option>
+        <option value="440,956" data-physical="1320×2868" data-dpr="3">
+          iPhone 17 Pro Max — 440×956 CSS
+        </option>
+        <option value="360,840" data-physical="1080×2520" data-dpr="3" data-form="phone">
+          Galaxy Z Flip 7 main — 360×840 CSS
+        </option>
+        <option value="316,349" data-physical="948×1048" data-dpr="3" data-form="cover">
+          Galaxy Z Flip 7 FlexWindow — 316×349 CSS
+        </option>
+        <option value="390,844" data-physical="1170×2532" data-dpr="3">
+          iPhone 14 — 390×844 CSS
+        </option>
+        <option value="375,667" data-physical="750×1334" data-dpr="2">
+          iPhone SE — 375×667 CSS
+        </option>
+        <option value="412,915" data-physical="1080×2400" data-dpr="2.625">
+          Pixel 7 — 412×915 CSS
+        </option>
+      </select>
+      <input id="path" type="text" value="/log" spellcheck="false" aria-label="Page path" />
+      <button type="button" id="go">Open</button>
+      <button type="button" id="reload" class="secondary">Reload</button>
+    </div>
+
+    <div class="quick-links" aria-label="Quick paths">
+      <button type="button" data-path="/login">Login</button>
+      <button type="button" data-path="/log">Training log</button>
+      <button type="button" data-path="/home">Home</button>
+      <button type="button" data-path="/weight">Weight</button>
+    </div>
+
+    <div class="stage">
+      <div class="phone" id="phone">
+        <div class="phone-notch" aria-hidden="true"></div>
+        <iframe id="frame" title="Mobile app preview" src="/log"></iframe>
+      </div>
+      <p class="hint" id="size-label">393×852 CSS viewport — physical 1179×2556 @3x</p>
+    </div>
+
+    <p class="hint">
+      Frames use <strong>CSS viewport</strong> (logical px) — the same unit Chrome DevTools and
+      <code>window.innerWidth</code> use. Physical panel resolution is shown for reference
+      (CSS × device pixel ratio).
+    </p>
+
+    <p class="hint">
+      Open in Cursor Simple Browser:
+      <strong>http://localhost:9001/dev/mobile</strong>
+      — log in inside the phone frame.
+    </p>
+
+    <script>
+      (function () {
+        "use strict";
+
+        var deviceEl = document.getElementById("device");
+        var pathEl = document.getElementById("path");
+        var frame = document.getElementById("frame");
+        var phone = document.getElementById("phone");
+        var sizeLabel = document.getElementById("size-label");
+
+        function applyDevice() {
+          var opt = deviceEl.options[deviceEl.selectedIndex];
+          var parts = deviceEl.value.split(",");
+          var w = parseInt(parts[0], 10) || 393;
+          var h = parseInt(parts[1], 10) || 852;
+          var maxH = Math.max(480, window.innerHeight - 280);
+          var scale = h > maxH ? maxH / h : 1;
+          var form = opt.getAttribute("data-form") || "phone";
+
+          phone.style.width = Math.round(w * scale) + "px";
+          phone.style.height = Math.round(h * scale) + "px";
+          phone.style.borderRadius =
+            form === "cover" ? "22px" : w < 380 ? "28px" : "36px";
+          phone.style.borderWidth = form === "cover" ? "8px" : "10px";
+
+          var notch = phone.querySelector(".phone-notch");
+          if (notch) notch.style.display = form === "cover" || w < 380 ? "none" : "";
+
+          var physical = opt.getAttribute("data-physical");
+          var dpr = opt.getAttribute("data-dpr");
+          var physNote = physical ? " — physical " + physical + (dpr ? " @" + dpr + "x" : "") : "";
+          sizeLabel.textContent =
+            w + "×" + h + " CSS viewport" +
+            physNote +
+            (scale < 1 ? " (frame scaled to fit)" : "") +
+            " — tap inside the frame";
+        }
+
+        function openPath(path) {
+          var p = path || pathEl.value.trim() || "/log";
+          if (p.charAt(0) !== "/") p = "/" + p;
+          pathEl.value = p;
+          frame.src = p;
+        }
+
+        document.getElementById("go").addEventListener("click", function () {
+          openPath(pathEl.value);
+        });
+        document.getElementById("reload").addEventListener("click", function () {
+          frame.contentWindow.location.reload();
+        });
+        pathEl.addEventListener("keydown", function (e) {
+          if (e.key === "Enter") openPath(pathEl.value);
+        });
+        deviceEl.addEventListener("change", applyDevice);
+        window.addEventListener("resize", applyDevice);
+
+        document.querySelectorAll(".quick-links button").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            openPath(btn.getAttribute("data-path"));
+          });
+        });
+
+        var params = new URLSearchParams(window.location.search);
+        if (params.get("path")) {
+          pathEl.value = params.get("path");
+        }
+        applyDevice();
+        openPath(pathEl.value);
+      })();
+    </script>
+  </body>
+</html>
