@@ -22,6 +22,7 @@ until the EWMA "charges up" over several weeks.
 from __future__ import annotations
 
 import math
+import os
 import uuid as _uuid_mod
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
@@ -94,6 +95,16 @@ READINESS_LABEL_FRESH: str = "Fresh"         # TSB at or above FORM_FRESH_FLOOR
 BASELINE_WINDOW_DAYS: int = 42
 # Minimum number of days with TSS > 0 within the window before metrics are reliable.
 BASELINE_MIN_WORKOUT_DAYS: int = 7
+
+
+def _load_read_from_snapshot() -> bool:
+    """Whether current_load() reads the training_load_snapshots cache (default on).
+    Set LOAD_READ_FROM_SNAPSHOT=0 to force an inline recompute every call — a
+    debug/rollback escape hatch. The inline recompute is the same fallback path
+    taken on a cache miss, so turning this off is always safe, just slower."""
+    return os.getenv("LOAD_READ_FROM_SNAPSHOT", "1").strip().lower() not in (
+        "0", "false", "no", "off", "",
+    )
 
 
 def _ewma_alpha(days: int) -> float:
@@ -217,7 +228,7 @@ def current_load(
     ctl_days, atl_days = resolve_user_ewma_days(user_id)
     uses_custom_calibration = ctl_days != CTL_DAYS or atl_days != ATL_DAYS
 
-    if not uses_custom_calibration:
+    if not uses_custom_calibration and _load_read_from_snapshot():
         uid = _uuid_mod.UUID(str(user_id))
         with Session(engine) as session:
             snap = (
