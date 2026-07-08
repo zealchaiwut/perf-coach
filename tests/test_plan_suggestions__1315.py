@@ -51,13 +51,20 @@ class TestValidateSuggestions:
         }
 
     def _valid_suggestion(self, workout_type="run", tss=60, duration=50):
-        return {
+        s = {
             "day_offset": 1,
             "workout_type": workout_type,
             "target_tss": tss,
             "duration_minutes": duration,
             "intent": "Easy aerobic run to build base fitness.",
         }
+        # strength/plyo now require an exercises breakdown — default one in so
+        # callers that don't care about this detail still produce valid output.
+        if workout_type in ("strength", "plyo"):
+            s["exercises"] = [
+                {"block": "Main", "name": "Back squat", "sets": 3, "reps": "8", "load": "moderate"},
+            ]
+        return s
 
     def test_valid_output_passes(self):
         facts = self._valid_facts(200.0)
@@ -279,7 +286,8 @@ class TestGetSuggestionsLLMPath:
             "suggestions": [
                 {"day_offset": 1, "workout_type": "run", "target_tss": 60, "duration_minutes": 50, "intent": "Easy zone 2 run."},
                 {"day_offset": 3, "workout_type": "run", "target_tss": 80, "duration_minutes": 65, "intent": "Tempo intervals."},
-                {"day_offset": 5, "workout_type": "strength", "target_tss": 40, "duration_minutes": 45, "intent": "Leg strength."},
+                {"day_offset": 5, "workout_type": "strength", "target_tss": 40, "duration_minutes": 45, "intent": "Leg strength.",
+                 "exercises": [{"block": "Main", "name": "Back squat", "sets": 3, "reps": "8", "load": "moderate"}]},
                 {"day_offset": 6, "workout_type": "rest", "target_tss": 0, "duration_minutes": 0, "intent": "Full rest."},
             ]
         }

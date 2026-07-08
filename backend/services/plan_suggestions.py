@@ -69,16 +69,42 @@ _HARD_RUN_TSS_FRACTION_OF_LONG_RUN: float = 0.70
 # is required (keeps the week from stacking training on top of training).
 _MAX_CONSECUTIVE_TRAINING_DAYS: int = 3
 
+# Generic detailed strength templates — block-grouped exercises (block, name,
+# sets, reps, load), the same shape PlannedSession.structure.exercises stores
+# and the manual Add-session form builder produces. `reps`/`load` are short
+# descriptive strings (not always numeric — "30s hold", "bodyweight") since
+# structure is freeform JSONB with no server-side exercise schema. Feeds
+# fallback_suggestions() so an offline/no-LLM week still gets real sessions,
+# not a bare one-line intent the athlete has to build out by hand.
+_LOWER_BODY_STRENGTH_EXERCISES: list[dict] = [
+    {"block": "Warm-up", "name": "Leg swings (front-back + lateral)", "sets": 1, "reps": "10", "load": "bodyweight, per direction per leg"},
+    {"block": "Warm-up", "name": "Bodyweight squat", "sets": 1, "reps": "10", "load": "bodyweight"},
+    {"block": "Main", "name": "Back squat", "sets": 3, "reps": "8", "load": "moderate"},
+    {"block": "Main", "name": "Romanian deadlift", "sets": 3, "reps": "10", "load": "moderate"},
+    {"block": "Main", "name": "Walking lunge", "sets": 3, "reps": "10", "load": "bodyweight or light dumbbells, per leg"},
+    {"block": "Core", "name": "Plank", "sets": 3, "reps": "40s hold", "load": "bodyweight"},
+    {"block": "Core", "name": "Side plank", "sets": 2, "reps": "25-30s hold", "load": "bodyweight, per side"},
+]
+_UPPER_BODY_STRENGTH_EXERCISES: list[dict] = [
+    {"block": "Warm-up", "name": "Arm circles + band pull-apart", "sets": 1, "reps": "15", "load": "light band"},
+    {"block": "Main", "name": "Dumbbell overhead press", "sets": 3, "reps": "10", "load": "moderate"},
+    {"block": "Main", "name": "Dumbbell bent-over row", "sets": 3, "reps": "10", "load": "moderate"},
+    {"block": "Main", "name": "Push-up", "sets": 3, "reps": "12", "load": "bodyweight"},
+    {"block": "Core", "name": "Dead bug", "sets": 3, "reps": "10", "load": "bodyweight, per side"},
+    {"block": "Core", "name": "Bird dog", "sets": 3, "reps": "10", "load": "bodyweight, per side"},
+]
+
 # Default template: day_offset → (workout_type, tss_fraction_of_weekly, duration_min)
-# Fractions sum to 1.0 (excluding rest days at 0).
+# Fractions sum to 1.0 (excluding rest days at 0). exercises is None for run/rest
+# (run structure — blocks — is a separate, not-yet-built follow-up).
 _TEMPLATE: list[dict] = [
-    {"day_offset": 0, "workout_type": "run",      "tss_fraction": 0.20, "duration_base": 45, "intent": "Easy aerobic run — keep effort conversational."},
-    {"day_offset": 1, "workout_type": "strength",  "tss_fraction": 0.15, "duration_base": 45, "intent": "Lower body strength — squats, lunges, hip work."},
-    {"day_offset": 2, "workout_type": "run",       "tss_fraction": 0.25, "duration_base": 60, "intent": "Moderate-effort run or tempo intervals."},
-    {"day_offset": 3, "workout_type": "rest",      "tss_fraction": 0.00, "duration_base": 0,  "intent": "Rest or light stretching."},
-    {"day_offset": 4, "workout_type": "run",       "tss_fraction": 0.20, "duration_base": 50, "intent": "Easy aerobic run — maintain base fitness."},
-    {"day_offset": 5, "workout_type": "strength",  "tss_fraction": 0.20, "duration_base": 45, "intent": "Upper body and core strength."},
-    {"day_offset": 6, "workout_type": "run",       "tss_fraction": 0.00, "duration_base": 30, "intent": "Optional very easy jog or full rest."},
+    {"day_offset": 0, "workout_type": "run",      "tss_fraction": 0.20, "duration_base": 45, "intent": "Easy aerobic run — keep effort conversational.", "exercises": None},
+    {"day_offset": 1, "workout_type": "strength",  "tss_fraction": 0.15, "duration_base": 45, "intent": "Lower body strength — squats, lunges, hip work.", "exercises": _LOWER_BODY_STRENGTH_EXERCISES},
+    {"day_offset": 2, "workout_type": "run",       "tss_fraction": 0.25, "duration_base": 60, "intent": "Moderate-effort run or tempo intervals.", "exercises": None},
+    {"day_offset": 3, "workout_type": "rest",      "tss_fraction": 0.00, "duration_base": 0,  "intent": "Rest or light stretching.", "exercises": None},
+    {"day_offset": 4, "workout_type": "run",       "tss_fraction": 0.20, "duration_base": 50, "intent": "Easy aerobic run — maintain base fitness.", "exercises": None},
+    {"day_offset": 5, "workout_type": "strength",  "tss_fraction": 0.20, "duration_base": 45, "intent": "Upper body and core strength.", "exercises": _UPPER_BODY_STRENGTH_EXERCISES},
+    {"day_offset": 6, "workout_type": "run",       "tss_fraction": 0.00, "duration_base": 30, "intent": "Optional very easy jog or full rest.", "exercises": None},
 ]
 
 
@@ -165,6 +191,21 @@ def validation_errors(suggestions: list[dict], facts: dict) -> list[str]:
                 f"day_offset {offset} was requested by the athlete as a REST day "
                 f"but was proposed as {wt!r}."
             )
+
+        if wt in ("strength", "plyo"):
+            exercises = s.get("exercises")
+            if not exercises or not isinstance(exercises, list):
+                errs.append(
+                    f"day_offset {offset} is {wt!r} but has no exercises breakdown — "
+                    "add 4-10 entries ({block, name, sets, reps, load}), not just a one-line intent."
+                )
+            else:
+                for ex in exercises:
+                    if not isinstance(ex, dict) or not str(ex.get("name") or "").strip():
+                        errs.append(
+                            f"day_offset {offset} has an exercises entry missing a name: {ex!r}."
+                        )
+                        break
 
         tss = s.get("target_tss")
         try:
@@ -288,40 +329,47 @@ def fallback_suggestions(facts: dict) -> list[dict]:
             continue
         frac = tmpl["tss_fraction"]
         raw_tss = round(target_weekly * frac) if frac > 0 else 0
+        exercises = tmpl.get("exercises")
         sessions.append({
             "day_offset": tmpl["day_offset"],
             "workout_type": tmpl["workout_type"],
             "target_tss": raw_tss,
             "duration_minutes": tmpl["duration_base"],
             "intent": tmpl["intent"],
+            # Deep-copied so per-session Lighter/Harder-style edits downstream
+            # (or a future "more" swap re-picking this same template row) never
+            # mutate the shared module-level constant.
+            "exercises": [dict(e) for e in exercises] if exercises else None,
         })
 
     # Requested rest days always win, overriding whatever the template had.
     for s in sessions:
         if s["day_offset"] in rest_requested:
             s.update(workout_type="rest", target_tss=0, duration_minutes=0,
-                     intent="Rest day (requested).")
+                     intent="Rest day (requested).", exercises=None)
 
     if emphasis != "same":
         long_run = _find_long_run(sessions)
         long_off = long_run["day_offset"] if long_run else None
         if emphasis == "more":
             # Convert the easiest eligible run (never the long run, never a
-            # forced rest day) into a strength session.
+            # forced rest day) into a strength session — with a real exercise
+            # breakdown, not just a bare label.
             candidates = [s for s in sessions
                           if s["workout_type"] == "run" and s["day_offset"] != long_off
                           and s["day_offset"] not in rest_requested]
             if candidates:
                 pick = min(candidates, key=lambda s: s["target_tss"])
                 pick.update(workout_type="strength",
-                            intent="Extra strength session (requested more strength this week).")
+                            intent="Extra strength session (requested more strength this week).",
+                            exercises=[dict(e) for e in _UPPER_BODY_STRENGTH_EXERCISES])
         else:  # "less"
             candidates = [s for s in sessions
                           if s["workout_type"] == "strength" and s["day_offset"] not in rest_requested]
             if candidates:
                 pick = min(candidates, key=lambda s: s["target_tss"])
                 pick.update(workout_type="rest", target_tss=0, duration_minutes=0,
-                            intent="Rest (requested less strength this week).")
+                            intent="Rest (requested less strength this week).", exercises=None)
 
     return sessions
 
@@ -362,7 +410,8 @@ def build_prompt(facts: dict) -> tuple[str, str]:
             f"{', '.join(str(o) for o in sorted(rest_requested))}. You MUST include an explicit "
             "session for each of these — workout_type=\"rest\", target_tss=0 — do not omit them.\n"
         )
-    long_run_rule_n = 8 if rest_requested else 7
+    exercises_rule_n = 8 if rest_requested else 7
+    long_run_rule_n = exercises_rule_n + 1
     consec_rule_n = long_run_rule_n + 1
 
     system = (
@@ -379,6 +428,16 @@ def build_prompt(facts: dict) -> tuple[str, str]:
         f"scheduled, already logged, or in the past: {allowed_str}.\n"
         f"6. Respect ramp limits: do not increase weekly TSS by more than 30% above the trailing average.{taper_note}\n"
         f"{rest_rule}"
+        f"{exercises_rule_n}. For every workout_type=\"strength\" or \"plyo\" session, you MUST include "
+        "an `exercises` array of 4-10 entries — a real session, not a placeholder. Each entry is "
+        "{block, name, sets, reps, load}: `block` groups exercises like a coach would write a session "
+        "(e.g. \"Warm-up\", \"Main\", \"Core\", \"Hip\", \"Accessories\" — your choice, whatever fits); "
+        "`sets` is an integer; `reps` and `load` are short descriptive strings, not always plain numbers "
+        "(e.g. reps: \"10\", \"12\", \"30s hold\"; load: \"bodyweight\", \"moderate\", \"~10-14kg per hand\", "
+        "\"light band, per side\"). Example entry: "
+        '{"block": "Main", "name": "Back squat", "sets": 3, "reps": "8", "load": "moderate"}. '
+        "Never leave exercises empty or omitted for strength/plyo. Do not include exercises for run/rest "
+        "sessions (leave it null or omit it).\n"
         f"{long_run_rule_n}. Identify the single 'run' session with the highest target_tss as the "
         "week's LONG RUN. The day immediately before it must NOT be another hard/interval run "
         "(no tempo/threshold/interval intent, no high-TSS run) — use rest, an easy run, or a "
@@ -427,7 +486,8 @@ def build_prompt(facts: dict) -> tuple[str, str]:
         f"\nPropose sessions ONLY for day_offset(s) {allowed_str} "
         "(day_offset 0=Monday through 6=Sunday, same numbering as the current week). "
         "Each session needs day_offset, workout_type, target_tss, duration_minutes, and a one-line intent. "
-        "Not every open day needs a session — use rest as needed."
+        "strength/plyo sessions additionally need the exercises breakdown (see the safety rules above) — "
+        "not every open day needs a session; use rest as needed."
     )
 
     return system, user
@@ -453,8 +513,30 @@ _LLM_JSON_SCHEMA: dict = {
                     "target_tss":       {"type": "integer", "minimum": 0, "maximum": 400},
                     "duration_minutes": {"type": "integer", "minimum": 0, "maximum": 360},
                     "intent":           {"type": "string", "maxLength": 200},
+                    # Block-grouped exercise breakdown — required (by
+                    # validation_errors, not JSON-schema-required, since it only
+                    # applies to strength/plyo) for those two workout_types.
+                    "exercises": {
+                        "type": ["array", "null"],
+                        "maxItems": 14,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "block": {"type": "string", "maxLength": 40},
+                                "name":  {"type": "string", "maxLength": 100},
+                                "sets":  {"type": "integer", "minimum": 1, "maximum": 10},
+                                "reps":  {"type": "string", "maxLength": 40},
+                                "load":  {"type": "string", "maxLength": 120},
+                            },
+                            "required": ["block", "name", "sets", "reps", "load"],
+                            "additionalProperties": False,
+                        },
+                    },
                 },
-                "required": ["day_offset", "workout_type", "target_tss", "duration_minutes", "intent"],
+                # Groq/OpenAI strict structured-output mode requires EVERY
+                # property to be listed here — "optional" is expressed via a
+                # nullable type (exercises: ["array","null"]), not omission.
+                "required": ["day_offset", "workout_type", "target_tss", "duration_minutes", "intent", "exercises"],
                 "additionalProperties": False,
             },
         }

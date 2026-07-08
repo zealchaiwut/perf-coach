@@ -1538,8 +1538,17 @@ information about.
     '.pl-sug-btn-sm{background:none;border:1px solid var(--pl-line);border-radius:7px;padding:3px 8px;font-size:12px;color:var(--pl-muted);cursor:pointer;}',
     '.pl-sug-btn-sm:hover{background:var(--pl-tile);color:var(--pl-ink);}',
     '.pl-sug-loading{font-size:12px;color:var(--pl-muted);padding:8px 0;}',
-    '.pl-sug-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--pl-line);flex-wrap:wrap;}',
-    '.pl-sug-row:last-child{border-bottom:none;}',
+    '.pl-sug-row-wrap{padding:9px 0;border-bottom:1px solid var(--pl-line);}',
+    '.pl-sug-row-wrap:last-child{border-bottom:none;}',
+    '.pl-sug-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}',
+    '.pl-sug-exercises{margin:8px 0 2px 46px;padding:8px 0 0;border-top:1px dashed var(--pl-line);}',
+    '.pl-sug-ex-block{margin-bottom:8px;}',
+    '.pl-sug-ex-block:last-child{margin-bottom:0;}',
+    '.pl-sug-ex-block-h{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:var(--pl-faint);margin-bottom:4px;}',
+    '.pl-sug-ex-row{display:flex;align-items:baseline;gap:8px;font-size:12px;padding:2px 0;flex-wrap:wrap;}',
+    '.pl-sug-ex-name{font-weight:600;color:var(--pl-ink);min-width:140px;}',
+    '.pl-sug-ex-detail{font-family:var(--pl-mono);color:var(--pl-muted);}',
+    '.pl-sug-ex-load{color:var(--pl-faint);font-size:11.5px;}',
     '.pl-sug-day{font-size:10px;font-weight:800;color:var(--pl-faint);text-transform:uppercase;width:36px;flex-shrink:0;}',
     '.pl-sug-type-select{font-size:10px;font-weight:800;padding:3px 6px;border-radius:6px;text-transform:uppercase;flex-shrink:0;border:1px solid transparent;cursor:pointer;-webkit-appearance:none;appearance:none;}',
     '.pl-sug-type-select.run{background:var(--pl-blueSoft);color:var(--pl-run);}.pl-sug-type-select.strength{background:var(--pl-liftSoft);color:#7c3aed;}.pl-sug-type-select.plyo{background:var(--pl-amberSoft);color:var(--pl-amber);}.pl-sug-type-select.rest{background:#f1f5f9;color:#64748b;}',
@@ -1612,6 +1621,31 @@ information about.
     s.duration_minutes = Math.max(0, Math.round((s.duration_minutes || 0) * factor));
   }
 
+  // Block-grouped exercise breakdown under a strength/plyo suggestion row —
+  // same shape PlannedSession.structure.exercises stores, same grouping the
+  // detail modal renders (see _liftDetailHtml). Without this the suggestion
+  // was a bare TSS/duration/intent line and "Add" produced an empty-shell
+  // planned session with nothing to actually do at the gym.
+  function _sugExercisesHtml(exercises) {
+    if (!exercises || !exercises.length) return '';
+    var order = [];
+    exercises.forEach(function (x) {
+      var b = (x && x.block) ? x.block : 'Exercises';
+      if (order.indexOf(b) === -1) order.push(b);
+    });
+    var blocks = order.map(function (b) {
+      var rows = exercises.filter(function (x) { return ((x && x.block) ? x.block : 'Exercises') === b; })
+        .map(function (x) {
+          var sr = (x.sets != null && x.reps != null) ? (x.sets + ' × ' + x.reps) : (x.sets != null ? x.sets + ' sets' : '');
+          return '<div class="pl-sug-ex-row"><span class="pl-sug-ex-name">' + esc(x.name || 'Exercise') + '</span>' +
+            '<span class="pl-sug-ex-detail">' + esc(sr) + '</span>' +
+            '<span class="pl-sug-ex-load">' + esc(x.load || '') + '</span></div>';
+        }).join('');
+      return '<div class="pl-sug-ex-block"><div class="pl-sug-ex-block-h">' + esc(b) + '</div>' + rows + '</div>';
+    }).join('');
+    return '<div class="pl-sug-exercises">' + blocks + '</div>';
+  }
+
   function _buildSugRow(s, idx) {
     var dow = _DAY_NAMES[s.day_offset] || ('D' + s.day_offset);
     var tssStr = s.target_tss > 0 ? s.target_tss + ' TSS' : '';
@@ -1619,49 +1653,52 @@ information about.
     var metaParts = [tssStr, durStr].filter(Boolean);
     var metaStr = metaParts.join(' · ');
 
-    var row = document.createElement('div');
-    row.className = 'pl-sug-row';
-    row.dataset.idx = idx;
+    var wrap = document.createElement('div');
+    wrap.className = 'pl-sug-row-wrap';
+    wrap.dataset.idx = idx;
 
     var wt = (s.workout_type || 'rest').toLowerCase();
     var types = ['run', 'strength', 'plyo', 'rest'];
 
-    row.innerHTML =
-      '<span class="pl-sug-day">' + dow + '</span>' +
-      '<select class="pl-sug-type-select ' + wt + '" data-idx="' + idx + '">' +
-        types.map(function (t) { return '<option value="' + t + '"' + (t === wt ? ' selected' : '') + '>' + t + '</option>'; }).join('') +
-      '</select>' +
-      (metaStr ? '<span class="pl-sug-meta">' + metaStr + '</span>' : '') +
-      '<span class="pl-sug-intent">' + esc(s.intent || '') + '</span>' +
-      (wt !== 'rest'
-        ? '<span class="pl-sug-adjust">' +
-            '<button type="button" class="pl-sug-adj" data-adj="lighter" data-idx="' + idx + '" title="Reduce target TSS/duration ~20%">▾ Lighter</button>' +
-            '<button type="button" class="pl-sug-adj" data-adj="harder" data-idx="' + idx + '" title="Increase target TSS/duration ~20%">▴ Harder</button>' +
-          '</span>' +
-          '<button class="pl-sug-add" type="button" data-idx="' + idx + '">Add</button>'
-        : '');
+    wrap.innerHTML =
+      '<div class="pl-sug-row">' +
+        '<span class="pl-sug-day">' + dow + '</span>' +
+        '<select class="pl-sug-type-select ' + wt + '" data-idx="' + idx + '">' +
+          types.map(function (t) { return '<option value="' + t + '"' + (t === wt ? ' selected' : '') + '>' + t + '</option>'; }).join('') +
+        '</select>' +
+        (metaStr ? '<span class="pl-sug-meta">' + metaStr + '</span>' : '') +
+        '<span class="pl-sug-intent">' + esc(s.intent || '') + '</span>' +
+        (wt !== 'rest'
+          ? '<span class="pl-sug-adjust">' +
+              '<button type="button" class="pl-sug-adj" data-adj="lighter" data-idx="' + idx + '" title="Reduce target TSS/duration ~20%">▾ Lighter</button>' +
+              '<button type="button" class="pl-sug-adj" data-adj="harder" data-idx="' + idx + '" title="Increase target TSS/duration ~20%">▴ Harder</button>' +
+            '</span>' +
+            '<button class="pl-sug-add" type="button" data-idx="' + idx + '">Add</button>'
+          : '') +
+      '</div>' +
+      _sugExercisesHtml(wt !== 'rest' ? s.exercises : null);
 
-    var typeSel = row.querySelector('.pl-sug-type-select');
+    var typeSel = wrap.querySelector('.pl-sug-type-select');
     typeSel.addEventListener('change', function () {
       s.workout_type = typeSel.value;
       if (typeSel.value === 'rest') { s.target_tss = 0; s.duration_minutes = 0; }
       _renderSuggestions(_suggestionsData); // small list — cheap full re-render
     });
 
-    row.querySelectorAll('.pl-sug-adj').forEach(function (btn) {
+    wrap.querySelectorAll('.pl-sug-adj').forEach(function (btn) {
       btn.addEventListener('click', function () {
         _adjustTss(s, btn.getAttribute('data-adj') === 'lighter' ? 0.8 : 1.2);
         _renderSuggestions(_suggestionsData);
       });
     });
 
-    var addBtn = row.querySelector('.pl-sug-add');
+    var addBtn = wrap.querySelector('.pl-sug-add');
     if (addBtn) {
       addBtn.addEventListener('click', function () {
         _addSuggestion(s, addBtn);
       });
     }
-    return row;
+    return wrap;
   }
 
   function _addSuggestion(s, btn) {
@@ -1677,6 +1714,12 @@ information about.
         s.target_tss > 0 ? 'Target TSS: ' + s.target_tss : '',
         s.duration_minutes > 0 ? 'Duration: ' + s.duration_minutes + ' min' : ''
       ].filter(Boolean).join('. ');
+    }
+    // Carry the exercise breakdown into the planned session's structure — same
+    // shape the manual Add-session form builder produces — so Add creates a
+    // fully detailed session, not an empty shell the athlete has to rebuild.
+    if (Array.isArray(s.exercises) && s.exercises.length) {
+      body.structure = { exercises: s.exercises };
     }
 
     fetch('/api/planned-sessions', {
