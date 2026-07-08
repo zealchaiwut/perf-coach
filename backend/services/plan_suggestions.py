@@ -50,6 +50,25 @@ _FALLBACK_RAMP_FACTOR: float = 1.10
 
 _SURFACE = "plan_suggestion"
 
+# ── Scoping / rules constants (day-offset semantics: 0=Monday .. 6=Sunday of
+# the target week; facts["week_start"] is that Monday's ISO date) ────────────
+
+_VALID_STRENGTH_EMPHASIS: frozenset[str] = frozenset({"less", "same", "more"})
+
+# Heuristic for "this looks like a hard/interval effort" when an intent string
+# has no other structure to check — used only for the pre-long-run-day rule.
+_HARD_INTENT_KEYWORDS: tuple[str, ...] = (
+    "interval", "tempo", "threshold", "repeat", "track", "speed work", "vo2",
+)
+
+# A run's target_tss at or above this fraction of the week's long-run TSS
+# counts as "hard" for the pre-long-run-day rule, even without a keyword hit.
+_HARD_RUN_TSS_FRACTION_OF_LONG_RUN: float = 0.70
+
+# Longest allowed streak of consecutive non-rest days before a rest/easy day
+# is required (keeps the week from stacking training on top of training).
+_MAX_CONSECUTIVE_TRAINING_DAYS: int = 3
+
 # Default template: day_offset → (workout_type, tss_fraction_of_weekly, duration_min)
 # Fractions sum to 1.0 (excluding rest days at 0).
 _TEMPLATE: list[dict] = [
@@ -65,6 +84,36 @@ _TEMPLATE: list[dict] = [
 
 # ── Pure functions ────────────────────────────────────────────────────────────
 
+def _allowed_offsets(facts: dict) -> list[int]:
+    """day_offsets suggestions may occupy. Defaults to the full week (0..6) when
+    facts carries no `allowed_offsets` key — preserves prior behaviour for any
+    caller (or test) that built a facts dict before this key existed."""
+    offs = facts.get("allowed_offsets")
+    if offs is None:
+        return list(range(7))
+    return [int(o) for o in offs]
+
+
+def _preferred_rest_days(facts: dict) -> list[int]:
+    days = facts.get("preferred_rest_days") or []
+    return [int(d) for d in days]
+
+
+def _is_hard_intent(intent: str) -> bool:
+    text = (intent or "").lower()
+    return any(kw in text for kw in _HARD_INTENT_KEYWORDS)
+
+
+def _find_long_run(suggestions: list[dict]) -> dict | None:
+    """The 'run' session with the highest target_tss — the week's long run, used
+    as the anchor for the pre-long-run-day rule. None if there's no run session
+    or fewer than 2 runs (nothing to sequence relative to)."""
+    runs = [s for s in suggestions if str(s.get("workout_type", "")).lower() == "run"]
+    if len(runs) < 2:
+        return None
+    return max(runs, key=lambda s: float(s.get("target_tss") or 0.0))
+
+
 def validation_errors(suggestions: list[dict], facts: dict) -> list[str]:
     """Return a list of human-readable rule violations. Empty list == valid.
 
@@ -77,8 +126,16 @@ def validation_errors(suggestions: list[dict], facts: dict) -> list[str]:
     - each session_type in KNOWN_WORKOUT_TYPES
     - each target_tss numeric, in [_MIN_SESSION_TSS, _MAX_SESSION_TSS]
     - weekly total TSS ≤ max(trailing_avg, FALLBACK_MIN_WEEKLY_TSS) × ACWR_HIGH_BOUND
+    - every day_offset is in facts["allowed_offsets"] (default: whole week)
+    - every day_offset in facts["preferred_rest_days"] is either absent or
+      workout_type == "rest"
+    - the day immediately before the week's long run (the highest-TSS run) is
+      not another hard/interval run
+    - no more than _MAX_CONSECUTIVE_TRAINING_DAYS consecutive non-rest days
     """
     errs: list[str] = []
+    allowed = set(_allowed_offsets(facts))
+    rest_requested = set(_preferred_rest_days(facts))
 
     if len(suggestions) > 7:
         errs.append(f"Too many sessions: {len(suggestions)} (max 7).")
@@ -93,6 +150,20 @@ def validation_errors(suggestions: list[dict], facts: dict) -> list[str]:
             errs.append(
                 f"Invalid workout_type {s.get('workout_type')!r}; "
                 f"allowed: {sorted(KNOWN_WORKOUT_TYPES)}."
+            )
+
+        offset = s.get("day_offset")
+        if allowed and offset is not None and int(offset) not in allowed:
+            errs.append(
+                f"day_offset {offset} is not open for suggestions "
+                f"(allowed: {sorted(allowed)} — the rest are already scheduled, "
+                "already happened, or before today)."
+            )
+
+        if offset is not None and int(offset) in rest_requested and wt not in ("", "rest"):
+            errs.append(
+                f"day_offset {offset} was requested by the athlete as a REST day "
+                f"but was proposed as {wt!r}."
             )
 
         tss = s.get("target_tss")
@@ -117,6 +188,51 @@ def validation_errors(suggestions: list[dict], facts: dict) -> list[str]:
             "Reduce hard sessions."
         )
 
+    # A requested rest day must show up EXPLICITLY as rest — silently omitting
+    # it isn't enough; the athlete checked that box to see it honoured.
+    present_offsets = {int(s["day_offset"]) for s in suggestions if s.get("day_offset") is not None}
+    for off in sorted(rest_requested):
+        if off in allowed and off not in present_offsets:
+            errs.append(
+                f"day_offset {off} was requested as REST but has no session at all — "
+                "add an explicit workout_type=\"rest\", target_tss=0 session for it."
+            )
+
+    # Pre-long-run-day rule: the day before the week's long run (highest-TSS
+    # run) must not be another hard/interval run — that's how easy fitness
+    # gets undermined right before the effort meant to build it.
+    long_run = _find_long_run(suggestions)
+    if long_run is not None:
+        pre_offset = int(long_run["day_offset"]) - 1
+        pre_day = next((s for s in suggestions if int(s.get("day_offset", -99)) == pre_offset), None)
+        if pre_day is not None and str(pre_day.get("workout_type", "")).lower() == "run":
+            pre_tss = float(pre_day.get("target_tss") or 0.0)
+            long_tss = float(long_run.get("target_tss") or 0.0)
+            hard = _is_hard_intent(pre_day.get("intent", "")) or (
+                long_tss > 0 and pre_tss >= _HARD_RUN_TSS_FRACTION_OF_LONG_RUN * long_tss
+            )
+            if hard:
+                errs.append(
+                    f"day_offset {pre_offset} (the day before the long run at "
+                    f"day_offset {long_run['day_offset']}) is another hard run. "
+                    "Make it rest, an easy run, or a non-run session instead."
+                )
+
+    # Training/rest balance: no more than _MAX_CONSECUTIVE_TRAINING_DAYS
+    # consecutive non-rest days among the offsets actually open this week.
+    by_offset = {int(s["day_offset"]): s for s in suggestions if s.get("day_offset") is not None}
+    streak = 0
+    for off in sorted(allowed) if allowed else sorted(by_offset):
+        s = by_offset.get(off)
+        is_training = s is not None and str(s.get("workout_type", "")).lower() != "rest"
+        streak = streak + 1 if is_training else 0
+        if streak > _MAX_CONSECUTIVE_TRAINING_DAYS:
+            errs.append(
+                f"{streak} consecutive training days ending at day_offset {off} — "
+                f"insert a rest or easy day at least every {_MAX_CONSECUTIVE_TRAINING_DAYS} days."
+            )
+            break
+
     return errs
 
 
@@ -139,6 +255,13 @@ def fallback_suggestions(facts: dict) -> list[dict]:
 
     Pure function — no DB access, no network calls.
     Respects ACWR ramp cap and tapers if race is within _TAPER_WINDOW_DAYS.
+
+    Only emits sessions for facts["allowed_offsets"] (default: the whole week,
+    so callers/tests that never set this key get the original 7-day template
+    unchanged). Honours facts["preferred_rest_days"] by forcing those offsets
+    to rest, and facts["strength_emphasis"] ("less"|"same"|"more") by nudging
+    one run<->strength swap — the template's weekly-TSS math (ramp/taper/ACWR)
+    is unchanged; only which offsets/types appear shifts.
     """
     trailing_avg = float(facts.get("trailing_28d_weekly_avg_tss") or 0.0)
     base = max(trailing_avg, FALLBACK_MIN_WEEKLY_TSS)
@@ -153,8 +276,16 @@ def fallback_suggestions(facts: dict) -> list[dict]:
     max_weekly = max(trailing_avg, FALLBACK_MIN_WEEKLY_TSS) * ACWR_HIGH_BOUND
     target_weekly = min(target_weekly, max_weekly)
 
+    allowed = set(_allowed_offsets(facts))
+    rest_requested = set(_preferred_rest_days(facts))
+    emphasis = facts.get("strength_emphasis") or "same"
+    if emphasis not in _VALID_STRENGTH_EMPHASIS:
+        emphasis = "same"
+
     sessions = []
     for tmpl in _TEMPLATE:
+        if tmpl["day_offset"] not in allowed:
+            continue
         frac = tmpl["tss_fraction"]
         raw_tss = round(target_weekly * frac) if frac > 0 else 0
         sessions.append({
@@ -165,7 +296,37 @@ def fallback_suggestions(facts: dict) -> list[dict]:
             "intent": tmpl["intent"],
         })
 
+    # Requested rest days always win, overriding whatever the template had.
+    for s in sessions:
+        if s["day_offset"] in rest_requested:
+            s.update(workout_type="rest", target_tss=0, duration_minutes=0,
+                     intent="Rest day (requested).")
+
+    if emphasis != "same":
+        long_run = _find_long_run(sessions)
+        long_off = long_run["day_offset"] if long_run else None
+        if emphasis == "more":
+            # Convert the easiest eligible run (never the long run, never a
+            # forced rest day) into a strength session.
+            candidates = [s for s in sessions
+                          if s["workout_type"] == "run" and s["day_offset"] != long_off
+                          and s["day_offset"] not in rest_requested]
+            if candidates:
+                pick = min(candidates, key=lambda s: s["target_tss"])
+                pick.update(workout_type="strength",
+                            intent="Extra strength session (requested more strength this week).")
+        else:  # "less"
+            candidates = [s for s in sessions
+                          if s["workout_type"] == "strength" and s["day_offset"] not in rest_requested]
+            if candidates:
+                pick = min(candidates, key=lambda s: s["target_tss"])
+                pick.update(workout_type="rest", target_tss=0, duration_minutes=0,
+                            intent="Rest (requested less strength this week).")
+
     return sessions
+
+
+_DAY_NAMES: tuple[str, ...] = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
 
 def build_prompt(facts: dict) -> tuple[str, str]:
@@ -177,6 +338,13 @@ def build_prompt(facts: dict) -> tuple[str, str]:
     tsb = facts.get("tsb", 0.0)
     days_to_race = facts.get("days_to_next_race")
     readiness_trend = facts.get("readiness_trend", [])
+    allowed = _allowed_offsets(facts)
+    rest_requested = _preferred_rest_days(facts)
+    emphasis = facts.get("strength_emphasis") or "same"
+    if emphasis not in _VALID_STRENGTH_EMPHASIS:
+        emphasis = "same"
+    notes = (facts.get("notes") or "").strip()
+    existing_week = facts.get("existing_week") or []
 
     taper_note = ""
     if days_to_race is not None and 0 <= int(days_to_race) <= _TAPER_WINDOW_DAYS:
@@ -186,17 +354,37 @@ def build_prompt(facts: dict) -> tuple[str, str]:
             "and favour easy sessions."
         )
 
+    allowed_str = ", ".join(f"{o} ({_DAY_NAMES[o]})" for o in sorted(allowed)) or "none — the week is fully covered already"
+    rest_rule = ""
+    if rest_requested:
+        rest_rule = (
+            f"7. The athlete asked for these day_offsets to be REST: "
+            f"{', '.join(str(o) for o in sorted(rest_requested))}. You MUST include an explicit "
+            "session for each of these — workout_type=\"rest\", target_tss=0 — do not omit them.\n"
+        )
+    long_run_rule_n = 8 if rest_requested else 7
+    consec_rule_n = long_run_rule_n + 1
+
     system = (
-        "You are a running coach producing a structured next-week training plan. "
-        "Return ONLY a JSON object matching the schema. "
+        "You are a running coach producing a structured training plan for the "
+        "REMAINDER of the athlete's current week — not a fresh Monday-to-Sunday "
+        "week. Return ONLY a JSON object matching the schema. "
         "SAFETY RULES — you MUST follow these:\n"
         f"1. Total weekly TSS across all sessions must not exceed {round(max(float(trailing), FALLBACK_MIN_WEEKLY_TSS) * ACWR_HIGH_BOUND)} "
         f"(ACWR safe ceiling: trailing 28-day weekly average {round(float(trailing))} × {ACWR_HIGH_BOUND}).\n"
         "2. Each session's target_tss must be between 0 and 400.\n"
         "3. You may propose at most 7 sessions.\n"
         "4. workout_type must be exactly one of: run, strength, plyo, rest.\n"
-        "5. Include at least one rest day.\n"
+        "5. Only propose sessions for these day_offsets — every other day is already "
+        f"scheduled, already logged, or in the past: {allowed_str}.\n"
         f"6. Respect ramp limits: do not increase weekly TSS by more than 30% above the trailing average.{taper_note}\n"
+        f"{rest_rule}"
+        f"{long_run_rule_n}. Identify the single 'run' session with the highest target_tss as the "
+        "week's LONG RUN. The day immediately before it must NOT be another hard/interval run "
+        "(no tempo/threshold/interval intent, no high-TSS run) — use rest, an easy run, or a "
+        "non-run session there instead.\n"
+        f"{consec_rule_n}. Do not schedule more than {_MAX_CONSECUTIVE_TRAINING_DAYS} consecutive "
+        "training days without a rest or easy day — balance load against the athlete's current CTL/ATL.\n"
     )
 
     trend_str = ", ".join(str(v) for v in (readiness_trend or [])[-7:]) or "no data"
@@ -207,6 +395,18 @@ def build_prompt(facts: dict) -> tuple[str, str]:
         f"ACWR headroom (how much more TSS is safe this week): {round(float(headroom))}.\n"
         f"Recent readiness scores (last {len(readiness_trend or [])} days): {trend_str}.\n"
     )
+    if existing_week:
+        lines = []
+        for d in existing_week:
+            if d.get("has_workout") or d.get("has_planned"):
+                bits = []
+                if d.get("has_workout"):
+                    bits.append(f"already logged a {d.get('workout_type') or 'workout'}")
+                if d.get("has_planned"):
+                    bits.append(f"already has a planned {d.get('planned_type') or 'session'} ({d.get('planned_status')})")
+                lines.append(f"  - day_offset {d['day_offset']} ({_DAY_NAMES[d['day_offset']]} {d.get('date', '')}): " + "; ".join(bits))
+        if lines:
+            user += "Current schedule this week (do not duplicate or contradict these):\n" + "\n".join(lines) + "\n"
     if days_to_race is not None:
         race_dist = facts.get("next_race_distance_km")
         race_goal = facts.get("next_race_goal_time_seconds")
@@ -217,10 +417,17 @@ def build_prompt(facts: dict) -> tuple[str, str]:
             mins = int(race_goal) // 60
             user += f", goal {mins} min"
         user += ".\n"
+    if emphasis == "more":
+        user += "The athlete wants MORE strength training than usual this week.\n"
+    elif emphasis == "less":
+        user += "The athlete wants LESS strength training than usual this week.\n"
+    if notes:
+        user += f"Additional notes from the athlete: {notes}\n"
     user += (
-        "\nPropose a 7-day training week (day_offset 0=Monday through 6=Sunday). "
+        f"\nPropose sessions ONLY for day_offset(s) {allowed_str} "
+        "(day_offset 0=Monday through 6=Sunday, same numbering as the current week). "
         "Each session needs day_offset, workout_type, target_tss, duration_minutes, and a one-line intent. "
-        "Not every day needs a session — use rest days as needed."
+        "Not every open day needs a session — use rest as needed."
     )
 
     return system, user
@@ -378,23 +585,43 @@ def get_suggestions_from_facts(facts: dict) -> dict:
 
 # ── DB-calling layer ──────────────────────────────────────────────────────────
 
-def assemble_facts(user_id: str, db=None) -> dict:
+def assemble_facts(
+    user_id: str,
+    db=None,
+    *,
+    week_start: "date | None" = None,
+    preferred_rest_days: list[int] | None = None,
+    strength_emphasis: str | None = None,
+    notes: str | None = None,
+) -> dict:
     """Assemble training facts for a user from the database.
 
     Reads: CTL/ATL/TSB, 7-day and 28-day TSS, readiness trend, next race,
-    and ACWR headroom.
-    """
-    from datetime import date as _date
+    ACWR headroom, and — for the target week (`week_start`'s Monday, default
+    the CURRENT week) — which day_offsets are still open for a suggestion
+    (`allowed_offsets`) plus what's already scheduled there (`existing_week`).
 
+    A day_offset is NOT open when it's before today (already passed this week)
+    or already has a workout logged or a planned session of any status — the
+    point being to fill in what's missing, not duplicate or contradict the
+    athlete's real schedule. `preferred_rest_days` / `strength_emphasis` /
+    `notes` are the athlete's own input, passed straight into facts for
+    `build_prompt` and `fallback_suggestions` to honour.
+    """
     from sqlalchemy import text
     from sqlalchemy.orm import Session
 
     from backend.db import engine
-    from backend.models import DailyReadiness, Race
+    from backend.models import DailyReadiness, PlannedSession, Race, Workout
     from backend.services.training_load import current_load, daily_tss_series
     from backend.services.acwr import compute_acwr, HIGH_BOUND as _acwr_high
+    from backend.utils.time import today_bangkok
 
-    today = _date.today()
+    # BKK-local "today" — matches the app-wide convention (workout_date, week
+    # windows) fixed in the reconcile.py timezone bug. Using server-local
+    # date.today() here would misjudge which day_offset is "today" whenever
+    # the server clock isn't BKK, silently re-opening or closing the wrong day.
+    today = today_bangkok()
 
     # CTL / ATL / TSB
     load = current_load(user_id)
@@ -453,9 +680,66 @@ def assemble_facts(user_id: str, db=None) -> dict:
             .order_by(Race.race_date)
             .first()
         )
+
+        # ── Target-week scoping: which day_offsets are still open ───────────
+        target_week_start = week_start if week_start is not None else current_week_start
+        # offset_of_today: 0..6 if the target week contains today, negative if
+        # the target week is entirely in the future, >6 if entirely in the past.
+        offset_of_today = (today - target_week_start).days
+        start_offset = max(0, min(offset_of_today, 7))
+
+        week_workouts = (
+            db.query(Workout)
+            .filter(
+                Workout.user_id == user_id,
+                Workout.workout_date >= target_week_start,
+                Workout.workout_date <= target_week_start + timedelta(days=6),
+            )
+            .all()
+        )
+        week_planned = (
+            db.query(PlannedSession)
+            .filter(
+                PlannedSession.user_id == user_id,
+                PlannedSession.planned_date >= target_week_start,
+                PlannedSession.planned_date <= target_week_start + timedelta(days=6),
+            )
+            .all()
+        )
+        workouts_by_date = {}
+        for w in week_workouts:
+            workouts_by_date.setdefault(w.workout_date, w)
+        planned_by_date = {}
+        for p in week_planned:
+            planned_by_date.setdefault(p.planned_date, p)
+
+        existing_week: list[dict] = []
+        allowed_offsets: list[int] = []
+        for offset in range(7):
+            d = target_week_start + timedelta(days=offset)
+            w = workouts_by_date.get(d)
+            p = planned_by_date.get(d)
+            entry = {
+                "day_offset": offset,
+                "date": d.isoformat(),
+                "has_workout": w is not None,
+                "workout_type": (w.workout_type if w is not None else None),
+                "has_planned": p is not None,
+                "planned_type": (p.session_type if p is not None else None),
+                "planned_status": (p.status if p is not None else None),
+            }
+            existing_week.append(entry)
+            if offset >= start_offset and w is None and p is None:
+                allowed_offsets.append(offset)
     finally:
         if _own_session:
             db.close()
+
+    rest_days = sorted({int(d) for d in (preferred_rest_days or []) if int(d) in allowed_offsets})
+    emphasis = (strength_emphasis or "same").strip().lower()
+    if emphasis not in _VALID_STRENGTH_EMPHASIS:
+        emphasis = "same"
+    notes_clean = (notes or "").strip()[:300]
 
     facts: dict[str, Any] = {
         "ctl": round(ctl, 2),
@@ -468,6 +752,12 @@ def assemble_facts(user_id: str, db=None) -> dict:
         "days_to_next_race": None,
         "next_race_distance_km": None,
         "next_race_goal_time_seconds": None,
+        "week_start": target_week_start.isoformat(),
+        "allowed_offsets": allowed_offsets,
+        "existing_week": existing_week,
+        "preferred_rest_days": rest_days,
+        "strength_emphasis": emphasis,
+        "notes": notes_clean,
     }
 
     if next_race is not None:
@@ -478,15 +768,30 @@ def assemble_facts(user_id: str, db=None) -> dict:
     return facts
 
 
-def get_suggestions(user_id: str, db=None) -> dict:
+def get_suggestions(
+    user_id: str,
+    db=None,
+    *,
+    week_start: "date | None" = None,
+    preferred_rest_days: list[int] | None = None,
+    strength_emphasis: str | None = None,
+    notes: str | None = None,
+) -> dict:
     """Full entry point: assemble facts → cache-aware LLM call → fallback.
 
     Returns {'facts': {...}, 'suggestions': [...], 'source': 'llm' | 'fallback',
     'attempts': int, 'orch': str}. The cache is keyed per-orchestrator (surface
     carries the PLAN_ORCH value) so switching orchestrators to A/B compare on the
     same facts returns each one's own result instead of colliding on the cache.
+    week_start/preferred_rest_days/strength_emphasis/notes are the athlete's
+    scoping + preference input (see assemble_facts) — they flow into facts and
+    therefore into the cache signature, so different input never collides.
     """
-    facts = assemble_facts(user_id, db=db)
+    facts = assemble_facts(
+        user_id, db=db, week_start=week_start,
+        preferred_rest_days=preferred_rest_days,
+        strength_emphasis=strength_emphasis, notes=notes,
+    )
     sig = build_signature(facts)
     orch = _plan_orch()
     surface = _SURFACE if orch == "single" else _SURFACE + ":" + orch

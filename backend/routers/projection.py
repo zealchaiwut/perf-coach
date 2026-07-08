@@ -11,7 +11,7 @@ import uuid as _uuid
 from datetime import date as _date, timedelta as _timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session as _Session
@@ -386,9 +386,30 @@ async def delete_checkpoint(
 _DEFAULT_PROJECTION_DAYS = 90
 
 
-@router.get("/plan/suggestions")
-def get_plan_suggestions(user: User = Depends(resolve_user)):
-    """Return LLM-proposed next-week training suggestions with facts and source tag.
+class PlanSuggestionsRequest(BaseModel):
+    # Monday of the week to suggest for; default (omitted) is the CURRENT week.
+    week_start: Optional[str] = None
+    # weekday indices (0=Mon..6=Sun) the athlete wants forced to rest.
+    rest_days: Optional[list[int]] = None
+    strength_emphasis: Optional[str] = None  # "less" | "same" | "more"
+    notes: Optional[str] = None
+
+
+@router.post("/plan/suggestions")
+def get_plan_suggestions(
+    body: PlanSuggestionsRequest = Body(default=None),
+    user: User = Depends(resolve_user),
+):
+    """Return LLM-proposed training suggestions for the OPEN remainder of a week,
+    with facts and source tag.
+
+    Only day_offsets not already covered by a logged workout or an existing
+    planned session — and not before today, when the target week contains
+    today — are eligible; see assemble_facts. Body fields are all optional and
+    scope/steer the suggestions: `week_start` (default: current week's
+    Monday), `rest_days` (weekday indices the athlete wants off),
+    `strength_emphasis` ("less"|"same"|"more"), `notes` (free text, coach-style
+    context — e.g. "easing back after a cold").
 
     Response shape: {facts: {...}, suggestions: [{day_offset, workout_type,
     target_tss, duration_minutes, intent}], source: "llm"|"fallback",
@@ -398,7 +419,27 @@ def get_plan_suggestions(user: User = Depends(resolve_user)):
     """
     from backend.services.plan_suggestions import get_suggestions as _get_suggestions
 
-    result = _get_suggestions(str(user.id))
+    week_start = None
+    if body is not None and body.week_start:
+        try:
+            week_start = _date.fromisoformat(body.week_start)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
+
+    rest_days = None
+    if body is not None and body.rest_days is not None:
+        rest_days = [d for d in body.rest_days if isinstance(d, int) and 0 <= d <= 6]
+
+    strength_emphasis = body.strength_emphasis if body is not None else None
+    notes = body.notes if body is not None else None
+
+    result = _get_suggestions(
+        str(user.id),
+        week_start=week_start,
+        preferred_rest_days=rest_days,
+        strength_emphasis=strength_emphasis,
+        notes=notes,
+    )
     return JSONResponse(result)
 
 
