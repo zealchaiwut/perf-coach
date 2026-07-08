@@ -391,7 +391,10 @@ def get_plan_suggestions(user: User = Depends(resolve_user)):
     """Return LLM-proposed next-week training suggestions with facts and source tag.
 
     Response shape: {facts: {...}, suggestions: [{day_offset, workout_type,
-    target_tss, duration_minutes, intent}], source: "llm"|"fallback"}
+    target_tss, duration_minutes, intent}], source: "llm"|"fallback",
+    attempts: int, orch: "single"|"plain"|"langgraph"|"pydantic_ai"}. The
+    orchestrator is chosen by the PLAN_ORCH env var (default "single"); switch
+    it and re-request to A/B the three implementations on the same facts.
     """
     from backend.services.plan_suggestions import get_suggestions as _get_suggestions
 

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import date, timedelta
 from typing import Any
 
@@ -64,42 +65,73 @@ _TEMPLATE: list[dict] = [
 
 # ── Pure functions ────────────────────────────────────────────────────────────
 
-def validate_suggestions(suggestions: list[dict], facts: dict) -> bool:
-    """Validate LLM-proposed suggestions against hard rules.
+def validation_errors(suggestions: list[dict], facts: dict) -> list[str]:
+    """Return a list of human-readable rule violations. Empty list == valid.
+
+    Same rules as validate_suggestions, but each string names exactly what broke
+    so it can be fed straight back to the model as correction feedback (the
+    enabler for the retry loop in the orchestrators below).
 
     Rules:
     - ≤ 7 sessions
     - each session_type in KNOWN_WORKOUT_TYPES
-    - each target_tss in [0, _MAX_SESSION_TSS]
-    - weekly total TSS ≤ trailing_28d_weekly_avg_tss × ACWR_HIGH_BOUND
+    - each target_tss numeric, in [_MIN_SESSION_TSS, _MAX_SESSION_TSS]
+    - weekly total TSS ≤ max(trailing_avg, FALLBACK_MIN_WEEKLY_TSS) × ACWR_HIGH_BOUND
     """
+    errs: list[str] = []
+
     if len(suggestions) > 7:
-        return False
+        errs.append(f"Too many sessions: {len(suggestions)} (max 7).")
 
     trailing_avg = float(facts.get("trailing_28d_weekly_avg_tss") or 0.0)
-    max_weekly = max(trailing_avg, FALLBACK_MIN_WEEKLY_TSS) * ACWR_HIGH_BOUND
+    max_weekly = round(max(trailing_avg, FALLBACK_MIN_WEEKLY_TSS) * ACWR_HIGH_BOUND)
     total_tss = 0.0
 
     for s in suggestions:
         wt = str(s.get("workout_type", "")).lower().strip()
         if wt not in KNOWN_WORKOUT_TYPES:
-            return False
+            errs.append(
+                f"Invalid workout_type {s.get('workout_type')!r}; "
+                f"allowed: {sorted(KNOWN_WORKOUT_TYPES)}."
+            )
 
         tss = s.get("target_tss")
         try:
             tss_f = float(tss) if tss is not None else 0.0
         except (TypeError, ValueError):
-            return False
+            errs.append(f"Non-numeric target_tss {tss!r}.")
+            continue
 
         if tss_f < _MIN_SESSION_TSS or tss_f > _MAX_SESSION_TSS:
-            return False
+            errs.append(
+                f"Session target_tss {tss_f:.0f} out of range "
+                f"[{_MIN_SESSION_TSS}, {_MAX_SESSION_TSS}]."
+            )
 
         total_tss += tss_f
 
     if total_tss > max_weekly:
-        return False
+        errs.append(
+            f"Weekly TSS {total_tss:.0f} exceeds ACWR safe ceiling {max_weekly} "
+            f"(trailing avg {round(trailing_avg)} × {ACWR_HIGH_BOUND}). "
+            "Reduce hard sessions."
+        )
 
-    return True
+    return errs
+
+
+def validate_suggestions(suggestions: list[dict], facts: dict) -> bool:
+    """True iff LLM-proposed suggestions pass every hard rule (see validation_errors)."""
+    return not validation_errors(suggestions, facts)
+
+
+def _feedback_block(errs: list[str]) -> str:
+    """Correction feedback appended to the user prompt on a retry."""
+    return (
+        "\n\nYour previous answer was REJECTED for these reasons:\n- "
+        + "\n- ".join(errs)
+        + "\nFix every issue and return corrected JSON matching the schema."
+    )
 
 
 def fallback_suggestions(facts: dict) -> list[dict]:
@@ -225,33 +257,123 @@ _LLM_JSON_SCHEMA: dict = {
 }
 
 
-def _call_llm(facts: dict) -> dict | None:
-    """Call LLM; return raw dict (not yet validated) or None."""
+def _call_llm(facts: dict, feedback: str = "") -> dict | None:
+    """Call LLM; return raw dict (not yet validated) or None.
+
+    `feedback` (non-empty on a retry) is appended to the user prompt so the model
+    sees exactly which rules its previous answer broke.
+    """
     system, user = build_prompt(facts)
     return llm_svc.complete_structured(
         system=system,
-        user=user,
+        user=user + feedback,
         schema_name="plan_suggestion",
         json_schema=_LLM_JSON_SCHEMA,
         model_tier="deep",
     )
 
 
-def get_suggestions_from_facts(facts: dict) -> dict:
-    """Attempt LLM suggestions; fall back to deterministic if disabled or invalid.
+# ── Orchestration ─────────────────────────────────────────────────────────────
+#
+# The same feature — LLM plan → validate → retry-with-feedback → template
+# fallback — implemented three ways so their outputs can be A/B'd on real data.
+# All share the domain primitives above; they differ only in HOW the retry loop
+# is expressed. Selected per-request via the PLAN_ORCH env var; unset keeps the
+# original single-shot behaviour so nothing changes by default. Every path is
+# fallback-safe: any failure (LLM off, network, missing optional dependency,
+# retries exhausted) returns the deterministic template.
 
-    Returns {'suggestions': [...], 'source': 'llm' | 'fallback'}.
-    Pure-ish: all external calls are mockable via _call_llm.
-    """
+_MAX_PLAN_ATTEMPTS = 3
+_VALID_ORCH = {"single", "plain", "langgraph", "pydantic_ai"}
+
+
+def _plan_orch() -> str:
+    orch = os.getenv("PLAN_ORCH", "").strip().lower()
+    return orch if orch in _VALID_ORCH else "single"
+
+
+def _template_result(facts: dict, attempts: int, orch: str) -> dict:
+    return {
+        "suggestions": fallback_suggestions(facts),
+        "source": "fallback",
+        "attempts": attempts,
+        "orch": orch,
+    }
+
+
+# 1. Single-shot (original behaviour) — one call, one validation, no retry.
+def _orch_single(facts: dict) -> dict:
     raw = _call_llm(facts)
     if raw is not None:
-        raw_suggestions = raw.get("suggestions", [])
-        if validate_suggestions(raw_suggestions, facts):
-            return {"suggestions": raw_suggestions, "source": "llm"}
-        else:
-            _log.warning("LLM plan_suggestion output failed validation — using fallback")
+        suggestions = raw.get("suggestions", [])
+        if validate_suggestions(suggestions, facts):
+            return {"suggestions": suggestions, "source": "llm", "attempts": 1, "orch": "single"}
+        _log.warning("LLM plan_suggestion output failed validation — using fallback")
+    return _template_result(facts, attempts=1 if raw is not None else 0, orch="single")
 
-    return {"suggestions": fallback_suggestions(facts), "source": "fallback"}
+
+# 2. Plain Python — an explicit while loop with reflection feedback.
+def _orch_plain(facts: dict) -> dict:
+    feedback = ""
+    attempt = 0
+    for attempt in range(1, _MAX_PLAN_ATTEMPTS + 1):
+        raw = _call_llm(facts, feedback)
+        if raw is None:
+            return _template_result(facts, attempts=attempt - 1, orch="plain")
+        suggestions = raw.get("suggestions", [])
+        errs = validation_errors(suggestions, facts)
+        if not errs:
+            return {"suggestions": suggestions, "source": "llm", "attempts": attempt, "orch": "plain"}
+        _log.warning("plan(plain) retry %d rejected: %s", attempt, errs)
+        feedback = _feedback_block(errs)
+    return _template_result(facts, attempts=attempt, orch="plain")
+
+
+# 3. LangGraph — the loop as nodes + a conditional edge (validate → generate).
+def _orch_langgraph(facts: dict) -> dict:
+    try:
+        from backend.services.plan_orch_langgraph import run as _run
+    except Exception as exc:  # dependency missing / import error → fallback-safe
+        _log.warning("plan(langgraph) unavailable (%s) — using fallback", exc)
+        return _template_result(facts, attempts=0, orch="langgraph")
+    try:
+        return _run(facts, _MAX_PLAN_ATTEMPTS)
+    except Exception as exc:
+        _log.warning("plan(langgraph) failed (%s) — using fallback", exc)
+        return _template_result(facts, attempts=0, orch="langgraph")
+
+
+# 4. Pydantic AI — a typed agent whose output_validator raises ModelRetry.
+def _orch_pydantic_ai(facts: dict) -> dict:
+    try:
+        from backend.services.plan_orch_pydantic_ai import run as _run
+    except Exception as exc:
+        _log.warning("plan(pydantic_ai) unavailable (%s) — using fallback", exc)
+        return _template_result(facts, attempts=0, orch="pydantic_ai")
+    try:
+        return _run(facts, _MAX_PLAN_ATTEMPTS)
+    except Exception as exc:
+        _log.warning("plan(pydantic_ai) failed (%s) — using fallback", exc)
+        return _template_result(facts, attempts=0, orch="pydantic_ai")
+
+
+_ORCHESTRATORS = {
+    "single": _orch_single,
+    "plain": _orch_plain,
+    "langgraph": _orch_langgraph,
+    "pydantic_ai": _orch_pydantic_ai,
+}
+
+
+def get_suggestions_from_facts(facts: dict) -> dict:
+    """Attempt LLM suggestions via the selected orchestrator; fall back to the
+    deterministic template if disabled or invalid.
+
+    Returns {'suggestions': [...], 'source': 'llm'|'fallback', 'attempts': int,
+    'orch': str}. Orchestrator chosen by PLAN_ORCH (default 'single').
+    """
+    orch = _plan_orch()
+    return _ORCHESTRATORS[orch](facts)
 
 
 # ── DB-calling layer ──────────────────────────────────────────────────────────
@@ -359,10 +481,15 @@ def assemble_facts(user_id: str, db=None) -> dict:
 def get_suggestions(user_id: str, db=None) -> dict:
     """Full entry point: assemble facts → cache-aware LLM call → fallback.
 
-    Returns {'facts': {...}, 'suggestions': [...], 'source': 'llm' | 'fallback'}.
+    Returns {'facts': {...}, 'suggestions': [...], 'source': 'llm' | 'fallback',
+    'attempts': int, 'orch': str}. The cache is keyed per-orchestrator (surface
+    carries the PLAN_ORCH value) so switching orchestrators to A/B compare on the
+    same facts returns each one's own result instead of colliding on the cache.
     """
     facts = assemble_facts(user_id, db=db)
     sig = build_signature(facts)
+    orch = _plan_orch()
+    surface = _SURFACE if orch == "single" else _SURFACE + ":" + orch
 
     # Cache lookup via get_or_generate.
     def _generate():
@@ -370,7 +497,7 @@ def get_suggestions(user_id: str, db=None) -> dict:
 
     cached_or_new = llm_svc.get_or_generate(
         user_id=str(user_id),
-        surface=_SURFACE,
+        surface=surface,
         signature=sig,
         generate_fn=_generate,
     )
