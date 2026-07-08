@@ -57,13 +57,40 @@ def complete_structured(
     schema_name: str,
     json_schema: dict,
     model_tier: str = "fast",
+    max_tokens: int | None = None,
 ) -> dict | None:
-    """Call Groq with JSON-schema structured output. Returns parsed dict or None."""
+    """Call Groq with JSON-schema structured output. Returns parsed dict or None.
+
+    `max_tokens` overrides Groq's implicit completion-length default — a schema
+    asking for a lot of structured detail (e.g. a full week of exercises/blocks)
+    can otherwise get truncated mid-JSON ("max completion tokens reached before
+    generating a valid document"), which surfaces as an opaque 400 and a
+    fallback with zero indication of why. Pass a generous value for any
+    schema whose worst case is large.
+    """
     if not llm_enabled():
         return None
 
     api_key = os.getenv("GROQ_API_KEY", "")
     model = _model(model_tier)
+
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": schema_name,
+                "schema": json_schema,
+                "strict": True,
+            },
+        },
+    }
+    if max_tokens is not None:
+        payload["max_completion_tokens"] = max_tokens
 
     try:
         resp = httpx.post(
@@ -72,21 +99,7 @@ def complete_structured(
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             },
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                "response_format": {
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": schema_name,
-                        "schema": json_schema,
-                        "strict": True,
-                    },
-                },
-            },
+            json=payload,
             timeout=httpx.Timeout(60.0, connect=10.0),
         )
         resp.raise_for_status()

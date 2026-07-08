@@ -76,26 +76,35 @@ _MAX_CONSECUTIVE_TRAINING_DAYS: int = 3
 # structure is freeform JSONB with no server-side exercise schema. Feeds
 # fallback_suggestions() so an offline/no-LLM week still gets real sessions,
 # not a bare one-line intent the athlete has to build out by hand.
+# Six sub-sections within 60-90 min — Warm-up, Heavy compound (1 primary
+# lift), Superset 1 / Superset 2 (2 exercises each, paired opposing muscle
+# groups so they alternate), Standalone (1 isolation move), Accessories
+# (core/stability/stretch) — matching how the athlete actually programs a
+# session, not a flat 3-block placeholder.
 _LOWER_BODY_STRENGTH_EXERCISES: list[dict] = [
-    {"block": "Warm-up", "name": "Leg swings (front-back + lateral)", "sets": 1, "reps": "10", "load": "bodyweight, per direction per leg"},
-    {"block": "Warm-up", "name": "Bodyweight squat", "sets": 1, "reps": "10", "load": "bodyweight"},
-    {"block": "Main", "name": "Back squat", "sets": 3, "reps": "8", "load": "moderate"},
-    {"block": "Main", "name": "Romanian deadlift", "sets": 3, "reps": "10", "load": "moderate"},
-    {"block": "Main", "name": "Walking lunge", "sets": 3, "reps": "10", "load": "bodyweight or light dumbbells, per leg"},
-    {"block": "Stability", "name": "Single-leg glute bridge", "sets": 3, "reps": "12", "load": "bodyweight, per leg"},
-    {"block": "Stability", "name": "Bird dog", "sets": 3, "reps": "10", "load": "bodyweight, per side"},
-    {"block": "Core", "name": "Plank", "sets": 3, "reps": "40s hold", "load": "bodyweight"},
-    {"block": "Core", "name": "Side plank", "sets": 2, "reps": "25-30s hold", "load": "bodyweight, per side"},
+    {"block": "Warm-up", "name": "Bodyweight squat", "sets": 2, "reps": "15", "load": "bodyweight, warm-up pace"},
+    {"block": "Warm-up", "name": "Spiderman lunge w/ rotation", "sets": 1, "reps": "8", "load": "bodyweight, per side"},
+    {"block": "Warm-up", "name": "Lateral band walk", "sets": 2, "reps": "15", "load": "light band, per side"},
+    {"block": "Heavy compound", "name": "Back squat", "sets": 4, "reps": "8", "load": "moderate — not a 1RM-testing weight"},
+    {"block": "Superset 1", "name": "Romanian deadlift", "sets": 3, "reps": "10", "load": "moderate dumbbells"},
+    {"block": "Superset 1", "name": "Dumbbell overhead press", "sets": 3, "reps": "10", "load": "moderate — upper push"},
+    {"block": "Superset 2", "name": "Walking lunge", "sets": 3, "reps": "10", "load": "bodyweight or light dumbbells, per leg"},
+    {"block": "Superset 2", "name": "Dumbbell bent-over row", "sets": 3, "reps": "10", "load": "moderate — upper pull"},
+    {"block": "Standalone", "name": "Hip thrust", "sets": 3, "reps": "10", "load": "moderate, 2s pause at top"},
+    {"block": "Accessories", "name": "Plank", "sets": 3, "reps": "40s hold", "load": "bodyweight"},
+    {"block": "Accessories", "name": "Side plank", "sets": 2, "reps": "25-30s hold", "load": "bodyweight, per side"},
 ]
 _UPPER_BODY_STRENGTH_EXERCISES: list[dict] = [
     {"block": "Warm-up", "name": "Arm circles + band pull-apart", "sets": 1, "reps": "15", "load": "light band"},
-    {"block": "Main", "name": "Dumbbell overhead press", "sets": 3, "reps": "10", "load": "moderate"},
-    {"block": "Main", "name": "Dumbbell bent-over row", "sets": 3, "reps": "10", "load": "moderate"},
-    {"block": "Main", "name": "Push-up", "sets": 3, "reps": "12", "load": "bodyweight"},
-    {"block": "Stability", "name": "Pallof press", "sets": 3, "reps": "10", "load": "light band, per side"},
-    {"block": "Stability", "name": "Farmer's carry", "sets": 3, "reps": "30m", "load": "moderate dumbbells"},
-    {"block": "Core", "name": "Dead bug", "sets": 3, "reps": "10", "load": "bodyweight, per side"},
-    {"block": "Core", "name": "Bird dog", "sets": 3, "reps": "10", "load": "bodyweight, per side"},
+    {"block": "Warm-up", "name": "Scapular push-up", "sets": 2, "reps": "10", "load": "bodyweight"},
+    {"block": "Heavy compound", "name": "Dumbbell bench press", "sets": 4, "reps": "8", "load": "moderate"},
+    {"block": "Superset 1", "name": "Dumbbell overhead press", "sets": 3, "reps": "10", "load": "moderate — upper push"},
+    {"block": "Superset 1", "name": "Goblet squat", "sets": 3, "reps": "10", "load": "moderate — lower complement"},
+    {"block": "Superset 2", "name": "Dumbbell bent-over row", "sets": 3, "reps": "10", "load": "moderate — upper pull"},
+    {"block": "Superset 2", "name": "Romanian deadlift", "sets": 3, "reps": "10", "load": "moderate — lower complement"},
+    {"block": "Standalone", "name": "Farmer's carry", "sets": 3, "reps": "30m", "load": "moderate dumbbells"},
+    {"block": "Accessories", "name": "Dead bug", "sets": 3, "reps": "10", "load": "bodyweight, per side"},
+    {"block": "Accessories", "name": "Bird dog", "sets": 3, "reps": "10", "load": "bodyweight, per side"},
 ]
 
 # Run block templates — phase-structured (warmup / main / cooldown), the same
@@ -371,6 +380,10 @@ def fallback_suggestions(facts: dict) -> list[dict]:
             "target_tss": raw_tss,
             "duration_minutes": tmpl["duration_base"],
             "intent": tmpl["intent"],
+            # No fabricated rationale for the deterministic template — only the
+            # LLM path (which actually reasons about the athlete's real
+            # schedule/fatigue) produces `notes`.
+            "notes": None,
             # Deep-copied so per-session Lighter/Harder-style edits downstream
             # (or a future "more" swap re-picking this same template row) never
             # mutate the shared module-level constant.
@@ -382,7 +395,7 @@ def fallback_suggestions(facts: dict) -> list[dict]:
     for s in sessions:
         if s["day_offset"] in rest_requested:
             s.update(workout_type="rest", target_tss=0, duration_minutes=0,
-                     intent="Rest day (requested).", exercises=None, blocks=None)
+                     intent="Rest day (requested).", notes=None, exercises=None, blocks=None)
 
     if emphasis != "same":
         long_run = _find_long_run(sessions)
@@ -429,6 +442,7 @@ def build_prompt(facts: dict) -> tuple[str, str]:
         emphasis = "same"
     notes = (facts.get("notes") or "").strip()
     existing_week = facts.get("existing_week") or []
+    recent_exercise_names = facts.get("recent_exercise_names") or []
 
     taper_note = ""
     if days_to_race is not None and 0 <= int(days_to_race) <= _TAPER_WINDOW_DAYS:
@@ -439,17 +453,32 @@ def build_prompt(facts: dict) -> tuple[str, str]:
         )
 
     allowed_str = ", ".join(f"{o} ({_DAY_NAMES[o]})" for o in sorted(allowed)) or "none — the week is fully covered already"
-    rest_rule = ""
+    recent_ex_str = ", ".join(recent_exercise_names) if recent_exercise_names else ""
+
+    _n = 7
+    notes_rule_n = _n; _n += 1
+    rest_rule_n = None
     if rest_requested:
-        rest_rule = (
-            f"7. The athlete asked for these day_offsets to be REST: "
-            f"{', '.join(str(o) for o in sorted(rest_requested))}. You MUST include an explicit "
-            "session for each of these — workout_type=\"rest\", target_tss=0 — do not omit them.\n"
-        )
-    exercises_rule_n = 8 if rest_requested else 7
-    blocks_rule_n = exercises_rule_n + 1
-    long_run_rule_n = blocks_rule_n + 1
-    consec_rule_n = long_run_rule_n + 1
+        rest_rule_n = _n; _n += 1
+    avoid_repeat_rule_n = None
+    if recent_ex_str:
+        avoid_repeat_rule_n = _n; _n += 1
+    exercises_rule_n = _n; _n += 1
+    blocks_rule_n = _n; _n += 1
+    long_run_rule_n = _n; _n += 1
+    consec_rule_n = _n; _n += 1
+
+    rest_rule = (
+        f"{rest_rule_n}. The athlete asked for these day_offsets to be REST: "
+        f"{', '.join(str(o) for o in sorted(rest_requested))}. You MUST include an explicit "
+        "session for each of these — workout_type=\"rest\", target_tss=0 — do not omit them.\n"
+    ) if rest_rule_n else ""
+    avoid_repeat_rule = (
+        f"{avoid_repeat_rule_n}. The athlete's recently used / already-planned exercises this week are: "
+        f"{recent_ex_str}. Do NOT default to these out of habit — pick something different unless you "
+        "genuinely think one of them is still the best choice for this session (e.g. a key compound lift "
+        "the athlete is actively progressing). Vary the exercise selection across the week.\n"
+    ) if avoid_repeat_rule_n else ""
 
     system = (
         "You are a running coach producing a structured training plan for the "
@@ -464,15 +493,24 @@ def build_prompt(facts: dict) -> tuple[str, str]:
         "5. Only propose sessions for these day_offsets — every other day is already "
         f"scheduled, already logged, or in the past: {allowed_str}.\n"
         f"6. Respect ramp limits: do not increase weekly TSS by more than 30% above the trailing average.{taper_note}\n"
+        f"{notes_rule_n}. Populate `notes` with the coach's RATIONALE for this session's choices — why "
+        "this weight/exercise/pairing, referencing fatigue management, what's already logged or planned "
+        "this week, or why you avoided/kept a recently-used exercise (see below). Example style: \"Kept "
+        "controlled because Thursday is intervals — legs need to stay fresh. Walking lunge instead of "
+        "Bulgarian split squat to limit next-day soreness before intervals.\" Null only for rest days.\n"
         f"{rest_rule}"
+        f"{avoid_repeat_rule}"
         f"{exercises_rule_n}. For every workout_type=\"strength\" or \"plyo\" session, you MUST include "
-        "an `exercises` array of 4-10 entries, grouped into 3-4 sub-sections — a real session, not a "
-        "placeholder. Each entry is {block, name, sets, reps, load}: `block` groups exercises like a "
-        "coach would write a session (e.g. \"Warm-up\", \"Main\", \"Stability\", \"Core\", \"Hip\", "
-        "\"Accessories\" — pick 3-4 that fit this session); `sets` is an integer; `reps` and `load` are "
-        "short descriptive strings, not always plain numbers (e.g. reps: \"10\", \"12\", \"30s hold\"; "
-        "load: \"bodyweight\", \"moderate\", \"~10-14kg per hand\", \"light band, per side\"). Example "
-        'entry: {"block": "Main", "name": "Back squat", "sets": 3, "reps": "8", "load": "moderate"}. '
+        "an `exercises` array of 8-14 entries, grouped into 4-6 sub-sections, styled like a real coach's "
+        "session plan within 60-90 minutes total: \"Warm-up\" (3-4 light activation moves), \"Heavy "
+        "compound\" (1 primary lift — squat/deadlift/press variant), \"Superset 1\" and \"Superset 2\" "
+        "(2 exercises each, PAIRED opposing muscle groups or upper/lower so they can alternate — e.g. a "
+        "hinge with a push, a lunge with a pull), \"Standalone\" (1 optional isolation move), and "
+        "\"Accessories\" (2-3 core/stability/stretch moves). Each entry is {block, name, sets, reps, "
+        "load}: `sets` is an integer; `reps` and `load` are short descriptive strings, not always plain "
+        "numbers (e.g. reps: \"10\", \"12\", \"30s hold\"; load: \"bodyweight\", \"moderate\", "
+        "\"~10-14kg per hand\", \"65% 1RM (~45kg)\", \"light band, per side\"). Example entry: "
+        '{"block": "Heavy compound", "name": "Back squat", "sets": 4, "reps": "8", "load": "65% 1RM (~45kg)"}. '
         "Never leave exercises empty or omitted for strength/plyo. Set exercises to null for run/rest.\n"
         f"{blocks_rule_n}. For every workout_type=\"run\" session, you MUST include a `blocks` array "
         "(2-5 entries) describing the session's phases — the same structure a coach would write for a "
@@ -512,9 +550,13 @@ def build_prompt(facts: dict) -> tuple[str, str]:
                     bits.append(f"already logged a {d.get('workout_type') or 'workout'}")
                 if d.get("has_planned"):
                     bits.append(f"already has a planned {d.get('planned_type') or 'session'} ({d.get('planned_status')})")
+                if d.get("planned_exercise_names"):
+                    bits.append("exercises: " + ", ".join(d["planned_exercise_names"]))
                 lines.append(f"  - day_offset {d['day_offset']} ({_DAY_NAMES[d['day_offset']]} {d.get('date', '')}): " + "; ".join(bits))
         if lines:
             user += "Current schedule this week (do not duplicate or contradict these):\n" + "\n".join(lines) + "\n"
+    if recent_ex_str:
+        user += f"Recently used / already-planned exercises (avoid defaulting to these — see rule above): {recent_ex_str}.\n"
     if days_to_race is not None:
         race_dist = facts.get("next_race_distance_km")
         race_goal = facts.get("next_race_goal_time_seconds")
@@ -534,9 +576,10 @@ def build_prompt(facts: dict) -> tuple[str, str]:
     user += (
         f"\nPropose sessions ONLY for day_offset(s) {allowed_str} "
         "(day_offset 0=Monday through 6=Sunday, same numbering as the current week). "
-        "Each session needs day_offset, workout_type, target_tss, duration_minutes, and a one-line intent. "
-        "strength/plyo sessions additionally need the exercises breakdown (see the safety rules above) — "
-        "not every open day needs a session; use rest as needed."
+        "Each session needs day_offset, workout_type, target_tss, duration_minutes, intent, and notes "
+        "(the rationale — see the safety rules above). strength/plyo sessions additionally need the "
+        "exercises breakdown; run sessions need the blocks breakdown — not every open day needs a "
+        "session; use rest as needed."
     )
 
     return system, user
@@ -562,6 +605,11 @@ _LLM_JSON_SCHEMA: dict = {
                     "target_tss":       {"type": "integer", "minimum": 0, "maximum": 400},
                     "duration_minutes": {"type": "integer", "minimum": 0, "maximum": 360},
                     "intent":           {"type": "string", "maxLength": 200},
+                    # Coach's rationale for THIS session's choices — why this
+                    # weight/exercise/pairing, referencing fatigue, what's
+                    # already logged/planned this week, or recent-exercise
+                    # avoidance. Nullable (a rest day has nothing to explain).
+                    "notes": {"type": ["string", "null"], "maxLength": 600},
                     # Block-grouped exercise breakdown — required (by
                     # validation_errors, not JSON-schema-required, since it only
                     # applies to strength/plyo) for those two workout_types.
@@ -603,7 +651,7 @@ _LLM_JSON_SCHEMA: dict = {
                 # Groq/OpenAI strict structured-output mode requires EVERY
                 # property to be listed here — "optional" is expressed via a
                 # nullable type (exercises/blocks: ["array","null"]), not omission.
-                "required": ["day_offset", "workout_type", "target_tss", "duration_minutes", "intent", "exercises", "blocks"],
+                "required": ["day_offset", "workout_type", "target_tss", "duration_minutes", "intent", "notes", "exercises", "blocks"],
                 "additionalProperties": False,
             },
         }
@@ -611,6 +659,13 @@ _LLM_JSON_SCHEMA: dict = {
     "required": ["suggestions"],
     "additionalProperties": False,
 }
+
+
+# Worst case: 7 sessions, each up to 14 exercises (~40 tokens/entry) or 5
+# blocks, plus a 600-char notes field — comfortably needs more than Groq's
+# implicit completion default, which otherwise truncates the JSON mid-object
+# (surfaces as an opaque 400 "max completion tokens reached").
+_LLM_MAX_COMPLETION_TOKENS = 6000
 
 
 def _call_llm(facts: dict, feedback: str = "") -> dict | None:
@@ -626,6 +681,7 @@ def _call_llm(facts: dict, feedback: str = "") -> dict | None:
         schema_name="plan_suggestion",
         json_schema=_LLM_JSON_SCHEMA,
         model_tier="deep",
+        max_tokens=_LLM_MAX_COMPLETION_TOKENS,
     )
 
 
@@ -675,7 +731,13 @@ def _orch_plain(facts: dict) -> dict:
     for attempt in range(1, _MAX_PLAN_ATTEMPTS + 1):
         raw = _call_llm(facts, feedback)
         if raw is None:
-            return _template_result(facts, attempts=attempt - 1, orch="plain")
+            # A None here isn't necessarily a dead LLM — Groq's own strict-mode
+            # validator rejects the whole call (400) if a single generation
+            # forgets a required-but-nullable key (e.g. omits `blocks` on a
+            # strength entry). That's a transient generation slip, exactly
+            # what the retry loop exists for — don't give up on attempt 1.
+            _log.warning("plan(plain) attempt %d: LLM call failed/unavailable", attempt)
+            continue
         suggestions = raw.get("suggestions", [])
         errs = validation_errors(suggestions, facts)
         if not errs:
@@ -757,11 +819,11 @@ def assemble_facts(
     `notes` are the athlete's own input, passed straight into facts for
     `build_prompt` and `fallback_suggestions` to honour.
     """
-    from sqlalchemy import text
+    from sqlalchemy import func, text
     from sqlalchemy.orm import Session
 
     from backend.db import engine
-    from backend.models import DailyReadiness, PlannedSession, Race, Workout
+    from backend.models import DailyReadiness, PlannedSession, Race, Workout, WorkoutExercise
     from backend.services.training_load import current_load, daily_tss_series
     from backend.services.acwr import compute_acwr, HIGH_BOUND as _acwr_high
     from backend.utils.time import today_bangkok
@@ -862,12 +924,23 @@ def assemble_facts(
         for p in week_planned:
             planned_by_date.setdefault(p.planned_date, p)
 
+        def _structure_exercise_names(structure) -> list[str]:
+            if not isinstance(structure, dict):
+                return []
+            exs = structure.get("exercises")
+            if not isinstance(exs, list):
+                return []
+            return [str(e.get("name")).strip() for e in exs if isinstance(e, dict) and e.get("name")]
+
         existing_week: list[dict] = []
         allowed_offsets: list[int] = []
+        planned_exercise_names: list[str] = []  # this week's own strength/plyo picks
         for offset in range(7):
             d = target_week_start + timedelta(days=offset)
             w = workouts_by_date.get(d)
             p = planned_by_date.get(d)
+            p_names = _structure_exercise_names(p.structure) if p is not None else []
+            planned_exercise_names.extend(p_names)
             entry = {
                 "day_offset": offset,
                 "date": d.isoformat(),
@@ -876,10 +949,42 @@ def assemble_facts(
                 "has_planned": p is not None,
                 "planned_type": (p.session_type if p is not None else None),
                 "planned_status": (p.status if p is not None else None),
+                "planned_exercise_names": p_names,
             }
             existing_week.append(entry)
             if offset >= start_offset and w is None and p is None:
                 allowed_offsets.append(offset)
+
+        # ── Recent exercise history (avoid defaulting to the same picks) ────
+        # Last 14 days of ACTUALLY LOGGED strength/plyo workouts — what the
+        # athlete really did, not just planned. Most-recent-first, deduped.
+        _lookback_start = today - timedelta(days=14)
+        recent_rows = (
+            db.query(WorkoutExercise.name, Workout.workout_date)
+            .join(Workout, WorkoutExercise.workout_id == Workout.id)
+            .filter(
+                Workout.user_id == user_id,
+                Workout.workout_date >= _lookback_start,
+                Workout.workout_date <= today,
+                func.lower(Workout.workout_type).in_(("strength", "plyo")),
+            )
+            .order_by(Workout.workout_date.desc())
+            .all()
+        )
+        recent_exercise_names: list[str] = []
+        _seen_names: set[str] = set()
+        for name, _wd in recent_rows:
+            n = str(name).strip()
+            if n and n not in _seen_names:
+                _seen_names.add(n)
+                recent_exercise_names.append(n)
+        # This week's own already-planned picks count too, so a later
+        # suggestion in the SAME week doesn't duplicate an earlier one.
+        for n in planned_exercise_names:
+            if n and n not in _seen_names:
+                _seen_names.add(n)
+                recent_exercise_names.append(n)
+        recent_exercise_names = recent_exercise_names[:20]
     finally:
         if _own_session:
             db.close()
@@ -907,6 +1012,7 @@ def assemble_facts(
         "preferred_rest_days": rest_days,
         "strength_emphasis": emphasis,
         "notes": notes_clean,
+        "recent_exercise_names": recent_exercise_names,
     }
 
     if next_race is not None:

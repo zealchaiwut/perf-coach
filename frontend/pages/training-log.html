@@ -4247,8 +4247,14 @@
           <button id="plan-suggestions-dismiss" class="pl-sug-btn-sm" type="button" title="Dismiss">✕</button>
         </div>
         <div id="plan-suggestions-prefs"></div>
-        <div id="plan-suggestions-loading" style="display:none;" class="pl-sug-loading">Loading suggestions…</div>
         <div id="plan-suggestions-list"></div>
+        <!-- Overlay (not a full clear) — sits on top of whatever's already in
+             the panel (prefs form or the previous suggestion list) while a
+             (re)generate call is in flight, so the panel doesn't go blank. -->
+        <div id="plan-suggestions-loading" style="display:none;" class="pl-sug-loading">
+          <div class="pl-sug-spinner" aria-hidden="true"></div>
+          <span>Generating suggestions…</span>
+        </div>
       </div>
       <!-- ── Show suggestions button ────────────────────────────────────── -->
       <div id="plan-suggestions-trigger-row" class="pl-sug-trigger-row" style="display:none;">
