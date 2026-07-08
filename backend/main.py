@@ -6821,6 +6821,29 @@ def get_workout_full(
         return JSONResponse(response_body)
 
 
+def _warm_load_after_write(user_id, *dates) -> None:
+    """Refresh the training-load snapshot after a workout write.
+
+    Phase 2: when PRECOMPUTE_ON_WRITE_ENABLED and the worker is in queue mode,
+    offload the 180-day EWMA recompute to the worker (keeps the write response
+    fast) — the worker warms today's snapshot, and current_load() falls back to
+    an inline recompute if it reads before the worker catches up, so a brief lag
+    is safe. Otherwise (flag off / http mode / enqueue failed) recompute inline,
+    the prior behavior. Never raises."""
+    clean = [d for d in dates if d is not None]
+    if _worker_client.precompute_on_write_enabled():
+        res = _worker_client.delegate_precompute(str(user_id), dates=clean)
+        if res.get("queued"):
+            return
+    for d in clean:
+        try:
+            daily_update(str(user_id), d)
+        except Exception as _exc:
+            _logging.getLogger(__name__).warning(
+                "daily_update failed for user %s date %s: %s", user_id, d, _exc, exc_info=True
+            )
+
+
 @app.post("/api/workouts", status_code=201)
 def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
     uid = user.id
@@ -6911,12 +6934,7 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             _logging.getLogger(__name__).warning(
                 "persist_running_tss failed for workout %s: %s", workout.id, _tss_exc, exc_info=True
             )
-        try:
-            daily_update(str(uid), workout_date)
-        except Exception as _exc:
-            _logging.getLogger(__name__).warning(
-                "daily_update failed for user %s date %s: %s", uid, workout_date, _exc, exc_info=True
-            )
+        _warm_load_after_write(uid, workout_date)
         try:
             _recompute_autofill(uid, _week_start_bangkok(workout_date))
         except Exception as _af_exc:
@@ -7066,12 +7084,7 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             _logging.getLogger(__name__).warning(
                 "persist_running_tss failed for workout %s: %s", wid, _tss_exc, exc_info=True
             )
-        try:
-            daily_update(str(workout.user_id), workout.workout_date)
-        except Exception as _exc:
-            _logging.getLogger(__name__).warning(
-                "daily_update failed for user %s date %s: %s", workout.user_id, workout.workout_date, _exc, exc_info=True
-            )
+        _warm_load_after_write(workout.user_id, _old_workout_date, workout.workout_date)
         try:
             for _ws in {_week_start_bangkok(_old_workout_date), _week_start_bangkok(workout.workout_date)}:
                 _recompute_autofill(workout.user_id, _ws)
@@ -7127,6 +7140,10 @@ def delete_workout(workout_id: str, user: User = Depends(resolve_user)):
                 ))
         session.delete(workout)
         session.commit()
+    # A deletion removes TSS from the series, so the load snapshot is now stale;
+    # warm it (worker in queue mode, else inline). Previously nothing refreshed
+    # it, so the next current_load() read paid the recompute.
+    _warm_load_after_write(_del_uid, _del_date)
     try:
         _recompute_autofill(_del_uid, _week_start_bangkok(_del_date))
     except Exception as _af_exc:
@@ -7582,12 +7599,7 @@ def duplicate_workout(workout_id: str, body: WorkoutDuplicateIn, user: User = De
         for e in new_exercises:
             session.refresh(e)
 
-        try:
-            daily_update(str(user.id), new_date)
-        except Exception as _exc:
-            _logging.getLogger(__name__).warning(
-                "daily_update failed for user %s date %s: %s", user.id, new_date, _exc, exc_info=True
-            )
+        _warm_load_after_write(user.id, new_date)
         try:
             _recompute_autofill(user.id, _week_start_bangkok(new_date))
         except Exception as _af_exc:

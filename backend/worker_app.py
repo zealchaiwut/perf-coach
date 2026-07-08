@@ -280,12 +280,30 @@ def _run_banister_refit_batch() -> None:
 # one), then the wrapper marks the queue row done/failed. Job types map 1:1 to
 # the handlers below.
 
+def _enqueue_precompute_after_sync(user_id) -> None:
+    """After a per-user sync, warm that user's load snapshot on the worker so the
+    next dashboard read is a pure cache hit (Phase 2). Deduped per user; best
+    effort — a failure here never fails the sync."""
+    from backend.services import worker_client
+    if user_id is None or not worker_client.precompute_after_sync_enabled():
+        return
+    try:
+        job_queue.enqueue(
+            "precompute", {"user_id": str(user_id)}, enqueued_by="worker",
+            dedupe_key=f"precompute:{user_id}",
+        )
+    except Exception:
+        logger.warning("post-sync precompute enqueue failed for %s", user_id, exc_info=True)
+
+
 def _h_strava_sync(p: dict) -> None:
     _run_one_sync(p["user_id"], "strava", bool(p.get("full")), p.get("triggered_by", "queue"))
+    _enqueue_precompute_after_sync(p.get("user_id"))
 
 
 def _h_stryd_sync(p: dict) -> None:
     _run_one_sync(p["user_id"], "stryd", bool(p.get("full")), p.get("triggered_by", "queue"))
+    _enqueue_precompute_after_sync(p.get("user_id"))
 
 
 def _h_backfill(p: dict) -> None:
@@ -296,11 +314,17 @@ def _h_banister_refit(p: dict) -> None:
     _run_banister_refit_batch()
 
 
+def _h_precompute(p: dict) -> None:
+    from backend.services import precompute
+    precompute.precompute_user(p["user_id"], dates=p.get("dates"))
+
+
 _DISPATCH = {
     "strava_sync": _h_strava_sync,
     "stryd_sync": _h_stryd_sync,
     "backfill": _h_backfill,
     "banister_refit": _h_banister_refit,
+    "precompute": _h_precompute,
 }
 
 

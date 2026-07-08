@@ -192,6 +192,47 @@ curl -X POST http://zeal-server:9100/internal/performance/backfill \
 {"started": true}
 ```
 
+## Precompute: warm caches on the worker (Phase 2)
+
+The heaviest recompute on the web path is `training_load.daily_update()` — a
+180-day EWMA rebuild — run both when a workout is written and, as a fallback,
+when `current_load()` reads a missing/stale `training_load_snapshots` row. Phase 2
+moves that work to the worker via a `precompute` queue job so the web request
+stays fast:
+
+- **On workout write** (create / edit / delete / duplicate), the web tier calls
+  `worker_client.delegate_precompute(user_id, dates=[...])`, which enqueues a
+  `precompute` job (deduped `precompute:<user_id>`) instead of recomputing
+  inline. Gated by `PRECOMPUTE_ON_WRITE_ENABLED` (default on). In http mode, or
+  if enqueue fails, it falls back to the inline `daily_update` (prior behavior).
+- **After a sync**, each per-user `*_sync` handler enqueues a `precompute` for
+  that user (`PRECOMPUTE_AFTER_SYNC_ENABLED`, default on), so the first
+  post-sync dashboard load is a pure cache hit rather than paying the recompute.
+- **The worker** runs `backend/services/precompute.py::precompute_user`, warming
+  today + yesterday (+ any edited dates) in `training_load_snapshots`.
+
+Safety: `current_load()` still falls back to an inline recompute when it reads
+before the worker has caught up, so a brief lag is correct, just slightly slower.
+`LOAD_READ_FROM_SNAPSHOT` (default on) can force `current_load` to always
+recompute inline (debug / rollback) — always safe, since inline is the same path
+taken on a cache miss. Performance scores and the weekly/monthly summaries keep
+their existing inline-on-miss `summary_cache` (signature-invalidated); the
+form/weight projections are cheap once the load snapshot is warm, so neither
+grew a new snapshot table.
+
+Web-tier flags (Render):
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `PRECOMPUTE_ON_WRITE_ENABLED` | `1` | Offload the workout-write load recompute to the worker (queue mode). `0` = recompute inline. |
+| `LOAD_READ_FROM_SNAPSHOT` | `1` | `current_load()` reads the snapshot cache. `0` = always recompute inline. |
+
+Worker-tier flag:
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `PRECOMPUTE_AFTER_SYNC_ENABLED` | `1` | Enqueue a `precompute` after each per-user sync so the snapshot is warm before the user looks. |
+
 ## Poll loop & schedule
 
 On FastAPI startup the worker starts **two** daemon threads:
