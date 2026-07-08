@@ -258,11 +258,10 @@ information about.
           '<button class="pl-arw" id="pl-next" aria-label="Next week">›</button>' +
         '</div>' +
         '<div class="pl-btnrow">' +
-          /* "Suggest sessions" is disabled ("coming soon") — the assembled-prompt
-             flow that used to back this button (_openSuggest/_suggestHtml and
-             friends) was dead code (button never enabled) and has been removed;
-             see git history if it's revived. */
-          '<button class="pl-btn pl-ghost" id="pl-suggest" disabled title="Coming soon">✨ Suggest sessions</button>' +
+          /* Repurposed to open the AI next-week suggestions panel (issue #1315).
+             It proxies a click to the suggestions module's own (hidden) trigger
+             button, which lives in a separate closure. */
+          '<button class="pl-btn pl-ghost" id="pl-suggest" title="AI-suggested sessions for next week">✨ Suggest sessions</button>' +
           '<button class="pl-btn pl-dark" id="pl-add">+ Add</button>' +
         '</div></div>' +
         '<div class="pl-infobanner" style="margin-bottom:12px;">Synced workouts from Strava/Stryd auto-match to planned sessions. Drag a <b>planned</b> or <b>missed</b> card to reschedule; ambiguous or missing matches need a quick confirm below. These planned sessions <b>don’t feed Projection’s ramp/taper load model</b> — separate systems.</div>' +
@@ -276,6 +275,13 @@ information about.
     document.getElementById('pl-prev').onclick = function () { _weekStart = _addDays(_weekStart, -7); _renderWeekSection(); _loadWeek(); };
     document.getElementById('pl-next').onclick = function () { _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(); };
     document.getElementById('pl-add').onclick = function () { _openAdd('single'); };
+    var sugBtn = document.getElementById('pl-suggest');
+    if (sugBtn) sugBtn.onclick = function () {
+      var t = document.getElementById('plan-suggestions-trigger');
+      if (t) t.click();
+      var panel = document.getElementById('plan-suggestions-panel');
+      if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    };
     if (_bundle) _renderWeekList();
   }
 
@@ -644,24 +650,71 @@ information about.
     });
   }
 
-  // ══ ADD PANEL ═══════════════════════════════════════════════════════════════
+  // ══ ADD / EDIT PANEL ════════════════════════════════════════════════════════
   function _openAdd(topMode, presetDate) {
     _panel.open = 'add';
     _addState.top = topMode; _addState.sub = 'form';
+    _addState.editId = null; _addState.edit = null;
     _addState.presetDate = presetDate || _iso(_weekStart);
+    // Fresh create: reset the builders to the demo templates so leftovers from
+    // a previous edit don't leak into a new session.
+    _sfBlocks = [
+      { phase: 'warmup', duration_min: 10 },
+      { phase: 'main', duration_min: 10, repeat: 3, rest_min: 2, target: '92% CP' },
+      { phase: 'cooldown', duration_min: 8 }
+    ];
+    _sfExercises = [
+      { name: 'Back squat', sets: 5, reps: 5, load: '78% 1RM' },
+      { name: 'Romanian deadlift', sets: 4, reps: 8, load: 'moderate' }
+    ];
+    _sfStrengthMode = 'detailed'; _sfFocus = '';
     _renderAddSection(); _renderDetailSection();
     var el = document.getElementById('plan-add-section');
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
-  function _closeAdd() { _panel.open = null; _renderAddSection(); }
+
+  // Edit an existing planned session in the same structured form the create
+  // flow uses, seeded from the session and saved via PATCH. (The Edit button
+  // used to open the CREATE flow with demo template data and POST a duplicate.)
+  function _openEdit(p) {
+    _panel.open = 'add';
+    _addState.top = 'single'; _addState.sub = 'form';
+    _addState.editId = p.id;
+    _addState.edit = { name: p.name || '', notes: p.notes || '', type: p.session_type };
+    _addState.presetDate = p.planned_date;
+    var s = p.structure || {};
+    if (p.session_type === 'run') {
+      _sfBlocks = (Array.isArray(s.blocks) ? s.blocks : []).map(function (b) {
+        return Object.assign({}, b);
+      });
+      if (!_sfBlocks.length) _sfBlocks = [{ phase: 'main', duration_min: 10 }];
+    } else if (p.session_type === 'strength' || p.session_type === 'plyo') {
+      if (Array.isArray(s.exercises) && s.exercises.length) {
+        _sfStrengthMode = 'detailed';
+        _sfExercises = s.exercises.map(function (x) { return Object.assign({}, x); });
+      } else {
+        _sfStrengthMode = 'simple';
+        _sfFocus = s.focus || '';
+        _sfExercises = [];
+      }
+    }
+    _renderAddSection(); _renderDetailSection();
+    var el = document.getElementById('plan-add-section');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function _closeAdd() { _panel.open = null; _addState.editId = null; _addState.edit = null; _renderAddSection(); }
 
   function _renderAddSection() {
     var host = document.getElementById('plan-add-section');
     if (!host) return;
     if (_panel.open !== 'add') { host.innerHTML = ''; return; }
+    var editing = !!_addState.editId;
     host.innerHTML = '<div class="pl-card pl-panelcard">' +
-      '<div class="pl-panelhead"><span class="pl-sectitle">Add session(s)</span><button class="pl-closepanel" id="pl-addclose">✕</button></div>' +
-      '<div class="pl-modetoggle" id="pl-addmode"><button data-m="single">Single session</button><button data-m="bulk">Bulk-add a week</button></div>' +
+      '<div class="pl-panelhead"><span class="pl-sectitle">' + (editing ? 'Edit session' : 'Add session(s)') + '</span><button class="pl-closepanel" id="pl-addclose">✕</button></div>' +
+      // No single/bulk toggle while editing — bulk/JSON create flows would
+      // silently turn the edit into a duplicate-creating POST (the old bug).
+      (editing ? '' : '<div class="pl-modetoggle" id="pl-addmode"><button data-m="single">Single session</button><button data-m="bulk">Bulk-add a week</button></div>') +
       '<div id="pl-addbody"></div>' +
     '</div>';
     document.getElementById('pl-addclose').onclick = _closeAdd;
@@ -669,16 +722,20 @@ information about.
   }
 
   function _renderAddBody() {
+    var editing = !!_addState.editId;
     var subs = _addState.top === 'single' ? [['form', 'Form'], ['json', 'JSON']]
       : [['form', 'Form'], ['json', 'JSON'], ['sep', 'Separator']];
-    var subHtml = '<div class="pl-subtoggle" id="pl-addsub">' + subs.map(function (x) {
+    // Editing pins the structured Form — the JSON sub-tab is a CREATE affordance
+    // (paste an AI-generated plan) and would duplicate instead of update.
+    var subHtml = editing ? '' : '<div class="pl-subtoggle" id="pl-addsub">' + subs.map(function (x) {
       return '<button class="' + (x[0] === _addState.sub ? 'on' : '') + '" data-sm="' + x[0] + '">' + x[1] + '</button>';
     }).join('') + '</div>';
     var content;
     if (_addState.top === 'single') content = _addState.sub === 'form' ? _singleFormHtml() : _singleJSONHtml();
     else content = _addState.sub === 'form' ? _bulkFormHtml() : (_addState.sub === 'json' ? _bulkJSONHtml() : _bulkSepHtml());
     document.getElementById('pl-addbody').innerHTML = subHtml + content;
-    [].forEach.call(document.getElementById('pl-addmode').children, function (b) {
+    var modeEl0 = document.getElementById('pl-addmode');
+    if (modeEl0) [].forEach.call(modeEl0.children, function (b) {
       b.classList.toggle('on', b.dataset.m === _addState.top);
     });
     _wireAddBody();
@@ -686,14 +743,21 @@ information about.
 
   // ── Single Form (adaptive: run block builder vs strength exercise rows) ─────
   function _singleFormHtml() {
+    var ed = _addState.edit || {};
+    function sel(t) { return ed.type === t ? ' selected' : ''; }
     return '<div class="pl-frow">' +
         '<div class="pl-fld"><label>Date</label><input type="date" id="pl-sf-date" value="' + esc(_addState.presetDate) + '"/></div>' +
-        '<div class="pl-fld"><label>Type</label><select id="pl-sf-type"><option value="run">Run</option><option value="strength">Strength</option><option value="plyo">Plyo</option><option value="rest">Rest</option></select></div>' +
-        '<div class="pl-fld"><label>Session name</label><input id="pl-sf-name" placeholder="Sustained Tempo"/></div>' +
+        '<div class="pl-fld"><label>Type</label><select id="pl-sf-type">' +
+          '<option value="run"' + sel('run') + '>Run</option>' +
+          '<option value="strength"' + sel('strength') + '>Strength</option>' +
+          '<option value="plyo"' + sel('plyo') + '>Plyo</option>' +
+          '<option value="rest"' + sel('rest') + '>Rest</option>' +
+        '</select></div>' +
+        '<div class="pl-fld"><label>Session name</label><input id="pl-sf-name" placeholder="Sustained Tempo" value="' + esc(ed.name || '') + '"/></div>' +
       '</div>' +
       '<div id="pl-sf-structure"></div>' +
-      '<div class="pl-fld" style="margin-top:14px;"><label>Notes from coach</label><textarea id="pl-sf-notes" placeholder="e.g. hold 92% CP even on the 3rd rep"></textarea></div>' +
-      '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-sf-save">Save session</button><button class="pl-btn pl-ghost" id="pl-sf-cancel">Cancel</button></div>';
+      '<div class="pl-fld" style="margin-top:14px;"><label>Notes from coach</label><textarea id="pl-sf-notes" placeholder="e.g. hold 92% CP even on the 3rd rep">' + esc(ed.notes || '') + '</textarea></div>' +
+      '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-sf-save">' + (_addState.editId ? 'Save changes' : 'Save session') + '</button><button class="pl-btn pl-ghost" id="pl-sf-cancel">Cancel</button></div>';
   }
 
   // Run block builder rows
@@ -707,6 +771,7 @@ information about.
     { name: 'Romanian deadlift', sets: 4, reps: 8, load: 'moderate' }
   ];
   var _sfStrengthMode = 'detailed'; // 'simple' | 'detailed'
+  var _sfFocus = ''; // seed for the simple-mode Focus input (edit prefill)
 
   function _renderStructureBuilder() {
     var host = document.getElementById('pl-sf-structure');
@@ -726,7 +791,7 @@ information about.
           '<button class="' + (_sfStrengthMode === 'detailed' ? 'on' : '') + '" data-str="detailed">Detailed</button>' +
         '</div>' +
         (_sfStrengthMode === 'simple'
-          ? '<div class="pl-fld"><label>Focus</label><input id="pl-str-focus" placeholder="Lower / posterior chain"/></div>'
+          ? '<div class="pl-fld"><label>Focus</label><input id="pl-str-focus" placeholder="Lower / posterior chain" value="' + esc(_sfFocus || '') + '"/></div>'
           : '<div class="pl-fld" style="margin-bottom:6px;"><label>Exercises</label></div>' +
             '<div class="pl-blocklist" id="pl-exlist">' + _sfExercises.map(_exRowHtml).join('') + '</div>' +
             '<button class="pl-addblock" id="pl-addex">+ Add exercise</button>');
@@ -775,6 +840,8 @@ information about.
     document.querySelectorAll('#pl-strmode button').forEach(function (b) {
       b.addEventListener('click', function () { _sfStrengthMode = b.getAttribute('data-str'); _renderStructureBuilder(); });
     });
+    var focusInp = document.getElementById('pl-str-focus');
+    if (focusInp) focusInp.addEventListener('input', function () { _sfFocus = focusInp.value; });
     var list = document.getElementById('pl-exlist');
     if (list) {
       list.querySelectorAll('.pl-block').forEach(function (row) {
@@ -835,8 +902,13 @@ information about.
       document.getElementById('pl-sf-save').onclick = function () {
         var payload = _collectSingleForm();
         if (!payload.planned_date || !payload.session_type) { _toast('Date and type are required', true); return; }
-        _api('POST', '/api/planned-sessions', payload)
-          .then(function () { _toast('Session saved'); _closeAdd(); _loadWeek(); })
+        // Editing PATCHes the existing session; creating POSTs a new one.
+        var editId = _addState.editId;
+        var req = editId
+          ? _api('PATCH', '/api/planned-sessions/' + editId, payload)
+          : _api('POST', '/api/planned-sessions', payload);
+        req
+          .then(function () { _toast(editId ? 'Session updated' : 'Session saved'); _closeAdd(); _loadWeek(); })
           .catch(function (e) { _toast(e.message || 'Save failed', true); });
       };
     } else if (_addState.top === 'single' && _addState.sub === 'json') {
@@ -1104,7 +1176,14 @@ information about.
     '</div>';
     document.getElementById('pl-detclose').onclick = _closeDetail;
     var editBtn = document.getElementById('pl-det-edit');
-    if (editBtn) editBtn.onclick = function () { _openAdd('single', p.planned_date); };
+    if (editBtn) editBtn.onclick = function () { _openEdit(p); };
+    var delBtn = document.getElementById('pl-det-delete');
+    if (delBtn) delBtn.onclick = function () {
+      if (!window.confirm('Delete this planned session? This can’t be undone.')) return;
+      _api('DELETE', '/api/planned-sessions/' + p.id)
+        .then(function () { _toast('Planned session deleted'); _closeDetail(); _loadWeek(); })
+        .catch(function (err) { _toast(err.message || 'Delete failed', true); });
+    };
     var copyBtn = document.getElementById('pl-det-copy');
     if (copyBtn) copyBtn.onclick = function () {
       var pre = document.getElementById('pl-stryd-pre');
@@ -1160,7 +1239,8 @@ information about.
 
     return '<div class="pl-dethead"><span class="pl-dettag run">Run</span>' +
         '<span style="font-size:11px;color:var(--pl-faint);font-family:var(--pl-mono)">' + esc(_fmtDayDate(p.planned_date)) + '</span>' +
-        '<span style="flex:1"></span><button class="pl-btn pl-ghost" id="pl-det-edit">Edit</button></div>' +
+        '<span style="flex:1"></span><button class="pl-btn pl-ghost pl-danger" id="pl-det-delete" title="Delete this planned session">Delete</button>' +
+        '<button class="pl-btn pl-ghost" id="pl-det-edit">Edit</button></div>' +
       '<div class="pl-dettitle">' + esc(p.name || '(untitled)') + '</div>' +
       _detailStatusActionsHtml(p) +
       (p.notes ? '' : '') +
@@ -1223,7 +1303,8 @@ information about.
 
     return '<div class="pl-dethead"><span class="pl-dettag lift">' + typeLabel + '</span>' +
         '<span style="font-size:11px;color:var(--pl-faint);font-family:var(--pl-mono)">' + esc(_fmtDayDate(p.planned_date)) + '</span>' +
-        '<span style="flex:1"></span><button class="pl-btn pl-ghost" id="pl-det-edit">Edit</button></div>' +
+        '<span style="flex:1"></span><button class="pl-btn pl-ghost pl-danger" id="pl-det-delete" title="Delete this planned session">Delete</button>' +
+        '<button class="pl-btn pl-ghost" id="pl-det-edit">Edit</button></div>' +
       '<div class="pl-dettitle">' + esc(p.name || '(untitled)') + '</div>' +
       _detailStatusActionsHtml(p) +
       '<div class="pl-dettiles">' +
@@ -1272,6 +1353,8 @@ information about.
     '.plan-panel .pl-btn.pl-dark{background:var(--pl-ink);color:#fff;border-color:var(--pl-ink);}',
     '.plan-panel .pl-btn.pl-lime{background:var(--pl-lime);color:var(--pl-ink);border-color:var(--pl-lime);}',
     '.plan-panel .pl-btn.pl-ghost{background:none;border:1px solid var(--pl-line);}',
+    '.plan-panel .pl-btn.pl-danger{color:#b91c1c;border-color:#fecaca;}',
+    '.plan-panel .pl-btn.pl-danger:hover{background:#fee2e2;}',
     '.plan-panel .pl-btn.pl-tiny{font-size:10px;padding:5px 9px;}',
     '.plan-panel .pl-detactions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 4px;}',
     '.plan-panel .pl-btnrow{display:flex;gap:8px;flex-wrap:wrap;}',
@@ -1566,22 +1649,19 @@ information about.
   function _dismissPanel() {
     _dismissed = true;
     var panel = _el('plan-suggestions-panel');
-    var trigger = _el('plan-suggestions-trigger-row');
     if (panel) panel.style.display = 'none';
-    if (trigger) trigger.style.display = '';
+    // The bottom trigger row stays hidden — the "✨ Suggest sessions" button in
+    // the week-pane header is the entry point now (it proxies a click to the
+    // hidden #plan-suggestions-trigger).
   }
 
   function _initSuggestions() {
     var trigger = _el('plan-suggestions-trigger');
     var refresh = _el('plan-suggestions-refresh');
     var dismiss = _el('plan-suggestions-dismiss');
-    var triggerRow = _el('plan-suggestions-trigger-row');
-
-    if (triggerRow) triggerRow.style.display = '';
 
     if (trigger) {
       trigger.addEventListener('click', function () {
-        if (triggerRow) triggerRow.style.display = 'none';
         _dismissed = false;
         _loadSuggestions();
       });
