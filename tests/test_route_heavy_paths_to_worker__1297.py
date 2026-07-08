@@ -61,7 +61,9 @@ def test_worker_client_reads_secret_from_env(monkeypatch):
 
 
 def test_worker_unavailable_when_no_base_url(monkeypatch):
-    """WorkerUnavailable raised when WORKER_BASE_URL is not set."""
+    """http mode: WorkerUnavailable raised when WORKER_BASE_URL is not set.
+    (queue mode never raises this — it enqueues; see the pull-queue test file.)"""
+    monkeypatch.setenv("WORKER_TRIGGER_MODE", "http")
     monkeypatch.delenv("WORKER_BASE_URL", raising=False)
     with pytest.raises(worker_client.WorkerUnavailable):
         worker_client.delegate_sync(str(uuid.uuid4()), ["strava"], full=True)
@@ -469,7 +471,8 @@ def test_full_strava_sync_no_inprocess_reconcile(monkeypatch):
 
 
 def test_worker_client_delegate_sync_sends_correct_payload(monkeypatch):
-    """delegate_sync sends correct JSON body and X-Worker-Secret header to worker."""
+    """http mode: delegate_sync sends correct JSON body and X-Worker-Secret header."""
+    monkeypatch.setenv("WORKER_TRIGGER_MODE", "http")
     monkeypatch.setenv("WORKER_BASE_URL", "http://worker:9100")
     monkeypatch.setenv("WORKER_SHARED_SECRET", "mysecret")
 
@@ -501,7 +504,8 @@ def test_worker_client_delegate_sync_sends_correct_payload(monkeypatch):
 
 
 def test_worker_client_connection_error_raises_worker_unavailable(monkeypatch):
-    """Connection error to worker raises WorkerUnavailable."""
+    """http mode: connection error to worker raises WorkerUnavailable."""
+    monkeypatch.setenv("WORKER_TRIGGER_MODE", "http")
     monkeypatch.setenv("WORKER_BASE_URL", "http://worker:9100")
     monkeypatch.setenv("WORKER_SHARED_SECRET", "sec")
 

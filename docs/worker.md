@@ -10,9 +10,12 @@ listening on port 9100, and shares the same Neon Postgres as the webapp.
 
 - The worker and the webapp are two independent processes hitting the same
   Neon database. Heavy paths (full syncs, backfill) are **delegated** from
-  the webapp to the worker via plain HTTP (`backend/services/worker_client.py`).
-  The webapp's sync endpoints proxy full-sync requests to the worker's
-  `/internal/sync/run`; backfill calls go to `/internal/performance/backfill`.
+  the webapp to the worker. As of the pull-queue migration (Phase 1), the
+  default trigger is a **Neon-backed job queue**: the webapp inserts a `queued`
+  row and the worker claims it — no HTTP from Render to zeal-server. See
+  [Trigger mode](#trigger-mode-pull-queue-vs-http-push) below. The legacy HTTP
+  push (`/internal/sync/run`, `/internal/performance/backfill`) is still present
+  behind `WORKER_TRIGGER_MODE=http` for local dev / rollback.
   Incremental syncs still run in-process (bounded, fast).
 - `backend/worker_app.py` never imports `backend.main` (which starts daemon
   threads — sleep sync, banister refit — at import time). It only imports
@@ -26,19 +29,70 @@ listening on port 9100, and shares the same Neon Postgres as the webapp.
   recent delegated jobs when no in-process job is active, so the nav sync
   status bar shows progress for worker-delegated syncs without new infra.
 
+## Trigger mode: pull queue vs HTTP push
+
+`WORKER_TRIGGER_MODE` (webapp env) selects how heavy paths reach the worker:
+
+- **`queue` (default)** — the webapp `enqueue()`s a row in the Neon `job_queue`
+  table (`backend/services/job_queue.py`); the worker's poll loop claims it with
+  `SELECT … FOR UPDATE SKIP LOCKED`. **Both machines only connect OUTBOUND to
+  Neon**, so the worker can sit behind home NAT with no inbound port, no tunnel,
+  no `WORKER_BASE_URL`. Enqueue is a cheap DB insert, so an offline worker no
+  longer fails the request — the job just waits in `queued` and runs when the
+  worker wakes.
+- **`http`** — the legacy push path (`worker_client._post` → `/internal/*`).
+  Requires `WORKER_BASE_URL` + `WORKER_SHARED_SECRET` and inbound reachability.
+  Kept for local dev and rollback.
+
+The `job_queue` table is separate from `worker_job_runs`: the queue is the
+**work list** (queued → running → done/failed, with lease + attempts), while
+`worker_job_runs` stays the **execution audit trail**. A claimed queue row is
+linked to its audit row via `worker_job_run_id`.
+
+### Lifecycle & recovery
+
+- **Claim + lease**: `claim_next` flips one `queued` row to `running`, stamps
+  `claimed_by` + `lease_expires_at` (now + `QUEUE_LEASE_SECONDS`), and bumps
+  `attempts`. A 60s heartbeat extends the lease while a long job runs.
+- **Crash / sleep recovery**: `requeue_stale` (run at the top of every poll)
+  returns any `running` row whose lease has expired to `queued` (if attempts
+  remain) or marks it terminally `failed`. This is what makes killing the worker
+  mid-job safe — on restart the job is reclaimed and re-run. Because every
+  upsert in the sync/backfill code is idempotent (`ON CONFLICT DO UPDATE`), a
+  re-run is safe.
+- **Dedupe**: `enqueue(dedupe_key=…)` skips insertion when an active
+  (queued/running) row already shares the key, mirroring the worker's existing
+  single-flight intent (`<source>_sync:<user_id>`). Double-clicking Sync does
+  not double-enqueue.
+- **Retries**: `fail(retryable=True)` requeues until `attempts == max_attempts`
+  (default 3), then terminal `failed`. No-handler jobs fail non-retryably.
+
 ## Webapp delegation config
 
 Set these env vars on the Render webapp service (not the worker):
 
 | Var | Default | Purpose |
 |-----|---------|---------|
-| `WORKER_BASE_URL` | _(unset)_ | Worker base URL, e.g. `http://zeal-server:9100`. When unset, heavy paths run in-process (local dev). |
-| `WORKER_SHARED_SECRET` | _(unset)_ | Same secret as the worker's `WORKER_SHARED_SECRET`. |
-| `ROUTE_FULL_SYNC_FALLBACK_TO_INPROCESS` | `0` | Set `1` to allow in-process fallback when the worker is down. **Off by default** — an unreachable worker returns 503. |
+| `WORKER_TRIGGER_MODE` | `queue` | `queue` = enqueue a `job_queue` row (default, NAT-friendly). `http` = POST to the worker (needs `WORKER_BASE_URL`). |
+| `WORKER_BASE_URL` | _(unset)_ | Worker base URL for `http` mode, e.g. `http://zeal-server:9100`. Not needed in `queue` mode. |
+| `WORKER_SHARED_SECRET` | _(unset)_ | Same secret as the worker's `WORKER_SHARED_SECRET` (`http` mode only). |
+| `ROUTE_FULL_SYNC_FALLBACK_TO_INPROCESS` | `0` | Set `1` to allow in-process fallback when the worker is down (`http` mode). **Off by default** — an unreachable worker returns 503. In `queue` mode there is nothing to fall back from: enqueue always succeeds. |
 | `ROUTE_BACKFILL_FALLBACK_TO_INPROCESS` | `0` | Same for backfill. |
 | `LEGACY_SYNC_STRAVA_ENABLED` | `0` | Set `1` to re-enable the deprecated `POST /api/sync/strava` BackgroundTasks endpoint. Disabled (410) by default. |
 
+Worker-side poll config (set on the worker, not Render):
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `QUEUE_POLL_ENABLED` | `1` | Set `0` to stop the worker claiming queued jobs (HTTP push still works). |
+| `QUEUE_POLL_INTERVAL_SECONDS` | `5` | Sleep between polls when the queue is empty (drains back-to-back while jobs remain). |
+| `QUEUE_LEASE_SECONDS` | `600` | Lease length per claim; the heartbeat re-extends it every 60s. A crashed worker's jobs are reclaimed once the lease lapses. |
+
 ### Worker-unreachable behavior
+
+In `queue` mode this section does not apply: enqueue is a DB insert that always
+succeeds, and an offline worker just leaves the job `queued` until it wakes. The
+following is `http` mode only.
 
 When `WORKER_BASE_URL` is set but the worker is unreachable:
 - `POST /api/strava/sync?full=true` and `POST /api/stryd/sync?full=true` → **503**
@@ -138,12 +192,23 @@ curl -X POST http://zeal-server:9100/internal/performance/backfill \
 {"started": true}
 ```
 
-## Schedule
+## Poll loop & schedule
 
-A daemon thread started on FastAPI startup drives two schedules:
+On FastAPI startup the worker starts **two** daemon threads:
+
+- **`worker-queue-poll`** (queue mode) — every `QUEUE_POLL_INTERVAL_SECONDS`
+  it runs `requeue_stale()` then `claim_next()`; a claimed job is dispatched
+  through the same handlers as the HTTP path (`strava_sync` / `stryd_sync` /
+  `backfill` / `banister_refit`) on the thread pool, then `complete()`/`fail()`.
+  It drains back-to-back while jobs remain, then sleeps.
+- **Scheduler** — drives the timed sweeps below. In queue mode the scheduler
+  **enqueues** rows (it no longer calls the sync code directly), so scheduled and
+  on-demand work flow through the one queue and share its dedupe + lease.
+
+Timed schedules:
 
 - **Sync sweep**: at each `HH:MM` in `WORKER_SYNC_TIMES` (comma-separated,
-  default `06:00,18:00`, interpreted in Asia/Bangkok), runs an incremental
+  default `06:00,18:00`, interpreted in Asia/Bangkok), enqueues an incremental
   (`full=false`) sync for all users with Strava/Stryd credentials,
   `triggered_by="schedule"`.
 - **Banister refit**: if `WORKER_BANISTER_ENABLED=1` (default), every 7 days
@@ -177,6 +242,31 @@ A daemon thread started on FastAPI startup drives two schedules:
    `ENVIRONMENT`/`DATABASE_URL`, then execs uvicorn on
    `backend.worker_app:app`, port `${WORKER_PORT:-9100}`).
 6. Verify: `curl http://localhost:9100/internal/health`.
+
+### Reliability on zeal-server (queue mode)
+
+The pull queue only self-heals if the worker process is actually alive to poll,
+so keep it running across logouts and sleep:
+
+- **launchd, not a login shell.** Run the worker as a `launchd` LaunchAgent (or
+  LaunchDaemon) with `KeepAlive=true` so macOS restarts it on crash or reboot.
+  A `tmux`/terminal session dies on logout and won't come back — use it only for
+  attended debugging.
+- **Stop the Mac sleeping the process.** Under `caffeinate -s` (or Energy Saver
+  "Prevent automatic sleeping"/"Wake for network access") the poll loop keeps
+  ticking. If the Mac does sleep mid-job, the lease lapses and `requeue_stale`
+  re-queues the job on wake — correct, just delayed.
+- **`QUEUE_POLL_ENABLED=1`** must be set on the worker (default) or it will never
+  claim queued jobs. `WORKER_BASE_URL` is **not** required in queue mode.
+- **Neon scale-to-zero.** A free/scale-to-zero Neon branch parks the compute
+  after idle; the first poll after a park pays a cold-start (a few hundred ms to
+  low seconds) and may transiently error — the loop simply retries next tick, so
+  it's harmless. On the busy shared UAT/PRD branch this rarely triggers. If cold
+  starts become noticeable, raise `QUEUE_POLL_INTERVAL_SECONDS` (fewer wakeups)
+  or disable scale-to-zero on that branch.
+- **One worker per environment.** `SKIP LOCKED` makes multiple workers safe (no
+  two claim the same row), but run a single worker per DB unless you deliberately
+  want horizontal fan-out.
 
 ## Audit trail
 

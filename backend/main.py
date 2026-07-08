@@ -9406,8 +9406,7 @@ def post_performance_backfill(user: User = Depends(resolve_user)):
     to the synchronous in-process pipeline and returns 200 with the summary dict.
     """
     uid = user.id
-    worker_base_url = _worker_client.get_worker_base_url()
-    if worker_base_url:
+    if _worker_client.should_delegate():
         try:
             _worker_client.delegate_backfill(str(uid))
             return JSONResponse({"worker_delegated": True, "started": True}, status_code=202)
@@ -9439,7 +9438,7 @@ def _trigger_performance_backfill_background(user_id) -> None:
     """
     _backfill_log = _logging.getLogger(__name__)
 
-    if _worker_client.get_worker_base_url():
+    if _worker_client.should_delegate():
         try:
             _worker_client.delegate_backfill(str(user_id))
             return

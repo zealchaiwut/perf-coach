@@ -870,6 +870,47 @@ class WorkerJobRun(Base):
     )
 
 
+class JobQueue(Base):
+    """Neon-backed pull queue: the worker (behind home NAT) claims rows instead
+    of being called over HTTP. Separate from worker_job_runs, which stays the
+    execution audit trail — this table is the intent/queue. See
+    backend/services/job_queue.py (repo) and backend/worker_app.py (poll loop).
+    """
+
+    __tablename__ = "job_queue"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    job_type = Column(String(40), nullable=False)  # strava_sync|stryd_sync|backfill|banister_refit|...
+    payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    status = Column(String(12), nullable=False, server_default=text("'queued'"), default="queued")  # queued|running|done|failed|cancelled
+    priority = Column(Integer, nullable=False, server_default=text("0"), default=0)  # lower = sooner
+    attempts = Column(Integer, nullable=False, server_default=text("0"), default=0)
+    max_attempts = Column(Integer, nullable=False, server_default=text("3"), default=3)
+    claimed_by = Column(String(120), nullable=True)  # worker instance id (hostname:pid)
+    lease_expires_at = Column(DateTime(timezone=True), nullable=True)
+    heartbeat_at = Column(DateTime(timezone=True), nullable=True)
+    result = Column(JSONB, nullable=True)
+    error = Column(Text, nullable=True)
+    worker_job_run_id = Column(UUID(as_uuid=True), ForeignKey("worker_job_runs.id", ondelete="SET NULL"), nullable=True)
+    enqueued_by = Column(String(12), nullable=True)  # web|schedule|manual
+    dedupe_key = Column(String(200), nullable=True)  # skip re-enqueue while an active row shares this
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        # Claim query: WHERE status='queued' ORDER BY priority, created_at.
+        Index("ix_job_queue_claim", "priority", "created_at",
+              postgresql_where=text("status = 'queued'")),
+        # Stale reaper: WHERE status='running' AND lease_expires_at < now().
+        Index("ix_job_queue_lease", "lease_expires_at",
+              postgresql_where=text("status = 'running'")),
+        # Dedupe lookup for active rows sharing a key.
+        Index("ix_job_queue_dedupe", "dedupe_key",
+              postgresql_where=text("status IN ('queued', 'running') AND dedupe_key IS NOT NULL")),
+    )
+
+
 class ActivityStream(Base):
     """Per-sample time-series channel data for a workout.
 

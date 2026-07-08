@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
+import socket
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -23,6 +24,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from backend.db import engine
+from backend.services import job_queue
 
 logger = logging.getLogger("backend.worker_app")
 
@@ -36,6 +38,14 @@ _STALE_GUARD_WINDOW = timedelta(hours=2)
 # concurrent triggers (manual + scheduled) can't start duplicate syncs.
 _single_flight_lock = threading.Lock()
 _BANISTER_REFIT_INTERVAL_SECONDS = 7 * 24 * 3600  # weekly
+
+# ── Pull-queue config (Phase 1) ──────────────────────────────────────────────
+# The worker polls the Neon job_queue and claims work (FOR UPDATE SKIP LOCKED)
+# instead of being reached over HTTP — outbound-only, so home NAT is a non-issue.
+QUEUE_POLL_ENABLED = os.getenv("QUEUE_POLL_ENABLED", "1") == "1"
+QUEUE_POLL_INTERVAL_SECONDS = int(os.getenv("QUEUE_POLL_INTERVAL_SECONDS", "5"))
+QUEUE_LEASE_SECONDS = int(os.getenv("QUEUE_LEASE_SECONDS", "600"))
+_WORKER_ID = f"{socket.gethostname()}:{os.getpid()}"
 
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
@@ -201,6 +211,33 @@ def _run_batch_sync(user_id: str | None, sources: list[str], full: bool, trigger
     return count
 
 
+def _enqueue_batch_sync(user_id: str | None, sources: list[str], full: bool, enqueued_by: str) -> int:
+    """Queue-mode analog of _run_batch_sync: expand to per-user jobs and ENQUEUE
+    them (one row per source+user) instead of executing directly. The dedupe_key
+    mirrors the stale-guard intent (source_sync:user_id) so a scheduled sweep and
+    an on-demand click don't double-enqueue the same work."""
+    if user_id is not None:
+        targets = {source: [user_id] for source in sources}
+    else:
+        targets = {}
+        if "strava" in sources:
+            targets["strava"] = _users_with_strava_tokens()
+        if "stryd" in sources:
+            targets["stryd"] = _users_with_stryd_credentials()
+
+    count = 0
+    for source, user_ids in targets.items():
+        for uid in user_ids:
+            job_queue.enqueue(
+                f"{source}_sync",
+                {"user_id": uid, "full": full},
+                enqueued_by=enqueued_by,
+                dedupe_key=f"{source}_sync:{uid}",
+            )
+            count += 1
+    return count
+
+
 def _run_backfill(user_id: str) -> None:
     from backend.services.backfill_performance import backfill_performance_for_athlete
 
@@ -234,6 +271,101 @@ def _run_banister_refit_batch() -> None:
     except Exception as exc:
         recorder.mark_error(None, str(exc))
         logger.error("job finish: banister_refit status=error: %s", exc, exc_info=True)
+
+
+# ── Pull-queue: dispatch + poll loop (Phase 1) ───────────────────────────────
+#
+# Each handler runs the EXISTING execution function (which creates and finalizes
+# its own worker_job_runs audit row via DbRecorder — we do NOT create a second
+# one), then the wrapper marks the queue row done/failed. Job types map 1:1 to
+# the handlers below.
+
+def _h_strava_sync(p: dict) -> None:
+    _run_one_sync(p["user_id"], "strava", bool(p.get("full")), p.get("triggered_by", "queue"))
+
+
+def _h_stryd_sync(p: dict) -> None:
+    _run_one_sync(p["user_id"], "stryd", bool(p.get("full")), p.get("triggered_by", "queue"))
+
+
+def _h_backfill(p: dict) -> None:
+    _run_backfill(p["user_id"])
+
+
+def _h_banister_refit(p: dict) -> None:
+    _run_banister_refit_batch()
+
+
+_DISPATCH = {
+    "strava_sync": _h_strava_sync,
+    "stryd_sync": _h_stryd_sync,
+    "backfill": _h_backfill,
+    "banister_refit": _h_banister_refit,
+}
+
+
+class _Heartbeat:
+    """Bumps a claimed job's heartbeat/lease periodically so a long run isn't
+    reaped by requeue_stale mid-flight. Stopped in the wrapper's finally."""
+
+    def __init__(self, job_id: str, interval: int = 60) -> None:
+        self._stop = threading.Event()
+        self._t = threading.Thread(
+            target=self._run, args=(job_id, interval), daemon=True, name="worker-heartbeat"
+        )
+        self._t.start()
+
+    def _run(self, job_id: str, interval: int) -> None:
+        while not self._stop.wait(interval):
+            try:
+                job_queue.heartbeat(job_id, lease_seconds=QUEUE_LEASE_SECONDS)
+            except Exception:
+                pass  # a missed heartbeat just risks an early requeue; not fatal
+
+    def stop(self) -> None:
+        self._stop.set()
+
+
+def _handle_job(row: dict) -> None:
+    job_id = str(row["id"])
+    job_type = row["job_type"]
+    payload = row.get("payload") or {}
+    handler = _DISPATCH.get(job_type)
+    if handler is None:
+        job_queue.fail(job_id, f"no handler for job_type {job_type!r}", retryable=False)
+        return
+    hb = _Heartbeat(job_id)
+    try:
+        handler(payload)
+        job_queue.complete(job_id, None)
+    except Exception as exc:
+        logger.error("queue job %s (%s) failed: %s", job_id, job_type, exc, exc_info=True)
+        job_queue.fail(job_id, str(exc), retryable=True)
+    finally:
+        hb.stop()
+
+
+def _queue_poll_loop() -> None:
+    if not QUEUE_POLL_ENABLED:
+        logger.info("queue poll disabled (QUEUE_POLL_ENABLED != 1)")
+        return
+    job_types = list(_DISPATCH.keys())
+    logger.info(
+        "queue poll started: worker_id=%s interval=%ss lease=%ss",
+        _WORKER_ID, QUEUE_POLL_INTERVAL_SECONDS, QUEUE_LEASE_SECONDS,
+    )
+    while True:
+        try:
+            job_queue.requeue_stale()  # cheap; recovers jobs after a sleep/crash
+            claimed = job_queue.claim_next(
+                _WORKER_ID, lease_seconds=QUEUE_LEASE_SECONDS, job_types=job_types
+            )
+            if claimed is not None:
+                _executor.submit(_handle_job, claimed)
+                continue  # drain: try another immediately before sleeping
+        except Exception as exc:
+            logger.error("queue poll error: %s", exc, exc_info=True)
+        time.sleep(QUEUE_POLL_INTERVAL_SECONDS)
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -340,7 +472,9 @@ def _scheduler_loop() -> None:
         sleep_seconds = _seconds_until_next(times) if times else 3600
         time.sleep(max(sleep_seconds, 1))
         try:
-            count = _run_batch_sync(None, ["strava", "stryd"], full=False, triggered_by="schedule")
+            # Enqueue (don't execute) so scheduled + on-demand jobs flow through
+            # the one pull-queue path; the poll loop below claims and runs them.
+            count = _enqueue_batch_sync(None, ["strava", "stryd"], full=False, enqueued_by="schedule")
             logger.info("scheduled sync enqueued: %d job(s)", count)
         except Exception as exc:
             logger.error("scheduled sync failed to enqueue: %s", exc, exc_info=True)
@@ -348,12 +482,13 @@ def _scheduler_loop() -> None:
         if banister_enabled and (time.monotonic() - last_banister_refit) >= _BANISTER_REFIT_INTERVAL_SECONDS:
             last_banister_refit = time.monotonic()
             try:
-                _executor.submit(_run_banister_refit_batch)
+                job_queue.enqueue("banister_refit", {}, enqueued_by="schedule", dedupe_key="banister_refit")
             except Exception as exc:
                 logger.error("scheduled banister refit failed to enqueue: %s", exc, exc_info=True)
 
 
 @app.on_event("startup")
 def _start_scheduler() -> None:
-    thread = threading.Thread(target=_scheduler_loop, daemon=True, name="worker-scheduler")
-    thread.start()
+    threading.Thread(target=_scheduler_loop, daemon=True, name="worker-scheduler").start()
+    # Second daemon: the pull-queue poll loop (claims + runs enqueued jobs).
+    threading.Thread(target=_queue_poll_loop, daemon=True, name="worker-queue-poll").start()
