@@ -192,6 +192,76 @@ curl -X POST http://zeal-server:9100/internal/performance/backfill \
 {"started": true}
 ```
 
+## Precompute: warm caches on the worker (Phase 2)
+
+The heaviest recompute on the web path is `training_load.daily_update()` — a
+180-day EWMA rebuild — run both when a workout is written and, as a fallback,
+when `current_load()` reads a missing/stale `training_load_snapshots` row. Phase 2
+moves that work to the worker via a `precompute` queue job so the web request
+stays fast:
+
+- **On workout write** (create / edit / delete / duplicate), the web tier calls
+  `worker_client.delegate_precompute(user_id, dates=[...])`, which enqueues a
+  `precompute` job (deduped `precompute:<user_id>`) instead of recomputing
+  inline. Gated by `PRECOMPUTE_ON_WRITE_ENABLED` (default on). In http mode, or
+  if enqueue fails, it falls back to the inline `daily_update` (prior behavior).
+- **After a sync**, each per-user `*_sync` handler enqueues a `precompute` for
+  that user (`PRECOMPUTE_AFTER_SYNC_ENABLED`, default on), so the first
+  post-sync dashboard load is a pure cache hit rather than paying the recompute.
+- **The worker** runs `backend/services/precompute.py::precompute_user`, warming
+  today + yesterday (+ any edited dates) in `training_load_snapshots`.
+
+Safety: `current_load()` still falls back to an inline recompute when it reads
+before the worker has caught up, so a brief lag is correct, just slightly slower.
+`LOAD_READ_FROM_SNAPSHOT` (default on) can force `current_load` to always
+recompute inline (debug / rollback) — always safe, since inline is the same path
+taken on a cache miss. Performance scores and the weekly/monthly summaries keep
+their existing inline-on-miss `summary_cache` (signature-invalidated); the
+form/weight projections are cheap once the load snapshot is warm, so neither
+grew a new snapshot table.
+
+Web-tier flags (Render):
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `PRECOMPUTE_ON_WRITE_ENABLED` | `1` | Offload the workout-write load recompute to the worker (queue mode). `0` = recompute inline. |
+| `LOAD_READ_FROM_SNAPSHOT` | `1` | `current_load()` reads the snapshot cache. `0` = always recompute inline. |
+
+Worker-tier flag:
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `PRECOMPUTE_AFTER_SYNC_ENABLED` | `1` | Enqueue a `precompute` after each per-user sync so the snapshot is warm before the user looks. |
+
+## Sync routing, queue visibility & Garmin (Phase 3)
+
+**Sync routing.** Full / stream-heavy syncs always go to the worker. Light
+incremental syncs run in-process on the web tier by default; set
+`WEB_INCREMENTAL_SYNC_ENABLED=0` to route those to the worker too (fully offload
+sync from the web dyno). In http mode with no worker reachable, an incremental
+falls back to in-process rather than failing.
+
+**Queue visibility.** `GET /api/sync/status` now also reports a queued/running
+pull-queue job as `pending` / `running` (source `queue`) — so the nav bar
+reflects a full sync that is waiting for the worker to claim it, not just jobs
+already executing. `GET /api/queue` returns the signed-in user's recent queue
+rows (job type, status, attempts, timestamps, error) for the **Settings → Queue**
+tab. Both are user-isolated by `payload->>'user_id'` — a user never sees another
+user's rows, and batch jobs (banister_refit, no user_id) are excluded.
+
+**Garmin scaffold.** `backend/services/garmin.py` + the worker `garmin_sync`
+handler + `GET /api/garmin/status` are a placeholder for a future Garmin Connect
+source. Off by default (`GARMIN_SYNC_ENABLED`); `sync_garmin` raises until the
+integration is built, and every call site guards on `is_enabled()`, so a stray
+`garmin_sync` job is a clean no-op while the flag is off.
+
+Web-tier flags (Render):
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `WEB_INCREMENTAL_SYNC_ENABLED` | `1` | Run light incremental syncs in-process. `0` routes them to the worker too. |
+| `GARMIN_SYNC_ENABLED` | `0` | Turn on the Garmin source (scaffold — not implemented yet). |
+
 ## Poll loop & schedule
 
 On FastAPI startup the worker starts **two** daemon threads:

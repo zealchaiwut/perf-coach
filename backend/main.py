@@ -6821,6 +6821,29 @@ def get_workout_full(
         return JSONResponse(response_body)
 
 
+def _warm_load_after_write(user_id, *dates) -> None:
+    """Refresh the training-load snapshot after a workout write.
+
+    Phase 2: when PRECOMPUTE_ON_WRITE_ENABLED and the worker is in queue mode,
+    offload the 180-day EWMA recompute to the worker (keeps the write response
+    fast) — the worker warms today's snapshot, and current_load() falls back to
+    an inline recompute if it reads before the worker catches up, so a brief lag
+    is safe. Otherwise (flag off / http mode / enqueue failed) recompute inline,
+    the prior behavior. Never raises."""
+    clean = [d for d in dates if d is not None]
+    if _worker_client.precompute_on_write_enabled():
+        res = _worker_client.delegate_precompute(str(user_id), dates=clean)
+        if res.get("queued"):
+            return
+    for d in clean:
+        try:
+            daily_update(str(user_id), d)
+        except Exception as _exc:
+            _logging.getLogger(__name__).warning(
+                "daily_update failed for user %s date %s: %s", user_id, d, _exc, exc_info=True
+            )
+
+
 @app.post("/api/workouts", status_code=201)
 def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
     uid = user.id
@@ -6911,12 +6934,7 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             _logging.getLogger(__name__).warning(
                 "persist_running_tss failed for workout %s: %s", workout.id, _tss_exc, exc_info=True
             )
-        try:
-            daily_update(str(uid), workout_date)
-        except Exception as _exc:
-            _logging.getLogger(__name__).warning(
-                "daily_update failed for user %s date %s: %s", uid, workout_date, _exc, exc_info=True
-            )
+        _warm_load_after_write(uid, workout_date)
         try:
             _recompute_autofill(uid, _week_start_bangkok(workout_date))
         except Exception as _af_exc:
@@ -7066,12 +7084,7 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             _logging.getLogger(__name__).warning(
                 "persist_running_tss failed for workout %s: %s", wid, _tss_exc, exc_info=True
             )
-        try:
-            daily_update(str(workout.user_id), workout.workout_date)
-        except Exception as _exc:
-            _logging.getLogger(__name__).warning(
-                "daily_update failed for user %s date %s: %s", workout.user_id, workout.workout_date, _exc, exc_info=True
-            )
+        _warm_load_after_write(workout.user_id, _old_workout_date, workout.workout_date)
         try:
             for _ws in {_week_start_bangkok(_old_workout_date), _week_start_bangkok(workout.workout_date)}:
                 _recompute_autofill(workout.user_id, _ws)
@@ -7127,6 +7140,10 @@ def delete_workout(workout_id: str, user: User = Depends(resolve_user)):
                 ))
         session.delete(workout)
         session.commit()
+    # A deletion removes TSS from the series, so the load snapshot is now stale;
+    # warm it (worker in queue mode, else inline). Previously nothing refreshed
+    # it, so the next current_load() read paid the recompute.
+    _warm_load_after_write(_del_uid, _del_date)
     try:
         _recompute_autofill(_del_uid, _week_start_bangkok(_del_date))
     except Exception as _af_exc:
@@ -7582,12 +7599,7 @@ def duplicate_workout(workout_id: str, body: WorkoutDuplicateIn, user: User = De
         for e in new_exercises:
             session.refresh(e)
 
-        try:
-            daily_update(str(user.id), new_date)
-        except Exception as _exc:
-            _logging.getLogger(__name__).warning(
-                "daily_update failed for user %s date %s: %s", user.id, new_date, _exc, exc_info=True
-            )
+        _warm_load_after_write(user.id, new_date)
         try:
             _recompute_autofill(user.id, _week_start_bangkok(new_date))
         except Exception as _af_exc:
@@ -10425,6 +10437,18 @@ def stryd_configured():
     return JSONResponse({"configured": bool(os.getenv("STRYD_FERNET_KEY"))})
 
 
+@app.get("/api/garmin/status")
+def garmin_status(user: User = Depends(resolve_user)):
+    """Garmin scaffold (Phase 3): reports the flag state. `connected` is always
+    False until the integration is built — see backend/services/garmin.py."""
+    from backend.services import garmin
+    return JSONResponse({
+        "source": "garmin",
+        "enabled": garmin.is_enabled(),
+        "connected": False,
+    })
+
+
 # Caps concurrent background syncs — prevents a burst of requests from spawning
 # unlimited threads and exhausting memory.
 _sync_pool = _ThreadPoolExecutor(max_workers=1, thread_name_prefix="sync")
@@ -10466,6 +10490,29 @@ class _StravaSyncBody(BaseModel):
     full: bool = False
 
 
+def _web_incremental_sync_enabled() -> bool:
+    """Whether light incremental syncs run in-process on the web tier (default on).
+    Set WEB_INCREMENTAL_SYNC_ENABLED=0 to route incremental syncs to the worker
+    too (fully offload sync from the web dyno). Full/stream-heavy syncs always go
+    to the worker regardless."""
+    return os.getenv("WEB_INCREMENTAL_SYNC_ENABLED", "1").strip().lower() not in (
+        "0", "false", "no", "off", "",
+    )
+
+
+def _maybe_delegate_incremental(uid, source: str):
+    """Phase 3 routing: when web incremental is disabled, hand the incremental
+    sync to the worker (queue). Returns a JSONResponse to return, or None to fall
+    through to the in-process path (flag on, or worker unavailable in http mode)."""
+    if _web_incremental_sync_enabled():
+        return None
+    try:
+        res = _worker_client.delegate_sync(str(uid), sources=[source], full=False)
+        return JSONResponse({"started": True, "worker_delegated": True, **res}, status_code=202)
+    except _worker_client.WorkerUnavailable:
+        return None  # http mode with no worker → fall back to in-process
+
+
 @app.post("/api/strava/sync")
 def strava_sync(body: _StravaSyncBody = Body(default=None), user: User = Depends(resolve_user)):
     """Start an async Strava pull; returns 202 immediately.
@@ -10499,6 +10546,10 @@ def strava_sync(body: _StravaSyncBody = Body(default=None), user: User = Depends
                 "Worker unavailable for full Strava sync (user %s); falling back to in-process: %s",
                 uid, exc,
             )
+
+    _delegated = _maybe_delegate_incremental(uid, "strava")
+    if _delegated is not None:
+        return _delegated
 
     try:
         _sync_jobs.start(uid, "strava")
@@ -10556,6 +10607,10 @@ def stryd_sync(body: _StrydSyncBody = Body(default=None), user: User = Depends(r
                 "Worker unavailable for full Stryd sync (user %s); falling back to in-process: %s",
                 uid, exc,
             )
+
+    _delegated = _maybe_delegate_incremental(uid, "stryd")
+    if _delegated is not None:
+        return _delegated
 
     try:
         _sync_jobs.start(uid, "stryd")
@@ -13137,7 +13192,59 @@ async def get_sync_status(user: User = Depends(resolve_user)):
     except Exception:
         pass
 
+    # Phase 3: a queued/running job in the pull queue (e.g. a full sync waiting
+    # for the worker to claim it) surfaces as "pending" so the nav bar reflects
+    # work that hasn't started executing yet. A running worker_job_run above
+    # already returned; this catches the pre-claim window.
+    try:
+        from backend.services import job_queue as _jq
+        pending = _jq.pending_for_user(user.id)
+        if pending is not None:
+            return JSONResponse({
+                "status": "pending" if pending["status"] == "queued" else "running",
+                "source": "queue",
+                "job_type": pending["job_type"],
+                "enqueued_at": pending["created_at"].isoformat() if pending["created_at"] else None,
+            })
+    except Exception:
+        pass
+
     return JSONResponse({"status": "idle"})
+
+
+@app.get("/api/queue")
+def get_queue(limit: int = 25, user: User = Depends(resolve_user)):
+    """The signed-in user's recent pull-queue jobs (Settings → Queue tab).
+
+    User-isolated by payload user_id — never another user's rows, and batch jobs
+    (no user_id) are excluded. Read-only."""
+    limit = max(1, min(int(limit or 25), 100))
+    try:
+        from backend.services import job_queue as _jq
+        rows = _jq.list_for_user(user.id, limit=limit)
+    except Exception:
+        _logging.getLogger(__name__).warning("queue list failed for %s", user.id, exc_info=True)
+        rows = []
+
+    def _dt(v):
+        return v.isoformat() if v is not None else None
+
+    jobs = [
+        {
+            "id": str(r["id"]),
+            "job_type": r["job_type"],
+            "status": r["status"],
+            "attempts": r["attempts"],
+            "max_attempts": r["max_attempts"],
+            "enqueued_by": r["enqueued_by"],
+            "created_at": _dt(r["created_at"]),
+            "started_at": _dt(r["started_at"]),
+            "finished_at": _dt(r["finished_at"]),
+            "error": r["error"],
+        }
+        for r in rows
+    ]
+    return JSONResponse({"jobs": jobs})
 
 
 @app.get("/api/sync/history")

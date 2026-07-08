@@ -111,6 +111,44 @@ def delegate_sync(
     return {"started": True, "queued": True, "job_ids": job_ids}
 
 
+def _flag_on(name: str, default: str = "1") -> bool:
+    return os.getenv(name, default).strip().lower() not in ("0", "false", "no", "off", "")
+
+
+def precompute_on_write_enabled() -> bool:
+    """Whether a workout write should offload the training-load recompute to the
+    worker (queue mode) instead of running the 180-day EWMA inline. Default on."""
+    return _flag_on("PRECOMPUTE_ON_WRITE_ENABLED")
+
+
+def precompute_after_sync_enabled() -> bool:
+    """Whether the worker warms a user's load snapshot after a sync job. Default on."""
+    return _flag_on("PRECOMPUTE_AFTER_SYNC_ENABLED")
+
+
+def delegate_precompute(user_id: str, *, dates=None) -> dict:
+    """Enqueue a load-snapshot precompute for one user (queue mode only).
+
+    Deduped per user (`precompute:<user_id>`) so a burst of edits collapses to one
+    job. In http mode there is no worker precompute endpoint, so this is a no-op
+    and the caller runs its inline fallback. Never raises — a queue hiccup must
+    not fail the workout write; the caller falls back to inline recompute."""
+    if _trigger_mode() != "queue":
+        return {"queued": False}
+    try:
+        from backend.services import job_queue
+        payload = {"user_id": user_id}
+        if dates:
+            payload["dates"] = [str(d) for d in dates]
+        jid = job_queue.enqueue(
+            "precompute", payload, enqueued_by="web",
+            dedupe_key=f"precompute:{user_id}",
+        )
+        return {"queued": True, "job_ids": [jid] if jid else []}
+    except Exception:
+        return {"queued": False}
+
+
 def delegate_backfill(user_id: str) -> dict:
     """Delegate a performance backfill to the worker. queue mode enqueues; http POSTs."""
     if _trigger_mode() == "http":
