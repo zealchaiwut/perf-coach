@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import logging
 
-from backend.models import UserPreferences, Workout
+from backend.models import UserPreferences
 from backend.services.tss import recompute_user_running_tss
 from backend.services.lap_recompute import rebuild_athlete_duration_curve
 
@@ -79,23 +79,15 @@ def backfill_performance_for_athlete(user_id, db) -> dict:
             "reason": "No thresholds configured — backfill skipped.",
         }
 
-    # Step 2: Count run workouts (used for the summary; the individual services
-    # do their own queries internally).
-    run_count = (
-        db.query(Workout)
-        .filter(
-            Workout.user_id == user_id,
-            Workout.workout_type.ilike("%run%"),
-        )
-        .count()
-    )
-
-    # Step 3: Recompute running TSS for all run workouts so the fitness chart
-    # uses TSS values derived from the current thresholds.
+    # Step 2: Recompute running TSS for all run workouts so the fitness chart
+    # uses TSS values derived from the current thresholds.  The return value is
+    # the count of workouts actually processed — used directly as runs_processed
+    # so the summary never diverges from what was actually recomputed.
+    runs_processed = 0
     tss_recomputed = False
     tss_reason: str | None = None
     try:
-        recompute_user_running_tss(user_id, db)
+        runs_processed = recompute_user_running_tss(user_id, db)
         db.commit()
         tss_recomputed = True
     except Exception as exc:
@@ -125,7 +117,7 @@ def backfill_performance_for_athlete(user_id, db) -> dict:
 
     return {
         "thresholds_found": True,
-        "runs_processed": run_count,
+        "runs_processed": runs_processed,
         "tss_recomputed": tss_recomputed,
         "curve_rebuilt": curve_rebuilt,
         "reason": tss_reason or curve_reason,

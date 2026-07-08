@@ -822,7 +822,7 @@
     high:     { bg: 'rgba(220, 38, 38, 0.80)',  border: '#dc2626' },
   };
 
-  function renderIntensityChart(bodyEl, data) {
+  function renderIntensityChart(bodyEl, data, win) {
     if (!bodyEl) return;
 
     var sessions = (data && data.sessions) || [];
@@ -841,10 +841,13 @@
     if (!canvas || typeof Chart === 'undefined') return;
 
     // Build labels: one per session + separator + rolling window label
+    var dayCount = (win && win.from && win.to)
+      ? Math.round((new Date(win.to) - new Date(win.from)) / 86400000) + 1
+      : 28;
     var labels = sessions.map(function (s) { return formatLabel(s.date); });
     var sessionCount = sessions.length;
-    labels.push('');           // visual gap
-    labels.push('28-day avg'); // rolling window bar
+    labels.push('');                          // visual gap
+    labels.push(dayCount + '-day avg');       // rolling window bar
 
     function buildDataset(band, label) {
       var vals = sessions.map(function (s) { return s[band + '_pct'] || 0; });
@@ -892,7 +895,7 @@
               title: function (items) {
                 var idx = items[0].dataIndex;
                 if (idx === sessionCount) return '';       // gap
-                if (idx === sessionCount + 1) return '28-day rolling window';
+                if (idx === sessionCount + 1) return dayCount + '-day rolling window';
                 var s = sessions[idx];
                 return s ? (s.name + ' · ' + s.date) : '';
               },
@@ -943,7 +946,7 @@
         if (!res.ok) throw new Error('HTTP ' + res.status);
         return res.json();
       })
-      .then(function (data) { renderIntensityChart(bodyEl, data); })
+      .then(function (data) { renderIntensityChart(bodyEl, data, win); })
       .catch(function () {
         bodyEl.innerHTML = '<div class="slot-empty"><div class="slot-empty-text">Could not load intensity data</div></div>';
       });

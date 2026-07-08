@@ -22,6 +22,7 @@ until the EWMA "charges up" over several weeks.
 from __future__ import annotations
 
 import math
+import os
 import uuid as _uuid_mod
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
@@ -31,7 +32,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
 from backend.db import engine
-from backend.models import TrainingLoadSnapshot, UserPreferences
+from backend.models import TrainingLoadSnapshot, UserPreferences, Workout
 
 # ── EWMA time constants ───────────────────────────────────────────────────────
 # Chronic Training Load time constant (days).  The standard Banister value.
@@ -53,6 +54,7 @@ def resolve_user_ewma_days(user_id: str) -> tuple[int, int]:
     ctl_days = prefs.ctl_days if prefs and prefs.ctl_days else CTL_DAYS
     atl_days = prefs.atl_days if prefs and prefs.atl_days else ATL_DAYS
     return ctl_days, atl_days
+
 
 # ── Form-zone band constants ───────────────────────────────────────────────────
 # TSB (Training Stress Balance) below this threshold = overreached / buried.
@@ -93,6 +95,16 @@ READINESS_LABEL_FRESH: str = "Fresh"         # TSB at or above FORM_FRESH_FLOOR
 BASELINE_WINDOW_DAYS: int = 42
 # Minimum number of days with TSS > 0 within the window before metrics are reliable.
 BASELINE_MIN_WORKOUT_DAYS: int = 7
+
+
+def _load_read_from_snapshot() -> bool:
+    """Whether current_load() reads the training_load_snapshots cache (default on).
+    Set LOAD_READ_FROM_SNAPSHOT=0 to force an inline recompute every call — a
+    debug/rollback escape hatch. The inline recompute is the same fallback path
+    taken on a cache miss, so turning this off is always safe, just slower."""
+    return os.getenv("LOAD_READ_FROM_SNAPSHOT", "1").strip().lower() not in (
+        "0", "false", "no", "off", "",
+    )
 
 
 def _ewma_alpha(days: int) -> float:
@@ -216,7 +228,7 @@ def current_load(
     ctl_days, atl_days = resolve_user_ewma_days(user_id)
     uses_custom_calibration = ctl_days != CTL_DAYS or atl_days != ATL_DAYS
 
-    if not uses_custom_calibration:
+    if not uses_custom_calibration and _load_read_from_snapshot():
         uid = _uuid_mod.UUID(str(user_id))
         with Session(engine) as session:
             snap = (
@@ -327,7 +339,16 @@ def daily_update(
 
 
 def _classify_zone(tsb: float) -> str:
-    """Return the zone name for a single TSB value using named band constants."""
+    """Return the zone name for a single TSB value using named band constants.
+
+    Canonical zone vocabulary (authoritative for this codebase):
+        buried  — TSB below FORM_BURIED_CEILING (athlete is over-reached)
+        neutral — TSB at or above FORM_BURIED_CEILING and below FORM_FRESH_FLOOR
+        fresh   — TSB at or above FORM_FRESH_FLOOR (athlete is well-rested)
+
+    All callers that classify TSB zones (performance_curve, _rdns_classify_zone
+    in main.py, and any future additions) must use this vocabulary exclusively.
+    """
     if tsb < FORM_BURIED_CEILING:
         return "buried"
     if tsb >= FORM_FRESH_FLOOR:
@@ -634,7 +655,8 @@ def taper_recommendation(fitness_state, race_date, target_form) -> dict:
             The target race date.  Must be in the future (strictly after today).
         target_form:
             The athlete's desired TSB value on race day.  Must not be None.
-            Used to validate that the caller has specified a form target.
+            The achievability check compares projected race-day form against
+            this value: achievable is True when projected form >= target_form.
 
     Returns:
         On invalid input:
@@ -646,7 +668,7 @@ def taper_recommendation(fitness_state, race_date, target_form) -> dict:
                                     DEFAULT_TAPER_DAYS).
             ``message``          -- plain-language guidance string.
             ``achievable``       -- True when projected race-day form reaches
-                                    TARGET_FORM_LOWER; False otherwise.
+                                    target_form; False otherwise.
             ``reason``           -- empty string on success.
 
     Worked example 1 — Normal 2-week taper:
@@ -658,7 +680,7 @@ def taper_recommendation(fitness_state, race_date, target_form) -> dict:
         With zero load for 21 days, ATL (time constant 7 days) decays from 60
         to roughly 3 (exp(-21/7) ≈ 0.05); CTL (time constant 42 days) decays
         from 50 to roughly 30 (exp(-21/42) ≈ 0.61).  Race-day form ≈ 30 − 3 = 27,
-        which is above TARGET_FORM_LOWER (5.0), so achievable is True.
+        which is above target_form (10.0), so achievable is True.
 
         Expected output:
             taper_start_date = 2024-11-30  (14 days before race)
@@ -674,7 +696,7 @@ def taper_recommendation(fitness_state, race_date, target_form) -> dict:
         With zero load for 4 days, ATL decays from 90 to roughly 51 (each day
         ATL drops by alpha_atl ≈ 0.133 of the gap to zero).  CTL decays from 50
         to roughly 45.  Race-day form ≈ 45 − 51 = −6, which is below
-        TARGET_FORM_LOWER (5.0), so achievable is False.
+        target_form (10.0), so achievable is False.
 
         Expected output:
             taper_start_date = 2024-11-29  (14 days before race, now in the past)
@@ -713,9 +735,9 @@ def taper_recommendation(fitness_state, race_date, target_form) -> dict:
     # Race-day form is the last projected day in the series
     projected_race_form = projection["days"][-1]["form"]
 
-    # Achievable when projected form reaches the lower bound of the positive band;
-    # below TARGET_FORM_LOWER the athlete will not be in a peaked state on race day
-    achievable = projected_race_form >= TARGET_FORM_LOWER
+    # Achievable when projected form reaches the caller's target; below target_form
+    # the athlete will not be in the desired peaked state on race day
+    achievable = projected_race_form >= target_form
 
     if achievable:
         # Format dates for readability: "Nov 30", "Dec 14"
@@ -1035,3 +1057,57 @@ def compute_fitness_series(
     """
     daily_series = daily_tss_series(user_id, from_date, to_date)
     return compute_load_curves(daily_series)
+
+
+def get_weekly_volume(user_id: str, week_start: date, week_end: date) -> dict:
+    """Return aggregated weekly volume for a user over the given date range.
+
+    Encapsulates the Workout query so endpoints do not re-aggregate from raw
+    records (AC requirement from issue #1120 / original AC8 from #1055).
+
+    Args:
+        user_id: the authenticated user's UUID as a string.
+        week_start: first day of the window (inclusive).
+        week_end: last day of the window (inclusive).
+
+    Returns:
+        dict with keys:
+            distance_km   -- total distance in km (float, 0.0 when none)
+            total_tss     -- sum of TSS across all workouts (float, 0.0 when none)
+            session_count -- number of workouts in the window (int)
+            workout_types -- list of workout_type strings (one per workout)
+    """
+    uid = _uuid_mod.UUID(str(user_id))
+
+    def _to_float(v):
+        try:
+            return float(v) if v is not None else None
+        except Exception:
+            return None
+
+    def _sum_float_attr(workouts, attr):
+        vals = [_to_float(getattr(w, attr)) for w in workouts if getattr(w, attr, None) is not None]
+        return round(sum(vals), 3) if vals else None
+
+    with Session(engine) as session:
+        workouts = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= week_start,
+                Workout.workout_date <= week_end,
+            )
+            .all()
+        )
+
+    session_count = len(workouts)
+    raw_distance = _sum_float_attr(workouts, "distance_km")
+    raw_tss = _sum_float_attr(workouts, "tss")
+    workout_types = [w.workout_type for w in workouts]
+
+    return {
+        "distance_km": raw_distance if raw_distance is not None else 0.0,
+        "total_tss": round(raw_tss, 2) if raw_tss is not None else 0.0,
+        "session_count": session_count,
+        "workout_types": workout_types,
+    }

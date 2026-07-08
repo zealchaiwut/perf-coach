@@ -81,6 +81,10 @@
   align-items: center;
 }
 
+.hca-col-right .hca-pills {
+  align-items: flex-end;
+}
+
 /* ── Delta pills ─────────────────────────────────────────────────────────── */
 .delta-pill {
   display: inline-flex;
@@ -109,7 +113,7 @@
 .ewma-rate-label {
   font-size: 11px;
   font-weight: 600;
-  color: var(--text-tertiary, #8fa0be);
+  color: var(--text-tertiary, #69748c);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -128,6 +132,91 @@
 .coach-strip.coach-amber { background: var(--amber-soft, #fff0c4); color: var(--amber, #6b4408); border: 1px solid rgba(107,68,8,0.12); }
 .coach-strip.coach-green { background: var(--green-soft, #dff5d6); color: var(--green, #2d5e10); border: 1px solid rgba(45,94,16,0.12); }
 
+/* ── Mobile: stack hero weight above stats ───────────────────────────────── */
+@media (max-width: 640px) {
+  .hca-top {
+    gap: 4px;
+  }
+
+  .hca-date-sub {
+    white-space: normal;
+    text-align: right;
+    line-height: 1.35;
+    max-width: 58%;
+  }
+
+  .hca-middle {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "weight weight"
+      "avg change";
+    gap: 10px 12px;
+    padding: 4px 0 2px;
+  }
+
+  .hca-weight {
+    grid-area: weight;
+    font-size: 40px;
+    flex: none;
+    width: 100%;
+  }
+
+  .hca-col:first-child {
+    grid-area: avg;
+    align-items: flex-start;
+    min-width: 0;
+  }
+
+  .hca-col-right {
+    grid-area: change;
+    align-items: flex-end;
+    min-width: 0;
+  }
+
+  .hca-col-right .hca-pills {
+    align-items: flex-end;
+  }
+
+  .delta-pill {
+    font-size: 11px;
+    padding: 4px 9px;
+    max-width: 100%;
+    white-space: nowrap;
+  }
+
+  .ewma-rate-row {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding-top: 4px;
+  }
+
+  .coach-strip {
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+}
+
 @media (max-width: 480px) {
+  .hca-top {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .hca-date-sub {
+    text-align: left;
+    max-width: none;
+    font-size: 11px;
+  }
+
   .hca-weight { font-size: 36px; }
+  .hca-col { min-width: 0; gap: 3px; }
+  .hca-col-label { font-size: 8.5px; }
+  .hca-avg { font-size: 15px; }
+}
+
+@media (max-width: 360px) {
+  .hca-middle { gap: 8px 10px; }
+  .hca-weight { font-size: 32px; }
+  .delta-pill { font-size: 10.5px; padding: 3px 8px; }
 }

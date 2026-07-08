@@ -1,6 +1,6 @@
 from sqlalchemy import BigInteger, Boolean, Column, Index, Integer, LargeBinary, String, Numeric, Float, Date, DateTime, Time, ForeignKey, UniqueConstraint, CheckConstraint, text, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.orm import declarative_base, relationship, validates
+from sqlalchemy.orm import declarative_base, deferred, relationship, validates
 
 Base = declarative_base()
 
@@ -76,6 +76,13 @@ class WeightEntry(Base):
             postgresql_nulls_not_distinct=True,
         ),
         Index("ix_weight_entries_user_entry_date", "user_id", "entry_date"),
+        Index(
+            "ix_weight_entries_user_date_null_time",
+            "user_id",
+            "entry_date",
+            unique=True,
+            postgresql_where=text("entry_time IS NULL"),
+        ),
         CheckConstraint(
             "source IN ('manual', 'imported', 'backfill')",
             name="ck_weight_entries_source_values",
@@ -272,6 +279,9 @@ class Workout(Base):
     efficiency_first_half = Column(Float, nullable=True)
     efficiency_second_half = Column(Float, nullable=True)
     endurance_signal_source = Column(String(20), nullable=True)
+    # Flat-equivalent pace for treadmill activities (issue #1219): computed from
+    # normalize_treadmill_signal via the Minetti NGP formula. None for outdoor runs.
+    flat_equivalent_pace = Column(Float, nullable=True)
     # Self-reported effort feeling (issue #1241): 'hard' | 'ok' | 'easy' | NULL.
     # One shared column tagged from either the Plan tab (matched workout) or the
     # Log tab. Does not affect scores.
@@ -593,11 +603,11 @@ class StravaActivity(Base):
     device_name = Column(String(255), nullable=True)
     external_id = Column(String(255), nullable=True)
     is_stryd_synced = Column(Boolean, server_default=text("false"), nullable=False)
-    raw_payload = Column(JSONB, nullable=False)
+    raw_payload = deferred(Column(JSONB, nullable=False))
     # Full-capture blobs — everything Strava exposes per activity (decide what to
     # surface later). detail_payload = /activities/{id}; streams_payload = its /streams.
-    detail_payload = Column(JSONB, nullable=True)
-    streams_payload = Column(JSONB, nullable=True)
+    detail_payload = deferred(Column(JSONB, nullable=True))
+    streams_payload = deferred(Column(JSONB, nullable=True))
     synced_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
 
     __table_args__ = (
@@ -644,12 +654,18 @@ class StrydActivity(Base):
     avg_power_w = Column(Integer, nullable=True)
     avg_hr = Column(Integer, nullable=True)
     tss = Column(Integer, nullable=True)
-    form_metrics = Column(JSONB, nullable=True)
+    form_metrics = deferred(Column(JSONB, nullable=True))
     power_zones = Column(JSONB, nullable=True)
-    splits = Column(JSONB, nullable=True)
-    streams_payload = Column(JSONB, nullable=True)
-    raw_payload = Column(JSONB, nullable=False)
+    splits = deferred(Column(JSONB, nullable=True))
+    streams_payload = deferred(Column(JSONB, nullable=True))
+    raw_payload = deferred(Column(JSONB, nullable=False))
+    # Computed at sync time by compute_manual_laps; avoids materialising streams_payload
+    # on the detail request path (issue #1295).
+    manual_laps = deferred(Column(JSONB, nullable=True))
     synced_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+    # Treadmill incline extracted from the Stryd raw payload (average_incline field).
+    # Present only for treadmill activities; None for outdoor runs.
+    grade_percent = Column(Float, nullable=True)
 
     __table_args__ = (
         Index("ix_stryd_activities_user_start_time", "user_id", "start_time"),
@@ -833,6 +849,68 @@ class SyncJob(Base):
     )
 
 
+class WorkerJobRun(Base):
+    __tablename__ = "worker_job_runs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    job_type = Column(String(30), nullable=False)  # 'strava_sync'|'stryd_sync'|'backfill'|'banister_refit'
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    status = Column(String(10), nullable=False, server_default=text("'running'"), default="running")  # running|success|error
+    phase = Column(String(30), nullable=True)
+    items_synced = Column(Integer, nullable=False, server_default=text("0"), default=0)
+    error = Column(Text, nullable=True)
+    triggered_by = Column(String(10), nullable=False, server_default=text("'manual'"), default="manual")  # manual|schedule
+    stats = Column(JSONB, nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_worker_job_runs_user_started_at", "user_id", "started_at"),
+        Index("ix_worker_job_runs_job_type_started_at", "job_type", "started_at"),
+    )
+
+
+class JobQueue(Base):
+    """Neon-backed pull queue: the worker (behind home NAT) claims rows instead
+    of being called over HTTP. Separate from worker_job_runs, which stays the
+    execution audit trail — this table is the intent/queue. See
+    backend/services/job_queue.py (repo) and backend/worker_app.py (poll loop).
+    """
+
+    __tablename__ = "job_queue"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    job_type = Column(String(40), nullable=False)  # strava_sync|stryd_sync|backfill|banister_refit|...
+    payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    status = Column(String(12), nullable=False, server_default=text("'queued'"), default="queued")  # queued|running|done|failed|cancelled
+    priority = Column(Integer, nullable=False, server_default=text("0"), default=0)  # lower = sooner
+    attempts = Column(Integer, nullable=False, server_default=text("0"), default=0)
+    max_attempts = Column(Integer, nullable=False, server_default=text("3"), default=3)
+    claimed_by = Column(String(120), nullable=True)  # worker instance id (hostname:pid)
+    lease_expires_at = Column(DateTime(timezone=True), nullable=True)
+    heartbeat_at = Column(DateTime(timezone=True), nullable=True)
+    result = Column(JSONB, nullable=True)
+    error = Column(Text, nullable=True)
+    worker_job_run_id = Column(UUID(as_uuid=True), ForeignKey("worker_job_runs.id", ondelete="SET NULL"), nullable=True)
+    enqueued_by = Column(String(12), nullable=True)  # web|schedule|manual
+    dedupe_key = Column(String(200), nullable=True)  # skip re-enqueue while an active row shares this
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        # Claim query: WHERE status='queued' ORDER BY priority, created_at.
+        Index("ix_job_queue_claim", "priority", "created_at",
+              postgresql_where=text("status = 'queued'")),
+        # Stale reaper: WHERE status='running' AND lease_expires_at < now().
+        Index("ix_job_queue_lease", "lease_expires_at",
+              postgresql_where=text("status = 'running'")),
+        # Dedupe lookup for active rows sharing a key.
+        Index("ix_job_queue_dedupe", "dedupe_key",
+              postgresql_where=text("status IN ('queued', 'running') AND dedupe_key IS NOT NULL")),
+    )
+
+
 class ActivityStream(Base):
     """Per-sample time-series channel data for a workout.
 
@@ -870,15 +948,15 @@ class ActivityStream(Base):
     )
     sample_interval_seconds = Column(Integer, nullable=True)
     source = Column(String(20), nullable=True)
-    time_offset_seconds = Column(JSONB, nullable=True)
-    power_w = Column(JSONB, nullable=True)
-    heart_rate_bpm = Column(JSONB, nullable=True)
-    pace_seconds_per_km = Column(JSONB, nullable=True)
-    cadence_spm = Column(JSONB, nullable=True)
-    altitude_m = Column(JSONB, nullable=True)
-    latitude = Column(JSONB, nullable=True)
-    longitude = Column(JSONB, nullable=True)
-    channel_attribution = Column(JSONB, nullable=True)
+    time_offset_seconds = deferred(Column(JSONB, nullable=True))
+    power_w = deferred(Column(JSONB, nullable=True))
+    heart_rate_bpm = deferred(Column(JSONB, nullable=True))
+    pace_seconds_per_km = deferred(Column(JSONB, nullable=True))
+    cadence_spm = deferred(Column(JSONB, nullable=True))
+    altitude_m = deferred(Column(JSONB, nullable=True))
+    latitude = deferred(Column(JSONB, nullable=True))
+    longitude = deferred(Column(JSONB, nullable=True))
+    channel_attribution = deferred(Column(JSONB, nullable=True))
 
     __table_args__ = (
         CheckConstraint(
@@ -926,9 +1004,9 @@ class Race(Base):
     """Target finish time in seconds; NULL if no goal is set."""
     goal_pace_seconds_per_km = Column(Integer, nullable=True)
     """Derived goal pace (goal_time_seconds / distance_km); always set via compute_goal_pace."""
-    priority = Column(String(10), nullable=False)
+    priority = Column(String(10), nullable=False, server_default=text("'A'"))
     """Race importance tier — one of RACE_PRIORITY_VALUES ('A', 'B', 'C')."""
-    status = Column(String(20), nullable=False)
+    status = Column(String(20), nullable=False, server_default=text("'planned'"))
     """Lifecycle status — one of RACE_STATUS_VALUES ('planned', 'done', 'abandoned')."""
     race_type = Column(String(20), nullable=False, server_default="race")
     """Classification of the effort — one of RACE_TYPE_VALUES ('race', 'checkpoint')."""
@@ -1369,4 +1447,50 @@ class PlannedSession(Base):
 
     __table_args__ = (
         Index("ix_planned_sessions_user_date", "user_id", "planned_date"),
+    )
+
+
+class ExerciseCatalog(Base):
+    """Global catalog of exercises with body-part ratios, LLM- or manually classified.
+
+    name is normalized (stripped, lowercased) to dedup across users and workout sources.
+    body_parts: [{part: str, ratio: float}, ...] — ratios sum to ~1.0.
+    source: 'llm' | 'manual'
+    """
+
+    __tablename__ = "exercise_catalog"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    name = Column(String(200), nullable=False, unique=True, index=True)
+    body_parts = Column(JSONB, nullable=False, default=list)
+    source = Column(String(20), nullable=False, default="llm")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+
+class LlmGeneration(Base):
+    """Cached LLM-generated text payloads keyed by (user, surface, input_signature).
+
+    Re-used when inputs haven't changed; invalidated by signature mismatch.
+    Created by backend/services/llm.py get_or_generate().
+    """
+
+    __tablename__ = "llm_generations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    surface = Column(String(100), nullable=False)
+    input_signature = Column(String(64), nullable=False)
+    payload = Column(JSONB, nullable=False)
+    model = Column(String(100), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "surface", "input_signature", name="uq_llm_generations_user_surface_sig"),
+        Index("ix_llm_generations_user_surface_sig", "user_id", "surface", "input_signature"),
     )

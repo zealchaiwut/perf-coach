@@ -83,6 +83,7 @@
       /* ── Header card ────────────────────────────────────────────────────── */
       .rv-header {
         display: flex;
+        flex-wrap: wrap;
         justify-content: space-between;
         align-items: flex-start;
         gap: 12px;
@@ -115,10 +116,11 @@
         font-size: 22px;
         font-weight: 700;
         letter-spacing: -0.02em;
-        color: var(--text-primary);
+        color: var(--ink);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        max-width: 46ch;
       }
       .rv-short-id {
         display: flex;
@@ -133,13 +135,20 @@
         background: none;
         border: none;
         cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 28px;
+        min-height: 28px;
         padding: 2px 4px;
+        border-radius: 6px;
         color: var(--text-tertiary);
         font-size: 14px;
         line-height: 1;
       }
       .rv-copy-btn:hover {
-        color: var(--text-primary);
+        color: var(--ink);
+        background: var(--tile);
       }
       .rv-date {
         font-size: 13px;
@@ -164,25 +173,28 @@
       .rv-hero-strip {
         display: flex;
         align-items: stretch;
-        background: var(--tile, #f6f8fc);
+        background: var(--tile);
         border-radius: 10px;
         overflow: hidden;
         margin-top: 10px;
+        flex-wrap: wrap;
       }
       .rv-hero-cell {
-        flex: 1;
+        flex: 1 1 25%;
+        min-width: 76px;
         padding: 10px 12px;
-        border-right: 1px solid var(--card-border, rgba(13, 30, 67, 0.07));
+        border-right: 1px solid var(--card-border);
       }
       .rv-hero-cell:last-child {
         border-right: none;
       }
       .rv-hero-cell-val {
-        font-family: "JetBrains Mono", monospace;
+        font-family: var(--mono);
         font-size: 18px;
         font-weight: 700;
         line-height: 1;
-        color: var(--text-primary);
+        color: var(--ink);
+        overflow-wrap: anywhere;
       }
       .rv-hero-cell-lbl {
         font-size: 9px;
@@ -198,13 +210,13 @@
         display: grid;
         grid-template-columns: repeat(4, 1fr);
         gap: 1px;
-        background: #eef1f6;
+        background: var(--border);
         border-radius: 10px;
         overflow: hidden;
       }
       .rv-tile {
-        background: #fff;
-        padding: 9px 10px;
+        background: var(--card-bg);
+        padding: 10px 10px;
         text-align: left;
         min-height: 0;
       }
@@ -217,21 +229,22 @@
       .rv-tile-val {
         font-size: 15px;
         font-weight: 700;
-        color: var(--text-primary, #0b1530);
+        color: var(--ink);
         line-height: 1;
         margin-top: 4px;
-        font-family: "JetBrains Mono", monospace;
+        font-family: var(--mono);
+        overflow-wrap: anywhere;
       }
       .rv-tile--hero .rv-tile-val {
         font-size: 17px;
-        color: #2563eb;
+        color: var(--primary, #2563eb);
       }
       .rv-tile-label {
-        font-size: 8px;
+        font-size: 9.5px;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.04em;
-        color: var(--text-tertiary, #8b95ad);
+        color: var(--text-tertiary);
         display: flex;
         align-items: center;
         gap: 3px;
@@ -240,7 +253,7 @@
       }
       /* ── Source pills on stat tiles ─────────────────────────────────────── */
       .rv-pill {
-        font-size: 7px;
+        font-size: 8.5px;
         font-weight: 800;
         padding: 1px 4px;
         border-radius: 3px;
@@ -251,12 +264,17 @@
       .rv-pill--stryd { background: #7c5cff; color: #fff; }
       .rv-pill--strava { background: #fc4c02; color: #fff; }
 
-      /* ── Theme 2: session profile (bars + zone brackets) + laps chart ──── */
-      .rv2-warmup-c { color: #3b82f6; }
+      /* ── Theme 2: session profile (bars + zone brackets) + laps chart ────
+         Bar/dot/swatch colors map onto the DESIGN.md instrument-set intensity
+         ramp (--intensity-*) so this page matches training-log's run segments.
+         Text labels stay on --ink (not the pale intensity tones, which fail
+         AA contrast as text) — the color-coding lives in the swatch/bar. */
       :root {
-        --rv2-warmup: #3b82f6;  --rv2-steady: #22c55e;  --rv2-tempo: #f59e0b;
-        --rv2-threshold: #f97316;  --rv2-cooldown: #a78bfa;
-        --rv2-bar: #2563eb;  --rv2-power: #8b5cf6;  --rv2-hr: #ef4444;
+        --rv2-warmup: var(--intensity-warmup);  --rv2-steady: var(--intensity-easy);
+        --rv2-tempo: var(--intensity-tempo);    --rv2-threshold: var(--intensity-intervals);
+        --rv2-cooldown: var(--intensity-cooldown);
+        --rv2-bar: var(--primary, #2563eb);  --rv2-power: var(--rv-purple, #8b5cf6);
+        --rv2-hr: var(--danger, #ef4444);
         --rv2-grid: rgba(13,30,67,0.10);
       }
       .rv2-card-title {
@@ -297,11 +315,9 @@
       }
       .rv2-bracket-name { margin-top: 5px; font-size: 12px; font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
       .rv2-bracket-range { font-size: 10px; color: var(--text-secondary, #5c6886); margin-top: 2px; }
-      .nm-warmup { color: var(--rv2-warmup); }
-      .nm-steady { color: var(--rv2-steady); }
-      .nm-tempo { color: var(--rv2-tempo); }
-      .nm-threshold { color: var(--rv2-threshold); }
-      .nm-cooldown { color: var(--rv2-cooldown); }
+      .nm-warmup, .nm-steady, .nm-tempo, .nm-threshold, .nm-cooldown {
+        color: var(--ink);
+      }
       .rv2-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 14px; font-size: 12px; color: var(--text-secondary, #5c6886); }
       .rv2-legend span { display: inline-flex; align-items: center; gap: 6px; }
       .rv2-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
@@ -311,6 +327,10 @@
         position: absolute; top: -3px; left: 50%; transform: translateX(-50%);
         font-size: 10px; line-height: 1; z-index: 2; pointer-events: none;
       }
+      /* Direction (surge vs dip vs the session's dominant effort), not phase
+         color — keeps the marker legible against any bar color underneath. */
+      .rv2-dev-up { color: var(--danger); }
+      .rv2-dev-down { color: var(--success); }
       .rv2-headline {
         display: flex; align-items: center; gap: 12px; margin-top: 12px;
         padding: 14px 16px; border-radius: 12px; background: var(--tile, #f6f8fc);
@@ -460,14 +480,14 @@
         table-layout: fixed;
       }
       .rv-th {
-        padding: 5px 4px;
+        padding: 6px 4px;
         text-align: right;
-        font-size: 8px;
+        font-size: 9.5px;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.03em;
         color: var(--text-tertiary);
-        border-bottom: 1px solid var(--card-border, #e5e7eb);
+        border-bottom: 1px solid var(--card-border);
         white-space: nowrap;
       }
       .rv-th:first-child {
@@ -504,7 +524,7 @@
       }
 
       /* ── Collapse Len/Cad cols on narrow screens ────────────────────────── */
-      @media (max-width: 375px) {
+      @media (max-width: 640px) {
         .rv-col-len,
         .rv-col-cad {
           display: none;
@@ -689,6 +709,87 @@
         color: var(--text-secondary);
         font-size: 12px;
       }
+
+      /* ── Focus visibility ─────────────────────────────────────────────── */
+      main.rv-main button:focus-visible,
+      main.rv-main a:focus-visible {
+        outline: 2px solid var(--primary, #3b82f6);
+        outline-offset: 2px;
+      }
+
+      /* ── Loading skeleton (replaces plain "Loading…" text) ──────────────── */
+      .rv-skel-card {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .rv-skel-line {
+        height: 14px;
+        border-radius: 6px;
+        background: linear-gradient(90deg, var(--tile) 25%, var(--card-border) 50%, var(--tile) 75%);
+        background-size: 200% 100%;
+        animation: rv-shimmer 1.4s ease-in-out infinite;
+      }
+      .rv-skel-line--title { height: 22px; width: 55%; }
+      .rv-skel-line--sub { width: 30%; }
+      .rv-skel-line--block { height: 64px; border-radius: 10px; margin-top: 4px; }
+      @keyframes rv-shimmer {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .rv-skel-line { animation: none; background: var(--tile); }
+        main.rv-main *, main.rv-main *::before, main.rv-main *::after {
+          transition-duration: 0.01ms !important;
+          animation-duration: 0.01ms !important;
+        }
+      }
+
+      /* ── Error state ──────────────────────────────────────────────────── */
+      .rv-error {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+      }
+      .rv-error-title {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--danger);
+      }
+      .rv-error-back {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--primary, #3b82f6);
+        text-decoration: none;
+      }
+      .rv-error-back:hover { text-decoration: underline; }
+
+      /* ── Mobile (<640px): denser tiles, bigger tap targets, no truncation ── */
+      @media (max-width: 640px) {
+        main.rv-main { padding: 16px 12px 48px; gap: 10px; }
+        .rv-card { padding: 14px; }
+        .rv-tile-grid { grid-template-columns: repeat(2, 1fr); }
+        .rv-workout-name {
+          max-width: none;
+          white-space: normal;
+          overflow-wrap: break-word;
+        }
+        .rv-copy-btn,
+        .rv-mtog,
+        .rv-snap-btn,
+        .rv-snap-return-btn {
+          min-height: 44px;
+          min-width: 44px;
+          padding-left: 14px;
+          padding-right: 14px;
+        }
+        .rv-copy-btn { min-width: 44px; }
+        .rv-metric-toggle { gap: 8px; }
+        .rv-snap-metric-row { flex-wrap: wrap; }
+        .rv-snap-metric-row .rv-snap-metric-cell { flex: 1 1 45%; }
+      }
     </style>
   </head>
   <body>
@@ -696,7 +797,11 @@
 
     <main class="rv-main">
       <div id="rv-root">
-        <div class="rv-card">Loading…</div>
+        <div class="rv-card rv-skel-card" role="status" aria-live="polite" aria-label="Loading workout">
+          <div class="rv-skel-line rv-skel-line--title"></div>
+          <div class="rv-skel-line rv-skel-line--sub"></div>
+          <div class="rv-skel-line rv-skel-line--block"></div>
+        </div>
       </div>
     </main>
 

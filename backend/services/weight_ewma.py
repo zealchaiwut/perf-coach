@@ -8,9 +8,10 @@ compute_ewma(entries, *, span=DEFAULT_SPAN, alpha=None) -> list[float]
               Must be in chronological order. Gaps in the date sequence are handled
               by carrying the last smoothed value forward — missing days are skipped,
               never zero-filled.
-    span    : Lookback span in days (default 7). Converted to alpha via
+    span    : Lookback span in days (default 14). Converted to alpha via
               ``alpha = 2 / (span + 1)``.
-    alpha   : Override computed alpha directly. Must be in (0, 1].
+    alpha   : Override computed alpha directly. Clamped to ``[0.0, 1.0]`` via
+              ``max(0.0, min(1.0, a))``. alpha=0 freezes the EWMA at the first value.
 
 Returns a list of smoothed float values the same length as the input.
 An empty input returns an empty list without raising.
@@ -39,9 +40,10 @@ def compute_ewma(
     span:
         Window span for computing alpha. Ignored when ``alpha`` is provided.
     alpha:
-        Explicit smoothing factor in (0, 1]. ``alpha=1`` yields no smoothing
-        (raw values pass through). ``alpha=0`` would freeze the EWMA — not
-        useful, so values <= 0 are treated as ``1 / (span + 1)`` equivalent.
+        Explicit smoothing factor, clamped to ``[0.0, 1.0]`` via
+        ``max(0.0, min(1.0, a))``. ``alpha=1`` yields no smoothing (raw values
+        pass through). ``alpha=0`` freezes the EWMA at the first value — every
+        subsequent value equals the bootstrap weight.
 
     Returns
     -------

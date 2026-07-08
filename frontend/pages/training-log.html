@@ -16,6 +16,13 @@
       rel="stylesheet"
     />
     <link
+      rel="preload"
+      href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/fonts/tabler-icons.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
       href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap"
       rel="stylesheet"
     />
@@ -173,8 +180,7 @@
         cursor: not-allowed;
       }
 
-      /* ── Mobile: keep the action buttons on the title row (icon-only), and
-       hide the week-strip calendar (revisit later). ─────────────────────── */
+      /* ── Mobile: keep the action buttons on the title row (icon-only). ── */
       @media (max-width: 599px) {
         .log-page-header {
           flex-wrap: nowrap;
@@ -201,9 +207,6 @@
         }
         .log-page-header .sync-chip {
           padding: 0 8px;
-        }
-        .log-card--week {
-          display: none;
         }
       }
 
@@ -419,13 +422,13 @@
       }
       .sync-row-time {
         font-size: 10px;
-        color: #94a3b8;
+        color: var(--text-tertiary, #69748c);
         font-family: "JetBrains Mono", monospace;
         line-height: 1.3;
       }
       .sync-row-soon {
         font-size: 9.5px;
-        color: #94a3b8;
+        color: var(--text-tertiary, #69748c);
         background: #f1f5f9;
         border-radius: 4px;
         padding: 1px 5px;
@@ -507,42 +510,6 @@
         display: flex;
         flex-direction: column;
         gap: 12px;
-      }
-
-      .tab-coming-soon {
-        background: var(--card-bg);
-        border-radius: var(--card-radius);
-        border: 1px solid var(--card-border);
-        box-shadow: var(--card-shadow);
-        padding: 56px 24px;
-        text-align: center;
-      }
-
-      .tab-coming-soon-text {
-        margin: 0;
-        font-size: 14px;
-        font-weight: 500;
-        color: var(--text-tertiary);
-      }
-
-      .btn-coming-soon {
-        position: relative;
-      }
-
-      .btn-coming-soon::after {
-        content: "soon";
-        position: absolute;
-        top: -7px;
-        right: -4px;
-        font-size: 0.5625rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        background: #f59e0b;
-        color: #fff;
-        padding: 1px 4px;
-        border-radius: 3px;
-        line-height: 1.4;
       }
 
       /* ── Week strip (issue #639: mobile only — hidden on tablet and desktop) ── */
@@ -1193,12 +1160,11 @@
       /* Month separator with monthly rollup */
       .month-sep {
         display: flex;
-        align-items: center;
-        justify-content: space-between;
-        flex-wrap: wrap;
-        gap: 8px 14px;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
         margin: 18px 0 6px;
-        padding: 10px 12px;
+        padding: 10px 12px 11px;
         background: #eaf1ff; /* light blue month band */
         border-radius: 10px;
       }
@@ -1236,45 +1202,76 @@
         color: var(--text-primary);
       }
       .month-sep-title {
-        font-size: 13px;
-        font-weight: 700;
-        letter-spacing: -0.01em;
+        font-size: 18px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        line-height: 1.2;
         color: var(--text-primary);
+        width: 100%;
       }
       .month-sep-stats {
         display: flex;
         align-items: center;
-        gap: 14px;
+        gap: 8px 14px;
         flex-wrap: wrap;
+        width: 100%;
       }
       .month-stat {
         display: inline-flex;
         align-items: baseline;
         gap: 4px;
+        white-space: nowrap;
       }
       .month-stat-val {
         font-family: var(--mono, "JetBrains Mono", monospace);
         font-size: 13px;
-        font-weight: 600;
-        color: var(--text-primary);
+        font-weight: 700;
+        color: #1e4fd6;
       }
       .month-stat-lbl {
-        font-size: 9.5px;
+        font-size: 8.5px;
         font-weight: 700;
         text-transform: uppercase;
-        letter-spacing: 0.06em;
+        letter-spacing: 0.04em;
         color: var(--text-tertiary);
       }
 
       .day-group-header {
-        padding: 8px 4px 6px;
-        font-size: 10.5px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.09em;
-        color: var(--text-tertiary);
-        border-bottom: 1px solid rgba(13, 30, 67, 0.06);
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 8px 4px 7px;
         margin: 0;
+        border-bottom: 1px solid rgba(13, 30, 67, 0.12);
+        font-family: inherit;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--text-tertiary);
+      }
+      .day-group-label {
+        min-width: 0;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+      }
+      .day-group-tss {
+        flex-shrink: 0;
+        font-size: 11px;
+        font-weight: 700;
+        font-family: inherit;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--text-tertiary);
+      }
+      .log-hdr-val {
+        color: #1e4fd6;
+        font-weight: 800;
+        font-family: var(--mono, "JetBrains Mono", monospace);
+        letter-spacing: 0;
+        text-transform: none;
       }
 
       .day-group-rows .entry-row {
@@ -1784,7 +1781,8 @@
         /* issue #527: keep glanceable metrics + source badges on phones.
          Wrap the row so distance/pace/duration + badges drop to their own
          line instead of being hidden or forcing horizontal scroll. */
-        .entry-row {
+        /* issue #527: legacy entry-row wrap — skip lrx-logrow grid rows */
+        .entry-row:not(.lrx-logrow) {
           flex-wrap: wrap;
           gap: 0.5rem 0.75rem;
         }
@@ -2018,6 +2016,7 @@
 
       /* Top-bar control icons (Tabler webfont) — match the screenshot button */
       .dp-nav-btn .ti {
+        display: block;
         font-size: 1rem;
         line-height: 1;
       }
@@ -2634,6 +2633,87 @@
         margin: 0;
       }
 
+      /* ── Workout JSON editor (in drawer) ── */
+      .dp-json-tabs {
+        display: flex;
+        gap: 4px;
+        padding: 12px 16px 0;
+      }
+      .dp-json-tab {
+        appearance: none;
+        border: 1px solid var(--border, #e5e7eb);
+        border-radius: 7px;
+        background: transparent;
+        color: var(--ink-2);
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 5px 12px;
+        cursor: pointer;
+        transition: background 0.12s, color 0.12s;
+      }
+      .dp-json-tab:hover { background: var(--tile); color: var(--ink); }
+      .dp-json-tab.dp-json-tab--on {
+        background: var(--primary, #3b82f6);
+        border-color: var(--primary, #3b82f6);
+        color: #fff;
+      }
+      .dp-json-hint {
+        font-size: 11px;
+        color: var(--ink-2);
+        margin: 0 0 8px;
+      }
+      .dp-json-hint code {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 10px;
+        background: rgba(11,21,48,0.07);
+        padding: 1px 3px;
+        border-radius: 3px;
+      }
+      .dp-json-ta {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+        min-height: 220px;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 11px;
+        line-height: 1.55;
+        background: var(--tile);
+        border: 1px solid var(--border, #e5e7eb);
+        border-radius: 8px;
+        padding: 10px 12px;
+        color: var(--ink);
+        resize: vertical;
+        outline: none;
+        transition: border-color 0.15s;
+      }
+      .dp-json-ta:focus { border-color: var(--primary, #3b82f6); }
+      .dp-json-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 10px;
+        flex-wrap: wrap;
+      }
+      .dp-json-save-btn {
+        appearance: none;
+        border: none;
+        border-radius: 8px;
+        background: var(--primary, #3b82f6);
+        color: #fff;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 8px 14px;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+      .dp-json-save-btn:hover { background: var(--primary-dark, #2563eb); }
+      .dp-json-save-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+      .dp-json-msg { font-size: 11px; color: var(--ink-2); }
+      .dp-json-msg--err { color: var(--danger, #ef4444); }
+      .dp-json-msg--ok  { color: var(--success, #22c55e); }
+
       /* ── Action bar ── */
       .dp-actions-bar {
         display: flex;
@@ -2788,6 +2868,7 @@
       }
 
       .dp-icon-btn .ti {
+        display: block;
         font-size: 1.125rem;
         line-height: 1;
       }
@@ -3968,38 +4049,53 @@
           class="training-sub-tabs"
           id="training-sub-tabs"
           aria-label="Training sub-tabs"
+          role="tablist"
         >
           <button
+            id="log-tab-log"
             class="training-sub-tab active"
             data-tab="log"
             type="button"
+            role="tab"
             aria-selected="true"
+            aria-controls="layout-wrapper"
           >
             Log
           </button>
           <button
+            id="log-tab-plan"
             class="training-sub-tab"
             data-tab="plan"
             type="button"
+            role="tab"
             aria-selected="false"
+            aria-controls="training-panel-plan"
           >
             Plan
           </button>
           <button
+            id="log-tab-projection"
             class="training-sub-tab"
             data-tab="projection"
             type="button"
+            role="tab"
             aria-selected="false"
+            aria-controls="training-panel-projection"
           >
-            Projection
+            <span class="tab-label-long">Projection</span
+            ><span class="tab-label-short" aria-hidden="true">Proj</span>
           </button>
           <button
+            id="log-tab-performance"
             class="training-sub-tab"
             data-tab="performance"
             type="button"
+            role="tab"
             aria-selected="false"
+            aria-controls="training-panel-performance"
           >
-            Performance
+            <span class="tab-label-long">Performance</span
+            ><span class="tab-label-short" aria-hidden="true">Perf</span>
           </button>
         </nav>
         <span class="log-nav-spacer"></span>
@@ -4131,16 +4227,45 @@
     </main>
 
     <!-- Plan panel (new weekly training schedule — window.TrainingPlan) -->
-    <div id="training-panel-plan" class="tab-panel-placeholder plan-panel" hidden>
+    <div
+      id="training-panel-plan"
+      class="tab-panel-placeholder plan-panel"
+      role="tabpanel"
+      aria-labelledby="log-tab-plan"
+      tabindex="0"
+      hidden
+    >
       <div id="plan-week-section"></div>
       <div id="plan-add-section"></div>
       <div id="plan-detail-section"></div>
+      <!-- ── AI suggestions panel (issue #1315) ─────────────────────────── -->
+      <div id="plan-suggestions-panel" style="display:none;" class="pl-suggestions-panel">
+        <div class="pl-sug-header">
+          <span class="pl-sug-title">Next-week suggestions</span>
+          <span id="plan-suggestions-source" class="pl-sug-source"></span>
+          <button id="plan-suggestions-refresh" class="pl-sug-btn-sm" type="button" title="Regenerate suggestions">↻</button>
+          <button id="plan-suggestions-dismiss" class="pl-sug-btn-sm" type="button" title="Dismiss">✕</button>
+        </div>
+        <div id="plan-suggestions-loading" style="display:none;" class="pl-sug-loading">Loading suggestions…</div>
+        <div id="plan-suggestions-list"></div>
+      </div>
+      <!-- ── Show suggestions button ────────────────────────────────────── -->
+      <div id="plan-suggestions-trigger-row" class="pl-sug-trigger-row" style="display:none;">
+        <button id="plan-suggestions-trigger" class="pl-sug-trigger-btn" type="button">✨ Show AI next-week suggestions</button>
+      </div>
     </div>
 
     <!-- Projection panel (issue #650) -->
-    <div id="training-panel-projection" class="tab-panel-placeholder" hidden>
+    <div
+      id="training-panel-projection"
+      class="tab-panel-placeholder"
+      role="tabpanel"
+      aria-labelledby="log-tab-projection"
+      tabindex="0"
+      hidden
+    >
       <!-- ── Projection tab panel ───────────────────────────────────── -->
-      <div id="plan-tab-panel" role="tabpanel" aria-labelledby="log-tab-plan">
+      <div id="plan-tab-panel">
         <!-- ── Merged Plan panel (mock: plan-merge) ─────────────────────── -->
         <div class="plan-merged">
           <!-- Row: A-race header + calibration status -->
@@ -4310,6 +4435,7 @@
             <div class="pm-csub">
               Weekly planned TSS — build ramp then a taper into the A race.
             </div>
+            <canvas id="plan-schedule-canvas" style="display:none"></canvas>
             <div class="pm-schedwrap" id="plan-sched"></div>
             <div class="pm-wklabels" id="plan-wklabels"></div>
           </div>
@@ -4336,6 +4462,9 @@
     <div
       id="training-panel-performance"
       class="tab-panel-placeholder perf-panel"
+      role="tabpanel"
+      aria-labelledby="log-tab-performance"
+      tabindex="0"
       hidden
     >
       <!-- ── Score cards: Endurance + Speed (2-up) ─────────────────────────── -->
@@ -4410,6 +4539,8 @@
             <span class="perf-error-text">Could not load score.</span>
             <button type="button" class="perf-retry-btn">Retry</button>
           </div>
+          <span class="perf-speed-warn" hidden title="Score based on limited data — results may be less precise">⚠ Low data</span>
+          <div class="perf-speed-band" hidden><b></b>–<b></b></div>
         </div>
       </div>
       <!-- /.perf-scorewrap -->
@@ -4539,7 +4670,7 @@
                 </div>
               </div>
               <a class="perf-plink" href="#projection"
-                >Full projection on Projection →</a
+                >See full projection →</a
               >
             </div>
             <div class="perf-proj-empty" id="perf-proj-empty" hidden>
@@ -4566,7 +4697,7 @@
         --pm-card: #fff;
         --pm-ink: #1b2340;
         --pm-muted: #6b7280;
-        --pm-faint: #9aa3b8;
+        --pm-faint: var(--text-tertiary, #69748c);
         --pm-line: #eceef4;
         --pm-tile: #f6f7fb;
         --pm-blue: #4f6ef7;
@@ -5474,6 +5605,29 @@
       .perf-blk--flat {
         color: var(--perf-muted) !important;
       }
+      .perf-speed-warn {
+        font-size: 10px;
+        font-weight: 700;
+        background: #fef3c7;
+        color: #92400e;
+        padding: 3px 8px;
+        border-radius: 6px;
+        cursor: default;
+        flex-shrink: 0;
+      }
+      .perf-speed-band {
+        font-size: 12px;
+        color: var(--perf-muted);
+        font-family: var(--mono);
+        margin: 2px 0 5px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .perf-speed-band b {
+        font-weight: 700;
+        color: var(--perf-speed);
+      }
       .perf-insight {
         font-size: 12.5px;
         color: var(--perf-muted);
@@ -6043,6 +6197,19 @@
       color: var(--text-primary);
     }
 
+    /* Summary controls: Last/This + Week/Month */
+    .sd-ctrl {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .sd-when {
+      /* reuses .lrx-seg pill styling */
+    }
+
     /* Toggle pill (mirrors glass-pill pattern on light card) */
     .sd-toggle {
       display: inline-flex;
@@ -6150,16 +6317,6 @@
     .sd-chip--neu { background: #f0f4fa; color: var(--text-secondary); }
 
     /* Weekly note */
-    .sd-note {
-      font-size: 12.5px;
-      line-height: 1.5;
-      color: var(--text-secondary);
-      padding: 8px 10px;
-      background: var(--tile, #f7f9fd);
-      border-radius: 7px;
-    }
-
-    .sd-note:empty { display: none; }
 
     /* Supercompensation section (monthly only) */
     .sd-supercomp {
@@ -6374,11 +6531,17 @@
       border: none;
       background: none;
     }
-    .log-page-header .training-sub-tab.active {
-      background: #fff;
-      color: var(--lrx-ink);
+    .log-page-header .training-sub-tab .tab-label-long {
+      display: inline;
     }
-    .log-nav-spacer { flex: 1; }
+    .log-page-header .training-sub-tab .tab-label-short {
+      display: none;
+    }
+      .log-page-header .training-sub-tab.active {
+        background: #fff;
+        color: var(--lrx-ink);
+      }
+      .log-nav-spacer { flex: 1; }
     /* Recolor the action buttons to the mock's translucent + lime primary */
     .log-page-header .btn-secondary,
     .log-page-header .sync-chip {
@@ -6449,6 +6612,19 @@
       margin-bottom: 12px;
       flex-wrap: wrap;
     }
+
+    /* ── Weekly coach report (merged into the Summary card) ──────────────── */
+    .wsc-section { margin-top: 2px; }
+    .wsc-divider { border-top: 1px solid var(--lrx-line); margin: 16px 0; }
+    .wsc-narrative { color: var(--lrx-ink); }
+    /* One sentence group per line. Numbers use the mono highlight font (the same
+       JetBrains Mono the Summary tiles use) so key figures pop out. */
+    .wsc-line { font-size: 14px; line-height: 1.55; }
+    .wsc-line + .wsc-line { margin-top: 4px; }
+    .wsc-num { font-family: var(--lrx-mono); font-weight: 700; color: var(--lrx-ink); }
+    .wsc-up { color: #16a34a; font-weight: 700; }
+    .wsc-down { color: #dc2626; font-weight: 700; }
+    .wsc-empty { font-size: 14px; color: var(--lrx-muted); margin: 0; }
 
     /* ── Summary ─────────────────────────────────────────────────────────── */
     .lrx-scope {
@@ -6590,24 +6766,96 @@
     .lrx-callegend b { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
 
     /* ── Log list (week-grouped, typed rows) ─────────────────────────────── */
-    .lrx-wkhdr { display: flex; align-items: center; justify-content: space-between; margin: 16px 0 8px; }
+    .lrx-wkhdr {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      margin: 16px 0 8px;
+      padding: 8px 4px 7px;
+      border-bottom: 1px solid rgba(13, 30, 67, 0.12);
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-tertiary);
+    }
     .lrx-wkhdr:first-child { margin-top: 2px; }
-    .lrx-wkhdr .wl { font-size: 14px; font-weight: 800; color: var(--lrx-ink); }
-    .lrx-wkhdr .wr { font-size: 13px; color: var(--lrx-muted); font-family: var(--lrx-mono); }
+    .lrx-wkhdr .wl {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      color: var(--text-tertiary);
+    }
+    .lrx-wkhdr .wr {
+      font-size: 11px;
+      font-weight: 700;
+      font-family: inherit;
+      letter-spacing: 0.06em;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+    }
     .lrx-logrow {
-      display: flex; align-items: center; gap: 12px; padding: 11px 12px;
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr) auto;
+      column-gap: 10px;
+      row-gap: 3px;
+      align-items: start;
+      padding: 11px 12px;
       border: 1px solid var(--lrx-line); border-left-width: 3px; border-left-color: transparent;
       border-radius: 11px; margin-bottom: 8px; background: #fff; cursor: pointer; transition: background 0.12s;
     }
     .lrx-logrow:hover { background: #f9faff; }
     .lrx-logrow.run { border-left-color: var(--lrx-run); }
     .lrx-logrow.lift { border-left-color: var(--lrx-lift); }
-    .lrx-logrow .lday { width: 48px; text-align: center; flex-shrink: 0; }
+    .lrx-logrow .lday {
+      grid-column: 1;
+      grid-row: 1 / span 3;
+      text-align: center;
+      width: 34px;
+      flex-shrink: 0;
+      align-self: start;
+    }
     .lrx-logrow .lday .d { font-size: 19px; font-weight: 700; font-family: var(--lrx-mono); line-height: 1; }
     .lrx-logrow .lday .m { font-size: 11px; color: var(--lrx-faint); text-transform: uppercase; font-weight: 700; }
-    .lrx-logrow .lname { flex: 1; min-width: 0; }
-    .lrx-logrow .lname .n { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
-    .lrx-logrow .lname .meta { font-size: 13px; color: var(--lrx-muted); font-family: var(--lrx-mono); margin-top: 2px; }
+    .lrx-logrow .lname { display: contents; }
+    .lrx-logrow .ltags {
+      grid-column: 2;
+      grid-row: 1;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 4px;
+      flex-wrap: wrap;
+      text-transform: capitalize;
+    }
+    .lrx-logrow .lname .n {
+      grid-column: 2;
+      grid-row: 2;
+      font-size: 15px;
+      font-weight: 600;
+      display: block;
+      min-width: 0;
+    }
+    .lrx-logrow .lname .n .ntitle {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .lrx-logrow .lname .meta {
+      grid-column: 2;
+      grid-row: 3;
+      font-size: 12px;
+      color: var(--lrx-muted);
+      font-family: var(--lrx-mono);
+      line-height: 1.35;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
     /* Quick-tag effort feeling (😩/😐/😊). Faint until tagged, then only the
        selected icon shows. Shared markup: .feel-row + .feel-btn. */
     .feel-row { display: flex; gap: 3px; align-items: center; }
@@ -6615,18 +6863,23 @@
     .feel-btn:hover { opacity: 0.78; filter: grayscale(0); }
     .feel-btn.is-on { opacity: 1; filter: none; transform: scale(1.1); }
     .feel-btn.is-hidden { display: none; }
-    .lrx-feel { margin-top: 3px; }
-    .lrx-feel .feel-btn { font-size: 13px; }
+    .lrx-feel {
+      grid-column: 3;
+      grid-row: 1;
+      align-self: start;
+      justify-self: end;
+      margin-top: 0;
+      flex-shrink: 0;
+    }
+    .lrx-feel .feel-btn { font-size: 16px; }
     .dp-feel { margin-top: 8px; gap: 6px; }
     .dp-feel .feel-btn { font-size: 20px; padding: 0 3px; }
-    .lrx-logrow .lstat { font-size: 13px; font-family: var(--lrx-mono); color: var(--lrx-muted); text-align: right; flex-shrink: 0; }
-    .lrx-logrow .lstat b { color: var(--lrx-ink); font-weight: 700; }
     .lrx-tbadge { font-size: 11px; font-weight: 800; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; }
     .lrx-tbadge.run { background: var(--lrx-runSoft); color: var(--lrx-run); }
     .lrx-tbadge.lift { background: var(--lrx-liftSoft); color: #7c3aed; }
     /* Run subtype tag — separate, outlined/lighter chip next to the run badge:
        [run] [interval]. Still run-family (blue) but visually secondary. */
-    .lrx-subtag { font-size: 11px; font-weight: 800; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 5px; text-transform: uppercase; margin-left: 5px; background: transparent; color: var(--lrx-run); border: 1px solid var(--lrx-run); }
+    .lrx-subtag { font-size: 11px; font-weight: 800; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 5px; text-transform: uppercase; margin-left: 0; background: transparent; color: var(--lrx-run); border: 1px solid var(--lrx-run); }
     .lrx-sentinel { display: flex; align-items: center; justify-content: center; gap: 9px; padding: 16px; color: var(--lrx-muted); font-size: 14px; }
     .lrx-spin { width: 15px; height: 15px; border: 2px solid var(--lrx-line); border-top-color: var(--lrx-run); border-radius: 50%; animation: lrxsp 0.7s linear infinite; }
     @keyframes lrxsp { to { transform: rotate(360deg); } }
@@ -6701,29 +6954,292 @@
     }
 
     @media (max-width: 640px) {
-      .lrx-sumgrid, .lrx-readfull { flex-direction: column; }
       .lrx-wkcell { width: 96px; }
       #layout-wrapper .detail-panel { width: 100vw; max-width: 100vw; }
+    }
+
+    /* Mobile: stack the sticky training header; don't use desktop drawer alignment */
+    @media (max-width: 879px) {
+      .log-page-header {
+        width: 100%;
+        margin-left: 0;
+      }
+      .log-page-header-inner {
+        flex-wrap: wrap;
+        align-items: center;
+        padding: 12px 14px 14px;
+        column-gap: 10px;
+        row-gap: 14px;
+      }
+      .log-page-header-info {
+        order: 1;
+        flex: 1 1 0;
+        min-width: 0;
+        padding-right: 6px;
+      }
+      .log-nav-spacer {
+        display: none;
+      }
+      .log-page-header-actions {
+        order: 2;
+        position: static;
+        transform: none;
+        margin-left: auto;
+        flex-shrink: 0;
+        gap: 10px;
+        align-self: center;
+      }
+      .log-page-header .training-sub-tabs {
+        order: 3;
+        display: flex;
+        flex: 1 1 100%;
+        width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+        gap: 4px;
+        padding: 5px;
+        margin: 2px 0 0;
+      }
+      .log-page-header .training-sub-tab {
+        flex: 1 1 0;
+        min-width: 0;
+        padding: 8px 4px;
+        font-size: 11.5px;
+        font-weight: 700;
+        text-align: center;
+        white-space: nowrap;
+        border-radius: 8px;
+      }
+      .log-page-header .training-sub-tab .tab-label-long {
+        display: none;
+      }
+      .log-page-header .training-sub-tab .tab-label-short {
+        display: inline;
+      }
+      #log-tab-log .tab-label-short,
+      #log-tab-plan .tab-label-short {
+        display: none;
+      }
+      #log-tab-log .tab-label-long,
+      #log-tab-plan .tab-label-long {
+        display: inline;
+      }
+      #layout-wrapper .detail-panel {
+        top: 0;
+        right: 0;
+        left: 0;
+        height: 100vh;
+        height: 100dvh;
+        max-width: none;
+        width: auto;
+        border-radius: 0;
+        transform: translateX(100%);
+        z-index: 201;
+      }
+      .detail-panel-overlay {
+        z-index: 200;
+      }
+      #layout-wrapper .detail-panel .dp-topbar {
+        border-radius: 0;
+      }
+
+      /* Summary + readiness: stay 3-across, compact tiles on phones */
+      .log-layout {
+        padding: 12px 12px 48px;
+      }
+      .log-card--week {
+        margin-left: 12px;
+        margin-right: 12px;
+        width: auto;
+        box-sizing: border-box;
+        padding: 12px 14px;
+      }
+      #week-strip {
+        padding: 2px 2px;
+      }
+      .ws-pills {
+        padding-left: 2px;
+        padding-right: 2px;
+      }
+      #layout-wrapper .log-card,
+      #summary-digest-card,
+      #readiness-widget.readiness-widget {
+        padding: 12px;
+      }
+      .lrx-chead {
+        margin-bottom: 8px;
+        gap: 6px;
+      }
+      .lrx-sectitle {
+        font-size: 11px;
+      }
+      .lrx-scope {
+        font-size: 11px;
+        padding: 3px 7px;
+      }
+      .lrx-seg button,
+      .sd-toggle-btn {
+        font-size: 11px;
+        padding: 5px 8px;
+      }
+      .sd-ctrl {
+        gap: 4px;
+      }
+      .lrx-sumgrid,
+      .lrx-readfull {
+        flex-direction: row;
+        gap: 6px;
+      }
+      .lrx-sumtile {
+        padding: 8px 6px;
+        border-radius: 10px;
+        min-width: 0;
+      }
+      .lrx-sumtile .lab {
+        font-size: 8px;
+        letter-spacing: 0.05em;
+      }
+      .lrx-sumtile .val {
+        font-size: 18px;
+        margin-top: 4px;
+      }
+      .lrx-sumtile .val small {
+        font-size: 10px;
+      }
+      .lrx-delta {
+        font-size: 10px;
+        margin-top: 3px;
+        min-height: 0;
+      }
+      .lrx-chips {
+        margin-top: 8px;
+        gap: 5px;
+      }
+      .lrx-chip {
+        font-size: 11px;
+        padding: 3px 7px;
+      }
+      .lrx-rcard {
+        padding: 8px 5px;
+        border-radius: 10px;
+        min-width: 0;
+      }
+      .lrx-rcard .rv {
+        font-size: 20px;
+      }
+      .lrx-rcard .rl {
+        font-size: 8px;
+        margin-top: 2px;
+        letter-spacing: 0.03em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .lrx-rband {
+        margin: 5px 0 2px;
+        height: 5px;
+      }
+      .lrx-rband .mk {
+        width: 8px;
+        height: 8px;
+        top: -2px;
+      }
+      .lrx-rstatus {
+        font-size: 8px;
+      }
+      .lrx-rchart {
+        height: 26px;
+        margin-top: 3px;
+      }
+      .rw-baseline-msg {
+        font-size: 12px;
+        padding: 0.25rem 0;
+      }
+
+      /* Month rollup + workout rows — tighter on phones */
+      .month-sep {
+        padding: 9px 10px 10px;
+        gap: 5px;
+      }
+      .month-sep-title {
+        font-size: 17px;
+      }
+      .month-sep-stats {
+        gap: 6px 10px;
+      }
+      .month-stat-val {
+        font-size: 12px;
+      }
+      .month-stat-lbl {
+        font-size: 7.5px;
+      }
+      .lrx-logrow {
+        grid-template-columns: 30px minmax(0, 1fr) auto;
+        column-gap: 8px;
+        padding: 10px 8px;
+      }
+      .lrx-logrow .lday {
+        width: 30px;
+      }
+      .lrx-logrow .lname .n {
+        font-size: 14px;
+      }
+      .lrx-logrow .lname .meta {
+        font-size: 11px;
+      }
+      .lrx-tbadge,
+      .lrx-subtag {
+        font-size: 9.5px;
+        padding: 1px 5px;
+      }
+      .lrx-logrow .lstat {
+        font-size: 12px;
+      }
     }
   </style>
 
 
-  <div id="layout-wrapper" class="log-layout">
+  <div
+    id="layout-wrapper"
+    class="log-layout"
+    role="tabpanel"
+    aria-labelledby="log-tab-log"
+    tabindex="0"
+  >
     <div id="list-main" class="log-page-body">
       <!-- Summary digest card (issue #1058) -->
       <div id="summary-digest-card" class="log-card" hidden>
         <div class="lrx-chead">
           <div style="display:flex;align-items:center;gap:10px;">
             <span class="lrx-sectitle">Summary</span>
-            <span class="lrx-scope" id="lrx-scope">This week</span>
+            <span class="lrx-scope" id="lrx-scope">Last week</span>
           </div>
-          <div class="lrx-seg sd-toggle" role="group" aria-label="Summary period">
-            <button type="button" class="sd-toggle-btn on" data-period="week" aria-pressed="true">This week</button>
-            <button type="button" class="sd-toggle-btn" data-period="month" aria-pressed="false">This month</button>
+          <div class="sd-ctrl">
+            <div class="lrx-seg sd-when" role="group" aria-label="Summary time range">
+              <button type="button" class="on is-active" data-when="last" aria-pressed="true">Last</button>
+              <button type="button" data-when="this" aria-pressed="false">This</button>
+            </div>
+            <div class="lrx-seg sd-toggle" role="group" aria-label="Summary period">
+              <button type="button" class="sd-toggle-btn on is-active" data-period="week" aria-pressed="true">Week</button>
+              <button type="button" class="sd-toggle-btn" data-period="month" aria-pressed="false">Month</button>
+            </div>
           </div>
         </div>
         <div id="sd-body">
-          <!-- Populated by JS: sumtiles + chips + note (→ supercomp on month) -->
+          <!-- Populated by JS: sumtiles + chips (→ supercomp on month) -->
+        </div>
+        <!-- Weekly coach report (issue #1314) — merged into the Summary card,
+             below a divider, sharing its layout. Shown once its data loads. -->
+        <div id="wsc-section" class="wsc-section" hidden>
+          <div class="wsc-divider"></div>
+          <div class="lrx-chead">
+            <span class="lrx-sectitle">Weekly coach report</span>
+            <span id="wsc-week-label" class="lrx-scope"></span>
+          </div>
+          <div id="wsc-body">
+            <div id="wsc-narrative" class="wsc-narrative"></div>
+            <p id="wsc-empty" class="wsc-empty" hidden>No training logged this week.</p>
+          </div>
         </div>
       </div>
 
@@ -6763,7 +7279,7 @@
 
         <div id="log-empty-msg" style="display:none" class="empty-state">
           <div class="empty-state-icon">🏃</div>
-          <p>No workouts logged yet. Start tracking your training!</p>
+          <p>No workouts logged yet.</p>
           <button id="log-empty-cta" class="btn-accent" type="button">Log your first workout</button>
         </div>
       </div>
@@ -7304,6 +7820,10 @@
             &#x2715;
           </button>
         </div>
+        <select id="plan-modal-type" hidden aria-hidden="true">
+          <option value="race">Race</option>
+          <option value="checkpoint">Checkpoint</option>
+        </select>
         <div
           class="plan-modal-seg"
           id="plan-modal-typeseg"
@@ -7616,7 +8136,7 @@
     <script src="js/lib/sync-poller.js"></script>
     <script src="js/nav.js"></script>
     <script src="js/lib/html2canvas.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
     <script src="js/ui-states.js"></script>
     <script src="js/lib/training-format.js"></script>
     <script src="js/lib/run-detail-view.js"></script>

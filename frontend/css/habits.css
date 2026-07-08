@@ -235,6 +235,52 @@ main {
   .hw2-burst.go, .hw2-confetti.go { opacity: 0; }
 }
 
+/* Visually-hidden but screen-reader-accessible label (styles.css has no
+   shared .u-sr-only utility yet — see report for the shared-token note). */
+.u-sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Focus visibility (buttons had no visible focus-visible ring) ───────── */
+.btn-new-habit:focus-visible,
+.day-cell-btn:focus-visible,
+.day-actions-toggle:focus-visible,
+.week-actions-toggle:focus-visible,
+.starter-btn:focus-visible,
+.archived-toggle:focus-visible,
+.archived-btn:focus-visible,
+.archived-delete-btn:focus-visible,
+.sf-btn-save:focus-visible,
+.sf-btn-cancel:focus-visible,
+.sf-btn-archive:focus-visible,
+.detail-btn:focus-visible,
+.week-log-chip:focus-visible,
+.icon-option:focus-visible,
+.color-swatch:focus-visible,
+.habit-name-text:focus-visible,
+.week-habit-name:focus-visible {
+  outline: 2px solid var(--primary, #3b82f6);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.habit-name-text[data-detail-trigger],
+.week-habit-name[data-detail-trigger] {
+  cursor: pointer;
+}
+/* Buttons that sit on the gradient header/hero need a light-on-dark ring */
+.week-nav-btn:focus-visible,
+.back-current-btn:focus-visible,
+.detail-panel-close:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
 .hero-card-title {
   font-size: 11px;
   font-weight: 600;
@@ -2422,7 +2468,6 @@ main {
   .hero-row { grid-template-columns: 1fr; }
   .habits-header-right { flex-wrap: wrap; gap: 6px; }
   .habit-meta-line { display: none; }
-  .week-habit-row { flex-wrap: wrap; gap: 8px; }
 }
 
 /* ── Responsive ≤768px ─────────────────────────────────────────────────── */
@@ -2437,6 +2482,82 @@ main {
   .insights-hdr { gap: 6px; }
 }
 
+/* ── Responsive ≤640px (mobile first-class: 375–640px) ────────────────── */
+@media (max-width: 640px) {
+  /* Wheel: shrink the plate so the hero card never forces page-level
+     horizontal scroll at 375px. */
+  .hw2-plate-wrap,
+  .wheel-wrap,
+  .week-wheel-svg { width: 132px; height: 132px; }
+  .wheel-and-info { gap: 10px; }
+  .wheel-pct { font-size: 20px; }
+
+  /* Stats card: three tiles still fit side by side at 375px, just tighter. */
+  .stat-tile { padding: 12px 10px 10px; }
+  .stat-tile-val { font-size: 17px; }
+  .stat-tile-label { font-size: 9px; }
+
+  /* Weekly habit row: the 3-column grid (icon+name / progress bar / value)
+     gets too tight to read below 640px — stack it instead of squeezing. */
+  .week-habit-row {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "left actions"
+      "progress progress"
+      "right right";
+    row-gap: 6px;
+  }
+  .week-habit-left { grid-area: left; }
+  .week-habit-actions { grid-area: actions; }
+  .week-habit-progress { grid-area: progress; }
+  .week-habit-right {
+    grid-area: right;
+    justify-self: end;
+    text-align: right;
+    min-width: 0;
+  }
+
+  /* Daily grid: the 10-column table (habit + 7 days + total + actions) can't
+     fit 375–640px without either crushing tap targets or truncating data.
+     Contain the scroll inside the card (not the page) and pin the habit-name
+     and actions columns so both stay reachable while day columns scroll. */
+  .habits-day-grid { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .day-grid-table { min-width: 560px; }
+  .day-grid-table th.habit-name-hdr,
+  .day-grid-table td.habit-name-cell {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--card-bg);
+    box-shadow: 2px 0 6px rgba(13, 30, 67, 0.06);
+  }
+  .day-grid-table th.habit-actions-hdr,
+  .day-grid-table td.habit-actions-cell {
+    position: sticky;
+    right: 0;
+    z-index: 2;
+    background: var(--card-bg);
+  }
+  .day-grid-table tr.day-score-row td.day-score-label,
+  .day-grid-table tr.day-score-row td:last-child {
+    background: #f7f9fc;
+  }
+
+  /* Tap targets ≥44px */
+  .day-cell-btn { width: 44px; height: 44px; }
+  .day-actions-toggle,
+  .week-actions-toggle {
+    min-width: 44px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .habit-actions-hdr { min-width: 44px; }
+  .archived-toggle { min-height: 44px; }
+  .week-nav-btn { padding: 10px 8px; }
+}
+
 /* ── Responsive ≤480px (360px mobile) ─────────────────────────────────── */
 @media (max-width: 480px) {
   main { padding: 12px 12px 16px; }
@@ -2444,13 +2565,14 @@ main {
   .today-stepper { gap: 4px; }
   .stepper-dec, .stepper-inc { width: 26px; height: 26px; font-size: 14px; }
 
+  .hw2-plate-wrap,
   .wheel-wrap,
   .week-wheel-svg { width: 128px; height: 128px; }
   .wheel-pct { font-size: 19px; }
   .wheel-sublabel { font-size: 6.5px; }
 
-  .day-cell-btn { width: 40px; height: 40px; }
-  .day-grid-table { min-width: 0; }
+  .day-cell-btn { width: 44px; height: 44px; }
+  .day-grid-table { min-width: 540px; }
 
   .starter-grid { flex-direction: column; }
   .starter-btn { width: 100%; }

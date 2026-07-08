@@ -865,15 +865,15 @@ function renderDailyGrid(logSet) {
 
   let html = '<table class="day-grid-table" role="grid">';
   html += '<thead><tr>';
-  html += '<th class="habit-name-hdr">Habit</th>';
+  html += '<th class="habit-name-hdr" scope="col">Habit</th>';
   for (let i = 0; i < 7; i++) {
     const dateStr = weekDatesArr[i] || '';
     const isToday = dateStr === todayStr;
     const todayCls = isToday ? ' day-hdr-today' : '';
-    html += `<th class="${todayCls}"><span class="day-hdr-full">${DAY_LABELS_FULL[i]}</span></th>`;
+    html += `<th class="${todayCls}" scope="col"><span class="day-hdr-full">${DAY_LABELS_FULL[i]}</span></th>`;
   }
-  html += '<th class="day-total-hdr">Total</th>';
-  html += '<th class="habit-actions-hdr"></th>';
+  html += '<th class="day-total-hdr" scope="col">Total</th>';
+  html += '<th class="habit-actions-hdr" scope="col"><span class="u-sr-only">Actions</span></th>';
   html += '</tr></thead><tbody>';
 
   dailyHabits.forEach(habit => {
@@ -895,7 +895,7 @@ function renderDailyGrid(logSet) {
       <div class="habit-name-inner">
         ${iconHTML}
         <div>
-          <div class="habit-name-text" data-detail-trigger title="View habit details">${esc(habit.name)}</div>
+          <div class="habit-name-text" data-detail-trigger tabindex="0" role="button" aria-label="View details for ${esc(habit.name)}" title="View habit details">${esc(habit.name)}</div>
           <div class="habit-meta-line">
             <span class="habit-type-chip">daily · target ${esc(metaTarget)}/wk</span>
             ${streakBadge}
@@ -1360,7 +1360,7 @@ function renderWeeklyHabits(weeklyHabits, wkData, fullHabitsList) {
       <div class="week-habit-left">
         ${iconHTML}
         <div class="week-habit-info">
-          <div class="week-habit-name" data-detail-trigger title="View habit details">${esc(habit.name)}</div>
+          <div class="week-habit-name" data-detail-trigger tabindex="0" role="button" aria-label="View details for ${esc(habit.name)}" title="View habit details">${esc(habit.name)}</div>
           <div class="week-habit-meta">${metaHTML}</div>
         </div>
       </div>
@@ -2798,15 +2798,39 @@ function renderHabitDetail(summary, logs) {
   if (loadingEl) loadingEl.style.display = 'none';
   contentEl.style.display = '';
 
-  // Edit/Archive buttons — no-op placeholders
+  // Edit/Archive buttons — reuse the same edit/archive flows the day-grid and
+  // weekly-list "⋯" menus already use, so the detail panel isn't a dead end.
   const editBtn = document.getElementById('detail-edit-btn');
   const archiveBtn = document.getElementById('detail-archive-btn');
-  if (editBtn) editBtn.onclick = (e) => { e.preventDefault(); /* placeholder for next ticket */ };
-  if (archiveBtn) archiveBtn.onclick = (e) => { e.preventDefault(); /* placeholder for next ticket */ };
+  if (editBtn) {
+    editBtn.onclick = (e) => {
+      e.preventDefault();
+      closeHabitDetail();
+      openHabitForm(habit);
+    };
+  }
+  if (archiveBtn) {
+    archiveBtn.onclick = (e) => {
+      e.preventDefault();
+      if (habit.id && confirm(`Archive "${habit.name}"? You can unarchive it later.`)) {
+        closeHabitDetail();
+        archiveHabit(habit.id);
+      }
+    };
+  }
+}
+
+function _wireDetailTriggerKeydown(el) {
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      el.click();
+    }
+  });
 }
 
 function _wireDetailTriggers() {
-  // Wire habit-name clicks in daily grid
+  // Wire habit-name clicks (and Enter/Space for keyboard users) in daily grid
   document.querySelectorAll('.habit-name-text[data-detail-trigger]').forEach(el => {
     el.addEventListener('click', () => {
       const row = el.closest('[data-habit-id]');
@@ -2816,8 +2840,9 @@ function _wireDetailTriggers() {
                     archivedHabits.find(h => String(h.id) === hid);
       openHabitDetail(hid, habit || null);
     });
+    _wireDetailTriggerKeydown(el);
   });
-  // Wire habit-name clicks in weekly habits list
+  // Wire habit-name clicks (and Enter/Space for keyboard users) in weekly habits list
   document.querySelectorAll('.week-habit-name[data-detail-trigger]').forEach(el => {
     el.addEventListener('click', () => {
       const row = el.closest('[id^="habit-week-row-"]');
@@ -2827,6 +2852,7 @@ function _wireDetailTriggers() {
                     archivedHabits.find(h => String(h.id) === hid);
       openHabitDetail(hid, habit || null);
     });
+    _wireDetailTriggerKeydown(el);
   });
 }
 

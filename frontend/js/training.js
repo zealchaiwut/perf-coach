@@ -58,7 +58,9 @@
   function switchTab(name) {
     currentView = name;
     document.querySelectorAll('.training-tab').forEach(function (btn) {
-      btn.classList.toggle('active', btn.dataset.tab === name);
+      var isActive = btn.dataset.tab === name;
+      btn.classList.toggle('active', isActive);
+      btn.setAttribute('aria-selected', String(isActive));
     });
     document.getElementById('view-new').style.display = name === 'new' ? '' : 'none';
     document.getElementById('view-history').style.display = name === 'history' ? '' : 'none';
@@ -84,11 +86,14 @@
       btn.type = 'button';
       btn.className = 'type-chip' + (DISABLED_TYPES[type] ? ' type-chip-disabled' : '');
       btn.dataset.value = type;
-      btn.textContent = type;
       if (DISABLED_TYPES[type]) {
+        // Visible "Soon" badge, not just a hover title — titles never surface on touch.
+        btn.innerHTML = type + ' <span class="chip-soon">Soon</span>';
         btn.disabled = true;
         btn.title = 'Coming soon';
       } else {
+        btn.textContent = type;
+        btn.setAttribute('aria-pressed', 'false');
         btn.addEventListener('click', function () { selectChip(type); });
       }
       container.appendChild(btn);
@@ -97,7 +102,7 @@
     customBtn.type = 'button';
     customBtn.className = 'type-chip type-chip-disabled';
     customBtn.dataset.value = '__custom__';
-    customBtn.textContent = '+ Custom';
+    customBtn.innerHTML = '+ Custom <span class="chip-soon">Soon</span>';
     customBtn.disabled = true;
     customBtn.title = 'Coming soon';
     container.appendChild(customBtn);
@@ -108,7 +113,9 @@
   function selectChip(value) {
     var customInput = document.getElementById('custom-type-input');
     document.querySelectorAll('.type-chip').forEach(function (b) {
-      b.classList.toggle('active', b.dataset.value === value);
+      var isActive = b.dataset.value === value;
+      b.classList.toggle('active', isActive);
+      if (!b.disabled) b.setAttribute('aria-pressed', String(isActive));
     });
     customInput.style.display = value === '__custom__' ? 'block' : 'none';
     if (value !== '__custom__') customInput.value = '';
@@ -171,32 +178,39 @@
     var cards = document.querySelectorAll('#exercises-tbody .exercise');
     var result = [];
     cards.forEach(function (card, i) {
+      var isDur = card.classList.contains('is-duration');
       var sets = [];
       card.querySelectorAll('.set-row').forEach(function (r) {
         var w = parseFloat(r.querySelector('.set-weight').value);
-        var reps = parseInt(r.querySelector('.set-reps').value, 10);
+        var reps = isDur ? null : parseInt(r.querySelector('.set-reps').value, 10);
+        var durSec = isDur ? parseInt(r.querySelector('.set-dur').value, 10) : null;
         var rpe = parseFloat(r.querySelector('.set-rpe').value);
         var rest = parseInt(r.querySelector('.set-rest').value, 10);
         sets.push({
           type: r.dataset.setType || 'working',
           weight: isFinite(w) ? w : null,
           reps: isFinite(reps) ? reps : null,
+          duration_seconds: isFinite(durSec) ? durSec : null,
           rpe: isFinite(rpe) ? rpe : null,
           rest: isFinite(rest) ? rest : null,
         });
       });
       var working = sets.filter(function (s) { return SET_TYPES[s.type] && SET_TYPES[s.type].working; });
       var top = null;
+      // For reps exercises: top = heaviest set. For duration: top = first working set.
       working.forEach(function (s) { if (s.weight != null && (!top || s.weight > top.weight)) top = s; });
+      if (!top && working.length) top = working[0];
       var first = sets[0] || {};
+      var topRpe = top && top.rpe != null ? Math.round(top.rpe) : (first.rpe != null ? Math.round(first.rpe) : null);
       result.push({
         display_order: i,
         name: card.querySelector('.ex-name').value.trim(),
         sets: working.length || null,
-        reps: top ? top.reps : (first.reps != null ? first.reps : null),
+        reps: isDur ? null : (top ? top.reps : (first.reps != null ? first.reps : null)),
         weight_kg: top ? top.weight : (first.weight != null ? first.weight : null),
-        rpe: (top && top.rpe != null) ? Math.round(top.rpe) : null,
+        rpe: topRpe,
         duration: null,
+        duration_seconds: isDur ? (top ? top.duration_seconds : (first.duration_seconds || null)) : null,
         sets_json: sets.length ? JSON.stringify(sets) : null,
       });
     });
@@ -241,29 +255,38 @@
 
   function _updateExerciseVolume(card) {
     if (!card) return;
-    var vol = 0;
-    card.querySelectorAll('.set-row').forEach(function (r) {
-      var w = parseFloat(r.querySelector('.set-weight').value) || 0;
-      var reps = parseInt(r.querySelector('.set-reps').value, 10) || 0;
-      vol += w * reps;
-    });
     var el = card.querySelector('.ex-vol strong');
-    if (el) el.textContent = vol ? (Math.round(vol).toLocaleString() + ' kg') : '—';
+    if (card.classList.contains('is-duration')) {
+      var totalSec = 0;
+      card.querySelectorAll('.set-row').forEach(function (r) {
+        totalSec += parseInt(r.querySelector('.set-dur').value, 10) || 0;
+      });
+      if (el) el.textContent = totalSec > 0 ? (totalSec + 's') : '—';
+    } else {
+      var vol = 0;
+      card.querySelectorAll('.set-row').forEach(function (r) {
+        var w = parseFloat(r.querySelector('.set-weight').value) || 0;
+        var reps = parseInt(r.querySelector('.set-reps').value, 10) || 0;
+        vol += w * reps;
+      });
+      if (el) el.textContent = vol ? (Math.round(vol).toLocaleString() + ' kg') : '—';
+    }
     _updateExerciseBullet(card);
   }
 
   function recomputeStrengthTotals() {
     var vol = 0, total = 0, working = 0, topW = 0, topReps = 0;
     document.querySelectorAll('#exercises-tbody .exercise').forEach(function (card) {
+      var isDur = card.classList.contains('is-duration');
       card.querySelectorAll('.set-row').forEach(function (r) {
         var w = parseFloat(r.querySelector('.set-weight').value);
         var reps = parseInt(r.querySelector('.set-reps').value, 10);
         var hasW = isFinite(w) && w > 0;
         var hasR = isFinite(reps) && reps > 0;
-        // Flag rows where only one of weight/reps is filled (incomplete)
-        r.classList.toggle('is-incomplete', (hasW && !hasR) || (!hasW && hasR));
-        // Only count complete rows in totals
-        if (hasW && hasR) {
+        // Duration-mode rows are never "incomplete" (no reps expected)
+        r.classList.toggle('is-incomplete', !isDur && ((hasW && !hasR) || (!hasW && hasR)));
+        // Only count complete reps-based rows in totals
+        if (!isDur && hasW && hasR) {
           vol += w * reps; total += 1;
           var type = r.dataset.setType || 'working';
           if (SET_TYPES[type] && SET_TYPES[type].working) working += 1;
@@ -291,7 +314,10 @@
     row.innerHTML =
       '<button type="button" class="set-badge" title="Cycle set type"></button>' +
       '<div class="set-cell"><input type="number" class="set-in set-weight" inputmode="decimal" step="0.5" min="0" placeholder="—" value="' + v(sd.weight) + '"></div>' +
-      '<div class="set-cell"><input type="number" class="set-in set-reps" inputmode="numeric" min="0" placeholder="—" value="' + v(sd.reps) + '"></div>' +
+      '<div class="set-cell">' +
+        '<input type="number" class="set-in set-reps" inputmode="numeric" min="0" placeholder="—" value="' + v(sd.reps) + '">' +
+        '<input type="number" class="set-in set-dur" inputmode="numeric" min="0" placeholder="s" value="' + v(sd.duration_seconds) + '"><span class="set-dur-unit u">s</span>' +
+      '</div>' +
       '<div class="set-cell rpe-cell"><input type="number" class="set-in set-rpe" inputmode="decimal" min="1" max="10" step="0.5" placeholder="—" value="' + v(sd.rpe) + '"></div>' +
       '<div class="set-cell"><input type="number" class="set-in set-rest" inputmode="numeric" min="0" placeholder="—" value="' + v(sd.rest) + '"><span class="u">s</span></div>' +
       '<button type="button" class="set-x" title="Remove set">✕</button>';
@@ -311,6 +337,50 @@
     var list = document.getElementById('exercises-tbody');
     var card = document.createElement('div');
     card.className = 'exercise';
+
+    // Parse sets_json for uniformity and duration detection
+    var setsArr = null;
+    if (data && data.sets_json) {
+      try {
+        var _p = JSON.parse(data.sets_json);
+        if (Array.isArray(_p) && _p.length) setsArr = _p;
+      } catch (e) {}
+    }
+
+    // Detect duration mode (duration_seconds in data or sets_json)
+    var isDuration = (data && data.duration_seconds != null) ||
+      (setsArr && setsArr.some(function (s) { return s.duration_seconds != null && s.duration_seconds > 0; }));
+
+    // Decide initial expanded/compact and seed values
+    var startExpanded = false;
+    var cd = { sets: 1, reps: null, dur: null, weight: null, rpe: null, rest: null };
+    if (setsArr) {
+      var _wk = setsArr.filter(function (s) { return s.type !== 'warmup'; });
+      var src = _wk.length ? _wk : setsArr;
+      var f = src[0];
+      var uniform = src.every(function (s) {
+        return s.weight === f.weight && s.rpe === f.rpe &&
+               (isDuration ? s.duration_seconds === f.duration_seconds : s.reps === f.reps);
+      });
+      if (!uniform) {
+        startExpanded = true;
+      } else {
+        cd = { sets: src.length, reps: f.reps || null, dur: f.duration_seconds || null,
+               weight: f.weight || null, rpe: f.rpe || null, rest: f.rest || null };
+      }
+    } else if (data) {
+      cd = {
+        sets: (data.sets != null && data.sets > 0) ? data.sets : 1,
+        reps: data.reps != null ? data.reps : null,
+        dur: data.duration_seconds != null ? data.duration_seconds : null,
+        weight: data.weight_kg != null ? data.weight_kg : null,
+        rpe: data.rpe != null ? data.rpe : null,
+        rest: null,
+      };
+    }
+
+    function vn(x) { return (x != null && x !== '') ? x : ''; }
+
     card.innerHTML =
       '<div class="exercise-head">' +
         '<span class="grip" title="Reorder">⠿</span>' +
@@ -320,38 +390,205 @@
         '<div class="ex-vol">volume<strong>—</strong></div>' +
         '<button type="button" class="remove-row-btn" title="Remove exercise">✕</button>' +
       '</div>' +
+      '<div class="ex-compact-row">' +
+        '<input type="number" class="ec-in ec-sets" min="1" max="50" step="1" inputmode="numeric" placeholder="1" value="' + vn(cd.sets) + '">' +
+        '<span class="ec-sep">×</span>' +
+        '<input type="number" class="ec-in ec-reps" min="0" inputmode="numeric" placeholder="reps" value="' + vn(cd.reps) + '">' +
+        '<input type="number" class="ec-in ec-dur" min="0" inputmode="numeric" placeholder="s" value="' + vn(cd.dur) + '">' +
+        '<button type="button" class="ec-mode-btn" title="Toggle reps / duration">reps</button>' +
+        '<span class="ec-unit ec-sep">@</span>' +
+        '<input type="number" class="ec-in ec-weight" step="0.5" min="0" inputmode="decimal" placeholder="kg" value="' + vn(cd.weight) + '">' +
+        '<span class="ec-unit">kg</span>' +
+        '<span class="ec-sep">·</span>' +
+        '<span class="ec-label">RPE</span>' +
+        '<input type="number" class="ec-in ec-rpe" min="1" max="10" step="0.5" inputmode="decimal" placeholder="—" value="' + vn(cd.rpe) + '">' +
+        '<span class="ec-sep">·</span>' +
+        '<span class="ec-label">Rest</span>' +
+        '<input type="number" class="ec-in ec-rest" min="0" inputmode="numeric" placeholder="—" value="' + vn(cd.rest) + '">' +
+        '<span class="ec-unit">s</span>' +
+        '<button type="button" class="ec-expand-btn" title="Edit individual sets">Sets ▾</button>' +
+      '</div>' +
       '<div class="set-table">' +
-        '<div class="set-cols"><span>Set</span><span class="r">Weight</span><span class="r">Reps</span><span class="r rpe-cell">RPE</span><span class="r">Rest</span><span></span></div>' +
+        '<div class="set-cols"><span>Set</span><span class="r">Weight</span><span class="r set-col-qty">Reps</span><span class="r rpe-cell">RPE</span><span class="r">Rest</span><span></span></div>' +
         '<button type="button" class="add-set"><span aria-hidden="true">+</span> Add set</button>' +
       '</div>';
+
     list.appendChild(card);
+
+    var compactRow = card.querySelector('.ex-compact-row');
+    var setTable = card.querySelector('.set-table');
+    var modeBtn = card.querySelector('.ec-mode-btn');
+
+    // Apply duration mode class + labels
+    function applyMode(dur) {
+      card.classList.toggle('is-duration', dur);
+      modeBtn.textContent = dur ? 's' : 'reps';
+      var qtyLabel = card.querySelector('.set-col-qty');
+      if (qtyLabel) qtyLabel.textContent = dur ? 'Duration' : 'Reps';
+    }
+    applyMode(isDuration);
+
+    // Mode toggle button
+    modeBtn.addEventListener('click', function () {
+      var nowDur = !card.classList.contains('is-duration');
+      applyMode(nowDur);
+      recomputeStrengthTotals();
+    });
+
+    // Initial visibility
+    if (startExpanded) {
+      compactRow.hidden = true;
+    } else {
+      setTable.style.display = 'none';
+    }
+
+    // Remove button
     var rmBtn = card.querySelector('.remove-row-btn');
     rmBtn.classList.add('ex-remove');
     rmBtn.addEventListener('click', function () {
       var exName = (card.querySelector('.ex-name').value || 'this exercise').trim();
       var hasData = [].slice.call(card.querySelectorAll('.set-row')).some(function (r) {
-        return r.querySelector('.set-weight').value || r.querySelector('.set-reps').value || r.querySelector('.set-rpe').value;
+        return r.querySelector('.set-weight').value || r.querySelector('.set-reps').value ||
+               r.querySelector('.set-dur').value || r.querySelector('.set-rpe').value;
       });
       if (hasData && !confirm('Remove "' + exName + '" and all its sets?')) return;
       card.remove();
       recomputeStrengthTotals();
     });
-    var setTable = card.querySelector('.set-table');
-    card.querySelector('.add-set').addEventListener('click', function () { addSetRow(setTable, { type: 'working' }); _relabelSets(card); recomputeStrengthTotals(); });
     card.querySelector('.ex-name').addEventListener('input', recomputeStrengthTotals);
 
-    var seeded = false;
-    if (data && data.sets_json) {
-      try { var arr = JSON.parse(data.sets_json); if (Array.isArray(arr) && arr.length) { arr.forEach(function (sd) { addSetRow(setTable, sd); }); seeded = true; } } catch (e) {}
+    // Seed per-set rows (always kept in sync; getExerciseRows reads from them)
+    if (setsArr) {
+      setsArr.forEach(function (sd) { addSetRow(setTable, sd); });
+    } else {
+      var n = cd.sets || 1;
+      for (var k = 0; k < n; k++) {
+        addSetRow(setTable, { type: 'working', weight: cd.weight, reps: cd.reps,
+                              duration_seconds: cd.dur, rpe: cd.rpe });
+      }
     }
-    if (!seeded && data && (data.sets != null || data.weight_kg != null || data.reps != null)) {
-      var n = (data.sets != null && data.sets > 0) ? data.sets : 1;
-      for (var k = 0; k < n; k++) addSetRow(setTable, { type: 'working', weight: data.weight_kg, reps: data.reps, rpe: data.rpe });
-      seeded = true;
-    }
-    if (!seeded) addSetRow(setTable, { type: 'working' });
     _relabelSets(card);
     recomputeStrengthTotals();
+
+    // ── Compact ↔ per-set sync helpers ───────────────────────────────────
+
+    function syncCompactToRows() {
+      var isDur = card.classList.contains('is-duration');
+      var w = card.querySelector('.ec-weight').value;
+      var qty = isDur ? card.querySelector('.ec-dur').value : card.querySelector('.ec-reps').value;
+      var rpe = card.querySelector('.ec-rpe').value;
+      var rest = card.querySelector('.ec-rest').value;
+      card.querySelectorAll('.set-row').forEach(function (row) {
+        if (w !== '') row.querySelector('.set-weight').value = w;
+        if (qty !== '') {
+          if (isDur) row.querySelector('.set-dur').value = qty;
+          else row.querySelector('.set-reps').value = qty;
+        }
+        if (rpe !== '') row.querySelector('.set-rpe').value = rpe;
+        if (rest !== '') row.querySelector('.set-rest').value = rest;
+      });
+      recomputeStrengthTotals();
+    }
+
+    function syncRowsToCompact() {
+      var isDur = card.classList.contains('is-duration');
+      var rows = [].slice.call(card.querySelectorAll('.set-row'));
+      if (!rows.length) return;
+      var wkg = rows.filter(function (r) { return r.dataset.setType !== 'warmup'; });
+      var src = wkg.length ? wkg : rows;
+      var f = src[0];
+      var fw = f.querySelector('.set-weight').value;
+      var fqty = isDur ? f.querySelector('.set-dur').value : f.querySelector('.set-reps').value;
+      var frpe = f.querySelector('.set-rpe').value;
+      var frest = f.querySelector('.set-rest').value;
+      var uniform = src.every(function (r) {
+        var qty = isDur ? r.querySelector('.set-dur').value : r.querySelector('.set-reps').value;
+        return r.querySelector('.set-weight').value === fw && qty === fqty && r.querySelector('.set-rpe').value === frpe;
+      });
+      card.querySelector('.ec-sets').value = src.length;
+      card.querySelector('.ec-weight').value = fw;
+      if (isDur) card.querySelector('.ec-dur').value = fqty;
+      else card.querySelector('.ec-reps').value = fqty;
+      card.querySelector('.ec-rpe').value = frpe;
+      card.querySelector('.ec-rest').value = frest;
+      compactRow.classList.toggle('ec-mixed', !uniform);
+      _updateExerciseBullet(card);
+    }
+
+    // ec-sets: add/remove rows to match target count (on blur to avoid mid-type jitter)
+    card.querySelector('.ec-sets').addEventListener('blur', function () {
+      var target = parseInt(this.value, 10);
+      if (!isFinite(target) || target < 1) { this.value = 1; target = 1; }
+      var isDur = card.classList.contains('is-duration');
+      var rows = card.querySelectorAll('.set-row');
+      while (rows.length < target) {
+        var last = rows[rows.length - 1];
+        addSetRow(setTable, {
+          type: 'working',
+          weight: last ? last.querySelector('.set-weight').value : card.querySelector('.ec-weight').value,
+          reps: isDur ? null : (last ? last.querySelector('.set-reps').value : card.querySelector('.ec-reps').value),
+          duration_seconds: !isDur ? null : (last ? last.querySelector('.set-dur').value : card.querySelector('.ec-dur').value),
+          rpe: last ? last.querySelector('.set-rpe').value : card.querySelector('.ec-rpe').value,
+        });
+        rows = card.querySelectorAll('.set-row');
+      }
+      while (rows.length > target) {
+        rows[rows.length - 1].remove();
+        rows = card.querySelectorAll('.set-row');
+      }
+      _relabelSets(card);
+      recomputeStrengthTotals();
+    });
+
+    // ec-reps/dur/weight/rpe/rest: propagate to all rows on input
+    ['ec-reps', 'ec-dur', 'ec-weight', 'ec-rpe', 'ec-rest'].forEach(function (cls) {
+      var inp = card.querySelector('.' + cls);
+      if (inp) inp.addEventListener('input', syncCompactToRows);
+    });
+
+    // Compact inputs also refresh bullet/volume
+    compactRow.querySelectorAll('input').forEach(function (inp) {
+      inp.addEventListener('input', function () { _updateExerciseBullet(card); _updateExerciseVolume(card); });
+    });
+
+    // Expand: show per-set table
+    card.querySelector('.ec-expand-btn').addEventListener('click', function () {
+      syncCompactToRows();
+      compactRow.hidden = true;
+      setTable.style.display = '';
+    });
+
+    // Collapse: read rows → compact, show compact row
+    var collapseBtn = document.createElement('button');
+    collapseBtn.type = 'button';
+    collapseBtn.className = 'ec-collapse-btn';
+    collapseBtn.textContent = '▲ Compact';
+    setTable.appendChild(collapseBtn);
+    collapseBtn.addEventListener('click', function () {
+      syncRowsToCompact();
+      setTable.style.display = 'none';
+      compactRow.hidden = false;
+    });
+
+    // Add set: seed from last row's values (helps with progressive loading)
+    card.querySelector('.add-set').addEventListener('click', function () {
+      var isDur = card.classList.contains('is-duration');
+      var rows = card.querySelectorAll('.set-row');
+      var last = rows.length ? rows[rows.length - 1] : null;
+      addSetRow(setTable, {
+        type: 'working',
+        weight: last ? parseFloat(last.querySelector('.set-weight').value) || null : null,
+        reps: isDur ? null : (last ? parseInt(last.querySelector('.set-reps').value, 10) || null : null),
+        duration_seconds: !isDur ? null : (last ? parseInt(last.querySelector('.set-dur').value, 10) || null : null),
+        rpe: last ? parseFloat(last.querySelector('.set-rpe').value) || null : null,
+      });
+      _relabelSets(card);
+      recomputeStrengthTotals();
+      var allRows = card.querySelectorAll('.set-row');
+      var wkRows = [].filter.call(allRows, function (r) { return r.dataset.setType !== 'warmup'; });
+      card.querySelector('.ec-sets').value = wkRows.length || allRows.length;
+    });
+
     if (!data || !data.name) card.querySelector('.ex-name').focus();
   }
 
@@ -497,8 +734,8 @@
     inputs +=
       '<input type="number" class="seg-val" inputmode="decimal" min="0" step="' + (unit === 'min' ? '1' : '0.1') + '" placeholder="—" value="' + (data.value != null ? data.value : '') + '">' +
       '<span class="seg-unit-toggle" role="group" aria-label="Unit">' +
-        '<button type="button" class="seg-unit' + (unit === 'km' ? ' active' : '') + '" data-unit="km">km</button>' +
-        '<button type="button" class="seg-unit' + (unit === 'min' ? ' active' : '') + '" data-unit="min">min</button>' +
+        '<button type="button" class="seg-unit' + (unit === 'km' ? ' active' : '') + '" data-unit="km" aria-pressed="' + (unit === 'km') + '">km</button>' +
+        '<button type="button" class="seg-unit' + (unit === 'min' ? ' active' : '') + '" data-unit="min" aria-pressed="' + (unit === 'min') + '">min</button>' +
       '</span>' +
       '<input type="text" class="seg-pace" inputmode="numeric" placeholder="pace" title="Pace min/km, e.g. 5:30" value="' + (data.paceSec != null ? fmtPaceSec(data.paceSec) : '') + '">' +
       '<span class="seg-suffix">/km</span>' +
@@ -522,6 +759,7 @@
         row.dataset.unit = ub.dataset.unit;
         row.querySelectorAll('.seg-unit').forEach(function (b) {
           b.classList.toggle('active', b === ub);
+          b.setAttribute('aria-pressed', String(b === ub));
         });
         var valEl = row.querySelector('.seg-val');
         if (valEl) valEl.step = ub.dataset.unit === 'min' ? '1' : '0.1';
@@ -1714,17 +1952,24 @@
       var row = document.createElement('div');
       row.className = 'history-row';
       var count = w.exercise_count || 0;
+      row.setAttribute('role', 'button');
+      row.setAttribute('tabindex', '0');
+      row.setAttribute('aria-label', w.name + ', ' + relativeDate(w.workout_date) + ', ' + w.workout_type);
       row.innerHTML =
+        '<span class="history-icon" aria-hidden="true">' + typeIcon(w.workout_type) + '</span>' +
         '<div class="history-main">' +
           '<span class="history-name">' + escapeHtml(w.name) + '</span>' +
           '<span class="history-meta">' +
             '<span class="history-date">' + relativeDate(w.workout_date) + '</span>' +
-            '<span class="history-type">' + typeIcon(w.workout_type) + ' ' + escapeHtml(w.workout_type) + '</span>' +
+            '<span class="history-type">' + escapeHtml(w.workout_type) + '</span>' +
             '<span class="history-count">' + count + ' exercise' + (count !== 1 ? 's' : '') + '</span>' +
           '</span>' +
         '</div>' +
-        '<span class="history-chevron">›</span>';
+        '<span class="history-chevron" aria-hidden="true">›</span>';
       row.addEventListener('click', function () { openDetail(w); });
+      row.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(w); }
+      });
       list.appendChild(row);
     });
   }

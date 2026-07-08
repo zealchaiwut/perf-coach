@@ -35,7 +35,9 @@
 
   function today() {
     var d = new Date();
-    return d.toISOString().slice(0, 10);
+    var mm = String(d.getMonth() + 1).padStart(2, "0");
+    var dd = String(d.getDate()).padStart(2, "0");
+    return d.getFullYear() + "-" + mm + "-" + dd;
   }
 
   function fmtDate(str) {
@@ -119,7 +121,7 @@
       state.exercises.length > 1
         ? '<button type="button" class="se-ex-delete" data-seq="' +
           ex._id +
-          '" title="Remove exercise">×</button>'
+          '" title="Remove exercise" aria-label="Remove exercise">×</button>'
         : "";
 
     if (type === "strength") {
@@ -130,32 +132,52 @@
         ex._id +
         '">' +
         deleteBtn +
-        '<div class="se-ex-field" data-area="name"><label>Exercise *</label>' +
-        '<input class="se-ex-input" type="text" data-field="exercise_name" data-seq="' +
+        '<div class="se-ex-field" data-area="name"><label for="ex-name-' +
+        ex._id +
+        '">Exercise *</label>' +
+        '<input class="se-ex-input" type="text" id="ex-name-' +
+        ex._id +
+        '" data-field="exercise_name" data-seq="' +
         ex._id +
         '" value="' +
         esc(ex.exercise_name) +
         '" placeholder="e.g. Squat" maxlength="200"></div>' +
-        '<div class="se-ex-field" data-area="sets"><label>Sets</label>' +
-        '<input class="se-ex-input" type="number" data-field="sets" data-seq="' +
+        '<div class="se-ex-field" data-area="sets"><label for="ex-sets-' +
+        ex._id +
+        '">Sets</label>' +
+        '<input class="se-ex-input" type="number" id="ex-sets-' +
+        ex._id +
+        '" data-field="sets" data-seq="' +
         ex._id +
         '" value="' +
         esc(ex.sets) +
         '" min="1" placeholder="—"></div>' +
-        '<div class="se-ex-field" data-area="reps"><label>Reps</label>' +
-        '<input class="se-ex-input" type="number" data-field="reps" data-seq="' +
+        '<div class="se-ex-field" data-area="reps"><label for="ex-reps-' +
+        ex._id +
+        '">Reps</label>' +
+        '<input class="se-ex-input" type="number" id="ex-reps-' +
+        ex._id +
+        '" data-field="reps" data-seq="' +
         ex._id +
         '" value="' +
         esc(ex.reps) +
         '" min="1" placeholder="—"></div>' +
-        '<div class="se-ex-field" data-area="load"><label>Load</label>' +
-        '<input class="se-ex-input" type="number" data-field="load" data-seq="' +
+        '<div class="se-ex-field" data-area="load"><label for="ex-load-' +
+        ex._id +
+        '">Load</label>' +
+        '<input class="se-ex-input" type="number" id="ex-load-' +
+        ex._id +
+        '" data-field="load" data-seq="' +
         ex._id +
         '" value="' +
         esc(ex.load) +
         '" min="0" step="0.5" placeholder="—"></div>' +
-        '<div class="se-ex-field" data-area="unit"><label>Unit</label>' +
-        '<select class="se-ex-select" data-field="load_unit" data-seq="' +
+        '<div class="se-ex-field" data-area="unit"><label for="ex-unit-' +
+        ex._id +
+        '">Unit</label>' +
+        '<select class="se-ex-select" id="ex-unit-' +
+        ex._id +
+        '" data-field="load_unit" data-seq="' +
         ex._id +
         '">' +
         LOAD_UNITS.map(function (u) {
@@ -172,7 +194,7 @@
         "</select></div>" +
         '<div class="se-ex-errors" data-seq-err="' +
         ex._id +
-        '"></div>' +
+        '" role="alert"></div>' +
         "</div>"
       );
     } else {
@@ -183,20 +205,32 @@
         ex._id +
         '">' +
         deleteBtn +
-        '<div class="se-ex-field" data-area="name"><label>Exercise *</label>' +
-        '<input class="se-ex-input" type="text" data-field="exercise_name" data-seq="' +
+        '<div class="se-ex-field" data-area="name"><label for="ex-name-' +
+        ex._id +
+        '">Exercise *</label>' +
+        '<input class="se-ex-input" type="text" id="ex-name-' +
+        ex._id +
+        '" data-field="exercise_name" data-seq="' +
         ex._id +
         '" value="' +
         esc(ex.exercise_name) +
         '" placeholder="e.g. Box Jump" maxlength="200"></div>' +
-        '<div class="se-ex-field" data-area="contacts"><label>Foot Contacts *</label>' +
-        '<input class="se-ex-input" type="number" data-field="foot_contacts" data-seq="' +
+        '<div class="se-ex-field" data-area="contacts"><label for="ex-contacts-' +
+        ex._id +
+        '">Foot Contacts *</label>' +
+        '<input class="se-ex-input" type="number" id="ex-contacts-' +
+        ex._id +
+        '" data-field="foot_contacts" data-seq="' +
         ex._id +
         '" value="' +
         esc(ex.foot_contacts) +
         '" min="0" placeholder="e.g. 80"></div>' +
-        '<div class="se-ex-field" data-area="phase"><label>Phase *</label>' +
-        '<select class="se-ex-select" data-field="plyo_phase" data-seq="' +
+        '<div class="se-ex-field" data-area="phase"><label for="ex-phase-' +
+        ex._id +
+        '">Phase *</label>' +
+        '<select class="se-ex-select" id="ex-phase-' +
+        ex._id +
+        '" data-field="plyo_phase" data-seq="' +
         ex._id +
         '">' +
         PLYO_PHASES.map(function (p) {
@@ -213,7 +247,7 @@
         "</select></div>" +
         '<div class="se-ex-errors" data-seq-err="' +
         ex._id +
-        '"></div>' +
+        '" role="alert"></div>' +
         "</div>"
       );
     }
@@ -356,9 +390,13 @@
     if (state.sessionType === "strength") {
       strengthBtn.classList.add("is-active");
       plyoBtn.classList.remove("is-active");
+      strengthBtn.setAttribute("aria-pressed", "true");
+      plyoBtn.setAttribute("aria-pressed", "false");
     } else {
       plyoBtn.classList.add("is-active");
       strengthBtn.classList.remove("is-active");
+      plyoBtn.setAttribute("aria-pressed", "true");
+      strengthBtn.setAttribute("aria-pressed", "false");
     }
   }
 
@@ -372,15 +410,14 @@
     btn.disabled = true;
     btn.textContent = "Saving…";
 
-    var endpoint =
+    var batchEndpoint =
       state.sessionType === "strength"
-        ? "/api/strength-sessions"
-        : "/api/plyo-sessions";
+        ? "/api/strength-sessions/batch"
+        : "/api/plyo-sessions/batch";
 
-    var promises = state.exercises.map(function (ex) {
-      var payload;
+    var exercises = state.exercises.map(function (ex) {
       if (state.sessionType === "strength") {
-        payload = {
+        return {
           session_date: dateVal,
           exercise_name: ex.exercise_name.trim(),
           sets: ex.sets !== "" ? parseInt(ex.sets, 10) : null,
@@ -388,28 +425,37 @@
           load: ex.load !== "" ? parseFloat(ex.load) : null,
           load_unit: ex.load_unit || "kg",
         };
-      } else {
-        payload = {
-          session_date: dateVal,
-          exercise_name: ex.exercise_name.trim(),
-          foot_contacts: parseInt(ex.foot_contacts, 10),
-          plyo_phase: ex.plyo_phase || "intro",
-        };
       }
-      return apiFetch(endpoint, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
+      return {
+        session_date: dateVal,
+        exercise_name: ex.exercise_name.trim(),
+        foot_contacts: parseInt(ex.foot_contacts, 10),
+        plyo_phase: ex.plyo_phase || "intro",
+      };
     });
 
-    Promise.all(promises)
+    apiFetch(batchEndpoint, {
+      method: "POST",
+      body: JSON.stringify({ exercises: exercises }),
+    })
       .then(function () {
         showToast("Session saved!", "success");
         hideForm();
         loadAll();
       })
       .catch(function (err) {
-        showToast("Save failed: " + err.message, "error");
+        var detail = "Unknown error";
+        if (err.data && err.data.detail) {
+          if (typeof err.data.detail === "string") {
+            detail = err.data.detail;
+          } else if (Array.isArray(err.data.detail) && err.data.detail.length > 0) {
+            var first = err.data.detail[0];
+            detail = first.msg || JSON.stringify(first);
+          }
+        } else if (err.message) {
+          detail = err.message;
+        }
+        showToast("Session not saved — " + detail, "error");
       })
       .finally(function () {
         btn.disabled = false;
@@ -570,6 +616,8 @@
   function renderSessionGroup(g) {
     var badgeCls = g.type;
     var label = g.type === "strength" ? "Strength" : "Plyo";
+    var count = g.exercises.length;
+    var countLabel = count + (count === 1 ? " exercise" : " exercises");
 
     var exHtml = g.exercises
       .map(function (e) {
@@ -616,6 +664,9 @@
       '<span class="se-session-date">' +
       fmtDate(g.date) +
       "</span>" +
+      '<span class="se-session-count">' +
+      countLabel +
+      "</span>" +
       "</div>" +
       "</div>" +
       '<div class="se-ex-list">' +
@@ -625,8 +676,18 @@
     );
   }
 
+  var EMPTY_ICON =
+    '<svg class="se-empty-icon" width="32" height="32" viewBox="0 0 24 24" ' +
+    'fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" ' +
+    'stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M4 9v6M2 10v4M20 9v6M22 10v4M7 12h10"/>' +
+    '<rect x="5.5" y="7" width="3" height="10" rx="1"/>' +
+    '<rect x="15.5" y="7" width="3" height="10" rx="1"/>' +
+    "</svg>";
+
   function renderList() {
     var container = document.getElementById("se-list-container");
+    container.setAttribute("aria-busy", "false");
     var strengthGroups = groupByDate(state.strengthEntries, "strength");
     var plyoGroups = groupByDate(state.plyoEntries, "plyo");
     var allGroups = strengthGroups.concat(plyoGroups).sort(function (a, b) {
@@ -636,6 +697,7 @@
     if (!allGroups.length) {
       container.innerHTML =
         '<div class="se-card se-empty">' +
+        EMPTY_ICON +
         "<strong>No sessions yet</strong>" +
         "<p>Click “Add Session” above to log your first strength or plyo session.</p>" +
         "</div>";
@@ -673,8 +735,10 @@
         renderList();
       })
       .catch(function (err) {
-        document.getElementById("se-list-container").innerHTML =
-          '<div class="se-card se-error-banner">Failed to load sessions: ' +
+        var container = document.getElementById("se-list-container");
+        container.setAttribute("aria-busy", "false");
+        container.innerHTML =
+          '<div class="se-card se-error-banner" role="alert">Failed to load sessions: ' +
           esc(err.message) +
           "</div>";
       });

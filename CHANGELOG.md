@@ -1,20 +1,83 @@
 # Changelog
 
-## Sprint 87.5 — Same-as-last button state-ownership refactor
+## Sprint 102 — LLM coaching layer: Groq client, habit insights, readiness narrative, weekly summary, plan suggestions
 
-- #509: [follow-up] Remove side effect from _updateSameAsLastBtn (state mutation)
+- #1311: Groq LLM client service: httpx provider, JSON-schema output, llm_generations cache table, fail-safe off by default
+- #1312: Coaching text via Groq: habit insights + nudges LLM-phrased with coaching_voice template fallback
+- #1313: Readiness explanation: LLM 'why this score' narrative with rule-based fallback
+- #1314: Weekly summary narrative: coach-style weekly report from load/guardrail/PR facts
+- #1315: Training plan suggestions: LLM-proposed next-week sessions, validated + one-tap add, never auto-applied
 
-## Sprint 87.4 — Weight-page unit toggle follow-ups and main.py import cleanup
+## Sprint 101 — Query tightening, worker delegation, stream slimming, session hygiene
 
-- #506: [follow-up] Move ZoneInfo and func imports to top-level in main.py
-- #510: [follow-up] Remove dead variable _cardBEntryNotes in weight.js
-- #512: [follow-up] _applyUnit() does not convert stepper displayed value on unit switch
+- #1294: Per-workout session hygiene in duration-curve rebuild and signal/TSS backfill loops
+- #1295: Serve workout detail from downsampled activity_streams instead of decoding raw streams_payload per request
+- #1296: Stryd calendar sync: stop materializing full lifetime per-point streams in one json.loads
+- #1297: Route heavy paths (full syncs, performance backfill, threshold-save rebuilds) to compute worker
+- #1298: Query tightening: date-bound + column-only loads for scores/PR/weekly/reconcile; drop avatar bytes from resolve_user
 
-## Sprint 87.2 — Weight timezone fix, chart tap-toggle, and inline-edit listener cleanup
+## Sprint 100 — Memory config hardening and deferred JSONB payload columns
 
-- #505: [follow-up] Unify list_weight_entries default range to Bangkok timezone
-- #536: [follow-up] Weight chart tap-to-show: touchend hides tooltip immediately
-- #537: [follow-up] Weight inline-edit: remove onEscape listener explicitly on save success
+- #1292: Memory config hardening for Render free tier (pool_size 10→3, max_overflow 20→2, sync pool workers 3→1, BANISTER_REFIT_ENABLED=0 on web dynos)
+- #1293: Defer JSONB payload columns on StravaActivity, StrydActivity, ActivityStream to eliminate bulk-loading of large blobs on list queries
+
+## Sprint 98.2 — Follow-up hardening: taper achievability fix, backfill count alignment, BKK-time guardrail, speed-score warning UI
+
+- #685: Use the target_form parameter in the taper_recommendation achievability check (previously required but unused)
+- #1028: Derive runs_processed from the recompute_user_running_tss return value so the count matches workouts actually processed in backfill
+- #1212: Use today_bangkok() instead of date.today() for the body_modifier guardrail window
+- #1218: Surface the speed-score low-data warning and confidence band in the UI
+## Sprint 98.3 — Follow-up hardening: session-signal 40-min boundary fix
+
+- #1093: Align `_compute_session_signals` 40-min threshold to use `<=` (matching `compute_endurance_signal`), so a run of exactly 2400 s reports "run under 40 min" instead of "insufficient data"
+
+## Sprint 98.1 — Follow-up hardening: atomic session submit, Riegel consolidation, migration/backfill fixes
+
+- #542: Pin Chart.js CDN to a specific version (4.4.4) in training-log.html
+- #557: Add exc_info=True to autofill recompute warning in duplicate_workout
+- #558: Remove pytest.skip stubs from test_default_recent_workout_type__525.py
+- #797: Add backing migration for the races.updated_at server default (now())
+- #1027: Return canonical 404 shape (top-level state key) from performance endpoint on missing athlete
+- #1081: Guard compute_and_store_speed_signal against non-run workout types
+- #1086: Emit WARNING in _filter_trailing_window for runs with unparseable workout_date
+- #1123: Fix monthly digest form chip to use fitness_ctl_change/form_recovered
+- #1176: Consolidate duplicate Riegel logic and the RIEGEL_EXPONENT constant into riegel.py
+- #1196: Atomic batch submit for strength and plyo sessions (no partial save on per-exercise failure)
+- #1209: Clarify body-modifier delta vs multiplier unit mismatch
+
+## Sprint 98 — Follow-up hardening: treadmill NGP wiring, plan-router API prefix, schema defaults, and bug fixes
+
+- #541: Dedicated endpoint for volume chart weekly aggregations
+- #551: Add SRI hash to Chart.js CDN script in training-log.html
+- #614: Validate strava_activity_url scheme before injecting into href in run-view
+- #616: Remove hardcoded fallback thresholds from get_user_thresholds in tss.py
+- #684: Move race priority/status defaults to DB schema or require caller to supply them
+- #751: Primary A-race selection may pick past race in training-plan.js
+- #752: Delete failure silently ignored in deleteEditing (training-plan.js)
+- #762: Fix downgrade() lap_type column handling in migration 145b95d5baf0
+- #780: Guard _update_duration_curves with try/except in reconcile_workouts
+- #796: fetch_and_detect_records uses overall-average pace curve, not per-duration bests
+- #800: Test file for unverified #705 in sprint branch may break test collection
+- #804: Standardise zone vocabulary: buried/neutral/fresh vs accumulated_fatigue/optimal/freshness
+- #815: Use per-user timezone in performance tab date helpers
+- #1026: Sanitize error reason in performance endpoint error response
+- #1041: Align backfill run-count filter with performance endpoint's exact workout_type match
+- #1042: Avoid leaking raw exception messages in performance endpoint error response
+- #1083: backfill_signals_for_athlete returns success dict on commit failure
+- #1120: Weekly summary re-queries workouts instead of reusing volume service
+- #1121: Monthly summary 424 trigger mismatches AC description
+- #1136: plan router: _check_plan_access equates plan_id with user_id
+- #1137: plan router: _resolve_user duplicates auth logic from main.py
+- #1138: plan router routes missing /api/ prefix
+- #1177: Reconcile plan_id convention between race and projection routes
+- #1187: Reconcile polarized-split default high band bound (10 vs 15)
+- #1188: Derive intensity rolling-window bar label from selected range
+- #1189: De-duplicate intensity rolling-window aggregation and fix N+1 query
+- #1197: Economy ceiling bonus params on projected_ctl_to_score_ceiling are never supplied by callers
+- #1208: Wire body modifier into production score/projection pipeline
+- #1210: Same-date weight upsert can still create duplicates
+- #1213: weight_ewma docstring drift: default span and alpha<=0 handling
+- #1219: Wire normalize_treadmill_signal into the activity-signal pipeline
 
 ## Sprint 96 — Banister impulse-response model, environmental normalization, and calibration surfacing
 
@@ -108,6 +171,22 @@
 - #1020: Return explicit top-level state field from performance endpoint (scored / needs_thresholds / building_baseline / error)
 - #1023: Add POST /api/performance/backfill and full backfill pipeline to recompute historical run TSS and duration curve
 - #1024: Fix Fitness Fatigue Form chart building_baseline propagation from endurance/speed score readiness
+
+## Sprint 87.5 — Same-as-last button state-ownership refactor
+
+- #509: [follow-up] Remove side effect from _updateSameAsLastBtn (state mutation)
+
+## Sprint 87.4 — Weight-page unit toggle follow-ups and main.py import cleanup
+
+- #506: [follow-up] Move ZoneInfo and func imports to top-level in main.py
+- #510: [follow-up] Remove dead variable _cardBEntryNotes in weight.js
+- #512: [follow-up] _applyUnit() does not convert stepper displayed value on unit switch
+
+## Sprint 87.2 — Weight timezone fix, chart tap-toggle, and inline-edit listener cleanup
+
+- #505: [follow-up] Unify list_weight_entries default range to Bangkok timezone
+- #536: [follow-up] Weight chart tap-to-show: touchend hides tooltip immediately
+- #537: [follow-up] Weight inline-edit: remove onEscape listener explicitly on save success
 
 ## Sprint 86 — Habits timezone fix, weight validation, range-token clarity, and test coverage
 

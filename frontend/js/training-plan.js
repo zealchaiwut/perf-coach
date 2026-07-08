@@ -153,6 +153,9 @@ information about.
     openSession: function (sessionId, dateIso) {
       if (dateIso) _weekStart = _mondayOf(_parseISO(dateIso));
       _pendingOpenId = sessionId;
+    },
+    reload: function () {
+      _loadWeek(function () {});
     }
   };
 
@@ -1413,7 +1416,186 @@ information about.
     '.plan-panel .pl-exblock{margin-bottom:18px;padding:12px 12px 4px;border-radius:12px;background:rgba(13,30,67,0.03);}',
     '.plan-panel .pl-exblock:last-child{margin-bottom:0;}',
     '.plan-panel .pl-exblock-h{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;color:var(--pl-muted);margin-bottom:9px;padding-bottom:7px;border-bottom:1px solid var(--pl-line);}',
-    '@media(max-width:560px){.plan-panel .pl-dayrow{flex-direction:column;gap:8px;}.plan-panel .pl-daylabel{width:auto;display:flex;align-items:baseline;gap:6px;padding-top:0;}}'
+    '@media(max-width:560px){.plan-panel .pl-dayrow{flex-direction:column;gap:8px;}.plan-panel .pl-daylabel{width:auto;display:flex;align-items:baseline;gap:6px;padding-top:0;}}',
+    // ── Suggestions panel (issue #1315) ─────────────────────────────────────
+    '.pl-suggestions-panel{background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:13px;padding:14px 16px;margin:14px 0;}',
+    '.pl-sug-header{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;}',
+    '.pl-sug-title{font-size:13px;font-weight:800;color:var(--pl-ink);flex:1;}',
+    '.pl-sug-source{font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;background:var(--pl-blueSoft);color:var(--pl-run);text-transform:uppercase;letter-spacing:0.04em;}',
+    '.pl-sug-btn-sm{background:none;border:1px solid var(--pl-line);border-radius:7px;padding:3px 8px;font-size:12px;color:var(--pl-muted);cursor:pointer;}',
+    '.pl-sug-btn-sm:hover{background:var(--pl-tile);color:var(--pl-ink);}',
+    '.pl-sug-loading{font-size:12px;color:var(--pl-muted);padding:8px 0;}',
+    '.pl-sug-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--pl-line);flex-wrap:wrap;}',
+    '.pl-sug-row:last-child{border-bottom:none;}',
+    '.pl-sug-day{font-size:10px;font-weight:800;color:var(--pl-faint);text-transform:uppercase;width:36px;flex-shrink:0;}',
+    '.pl-sug-type{font-size:10px;font-weight:800;padding:3px 8px;border-radius:6px;text-transform:uppercase;flex-shrink:0;}',
+    '.pl-sug-type.run{background:var(--pl-blueSoft);color:var(--pl-run);}.pl-sug-type.strength{background:var(--pl-liftSoft);color:#7c3aed;}.pl-sug-type.plyo{background:var(--pl-amberSoft);color:var(--pl-amber);}.pl-sug-type.rest{background:#f1f5f9;color:#64748b;}',
+    '.pl-sug-meta{font-size:12px;font-family:var(--pl-mono);color:var(--pl-muted);flex-shrink:0;}',
+    '.pl-sug-intent{flex:1;font-size:12px;color:var(--pl-ink);min-width:100px;}',
+    '.pl-sug-add{font-size:11px;font-weight:700;background:var(--pl-lime);color:#1b2340;border:none;border-radius:7px;padding:5px 11px;cursor:pointer;flex-shrink:0;}',
+    '.pl-sug-add:disabled{opacity:0.5;cursor:default;}',
+    '.pl-sug-add.added{background:#d1fae5;color:#065f46;}',
+    '.pl-sug-trigger-row{margin:10px 0 4px;display:flex;justify-content:flex-start;}',
+    '.pl-sug-trigger-btn{font-size:12px;font-weight:700;color:var(--pl-lavHi);background:none;border:1px dashed #c7d2fe;border-radius:8px;padding:7px 13px;cursor:pointer;}'
   ].join('');
 
+}());
+
+// ── Plan Suggestions (issue #1315) ───────────────────────────────────────────
+(function () {
+  var _dismissed = false;
+  var _suggestionsData = null;
+
+  var _DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  function _el(id) { return document.getElementById(id); }
+
+  function _formatSugDate(dayOffset) {
+    var today = new Date();
+    var monday = new Date(today);
+    var dow = (monday.getDay() + 6) % 7;
+    monday.setDate(monday.getDate() - dow + 7); // next Monday
+    var d = new Date(monday);
+    d.setDate(d.getDate() + dayOffset);
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
+  }
+
+  function _buildSugRow(s, idx) {
+    var dow = _DAY_NAMES[s.day_offset] || ('D' + s.day_offset);
+    var tssStr = s.target_tss > 0 ? s.target_tss + ' TSS' : '';
+    var durStr = s.duration_minutes > 0 ? s.duration_minutes + 'min' : '';
+    var metaParts = [tssStr, durStr].filter(Boolean);
+    var metaStr = metaParts.join(' · ');
+
+    var row = document.createElement('div');
+    row.className = 'pl-sug-row';
+    row.dataset.idx = idx;
+
+    var wt = (s.workout_type || 'rest').toLowerCase();
+
+    row.innerHTML =
+      '<span class="pl-sug-day">' + dow + '</span>' +
+      '<span class="pl-sug-type ' + wt + '">' + wt + '</span>' +
+      (metaStr ? '<span class="pl-sug-meta">' + metaStr + '</span>' : '') +
+      '<span class="pl-sug-intent">' + (s.intent || '') + '</span>' +
+      (wt !== 'rest' ? '<button class="pl-sug-add" type="button" data-idx="' + idx + '">Add</button>' : '');
+
+    var addBtn = row.querySelector('.pl-sug-add');
+    if (addBtn) {
+      addBtn.addEventListener('click', function () {
+        _addSuggestion(s, addBtn);
+      });
+    }
+    return row;
+  }
+
+  function _addSuggestion(s, btn) {
+    btn.disabled = true;
+    var dateIso = _formatSugDate(s.day_offset);
+    var body = {
+      planned_date: dateIso,
+      session_type: s.workout_type,
+      name: s.intent ? s.intent.substring(0, 80) : null,
+    };
+    if (s.target_tss > 0 || s.duration_minutes > 0) {
+      body.notes = [
+        s.target_tss > 0 ? 'Target TSS: ' + s.target_tss : '',
+        s.duration_minutes > 0 ? 'Duration: ' + s.duration_minutes + ' min' : ''
+      ].filter(Boolean).join('. ');
+    }
+
+    fetch('/api/planned-sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function () {
+        btn.textContent = '✓ Added';
+        btn.classList.add('added');
+        if (window.TrainingPlan && window.TrainingPlan.reload) window.TrainingPlan.reload();
+      })
+      .catch(function () {
+        btn.disabled = false;
+        btn.textContent = 'Retry';
+      });
+  }
+
+  function _renderSuggestions(data) {
+    _suggestionsData = data;
+    var panel = _el('plan-suggestions-panel');
+    var list = _el('plan-suggestions-list');
+    var srcEl = _el('plan-suggestions-source');
+    if (!panel || !list) return;
+
+    var src = data.source || 'fallback';
+    if (srcEl) srcEl.textContent = src === 'llm' ? 'AI' : 'template';
+
+    list.innerHTML = '';
+    var suggestions = data.suggestions || [];
+    suggestions.forEach(function (s, i) {
+      list.appendChild(_buildSugRow(s, i));
+    });
+
+    panel.style.display = '';
+    var loading = _el('plan-suggestions-loading');
+    if (loading) loading.style.display = 'none';
+  }
+
+  function _loadSuggestions() {
+    var panel = _el('plan-suggestions-panel');
+    var loading = _el('plan-suggestions-loading');
+    var list = _el('plan-suggestions-list');
+    if (!panel) return;
+    panel.style.display = '';
+    if (loading) loading.style.display = '';
+    if (list) list.innerHTML = '';
+
+    fetch('/api/plan/suggestions')
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(_renderSuggestions)
+      .catch(function () {
+        if (loading) loading.style.display = 'none';
+        if (list) list.innerHTML = '<span style="font-size:12px;color:var(--pl-muted);">Could not load suggestions.</span>';
+      });
+  }
+
+  function _dismissPanel() {
+    _dismissed = true;
+    var panel = _el('plan-suggestions-panel');
+    var trigger = _el('plan-suggestions-trigger-row');
+    if (panel) panel.style.display = 'none';
+    if (trigger) trigger.style.display = '';
+  }
+
+  function _initSuggestions() {
+    var trigger = _el('plan-suggestions-trigger');
+    var refresh = _el('plan-suggestions-refresh');
+    var dismiss = _el('plan-suggestions-dismiss');
+    var triggerRow = _el('plan-suggestions-trigger-row');
+
+    if (triggerRow) triggerRow.style.display = '';
+
+    if (trigger) {
+      trigger.addEventListener('click', function () {
+        if (triggerRow) triggerRow.style.display = 'none';
+        _dismissed = false;
+        _loadSuggestions();
+      });
+    }
+    if (refresh) {
+      refresh.addEventListener('click', function () {
+        _dismissed = false;
+        _loadSuggestions();
+      });
+    }
+    if (dismiss) {
+      dismiss.addEventListener('click', _dismissPanel);
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', _initSuggestions);
 }());

@@ -77,36 +77,54 @@ def test_summary_card_is_inside_list_main(training_log_html):
 # ── AC2: Toggle elements ─────────────────────────────────────────────────────────
 
 def test_toggle_buttons_exist_in_html(training_log_html):
-    """AC2: 'This week' and 'This month' toggle buttons present."""
-    assert "This week" in training_log_html, "Missing 'This week' toggle text"
-    assert "This month" in training_log_html, "Missing 'This month' toggle text"
+    """AC2: Last/This and Week/Month toggle buttons present."""
+    assert "Last" in training_log_html, "Missing 'Last' time-range toggle"
+    assert "This" in training_log_html, "Missing 'This' time-range toggle"
+    assert "Week" in training_log_html, "Missing 'Week' period toggle"
+    assert "Month" in training_log_html, "Missing 'Month' period toggle"
 
 
-def test_this_week_toggle_is_default_active(training_log_html):
-    """AC2: 'This week' button has the active/selected state by default."""
-    # The week button should appear with is-active or active class or aria-selected=true
-    # Check the data-period or that "This week" is in a button with active class
-    # Accept either: button has class containing 'active' near "This week", or data-period="week" is referenced as default
+def test_last_week_is_default_scope(training_log_html, training_log_js):
+    """AC2: Summary defaults to last week (badge + JS _when='last')."""
+    assert 'id="lrx-scope">Last week<' in training_log_html.replace("\n", " "), (
+        "Expected default scope badge to read 'Last week'"
+    )
+    assert re.search(r'_when\s*=\s*["\']last["\']', training_log_js), (
+        "JS must default _when to 'last'"
+    )
+
+
+def test_week_period_toggle_is_default_active(training_log_html):
+    """AC2: Week period button is active by default."""
     week_active = (
-        re.search(r'<button[^>]*(?:class=["\'][^"\']*(?:is-active|active)[^"\']*|aria-selected=["\']true["\'])[^>]*>\s*This week', training_log_html) or
-        re.search(r'data-period=["\']week["\'][^>]*(?:is-active|active|aria-selected=["\']true["\'])', training_log_html) or
-        re.search(r'(?:is-active|active|aria-selected=["\']true["\'])[^>]*data-period=["\']week["\']', training_log_html) or
-        # Check the JS: "week" is the default active tab
-        False
+        re.search(
+            r'data-period=["\']week["\'][^>]*(?:is-active|on|aria-pressed=["\']true["\'])',
+            training_log_html,
+        )
+        or re.search(
+            r'(?:is-active|on|aria-pressed=["\']true["\'])[^>]*data-period=["\']week["\']',
+            training_log_html,
+        )
     )
     assert week_active, (
-        "Expected 'This week' toggle button to be active by default (has active class or aria-selected=true)"
+        "Expected Week toggle button to be active by default"
     )
 
 
 def test_toggle_buttons_have_data_period_attributes(training_log_html):
-    """AC2: Toggle buttons use data-period attributes for JS targeting."""
+    """AC2: Period toggle buttons use data-period attributes for JS targeting."""
     assert 'data-period="week"' in training_log_html or "data-period='week'" in training_log_html, (
-        "Expected data-period=\"week\" attribute on the 'This week' button"
+        "Expected data-period=\"week\" attribute on the Week button"
     )
     assert 'data-period="month"' in training_log_html or "data-period='month'" in training_log_html, (
-        "Expected data-period=\"month\" attribute on the 'This month' button"
+        "Expected data-period=\"month\" attribute on the Month button"
     )
+
+
+def test_when_toggle_has_data_when_attributes(training_log_html):
+    """AC2: Time-range toggle buttons use data-when attributes."""
+    assert 'data-when="last"' in training_log_html, "Expected data-when=\"last\""
+    assert 'data-when="this"' in training_log_html, "Expected data-when=\"this\""
 
 
 # ── AC3: Weekly view fields ──────────────────────────────────────────────────────
@@ -341,6 +359,12 @@ def test_api_endpoints_referenced_in_js(training_log_js):
     )
     assert has_monthly_endpoint, (
         "JS must call /api/athletes/{id}/summary/monthly for the monthly summary"
+    )
+    assert "?week=" in training_log_js, (
+        "JS must pass ?week= when fetching weekly summary for last/this week"
+    )
+    assert "?month=" in training_log_js, (
+        "JS must pass ?month= when fetching monthly summary for last/this month"
     )
 
 

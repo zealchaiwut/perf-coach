@@ -100,22 +100,26 @@
     return _segments.map(function (seg, i) {
       var eff = (seg.effort || 'easy').toLowerCase();
       var color = EFFORT_COLORS[eff] || EFFORT_COLORS.easy;
+      var effId = 'rb-seg-effort-' + i;
+      var distId = 'rb-seg-dist-' + i;
+      var durId = 'rb-seg-dur-' + i;
+      var paceId = 'rb-seg-pace-' + i;
       return '<div class="rb-seg-row" data-idx="' + i + '">'
-        + '<div class="rb-seg-border" style="background:' + color + '"></div>'
-        + '<span class="rb-seg-bullet" style="background:' + color + '"></span>'
-        + '<select class="rb-seg-effort" data-field="effort" data-idx="' + i + '">'
+        + '<span class="rb-seg-bullet" style="background:' + color + '" aria-hidden="true"></span>'
+        + '<label class="rb-seg-label rb-sr-only" for="' + effId + '">Segment ' + (i + 1) + ' effort</label>'
+        + '<select class="rb-seg-effort" id="' + effId + '" data-field="effort" data-idx="' + i + '">'
         + ['easy','tempo','hard','race','recovery','warmup','cooldown'].map(function (e) {
             return '<option value="' + e + '"' + (eff === e ? ' selected' : '') + '>' + (e.charAt(0).toUpperCase() + e.slice(1)) + '</option>';
           }).join('')
         + '</select>'
-        + '<label class="rb-seg-label">Dist</label>'
-        + '<input class="rb-seg-input rb-seg-dist" type="number" min="0.1" step="0.1" value="' + (seg.distance_km || '') + '" data-field="distance_km" data-idx="' + i + '">'
+        + '<label class="rb-seg-label" for="' + distId + '">Dist</label>'
+        + '<input class="rb-seg-input rb-seg-dist" id="' + distId + '" type="number" min="0.1" step="0.1" inputmode="decimal" value="' + (seg.distance_km || '') + '" data-field="distance_km" data-idx="' + i + '">'
         + '<span class="rb-unit">km</span>'
-        + '<label class="rb-seg-label">Time</label>'
-        + '<input class="rb-seg-input rb-seg-dur" type="text" placeholder="m:ss" value="' + fmtDuration(seg.duration_seconds) + '" data-field="duration_text" data-idx="' + i + '">'
-        + '<label class="rb-seg-label">Pace</label>'
-        + '<input class="rb-seg-input rb-seg-pace" type="text" placeholder="m:ss /km" data-field="pace" data-idx="' + i + '">'
-        + '<button class="rb-seg-del" type="button" data-idx="' + i + '" title="Remove segment">&#x2715;</button>'
+        + '<label class="rb-seg-label" for="' + durId + '">Time</label>'
+        + '<input class="rb-seg-input rb-seg-dur" id="' + durId + '" type="text" inputmode="numeric" placeholder="m:ss" value="' + fmtDuration(seg.duration_seconds) + '" data-field="duration_text" data-idx="' + i + '">'
+        + '<label class="rb-seg-label" for="' + paceId + '">Pace</label>'
+        + '<input class="rb-seg-input rb-seg-pace" id="' + paceId + '" type="text" placeholder="—" data-idx="' + i + '" value="' + avgPaceFmt(seg.distance_km, seg.duration_seconds) + '" readonly aria-label="Segment ' + (i + 1) + ' pace, calculated automatically">'
+        + '<button class="rb-seg-del" type="button" data-idx="' + i + '" aria-label="Remove segment ' + (i + 1) + '" title="Remove segment">&#x2715;</button>'
         + '</div>';
     }).join('');
   }
@@ -128,6 +132,12 @@
     attachSegmentListeners();
   }
 
+  function updateSegmentPace(idx) {
+    var seg = _segments[idx];
+    var paceEl = document.getElementById('rb-seg-pace-' + idx);
+    if (paceEl && seg) paceEl.value = avgPaceFmt(seg.distance_km, seg.duration_seconds);
+  }
+
   function attachSegmentListeners() {
     document.querySelectorAll('.rb-seg-dist').forEach(function (inp) {
       inp.addEventListener('input', function () {
@@ -135,6 +145,7 @@
         _segments[idx].distance_km = parseFloat(this.value) || 0;
         updateSegmentBar();
         updateTotals();
+        updateSegmentPace(idx);
         if (_lapMode === 'auto') updateAutoLapPreview();
       });
     });
@@ -147,6 +158,7 @@
         else if (parts.length === 3) secs = (parseInt(parts[0], 10) || 0) * 3600 + (parseInt(parts[1], 10) || 0) * 60 + (parseInt(parts[2], 10) || 0);
         _segments[idx].duration_seconds = secs;
         updateTotals();
+        updateSegmentPace(idx);
       });
     });
     document.querySelectorAll('.rb-seg-effort').forEach(function (sel) {
@@ -201,15 +213,16 @@
       return '<p class="rb-empty">No laps yet. Click "+ Add lap" to start.</p>';
     }
     return _manualLaps.map(function (lap, i) {
+      var d = '-' + i;
       return '<div class="rb-mlap-row" data-idx="' + i + '">'
         + '<span class="rb-mlap-num">' + (i + 1) + '</span>'
-        + '<label>Dist</label><input class="rb-mlap-dist" type="number" min="0.01" step="0.01" value="' + (lap.distance_km || '') + '" data-idx="' + i + '"> km'
-        + '<label>Time</label><input class="rb-mlap-dur" type="text" placeholder="m:ss" value="' + fmtDuration(lap.duration_seconds) + '" data-idx="' + i + '">'
-        + '<label>HR</label><input class="rb-mlap-hr" type="number" placeholder="—" value="' + (lap.avg_hr || '') + '" data-idx="' + i + '">'
-        + '<label>Pwr</label><input class="rb-mlap-pwr" type="number" placeholder="—" value="' + (lap.avg_power || '') + '" data-idx="' + i + '">'
-        + '<label>Cad</label><input class="rb-mlap-cad" type="number" placeholder="—" value="' + (lap.cadence_spm || '') + '" data-idx="' + i + '">'
-        + '<label>Stride</label><input class="rb-mlap-stride" type="number" step="0.01" placeholder="—" value="' + (lap.stride_length_m || '') + '" data-idx="' + i + '">'
-        + '<button class="rb-mlap-del" type="button" data-idx="' + i + '">&#x2715;</button>'
+        + '<label for="rb-mlap-dist' + d + '">Dist</label><input id="rb-mlap-dist' + d + '" class="rb-mlap-dist" type="number" inputmode="decimal" min="0.01" step="0.01" value="' + (lap.distance_km || '') + '" data-idx="' + i + '"> km'
+        + '<label for="rb-mlap-dur' + d + '">Time</label><input id="rb-mlap-dur' + d + '" class="rb-mlap-dur" type="text" inputmode="numeric" placeholder="m:ss" value="' + fmtDuration(lap.duration_seconds) + '" data-idx="' + i + '">'
+        + '<label for="rb-mlap-hr' + d + '">HR</label><input id="rb-mlap-hr' + d + '" class="rb-mlap-hr" type="number" inputmode="numeric" placeholder="—" value="' + (lap.avg_hr || '') + '" data-idx="' + i + '">'
+        + '<label for="rb-mlap-pwr' + d + '">Pwr</label><input id="rb-mlap-pwr' + d + '" class="rb-mlap-pwr" type="number" inputmode="numeric" placeholder="—" value="' + (lap.avg_power || '') + '" data-idx="' + i + '">'
+        + '<label for="rb-mlap-cad' + d + '">Cad</label><input id="rb-mlap-cad' + d + '" class="rb-mlap-cad" type="number" inputmode="numeric" placeholder="—" value="' + (lap.cadence_spm || '') + '" data-idx="' + i + '">'
+        + '<label for="rb-mlap-stride' + d + '">Stride</label><input id="rb-mlap-stride' + d + '" class="rb-mlap-stride" type="number" step="0.01" inputmode="decimal" placeholder="—" value="' + (lap.stride_length_m || '') + '" data-idx="' + i + '">'
+        + '<button class="rb-mlap-del" type="button" data-idx="' + i + '" aria-label="Remove lap ' + (i + 1) + '">&#x2715;</button>'
         + '</div>';
     }).join('');
   }
@@ -325,20 +338,58 @@
     return autoSplits;
   }
 
+  // Turns a fetch-error response body into a readable string. FastAPI 422s
+  // send `detail` as an array of {loc, msg, type} objects, not a string —
+  // previously that array was passed straight into `new Error()`, which
+  // stringifies to "[object Object]" and shows a useless message to the user.
+  function extractErrorMessage(status, body, fallback) {
+    var detail = body && body.detail;
+    var msg;
+    if (typeof detail === 'string') {
+      msg = detail;
+    } else if (Array.isArray(detail)) {
+      msg = detail.map(function (d) {
+        if (d && typeof d === 'object') {
+          var field = Array.isArray(d.loc) ? d.loc[d.loc.length - 1] : '';
+          return (field ? field + ': ' : '') + (d.msg || 'invalid value');
+        }
+        return String(d);
+      }).join('; ');
+    } else {
+      msg = fallback;
+    }
+    if (status === 409) return 'Conflict — ' + msg;
+    if (status === 422) return 'Check your input — ' + msg;
+    return msg;
+  }
+
+  function setFieldError(inputId, errorId, message) {
+    var input = document.getElementById(inputId);
+    var errEl = document.getElementById(errorId);
+    if (input) input.setAttribute('aria-invalid', message ? 'true' : 'false');
+    if (errEl) errEl.textContent = message || '';
+  }
+
   async function saveRun(e) {
     e.preventDefault();
     var errEl = document.getElementById('rb-form-error');
     if (errEl) errEl.textContent = '';
 
     var data = collectFormData();
-    if (!data.name.trim()) {
-      if (errEl) errEl.textContent = 'Workout name is required.';
+    var nameOk = !!data.name.trim();
+    var dateOk = !!data.workout_date;
+    setFieldError('rb-name', 'rb-name-error', nameOk ? '' : 'Workout name is required.');
+    setFieldError('rb-date', 'rb-date-error', dateOk ? '' : 'Date is required.');
+    if (!nameOk || !dateOk) {
+      if (errEl) errEl.textContent = 'Fix the highlighted fields before saving.';
+      var firstInvalid = document.getElementById(!nameOk ? 'rb-name' : 'rb-date');
+      if (firstInvalid) firstInvalid.focus();
       return;
     }
-    if (!data.workout_date) {
-      if (errEl) errEl.textContent = 'Date is required.';
-      return;
-    }
+
+    var submitBtn = document.getElementById('rb-submit-btn');
+    var originalLabel = submitBtn ? submitBtn.textContent : '';
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Saving…'; }
 
     try {
       var wRes = await fetch('/api/workouts', {
@@ -349,7 +400,7 @@
       });
       if (!wRes.ok) {
         var wErr = await wRes.json().catch(function () { return {}; });
-        throw new Error(wErr.detail || 'Failed to save workout');
+        throw new Error(extractErrorMessage(wRes.status, wErr, 'Failed to save workout'));
       }
       var workout = await wRes.json();
 
@@ -363,13 +414,14 @@
         });
         if (!sRes.ok) {
           var sErr = await sRes.json().catch(function () { return {}; });
-          throw new Error(sErr.detail || 'Workout saved but splits failed');
+          throw new Error(extractErrorMessage(sRes.status, sErr, 'Workout saved but splits failed'));
         }
       }
 
       window.location.href = '/run-view?id=' + workout.id;
     } catch (err) {
       if (errEl) errEl.textContent = err.message;
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalLabel; }
     }
   }
 
@@ -421,9 +473,33 @@
     document.querySelectorAll('.rb-type-pill').forEach(function (btn) {
       btn.addEventListener('click', function () {
         _workoutType = this.dataset.type;
-        document.querySelectorAll('.rb-type-pill').forEach(function (b) { b.classList.remove('rb-type-pill--active'); });
+        document.querySelectorAll('.rb-type-pill').forEach(function (b) {
+          b.classList.remove('rb-type-pill--active');
+          b.setAttribute('aria-pressed', 'false');
+        });
         this.classList.add('rb-type-pill--active');
+        this.setAttribute('aria-pressed', 'true');
       });
+    });
+
+    // Import strip: Strava/Stryd connections are managed from Settings; send
+    // the athlete there to connect (or re-sync) instead of a dead button.
+    ['rb-import-strava', 'rb-import-stryd'].forEach(function (id) {
+      var btn = document.getElementById(id);
+      if (btn) btn.addEventListener('click', function () {
+        window.location.href = '/settings#integrations';
+      });
+    });
+
+    // Clear a field's error as soon as the athlete fixes it, instead of only
+    // re-checking on the next submit attempt.
+    var nameInput = document.getElementById('rb-name');
+    if (nameInput) nameInput.addEventListener('input', function () {
+      if (this.value.trim()) setFieldError('rb-name', 'rb-name-error', '');
+    });
+    var dateInputEl = document.getElementById('rb-date');
+    if (dateInputEl) dateInputEl.addEventListener('input', function () {
+      if (this.value) setFieldError('rb-date', 'rb-date-error', '');
     });
 
     // Form submit

@@ -98,6 +98,8 @@ def backfill_signals_for_athlete(user_id, db) -> dict:
 
     for workout in run_workouts:
         # Speed signal — delegated entirely to the live-path thin caller.
+        # compute_and_store_speed_signal expires StrydActivity.streams_payload
+        # after use, so the large JSONB payload is not retained across iterations.
         try:
             ok, _ = compute_and_store_speed_signal(workout.id, db)
             if ok and workout.speed_signal is not None:
@@ -137,12 +139,22 @@ def backfill_signals_for_athlete(user_id, db) -> dict:
             workout.endurance_signal_source = es["endurance_signal_source"]
             if es["endurance_signal"] is not None:
                 endurance_computed += 1
+            # Expunge loaded splits from the identity map so their memory can be
+            # reclaimed before the next iteration.  The computed values have already
+            # been written back to workout attributes above and will be committed at
+            # the end of the loop.
+            for s in splits:
+                try:
+                    db.expunge(s)
+                except Exception:
+                    pass
         except Exception as exc:
             _log.warning(
                 "backfill_signals: endurance signal failed for workout %s: %s",
                 workout.id, exc, exc_info=True,
             )
 
+    commit_failure_reason = None
     try:
         db.commit()
     except Exception as exc:
@@ -150,21 +162,23 @@ def backfill_signals_for_athlete(user_id, db) -> dict:
             "backfill_signals: commit failed for user %s: %s",
             user_id, exc, exc_info=True,
         )
+        commit_failure_reason = "commit failed — changes not saved"
 
-    _log.info(
-        "backfill_signals complete",
-        extra={
-            "user_id": str(user_id),
-            "runs_processed": len(run_workouts),
-            "speed_computed": speed_computed,
-            "endurance_computed": endurance_computed,
-        },
-    )
+    if commit_failure_reason is None:
+        _log.info(
+            "backfill_signals complete",
+            extra={
+                "user_id": str(user_id),
+                "runs_processed": len(run_workouts),
+                "speed_computed": speed_computed,
+                "endurance_computed": endurance_computed,
+            },
+        )
 
     return {
         "thresholds_found": True,
         "runs_processed": len(run_workouts),
         "speed_computed": speed_computed,
         "endurance_computed": endurance_computed,
-        "reason": None,
+        "reason": commit_failure_reason,
     }

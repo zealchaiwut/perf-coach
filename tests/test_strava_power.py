@@ -90,7 +90,8 @@ def test_power_tss_when_stryd_synced_with_avg_power_in_payload():
         is_stryd_synced=True,
         raw_payload={"average_watts": 300},
     )
-    session = _make_session([act], [])
+    # Provide ftp_w so thresholds are available — issue #616 removed hardcoded fallback
+    session = _make_session([act], [], ftp_w=FTP_W)
 
     with patch("backend.services.workout_reconcile._Session", return_value=session):
         reconcile_strava_to_workouts(uid)
@@ -117,14 +118,15 @@ def test_fallback_to_hr_when_stryd_synced_but_no_power_in_payload():
         is_stryd_synced=True,
         raw_payload={},  # no average_watts
     )
-    session = _make_session([act], [])
+    # Provide ftp_w so thresholds are available — issue #616 removed hardcoded fallback
+    session = _make_session([act], [], ftp_w=FTP_W)
 
     with patch("backend.services.workout_reconcile._Session", return_value=session):
         reconcile_strava_to_workouts(uid)
 
     added_workout = session.add.call_args[0][0]
     power_tss = compute_tss(intensity_factor_from_power(300, FTP_W), 3600)
-    # TSS must NOT equal the power formula result
+    # TSS must NOT equal the power formula result (power path is skipped when no average_watts)
     assert added_workout.tss != power_tss
 
 

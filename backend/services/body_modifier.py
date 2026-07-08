@@ -107,7 +107,13 @@ def compute_body_modifier(
     Returns
     -------
     dict with keys:
-        ``modifier`` — fractional modifier to apply to power/endurance outputs.
+        ``modifier`` — **fractional delta** in [-0.15, +0.05] (e.g. 0.02 = +2 %).
+                       This is *not* a multiplier — it is additive relative to 1.0.
+                       To obtain a score multiplier, use ``1.0 + result['modifier']``.
+                       Passing ``result['modifier']`` directly into
+                       ``compute_endurance_score`` / ``compute_speed_score`` /
+                       ``build_plan_projection_payload`` (which expect a multiplier
+                       centered at 1.0) will nearly zero the score.
         ``branch``   — which branch was dominant: ``"uplift"``, ``"penalty"``,
                        or ``"neutral"`` (at the transition midpoint).
     """
@@ -205,6 +211,77 @@ def compute_body_modifier_guardrail(
     }
 
 
+def get_body_modifier_for_user(user_id, as_of_date=None) -> float:
+    """Return the multiplicative body-modifier factor for a user (1.0 + fractional modifier).
+
+    Derives ``weekly_pct_bw_rate`` from weight entries and ``ea_proxy`` from
+    energy scores in ``daily_metrics``, then calls ``compute_body_modifier`` and
+    converts the fractional result to a multiplicative factor:
+    ``1.0 + modifier`` (e.g. +5 % uplift → 1.05; −10 % penalty → 0.90).
+
+    Falls back to 1.0 (neutral) when insufficient data is available.
+    """
+    from datetime import timedelta
+
+    from sqlalchemy import text
+
+    from backend.db import engine
+    from backend.services.weight_ewma import compute_ewma
+    from backend.services.weight_ewma_rate import compute_weekly_pct_bw_rate_of_change
+    from backend.utils.time import today_bangkok
+
+    today = as_of_date if as_of_date is not None else today_bangkok()
+    seven_days_ago = today - timedelta(days=7)
+
+    weight_sql = text(
+        """
+        SELECT entry_date, weight_kg
+        FROM weight_entries
+        WHERE user_id = :uid
+          AND entry_date >= :from_date
+          AND entry_date <= :to_date
+        ORDER BY entry_date ASC
+        """
+    )
+    with engine.connect() as conn:
+        weight_rows = conn.execute(
+            weight_sql,
+            {"uid": str(user_id), "from_date": seven_days_ago, "to_date": today},
+        ).fetchall()
+
+    weekly_pct_bw_rate: float = 0.0
+    if len(weight_rows) >= 2:
+        entries = [{"date": r[0], "weight_kg": float(r[1])} for r in weight_rows]
+        ewma_values = compute_ewma(entries)
+        rate = compute_weekly_pct_bw_rate_of_change(ewma_values)
+        if rate is not None:
+            weekly_pct_bw_rate = rate
+
+    energy_sql = text(
+        """
+        SELECT energy
+        FROM daily_metrics
+        WHERE user_id = :uid
+          AND metric_date >= :from_date
+          AND metric_date <= :to_date
+          AND energy IS NOT NULL
+        """
+    )
+    with engine.connect() as conn:
+        energy_rows = conn.execute(
+            energy_sql,
+            {"uid": str(user_id), "from_date": seven_days_ago, "to_date": today},
+        ).fetchall()
+
+    ea_proxy: float = 1.0
+    if energy_rows:
+        avg_energy = sum(float(r[0]) for r in energy_rows) / len(energy_rows)
+        ea_proxy = (avg_energy - 1.0) / 4.0
+
+    result = compute_body_modifier(weekly_pct_bw_rate=weekly_pct_bw_rate, ea_proxy=ea_proxy)
+    return 1.0 + result["modifier"]
+
+
 def get_body_modifier_guardrail_for_user(user_id, as_of_date=None) -> dict:
     """Fetch current body-modifier inputs from the DB and compute the guardrail state.
 
@@ -215,15 +292,16 @@ def get_body_modifier_guardrail_for_user(user_id, as_of_date=None) -> dict:
       normalised to [0, 1] as ``(avg_energy − 1) / 4``.
       Falls back to 1.0 (fully fuelled, no EA warning) when no energy data is available.
     """
-    from datetime import date, timedelta
+    from datetime import timedelta
 
     from sqlalchemy import text
 
     from backend.db import engine
     from backend.services.weight_ewma import compute_ewma
     from backend.services.weight_ewma_rate import compute_weekly_pct_bw_rate_of_change
+    from backend.utils.time import today_bangkok
 
-    today = as_of_date if as_of_date is not None else date.today()
+    today = as_of_date if as_of_date is not None else today_bangkok()
     seven_days_ago = today - timedelta(days=7)
 
     # ── Weight loss rate ──────────────────────────────────────────────────────

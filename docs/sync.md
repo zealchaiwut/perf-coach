@@ -1,5 +1,18 @@
 # Sync Architecture
 
+## Heavy-path delegation (issue #1297)
+
+`POST /api/strava/sync` and `POST /api/stryd/sync` with `full=true` are
+delegated to the compute worker (`/internal/sync/run`) when `WORKER_BASE_URL`
+is set. Incremental syncs (`full=false` or omitted) continue to run in-process.
+
+The worker records job progress in `worker_job_runs` (shared Neon DB).
+`GET /api/sync/status` checks `worker_job_runs` when no in-process job exists,
+so the nav status bar shows progress for delegated syncs.
+
+See `docs/worker.md` → "Webapp delegation config" for env vars and
+worker-unreachable behavior.
+
 ## One-job-per-user model
 
 Each user has at most one active sync job at a time. Jobs are stored in an
@@ -68,3 +81,21 @@ same endpoint and are independent.
 | Training Log page (`training-log.js`) | 3 000 ms |
 
 Polling stops automatically once the job status leaves `running`.
+
+## Compute worker (scheduled syncs on zeal-server)
+
+Everything above describes the webapp's user-triggered sync. The same sync
+core also runs on the standalone compute worker (`backend/worker_app.py`,
+port 9100 on zeal-server) — the shared implementation lives in
+`backend/services/sync_runner.py` behind a `SyncRecorder` protocol:
+
+| | Webapp (`main.py`) | Worker (`worker_app.py`) |
+|---|---|---|
+| Trigger | User clicks sync (`POST /api/strava/sync`) | Schedule (`WORKER_SYNC_TIMES`, default 06:00/18:00 BKK) or manual `POST /internal/sync/run` |
+| Job state | In-memory registry (`sync_jobs.py`), lost on restart | `worker_job_runs` DB table (persistent audit trail) |
+| Single-flight | 409 per user via registry lock | Lock + 2h stale-guard query on `worker_job_runs` |
+| Scope | Session user only | One user or all connected users |
+
+Both paths are safe to overlap because every upsert is idempotent
+(`ON CONFLICT DO UPDATE`) — worst case is duplicate work, not duplicate data.
+Full worker reference (endpoints, auth, deploy): `docs/worker.md`.

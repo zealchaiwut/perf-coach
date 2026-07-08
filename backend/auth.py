@@ -10,7 +10,7 @@ import uuid as _uuid
 from typing import Optional
 
 from fastapi import HTTPException, Request, Response
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only as _load_only
 
 from backend.db import engine
 from backend.models import User
@@ -267,7 +267,15 @@ async def get_current_user(request: Request) -> User:
         raise HTTPException(status_code=401, detail="Invalid session")
 
     with Session(engine) as db:
-        user = db.get(User, uid)
+        user = (
+            db.query(User)
+            .filter(User.id == uid)
+            .options(_load_only(
+                User.id, User.name, User.is_admin, User.is_active,
+                User.password_hash, User.created_at, User.avatar_mime,
+            ))
+            .first()
+        )
 
     if user is None:
         raise HTTPException(status_code=401, detail="User not found")
@@ -276,3 +284,11 @@ async def get_current_user(request: Request) -> User:
         raise HTTPException(status_code=403, detail="Account disabled")
 
     return user
+
+
+async def resolve_user(request: Request) -> User:
+    """Shared FastAPI dependency: resolve the session user or raise 401."""
+    token = request.cookies.get(COOKIE_NAME)
+    if token:
+        return await get_current_user(request)
+    raise HTTPException(status_code=401, detail="Not authenticated")

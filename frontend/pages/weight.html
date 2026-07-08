@@ -19,6 +19,26 @@
     <link rel="stylesheet" href="css/weight-current-card.css" />
     <link rel="stylesheet" href="css/weight.css" />
     <style>
+      /* ── Page-scoped tokens ───────────────────────────────────────────────────
+         Gradient system (DESIGN.md) doesn't define a data-viz blue or the
+         neutral tile grays this page needs, so they're declared once here
+         instead of repeating raw hex ~40 times. Where a value already equals a
+         token from styles.css (--success, --warning, --text-primary,
+         --primary-dark) we reuse that token directly rather than duplicating.
+         Recommend promoting --w-tile/--w-line/--w-blue-pale/--w-blue-ink to
+         shared tokens in styles.css if another gradient-system page needs
+         them. */
+      :root {
+        --w-tile: #f1f4fa; /* neutral pill / row background */
+        --w-tile-hover: #eef0f6; /* hover state of --w-tile */
+        --w-tile-3: #f7f9fd; /* lighter input / field background */
+        --w-line: #e8eaf0; /* hairline borders on white cards */
+        --w-navy-hover: #162444; /* hover state of var(--text-primary) as a bg */
+        --w-blue-pale: #dbeafe; /* "on track" / "no data" pill background */
+        --w-blue-ink: #1d4ed8; /* text on --w-blue-pale */
+        --w-blue-light: #93c5fd; /* progress-bar gradient start */
+      }
+
       /* ── Base ──────────────────────────────────────────────────────────────── */
       html,
       body {
@@ -189,6 +209,20 @@
        tab and the home page share one stylesheet. */
 
       /* ── Card B: Log Today ────────────────────────────────────────────────── */
+      /* Tinted panel so "log weight" reads as its own actionable zone inside
+         the merged card, instead of blurring into "current weight" above and
+         "progress" below. */
+      .log-weight-section {
+        background: var(--w-tile-3);
+        border: 1px solid var(--card-border);
+        border-radius: 10px;
+        padding: 12px 14px;
+      }
+      /* Fields inherit a tinted background (.et-field input) that would
+         otherwise flatten into this section's own tint — keep them white. */
+      .log-weight-section .et-field input {
+        background: var(--card-bg);
+      }
       .hcb-top {
         display: flex;
         align-items: baseline;
@@ -232,7 +266,7 @@
         justify-content: center;
       }
       .stepper-btn:hover {
-        background: #eef0f6;
+        background: var(--w-tile-hover);
       }
       .stepper-btn:active {
         background: #e5e7eb;
@@ -254,8 +288,8 @@
       }
       .stepper-input:focus {
         outline: none;
-        border-color: #2563eb;
-        box-shadow: inset 0 0 0 1px #2563eb;
+        border-color: var(--primary-dark);
+        box-shadow: inset 0 0 0 1px var(--primary-dark);
       }
       .stepper-input::-webkit-outer-spin-button,
       .stepper-input::-webkit-inner-spin-button {
@@ -322,6 +356,52 @@
         margin-top: 4px;
       }
 
+      /* Unit toggle + same-as-last shortcut */
+      .unit-toggle {
+        display: inline-flex;
+        background: var(--w-tile);
+        border: 1px solid var(--w-line);
+        border-radius: 8px;
+        padding: 3px;
+        gap: 2px;
+        margin-bottom: 10px;
+      }
+      .unit-btn {
+        padding: 6px 14px;
+        border: none;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        font-family: "Inter Tight", sans-serif;
+        background: transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+        line-height: 1.4;
+      }
+      .unit-btn.active {
+        background: #fff;
+        color: var(--text-primary);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+      }
+      .same-as-last-btn {
+        width: 100%;
+        margin-top: 8px;
+        padding: 9px 12px;
+        border: 1px solid var(--w-line);
+        border-radius: 9px;
+        background: #fff;
+        font-size: 13px;
+        font-weight: 500;
+        font-family: "Inter Tight", sans-serif;
+        color: var(--text-secondary);
+        cursor: pointer;
+        text-align: center;
+      }
+      .same-as-last-btn:hover {
+        background: var(--w-tile-3);
+        color: var(--text-primary);
+      }
+
       /* ── Chart card ───────────────────────────────────────────────────────── */
       /* Controls row: Basic/Advanced toggle (left) + range tabs (right) */
       .chart-controls {
@@ -351,14 +431,14 @@
         line-height: 1.5;
       }
       .mode-btn.active {
-        background: #0b1530;
+        background: var(--text-primary);
         color: #fff;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
       }
 
       .range-tabs {
         display: inline-flex;
-        border: 1px solid #e8eaf0;
+        border: 1px solid var(--w-line);
         border-radius: 8px;
         overflow: hidden;
       }
@@ -367,7 +447,7 @@
         padding: 5px 13px;
         background: #fff;
         border: none;
-        border-right: 1px solid #e8eaf0;
+        border-right: 1px solid var(--w-line);
         font-size: 12.5px;
         font-weight: 500;
         cursor: pointer;
@@ -379,10 +459,10 @@
         border-right: none;
       }
       .range-tab:hover:not(.active) {
-        background: #f7f9fc;
+        background: var(--w-tile-3);
       }
       .range-tab.active {
-        background: #0b1530;
+        background: var(--text-primary);
         color: #fff;
       }
 
@@ -437,8 +517,8 @@
         color: var(--red);
       }
       .chart-verdict-pill--on-track {
-        background: #dbeafe;
-        color: #1d4ed8;
+        background: var(--w-blue-pale);
+        color: var(--w-blue-ink);
       }
       .chart-verdict-text {
         font-size: 12.5px;
@@ -513,8 +593,8 @@
         color: var(--amber);
       }
       .status-pill.ahead {
-        background: #dbeafe;
-        color: #1d4ed8;
+        background: var(--w-blue-pale);
+        color: var(--w-blue-ink);
       }
 
       .progress-card-hdr {
@@ -537,7 +617,7 @@
         font-weight: 500;
         color: var(--text-secondary);
         text-decoration: none;
-        background: #f1f4fa;
+        background: var(--w-tile);
       }
       .edit-target-pill:hover {
         background: #e8edf6;
@@ -553,10 +633,10 @@
         text-align: center;
       }
       .pstat-val-amber {
-        color: #d97706;
+        color: var(--warning);
       }
       .pstat-date-amber {
-        color: #d97706;
+        color: var(--warning);
       }
       .pstat-lbl {
         font-size: 10px;
@@ -574,7 +654,7 @@
         color: var(--text-primary);
       }
       .pstat-val-blue {
-        color: #2563eb;
+        color: var(--primary-dark);
       }
       .pstat-val-green {
         color: var(--green);
@@ -601,7 +681,7 @@
       .progress-bar-track {
         position: relative;
         height: 8px;
-        background: #eef0f6;
+        background: var(--w-tile-hover);
         border-radius: 999px;
         overflow: visible;
       }
@@ -611,7 +691,7 @@
         top: 0;
         height: 100%;
         width: 100%;
-        background: linear-gradient(90deg, #93c5fd 0%, #2563eb 100%);
+        background: linear-gradient(90deg, var(--w-blue-light) 0%, var(--primary-dark) 100%);
         border-radius: 999px;
         transform-origin: left center;
         transform: scaleX(0);
@@ -624,7 +704,7 @@
         transform: translate(-50%, -50%);
         width: 12px;
         height: 12px;
-        background: #2563eb;
+        background: var(--primary-dark);
         border: 2px solid #fff;
         border-radius: 50%;
         box-shadow: 0 1px 4px rgba(37, 99, 235, 0.35);
@@ -637,7 +717,7 @@
         transform: translateX(-50%);
         width: 3px;
         height: 14px;
-        background: #16a34a;
+        background: var(--success);
         border-radius: 2px;
         z-index: 2;
       }
@@ -669,7 +749,7 @@
       }
       .pgbar-flag-you {
         bottom: 0;
-        color: #2563eb;
+        color: var(--primary-dark);
       }
       .pgbar-flag-plan {
         top: 0;
@@ -734,13 +814,13 @@
         color: var(--green);
       }
       .pill-no-data {
-        background: #dbeafe;
-        color: #1d4ed8;
+        background: var(--w-blue-pale);
+        color: var(--w-blue-ink);
       }
 
       /* Milestone list */
       .milestone-list-section {
-        border-top: 1px solid #eef0f6;
+        border-top: 1px solid var(--w-tile-hover);
         padding-top: 12px;
       }
       .milestone-list-hdr {
@@ -780,7 +860,7 @@
         background: var(--green-soft);
       }
       .milestone-row-standard {
-        background: #f7f9fc;
+        background: var(--w-tile-3);
       }
       .milestone-row-date {
         font-size: 12px;
@@ -820,7 +900,7 @@
         color: var(--green);
       }
       .milestone-delta-neutral {
-        background: #f1f4fa;
+        background: var(--w-tile);
         color: var(--text-secondary);
       }
 
@@ -837,7 +917,7 @@
 
       .view-all-link {
         font-size: 12.5px;
-        color: #2563eb;
+        color: var(--primary-dark);
         text-decoration: none;
         white-space: nowrap;
         flex-shrink: 0;
@@ -945,8 +1025,8 @@
         font-family: "Inter Tight", sans-serif;
       }
       .add-chip:hover {
-        border-color: #2563eb;
-        color: #2563eb;
+        border-color: var(--primary-dark);
+        color: var(--primary-dark);
         background: #eff6ff;
       }
 
@@ -1011,7 +1091,7 @@
         line-height: 1;
       }
       .entry-menu-btn:hover {
-        background: #eef0f6;
+        background: var(--w-tile-hover);
         color: var(--text-primary);
       }
 
@@ -1020,7 +1100,7 @@
         right: 0;
         top: calc(100% + 4px);
         background: #fff;
-        border: 1px solid #e8eaf0;
+        border: 1px solid var(--w-line);
         border-radius: 9px;
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
         z-index: 50;
@@ -1040,7 +1120,7 @@
         font-family: "Inter Tight", sans-serif;
       }
       .entry-menu button:hover {
-        background: #f7f9fc;
+        background: var(--w-tile-3);
       }
       .entry-menu .menu-delete {
         color: var(--red);
@@ -1063,7 +1143,7 @@
         font-family: "Inter Tight", sans-serif;
       }
       .entry-edit:hover {
-        background: #f7f9fc;
+        background: var(--w-tile-3);
       }
 
       .inline-edit-form {
@@ -1074,7 +1154,7 @@
       }
       .inline-save-btn {
         padding: 4px 12px;
-        background: #0b1530;
+        background: var(--text-primary);
         color: #fff;
         border: none;
         border-radius: 6px;
@@ -1083,7 +1163,7 @@
         font-family: "Inter Tight", sans-serif;
       }
       .inline-save-btn:hover {
-        background: #162444;
+        background: var(--w-navy-hover);
       }
       .inline-cancel-btn {
         background: none;
@@ -1103,7 +1183,7 @@
         width: 5rem;
         text-align: center;
         padding: 4px 6px;
-        border: 1px solid #2563eb;
+        border: 1px solid var(--primary-dark);
         border-radius: 6px;
         font-size: 13.5px;
         font-variant-numeric: tabular-nums;
@@ -1111,7 +1191,7 @@
       }
       .stepper-log-btn {
         padding: 4px 12px;
-        background: #0b1530;
+        background: var(--text-primary);
         color: #fff;
         border: none;
         border-radius: 5px;
@@ -1121,7 +1201,7 @@
         white-space: nowrap;
       }
       .stepper-log-btn:hover {
-        background: #162444;
+        background: var(--w-navy-hover);
       }
       .stepper-log-btn:disabled {
         opacity: 0.55;
@@ -1150,8 +1230,8 @@
         font-family: "Inter Tight", sans-serif;
       }
       .backfill-add-btn:hover {
-        border-color: #2563eb;
-        color: #2563eb;
+        border-color: var(--primary-dark);
+        color: var(--primary-dark);
         background: #eff6ff;
       }
 
@@ -1163,13 +1243,13 @@
       .backfill-input {
         width: 5.5rem;
         padding: 4px 8px;
-        border: 1px solid #2563eb;
+        border: 1px solid var(--primary-dark);
         border-radius: 6px;
         font-size: 13.5px;
       }
       .backfill-save-btn {
         padding: 4px 12px;
-        background: #0b1530;
+        background: var(--text-primary);
         color: #fff;
         border: none;
         border-radius: 5px;
@@ -1302,13 +1382,13 @@
         text-decoration: none;
       }
       .th-export-btn:hover {
-        background: #f1f4fa;
+        background: var(--w-tile);
       }
       .th-filter-row {
         display: flex;
         gap: 4px;
         padding: 3px;
-        background: #f1f4fa;
+        background: var(--w-tile);
         border-radius: 999px;
         width: fit-content;
         margin-bottom: 10px;
@@ -1325,7 +1405,7 @@
         font-family: "Inter Tight", sans-serif;
       }
       .th-fb.active {
-        background: #0b1530;
+        background: var(--text-primary);
         color: #fff;
       }
       .th-table-wrap {
@@ -1383,7 +1463,7 @@
         color: var(--amber);
       }
       .th-badge.abandoned {
-        background: #f1f4fa;
+        background: var(--w-tile);
         color: var(--text-secondary);
       }
       .th-nm .th-meta {
@@ -1445,24 +1525,129 @@
       /* ── Responsive ≤768px ────────────────────────────────────────────────── */
       @media (max-width: 768px) {
         main {
-          padding: 16px 16px 20px;
+          padding: 14px 14px 24px;
+          gap: 12px;
         }
         .weight-page-header h1 {
           font-size: 22px;
+        }
+        .card,
+        .hero-card {
+          padding: 14px 14px;
         }
       }
 
       /* ── Responsive ≤640px — hero stacks; panel becomes bottom sheet ─────── */
       @media (max-width: 640px) {
+        main {
+          padding: 12px 12px 20px;
+          gap: 10px;
+        }
+
+        .weight-page-header {
+          flex-direction: column;
+          align-items: stretch;
+          gap: 12px;
+          padding: 14px 14px;
+          border-radius: 12px;
+        }
+
+        .header-actions {
+          width: 100%;
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+        }
+
+        .header-actions .btn-secondary,
+        .header-actions .manage-target-btn {
+          width: 100%;
+          justify-content: center;
+          min-height: 40px;
+          font-size: 12.5px;
+          padding: 8px 10px;
+        }
+
+        .streak-adherence-row {
+          margin-top: 8px;
+        }
+
+        .page-subtitle {
+          font-size: 12px;
+          line-height: 1.45;
+        }
+
         .hero-2col {
           grid-template-columns: 1fr;
         }
         .target-history-grid {
           grid-template-columns: 1fr;
         }
+
+        .log-weight-section {
+          padding: 14px 12px;
+          border-radius: 12px;
+        }
+
+        .hcb-top {
+          margin-bottom: 2px;
+        }
+
+        .stepper {
+          border-radius: 12px;
+        }
+
+        .stepper-input {
+          font-size: 1.2rem;
+          height: 48px;
+        }
+
+        .log-submit-btn {
+          padding: 13px 1rem;
+          font-size: 15px;
+          font-weight: 700;
+          border-radius: 10px;
+          margin-top: 10px;
+        }
+
+        .progress-stat-row {
+          grid-template-columns: 1fr 1fr;
+          gap: 10px 8px;
+          text-align: left;
+        }
+
+        .progress-stat-row > div {
+          background: var(--w-tile-3);
+          border: 1px solid var(--w-line);
+          border-radius: 10px;
+          padding: 8px 10px;
+        }
+
+        .progress-card-hdr {
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+
+        .merged-sep {
+          margin: 8px 0 14px;
+        }
+
+        .card-header-row {
+          flex-wrap: wrap;
+          gap: 6px;
+        }
+
         .range-tab[data-range="6m"],
         .range-tab[data-range="all"] {
           display: none;
+        }
+        .chart-controls {
+          flex-direction: column;
+          align-items: stretch;
+        }
+        .mode-seg .mode-btn,
+        .range-tabs .range-tab {
+          flex: 1;
         }
         .chart-verdict {
           flex-direction: column;
@@ -1496,23 +1681,48 @@
         }
       }
 
-      /* ── Responsive ≤480px (360px mobile) ────────────────────────────────── */
+      /* ── Responsive ≤480px (narrow phones) ───────────────────────────────── */
       @media (max-width: 480px) {
         main {
-          padding: 12px 12px 16px;
+          padding: 10px 10px 16px;
         }
         .weight-page-header h1 {
           font-size: 20px;
         }
         .header-actions {
-          flex-wrap: wrap;
-          gap: 6px;
+          grid-template-columns: 1fr;
+        }
+        .card,
+        .hero-card {
+          padding: 12px 12px;
         }
         .pstat-val {
           font-size: 15px;
         }
+        .progress-stat-row {
+          gap: 8px;
+        }
+        .re-row {
+          grid-template-columns: 64px 1fr 56px 34px 20px;
+          gap: 4px;
+          font-size: 11px;
+        }
+        .re-note {
+          font-size: 11px;
+        }
+        .unit-btn {
+          flex: 1;
+          text-align: center;
+          padding: 8px 12px;
+        }
+        #unit-toggle {
+          display: flex !important;
+          width: 100%;
+        }
       }
       /* Visible keyboard focus on all interactive controls (WCAG 2.4.7) */
+      .unit-btn:focus-visible,
+      .same-as-last-btn:focus-visible,
       .stepper-btn:focus-visible,
       .range-tab:focus-visible,
       .log-submit-btn:focus-visible,
@@ -1527,7 +1737,22 @@
       .mini-save:focus-visible,
       .add-chip:focus-visible,
       .entry-edit:focus-visible,
-      .entry-menu-btn:focus-visible {
+      .entry-menu-btn:focus-visible,
+      .mode-btn:focus-visible,
+      .th-fb:focus-visible,
+      .th-export-btn:focus-visible,
+      .wcal-nav:focus-visible,
+      .wcal-cell:focus-visible,
+      .wcal-save:focus-visible,
+      .wcal-del:focus-visible,
+      .backfill-save-btn:focus-visible,
+      .backfill-cancel-btn:focus-visible,
+      .inline-save-btn:focus-visible,
+      .inline-cancel-btn:focus-visible,
+      .stepper-log-btn:focus-visible,
+      .et-panel-close:focus-visible,
+      .et-save-btn:focus-visible,
+      .et-end-btn:focus-visible {
         outline: 2px solid var(--bg-1);
         outline-offset: 2px;
       }
@@ -1563,10 +1788,25 @@
         .view-all-link,
         .add-chip,
         .mini-step,
-        .mini-save {
+        .mini-save,
+        .mode-btn,
+        .th-fb,
+        .entry-menu-btn,
+        .wcal-nav,
+        .unit-btn,
+        .same-as-last-btn {
           min-height: 40px;
           display: inline-flex;
           align-items: center;
+        }
+        /* iOS Safari zooms the viewport on focusing any input under 16px;
+           bump these to 16px on touch input only so desktop density is kept. */
+        .et-field input,
+        .backfill-input,
+        .wcal-editor input,
+        .mini-val,
+        .stepper-value {
+          font-size: 16px;
         }
       }
 
@@ -1607,7 +1847,7 @@
         height: 30px;
         border-radius: 8px;
         border: 0;
-        background: #f1f4fa;
+        background: var(--w-tile);
         cursor: pointer;
         font-size: 16px;
         color: var(--text-secondary);
@@ -1636,7 +1876,7 @@
         height: 40px;
         border-radius: 10px;
         border: 1.5px solid var(--card-border);
-        background: #f7f9fd;
+        background: var(--w-tile-3);
         padding: 0 12px;
         display: flex;
         align-items: center;
@@ -1649,7 +1889,7 @@
         height: 40px;
         border-radius: 10px;
         border: 1.5px solid var(--card-border);
-        background: #f7f9fd;
+        background: var(--w-tile-3);
         padding: 0 12px;
         font-family: "JetBrains Mono", monospace;
         font-size: 15px;
@@ -1670,7 +1910,7 @@
         color: var(--text-tertiary);
       }
       .et-preview {
-        background: #f7f9fd;
+        background: var(--w-tile-3);
         border-radius: 11px;
         padding: 12px 14px;
         font-size: 12px;
@@ -1793,7 +2033,7 @@
         justify-content: center;
       }
       .wcal-nav:hover {
-        background: #f1f4fa;
+        background: var(--w-tile);
         color: var(--text-primary);
       }
       .wcal-nav:disabled {
@@ -1838,7 +2078,7 @@
         position: relative;
         aspect-ratio: 1 / 1;
         border: 0;
-        background: #f7f9fd;
+        background: var(--w-tile-3);
         border-radius: 6px;
         font-family: "JetBrains Mono", monospace;
         font-size: 11px;
@@ -1870,7 +2110,7 @@
         box-shadow: inset 0 0 0 1.5px var(--bg-1);
       }
       .wcal-cell.sel {
-        box-shadow: 0 0 0 1.5px #2563eb;
+        box-shadow: 0 0 0 1.5px var(--primary-dark);
         background: #dde6f8;
       }
       .wcal-dot {
@@ -1881,7 +2121,7 @@
         width: 3.5px;
         height: 3.5px;
         border-radius: 50%;
-        background: #2563eb;
+        background: var(--primary-dark);
       }
       .wcal-cell.sel .wcal-dot {
         display: none;
@@ -1893,7 +2133,7 @@
         gap: 8px;
         flex-wrap: wrap;
         padding: 10px 12px;
-        background: #f1f4fa;
+        background: var(--w-tile);
         border-radius: 9px;
       }
       .wcal-ed-date {
@@ -1973,7 +2213,7 @@
         width: 7px;
         height: 7px;
         background: #fff;
-        border: 1.5px solid #16a34a;
+        border: 1.5px solid var(--success);
         border-radius: 1px;
         pointer-events: auto;
         cursor: help;
@@ -1984,8 +2224,8 @@
         transform: translate(-50%, -50%);
         width: 9px;
         height: 9px;
-        background: #16a34a;
-        border-color: #16a34a;
+        background: var(--success);
+        border-color: var(--success);
       }
     </style>
   </head>
@@ -2059,68 +2299,70 @@
               >
             </div>
             <div class="merged-sep"></div>
-            <div class="hcb-top">
-              <span class="hcb-label">LOG WEIGHT</span>
-              <span class="hcb-date" id="hcb-date"></span>
-            </div>
-            <div id="unit-toggle" class="unit-toggle" style="display:flex;gap:4px;margin-bottom:8px">
-              <button class="unit-btn active" data-unit="kg" type="button">kg</button>
-              <button class="unit-btn" data-unit="lb" type="button">lb</button>
-            </div>
-            <!-- Stepper (shown when not yet logged today, or while editing) -->
-            <div id="stepper-wrap">
-              <div class="et-field" style="margin-bottom:8px">
-                <input
-                  type="date"
-                  id="log-date-input"
-                  aria-label="Entry date"
-                  style="width:100%;box-sizing:border-box"
-                />
+            <div class="log-weight-section">
+              <div class="hcb-top">
+                <span class="hcb-label">LOG WEIGHT</span>
+                <span class="hcb-date" id="hcb-date"></span>
               </div>
-              <div class="stepper">
-                <button
-                  class="stepper-btn"
-                  id="stepper-dec"
-                  type="button"
-                  aria-label="Decrease weight"
-                >
-                  −
+              <div id="unit-toggle" class="unit-toggle">
+                <button class="unit-btn active" data-unit="kg" type="button">kg</button>
+                <button class="unit-btn" data-unit="lb" type="button">lb</button>
+              </div>
+              <!-- Stepper (shown when not yet logged today, or while editing) -->
+              <div id="stepper-wrap">
+                <div class="et-field" style="margin-bottom:8px">
+                  <input
+                    type="date"
+                    id="log-date-input"
+                    aria-label="Entry date"
+                    style="width:100%;box-sizing:border-box"
+                  />
+                </div>
+                <div class="stepper">
+                  <button
+                    class="stepper-btn"
+                    id="stepper-dec"
+                    type="button"
+                    aria-label="Decrease weight"
+                  >
+                    −
+                  </button>
+                  <input
+                    class="stepper-input"
+                    id="stepper-input"
+                    type="number"
+                    step="0.1"
+                    min="20"
+                    max="300"
+                    inputmode="decimal"
+                    aria-label="Weight in kg"
+                  />
+                  <button
+                    class="stepper-btn"
+                    id="stepper-inc"
+                    type="button"
+                    aria-label="Increase weight"
+                  >
+                    +
+                  </button>
+                </div>
+                <button class="same-as-last-btn" id="same-as-last-btn" type="button" hidden>
+                  Log same as last
                 </button>
-                <input
-                  class="stepper-input"
-                  id="stepper-input"
-                  type="number"
-                  step="0.1"
-                  min="20"
-                  max="300"
-                  inputmode="decimal"
-                  aria-label="Weight in kg"
-                />
-                <button
-                  class="stepper-btn"
-                  id="stepper-inc"
-                  type="button"
-                  aria-label="Increase weight"
-                >
-                  +
+                <button class="log-submit-btn" id="log-submit-btn" type="button">
+                  Log -- kg
+                </button>
+                <div class="hcb-error" id="hcb-error" role="alert"></div>
+                <!-- quicklog-error alias for test_weight_page_frontend__412 -->
+                <div id="quicklog-error" hidden></div>
+              </div>
+              <!-- Logged strip (shown after successful log) -->
+              <div class="logged-strip" id="logged-strip" hidden>
+                <span id="logged-text">✓ Logged today · -- kg · </span
+                ><button class="edit-link" id="edit-link" type="button">
+                  Edit
                 </button>
               </div>
-              <button class="same-as-last-btn" id="same-as-last-btn" type="button" hidden>
-                Log same as last
-              </button>
-              <button class="log-submit-btn" id="log-submit-btn" type="button">
-                Log -- kg
-              </button>
-              <div class="hcb-error" id="hcb-error" role="alert"></div>
-              <!-- quicklog-error alias for test_weight_page_frontend__412 -->
-              <div id="quicklog-error" hidden></div>
-            </div>
-            <!-- Logged strip (shown after successful log) -->
-            <div class="logged-strip" id="logged-strip" hidden>
-              <span id="logged-text">✓ Logged today · -- kg · </span
-              ><button class="edit-link" id="edit-link" type="button">
-                Edit
-              </button>
             </div>
             <div id="progress-card" hidden>
               <div class="merged-sep"></div>
@@ -2284,18 +2526,18 @@
         </div>
         <div class="chart-controls">
           <div class="mode-seg" role="group" aria-label="Chart detail level">
-            <button class="mode-btn active" data-mode="basic" type="button">Basic</button>
-            <button class="mode-btn" data-mode="advanced" type="button">Advanced</button>
+            <button class="mode-btn active" data-mode="basic" type="button" aria-pressed="true">Basic</button>
+            <button class="mode-btn" data-mode="advanced" type="button" aria-pressed="false">Advanced</button>
           </div>
           <div class="range-tabs" role="group" aria-label="Chart date range">
-            <button class="range-tab" data-range="7d" type="button">7D</button>
-            <button class="range-tab active" data-range="30d" type="button">
+            <button class="range-tab" data-range="7d" type="button" aria-pressed="false">7D</button>
+            <button class="range-tab active" data-range="30d" type="button" aria-pressed="true">
               30D
             </button>
-            <button class="range-tab" data-range="90d" type="button">90D</button>
-            <button class="range-tab" data-range="6m" type="button">6M</button>
-            <button class="range-tab" data-range="1y" type="button">1Y</button>
-            <button class="range-tab" data-range="all" type="button">ALL</button>
+            <button class="range-tab" data-range="90d" type="button" aria-pressed="false">90D</button>
+            <button class="range-tab" data-range="6m" type="button" aria-pressed="false">6M</button>
+            <button class="range-tab" data-range="1y" type="button" aria-pressed="false">1Y</button>
+            <button class="range-tab" data-range="all" type="button" aria-pressed="false">ALL</button>
           </div>
         </div>
         <div class="chart-container">
@@ -2382,7 +2624,7 @@
           <div class="card" id="journey-card">
             <h2 style="margin-bottom: 10px">Your weight journey</h2>
             <div class="journey-banner" id="journey-banner">
-              <i class="ti ti-info-circle"></i>
+              <i class="ti ti-info-circle" aria-hidden="true"></i>
               <span class="jb-text" id="journey-banner-text"
                 >No target history yet.</span
               >
@@ -2426,20 +2668,25 @@
                 class="th-export-btn"
                 type="button"
               >
-                <i class="ti ti-download" style="font-size: 11px"></i> Export
+                <i class="ti ti-download" style="font-size: 11px" aria-hidden="true"></i> Export
               </button>
             </div>
-            <div class="th-filter-row" id="target-filter-pills">
-              <button class="th-fb active" data-filter="all" type="button">
+            <div
+              class="th-filter-row"
+              id="target-filter-pills"
+              role="group"
+              aria-label="Filter past targets"
+            >
+              <button class="th-fb active" data-filter="all" type="button" aria-pressed="true">
                 All
               </button>
-              <button class="th-fb" data-filter="achieved" type="button">
+              <button class="th-fb" data-filter="achieved" type="button" aria-pressed="false">
                 Achieved
               </button>
-              <button class="th-fb" data-filter="replaced" type="button">
+              <button class="th-fb" data-filter="replaced" type="button" aria-pressed="false">
                 Replaced
               </button>
-              <button class="th-fb" data-filter="abandoned" type="button">
+              <button class="th-fb" data-filter="abandoned" type="button" aria-pressed="false">
                 Abandoned
               </button>
             </div>

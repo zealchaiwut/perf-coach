@@ -6,56 +6,84 @@
   <title>Settings – perf-coach</title>
   <link rel="stylesheet" href="/css/styles.css">
   <style>
+    @media (prefers-reduced-motion: reduce) {
+      * { transition-duration: 0.001ms !important; animation-duration: 0.001ms !important; }
+    }
+
+    /* Shared focus-visible treatment for every custom control on this page */
+    .settings-nav-item:focus-visible,
+    .settings-save-btn:focus-visible,
+    .profile-input:focus-visible,
+    .profile-select:focus-visible,
+    .thresholds-default-btn:focus-visible,
+    .integration-btn:focus-visible,
+    .profile-id-copy:focus-visible,
+    .pr-action-btn:focus-visible,
+    .pr-delete-btn:focus-visible,
+    .pr-modal-close:focus-visible,
+    .about-link:focus-visible,
+    .strava-history-toggle:focus-visible,
+    .integration-log-clear:focus-visible,
+    .suggestion-accept-btn:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+      box-shadow: 0 0 0 4px var(--focus-ring);
+      border-radius: 6px;
+    }
+
     .settings-layout {
       display: flex;
       min-height: calc(100vh - 57px);
     }
 
-    /* ── Sidebar ── */
+    /* ── Sidebar / tabs ── */
     .settings-sidebar {
-      width: 200px;
+      width: 208px;
       flex-shrink: 0;
-      border-right: 1px solid #e5e5e5;
-      background: #fff;
-      padding: 24px 0;
+      border-right: 1px solid var(--border);
+      background: var(--surface-2);
+      padding: 20px 12px;
     }
 
     .settings-sidebar nav {
       display: flex;
       flex-direction: column;
+      gap: 2px;
     }
 
     .settings-nav-item {
       display: block;
-      padding: 10px 24px;
+      padding: 10px 14px;
       font-size: 14px;
       font-weight: 500;
-      color: #444;
+      color: var(--text-sub);
       text-decoration: none;
       cursor: pointer;
       border: none;
+      border-radius: 8px;
       background: none;
       text-align: left;
       width: 100%;
       font-family: inherit;
-      transition: background 0.1s, color 0.1s;
+      min-height: 40px;
+      transition: background 0.12s ease-out, color 0.12s ease-out;
     }
 
     .settings-nav-item:hover {
-      background: #f5f5f5;
-      color: #1a1a1a;
+      background: var(--surface);
+      color: var(--text);
     }
 
-    .settings-nav-item.active {
-      background: #f0f4ff;
-      color: #1a1a1a;
+    .settings-nav-item[aria-selected="true"] {
+      background: color-mix(in srgb, var(--primary) 10%, var(--surface));
+      color: var(--primary-dark);
       font-weight: 600;
     }
 
     /* ── Content area ── */
     .settings-content {
       flex: 1;
-      padding: 28px 32px 36px;
+      padding: 28px 32px 48px;
       max-width: 720px;
     }
 
@@ -70,18 +98,18 @@
     .settings-section h1 {
       font-size: 20px;
       font-weight: 700;
-      color: #1a1a1a;
+      color: var(--text);
       margin: 0 0 16px;
       letter-spacing: -0.01em;
     }
 
     .settings-placeholder {
       font-size: 14px;
-      color: #9ca3af;
+      color: var(--text-sub);
       padding: 20px;
-      border: 1px dashed #e5e5e5;
+      border: 1px dashed var(--border);
       border-radius: 8px;
-      background: #fafafa;
+      background: var(--surface-2);
     }
 
     /* ── Responsive: <880px sidebar → horizontal tab strip ── */
@@ -93,29 +121,35 @@
       .settings-sidebar {
         width: 100%;
         border-right: none;
-        border-bottom: 1px solid #e5e5e5;
+        border-bottom: 1px solid var(--border);
         padding: 0;
+        background: var(--surface);
       }
 
       .settings-sidebar nav {
         flex-direction: row;
         overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
         gap: 0;
+        scrollbar-width: thin;
       }
 
       .settings-nav-item {
-        padding: 12px 16px;
+        padding: 13px 16px;
         white-space: nowrap;
+        border-radius: 0;
         border-bottom: 2px solid transparent;
+        min-height: 44px;
+        flex-shrink: 0;
       }
 
-      .settings-nav-item.active {
-        border-bottom-color: #1a1a1a;
+      .settings-nav-item[aria-selected="true"] {
+        border-bottom-color: var(--primary);
         background: none;
       }
 
       .settings-content {
-        padding: 22px 20px 28px;
+        padding: 20px 16px 32px;
       }
     }
 
@@ -126,8 +160,8 @@
       font-size: 13.5px;
       font-weight: 600;
       font-family: inherit;
-      background: #0b1530;
-      color: #fff;
+      background: var(--text);
+      color: var(--surface);
       border: none;
       cursor: pointer;
       transition: opacity 0.15s;
@@ -142,8 +176,8 @@
       font-size: 13px;
       min-height: 18px;
     }
-    .settings-feedback.success { color: #15803d; }
-    .settings-feedback.error   { color: #b91c1c; }
+    .settings-feedback.success { color: var(--success); }
+    .settings-feedback.error   { color: var(--danger); }
 
     .avatar-row {
       display: flex;
@@ -156,8 +190,8 @@
       width: 80px;
       height: 80px;
       border-radius: 50%;
-      background: linear-gradient(135deg, #ffb88a, #d97a3a);
-      color: #fff;
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+      color: var(--surface);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -190,7 +224,7 @@
       display: block;
       font-size: 12.5px;
       font-weight: 600;
-      color: #0b1530;
+      color: var(--text);
       margin-bottom: 5px;
       letter-spacing: 0.01em;
     }
@@ -200,21 +234,32 @@
       width: 100%;
       box-sizing: border-box;
       padding: 9px 11px;
-      border: 1px solid rgba(13, 30, 67, 0.15);
+      border: 1px solid color-mix(in srgb, var(--text) 15%, transparent);
       border-radius: 8px;
       font-size: 13.5px;
       font-family: inherit;
-      color: #0b1530;
-      background: #fff;
+      color: var(--text);
+      background: var(--surface);
       outline: none;
       transition: border-color 0.15s;
     }
     .profile-input:focus,
-    .profile-select:focus { border-color: #0b1530; }
+    .profile-select:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--focus-ring);
+    }
     .profile-input[readonly] {
-      background: #f8f9fb;
-      color: #8b95ad;
+      background: var(--surface-2);
+      color: var(--text-sub);
       cursor: default;
+    }
+    .profile-input[aria-invalid="true"],
+    .profile-select[aria-invalid="true"] {
+      border-color: var(--danger);
+    }
+    .profile-input[aria-invalid="true"]:focus,
+    .profile-select[aria-invalid="true"]:focus {
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 18%, transparent);
     }
 
     /* Copyable User ID row */
@@ -223,21 +268,21 @@
     .profile-id-copy {
       flex-shrink: 0;
       padding: 0 14px;
-      border: 1px solid rgba(13, 30, 67, 0.15);
+      border: 1px solid color-mix(in srgb, var(--text) 15%, transparent);
       border-radius: 8px;
-      background: #fff;
-      color: #5c6886;
+      background: var(--surface);
+      color: var(--ink-2);
       font: inherit;
       font-size: 12.5px;
       font-weight: 600;
       cursor: pointer;
     }
-    .profile-id-copy:hover { background: #f4f7fc; color: #0b1530; }
-    .profile-id-copy.copied { color: #15803d; border-color: #15803d; }
+    .profile-id-copy:hover { background: var(--surface-2); color: var(--text); }
+    .profile-id-copy.copied { color: var(--success); border-color: var(--success); }
 
     .profile-field-error {
       font-size: 12px;
-      color: #b91c1c;
+      color: var(--danger);
       margin-top: 4px;
       min-height: 16px;
     }
@@ -250,13 +295,69 @@
       flex-wrap: wrap;
     }
 
-    @media (max-width: 480px) {
+    /* Mobile (<640px, per project breakpoint scale): 16px inputs (no iOS zoom-on-focus),
+       >=44px tap targets, no horizontal scroll, full-width stacked actions. */
+    @media (max-width: 640px) {
       .profile-input,
-      .profile-select { font-size: 16px; }
-      .profile-actions-row { flex-direction: column; align-items: stretch; }
-      .profile-actions-row .settings-save-btn { width: 100%; text-align: center; }
+      .profile-select,
+      .stryd-form input,
+      .strava-sync-panel input[type="date"],
+      .pr-value-suffix { font-size: 16px; }
+
+      .profile-input,
+      .profile-select,
+      .stryd-form input { min-height: 44px; }
+
+      .profile-actions-row,
+      .pr-form-actions { flex-direction: column; align-items: stretch; }
+      .profile-actions-row .settings-save-btn,
+      .pr-form-actions .settings-save-btn,
+      .pr-form-actions .pr-delete-btn { width: 100%; text-align: center; }
+
       .thresholds-zone2-band-row { flex-wrap: wrap; }
       .thresholds-zone2-band-row .thresholds-input { min-width: 80px; }
+      .thresholds-input-row { flex-wrap: wrap; }
+      .thresholds-default-btn { flex-basis: 100%; }
+
+      .settings-save-btn,
+      .thresholds-default-btn,
+      .integration-btn,
+      .profile-id-copy,
+      .pr-action-btn,
+      .pr-delete-btn,
+      .pr-modal-close,
+      .integration-log-clear,
+      .strava-history-toggle,
+      .suggestion-accept-btn,
+      .about-link {
+        min-height: 44px;
+        min-width: 44px;
+      }
+
+      .integration-actions,
+      .strava-sync-panel-row,
+      .pr-delete-confirm-actions {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .integration-actions .integration-btn,
+      .pr-delete-confirm-actions .integration-btn {
+        width: 100%;
+        text-align: center;
+      }
+
+      .strava-data-quality-grid { grid-template-columns: 1fr; }
+
+      /* Wide, JS-rendered tables: scroll within their own box instead of the page */
+      .strava-sync-preview-table,
+      .strava-history-table {
+        display: block;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .pr-modal { margin: 0 12px; max-width: none; width: auto; }
+      .pr-modal-overlay { padding: 16px; }
     }
 
     /* ── Thresholds section ── */
@@ -276,19 +377,19 @@
       font-weight: 600;
       font-family: inherit;
       cursor: pointer;
-      background: #f1f5f9;
-      color: #0b1530;
-      border: 1px solid rgba(13, 30, 67, 0.12);
+      background: var(--surface-2);
+      color: var(--text);
+      border: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
       transition: opacity 0.15s;
     }
     .thresholds-default-btn:hover { opacity: 0.82; }
     .thresholds-desc {
       font-size: 12px;
-      color: #8b95ad;
+      color: var(--text-sub);
       margin: 4px 0 0;
     }
     .thresholds-desc code {
-      background: #f1f5f9;
+      background: var(--surface-2);
       padding: 1px 4px;
       border-radius: 4px;
       font-size: 11.5px;
@@ -297,25 +398,57 @@
       margin-top: 20px;
       padding: 12px 14px;
       border-radius: 8px;
-      background: #fffbeb;
-      border: 1px solid #fde68a;
+      background: var(--amber-soft);
+      border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent);
       font-size: 12.5px;
-      color: #78350f;
+      color: var(--warning);
       line-height: 1.5;
     }
+
+    /* ── Inline info card (Zone 2 habit opt-in, etc.) ── */
+    .settings-inline-card {
+      margin-top: 24px;
+      padding: 16px 20px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-2);
+    }
+    .settings-inline-card__title {
+      margin: 0 0 10px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text);
+    }
+    .settings-inline-card__copy {
+      margin: 0 0 14px;
+      font-size: 13px;
+      color: var(--text-sub);
+    }
+    .settings-inline-card__link { color: var(--primary-dark); }
+    .settings-inline-card__success { color: var(--success); }
+    .settings-inline-card .settings-save-btn {
+      font-size: 13px;
+      padding: 7px 16px;
+    }
+
+    /* ── Small text utilities shared by a few one-off rows ── */
+    .u-muted-13 { font-size: 13px; color: var(--text-sub); }
+    .u-muted-12 { font-size: 12px; color: var(--text-sub); }
+    .u-strong-13 { font-size: 13px; font-weight: 600; color: var(--text); }
+    .u-accent-value { font-size: 14px; font-weight: 700; color: var(--primary-dark); }
 
     /* ── Unit label next to inputs ── */
     .thresholds-unit-label {
       flex-shrink: 0;
       font-size: 13px;
-      color: #8b95ad;
+      color: var(--text-sub);
       padding-left: 2px;
     }
 
     /* ── Last-set timestamp ── */
     .thresholds-last-set {
       font-size: 11px;
-      color: #b0b8cc;
+      color: var(--text-sub);
       margin: 2px 0 0;
       min-height: 14px;
     }
@@ -328,10 +461,10 @@
       margin-top: 6px;
       padding: 7px 10px;
       border-radius: 8px;
-      background: #eff6ff;
-      border: 1px solid #bfdbfe;
+      background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+      border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--surface));
       font-size: 12.5px;
-      color: #1d4ed8;
+      color: var(--primary-dark);
     }
     .thresholds-suggestion-banner.visible { display: flex; }
     .thresholds-suggestion-banner .suggestion-text { flex: 1; }
@@ -343,8 +476,8 @@
       font-weight: 600;
       font-family: inherit;
       cursor: pointer;
-      background: #1d4ed8;
-      color: #fff;
+      background: var(--primary-dark);
+      color: var(--surface);
       border: none;
       transition: opacity 0.15s;
     }
@@ -357,9 +490,9 @@
       gap: 5px;
       padding: 5px 10px;
       border-radius: 20px;
-      background: #eff6ff;
-      border: 1px solid #bfdbfe;
-      color: #1d4ed8;
+      background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+      border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--surface));
+      color: var(--primary-dark);
       font-size: 12px;
       font-weight: 600;
       font-family: inherit;
@@ -369,15 +502,16 @@
       transition: background 0.15s;
     }
     .thresholds-suggestion-chip.visible { display: inline-flex; }
-    .thresholds-suggestion-chip:hover { background: #dbeafe; }
+    .thresholds-suggestion-chip:hover { background: color-mix(in srgb, var(--primary) 16%, var(--surface)); }
 
     /* ── Integration cards ── */
     .integration-card {
-      border: 1px solid rgba(13, 30, 67, 0.08);
-      border-radius: 10px;
-      padding: 16px;
-      margin-bottom: 12px;
-      background: #fafafa;
+      border: 1px solid var(--card-border);
+      border-radius: var(--card-radius);
+      padding: 18px 20px;
+      margin-bottom: 14px;
+      background: var(--card-bg);
+      box-shadow: var(--card-shadow);
     }
     .integration-card:last-child { margin-bottom: 0; }
 
@@ -391,7 +525,7 @@
     .integration-name {
       font-size: 14px;
       font-weight: 600;
-      color: #0b1530;
+      color: var(--text);
     }
 
     .integration-badge {
@@ -401,21 +535,21 @@
       border-radius: 20px;
     }
     .integration-badge--connected {
-      background: #dcfce7;
-      color: #15803d;
+      background: var(--green-soft);
+      color: var(--success);
     }
     .integration-badge--disconnected {
-      background: #f1f5f9;
-      color: #64748b;
+      background: var(--surface-2);
+      color: var(--text-sub);
     }
     .integration-badge--unconfigured {
-      background: #fef3c7;
-      color: #92400e;
+      background: var(--amber-soft);
+      color: var(--warning);
     }
 
     .integration-meta {
       font-size: 12.5px;
-      color: #8b95ad;
+      color: var(--text-sub);
       margin-bottom: 10px;
       min-height: 16px;
     }
@@ -441,32 +575,32 @@
     .integration-btn:disabled { opacity: 0.45; cursor: default; }
 
     .integration-btn--primary {
-      background: #0b1530;
-      color: #fff;
+      background: var(--text);
+      color: var(--surface);
     }
     .integration-btn--secondary {
-      background: #f1f5f9;
-      color: #0b1530;
-      border: 1px solid rgba(13, 30, 67, 0.12);
+      background: var(--surface-2);
+      color: var(--text);
+      border: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
     }
     .integration-btn--danger {
       background: none;
-      color: #b91c1c;
-      border: 1.5px solid rgba(185, 28, 28, 0.25);
+      color: var(--danger);
+      border: 1.5px solid color-mix(in srgb, var(--danger) 25%, transparent);
     }
-    .integration-btn--danger:hover:not(:disabled) { background: rgba(185, 28, 28, 0.05); }
+    .integration-btn--danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 5%, transparent); }
 
     .integration-feedback {
       font-size: 12.5px;
       margin-top: 8px;
       min-height: 16px;
     }
-    .integration-feedback.success { color: #15803d; }
-    .integration-feedback.error   { color: #b91c1c; }
+    .integration-feedback.success { color: var(--success); }
+    .integration-feedback.error   { color: var(--danger); }
 
     .integration-last-synced {
       font-size: 12px;
-      color: #8b95ad;
+      color: var(--text-sub);
       margin-bottom: 8px;
       min-height: 14px;
     }
@@ -474,8 +608,8 @@
     .strava-sync-panel {
       margin-top: 10px;
       padding: 12px;
-      background: #f8f9fc;
-      border: 1px solid rgba(13, 30, 67, 0.08);
+      background: var(--surface-2);
+      border: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
       border-radius: 8px;
     }
     .strava-sync-panel-row {
@@ -488,7 +622,7 @@
     .strava-sync-panel-row:last-child { margin-bottom: 0; }
     .strava-sync-panel label {
       font-size: 12.5px;
-      color: #3a4361;
+      color: var(--ink-2);
       display: flex;
       align-items: center;
       gap: 6px;
@@ -496,12 +630,12 @@
     }
     .strava-sync-panel input[type="date"] {
       padding: 5px 8px;
-      border: 1px solid rgba(13, 30, 67, 0.15);
+      border: 1px solid color-mix(in srgb, var(--text) 15%, transparent);
       border-radius: 6px;
       font-size: 12px;
       font-family: inherit;
-      color: #0b1530;
-      background: #fff;
+      color: var(--text);
+      background: var(--surface);
     }
     .strava-sync-preview-table {
       width: 100%;
@@ -512,43 +646,43 @@
     .strava-sync-preview-table th {
       text-align: left;
       font-weight: 600;
-      color: #64748b;
+      color: var(--text-sub);
       padding: 4px 6px;
-      border-bottom: 1px solid rgba(13, 30, 67, 0.1);
+      border-bottom: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
     }
     .strava-sync-preview-table td {
       padding: 4px 6px;
-      border-bottom: 1px solid rgba(13, 30, 67, 0.05);
-      color: #0b1530;
+      border-bottom: 1px solid color-mix(in srgb, var(--text) 5%, transparent);
+      color: var(--text);
     }
     .strava-sync-preview-table tr:last-child td { border-bottom: 0; }
     .strava-sync-tag--new {
-      background: #dcfce7;
-      color: #15803d;
+      background: var(--green-soft);
+      color: var(--success);
       border-radius: 4px;
       padding: 1px 5px;
       font-weight: 600;
     }
     .strava-sync-tag--match {
-      background: #f1f5f9;
-      color: #475569;
+      background: var(--surface-2);
+      color: var(--ink-2);
       border-radius: 4px;
       padding: 1px 5px;
     }
     .strava-sync-progress {
       font-size: 12px;
-      color: #3a4361;
+      color: var(--ink-2);
       padding: 8px 0;
     }
     .strava-sync-success {
       font-size: 12.5px;
-      color: #15803d;
+      color: var(--success);
       font-weight: 500;
     }
-    .strava-sync-success a { color: #15803d; font-weight: 700; }
+    .strava-sync-success a { color: var(--success); font-weight: 700; }
     .strava-sync-error {
       font-size: 12.5px;
-      color: #b91c1c;
+      color: var(--danger);
       font-weight: 500;
     }
 
@@ -560,16 +694,16 @@
     }
     .stryd-form input {
       padding: 8px 10px;
-      border: 1px solid rgba(13, 30, 67, 0.15);
+      border: 1px solid color-mix(in srgb, var(--text) 15%, transparent);
       border-radius: 7px;
       font-size: 13px;
       font-family: inherit;
-      color: #0b1530;
-      background: #fff;
+      color: var(--text);
+      background: var(--surface);
       outline: none;
     }
-    .stryd-form input:focus { border-color: #0b1530; }
-    .stryd-form input:disabled { background: #f8f9fb; color: #adb5c4; }
+    .stryd-form input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--focus-ring); }
+    .stryd-form input:disabled { background: var(--surface-2); color: var(--text-sub); }
 
     .integration-name-wrap {
       display: flex;
@@ -594,7 +728,7 @@
 
     .integration-coming-soon {
       font-size: 12px;
-      color: #8b95ad;
+      color: var(--text-sub);
       font-style: italic;
     }
 
@@ -609,7 +743,7 @@
       padding: 0;
       font-size: 12.5px;
       font-family: inherit;
-      color: #3a4361;
+      color: var(--ink-2);
       font-weight: 500;
       margin-top: 8px;
       user-select: none;
@@ -628,23 +762,23 @@
       width: 100%;
       border-collapse: collapse;
       font-size: 11.5px;
-      background: #f8f9fc;
-      border: 1px solid rgba(13, 30, 67, 0.08);
+      background: var(--surface-2);
+      border: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
       border-radius: 8px;
       overflow: hidden;
     }
     .strava-history-table th {
       text-align: left;
       font-weight: 600;
-      color: #64748b;
+      color: var(--text-sub);
       padding: 6px 8px;
-      border-bottom: 1px solid rgba(13, 30, 67, 0.1);
-      background: #f1f5f9;
+      border-bottom: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+      background: var(--surface-2);
     }
     .strava-history-table td {
       padding: 5px 8px;
-      border-bottom: 1px solid rgba(13, 30, 67, 0.05);
-      color: #0b1530;
+      border-bottom: 1px solid color-mix(in srgb, var(--text) 5%, transparent);
+      color: var(--text);
       vertical-align: top;
     }
     .strava-history-table tr:last-child td { border-bottom: 0; }
@@ -655,18 +789,18 @@
       font-weight: 600;
       font-size: 11px;
     }
-    .sync-status-badge--completed { background: #dcfce7; color: #15803d; }
-    .sync-status-badge--failed    { background: #fee2e2; color: #b91c1c; }
-    .sync-status-badge--running   { background: #dbeafe; color: #1d4ed8; }
-    .sync-status-badge--pending   { background: #f1f5f9; color: #64748b; }
+    .sync-status-badge--completed { background: var(--green-soft); color: var(--success); }
+    .sync-status-badge--failed    { background: var(--danger-soft); color: var(--danger); }
+    .sync-status-badge--running   { background: color-mix(in srgb, var(--primary) 16%, var(--surface)); color: var(--primary-dark); }
+    .sync-status-badge--pending   { background: var(--surface-2); color: var(--text-sub); }
     .sync-history-error-msg {
       font-size: 11px;
-      color: #b91c1c;
+      color: var(--danger);
       margin-top: 2px;
     }
     .sync-history-empty {
       font-size: 12px;
-      color: #8b95ad;
+      color: var(--text-sub);
       padding: 10px 0;
       text-align: center;
     }
@@ -675,8 +809,8 @@
     .strava-scheduled-sync {
       margin-top: 14px;
       padding: 10px 12px;
-      background: #f8f9fc;
-      border: 1px solid rgba(13, 30, 67, 0.08);
+      background: var(--surface-2);
+      border: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
       border-radius: 8px;
     }
     .strava-scheduled-sync-header {
@@ -688,7 +822,7 @@
     .strava-scheduled-sync-title {
       font-size: 12.5px;
       font-weight: 600;
-      color: #3a4361;
+      color: var(--ink-2);
     }
     .coming-soon-tag {
       display: inline-block;
@@ -696,20 +830,20 @@
       border-radius: 4px;
       font-size: 10.5px;
       font-weight: 600;
-      background: #f1f5f9;
-      color: #64748b;
+      background: var(--surface-2);
+      color: var(--text-sub);
     }
     .strava-scheduled-sync-copy {
       font-size: 12px;
-      color: #8b95ad;
+      color: var(--text-sub);
     }
 
     /* ── Data quality panel ── */
     .strava-data-quality {
       margin-top: 14px;
       padding: 10px 12px;
-      background: #f8f9fc;
-      border: 1px solid rgba(13, 30, 67, 0.08);
+      background: var(--surface-2);
+      border: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
       border-radius: 8px;
     }
     .strava-data-quality-header {
@@ -721,7 +855,7 @@
     .strava-data-quality-title {
       font-size: 13px;
       font-weight: 600;
-      color: #1a2540;
+      color: var(--text);
     }
     .strava-data-quality-grid {
       display: grid;
@@ -732,15 +866,15 @@
       display: flex;
       justify-content: space-between;
       font-size: 12px;
-      color: #5c6886;
+      color: var(--ink-2);
     }
     .strava-data-quality-val {
       font-weight: 600;
-      color: #1a2540;
+      color: var(--text);
       min-width: 24px;
       text-align: right;
     }
-    .strava-data-quality-val--warn { color: #e05c2a; }
+    .strava-data-quality-val--warn { color: var(--warning); }
 
     /* ── Shared integration sync/debug log ── */
     .integration-log {
@@ -802,24 +936,24 @@
       gap: 10px;
       margin-top: 6px;
       font-size: 12.5px;
-      color: #4b5563;
+      color: var(--ink-2);
     }
     .integration-identity img {
       width: 28px;
       height: 28px;
       border-radius: 50%;
       object-fit: cover;
-      border: 1px solid #e2e5e9;
+      border: 1px solid var(--border);
     }
     .integration-identity code {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 11.5px;
-      color: #6b7280;
+      color: var(--text-sub);
     }
 
     /* ── About section ── */
     .about-grid {
-      border: 1px solid rgba(13, 30, 67, 0.08);
+      border: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
       border-radius: 10px;
       overflow: hidden;
       margin-bottom: 20px;
@@ -829,7 +963,7 @@
       display: flex;
       align-items: center;
       padding: 12px 16px;
-      border-bottom: 1px solid rgba(13, 30, 67, 0.06);
+      border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, transparent);
       gap: 12px;
     }
 
@@ -837,21 +971,21 @@
 
     .about-label {
       font-size: 13px;
-      color: #8b95ad;
+      color: var(--text-sub);
       font-weight: 500;
       min-width: 120px;
     }
 
     .about-value {
       font-size: 13px;
-      color: #0b1530;
+      color: var(--text);
       font-weight: 500;
     }
 
     .about-mono {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 12px;
-      background: #f1f5f9;
+      background: var(--surface-2);
       padding: 2px 6px;
       border-radius: 4px;
     }
@@ -864,11 +998,11 @@
 
     .about-link {
       font-size: 13px;
-      color: #0b1530;
+      color: var(--text);
       font-weight: 500;
       text-decoration: none;
       padding: 6px 12px;
-      border: 1px solid rgba(13, 30, 67, 0.15);
+      border: 1px solid color-mix(in srgb, var(--text) 15%, transparent);
       border-radius: 7px;
       display: inline-flex;
       align-items: center;
@@ -876,21 +1010,21 @@
       transition: background 0.15s;
     }
 
-    .about-link:hover { background: #f1f5f9; }
+    .about-link:hover { background: var(--surface-2); }
 
     /* ── Personal Records section ── */
     .pr-action-bar { margin-bottom: 16px; }
 
     .pr-empty-state {
       padding: 24px;
-      border: 1px dashed #e5e5e5;
+      border: 1px dashed var(--border);
       border-radius: 10px;
-      background: #fafafa;
+      background: var(--surface-2);
       text-align: center;
     }
     .pr-empty-state p {
       font-size: 13.5px;
-      color: #64748b;
+      color: var(--text-sub);
       margin: 0 0 16px;
       line-height: 1.6;
     }
@@ -904,25 +1038,25 @@
       text-align: left;
       font-size: 11.5px;
       font-weight: 600;
-      color: #8b95ad;
+      color: var(--text-sub);
       letter-spacing: 0.04em;
       text-transform: uppercase;
       padding: 0 10px 10px 0;
-      border-bottom: 1px solid #e5e5e5;
+      border-bottom: 1px solid var(--border);
     }
     .pr-table td {
       padding: 12px 10px 12px 0;
-      border-bottom: 1px solid #f0f0f0;
+      border-bottom: 1px solid var(--border);
       vertical-align: middle;
     }
     .pr-table tr:last-child td { border-bottom: none; }
-    .pr-td-track { font-weight: 600; color: #1a1a1a; }
-    .pr-td-best  { color: #0b1530; }
-    .pr-td-date  { color: #8b95ad; font-size: 12.5px; }
+    .pr-td-track { font-weight: 600; color: var(--text); }
+    .pr-td-best  { color: var(--text); }
+    .pr-td-date  { color: var(--text-sub); font-size: 12.5px; }
     .pr-td-trend { font-size: 16px; }
-    .pr-trend-up   { color: #15803d; }
-    .pr-trend-down { color: #b91c1c; }
-    .pr-trend-flat { color: #8b95ad; }
+    .pr-trend-up   { color: var(--success); }
+    .pr-trend-down { color: var(--danger); }
+    .pr-trend-flat { color: var(--text-sub); }
     .pr-td-actions { white-space: nowrap; }
     .pr-action-btn {
       background: none;
@@ -930,12 +1064,12 @@
       cursor: pointer;
       padding: 5px 7px;
       border-radius: 6px;
-      color: #8b95ad;
+      color: var(--text-sub);
       font-size: 15px;
       transition: background 0.1s, color 0.1s;
       margin-right: 2px;
     }
-    .pr-action-btn:hover { background: #f1f5f9; color: #0b1530; }
+    .pr-action-btn:hover { background: var(--surface-2); color: var(--text); }
 
     .pr-modal-overlay {
       position: fixed;
@@ -947,7 +1081,7 @@
       z-index: 200;
     }
     .pr-modal {
-      background: #fff;
+      background: var(--surface);
       border-radius: 12px;
       width: 100%;
       max-width: 440px;
@@ -960,26 +1094,26 @@
       align-items: center;
       justify-content: space-between;
       padding: 18px 20px 12px;
-      border-bottom: 1px solid #f0f0f0;
+      border-bottom: 1px solid var(--border);
     }
-    .pr-modal-title { font-size: 16px; font-weight: 700; color: #1a1a1a; margin: 0; }
+    .pr-modal-title { font-size: 16px; font-weight: 700; color: var(--text); margin: 0; }
     .pr-modal-close {
       background: none;
       border: none;
       cursor: pointer;
       font-size: 20px;
-      color: #8b95ad;
+      color: var(--text-sub);
       padding: 2px 6px;
       border-radius: 5px;
       line-height: 1;
       transition: color 0.1s, background 0.1s;
     }
-    .pr-modal-close:hover { background: #f1f5f9; color: #1a1a1a; }
+    .pr-modal-close:hover { background: var(--surface-2); color: var(--text); }
     .pr-modal-body { padding: 16px 20px 20px; }
 
     .pr-value-row { display: flex; align-items: center; gap: 8px; }
     .pr-value-row .profile-input { flex: 1; }
-    .pr-value-suffix { font-size: 13px; color: #8b95ad; flex-shrink: 0; }
+    .pr-value-suffix { font-size: 13px; color: var(--text-sub); flex-shrink: 0; }
 
     .pr-form-actions {
       margin-top: 18px;
@@ -995,20 +1129,20 @@
       font-weight: 600;
       font-family: inherit;
       background: none;
-      color: #b91c1c;
-      border: 1.5px solid rgba(185,28,28,0.3);
+      color: var(--danger);
+      border: 1.5px solid color-mix(in srgb, var(--danger) 30%, transparent);
       cursor: pointer;
       transition: background 0.1s;
     }
-    .pr-delete-btn:hover { background: rgba(185,28,28,0.05); }
+    .pr-delete-btn:hover { background: color-mix(in srgb, var(--danger) 5%, transparent); }
     .pr-delete-confirm {
       margin-top: 12px;
       padding: 12px 14px;
       border-radius: 8px;
-      background: #fff5f5;
-      border: 1px solid rgba(185,28,28,0.2);
+      background: var(--danger-soft);
+      border: 1px solid color-mix(in srgb, var(--danger) 20%, transparent);
     }
-    .pr-delete-confirm p { font-size: 13px; color: #1a1a1a; margin: 0 0 10px; }
+    .pr-delete-confirm p { font-size: 13px; color: var(--text); margin: 0 0 10px; }
     .pr-delete-confirm-actions { display: flex; gap: 8px; }
 
     .pr-notes-input { resize: vertical; min-height: 56px; }
@@ -1017,17 +1151,45 @@
     .pr-hist-row {
       padding: 10px 12px;
       border-radius: 8px;
-      background: #f8f9fb;
+      background: var(--surface-2);
       display: grid;
       grid-template-columns: 1fr auto;
       gap: 2px 12px;
       align-items: center;
     }
-    .pr-hist-date { font-size: 12px; color: #8b95ad; grid-column: 1; }
-    .pr-hist-val  { font-size: 14px; font-weight: 600; color: #0b1530; grid-column: 2; grid-row: 1 / 3; text-align: right; }
-    .pr-hist-source { font-size: 12px; color: #a0aab8; grid-column: 1; }
+    .pr-hist-date { font-size: 12px; color: var(--text-sub); grid-column: 1; }
+    .pr-hist-val  { font-size: 14px; font-weight: 600; color: var(--text); grid-column: 2; grid-row: 1 / 3; text-align: right; }
+    .pr-hist-source { font-size: 12px; color: var(--text-sub); grid-column: 1; }
     .pr-hist-imp { grid-column: 1; }
-    .pr-hist-improvement { font-size: 12px; color: #64748b; font-style: italic; }
+    .pr-hist-improvement { font-size: 12px; color: var(--text-sub); font-style: italic; }
+
+    /* Queue tab (Phase 3) */
+    .queue-intro { color: var(--text-sub); font-size: 14px; margin: 0 0 16px; max-width: 60ch; }
+    .queue-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .queue-refresh-btn {
+      font: inherit; font-size: 13px; padding: 6px 14px; border-radius: 8px;
+      border: 1px solid var(--border-input); background: var(--surface); color: var(--text);
+      cursor: pointer;
+    }
+    .queue-refresh-btn:hover { background: var(--surface-2); }
+    .queue-updated { font-size: 12px; color: var(--text-sub); }
+    .queue-empty { color: var(--text-sub); font-size: 14px; padding: 16px 0; }
+    .queue-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .queue-item {
+      border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--surface);
+    }
+    .queue-item-main { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .queue-label { font-size: 14px; font-weight: 600; color: var(--text); }
+    .queue-item-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; font-size: 12px; color: var(--text-sub); }
+    .queue-error { margin-top: 6px; font-size: 12px; color: var(--danger-dark); word-break: break-word; }
+    .queue-status {
+      font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+      padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+    }
+    .queue-status--queued  { background: var(--surface-2); color: var(--text-sub); border: 1px solid var(--border); }
+    .queue-status--running { background: #eff6ff; color: #1d4ed8; }
+    .queue-status--done    { background: #ecfdf5; color: #15803d; }
+    .queue-status--failed  { background: var(--danger-soft); color: var(--danger-dark); }
   </style>
 </head>
 <body>
@@ -1037,19 +1199,20 @@
 
   <div class="settings-layout">
     <aside class="settings-sidebar">
-      <nav>
-        <button class="settings-nav-item" data-section="profile">Profile</button>
-        <button class="settings-nav-item" data-section="thresholds">Thresholds</button>
+      <nav role="tablist" aria-label="Settings sections" aria-orientation="vertical">
+        <button class="settings-nav-item" role="tab" id="tab-profile" aria-controls="section-profile" data-section="profile">Profile</button>
+        <button class="settings-nav-item" role="tab" id="tab-thresholds" aria-controls="section-thresholds" data-section="thresholds">Thresholds</button>
         <!-- Zones / Personal Records retired from the nav (unused) — kept hidden so deep links/sections still resolve. -->
-        <button class="settings-nav-item" data-section="device-zones" hidden style="display:none">Zones</button>
-        <button class="settings-nav-item" data-section="personal-records" hidden style="display:none">Personal Records</button>
-        <button class="settings-nav-item" data-section="integrations">Integrations</button>
-        <button class="settings-nav-item" data-section="about">About</button>
+        <button class="settings-nav-item" role="tab" id="tab-device-zones" aria-controls="section-device-zones" data-section="device-zones" hidden style="display:none">Zones</button>
+        <button class="settings-nav-item" role="tab" id="tab-personal-records" aria-controls="section-personal-records" data-section="personal-records" hidden style="display:none">Personal Records</button>
+        <button class="settings-nav-item" role="tab" id="tab-integrations" aria-controls="section-integrations" data-section="integrations">Integrations</button>
+        <button class="settings-nav-item" role="tab" id="tab-queue" aria-controls="section-queue" data-section="queue">Queue</button>
+        <button class="settings-nav-item" role="tab" id="tab-about" aria-controls="section-about" data-section="about">About</button>
       </nav>
     </aside>
 
     <div class="settings-content">
-      <div id="section-profile" class="settings-section">
+      <div id="section-profile" class="settings-section" role="tabpanel" aria-labelledby="tab-profile" tabindex="0">
         <h1>Profile</h1>
         <!-- Avatar upload deferred to future sprint. -->
         <div class="avatar-row">
@@ -1109,7 +1272,7 @@
         </div>
       </div>
 
-      <div id="section-thresholds" class="settings-section">
+      <div id="section-thresholds" class="settings-section" role="tabpanel" aria-labelledby="tab-thresholds" tabindex="0">
         <h1>Performance Thresholds</h1>
 
         <!-- FTP -->
@@ -1176,10 +1339,10 @@
           <div class="thresholds-input-row thresholds-zone2-band-row">
             <input type="number" id="thresholds-zone2-hr-min" class="profile-input thresholds-input"
               min="60" max="200" placeholder="min">
-            <span style="flex-shrink:0;color:#8b95ad;font-size:13px;padding:0 2px;">–</span>
+            <span class="thresholds-unit-label" style="padding:0 2px;" aria-hidden="true">–</span>
             <input type="number" id="thresholds-zone2-hr-max" class="profile-input thresholds-input"
               min="60" max="210" placeholder="max">
-            <span style="flex-shrink:0;color:#8b95ad;font-size:13px;padding-left:4px;">bpm</span>
+            <span class="thresholds-unit-label">bpm</span>
           </div>
           <p class="thresholds-desc">Heart-rate band for Zone 2 aerobic work. Used to calculate Zone 2 minutes per workout.</p>
           <div class="profile-field-error" id="thresholds-zone2-hr-error" aria-live="polite"></div>
@@ -1191,7 +1354,7 @@
           <div class="thresholds-input-row">
             <input type="number" id="thresholds-weekly-zone2-target" class="profile-input thresholds-input"
               min="0" max="2000" placeholder="(e.g. 150)">
-            <span style="flex-shrink:0;color:#8b95ad;font-size:13px;padding-left:4px;">min</span>
+            <span class="thresholds-unit-label">min</span>
           </div>
           <p class="thresholds-desc">Target Zone 2 training minutes per week. Shown on the home dashboard as a weekly goal.</p>
           <div class="profile-field-error" id="thresholds-weekly-zone2-target-error" aria-live="polite"></div>
@@ -1207,34 +1370,34 @@
         </div>
 
         <!-- Track Zone 2 habit opt-in -->
-        <div id="provision-zone2-card" style="margin-top:24px;padding:16px 20px;border:1px solid #e5e5e5;border-radius:8px;background:#f9fafb;">
-          <p style="margin:0 0 10px;font-size:14px;font-weight:500;color:#1a1a1a;">Track Zone 2 in habits</p>
-          <p style="margin:0 0 14px;font-size:13px;color:#8b95ad;">Provision a pre-configured Zone 2 habit seeded from your weekly target above. The habit tracks weekly Zone 2 minutes auto-filled from workout data.</p>
-          <div id="provision-zone2-existing" style="display:none;font-size:13px;color:#4b7cf6;margin-bottom:10px;" aria-live="polite"></div>
-          <div id="provision-zone2-success" style="display:none;font-size:13px;color:#2d9e2d;margin-bottom:10px;" aria-live="polite"></div>
-          <button type="button" id="thresholds-provision-zone2-btn" class="settings-save-btn" style="font-size:13px;padding:7px 16px;">Track Zone 2 in habits</button>
+        <div id="provision-zone2-card" class="settings-inline-card">
+          <p class="settings-inline-card__title">Track Zone 2 in habits</p>
+          <p class="settings-inline-card__copy">Provision a pre-configured Zone 2 habit seeded from your weekly target above. The habit tracks weekly Zone 2 minutes auto-filled from workout data.</p>
+          <div id="provision-zone2-existing" class="u-muted-13 settings-inline-card__link" style="display:none;margin-bottom:10px;" aria-live="polite"></div>
+          <div id="provision-zone2-success" class="u-muted-13 settings-inline-card__success" style="display:none;margin-bottom:10px;" aria-live="polite"></div>
+          <button type="button" id="thresholds-provision-zone2-btn" class="settings-save-btn">Track Zone 2 in habits</button>
         </div>
       </div>
 
       <!-- Device Zones: read-only power zones sourced from a connected device (e.g. Stryd) -->
-      <div id="section-device-zones" class="settings-section thresholds-device-zones">
+      <div id="section-device-zones" class="settings-section thresholds-device-zones" role="tabpanel" aria-labelledby="tab-device-zones" tabindex="0">
         <h1>Zones</h1>
-        <p style="font-size:13px;color:#8b95ad;margin:0 0 16px;">Power zones reported by your connected device. These values are read-only and update when you sync.</p>
+        <p class="u-muted-13" style="margin:0 0 16px;">Power zones reported by your connected device. These values are read-only and update when you sync.</p>
         <div id="device-zones-content">
-          <p id="device-zones-empty" style="font-size:13px;color:#8b95ad;">No device-sourced zones available. Connect Stryd and sync to see power zones here.</p>
+          <p id="device-zones-empty" class="u-muted-13">No device-sourced zones available. Connect Stryd and sync to see power zones here.</p>
           <div id="device-zones-table" style="display:none;">
             <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:12px;">
-              <span style="font-size:13px;font-weight:600;color:#1a1a1a;">Critical Power (FTP):</span>
-              <span id="device-ftp-value" style="font-size:14px;font-weight:700;color:#4b7cf6;"></span>
-              <span style="font-size:12px;color:#8b95ad;">W — from Stryd</span>
+              <span class="u-strong-13">Critical Power (FTP):</span>
+              <span id="device-ftp-value" class="u-accent-value"></span>
+              <span class="u-muted-12">W — from Stryd</span>
             </div>
-            <div id="device-zones-list" style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:13px;color:#374151;"></div>
-            <p id="device-zones-date" style="font-size:12px;color:#8b95ad;margin-top:8px;"></p>
+            <div id="device-zones-list" style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:13px;color:var(--text);"></div>
+            <p id="device-zones-date" class="u-muted-12" style="margin-top:8px;"></p>
           </div>
         </div>
       </div>
 
-      <div id="section-personal-records" class="settings-section">
+      <div id="section-personal-records" class="settings-section" role="tabpanel" aria-labelledby="tab-personal-records" tabindex="0">
         <h1>Personal Records</h1>
 
         <div class="pr-action-bar">
@@ -1311,7 +1474,7 @@
               </div>
 
               <div class="profile-form-group">
-                <label class="profile-label" for="pr-notes">Notes <span style="font-weight:400;color:#8b95ad">(optional)</span></label>
+                <label class="profile-label" for="pr-notes">Notes <span style="font-weight:400;color:var(--text-sub)">(optional)</span></label>
                 <textarea id="pr-notes" class="profile-input pr-notes-input" rows="2" placeholder="Optional notes…"></textarea>
               </div>
 
@@ -1344,7 +1507,7 @@
         </div>
       </div>
 
-      <div id="section-integrations" class="settings-section">
+      <div id="section-integrations" class="settings-section" role="tabpanel" aria-labelledby="tab-integrations" tabindex="0">
         <h1>Integrations</h1>
 
         <!-- Shared sync/debug log — reused by every integration (Strava, Stryd, …) -->
@@ -1482,17 +1645,16 @@
             <span class="integration-badge integration-badge--disconnected" id="drive-sleep-badge">Loading…</span>
           </div>
           <div class="integration-meta" id="drive-sleep-meta">
-            <span style="font-size:13px;color:#6b7280;">Read-only access to the Drive folder where Health Sync exports sleep CSVs.</span>
+            <span class="u-muted-13">Read-only access to the Drive folder where Health Sync exports sleep CSVs.</span>
           </div>
           <div class="integration-actions" id="drive-sleep-actions"></div>
           <div id="drive-sleep-folder-wrap" style="display:none;margin-top:12px;">
-            <label style="font-size:13px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Sleep CSV folder ID or URL</label>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <input type="text" id="drive-sleep-folder-input" placeholder="Paste folder ID or Drive URL…"
-                style="flex:1;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit;">
+            <label class="u-strong-13" style="display:block;margin-bottom:4px;" for="drive-sleep-folder-input">Sleep CSV folder ID or URL</label>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <input type="text" id="drive-sleep-folder-input" class="profile-input" placeholder="Paste folder ID or Drive URL…" style="flex:1;min-width:200px;">
               <button type="button" id="drive-sleep-folder-save" class="integration-btn integration-btn--primary">Save</button>
             </div>
-            <div id="drive-sleep-folder-feedback" style="margin-top:6px;font-size:12px;min-height:16px;"></div>
+            <div id="drive-sleep-folder-feedback" class="u-muted-12" style="margin-top:6px;min-height:16px;"></div>
           </div>
           <div class="integration-feedback" id="drive-sleep-feedback" aria-live="polite"></div>
         </div>
@@ -1504,7 +1666,7 @@
               <span class="integration-icon" aria-hidden="true">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <rect width="24" height="24" rx="5" fill="#f1f5f9"/>
-                  <text x="12" y="17" text-anchor="middle" font-size="13" font-weight="700" fill="#8b95ad">G</text>
+                  <text x="12" y="17" text-anchor="middle" font-size="13" font-weight="700" fill="var(--text-sub)">G</text>
                 </svg>
               </span>
               <span class="integration-name">Google</span>
@@ -1523,7 +1685,7 @@
               <span class="integration-icon" aria-hidden="true">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <rect width="24" height="24" rx="5" fill="#f1f5f9"/>
-                  <text x="12" y="17" text-anchor="middle" font-size="11" font-weight="700" fill="#8b95ad">SH</text>
+                  <text x="12" y="17" text-anchor="middle" font-size="11" font-weight="700" fill="var(--text-sub)">SH</text>
                 </svg>
               </span>
               <span class="integration-name">Samsung Health</span>
@@ -1536,7 +1698,19 @@
         </div>
       </div>
 
-      <div id="section-about" class="settings-section">
+      <div id="section-queue" class="settings-section" role="tabpanel" aria-labelledby="tab-queue" tabindex="0">
+        <h1>Queue</h1>
+        <p class="queue-intro">Background jobs the compute worker runs for you — syncs, backfills, and score recomputes. Newest first.</p>
+        <div class="queue-toolbar">
+          <button type="button" id="queue-refresh" class="queue-refresh-btn">Refresh</button>
+          <span id="queue-updated" class="queue-updated" aria-live="polite"></span>
+        </div>
+        <div id="queue-body" class="queue-body">
+          <p class="queue-empty">Loading…</p>
+        </div>
+      </div>
+
+      <div id="section-about" class="settings-section" role="tabpanel" aria-labelledby="tab-about" tabindex="0">
         <h1>About</h1>
         <div class="about-grid">
           <div class="about-row">
@@ -1562,6 +1736,25 @@
   </div>
 
   <script src="/js/user.js"></script>
+  <script>
+    // Shared field-error helper: sets/clears the message text next to a form
+    // control AND toggles aria-invalid on the control itself (id convention:
+    // control id + "-error" = message element id). Used by Profile, Thresholds
+    // and Personal Records forms below.
+    window._settingsSetFieldError = function (errorElId, msg) {
+      var errEl = document.getElementById(errorElId);
+      if (errEl) errEl.textContent = msg || '';
+      var inputId = errorElId.replace(/-error$/, '');
+      var inputEl = document.getElementById(inputId);
+      if (inputEl) {
+        if (msg) inputEl.setAttribute('aria-invalid', 'true');
+        else inputEl.removeAttribute('aria-invalid');
+      }
+    };
+    window._settingsClearFieldError = function (errorElId) {
+      window._settingsSetFieldError(errorElId, '');
+    };
+  </script>
   <script>
     (function () {
       // Profile section: display_name, email, timezone, week_start_day
@@ -1599,10 +1792,7 @@
 
       function _clearFieldErrors() {
         ['profile-display-name-error', 'profile-timezone-error', 'profile-week-start-error']
-          .forEach(function (id) {
-            var el = document.getElementById(id);
-            if (el) el.textContent = '';
-          });
+          .forEach(window._settingsClearFieldError);
       }
 
       function _setFeedback(msg, type) {
@@ -1716,8 +1906,8 @@
             var detail = errData && errData.detail;
             if (Array.isArray(detail)) {
               detail.forEach(function (e) {
-                var errEl = document.getElementById('profile-' + (e.field || '').replace(/_/g, '-') + '-error');
-                if (errEl) errEl.textContent = e.msg || 'Invalid value';
+                var errElId = 'profile-' + (e.field || '').replace(/_/g, '-') + '-error';
+                window._settingsSetFieldError(errElId, e.msg || 'Invalid value');
               });
               _setFeedback('Fix the errors above and try again.', 'error');
             } else {
@@ -1779,11 +1969,13 @@
 
       function _tClearErrors() {
         ['thresholds-ftp-error', 'thresholds-hr-error', 'thresholds-max-hr-error', 'thresholds-pace-error',
-          'thresholds-zone2-hr-error', 'thresholds-weekly-zone2-target-error']
-          .forEach(function (id) {
-            var el = document.getElementById(id);
-            if (el) el.textContent = '';
-          });
+          'thresholds-weekly-zone2-target-error']
+          .forEach(window._settingsClearFieldError);
+        window._settingsSetFieldError('thresholds-zone2-hr-error', '');
+        ['thresholds-zone2-hr-min', 'thresholds-zone2-hr-max'].forEach(function (id) {
+          var el = document.getElementById(id);
+          if (el) el.removeAttribute('aria-invalid');
+        });
       }
 
       function _tSetFeedback(msg, type) {
@@ -1880,8 +2072,7 @@
         } else {
           var ftpNum = parseInt(ftpVal, 10);
           if (isNaN(ftpNum) || ftpNum < 50 || ftpNum > 600) {
-            var ftpErrEl = document.getElementById('thresholds-ftp-error');
-            if (ftpErrEl) ftpErrEl.textContent = 'FTP must be between 50 and 600 W';
+            window._settingsSetFieldError('thresholds-ftp-error', 'FTP must be between 50 and 600 W');
             hasError = true;
           } else if (ftpNum !== _tBaseline.ftp_w) {
             patch.ftp_w = ftpNum;
@@ -1896,8 +2087,7 @@
         } else {
           var hrNum = parseInt(hrVal, 10);
           if (isNaN(hrNum) || hrNum < 100 || hrNum > 220) {
-            var hrErrEl = document.getElementById('thresholds-hr-error');
-            if (hrErrEl) hrErrEl.textContent = 'Threshold HR must be between 100 and 220 bpm';
+            window._settingsSetFieldError('thresholds-hr-error', 'Threshold HR must be between 100 and 220 bpm');
             hasError = true;
           } else if (hrNum !== _tBaseline.threshold_hr) {
             patch.threshold_hr = hrNum;
@@ -1912,8 +2102,7 @@
         } else {
           var maxHrNum = parseInt(maxHrVal, 10);
           if (isNaN(maxHrNum) || maxHrNum < 120 || maxHrNum > 230) {
-            var maxHrErrEl = document.getElementById('thresholds-max-hr-error');
-            if (maxHrErrEl) maxHrErrEl.textContent = 'Max HR must be between 120 and 230 bpm';
+            window._settingsSetFieldError('thresholds-max-hr-error', 'Max HR must be between 120 and 230 bpm');
             hasError = true;
           } else if (maxHrNum !== _tBaseline.max_hr) {
             patch.max_hr = maxHrNum;
@@ -1928,8 +2117,7 @@
         } else {
           var paceSecs = parseInt(paceVal, 10);
           if (isNaN(paceSecs) || paceSecs < 180 || paceSecs > 540) {
-            var paceErrEl = document.getElementById('thresholds-pace-error');
-            if (paceErrEl) paceErrEl.textContent = 'Threshold Pace must be a number between 180 and 540 (sec/km)';
+            window._settingsSetFieldError('thresholds-pace-error', 'Threshold Pace must be a number between 180 and 540 (sec/km)');
             hasError = true;
           } else if (paceSecs !== _tBaseline.threshold_pace_seconds_per_km) {
             patch.threshold_pace_seconds_per_km = paceSecs;
@@ -1945,8 +2133,9 @@
         var z2MaxNum = z2MaxVal !== '' ? parseInt(z2MaxVal, 10) : null;
 
         if (z2MinNum !== null && z2MaxNum !== null && z2MinNum >= z2MaxNum) {
-          var z2ErrEl = document.getElementById('thresholds-zone2-hr-error');
-          if (z2ErrEl) z2ErrEl.textContent = 'Min must be less than Max';
+          window._settingsSetFieldError('thresholds-zone2-hr-error', 'Min must be less than Max');
+          if (z2MinEl) z2MinEl.setAttribute('aria-invalid', 'true');
+          if (z2MaxEl) z2MaxEl.setAttribute('aria-invalid', 'true');
           hasError = true;
         } else {
           if (z2MinVal === '') {
@@ -1969,8 +2158,7 @@
         } else {
           var weeklyZ2Num = parseInt(weeklyZ2Val, 10);
           if (isNaN(weeklyZ2Num) || weeklyZ2Num < 0 || weeklyZ2Num > 2000) {
-            var weeklyZ2ErrEl = document.getElementById('thresholds-weekly-zone2-target-error');
-            if (weeklyZ2ErrEl) weeklyZ2ErrEl.textContent = 'Weekly target must be between 0 and 2000 min';
+            window._settingsSetFieldError('thresholds-weekly-zone2-target-error', 'Weekly target must be between 0 and 2000 min');
             hasError = true;
           } else if (weeklyZ2Num !== _tBaseline.weekly_zone2_target_min) {
             patch.weekly_zone2_target_min = weeklyZ2Num;
@@ -2034,8 +2222,7 @@
               detail.forEach(function (e) {
                 var errElId = _tFieldToErrorId[e.field] ||
                   ('thresholds-' + (e.field || '').replace(/_/g, '-').replace('threshold-', '') + '-error');
-                var errEl = document.getElementById(errElId);
-                if (errEl) errEl.textContent = e.msg || 'Invalid value';
+                window._settingsSetFieldError(errElId, e.msg || 'Invalid value');
               });
               _tSetFeedback('Fix the errors above and try again.', 'error');
             } else {
@@ -2939,6 +3126,7 @@
       }
 
       function stravaDisconnect() {
+        if (!window.confirm('Disconnect Strava? You can reconnect any time, but scheduled/manual syncs will stop until you do.')) return;
         var discBtn = document.getElementById('strava-disconnect-btn');
         var syncNowBtn = document.getElementById('strava-sync-now-btn');
         var reconcileBtn = document.getElementById('strava-reconcile-btn');
@@ -3285,6 +3473,7 @@
       }
 
       function strydDisconnect() {
+        if (!window.confirm('Disconnect Stryd? Stored credentials will be deleted from the server.')) return;
         var btn = document.getElementById('stryd-disconnect-btn');
         intFeedback('stryd-feedback', '', '');
         if (btn) btn.disabled = true;
@@ -3388,6 +3577,7 @@
       }
 
       function driveSleepDisconnect() {
+        if (!window.confirm('Disconnect Google Drive? Sleep CSV imports will stop until you reconnect.')) return;
         var btn = document.getElementById('drive-sleep-disconnect-btn');
         if (btn) { btn.disabled = true; btn.textContent = 'Disconnecting…'; }
         var csrf = document.cookie.split('; ').reduce(function (v, c) {
@@ -3416,7 +3606,7 @@
             var m = raw.match(/\/folders\/([^/?#]+)/);
             if (m) folderId = m[1];
             if (!folderId) {
-              if (fb) { fb.textContent = 'Enter a folder ID or Drive URL.'; fb.style.color = '#b91c1c'; }
+              if (fb) { fb.textContent = 'Enter a folder ID or Drive URL.'; fb.style.color = 'var(--danger)'; }
               return;
             }
             var csrf = document.cookie.split('; ').reduce(function (v, c) {
@@ -3431,13 +3621,13 @@
               .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
               .then(function (res) {
                 if (res.ok) {
-                  if (fb) { fb.textContent = 'Folder saved.'; fb.style.color = '#15803d'; }
+                  if (fb) { fb.textContent = 'Folder saved.'; fb.style.color = 'var(--success)'; }
                 } else {
-                  if (fb) { fb.textContent = (res.d && res.d.detail) || 'Save failed.'; fb.style.color = '#b91c1c'; }
+                  if (fb) { fb.textContent = (res.d && res.d.detail) || 'Save failed.'; fb.style.color = 'var(--danger)'; }
                 }
               })
               .catch(function () {
-                if (fb) { fb.textContent = 'Save failed.'; fb.style.color = '#b91c1c'; }
+                if (fb) { fb.textContent = 'Save failed.'; fb.style.color = 'var(--danger)'; }
               })
               .finally(function () { saveBtn.disabled = false; });
           });
@@ -3552,11 +3742,26 @@
         el.className = 'settings-feedback' + (type ? ' ' + type : '');
       }
 
+      // pr-*-error message ids don't share a prefix with their input ids
+      // (e.g. pr-track-error <-> pr-track-select), so map them explicitly.
+      var _PR_ERROR_TO_INPUT = {
+        'pr-track-error': 'pr-track-select',
+        'pr-custom-track-error': 'pr-custom-track-key',
+        'pr-value-error': 'pr-value-input',
+        'pr-achieved-error': 'pr-achieved-on',
+      };
+      function _prSetFieldError(errorElId, msg) {
+        var errEl = document.getElementById(errorElId);
+        if (errEl) errEl.textContent = msg || '';
+        var inputEl = document.getElementById(_PR_ERROR_TO_INPUT[errorElId]);
+        if (inputEl) {
+          if (msg) inputEl.setAttribute('aria-invalid', 'true');
+          else inputEl.removeAttribute('aria-invalid');
+        }
+      }
+
       function _prClearErrors() {
-        ['pr-track-error', 'pr-custom-track-error', 'pr-value-error', 'pr-achieved-error'].forEach(function (id) {
-          var el = document.getElementById(id);
-          if (el) el.textContent = '';
-        });
+        Object.keys(_PR_ERROR_TO_INPUT).forEach(function (id) { _prSetFieldError(id, ''); });
         _prFeedback('', '');
       }
 
@@ -3745,13 +3950,13 @@
         _prClearErrors();
         var sel = document.getElementById('pr-track-select');
         var trackVal = sel ? sel.value : '';
-        if (!trackVal) { document.getElementById('pr-track-error').textContent = 'Select a track'; return; }
+        if (!trackVal) { _prSetFieldError('pr-track-error', 'Select a track'); return; }
 
         var trackKey, trackName, trackType;
         if (trackVal === '__other__') {
           var ckEl = document.getElementById('pr-custom-track-key');
           var ck = ckEl ? ckEl.value.trim() : '';
-          if (!ck) { document.getElementById('pr-custom-track-error').textContent = 'Enter a custom track key'; return; }
+          if (!ck) { _prSetFieldError('pr-custom-track-error', 'Enter a custom track key'); return; }
           trackKey = ck; trackName = ck; trackType = 'weight';
         } else {
           var found = null;
@@ -3769,21 +3974,21 @@
         if (trackType === 'time') {
           valueNumeric = _prParseTimeInput(valueRaw);
           if (!valueNumeric || valueNumeric <= 0) {
-            document.getElementById('pr-value-error').textContent = 'Enter time as H:MM:SS or MM:SS';
+            _prSetFieldError('pr-value-error', 'Enter time as H:MM:SS or MM:SS');
             return;
           }
         } else {
           valueNumeric = parseFloat(valueRaw);
           if (isNaN(valueNumeric) || valueNumeric <= 0) {
-            document.getElementById('pr-value-error').textContent = 'Enter a positive number';
+            _prSetFieldError('pr-value-error', 'Enter a positive number');
             return;
           }
         }
 
         var achievedOn = document.getElementById('pr-achieved-on').value;
-        if (!achievedOn) { document.getElementById('pr-achieved-error').textContent = 'Date required'; return; }
+        if (!achievedOn) { _prSetFieldError('pr-achieved-error', 'Date required'); return; }
         if (achievedOn > _prTodayISO()) {
-          document.getElementById('pr-achieved-error').textContent = 'Date cannot be in the future';
+          _prSetFieldError('pr-achieved-error', 'Date cannot be in the future');
           return;
         }
 
@@ -3839,7 +4044,7 @@
         var title = document.getElementById('pr-history-title');
         if (!overlay || !body) return;
         if (title) title.textContent = 'History';
-        body.innerHTML = '<p style="color:#8b95ad">Loading…</p>';
+        body.innerHTML = '<p style="color:var(--text-sub)">Loading…</p>';
         overlay.style.display = 'flex';
 
         fetch('/api/personal-records/history?user_id=' + encodeURIComponent(_prUserId) +
@@ -3852,7 +4057,7 @@
               if (_prRecords[i].track_key === trackKey) { trackName = _prRecords[i].track_name; break; }
             }
             if (title) title.textContent = trackName + ' — History';
-            if (!hist.length) { body.innerHTML = '<p style="color:#8b95ad">No history available.</p>'; return; }
+            if (!hist.length) { body.innerHTML = '<p style="color:var(--text-sub)">No history available.</p>'; return; }
             var sorted = hist.slice().reverse();
             var html = '<div class="pr-history-list">';
             sorted.forEach(function (entry) {
@@ -3870,7 +4075,7 @@
             html += '</div>';
             body.innerHTML = html;
           })
-          .catch(function () { body.innerHTML = '<p style="color:#b91c1c">Failed to load history.</p>'; });
+          .catch(function () { body.innerHTML = '<p style="color:var(--danger)">Failed to load history.</p>'; });
       }
 
       function _prCloseHistory() {

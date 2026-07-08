@@ -11,14 +11,15 @@ import uuid as _uuid
 from datetime import date as _date, timedelta as _timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session as _Session
 
-from backend.auth import COOKIE_NAME, get_current_user
+from backend.auth import resolve_user
 from backend.db import engine as _engine
 from backend.models import (
+    EconomyCeilingSnapshot as _EconomyCeilingSnapshot,
     Race as _Race,
     TrainingPlan as _TrainingPlan,
     User,
@@ -32,16 +33,7 @@ from backend.services.training_load import (
     daily_tss_series as _daily_tss_series,
 )
 
-router = APIRouter()
-
-
-# ── Auth dependency ───────────────────────────────────────────────────────────
-
-async def _resolve_user(request: Request) -> User:
-    token = request.cookies.get(COOKIE_NAME)
-    if token:
-        return await get_current_user(request)
-    raise HTTPException(status_code=401, detail="Not authenticated")
+router = APIRouter(prefix="/api")
 
 
 def _parse_plan_id(plan_id: str) -> _uuid.UUID:
@@ -66,7 +58,11 @@ def _parse_checkpoint_id(checkpoint_id: str) -> _uuid.UUID:
 
 
 def _check_plan_access(plan_id: _uuid.UUID, user: User) -> None:
-    if plan_id != user.id:
+    with _Session(_engine) as db:
+        plan = db.get(_TrainingPlan, plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="plan not found")
+    if plan.user_id != user.id:
         raise HTTPException(status_code=403, detail="Forbidden")
 
 
@@ -167,7 +163,7 @@ def _resolve_priority(race_type: str, priority: Optional[str]) -> str:
 # ── Race endpoints ────────────────────────────────────────────────────────────
 
 @router.get("/plans/{plan_id}/races")
-async def list_races(plan_id: str, user: User = Depends(_resolve_user)):
+async def list_races(plan_id: str, user: User = Depends(resolve_user)):
     pid = _parse_plan_id(plan_id)
     _check_plan_access(pid, user)
     return JSONResponse(_svc.list_races(pid))
@@ -177,7 +173,7 @@ async def list_races(plan_id: str, user: User = Depends(_resolve_user)):
 async def create_race(
     plan_id: str,
     body: _RaceCreateBody,
-    user: User = Depends(_resolve_user),
+    user: User = Depends(resolve_user),
 ):
     pid = _parse_plan_id(plan_id)
     _check_plan_access(pid, user)
@@ -232,7 +228,7 @@ async def create_race(
 async def get_race(
     plan_id: str,
     race_id: str,
-    user: User = Depends(_resolve_user),
+    user: User = Depends(resolve_user),
 ):
     pid = _parse_plan_id(plan_id)
     _check_plan_access(pid, user)
@@ -248,7 +244,7 @@ async def patch_race(
     plan_id: str,
     race_id: str,
     body: _RacePatchBody,
-    user: User = Depends(_resolve_user),
+    user: User = Depends(resolve_user),
 ):
     pid = _parse_plan_id(plan_id)
     _check_plan_access(pid, user)
@@ -286,7 +282,7 @@ async def patch_race(
 async def delete_race(
     plan_id: str,
     race_id: str,
-    user: User = Depends(_resolve_user),
+    user: User = Depends(resolve_user),
 ):
     pid = _parse_plan_id(plan_id)
     _check_plan_access(pid, user)
@@ -303,7 +299,7 @@ async def delete_race(
 async def list_checkpoints(
     plan_id: str,
     race_id: str,
-    user: User = Depends(_resolve_user),
+    user: User = Depends(resolve_user),
 ):
     pid = _parse_plan_id(plan_id)
     _check_plan_access(pid, user)
@@ -319,7 +315,7 @@ async def create_checkpoint(
     plan_id: str,
     race_id: str,
     body: _CheckpointCreateBody,
-    user: User = Depends(_resolve_user),
+    user: User = Depends(resolve_user),
 ):
     pid = _parse_plan_id(plan_id)
     _check_plan_access(pid, user)
@@ -341,7 +337,7 @@ async def patch_checkpoint(
     race_id: str,
     checkpoint_id: str,
     body: _CheckpointPatchBody,
-    user: User = Depends(_resolve_user),
+    user: User = Depends(resolve_user),
 ):
     pid = _parse_plan_id(plan_id)
     _check_plan_access(pid, user)
@@ -372,7 +368,7 @@ async def delete_checkpoint(
     plan_id: str,
     race_id: str,
     checkpoint_id: str,
-    user: User = Depends(_resolve_user),
+    user: User = Depends(resolve_user),
 ):
     pid = _parse_plan_id(plan_id)
     _check_plan_access(pid, user)
@@ -390,27 +386,35 @@ async def delete_checkpoint(
 _DEFAULT_PROJECTION_DAYS = 90
 
 
+@router.get("/plan/suggestions")
+def get_plan_suggestions(user: User = Depends(resolve_user)):
+    """Return LLM-proposed next-week training suggestions with facts and source tag.
+
+    Response shape: {facts: {...}, suggestions: [{day_offset, workout_type,
+    target_tss, duration_minutes, intent}], source: "llm"|"fallback",
+    attempts: int, orch: "single"|"plain"|"langgraph"|"pydantic_ai"}. The
+    orchestrator is chosen by the PLAN_ORCH env var (default "single"); switch
+    it and re-request to A/B the three implementations on the same facts.
+    """
+    from backend.services.plan_suggestions import get_suggestions as _get_suggestions
+
+    result = _get_suggestions(str(user.id))
+    return JSONResponse(result)
+
+
 @router.get("/plans/{plan_id}/projection")
 async def get_plan_projection(
     plan_id: str,
-    user: User = Depends(_resolve_user),
+    user: User = Depends(resolve_user),
 ):
     """Return CTL/ATL/TSB projection, per-race estimates, and fitness band for a plan."""
-    try:
-        pid = _uuid.UUID(plan_id)
-    except (ValueError, AttributeError):
-        raise HTTPException(status_code=400, detail="invalid plan_id")
+    pid = _parse_plan_id(plan_id)
+    _check_plan_access(pid, user)
 
     with _Session(_engine) as db:
-        plan = db.get(_TrainingPlan, pid)
-        if plan is None:
-            raise HTTPException(status_code=404, detail="plan not found")
-        if plan.user_id != user.id:
-            raise HTTPException(status_code=403, detail="Forbidden")
-
         prefs = (
             db.query(_UserPreferences)
-            .filter(_UserPreferences.user_id == plan.user_id)
+            .filter(_UserPreferences.user_id == user.id)
             .first()
         )
         thresholds = (
@@ -419,7 +423,7 @@ async def get_plan_projection(
             else None
         )
 
-    races = _svc.list_races(plan.user_id)
+    races = _svc.list_races(pid)
 
     # Athlete's current VDOT-band Endurance score (same scale as Performance),
     # so the CTL ceiling stays sane relative to what's demonstrated now.
@@ -427,12 +431,12 @@ async def get_plan_projection(
     try:
         from backend.main import _athlete_scores_as_of as _scores_as_of
         with _Session(_engine) as _sdb:
-            _cur = _scores_as_of(_sdb, plan.user_id, _date.today())
+            _cur = _scores_as_of(_sdb, user.id, _date.today())
         _current_score = _cur.get("endurance")
     except Exception:
         _current_score = None
 
-    load_state = _current_load(str(plan.user_id))
+    load_state = _current_load(str(user.id))
     start_date: _date = load_state["date"]
     start_ctl: float = load_state["ctl"]
     start_atl: float = load_state["atl"]
@@ -445,7 +449,7 @@ async def get_plan_projection(
         n_days = _DEFAULT_PROJECTION_DAYS
 
     window_start = start_date - _timedelta(days=27)
-    recent_series = _daily_tss_series(str(plan.user_id), window_start, start_date)
+    recent_series = _daily_tss_series(str(user.id), window_start, start_date)
     avg_load = (
         sum(tss for _, tss in recent_series) / len(recent_series)
         if recent_series else 0.0
@@ -466,11 +470,12 @@ async def get_plan_projection(
     # Querying at request time means delete/edit propagates naturally (AC4).
     today = _date.today()
     b_race_result = None
+    stimulus_history = []
     with _Session(_engine) as db:
         b_race_rows = (
             db.query(_Race)
             .filter(
-                _Race.user_id == plan.user_id,
+                _Race.user_id == user.id,
                 _Race.priority == "B",
                 _Race.actual_time_seconds.isnot(None),
                 _Race.race_date <= today,
@@ -485,6 +490,21 @@ async def get_plan_projection(
                 "distance_km": float(b_race_rows.distance_km),
             }
 
+        # Fetch per-user stimulus history from economy_ceiling_snapshots so the
+        # economy ceiling bonus is reflected in the projected score ceiling.
+        snap_rows = (
+            db.query(_EconomyCeilingSnapshot)
+            .filter(_EconomyCeilingSnapshot.user_id == user.id)
+            .order_by(_EconomyCeilingSnapshot.snapshot_date.asc())
+            .all()
+        )
+        stimulus_history = [
+            (row.snapshot_date, row.economy_stimulus) for row in snap_rows
+        ]
+
+    from backend.services.body_modifier import get_body_modifier_for_user as _get_bm_plan
+    _bm_plan = _get_bm_plan(user.id)
+
     payload = _proj.build_plan_projection_payload(
         start_ctl=start_ctl,
         start_atl=start_atl,
@@ -494,5 +514,8 @@ async def get_plan_projection(
         thresholds=thresholds,
         b_race_result=b_race_result,
         current_score=_current_score,
+        stimulus_history=stimulus_history,
+        reference_date=today,
+        body_modifier=_bm_plan,
     )
     return JSONResponse(payload)

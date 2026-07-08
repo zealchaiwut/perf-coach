@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from backend.services.tss import (
     compute_tss,
     intensity_factor_from_pace,
@@ -26,7 +28,9 @@ def test_estimate_tss_prefers_power_over_pace():
         avg_hr = None
         distance_km = None
 
-    _, method = estimate_tss_for_workout(MockWorkout())
+    # Power is preferred when ftp_w is configured alongside pace threshold
+    with patch("backend.services.tss.get_user_thresholds", return_value=(280, 170, 270)):
+        _, method = estimate_tss_for_workout(MockWorkout())
     assert method == "power"
 
 

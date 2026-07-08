@@ -11,6 +11,7 @@ in ONE place so fixing the shape is a single-file change.
 reconcile.py already consumes stryd_activities, so no reconcile change is needed.
 """
 import json as _json
+import os as _os
 import uuid as _uuid
 import urllib.error as _urllib_error
 import urllib.request as _urllib_request
@@ -67,17 +68,24 @@ def fetch_stryd_activities(
             pass
         raise RuntimeError(f"Stryd API error: {exc.code} {body}") from exc
 
+    acts: list[dict] | None = None
     if isinstance(data, list):
-        return data
-    if isinstance(data, dict):
+        acts = data
+    elif isinstance(data, dict):
         for key in ("activities", "data", "results", "calendar_items"):
             if isinstance(data.get(key), list):
-                return data[key]
-    logger.warning(
-        "stryd calendar: unexpected response shape",
-        extra={"keys": list(data) if isinstance(data, dict) else type(data).__name__},
-    )
-    return []
+                acts = data[key]
+                break
+    if acts is None:
+        logger.warning(
+            "stryd calendar: unexpected response shape",
+            extra={"keys": list(data) if isinstance(data, dict) else type(data).__name__},
+        )
+        return []
+    # Strip per-point *_list stream arrays immediately so we never hold the full
+    # lifetime calendar (stream arrays included) alongside the mapped copy in memory.
+    # Streams are fetched per-activity via _enrich_one / fetch_stryd_activity_streams.
+    return [{k: v for k, v in a.items() if not k.endswith("_list")} for a in acts]
 
 
 def fetch_stryd_activity_streams(token: str, activity_id) -> dict:
@@ -202,6 +210,7 @@ def map_stryd_activity(raw: dict, user_id: str) -> dict:
         "seconds_in_zones": raw.get("seconds_in_zones"),
         "ftp": raw.get("ftp"),
     } if (raw.get("zones") or raw.get("seconds_in_zones")) else None
+    raw_incline = _first(raw, "average_incline")
     return {
         "user_id": user_id,
         "stryd_activity_id": str(_first(raw, "id", "timestamp")),
@@ -217,6 +226,7 @@ def map_stryd_activity(raw: dict, user_id: str) -> dict:
         "splits": None,   # filled by enrichment (compute_km_splits) at sync time
         "raw_payload": _slim_payload(raw),
         "synced_at": datetime.now(tz=timezone.utc),
+        "grade_percent": float(raw_incline) if raw_incline is not None else None,
     }
 
 
@@ -225,7 +235,7 @@ def _already_enriched_ids(session: Session, ids: list) -> set:
     streams. Evaluated server-side with jsonb_path_exists so the (large)
     streams_payload JSONB never leaves Postgres — pulling it client-side just to
     check timestamp_list presence costs ~600 MB of heap per sync."""
-    from sqlalchemy import func, select
+    from sqlalchemy import func
 
     return set(session.execute(
         select(StrydActivity.stryd_activity_id)
@@ -239,7 +249,7 @@ def _heal_candidate_ids(session: Session, uid, processed: set) -> list:
     """IDs of this user's activities still missing per-point streams, newest
     first, excluding ``processed``. Same server-side predicate rationale as
     _already_enriched_ids."""
-    from sqlalchemy import func, select
+    from sqlalchemy import func
 
     rows = session.execute(
         select(StrydActivity.stryd_activity_id)
@@ -256,7 +266,10 @@ def _heal_candidate_ids(session: Session, uid, processed: set) -> list:
 # Max streams-less activities to backfill per full-sync heal pass (rate-limit guard).
 _STREAM_HEAL_CAP = 60
 # Parallel workers for per-activity stream fetches (each is an independent HTTP call).
-_ENRICH_WORKERS = 4
+# Defaults to 2 so the web process holds at most 2 full stream payloads in flight.
+# Set STRYD_ENRICH_WORKERS=4 (or higher) on the compute worker where memory is less
+# constrained and throughput matters more.
+_ENRICH_WORKERS = int(_os.environ.get("STRYD_ENRICH_WORKERS", "2"))
 
 
 def _enrich_one(token: str, aid, base_form: dict | None = None) -> bool:
@@ -273,6 +286,8 @@ def _enrich_one(token: str, aid, base_form: dict | None = None) -> bool:
             fm["np_w"] = np
         if powers:
             fm["max_power_w"] = round(max(powers))
+        from backend.services.stryd_laps import compute_manual_laps
+        manual_laps = compute_manual_laps(streams)
         vals: dict = {}
         if splits:
             vals["splits"] = splits
@@ -280,6 +295,8 @@ def _enrich_one(token: str, aid, base_form: dict | None = None) -> bool:
             vals["form_metrics"] = fm
         if streams.get("timestamp_list"):
             vals["streams_payload"] = streams
+        # Persist computed laps so detail requests avoid re-materialising streams_payload.
+        vals["manual_laps"] = manual_laps if manual_laps is not None else []
         if vals:
             with Session(engine) as session:
                 session.query(StrydActivity).filter(
@@ -409,6 +426,7 @@ def sync_stryd_activities(
                         "tss": ins.excluded.tss,
                         "power_zones": ins.excluded.power_zones,
                         "raw_payload": ins.excluded.raw_payload,
+                        "grade_percent": ins.excluded.grade_percent,
                         "synced_at": now,
                     },
                 )

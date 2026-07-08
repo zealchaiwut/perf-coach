@@ -24,14 +24,14 @@ from backend.services.polarized_split import check_polarized_split
 
 def test_all_on_target_returns_true():
     """AC3/AC7: All bands within defaults → on_target=True, no deviations."""
-    result = check_polarized_split(low=80, moderate=7, high=13)
+    result = check_polarized_split(low=80, moderate=5, high=15)
     assert result["on_target"] is True
     assert result["deviations"] == []
 
 
 def test_all_on_target_no_grey_zone_flag():
     """AC3/AC5: on_target=True means no grey-zone flag raised."""
-    result = check_polarized_split(low=80, moderate=7, high=13)
+    result = check_polarized_split(low=80, moderate=5, high=15)
     assert result.get("grey_zone") is not True
 
 
@@ -133,11 +133,11 @@ def test_boundary_values_inclusive_moderate():
 
 
 def test_boundary_values_inclusive_high():
-    """AC2: high=10 (lower bound) and high=20 (upper bound) are both on target."""
-    for v in (10, 20):
+    """AC2: high=15 (lower bound) and high=20 (upper bound) are both on target."""
+    for v in (15, 20):
         r = check_polarized_split(low=80, moderate=5, high=v)
         bands = {d["band"] for d in r["deviations"]}
-        assert "high" not in bands, f"high={v} should be within [10,20]"
+        assert "high" not in bands, f"high={v} should be within [15,20]"
 
 
 # ---------------------------------------------------------------------------

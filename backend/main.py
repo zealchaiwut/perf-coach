@@ -13,7 +13,7 @@ import time
 import uuid as _uuid
 from datetime import date as _date, datetime as _datetime, timezone as _timezone, timedelta as _timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 from urllib.parse import urlencode as _urlencode
 import urllib.request as _urllib_request
 import urllib.error as _urllib_error
@@ -22,17 +22,20 @@ from fastapi import BackgroundTasks, Body, Depends, FastAPI, File, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import exc as sa_exc, func, or_, select
+from sqlalchemy import cast as _sa_cast, exc as sa_exc, func, or_, select
+from sqlalchemy.types import DateTime as _sa_DateTime
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, load_only, selectinload
 from zoneinfo import ZoneInfo
 
 from backend.auth import require_admin
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, DriveSleepConnection, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession
+from backend.models import AppConfig, DailyMetric, DriveSleepConnection, EconomyCeilingSnapshot, ExerciseCatalog, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
-from backend.services.workout_merge import compute_best_values, clean_hr
+from backend.services.workout_merge import compute_best_values
 from backend.services.tss import compute_running_tss as _compute_running_tss
+from backend.services.tss import compute_strength_tss as _compute_strength_tss
+from backend.services.tss import STRENGTH_TSS_SCALE as _STRENGTH_TSS_SCALE, STRENGTH_TSS_MAX as _STRENGTH_TSS_MAX
 from backend.services.tss import persist_running_tss as _persist_running_tss
 from backend.services.tss import recompute_user_running_tss as _recompute_user_running_tss
 from backend.services.training_load import (
@@ -61,6 +64,7 @@ from backend.services.training_load import (
     MAX_CTL_DAYS,
     BASELINE_WINDOW_DAYS,
     BASELINE_MIN_WORKOUT_DAYS,
+    get_weekly_volume as _get_weekly_volume,
 )
 from backend.services.specificity_progress import specificity_progress as _specificity_progress
 from backend.services.daily_load import daily_load_series as _daily_load_series
@@ -71,6 +75,7 @@ from backend.services.weight_plan import compute_gap as _compute_weight_gap, gen
 from backend.services import weight_plans_repo as _wp_repo
 from backend.services import sync_jobs as _sync_jobs
 from backend.services import reconcile as _reconcile
+from backend.services import sync_runner as _sync_runner
 from backend.services import workout_reconcile as _workout_reconcile
 from backend.services.habit_autofill import recompute_autofill_for_week as _recompute_autofill
 from backend.services.habit_streak import compute_streak
@@ -101,6 +106,7 @@ from backend.services.lap_classify import aggregate_intensity_zones as _agg_zone
 from backend.services.polarized_split import check_polarized_split as _check_polarized_split, _DEFAULT_BOUNDS as _POLARIZED_BOUNDS
 from backend.services.lap_classify import classify_laps as _classify_laps
 from backend.services.intensity_distribution import compute_polarized_check as _compute_polarized_check
+from backend.services import worker_client as _worker_client
 
 # Ceiling TSB used when computing expressible scores from historical/projected TSB.
 # 20.0 matches the representative value established in issue #1107.
@@ -449,18 +455,12 @@ from backend.auth import (  # noqa: E402
     read_admin_cookie,
     read_session_cookie,
     require_admin,
+    resolve_user,
     set_admin_cookie,
     set_csrf_cookie,
     set_session,
     verify_password,
 )
-
-async def resolve_user(request: Request) -> User:
-    token = request.cookies.get(COOKIE_NAME)
-    if token:
-        return await get_current_user(request)
-    raise HTTPException(status_code=401, detail="Not authenticated")
-
 
 _LOCKOUT_MAX_ATTEMPTS = 5
 _LOCKOUT_WINDOW_SECONDS = 300  # 5 minutes
@@ -805,11 +805,11 @@ class WeightEntryByDateIn(BaseModel):
 
 @app.put("/api/weight-entries/by-date")
 def upsert_weight_entry_by_date(body: WeightEntryByDateIn, user: User = Depends(resolve_user)):
-    """Upsert a daily bodyweight entry for a given date.
+    """Upsert a daily bodyweight entry for a given date (atomic).
 
-    If an entry (with entry_time=NULL) already exists for this user+date, it is
-    updated in-place.  Otherwise a new row is created.  Submitting twice for the
-    same date never creates a duplicate.
+    Uses INSERT ... ON CONFLICT DO UPDATE against the partial unique index
+    ix_weight_entries_user_date_null_time so concurrent requests are handled
+    safely by the DB with no SELECT-then-INSERT race window.
     """
     uid = user.id
 
@@ -825,26 +825,17 @@ def upsert_weight_entry_by_date(body: WeightEntryByDateIn, user: User = Depends(
     if entry_date > _today_bkk() + _timedelta(days=1):
         raise HTTPException(status_code=422, detail="entry_date cannot be more than 1 day in the future")
 
+    conflict_updates = {
+        "weight_kg": body.weight_kg,
+        "updated_at": _datetime.now(_timezone.utc),
+    }
+    if body.notes is not None:
+        conflict_updates["notes"] = body.notes
+
     with Session(engine) as session:
-        existing = (
-            session.query(WeightEntry)
-            .filter(
-                WeightEntry.user_id == uid,
-                WeightEntry.entry_date == entry_date,
-                WeightEntry.entry_time.is_(None),
-            )
-            .first()
-        )
-        if existing is not None:
-            existing.weight_kg = body.weight_kg
-            if body.notes is not None:
-                existing.notes = body.notes
-            existing.updated_at = _datetime.now(_timezone.utc)
-            session.commit()
-            session.refresh(existing)
-            return JSONResponse(_weight_entry_dict(existing))
-        else:
-            entry = WeightEntry(
+        stmt = (
+            _pg_insert(WeightEntry)
+            .values(
                 user_id=uid,
                 entry_date=entry_date,
                 entry_time=None,
@@ -852,10 +843,17 @@ def upsert_weight_entry_by_date(body: WeightEntryByDateIn, user: User = Depends(
                 notes=body.notes,
                 source="manual",
             )
-            session.add(entry)
-            session.commit()
-            session.refresh(entry)
-            return JSONResponse(status_code=201, content=_weight_entry_dict(entry))
+            .on_conflict_do_update(
+                index_elements=["user_id", "entry_date"],
+                index_where=WeightEntry.entry_time.is_(None),
+                set_=conflict_updates,
+            )
+            .returning(WeightEntry.__table__.c.id)
+        )
+        row_id = session.execute(stmt).scalar_one()
+        session.commit()
+        entry = session.get(WeightEntry, row_id)
+        return JSONResponse(_weight_entry_dict(entry))
 
 
 @app.patch("/api/weight-entries/{entry_id}")
@@ -2721,12 +2719,46 @@ def get_home_readiness(
     )
     score = int(round(min(100.0, max(0.0, total))))
 
+    factors_for_explanation = [
+        {"factor": "sleep_hours", "value": float(metrics.sleep_hours) if metrics.sleep_hours is not None else None,
+         "score": sleep_score, "impact": _impact(sleep_score)},
+        {"factor": "hrv", "value": float(metrics.hrv) if metrics.hrv is not None else None,
+         "score": hrv_score, "impact": _impact(hrv_score)},
+        {"factor": "rhr", "value": float(metrics.resting_hr) if metrics.resting_hr is not None else None,
+         "score": rhr_score, "impact": _impact(rhr_score)},
+        {"factor": "mood", "value": float(metrics.mood) if metrics.mood is not None else None,
+         "score": mood_score, "impact": _impact(mood_score)},
+        {"factor": "energy", "value": float(metrics.energy) if metrics.energy is not None else None,
+         "score": energy_score, "impact": _impact(energy_score)},
+    ]
+    explanation_facts = {
+        "score": score,
+        "label": _readiness_score_label(score),
+        "sleep_hours": float(metrics.sleep_hours) if metrics.sleep_hours is not None else None,
+        "hrv": float(metrics.hrv) if metrics.hrv is not None else None,
+        "rhr": float(metrics.resting_hr) if metrics.resting_hr is not None else None,
+        "sleep_quality": float(metrics.sleep_quality) if metrics.sleep_quality is not None else None,
+        "energy": float(metrics.energy) if metrics.energy is not None else None,
+        "mood": float(metrics.mood) if metrics.mood is not None else None,
+        "sleep_hours_baseline": rolling_baseline["sleep_7d_avg_hours"],
+        "hrv_baseline": rolling_baseline["hrv_7d_avg"],
+        "rhr_baseline": rolling_baseline["rhr_7d_avg"],
+    }
+    from backend.services.readiness_explanation import get_readiness_explanation
+    explanation = get_readiness_explanation(
+        user_id=str(uid),
+        target_date=query_date.isoformat(),
+        facts=explanation_facts,
+        fallback_factors=factors_for_explanation,
+    )
+
     return JSONResponse({
         "date": query_date.isoformat(),
         "score": score,
         "score_label": _readiness_score_label(score),
         "contributors": contributors,
         "rolling_baseline": rolling_baseline,
+        "explanation": explanation,
     })
 
 
@@ -2860,6 +2892,125 @@ def get_home_weekly_summary(
         "vs_prev_week": vs_prev_week,
         "daily_load": daily_load,
     })
+
+
+# ── Weekly summary narrative endpoint (issue #1314) ──────────────────────────
+
+@app.get("/api/weekly-summary")
+def get_weekly_summary(
+    week: Optional[str] = Query(default=None),
+    current_user: User = Depends(resolve_user),
+):
+    """Return a coach-style weekly narrative + key facts.
+
+    week: ISO date of the week's Monday (defaults to current week start).
+    Response: {week_start, facts, narrative, source: "llm"|"fallback"}
+    """
+    from datetime import date as _date_cls, timedelta as _td
+    from backend.services.weekly_summary import (
+        assemble_facts,
+        get_narrative,
+        build_response,
+    )
+    from backend.services.guardrail import get_guardrail_result
+    from backend.services.training_load import current_load
+
+    uid = current_user.id
+
+    if week is None:
+        _bkk = ZoneInfo("Asia/Bangkok")
+        today_bkk = _datetime.now(_bkk).date()
+        week_start = today_bkk - _timedelta(days=today_bkk.weekday())
+    else:
+        try:
+            week_start = _date_cls.fromisoformat(week)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid week format; use YYYY-MM-DD")
+
+    week_end = week_start + _timedelta(days=6)
+    prev_week_start = week_start - _timedelta(days=7)
+    prev_week_end = week_start - _timedelta(days=1)
+
+    with Session(engine) as session:
+        from backend.models import PersonalRecord
+
+        curr_workouts_orm = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= week_start,
+                Workout.workout_date <= week_end,
+            )
+            .all()
+        )
+        prev_workouts_orm = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= prev_week_start,
+                Workout.workout_date <= prev_week_end,
+            )
+            .all()
+        )
+        prs_orm = (
+            session.query(PersonalRecord)
+            .filter(
+                PersonalRecord.user_id == uid,
+                PersonalRecord.achieved_on >= week_start,
+                PersonalRecord.achieved_on <= week_end,
+            )
+            .all()
+        )
+
+        def _w_dict(w):
+            return {
+                "workout_date": w.workout_date.isoformat() if w.workout_date else None,
+                "tss": float(w.tss) if w.tss is not None else None,
+                "distance_km": float(w.distance_km) if w.distance_km is not None else None,
+                "duration_seconds": w.duration_seconds,
+                "workout_type": w.workout_type or "",
+            }
+
+        curr_workouts = [_w_dict(w) for w in curr_workouts_orm]
+        prev_workouts = [_w_dict(w) for w in prev_workouts_orm]
+        prs = [
+            {
+                "track_name": pr.track_name,
+                "track_key": pr.track_key,
+                "value_numeric": str(pr.value_numeric),
+                "achieved_on": pr.achieved_on.isoformat() if pr.achieved_on else None,
+            }
+            for pr in prs_orm
+        ]
+
+    # CTL/ATL/TSB at week start and end
+    load_start = current_load(str(uid), as_of=prev_week_end)
+    load_end = current_load(str(uid), as_of=week_end)
+
+    # Guardrail flags for the current week
+    guardrail = get_guardrail_result(str(uid), as_of_date=week_end)
+
+    facts = assemble_facts(
+        week_start=week_start,
+        current_workouts=curr_workouts,
+        prev_workouts=prev_workouts,
+        ctl_start=load_start["ctl"],
+        ctl_end=load_end["ctl"],
+        atl_start=load_start["atl"],
+        atl_end=load_end["atl"],
+        tsb_start=load_start["tsb"],
+        tsb_end=load_end["tsb"],
+        guardrail=guardrail,
+        prs=prs,
+    )
+
+    narrative, source = get_narrative(user_id=str(uid), week_start=week_start.isoformat(), facts=facts)
+    return JSONResponse(build_response(
+        week_start=week_start.isoformat(),
+        facts=facts,
+        narrative=narrative,
+        source=source,
+    ))
 
 
 # ── Home summary aggregator endpoint (issue #437) ────────────────────────────
@@ -3169,11 +3320,33 @@ def _build_readiness_block(uid, today_bkk):
     top_factors = sorted(factors, key=lambda f: abs(f["score"] - 50), reverse=True)[:3]
     top_factors_clean = [{"factor": f["factor"], "value": f["value"], "impact": f["impact"]} for f in top_factors]
 
+    explanation_facts = {
+        "score": score,
+        "label": _readiness_score_label(score),
+        "sleep_hours": float(metrics.sleep_hours) if metrics.sleep_hours is not None else None,
+        "hrv": float(metrics.hrv) if metrics.hrv is not None else None,
+        "rhr": float(metrics.resting_hr) if metrics.resting_hr is not None else None,
+        "sleep_quality": float(metrics.sleep_quality) if metrics.sleep_quality is not None else None,
+        "energy": float(metrics.energy) if metrics.energy is not None else None,
+        "mood": float(metrics.mood) if metrics.mood is not None else None,
+        "sleep_hours_baseline": sleep_7d_avg,
+        "hrv_baseline": hrv_7d_avg,
+        "rhr_baseline": rhr_7d_avg,
+    }
+    from backend.services.readiness_explanation import get_readiness_explanation
+    explanation = get_readiness_explanation(
+        user_id=str(uid),
+        target_date=str(today_bkk),
+        facts=explanation_facts,
+        fallback_factors=factors,
+    )
+
     return {
         "logged": True,
         "score": score,
         "label": _readiness_score_label(score),
         "top_factors": top_factors_clean,
+        "explanation": explanation,
     }
 
 
@@ -4757,6 +4930,7 @@ def get_habits_adherence(user: User = Depends(resolve_user)):
 
 from backend.services.habit_insights import (  # noqa: E402
     build_insights as _build_insights,
+    apply_llm_insights as _apply_llm_insights,
     OUTCOME_FIELDS as _INSIGHT_OUTCOME_FIELDS,
 )
 
@@ -4823,6 +4997,9 @@ def get_habit_insights(user: User = Depends(resolve_user)):
         outcome_series_by_name=outcome_series_by_name,
     )
 
+    if not building and insights:
+        insights = _apply_llm_insights(insights, user_id=str(uid))
+
     return JSONResponse({
         "insights": insights,
         "building": building,
@@ -4836,7 +5013,8 @@ from backend.services.habit_adherence import (  # noqa: E402
     compute_adherence_breakdown as _compute_adherence_breakdown,
     detect_slipping_habits as _detect_slipping_habits,
 )
-from backend.services.habit_nudges import build_nudges as _build_nudges  # noqa: E402
+from backend.services.habit_nudges import build_nudges as _build_nudges, apply_llm_nudges as _apply_llm_nudges  # noqa: E402
+from backend.services.exercise_classifier import get_or_classify as _get_or_classify, normalize_name as _normalize_exercise_name, VALID_BODY_PARTS as _VALID_BODY_PARTS  # noqa: E402
 
 
 @app.get("/api/adherence-nudges")
@@ -4915,6 +5093,12 @@ def get_adherence_nudges(user: User = Depends(resolve_user)):
         for entry in current_per_habit
     }
     nudge_result = _build_nudges(adherence_breakdowns_by_name, slipping_habits)
+    nudge_result = _apply_llm_nudges(
+        nudge_result,
+        adherence_breakdowns_by_name,
+        slipping_habits,
+        user_id=str(uid),
+    )
 
     return JSONResponse({
         "per_habit": current_per_habit,
@@ -5092,6 +5276,17 @@ def _serve_login():
 
 app.add_api_route("/login", _serve_login, include_in_schema=False)
 app.add_api_route("/login.html", _serve_login, include_in_schema=False)
+
+
+def _serve_dev_mobile():
+    """Local/UAT mobile preview frame (Chrome DevTools–style device width)."""
+    env = os.getenv("ENVIRONMENT", "local").lower()
+    if env not in ("uat", "local"):
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(str(_static_root / "frontend" / "pages" / "dev-mobile.html"))
+
+
+app.add_api_route("/dev/mobile", _serve_dev_mobile, include_in_schema=False)
 
 
 def _serve_weight_targets():
@@ -5433,9 +5628,22 @@ def _workout_signal_scores(session, workout) -> dict:
     except Exception:
         compute_decoupling = None
 
+    _today = _date.today()
+    _window_start = _today - _timedelta(days=89)
     run_workouts = (
         session.query(Workout)
-        .filter(Workout.user_id == workout.user_id, Workout.workout_type == "run")
+        .options(load_only(
+            Workout.id, Workout.user_id, Workout.workout_date, Workout.start_time,
+            Workout.workout_type, Workout.duration_seconds, Workout.distance_km,
+            Workout.tss, Workout.avg_hr, Workout.avg_power, Workout.name,
+            Workout.speed_signal, Workout.speed_signal_basis,
+            Workout.speed_signal_window_seconds,
+        ))
+        .filter(
+            Workout.user_id == workout.user_id,
+            Workout.workout_type == "run",
+            Workout.workout_date >= _window_start,
+        )
         .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
         .all()
     )
@@ -5445,6 +5653,12 @@ def _workout_signal_scores(session, workout) -> dict:
     if wids:
         for s in (
             session.query(WorkoutSplit)
+            .options(load_only(
+                WorkoutSplit.workout_id, WorkoutSplit.split_index,
+                WorkoutSplit.avg_power, WorkoutSplit.avg_hr,
+                WorkoutSplit.distance_km, WorkoutSplit.duration_seconds,
+                WorkoutSplit.intensity_band,
+            ))
             .filter(WorkoutSplit.workout_id.in_(wids))
             .order_by(WorkoutSplit.split_index)
             .all()
@@ -5515,7 +5729,6 @@ def _workout_signal_scores(session, workout) -> dict:
         return runs
 
     d = workout.workout_date
-    _today = _date.today()
 
     def _score(fn, runs, race_perf):
         r = fn(runs, prefs_dict or None, zone_constants, race_perf=race_perf)
@@ -5590,9 +5803,22 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
     except Exception:
         compute_decoupling = None
 
+    _window_start = as_of_date - _timedelta(days=89)
     run_workouts = (
         session.query(Workout)
-        .filter(Workout.user_id == user_id, Workout.workout_type == "run")
+        .options(load_only(
+            Workout.id, Workout.user_id, Workout.workout_date, Workout.start_time,
+            Workout.workout_type, Workout.duration_seconds, Workout.distance_km,
+            Workout.tss, Workout.avg_hr, Workout.avg_power, Workout.name,
+            Workout.speed_signal, Workout.speed_signal_basis,
+            Workout.speed_signal_window_seconds,
+        ))
+        .filter(
+            Workout.user_id == user_id,
+            Workout.workout_type == "run",
+            Workout.workout_date >= _window_start,
+            Workout.workout_date <= as_of_date,
+        )
         .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
         .all()
     )
@@ -5601,6 +5827,12 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
     if wids:
         for s in (
             session.query(WorkoutSplit)
+            .options(load_only(
+                WorkoutSplit.workout_id, WorkoutSplit.split_index,
+                WorkoutSplit.avg_power, WorkoutSplit.avg_hr,
+                WorkoutSplit.distance_km, WorkoutSplit.duration_seconds,
+                WorkoutSplit.intensity_band,
+            ))
             .filter(WorkoutSplit.workout_id.in_(wids))
             .order_by(WorkoutSplit.split_index)
             .all()
@@ -5691,7 +5923,7 @@ def _compute_session_signals(w: Workout) -> dict:
 
     dur = w.duration_seconds or 0
     if es is None:
-        if dur < 40 * 60:
+        if dur <= 40 * 60:
             endurance_note = "— run under 40 min"
         else:
             endurance_note = "— insufficient data"
@@ -5752,6 +5984,7 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "avg_stride_m": float(w.avg_stride_m) if w.avg_stride_m is not None else None,
         "temperature_c": w.temperature_c,
         "humidity_pct": w.humidity_pct,
+        "flat_equivalent_pace": float(w.flat_equivalent_pace) if w.flat_equivalent_pace is not None else None,
         "feeling": w.feeling,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
@@ -5760,15 +5993,23 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
     }
 
 
-def _strava_source_dict(sa) -> dict | None:
+def _strava_source_dict(sa, prebuilt_streams: dict | None = None) -> dict | None:
     """Full Strava capture for a workout: promoted columns + everything inside the
     detail_payload (laps, per-km splits, best efforts, GPS polyline) and the raw
-    per-point streams. Nothing dropped — the union endpoint surfaces all of it."""
+    per-point streams. Nothing dropped — the union endpoint surfaces all of it.
+
+    When ``prebuilt_streams`` is supplied (from the activity_streams table, already
+    downsampled to ≤1 Hz), it is used directly and ``sa.streams_payload`` is never
+    accessed, avoiding a 1-5 MB JSONB load per request (issue #1295).
+    """
     if sa is None:
         return None
     detail = sa.detail_payload or {}
-    streams = sa.streams_payload if isinstance(sa.streams_payload, dict) else {}
     raw = sa.raw_payload or {}
+    if prebuilt_streams is not None:
+        streams = prebuilt_streams
+    else:
+        streams = sa.streams_payload if isinstance(sa.streams_payload, dict) else {}
     map_obj = detail.get("map") or raw.get("map") or {}
     return {
         "strava_activity_id": sa.strava_activity_id,
@@ -5806,11 +6047,16 @@ def _stryd_source_dict(sta) -> dict | None:
     """Full Stryd capture: power-based TSS + running dynamics Strava cannot give."""
     if sta is None:
         return None
-    # Stryd has no precomputed laps array — manual lap presses are boundary
-    # timestamps. Compute per-lap metrics from the per-point streams.
-    from backend.services.stryd_laps import compute_manual_laps
-    streams = sta.streams_payload if isinstance(sta.streams_payload, dict) else {}
-    laps = compute_manual_laps(streams) or ((sta.raw_payload or {}).get("laps") or [])
+    # Use pre-computed laps persisted at sync-time (issue #1295).  Avoids
+    # materialising the full streams_payload (can be several MB) on every request.
+    # Falls back to computing from streams_payload for rows synced before this change.
+    manual_laps = getattr(sta, "manual_laps", None)
+    if manual_laps is not None:
+        laps = manual_laps
+    else:
+        from backend.services.stryd_laps import compute_manual_laps
+        streams = sta.streams_payload if isinstance(sta.streams_payload, dict) else {}
+        laps = compute_manual_laps(streams) or ((sta.raw_payload or {}).get("laps") or [])
     return {
         "stryd_activity_id": sta.stryd_activity_id,
         "name": sta.name,
@@ -6128,6 +6374,58 @@ def get_exercise_names(user: User = Depends(resolve_user)):
 # ── Intensity distribution chart data ───────────────────────────────────────
 # Declared BEFORE /api/workouts/{workout_id} so the literal path isn't parsed as an id.
 
+
+def _accumulate_intensity_window(workouts, prefs_dict):
+    """Duration-weighted rolling-window aggregation shared by intensity-distribution
+    and polarized-check endpoints.
+
+    Each Workout in *workouts* must have its .splits already loaded (e.g. via
+    selectinload) so this function issues no additional DB queries.
+
+    Returns:
+        sessions_out   list of per-workout dicts (date, workout_id, name,
+                       duration_seconds, low_pct, moderate_pct, high_pct)
+        rolling_window dict with low_pct / moderate_pct / high_pct, all None
+                       when no workouts have classifiable band data.
+    """
+    sessions_out = []
+    total_dur = 0.0
+    total_low = 0.0
+    total_mod = 0.0
+    total_high = 0.0
+
+    for w in workouts:
+        zones = _agg_zones(w.splits, prefs_dict)
+        dur = w.duration_seconds or 0
+
+        if zones["low_pct"] is not None and dur > 0:
+            total_dur += dur
+            total_low  += dur * zones["low_pct"]
+            total_mod  += dur * zones["moderate_pct"]
+            total_high += dur * zones["high_pct"]
+
+        sessions_out.append({
+            "date":             w.workout_date.isoformat(),
+            "workout_id":       str(w.id),
+            "name":             w.name,
+            "duration_seconds": dur or None,
+            "low_pct":          zones["low_pct"],
+            "moderate_pct":     zones["moderate_pct"],
+            "high_pct":         zones["high_pct"],
+        })
+
+    if total_dur == 0:
+        rolling_window = {"low_pct": None, "moderate_pct": None, "high_pct": None}
+    else:
+        rolling_window = {
+            "low_pct":      round(total_low  / total_dur, 2),
+            "moderate_pct": round(total_mod  / total_dur, 2),
+            "high_pct":     round(total_high / total_dur, 2),
+        }
+
+    return sessions_out, rolling_window
+
+
 @app.get("/api/workouts/intensity-distribution")
 def get_intensity_distribution(
     from_date: str = Query(alias="from"),
@@ -6163,6 +6461,18 @@ def get_intensity_distribution(
 
         workouts = (
             session.query(Workout)
+            .options(
+                load_only(
+                    Workout.id, Workout.workout_date, Workout.name,
+                    Workout.duration_seconds, Workout.workout_type, Workout.created_at,
+                ),
+                selectinload(Workout.splits).options(load_only(
+                    WorkoutSplit.workout_id, WorkoutSplit.split_index,
+                    WorkoutSplit.avg_power, WorkoutSplit.avg_hr,
+                    WorkoutSplit.distance_km, WorkoutSplit.duration_seconds,
+                    WorkoutSplit.intensity_band,
+                )),
+            )
             .filter(
                 Workout.user_id == uid,
                 Workout.workout_date >= from_d,
@@ -6172,47 +6482,7 @@ def get_intensity_distribution(
             .all()
         )
 
-        sessions_out = []
-        total_dur = 0.0
-        total_low = 0.0
-        total_mod = 0.0
-        total_high = 0.0
-
-        for w in workouts:
-            split_rows = (
-                session.query(WorkoutSplit)
-                .filter(WorkoutSplit.workout_id == w.id)
-                .order_by(WorkoutSplit.split_index)
-                .all()
-            )
-            zones = _agg_zones(split_rows, prefs_dict)
-            dur = w.duration_seconds or 0
-
-            # Accumulate rolling window totals (only when band data exists)
-            if zones["low_pct"] is not None and dur > 0:
-                total_dur += dur
-                total_low  += dur * zones["low_pct"]
-                total_mod  += dur * zones["moderate_pct"]
-                total_high += dur * zones["high_pct"]
-
-            sessions_out.append({
-                "date":             w.workout_date.isoformat(),
-                "workout_id":       str(w.id),
-                "name":             w.name,
-                "duration_seconds": dur or None,
-                "low_pct":          zones["low_pct"],
-                "moderate_pct":     zones["moderate_pct"],
-                "high_pct":         zones["high_pct"],
-            })
-
-    if total_dur == 0:
-        rolling_window = {"low_pct": None, "moderate_pct": None, "high_pct": None}
-    else:
-        rolling_window = {
-            "low_pct":      round(total_low  / total_dur, 2),
-            "moderate_pct": round(total_mod  / total_dur, 2),
-            "high_pct":     round(total_high / total_dur, 2),
-        }
+        sessions_out, rolling_window = _accumulate_intensity_window(workouts, prefs_dict)
 
     return JSONResponse({"sessions": sessions_out, "rolling_window": rolling_window})
 
@@ -6260,6 +6530,7 @@ def get_polarized_check(
 
         workouts = (
             session.query(Workout)
+            .options(selectinload(Workout.splits))
             .filter(
                 Workout.user_id == uid,
                 Workout.workout_date >= from_d,
@@ -6269,29 +6540,11 @@ def get_polarized_check(
             .all()
         )
 
-        total_dur = 0.0
-        total_low = 0.0
-        total_mod = 0.0
-        total_high = 0.0
-
-        for w in workouts:
-            split_rows = (
-                session.query(WorkoutSplit)
-                .filter(WorkoutSplit.workout_id == w.id)
-                .order_by(WorkoutSplit.split_index)
-                .all()
-            )
-            zones = _agg_zones(split_rows, prefs_dict)
-            dur = w.duration_seconds or 0
-            if zones["low_pct"] is not None and dur > 0:
-                total_dur += dur
-                total_low  += dur * zones["low_pct"]
-                total_mod  += dur * zones["moderate_pct"]
-                total_high += dur * zones["high_pct"]
+        _, rolling_window = _accumulate_intensity_window(workouts, prefs_dict)
 
     targets = {k: list(v) for k, v in _POLARIZED_BOUNDS.items()}
 
-    if total_dur == 0:
+    if rolling_window["low_pct"] is None:
         return JSONResponse({
             "verdict":    None,
             "actual":     None,
@@ -6300,9 +6553,9 @@ def get_polarized_check(
             "grey_zone":  False,
         })
 
-    actual_low  = round(total_low  / total_dur, 2)
-    actual_mod  = round(total_mod  / total_dur, 2)
-    actual_high = round(total_high / total_dur, 2)
+    actual_low  = rolling_window["low_pct"]
+    actual_mod  = rolling_window["moderate_pct"]
+    actual_high = rolling_window["high_pct"]
 
     check = _check_polarized_split(actual_low, actual_mod, actual_high)
 
@@ -6448,7 +6701,11 @@ def get_workout_full(
             .first()
         )
         tss_result = _compute_running_tss(workout, split_rows, prefs or UserPreferences())
-        strava = _strava_source_dict(getattr(workout, "strava_activity", None))
+        from backend.models import ActivityStream as _ActivityStream
+        from backend.services.activity_streams import activity_streams_to_strava_dict as _as_to_strava
+        _stream_row = session.get(_ActivityStream, workout.id)
+        _prebuilt_streams = _as_to_strava(_stream_row) if _stream_row else None
+        strava = _strava_source_dict(getattr(workout, "strava_activity", None), prebuilt_streams=_prebuilt_streams)
         stryd = _stryd_source_dict(getattr(workout, "stryd_activity", None))
         unified = _unified_workout_dict(workout, strava, stryd)
         # Derive metrics from the full streams BEFORE downsampling for transport.
@@ -6500,17 +6757,24 @@ def get_workout_full(
         }
         # Authoritative TSS: manual entry wins; fall back to freshly-computed value.
         authoritative_tss = int(workout.tss) if workout.tss is not None else tss_result["tss"]
-        # Manual lap presses (from the Stryd streams) expose real interval reps
-        # that the stored 1 km splits hide; pass them so detection/pairing runs
-        # on them. Keeps session_profile_caller DB-free — we load here.
+        # Manual lap presses expose real interval reps that stored 1 km splits hide;
+        # pass them so detection/pairing runs on them.  Use the persisted manual_laps
+        # column (issue #1295) to avoid re-materialising streams_payload.
         _manual_laps_for_profile = None
         try:
             _sta = getattr(workout, "stryd_activity", None)
-            _streams = _sta.streams_payload if _sta is not None and isinstance(_sta.streams_payload, dict) else None
-            if _streams:
-                from backend.services.stryd_laps import compute_manual_laps as _cml
+            if _sta is not None:
+                _persisted = getattr(_sta, "manual_laps", None)
+                if _persisted is not None:
+                    _mlaps = _persisted
+                else:
+                    _streams = _sta.streams_payload if isinstance(_sta.streams_payload, dict) else None
+                    from backend.services.stryd_laps import compute_manual_laps as _cml
+                    _mlaps = _cml(_streams) if _streams else []
+            else:
+                _mlaps = []
+            if _mlaps:
                 from types import SimpleNamespace as _SNS
-                _mlaps = _cml(_streams) or []
                 _manual_laps_for_profile = [
                     _SNS(
                         split_index=_i + 1,
@@ -6557,6 +6821,29 @@ def get_workout_full(
         return JSONResponse(response_body)
 
 
+def _warm_load_after_write(user_id, *dates) -> None:
+    """Refresh the training-load snapshot after a workout write.
+
+    Phase 2: when PRECOMPUTE_ON_WRITE_ENABLED and the worker is in queue mode,
+    offload the 180-day EWMA recompute to the worker (keeps the write response
+    fast) — the worker warms today's snapshot, and current_load() falls back to
+    an inline recompute if it reads before the worker catches up, so a brief lag
+    is safe. Otherwise (flag off / http mode / enqueue failed) recompute inline,
+    the prior behavior. Never raises."""
+    clean = [d for d in dates if d is not None]
+    if _worker_client.precompute_on_write_enabled():
+        res = _worker_client.delegate_precompute(str(user_id), dates=clean)
+        if res.get("queued"):
+            return
+    for d in clean:
+        try:
+            daily_update(str(user_id), d)
+        except Exception as _exc:
+            _logging.getLogger(__name__).warning(
+                "daily_update failed for user %s date %s: %s", user_id, d, _exc, exc_info=True
+            )
+
+
 @app.post("/api/workouts", status_code=201)
 def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
     uid = user.id
@@ -6585,6 +6872,9 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
         raise HTTPException(status_code=422, detail="zone2_minutes must be between 0 and 600")
     if body.source is not None and body.source not in _VALID_SOURCES:
         raise HTTPException(status_code=422, detail="source must be one of: " + ", ".join(sorted(_VALID_SOURCES)))
+    if body.strava_activity_url is not None and body.strava_activity_url != "":
+        if not body.strava_activity_url.startswith("https://"):
+            raise HTTPException(status_code=422, detail="strava_activity_url must use the https scheme")
     for ex in body.exercises:
         _validate_exercise(ex)
     with Session(engine) as session:
@@ -6644,12 +6934,7 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             _logging.getLogger(__name__).warning(
                 "persist_running_tss failed for workout %s: %s", workout.id, _tss_exc, exc_info=True
             )
-        try:
-            daily_update(str(uid), workout_date)
-        except Exception as _exc:
-            _logging.getLogger(__name__).warning(
-                "daily_update failed for user %s date %s: %s", uid, workout_date, _exc, exc_info=True
-            )
+        _warm_load_after_write(uid, workout_date)
         try:
             _recompute_autofill(uid, _week_start_bangkok(workout_date))
         except Exception as _af_exc:
@@ -6747,6 +7032,9 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
                 raise HTTPException(status_code=422, detail="source must be one of: " + ", ".join(sorted(_VALID_SOURCES)))
             workout.source = body.source
         if 'strava_activity_url' in body.model_fields_set:
+            if body.strava_activity_url is not None and body.strava_activity_url != "":
+                if not body.strava_activity_url.startswith("https://"):
+                    raise HTTPException(status_code=422, detail="strava_activity_url must use the https scheme")
             workout.strava_activity_url = body.strava_activity_url
         if 'avg_power' in body.model_fields_set:
             workout.avg_power = body.avg_power
@@ -6796,12 +7084,7 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             _logging.getLogger(__name__).warning(
                 "persist_running_tss failed for workout %s: %s", wid, _tss_exc, exc_info=True
             )
-        try:
-            daily_update(str(workout.user_id), workout.workout_date)
-        except Exception as _exc:
-            _logging.getLogger(__name__).warning(
-                "daily_update failed for user %s date %s: %s", workout.user_id, workout.workout_date, _exc, exc_info=True
-            )
+        _warm_load_after_write(workout.user_id, _old_workout_date, workout.workout_date)
         try:
             for _ws in {_week_start_bangkok(_old_workout_date), _week_start_bangkok(workout.workout_date)}:
                 _recompute_autofill(workout.user_id, _ws)
@@ -6857,6 +7140,10 @@ def delete_workout(workout_id: str, user: User = Depends(resolve_user)):
                 ))
         session.delete(workout)
         session.commit()
+    # A deletion removes TSS from the series, so the load snapshot is now stale;
+    # warm it (worker in queue mode, else inline). Previously nothing refreshed
+    # it, so the next current_load() read paid the recompute.
+    _warm_load_after_write(_del_uid, _del_date)
     try:
         _recompute_autofill(_del_uid, _week_start_bangkok(_del_date))
     except Exception as _af_exc:
@@ -7248,6 +7535,13 @@ def duplicate_workout(workout_id: str, body: WorkoutDuplicateIn, user: User = De
             .all()
         )
 
+        src_splits = (
+            session.query(WorkoutSplit)
+            .filter(WorkoutSplit.workout_id == wid)
+            .order_by(WorkoutSplit.split_index)
+            .all()
+        )
+
         copy = Workout(
             user_id=user.id,
             name=src.name,
@@ -7286,22 +7580,31 @@ def duplicate_workout(workout_id: str, body: WorkoutDuplicateIn, user: User = De
             session.add(e)
             new_exercises.append(e)
 
+        for sp in src_splits:
+            session.add(WorkoutSplit(
+                workout_id=copy.id,
+                split_index=sp.split_index,
+                distance_km=sp.distance_km,
+                duration_seconds=sp.duration_seconds,
+                avg_hr=sp.avg_hr,
+                avg_power=sp.avg_power,
+                cadence_spm=sp.cadence_spm,
+                stride_length_m=sp.stride_length_m,
+                lap_type=sp.lap_type,
+                intensity_band=sp.intensity_band,
+            ))
+
         session.commit()
         session.refresh(copy)
         for e in new_exercises:
             session.refresh(e)
 
-        try:
-            daily_update(str(user.id), new_date)
-        except Exception as _exc:
-            _logging.getLogger(__name__).warning(
-                "daily_update failed for user %s date %s: %s", user.id, new_date, _exc, exc_info=True
-            )
+        _warm_load_after_write(user.id, new_date)
         try:
             _recompute_autofill(user.id, _week_start_bangkok(new_date))
         except Exception as _af_exc:
             _logging.getLogger(__name__).warning(
-                "autofill recompute failed for user %s week %s: %s", user.id, new_date, _af_exc
+                "autofill recompute failed for user %s week %s: %s", user.id, new_date, _af_exc, exc_info=True
             )
         return JSONResponse(status_code=201, content=_workout_dict(copy, new_exercises))
 
@@ -7448,6 +7751,203 @@ def delete_exercise(workout_id: str, exercise_id: str, user: User = Depends(reso
         session.delete(ex)
         session.commit()
     return Response(status_code=204)
+
+
+class ExercisesReplaceIn(BaseModel):
+    exercises: list[ExerciseIn]
+
+
+@app.post("/api/workouts/{workout_id}/exercises/replace", status_code=200)
+def replace_exercises(workout_id: str, body: ExercisesReplaceIn, user: User = Depends(resolve_user)):
+    try:
+        wid = _uuid.UUID(workout_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid workout_id")
+    for ex in body.exercises:
+        _validate_exercise(ex)
+    with Session(engine) as session:
+        workout = session.get(Workout, wid)
+        if workout is None:
+            raise HTTPException(status_code=404, detail="Workout not found")
+        if workout.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        session.query(WorkoutExercise).filter(WorkoutExercise.workout_id == wid).delete()
+        new_exercises = []
+        for i, ex in enumerate(body.exercises):
+            new_ex = WorkoutExercise(
+                workout_id=wid,
+                display_order=i,
+                name=ex.name.strip(),
+                sets=ex.sets,
+                reps=ex.reps,
+                weight_kg=ex.weight_kg,
+                duration=ex.duration,
+                rpe=ex.rpe,
+                distance_km=ex.distance_km,
+                duration_seconds=ex.duration_seconds,
+                avg_hr=ex.avg_hr,
+                sets_json=ex.sets_json,
+            )
+            session.add(new_ex)
+            new_exercises.append(new_ex)
+        session.commit()
+        for ex in new_exercises:
+            session.refresh(ex)
+        session.refresh(workout)
+        return JSONResponse(_workout_dict(workout, new_exercises))
+
+
+class ComputeTSSIn(BaseModel):
+    session_rpe: Optional[int] = None  # 1-10; if provided, overrides workout.session_rpe
+
+
+@app.post("/api/workouts/{workout_id}/compute-tss", status_code=200)
+def compute_workout_tss(workout_id: str, body: ComputeTSSIn, user: User = Depends(resolve_user)):
+    try:
+        wid = _uuid.UUID(workout_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid workout_id")
+    if body.session_rpe is not None and not (1 <= body.session_rpe <= 10):
+        raise HTTPException(status_code=422, detail="session_rpe must be between 1 and 10")
+    with Session(engine) as session:
+        workout = session.get(Workout, wid)
+        if workout is None:
+            raise HTTPException(status_code=404, detail="Workout not found")
+        if workout.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        exercises = (
+            session.query(WorkoutExercise)
+            .filter(WorkoutExercise.workout_id == wid)
+            .order_by(WorkoutExercise.display_order)
+            .all()
+        )
+        prefs = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == workout.user_id)
+            .first()
+        ) or UserPreferences()
+
+        # Build lightweight proxies so compute_strength_tss can do dict/attr access.
+        # Apply module-level defaults for scale/max when user prefs are unset.
+        class _WorkoutProxy:
+            def __init__(self, w, rpe_override):
+                self.duration_seconds = w.duration_seconds
+                self.session_rpe = rpe_override if rpe_override is not None else getattr(w, 'session_rpe', None)
+            def __getitem__(self, k):
+                return getattr(self, k)
+
+        class _PrefsProxy:
+            def __init__(self, p):
+                self.strength_tss_scale = getattr(p, 'strength_tss_scale', None) or _STRENGTH_TSS_SCALE
+                self.strength_tss_max = getattr(p, 'strength_tss_max', None) or _STRENGTH_TSS_MAX
+            def __getitem__(self, k):
+                return getattr(self, k)
+
+        proxy = _WorkoutProxy(workout, body.session_rpe)
+        prefs_proxy = _PrefsProxy(prefs)
+        result = _compute_strength_tss(proxy, exercises, prefs_proxy)
+
+        if result["tss"] is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Cannot compute TSS: " + result.get("debug", {}).get("reason", "missing inputs")
+            )
+
+        workout.tss = result["tss"]
+        workout.tss_source = "calculated"
+        workout.tss_method = result["method"]
+        session.commit()
+        session.refresh(workout)
+        return JSONResponse({
+            **_workout_dict(workout, exercises),
+            "tss_debug": result.get("debug"),
+        })
+
+
+# ── Exercise catalog endpoints ────────────────────────────────────────────────
+
+def _catalog_dict(row: ExerciseCatalog) -> dict:
+    return {
+        "name": row.name,
+        "body_parts": row.body_parts or [],
+        "source": row.source,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+class ExerciseCatalogLookupIn(BaseModel):
+    names: list[str]
+
+
+class ExerciseCatalogPatchIn(BaseModel):
+    body_parts: list[dict]  # [{part: str, ratio: float}, ...]
+
+
+@app.post("/api/exercise-catalog/lookup-batch", status_code=200)
+def lookup_exercise_catalog_batch(body: ExerciseCatalogLookupIn, user: User = Depends(resolve_user)):
+    """Return catalog entries for given exercise names, classifying any unknowns via LLM.
+
+    The LLM call is synchronous but fast (<2 s on Groq's fast tier). Unknown
+    exercises with LLM disabled return {status: "pending"} so the UI can render
+    gracefully without blocking. Existing and newly classified entries are saved
+    once per unique normalised name.
+    """
+    from backend.services.llm import llm_enabled as _llm_enabled
+
+    unique_keys = list({_normalize_exercise_name(n) for n in body.names if n and n.strip()})
+    if not unique_keys:
+        return JSONResponse({"results": {}})
+
+    results = {}
+    with Session(engine) as session:
+        for key in unique_keys:
+            entry = _get_or_classify(key, session)
+            if entry is not None:
+                results[key] = {**entry, "status": "ok"}
+            else:
+                results[key] = {"name": key, "body_parts": [], "source": None, "status": "pending" if not _llm_enabled() else "error"}
+        try:
+            session.commit()
+        except Exception:
+            session.rollback()
+    return JSONResponse({"results": results})
+
+
+@app.patch("/api/exercise-catalog/{name}", status_code=200)
+def patch_exercise_catalog(name: str, body: ExerciseCatalogPatchIn, user: User = Depends(resolve_user)):
+    """Manually override the body-part classification for an exercise."""
+    from backend.services.exercise_classifier import _validate_body_parts, normalize_name as _norm
+
+    key = _norm(name)
+    if not key:
+        raise HTTPException(status_code=400, detail="Exercise name is required")
+
+    validated = _validate_body_parts(body.body_parts)
+    if not validated:
+        raise HTTPException(status_code=422, detail="body_parts must contain valid parts with positive ratios")
+
+    from datetime import datetime, timezone as _tz
+    with Session(engine) as session:
+        row = session.query(ExerciseCatalog).filter_by(name=key).first()
+        if row is None:
+            row = ExerciseCatalog(name=key, body_parts=validated, source="manual",
+                                  updated_at=datetime.now(_tz.utc))
+            session.add(row)
+        else:
+            row.body_parts = validated
+            row.source = "manual"
+            row.updated_at = datetime.now(_tz.utc)
+        session.commit()
+        session.refresh(row)
+        return JSONResponse(_catalog_dict(row))
+
+
+@app.get("/api/exercise-catalog", status_code=200)
+def list_exercise_catalog(user: User = Depends(resolve_user)):
+    """Return the full exercise catalog (admin/debug view)."""
+    with Session(engine) as session:
+        rows = session.query(ExerciseCatalog).order_by(ExerciseCatalog.name).all()
+        return JSONResponse([_catalog_dict(r) for r in rows])
 
 
 # ── Workout template endpoints ────────────────────────────────────────────────
@@ -8887,6 +9387,10 @@ def get_performance_chart(
                 "decoupling_pct": None,
             })
 
+    # Derive body modifier for this user so scores reflect power-to-weight state.
+    from backend.services.body_modifier import get_body_modifier_for_user as _get_body_modifier
+    _body_modifier = _get_body_modifier(uid)
+
     # Delegate to the pure computation function
     result = compute_performance_chart(
         daily_load_series=load_series,
@@ -8895,6 +9399,7 @@ def get_performance_chart(
         zone_constants=zc,
         start_date=start_date,
         end_date=end_date,
+        body_modifier=_body_modifier,
     )
 
     return JSONResponse(result)
@@ -8904,44 +9409,57 @@ def get_performance_chart(
 def post_performance_backfill(user: User = Depends(resolve_user)):
     """Trigger the full performance backfill pipeline for the authenticated athlete.
 
-    Recomputes running TSS for all historical run workouts and rebuilds the
-    best-effort duration curve so that performance scores (endurance, speed) and
-    the fitness/fatigue/form chart reflect the current thresholds immediately.
+    Delegated to the compute worker when WORKER_BASE_URL is configured.
+    Returns 202 {"worker_delegated": true} when the worker accepts the job.
+    Returns 503 when the worker is unreachable and ROUTE_BACKFILL_FALLBACK_TO_INPROCESS
+    is not set to "1".
 
-    Idempotent — safe to call more than once.  The response reports what was done
-    so the caller can decide whether to poll for completion or simply proceed.
-
-    Returns 200 with a summary dict:
-        {
-          "thresholds_found": true,
-          "runs_processed": 12,
-          "tss_recomputed": true,
-          "curve_rebuilt": true,
-          "reason": null
-        }
-
-    Returns 200 with ``thresholds_found: false`` when no thresholds have been
-    configured — the caller should direct the athlete to set thresholds first.
+    When WORKER_BASE_URL is not set (local dev / no worker configured), falls back
+    to the synchronous in-process pipeline and returns 200 with the summary dict.
     """
     uid = user.id
+    if _worker_client.should_delegate():
+        try:
+            _worker_client.delegate_backfill(str(uid))
+            return JSONResponse({"worker_delegated": True, "started": True}, status_code=202)
+        except _worker_client.WorkerUnavailable as exc:
+            if os.getenv("ROUTE_BACKFILL_FALLBACK_TO_INPROCESS", "0") != "1":
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Compute worker unavailable — cannot run backfill: {exc}",
+                )
+            _logging.getLogger(__name__).warning(
+                "Worker unavailable for backfill (user %s); falling back to in-process: %s",
+                uid, exc,
+            )
     with Session(engine) as session:
         result = _backfill_performance_for_athlete(uid, session)
     return JSONResponse(result)
 
 
 def _trigger_performance_backfill_background(user_id) -> None:
-    """Fire-and-forget: run the full performance backfill pipeline in a daemon thread.
+    """Fire-and-forget: trigger the full performance backfill pipeline.
 
     Called after threshold saves so TSS and the duration curve are consistent
     with the new thresholds without blocking the HTTP response.  Errors are
     logged but do not propagate.
 
-    Pipeline order:
-      1. M0: TSS recompute + duration curve rebuild (backfill_performance_for_athlete)
-      2. Speed + endurance signal backfill (backfill_signals_for_athlete) — chains
-         after M0 so signals are computed against up-to-date thresholds and curves.
+    When WORKER_BASE_URL is configured, delegates to the compute worker instead
+    of spawning a daemon thread in the web process.  Falls back to a daemon
+    thread only when the worker is not configured (WORKER_BASE_URL unset).
     """
     _backfill_log = _logging.getLogger(__name__)
+
+    if _worker_client.should_delegate():
+        try:
+            _worker_client.delegate_backfill(str(user_id))
+            return
+        except _worker_client.WorkerUnavailable as _exc:
+            _backfill_log.warning(
+                "Worker unavailable for background backfill (user %s): %s — skipping (not falling back in-process)",
+                user_id, _exc,
+            )
+            return
 
     def _run():
         try:
@@ -8957,9 +9475,14 @@ def _trigger_performance_backfill_background(user_id) -> None:
             from sqlalchemy.orm import Session as _Session
             from backend.services.backfill_signals import backfill_signals_for_athlete as _backfill_signals
             with _Session(engine) as _db:
-                _backfill_signals(user_id, _db)
+                _sig_result = _backfill_signals(user_id, _db)
+            if _sig_result.get("reason") is not None:
+                _backfill_log.error(
+                    "background signal backfill commit failed for user %s: %s",
+                    user_id, _sig_result["reason"],
+                )
         except Exception as _exc:
-            _backfill_log.warning(
+            _backfill_log.error(
                 "background signal backfill failed for user %s: %s",
                 user_id, _exc, exc_info=True,
             )
@@ -9914,30 +10437,39 @@ def stryd_configured():
     return JSONResponse({"configured": bool(os.getenv("STRYD_FERNET_KEY"))})
 
 
-_STRAVA_ACTIVITIES_URL = "https://www.strava.com/api/v3/athlete/activities"
-_STRAVA_SYNC_PER_PAGE = 100
-_STRAVA_DEFAULT_LOOKBACK_DAYS = 90
-_DAILY_RECONCILE_LIMIT = 10  # max activities reconciled per incremental (daily) sync
+@app.get("/api/garmin/status")
+def garmin_status(user: User = Depends(resolve_user)):
+    """Garmin scaffold (Phase 3): reports the flag state. `connected` is always
+    False until the integration is built — see backend/services/garmin.py."""
+    from backend.services import garmin
+    return JSONResponse({
+        "source": "garmin",
+        "enabled": garmin.is_enabled(),
+        "connected": False,
+    })
+
+
 # Caps concurrent background syncs — prevents a burst of requests from spawning
 # unlimited threads and exhausting memory.
-_sync_pool = _ThreadPoolExecutor(max_workers=3, thread_name_prefix="sync")
+_sync_pool = _ThreadPoolExecutor(max_workers=1, thread_name_prefix="sync")
+
+
+class _InMemoryRecorder:
+    """Adapter satisfying sync_runner.SyncRecorder by delegating to the
+    module-level functions in backend.services.sync_jobs."""
+
+    set_phase = staticmethod(_sync_jobs.set_phase)
+    increment = staticmethod(_sync_jobs.increment)
+    mark_success = staticmethod(_sync_jobs.mark_success)
+    mark_error = staticmethod(_sync_jobs.mark_error)
+
+
+_sync_recorder = _InMemoryRecorder()
 
 
 def _default_strava_since_date(user_id: _uuid.UUID) -> str:
     """Return YYYY-MM-DD lower bound for incremental Strava pulls."""
-    from datetime import date as _date_cls, timedelta as _timedelta
-
-    try:
-        with Session(engine) as session:
-            latest_synced = session.execute(
-                select(func.max(StravaActivity.synced_at))
-                .where(StravaActivity.user_id == user_id)
-            ).scalar()
-        if latest_synced is not None and hasattr(latest_synced, "date"):
-            return (latest_synced.date() - _timedelta(days=1)).isoformat()
-    except (AttributeError, TypeError, ValueError):
-        pass
-    return (_date_cls.today() - _timedelta(days=_STRAVA_DEFAULT_LOOKBACK_DAYS)).isoformat()
+    return _sync_runner.default_strava_since_date(user_id)
 
 
 def _run_plan_matcher(uid) -> None:
@@ -9945,130 +10477,40 @@ def _run_plan_matcher(uid) -> None:
     workouts. Runs after reconcile_workouts, before mark_success. Failures never
     fail the sync — the on-demand /api/planned-sessions/reconcile is the backstop.
     """
-    try:
-        from backend.services import plan_matching as _pm
-        with Session(engine) as _s:
-            _pm.reconcile_user(_s, uid)
-    except Exception as _pm_exc:  # noqa: BLE001
-        _logging.getLogger(__name__).warning(
-            "plan matcher failed for user %s: %s", uid, _pm_exc, exc_info=True
-        )
+    _sync_runner.run_plan_matcher(uid)
 
 
 def _strava_sync_worker(user_id: str, since_date: Optional[str] = None, *, full: bool = False) -> None:
     """Background daemon thread: pull Strava activities (optionally since since_date) and upsert."""
-    import calendar as _calendar
-    from datetime import date as _date_cls
-    uid = _uuid.UUID(user_id)
-    since_epoch: Optional[int] = None
-    if full:
-        since_epoch = None
-    else:
-        if since_date is None:
-            since_date = _default_strava_since_date(uid)
-        if since_date:
-            try:
-                d = _date_cls.fromisoformat(since_date)
-                since_epoch = int(_calendar.timegm(_datetime(d.year, d.month, d.day, tzinfo=_timezone.utc).timetuple()))
-            except ValueError:
-                pass
-    try:
-        _sync_jobs.set_phase(uid, "pulling_strava")
-
-        access_token = refresh_token_if_needed(user_id)
-        if access_token is None:
-            _sync_jobs.mark_error(uid, "Strava account not connected")
-            return
-
-        page = 1
-        synced_strava_ids: list[int] = []
-        while True:
-            params: dict = {"per_page": _STRAVA_SYNC_PER_PAGE, "page": page}
-            if since_epoch is not None:
-                params["after"] = since_epoch
-            url = _STRAVA_ACTIVITIES_URL + "?" + _urlencode(params)
-            req = _urllib_request.Request(url, headers={"Authorization": f"Bearer {access_token}"})
-            try:
-                with _urllib_request.urlopen(req) as resp:
-                    batch = _json.loads(resp.read())
-            except _urllib_error.HTTPError as exc:
-                _sync_jobs.mark_error(uid, f"Strava API error: {exc.code}")
-                return
-
-            if not batch:
-                break
-
-            now = _datetime.now(tz=_timezone.utc)
-            rows = []
-            for act in batch:
-                start_dt = _datetime.strptime(act["start_date"], "%Y-%m-%dT%H:%M:%SZ").replace(
-                    tzinfo=_timezone.utc
-                )
-                synced_strava_ids.append(int(act["id"]))
-                rows.append({
-                    "user_id": user_id,
-                    "strava_activity_id": int(act["id"]),
-                    "start_time": start_dt,
-                    "activity_type": act.get("type") or act.get("sport_type") or "Unknown",
-                    "name": act.get("name") or "Untitled",
-                    "distance_km": round(float(act["distance"]) / 1000, 3) if act.get("distance") else None,
-                    "duration_seconds": int(act["moving_time"]) if act.get("moving_time") else None,
-                    "avg_hr": clean_hr(act.get("average_heartrate")),
-                    "max_hr": clean_hr(act.get("max_heartrate")),
-                    "elevation_m": int(act["total_elevation_gain"]) if act.get("total_elevation_gain") else None,
-                    "avg_power_w": int(act["average_watts"]) if act.get("average_watts") else None,
-                    "max_power_w": int(act["max_watts"]) if act.get("max_watts") else None,
-                    "device_name": act.get("device_name"),
-                    "external_id": act.get("external_id"),
-                    "is_stryd_synced": False,
-                    "raw_payload": act,
-                    "synced_at": now,
-                })
-
-            with Session(engine) as session:
-                ins = _pg_insert(StravaActivity).values(rows)
-                stmt = ins.on_conflict_do_update(
-                    index_elements=["strava_activity_id"],
-                    set_={
-                        "name": ins.excluded.name,
-                        "activity_type": ins.excluded.activity_type,
-                        "distance_km": ins.excluded.distance_km,
-                        "duration_seconds": ins.excluded.duration_seconds,
-                        "avg_hr": ins.excluded.avg_hr,
-                        "max_hr": ins.excluded.max_hr,
-                        "elevation_m": ins.excluded.elevation_m,
-                        "avg_power_w": ins.excluded.avg_power_w,
-                        "max_power_w": ins.excluded.max_power_w,
-                        "raw_payload": ins.excluded.raw_payload,
-                        "synced_at": now,
-                    },
-                )
-                session.execute(stmt)
-                session.commit()
-
-            _sync_jobs.increment(uid, current=len(rows), items_synced=len(rows))
-
-            if len(batch) < _STRAVA_SYNC_PER_PAGE:
-                break
-            page += 1
-
-        if full:
-            _reconcile.reconcile_workouts(uid, uid)
-        else:
-            _reconcile.reconcile_workouts(
-                uid,
-                uid,
-                strava_activity_ids=synced_strava_ids[-_DAILY_RECONCILE_LIMIT:],
-            )
-        _run_plan_matcher(uid)
-        _sync_jobs.mark_success(uid)
-    except Exception as exc:  # noqa: BLE001
-        _sync_jobs.mark_error(uid, str(exc))
+    _sync_runner.run_strava_sync(user_id, since_date, full=full, recorder=_sync_recorder)
 
 
 class _StravaSyncBody(BaseModel):
     since_date: Optional[str] = None
     full: bool = False
+
+
+def _web_incremental_sync_enabled() -> bool:
+    """Whether light incremental syncs run in-process on the web tier (default on).
+    Set WEB_INCREMENTAL_SYNC_ENABLED=0 to route incremental syncs to the worker
+    too (fully offload sync from the web dyno). Full/stream-heavy syncs always go
+    to the worker regardless."""
+    return os.getenv("WEB_INCREMENTAL_SYNC_ENABLED", "1").strip().lower() not in (
+        "0", "false", "no", "off", "",
+    )
+
+
+def _maybe_delegate_incremental(uid, source: str):
+    """Phase 3 routing: when web incremental is disabled, hand the incremental
+    sync to the worker (queue). Returns a JSONResponse to return, or None to fall
+    through to the in-process path (flag on, or worker unavailable in http mode)."""
+    if _web_incremental_sync_enabled():
+        return None
+    try:
+        res = _worker_client.delegate_sync(str(uid), sources=[source], full=False)
+        return JSONResponse({"started": True, "worker_delegated": True, **res}, status_code=202)
+    except _worker_client.WorkerUnavailable:
+        return None  # http mode with no worker → fall back to in-process
 
 
 @app.post("/api/strava/sync")
@@ -10078,6 +10520,10 @@ def strava_sync(body: _StravaSyncBody = Body(default=None), user: User = Depends
     Default (incremental): since last synced activity minus 1 day, or 90-day
     lookback on first sync. Pass full=true to fetch entire Strava history.
     Optional since_date (YYYY-MM-DD) overrides the incremental window.
+
+    full=true: delegated to the compute worker (/internal/sync/run).
+    Returns 503 if the worker is unreachable and ROUTE_FULL_SYNC_FALLBACK_TO_INPROCESS
+    is not set to "1".
     """
     uid = user.id
     since = None
@@ -10085,6 +10531,26 @@ def strava_sync(body: _StravaSyncBody = Body(default=None), user: User = Depends
     if body is not None:
         since = body.since_date
         full = body.full
+
+    if full:
+        try:
+            result = _worker_client.delegate_sync(str(uid), sources=["strava"], full=True)
+            return JSONResponse({"started": True, "worker_delegated": True, **result}, status_code=202)
+        except _worker_client.WorkerUnavailable as exc:
+            if os.getenv("ROUTE_FULL_SYNC_FALLBACK_TO_INPROCESS", "0") != "1":
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Compute worker unavailable — cannot run full sync: {exc}",
+                )
+            _logging.getLogger(__name__).warning(
+                "Worker unavailable for full Strava sync (user %s); falling back to in-process: %s",
+                uid, exc,
+            )
+
+    _delegated = _maybe_delegate_incremental(uid, "strava")
+    if _delegated is not None:
+        return _delegated
+
     try:
         _sync_jobs.start(uid, "strava")
     except _sync_jobs.SyncInProgress:
@@ -10096,36 +10562,7 @@ def strava_sync(body: _StravaSyncBody = Body(default=None), user: User = Depends
 
 def _stryd_sync_worker(user_id: str, since_date: Optional[str] = None, *, full: bool = False) -> None:
     """Background daemon thread: pull Stryd activities, upsert, then reconcile."""
-    from datetime import date as _date_cls
-    from backend.services import stryd_sync as _stryd_sync
-    uid = _uuid.UUID(user_id)
-    since = None
-    if since_date and not full:
-        try:
-            since = _date_cls.fromisoformat(since_date)
-        except ValueError:
-            pass
-    try:
-        _sync_jobs.set_phase(uid, "pulling_stryd")
-        result = _stryd_sync.sync_stryd_activities(str(uid), since_date=since, full=full, heal=full)
-        _sync_jobs.increment(uid, current=result["upserted"], items_synced=result["upserted"])
-        if result["upserted"] == 0 and not full:
-            _sync_jobs.mark_success(uid)
-            return
-        _sync_jobs.set_phase(uid, "reconciling")
-        if full:
-            _reconcile.reconcile_workouts(uid, uid)
-        else:
-            all_ids = result.get("stryd_activity_ids") or []
-            _reconcile.reconcile_workouts(
-                uid,
-                uid,
-                stryd_activity_ids=all_ids[-_DAILY_RECONCILE_LIMIT:],
-            )
-        _run_plan_matcher(uid)
-        _sync_jobs.mark_success(uid)
-    except Exception as exc:  # noqa: BLE001
-        _sync_jobs.mark_error(uid, str(exc))
+    _sync_runner.run_stryd_sync(user_id, since_date, full=full, recorder=_sync_recorder)
 
 
 class _StrydSyncBody(BaseModel):
@@ -10140,6 +10577,10 @@ def stryd_sync(body: _StrydSyncBody = Body(default=None), user: User = Depends(r
     Default (incremental): since last completed sync minus 1 day, or 90-day
     lookback on first sync. Pass full=true for a multi-year history pull.
     Optional since_date (YYYY-MM-DD) overrides the incremental window.
+
+    full=true: delegated to the compute worker (/internal/sync/run).
+    Returns 503 if the worker is unreachable and ROUTE_FULL_SYNC_FALLBACK_TO_INPROCESS
+    is not set to "1".
     """
     uid = user.id
     with Session(engine) as session:
@@ -10151,6 +10592,26 @@ def stryd_sync(body: _StrydSyncBody = Body(default=None), user: User = Depends(r
     if body is not None:
         since = body.since_date
         full = body.full
+
+    if full:
+        try:
+            result = _worker_client.delegate_sync(str(uid), sources=["stryd"], full=True)
+            return JSONResponse({"started": True, "worker_delegated": True, **result}, status_code=202)
+        except _worker_client.WorkerUnavailable as exc:
+            if os.getenv("ROUTE_FULL_SYNC_FALLBACK_TO_INPROCESS", "0") != "1":
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Compute worker unavailable — cannot run full sync: {exc}",
+                )
+            _logging.getLogger(__name__).warning(
+                "Worker unavailable for full Stryd sync (user %s); falling back to in-process: %s",
+                uid, exc,
+            )
+
+    _delegated = _maybe_delegate_incremental(uid, "stryd")
+    if _delegated is not None:
+        return _delegated
+
     try:
         _sync_jobs.start(uid, "stryd")
     except _sync_jobs.SyncInProgress:
@@ -10170,9 +10631,17 @@ async def post_sync_strava(
     body: _SyncStravaTriggerBody = Body(default=None),
     user: User = Depends(resolve_user),
 ):
-    """Trigger a Strava sync; returns 202 immediately. Sync runs via BackgroundTasks.
-    Falls back to synchronous execution if BackgroundTasks is unavailable.
+    """Legacy Strava sync endpoint (BackgroundTasks path).
+
+    Disabled by default (returns 410 Gone). Enable by setting
+    LEGACY_SYNC_STRAVA_ENABLED=1. Use POST /api/strava/sync instead.
     """
+    if os.getenv("LEGACY_SYNC_STRAVA_ENABLED", "0") != "1":
+        raise HTTPException(
+            status_code=410,
+            detail="This endpoint is disabled. Use POST /api/strava/sync instead.",
+        )
+
     from backend.services.strava_sync import sync_strava_activities as _strava_bg_sync
     from sqlalchemy import select
 
@@ -11895,6 +12364,99 @@ def get_training_load(
     })
 
 
+@app.get("/api/training-load/weekly")
+def get_training_load_weekly(
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+    current_user: User = Depends(resolve_user),
+):
+    """Return weekly TSS/distance aggregates for the volume chart.
+
+    Each week bucket contains only run_tss, strength_tss, total_tss, and
+    total_distance_km — no per-workout serialization.  Week boundaries are
+    Monday-to-Sunday (ISO week semantics).
+    """
+    import re as _re
+
+    uid = current_user.id
+    today = _date.today()
+
+    try:
+        from_d = _date.fromisoformat(from_date) if from_date else today - _timedelta(days=90)
+        to_d = _date.fromisoformat(to_date) if to_date else today
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid date format; use YYYY-MM-DD")
+
+    if from_d > to_d:
+        raise HTTPException(status_code=422, detail="'from' must not be after 'to'")
+
+    if (to_d - from_d).days > 365:
+        raise HTTPException(status_code=422, detail="Date range cannot exceed 365 days")
+
+    _RUN_RE = _re.compile(r"^run(ning)?$|^race$|^(bike|ride|cycl)", _re.IGNORECASE)
+    _LIFT_RE = _re.compile(r"^(lift|strength|wod|crossfit)", _re.IGNORECASE)
+
+    with Session(engine) as session:
+        # SQL-side GROUP BY (week_monday, workout_type) so we aggregate TSS and
+        # distance in the database rather than loading every Workout row.
+        week_monday = func.date_trunc(
+            "week", _sa_cast(Workout.workout_date, _sa_DateTime),
+        )
+        rows = (
+            session.query(
+                week_monday.label("week_mon"),
+                Workout.workout_type,
+                func.coalesce(func.sum(Workout.tss), 0).label("sum_tss"),
+                func.coalesce(func.sum(Workout.distance_km), 0).label("sum_dist"),
+            )
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= from_d,
+                Workout.workout_date <= to_d,
+            )
+            .group_by(week_monday, Workout.workout_type)
+            .all()
+        )
+
+    weeks_map: dict = {}
+    for row in rows:
+        # date_trunc returns a datetime; convert to ISO date string (Monday)
+        wm = row.week_mon
+        if hasattr(wm, "date"):
+            mon_key = wm.date().isoformat()
+        else:
+            mon_key = str(wm)[:10]
+        if mon_key not in weeks_map:
+            weeks_map[mon_key] = {"run_tss": 0.0, "strength_tss": 0.0, "total_distance_km": 0.0}
+        tss = float(row.sum_tss or 0)
+        dist = float(row.sum_dist or 0)
+        wt = (row.workout_type or "").strip()
+        if _RUN_RE.match(wt):
+            weeks_map[mon_key]["run_tss"] += tss
+        elif _LIFT_RE.match(wt):
+            weeks_map[mon_key]["strength_tss"] += tss
+        elif dist > 0:
+            weeks_map[mon_key]["run_tss"] += tss
+        else:
+            weeks_map[mon_key]["strength_tss"] += tss
+        weeks_map[mon_key]["total_distance_km"] += dist
+
+    weeks = []
+    for mon_key in sorted(weeks_map):
+        agg = weeks_map[mon_key]
+        run_tss = round(agg["run_tss"], 2)
+        strength_tss = round(agg["strength_tss"], 2)
+        weeks.append({
+            "week_start": mon_key,
+            "run_tss": run_tss,
+            "strength_tss": strength_tss,
+            "total_tss": round(run_tss + strength_tss, 2),
+            "total_distance_km": round(agg["total_distance_km"], 2),
+        })
+
+    return JSONResponse({"weeks": weeks})
+
+
 @app.post("/api/training-load/recompute")
 def recompute_training_load(
     from_date: str = Query(alias="from"),
@@ -12589,14 +13151,100 @@ def admin_copy_user_to_uat(body: AdminCopyUserIn):
 @app.get("/api/sync/status")
 async def get_sync_status(user: User = Depends(resolve_user)):
     job = _sync_jobs.snapshot(user.id)
-    if job is None:
-        return JSONResponse({"status": "idle"})
-    serialized = {
-        **job,
-        "started_at": job["started_at"].isoformat() if job["started_at"] else None,
-        "finished_at": job["finished_at"].isoformat() if job["finished_at"] else None,
-    }
-    return JSONResponse(serialized)
+    if job is not None:
+        serialized = {
+            **job,
+            "started_at": job["started_at"].isoformat() if job["started_at"] else None,
+            "finished_at": job["finished_at"].isoformat() if job["finished_at"] else None,
+        }
+        return JSONResponse(serialized)
+
+    # No in-process job — check worker_job_runs for a delegated job.
+    from backend.models import WorkerJobRun as _WorkerJobRun
+    from sqlalchemy import select as _sel, or_ as _or
+    from datetime import datetime, timezone as _tz, timedelta as _td
+    _cutoff = datetime.now(_tz.utc) - _td(minutes=10)
+    try:
+        with Session(engine) as _db:
+            wjr = _db.execute(
+                _sel(_WorkerJobRun)
+                .where(_WorkerJobRun.user_id == user.id)
+                .where(
+                    _or(
+                        _WorkerJobRun.status == "running",
+                        _WorkerJobRun.started_at >= _cutoff,
+                    )
+                )
+                .order_by(_WorkerJobRun.started_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+        if wjr is not None:
+            return JSONResponse({
+                "status": wjr.status,
+                "phase": wjr.phase,
+                "source": "worker",
+                "job_type": wjr.job_type,
+                "items_synced": wjr.items_synced,
+                "error": wjr.error,
+                "started_at": wjr.started_at.isoformat() if wjr.started_at else None,
+                "finished_at": wjr.finished_at.isoformat() if wjr.finished_at else None,
+            })
+    except Exception:
+        pass
+
+    # Phase 3: a queued/running job in the pull queue (e.g. a full sync waiting
+    # for the worker to claim it) surfaces as "pending" so the nav bar reflects
+    # work that hasn't started executing yet. A running worker_job_run above
+    # already returned; this catches the pre-claim window.
+    try:
+        from backend.services import job_queue as _jq
+        pending = _jq.pending_for_user(user.id)
+        if pending is not None:
+            return JSONResponse({
+                "status": "pending" if pending["status"] == "queued" else "running",
+                "source": "queue",
+                "job_type": pending["job_type"],
+                "enqueued_at": pending["created_at"].isoformat() if pending["created_at"] else None,
+            })
+    except Exception:
+        pass
+
+    return JSONResponse({"status": "idle"})
+
+
+@app.get("/api/queue")
+def get_queue(limit: int = 25, user: User = Depends(resolve_user)):
+    """The signed-in user's recent pull-queue jobs (Settings → Queue tab).
+
+    User-isolated by payload user_id — never another user's rows, and batch jobs
+    (no user_id) are excluded. Read-only."""
+    limit = max(1, min(int(limit or 25), 100))
+    try:
+        from backend.services import job_queue as _jq
+        rows = _jq.list_for_user(user.id, limit=limit)
+    except Exception:
+        _logging.getLogger(__name__).warning("queue list failed for %s", user.id, exc_info=True)
+        rows = []
+
+    def _dt(v):
+        return v.isoformat() if v is not None else None
+
+    jobs = [
+        {
+            "id": str(r["id"]),
+            "job_type": r["job_type"],
+            "status": r["status"],
+            "attempts": r["attempts"],
+            "max_attempts": r["max_attempts"],
+            "enqueued_by": r["enqueued_by"],
+            "created_at": _dt(r["created_at"]),
+            "started_at": _dt(r["started_at"]),
+            "finished_at": _dt(r["finished_at"]),
+            "error": r["error"],
+        }
+        for r in rows
+    ]
+    return JSONResponse({"jobs": jobs})
 
 
 @app.get("/api/sync/history")
@@ -12852,8 +13500,8 @@ class _RaceCreateBody(BaseModel):
     distance_km: float
     goal_time_seconds: Optional[int] = None
     name: Optional[str] = None
-    priority: Optional[str] = None
-    status: Optional[str] = None
+    priority: Optional[Literal["A", "B", "C"]] = None
+    status: Optional[Literal["planned", "done", "abandoned"]] = None
     race_type: Optional[str] = None
 
 
@@ -12864,8 +13512,8 @@ class _RaceUpdateBody(BaseModel):
     distance_km: Optional[float] = None
     goal_time_seconds: Optional[int] = None
     name: Optional[str] = None
-    priority: Optional[str] = None
-    status: Optional[str] = None
+    priority: Optional[Literal["A", "B", "C"]] = None
+    status: Optional[Literal["planned", "done", "abandoned"]] = None
     race_type: Optional[str] = None
 
 
@@ -12947,16 +13595,19 @@ def create_race(body: _RaceCreateBody, user: User = Depends(resolve_user)):
 
     with Session(engine) as session:
         race_type_val = body.race_type if body.race_type in _RACE_TYPE_VALUES else "race"
-        race = Race(
+        race_kwargs: dict = dict(
             user_id=user.id,
             name=body.name if body.name is not None else "",
             race_date=race_date,
             distance_km=body.distance_km,
             goal_time_seconds=body.goal_time_seconds,
-            priority=body.priority if body.priority is not None else "A",
-            status=body.status if body.status is not None else "planned",
             race_type=race_type_val,
         )
+        if body.priority is not None:
+            race_kwargs["priority"] = body.priority
+        if body.status is not None:
+            race_kwargs["status"] = body.status
+        race = Race(**race_kwargs)
         race.goal_pace_seconds_per_km = pace
         session.add(race)
         session.commit()
@@ -13709,16 +14360,19 @@ def _rdns_cfg_int(key: str, default: int) -> int:
 def _rdns_classify_zone(tsb: float, buried_ceiling: float, fresh_floor: float) -> str:
     """Classify a TSB value into a zone using configurable thresholds.
 
+    Uses the canonical zone vocabulary defined in backend/services/training_load.py
+    (_classify_zone / performance_curve): buried / neutral / fresh.
+
     Zones:
-        accumulated_fatigue — TSB is below buried_ceiling (athlete is over-reached)
-        freshness           — TSB is at or above fresh_floor (athlete is well-rested)
-        optimal             — TSB is between the two thresholds
+        buried  — TSB is below buried_ceiling (athlete is over-reached)
+        fresh   — TSB is at or above fresh_floor (athlete is well-rested)
+        neutral — TSB is between the two thresholds
     """
     if tsb < buried_ceiling:
-        return "accumulated_fatigue"
+        return "buried"
     if tsb >= fresh_floor:
-        return "freshness"
-    return "optimal"
+        return "fresh"
+    return "neutral"
 
 
 _RACE_READINESS_UNSET = object()
@@ -13921,6 +14575,17 @@ def _race_readiness_impl(
                 if user_prefs_row else None
             )
 
+        # Fetch per-user stimulus history for the economy ceiling bonus.
+        _snap_rows = (
+            db.query(EconomyCeilingSnapshot)
+            .filter(EconomyCeilingSnapshot.user_id == user.id)
+            .order_by(EconomyCeilingSnapshot.snapshot_date.asc())
+            .all()
+        )
+        _stimulus_history = [
+            (row.snapshot_date, row.economy_stimulus) for row in _snap_rows
+        ]
+
     import types as _types
 
     recent_runs = [
@@ -13985,7 +14650,11 @@ def _race_readiness_impl(
     def _base_ceiling(ctl_value):
         if _race_anchor_ceiling is not None:
             return _race_anchor_ceiling
-        return _projected_ctl_to_score_ceiling(ctl_value)["endurance_ceiling"]
+        return _projected_ctl_to_score_ceiling(
+            ctl_value,
+            stimulus_history=_stimulus_history,
+            reference_date=today,
+        )["endurance_ceiling"]
 
     # History: last 90 days of load_curves → expressible score → estimated finish time
     _tc_history_cutoff = today - _timedelta(days=90)
@@ -14677,18 +15346,37 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
 
     HTTP 200 for scored, needs_thresholds, and building_baseline.
     HTTP 500 for unexpected server-side failures (state='error').
-    HTTP 404 when the athlete ID does not exist.
+    HTTP 404 when the athlete ID does not exist — body uses _build_performance_response
+    so the canonical shape (including state key) is always present (issue #1027).
     """
+    generated_at = _datetime.now(_timezone.utc).isoformat()
+
     try:
         if _uuid.UUID(athlete_id) != user.id:
-            raise HTTPException(status_code=404, detail="Athlete not found")
+            return JSONResponse(
+                status_code=404,
+                content=_build_performance_response(
+                    state="error",
+                    endurance=None,
+                    speed=None,
+                    generated_at=generated_at,
+                    reason="athlete not found",
+                ),
+            )
     except ValueError:
-        raise HTTPException(status_code=404, detail="Athlete not found")
+        return JSONResponse(
+            status_code=404,
+            content=_build_performance_response(
+                state="error",
+                endurance=None,
+                speed=None,
+                generated_at=generated_at,
+                reason="athlete not found",
+            ),
+        )
     from backend.services.running_performance import compute_endurance_score, compute_speed_score
     from backend.services.zone_constants import make_zone_constants
     from backend.services.lap_classify import classify_laps
-
-    generated_at = _datetime.now(_timezone.utc).isoformat()
 
     try:
         from backend.services.aerobic_decoupling import compute_decoupling
@@ -14701,7 +15389,16 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
         with Session(engine) as session:
             athlete = session.get(User, uid)
             if athlete is None:
-                raise HTTPException(status_code=404, detail="Athlete not found")
+                return JSONResponse(
+                    status_code=404,
+                    content=_build_performance_response(
+                        state="error",
+                        endurance=None,
+                        speed=None,
+                        generated_at=generated_at,
+                        reason="athlete not found",
+                    ),
+                )
 
             # Load user preferences; None means preferences row absent
             prefs_row = (
@@ -14849,8 +15546,10 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
         # Race VDOT-band perf point (pool point + decayed floor) — score re-anchor.
         with Session(engine) as _race_session:
             _race_perf = _latest_race_perf(_race_session, uid)
-        endurance = compute_endurance_score(runs, preferences, zone_constants, race_perf=_race_perf)
-        speed = compute_speed_score(runs, preferences, zone_constants, race_perf=_race_perf)
+        from backend.services.body_modifier import get_body_modifier_for_user as _get_bm
+        _bm = _get_bm(uid)
+        endurance = compute_endurance_score(runs, preferences, zone_constants, race_perf=_race_perf, body_modifier=_bm)
+        speed = compute_speed_score(runs, preferences, zone_constants, race_perf=_race_perf, body_modifier=_bm)
 
         if _performance_log.isEnabledFor(_logging.DEBUG):
             log_entry = _build_performance_log_entry(
@@ -14899,7 +15598,7 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
 
     except HTTPException:
         raise
-    except Exception as exc:
+    except Exception:
         _performance_log.exception("unexpected error in performance endpoint")
         return JSONResponse(
             status_code=500,
@@ -14908,7 +15607,7 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
                 endurance=None,
                 speed=None,
                 generated_at=generated_at,
-                reason=str(exc) or "unexpected server error",
+                reason="unexpected server error",
             ),
         )
 
@@ -15070,13 +15769,21 @@ def _performance_signature(session, user_id, prefs_row) -> str:
 
 
 @app.get("/api/athletes/{athlete_id}/summary/weekly")
-def get_athlete_weekly_summary(athlete_id: str, user: User = Depends(resolve_user)):
-    """Return a flat weekly summary for the current ISO week.
+def get_athlete_weekly_summary(
+    athlete_id: str,
+    user: User = Depends(resolve_user),
+    week: Optional[str] = Query(default=None),
+):
+    """Return a flat weekly summary for an ISO week.
 
     Aggregates volume (distance_km, total_tss, session_count), fitness signal
     changes (endurance_score_change, speed_score_change), load form
     (form_tsb_change, readiness_next_week), and weight trend (weight_change_kg)
-    into a single response keyed to the current Monday–Sunday ISO week.
+    into a single response keyed to a Monday–Sunday ISO week.
+
+    Query params:
+        week: optional YYYY-MM-DD date inside the target week (normalized to
+              that week's Monday). Defaults to the current ISO week.
 
     Returns 200 for any valid authenticated athlete.  Returns zeros for
     numeric fields and null for weight when no data exists.  Returns 404
@@ -15101,7 +15808,17 @@ def get_athlete_weekly_summary(athlete_id: str, user: User = Depends(resolve_use
 
         _bkk = ZoneInfo("Asia/Bangkok")
         today = _datetime.now(_bkk).date()
-        ws = today - _timedelta(days=today.weekday())   # Monday
+        if week is not None:
+            try:
+                ref = _date.fromisoformat(week)
+            except ValueError:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"week must be in YYYY-MM-DD format, got {week!r}",
+                )
+            ws = ref - _timedelta(days=ref.weekday())   # Monday of that ISO week
+        else:
+            ws = today - _timedelta(days=today.weekday())   # Monday
         we = ws + _timedelta(days=6)                     # Sunday
         # Cap the load series end at today — daily_tss_series rejects future dates.
         load_end = min(we, today)
@@ -15112,34 +15829,11 @@ def get_athlete_weekly_summary(athlete_id: str, user: User = Depends(resolve_use
             return JSONResponse(_cached)
 
         # ── Weekly volume (AC8) ───────────────────────────────────────────────
-        current_week_workouts = (
-            session.query(Workout)
-            .filter(
-                Workout.user_id == uid,
-                Workout.workout_date >= ws,
-                Workout.workout_date <= we,
-            )
-            .all()
-        )
-        session_count = len(current_week_workouts)
-
-        def _sf(v):
-            try:
-                return float(v) if v is not None else None
-            except Exception:
-                return None
-
-        def _sum_attr(workouts, attr):
-            vals = [_sf(getattr(w, attr)) for w in workouts if getattr(w, attr, None) is not None]
-            return round(sum(vals), 3) if vals else None
-
-        distance_km = _sum_attr(current_week_workouts, "distance_km")
-        raw_tss = _sum_attr(current_week_workouts, "tss")
-        total_tss = round(raw_tss, 2) if raw_tss is not None else 0.0
-        if distance_km is None:
-            distance_km = 0.0
-
-        workout_types = [w.workout_type for w in current_week_workouts]
+        _volume = _get_weekly_volume(str(uid), ws, we)
+        session_count = _volume["session_count"]
+        distance_km = _volume["distance_km"]
+        total_tss = _volume["total_tss"]
+        workout_types = _volume["workout_types"]
 
         # ── TSB / load (AC5, AC9) ─────────────────────────────────────────────
         warmup_start = ws - _timedelta(days=180)
@@ -15257,13 +15951,16 @@ def get_athlete_weekly_summary(athlete_id: str, user: User = Depends(resolve_use
                 return score
             return None
 
+        from backend.services.body_modifier import get_body_modifier_for_user as _get_bm_weekly
+        _bm_weekly = _get_bm_weekly(uid)
+
         runs_at_start = _build_run_list(ws)
-        endurance_start = _extract_score(compute_endurance_score(runs_at_start, preferences, zone_constants))
-        speed_start = _extract_score(compute_speed_score(runs_at_start, preferences, zone_constants))
+        endurance_start = _extract_score(compute_endurance_score(runs_at_start, preferences, zone_constants, body_modifier=_bm_weekly))
+        speed_start = _extract_score(compute_speed_score(runs_at_start, preferences, zone_constants, body_modifier=_bm_weekly))
 
         runs_at_end = _build_run_list(load_end)
-        endurance_end = _extract_score(compute_endurance_score(runs_at_end, preferences, zone_constants))
-        speed_end = _extract_score(compute_speed_score(runs_at_end, preferences, zone_constants))
+        endurance_end = _extract_score(compute_endurance_score(runs_at_end, preferences, zone_constants, body_modifier=_bm_weekly))
+        speed_end = _extract_score(compute_speed_score(runs_at_end, preferences, zone_constants, body_modifier=_bm_weekly))
 
         if endurance_start is not None and endurance_end is not None:
             endurance_score_change = round(endurance_end - endurance_start, 2)
@@ -15993,8 +16690,10 @@ def get_projection(user: User = Depends(resolve_user)):
                             "laps": laps,
                         })
 
-                    endurance_result = compute_endurance_score(runs, preferences, zone_constants)
-                    speed_result = compute_speed_score(runs, preferences, zone_constants)
+                    from backend.services.body_modifier import get_body_modifier_for_user as _get_bm_proj
+                    _bm_proj = _get_bm_proj(user.id)
+                    endurance_result = compute_endurance_score(runs, preferences, zone_constants, body_modifier=_bm_proj)
+                    speed_result = compute_speed_score(runs, preferences, zone_constants, body_modifier=_bm_proj)
 
                     if isinstance(endurance_result, dict):
                         endurance_score = endurance_result.get("score")
@@ -16180,7 +16879,7 @@ def get_athlete_monthly_summary(
         month: YYYY-MM string selecting the target month (default: current month).
 
     Returns a flat JSON object with exactly 14 keys.
-    Returns HTTP 424 when no weekly aggregation data is available for the month.
+    Returns HTTP 424 when no training sessions found for the requested month.
     """
     import calendar as _calendar
 
@@ -16256,14 +16955,11 @@ def get_athlete_monthly_summary(
             .all()
         )
 
-    # ── Dependency check — 424 when no training data ───────────────────────────
+    # ── Guard — 424 when no training sessions for this month ──────────────────
     if not workouts:
         raise HTTPException(
             status_code=424,
-            detail=(
-                f"No training sessions found for {month_start.strftime('%B %Y')}. "
-                "Weekly aggregation data is required to compute the monthly summary."
-            ),
+            detail=f"No training sessions found for {month_start.strftime('%B %Y')}.",
         )
 
     # ── Training aggregate fields ─────────────────────────────────────────────
@@ -16623,9 +17319,14 @@ def _banister_refit_scheduler_loop() -> None:
             )
 
 
-_banister_refit_thread = _threading.Thread(
-    target=_banister_refit_scheduler_loop,
-    daemon=True,
-    name="banister-refit-scheduler",
-)
-_banister_refit_thread.start()
+if os.environ.get("BANISTER_REFIT_ENABLED", "1") != "0":
+    _banister_refit_thread = _threading.Thread(
+        target=_banister_refit_scheduler_loop,
+        daemon=True,
+        name="banister-refit-scheduler",
+    )
+    _banister_refit_thread.start()
+else:
+    _logging.getLogger(__name__).info(
+        "Banister refit scheduler disabled (BANISTER_REFIT_ENABLED=0)"
+    )

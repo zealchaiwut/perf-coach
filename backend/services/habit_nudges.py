@@ -6,6 +6,9 @@ the caller (typically the thin endpoint layer that runs queries).
 
 from __future__ import annotations
 
+import hashlib
+import json
+import re
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -244,3 +247,122 @@ def build_nudges(
         )
 
     return {"nudges": nudges, "debug": debug}
+
+
+# ── LLM coaching overlay (issue #1312) ────────────────────────────────────────
+
+_MAX_NUDGE_LINE_LEN = 250
+_MEDICAL_TERMS = ("doctor", "injury", "medical", "diagnos", "treat", "pain", "consult")
+
+_NUDGES_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "lines": {
+            "type": "array",
+            "items": {"type": "string"},
+        }
+    },
+    "required": ["lines"],
+    "additionalProperties": False,
+}
+
+
+def _nudges_facts_text(
+    adherence_breakdowns: dict[str, Any],
+    slipping_habits: list[dict[str, Any]],
+) -> str:
+    return json.dumps(
+        {"breakdowns": adherence_breakdowns, "slipping": slipping_habits},
+        sort_keys=True,
+    )
+
+
+def _nudges_signature(
+    adherence_breakdowns: dict[str, Any],
+    slipping_habits: list[dict[str, Any]],
+) -> str:
+    return hashlib.sha256(
+        _nudges_facts_text(adherence_breakdowns, slipping_habits).encode()
+    ).hexdigest()
+
+
+def _validate_nudge_lines(lines: list[str], facts_text: str, expected_count: int) -> bool:
+    if len(lines) != expected_count:
+        return False
+    for line in lines:
+        if len(line) > _MAX_NUDGE_LINE_LEN:
+            return False
+        for num in re.findall(r"\d+(?:\.\d+)?", line):
+            if num not in facts_text:
+                return False
+        if any(term in line.lower() for term in _MEDICAL_TERMS):
+            return False
+    return True
+
+
+def apply_llm_nudges(
+    nudge_result: dict[str, Any],
+    adherence_breakdowns: dict[str, Any],
+    slipping_habits: list[dict[str, Any]],
+    user_id: str,
+    db=None,
+) -> dict[str, Any]:
+    """Replace nudge strings with LLM prose when LLM is enabled.
+
+    Falls back to the original nudge_result on any failure.
+    The pure build_nudges function is not modified.
+    """
+    nudges = nudge_result.get("nudges", [])
+    if not nudges:
+        return nudge_result
+
+    import backend.services.llm as _llm  # lazy to avoid circular at module load
+
+    if not _llm.llm_enabled():
+        return nudge_result
+
+    facts_text = _nudges_facts_text(adherence_breakdowns, slipping_habits)
+    sig = _nudges_signature(adherence_breakdowns, slipping_habits)
+
+    signals = (nudge_result.get("debug") or {}).get("signals", [])
+    prompt_lines = [
+        f"{i+1}. Original: '{nudge}' | Data: {json.dumps(signals[i] if i < len(signals) else {})}"
+        for i, nudge in enumerate(nudges)
+    ]
+
+    system = (
+        "You are a performance coach writing concise, supportive habit nudges. "
+        "Rules: one line per nudge, max 250 characters, no medical or injury advice, "
+        "use only numbers given in the data (no invented figures), "
+        "no exclamation marks, no emoji, supportive and non-judgmental tone."
+    )
+    user = (
+        "Rephrase each numbered nudge as a warm, one-sentence coaching line. "
+        "Return JSON: {\"lines\": [...]}.\n" + "\n".join(prompt_lines)
+    )
+
+    def _generate():
+        return _llm.complete_structured(
+            system=system,
+            user=user,
+            schema_name="habit_nudges_lines",
+            json_schema=_NUDGES_JSON_SCHEMA,
+            model_tier="fast",
+        )
+
+    result = _llm.get_or_generate(
+        user_id=user_id,
+        surface="habit_nudges",
+        signature=sig,
+        generate_fn=_generate,
+        db=db,
+    )
+
+    if result is None:
+        return nudge_result
+
+    lines = result.get("lines", [])
+    if not _validate_nudge_lines(lines, facts_text, len(nudges)):
+        return nudge_result
+
+    return {**nudge_result, "nudges": lines}

@@ -288,6 +288,61 @@ def extract_stryd_streams(
     return row, None
 
 
+# ── Conversion helper: stored row → Strava-format streams dict ───────────────
+
+def activity_streams_to_strava_dict(stream_row) -> dict:
+    """Convert a stored ActivityStream row to the Strava raw-streams format.
+
+    The returned dict uses Strava key names (e.g. ``"watts"``, ``"heartrate"``)
+    so that ``_downsample_streams`` and ``_compute_derived`` in main.py work
+    unchanged.  The data is already at ≤1 Hz (stored at ingest time) so
+    ``_downsample_streams`` will simply thin it to the UI target (≈120 pts).
+
+    Returns an empty dict when the row is None or carries no channel data.
+    """
+    if stream_row is None:
+        return {}
+
+    def _get(attr):
+        v = getattr(stream_row, attr, None)
+        return v if isinstance(v, list) and v else None
+
+    out: dict = {}
+
+    ts = _get("time_offset_seconds")
+    if ts:
+        out["time"] = {"data": ts}
+
+    pw = _get("power_w")
+    if pw:
+        out["watts"] = {"data": pw}
+
+    hr = _get("heart_rate_bpm")
+    if hr:
+        out["heartrate"] = {"data": hr}
+
+    # pace_seconds_per_km → velocity_smooth (m/s): v = 1000 / pace
+    pace = _get("pace_seconds_per_km")
+    if pace:
+        vel = [round(1000.0 / p, 4) if p and p > 0 else None for p in pace]
+        out["velocity_smooth"] = {"data": vel}
+
+    cad = _get("cadence_spm")
+    if cad:
+        out["cadence"] = {"data": cad}
+
+    alt = _get("altitude_m")
+    if alt:
+        out["altitude"] = {"data": alt}
+
+    lat = _get("latitude")
+    lng = _get("longitude")
+    if lat and lng and len(lat) == len(lng):
+        out["latlng"] = {"data": list(zip(lat, lng))}
+
+    return out
+
+
 # ── Database write helper ─────────────────────────────────────────────────────
 
 def write_activity_stream(workout_id, row_data: dict, session) -> bool:

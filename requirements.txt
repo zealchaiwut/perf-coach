@@ -8,3 +8,10 @@ cryptography==48.0.0
 requests==2.32.3
 python-multipart==0.0.20
 scipy==1.18.0
+httpx
+# Optional plan-suggestion orchestrators (PLAN_ORCH=langgraph|pydantic_ai),
+# imported lazily only when that orchestrator is selected — off by default, so
+# no startup memory cost; the feature falls back to the deterministic template
+# if either import fails. See backend/services/plan_orch_*.py.
+langgraph==0.2.76
+pydantic-ai-slim[openai]==2.6.0

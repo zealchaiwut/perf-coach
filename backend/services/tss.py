@@ -50,15 +50,16 @@ def intensity_factor_from_power(avg_power_w: int, ftp_w: int) -> float:
     return avg_power_w / ftp_w
 
 
-def get_user_thresholds(user_id, db) -> tuple[int, int, int]:
+def get_user_thresholds(user_id, db) -> tuple:
     """Return (ftp_w, threshold_hr, threshold_pace_sec_per_km) for user_id.
 
-    Reads from user_preferences. Falls back to module-level defaults when the
-    row is absent or a field is NULL, and logs a warning in that case.
+    Reads from user_preferences. Returns None for each field when the user has
+    no user_preferences row or the corresponding column is NULL. No hardcoded
+    defaults are substituted — a missing threshold means the calling function
+    must skip the computation that requires it.
     """
-    defaults = (FTP_W, THRESHOLD_HR, THRESHOLD_PACE_SEC_PER_KM)
     if not user_id or db is None:
-        return defaults
+        return (None, None, None)
 
     try:
         row = db.execute(
@@ -69,30 +70,16 @@ def get_user_thresholds(user_id, db) -> tuple[int, int, int]:
             {"uid": str(user_id)},
         ).fetchone()
     except Exception:
-        _log.warning("Could not query user_preferences for user %s; using defaults", user_id)
-        return defaults
+        _log.warning("Could not query user_preferences for user %s; returning None thresholds", user_id)
+        return (None, None, None)
 
     if row is None:
         _log.warning(
-            "No user_preferences row for user %s; using default thresholds", user_id
+            "No user_preferences row for user %s; returning None thresholds", user_id
         )
-        return defaults
+        return (None, None, None)
 
-    ftp = row.ftp_w if row.ftp_w is not None else FTP_W
-    hr = row.threshold_hr if row.threshold_hr is not None else THRESHOLD_HR
-    pace = (
-        row.threshold_pace_seconds_per_km
-        if row.threshold_pace_seconds_per_km is not None
-        else THRESHOLD_PACE_SEC_PER_KM
-    )
-
-    if row.ftp_w is None or row.threshold_hr is None or row.threshold_pace_seconds_per_km is None:
-        _log.warning(
-            "Null threshold field(s) in user_preferences for user %s; using defaults for null fields",
-            user_id,
-        )
-
-    return (ftp, hr, pace)
+    return (row.ftp_w, row.threshold_hr, row.threshold_pace_seconds_per_km)
 
 
 def compute_running_tss(workout, splits, prefs) -> dict:
@@ -710,7 +697,7 @@ def calc_strength_tss(
     }
 
 
-def estimate_tss_for_workout(workout, user_id=None, db=None) -> tuple[int, str]:
+def estimate_tss_for_workout(workout, user_id=None, db=None) -> tuple:
     ftp_w, threshold_hr, threshold_pace = get_user_thresholds(user_id, db)
 
     duration = getattr(workout, "duration_seconds", None) or 0
@@ -725,14 +712,25 @@ def estimate_tss_for_workout(workout, user_id=None, db=None) -> tuple[int, str]:
         except (TypeError, ZeroDivisionError):
             avg_pace = None
 
+    tried_intensity = False
+
     if avg_power is not None:
-        return compute_tss(intensity_factor_from_power(avg_power, ftp_w), duration), "power"
+        tried_intensity = True
+        if ftp_w is not None:
+            return compute_tss(intensity_factor_from_power(avg_power, ftp_w), duration), "power"
 
     if avg_pace is not None:
-        return compute_tss(intensity_factor_from_pace(avg_pace, threshold_pace), duration), "pace"
+        tried_intensity = True
+        if threshold_pace is not None:
+            return compute_tss(intensity_factor_from_pace(avg_pace, threshold_pace), duration), "pace"
 
     if avg_hr is not None:
-        return compute_tss(intensity_factor_from_hr(avg_hr, threshold_hr), duration), "hr"
+        tried_intensity = True
+        if threshold_hr is not None:
+            return compute_tss(intensity_factor_from_hr(avg_hr, threshold_hr), duration), "hr"
+
+    if tried_intensity:
+        return None, "none"
 
     return compute_tss(0.7, duration), "duration_only"
 
@@ -1301,13 +1299,16 @@ def compute_running_tss_pace_from_prefs(
     )
 
 
-def recompute_user_running_tss(user_id, session) -> None:
+def recompute_user_running_tss(user_id, session) -> int:
     """Recompute TSS for every running workout owned by user_id.
 
     Called when the user's threshold preferences change so that all stored TSS
     values reflect the new thresholds on next fetch.  Only workouts with
     workout_type matching 'run' (case-insensitive) are processed.  The caller
     must commit the session after this function returns.
+
+    Returns the number of workouts processed so callers can report it without
+    running an independent count query that might diverge from this filter.
     """
     from backend.models import Workout
 
@@ -1319,3 +1320,9 @@ def recompute_user_running_tss(user_id, session) -> None:
     )
     for w in workouts:
         persist_running_tss(w.id, session)
+        # Expire the workout row so its loaded attribute values can be GC'd
+        # before the next iteration; the dirty TSS/tss_method fields are kept
+        # in the session's unit-of-work pending state and will be flushed on
+        # the caller's commit.
+        session.expire(w)
+    return len(workouts)

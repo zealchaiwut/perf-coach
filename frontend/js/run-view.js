@@ -36,12 +36,6 @@
     return m + ":" + String(s).padStart(2, "0");
   }
 
-  function copyToClipboard(text) {
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(text).catch(function () {});
-    }
-  }
-
   // ── State ──────────────────────────────────────────────────────────────────
 
   var _workoutId = null;
@@ -87,7 +81,7 @@
       '<div class="rv-hero-cell"><div class="rv-hero-cell-val rv-mono">' + dist + '</div><div class="rv-hero-cell-lbl">Distance</div></div>' +
       '<div class="rv-hero-cell"><div class="rv-hero-cell-val rv-mono">' + (pace !== "—" ? pace : "—") + '</div><div class="rv-hero-cell-lbl">Avg Pace</div></div>' +
       '<div class="rv-hero-cell"><div class="rv-hero-cell-val rv-mono">' + (dur !== "—" ? dur : "—") + '</div><div class="rv-hero-cell-lbl">Duration</div></div>' +
-      '<div class="rv-hero-cell"><div class="rv-hero-cell-val rv-mono" style="color:#2563eb;">' + tssVal + '</div><div class="rv-hero-cell-lbl">TSS</div></div>' +
+      '<div class="rv-hero-cell"><div class="rv-hero-cell-val rv-mono" style="color:var(--primary,#2563eb);">' + tssVal + '</div><div class="rv-hero-cell-lbl">TSS</div></div>' +
       "</div>";
 
     // Compact metric row — only cells with real values (no dashes)
@@ -111,7 +105,7 @@
       : "";
     var watermark =
       '<div class="rv-snap-watermark"><span>perf-coach snapshot</span><span><b>perf-coach</b></span></div>';
-    var returnBtn = '<button class="rv-snap-return-btn" id="rv-snap-return">&#8592; Return</button>';
+    var returnBtn = '<button class="rv-snap-return-btn" id="rv-snap-return" aria-label="Return to full view">&#8592; Return</button>';
 
     return (
       '<div class="rv-snap-card">' +
@@ -139,7 +133,7 @@
       var v = values[i];
       var z2 = window.Zone2.isZone2Lap(s.avg_hr);
       var h = v != null ? Math.round(10 + (1 - (v - vmin) / vr) * 86) : 10;
-      var col = h > 70 ? "#16a34a" : h > 40 ? "#f59e0b" : "#fb923c";
+      var col = h > 70 ? "var(--success)" : h > 40 ? "var(--warning)" : "var(--danger)";
       var outline = z2 ? " outline:2px solid #14b8a6;outline-offset:-2px;" : "";
       return (
         '<div class="rv-snap-bar" title="Lap ' + (i + 1) + " · " + fmtPace(s.distance_km, s.duration_seconds) + '" ' +
@@ -164,8 +158,8 @@
         "<td>" + (isNaN(dist) ? "—" : dist.toFixed(2)) + "</td>" +
         "<td>" + fmtPace(dist, s.duration_seconds) + "</td>" +
         "<td>" + (s.avg_hr != null ? s.avg_hr : "—") + "</td>" +
-        "<td>" + (s.stride_length_m != null ? s.stride_length_m : "—") + "</td>" +
-        "<td>" + (s.cadence_spm != null ? s.cadence_spm : "—") + "</td>" +
+        '<td class="rv-col-len">' + (s.stride_length_m != null ? s.stride_length_m : "—") + "</td>" +
+        '<td class="rv-col-cad">' + (s.cadence_spm != null ? s.cadence_spm : "—") + "</td>" +
         "<td>" + (s.avg_power != null ? s.avg_power : "—") + "</td>" +
         "</tr>"
       );
@@ -173,54 +167,25 @@
     return (
       '<table class="rv-snap-lap-table">' +
       "<thead><tr>" +
-      "<th>Lap</th><th>Distance</th><th>Pace</th><th>HR</th><th>Stride</th><th>Cadence</th><th>Power</th>" +
+      '<th>Lap</th><th>Distance</th><th>Pace</th><th>HR</th><th class="rv-col-len">Stride</th><th class="rv-col-cad">Cadence</th><th>Power</th>' +
       "</tr></thead>" +
       "<tbody>" + rows + "</tbody>" +
       "</table>"
     );
   }
 
-  // ── Snapshot: compact metric row (only populated cells) ───────────────────
-
-  function renderSnapMetricRow(w, strydPresent) {
-    var cells = [];
-    if (w.avg_hr != null) {
-      cells.push({ label: "Avg HR", value: w.avg_hr + " bpm" });
-    }
-    if (strydPresent && w.avg_power != null) {
-      cells.push({ label: "Avg Power", value: w.avg_power + " W" });
-    }
-    if (strydPresent && w.np != null) {
-      cells.push({ label: "NP", value: w.np + " W" });
-    }
-    if (strydPresent && w.avg_cadence_spm != null) {
-      cells.push({ label: "Cadence", value: w.avg_cadence_spm + " spm" });
-    }
-    if (strydPresent && w.avg_stride_m != null) {
-      cells.push({ label: "Stride", value: w.avg_stride_m + " m" });
-    }
-    if (!cells.length) return "";
-    var inner = cells.map(function (c) {
-      return (
-        '<div class="rv-snap-metric-cell">' +
-        '<div class="rv-tile-label">' + esc(c.label) + "</div>" +
-        '<div class="rv-tile-val rv-mono">' + esc(c.value) + "</div>" +
-        "</div>"
-      );
-    }).join("");
-    return '<div class="rv-snap-metric-row">' + inner + "</div>";
-  }
-
   // ── Segment-effort profile ─────────────────────────────────────────────────
+  // Colors reference the DESIGN.md instrument-set intensity ramp so this
+  // fallback view matches the session-profile bars and training-log.
 
   var EFFORT_COLORS = {
-    easy: "#86efac", // green
-    tempo: "#fcd34d", // amber
-    hard: "#fb923c", // orange
-    race: "#f87171", // red-ish
-    recovery: "#cbd5e1", // grey
-    warmup: "#bfdbfe", // light blue
-    cooldown: "#a5f3fc", // cyan
+    easy: "var(--intensity-easy)",
+    tempo: "var(--intensity-tempo)",
+    hard: "var(--intensity-intervals)",
+    race: "var(--intensity-intervals)",
+    recovery: "var(--intensity-rest)",
+    warmup: "var(--intensity-warmup)",
+    cooldown: "var(--intensity-cooldown)",
   };
 
   function segmentColor(effort) {
@@ -460,7 +425,7 @@
       var ratio = dbgLaps[idx] && dbgLaps[idx].ratio != null ? dbgLaps[idx].ratio : null;
       var h = ratio != null ? Math.max(6, Math.min(100, Math.round(ratio * 100))) : PHASE_H[k];
       var mark = devDir[idx]
-        ? '<i class="rv2-dev-mark rv2-dev-' + devDir[idx] + '" style="color:var(--rv2-' + k + ')">' +
+        ? '<i class="rv2-dev-mark rv2-dev-' + devDir[idx] + '">' +
           (devDir[idx] === "up" ? "▲" : "▼") + "</i>"
         : "";
       return '<div class="rv2-cell" style="flex:' + w + ' 0 0">' + mark +
@@ -664,10 +629,10 @@
       '<div class="rv-metric-toggle" role="group" aria-label="Lap bar metric">' +
       '<button class="rv-mtog' +
       (_lapMetric === "power" ? "" : " rv-mtog--active") +
-      '" data-metric="pace">Pace</button>' +
+      '" data-metric="pace" aria-pressed="' + (_lapMetric === "power" ? "false" : "true") + '">Pace</button>' +
       '<button class="rv-mtog' +
       (_lapMetric === "power" ? " rv-mtog--active" : "") +
-      '" data-metric="power">Power</button>' +
+      '" data-metric="power" aria-pressed="' + (_lapMetric === "power" ? "true" : "false") + '">Power</button>' +
       "</div>" +
       '<div class="rv-lap-chart-wrap">' +
       renderLapChart(splits, _lapMetric) +
@@ -747,10 +712,11 @@
 
   function renderSourceStrip(workout, strydPresent) {
     var parts = [];
-    if (workout.strava_activity_url) {
+    var _stravaUrl = workout.strava_activity_url;
+    if (_stravaUrl && _stravaUrl.startsWith('https://')) {
       parts.push(
         '<a class="rv-src-link" href="' +
-          esc(workout.strava_activity_url) +
+          esc(_stravaUrl) +
           '" target="_blank" rel="noopener">View on Strava</a>',
       );
     }
@@ -793,7 +759,7 @@
       '<code class="rv-mono rv-id-code">' +
       shortId +
       "</code>" +
-      '<button class="rv-copy-btn" title="Copy ID" data-copy="' +
+      '<button class="rv-copy-btn" title="Copy ID" aria-label="Copy workout ID" data-copy="' +
       shortId +
       '">&#x2398;</button>' +
       "</div>" +
@@ -803,7 +769,8 @@
       "</div>" +
       '<div class="rv-header-right">' +
       badges +
-      '<button class="rv-snap-btn" id="rv-snapshot-btn" title="Enter Snapshot mode">&#x1F4F8; Snapshot</button>' +
+      '<button class="rv-snap-btn" id="rv-snapshot-btn" title="Enter Snapshot mode">' +
+      '<span aria-hidden="true">&#x1F4F8;</span> Snapshot</button>' +
       "</div>" +
       "</div>";
 
@@ -868,7 +835,7 @@
     var cadTile = strydPresent ? strydTile("Cadence", cad) : tile("Cadence", cad);
 
     var intensitySection =
-      '<div class="rv-card rv-intensity">' +
+      '<section class="rv-card rv-intensity" aria-label="Load and intensity">' +
       '<h2 class="rv-section-title">Load &amp; Intensity</h2>' +
       '<div class="rv-tile-grid">' +
       heroTile("TSS", w.tss != null ? Math.round(w.tss) : null) +
@@ -885,31 +852,31 @@
       tile("Decoupling", decouplingPct) +
       "</div>" +
       '<p class="rv-footnote">NP · stride = avg per step · cadence = steps/min</p>' +
-      "</div>";
+      "</section>";
 
     // Session Profile — per-lap bars + named zone brackets from detected_profile.
     var profileSection =
-      '<div class="rv-card rv-profile">' +
+      '<section class="rv-card rv-profile" aria-label="Session profile">' +
       renderSessionProfile(data) +
-      "</div>";
+      "</section>";
 
     // Laps section
     var lapsSection =
-      '<div class="rv-card rv-laps" id="rv-laps">' +
+      '<section class="rv-card rv-laps" id="rv-laps" aria-label="Laps">' +
       renderLapTable(splits, strydPresent) +
-      "</div>";
+      "</section>";
 
     // Route placeholder
     var routeSection =
-      '<div class="rv-card rv-route">' +
+      '<section class="rv-card rv-route" aria-label="Route">' +
       '<h2 class="rv-section-title">Route</h2>' +
       '<div class="rv-map-placeholder">Map appears once GPS sync is added</div>' +
-      "</div>";
+      "</section>";
 
     // Source strip — omit card wrapper entirely when there is nothing to show
     var sourceStripHtml = renderSourceStrip(w, strydPresent);
     var sourceSection = sourceStripHtml
-      ? '<div class="rv-card rv-source">' + sourceStripHtml + "</div>"
+      ? '<section class="rv-card rv-source" aria-label="Data source">' + sourceStripHtml + "</section>"
       : "";
 
     document.getElementById("rv-root").innerHTML =
@@ -938,9 +905,11 @@
             .then(function () {
               copyBtn.textContent = "✓";
               copyBtn.title = "Copied!";
+              copyBtn.setAttribute("aria-label", "Copied workout ID");
               setTimeout(function () {
                 copyBtn.innerHTML = "&#x2398;";
                 copyBtn.title = "Copy ID";
+                copyBtn.setAttribute("aria-label", "Copy workout ID");
               }, 1500);
             })
             .catch(function () {});
@@ -990,11 +959,21 @@
 
   // ── Bootstrap ─────────────────────────────────────────────────────────────
 
+  function errorCard(message) {
+    return (
+      '<div class="rv-card rv-error" role="alert">' +
+      '<p class="rv-error-title">' + esc(message) + "</p>" +
+      '<a class="rv-error-back" href="training-log.html">&#8592; Back to training log</a>' +
+      "</div>"
+    );
+  }
+
   function init() {
     _workoutId = getWorkoutId();
     if (!_workoutId) {
-      document.getElementById("rv-root").innerHTML =
-        '<div class="rv-error">No workout ID supplied. Add ?id=&lt;workout-id&gt; to the URL.</div>';
+      document.getElementById("rv-root").innerHTML = errorCard(
+        "No workout ID supplied. Add ?id=<workout-id> to the URL.",
+      );
       return;
     }
     fetch("/api/workouts/" + _workoutId + "/full", { credentials: "include" })
@@ -1008,8 +987,7 @@
         renderView(data);
       })
       .catch(function (err) {
-        document.getElementById("rv-root").innerHTML =
-          '<div class="rv-error">' + err.message + "</div>";
+        document.getElementById("rv-root").innerHTML = errorCard(err.message);
       });
   }
 
