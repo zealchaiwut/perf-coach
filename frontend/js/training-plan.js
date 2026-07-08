@@ -1531,20 +1531,37 @@ information about.
     '.plan-panel .pl-exblock-h{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;color:var(--pl-muted);margin-bottom:9px;padding-bottom:7px;border-bottom:1px solid var(--pl-line);}',
     '@media(max-width:560px){.plan-panel .pl-dayrow{flex-direction:column;gap:8px;}.plan-panel .pl-daylabel{width:auto;display:flex;align-items:baseline;gap:6px;padding-top:0;}}',
     // ── Suggestions panel (issue #1315) ─────────────────────────────────────
-    '.pl-suggestions-panel{background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:13px;padding:14px 16px;margin:14px 0;}',
+    '.pl-suggestions-panel{background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:13px;padding:14px 16px;margin:14px 0;position:relative;}',
     '.pl-sug-header{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;}',
     '.pl-sug-title{font-size:13px;font-weight:800;color:var(--pl-ink);flex:1;}',
     '.pl-sug-source{font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;background:var(--pl-blueSoft);color:var(--pl-run);text-transform:uppercase;letter-spacing:0.04em;}',
     '.pl-sug-btn-sm{background:none;border:1px solid var(--pl-line);border-radius:7px;padding:3px 8px;font-size:12px;color:var(--pl-muted);cursor:pointer;}',
     '.pl-sug-btn-sm:hover{background:var(--pl-tile);color:var(--pl-ink);}',
-    '.pl-sug-loading{font-size:12px;color:var(--pl-muted);padding:8px 0;}',
-    '.pl-sug-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--pl-line);flex-wrap:wrap;}',
-    '.pl-sug-row:last-child{border-bottom:none;}',
+    // Loading OVERLAY (not a full clear) — covers the panel (prefs form or the
+    // previous suggestion list stays visible underneath, dimmed) while a
+    // (re)generate call is in flight.
+    '.pl-sug-loading{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:rgba(255,255,255,0.85);border-radius:13px;font-size:12.5px;font-weight:600;color:var(--pl-muted);z-index:2;}',
+    '.pl-sug-spinner{width:22px;height:22px;border-radius:50%;border:2.5px solid var(--pl-line);border-top-color:var(--pl-run);animation:pl-sug-spin 0.7s linear infinite;}',
+    '@keyframes pl-sug-spin{to{transform:rotate(360deg);}}',
+    '@media (prefers-reduced-motion: reduce){.pl-sug-spinner{animation:none;border-top-color:var(--pl-line);}}',
+    '.pl-sug-row-wrap{padding:9px 0;border-bottom:1px solid var(--pl-line);}',
+    '.pl-sug-row-wrap:last-child{border-bottom:none;}',
+    '.pl-sug-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}',
+    '.pl-sug-exercises{margin:8px 0 2px 46px;padding:8px 0 0;border-top:1px dashed var(--pl-line);}',
+    '.pl-sug-ex-block{margin-bottom:8px;}',
+    '.pl-sug-ex-block:last-child{margin-bottom:0;}',
+    '.pl-sug-ex-block-h{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:var(--pl-faint);margin-bottom:4px;}',
+    '.pl-sug-ex-row{display:flex;align-items:baseline;gap:8px;font-size:12px;padding:2px 0;flex-wrap:wrap;}',
+    '.pl-sug-ex-name{font-weight:600;color:var(--pl-ink);min-width:140px;}',
+    '.pl-sug-ex-detail{font-family:var(--pl-mono);color:var(--pl-muted);}',
+    '.pl-sug-ex-load{color:var(--pl-faint);font-size:11.5px;}',
+    '.pl-sug-rep{font-size:10.5px;font-weight:800;color:var(--pl-run);background:var(--pl-blueSoft);border-radius:5px;padding:1px 5px;}',
     '.pl-sug-day{font-size:10px;font-weight:800;color:var(--pl-faint);text-transform:uppercase;width:36px;flex-shrink:0;}',
     '.pl-sug-type-select{font-size:10px;font-weight:800;padding:3px 6px;border-radius:6px;text-transform:uppercase;flex-shrink:0;border:1px solid transparent;cursor:pointer;-webkit-appearance:none;appearance:none;}',
     '.pl-sug-type-select.run{background:var(--pl-blueSoft);color:var(--pl-run);}.pl-sug-type-select.strength{background:var(--pl-liftSoft);color:#7c3aed;}.pl-sug-type-select.plyo{background:var(--pl-amberSoft);color:var(--pl-amber);}.pl-sug-type-select.rest{background:#f1f5f9;color:#64748b;}',
     '.pl-sug-meta{font-size:12px;font-family:var(--pl-mono);color:var(--pl-muted);flex-shrink:0;}',
     '.pl-sug-intent{flex:1;font-size:12px;color:var(--pl-ink);min-width:100px;}',
+    '.pl-sug-notes-line{font-size:11.5px;color:var(--pl-muted);font-style:italic;margin:2px 0 4px 46px;line-height:1.4;}',
     '.pl-sug-adjust{display:flex;gap:4px;flex-shrink:0;}',
     '.pl-sug-adj{font-size:10.5px;font-weight:600;background:none;border:1px solid var(--pl-line);border-radius:6px;padding:4px 7px;cursor:pointer;color:var(--pl-muted);}',
     '.pl-sug-adj:hover{background:var(--pl-tile);color:var(--pl-ink);}',
@@ -1606,10 +1623,84 @@ information about.
   }
 
   // ── Per-session adjust: type override + lighter/harder ──────────────────────
+  // Lighter/Harder used to touch only the summary target_tss/duration numbers
+  // — the actual exercises/blocks never changed, so "harder" didn't translate
+  // into anything the athlete could act on at the gym. Now it also nudges the
+  // real prescription: exercise sets (and numeric reps, when parseable) for
+  // strength/plyo, and block duration/repeat for run.
 
-  function _adjustTss(s, factor) {
+  function _adjustSession(s, harder) {
+    var factor = harder ? 1.2 : 0.8;
     s.target_tss = Math.max(0, Math.min(400, Math.round((s.target_tss || 0) * factor)));
     s.duration_minutes = Math.max(0, Math.round((s.duration_minutes || 0) * factor));
+
+    if (Array.isArray(s.exercises)) {
+      s.exercises.forEach(function (ex) {
+        if (ex.sets != null) {
+          ex.sets = Math.max(1, Math.min(8, ex.sets + (harder ? 1 : -1)));
+        }
+        // reps is a freeform string ("10", "30s hold", "per side") — only
+        // scale it when it's a plain integer; leave hold-durations/text alone.
+        if (typeof ex.reps === 'string' && /^\d+$/.test(ex.reps.trim())) {
+          var n = parseInt(ex.reps, 10);
+          ex.reps = String(Math.max(1, Math.round(n * factor)));
+        }
+      });
+    }
+    if (Array.isArray(s.blocks)) {
+      s.blocks.forEach(function (b) {
+        if (b.duration_min != null) {
+          b.duration_min = Math.max(1, Math.round(b.duration_min * factor));
+        }
+        if (b.repeat != null && b.repeat > 0) {
+          b.repeat = Math.max(1, Math.min(20, b.repeat + (harder ? 1 : -1)));
+        }
+      });
+    }
+  }
+
+  // Block-grouped exercise breakdown under a strength/plyo suggestion row —
+  // same shape PlannedSession.structure.exercises stores, same grouping the
+  // detail modal renders (see _liftDetailHtml). Without this the suggestion
+  // was a bare TSS/duration/intent line and "Add" produced an empty-shell
+  // planned session with nothing to actually do at the gym.
+  function _sugExercisesHtml(exercises) {
+    if (!exercises || !exercises.length) return '';
+    var order = [];
+    exercises.forEach(function (x) {
+      var b = (x && x.block) ? x.block : 'Exercises';
+      if (order.indexOf(b) === -1) order.push(b);
+    });
+    var blocks = order.map(function (b) {
+      var rows = exercises.filter(function (x) { return ((x && x.block) ? x.block : 'Exercises') === b; })
+        .map(function (x) {
+          var sr = (x.sets != null && x.reps != null) ? (x.sets + ' × ' + x.reps) : (x.sets != null ? x.sets + ' sets' : '');
+          return '<div class="pl-sug-ex-row"><span class="pl-sug-ex-name">' + esc(x.name || 'Exercise') + '</span>' +
+            '<span class="pl-sug-ex-detail">' + esc(sr) + '</span>' +
+            '<span class="pl-sug-ex-load">' + esc(x.load || '') + '</span></div>';
+        }).join('');
+      return '<div class="pl-sug-ex-block"><div class="pl-sug-ex-block-h">' + esc(b) + '</div>' + rows + '</div>';
+    }).join('');
+    return '<div class="pl-sug-exercises">' + blocks + '</div>';
+  }
+
+  // Phase-structured breakdown under a run suggestion row — same shape
+  // PlannedSession.structure.blocks stores (see _runDetailHtml's segment
+  // rendering). Without this a run suggestion was just target_tss/duration —
+  // no warmup/main/cooldown structure, no repeat/target for a workout.
+  function _phaseLabel(ph) { return ph === 'warmup' ? 'Warmup' : (ph === 'cooldown' ? 'Cooldown' : (ph === 'main' ? 'Main set' : (ph || 'Block'))); }
+  function _sugBlocksHtml(blocks) {
+    if (!blocks || !blocks.length) return '';
+    var segs = blocks.map(function (b) {
+      var dur = b.duration_min != null ? b.duration_min + ' min' : '';
+      var rep = (b.repeat && b.repeat > 1) ? (' <span class="pl-sug-rep">×' + b.repeat + '</span>') : '';
+      var main = (b.repeat && b.repeat > 1) ? (b.repeat + ' × ' + dur) : dur;
+      var tgt = (b.target || '') + (b.rest_min ? ' · ' + b.rest_min + 'min rest between' : '');
+      return '<div class="pl-sug-ex-row"><span class="pl-sug-ex-name">' + esc(_phaseLabel(b.phase)) + '</span>' +
+        '<span class="pl-sug-ex-detail">' + esc(main) + '</span>' + rep +
+        '<span class="pl-sug-ex-load">' + esc(tgt) + '</span></div>';
+    }).join('');
+    return '<div class="pl-sug-exercises"><div class="pl-sug-ex-block">' + segs + '</div></div>';
   }
 
   function _buildSugRow(s, idx) {
@@ -1619,49 +1710,54 @@ information about.
     var metaParts = [tssStr, durStr].filter(Boolean);
     var metaStr = metaParts.join(' · ');
 
-    var row = document.createElement('div');
-    row.className = 'pl-sug-row';
-    row.dataset.idx = idx;
+    var wrap = document.createElement('div');
+    wrap.className = 'pl-sug-row-wrap';
+    wrap.dataset.idx = idx;
 
     var wt = (s.workout_type || 'rest').toLowerCase();
     var types = ['run', 'strength', 'plyo', 'rest'];
 
-    row.innerHTML =
-      '<span class="pl-sug-day">' + dow + '</span>' +
-      '<select class="pl-sug-type-select ' + wt + '" data-idx="' + idx + '">' +
-        types.map(function (t) { return '<option value="' + t + '"' + (t === wt ? ' selected' : '') + '>' + t + '</option>'; }).join('') +
-      '</select>' +
-      (metaStr ? '<span class="pl-sug-meta">' + metaStr + '</span>' : '') +
-      '<span class="pl-sug-intent">' + esc(s.intent || '') + '</span>' +
-      (wt !== 'rest'
-        ? '<span class="pl-sug-adjust">' +
-            '<button type="button" class="pl-sug-adj" data-adj="lighter" data-idx="' + idx + '" title="Reduce target TSS/duration ~20%">▾ Lighter</button>' +
-            '<button type="button" class="pl-sug-adj" data-adj="harder" data-idx="' + idx + '" title="Increase target TSS/duration ~20%">▴ Harder</button>' +
-          '</span>' +
-          '<button class="pl-sug-add" type="button" data-idx="' + idx + '">Add</button>'
-        : '');
+    wrap.innerHTML =
+      '<div class="pl-sug-row">' +
+        '<span class="pl-sug-day">' + dow + '</span>' +
+        '<select class="pl-sug-type-select ' + wt + '" data-idx="' + idx + '">' +
+          types.map(function (t) { return '<option value="' + t + '"' + (t === wt ? ' selected' : '') + '>' + t + '</option>'; }).join('') +
+        '</select>' +
+        (metaStr ? '<span class="pl-sug-meta">' + metaStr + '</span>' : '') +
+        '<span class="pl-sug-intent">' + esc(s.intent || '') + '</span>' +
+        (wt !== 'rest'
+          ? '<span class="pl-sug-adjust">' +
+              '<button type="button" class="pl-sug-adj" data-adj="lighter" data-idx="' + idx + '" title="Fewer sets/reps or shorter — not just a lower TSS number">▾ Lighter</button>' +
+              '<button type="button" class="pl-sug-adj" data-adj="harder" data-idx="' + idx + '" title="More sets/reps or longer — not just a higher TSS number">▴ Harder</button>' +
+            '</span>' +
+            '<button class="pl-sug-add" type="button" data-idx="' + idx + '">Add</button>'
+          : '') +
+      '</div>' +
+      (s.notes ? '<div class="pl-sug-notes-line">' + esc(s.notes) + '</div>' : '') +
+      _sugExercisesHtml(wt !== 'rest' ? s.exercises : null) +
+      _sugBlocksHtml(wt === 'run' ? s.blocks : null);
 
-    var typeSel = row.querySelector('.pl-sug-type-select');
+    var typeSel = wrap.querySelector('.pl-sug-type-select');
     typeSel.addEventListener('change', function () {
       s.workout_type = typeSel.value;
       if (typeSel.value === 'rest') { s.target_tss = 0; s.duration_minutes = 0; }
       _renderSuggestions(_suggestionsData); // small list — cheap full re-render
     });
 
-    row.querySelectorAll('.pl-sug-adj').forEach(function (btn) {
+    wrap.querySelectorAll('.pl-sug-adj').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        _adjustTss(s, btn.getAttribute('data-adj') === 'lighter' ? 0.8 : 1.2);
+        _adjustSession(s, btn.getAttribute('data-adj') === 'harder');
         _renderSuggestions(_suggestionsData);
       });
     });
 
-    var addBtn = row.querySelector('.pl-sug-add');
+    var addBtn = wrap.querySelector('.pl-sug-add');
     if (addBtn) {
       addBtn.addEventListener('click', function () {
         _addSuggestion(s, addBtn);
       });
     }
-    return row;
+    return wrap;
   }
 
   function _addSuggestion(s, btn) {
@@ -1672,11 +1768,24 @@ information about.
       session_type: s.workout_type,
       name: s.intent ? s.intent.substring(0, 80) : null,
     };
-    if (s.target_tss > 0 || s.duration_minutes > 0) {
+    // Prefer the LLM's own rationale (why this weight/exercise/pairing) when
+    // present; otherwise fall back to the bare TSS/duration summary the
+    // template path (no rationale) still provides.
+    if (s.notes) {
+      body.notes = s.notes;
+    } else if (s.target_tss > 0 || s.duration_minutes > 0) {
       body.notes = [
         s.target_tss > 0 ? 'Target TSS: ' + s.target_tss : '',
         s.duration_minutes > 0 ? 'Duration: ' + s.duration_minutes + ' min' : ''
       ].filter(Boolean).join('. ');
+    }
+    // Carry the exercise/block breakdown into the planned session's structure
+    // — same shape the manual Add-session form builder produces — so Add
+    // creates a fully detailed session, not an empty shell to rebuild by hand.
+    if (Array.isArray(s.exercises) && s.exercises.length) {
+      body.structure = { exercises: s.exercises };
+    } else if (Array.isArray(s.blocks) && s.blocks.length) {
+      body.structure = { blocks: s.blocks };
     }
 
     fetch('/api/planned-sessions', {
@@ -1820,12 +1929,12 @@ information about.
     var panel = _el('plan-suggestions-panel');
     var loading = _el('plan-suggestions-loading');
     var list = _el('plan-suggestions-list');
-    var prefsEl = _el('plan-suggestions-prefs');
     if (!panel) return;
     panel.style.display = '';
-    if (prefsEl) prefsEl.innerHTML = '';
+    // Show the overlay ON TOP of whatever's already there (the prefs form, or
+    // last time's suggestion list) — don't clear it first, so the panel never
+    // goes blank while the LLM call is in flight.
     if (loading) loading.style.display = '';
-    if (list) list.innerHTML = '';
 
     fetch('/api/plan/suggestions', {
       method: 'POST',

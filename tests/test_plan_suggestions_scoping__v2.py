@@ -28,6 +28,19 @@ def _old_style_facts(trailing=200.0):
     return {"trailing_28d_weekly_avg_tss": trailing}
 
 
+_EASY_BLOCKS = [
+    {"phase": "warmup", "duration_min": 10, "repeat": None, "rest_min": None, "target": "easy"},
+    {"phase": "main", "duration_min": 20, "repeat": None, "rest_min": None, "target": "easy"},
+]
+
+
+def _run(offset, tss=30, duration=30, intent="x", blocks=_EASY_BLOCKS):
+    """A valid 'run' suggestion (blocks included) for tests exercising rules
+    OTHER than the blocks-required-for-run rule itself."""
+    return {"day_offset": offset, "workout_type": "run", "target_tss": tss,
+            "duration_minutes": duration, "intent": intent, "blocks": blocks}
+
+
 def test_fallback_suggestions_full_week_when_no_scoping_keys():
     result = ps.fallback_suggestions(_old_style_facts())
     assert [s["day_offset"] for s in result] == list(range(7))
@@ -49,8 +62,7 @@ def test_fallback_suggestions_restricted_to_allowed_offsets():
 
 def test_validation_rejects_offset_outside_allowed():
     facts = {**_old_style_facts(), "allowed_offsets": [2, 3, 4, 5, 6]}
-    bad = [{"day_offset": 0, "workout_type": "run", "target_tss": 50,
-            "duration_minutes": 30, "intent": "x"}]
+    bad = [_run(0, tss=50)]
     errs = ps.validation_errors(bad, facts)
     assert any("day_offset 0" in e and "not open" in e for e in errs)
 
@@ -67,8 +79,7 @@ def test_fallback_suggestions_forces_requested_rest_days():
 
 def test_validation_rejects_non_rest_on_requested_rest_day():
     facts = {**_old_style_facts(), "preferred_rest_days": [3]}
-    bad = [{"day_offset": 3, "workout_type": "run", "target_tss": 50,
-            "duration_minutes": 30, "intent": "x"}]
+    bad = [_run(3, tss=50)]
     errs = ps.validation_errors(bad, facts)
     assert any("day_offset 3" in e and "REST" in e for e in errs)
 
@@ -84,8 +95,7 @@ def test_validation_rejects_omitted_requested_rest_day():
     """A requested rest day must show up explicitly as rest — silently
     omitting it isn't enough (the athlete checked that box to see it honoured)."""
     facts = {**_old_style_facts(), "preferred_rest_days": [3]}
-    no_mention = [{"day_offset": 4, "workout_type": "run", "target_tss": 50,
-                   "duration_minutes": 30, "intent": "x"}]
+    no_mention = [_run(4, tss=50)]
     errs = ps.validation_errors(no_mention, facts)
     assert any("day_offset 3" in e and "no session at all" in e for e in errs)
 
@@ -132,8 +142,8 @@ def test_fallback_invalid_emphasis_treated_as_same():
 def test_validation_rejects_hard_run_before_long_run_by_tss():
     # long run at offset 5 (tss 200); offset 4 run at 180 (>=70% of 200) -> hard
     suggestions = [
-        {"day_offset": 4, "workout_type": "run", "target_tss": 180, "duration_minutes": 60, "intent": "steady run"},
-        {"day_offset": 5, "workout_type": "run", "target_tss": 200, "duration_minutes": 90, "intent": "long run"},
+        _run(4, tss=180, duration=60, intent="steady run"),
+        _run(5, tss=200, duration=90, intent="long run"),
     ]
     errs = ps.validation_errors(suggestions, _old_style_facts())
     assert any("before the long run" in e for e in errs)
@@ -141,8 +151,8 @@ def test_validation_rejects_hard_run_before_long_run_by_tss():
 
 def test_validation_rejects_hard_run_before_long_run_by_keyword():
     suggestions = [
-        {"day_offset": 4, "workout_type": "run", "target_tss": 20, "duration_minutes": 30, "intent": "Tempo intervals at threshold"},
-        {"day_offset": 5, "workout_type": "run", "target_tss": 200, "duration_minutes": 90, "intent": "long run"},
+        _run(4, tss=20, duration=30, intent="Tempo intervals at threshold"),
+        _run(5, tss=200, duration=90, intent="long run"),
     ]
     errs = ps.validation_errors(suggestions, _old_style_facts())
     assert any("before the long run" in e for e in errs)
@@ -150,8 +160,8 @@ def test_validation_rejects_hard_run_before_long_run_by_keyword():
 
 def test_validation_allows_easy_run_before_long_run():
     suggestions = [
-        {"day_offset": 4, "workout_type": "run", "target_tss": 30, "duration_minutes": 30, "intent": "easy shakeout jog"},
-        {"day_offset": 5, "workout_type": "run", "target_tss": 200, "duration_minutes": 90, "intent": "long run"},
+        _run(4, tss=30, duration=30, intent="easy shakeout jog"),
+        _run(5, tss=200, duration=90, intent="long run"),
     ]
     errs = ps.validation_errors(suggestions, _old_style_facts())
     assert not any("before the long run" in e for e in errs)
@@ -160,14 +170,13 @@ def test_validation_allows_easy_run_before_long_run():
 def test_validation_allows_rest_before_long_run():
     suggestions = [
         {"day_offset": 4, "workout_type": "rest", "target_tss": 0, "duration_minutes": 0, "intent": "rest"},
-        {"day_offset": 5, "workout_type": "run", "target_tss": 200, "duration_minutes": 90, "intent": "long run"},
+        _run(5, tss=200, duration=90, intent="long run"),
     ]
     assert ps.validation_errors(suggestions, _old_style_facts()) == []
 
 
 def test_no_long_run_rule_when_fewer_than_two_runs():
-    suggestions = [{"day_offset": 5, "workout_type": "run", "target_tss": 200,
-                    "duration_minutes": 90, "intent": "long run"}]
+    suggestions = [_run(5, tss=200, duration=90, intent="long run")]
     assert ps._find_long_run(suggestions) is None
     assert ps.validation_errors(suggestions, _old_style_facts()) == []
 
@@ -175,25 +184,20 @@ def test_no_long_run_rule_when_fewer_than_two_runs():
 # ── new hard rule: no more than 3 consecutive training days ──────────────────
 
 def test_validation_rejects_four_consecutive_training_days():
-    suggestions = [{"day_offset": i, "workout_type": "run", "target_tss": 30,
-                    "duration_minutes": 30, "intent": "x"} for i in range(4)]
+    suggestions = [_run(i) for i in range(4)]
     errs = ps.validation_errors(suggestions, _old_style_facts())
     assert any("consecutive training days" in e for e in errs)
 
 
 def test_validation_allows_three_consecutive_training_days():
-    suggestions = [{"day_offset": i, "workout_type": "run", "target_tss": 30,
-                    "duration_minutes": 30, "intent": "x"} for i in range(3)]
+    suggestions = [_run(i) for i in range(3)]
     assert not any("consecutive" in e for e in ps.validation_errors(suggestions, _old_style_facts()))
 
 
 def test_validation_missing_day_counts_as_a_break_in_the_streak():
     # offsets 0,1,2 training, offset 3 has NO suggestion (implicit rest), 4,5,6 training
     # -> longest streak is 3, not 6.
-    suggestions = [
-        {"day_offset": i, "workout_type": "run", "target_tss": 30, "duration_minutes": 30, "intent": "x"}
-        for i in (0, 1, 2, 4, 5, 6)
-    ]
+    suggestions = [_run(i) for i in (0, 1, 2, 4, 5, 6)]
     assert not any("consecutive" in e for e in ps.validation_errors(suggestions, _old_style_facts()))
 
 

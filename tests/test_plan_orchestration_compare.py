@@ -14,19 +14,21 @@ import backend.services.plan_suggestions as ps
 # ceiling = max(200, 80) * 1.3 = 260
 FACTS = {"trailing_28d_weekly_avg_tss": 200.0}
 
+_BLOCKS = [{"phase": "main", "duration_min": 30, "repeat": None, "rest_min": None, "target": "easy"}]
+
 GOOD = [{"day_offset": 0, "workout_type": "run", "target_tss": 100,
-         "duration_minutes": 45, "intent": "easy"}]
+         "duration_minutes": 45, "intent": "easy", "blocks": _BLOCKS}]
 BAD_TYPE = [{"day_offset": 0, "workout_type": "swim", "target_tss": 100,
              "duration_minutes": 45, "intent": "x"}]
 OVER = [{"day_offset": i, "workout_type": "run", "target_tss": 100,
-         "duration_minutes": 45, "intent": "x"} for i in range(4)]  # 400 > 260
+         "duration_minutes": 45, "intent": "x", "blocks": _BLOCKS} for i in range(4)]  # 400 > 260
 
 
 def _mock_llm(monkeypatch, sequence):
     """Make complete_structured return each item of `sequence` in turn, then None."""
     calls = {"n": 0}
 
-    def fake(system, user, schema_name, json_schema, model_tier="fast"):
+    def fake(system, user, schema_name, json_schema, model_tier="fast", max_tokens=None):
         i = calls["n"]
         calls["n"] += 1
         return sequence[i] if i < len(sequence) else None
@@ -108,12 +110,35 @@ def test_single_accepts_valid_first_answer(monkeypatch):
 # ── fallback-safe: LLM disabled ───────────────────────────────────────────────
 
 def test_all_orchestrators_fallback_when_llm_returns_none(monkeypatch):
+    """single never retries (attempts=0, by design — the original baseline
+    behaviour). plain/langgraph retry a failed/unparseable call up to
+    _MAX_PLAN_ATTEMPTS before giving up — a None isn't proof the LLM is down,
+    it can be Groq's own strict-mode validator rejecting one bad generation
+    (e.g. a required-but-nullable key silently dropped), which a plain retry
+    can recover from. So they report the full attempt count actually spent."""
     monkeypatch.setattr(llm, "complete_structured", lambda *a, **k: None)
+    expected_attempts = {"single": 0, "plain": ps._MAX_PLAN_ATTEMPTS, "langgraph": ps._MAX_PLAN_ATTEMPTS}
     for orch in ("single", "plain", "langgraph"):
         monkeypatch.setenv("PLAN_ORCH", orch)
         r = ps.get_suggestions_from_facts(FACTS)
-        assert r["source"] == "fallback" and r["attempts"] == 0, orch
+        assert r["source"] == "fallback" and r["attempts"] == expected_attempts[orch], orch
         assert len(r["suggestions"]) > 0
+
+
+def test_plain_retries_on_none_then_succeeds(monkeypatch):
+    """A transient/unparseable call (raw=None) must not end the attempt — the
+    next attempt still gets to run and can succeed."""
+    calls = _mock_llm(monkeypatch, [None, {"suggestions": GOOD}])
+    monkeypatch.setenv("PLAN_ORCH", "plain")
+    r = ps.get_suggestions_from_facts(FACTS)
+    assert r["source"] == "llm" and r["attempts"] == 2 and calls["n"] == 2
+
+
+def test_langgraph_retries_on_none_then_succeeds(monkeypatch):
+    calls = _mock_llm(monkeypatch, [None, {"suggestions": GOOD}])
+    monkeypatch.setenv("PLAN_ORCH", "langgraph")
+    r = ps.get_suggestions_from_facts(FACTS)
+    assert r["source"] == "llm" and r["attempts"] == 2 and calls["n"] == 2
 
 
 def test_pydantic_ai_falls_back_when_llm_disabled(monkeypatch):
