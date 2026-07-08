@@ -6621,7 +6621,7 @@
        JetBrains Mono the Summary tiles use) so key figures pop out. */
     .wsc-line { font-size: 14px; line-height: 1.55; }
     .wsc-line + .wsc-line { margin-top: 4px; }
-    .wsc-num { font-family: var(--lrx-mono); font-weight: 700; color: var(--lrx-ink); }
+    .wsc-num { font-family: var(--lrx-mono); font-weight: 700; color: var(--lrx-run); }
     .wsc-up { color: #16a34a; font-weight: 700; }
     .wsc-down { color: #dc2626; font-weight: 700; }
     .wsc-empty { font-size: 14px; color: var(--lrx-muted); margin: 0; }
@@ -7438,6 +7438,21 @@
                   <label for="workout-date">Date</label>
                   <input id="workout-date" type="date" />
                 </div>
+                <div class="meta-field">
+                  <label for="workout-tss"
+                    >TSS
+                    <span style="font-weight: 400; color: #999"
+                      >(optional)</span
+                    ></label
+                  >
+                  <input
+                    id="workout-tss"
+                    type="number"
+                    min="0"
+                    step="1"
+                    placeholder="e.g. 85"
+                  />
+                </div>
                 <div class="meta-field full-width">
                   <label>Workout type</label>
                   <div id="type-chips" class="chip-group"></div>
@@ -7457,21 +7472,6 @@
                     rows="2"
                     maxlength="1000"
                   ></textarea>
-                </div>
-                <div class="meta-field">
-                  <label for="workout-tss"
-                    >TSS
-                    <span style="font-weight: 400; color: #999"
-                      >(optional)</span
-                    ></label
-                  >
-                  <input
-                    id="workout-tss"
-                    type="number"
-                    min="0"
-                    step="1"
-                    placeholder="e.g. 85"
-                  />
                 </div>
               </div>
 

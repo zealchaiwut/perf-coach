@@ -185,7 +185,9 @@
         var reps = isDur ? null : parseInt(r.querySelector('.set-reps').value, 10);
         var durSec = isDur ? parseInt(r.querySelector('.set-dur').value, 10) : null;
         var rpe = parseFloat(r.querySelector('.set-rpe').value);
-        var rest = parseInt(r.querySelector('.set-rest').value, 10);
+        // Rest has no UI input anymore — round-trip the stored value from the
+        // row's dataset so editing doesn't wipe rest data in sets_json.
+        var rest = parseInt(r.dataset.rest, 10);
         sets.push({
           type: r.dataset.setType || 'working',
           weight: isFinite(w) ? w : null,
@@ -311,6 +313,10 @@
     row.className = 'set-row';
     row.dataset.setType = SET_TYPES[sd.type] ? sd.type : 'working';
     function v(x) { return (x != null && x !== '') ? x : ''; }
+    // Rest input removed from the UI (too much to key in) — but any rest value
+    // already stored in sets_json is carried on the row's dataset so an edit
+    // round-trip doesn't wipe it.
+    row.dataset.rest = (sd.rest != null && sd.rest !== '') ? sd.rest : '';
     row.innerHTML =
       '<button type="button" class="set-badge" title="Cycle set type"></button>' +
       '<div class="set-cell"><input type="number" class="set-in set-weight" inputmode="decimal" step="0.5" min="0" placeholder="—" value="' + v(sd.weight) + '"></div>' +
@@ -319,7 +325,6 @@
         '<input type="number" class="set-in set-dur" inputmode="numeric" min="0" placeholder="s" value="' + v(sd.duration_seconds) + '"><span class="set-dur-unit u">s</span>' +
       '</div>' +
       '<div class="set-cell rpe-cell"><input type="number" class="set-in set-rpe" inputmode="decimal" min="1" max="10" step="0.5" placeholder="—" value="' + v(sd.rpe) + '"></div>' +
-      '<div class="set-cell"><input type="number" class="set-in set-rest" inputmode="numeric" min="0" placeholder="—" value="' + v(sd.rest) + '"><span class="u">s</span></div>' +
       '<button type="button" class="set-x" title="Remove set">✕</button>';
     row.querySelector('.set-badge').addEventListener('click', function () {
       var idx = SET_TYPE_ORDER.indexOf(row.dataset.setType);
@@ -402,14 +407,12 @@
         '<span class="ec-sep">·</span>' +
         '<span class="ec-label">RPE</span>' +
         '<input type="number" class="ec-in ec-rpe" min="1" max="10" step="0.5" inputmode="decimal" placeholder="—" value="' + vn(cd.rpe) + '">' +
-        '<span class="ec-sep">·</span>' +
-        '<span class="ec-label">Rest</span>' +
-        '<input type="number" class="ec-in ec-rest" min="0" inputmode="numeric" placeholder="—" value="' + vn(cd.rest) + '">' +
-        '<span class="ec-unit">s</span>' +
+        /* Rest input removed — too much to key in per exercise; stored rest
+           values round-trip via each set-row's dataset. */
         '<button type="button" class="ec-expand-btn" title="Edit individual sets">Sets ▾</button>' +
       '</div>' +
       '<div class="set-table">' +
-        '<div class="set-cols"><span>Set</span><span class="r">Weight</span><span class="r set-col-qty">Reps</span><span class="r rpe-cell">RPE</span><span class="r">Rest</span><span></span></div>' +
+        '<div class="set-cols"><span>Set</span><span class="r">Weight</span><span class="r set-col-qty">Reps</span><span class="r rpe-cell">RPE</span><span></span></div>' +
         '<button type="button" class="add-set"><span aria-hidden="true">+</span> Add set</button>' +
       '</div>';
 
@@ -477,7 +480,6 @@
       var w = card.querySelector('.ec-weight').value;
       var qty = isDur ? card.querySelector('.ec-dur').value : card.querySelector('.ec-reps').value;
       var rpe = card.querySelector('.ec-rpe').value;
-      var rest = card.querySelector('.ec-rest').value;
       card.querySelectorAll('.set-row').forEach(function (row) {
         if (w !== '') row.querySelector('.set-weight').value = w;
         if (qty !== '') {
@@ -485,7 +487,6 @@
           else row.querySelector('.set-reps').value = qty;
         }
         if (rpe !== '') row.querySelector('.set-rpe').value = rpe;
-        if (rest !== '') row.querySelector('.set-rest').value = rest;
       });
       recomputeStrengthTotals();
     }
@@ -500,7 +501,6 @@
       var fw = f.querySelector('.set-weight').value;
       var fqty = isDur ? f.querySelector('.set-dur').value : f.querySelector('.set-reps').value;
       var frpe = f.querySelector('.set-rpe').value;
-      var frest = f.querySelector('.set-rest').value;
       var uniform = src.every(function (r) {
         var qty = isDur ? r.querySelector('.set-dur').value : r.querySelector('.set-reps').value;
         return r.querySelector('.set-weight').value === fw && qty === fqty && r.querySelector('.set-rpe').value === frpe;
@@ -510,7 +510,6 @@
       if (isDur) card.querySelector('.ec-dur').value = fqty;
       else card.querySelector('.ec-reps').value = fqty;
       card.querySelector('.ec-rpe').value = frpe;
-      card.querySelector('.ec-rest').value = frest;
       compactRow.classList.toggle('ec-mixed', !uniform);
       _updateExerciseBullet(card);
     }
@@ -540,8 +539,8 @@
       recomputeStrengthTotals();
     });
 
-    // ec-reps/dur/weight/rpe/rest: propagate to all rows on input
-    ['ec-reps', 'ec-dur', 'ec-weight', 'ec-rpe', 'ec-rest'].forEach(function (cls) {
+    // ec-reps/dur/weight/rpe: propagate to all rows on input
+    ['ec-reps', 'ec-dur', 'ec-weight', 'ec-rpe'].forEach(function (cls) {
       var inp = card.querySelector('.' + cls);
       if (inp) inp.addEventListener('input', syncCompactToRows);
     });
@@ -901,7 +900,7 @@
       var name = (card.querySelector('.ex-name').value || '').trim() || 'Exercise';
       card.querySelectorAll('.set-row').forEach(function (r) {
         var rpe = parseFloat(r.querySelector('.set-rpe').value);
-        var rest = parseInt(r.querySelector('.set-rest').value, 10);
+        var rest = parseInt(r.dataset.rest, 10); // carried on dataset, no UI input
         var reps = parseInt(r.querySelector('.set-reps').value, 10) || 5;
         var w = (isFinite(rest) && rest > 0) ? rest + reps * 4 : reps * 10 + 50;
         blocks.push({ label: name, rpe: isFinite(rpe) ? rpe : 6, width: w });
