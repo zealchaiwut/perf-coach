@@ -233,6 +233,35 @@ Worker-tier flag:
 |-----|---------|---------|
 | `PRECOMPUTE_AFTER_SYNC_ENABLED` | `1` | Enqueue a `precompute` after each per-user sync so the snapshot is warm before the user looks. |
 
+## Sync routing, queue visibility & Garmin (Phase 3)
+
+**Sync routing.** Full / stream-heavy syncs always go to the worker. Light
+incremental syncs run in-process on the web tier by default; set
+`WEB_INCREMENTAL_SYNC_ENABLED=0` to route those to the worker too (fully offload
+sync from the web dyno). In http mode with no worker reachable, an incremental
+falls back to in-process rather than failing.
+
+**Queue visibility.** `GET /api/sync/status` now also reports a queued/running
+pull-queue job as `pending` / `running` (source `queue`) — so the nav bar
+reflects a full sync that is waiting for the worker to claim it, not just jobs
+already executing. `GET /api/queue` returns the signed-in user's recent queue
+rows (job type, status, attempts, timestamps, error) for the **Settings → Queue**
+tab. Both are user-isolated by `payload->>'user_id'` — a user never sees another
+user's rows, and batch jobs (banister_refit, no user_id) are excluded.
+
+**Garmin scaffold.** `backend/services/garmin.py` + the worker `garmin_sync`
+handler + `GET /api/garmin/status` are a placeholder for a future Garmin Connect
+source. Off by default (`GARMIN_SYNC_ENABLED`); `sync_garmin` raises until the
+integration is built, and every call site guards on `is_enabled()`, so a stray
+`garmin_sync` job is a clean no-op while the flag is off.
+
+Web-tier flags (Render):
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `WEB_INCREMENTAL_SYNC_ENABLED` | `1` | Run light incremental syncs in-process. `0` routes them to the worker too. |
+| `GARMIN_SYNC_ENABLED` | `0` | Turn on the Garmin source (scaffold — not implemented yet). |
+
 ## Poll loop & schedule
 
 On FastAPI startup the worker starts **two** daemon threads:

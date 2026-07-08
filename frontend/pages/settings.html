@@ -1162,6 +1162,34 @@
     .pr-hist-source { font-size: 12px; color: var(--text-sub); grid-column: 1; }
     .pr-hist-imp { grid-column: 1; }
     .pr-hist-improvement { font-size: 12px; color: var(--text-sub); font-style: italic; }
+
+    /* Queue tab (Phase 3) */
+    .queue-intro { color: var(--text-sub); font-size: 14px; margin: 0 0 16px; max-width: 60ch; }
+    .queue-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .queue-refresh-btn {
+      font: inherit; font-size: 13px; padding: 6px 14px; border-radius: 8px;
+      border: 1px solid var(--border-input); background: var(--surface); color: var(--text);
+      cursor: pointer;
+    }
+    .queue-refresh-btn:hover { background: var(--surface-2); }
+    .queue-updated { font-size: 12px; color: var(--text-sub); }
+    .queue-empty { color: var(--text-sub); font-size: 14px; padding: 16px 0; }
+    .queue-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .queue-item {
+      border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--surface);
+    }
+    .queue-item-main { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .queue-label { font-size: 14px; font-weight: 600; color: var(--text); }
+    .queue-item-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; font-size: 12px; color: var(--text-sub); }
+    .queue-error { margin-top: 6px; font-size: 12px; color: var(--danger-dark); word-break: break-word; }
+    .queue-status {
+      font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+      padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+    }
+    .queue-status--queued  { background: var(--surface-2); color: var(--text-sub); border: 1px solid var(--border); }
+    .queue-status--running { background: #eff6ff; color: #1d4ed8; }
+    .queue-status--done    { background: #ecfdf5; color: #15803d; }
+    .queue-status--failed  { background: var(--danger-soft); color: var(--danger-dark); }
   </style>
 </head>
 <body>
@@ -1178,6 +1206,7 @@
         <button class="settings-nav-item" role="tab" id="tab-device-zones" aria-controls="section-device-zones" data-section="device-zones" hidden style="display:none">Zones</button>
         <button class="settings-nav-item" role="tab" id="tab-personal-records" aria-controls="section-personal-records" data-section="personal-records" hidden style="display:none">Personal Records</button>
         <button class="settings-nav-item" role="tab" id="tab-integrations" aria-controls="section-integrations" data-section="integrations">Integrations</button>
+        <button class="settings-nav-item" role="tab" id="tab-queue" aria-controls="section-queue" data-section="queue">Queue</button>
         <button class="settings-nav-item" role="tab" id="tab-about" aria-controls="section-about" data-section="about">About</button>
       </nav>
     </aside>
@@ -1666,6 +1695,18 @@
           <div class="integration-meta">
             <span class="integration-coming-soon">Sleep import — coming soon</span>
           </div>
+        </div>
+      </div>
+
+      <div id="section-queue" class="settings-section" role="tabpanel" aria-labelledby="tab-queue" tabindex="0">
+        <h1>Queue</h1>
+        <p class="queue-intro">Background jobs the compute worker runs for you — syncs, backfills, and score recomputes. Newest first.</p>
+        <div class="queue-toolbar">
+          <button type="button" id="queue-refresh" class="queue-refresh-btn">Refresh</button>
+          <span id="queue-updated" class="queue-updated" aria-live="polite"></span>
+        </div>
+        <div id="queue-body" class="queue-body">
+          <p class="queue-empty">Loading…</p>
         </div>
       </div>
 
