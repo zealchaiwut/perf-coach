@@ -5488,6 +5488,12 @@ class WorkoutPatch(BaseModel):
     humidity_pct: Optional[float] = None
     # Self-reported effort feeling (issue #1241): 'hard' | 'ok' | 'easy' | null.
     feeling: Optional[str] = None
+    # Full exercise list to replace this workout's exercises (same shape as
+    # WorkoutIn.exercises / the /exercises/replace endpoint). The Form editor
+    # has always sent this on edit; before this field existed pydantic silently
+    # dropped it, so per-exercise edits (e.g. RPE) never saved. None = leave
+    # exercises untouched.
+    exercises: Optional[list[ExerciseIn]] = None
 
 
 class WorkoutDuplicateIn(BaseModel):
@@ -6956,6 +6962,10 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
         wid = _uuid.UUID(workout_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid workout_id")
+    # Validate exercises up front so a bad exercise 422s before any field mutation.
+    if body.exercises is not None:
+        for _ex in body.exercises:
+            _validate_exercise(_ex)
     with Session(engine) as session:
         workout = session.get(Workout, wid)
         if workout is None:
@@ -7063,6 +7073,26 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
                         detail="feeling must be one of: " + ", ".join(sorted(_FEELING_VALUES)),
                     )
                 workout.feeling = fl
+        # Replace the exercise list when the client sent one (the Form editor
+        # always does on edit) — same delete-and-recreate as /exercises/replace,
+        # so per-exercise fields like rpe/sets_json actually persist.
+        if body.exercises is not None:
+            session.query(WorkoutExercise).filter(WorkoutExercise.workout_id == wid).delete()
+            for i, ex in enumerate(body.exercises):
+                session.add(WorkoutExercise(
+                    workout_id=wid,
+                    display_order=i,
+                    name=ex.name.strip(),
+                    sets=ex.sets,
+                    reps=ex.reps,
+                    weight_kg=ex.weight_kg,
+                    duration=ex.duration,
+                    rpe=ex.rpe,
+                    distance_km=ex.distance_km,
+                    duration_seconds=ex.duration_seconds,
+                    avg_hr=ex.avg_hr,
+                    sets_json=ex.sets_json,
+                ))
         # Stamp updated_at so edits (e.g. marking a run as an interval) change the
         # workout-set fingerprint — the summary/performance cache signature
         # includes MAX(updated_at), so a type edit busts the cache and the
@@ -15140,10 +15170,14 @@ _performance_log = _logging.getLogger(__name__)
 def _latest_race_perf(session, user_id, as_of=None) -> dict | None:
     """Race VDOT-band perf point for the score re-anchor (proposal §4.3).
 
-    Latest finished race (status='done' AND actual_time_seconds NOT NULL, most
-    recently updated). Returns ``{"perf": float, "date": "YYYY-MM-DD"}`` on the
-    universal VDOT band, or None when there is no usable race. When ``as_of`` is
-    given, only races on/before that date are considered (for the as-of helper).
+    Latest finished race (status='done' AND actual_time_seconds NOT NULL) by
+    **race_date** — §4.3 anchors on the most recently *run* race, not the most
+    recently edited row (ordering by updated_at let a back-filled older race
+    steal the anchor from a newer one entered seconds earlier). updated_at is
+    the tie-breaker for same-day races. Returns ``{"perf": float, "date":
+    "YYYY-MM-DD"}`` on the universal VDOT band, or None when there is no usable
+    race. When ``as_of`` is given, only races on/before that date are considered
+    (for the as-of helper).
     """
     from backend.services.vdot import vdot_from_pace_duration, rescale_to_score
 
@@ -15158,7 +15192,7 @@ def _latest_race_perf(session, user_id, as_of=None) -> dict | None:
     )
     if as_of is not None:
         q = q.filter(Race.race_date <= as_of)
-    race = q.order_by(Race.updated_at.desc()).first()
+    race = q.order_by(Race.race_date.desc().nulls_last(), Race.updated_at.desc()).first()
     if race is None:
         return None
     try:
@@ -15745,17 +15779,27 @@ def _performance_signature(session, user_id, prefs_row) -> str:
     """Cache signature for the Endurance/Speed performance scores.
 
     Combines the workout-set signature (MAX(created_at) + count for the athlete —
-    a sync that inserts/updates any workout bumps created_at) with the
-    threshold/preference inputs the score compute depends on (FTP, threshold HR,
-    threshold pace, aerobic-decoupling threshold). Any of these changing
-    recomputes the scores; otherwise repeat loads reuse the cached payload.
+    a sync that inserts/updates any workout bumps created_at) with the race-set
+    signature (MAX(updated_at) + count — the race anchor/floor feeds the scores,
+    so adding or editing a race must recompute them) and the threshold/preference
+    inputs the score compute depends on (FTP, threshold HR, threshold pace,
+    aerobic-decoupling threshold). Any of these changing recomputes the scores;
+    otherwise repeat loads reuse the cached payload.
     """
     # Bump this token whenever the score FORMULA changes so the durable Neon
     # summary_cache busts. v2 = VDOT re-anchor (was relative min/max + EWMA);
     # v3 = recreational band recalibration (15/58) + endurance HR-extrapolation
-    # exponent; v4 = one-score-everywhere (*_current = today) + feed contributions.
-    _FORMULA_VERSION = "vdot-v4"
+    # exponent; v4 = one-score-everywhere (*_current = today) + feed contributions;
+    # v5 = races in the signature + race anchor selected by race_date (was
+    # updated_at), so a newly logged race refreshes the scores immediately.
+    _FORMULA_VERSION = "vdot-v5"
     base = _summary_signature(session, user_id)
+    race_row = (
+        session.query(func.max(Race.updated_at), func.count(Race.id))
+        .filter(Race.user_id == user_id)
+        .one()
+    )
+    races_part = "%s|%s" % (race_row[0], race_row[1])
     if prefs_row is not None:
         prefs_part = "%s|%s|%s|%s" % (
             getattr(prefs_row, "ftp_w", None),
@@ -15765,7 +15809,7 @@ def _performance_signature(session, user_id, prefs_row) -> str:
         )
     else:
         prefs_part = "no-prefs"
-    return base + "|" + prefs_part + "|" + _FORMULA_VERSION
+    return base + "|" + races_part + "|" + prefs_part + "|" + _FORMULA_VERSION
 
 
 @app.get("/api/athletes/{athlete_id}/summary/weekly")
