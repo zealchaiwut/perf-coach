@@ -1844,6 +1844,10 @@
         formTitle.textContent =
           mode === "create" ? "Log workout" : "Edit workout";
       if (pill) pill.textContent = mode === "create" ? "New" : "Editing";
+      // Device-source pills (Strava/Garmin/Stryd) only make sense when LOGGING
+      // a new workout — editing an existing one must not offer a source pick.
+      var importRow = formWrap && formWrap.querySelector(".rl-import");
+      if (importRow) importRow.style.display = mode === "create" ? "" : "none";
       var saveBtn = document.getElementById("dp-save-btn");
       if (saveBtn)
         saveBtn.textContent = mode === "edit" ? "Save changes" : "Save workout";

@@ -18,9 +18,13 @@
     /* ── Running-log v2: inner components (override legacy) ─────────────────── */
     .workout-meta.rl-card { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; max-width: none; margin: 0; }
     .workout-meta .meta-field.full-width { grid-column: 1 / -1; }
+    /* Stack the label ABOVE its control — labels used to sit inline beside the
+       input (ragged rows; the Remarks label hugged the textarea). */
+    .meta-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
     .meta-field label { font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
     .meta-field input[type="text"], .meta-field input[type="date"], .meta-field input[type="number"], .meta-field textarea {
       border: 1.5px solid var(--card-border); background: var(--rl-tile); border-radius: 9px; padding: 9px 11px; font-size: 13px; color: var(--text-primary); font-family: inherit;
+      width: 100%; box-sizing: border-box;
     }
     .meta-field input.mono, .meta-field input[type="number"] { font-family: 'JetBrains Mono', monospace; }
     .meta-field input:focus, .meta-field textarea:focus { outline: none; border-color: #3563d4; background: #fff; box-shadow: none; }
@@ -148,7 +152,8 @@
     .ex-remove { width: 26px; height: 26px; border-radius: 7px; border: 0; background: transparent; color: var(--text-tertiary); cursor: pointer; }
     .ex-remove:hover { background: var(--red-soft); color: var(--red); }
     .set-table { padding: 6px 12px 12px; }
-    .set-cols, .set-row { display: grid; grid-template-columns: 44px 1fr 1fr 64px 1fr 26px; gap: 8px; align-items: center; }
+    /* 5 columns since the Rest input was removed: Set | Weight | Reps | RPE | ✕ */
+    .set-cols, .set-row { display: grid; grid-template-columns: 44px 1fr 1fr 64px 26px; gap: 8px; align-items: center; }
     .set-cols { padding: 7px 0 4px; font-size: 8.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-tertiary); }
     .set-cols .r { text-align: center; }
     .set-row { padding: 4px 0; }
@@ -173,7 +178,7 @@
     .str-l { font-size: 9px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 5px; }
     .str-v { font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; color: var(--text-primary); }
     .str-v .su { font-size: 10px; color: var(--text-tertiary); font-family: inherit; font-weight: 500; margin-left: 2px; }
-    @media (max-width: 560px) { .set-cols, .set-row { grid-template-columns: 38px 1fr 1fr 46px minmax(40px,1fr) 22px; gap: 5px; } }
+    @media (max-width: 560px) { .set-cols, .set-row { grid-template-columns: 38px 1fr 1fr 46px 22px; gap: 5px; } }
     /* ── RPE bullet (issue #644) ────────────────────────────────────────────── */
     .ex-rpe-bullet { width: 10px; height: 10px; border-radius: 50%; background: var(--card-border); flex-shrink: 0; display: inline-block; transition: background 0.15s; }
     .ex-rpe-bullet.ex-rpe-green { background: var(--green, #2d5e10); }

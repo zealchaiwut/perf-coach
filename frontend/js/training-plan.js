@@ -156,6 +156,36 @@ information about.
     },
     reload: function () {
       _loadWeek(function () {});
+    },
+    // Exposed for the Plan Suggestions module (a separate closure below) so it
+    // scopes suggestions to whichever week is actually on screen, instead of
+    // assuming "next Monday" regardless of what the athlete is looking at.
+    getWeekStartISO: function () {
+      return _iso(_weekStart || _mondayOf(new Date()));
+    },
+    // day_offset/date/open (no logged workout, no existing planned session,
+    // not before today) for each day of the currently-viewed week — lets the
+    // suggestions prefs form show accurate checkboxes without a second
+    // network round trip (the backend is still the authority: it re-derives
+    // and enforces the same allowed_offsets itself).
+    getOpenDayInfo: function () {
+      if (!_weekStart) return [];
+      var wsIso = _iso(_weekStart);
+      var todayIso = _todayISO();
+      var offsetOfToday = Math.round((_parseISO(todayIso) - _parseISO(wsIso)) / 86400000);
+      var days = (_bundle && _bundle.days) || [];
+      var out = [];
+      for (var i = 0; i < 7; i++) {
+        var day = days[i] || {};
+        var hasPlanned = (day.planned || []).length > 0;
+        var hasUnplanned = (day.unplanned || []).some(function (u) { return !_dismissedGhosts[u.id]; });
+        out.push({
+          day_offset: i,
+          date: day.date || _iso(_addDays(_weekStart, i)),
+          open: i >= offsetOfToday && !hasPlanned && !hasUnplanned
+        });
+      }
+      return out;
     }
   };
 
@@ -258,11 +288,10 @@ information about.
           '<button class="pl-arw" id="pl-next" aria-label="Next week">›</button>' +
         '</div>' +
         '<div class="pl-btnrow">' +
-          /* "Suggest sessions" is disabled ("coming soon") — the assembled-prompt
-             flow that used to back this button (_openSuggest/_suggestHtml and
-             friends) was dead code (button never enabled) and has been removed;
-             see git history if it's revived. */
-          '<button class="pl-btn pl-ghost" id="pl-suggest" disabled title="Coming soon">✨ Suggest sessions</button>' +
+          /* Repurposed to open the AI next-week suggestions panel (issue #1315).
+             It proxies a click to the suggestions module's own (hidden) trigger
+             button, which lives in a separate closure. */
+          '<button class="pl-btn pl-ghost" id="pl-suggest" title="AI-suggested sessions for next week">✨ Suggest sessions</button>' +
           '<button class="pl-btn pl-dark" id="pl-add">+ Add</button>' +
         '</div></div>' +
         '<div class="pl-infobanner" style="margin-bottom:12px;">Synced workouts from Strava/Stryd auto-match to planned sessions. Drag a <b>planned</b> or <b>missed</b> card to reschedule; ambiguous or missing matches need a quick confirm below. These planned sessions <b>don’t feed Projection’s ramp/taper load model</b> — separate systems.</div>' +
@@ -276,6 +305,13 @@ information about.
     document.getElementById('pl-prev').onclick = function () { _weekStart = _addDays(_weekStart, -7); _renderWeekSection(); _loadWeek(); };
     document.getElementById('pl-next').onclick = function () { _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(); };
     document.getElementById('pl-add').onclick = function () { _openAdd('single'); };
+    var sugBtn = document.getElementById('pl-suggest');
+    if (sugBtn) sugBtn.onclick = function () {
+      var t = document.getElementById('plan-suggestions-trigger');
+      if (t) t.click();
+      var panel = document.getElementById('plan-suggestions-panel');
+      if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    };
     if (_bundle) _renderWeekList();
   }
 
@@ -644,24 +680,71 @@ information about.
     });
   }
 
-  // ══ ADD PANEL ═══════════════════════════════════════════════════════════════
+  // ══ ADD / EDIT PANEL ════════════════════════════════════════════════════════
   function _openAdd(topMode, presetDate) {
     _panel.open = 'add';
     _addState.top = topMode; _addState.sub = 'form';
+    _addState.editId = null; _addState.edit = null;
     _addState.presetDate = presetDate || _iso(_weekStart);
+    // Fresh create: reset the builders to the demo templates so leftovers from
+    // a previous edit don't leak into a new session.
+    _sfBlocks = [
+      { phase: 'warmup', duration_min: 10 },
+      { phase: 'main', duration_min: 10, repeat: 3, rest_min: 2, target: '92% CP' },
+      { phase: 'cooldown', duration_min: 8 }
+    ];
+    _sfExercises = [
+      { name: 'Back squat', sets: 5, reps: 5, load: '78% 1RM' },
+      { name: 'Romanian deadlift', sets: 4, reps: 8, load: 'moderate' }
+    ];
+    _sfStrengthMode = 'detailed'; _sfFocus = '';
     _renderAddSection(); _renderDetailSection();
     var el = document.getElementById('plan-add-section');
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
-  function _closeAdd() { _panel.open = null; _renderAddSection(); }
+
+  // Edit an existing planned session in the same structured form the create
+  // flow uses, seeded from the session and saved via PATCH. (The Edit button
+  // used to open the CREATE flow with demo template data and POST a duplicate.)
+  function _openEdit(p) {
+    _panel.open = 'add';
+    _addState.top = 'single'; _addState.sub = 'form';
+    _addState.editId = p.id;
+    _addState.edit = { name: p.name || '', notes: p.notes || '', type: p.session_type };
+    _addState.presetDate = p.planned_date;
+    var s = p.structure || {};
+    if (p.session_type === 'run') {
+      _sfBlocks = (Array.isArray(s.blocks) ? s.blocks : []).map(function (b) {
+        return Object.assign({}, b);
+      });
+      if (!_sfBlocks.length) _sfBlocks = [{ phase: 'main', duration_min: 10 }];
+    } else if (p.session_type === 'strength' || p.session_type === 'plyo') {
+      if (Array.isArray(s.exercises) && s.exercises.length) {
+        _sfStrengthMode = 'detailed';
+        _sfExercises = s.exercises.map(function (x) { return Object.assign({}, x); });
+      } else {
+        _sfStrengthMode = 'simple';
+        _sfFocus = s.focus || '';
+        _sfExercises = [];
+      }
+    }
+    _renderAddSection(); _renderDetailSection();
+    var el = document.getElementById('plan-add-section');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function _closeAdd() { _panel.open = null; _addState.editId = null; _addState.edit = null; _renderAddSection(); }
 
   function _renderAddSection() {
     var host = document.getElementById('plan-add-section');
     if (!host) return;
     if (_panel.open !== 'add') { host.innerHTML = ''; return; }
+    var editing = !!_addState.editId;
     host.innerHTML = '<div class="pl-card pl-panelcard">' +
-      '<div class="pl-panelhead"><span class="pl-sectitle">Add session(s)</span><button class="pl-closepanel" id="pl-addclose">✕</button></div>' +
-      '<div class="pl-modetoggle" id="pl-addmode"><button data-m="single">Single session</button><button data-m="bulk">Bulk-add a week</button></div>' +
+      '<div class="pl-panelhead"><span class="pl-sectitle">' + (editing ? 'Edit session' : 'Add session(s)') + '</span><button class="pl-closepanel" id="pl-addclose">✕</button></div>' +
+      // No single/bulk toggle while editing — bulk/JSON create flows would
+      // silently turn the edit into a duplicate-creating POST (the old bug).
+      (editing ? '' : '<div class="pl-modetoggle" id="pl-addmode"><button data-m="single">Single session</button><button data-m="bulk">Bulk-add a week</button></div>') +
       '<div id="pl-addbody"></div>' +
     '</div>';
     document.getElementById('pl-addclose').onclick = _closeAdd;
@@ -669,16 +752,20 @@ information about.
   }
 
   function _renderAddBody() {
+    var editing = !!_addState.editId;
     var subs = _addState.top === 'single' ? [['form', 'Form'], ['json', 'JSON']]
       : [['form', 'Form'], ['json', 'JSON'], ['sep', 'Separator']];
-    var subHtml = '<div class="pl-subtoggle" id="pl-addsub">' + subs.map(function (x) {
+    // Editing pins the structured Form — the JSON sub-tab is a CREATE affordance
+    // (paste an AI-generated plan) and would duplicate instead of update.
+    var subHtml = editing ? '' : '<div class="pl-subtoggle" id="pl-addsub">' + subs.map(function (x) {
       return '<button class="' + (x[0] === _addState.sub ? 'on' : '') + '" data-sm="' + x[0] + '">' + x[1] + '</button>';
     }).join('') + '</div>';
     var content;
     if (_addState.top === 'single') content = _addState.sub === 'form' ? _singleFormHtml() : _singleJSONHtml();
     else content = _addState.sub === 'form' ? _bulkFormHtml() : (_addState.sub === 'json' ? _bulkJSONHtml() : _bulkSepHtml());
     document.getElementById('pl-addbody').innerHTML = subHtml + content;
-    [].forEach.call(document.getElementById('pl-addmode').children, function (b) {
+    var modeEl0 = document.getElementById('pl-addmode');
+    if (modeEl0) [].forEach.call(modeEl0.children, function (b) {
       b.classList.toggle('on', b.dataset.m === _addState.top);
     });
     _wireAddBody();
@@ -686,14 +773,21 @@ information about.
 
   // ── Single Form (adaptive: run block builder vs strength exercise rows) ─────
   function _singleFormHtml() {
+    var ed = _addState.edit || {};
+    function sel(t) { return ed.type === t ? ' selected' : ''; }
     return '<div class="pl-frow">' +
         '<div class="pl-fld"><label>Date</label><input type="date" id="pl-sf-date" value="' + esc(_addState.presetDate) + '"/></div>' +
-        '<div class="pl-fld"><label>Type</label><select id="pl-sf-type"><option value="run">Run</option><option value="strength">Strength</option><option value="plyo">Plyo</option><option value="rest">Rest</option></select></div>' +
-        '<div class="pl-fld"><label>Session name</label><input id="pl-sf-name" placeholder="Sustained Tempo"/></div>' +
+        '<div class="pl-fld"><label>Type</label><select id="pl-sf-type">' +
+          '<option value="run"' + sel('run') + '>Run</option>' +
+          '<option value="strength"' + sel('strength') + '>Strength</option>' +
+          '<option value="plyo"' + sel('plyo') + '>Plyo</option>' +
+          '<option value="rest"' + sel('rest') + '>Rest</option>' +
+        '</select></div>' +
+        '<div class="pl-fld"><label>Session name</label><input id="pl-sf-name" placeholder="Sustained Tempo" value="' + esc(ed.name || '') + '"/></div>' +
       '</div>' +
       '<div id="pl-sf-structure"></div>' +
-      '<div class="pl-fld" style="margin-top:14px;"><label>Notes from coach</label><textarea id="pl-sf-notes" placeholder="e.g. hold 92% CP even on the 3rd rep"></textarea></div>' +
-      '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-sf-save">Save session</button><button class="pl-btn pl-ghost" id="pl-sf-cancel">Cancel</button></div>';
+      '<div class="pl-fld" style="margin-top:14px;"><label>Notes from coach</label><textarea id="pl-sf-notes" placeholder="e.g. hold 92% CP even on the 3rd rep">' + esc(ed.notes || '') + '</textarea></div>' +
+      '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-sf-save">' + (_addState.editId ? 'Save changes' : 'Save session') + '</button><button class="pl-btn pl-ghost" id="pl-sf-cancel">Cancel</button></div>';
   }
 
   // Run block builder rows
@@ -707,6 +801,7 @@ information about.
     { name: 'Romanian deadlift', sets: 4, reps: 8, load: 'moderate' }
   ];
   var _sfStrengthMode = 'detailed'; // 'simple' | 'detailed'
+  var _sfFocus = ''; // seed for the simple-mode Focus input (edit prefill)
 
   function _renderStructureBuilder() {
     var host = document.getElementById('pl-sf-structure');
@@ -726,7 +821,7 @@ information about.
           '<button class="' + (_sfStrengthMode === 'detailed' ? 'on' : '') + '" data-str="detailed">Detailed</button>' +
         '</div>' +
         (_sfStrengthMode === 'simple'
-          ? '<div class="pl-fld"><label>Focus</label><input id="pl-str-focus" placeholder="Lower / posterior chain"/></div>'
+          ? '<div class="pl-fld"><label>Focus</label><input id="pl-str-focus" placeholder="Lower / posterior chain" value="' + esc(_sfFocus || '') + '"/></div>'
           : '<div class="pl-fld" style="margin-bottom:6px;"><label>Exercises</label></div>' +
             '<div class="pl-blocklist" id="pl-exlist">' + _sfExercises.map(_exRowHtml).join('') + '</div>' +
             '<button class="pl-addblock" id="pl-addex">+ Add exercise</button>');
@@ -775,6 +870,8 @@ information about.
     document.querySelectorAll('#pl-strmode button').forEach(function (b) {
       b.addEventListener('click', function () { _sfStrengthMode = b.getAttribute('data-str'); _renderStructureBuilder(); });
     });
+    var focusInp = document.getElementById('pl-str-focus');
+    if (focusInp) focusInp.addEventListener('input', function () { _sfFocus = focusInp.value; });
     var list = document.getElementById('pl-exlist');
     if (list) {
       list.querySelectorAll('.pl-block').forEach(function (row) {
@@ -835,8 +932,13 @@ information about.
       document.getElementById('pl-sf-save').onclick = function () {
         var payload = _collectSingleForm();
         if (!payload.planned_date || !payload.session_type) { _toast('Date and type are required', true); return; }
-        _api('POST', '/api/planned-sessions', payload)
-          .then(function () { _toast('Session saved'); _closeAdd(); _loadWeek(); })
+        // Editing PATCHes the existing session; creating POSTs a new one.
+        var editId = _addState.editId;
+        var req = editId
+          ? _api('PATCH', '/api/planned-sessions/' + editId, payload)
+          : _api('POST', '/api/planned-sessions', payload);
+        req
+          .then(function () { _toast(editId ? 'Session updated' : 'Session saved'); _closeAdd(); _loadWeek(); })
           .catch(function (e) { _toast(e.message || 'Save failed', true); });
       };
     } else if (_addState.top === 'single' && _addState.sub === 'json') {
@@ -1104,7 +1206,14 @@ information about.
     '</div>';
     document.getElementById('pl-detclose').onclick = _closeDetail;
     var editBtn = document.getElementById('pl-det-edit');
-    if (editBtn) editBtn.onclick = function () { _openAdd('single', p.planned_date); };
+    if (editBtn) editBtn.onclick = function () { _openEdit(p); };
+    var delBtn = document.getElementById('pl-det-delete');
+    if (delBtn) delBtn.onclick = function () {
+      if (!window.confirm('Delete this planned session? This can’t be undone.')) return;
+      _api('DELETE', '/api/planned-sessions/' + p.id)
+        .then(function () { _toast('Planned session deleted'); _closeDetail(); _loadWeek(); })
+        .catch(function (err) { _toast(err.message || 'Delete failed', true); });
+    };
     var copyBtn = document.getElementById('pl-det-copy');
     if (copyBtn) copyBtn.onclick = function () {
       var pre = document.getElementById('pl-stryd-pre');
@@ -1160,7 +1269,8 @@ information about.
 
     return '<div class="pl-dethead"><span class="pl-dettag run">Run</span>' +
         '<span style="font-size:11px;color:var(--pl-faint);font-family:var(--pl-mono)">' + esc(_fmtDayDate(p.planned_date)) + '</span>' +
-        '<span style="flex:1"></span><button class="pl-btn pl-ghost" id="pl-det-edit">Edit</button></div>' +
+        '<span style="flex:1"></span><button class="pl-btn pl-ghost pl-danger" id="pl-det-delete" title="Delete this planned session">Delete</button>' +
+        '<button class="pl-btn pl-ghost" id="pl-det-edit">Edit</button></div>' +
       '<div class="pl-dettitle">' + esc(p.name || '(untitled)') + '</div>' +
       _detailStatusActionsHtml(p) +
       (p.notes ? '' : '') +
@@ -1223,7 +1333,8 @@ information about.
 
     return '<div class="pl-dethead"><span class="pl-dettag lift">' + typeLabel + '</span>' +
         '<span style="font-size:11px;color:var(--pl-faint);font-family:var(--pl-mono)">' + esc(_fmtDayDate(p.planned_date)) + '</span>' +
-        '<span style="flex:1"></span><button class="pl-btn pl-ghost" id="pl-det-edit">Edit</button></div>' +
+        '<span style="flex:1"></span><button class="pl-btn pl-ghost pl-danger" id="pl-det-delete" title="Delete this planned session">Delete</button>' +
+        '<button class="pl-btn pl-ghost" id="pl-det-edit">Edit</button></div>' +
       '<div class="pl-dettitle">' + esc(p.name || '(untitled)') + '</div>' +
       _detailStatusActionsHtml(p) +
       '<div class="pl-dettiles">' +
@@ -1272,6 +1383,8 @@ information about.
     '.plan-panel .pl-btn.pl-dark{background:var(--pl-ink);color:#fff;border-color:var(--pl-ink);}',
     '.plan-panel .pl-btn.pl-lime{background:var(--pl-lime);color:var(--pl-ink);border-color:var(--pl-lime);}',
     '.plan-panel .pl-btn.pl-ghost{background:none;border:1px solid var(--pl-line);}',
+    '.plan-panel .pl-btn.pl-danger{color:#b91c1c;border-color:#fecaca;}',
+    '.plan-panel .pl-btn.pl-danger:hover{background:#fee2e2;}',
     '.plan-panel .pl-btn.pl-tiny{font-size:10px;padding:5px 9px;}',
     '.plan-panel .pl-detactions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 4px;}',
     '.plan-panel .pl-btnrow{display:flex;gap:8px;flex-wrap:wrap;}',
@@ -1418,49 +1531,176 @@ information about.
     '.plan-panel .pl-exblock-h{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;color:var(--pl-muted);margin-bottom:9px;padding-bottom:7px;border-bottom:1px solid var(--pl-line);}',
     '@media(max-width:560px){.plan-panel .pl-dayrow{flex-direction:column;gap:8px;}.plan-panel .pl-daylabel{width:auto;display:flex;align-items:baseline;gap:6px;padding-top:0;}}',
     // ── Suggestions panel (issue #1315) ─────────────────────────────────────
-    '.pl-suggestions-panel{background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:13px;padding:14px 16px;margin:14px 0;}',
+    '.pl-suggestions-panel{background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:13px;padding:14px 16px;margin:14px 0;position:relative;}',
     '.pl-sug-header{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;}',
     '.pl-sug-title{font-size:13px;font-weight:800;color:var(--pl-ink);flex:1;}',
     '.pl-sug-source{font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;background:var(--pl-blueSoft);color:var(--pl-run);text-transform:uppercase;letter-spacing:0.04em;}',
     '.pl-sug-btn-sm{background:none;border:1px solid var(--pl-line);border-radius:7px;padding:3px 8px;font-size:12px;color:var(--pl-muted);cursor:pointer;}',
     '.pl-sug-btn-sm:hover{background:var(--pl-tile);color:var(--pl-ink);}',
-    '.pl-sug-loading{font-size:12px;color:var(--pl-muted);padding:8px 0;}',
-    '.pl-sug-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--pl-line);flex-wrap:wrap;}',
-    '.pl-sug-row:last-child{border-bottom:none;}',
+    // Loading OVERLAY (not a full clear) — covers the panel (prefs form or the
+    // previous suggestion list stays visible underneath, dimmed) while a
+    // (re)generate call is in flight.
+    '.pl-sug-loading{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:rgba(255,255,255,0.85);border-radius:13px;font-size:12.5px;font-weight:600;color:var(--pl-muted);z-index:2;}',
+    '.pl-sug-spinner{width:22px;height:22px;border-radius:50%;border:2.5px solid var(--pl-line);border-top-color:var(--pl-run);animation:pl-sug-spin 0.7s linear infinite;}',
+    '@keyframes pl-sug-spin{to{transform:rotate(360deg);}}',
+    '@media (prefers-reduced-motion: reduce){.pl-sug-spinner{animation:none;border-top-color:var(--pl-line);}}',
+    '.pl-sug-row-wrap{padding:9px 0;border-bottom:1px solid var(--pl-line);}',
+    '.pl-sug-row-wrap:last-child{border-bottom:none;}',
+    '.pl-sug-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}',
+    '.pl-sug-exercises{margin:8px 0 2px 46px;padding:8px 0 0;border-top:1px dashed var(--pl-line);}',
+    '.pl-sug-ex-block{margin-bottom:8px;}',
+    '.pl-sug-ex-block:last-child{margin-bottom:0;}',
+    '.pl-sug-ex-block-h{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:var(--pl-faint);margin-bottom:4px;}',
+    '.pl-sug-ex-row{display:flex;align-items:baseline;gap:8px;font-size:12px;padding:2px 0;flex-wrap:wrap;}',
+    '.pl-sug-ex-name{font-weight:600;color:var(--pl-ink);min-width:140px;}',
+    '.pl-sug-ex-detail{font-family:var(--pl-mono);color:var(--pl-muted);}',
+    '.pl-sug-ex-load{color:var(--pl-faint);font-size:11.5px;}',
+    '.pl-sug-rep{font-size:10.5px;font-weight:800;color:var(--pl-run);background:var(--pl-blueSoft);border-radius:5px;padding:1px 5px;}',
     '.pl-sug-day{font-size:10px;font-weight:800;color:var(--pl-faint);text-transform:uppercase;width:36px;flex-shrink:0;}',
-    '.pl-sug-type{font-size:10px;font-weight:800;padding:3px 8px;border-radius:6px;text-transform:uppercase;flex-shrink:0;}',
-    '.pl-sug-type.run{background:var(--pl-blueSoft);color:var(--pl-run);}.pl-sug-type.strength{background:var(--pl-liftSoft);color:#7c3aed;}.pl-sug-type.plyo{background:var(--pl-amberSoft);color:var(--pl-amber);}.pl-sug-type.rest{background:#f1f5f9;color:#64748b;}',
+    '.pl-sug-type-select{font-size:10px;font-weight:800;padding:3px 6px;border-radius:6px;text-transform:uppercase;flex-shrink:0;border:1px solid transparent;cursor:pointer;-webkit-appearance:none;appearance:none;}',
+    '.pl-sug-type-select.run{background:var(--pl-blueSoft);color:var(--pl-run);}.pl-sug-type-select.strength{background:var(--pl-liftSoft);color:#7c3aed;}.pl-sug-type-select.plyo{background:var(--pl-amberSoft);color:var(--pl-amber);}.pl-sug-type-select.rest{background:#f1f5f9;color:#64748b;}',
     '.pl-sug-meta{font-size:12px;font-family:var(--pl-mono);color:var(--pl-muted);flex-shrink:0;}',
     '.pl-sug-intent{flex:1;font-size:12px;color:var(--pl-ink);min-width:100px;}',
+    '.pl-sug-notes-line{font-size:11.5px;color:var(--pl-muted);font-style:italic;margin:2px 0 4px 46px;line-height:1.4;}',
+    '.pl-sug-adjust{display:flex;gap:4px;flex-shrink:0;}',
+    '.pl-sug-adj{font-size:10.5px;font-weight:600;background:none;border:1px solid var(--pl-line);border-radius:6px;padding:4px 7px;cursor:pointer;color:var(--pl-muted);}',
+    '.pl-sug-adj:hover{background:var(--pl-tile);color:var(--pl-ink);}',
     '.pl-sug-add{font-size:11px;font-weight:700;background:var(--pl-lime);color:#1b2340;border:none;border-radius:7px;padding:5px 11px;cursor:pointer;flex-shrink:0;}',
     '.pl-sug-add:disabled{opacity:0.5;cursor:default;}',
     '.pl-sug-add.added{background:#d1fae5;color:#065f46;}',
     '.pl-sug-trigger-row{margin:10px 0 4px;display:flex;justify-content:flex-start;}',
-    '.pl-sug-trigger-btn{font-size:12px;font-weight:700;color:var(--pl-lavHi);background:none;border:1px dashed #c7d2fe;border-radius:8px;padding:7px 13px;cursor:pointer;}'
+    '.pl-sug-trigger-btn{font-size:12px;font-weight:700;color:var(--pl-lavHi);background:none;border:1px dashed #c7d2fe;border-radius:8px;padding:7px 13px;cursor:pointer;}',
+    // ── Pre-generation preferences form ─────────────────────────────────────
+    '.pl-sug-prefs{display:flex;flex-direction:column;gap:12px;}',
+    '.pl-sug-prefs-row{display:flex;flex-direction:column;gap:6px;}',
+    '.pl-sug-prefs-label{font-size:11px;font-weight:700;color:var(--pl-muted);text-transform:uppercase;letter-spacing:0.03em;}',
+    '.pl-sug-daychks{display:flex;gap:6px;flex-wrap:wrap;}',
+    '.pl-sug-daychk{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:var(--pl-ink);background:#fff;border:1px solid var(--pl-line);border-radius:8px;padding:5px 10px;cursor:pointer;}',
+    '.pl-sug-daychk input{margin:0;}',
+    '.pl-sug-daychk.is-closed{opacity:0.4;cursor:not-allowed;}',
+    '.pl-sug-select{font-size:13px;padding:7px 10px;border:1px solid var(--pl-line);border-radius:8px;background:#fff;color:var(--pl-ink);width:auto;align-self:flex-start;}',
+    '.pl-sug-notes{font-size:13px;padding:9px 11px;border:1px solid var(--pl-line);border-radius:9px;background:#fff;color:var(--pl-ink);min-height:52px;resize:vertical;font-family:inherit;}'
   ].join('');
 
 }());
 
-// ── Plan Suggestions (issue #1315) ───────────────────────────────────────────
+// ── Plan Suggestions (issue #1315 + PRD feedback v2) ─────────────────────────
 (function () {
   var _dismissed = false;
   var _suggestionsData = null;
+  // Remembered across Refresh clicks so re-opening the prefs form doesn't
+  // lose what the athlete already told it.
+  var _lastPrefs = { restDays: [], strengthEmphasis: 'same', notes: '' };
 
   var _DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  var _DAY_NAMES_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
   function _el(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
 
+  // Local date helpers (this module is a separate closure from the main Plan
+  // module above, which has its own copies it doesn't export).
+  function _parseISO(s) { var p = String(s).split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
+  function _fmtISO(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+
+  function _weekStartISO() {
+    return (window.TrainingPlan && window.TrainingPlan.getWeekStartISO)
+      ? window.TrainingPlan.getWeekStartISO()
+      : _fmtISO(new Date());
+  }
+
+  // The date a day_offset (0=Mon..6=Sun) lands on, relative to the week
+  // actually on screen — replaces the old hardcoded "next Monday" assumption
+  // that ignored which week the athlete was looking at.
   function _formatSugDate(dayOffset) {
-    var today = new Date();
-    var monday = new Date(today);
-    var dow = (monday.getDay() + 6) % 7;
-    monday.setDate(monday.getDate() - dow + 7); // next Monday
-    var d = new Date(monday);
+    var d = _parseISO(_weekStartISO());
     d.setDate(d.getDate() + dayOffset);
-    var y = d.getFullYear();
-    var m = String(d.getMonth() + 1).padStart(2, '0');
-    var day = String(d.getDate()).padStart(2, '0');
-    return y + '-' + m + '-' + day;
+    return _fmtISO(d);
+  }
+
+  // ── Per-session adjust: type override + lighter/harder ──────────────────────
+  // Lighter/Harder used to touch only the summary target_tss/duration numbers
+  // — the actual exercises/blocks never changed, so "harder" didn't translate
+  // into anything the athlete could act on at the gym. Now it also nudges the
+  // real prescription: exercise sets (and numeric reps, when parseable) for
+  // strength/plyo, and block duration/repeat for run.
+
+  function _adjustSession(s, harder) {
+    var factor = harder ? 1.2 : 0.8;
+    s.target_tss = Math.max(0, Math.min(400, Math.round((s.target_tss || 0) * factor)));
+    s.duration_minutes = Math.max(0, Math.round((s.duration_minutes || 0) * factor));
+
+    if (Array.isArray(s.exercises)) {
+      s.exercises.forEach(function (ex) {
+        if (ex.sets != null) {
+          ex.sets = Math.max(1, Math.min(8, ex.sets + (harder ? 1 : -1)));
+        }
+        // reps is a freeform string ("10", "30s hold", "per side") — only
+        // scale it when it's a plain integer; leave hold-durations/text alone.
+        if (typeof ex.reps === 'string' && /^\d+$/.test(ex.reps.trim())) {
+          var n = parseInt(ex.reps, 10);
+          ex.reps = String(Math.max(1, Math.round(n * factor)));
+        }
+      });
+    }
+    if (Array.isArray(s.blocks)) {
+      s.blocks.forEach(function (b) {
+        if (b.duration_min != null) {
+          b.duration_min = Math.max(1, Math.round(b.duration_min * factor));
+        }
+        if (b.repeat != null && b.repeat > 0) {
+          b.repeat = Math.max(1, Math.min(20, b.repeat + (harder ? 1 : -1)));
+        }
+      });
+    }
+  }
+
+  // Block-grouped exercise breakdown under a strength/plyo suggestion row —
+  // same shape PlannedSession.structure.exercises stores, same grouping the
+  // detail modal renders (see _liftDetailHtml). Without this the suggestion
+  // was a bare TSS/duration/intent line and "Add" produced an empty-shell
+  // planned session with nothing to actually do at the gym.
+  function _sugExercisesHtml(exercises) {
+    if (!exercises || !exercises.length) return '';
+    var order = [];
+    exercises.forEach(function (x) {
+      var b = (x && x.block) ? x.block : 'Exercises';
+      if (order.indexOf(b) === -1) order.push(b);
+    });
+    var blocks = order.map(function (b) {
+      var rows = exercises.filter(function (x) { return ((x && x.block) ? x.block : 'Exercises') === b; })
+        .map(function (x) {
+          var sr = (x.sets != null && x.reps != null) ? (x.sets + ' × ' + x.reps) : (x.sets != null ? x.sets + ' sets' : '');
+          return '<div class="pl-sug-ex-row"><span class="pl-sug-ex-name">' + esc(x.name || 'Exercise') + '</span>' +
+            '<span class="pl-sug-ex-detail">' + esc(sr) + '</span>' +
+            '<span class="pl-sug-ex-load">' + esc(x.load || '') + '</span></div>';
+        }).join('');
+      return '<div class="pl-sug-ex-block"><div class="pl-sug-ex-block-h">' + esc(b) + '</div>' + rows + '</div>';
+    }).join('');
+    return '<div class="pl-sug-exercises">' + blocks + '</div>';
+  }
+
+  // Phase-structured breakdown under a run suggestion row — same shape
+  // PlannedSession.structure.blocks stores (see _runDetailHtml's segment
+  // rendering). Without this a run suggestion was just target_tss/duration —
+  // no warmup/main/cooldown structure, no repeat/target for a workout.
+  function _phaseLabel(ph) { return ph === 'warmup' ? 'Warmup' : (ph === 'cooldown' ? 'Cooldown' : (ph === 'main' ? 'Main set' : (ph || 'Block'))); }
+  function _sugBlocksHtml(blocks) {
+    if (!blocks || !blocks.length) return '';
+    var segs = blocks.map(function (b) {
+      var dur = b.duration_min != null ? b.duration_min + ' min' : '';
+      var rep = (b.repeat && b.repeat > 1) ? (' <span class="pl-sug-rep">×' + b.repeat + '</span>') : '';
+      var main = (b.repeat && b.repeat > 1) ? (b.repeat + ' × ' + dur) : dur;
+      var tgt = (b.target || '') + (b.rest_min ? ' · ' + b.rest_min + 'min rest between' : '');
+      return '<div class="pl-sug-ex-row"><span class="pl-sug-ex-name">' + esc(_phaseLabel(b.phase)) + '</span>' +
+        '<span class="pl-sug-ex-detail">' + esc(main) + '</span>' + rep +
+        '<span class="pl-sug-ex-load">' + esc(tgt) + '</span></div>';
+    }).join('');
+    return '<div class="pl-sug-exercises"><div class="pl-sug-ex-block">' + segs + '</div></div>';
   }
 
   function _buildSugRow(s, idx) {
@@ -1470,26 +1710,54 @@ information about.
     var metaParts = [tssStr, durStr].filter(Boolean);
     var metaStr = metaParts.join(' · ');
 
-    var row = document.createElement('div');
-    row.className = 'pl-sug-row';
-    row.dataset.idx = idx;
+    var wrap = document.createElement('div');
+    wrap.className = 'pl-sug-row-wrap';
+    wrap.dataset.idx = idx;
 
     var wt = (s.workout_type || 'rest').toLowerCase();
+    var types = ['run', 'strength', 'plyo', 'rest'];
 
-    row.innerHTML =
-      '<span class="pl-sug-day">' + dow + '</span>' +
-      '<span class="pl-sug-type ' + wt + '">' + wt + '</span>' +
-      (metaStr ? '<span class="pl-sug-meta">' + metaStr + '</span>' : '') +
-      '<span class="pl-sug-intent">' + (s.intent || '') + '</span>' +
-      (wt !== 'rest' ? '<button class="pl-sug-add" type="button" data-idx="' + idx + '">Add</button>' : '');
+    wrap.innerHTML =
+      '<div class="pl-sug-row">' +
+        '<span class="pl-sug-day">' + dow + '</span>' +
+        '<select class="pl-sug-type-select ' + wt + '" data-idx="' + idx + '">' +
+          types.map(function (t) { return '<option value="' + t + '"' + (t === wt ? ' selected' : '') + '>' + t + '</option>'; }).join('') +
+        '</select>' +
+        (metaStr ? '<span class="pl-sug-meta">' + metaStr + '</span>' : '') +
+        '<span class="pl-sug-intent">' + esc(s.intent || '') + '</span>' +
+        (wt !== 'rest'
+          ? '<span class="pl-sug-adjust">' +
+              '<button type="button" class="pl-sug-adj" data-adj="lighter" data-idx="' + idx + '" title="Fewer sets/reps or shorter — not just a lower TSS number">▾ Lighter</button>' +
+              '<button type="button" class="pl-sug-adj" data-adj="harder" data-idx="' + idx + '" title="More sets/reps or longer — not just a higher TSS number">▴ Harder</button>' +
+            '</span>' +
+            '<button class="pl-sug-add" type="button" data-idx="' + idx + '">Add</button>'
+          : '') +
+      '</div>' +
+      (s.notes ? '<div class="pl-sug-notes-line">' + esc(s.notes) + '</div>' : '') +
+      _sugExercisesHtml(wt !== 'rest' ? s.exercises : null) +
+      _sugBlocksHtml(wt === 'run' ? s.blocks : null);
 
-    var addBtn = row.querySelector('.pl-sug-add');
+    var typeSel = wrap.querySelector('.pl-sug-type-select');
+    typeSel.addEventListener('change', function () {
+      s.workout_type = typeSel.value;
+      if (typeSel.value === 'rest') { s.target_tss = 0; s.duration_minutes = 0; }
+      _renderSuggestions(_suggestionsData); // small list — cheap full re-render
+    });
+
+    wrap.querySelectorAll('.pl-sug-adj').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        _adjustSession(s, btn.getAttribute('data-adj') === 'harder');
+        _renderSuggestions(_suggestionsData);
+      });
+    });
+
+    var addBtn = wrap.querySelector('.pl-sug-add');
     if (addBtn) {
       addBtn.addEventListener('click', function () {
         _addSuggestion(s, addBtn);
       });
     }
-    return row;
+    return wrap;
   }
 
   function _addSuggestion(s, btn) {
@@ -1500,11 +1768,24 @@ information about.
       session_type: s.workout_type,
       name: s.intent ? s.intent.substring(0, 80) : null,
     };
-    if (s.target_tss > 0 || s.duration_minutes > 0) {
+    // Prefer the LLM's own rationale (why this weight/exercise/pairing) when
+    // present; otherwise fall back to the bare TSS/duration summary the
+    // template path (no rationale) still provides.
+    if (s.notes) {
+      body.notes = s.notes;
+    } else if (s.target_tss > 0 || s.duration_minutes > 0) {
       body.notes = [
         s.target_tss > 0 ? 'Target TSS: ' + s.target_tss : '',
         s.duration_minutes > 0 ? 'Duration: ' + s.duration_minutes + ' min' : ''
       ].filter(Boolean).join('. ');
+    }
+    // Carry the exercise/block breakdown into the planned session's structure
+    // — same shape the manual Add-session form builder produces — so Add
+    // creates a fully detailed session, not an empty shell to rebuild by hand.
+    if (Array.isArray(s.exercises) && s.exercises.length) {
+      body.structure = { exercises: s.exercises };
+    } else if (Array.isArray(s.blocks) && s.blocks.length) {
+      body.structure = { blocks: s.blocks };
     }
 
     fetch('/api/planned-sessions', {
@@ -1536,13 +1817,112 @@ information about.
 
     list.innerHTML = '';
     var suggestions = data.suggestions || [];
-    suggestions.forEach(function (s, i) {
-      list.appendChild(_buildSugRow(s, i));
-    });
+    if (!suggestions.length) {
+      list.innerHTML = '<span style="font-size:12px;color:var(--pl-muted);">Nothing left to suggest — the rest of this week is already scheduled.</span>';
+    } else {
+      suggestions.forEach(function (s, i) {
+        list.appendChild(_buildSugRow(s, i));
+      });
+    }
 
     panel.style.display = '';
+    var prefsEl = _el('plan-suggestions-prefs');
+    if (prefsEl) prefsEl.innerHTML = '';
     var loading = _el('plan-suggestions-loading');
     if (loading) loading.style.display = 'none';
+  }
+
+  // ── Pre-generation preferences form ──────────────────────────────────────────
+  // PRD feedback: generating blind (no visibility into what's already on the
+  // schedule, no way to say "I want these days off" or "more strength this
+  // week") produced suggestions the athlete had to fight with. Ask first.
+
+  function _titleForOpenDays(openDays) {
+    var titleEl = _el('plan-suggestions-title');
+    if (!titleEl) return;
+    var open = openDays.filter(function (d) { return d.open; });
+    if (!open.length) { titleEl.textContent = 'Suggested sessions'; return; }
+    var first = _DAY_NAMES_FULL[open[0].day_offset];
+    var last = _DAY_NAMES_FULL[open[open.length - 1].day_offset];
+    titleEl.textContent = open.length === 7
+      ? 'Next week’s suggestions'
+      : 'Suggestions for ' + (first === last ? first : first + '–' + last);
+  }
+
+  function _renderPrefsForm() {
+    var host = _el('plan-suggestions-prefs');
+    if (!host) return;
+    var list = _el('plan-suggestions-list');
+    if (list) list.innerHTML = '';
+    var loading = _el('plan-suggestions-loading');
+    if (loading) loading.style.display = 'none';
+
+    var openDays = (window.TrainingPlan && window.TrainingPlan.getOpenDayInfo)
+      ? window.TrainingPlan.getOpenDayInfo() : [];
+    _titleForOpenDays(openDays);
+
+    var dayChecks = openDays.map(function (d) {
+      var checked = _lastPrefs.restDays.indexOf(d.day_offset) !== -1;
+      return '<label class="pl-sug-daychk' + (d.open ? '' : ' is-closed') + '" title="' +
+        (d.open ? 'Ask for this day off' : 'Already scheduled or in the past') + '">' +
+        '<input type="checkbox" data-restday="' + d.day_offset + '"' +
+        (checked ? ' checked' : '') + (d.open ? '' : ' disabled') + '/>' +
+        '<span>' + _DAY_NAMES[d.day_offset] + '</span></label>';
+    }).join('');
+
+    var anyOpen = openDays.some(function (d) { return d.open; });
+
+    host.innerHTML =
+      '<div class="pl-sug-prefs">' +
+        (anyOpen ? (
+          '<div class="pl-sug-prefs-row">' +
+            '<label class="pl-sug-prefs-label">Rest days</label>' +
+            '<div class="pl-sug-daychks">' + dayChecks + '</div>' +
+          '</div>' +
+          '<div class="pl-sug-prefs-row">' +
+            '<label class="pl-sug-prefs-label" for="pl-sug-emphasis">Strength this week</label>' +
+            '<select id="pl-sug-emphasis" class="pl-sug-select">' +
+              '<option value="less"' + (_lastPrefs.strengthEmphasis === 'less' ? ' selected' : '') + '>Less</option>' +
+              '<option value="same"' + (_lastPrefs.strengthEmphasis === 'same' ? ' selected' : '') + '>Same</option>' +
+              '<option value="more"' + (_lastPrefs.strengthEmphasis === 'more' ? ' selected' : '') + '>More</option>' +
+            '</select>' +
+          '</div>' +
+          '<div class="pl-sug-prefs-row">' +
+            '<label class="pl-sug-prefs-label" for="pl-sug-notes">Anything else the coach should know?</label>' +
+            '<textarea id="pl-sug-notes" class="pl-sug-notes" placeholder="e.g. easing back after a cold, prioritize a long run Saturday…" maxlength="300">' + esc(_lastPrefs.notes) + '</textarea>' +
+          '</div>' +
+          '<div class="pl-btnrow"><button type="button" class="pl-btn pl-lime" id="pl-sug-generate">Generate suggestions</button>' +
+          '<button type="button" class="pl-btn pl-ghost" id="pl-sug-cancel">Cancel</button></div>'
+        ) : (
+          '<div class="pl-infobanner">The rest of this week is already fully scheduled or logged — nothing left to suggest here. Use the week arrows to look at next week instead.</div>' +
+          '<div class="pl-btnrow"><button type="button" class="pl-btn pl-ghost" id="pl-sug-cancel">Close</button></div>'
+        )) +
+      '</div>';
+
+    host.querySelectorAll('[data-restday]').forEach(function (chk) {
+      chk.addEventListener('change', function () {
+        var off = +chk.getAttribute('data-restday');
+        var i = _lastPrefs.restDays.indexOf(off);
+        if (chk.checked && i === -1) _lastPrefs.restDays.push(off);
+        else if (!chk.checked && i !== -1) _lastPrefs.restDays.splice(i, 1);
+      });
+    });
+    var genBtn = _el('pl-sug-generate');
+    if (genBtn) genBtn.addEventListener('click', function () {
+      var emphasisEl = _el('pl-sug-emphasis');
+      var notesEl = _el('pl-sug-notes');
+      if (emphasisEl) _lastPrefs.strengthEmphasis = emphasisEl.value;
+      if (notesEl) _lastPrefs.notes = notesEl.value;
+      _loadSuggestions();
+    });
+    var cancelBtn = _el('pl-sug-cancel');
+    if (cancelBtn) cancelBtn.addEventListener('click', _dismissPanel);
+  }
+
+  function _showPrefsForm() {
+    var panel = _el('plan-suggestions-panel');
+    if (panel) panel.style.display = '';
+    _renderPrefsForm();
   }
 
   function _loadSuggestions() {
@@ -1551,10 +1931,21 @@ information about.
     var list = _el('plan-suggestions-list');
     if (!panel) return;
     panel.style.display = '';
+    // Show the overlay ON TOP of whatever's already there (the prefs form, or
+    // last time's suggestion list) — don't clear it first, so the panel never
+    // goes blank while the LLM call is in flight.
     if (loading) loading.style.display = '';
-    if (list) list.innerHTML = '';
 
-    fetch('/api/plan/suggestions')
+    fetch('/api/plan/suggestions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        week_start: _weekStartISO(),
+        rest_days: _lastPrefs.restDays,
+        strength_emphasis: _lastPrefs.strengthEmphasis,
+        notes: _lastPrefs.notes,
+      }),
+    })
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
       .then(_renderSuggestions)
       .catch(function () {
@@ -1566,30 +1957,27 @@ information about.
   function _dismissPanel() {
     _dismissed = true;
     var panel = _el('plan-suggestions-panel');
-    var trigger = _el('plan-suggestions-trigger-row');
     if (panel) panel.style.display = 'none';
-    if (trigger) trigger.style.display = '';
+    // The bottom trigger row stays hidden — the "✨ Suggest sessions" button in
+    // the week-pane header is the entry point now (it proxies a click to the
+    // hidden #plan-suggestions-trigger).
   }
 
   function _initSuggestions() {
     var trigger = _el('plan-suggestions-trigger');
     var refresh = _el('plan-suggestions-refresh');
     var dismiss = _el('plan-suggestions-dismiss');
-    var triggerRow = _el('plan-suggestions-trigger-row');
-
-    if (triggerRow) triggerRow.style.display = '';
 
     if (trigger) {
       trigger.addEventListener('click', function () {
-        if (triggerRow) triggerRow.style.display = 'none';
         _dismissed = false;
-        _loadSuggestions();
+        _showPrefsForm();
       });
     }
     if (refresh) {
       refresh.addEventListener('click', function () {
         _dismissed = false;
-        _loadSuggestions();
+        _showPrefsForm();
       });
     }
     if (dismiss) {

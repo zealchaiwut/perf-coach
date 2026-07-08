@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import logging
 import uuid as _uuid
-from datetime import date, timedelta, timezone
+from datetime import timedelta
 from types import SimpleNamespace
 
 from sqlalchemy import and_ as _and, or_ as _or
 from sqlalchemy.orm import Session as _Session, defer as _defer, load_only as _load_only
+
+from backend.utils.time import to_bangkok, today_bangkok
 
 _log = logging.getLogger(__name__)
 
@@ -440,7 +442,13 @@ def reconcile_workouts(
                 _apply_best(matched, best)
                 target = matched
             else:
-                wdate = act.start_time.astimezone(timezone.utc).date() if act.start_time else date.today()
+                # Workout dates are BANGKOK-local, not UTC: a Sunday 06:36 BKK
+                # run starts 23:36 UTC Saturday, and taking the UTC date filed
+                # every early-morning (pre-07:00 BKK) workout under the previous
+                # day — wrong day pill, and the BKK-correct week windows bucketed
+                # the run into the previous week. Both Strava and Stryd raw
+                # payloads confirm Asia/Bangkok as the activity timezone.
+                wdate = to_bangkok(act.start_time).date() if act.start_time else today_bangkok()
                 # Map the raw Strava sport_type to our canonical workout_type
                 # (e.g. WeightTraining/Workout -> "strength"). Stryd activities
                 # are always runs. Without this, a Strava strength session lands
