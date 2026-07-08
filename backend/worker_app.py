@@ -319,12 +319,24 @@ def _h_precompute(p: dict) -> None:
     precompute.precompute_user(p["user_id"], dates=p.get("dates"))
 
 
+def _h_garmin_sync(p: dict) -> None:
+    # Garmin scaffold (Phase 3): a no-op while GARMIN_SYNC_ENABLED is off, so a
+    # stray queued garmin_sync row completes cleanly rather than erroring.
+    from backend.services import garmin
+    if not garmin.is_enabled():
+        logger.info("garmin_sync claimed but GARMIN_SYNC_ENABLED off; skipping")
+        return
+    garmin.sync_garmin(p["user_id"], full=bool(p.get("full")))
+    _enqueue_precompute_after_sync(p.get("user_id"))
+
+
 _DISPATCH = {
     "strava_sync": _h_strava_sync,
     "stryd_sync": _h_stryd_sync,
     "backfill": _h_backfill,
     "banister_refit": _h_banister_refit,
     "precompute": _h_precompute,
+    "garmin_sync": _h_garmin_sync,
 }
 
 

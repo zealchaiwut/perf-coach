@@ -206,6 +206,49 @@ def requeue_stale(*, now: Any = None) -> int:
         return n
 
 
+def list_for_user(
+    user_id: str,
+    *,
+    limit: int = 50,
+    statuses: Optional[list[str]] = None,
+) -> list[dict]:
+    """Return this user's queue rows (newest first), for the user-facing Queue tab.
+
+    User isolation is by `payload->>'user_id'` — batch jobs (banister_refit,
+    which carry no user_id) are naturally excluded, and one user never sees
+    another's rows. Never returns the raw payload (may hold internal fields)."""
+    clauses = ["payload->>'user_id' = :uid"]
+    params: dict[str, Any] = {"uid": str(user_id), "lim": int(limit)}
+    if statuses:
+        clauses.append("status = ANY(:statuses)")
+        params["statuses"] = list(statuses)
+    sql = text(
+        "SELECT id, job_type, status, attempts, max_attempts, priority, "
+        "       enqueued_by, created_at, started_at, finished_at, error "
+        "FROM job_queue "
+        f"WHERE {' AND '.join(clauses)} "
+        "ORDER BY created_at DESC LIMIT :lim"
+    )
+    with Session(engine) as s:
+        rows = s.execute(sql, params).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def pending_for_user(user_id: str) -> Optional[dict]:
+    """The user's most relevant in-flight row (running preferred, else oldest
+    queued), or None. Used to surface a 'Pending' state in /api/sync/status."""
+    sql = text(
+        "SELECT id, job_type, status, created_at "
+        "FROM job_queue "
+        "WHERE payload->>'user_id' = :uid AND status IN ('queued', 'running') "
+        "ORDER BY (status = 'running') DESC, created_at "
+        "LIMIT 1"
+    )
+    with Session(engine) as s:
+        row = s.execute(sql, {"uid": str(user_id)}).mappings().first()
+    return dict(row) if row is not None else None
+
+
 def link_audit_row(job_id: str, worker_job_run_id: Any) -> None:
     """Link a claimed queue row to the worker_job_runs audit row created for it."""
     with Session(engine) as s:

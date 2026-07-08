@@ -10437,6 +10437,18 @@ def stryd_configured():
     return JSONResponse({"configured": bool(os.getenv("STRYD_FERNET_KEY"))})
 
 
+@app.get("/api/garmin/status")
+def garmin_status(user: User = Depends(resolve_user)):
+    """Garmin scaffold (Phase 3): reports the flag state. `connected` is always
+    False until the integration is built — see backend/services/garmin.py."""
+    from backend.services import garmin
+    return JSONResponse({
+        "source": "garmin",
+        "enabled": garmin.is_enabled(),
+        "connected": False,
+    })
+
+
 # Caps concurrent background syncs — prevents a burst of requests from spawning
 # unlimited threads and exhausting memory.
 _sync_pool = _ThreadPoolExecutor(max_workers=1, thread_name_prefix="sync")
@@ -10478,6 +10490,29 @@ class _StravaSyncBody(BaseModel):
     full: bool = False
 
 
+def _web_incremental_sync_enabled() -> bool:
+    """Whether light incremental syncs run in-process on the web tier (default on).
+    Set WEB_INCREMENTAL_SYNC_ENABLED=0 to route incremental syncs to the worker
+    too (fully offload sync from the web dyno). Full/stream-heavy syncs always go
+    to the worker regardless."""
+    return os.getenv("WEB_INCREMENTAL_SYNC_ENABLED", "1").strip().lower() not in (
+        "0", "false", "no", "off", "",
+    )
+
+
+def _maybe_delegate_incremental(uid, source: str):
+    """Phase 3 routing: when web incremental is disabled, hand the incremental
+    sync to the worker (queue). Returns a JSONResponse to return, or None to fall
+    through to the in-process path (flag on, or worker unavailable in http mode)."""
+    if _web_incremental_sync_enabled():
+        return None
+    try:
+        res = _worker_client.delegate_sync(str(uid), sources=[source], full=False)
+        return JSONResponse({"started": True, "worker_delegated": True, **res}, status_code=202)
+    except _worker_client.WorkerUnavailable:
+        return None  # http mode with no worker → fall back to in-process
+
+
 @app.post("/api/strava/sync")
 def strava_sync(body: _StravaSyncBody = Body(default=None), user: User = Depends(resolve_user)):
     """Start an async Strava pull; returns 202 immediately.
@@ -10511,6 +10546,10 @@ def strava_sync(body: _StravaSyncBody = Body(default=None), user: User = Depends
                 "Worker unavailable for full Strava sync (user %s); falling back to in-process: %s",
                 uid, exc,
             )
+
+    _delegated = _maybe_delegate_incremental(uid, "strava")
+    if _delegated is not None:
+        return _delegated
 
     try:
         _sync_jobs.start(uid, "strava")
@@ -10568,6 +10607,10 @@ def stryd_sync(body: _StrydSyncBody = Body(default=None), user: User = Depends(r
                 "Worker unavailable for full Stryd sync (user %s); falling back to in-process: %s",
                 uid, exc,
             )
+
+    _delegated = _maybe_delegate_incremental(uid, "stryd")
+    if _delegated is not None:
+        return _delegated
 
     try:
         _sync_jobs.start(uid, "stryd")
@@ -13149,7 +13192,59 @@ async def get_sync_status(user: User = Depends(resolve_user)):
     except Exception:
         pass
 
+    # Phase 3: a queued/running job in the pull queue (e.g. a full sync waiting
+    # for the worker to claim it) surfaces as "pending" so the nav bar reflects
+    # work that hasn't started executing yet. A running worker_job_run above
+    # already returned; this catches the pre-claim window.
+    try:
+        from backend.services import job_queue as _jq
+        pending = _jq.pending_for_user(user.id)
+        if pending is not None:
+            return JSONResponse({
+                "status": "pending" if pending["status"] == "queued" else "running",
+                "source": "queue",
+                "job_type": pending["job_type"],
+                "enqueued_at": pending["created_at"].isoformat() if pending["created_at"] else None,
+            })
+    except Exception:
+        pass
+
     return JSONResponse({"status": "idle"})
+
+
+@app.get("/api/queue")
+def get_queue(limit: int = 25, user: User = Depends(resolve_user)):
+    """The signed-in user's recent pull-queue jobs (Settings → Queue tab).
+
+    User-isolated by payload user_id — never another user's rows, and batch jobs
+    (no user_id) are excluded. Read-only."""
+    limit = max(1, min(int(limit or 25), 100))
+    try:
+        from backend.services import job_queue as _jq
+        rows = _jq.list_for_user(user.id, limit=limit)
+    except Exception:
+        _logging.getLogger(__name__).warning("queue list failed for %s", user.id, exc_info=True)
+        rows = []
+
+    def _dt(v):
+        return v.isoformat() if v is not None else None
+
+    jobs = [
+        {
+            "id": str(r["id"]),
+            "job_type": r["job_type"],
+            "status": r["status"],
+            "attempts": r["attempts"],
+            "max_attempts": r["max_attempts"],
+            "enqueued_by": r["enqueued_by"],
+            "created_at": _dt(r["created_at"]),
+            "started_at": _dt(r["started_at"]),
+            "finished_at": _dt(r["finished_at"]),
+            "error": r["error"],
+        }
+        for r in rows
+    ]
+    return JSONResponse({"jobs": jobs})
 
 
 @app.get("/api/sync/history")
