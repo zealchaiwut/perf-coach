@@ -258,11 +258,10 @@ information about.
           '<button class="pl-arw" id="pl-next" aria-label="Next week">›</button>' +
         '</div>' +
         '<div class="pl-btnrow">' +
-          /* "Suggest sessions" is disabled ("coming soon") — the assembled-prompt
-             flow that used to back this button (_openSuggest/_suggestHtml and
-             friends) was dead code (button never enabled) and has been removed;
-             see git history if it's revived. */
-          '<button class="pl-btn pl-ghost" id="pl-suggest" disabled title="Coming soon">✨ Suggest sessions</button>' +
+          /* Repurposed to open the AI next-week suggestions panel (issue #1315).
+             It proxies a click to the suggestions module's own (hidden) trigger
+             button, which lives in a separate closure. */
+          '<button class="pl-btn pl-ghost" id="pl-suggest" title="AI-suggested sessions for next week">✨ Suggest sessions</button>' +
           '<button class="pl-btn pl-dark" id="pl-add">+ Add</button>' +
         '</div></div>' +
         '<div class="pl-infobanner" style="margin-bottom:12px;">Synced workouts from Strava/Stryd auto-match to planned sessions. Drag a <b>planned</b> or <b>missed</b> card to reschedule; ambiguous or missing matches need a quick confirm below. These planned sessions <b>don’t feed Projection’s ramp/taper load model</b> — separate systems.</div>' +
@@ -276,6 +275,13 @@ information about.
     document.getElementById('pl-prev').onclick = function () { _weekStart = _addDays(_weekStart, -7); _renderWeekSection(); _loadWeek(); };
     document.getElementById('pl-next').onclick = function () { _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(); };
     document.getElementById('pl-add').onclick = function () { _openAdd('single'); };
+    var sugBtn = document.getElementById('pl-suggest');
+    if (sugBtn) sugBtn.onclick = function () {
+      var t = document.getElementById('plan-suggestions-trigger');
+      if (t) t.click();
+      var panel = document.getElementById('plan-suggestions-panel');
+      if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    };
     if (_bundle) _renderWeekList();
   }
 
@@ -1105,6 +1111,13 @@ information about.
     document.getElementById('pl-detclose').onclick = _closeDetail;
     var editBtn = document.getElementById('pl-det-edit');
     if (editBtn) editBtn.onclick = function () { _openAdd('single', p.planned_date); };
+    var delBtn = document.getElementById('pl-det-delete');
+    if (delBtn) delBtn.onclick = function () {
+      if (!window.confirm('Delete this planned session? This can’t be undone.')) return;
+      _api('DELETE', '/api/planned-sessions/' + p.id)
+        .then(function () { _toast('Planned session deleted'); _closeDetail(); _loadWeek(); })
+        .catch(function (err) { _toast(err.message || 'Delete failed', true); });
+    };
     var copyBtn = document.getElementById('pl-det-copy');
     if (copyBtn) copyBtn.onclick = function () {
       var pre = document.getElementById('pl-stryd-pre');
@@ -1160,7 +1173,8 @@ information about.
 
     return '<div class="pl-dethead"><span class="pl-dettag run">Run</span>' +
         '<span style="font-size:11px;color:var(--pl-faint);font-family:var(--pl-mono)">' + esc(_fmtDayDate(p.planned_date)) + '</span>' +
-        '<span style="flex:1"></span><button class="pl-btn pl-ghost" id="pl-det-edit">Edit</button></div>' +
+        '<span style="flex:1"></span><button class="pl-btn pl-ghost pl-danger" id="pl-det-delete" title="Delete this planned session">Delete</button>' +
+        '<button class="pl-btn pl-ghost" id="pl-det-edit">Edit</button></div>' +
       '<div class="pl-dettitle">' + esc(p.name || '(untitled)') + '</div>' +
       _detailStatusActionsHtml(p) +
       (p.notes ? '' : '') +
@@ -1223,7 +1237,8 @@ information about.
 
     return '<div class="pl-dethead"><span class="pl-dettag lift">' + typeLabel + '</span>' +
         '<span style="font-size:11px;color:var(--pl-faint);font-family:var(--pl-mono)">' + esc(_fmtDayDate(p.planned_date)) + '</span>' +
-        '<span style="flex:1"></span><button class="pl-btn pl-ghost" id="pl-det-edit">Edit</button></div>' +
+        '<span style="flex:1"></span><button class="pl-btn pl-ghost pl-danger" id="pl-det-delete" title="Delete this planned session">Delete</button>' +
+        '<button class="pl-btn pl-ghost" id="pl-det-edit">Edit</button></div>' +
       '<div class="pl-dettitle">' + esc(p.name || '(untitled)') + '</div>' +
       _detailStatusActionsHtml(p) +
       '<div class="pl-dettiles">' +
@@ -1272,6 +1287,8 @@ information about.
     '.plan-panel .pl-btn.pl-dark{background:var(--pl-ink);color:#fff;border-color:var(--pl-ink);}',
     '.plan-panel .pl-btn.pl-lime{background:var(--pl-lime);color:var(--pl-ink);border-color:var(--pl-lime);}',
     '.plan-panel .pl-btn.pl-ghost{background:none;border:1px solid var(--pl-line);}',
+    '.plan-panel .pl-btn.pl-danger{color:#b91c1c;border-color:#fecaca;}',
+    '.plan-panel .pl-btn.pl-danger:hover{background:#fee2e2;}',
     '.plan-panel .pl-btn.pl-tiny{font-size:10px;padding:5px 9px;}',
     '.plan-panel .pl-detactions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 4px;}',
     '.plan-panel .pl-btnrow{display:flex;gap:8px;flex-wrap:wrap;}',
@@ -1566,22 +1583,19 @@ information about.
   function _dismissPanel() {
     _dismissed = true;
     var panel = _el('plan-suggestions-panel');
-    var trigger = _el('plan-suggestions-trigger-row');
     if (panel) panel.style.display = 'none';
-    if (trigger) trigger.style.display = '';
+    // The bottom trigger row stays hidden — the "✨ Suggest sessions" button in
+    // the week-pane header is the entry point now (it proxies a click to the
+    // hidden #plan-suggestions-trigger).
   }
 
   function _initSuggestions() {
     var trigger = _el('plan-suggestions-trigger');
     var refresh = _el('plan-suggestions-refresh');
     var dismiss = _el('plan-suggestions-dismiss');
-    var triggerRow = _el('plan-suggestions-trigger-row');
-
-    if (triggerRow) triggerRow.style.display = '';
 
     if (trigger) {
       trigger.addEventListener('click', function () {
-        if (triggerRow) triggerRow.style.display = 'none';
         _dismissed = false;
         _loadSuggestions();
       });
