@@ -338,6 +338,46 @@ so keep it running across logouts and sleep:
   two claim the same row), but run a single worker per DB unless you deliberately
   want horizontal fan-out.
 
+### Live UAT runbook (zeal-server / Mac Mini)
+
+The UAT stack runs on the Mac Mini (`zeal-server@100.103.104.41`, Tailscale
+`zeals-mac-mini`) out of the clone at `~/dev/perf-coach/uat`, tracking `develop`
+against the UAT Neon branch. Both processes read the same `.env`
+(`ENVIRONMENT=uat`, `DATABASE_URL_UAT`).
+
+| Process | Cmd | Port | Managed by | Logs |
+|---|---|---|---|---|
+| Webapp (`backend.main`) | `.venv/bin/uvicorn backend.main:app --port 9001` | 9001 | launchd `com.perfcoach.uat` (`RunAtLoad`, `KeepAlive` on non-zero exit) | `~/Library/Logs/com.perfcoach.uat/{stdout,stderr}.log` |
+| Worker (`backend.worker_app`) | `bash start_worker.sh` | 9100 | foreground/background process (no launchd job yet) | `~/dev/perf-coach/uat/logs/worker-uat.log` |
+
+Redeploy after a merge to develop:
+
+```bash
+ssh zeal-server@100.103.104.41
+cd ~/dev/perf-coach/uat
+# stop the worker
+kill "$(lsof -tiTCP:9100 -sTCP:LISTEN)" 2>/dev/null
+# sync + migrate
+git checkout develop && git pull --ff-only
+set -a; source .env; set +a; export ENVIRONMENT=uat DATABASE_URL="$DATABASE_URL_UAT"
+.venv/bin/alembic upgrade head
+# restart webapp (launchd) + worker
+launchctl kickstart -k "gui/$(id -u)/com.perfcoach.uat"
+nohup bash start_worker.sh > logs/worker-uat.log 2>&1 &
+```
+
+Health checks: `curl http://127.0.0.1:9100/internal/health` (worker) and
+`curl -so/dev/null -w '%{http_code}' http://127.0.0.1:9001/api/queue` (webapp;
+`401` = up and auth-gated). A healthy worker log shows `queue poll started` and
+`sync scheduler started`.
+
+The worker is **not yet a launchd service** — it does not survive a reboot or
+logout. To make it persistent, add a `com.perfcoach.uat-worker` LaunchAgent
+mirroring the webapp's plist (same `WorkingDirectory`, `ENVIRONMENT=uat`,
+`KeepAlive`, `RunAtLoad`, `ProgramArguments` pointing at
+`.venv/bin/uvicorn backend.worker_app:app --port 9100`) plus `caffeinate -s` to
+keep it polling through sleep.
+
 ## Audit trail
 
 `worker_job_runs` (see `backend/models.py`) is the source of truth for every
