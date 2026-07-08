@@ -82,6 +82,8 @@ _LOWER_BODY_STRENGTH_EXERCISES: list[dict] = [
     {"block": "Main", "name": "Back squat", "sets": 3, "reps": "8", "load": "moderate"},
     {"block": "Main", "name": "Romanian deadlift", "sets": 3, "reps": "10", "load": "moderate"},
     {"block": "Main", "name": "Walking lunge", "sets": 3, "reps": "10", "load": "bodyweight or light dumbbells, per leg"},
+    {"block": "Stability", "name": "Single-leg glute bridge", "sets": 3, "reps": "12", "load": "bodyweight, per leg"},
+    {"block": "Stability", "name": "Bird dog", "sets": 3, "reps": "10", "load": "bodyweight, per side"},
     {"block": "Core", "name": "Plank", "sets": 3, "reps": "40s hold", "load": "bodyweight"},
     {"block": "Core", "name": "Side plank", "sets": 2, "reps": "25-30s hold", "load": "bodyweight, per side"},
 ]
@@ -90,21 +92,37 @@ _UPPER_BODY_STRENGTH_EXERCISES: list[dict] = [
     {"block": "Main", "name": "Dumbbell overhead press", "sets": 3, "reps": "10", "load": "moderate"},
     {"block": "Main", "name": "Dumbbell bent-over row", "sets": 3, "reps": "10", "load": "moderate"},
     {"block": "Main", "name": "Push-up", "sets": 3, "reps": "12", "load": "bodyweight"},
+    {"block": "Stability", "name": "Pallof press", "sets": 3, "reps": "10", "load": "light band, per side"},
+    {"block": "Stability", "name": "Farmer's carry", "sets": 3, "reps": "30m", "load": "moderate dumbbells"},
     {"block": "Core", "name": "Dead bug", "sets": 3, "reps": "10", "load": "bodyweight, per side"},
     {"block": "Core", "name": "Bird dog", "sets": 3, "reps": "10", "load": "bodyweight, per side"},
 ]
 
+# Run block templates — phase-structured (warmup / main / cooldown), the same
+# shape PlannedSession.structure.blocks + the "Copy for Stryd Workout Builder"
+# export already expect (see _runDetailHtml / _strydText in training-plan.js).
+# `repeat`/`rest_min`/`target` are None outside a repeated main set.
+_EASY_RUN_BLOCKS: list[dict] = [
+    {"phase": "warmup", "duration_min": 8, "repeat": None, "rest_min": None, "target": "easy"},
+    {"phase": "main", "duration_min": 30, "repeat": None, "rest_min": None, "target": "easy, conversational"},
+    {"phase": "cooldown", "duration_min": 5, "repeat": None, "rest_min": None, "target": "easy"},
+]
+_TEMPO_RUN_BLOCKS: list[dict] = [
+    {"phase": "warmup", "duration_min": 10, "repeat": None, "rest_min": None, "target": "easy"},
+    {"phase": "main", "duration_min": 10, "repeat": 3, "rest_min": 2, "target": "tempo — comfortably hard"},
+    {"phase": "cooldown", "duration_min": 8, "repeat": None, "rest_min": None, "target": "easy"},
+]
 # Default template: day_offset → (workout_type, tss_fraction_of_weekly, duration_min)
-# Fractions sum to 1.0 (excluding rest days at 0). exercises is None for run/rest
-# (run structure — blocks — is a separate, not-yet-built follow-up).
+# Fractions sum to 1.0 (excluding rest days at 0). `exercises` is for
+# strength/plyo, `blocks` for run — never both.
 _TEMPLATE: list[dict] = [
-    {"day_offset": 0, "workout_type": "run",      "tss_fraction": 0.20, "duration_base": 45, "intent": "Easy aerobic run — keep effort conversational.", "exercises": None},
-    {"day_offset": 1, "workout_type": "strength",  "tss_fraction": 0.15, "duration_base": 45, "intent": "Lower body strength — squats, lunges, hip work.", "exercises": _LOWER_BODY_STRENGTH_EXERCISES},
-    {"day_offset": 2, "workout_type": "run",       "tss_fraction": 0.25, "duration_base": 60, "intent": "Moderate-effort run or tempo intervals.", "exercises": None},
-    {"day_offset": 3, "workout_type": "rest",      "tss_fraction": 0.00, "duration_base": 0,  "intent": "Rest or light stretching.", "exercises": None},
-    {"day_offset": 4, "workout_type": "run",       "tss_fraction": 0.20, "duration_base": 50, "intent": "Easy aerobic run — maintain base fitness.", "exercises": None},
-    {"day_offset": 5, "workout_type": "strength",  "tss_fraction": 0.20, "duration_base": 45, "intent": "Upper body and core strength.", "exercises": _UPPER_BODY_STRENGTH_EXERCISES},
-    {"day_offset": 6, "workout_type": "run",       "tss_fraction": 0.00, "duration_base": 30, "intent": "Optional very easy jog or full rest.", "exercises": None},
+    {"day_offset": 0, "workout_type": "run",      "tss_fraction": 0.20, "duration_base": 45, "intent": "Easy aerobic run — keep effort conversational.", "exercises": None, "blocks": _EASY_RUN_BLOCKS},
+    {"day_offset": 1, "workout_type": "strength",  "tss_fraction": 0.15, "duration_base": 45, "intent": "Lower body strength — squats, lunges, hip work.", "exercises": _LOWER_BODY_STRENGTH_EXERCISES, "blocks": None},
+    {"day_offset": 2, "workout_type": "run",       "tss_fraction": 0.25, "duration_base": 60, "intent": "Moderate-effort run or tempo intervals.", "exercises": None, "blocks": _TEMPO_RUN_BLOCKS},
+    {"day_offset": 3, "workout_type": "rest",      "tss_fraction": 0.00, "duration_base": 0,  "intent": "Rest or light stretching.", "exercises": None, "blocks": None},
+    {"day_offset": 4, "workout_type": "run",       "tss_fraction": 0.20, "duration_base": 50, "intent": "Easy aerobic run — maintain base fitness.", "exercises": None, "blocks": _EASY_RUN_BLOCKS},
+    {"day_offset": 5, "workout_type": "strength",  "tss_fraction": 0.20, "duration_base": 45, "intent": "Upper body and core strength.", "exercises": _UPPER_BODY_STRENGTH_EXERCISES, "blocks": None},
+    {"day_offset": 6, "workout_type": "run",       "tss_fraction": 0.00, "duration_base": 30, "intent": "Optional very easy jog or full rest.", "exercises": None, "blocks": _EASY_RUN_BLOCKS},
 ]
 
 
@@ -204,6 +222,22 @@ def validation_errors(suggestions: list[dict], facts: dict) -> list[str]:
                     if not isinstance(ex, dict) or not str(ex.get("name") or "").strip():
                         errs.append(
                             f"day_offset {offset} has an exercises entry missing a name: {ex!r}."
+                        )
+                        break
+
+        if wt == "run":
+            blocks = s.get("blocks")
+            if not blocks or not isinstance(blocks, list):
+                errs.append(
+                    f"day_offset {offset} is 'run' but has no blocks breakdown — "
+                    "add phase entries ({phase, duration_min, repeat, rest_min, target}), "
+                    "not just a bare duration."
+                )
+            else:
+                for b in blocks:
+                    if not isinstance(b, dict) or not b.get("phase") or not b.get("duration_min"):
+                        errs.append(
+                            f"day_offset {offset} has a blocks entry missing phase/duration_min: {b!r}."
                         )
                         break
 
@@ -330,6 +364,7 @@ def fallback_suggestions(facts: dict) -> list[dict]:
         frac = tmpl["tss_fraction"]
         raw_tss = round(target_weekly * frac) if frac > 0 else 0
         exercises = tmpl.get("exercises")
+        blocks = tmpl.get("blocks")
         sessions.append({
             "day_offset": tmpl["day_offset"],
             "workout_type": tmpl["workout_type"],
@@ -340,13 +375,14 @@ def fallback_suggestions(facts: dict) -> list[dict]:
             # (or a future "more" swap re-picking this same template row) never
             # mutate the shared module-level constant.
             "exercises": [dict(e) for e in exercises] if exercises else None,
+            "blocks": [dict(b) for b in blocks] if blocks else None,
         })
 
     # Requested rest days always win, overriding whatever the template had.
     for s in sessions:
         if s["day_offset"] in rest_requested:
             s.update(workout_type="rest", target_tss=0, duration_minutes=0,
-                     intent="Rest day (requested).", exercises=None)
+                     intent="Rest day (requested).", exercises=None, blocks=None)
 
     if emphasis != "same":
         long_run = _find_long_run(sessions)
@@ -362,14 +398,14 @@ def fallback_suggestions(facts: dict) -> list[dict]:
                 pick = min(candidates, key=lambda s: s["target_tss"])
                 pick.update(workout_type="strength",
                             intent="Extra strength session (requested more strength this week).",
-                            exercises=[dict(e) for e in _UPPER_BODY_STRENGTH_EXERCISES])
+                            exercises=[dict(e) for e in _UPPER_BODY_STRENGTH_EXERCISES], blocks=None)
         else:  # "less"
             candidates = [s for s in sessions
                           if s["workout_type"] == "strength" and s["day_offset"] not in rest_requested]
             if candidates:
                 pick = min(candidates, key=lambda s: s["target_tss"])
                 pick.update(workout_type="rest", target_tss=0, duration_minutes=0,
-                            intent="Rest (requested less strength this week).", exercises=None)
+                            intent="Rest (requested less strength this week).", exercises=None, blocks=None)
 
     return sessions
 
@@ -411,7 +447,8 @@ def build_prompt(facts: dict) -> tuple[str, str]:
             "session for each of these — workout_type=\"rest\", target_tss=0 — do not omit them.\n"
         )
     exercises_rule_n = 8 if rest_requested else 7
-    long_run_rule_n = exercises_rule_n + 1
+    blocks_rule_n = exercises_rule_n + 1
+    long_run_rule_n = blocks_rule_n + 1
     consec_rule_n = long_run_rule_n + 1
 
     system = (
@@ -429,15 +466,27 @@ def build_prompt(facts: dict) -> tuple[str, str]:
         f"6. Respect ramp limits: do not increase weekly TSS by more than 30% above the trailing average.{taper_note}\n"
         f"{rest_rule}"
         f"{exercises_rule_n}. For every workout_type=\"strength\" or \"plyo\" session, you MUST include "
-        "an `exercises` array of 4-10 entries — a real session, not a placeholder. Each entry is "
-        "{block, name, sets, reps, load}: `block` groups exercises like a coach would write a session "
-        "(e.g. \"Warm-up\", \"Main\", \"Core\", \"Hip\", \"Accessories\" — your choice, whatever fits); "
-        "`sets` is an integer; `reps` and `load` are short descriptive strings, not always plain numbers "
-        "(e.g. reps: \"10\", \"12\", \"30s hold\"; load: \"bodyweight\", \"moderate\", \"~10-14kg per hand\", "
-        "\"light band, per side\"). Example entry: "
-        '{"block": "Main", "name": "Back squat", "sets": 3, "reps": "8", "load": "moderate"}. '
-        "Never leave exercises empty or omitted for strength/plyo. Do not include exercises for run/rest "
-        "sessions (leave it null or omit it).\n"
+        "an `exercises` array of 4-10 entries, grouped into 3-4 sub-sections — a real session, not a "
+        "placeholder. Each entry is {block, name, sets, reps, load}: `block` groups exercises like a "
+        "coach would write a session (e.g. \"Warm-up\", \"Main\", \"Stability\", \"Core\", \"Hip\", "
+        "\"Accessories\" — pick 3-4 that fit this session); `sets` is an integer; `reps` and `load` are "
+        "short descriptive strings, not always plain numbers (e.g. reps: \"10\", \"12\", \"30s hold\"; "
+        "load: \"bodyweight\", \"moderate\", \"~10-14kg per hand\", \"light band, per side\"). Example "
+        'entry: {"block": "Main", "name": "Back squat", "sets": 3, "reps": "8", "load": "moderate"}. '
+        "Never leave exercises empty or omitted for strength/plyo. Set exercises to null for run/rest.\n"
+        f"{blocks_rule_n}. For every workout_type=\"run\" session, you MUST include a `blocks` array "
+        "(2-5 entries) describing the session's phases — the same structure a coach would write for a "
+        "structured workout, not just a duration number. Each entry is {phase, duration_min, repeat, "
+        "rest_min, target}: `phase` is one of \"warmup\", \"main\", \"cooldown\" (repeat \"main\" for "
+        "multiple work segments); `duration_min` is the segment's length in minutes; `repeat` is an "
+        "integer (e.g. 3 for 3 reps of a main set) or null if the phase isn't repeated; `rest_min` is the "
+        "rest between reps (minutes) or null; `target` is a short effort/pace description (e.g. \"easy\", "
+        "\"tempo — comfortably hard\", \"92% CP\") or null. Example for an interval session: "
+        '[{"phase": "warmup", "duration_min": 10, "repeat": null, "rest_min": null, "target": "easy"}, '
+        '{"phase": "main", "duration_min": 10, "repeat": 3, "rest_min": 2, "target": "92% CP"}, '
+        '{"phase": "cooldown", "duration_min": 8, "repeat": null, "rest_min": null, "target": "easy"}]. '
+        "For an easy/steady run use a single non-repeated \"main\" phase. Set blocks to null for "
+        "strength/plyo/rest.\n"
         f"{long_run_rule_n}. Identify the single 'run' session with the highest target_tss as the "
         "week's LONG RUN. The day immediately before it must NOT be another hard/interval run "
         "(no tempo/threshold/interval intent, no high-TSS run) — use rest, an easy run, or a "
@@ -532,11 +581,29 @@ _LLM_JSON_SCHEMA: dict = {
                             "additionalProperties": False,
                         },
                     },
+                    # Phase-structured run breakdown — required (by
+                    # validation_errors) for workout_type="run".
+                    "blocks": {
+                        "type": ["array", "null"],
+                        "maxItems": 5,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "phase":        {"type": "string", "enum": ["warmup", "main", "cooldown"]},
+                                "duration_min": {"type": "integer", "minimum": 1, "maximum": 180},
+                                "repeat":       {"type": ["integer", "null"], "minimum": 1, "maximum": 20},
+                                "rest_min":     {"type": ["number", "null"], "minimum": 0, "maximum": 30},
+                                "target":       {"type": ["string", "null"], "maxLength": 60},
+                            },
+                            "required": ["phase", "duration_min", "repeat", "rest_min", "target"],
+                            "additionalProperties": False,
+                        },
+                    },
                 },
                 # Groq/OpenAI strict structured-output mode requires EVERY
                 # property to be listed here — "optional" is expressed via a
-                # nullable type (exercises: ["array","null"]), not omission.
-                "required": ["day_offset", "workout_type", "target_tss", "duration_minutes", "intent", "exercises"],
+                # nullable type (exercises/blocks: ["array","null"]), not omission.
+                "required": ["day_offset", "workout_type", "target_tss", "duration_minutes", "intent", "exercises", "blocks"],
                 "additionalProperties": False,
             },
         }

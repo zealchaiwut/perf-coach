@@ -58,11 +58,17 @@ class TestValidateSuggestions:
             "duration_minutes": duration,
             "intent": "Easy aerobic run to build base fitness.",
         }
-        # strength/plyo now require an exercises breakdown — default one in so
-        # callers that don't care about this detail still produce valid output.
+        # strength/plyo now require an exercises breakdown, run requires a
+        # blocks breakdown — default one in so callers that don't care about
+        # this detail still produce valid output.
         if workout_type in ("strength", "plyo"):
             s["exercises"] = [
                 {"block": "Main", "name": "Back squat", "sets": 3, "reps": "8", "load": "moderate"},
+            ]
+        elif workout_type == "run":
+            s["blocks"] = [
+                {"phase": "warmup", "duration_min": 10, "repeat": None, "rest_min": None, "target": "easy"},
+                {"phase": "main", "duration_min": 30, "repeat": None, "rest_min": None, "target": "easy"},
             ]
         return s
 
@@ -282,10 +288,15 @@ class TestGetSuggestionsLLMPath:
     """Mocked LLM happy path — valid structured output is returned as source='llm'."""
 
     def _valid_llm_output(self):
+        easy_blocks = [{"phase": "warmup", "duration_min": 10, "repeat": None, "rest_min": None, "target": "easy"},
+                       {"phase": "main", "duration_min": 30, "repeat": None, "rest_min": None, "target": "easy"}]
+        tempo_blocks = [{"phase": "warmup", "duration_min": 10, "repeat": None, "rest_min": None, "target": "easy"},
+                        {"phase": "main", "duration_min": 10, "repeat": 3, "rest_min": 2, "target": "tempo"},
+                        {"phase": "cooldown", "duration_min": 8, "repeat": None, "rest_min": None, "target": "easy"}]
         return {
             "suggestions": [
-                {"day_offset": 1, "workout_type": "run", "target_tss": 60, "duration_minutes": 50, "intent": "Easy zone 2 run."},
-                {"day_offset": 3, "workout_type": "run", "target_tss": 80, "duration_minutes": 65, "intent": "Tempo intervals."},
+                {"day_offset": 1, "workout_type": "run", "target_tss": 60, "duration_minutes": 50, "intent": "Easy zone 2 run.", "blocks": easy_blocks},
+                {"day_offset": 3, "workout_type": "run", "target_tss": 80, "duration_minutes": 65, "intent": "Tempo intervals.", "blocks": tempo_blocks},
                 {"day_offset": 5, "workout_type": "strength", "target_tss": 40, "duration_minutes": 45, "intent": "Leg strength.",
                  "exercises": [{"block": "Main", "name": "Back squat", "sets": 3, "reps": "8", "load": "moderate"}]},
                 {"day_offset": 6, "workout_type": "rest", "target_tss": 0, "duration_minutes": 0, "intent": "Full rest."},

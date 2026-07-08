@@ -1549,6 +1549,7 @@ information about.
     '.pl-sug-ex-name{font-weight:600;color:var(--pl-ink);min-width:140px;}',
     '.pl-sug-ex-detail{font-family:var(--pl-mono);color:var(--pl-muted);}',
     '.pl-sug-ex-load{color:var(--pl-faint);font-size:11.5px;}',
+    '.pl-sug-rep{font-size:10.5px;font-weight:800;color:var(--pl-run);background:var(--pl-blueSoft);border-radius:5px;padding:1px 5px;}',
     '.pl-sug-day{font-size:10px;font-weight:800;color:var(--pl-faint);text-transform:uppercase;width:36px;flex-shrink:0;}',
     '.pl-sug-type-select{font-size:10px;font-weight:800;padding:3px 6px;border-radius:6px;text-transform:uppercase;flex-shrink:0;border:1px solid transparent;cursor:pointer;-webkit-appearance:none;appearance:none;}',
     '.pl-sug-type-select.run{background:var(--pl-blueSoft);color:var(--pl-run);}.pl-sug-type-select.strength{background:var(--pl-liftSoft);color:#7c3aed;}.pl-sug-type-select.plyo{background:var(--pl-amberSoft);color:var(--pl-amber);}.pl-sug-type-select.rest{background:#f1f5f9;color:#64748b;}',
@@ -1646,6 +1647,25 @@ information about.
     return '<div class="pl-sug-exercises">' + blocks + '</div>';
   }
 
+  // Phase-structured breakdown under a run suggestion row — same shape
+  // PlannedSession.structure.blocks stores (see _runDetailHtml's segment
+  // rendering). Without this a run suggestion was just target_tss/duration —
+  // no warmup/main/cooldown structure, no repeat/target for a workout.
+  function _phaseLabel(ph) { return ph === 'warmup' ? 'Warmup' : (ph === 'cooldown' ? 'Cooldown' : (ph === 'main' ? 'Main set' : (ph || 'Block'))); }
+  function _sugBlocksHtml(blocks) {
+    if (!blocks || !blocks.length) return '';
+    var segs = blocks.map(function (b) {
+      var dur = b.duration_min != null ? b.duration_min + ' min' : '';
+      var rep = (b.repeat && b.repeat > 1) ? (' <span class="pl-sug-rep">×' + b.repeat + '</span>') : '';
+      var main = (b.repeat && b.repeat > 1) ? (b.repeat + ' × ' + dur) : dur;
+      var tgt = (b.target || '') + (b.rest_min ? ' · ' + b.rest_min + 'min rest between' : '');
+      return '<div class="pl-sug-ex-row"><span class="pl-sug-ex-name">' + esc(_phaseLabel(b.phase)) + '</span>' +
+        '<span class="pl-sug-ex-detail">' + esc(main) + '</span>' + rep +
+        '<span class="pl-sug-ex-load">' + esc(tgt) + '</span></div>';
+    }).join('');
+    return '<div class="pl-sug-exercises"><div class="pl-sug-ex-block">' + segs + '</div></div>';
+  }
+
   function _buildSugRow(s, idx) {
     var dow = _DAY_NAMES[s.day_offset] || ('D' + s.day_offset);
     var tssStr = s.target_tss > 0 ? s.target_tss + ' TSS' : '';
@@ -1676,7 +1696,8 @@ information about.
             '<button class="pl-sug-add" type="button" data-idx="' + idx + '">Add</button>'
           : '') +
       '</div>' +
-      _sugExercisesHtml(wt !== 'rest' ? s.exercises : null);
+      _sugExercisesHtml(wt !== 'rest' ? s.exercises : null) +
+      _sugBlocksHtml(wt === 'run' ? s.blocks : null);
 
     var typeSel = wrap.querySelector('.pl-sug-type-select');
     typeSel.addEventListener('change', function () {
@@ -1715,11 +1736,13 @@ information about.
         s.duration_minutes > 0 ? 'Duration: ' + s.duration_minutes + ' min' : ''
       ].filter(Boolean).join('. ');
     }
-    // Carry the exercise breakdown into the planned session's structure — same
-    // shape the manual Add-session form builder produces — so Add creates a
-    // fully detailed session, not an empty shell the athlete has to rebuild.
+    // Carry the exercise/block breakdown into the planned session's structure
+    // — same shape the manual Add-session form builder produces — so Add
+    // creates a fully detailed session, not an empty shell to rebuild by hand.
     if (Array.isArray(s.exercises) && s.exercises.length) {
       body.structure = { exercises: s.exercises };
+    } else if (Array.isArray(s.blocks) && s.blocks.length) {
+      body.structure = { blocks: s.blocks };
     }
 
     fetch('/api/planned-sessions', {

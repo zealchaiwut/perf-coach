@@ -91,8 +91,11 @@ def test_validation_plyo_also_requires_exercises():
 
 
 def test_validation_run_and_rest_do_not_require_exercises():
+    # run needs a `blocks` breakdown (see test_plan_suggestions_scoping__v2.py's
+    # run-blocks rule tests) but never `exercises` — that's strength/plyo only.
     run = {"day_offset": 0, "workout_type": "run", "target_tss": 50,
-           "duration_minutes": 30, "intent": "easy run"}
+           "duration_minutes": 30, "intent": "easy run",
+           "blocks": [{"phase": "main", "duration_min": 30, "repeat": None, "rest_min": None, "target": "easy"}]}
     rest = {"day_offset": 3, "workout_type": "rest", "target_tss": 0,
             "duration_minutes": 0, "intent": "rest"}
     assert ps.validation_errors([run, rest], _base_facts()) == []
