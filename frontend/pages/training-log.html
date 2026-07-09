@@ -5881,46 +5881,11 @@
         line-height: 1.45;
       }
 
-      /* Fitness chart */
-      .perf-chart-header {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-bottom: 4px;
-      }
-      .perf-chart-caption {
-        font-size: 10.5px;
-        color: var(--text-tertiary);
-        margin: 0 0 12px;
-      }
-      .perf-range-selector {
-        display: inline-flex;
-        gap: 3px;
-        background: var(--shell-1);
-        border-radius: 8px;
-        padding: 3px;
-      }
-      .perf-range-btn {
-        padding: 4px 10px;
-        border-radius: 6px;
-        border: none;
-        background: transparent;
-        font-size: 11px;
-        font-weight: 600;
-        color: var(--text-secondary);
-        cursor: pointer;
-        font-family: inherit;
-      }
-      .perf-range-btn.active {
-        background: var(--card-bg);
-        color: var(--text-primary);
-        box-shadow: var(--card-shadow);
-      }
+      /* Fitness chart — fixed 30D window, no range toggle/caption, so the
+         chart itself gets the full height of its half of the merged card. */
       #perf-chart-wrap {
         position: relative;
-        height: 220px; /* match .vc-body (Weekly volume) */
+        height: 320px;
       }
       .perf-chart-baseline {
         padding: 20px;
@@ -6025,17 +5990,11 @@
           grid-template-columns: 1fr;
         }
       }
-      @media (max-width: 480px) {
-        .perf-range-selector {
-          overflow-x: auto;
-          max-width: 100%;
-        }
-      }
     </style>
 
   <style>
-    /* ── Summary Digest Card (issue #1058) ───────────────────────────────── */
-    #summary-digest-card { padding: 14px 16px 16px; }
+    /* ── Summary Digest (issue #1058) — a section of the merged card now,
+       no padding of its own; relies on the outer .log-card's padding. ──── */
 
     .sd-header {
       display: flex;
@@ -6462,35 +6421,52 @@
       background: #fff;
       padding: 18px 20px;
     }
-    /* Readiness + Fitness/Fatigue/Form/ACWR merged card: one shared card,
-       two halves, vertical divider. Each half carries its own padding
-       instead of the outer .log-card padding, so the divider can run the
-       full inner height without a gap on either side. */
-    #layout-wrapper .rf-merged.log-card {
+    /* Summary / Readiness+chart / Weekly coach report: one shared card,
+       three sections stacked with a horizontal divider between each
+       (.section-divider). Within the Readiness+chart section, the two
+       halves get their own horizontal divider (.rf-divider) instead — each
+       half only pads the side facing that divider, so the outer edges rely
+       on the outer .log-card's own padding rather than doubling up. */
+    .section-divider {
+      border-top: 1px solid var(--card-border, #e5e7eb);
+      margin: 18px 0;
+    }
+    .rf-merged {
       display: flex;
       align-items: stretch;
-      padding: 0;
     }
     .rf-half {
       flex: 1 1 50%;
       min-width: 0;
-      padding: 16px 18px;
+      padding: 4px 0;
+    }
+    .rf-half:first-child {
+      padding-right: 18px;
+    }
+    .rf-half:last-child {
+      padding-left: 18px;
     }
     .rf-divider {
       width: 1px;
       align-self: stretch;
       background: var(--card-border, #e5e7eb);
-      margin: 16px 0;
       flex-shrink: 0;
     }
     @media (max-width: 680px) {
-      #layout-wrapper .rf-merged.log-card {
+      .rf-merged {
         flex-direction: column;
+      }
+      .rf-half:first-child {
+        padding-right: 0;
+        padding-bottom: 18px;
+      }
+      .rf-half:last-child {
+        padding-left: 0;
+        padding-top: 18px;
       }
       .rf-divider {
         width: auto;
         height: 1px;
-        margin: 0 18px;
       }
     }
     .lrx-sectitle {
@@ -6509,9 +6485,7 @@
       flex-wrap: wrap;
     }
 
-    /* ── Weekly coach report (merged into the Summary card) ──────────────── */
-    .wsc-section { margin-top: 2px; }
-    .wsc-divider { border-top: 1px solid var(--lrx-line); margin: 16px 0; }
+    /* ── Weekly coach report ───────────────────────────────────────────────── */
     .wsc-narrative { color: var(--lrx-ink); }
     /* One sentence group per line. Numbers use the mono highlight font (the same
        JetBrains Mono the Summary tiles use) so key figures pop out. */
@@ -6985,7 +6959,6 @@
         padding-right: 2px;
       }
       #layout-wrapper .log-card,
-      #summary-digest-card,
       #readiness-widget.readiness-widget {
         padding: 12px;
       }
@@ -7126,31 +7099,70 @@
     tabindex="0"
   >
     <div id="list-main" class="log-page-body">
-      <!-- Summary digest card (issue #1058) -->
-      <div id="summary-digest-card" class="log-card" hidden>
-        <div class="lrx-chead">
-          <div style="display:flex;align-items:center;gap:10px;">
-            <span class="lrx-sectitle">Summary</span>
-            <span class="lrx-scope" id="lrx-scope">Last week</span>
+      <!-- Summary + Readiness/chart + Weekly coach report — one card, three
+           sections stacked with a horizontal divider between each (issue
+           #1058 summary digest, #640 readiness, #528 FFF/ACWR chart, #1314
+           coach report all merged into one shared card). -->
+      <div class="log-card">
+        <!-- Section 1: Summary digest -->
+        <div id="summary-digest-card" hidden>
+          <div class="lrx-chead">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span class="lrx-sectitle">Summary</span>
+              <span class="lrx-scope" id="lrx-scope">Last week</span>
+            </div>
+            <div class="sd-ctrl">
+              <div class="lrx-seg sd-when" role="group" aria-label="Summary time range">
+                <button type="button" class="on is-active" data-when="last" aria-pressed="true">Last</button>
+                <button type="button" data-when="this" aria-pressed="false">This</button>
+              </div>
+              <div class="lrx-seg sd-toggle" role="group" aria-label="Summary period">
+                <button type="button" class="sd-toggle-btn on is-active" data-period="week" aria-pressed="true">Week</button>
+                <button type="button" class="sd-toggle-btn" data-period="month" aria-pressed="false">Month</button>
+              </div>
+            </div>
           </div>
-          <div class="sd-ctrl">
-            <div class="lrx-seg sd-when" role="group" aria-label="Summary time range">
-              <button type="button" class="on is-active" data-when="last" aria-pressed="true">Last</button>
-              <button type="button" data-when="this" aria-pressed="false">This</button>
-            </div>
-            <div class="lrx-seg sd-toggle" role="group" aria-label="Summary period">
-              <button type="button" class="sd-toggle-btn on is-active" data-period="week" aria-pressed="true">Week</button>
-              <button type="button" class="sd-toggle-btn" data-period="month" aria-pressed="false">Month</button>
-            </div>
+          <div id="sd-body">
+            <!-- Populated by JS: sumtiles + chips (→ supercomp on month) -->
           </div>
         </div>
-        <div id="sd-body">
-          <!-- Populated by JS: sumtiles + chips (→ supercomp on month) -->
-        </div>
-        <!-- Weekly coach report (issue #1314) — merged into the Summary card,
-             below a divider, sharing its layout. Shown once its data loads. -->
-        <div id="wsc-section" class="wsc-section" hidden>
-          <div class="wsc-divider"></div>
+
+        <div class="section-divider"></div>
+
+        <!-- Section 2: Readiness (tiles + recovery hint, issue #640) merged
+             side-by-side with the Fitness/Fatigue/Form/ACWR chart (#528) —
+             vertical divider, half width each. -->
+        <section id="load-surfaces" aria-label="Training load">
+          <div class="rf-merged">
+            <div id="readiness-widget" class="readiness-widget rf-half" hidden></div>
+            <div class="rf-divider" aria-hidden="true"></div>
+            <!-- No title (redundant next to Readiness) or caption (the
+                 legend already labels each line); fixed to a 30-day window
+                 (no range toggle) so the chart gets the full section height. -->
+            <div id="perf-chart-card" class="rf-half">
+              <div id="perf-chart-bb" class="perf-chart-baseline" hidden>
+                <span class="perf-bb-icon">📈</span>
+                <span
+                  >Building baseline: keep training to see the fitness chart.</span
+                >
+              </div>
+              <div id="perf-chart-wrap">
+                <canvas
+                  id="perf-fitness-canvas"
+                  height="220"
+                  role="img"
+                  aria-label="Fitness/Fatigue/Form/ACWR time series: CTL, ATL, TSB, and ACWR lines"
+                ></canvas>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="section-divider"></div>
+
+        <!-- Section 3: Weekly coach report (issue #1314). Shown once its
+             data loads. -->
+        <div id="wsc-section" hidden>
           <div class="lrx-chead">
             <span class="lrx-sectitle">Weekly coach report</span>
             <span id="wsc-week-label" class="lrx-scope"></span>
@@ -7162,76 +7174,18 @@
         </div>
       </div>
 
-      <!-- issue #528: training-load surfaces — readiness widget + weekly volume chart -->
-      <section id="load-surfaces" aria-label="Training load">
-        <!-- Readiness (tiles + recovery hint, issue #640) merged side-by-side
-             with the Fitness/Fatigue/Form/ACWR chart — one card, vertical
-             divider, half width each. -->
-        <div class="rf-merged log-card">
-          <div id="readiness-widget" class="readiness-widget rf-half" hidden></div>
-          <div class="rf-divider" aria-hidden="true"></div>
-          <!-- Fitness / Fatigue / Form / ACWR chart — moved here from the
-               removed Performance tab; no title (redundant next to
-               Readiness), just the range selector + caption legend. -->
-          <div id="perf-chart-card" class="rf-half">
-            <div class="perf-chart-header">
-              <div
-                class="perf-range-selector"
-                role="group"
-                aria-label="Date range"
-              >
-                <button class="perf-range-btn" data-range="30D" type="button">
-                  30D
-                </button>
-                <button
-                  class="perf-range-btn active"
-                  data-range="90D"
-                  type="button"
-                >
-                  90D
-                </button>
-                <button class="perf-range-btn" data-range="6M" type="button">
-                  6M
-                </button>
-                <button class="perf-range-btn" data-range="1Y" type="button">
-                  1Y
-                </button>
-              </div>
-            </div>
-            <p class="perf-chart-caption">
-              CTL = fitness (42-day), ATL = fatigue (7-day), TSB = form,
-              ACWR = load ratio. Dashed line = today.
-            </p>
-            <div id="perf-chart-bb" class="perf-chart-baseline" hidden>
-              <span class="perf-bb-icon">📈</span>
-              <span
-                >Building baseline: keep training to see the fitness chart.</span
-              >
-            </div>
-            <div id="perf-chart-wrap">
-              <canvas
-                id="perf-fitness-canvas"
-                height="220"
-                role="img"
-                aria-label="Fitness/Fatigue/Form/ACWR time series: CTL, ATL, TSB, and ACWR lines"
-              ></canvas>
-            </div>
-          </div>
+      <!-- Legacy load-widget (kept for load_context path; hidden by default)
+           + weekly volume chart — separate from the merged card above. -->
+      <div id="load-widget" class="load-widget log-card" hidden></div>
+      <div id="volume-chart-card" class="volume-chart-card log-card" hidden>
+        <div class="vc-header">
+          <span class="vc-title">Weekly volume</span>
         </div>
-
-        <!-- Legacy load-widget (kept for load_context path; hidden by default) -->
-        <div id="load-widget" class="load-widget log-card" hidden></div>
-        <!-- Weekly volume chart (Chart.js) -->
-        <div id="volume-chart-card" class="volume-chart-card log-card" hidden>
-          <div class="vc-header">
-            <span class="vc-title">Weekly volume</span>
-          </div>
-          <div class="vc-body">
-            <canvas id="volume-chart" height="220" role="img"
-                    aria-label="Weekly training volume: stacked run and strength TSS with run distance line for the last 8 weeks"></canvas>
-          </div>
+        <div class="vc-body">
+          <canvas id="volume-chart" height="220" role="img"
+                  aria-label="Weekly training volume: stacked run and strength TSS with run distance line for the last 8 weeks"></canvas>
         </div>
-      </section>
+      </div>
 
       <!-- Month calendar (Log sub-tab, desktop only) — issue #638 -->
       <div id="log-calendar" class="log-card log-card--calendar" aria-label="Monthly training calendar"></div>

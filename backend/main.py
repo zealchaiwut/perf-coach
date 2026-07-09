@@ -16108,6 +16108,7 @@ def get_athlete_weekly_summary(
         "distance_km": distance_km,
         "total_tss": total_tss,
         "session_count": session_count,
+        "duration_seconds": _volume["duration_seconds"],
         "endurance_score_change": endurance_score_change,
         "speed_score_change": speed_score_change,
         "weight_change_kg": weight_change_kg,
@@ -17079,6 +17080,7 @@ def get_athlete_monthly_summary(
 
     distance_km = _safe_sum(workouts, "distance_km")
     total_tss = _safe_sum(workouts, "tss")
+    duration_seconds = _safe_sum(workouts, "duration_seconds")
 
     # ── Score change (endurance / speed signals) ───────────────────────────────
     endurance_score_change, speed_score_change = _monthly_score_delta(workouts)
@@ -17160,6 +17162,7 @@ def get_athlete_monthly_summary(
         "distance_km": distance_km,
         "total_tss": total_tss,
         "session_count": session_count,
+        "duration_seconds": duration_seconds,
         "endurance_score_change": endurance_score_change,
         "speed_score_change": speed_score_change,
         "weight_change_kg": weight_change_kg,

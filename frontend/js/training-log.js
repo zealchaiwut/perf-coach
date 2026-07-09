@@ -963,13 +963,13 @@
     }
   }
 
-  // ── Fitness · Fatigue · Form chart (CTL/ATL/TSB) ────────────────────────────
+  // ── Fitness · Fatigue · Form chart (CTL/ATL/TSB/ACWR) ───────────────────────
   // Moved here from the removed Performance tab — the detailed Chart.js line
-  // chart (30D/90D/6M/1Y range), distinct from the readiness widget's compact
-  // sparkline tiles above (both stay; this is the expanded view).
+  // chart, distinct from the readiness widget's compact tiles above (both
+  // stay; this is the expanded view). Fixed to a 30-day window — no range
+  // toggle — so the chart gets the full height of its half of the card.
   var _fffChart = null;
-  var _fffActiveRange = "90D";
-  var FFF_RANGE_DAYS = { "30D": 30, "90D": 90, "6M": 180, "1Y": 365 };
+  var FFF_RANGE_DAYS_FIXED = 30;
 
   function _fffDateStr(daysAgo) {
     var d = new Date();
@@ -977,13 +977,9 @@
     return d.toLocaleDateString("en-CA");
   }
 
-  function _loadFffChart(rangeKey) {
+  function _loadFffChart() {
     if (!document.getElementById("perf-fitness-canvas")) return;
-    _fffActiveRange = rangeKey || _fffActiveRange;
-    document.querySelectorAll(".perf-range-btn").forEach(function (btn) {
-      btn.classList.toggle("active", btn.dataset.range === _fffActiveRange);
-    });
-    var days = FFF_RANGE_DAYS[_fffActiveRange] || 90;
+    var days = FFF_RANGE_DAYS_FIXED;
     var startDate = _fffDateStr(days);
     var endDate = _fffDateStr(0);
     // 34 extra days of daily-load lookback so the ACWR line has enough
@@ -1055,6 +1051,10 @@
           },
           tooltip: {
             callbacks: {
+              title: function (items) {
+                var iso = items && items[0] ? items[0].label : null;
+                return iso ? fmtShortDate(iso) : "";
+              },
               label: function (ctx) {
                 var v = ctx.parsed.y;
                 if (ctx.dataset.label === "ACWR") return v != null ? "ACWR: " + v.toFixed(2) : "ACWR: —";
@@ -1064,7 +1064,16 @@
           },
         },
         scales: {
-          x: { ticks: { maxTicksLimit: 8, font: { size: 10 }, color: "#9aa3b8" }, grid: { display: false } },
+          x: {
+            ticks: {
+              maxTicksLimit: 8, font: { size: 10 }, color: "#9aa3b8",
+              callback: function (value) {
+                var iso = this.getLabelForValue(value);
+                return iso ? fmtShortDate(iso) : iso;
+              },
+            },
+            grid: { display: false },
+          },
           y: { ticks: { font: { size: 10 }, color: "#9aa3b8" }, grid: { color: "rgba(13,30,67,0.05)" } },
           y1: {
             position: "right", min: 0, max: 2.5,
@@ -1095,11 +1104,6 @@
     });
   }
 
-  document.addEventListener("DOMContentLoaded", function () {
-    document.querySelectorAll(".perf-range-btn").forEach(function (btn) {
-      btn.addEventListener("click", function () { _loadFffChart(btn.dataset.range); });
-    });
-  });
 
   function fetchReadinessWidget() {
     var el = document.getElementById("readiness-widget");
@@ -6148,7 +6152,7 @@
     }
     return (
       '<div class="lrx-sumgrid">' +
-      tile("Volume", (data.distance_km || 0).toFixed(1), "km", null) +
+      tile("Distance", (data.distance_km || 0).toFixed(1), "km", null) +
       tile(
         "Load",
         Math.round(data.total_tss || 0),
@@ -6156,6 +6160,7 @@
         _sdDelta(data.form_tsb_change, null, "form"),
       ) +
       tile("Sessions", data.session_count || 0, "", null) +
+      tile("Duration", fmtDurationCompact(data.duration_seconds || 0), "", null) +
       "</div>"
     );
   }
@@ -6350,6 +6355,7 @@
               distance_km: 0,
               total_tss: 0,
               session_count: 0,
+              duration_seconds: 0,
               supercompensation_state: "flat",
               call_to_action: null,
               weight_change_kg: null,
@@ -6435,7 +6441,7 @@
       };
       body.innerHTML =
         '<div class="lrx-sumgrid">' +
-        '<div class="lrx-sumtile"><div class="lab">Volume</div><div class="val">' +
+        '<div class="lrx-sumtile"><div class="lab">Distance</div><div class="val">' +
         data.distance_km.toFixed(1) +
         " <small>km</small></div>" +
         '<div class="lrx-delta flat">selected week</div></div>' +
@@ -6578,7 +6584,7 @@
   }
 
   function loadWeeklySummary() {
-    // The coach report now lives as a section inside the Summary card.
+    // The coach report is its own card, after Readiness + the FFF chart.
     var card = document.getElementById("wsc-section");
     if (!card) return;
 
