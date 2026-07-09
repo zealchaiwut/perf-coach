@@ -1094,3 +1094,117 @@ def get_suggestions(
     # LLM unavailable — always fallback gracefully.
     fallback = get_suggestions_from_facts(facts)
     return {"facts": facts, **fallback}
+
+
+# ── Single-session generation (Ask-AI for one day) ────────────────────────────
+# Shared by two UI entry points: (1) Add-session's "Ask AI" mode — pick a
+# date/type/note and generate ONE fresh session; (2) a suggestion row's
+# "Refine" — regenerate ONE already-suggested session with a note ("change
+# focus", "faster intervals"), passing its current content as a starting
+# point. Deliberately NOT the same code path as the whole-week generator
+# above: a single session is a much smaller prompt/output (no 7-session
+# array, no whole-week TSS-budget derivation to redo), so it stays cheap
+# against the same Groq TPM/RPM limits that bit the whole-week path.
+
+_LLM_SINGLE_SESSION_SCHEMA: dict = {
+    "type": "object",
+    "properties": {"session": _LLM_JSON_SCHEMA["properties"]["suggestions"]["items"]},
+    "required": ["session"],
+    "additionalProperties": False,
+}
+
+_SINGLE_SESSION_MAX_COMPLETION_TOKENS = 1500
+
+
+def build_single_session_prompt(
+    facts: dict,
+    day_offset: int,
+    workout_type: str | None,
+    note: str,
+    current_session: dict | None = None,
+) -> tuple[str, str]:
+    """Build (system_prompt, user_prompt) for a ONE-session generate/refine call."""
+    trailing = facts.get("trailing_28d_weekly_avg_tss", 0.0)
+    max_weekly = round(max(float(trailing), FALLBACK_MIN_WEEKLY_TSS) * ACWR_HIGH_BOUND)
+    day_name = _DAY_NAMES[day_offset]
+
+    system = (
+        "You are a running coach. Produce or REVISE exactly ONE training session "
+        "for a single day — not a whole week. Return ONLY a JSON object matching "
+        "the schema (a single `session`).\n"
+        "RULES:\n"
+        f"1. day_offset MUST be {day_offset} ({day_name}) — do not move it to another day.\n"
+        f"2. target_tss must be 0-400 and should not by itself push the athlete's "
+        f"weekly total above {max_weekly} (their ACWR safe ceiling).\n"
+        "3. workout_type must be exactly one of: run, strength, plyo, rest"
+        + (f" — the athlete asked for \"{workout_type}\"; use that unless their note "
+           "explicitly asks for something else.\n" if workout_type else ".\n")
+        + "4. strength/plyo: include `exercises` (4-14 entries, {block, name, sets, reps, "
+        "load}); scale to a short (4-6 entries) session if the note asks for brief/quick. "
+        "run: include `blocks` (2-5 entries, {phase, duration_min, repeat, rest_min, "
+        "target}). rest: both null.\n"
+        "5. `notes` = terse coach rationale for this session, or null for rest.\n"
+    )
+
+    user = f"This session is for day_offset {day_offset} ({day_name})."
+    if current_session:
+        user += (
+            "\nCurrent session to revise (keep whatever the note doesn't ask to change): "
+            + json.dumps(current_session, default=str)
+        )
+    else:
+        user += " There is no existing session — create one from scratch."
+    user += f"\nAthlete's request: {note.strip()}\n" if note else "\n"
+    user += "Return the single updated/created session as `session`."
+    return system, user
+
+
+def generate_single_session(
+    user_id: str,
+    day_offset: int,
+    note: str,
+    *,
+    workout_type: str | None = None,
+    current_session: dict | None = None,
+    week_start: "date | None" = None,
+    preferred_rest_days: list[int] | None = None,
+    strength_emphasis: str | None = None,
+    notes: str | None = None,
+    db=None,
+) -> dict | None:
+    """Generate or refine ONE session. Returns the session dict, or None on
+    failure (LLM unavailable or couldn't produce a valid session in 2 tries —
+    callers should keep the athlete's current session and show an error,
+    there is no deterministic-template fallback for a single session)."""
+    facts = assemble_facts(
+        user_id, db=db, week_start=week_start,
+        preferred_rest_days=preferred_rest_days,
+        strength_emphasis=strength_emphasis, notes=notes,
+    )
+    # validation_errors() rejects any day_offset outside allowed_offsets — but
+    # this day is legitimately already-suggested/in-progress, not a fresh open
+    # slot, so scope the check to just this one day instead of reusing facts
+    # (whole-week "which days are still open") as-is.
+    validation_facts = {**facts, "allowed_offsets": [day_offset]}
+
+    feedback = ""
+    for _attempt in range(2):
+        system, user = build_single_session_prompt(facts, day_offset, workout_type, note, current_session)
+        raw = llm_svc.complete_structured(
+            system=system,
+            user=user + feedback,
+            schema_name="single_session",
+            json_schema=_LLM_SINGLE_SESSION_SCHEMA,
+            model_tier="deep",
+            max_tokens=_SINGLE_SESSION_MAX_COMPLETION_TOKENS,
+        )
+        if raw is None:
+            continue
+        session = raw.get("session")
+        if not isinstance(session, dict):
+            continue
+        errs = validation_errors([session], validation_facts)
+        if not errs:
+            return session
+        feedback = _feedback_block(errs)
+    return None
