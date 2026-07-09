@@ -1961,7 +1961,6 @@
         .then(function () {
           _loadPerfScores();
           _loadPerfFeeds();
-          _loadPerfMoves();
           _loadPerfPR();
           _renderPerfProjection();
         });
@@ -2241,46 +2240,6 @@
         '<span class="perf-farr">→</span>' +
       "</a>";
     }).join("");
-  }
-
-  // ── What's moving your scores ───────────────────────────────────────────────
-  function _loadPerfMoves() {
-    if (!_perfAthleteId) return;
-    var from = _perfDateMinusDays(56), to = _perfToday();
-    fetch("/api/training-log?from=" + from + "&to=" + to + "&include_rest=false", { credentials: "same-origin" })
-      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-      .then(function (data) { _renderPerfMoves(_flattenPerfEntries(data)); })
-      .catch(function () {
-        var host = document.getElementById("perf-moves");
-        if (host) host.innerHTML = '<p class="perf-feed-empty">Could not load recent training.</p>';
-      });
-  }
-  function _renderPerfMoves(entries) {
-    var host = document.getElementById("perf-moves");
-    if (!host) return;
-    function count(pred) { return entries.filter(pred).length; }
-    var longRuns = count(function (e) { return (e.type || "").toLowerCase().indexOf("run") !== -1 && (e.distance_km || 0) >= 12; });
-    var intervals = count(_isPerfInterval);
-    var strength = count(function (e) { var t = (e.type || "").toLowerCase(); return t === "strength" || t === "gym" || t === "plyo" || t === "plyometric"; });
-    var rows = [
-      ["Long runs", longRuns + " in last 8 wks", "g", "→ endurance", "run"],
-      ["Intervals", intervals + " sessions", "g", "→ speed", "interval"],
-      ["Strength & plyo", strength + " sessions", "b", "lagged → economy", "strength"],
-    ];
-    host.innerHTML = rows.map(function (m) {
-      return '<button type="button" class="perf-arow" data-filter-type="' + esc(m[4]) + '">' +
-        '<span class="perf-an">' + esc(m[0]) + ' <span class="perf-a">→</span></span>' +
-        '<span class="perf-aright">' +
-          '<span class="perf-adet">' + esc(m[1]) + "</span>" +
-          '<span class="perf-achip perf-achip--' + m[2] + '">' + esc(m[3]) + "</span>" +
-        "</span>" +
-      "</button>";
-    }).join("");
-    Array.prototype.forEach.call(host.querySelectorAll(".perf-arow"), function (btn) {
-      btn.addEventListener("click", function () {
-        window.location.href = "/log?types=" + encodeURIComponent(btn.getAttribute("data-filter-type"));
-      });
-    });
   }
 
   // ── Projected at next checkpoint ─────────────────────────────────────────────

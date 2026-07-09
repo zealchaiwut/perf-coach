@@ -48,7 +48,19 @@ _TAPER_FACTOR: float = 0.60
 # Conservative ramp factor for fallback (10% increase, well below HIGH_BOUND).
 _FALLBACK_RAMP_FACTOR: float = 1.10
 
+# Suggestions must sum to within this fraction of the week's remaining TSS
+# target — see validation_errors' target-band check and build_prompt's
+# target_rule. Only enforced when PLAN_TARGET_AWARE_ENABLED is on.
+_TARGET_BAND_FRACTION: float = 0.05
+
 _SURFACE = "plan_suggestion"
+
+
+def _target_aware_enabled() -> bool:
+    """Off by default (Plan tab revamp, Part 3) — with this unset, assemble_facts,
+    build_prompt, and validation_errors are byte-identical to pre-Part-3 behaviour.
+    Mirrors the on/off convention in backend/services/llm.py's LLM_COACH_ENABLED."""
+    return os.getenv("PLAN_TARGET_AWARE_ENABLED", "").strip().lower() in ("1", "true", "yes")
 
 # Bumped whenever build_prompt() or _LLM_JSON_SCHEMA changes meaningfully.
 # Folded into build_signature() below so an edited prompt can never silently
@@ -57,7 +69,7 @@ _SURFACE = "plan_suggestion"
 # hash identically across a prompt change. Hit exactly this in production:
 # a fix to build_prompt() had no visible effect because the athlete's retry
 # used unchanged facts and kept matching a pre-fix cached row.
-_PROMPT_VERSION = "2026-07-09.7"
+_PROMPT_VERSION = "2026-07-09.8"
 
 # ── Scoping / rules constants (day-offset semantics: 0=Monday .. 6=Sunday of
 # the target week; facts["week_start"] is that Monday's ISO date) ────────────
@@ -281,6 +293,44 @@ def validation_errors(suggestions: list[dict], facts: dict) -> list[str]:
             "Reduce hard sessions."
         )
 
+    # ── Target-aware checks (Plan tab revamp, Part 3) — only run when facts
+    # carries a race-anchored target_tss (PLAN_TARGET_AWARE_ENABLED and an A
+    # race resolved in assemble_facts); absent that key, this block is a no-op
+    # and validation_errors is byte-identical to pre-Part-3 behaviour.
+    target_tss = facts.get("target_tss")
+    if target_tss is not None:
+        target_tss = float(target_tss)
+        logged_so_far = float(facts.get("logged_tss_so_far") or 0.0)
+        combined = logged_so_far + total_tss
+        lower = target_tss * (1 - _TARGET_BAND_FRACTION)
+        upper = target_tss * (1 + _TARGET_BAND_FRACTION)
+        if not (lower <= combined <= upper):
+            pct = round(abs(combined - target_tss) / target_tss * 100) if target_tss else 0
+            direction = "exceeds" if combined > target_tss else "falls short of"
+            errs.append(
+                f"Weekly TSS {combined:.0f} (logged {logged_so_far:.0f} + suggested {total_tss:.0f}) "
+                f"{direction} the {target_tss:.0f} TSS target by {pct}% — must land within "
+                f"±{round(_TARGET_BAND_FRACTION * 100)}% ({lower:.0f}-{upper:.0f})."
+            )
+
+        acwr_ceiling = facts.get("acwr_ceiling")
+        if acwr_ceiling is not None and combined > float(acwr_ceiling):
+            errs.append(
+                f"Weekly TSS {combined:.0f} exceeds the ACWR ceiling {float(acwr_ceiling):.0f} "
+                "— reduce volume even if that means missing the target."
+            )
+
+        today_offset = facts.get("today_offset")
+        if today_offset is not None:
+            today_offset = int(today_offset)
+            for s in suggestions:
+                offset = s.get("day_offset")
+                if offset is not None and int(offset) < today_offset:
+                    errs.append(
+                        f"day_offset {offset} is already in the past (today is day_offset "
+                        f"{today_offset}) — cannot schedule a new session there."
+                    )
+
     # A requested rest day must show up EXPLICITLY as rest — silently omitting
     # it isn't enough; the athlete checked that box to see it honoured.
     present_offsets = {int(s["day_offset"]) for s in suggestions if s.get("day_offset") is not None}
@@ -476,7 +526,12 @@ def build_prompt(facts: dict) -> tuple[str, str]:
     allowed_str = ", ".join(f"{o} ({_DAY_NAMES[o]})" for o in sorted(allowed)) or "none — the week is fully covered already"
     recent_ex_str = ", ".join(recent_exercise_names) if recent_exercise_names else ""
 
+    target_tss = facts.get("target_tss")
+
     _n = 7
+    target_rule_n = None
+    if target_tss is not None:
+        target_rule_n = _n; _n += 1
     notes_rule_n = _n; _n += 1
     rest_rule_n = None
     if rest_requested:
@@ -501,6 +556,43 @@ def build_prompt(facts: dict) -> tuple[str, str]:
         "the athlete is actively progressing). Vary the exercise selection across the week.\n"
     ) if avoid_repeat_rule_n else ""
 
+    # Race-anchored weekly TSS target (Plan tab revamp, Part 3) — only present
+    # when PLAN_TARGET_AWARE_ENABLED and an A race resolved a target_tss for
+    # this week (see assemble_facts). Supersedes rule 6's generic ramp-limit
+    # language with a concrete number: fill what's LEFT, not the whole target.
+    target_rule = ""
+    if target_rule_n:
+        remaining = facts.get("remaining_tss")
+        logged_so_far = facts.get("logged_tss_so_far") or 0.0
+        ceiling = facts.get("acwr_ceiling")
+        phase = facts.get("phase") or "hold"
+        days_left = facts.get("days_remaining_in_week")
+        phase_note = {
+            "ramp": "Normal mix for this phase: one long run, one quality/hard session, "
+                    "supporting easy runs and strength.",
+            "hold": "Normal mix for this phase: one long run, one quality/hard session, "
+                    "supporting easy runs and strength.",
+            "taper": "TAPER PHASE: volume drops but intensity is RETAINED. Produce fewer "
+                     "and/or shorter sessions than a normal week — do NOT cut intensity and "
+                     "keep volume, that is backwards. Keep some sharpening (short quality "
+                     "efforts) even as total time drops.",
+            "race": "RACE PHASE: the race itself plus short shakeouts only — no long runs, "
+                    "no new heavy strength, no new hard efforts.",
+        }.get(phase, "Normal mix: one long run, one quality/hard session, supporting easy "
+                     "runs and strength.")
+        target_rule = (
+            f"{target_rule_n}. This week has a hard weekly TSS target of {round(float(facts.get('target_tss') or 0))} "
+            f"({phase} phase"
+            + (f", {days_left} day(s) left" if days_left is not None else "")
+            + f"). The athlete has already logged {round(float(logged_so_far))} TSS. "
+            f"Your proposed sessions' target_tss values together must sum to approximately "
+            f"{round(float(remaining or 0))} TSS (within ±5%) — that is what REMAINS to reach the "
+            "week's target, NOT the target itself; do not double-count what's already logged.\n"
+            + (f"Total week TSS (logged + proposed) must also stay within the ACWR ceiling of "
+               f"{round(float(ceiling))}.\n" if ceiling is not None else "")
+            + phase_note + "\n"
+        )
+
     system = (
         "You are a running coach producing a structured training plan for the "
         "REMAINDER of the athlete's current week — not a fresh Monday-to-Sunday "
@@ -523,6 +615,7 @@ def build_prompt(facts: dict) -> tuple[str, str]:
         "5. Only propose sessions for these day_offsets — every other day is already "
         f"scheduled, already logged, or in the past: {allowed_str}.\n"
         f"6. Respect ramp limits: do not increase weekly TSS by more than 30% above the trailing average.{taper_note}\n"
+        f"{target_rule}"
         f"{notes_rule_n}. `notes` = the coach's RATIONALE (why this weight/exercise/pairing — fatigue "
         "management, what's already logged/planned, why an exercise was avoided/kept). Terse coach-style, "
         "e.g. \"Legs stay fresh — Thursday is intervals.\" Null only for rest days.\n"
@@ -990,6 +1083,76 @@ def assemble_facts(
             if offset >= start_offset and w is None and p is None:
                 allowed_offsets.append(offset)
 
+        # ── Target-aware TSS facts (Plan tab revamp, Part 3) — off by default;
+        # gated by PLAN_TARGET_AWARE_ENABLED so assemble_facts is byte-identical
+        # to pre-Part-3 behaviour until explicitly turned on. target_tss/phase
+        # come from the SAME compute_load_plan() math and A-race resolution
+        # convention (next_race, above) as the Session Load Plan card and
+        # week-load endpoint — never reimplement the ramp/hold/taper math here.
+        target_tss = None
+        logged_tss_so_far = None
+        remaining_tss = None
+        acwr_ceiling = None
+        phase = None
+        days_remaining_in_week = None
+
+        if _target_aware_enabled():
+            from backend.models import TrainingPlan
+            from backend.services.load_plan import compute_load_plan
+            from backend.services.load_plan import ACWR_CEILING_MULT as _acwr_ceiling_mult
+            from backend.services.training_load import get_weekly_volume as _get_weekly_volume
+
+            acwr_ceiling = (
+                round(_acwr_ceiling_mult * trailing_28d_weekly_avg, 1)
+                if trailing_28d_weekly_avg else None
+            )
+            if offset_of_today < 0:
+                days_remaining_in_week = 7
+            elif offset_of_today > 6:
+                days_remaining_in_week = 0
+            else:
+                days_remaining_in_week = 7 - offset_of_today
+            logged_tss_so_far = _get_weekly_volume(
+                str(user_id), target_week_start, target_week_start + timedelta(days=6)
+            )["total_tss"]
+
+            if next_race is not None:
+                plan_row = (
+                    db.query(TrainingPlan)
+                    .filter(TrainingPlan.user_id == user_id)
+                    .order_by(TrainingPlan.created_at.asc())
+                    .first()
+                )
+                ramp_rate = float(plan_row.ramp_rate) if plan_row and plan_row.ramp_rate is not None else 0.05
+                plan_hold_weeks = int(plan_row.hold_weeks) if plan_row and plan_row.hold_weeks is not None else 4
+                plan_taper_weeks = (
+                    int(round(float(plan_row.taper_length))) if plan_row and plan_row.taper_length is not None else 3
+                )
+                plan_deload_enabled = bool(plan_row.deload_enabled) if plan_row and plan_row.deload_enabled is not None else False
+
+                last_week_start = current_week_start - timedelta(days=7)
+                last_week_end = current_week_start - timedelta(days=1)
+                baseline_tss = _get_weekly_volume(str(user_id), last_week_start, last_week_end)["total_tss"]
+
+                race_week_start = next_race.race_date - timedelta(days=next_race.race_date.weekday())
+                weeks_to_race = ((race_week_start - current_week_start).days // 7) + 1
+
+                lp_result = compute_load_plan(
+                    baseline=baseline_tss, ramp_rate=ramp_rate, hold_weeks=plan_hold_weeks,
+                    taper_weeks=plan_taper_weeks, weeks_to_race=weeks_to_race,
+                    trailing_28d_avg=trailing_28d_weekly_avg, deload_enabled=plan_deload_enabled,
+                )
+                week_index = ((target_week_start - current_week_start).days // 7) + 1
+                target_week = next((w for w in lp_result["weeks"] if w["week_index"] == week_index), None)
+                if target_week is not None:
+                    target_tss = target_week["target_tss"]
+                    phase = target_week["phase"]
+                    remaining_tss = max(0.0, round(target_tss - logged_tss_so_far, 1))
+                    # This week's own moving ceiling (see load_plan.py) —
+                    # supersedes the static estimate above when a race/plan
+                    # resolved a real series to read it from.
+                    acwr_ceiling = target_week["ceiling"] if target_week["ceiling"] is not None else acwr_ceiling
+
         # ── Recent exercise history (avoid defaulting to the same picks) ────
         # Last 14 days of ACTUALLY LOGGED strength/plyo workouts — what the
         # athlete really did, not just planned. Most-recent-first, deduped.
@@ -1055,6 +1218,17 @@ def assemble_facts(
         facts["days_to_next_race"] = (next_race.race_date - today).days
         facts["next_race_distance_km"] = float(next_race.distance_km) if next_race.distance_km else None
         facts["next_race_goal_time_seconds"] = next_race.goal_time_seconds
+
+    # Only added when PLAN_TARGET_AWARE_ENABLED — an unset flag must produce a
+    # facts dict byte-identical to pre-Part-3 behaviour (same keys, same
+    # build_signature hash for the same inputs).
+    if _target_aware_enabled():
+        facts["target_tss"] = target_tss
+        facts["logged_tss_so_far"] = logged_tss_so_far
+        facts["remaining_tss"] = remaining_tss
+        facts["acwr_ceiling"] = acwr_ceiling
+        facts["days_remaining_in_week"] = days_remaining_in_week
+        facts["phase"] = phase
 
     return facts
 

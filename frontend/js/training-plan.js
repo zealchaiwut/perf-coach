@@ -146,8 +146,9 @@ information about.
           _openDetailById(id);
         }
       });
-      _wirePlanSettings();
-      _loadPlanSettings();
+      _wireLoadPlanSettings();
+      _loadLoadPlan();
+      _loadWeekLoad(_iso(_weekStart));
     },
     // Deep link from outside the Plan tab (e.g. the Log calendar): scope the
     // week to the session's date and flag it to open once init()'s own
@@ -273,141 +274,406 @@ information about.
   // the resulting week load resolves (see init() below).
   var _pendingOpenId = null;
 
-  // ── Plan settings (ramp rate / taper window / schedule preview) ─────────────
-  // Moved here from the Projection tab (now renamed Performance,
-  // training-performance.js), which now shows Race-readiness specificity in
-  // this card's old spot instead. Static
-  // HTML host (#plan-settings-section) — wired once in init() via property
-  // assignment (.onclick/.oninput), which is safely idempotent across
-  // init()'s repeat calls, same convention _renderWeekSection() uses above.
-  var _planEntityId = null; // TrainingPlan UUID from GET /api/plans
+  // ── Session Load Plan (Plan-tab revamp, Part 1) ─────────────────────────────
+  // Race-anchored ramp/hold/taper weekly TSS targets. Every number rendered
+  // here comes straight from GET /api/plan/load-plan — the math (ramp/hold/
+  // taper/ACWR-ceiling) lives ONLY in backend/services/load_plan.py; this
+  // file just draws it. See docs/calculations/load-plan.md. Static HTML host
+  // (#load-plan-section) — wired once in init() via property assignment
+  // (.onclick/.oninput), same idempotent convention as the rest of this file.
+  var _lpData = null; // last GET /api/plan/load-plan response (null = no A race)
+  var PHASE_LABEL = { ramp: 'Target — ramp', hold: 'Target — peak hold', taper: 'Target — taper', race: 'Race week' };
 
-  function _computeScheduleSeries(rampRate, taperWindow, weeks) {
-    weeks = weeks || 20;
-    var BASE_TSS = 55;
-    var PLATEAU = 100;
-    var taper = Math.max(0, Math.min(Math.floor(taperWindow), weeks - 1));
-    var arr = [];
-    for (var w = 1; w <= weeks; w++) {
-      var tss;
-      if (w <= weeks - taper) {
-        tss = Math.min(PLATEAU, BASE_TSS + rampRate * (w - 1));
-      } else {
-        var into = w - (weeks - taper);
-        tss = PLATEAU * (into === 1 ? 0.62 : 0.42);
-      }
-      arr.push(tss);
-    }
-    return arr;
+  function _fmtPct1(fraction) {
+    return (Math.round(fraction * 1000) / 10) + '%';
+  }
+  function _fmtShortDate(iso) {
+    var d = _parseISO(iso);
+    return MON[d.getMonth()] + ' ' + d.getDate();
   }
 
-  function _renderSchedulePreview() {
-    var host = document.getElementById('plan-sched');
-    var labs = document.getElementById('plan-wklabels');
+  function _loadLoadPlan() {
+    _api('GET', '/api/plan/load-plan').then(function (data) {
+      _lpData = data;
+      _renderLoadPlan();
+    }).catch(function () {
+      _lpData = null;
+      _renderLoadPlan();
+    });
+  }
+
+  function _renderLoadPlan() {
+    var rulesStrip = document.getElementById('lp-rules-strip');
+    var chartWrap = document.getElementById('lp-chart-wrap');
+    var legend = document.getElementById('lp-legend');
+    var footnote = document.getElementById('lp-footnote');
+    var emptyEl = document.getElementById('lp-empty');
+    var warnEl = document.getElementById('lp-warning');
+    var subtitle = document.getElementById('lp-subtitle');
+    var cogBtn = document.getElementById('lp-cog-btn');
+
+    if (!_lpData) {
+      if (rulesStrip) rulesStrip.hidden = true;
+      if (chartWrap) { chartWrap.hidden = true; chartWrap.innerHTML = ''; }
+      if (legend) legend.hidden = true;
+      if (footnote) footnote.hidden = true;
+      if (warnEl) warnEl.hidden = true;
+      if (emptyEl) emptyEl.hidden = false;
+      if (subtitle) subtitle.innerHTML = '&nbsp;';
+      if (cogBtn) cogBtn.hidden = true;
+      return;
+    }
+
+    if (emptyEl) emptyEl.hidden = true;
+    if (cogBtn) cogBtn.hidden = false;
+
+    if (subtitle) {
+      var firstWeek = _lpData.weeks[0];
+      var lastWeek = _lpData.weeks[_lpData.weeks.length - 1];
+      subtitle.textContent =
+        (firstWeek ? _fmtShortDate(firstWeek.week_start) : '') + ' → ' +
+        _fmtShortDate(_lpData.race.date) + ' · ' + _lpData.race.name;
+    }
+
+    if (rulesStrip) {
+      rulesStrip.hidden = false;
+      _setText('lp-rule-race', _lpData.race.name + ' · ' + _fmtShortDate(_lpData.race.date));
+      _setText('lp-rule-weeks', _lpData.weeks_to_race + ' weeks');
+      _setText('lp-rule-ramp', '+' + _fmtPct1(_lpData.ramp_rate) + ' / week');
+      _setText('lp-rule-hold', _lpData.hold_weeks + ' wks · ' + Math.round(_lpData.peak) + ' TSS');
+      _setText('lp-rule-taper', _lpData.taper_weeks + ' weeks');
+    }
+
+    if (warnEl) {
+      if (_lpData.warning) { warnEl.hidden = false; warnEl.textContent = _lpData.warning; }
+      else warnEl.hidden = true;
+    }
+
+    _renderLoadPlanChart();
+    _renderWeekBudget();
+
+    if (legend) {
+      legend.hidden = false;
+      legend.innerHTML =
+        _legendItem('#4f6ef7', 'Actual (logged)') +
+        _legendItem('#e6ebfe', 'Target — ramp', '#4f6ef7') +
+        _legendItem('#e4e9fd', 'Target — peak hold', '#6d87f8') +
+        _legendItem('#fdf3da', 'Target — taper', '#d97706') +
+        _legendItem('#fee2e2', 'Race week', '#dc2626');
+    }
+    if (footnote) footnote.hidden = false;
+  }
+
+  function _legendItem(bg, label, borderColor) {
+    var style = 'background:' + bg + (borderColor ? ';border:1.5px solid ' + borderColor : '');
+    return '<span class="lp-legend-item"><span class="lp-legend-swatch" style="' + style + '"></span>' + esc(label) + '</span>';
+  }
+
+  function _setText(id, text) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = text;
+  }
+
+  function _renderLoadPlanChart() {
+    var host = document.getElementById('lp-chart-wrap');
     if (!host) return;
-    host.innerHTML = '';
-    if (labs) labs.innerHTML = '';
+    host.hidden = false;
 
-    var rampIn = document.getElementById('plan-ramp-rate-input');
-    var taperIn = document.getElementById('plan-taper-window-input');
-    var rampRate = rampIn ? Math.max(0, parseFloat(rampIn.value) || 0) : 0;
-    var taperWindow = taperIn ? Math.max(0, parseFloat(taperIn.value) || 0) : 0;
+    var prior = _lpData.prior_weeks || [];
+    var weeks = _lpData.weeks || [];
+    var totalCols = prior.length + weeks.length;
+    if (totalCols === 0) { host.innerHTML = ''; return; }
 
-    var weeks = 20;
-    var series = _computeScheduleSeries(rampRate, taperWindow, weeks);
-    var taper = Math.max(0, Math.min(Math.floor(taperWindow), series.length));
-    var max = Math.max.apply(null, series.concat([1]));
+    var allValues = prior.map(function (p) { return p.actual_tss; })
+      .concat(weeks.map(function (w) { return w.target_tss; }));
+    var maxVal = Math.max.apply(null, allValues.concat([1]));
 
-    series.forEach(function (tss, i) {
-      var bar = document.createElement('div');
-      bar.className = 'pm-bar' + (i >= series.length - taper ? ' taper' : '');
-      bar.style.height = (tss / max) * 100 + '%';
-      bar.title = 'Wk ' + (i + 1) + ' · ' + Math.round(tss) + ' TSS';
-      host.appendChild(bar);
-      if (labs) {
-        var s = document.createElement('span');
-        s.textContent = (i + 1) % 2 === 1 ? 'Wk ' + (i + 1) : '';
-        labs.appendChild(s);
-      }
+    var barsHtml = '';
+    var axisHtml = '';
+    var prevMonth = null;
+
+    function axisCol(iso) {
+      var d = _parseISO(iso);
+      var m = d.getMonth();
+      var showMonth = m !== prevMonth;
+      prevMonth = m;
+      return '<div class="lp-axis-col">' + d.getDate() +
+        (showMonth ? '<span class="mon">' + MON[m] + '</span>' : '') + '</div>';
+    }
+
+    prior.forEach(function (p) {
+      var h = Math.max(6, (p.actual_tss / maxVal) * 100);
+      barsHtml += '<div class="lp-bar-col"><div class="lp-bar actual" style="height:' + h + '%">' +
+        '<span class="lp-bar-value">' + Math.round(p.actual_tss) + '</span></div></div>';
+      axisHtml += axisCol(p.week_start);
+    });
+
+    var thisWeekCol = -1, raceCol = -1;
+    var holdFirst = -1, holdLast = -1;
+
+    weeks.forEach(function (w, i) {
+      var col = prior.length + i;
+      if (w.phase === 'ramp' && w.week_index === 1) thisWeekCol = col;
+      if (w.phase === 'hold') { if (holdFirst < 0) holdFirst = col; holdLast = col; }
+      if (w.phase === 'race') raceCol = col;
+      if (w.week_index === 1) thisWeekCol = col; // week_index 1 is always "this week", any phase
+
+      var h = Math.max(6, (w.target_tss / maxVal) * 100);
+      var cls = 'lp-bar target phase-' + w.phase + (w.clamped ? ' is-clamped' : '') + (w.deload ? ' is-deload' : '');
+      var colCls = 'lp-bar-col' + (w.week_index === 1 ? ' is-this-week' : '');
+      barsHtml += '<div class="' + colCls + '"><div class="' + cls + '" style="height:' + h + '%" title="' +
+        esc(PHASE_LABEL[w.phase] || w.phase) + (w.deload ? ' — deload week (cut 30%)' : '') +
+        (w.clamped ? ' — ACWR-clamped' : '') + '">' +
+        '<span class="lp-bar-value">' + Math.round(w.target_tss) + (w.deload ? '<span class="lp-deload-mark">▼</span>' : '') + '</span></div></div>';
+      axisHtml += axisCol(w.week_start);
+    });
+
+    var bracketHtml = '';
+    if (holdFirst >= 0 && holdLast >= 0) {
+      var left = (holdFirst / totalCols) * 100;
+      var width = ((holdLast - holdFirst + 1) / totalCols) * 100;
+      bracketHtml = '<div class="lp-bracket" style="left:' + left + '%;width:' + width + '%">' +
+        '<span class="lp-bracket-lab">PEAK HOLD · ' + _lpData.hold_weeks + ' WKS</span></div>';
+    }
+
+    var flagHtml = '';
+    if (thisWeekCol >= 0) {
+      var twLeft = ((thisWeekCol + 0.5) / totalCols) * 100;
+      flagHtml += '<div class="lp-flag-this-week" style="left:' + twLeft + '%">THIS WEEK</div>';
+    }
+    if (raceCol >= 0) {
+      var rLeft = ((raceCol + 0.5) / totalCols) * 100;
+      flagHtml += '<div class="lp-flag-race" style="left:' + rLeft + '%">' +
+        '<div class="caret">▲</div><div class="lp-flag-race-badge">RACE DAY<br>' +
+        esc(_fmtRaceDayLabel(_lpData.race.date)) + '</div></div>';
+    }
+
+    host.innerHTML =
+      '<div class="lp-bracket-row" style="position:relative;height:14px;">' + bracketHtml + '</div>' +
+      '<div class="lp-bars">' + barsHtml + '</div>' +
+      '<div class="lp-axis">' + axisHtml + '</div>' +
+      '<div class="lp-flag-row">' + flagHtml + '</div>';
+  }
+
+  function _fmtRaceDayLabel(iso) {
+    var d = _parseISO(iso);
+    return DOW[(d.getDay() + 6) % 7].charAt(0) + DOW[(d.getDay() + 6) % 7].slice(1).toLowerCase() +
+      ' ' + MON[d.getMonth()] + ' ' + d.getDate();
+  }
+
+  function _renderWeekBudget() {
+    var bar = document.getElementById('lp-week-budget-bar');
+    var line = document.getElementById('lp-week-budget-line');
+    if (!bar || !_lpData) return;
+    var ramp = _lpData.ramp_weeks, hold = _lpData.hold_weeks, taper = _lpData.taper_weeks;
+    var total = Math.max(1, ramp + hold + taper);
+    bar.innerHTML =
+      '<span class="ramp" style="flex:' + ramp + ' 0 0" title="Ramp · ' + ramp + ' wks"></span>' +
+      '<span class="hold" style="flex:' + hold + ' 0 0" title="Peak hold · ' + hold + ' wks"></span>' +
+      '<span class="taper" style="flex:' + taper + ' 0 0" title="Taper · ' + taper + ' wks"></span>';
+    if (line) {
+      line.textContent = 'ramp ' + ramp + ' + hold ' + hold + ' + taper ' + taper + ' = ' + total +
+        ' weeks · peak ' + Math.round(_lpData.peak) + ' TSS';
+    }
+  }
+
+  // ── Settings panel (cog toggle, ramp slider<->input sync, save) ─────────────
+
+  function _toggleLoadPlanSettings() {
+    var panel = document.getElementById('lp-settings-panel');
+    var cogBtn = document.getElementById('lp-cog-btn');
+    if (!panel) return;
+    var opening = panel.hidden;
+    panel.hidden = !opening;
+    if (cogBtn) cogBtn.classList.toggle('is-active', opening);
+    if (opening && _lpData) {
+      _setNum('lp-ramp-slider', _lpData.ramp_rate * 100);
+      _setNum('lp-ramp-input', _lpData.ramp_rate * 100);
+      _setNum('lp-hold-input', _lpData.hold_weeks);
+      _setNum('lp-taper-input', _lpData.taper_weeks);
+      var deloadEl = document.getElementById('lp-recovery-toggle');
+      if (deloadEl) deloadEl.checked = !!_lpData.deload_enabled;
+      _renderWeekBudget();
+    }
+  }
+
+  function _setNum(id, val) {
+    var el = document.getElementById(id);
+    if (el) el.value = val;
+  }
+
+  function _saveLoadPlanRules() {
+    var rampIn = document.getElementById('lp-ramp-input');
+    var holdIn = document.getElementById('lp-hold-input');
+    var taperIn = document.getElementById('lp-taper-input');
+    var deloadIn = document.getElementById('lp-recovery-toggle');
+    var errEl = document.getElementById('lp-settings-error');
+    var savedEl = document.getElementById('lp-settings-saved');
+    if (errEl) errEl.textContent = '';
+
+    var rampPct = rampIn ? parseFloat(rampIn.value) : NaN;
+    var hold = holdIn ? parseInt(holdIn.value, 10) : NaN;
+    var taper = taperIn ? parseInt(taperIn.value, 10) : NaN;
+
+    if (isNaN(rampPct) || rampPct < 0 || rampPct > 10) {
+      if (errEl) errEl.textContent = 'Ramp rate must be between 0 and 10%.';
+      return;
+    }
+    if (isNaN(hold) || hold < 0) {
+      if (errEl) errEl.textContent = 'Peak hold must be 0 or more weeks.';
+      return;
+    }
+    if (isNaN(taper) || taper < 0) {
+      if (errEl) errEl.textContent = 'Taper window must be 0 or more weeks.';
+      return;
+    }
+
+    _api('PUT', '/api/plan/rules', {
+      ramp_rate: rampPct / 100, hold_weeks: hold, taper_weeks: taper,
+      deload_enabled: deloadIn ? !!deloadIn.checked : false,
+    })
+      .then(function () {
+        if (savedEl) {
+          savedEl.style.display = '';
+          setTimeout(function () { savedEl.style.display = 'none'; }, 2000);
+        }
+        _loadLoadPlan();
+        _loadWeekLoad();
+      })
+      .catch(function (e) {
+        if (errEl) errEl.textContent = e.message || 'Save failed.';
+      });
+  }
+
+  function _wireLoadPlanSettings() {
+    var cogBtn = document.getElementById('lp-cog-btn');
+    var rampSlider = document.getElementById('lp-ramp-slider');
+    var rampInput = document.getElementById('lp-ramp-input');
+    var saveBtn = document.getElementById('lp-save-btn');
+    if (cogBtn) cogBtn.onclick = _toggleLoadPlanSettings;
+    if (rampSlider) rampSlider.oninput = function () { if (rampInput) rampInput.value = rampSlider.value; };
+    if (rampInput) rampInput.oninput = function () { if (rampSlider) rampSlider.value = rampInput.value; };
+    if (saveBtn) saveBtn.onclick = _saveLoadPlanRules;
+  }
+
+  // ── Session load · this week (Plan-tab revamp, Part 2) ──────────────────────
+  // target_tss/clamped always come straight from GET /api/plan/week-load,
+  // itself backed by the same compute_load_plan series as the Session Load
+  // Plan card above — never recomputed client-side. See
+  // docs/calculations/load-plan.md.
+  var _wlData = null;
+
+  function _loadWeekLoad(weekStartISO) {
+    var url = '/api/plan/week-load' + (weekStartISO ? '?week_start=' + weekStartISO : '');
+    _api('GET', url).then(function (data) {
+      _wlData = data;
+      _renderWeekLoad();
+    }).catch(function () {
+      _wlData = null;
+      _renderWeekLoad();
     });
   }
 
-  function _validatePlanSettingsInputs() {
-    var rampIn = document.getElementById('plan-ramp-rate-input');
-    var taperIn = document.getElementById('plan-taper-window-input');
-    var rampErr = document.getElementById('plan-ramp-rate-error');
-    var taperErr = document.getElementById('plan-taper-window-error');
-    var valid = true;
+  function _renderWeekLoad() {
+    // Refresh the week-plan card's target-dependent bits (header total,
+    // "Suggest sessions" label, banner) whenever fresh data arrives —
+    // regardless of whether the Session-load-this-week card itself is on
+    // screen, since both read from the same _wlData.
+    _updateWeekTargetUI();
 
-    if (rampErr) rampErr.textContent = '';
-    if (taperErr) taperErr.textContent = '';
-    if (rampIn) rampIn.classList.remove('is-invalid');
-    if (taperIn) taperIn.classList.remove('is-invalid');
+    var body = document.getElementById('wl-body');
+    var emptyEl = document.getElementById('wl-empty');
+    if (!body) return;
 
-    var rampVal = rampIn ? rampIn.value.trim() : '';
-    var taperVal = taperIn ? taperIn.value.trim() : '';
-
-    if (rampVal === '' || isNaN(Number(rampVal)) || Number(rampVal) < 0) {
-      if (rampErr) rampErr.textContent = 'Enter a number ≥ 0.';
-      if (rampIn) rampIn.classList.add('is-invalid');
-      valid = false;
+    if (!_wlData || _wlData.target_tss == null) {
+      body.hidden = true;
+      if (emptyEl) emptyEl.hidden = false;
+      return;
     }
-    if (taperVal === '' || isNaN(Number(taperVal)) || Number(taperVal) < 0) {
-      if (taperErr) taperErr.textContent = 'Enter a number ≥ 0.';
-      if (taperIn) taperIn.classList.add('is-invalid');
-      valid = false;
-    }
-    return valid;
-  }
+    if (emptyEl) emptyEl.hidden = true;
+    body.hidden = false;
 
-  function _loadPlanSettings() {
-    _api('GET', '/api/plans').then(function (data) {
-      var plan = Array.isArray(data) && data.length > 0 ? data[0] : null;
-      var rampIn = document.getElementById('plan-ramp-rate-input');
-      var taperIn = document.getElementById('plan-taper-window-input');
-      if (plan) {
-        _planEntityId = plan.id;
-        if (rampIn) rampIn.value = plan.ramp_rate != null ? plan.ramp_rate : 0;
-        if (taperIn) taperIn.value = plan.taper_length != null ? plan.taper_length : 0;
+    var d = _wlData;
+    _setText('wl-target-val', Math.round(d.target_tss));
+
+    var pill = document.getElementById('wl-state-pill');
+    if (pill) {
+      pill.className = 'wl-state-pill' + (d.state ? ' ' + d.state : '');
+      pill.textContent = d.state === 'on_track' ? 'On track' : d.state === 'under' ? 'Under' :
+        d.state === 'over' ? 'Over' : '—';
+    }
+
+    var lower = Math.round(d.target_tss * 0.95), upper = Math.round(d.target_tss * 1.05);
+    var diff = Math.round(d.projected_tss - d.target_tss);
+    var diffStr = (diff > 0 ? '+' : '') + diff;
+    var inOut = (d.projected_tss >= lower && d.projected_tss <= upper) ? 'inside' : 'outside';
+    var line = document.getElementById('wl-projected-line');
+    if (line) {
+      line.innerHTML = 'projected <b>' + Math.round(d.projected_tss) + '</b> &middot; ' + esc(diffStr) +
+        ' ' + inOut + ' &plusmn;5% band (' + lower + '&ndash;' + upper + ')';
+    }
+
+    _setText('wl-baseline-val', Math.round(d.baseline_tss) + ' TSS');
+    _setText('wl-ramp-val', (d.ramp_rate * 100).toFixed(1).replace(/\.0$/, '') + '%');
+    _setText('wl-target-cell-val', Math.round(d.target_tss) + ' TSS');
+
+    var spark = document.getElementById('wl-sparkline');
+    if (spark) {
+      var priors = d.prior_4_weeks_actual || [];
+      var maxV = Math.max.apply(null, priors.map(function (p) { return p.actual_tss; }).concat([1]));
+      spark.innerHTML = priors.map(function (p) {
+        var h = Math.max(4, (p.actual_tss / maxV) * 100);
+        return '<span style="height:' + h + '%" title="' + esc(p.week_start) + ': ' +
+          Math.round(p.actual_tss) + ' TSS"></span>';
+      }).join('');
+    }
+    _setText(
+      'wl-baseline-compare',
+      'planned ' + Math.round(d.baseline_planned_tss) + ' · logged ' + Math.round(d.baseline_tss),
+    );
+
+    if (d.acwr_ceiling != null) {
+      _setText('wl-guardrail-ceiling', Math.round(d.acwr_ceiling));
+      _setText(
+        'wl-guardrail-detail',
+        'ACWR ' + (d.acwr != null ? d.acwr.toFixed(2) : '—') +
+          ' · 28-d avg ' + Math.round(d.trailing_28d_avg),
+      );
+    } else {
+      _setText('wl-guardrail-ceiling', '—');
+      _setText('wl-guardrail-detail', '');
+    }
+
+    // Gauge: logged (solid) + planned (hatched) stacked, scaled to whichever
+    // is bigger — the ceiling, the target, or the projected total — so both
+    // ticks always land on-gauge, even for a clamped (target < ceiling-ish)
+    // or way-over week.
+    var scaleMax = Math.max(d.target_tss, d.acwr_ceiling || 0, d.projected_tss, 1) * 1.05;
+    var loggedPct = Math.min(100, (d.logged_tss / scaleMax) * 100);
+    var plannedPct = Math.min(100 - loggedPct, (d.planned_tss / scaleMax) * 100);
+    var loggedEl = document.getElementById('wl-gauge-logged');
+    var plannedEl = document.getElementById('wl-gauge-planned');
+    if (loggedEl) loggedEl.style.width = loggedPct + '%';
+    if (plannedEl) { plannedEl.style.left = loggedPct + '%'; plannedEl.style.width = plannedPct + '%'; }
+    var targetTick = document.getElementById('wl-gauge-tick-target');
+    if (targetTick) targetTick.style.left = Math.min(100, (d.target_tss / scaleMax) * 100) + '%';
+    var ceilingTick = document.getElementById('wl-gauge-tick-ceiling');
+    if (ceilingTick) {
+      if (d.acwr_ceiling != null) {
+        ceilingTick.style.display = '';
+        ceilingTick.style.left = Math.min(100, (d.acwr_ceiling / scaleMax) * 100) + '%';
       } else {
-        if (rampIn) rampIn.value = 0;
-        if (taperIn) taperIn.value = 0;
+        ceilingTick.style.display = 'none';
       }
-      _renderSchedulePreview();
-    }).catch(function () { _renderSchedulePreview(); });
-  }
-
-  function _savePlanSettings() {
-    if (!_validatePlanSettingsInputs()) return;
-    var rampIn = document.getElementById('plan-ramp-rate-input');
-    var taperIn = document.getElementById('plan-taper-window-input');
-    var savedEl = document.getElementById('plan-settings-saved');
-    var rampRate = parseFloat(rampIn ? rampIn.value : 0);
-    var taperLength = parseFloat(taperIn ? taperIn.value : 0);
-    var body = { ramp_rate: rampRate, taper_length: taperLength };
-
-    var req = _planEntityId
-      ? _api('PATCH', '/api/plans/' + _planEntityId, body)
-      : _api('POST', '/api/plans', Object.assign({ name: 'Training Plan' }, body));
-    req.then(function (plan) {
-      if (plan && plan.id) _planEntityId = plan.id;
-      if (savedEl) {
-        savedEl.style.display = '';
-        setTimeout(function () { savedEl.style.display = 'none'; }, 2000);
-      }
-    }).catch(function (e) {
-      var rampErr = document.getElementById('plan-ramp-rate-error');
-      if (rampErr) rampErr.textContent = e.message || 'Save failed.';
-    });
-  }
-
-  function _wirePlanSettings() {
-    var rampIn = document.getElementById('plan-ramp-rate-input');
-    var taperIn = document.getElementById('plan-taper-window-input');
-    var saveBtn = document.getElementById('plan-save-settings-btn');
-    if (rampIn) rampIn.oninput = _renderSchedulePreview;
-    if (taperIn) taperIn.oninput = _renderSchedulePreview;
-    if (saveBtn) saveBtn.onclick = _savePlanSettings;
+    }
+    var legend = document.getElementById('wl-gauge-legend');
+    if (legend) {
+      legend.innerHTML =
+        '<span><span class="sw" style="background:var(--pm-blue)"></span>Logged ' + Math.round(d.logged_tss) + '</span>' +
+        '<span><span class="sw" style="background:repeating-linear-gradient(45deg,var(--pm-blueSoft) 0 3px,transparent 3px 6px),rgba(79,110,247,0.18)"></span>Planned ' + Math.round(d.planned_tss) + '</span>' +
+        '<span>Projected ' + Math.round(d.projected_tss) + ' / ' + Math.round(d.target_tss) + ' TSS' +
+          (d.clamped ? ' &middot; <span style="color:var(--pm-amber);font-weight:700;">clamped</span>' : '') + '</span>';
+    }
   }
 
   // ── Render shell ────────────────────────────────────────────────────────────
@@ -426,15 +692,18 @@ information about.
           '<button class="pl-arw" id="pl-prev" aria-label="Previous week">‹</button>' +
           '<span class="pl-wktitle" id="pl-wktitle">' + esc(_fmtWeekTitle(_weekStart)) + '</span>' +
           '<button class="pl-arw" id="pl-next" aria-label="Next week">›</button>' +
+          '<span class="pl-weektotal" id="pl-weektotal" hidden></span>' +
         '</div>' +
         '<div class="pl-btnrow">' +
           /* Repurposed to open the AI next-week suggestions panel (issue #1315).
              It proxies a click to the suggestions module's own (hidden) trigger
-             button, which lives in a separate closure. */
-          '<button class="pl-btn pl-ghost" id="pl-suggest" title="AI-suggested sessions for next week">✨ Suggest sessions</button>' +
+             button, which lives in a separate closure. Label includes the
+             Session Load Plan's weekly target once _wlData loads — see
+             _updateWeekTargetUI(). */
+          '<button class="pl-btn pl-ghost" id="pl-suggest" title="AI-suggested sessions for this week">✨ Suggest sessions</button>' +
           '<button class="pl-btn pl-dark" id="pl-add">+ Add</button>' +
         '</div></div>' +
-        '<div class="pl-infobanner" style="margin-bottom:12px;">Synced workouts from Strava/Stryd auto-match to planned sessions. Drag a <b>planned</b> or <b>missed</b> card to reschedule; ambiguous or missing matches need a quick confirm below. These planned sessions <b>don’t feed Projection’s ramp/taper load model</b> — separate systems.</div>' +
+        '<div class="pl-infobanner" id="pl-infobanner" style="margin-bottom:12px;">Sessions are generated to hit your weekly target, respecting the ramp rule and your rest days.</div>' +
         '<div class="pl-weeklist" id="plan-week-list"></div>' +
         '<div class="pl-legend">' +
           '<span><b style="background:var(--pl-run)"></b>Run</span><span><b style="background:var(--pl-lift)"></b>Strength / Plyo</span>' +
@@ -442,8 +711,12 @@ information about.
           '<span><b style="background:var(--pl-green)"></b>Done</span><span><b style="background:var(--pl-amber)"></b>Needs review</span><span><b style="background:var(--pl-red)"></b>Missed</span>' +
         '</div>' +
       '</div>';
-    document.getElementById('pl-prev').onclick = function () { _weekStart = _addDays(_weekStart, -7); _renderWeekSection(); _loadWeek(); };
-    document.getElementById('pl-next').onclick = function () { _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(); };
+    document.getElementById('pl-prev').onclick = function () {
+      _weekStart = _addDays(_weekStart, -7); _renderWeekSection(); _loadWeek(); _loadWeekLoad(_iso(_weekStart));
+    };
+    document.getElementById('pl-next').onclick = function () {
+      _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(); _loadWeekLoad(_iso(_weekStart));
+    };
     document.getElementById('pl-add').onclick = function () { _openAdd('single'); };
     var sugBtn = document.getElementById('pl-suggest');
     if (sugBtn) sugBtn.onclick = function () {
@@ -452,7 +725,40 @@ information about.
       var panel = document.getElementById('plan-suggestions-panel');
       if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     };
+    _updateWeekTargetUI();
     if (_bundle) _renderWeekList();
+  }
+
+  // Target-dependent bits of the week-plan card (header total, "Suggest
+  // sessions" label, banner) — factored out of _renderWeekSection so
+  // _loadWeekLoad's async GET /api/plan/week-load can refresh just these
+  // nodes in place once data arrives, without wiping the day list.
+  function _updateWeekTargetUI() {
+    var d = _wlData;
+    var target = (d && d.target_tss != null) ? Math.round(d.target_tss) : null;
+
+    var totalEl = document.getElementById('pl-weektotal');
+    if (totalEl) {
+      if (target != null) {
+        totalEl.hidden = false;
+        var stateLabel = d.state === 'on_track' ? 'on track' : d.state === 'under' ? 'under' :
+          d.state === 'over' ? 'over' : '—';
+        totalEl.innerHTML = 'week total <b>' + Math.round(d.projected_tss) + '</b> / ' + target +
+          ' TSS &middot; ' + esc(stateLabel);
+      } else {
+        totalEl.hidden = true;
+      }
+    }
+
+    var sugBtn = document.getElementById('pl-suggest');
+    if (sugBtn) sugBtn.textContent = target != null ? '✨ Suggest sessions · fill to ' + target : '✨ Suggest sessions';
+
+    var bannerEl = document.getElementById('pl-infobanner');
+    if (bannerEl) {
+      bannerEl.innerHTML = target != null
+        ? 'Sessions are generated to hit <b>' + target + ' TSS</b>, respecting the ramp rule and your rest days.'
+        : 'Sessions are generated to hit your weekly target, respecting the ramp rule and your rest days.';
+    }
   }
 
   function _renderWeekList() {
@@ -473,13 +779,41 @@ information about.
       var addDay = isPast
         ? '<div class="pl-addday is-disabled" title="This day has passed — nothing new can be added">+ add</div>'
         : '<div class="pl-addday" data-add-date="' + day.date + '">+ add</div>';
+      var dayTotal = _dayTotalTss(day);
       return '<div class="pl-dayrow ' + cls + '" data-date="' + day.date + '">' +
         '<div class="pl-daylabel"><span class="pl-dname">' + day.dow + '</span><span class="pl-dnum">' + _parseISO(day.date).getDate() + '</span></div>' +
         '<div class="pl-daybody">' + cards + ghosts + rest + addDay +
         '</div>' +
+        (dayTotal != null ? '<span class="pl-dtotal">' + Math.round(dayTotal) + ' TSS</span>' : '') +
       '</div>';
     }).join('');
     _wireWeekEvents();
+  }
+
+  // Real logged TSS (p.actual.tss) when the session is done/matched; the
+  // server-computed historical-baseline estimate (p.estimated_tss, "~" —
+  // ONLY present while the session is still achievable, see
+  // _planned_session_dict) otherwise. Never fabricates a number.
+  function _sessionTss(p) {
+    if (p.actual && p.actual.tss != null) return { value: p.actual.tss, estimated: false };
+    if (p.estimated_tss != null) return { value: p.estimated_tss, estimated: true };
+    return null;
+  }
+
+  function _sessionTssBadge(p) {
+    var t = _sessionTss(p);
+    if (!t) return '';
+    var label = (t.estimated ? '~' : '') + Math.round(t.value) + ' TSS';
+    return '<span class="pl-tss-badge' + (t.estimated ? ' is-estimated' : '') + '">' + label + '</span>';
+  }
+
+  function _dayTotalTss(day) {
+    var total = 0, any = false;
+    (day.planned || []).forEach(function (p) {
+      var t = _sessionTss(p);
+      if (t) { total += t.value; any = true; }
+    });
+    return any ? total : null;
   }
 
   function _statusTag(status, hasActual) {
@@ -581,7 +915,7 @@ information about.
         (draggable ? ' draggable="true"' : '') +
         ' data-sess="' + p.id + '"' + (clickable ? ' data-click="1"' : '') + '>' +
       handle +
-      '<div class="pl-sesstop"><span class="pl-stypetag ' + fam + '">' + (fam === 'run' ? 'run' : 'lift') + '</span>' + _statusTag(p.status, !!p.actual) + '</div>' +
+      '<div class="pl-sesstop"><span class="pl-sesstop-left"><span class="pl-stypetag ' + fam + '">' + (fam === 'run' ? 'run' : 'lift') + '</span>' + _sessionTssBadge(p) + '</span>' + _statusTag(p.status, !!p.actual) + '</div>' +
       '<div class="pl-sn">' + esc(p.name || '(untitled)') + '</div>' +
       '<div class="pl-sm">' + esc(meta) + '</div>' + body +
     '</div>';
@@ -1772,6 +2106,8 @@ information about.
     '.plan-panel .pl-wknav{display:flex;align-items:center;gap:10px;}',
     '.plan-panel .pl-arw{width:26px;height:26px;border:1px solid var(--pl-line);background:var(--pl-tile);border-radius:8px;cursor:pointer;font-size:14px;color:var(--pl-muted);}',
     '.plan-panel .pl-wktitle{font-size:13px;font-weight:800;}',
+    '.plan-panel .pl-weektotal{font-size:11px;color:var(--pl-muted);font-family:var(--pl-mono);margin-left:6px;}',
+    '.plan-panel .pl-weektotal b{color:var(--pl-ink);font-weight:800;}',
     '.plan-panel .pl-weeklist{display:flex;flex-direction:column;gap:10px;margin-top:14px;}',
     '.plan-panel .pl-dayrow{display:flex;gap:14px;padding:12px 14px;border:1px solid var(--pl-line);border-radius:12px;background:var(--pl-tile);align-items:flex-start;}',
     '.plan-panel .pl-dayrow.today{border-color:#c7d2fe;background:#f4f6ff;}',
@@ -1780,6 +2116,7 @@ information about.
     '.plan-panel .pl-daylabel{width:58px;flex-shrink:0;padding-top:2px;}',
     '.plan-panel .pl-daylabel .pl-dname{font-size:10px;font-weight:800;color:var(--pl-faint);text-transform:uppercase;display:block;}',
     '.plan-panel .pl-daylabel .pl-dnum{font-size:20px;font-family:var(--pl-mono);color:var(--pl-ink);font-weight:700;display:block;margin-top:2px;}',
+    '.plan-panel .pl-dtotal{flex-shrink:0;align-self:center;font-size:10.5px;font-weight:700;font-family:var(--pl-mono);color:var(--pl-muted);white-space:nowrap;padding-left:8px;}',
     '.plan-panel .pl-daybody{flex:1;display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;min-width:0;}',
     '.plan-panel .pl-daybody .pl-sess,.plan-panel .pl-daybody .pl-ghost{flex:1 1 250px;max-width:360px;}',
     '.plan-panel .pl-sess{position:relative;border-radius:8px;padding:7px 9px;font-size:11px;cursor:pointer;border-left:3px solid transparent;background:#fff;box-shadow:0 1px 2px rgba(20,28,70,0.06);}',
@@ -1791,6 +2128,9 @@ information about.
     '.plan-panel .pl-stypetag.run{background:var(--pl-blueSoft);color:var(--pl-run);}.plan-panel .pl-stypetag.lift{background:var(--pl-liftSoft);color:#7c3aed;}',
     '.plan-panel .pl-dhandle{position:absolute;top:7px;right:8px;font-size:9px;color:var(--pl-faint);letter-spacing:-1px;}',
     '.plan-panel .pl-sesstop{display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:2px;}',
+    '.plan-panel .pl-sesstop-left{display:flex;align-items:center;gap:6px;}',
+    '.plan-panel .pl-tss-badge{font-size:9.5px;font-weight:700;font-family:var(--pl-mono);color:var(--pl-muted);}',
+    '.plan-panel .pl-tss-badge.is-estimated{color:var(--pl-faint);font-style:italic;}',
     '.plan-panel .pl-stat-tag{font-size:7.5px;font-weight:800;letter-spacing:0.03em;padding:1px 5px;border-radius:4px;text-transform:uppercase;}',
     '.plan-panel .pl-stat-tag.missed{background:var(--pl-redSoft);color:var(--pl-red);}',
     '.plan-panel .pl-stat-tag.review{background:var(--pl-amberSoft);color:var(--pl-amber);}',

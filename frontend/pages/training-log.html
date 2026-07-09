@@ -4120,6 +4120,7 @@
         </nav>
         <span class="log-nav-spacer"></span>
         <div class="log-page-header-actions">
+          <span id="log-sync-feedback" role="status" aria-live="polite"></span>
           <div id="sync-widget" class="sync-widget">
             <button
               id="sync-toggle-btn"
@@ -4201,7 +4202,6 @@
             <i class="ti ti-plus" aria-hidden="true"></i>
             <span class="btn-label">Log</span>
           </button>
-          <span id="log-sync-feedback" role="status" aria-live="polite"></span>
         </div>
         </div>
       </header>
@@ -4255,60 +4255,177 @@
       tabindex="0"
       hidden
     >
-      <!-- ── Plan settings + schedule preview — pinned to the top of the Plan
-           tab (was unstyled at the bottom: its .pm-card/.pm-* rules are
-           scoped to .plan-merged, which only wrapped the Projection tab, so
-           it rendered as bare unstyled text here). Wrapped in .plan-merged
-           to pick up that styling; utilization TBD. ─────────────────────── -->
+      <!-- ── Session Load Plan — race-anchored ramp/hold/taper weekly TSS
+           targets (Plan-tab revamp, Part 1). Pinned to the top of the Plan
+           tab; wrapped in .plan-merged to pick up the shared .pm-* card
+           styling (see docs/calculations/load-plan.md). ─────────────────── -->
       <div class="plan-merged">
-        <div class="pm-card" id="plan-settings-section">
-          <div class="pm-ckhead">
-            <span class="pm-sectitle">Plan settings</span>
-            <button id="plan-save-settings-btn" class="pm-ckbtn dark" type="button">
-              Save
+        <div class="pm-card lp-card" id="load-plan-section">
+          <div class="lp-head">
+            <div>
+              <div class="pm-sectitle">Session load plan</div>
+              <div class="lp-subtitle" id="lp-subtitle">&nbsp;</div>
+            </div>
+            <button
+              id="lp-cog-btn"
+              class="lp-cog-btn"
+              type="button"
+              aria-label="Edit plan rules"
+              title="Edit plan rules"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M19.14 12.94a7.14 7.14 0 0 0 .05-.94 7.14 7.14 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.3 7.3 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54a7.3 7.3 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.7 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.14 7.14 0 0 0-.05.94 7.14 7.14 0 0 0 .05.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.39 1.05.71 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.23 1.13-.55 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64Zm-7.14 2.43a3.37 3.37 0 1 1 0-6.74 3.37 3.37 0 0 1 0 6.74Z"
+                />
+              </svg>
             </button>
           </div>
-          <div class="pm-settingsrow">
-            <div class="pm-field">
-              <div class="pm-lab">Ramp rate</div>
-              <div class="pm-inputline">
-                <input
-                  id="plan-ramp-rate-input"
-                  type="number"
-                  min="0"
-                  step="1"
-                  value="0"
-                  aria-describedby="plan-ramp-rate-error"
-                />
-                <span class="pm-unit">TSS/week</span>
-              </div>
-              <span id="plan-ramp-rate-error" class="pm-fielderr" role="alert"></span>
+
+          <div class="lp-rules-strip" id="lp-rules-strip" hidden>
+            <div class="lp-rule">
+              <div class="lp-rule-lab">A race</div>
+              <div class="lp-rule-val" id="lp-rule-race">—</div>
             </div>
-            <div class="pm-field">
-              <div class="pm-lab">Taper window</div>
-              <div class="pm-inputline">
-                <input
-                  id="plan-taper-window-input"
-                  type="number"
-                  min="0"
-                  step="1"
-                  value="0"
-                  aria-describedby="plan-taper-window-error"
-                />
+            <div class="lp-rule">
+              <div class="lp-rule-lab">Weeks to race</div>
+              <div class="lp-rule-val" id="lp-rule-weeks">—</div>
+            </div>
+            <div class="lp-rule">
+              <div class="lp-rule-lab">Ramp rate</div>
+              <div class="lp-rule-val" id="lp-rule-ramp">—</div>
+            </div>
+            <div class="lp-rule">
+              <div class="lp-rule-lab">Peak hold</div>
+              <div class="lp-rule-val" id="lp-rule-hold">—</div>
+            </div>
+            <div class="lp-rule">
+              <div class="lp-rule-lab">Taper window</div>
+              <div class="lp-rule-val" id="lp-rule-taper">—</div>
+            </div>
+          </div>
+
+          <div id="lp-settings-panel" class="lp-settings-panel" hidden>
+            <div class="lp-settings-row">
+              <label for="lp-ramp-slider">Ramp rate</label>
+              <input id="lp-ramp-slider" type="range" min="0" max="10" step="0.5" value="5" />
+              <span class="lp-settings-num">
+                <input id="lp-ramp-input" type="number" min="0" max="10" step="0.5" value="5" />
+                <span class="pm-unit">% / wk</span>
+              </span>
+            </div>
+            <div class="lp-settings-row">
+              <label for="lp-hold-input">
+                Peak hold
+                <span
+                  class="lp-hint"
+                  tabindex="0"
+                  title="Raising peak hold shortens the ramp, which LOWERS your peak weekly TSS."
+                  aria-label="Raising peak hold shortens the ramp, which lowers your peak weekly TSS."
+                  >?</span
+                >
+              </label>
+              <span class="lp-settings-num">
+                <input id="lp-hold-input" type="number" min="0" step="1" value="4" />
                 <span class="pm-unit">weeks</span>
-              </div>
-              <span id="plan-taper-window-error" class="pm-fielderr" role="alert"></span>
+              </span>
+            </div>
+            <div class="lp-settings-row">
+              <label for="lp-taper-input">Taper window</label>
+              <span class="lp-settings-num">
+                <input id="lp-taper-input" type="number" min="0" step="1" value="3" />
+                <span class="pm-unit">weeks</span>
+              </span>
+            </div>
+            <div class="lp-settings-row lp-settings-row--toggle">
+              <label>
+                <input id="lp-recovery-toggle" type="checkbox" />
+                Cut 30% every 4th week
+              </label>
+              <span class="lp-hint-text">Weeks 4, 8, 12&hellip; become a deload; the next week resumes the ramp as if it hadn't been cut.</span>
+            </div>
+            <div class="lp-week-budget" id="lp-week-budget">
+              <div class="lp-week-budget-bar" id="lp-week-budget-bar"></div>
+              <div class="lp-week-budget-line" id="lp-week-budget-line"></div>
+            </div>
+            <span id="lp-settings-error" class="pm-fielderr" role="alert"></span>
+            <div class="lp-settings-actions">
+              <button id="lp-save-btn" class="pm-ckbtn dark" type="button">Save</button>
+              <span id="lp-settings-saved" class="pm-saved" style="display: none"
+                >&#10003; Saved</span
+              >
             </div>
           </div>
-          <p id="plan-settings-saved" class="pm-saved" style="display: none">
-            &#10003; Saved
-          </p>
-          <span class="pm-sectitle">Schedule preview</span>
-          <div class="pm-csub">
-            Weekly planned TSS — build ramp then a taper into the A race.
+
+          <div class="lp-chart-wrap" id="lp-chart-wrap" hidden></div>
+          <div class="lp-legend" id="lp-legend" hidden></div>
+          <div class="lp-footnote" id="lp-footnote" hidden>
+            axis = week-start date &middot; numbers = weekly TSS
           </div>
-          <div class="pm-schedwrap" id="plan-sched"></div>
-          <div class="pm-wklabels" id="plan-wklabels"></div>
+
+          <p class="lp-empty" id="lp-empty" hidden>
+            Set a goal race to generate weekly targets.
+          </p>
+          <p class="lp-warning" id="lp-warning" hidden></p>
+        </div>
+
+        <!-- ── Session load · this week (Plan-tab revamp, Part 2) — where the
+             target comes from, and how logged + planned sessions add up to
+             it. No separate Load History card; history is just the
+             sparkline + baseline number. ─────────────────────────────────── -->
+        <div class="pm-card wl-card" id="week-load-section">
+          <div class="pm-ckhead">
+            <span class="pm-sectitle">Session load &middot; this week</span>
+          </div>
+          <p class="pm-csub">Where the target comes from, and how your sessions add up to it.</p>
+
+          <div class="wl-body" id="wl-body" hidden>
+            <div class="wl-target-row">
+              <div class="wl-target-big">
+                <span id="wl-target-val">—</span>
+                <span class="wl-target-unit">TSS target</span>
+              </div>
+              <span class="wl-state-pill" id="wl-state-pill">—</span>
+            </div>
+            <div class="wl-projected-line" id="wl-projected-line"></div>
+
+            <div class="wl-chain">
+              <div class="wl-chain-cell">
+                <div class="wl-chain-lab">Baseline &middot; last wk actual</div>
+                <div class="wl-chain-val" id="wl-baseline-val">—</div>
+                <div class="wl-sparkline" id="wl-sparkline"></div>
+                <div class="wl-baseline-compare" id="wl-baseline-compare"></div>
+              </div>
+              <div class="wl-chain-op">&times;</div>
+              <div class="wl-chain-cell">
+                <div class="wl-chain-lab">Ramp</div>
+                <div class="wl-chain-val" id="wl-ramp-val">—</div>
+              </div>
+              <div class="wl-chain-op">=</div>
+              <div class="wl-chain-cell wl-target-cell">
+                <div class="wl-chain-lab">Target</div>
+                <div class="wl-chain-val" id="wl-target-cell-val">—</div>
+              </div>
+              <div class="wl-chain-cell wl-guardrail-cell">
+                <div class="wl-chain-lab">Guardrail</div>
+                <div class="wl-chain-val" id="wl-guardrail-ceiling">—</div>
+                <div class="wl-guardrail-sub">ceiling</div>
+                <div class="wl-guardrail-detail" id="wl-guardrail-detail"></div>
+              </div>
+            </div>
+
+            <div class="wl-gauge-wrap">
+              <div class="wl-gauge" id="wl-gauge">
+                <div class="wl-gauge-logged" id="wl-gauge-logged"></div>
+                <div class="wl-gauge-planned" id="wl-gauge-planned"></div>
+                <div class="wl-gauge-tick wl-gauge-tick--target" id="wl-gauge-tick-target" title="Target"></div>
+                <div class="wl-gauge-tick wl-gauge-tick--ceiling" id="wl-gauge-tick-ceiling" title="ACWR ceiling"></div>
+              </div>
+              <div class="wl-gauge-legend" id="wl-gauge-legend"></div>
+            </div>
+          </div>
+
+          <p class="lp-empty" id="wl-empty" hidden>Set a goal race to generate a weekly target.</p>
         </div>
       </div>
       <div id="plan-week-section"></div>
@@ -4430,28 +4547,6 @@
             </div>
           </div>
           <!-- /.perf-scorewrap -->
-
-          <!-- ── What's moving your scores ─────────────────────────────── -->
-          <div class="perf-card perf-moves-card">
-            <div class="perf-chead" style="margin-bottom: 0">
-              <span class="perf-sectitle perf-sectitle--strong"
-                >What's moving your scores</span
-              >
-              <span class="perf-tag">New</span>
-            </div>
-            <div class="perf-movesub" id="perf-moves-sub">
-              Recent training composition — associations from your sessions, not
-              proof of cause. Tap a row to filter the log.
-            </div>
-            <div id="perf-moves">
-              <p class="perf-feed-loading">Loading…</p>
-            </div>
-            <div class="perf-movefoot">
-              Strength and plyo take 6–12 weeks to show; intervals respond faster;
-              weight helps until it starts costing power. Each row filters the log
-              to the sessions behind it.
-            </div>
-          </div>
 
           <!-- Row: A-race header + calibration status -->
           <div class="pm-row2">
@@ -5212,34 +5307,6 @@
         background: var(--pm-redSoft);
         color: var(--pm-red);
       }
-      .plan-merged .pm-settingsrow {
-        display: flex;
-        gap: 30px;
-        flex-wrap: wrap;
-        margin: 14px 0 18px;
-      }
-      .plan-merged .pm-field .pm-lab {
-        margin-bottom: 6px;
-      }
-      .plan-merged .pm-inputline {
-        display: flex;
-        align-items: center;
-        gap: 9px;
-      }
-      .plan-merged .pm-field input {
-        width: 78px;
-        font-family: var(--pm-mono);
-        font-size: 15px;
-        font-weight: 600;
-        color: var(--pm-ink);
-        border: 1px solid var(--pm-line);
-        background: var(--pm-tile);
-        border-radius: 8px;
-        padding: 8px 10px;
-      }
-      .plan-merged .pm-field input.is-invalid {
-        border-color: var(--pm-red);
-      }
       .plan-merged .pm-unit {
         font-size: 12px;
         color: var(--pm-muted);
@@ -5257,35 +5324,603 @@
         font-weight: 700;
         margin: -6px 0 14px;
       }
-      .plan-merged .pm-schedwrap {
+
+      /* ── Session Load Plan (Plan-tab revamp, Part 1) ─────────────────────
+         Race-anchored ramp/hold/taper weekly TSS targets. See
+         docs/calculations/load-plan.md and backend/services/load_plan.py —
+         every number here comes from GET /api/plan/load-plan, never
+         recomputed client-side. ─────────────────────────────────────────── */
+      .plan-merged .lp-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .plan-merged .lp-subtitle {
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--pm-ink);
+        margin-top: 2px;
+      }
+      .plan-merged .lp-cog-btn {
+        flex-shrink: 0;
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        border: 1px solid var(--pm-line);
+        background: var(--pm-tile);
+        color: var(--pm-muted);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+      }
+      .plan-merged .lp-cog-btn:hover,
+      .plan-merged .lp-cog-btn.is-active {
+        background: #fff;
+        color: var(--pm-ink);
+        box-shadow: var(--card-shadow, 0 2px 6px rgba(20, 28, 70, 0.12));
+      }
+
+      .plan-merged .lp-rules-strip {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 10px;
+        margin: 14px 0 4px;
+      }
+      .plan-merged .lp-rule {
+        background: var(--pm-tile);
+        border: 1px solid var(--pm-line);
+        border-radius: 10px;
+        padding: 9px 11px;
+        min-width: 0;
+      }
+      .plan-merged .lp-rule-lab {
+        font-size: 9.5px;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--pm-faint);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .plan-merged .lp-rule-val {
+        font-size: 13.5px;
+        font-weight: 700;
+        color: var(--pm-ink);
+        margin-top: 3px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .plan-merged .lp-settings-panel {
+        margin: 14px 0 4px;
+        padding: 14px 16px;
+        background: var(--pm-tile);
+        border: 1px solid var(--pm-line);
+        border-radius: 12px;
+      }
+      .plan-merged .lp-settings-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .plan-merged .lp-settings-row label {
+        width: 110px;
+        flex-shrink: 0;
+        font-size: 12.5px;
+        font-weight: 600;
+        color: var(--pm-ink);
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .plan-merged .lp-settings-row input[type="range"] {
+        flex: 1;
+        min-width: 0;
+        accent-color: var(--pm-blue);
+      }
+      .plan-merged .lp-settings-num {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+      .plan-merged .lp-settings-num input {
+        width: 64px;
+        font-family: var(--pm-mono);
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--pm-ink);
+        border: 1px solid var(--pm-line);
+        background: #fff;
+        border-radius: 7px;
+        padding: 6px 8px;
+      }
+      .plan-merged .lp-hint {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 15px;
+        height: 15px;
+        border-radius: 50%;
+        background: var(--pm-line);
+        color: var(--pm-muted);
+        font-size: 10px;
+        font-weight: 800;
+        cursor: help;
+      }
+      .plan-merged .lp-hint-text {
+        font-size: 11px;
+        color: var(--pm-faint);
+        font-style: italic;
+      }
+      .plan-merged .lp-settings-row--toggle label {
+        width: auto;
+      }
+      .plan-merged .lp-week-budget {
+        margin: 4px 0 12px;
+      }
+      .plan-merged .lp-week-budget-bar {
+        display: flex;
+        height: 8px;
+        border-radius: 5px;
+        overflow: hidden;
+        background: var(--pm-line);
+      }
+      .plan-merged .lp-week-budget-bar > span {
+        height: 100%;
+      }
+      .plan-merged .lp-week-budget-bar .ramp {
+        background: var(--pm-blue);
+      }
+      .plan-merged .lp-week-budget-bar .hold {
+        background: #6d87f8;
+      }
+      .plan-merged .lp-week-budget-bar .taper {
+        background: var(--pm-amber);
+      }
+      .plan-merged .lp-week-budget-line {
+        font-size: 11px;
+        color: var(--pm-muted);
+        margin-top: 6px;
+        font-family: var(--pm-mono);
+      }
+      .plan-merged .lp-settings-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .plan-merged .lp-settings-actions .pm-saved {
+        margin: 0;
+      }
+
+      .plan-merged .lp-chart-wrap {
+        position: relative;
+        margin-top: 22px;
+        padding-top: 22px;
+      }
+      .plan-merged .lp-bracket {
+        position: absolute;
+        top: 0;
+        height: 14px;
+        border-top: 1.5px solid var(--pm-blue);
+        border-left: 1.5px solid var(--pm-blue);
+        border-right: 1.5px solid var(--pm-blue);
+        border-radius: 3px 3px 0 0;
+      }
+      .plan-merged .lp-bracket-lab {
+        position: absolute;
+        top: -18px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 9.5px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        color: var(--pm-blue);
+        white-space: nowrap;
+      }
+      .plan-merged .lp-bars {
         display: flex;
         align-items: flex-end;
         gap: 3px;
-        height: 150px;
-        padding-top: 6px;
+        height: 170px;
         border-bottom: 1px solid var(--pm-line);
       }
-      .plan-merged .pm-bar {
+      .plan-merged .lp-bar-col {
         flex: 1;
-        background: var(--pm-blue);
-        border-radius: 3px 3px 0 0;
         min-width: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        align-items: stretch;
+        height: 100%;
       }
-      .plan-merged .pm-bar.taper {
-        background: #9db0f7;
+      .plan-merged .lp-bar {
+        min-height: 34px;
+        border-radius: 3px 3px 0 0;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding-top: 4px;
+        box-sizing: border-box;
       }
-      .plan-merged .pm-wklabels {
+      .plan-merged .lp-bar-value {
+        font-size: 9px;
+        font-weight: 700;
+        font-family: var(--pm-mono);
+      }
+      /* Solid = actual (logged) */
+      .plan-merged .lp-bar.actual {
+        background: var(--pm-blue);
+      }
+      .plan-merged .lp-bar.actual .lp-bar-value {
+        color: #fff;
+      }
+      /* Outlined = target, per phase */
+      .plan-merged .lp-bar.target {
+        border: 1.5px solid var(--pm-blue);
+        background: var(--pm-blueSoft);
+      }
+      .plan-merged .lp-bar.target .lp-bar-value {
+        color: var(--pm-blue);
+      }
+      .plan-merged .lp-bar.target.phase-hold {
+        border-color: #6d87f8;
+        background: #e4e9fd;
+      }
+      .plan-merged .lp-bar.target.phase-hold .lp-bar-value {
+        color: #4257c9;
+      }
+      .plan-merged .lp-bar.target.phase-taper {
+        border-color: var(--pm-amber);
+        background: var(--pm-amberSoft);
+      }
+      .plan-merged .lp-bar.target.phase-taper .lp-bar-value {
+        color: var(--pm-amber);
+      }
+      .plan-merged .lp-bar.target.phase-race {
+        border-color: var(--pm-red);
+        background: var(--pm-redSoft);
+      }
+      .plan-merged .lp-bar.target.phase-race .lp-bar-value {
+        color: var(--pm-red);
+      }
+      /* ACWR-clamped week: visibly pinned via an amber top edge, regardless
+         of phase color, so "why isn't my ramp doing anything" is legible. */
+      .plan-merged .lp-bar.is-clamped {
+        border-top: 3px solid var(--pm-amber) !important;
+      }
+      /* Deload week ("cut 30% every 4th week"): a dashed outline so it reads
+         as an intentional down week, not a data gap or a clamp. */
+      .plan-merged .lp-bar.is-deload {
+        outline: 2px dashed var(--pm-muted);
+        outline-offset: -2px;
+      }
+      .plan-merged .lp-deload-mark {
+        margin-left: 2px;
+        font-size: 8px;
+        opacity: 0.75;
+      }
+      .plan-merged .lp-bar-col.is-this-week .lp-bar {
+        box-shadow: 0 0 0 2px var(--pm-ink);
+      }
+
+      .plan-merged .lp-axis {
         display: flex;
         gap: 3px;
         margin-top: 6px;
       }
-      .plan-merged .pm-wklabels span {
+      .plan-merged .lp-axis-col {
         flex: 1;
+        min-width: 0;
         text-align: center;
         font-size: 8.5px;
         font-family: var(--pm-mono);
         color: var(--pm-faint);
+        line-height: 1.4;
       }
+      .plan-merged .lp-axis-col .mon {
+        display: block;
+        font-weight: 700;
+        color: var(--pm-muted);
+      }
+
+      /* Dedicated flag row below the axis — this week + race day pointer —
+         its own space so it never collides with the bars/axis. */
+      .plan-merged .lp-flag-row {
+        position: relative;
+        height: 52px;
+        margin-top: 4px;
+      }
+      .plan-merged .lp-flag-this-week {
+        position: absolute;
+        top: 0;
+        transform: translateX(-50%);
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        color: var(--pm-ink);
+        white-space: nowrap;
+      }
+      .plan-merged .lp-flag-race {
+        position: absolute;
+        top: 0;
+        transform: translateX(-50%);
+        text-align: center;
+      }
+      .plan-merged .lp-flag-race .caret {
+        font-size: 12px;
+        color: var(--pm-red);
+        line-height: 1;
+      }
+      .plan-merged .lp-flag-race .lp-flag-race-badge {
+        margin-top: 2px;
+        background: var(--pm-red);
+        color: #fff;
+        border-radius: 6px;
+        padding: 4px 7px;
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.03em;
+        line-height: 1.3;
+        white-space: nowrap;
+      }
+
+      .plan-merged .lp-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+        margin-top: 14px;
+        font-size: 11.5px;
+        color: var(--pm-muted);
+      }
+      .plan-merged .lp-legend-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .plan-merged .lp-legend-swatch {
+        width: 12px;
+        height: 12px;
+        border-radius: 3px;
+        flex-shrink: 0;
+      }
+      .plan-merged .lp-footnote {
+        margin-top: 8px;
+        font-size: 10.5px;
+        color: var(--pm-faint);
+        text-align: right;
+      }
+      .plan-merged .lp-empty {
+        font-size: 13px;
+        color: var(--pm-muted);
+        margin: 14px 0 0;
+      }
+      .plan-merged .lp-warning {
+        font-size: 12px;
+        color: var(--pm-amber);
+        background: var(--pm-amberSoft);
+        border-radius: 8px;
+        padding: 8px 11px;
+        margin: 12px 0 0;
+      }
+      @media (max-width: 640px) {
+        .plan-merged .lp-rules-strip {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+
+      /* ── Session load · this week (Plan-tab revamp, Part 2) ──────────────
+         See docs/calculations/load-plan.md — target_tss here is always the
+         SAME number GET /api/plan/load-plan's week series already shows;
+         this card explains where it came from and how close this week's
+         sessions get to it. ───────────────────────────────────────────── */
+      .plan-merged .wl-target-row {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .plan-merged .wl-target-big {
+        font-size: 34px;
+        font-weight: 700;
+        font-family: var(--pm-mono);
+        color: var(--pm-ink);
+        line-height: 1;
+      }
+      .plan-merged .wl-target-unit {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--pm-muted);
+        font-family: initial;
+        margin-left: 4px;
+      }
+      .plan-merged .wl-state-pill {
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        padding: 5px 11px;
+        border-radius: 999px;
+        background: var(--pm-tile);
+        color: var(--pm-muted);
+      }
+      .plan-merged .wl-state-pill.under {
+        background: var(--pm-amberSoft);
+        color: var(--pm-amber);
+      }
+      .plan-merged .wl-state-pill.on_track {
+        background: var(--pm-greenSoft);
+        color: var(--pm-green);
+      }
+      .plan-merged .wl-state-pill.over {
+        background: var(--pm-redSoft);
+        color: var(--pm-red);
+      }
+      .plan-merged .wl-projected-line {
+        font-size: 12.5px;
+        color: var(--pm-muted);
+        margin-top: 4px;
+      }
+      .plan-merged .wl-projected-line b {
+        color: var(--pm-ink);
+        font-family: var(--pm-mono);
+        font-weight: 700;
+      }
+
+      .plan-merged .wl-chain {
+        display: flex;
+        align-items: stretch;
+        gap: 10px;
+        margin: 18px 0 4px;
+        flex-wrap: wrap;
+      }
+      .plan-merged .wl-chain-cell {
+        flex: 1 1 130px;
+        min-width: 120px;
+        background: var(--pm-tile);
+        border: 1px solid var(--pm-line);
+        border-radius: 10px;
+        padding: 10px 12px;
+      }
+      .plan-merged .wl-chain-cell.wl-target-cell {
+        background: var(--pm-blueSoft);
+        border-color: var(--pm-blue);
+      }
+      .plan-merged .wl-chain-cell.wl-guardrail-cell {
+        flex-basis: 160px;
+      }
+      .plan-merged .wl-chain-op {
+        align-self: center;
+        font-size: 20px;
+        font-weight: 700;
+        color: var(--pm-faint);
+        flex: 0 0 auto;
+      }
+      .plan-merged .wl-chain-lab {
+        font-size: 9.5px;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--pm-faint);
+      }
+      .plan-merged .wl-chain-val {
+        font-size: 18px;
+        font-weight: 700;
+        font-family: var(--pm-mono);
+        color: var(--pm-ink);
+        margin-top: 4px;
+      }
+      .plan-merged .wl-target-cell .wl-chain-val {
+        color: var(--pm-blue);
+      }
+      .plan-merged .wl-sparkline {
+        display: flex;
+        align-items: flex-end;
+        gap: 2px;
+        height: 22px;
+        margin-top: 8px;
+      }
+      .plan-merged .wl-sparkline > span {
+        flex: 1;
+        min-width: 0;
+        background: var(--pm-line);
+        border-radius: 2px 2px 0 0;
+        min-height: 2px;
+      }
+      .plan-merged .wl-baseline-compare {
+        font-size: 10.5px;
+        color: var(--pm-faint);
+        margin-top: 5px;
+        font-family: var(--pm-mono);
+      }
+      .plan-merged .wl-guardrail-ceiling,
+      .plan-merged .wl-chain-cell.wl-guardrail-cell .wl-chain-val {
+        color: var(--pm-amber);
+      }
+      .plan-merged .wl-guardrail-sub {
+        font-size: 10px;
+        color: var(--pm-faint);
+        margin-top: -2px;
+      }
+      .plan-merged .wl-guardrail-detail {
+        font-size: 10.5px;
+        color: var(--pm-muted);
+        margin-top: 6px;
+        font-family: var(--pm-mono);
+        line-height: 1.5;
+      }
+
+      .plan-merged .wl-gauge-wrap {
+        margin-top: 16px;
+      }
+      .plan-merged .wl-gauge {
+        position: relative;
+        height: 16px;
+        border-radius: 8px;
+        background: var(--pm-tile);
+        overflow: visible;
+      }
+      .plan-merged .wl-gauge-logged,
+      .plan-merged .wl-gauge-planned {
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 100%;
+      }
+      .plan-merged .wl-gauge-logged {
+        background: var(--pm-blue);
+        border-radius: 8px 0 0 8px;
+        z-index: 1;
+      }
+      .plan-merged .wl-gauge-planned {
+        background-image: repeating-linear-gradient(
+          45deg, var(--pm-blueSoft) 0 4px, transparent 4px 8px
+        );
+        background-color: rgba(79, 110, 247, 0.18);
+      }
+      .plan-merged .wl-gauge-tick {
+        position: absolute;
+        top: -3px;
+        bottom: -3px;
+        width: 2px;
+        background: var(--pm-ink);
+        z-index: 2;
+      }
+      .plan-merged .wl-gauge-tick--ceiling {
+        background: var(--pm-amber);
+      }
+      .plan-merged .wl-gauge-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+        margin-top: 10px;
+        font-size: 11px;
+        color: var(--pm-muted);
+      }
+      .plan-merged .wl-gauge-legend span.sw {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+        margin-right: 5px;
+        vertical-align: -1px;
+      }
+      @media (max-width: 640px) {
+        .plan-merged .wl-chain {
+          flex-direction: column;
+        }
+        .plan-merged .wl-chain-op {
+          align-self: flex-start;
+          padding-left: 4px;
+        }
+      }
+
       .plan-merged .pm-specrow {
         display: flex;
         align-items: center;
@@ -5395,14 +6030,6 @@
       }
       .plan-merged .pm-caltile .pm-v {
         font-size: 13px;
-      }
-      .plan-merged .pm-settingsrow {
-        gap: 22px;
-        margin: 11px 0 14px;
-      }
-      .plan-merged .pm-field input {
-        padding: 6px 9px;
-        font-size: 14px;
       }
       /* A-race header */
       .plan-merged .pm-hdrlet {
@@ -5666,83 +6293,6 @@
         font-size: 12px;
         color: var(--perf-faint);
         padding: 10px 0 2px;
-      }
-
-      /* What's moving */
-      .perf-movesub {
-        font-size: 12.5px;
-        color: var(--perf-muted);
-        margin: 6px 0 6px;
-      }
-      .perf-arow {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        padding: 14px 0;
-        border-top: 1px solid var(--perf-line);
-        cursor: pointer;
-        background: none;
-        border-left: none;
-        border-right: none;
-        border-bottom: none;
-        width: 100%;
-        text-align: left;
-        font: inherit;
-        color: inherit;
-      }
-      .perf-arow:first-of-type {
-        border-top: none;
-      }
-      .perf-arow:hover {
-        background: #fafbff;
-      }
-      .perf-arow .perf-an {
-        font-size: 14px;
-        font-weight: 600;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-      }
-      .perf-arow .perf-an .perf-a {
-        color: var(--perf-faint);
-        font-size: 12px;
-      }
-      .perf-arow .perf-aright {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-      }
-      .perf-arow .perf-adet {
-        font-size: 12px;
-        color: var(--perf-muted);
-        font-family: var(--mono);
-      }
-      .perf-achip {
-        font-size: 11px;
-        font-weight: 700;
-        padding: 3px 9px;
-        border-radius: 6px;
-      }
-      .perf-achip--g {
-        background: var(--perf-greenSoft);
-        color: var(--perf-green);
-      }
-      .perf-achip--b {
-        background: var(--perf-blueSoft);
-        color: var(--perf-lavHi);
-      }
-      .perf-achip--n {
-        background: var(--perf-tile);
-        color: var(--perf-muted);
-      }
-      .perf-movefoot {
-        font-size: 12px;
-        color: var(--perf-muted);
-        line-height: 1.5;
-        margin-top: 14px;
-        padding-top: 14px;
-        border-top: 1px solid var(--perf-line);
       }
 
       /* Two-column: FFF + right stack */

@@ -1239,10 +1239,20 @@ class TrainingPlan(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     name = Column(Text, nullable=False)
-    ramp_rate = Column(Numeric(6, 2), nullable=True)
+    # Fraction, e.g. 0.05 = 5%/week (see backend/services/load_plan.py). Was
+    # Numeric(6, 2)/absolute TSS-per-week in the old client-only schedule
+    # preview; widened+repurposed for the race-anchored Session Load Plan.
+    ramp_rate = Column(Numeric(6, 4), nullable=True)
     taper_start = Column(Numeric(6, 2), nullable=True)
     taper_length = Column(Numeric(6, 2), nullable=True)
     taper_shape = Column(Text, nullable=True)
+    # Peak-hold length in weeks between the end of the ramp and the start of
+    # the taper. Raising this LOWERS peak load (it shortens the ramp) — see
+    # docs/calculations/load-plan.md.
+    hold_weeks = Column(Integer, nullable=False, server_default=text("4"))
+    # "Cut 30% every 4th week" deload toggle — see load_plan.py's
+    # DELOAD_CUT_FRACTION / compute_load_plan(deload_enabled=...).
+    deload_enabled = Column(Boolean, nullable=False, server_default=text("false"))
     # Cached computed Plan-tab bundle + the signature it was computed for
     # (see GET /api/plan/computed). Recomputed when the signature changes.
     computed_cache = Column(JSONB, nullable=True)
