@@ -1401,6 +1401,20 @@ information about.
     var actual = p.actual;
     var actualExs = actual && Array.isArray(actual.exercises) ? actual.exercises : [];
     var usingActual = actualExs.length > 0;
+    // Real logged exercises have no block field of their own — but the plan
+    // they were matched against usually named the same exercises under a
+    // block, so borrow that grouping by name (case/whitespace-insensitive)
+    // rather than always falling back to one flat list once matched.
+    if (usingActual) {
+      var blockByName = {};
+      plannedExs.forEach(function (x) {
+        if (x && x.name && x.block) blockByName[String(x.name).toLowerCase().trim()] = x.block;
+      });
+      actualExs = actualExs.map(function (x) {
+        var b = blockByName[String(x.name || '').toLowerCase().trim()];
+        return b ? Object.assign({}, x, { block: b }) : x;
+      });
+    }
     var exs = usingActual ? actualExs : plannedExs;
 
     // One row template for both planned and actual exercises — same columns
