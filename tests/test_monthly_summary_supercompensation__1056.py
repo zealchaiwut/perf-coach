@@ -40,6 +40,7 @@ EXPECTED_KEYS = {
     "distance_km",
     "total_tss",
     "session_count",
+    "duration_seconds",
     "endurance_score_change",
     "speed_score_change",
     "weight_change_kg",

@@ -1,4 +1,4 @@
-"""Tests for issue #752: Delete failure silently ignored in deleteEditing (training-projection.js)"""
+"""Tests for issue #752: Delete failure silently ignored in deleteEditing (training-performance.js)"""
 import pytest
 
 

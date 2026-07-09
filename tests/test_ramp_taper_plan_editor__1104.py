@@ -226,11 +226,17 @@ def test_ac2_taper_window_unit_label_in_html():
 
 # ── AC4: Schedule preview element present in HTML ─────────────────────────────
 
-def test_ac4_schedule_preview_canvas_in_html():
-    """AC4: training-log.html has a canvas element for the schedule preview."""
+def test_ac4_schedule_preview_host_in_html():
+    """AC4 (updated 2026-07-09 — plan settings moved from Projection to the
+    Plan tab): training-log.html has the schedule-preview bar/label host
+    elements. The original AC named a <canvas id="plan-schedule-canvas">, but
+    that element was always dead markup — the actual preview has always been
+    DOM bars (#plan-sched/#plan-wklabels; see _renderSchedulePreview), so it
+    was dropped rather than relocated."""
     html_path = _ROOT / "frontend" / "pages" / "training-log.html"
     html = html_path.read_text(encoding="utf-8")
-    assert 'id="plan-schedule-canvas"' in html, "Missing schedule-preview canvas element"
+    assert 'id="plan-sched"' in html, "Missing schedule-preview bar host element"
+    assert 'id="plan-wklabels"' in html, "Missing schedule-preview week-label host element"
 
 
 def test_ac4_schedule_preview_section_in_html():
@@ -244,29 +250,40 @@ def test_ac4_schedule_preview_section_in_html():
 # ── AC8: JS contains no forecast or projection math ──────────────────────────
 
 def test_ac8_no_projection_api_call_in_plan_js():
-    """AC8: training-projection.js does not call a forecast or projection endpoint."""
-    js_path = _ROOT / "frontend" / "js" / "training-projection.js"
+    """AC8: training-performance.js does not call a forecast or projection endpoint."""
+    js_path = _ROOT / "frontend" / "js" / "training-performance.js"
     js = js_path.read_text(encoding="utf-8")
     assert "/api/projection" not in js, "plan JS must not call a projection endpoint"
     assert "/api/forecast" not in js, "plan JS must not call a forecast endpoint"
 
 
 # ── AC3 / AC5: JS wires input-change events for live preview ─────────────────
+# Updated 2026-07-09: plan settings (ramp/taper/schedule preview) moved from
+# the Projection tab to the Plan tab (training-plan.js) — Projection's old
+# slot now shows Race-readiness specificity instead.
 
 def test_ac3_js_wires_input_change_events():
-    """AC3: training-projection.js contains event listeners for the ramp/taper inputs."""
-    js_path = _ROOT / "frontend" / "js" / "training-projection.js"
+    """AC3: training-plan.js contains event listeners for the ramp/taper inputs."""
+    js_path = _ROOT / "frontend" / "js" / "training-plan.js"
     js = js_path.read_text(encoding="utf-8")
     assert "plan-ramp-rate-input" in js, "JS must reference the ramp-rate input"
     assert "plan-taper-window-input" in js, "JS must reference the taper-window input"
 
 
 def test_ac3_js_has_schedule_preview_render_function():
-    """AC3: training-projection.js contains a function that renders the schedule preview."""
-    js_path = _ROOT / "frontend" / "js" / "training-projection.js"
+    """AC3: training-plan.js contains a function that renders the schedule preview."""
+    js_path = _ROOT / "frontend" / "js" / "training-plan.js"
     js = js_path.read_text(encoding="utf-8")
-    assert "renderSchedulePreview" in js or "plan-schedule-canvas" in js, \
-        "JS must reference the schedule preview canvas"
+    assert "_renderSchedulePreview" in js, "JS must reference the schedule preview render function"
+
+
+def test_ac3_projection_js_no_longer_owns_plan_settings():
+    """AC3 (new): training-performance.js no longer wires the ramp/taper inputs
+    or renders the schedule preview — that moved to training-plan.js."""
+    js_path = _ROOT / "frontend" / "js" / "training-performance.js"
+    js = js_path.read_text(encoding="utf-8")
+    assert "plan-ramp-rate-input" not in js
+    assert "renderSchedulePreview" not in js
 
 
 # ── Compile checks ────────────────────────────────────────────────────────────

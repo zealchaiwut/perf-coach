@@ -1,4 +1,4 @@
-"""Tests for issue #752: Delete failure silently ignored in deleteEditing (training-projection.js).
+"""Tests for issue #752: Delete failure silently ignored in deleteEditing (training-performance.js).
 
 Acceptance criteria verified:
 - AC1: When apiDelete returns a non-2xx response, an error message is displayed (errEl or showToast).
@@ -10,18 +10,18 @@ Acceptance criteria verified:
 import pathlib
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
-_JS_PATH = _ROOT / "frontend" / "js" / "training-projection.js"
+_JS_PATH = _ROOT / "frontend" / "js" / "training-performance.js"
 
 
 def _src() -> str:
-    assert _JS_PATH.exists(), f"training-projection.js not found at {_JS_PATH}"
+    assert _JS_PATH.exists(), f"training-performance.js not found at {_JS_PATH}"
     return _JS_PATH.read_text()
 
 
 def _delete_editing_block(src: str) -> str:
     """Extract the text of the deleteEditing function body."""
     start = src.find("function deleteEditing(")
-    assert start >= 0, "deleteEditing function not found in training-projection.js"
+    assert start >= 0, "deleteEditing function not found in training-performance.js"
     # Walk forward to find the balanced closing brace of the function.
     depth = 0
     i = start
@@ -39,7 +39,7 @@ def _delete_editing_block(src: str) -> str:
 def _api_delete_block(src: str) -> str:
     """Extract the text of the apiDelete function body."""
     start = src.find("function apiDelete(")
-    assert start >= 0, "apiDelete function not found in training-projection.js"
+    assert start >= 0, "apiDelete function not found in training-performance.js"
     depth = 0
     i = start
     while i < len(src):

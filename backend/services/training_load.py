@@ -1072,10 +1072,11 @@ def get_weekly_volume(user_id: str, week_start: date, week_end: date) -> dict:
 
     Returns:
         dict with keys:
-            distance_km   -- total distance in km (float, 0.0 when none)
-            total_tss     -- sum of TSS across all workouts (float, 0.0 when none)
-            session_count -- number of workouts in the window (int)
-            workout_types -- list of workout_type strings (one per workout)
+            distance_km      -- total distance in km (float, 0.0 when none)
+            total_tss        -- sum of TSS across all workouts (float, 0.0 when none)
+            session_count    -- number of workouts in the window (int)
+            duration_seconds -- summed workout duration in seconds (float, 0.0 when none)
+            workout_types    -- list of workout_type strings (one per workout)
     """
     uid = _uuid_mod.UUID(str(user_id))
 
@@ -1103,12 +1104,14 @@ def get_weekly_volume(user_id: str, week_start: date, week_end: date) -> dict:
     session_count = len(workouts)
     raw_distance = _sum_float_attr(workouts, "distance_km")
     raw_tss = _sum_float_attr(workouts, "tss")
+    raw_duration = _sum_float_attr(workouts, "duration_seconds")
     workout_types = [w.workout_type for w in workouts]
 
     return {
         "distance_km": raw_distance if raw_distance is not None else 0.0,
         "total_tss": round(raw_tss, 2) if raw_tss is not None else 0.0,
         "session_count": session_count,
+        "duration_seconds": raw_duration if raw_duration is not None else 0.0,
         "workout_types": workout_types,
     }
 

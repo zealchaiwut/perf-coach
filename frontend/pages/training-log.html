@@ -115,15 +115,15 @@
       .log-page-header-actions {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 6px;
         flex-shrink: 0;
-        /* Absolutely positioned; JS (_positionNav) sets `left` to the detail
-           drawer's left edge so the two clusters line up with the columns below.
-           Falls back to right-aligned before JS runs. */
-        position: absolute;
-        right: 12px;
-        top: 50%;
-        transform: translateY(-50%);
+        /* Normal flex-row flow, pushed to the far right by .log-nav-spacer
+           (flex:1) ahead of it — NOT absolutely positioned. That guarantees
+           its right edge lands exactly on .log-page-header-inner's own
+           padding-box right edge, which JS (_positionNav) sets to the same
+           content-column edge as every .log-card below (no separate math or
+           overlap detection needed). */
+        margin-left: auto;
       }
       /* Equal HEIGHT action buttons (Sync / Removed / + Log workout). */
       .log-page-header-actions .sync-chip,
@@ -197,10 +197,21 @@
         .log-page-header-actions {
           flex-wrap: nowrap;
           gap: 6px;
+          /* Labels stay visible now (see below) — on the narrowest phones
+             three labeled buttons may not all fit; scroll horizontally
+             within the cluster itself rather than clipping "+ Log" off the
+             edge of the screen. */
+          max-width: 100%;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;
         }
-        .log-page-header-actions .btn-label {
+        .log-page-header-actions::-webkit-scrollbar {
           display: none;
         }
+        /* Labels stay visible — the sub-tab nav wraps to its own row below
+           these buttons (see the 879px query), so there's no space pressure
+           forcing icon-only buttons here. */
         .log-page-header .btn-secondary,
         .log-page-header .btn-accent {
           padding: 0 10px;
@@ -498,7 +509,7 @@
         background: rgba(255, 255, 255, 0.12);
       }
 
-      /* ── Placeholder panels (Projection / Performance) ──
+      /* ── Placeholder panels (Plan / Performance) ──
          Match the Log shell EXACTLY (.log-layout / #layout-wrapper.has-panel:
          max-width 1000px, padding 20px 24px 60px) so all three sub-tabs share
          the same content-left/right edge and _positionNav aligns the tab strip
@@ -4001,6 +4012,31 @@
         font-weight: 700;
         cursor: pointer;
       }
+      .plan-picker-box { max-width: 440px; }
+      .plan-picker-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; max-height: 50vh; overflow-y: auto; }
+      .plan-picker-row {
+        display: flex; align-items: center; gap: 10px;
+        border: 1.5px solid var(--card-border); border-radius: 10px; padding: 9px 11px;
+      }
+      .plan-picker-row.is-current { border-color: #1f2a44; background: #f4f6fb; }
+      .plan-picker-letter {
+        width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 11px; font-weight: 800; color: #fff; background: #6b7280;
+      }
+      .plan-picker-info { flex: 1; min-width: 0; }
+      .plan-picker-name { font-size: 13px; font-weight: 700; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .plan-picker-meta { font-size: 11.5px; color: var(--text-secondary); }
+      .plan-picker-actions { display: flex; gap: 6px; flex-shrink: 0; }
+      .plan-picker-setbtn {
+        padding: 6px 11px; border-radius: 7px; border: none; background: #1f2a44; color: #fff;
+        font-family: inherit; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;
+      }
+      .plan-picker-editbtn {
+        padding: 6px 10px; border-radius: 7px; border: 1.5px solid var(--card-border); background: none;
+        font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
+      }
+      .plan-picker-empty { font-size: 13px; color: var(--text-secondary); padding: 10px 0; }
 
       /* Plan settings (ramp/taper controls + schedule preview) */
       .plan-settings-fields { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 4px; }
@@ -4041,10 +4077,6 @@
       <!-- Page header: title, stats subtitle, action buttons -->
       <header class="log-page-header">
         <div class="log-page-header-inner">
-        <div class="log-page-header-info">
-          <h1 class="log-page-title">Training</h1>
-          <p class="log-subtitle" id="log-subtitle">Loading…</p>
-        </div>
         <nav
           class="training-sub-tabs"
           id="training-sub-tabs"
@@ -4060,7 +4092,7 @@
             aria-selected="true"
             aria-controls="layout-wrapper"
           >
-            Log
+            Summary
           </button>
           <button
             id="log-tab-plan"
@@ -4072,18 +4104,6 @@
             aria-controls="training-panel-plan"
           >
             Plan
-          </button>
-          <button
-            id="log-tab-projection"
-            class="training-sub-tab"
-            data-tab="projection"
-            type="button"
-            role="tab"
-            aria-selected="false"
-            aria-controls="training-panel-projection"
-          >
-            <span class="tab-label-long">Projection</span
-            ><span class="tab-label-short" aria-hidden="true">Proj</span>
           </button>
           <button
             id="log-tab-performance"
@@ -4235,6 +4255,62 @@
       tabindex="0"
       hidden
     >
+      <!-- ── Plan settings + schedule preview — pinned to the top of the Plan
+           tab (was unstyled at the bottom: its .pm-card/.pm-* rules are
+           scoped to .plan-merged, which only wrapped the Projection tab, so
+           it rendered as bare unstyled text here). Wrapped in .plan-merged
+           to pick up that styling; utilization TBD. ─────────────────────── -->
+      <div class="plan-merged">
+        <div class="pm-card" id="plan-settings-section">
+          <div class="pm-ckhead">
+            <span class="pm-sectitle">Plan settings</span>
+            <button id="plan-save-settings-btn" class="pm-ckbtn dark" type="button">
+              Save
+            </button>
+          </div>
+          <div class="pm-settingsrow">
+            <div class="pm-field">
+              <div class="pm-lab">Ramp rate</div>
+              <div class="pm-inputline">
+                <input
+                  id="plan-ramp-rate-input"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value="0"
+                  aria-describedby="plan-ramp-rate-error"
+                />
+                <span class="pm-unit">TSS/week</span>
+              </div>
+              <span id="plan-ramp-rate-error" class="pm-fielderr" role="alert"></span>
+            </div>
+            <div class="pm-field">
+              <div class="pm-lab">Taper window</div>
+              <div class="pm-inputline">
+                <input
+                  id="plan-taper-window-input"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value="0"
+                  aria-describedby="plan-taper-window-error"
+                />
+                <span class="pm-unit">weeks</span>
+              </div>
+              <span id="plan-taper-window-error" class="pm-fielderr" role="alert"></span>
+            </div>
+          </div>
+          <p id="plan-settings-saved" class="pm-saved" style="display: none">
+            &#10003; Saved
+          </p>
+          <span class="pm-sectitle">Schedule preview</span>
+          <div class="pm-csub">
+            Weekly planned TSS — build ramp then a taper into the A race.
+          </div>
+          <div class="pm-schedwrap" id="plan-sched"></div>
+          <div class="pm-wklabels" id="plan-wklabels"></div>
+        </div>
+      </div>
       <div id="plan-week-section"></div>
       <div id="plan-add-section"></div>
       <div id="plan-detail-section"></div>
@@ -4260,21 +4336,123 @@
       <div id="plan-suggestions-trigger-row" class="pl-sug-trigger-row" style="display:none;">
         <button id="plan-suggestions-trigger" class="pl-sug-trigger-btn" type="button">✨ Show AI next-week suggestions</button>
       </div>
+
     </div>
 
-    <!-- Projection panel (issue #650) -->
+    <!-- Performance panel (issue #650; renamed from Projection) -->
     <div
-      id="training-panel-projection"
+      id="training-panel-performance"
       class="tab-panel-placeholder"
       role="tabpanel"
-      aria-labelledby="log-tab-projection"
+      aria-labelledby="log-tab-performance"
       tabindex="0"
       hidden
     >
-      <!-- ── Projection tab panel ───────────────────────────────────── -->
+      <!-- ── Performance tab panel ───────────────────────────────────── -->
       <div id="plan-tab-panel">
         <!-- ── Merged Plan panel (mock: plan-merge) ─────────────────────── -->
         <div class="plan-merged">
+          <!-- ── Score cards: Endurance + Speed (2-up) — moved here from the
+               removed Performance tab ─────────────────────────────────── -->
+          <div class="perf-scorewrap">
+            <!-- Endurance score card -->
+            <div id="perf-score-endurance" class="perf-card">
+              <div class="perf-chead">
+                <span class="perf-sectitle">Endurance</span>
+                <span class="perf-tag">Trend</span>
+              </div>
+              <div class="perf-card-body">
+                <div class="perf-bigscore perf-bigscore--e">
+                  <span class="perf-score-val"></span>
+                  <span class="perf-blk" hidden></span>
+                </div>
+                <p class="perf-insight"></p>
+                <svg class="perf-trend perf-spark" aria-label="Endurance trend sparkline"></svg>
+                <div class="perf-flabel">Last 5 long runs feeding this score</div>
+                <div class="perf-feed" id="perf-feed-endurance">
+                  <p class="perf-feed-loading">Loading…</p>
+                </div>
+              </div>
+              <div class="perf-building-baseline" hidden>
+                <span class="perf-bb-icon">📈</span>
+                <p class="perf-bb-reason"></p>
+              </div>
+              <div class="perf-threshold-hint" hidden>
+                <p class="perf-hint-text">
+                  To compute your score, set your <strong>FTP</strong>,
+                  <strong>threshold HR</strong>, and
+                  <strong>threshold pace</strong> in
+                  <a href="/settings#thresholds">Settings → Thresholds</a>.
+                </p>
+              </div>
+              <div class="perf-error" hidden>
+                <span class="perf-error-text">Could not load score.</span>
+                <button type="button" class="perf-retry-btn">Retry</button>
+              </div>
+            </div>
+
+            <!-- Speed score card -->
+            <div id="perf-score-speed" class="perf-card">
+              <div class="perf-chead">
+                <span class="perf-sectitle">Speed</span>
+                <span class="perf-tag">Trend</span>
+              </div>
+              <div class="perf-card-body">
+                <div class="perf-bigscore perf-bigscore--s">
+                  <span class="perf-score-val"></span>
+                  <span class="perf-blk" hidden></span>
+                </div>
+                <p class="perf-insight"></p>
+                <svg class="perf-trend perf-spark" aria-label="Speed trend sparkline"></svg>
+                <div class="perf-flabel">Last 5 interval sessions feeding this score</div>
+                <div class="perf-feed" id="perf-feed-speed">
+                  <p class="perf-feed-loading">Loading…</p>
+                </div>
+              </div>
+              <div class="perf-building-baseline" hidden>
+                <span class="perf-bb-icon">⚡</span>
+                <p class="perf-bb-reason"></p>
+              </div>
+              <div class="perf-threshold-hint" hidden>
+                <p class="perf-hint-text">
+                  To compute your score, set your <strong>FTP</strong>,
+                  <strong>threshold HR</strong>, and
+                  <strong>threshold pace</strong> in
+                  <a href="/settings#thresholds">Settings → Thresholds</a>.
+                </p>
+              </div>
+              <div class="perf-error" hidden>
+                <span class="perf-error-text">Could not load score.</span>
+                <button type="button" class="perf-retry-btn">Retry</button>
+              </div>
+              <span class="perf-speed-warn" hidden title="Score based on limited data — results may be less precise">⚠ Low data</span>
+              <div class="perf-speed-band" hidden><b></b>–<b></b></div>
+            </div>
+          </div>
+          <!-- /.perf-scorewrap -->
+
+          <!-- ── What's moving your scores ─────────────────────────────── -->
+          <div class="perf-card perf-moves-card">
+            <div class="perf-chead" style="margin-bottom: 0">
+              <span class="perf-sectitle perf-sectitle--strong"
+                >What's moving your scores</span
+              >
+              <span class="perf-tag">New</span>
+            </div>
+            <div class="perf-movesub" id="perf-moves-sub">
+              Recent training composition — associations from your sessions, not
+              proof of cause. Tap a row to filter the log.
+            </div>
+            <div id="perf-moves">
+              <p class="perf-feed-loading">Loading…</p>
+            </div>
+            <div class="perf-movefoot">
+              Strength and plyo take 6–12 weeks to show; intervals respond faster;
+              weight helps until it starts costing power. Each row filters the log
+              to the sessions behind it.
+            </div>
+          </div>
+
           <!-- Row: A-race header + calibration status -->
           <div class="pm-row2">
           <!-- 1. A-race header -->
@@ -4308,6 +4486,32 @@
           </div>
 
           </div><!-- /pm-row2 (header + calibration) -->
+
+          <!-- ── Projected at next checkpoint — moved here from the removed
+               Performance tab; sits above the races list so the headline
+               number the athlete cares about is visible without scrolling -->
+          <div id="perf-proj" class="pm-card perf-proj-card">
+            <div class="pm-ckhead">
+              <span class="pm-sectitle">Projected at next checkpoint</span>
+              <span class="perf-tag">New</span>
+            </div>
+            <div id="perf-proj-body" hidden>
+              <div class="perf-proj-meta" id="perf-proj-meta"></div>
+              <div class="perf-projgrid">
+                <div class="perf-projtile perf-projtile--e">
+                  <div class="perf-projtile-l">Endurance</div>
+                  <div class="perf-projtile-v" id="perf-proj-endurance">–</div>
+                </div>
+                <div class="perf-projtile perf-projtile--s">
+                  <div class="perf-projtile-l">Speed</div>
+                  <div class="perf-projtile-v" id="perf-proj-speed">–</div>
+                </div>
+              </div>
+            </div>
+            <div class="perf-proj-empty" id="perf-proj-empty" hidden>
+              No upcoming checkpoint — add one above.
+            </div>
+          </div>
 
           <!-- 3. Races & projections (HERO) -->
           <div class="pm-card">
@@ -4395,61 +4599,8 @@
             ></svg>
           </div>
 
-          <!-- 5. Plan settings + schedule preview -->
-          <div class="pm-card" id="plan-settings-section">
-            <div class="pm-ckhead">
-              <span class="pm-sectitle">Plan settings</span>
-              <button id="plan-save-settings-btn" class="pm-ckbtn dark" type="button">
-                Save
-              </button>
-            </div>
-            <div class="pm-settingsrow">
-              <div class="pm-field">
-                <div class="pm-lab">Ramp rate</div>
-                <div class="pm-inputline">
-                  <input
-                    id="plan-ramp-rate-input"
-                    type="number"
-                    min="0"
-                    step="1"
-                    value="0"
-                    aria-describedby="plan-ramp-rate-error"
-                  />
-                  <span class="pm-unit">TSS/week</span>
-                </div>
-                <span id="plan-ramp-rate-error" class="pm-fielderr" role="alert"></span>
-              </div>
-              <div class="pm-field">
-                <div class="pm-lab">Taper window</div>
-                <div class="pm-inputline">
-                  <input
-                    id="plan-taper-window-input"
-                    type="number"
-                    min="0"
-                    step="1"
-                    value="0"
-                    aria-describedby="plan-taper-window-error"
-                  />
-                  <span class="pm-unit">weeks</span>
-                </div>
-                <span id="plan-taper-window-error" class="pm-fielderr" role="alert"></span>
-              </div>
-            </div>
-            <p id="plan-settings-saved" class="pm-saved" style="display: none">
-              &#10003; Saved
-            </p>
-            <span class="pm-sectitle">Schedule preview</span>
-            <div class="pm-csub">
-              Weekly planned TSS — build ramp then a taper into the A race.
-            </div>
-            <canvas id="plan-schedule-canvas" style="display:none"></canvas>
-            <div class="pm-schedwrap" id="plan-sched"></div>
-            <div class="pm-wklabels" id="plan-wklabels"></div>
-          </div>
-
-          </div><!-- /pm-row2 (form curve + plan settings) -->
-
-          <!-- 6. Race-readiness specificity -->
+          <!-- 5. Race-readiness specificity (Plan settings moved to the Plan
+               tab — see #plan-settings-section there) -->
           <div class="pm-card" id="plan-spec-section">
             <span class="pm-sectitle">Race-readiness specificity</span>
             <div class="pm-csub" id="plan-spec-sub">
@@ -4460,243 +4611,21 @@
             </div>
             <div id="plan-spec-bars"></div>
           </div>
+
+          </div><!-- /pm-row2 (form curve + race-readiness specificity) -->
+
+          <!-- ── Personal records — moved here from the removed Performance
+               tab ─────────────────────────────────────────────────────── -->
+          <div class="pm-card perf-pr-card">
+            <span class="pm-sectitle">Personal records</span>
+            <div id="perf-pr-strip" class="perf-prgrid">
+              <p class="perf-pr-loading">Loading…</p>
+            </div>
+          </div>
         </div>
       </div>
-      <!-- end Plan tab panel -->
+      <!-- end Performance tab panel -->
     </div>
-
-    <!-- Performance panel (issue #811; reworked feature/performance-tab-rework) -->
-    <div
-      id="training-panel-performance"
-      class="tab-panel-placeholder perf-panel"
-      role="tabpanel"
-      aria-labelledby="log-tab-performance"
-      tabindex="0"
-      hidden
-    >
-      <!-- ── Score cards: Endurance + Speed (2-up) ─────────────────────────── -->
-      <div class="perf-scorewrap">
-        <!-- Endurance score card -->
-        <div id="perf-score-endurance" class="perf-card">
-          <div class="perf-chead">
-            <span class="perf-sectitle">Endurance</span>
-            <span class="perf-tag">Trend</span>
-          </div>
-          <div class="perf-card-body">
-            <div class="perf-bigscore perf-bigscore--e">
-              <span class="perf-score-val"></span>
-              <span class="perf-blk" hidden></span>
-            </div>
-            <p class="perf-insight"></p>
-            <svg class="perf-trend perf-spark" aria-label="Endurance trend sparkline"></svg>
-            <div class="perf-flabel">Last 5 long runs feeding this score</div>
-            <div class="perf-feed" id="perf-feed-endurance">
-              <p class="perf-feed-loading">Loading…</p>
-            </div>
-          </div>
-          <div class="perf-building-baseline" hidden>
-            <span class="perf-bb-icon">📈</span>
-            <p class="perf-bb-reason"></p>
-          </div>
-          <div class="perf-threshold-hint" hidden>
-            <p class="perf-hint-text">
-              To compute your score, set your <strong>FTP</strong>,
-              <strong>threshold HR</strong>, and
-              <strong>threshold pace</strong> in
-              <a href="/settings#thresholds">Settings → Thresholds</a>.
-            </p>
-          </div>
-          <div class="perf-error" hidden>
-            <span class="perf-error-text">Could not load score.</span>
-            <button type="button" class="perf-retry-btn">Retry</button>
-          </div>
-        </div>
-
-        <!-- Speed score card -->
-        <div id="perf-score-speed" class="perf-card">
-          <div class="perf-chead">
-            <span class="perf-sectitle">Speed</span>
-            <span class="perf-tag">Trend</span>
-          </div>
-          <div class="perf-card-body">
-            <div class="perf-bigscore perf-bigscore--s">
-              <span class="perf-score-val"></span>
-              <span class="perf-blk" hidden></span>
-            </div>
-            <p class="perf-insight"></p>
-            <svg class="perf-trend perf-spark" aria-label="Speed trend sparkline"></svg>
-            <div class="perf-flabel">Last 5 interval sessions feeding this score</div>
-            <div class="perf-feed" id="perf-feed-speed">
-              <p class="perf-feed-loading">Loading…</p>
-            </div>
-          </div>
-          <div class="perf-building-baseline" hidden>
-            <span class="perf-bb-icon">⚡</span>
-            <p class="perf-bb-reason"></p>
-          </div>
-          <div class="perf-threshold-hint" hidden>
-            <p class="perf-hint-text">
-              To compute your score, set your <strong>FTP</strong>,
-              <strong>threshold HR</strong>, and
-              <strong>threshold pace</strong> in
-              <a href="/settings#thresholds">Settings → Thresholds</a>.
-            </p>
-          </div>
-          <div class="perf-error" hidden>
-            <span class="perf-error-text">Could not load score.</span>
-            <button type="button" class="perf-retry-btn">Retry</button>
-          </div>
-          <span class="perf-speed-warn" hidden title="Score based on limited data — results may be less precise">⚠ Low data</span>
-          <div class="perf-speed-band" hidden><b></b>–<b></b></div>
-        </div>
-      </div>
-      <!-- /.perf-scorewrap -->
-
-      <!-- ── What's moving your scores ─────────────────────────────────────── -->
-      <div class="perf-card perf-moves-card">
-        <div class="perf-chead" style="margin-bottom: 0">
-          <span class="perf-sectitle perf-sectitle--strong"
-            >What's moving your scores</span
-          >
-          <span class="perf-tag">New</span>
-        </div>
-        <div class="perf-movesub" id="perf-moves-sub">
-          Recent training composition — associations from your sessions, not
-          proof of cause. Tap a row to filter the log.
-        </div>
-        <div id="perf-moves">
-          <p class="perf-feed-loading">Loading…</p>
-        </div>
-        <div class="perf-movefoot">
-          Strength and plyo take 6–12 weeks to show; intervals respond faster;
-          weight helps until it starts costing power. Each row filters the log
-          to the sessions behind it.
-        </div>
-      </div>
-
-      <!-- ── FFF chart (half) + ACWR + projected checkpoint stack ──────────── -->
-      <div class="perf-row2">
-        <!-- Fitness / Fatigue / Form chart (CTL / ATL / TSB) -->
-        <div id="perf-chart-card" class="perf-card perf-chart-card">
-          <div class="perf-chart-header">
-            <span class="perf-sectitle perf-sectitle--strong perf-chart-title"
-              >Fitness · Fatigue · Form</span
-            >
-            <div
-              class="perf-range-selector"
-              role="group"
-              aria-label="Date range"
-            >
-              <button class="perf-range-btn" data-range="30D" type="button">
-                30D
-              </button>
-              <button
-                class="perf-range-btn active"
-                data-range="90D"
-                type="button"
-              >
-                90D
-              </button>
-              <button class="perf-range-btn" data-range="6M" type="button">
-                6M
-              </button>
-              <button class="perf-range-btn" data-range="1Y" type="button">
-                1Y
-              </button>
-            </div>
-          </div>
-          <p class="perf-chart-caption">
-            CTL = fitness (42-day), ATL = fatigue (7-day), TSB = form. Dashed
-            line = today.
-          </p>
-          <div id="perf-chart-bb" class="perf-chart-baseline" hidden>
-            <span class="perf-bb-icon">📈</span>
-            <span
-              >Building baseline: keep training to see the fitness chart.</span
-            >
-          </div>
-          <div id="perf-chart-wrap">
-            <canvas
-              id="perf-fitness-canvas"
-              height="220"
-              role="img"
-              aria-label="Fitness/Fatigue/Form time series: CTL, ATL, and TSB lines"
-            ></canvas>
-          </div>
-        </div>
-
-        <!-- Right stack: ACWR + Projected at next checkpoint -->
-        <div class="perf-rstack">
-          <!-- ACWR Guidance -->
-          <div id="perf-acwr" class="perf-card perf-acwr-card">
-            <div class="perf-chead">
-              <span class="perf-sectitle">Training load ratio (ACWR)</span>
-            </div>
-            <div class="perf-acwr-body">
-              <div class="perf-acwr-ratio-wrap">
-                <span id="perf-acwr-ratio" class="perf-acwr-ratio">–</span>
-                <span id="perf-acwr-band" class="perf-acwr-band-badge">–</span>
-              </div>
-              <!-- Zone band + marker (matches the readiness .lrx-rband style).
-                   Scale 0 → 2.0; marker positioned by numeric ratio. -->
-              <div id="perf-acwr-bandbar" class="perf-acwr-bandbar" hidden>
-                <div class="lrx-rband perf-acwr-rband">
-                  <div id="perf-acwr-marker" class="mk"></div>
-                </div>
-                <div class="perf-acwr-scale">
-                  <span>0</span><span>0.8</span><span>1.3</span><span>1.5</span><span>2.0</span>
-                </div>
-              </div>
-              <p id="perf-acwr-guidance" class="perf-acwr-guidance">–</p>
-            </div>
-            <div id="perf-acwr-bb" class="perf-acwr-baseline" hidden>
-              <span class="perf-bb-icon">⏳</span>
-              <span
-                >Baseline forming: log at least 28 days of training to see your
-                ACWR.</span
-              >
-            </div>
-          </div>
-
-          <!-- Projected at next checkpoint -->
-          <div id="perf-proj" class="perf-card perf-proj-card">
-            <div class="perf-chead">
-              <span class="perf-sectitle">Projected at next checkpoint</span>
-              <span class="perf-tag">New</span>
-            </div>
-            <div id="perf-proj-body" hidden>
-              <div class="perf-proj-meta" id="perf-proj-meta"></div>
-              <div class="perf-projgrid">
-                <div class="perf-projtile perf-projtile--e">
-                  <div class="perf-projtile-l">Endurance</div>
-                  <div class="perf-projtile-v" id="perf-proj-endurance">–</div>
-                </div>
-                <div class="perf-projtile perf-projtile--s">
-                  <div class="perf-projtile-l">Speed</div>
-                  <div class="perf-projtile-v" id="perf-proj-speed">–</div>
-                </div>
-              </div>
-              <a class="perf-plink" href="#projection"
-                >See full projection →</a
-              >
-            </div>
-            <div class="perf-proj-empty" id="perf-proj-empty" hidden>
-              No upcoming checkpoint —
-              <a class="perf-plink" href="#projection">add one on Projection</a>.
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ── Personal records ──────────────────────────────────────────────── -->
-      <div class="perf-card perf-pr-card">
-        <span class="perf-sectitle">Personal records</span>
-        <div id="perf-pr-strip" class="perf-prgrid">
-          <p class="perf-pr-loading">Loading…</p>
-        </div>
-      </div>
-    </div>
-    <!-- /#training-panel-performance -->
 
     <style>
       /* ── Merged Plan panel styles (scoped under .plan-merged) ────────────── */
@@ -5515,8 +5444,12 @@
         }
       }
 
-      /* ── Performance sub-tab styles (reworked) ───────────────────────────── */
-      .perf-panel {
+      /* ── "Performance" styles (former standalone sub-tab, dissolved — its
+         cards are now hosted inside the Performance tab (renamed from
+         Projection)/.plan-merged and the Log page, so these --perf-* vars
+         and .perf-card live at :root/unscoped instead of under a
+         since-removed .perf-panel ancestor). ─────────────────────────────── */
+      :root {
         --perf-endur: #16a34a;
         --perf-speed: #ea580c;
         --perf-faint: #9aa3b8;
@@ -5529,12 +5462,8 @@
         --perf-blueSoft: #e6ebfe;
         --perf-strava: #ea580c;
         --perf-stryd: #1b2340;
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-        padding-top: 4px;
       }
-      .perf-panel .perf-card {
+      .perf-card {
         background: #fff;
         border-radius: 16px;
         padding: 18px 20px;
@@ -5952,51 +5881,11 @@
         line-height: 1.45;
       }
 
-      /* Fitness chart */
-      .perf-chart-card {
-        padding: 16px 18px;
-      }
-      .perf-chart-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-bottom: 4px;
-      }
-      .perf-chart-title {
-        font-size: 12px;
-        font-weight: 700;
-        color: var(--text-primary);
-        letter-spacing: -0.01em;
-      }
-      .perf-chart-caption {
-        font-size: 10.5px;
-        color: var(--text-tertiary);
-        margin: 0 0 12px;
-      }
-      .perf-range-selector {
-        display: inline-flex;
-        gap: 3px;
-        background: var(--shell-1);
-        border-radius: 8px;
-        padding: 3px;
-      }
-      .perf-range-btn {
-        padding: 4px 10px;
-        border-radius: 6px;
-        border: none;
-        background: transparent;
-        font-size: 11px;
-        font-weight: 600;
-        color: var(--text-secondary);
-        cursor: pointer;
-        font-family: inherit;
-      }
-      .perf-range-btn.active {
-        background: var(--card-bg);
-        color: var(--text-primary);
-        box-shadow: var(--card-shadow);
+      /* Fitness chart — fixed 30D window, no range toggle/caption, so the
+         chart itself gets the full height of its half of the merged card. */
+      #perf-chart-wrap {
+        position: relative;
+        height: 320px;
       }
       .perf-chart-baseline {
         padding: 20px;
@@ -6009,62 +5898,11 @@
         gap: 8px;
       }
 
-      /* ACWR */
-      .perf-acwr-card {
-        padding: 16px 18px;
-      }
-      .perf-acwr-body {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        margin-top: 4px;
-      }
-      .perf-acwr-ratio-wrap {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        flex-wrap: wrap;
-      }
-      .perf-acwr-label {
-        font-size: 10.5px;
-        color: var(--text-tertiary);
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-      }
-      .perf-acwr-ratio {
-        font-family: var(--mono);
-        font-size: 22px;
-        font-weight: 700;
-        color: var(--text-primary);
-      }
-      .perf-acwr-band-badge {
-        font-size: 10.5px;
-        font-weight: 700;
-        padding: 3px 9px;
-        border-radius: 999px;
-        text-transform: capitalize;
-        background: var(--shell-1);
-        color: var(--text-secondary);
-      }
-      .perf-acwr-band--productive {
-        background: var(--green-soft);
-        color: var(--green);
-      }
-      .perf-acwr-band--high_risk {
-        background: var(--red-soft);
-        color: var(--red);
-      }
-      .perf-acwr-band--detraining {
-        background: var(--amber-soft);
-        color: var(--amber);
-      }
-      /* ACWR zone band + marker — mirrors the readiness .lrx-rband treatment.
+      /* ACWR — zone band + marker only; the tile itself reuses .lrx-rcard/
+         .rv/.rl/.lrx-rband/.lrx-rstatus (see #acwr-tile in the readiness
+         grid CSS below), matching the CTL/ATL/TSB tiles' own look.
          Scale 0 → 2.0; zone stops: 0.8 = 40%, 1.3 = 65%, 1.5 = 75%.
          detraining (amber) | optimal (green) | caution (amber) | high risk (red) */
-      .perf-acwr-bandbar {
-        margin: 4px 0 2px;
-      }
       .perf-acwr-rband {
         background: linear-gradient(
           90deg,
@@ -6077,31 +5915,6 @@
           #ef4444 75%,
           #ef4444 100%
         );
-      }
-      .perf-acwr-scale {
-        display: flex;
-        justify-content: space-between;
-        font-family: var(--mono);
-        font-size: 9px;
-        color: var(--text-tertiary);
-        margin-top: 3px;
-      }
-      .perf-acwr-guidance {
-        font-size: 12.5px;
-        color: var(--text-secondary);
-        margin: 8px 0 0;
-        line-height: 1.5;
-      }
-      .perf-acwr-baseline {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 12.5px;
-        color: var(--text-secondary);
-        padding: 8px 12px;
-        background: var(--shell-1);
-        border-radius: 8px;
-        margin-top: 4px;
       }
 
       /* Personal records grid */
@@ -6177,17 +5990,11 @@
           grid-template-columns: 1fr;
         }
       }
-      @media (max-width: 480px) {
-        .perf-range-selector {
-          overflow-x: auto;
-          max-width: 100%;
-        }
-      }
     </style>
 
   <style>
-    /* ── Summary Digest Card (issue #1058) ───────────────────────────────── */
-    #summary-digest-card { padding: 14px 16px 16px; }
+    /* ── Summary Digest (issue #1058) — a section of the merged card now,
+       no padding of its own; relies on the outer .log-card's padding. ──── */
 
     .sd-header {
       display: flex;
@@ -6451,6 +6258,8 @@
       --lrx-runSoft: #e6ebfe;
       --lrx-lift: #8b5cf6;
       --lrx-liftSoft: #ede9fe;
+      /* orange-700, not the lighter --speed orange — that fails 4.5:1 white-text contrast */
+      --lrx-plyo: #c2410c;
       --lrx-lime: #cff245;
       --lrx-ink: #1b2340;
       --lrx-muted: #6b7280;
@@ -6500,8 +6309,16 @@
     .log-page-header-inner {
       max-width: none;
       margin: 0;
-      position: relative;         /* anchor for the absolutely-positioned actions */
-      /* JS (_positionNav) sets padding-left to the content column's left edge. */
+      /* .log-page-header-inner is the SOLE flex item of the full-bleed,
+         100vw .log-page-header. Without an explicit width it shrink-wraps
+         to its own content (nav + spacer + actions) instead of spanning the
+         header — which starved .log-nav-spacer's flex:1 of any real space
+         to push .log-page-header-actions into, so the actions cluster never
+         reached the header's right edge. width:100% makes it actually fill
+         the header so the spacer can do its job. */
+      width: 100%;
+      position: relative;
+      /* JS (_positionNav) sets padding-left/right to the content column's edges. */
       padding: 12px 24px;
       display: flex;
       align-items: center;
@@ -6575,7 +6392,7 @@
     /* ── Centered shell, overlay drawer (no reserved column) ─────────────── */
     /* 1000px (narrowed from 1120) so the wider 600px overlay drawer coexists
        cleanly with the centered content on a 1440 viewport. Shared across all
-       four tabs (Log/Plan/Projection/Performance). */
+       three sub-tabs (Summary/Plan/Performance). */
     .log-layout {
       max-width: 1000px;
       padding: 20px 24px 60px;
@@ -6604,6 +6421,54 @@
       background: #fff;
       padding: 18px 20px;
     }
+    /* Summary / Readiness+chart / Weekly coach report: one shared card,
+       three sections stacked with a horizontal divider between each
+       (.section-divider). Within the Readiness+chart section, the two
+       halves get their own horizontal divider (.rf-divider) instead — each
+       half only pads the side facing that divider, so the outer edges rely
+       on the outer .log-card's own padding rather than doubling up. */
+    .section-divider {
+      border-top: 1px solid var(--card-border, #e5e7eb);
+      margin: 18px 0;
+    }
+    .rf-merged {
+      display: flex;
+      align-items: stretch;
+    }
+    .rf-half {
+      flex: 1 1 50%;
+      min-width: 0;
+      padding: 4px 0;
+    }
+    .rf-half:first-child {
+      padding-right: 18px;
+    }
+    .rf-half:last-child {
+      padding-left: 18px;
+    }
+    .rf-divider {
+      width: 1px;
+      align-self: stretch;
+      background: var(--card-border, #e5e7eb);
+      flex-shrink: 0;
+    }
+    @media (max-width: 680px) {
+      .rf-merged {
+        flex-direction: column;
+      }
+      .rf-half:first-child {
+        padding-right: 0;
+        padding-bottom: 18px;
+      }
+      .rf-half:last-child {
+        padding-left: 0;
+        padding-top: 18px;
+      }
+      .rf-divider {
+        width: auto;
+        height: 1px;
+      }
+    }
     .lrx-sectitle {
       font-size: 13px;
       font-weight: 800;
@@ -6620,9 +6485,7 @@
       flex-wrap: wrap;
     }
 
-    /* ── Weekly coach report (merged into the Summary card) ──────────────── */
-    .wsc-section { margin-top: 2px; }
-    .wsc-divider { border-top: 1px solid var(--lrx-line); margin: 16px 0; }
+    /* ── Weekly coach report ───────────────────────────────────────────────── */
     .wsc-narrative { color: var(--lrx-ink); }
     /* One sentence group per line. Numbers use the mono highlight font (the same
        JetBrains Mono the Summary tiles use) so key figures pop out. */
@@ -6700,7 +6563,9 @@
     .lrx-chip.b { background: var(--lrx-blueSoft); color: var(--lrx-lavHi); }
 
     /* ── Readiness full cards ────────────────────────────────────────────── */
-    .lrx-readfull { display: flex; gap: 12px; }
+    /* 2x2 (was a 1x4 row) — the readiness half is now half the card's width
+       (see .rf-merged), too narrow for four tiles side by side. */
+    .lrx-readfull { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .lrx-rcard {
       flex: 1;
       background: var(--lrx-tile);
@@ -6713,7 +6578,6 @@
     .lrx-rband { height: 6px; border-radius: 4px; margin: 14px 0 5px; position: relative; }
     .lrx-rband .mk { position: absolute; top: -3px; width: 12px; height: 12px; border-radius: 50%; background: #fff; border: 2px solid #475569; transform: translateX(-50%); }
     .lrx-rstatus { font-size: 13px; font-weight: 800; text-align: center; letter-spacing: 0.06em; }
-    .lrx-rchart { width: 100%; height: 52px; margin-top: 8px; display: block; }
 
     /* ── Calendar (week-volume column + nav) ─────────────────────────────── */
     .lrx-calnav { display: flex; align-items: center; gap: 10px; }
@@ -6733,14 +6597,12 @@
     table.lrx-cal th { font-size: 11px; font-weight: 800; letter-spacing: 0.06em; color: var(--lrx-faint); text-transform: uppercase; padding: 0 0 8px; text-align: center; }
     table.lrx-cal th.wk { text-align: right; padding-right: 2px; width: 128px; }
     .lrx-calrow { cursor: pointer; }
-    /* Fixed 100px keeps EVERY week row the same height whether or not its days
-       carry planned-session tags. `height` on a table cell is only a MINIMUM
-       in standard table layout — a day with the worst case (day number + two
-       dots + two stacked tags) was still growing past a plain height rule,
-       making that week's whole row taller than lighter weeks. overflow:hidden
-       makes 100px an actual cap, not just a floor, so every row truly matches. */
-    .lrx-calrow td { border-top: 1px solid var(--lrx-line); height: 100px; overflow: hidden; vertical-align: top; text-align: center; }
-    .lrx-calrow .dnum { font-size: 14px; font-family: var(--lrx-mono); color: var(--lrx-ink); padding-top: 7px; display: inline-block; }
+    /* Fixed 62px keeps EVERY week row the same height regardless of how many
+       sessions a day has — the marker row below is itself fixed-height and
+       caps at 3 blocks + a "+N" chip, so unlike the old dot/tag stack this
+       genuinely never needs more room. */
+    .lrx-calrow td { border-top: 1px solid var(--lrx-line); min-height: 62px; vertical-align: top; text-align: center; padding: 7px 5px 8px; }
+    .lrx-calrow .dnum { font-size: 12px; font-family: var(--lrx-mono); color: var(--lrx-ink); display: block; margin-bottom: 6px; }
     .lrx-calrow td.out .dnum { color: #cbd2e0; }
     /* Today marker: a ring inside the day cell (inset shadow avoids disturbing
        the table's border-collapse layout) plus a bolded accent day number. */
@@ -6750,18 +6612,31 @@
        .entry-row.is-active list row, so the one workout reads as flagged in
        both views. Wins over the today ring when they coincide (later rule). */
     .lrx-calrow td.cal-day.deep-linked { box-shadow: inset 0 0 0 2px #2b4ca8; border-radius: 10px; }
-    .lrx-dot { width: 6px; height: 6px; border-radius: 50%; margin: 3px auto 0; }
-    .lrx-dot.run { background: var(--lrx-run); }
-    .lrx-dot.lift { background: var(--lrx-lift); }
-    /* Planned-session tags (from Plan) — filled once done, outlined while
-       still planned/missed/needs-review, so status reads at a glance. Plain
-       block in the calendar cell (stacks under .dnum on its own line, same
-       as .lrx-dot already does); the legend overrides to inline-block. */
-    .lrx-caltag { font-size: 8.5px; font-weight: 800; font-family: var(--lrx-mono); border-radius: 4px; padding: 1px 4px; margin: 3px auto 0; width: fit-content; letter-spacing: -0.02em; line-height: 1.5; cursor: pointer; }
-    .lrx-caltag:hover { filter: brightness(0.94); }
-    .lrx-caltag.run.planned { background: none; border: 1px solid var(--lrx-run); color: var(--lrx-run); }
-    .lrx-caltag.lift.planned { background: none; border: 1px solid var(--lrx-lift); color: var(--lrx-lift); }
-    .lrx-callegend .lrx-caltag { display: inline-block; margin: 0 5px 0 0; cursor: default; }
+
+    /* ── Calendar day markers — one row per day, one block per session ──────
+       Solid filled = logged, outlined = planned (same hue, no fill). Hue =
+       workout type. The number is TSS (actual for logged, estimated for
+       planned) — no icons, no type text, so hierarchy stays real > hypothetical. */
+    .cal-markers { display: flex; gap: 4px; align-items: stretch; }
+    .cal-mk {
+      flex: 1 1 0; min-width: 0;
+      display: flex; align-items: center; justify-content: center;
+      height: 24px; border-radius: 6px;
+      border: 1.5px solid transparent;
+      font-family: var(--lrx-mono); font-size: 11px; font-weight: 700;
+      letter-spacing: -0.02em; line-height: 1; cursor: default;
+    }
+    .cal-mk.logged { color: #fff; }
+    .cal-mk.logged.run { background: var(--lrx-run); border-color: var(--lrx-run); }
+    .cal-mk.logged.strength { background: var(--lrx-lift); border-color: var(--lrx-lift); }
+    .cal-mk.logged.plyo { background: var(--lrx-plyo); border-color: var(--lrx-plyo); }
+    .cal-mk.plan { background: transparent; font-weight: 600; cursor: pointer; }
+    .cal-mk.plan.run { border-color: var(--lrx-run); color: var(--lrx-run); }
+    .cal-mk.plan.strength { border-color: var(--lrx-lift); color: var(--lrx-lift); }
+    .cal-mk.plan.plyo { border-color: var(--lrx-plyo); color: var(--lrx-plyo); }
+    .cal-mk.plan:hover { filter: brightness(0.94); }
+    .cal-mk.more { flex: 0 0 auto; min-width: 22px; padding: 0 4px; background: var(--lrx-tile); color: var(--lrx-muted); border-color: transparent; }
+    .lrx-callegend .cal-mk { margin: 0 5px 0 0; }
     .lrx-wkcell { text-align: right; padding: 7px 2px 0 8px; width: 128px; }
     .lrx-wkcell .wt { font-size: 14px; font-weight: 700; font-family: var(--lrx-mono); }
     .lrx-wkcell .wkkm { font-size: 12px; color: var(--lrx-muted); font-family: var(--lrx-mono); }
@@ -7002,16 +6877,17 @@
         display: none;
       }
       .log-page-header-actions {
-        order: 2;
+        order: 3;
         position: static;
         transform: none;
         margin-left: auto;
         flex-shrink: 0;
         gap: 10px;
         align-self: center;
+        margin-top: 2px;
       }
       .log-page-header .training-sub-tabs {
-        order: 3;
+        order: 2;
         display: flex;
         flex: 1 1 100%;
         width: 100%;
@@ -7019,7 +6895,7 @@
         box-sizing: border-box;
         gap: 4px;
         padding: 5px;
-        margin: 2px 0 0;
+        margin: 0;
       }
       .log-page-header .training-sub-tab {
         flex: 1 1 0;
@@ -7083,7 +6959,6 @@
         padding-right: 2px;
       }
       #layout-wrapper .log-card,
-      #summary-digest-card,
       #readiness-widget.readiness-widget {
         padding: 12px;
       }
@@ -7168,10 +7043,6 @@
       .lrx-rstatus {
         font-size: 8px;
       }
-      .lrx-rchart {
-        height: 26px;
-        margin-top: 3px;
-      }
       .rw-baseline-msg {
         font-size: 12px;
         padding: 0.25rem 0;
@@ -7228,31 +7099,70 @@
     tabindex="0"
   >
     <div id="list-main" class="log-page-body">
-      <!-- Summary digest card (issue #1058) -->
-      <div id="summary-digest-card" class="log-card" hidden>
-        <div class="lrx-chead">
-          <div style="display:flex;align-items:center;gap:10px;">
-            <span class="lrx-sectitle">Summary</span>
-            <span class="lrx-scope" id="lrx-scope">Last week</span>
+      <!-- Summary + Readiness/chart + Weekly coach report — one card, three
+           sections stacked with a horizontal divider between each (issue
+           #1058 summary digest, #640 readiness, #528 FFF/ACWR chart, #1314
+           coach report all merged into one shared card). -->
+      <div class="log-card">
+        <!-- Section 1: Summary digest -->
+        <div id="summary-digest-card" hidden>
+          <div class="lrx-chead">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span class="lrx-sectitle">Summary</span>
+              <span class="lrx-scope" id="lrx-scope">Last week</span>
+            </div>
+            <div class="sd-ctrl">
+              <div class="lrx-seg sd-when" role="group" aria-label="Summary time range">
+                <button type="button" class="on is-active" data-when="last" aria-pressed="true">Last</button>
+                <button type="button" data-when="this" aria-pressed="false">This</button>
+              </div>
+              <div class="lrx-seg sd-toggle" role="group" aria-label="Summary period">
+                <button type="button" class="sd-toggle-btn on is-active" data-period="week" aria-pressed="true">Week</button>
+                <button type="button" class="sd-toggle-btn" data-period="month" aria-pressed="false">Month</button>
+              </div>
+            </div>
           </div>
-          <div class="sd-ctrl">
-            <div class="lrx-seg sd-when" role="group" aria-label="Summary time range">
-              <button type="button" class="on is-active" data-when="last" aria-pressed="true">Last</button>
-              <button type="button" data-when="this" aria-pressed="false">This</button>
-            </div>
-            <div class="lrx-seg sd-toggle" role="group" aria-label="Summary period">
-              <button type="button" class="sd-toggle-btn on is-active" data-period="week" aria-pressed="true">Week</button>
-              <button type="button" class="sd-toggle-btn" data-period="month" aria-pressed="false">Month</button>
-            </div>
+          <div id="sd-body">
+            <!-- Populated by JS: sumtiles + chips (→ supercomp on month) -->
           </div>
         </div>
-        <div id="sd-body">
-          <!-- Populated by JS: sumtiles + chips (→ supercomp on month) -->
-        </div>
-        <!-- Weekly coach report (issue #1314) — merged into the Summary card,
-             below a divider, sharing its layout. Shown once its data loads. -->
-        <div id="wsc-section" class="wsc-section" hidden>
-          <div class="wsc-divider"></div>
+
+        <div class="section-divider"></div>
+
+        <!-- Section 2: Readiness (tiles + recovery hint, issue #640) merged
+             side-by-side with the Fitness/Fatigue/Form/ACWR chart (#528) —
+             vertical divider, half width each. -->
+        <section id="load-surfaces" aria-label="Training load">
+          <div class="rf-merged">
+            <div id="readiness-widget" class="readiness-widget rf-half" hidden></div>
+            <div class="rf-divider" aria-hidden="true"></div>
+            <!-- No title (redundant next to Readiness) or caption (the
+                 legend already labels each line); fixed to a 30-day window
+                 (no range toggle) so the chart gets the full section height. -->
+            <div id="perf-chart-card" class="rf-half">
+              <div id="perf-chart-bb" class="perf-chart-baseline" hidden>
+                <span class="perf-bb-icon">📈</span>
+                <span
+                  >Building baseline: keep training to see the fitness chart.</span
+                >
+              </div>
+              <div id="perf-chart-wrap">
+                <canvas
+                  id="perf-fitness-canvas"
+                  height="220"
+                  role="img"
+                  aria-label="Fitness/Fatigue/Form/ACWR time series: CTL, ATL, TSB, and ACWR lines"
+                ></canvas>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="section-divider"></div>
+
+        <!-- Section 3: Weekly coach report (issue #1314). Shown once its
+             data loads. -->
+        <div id="wsc-section" hidden>
           <div class="lrx-chead">
             <span class="lrx-sectitle">Weekly coach report</span>
             <span id="wsc-week-label" class="lrx-scope"></span>
@@ -7264,23 +7174,18 @@
         </div>
       </div>
 
-      <!-- issue #528: training-load surfaces — readiness widget + weekly volume chart -->
-      <section id="load-surfaces" aria-label="Training load">
-        <!-- Readiness widget: Fitness/Fatigue/Form tiles + recovery hint (issue #640) -->
-        <div id="readiness-widget" class="readiness-widget log-card" hidden></div>
-        <!-- Legacy load-widget (kept for load_context path; hidden by default) -->
-        <div id="load-widget" class="load-widget log-card" hidden></div>
-        <!-- Weekly volume chart (Chart.js) -->
-        <div id="volume-chart-card" class="volume-chart-card log-card" hidden>
-          <div class="vc-header">
-            <span class="vc-title">Weekly volume</span>
-          </div>
-          <div class="vc-body">
-            <canvas id="volume-chart" height="220" role="img"
-                    aria-label="Weekly training volume: stacked run and strength TSS with run distance line for the last 8 weeks"></canvas>
-          </div>
+      <!-- Legacy load-widget (kept for load_context path; hidden by default)
+           + weekly volume chart — separate from the merged card above. -->
+      <div id="load-widget" class="load-widget log-card" hidden></div>
+      <div id="volume-chart-card" class="volume-chart-card log-card" hidden>
+        <div class="vc-header">
+          <span class="vc-title">Weekly volume</span>
         </div>
-      </section>
+        <div class="vc-body">
+          <canvas id="volume-chart" height="220" role="img"
+                  aria-label="Weekly training volume: stacked run and strength TSS with run distance line for the last 8 weeks"></canvas>
+        </div>
+      </div>
 
       <!-- Month calendar (Log sub-tab, desktop only) — issue #638 -->
       <div id="log-calendar" class="log-card log-card--calendar" aria-label="Monthly training calendar"></div>
@@ -8154,6 +8059,25 @@
       </div>
     </div>
 
+    <!-- Change-race picker: select which existing race is the A-priority target -->
+    <div
+      id="plan-race-picker-modal"
+      class="plan-confirm-overlay"
+      style="display: none"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div class="plan-confirm-box plan-picker-box">
+        <p class="plan-confirm-title">Change target race</p>
+        <p class="plan-confirm-msg">Pick which race is the A-priority target.</p>
+        <div id="plan-race-picker-list" class="plan-picker-list"></div>
+        <div class="plan-confirm-btns">
+          <button id="plan-race-picker-newrace" class="plan-confirm-cancel" type="button">+ New race</button>
+          <button id="plan-race-picker-cancel" class="plan-confirm-cancel" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+
     <script src="js/lib/sync-poller.js"></script>
     <script src="js/nav.js"></script>
     <script src="js/lib/html2canvas.min.js"></script>
@@ -8163,22 +8087,20 @@
     <script src="js/lib/run-detail-view.js"></script>
     <script src="js/training.js"></script>
     <script src="js/training-log.js"></script>
-    <script src="js/training-projection.js"></script>
-    <script src="js/training-plan.js"></script>
     <script src="js/training-performance.js"></script>
+    <script src="js/training-plan.js"></script>
     <script src="js/user.js"></script>
     <script src="js/env.js"></script>
     <script>
       /* Sub-tab switching — no page reload, panel swap only */
       (function () {
         "use strict";
-        var TABS = ["log", "plan", "projection", "performance"];
+        var TABS = ["log", "plan", "performance"];
 
         var layoutWrapper = document.getElementById("layout-wrapper");
         var mainCards = document.querySelectorAll("main .log-card");
         var panelPlan = document.getElementById("training-panel-plan");
-        var panelProjection = document.getElementById("training-panel-projection");
-        var panelPerf = document.getElementById("training-panel-performance");
+        var panelPerformance = document.getElementById("training-panel-performance");
         var logNewBtn = document.getElementById("log-new-btn");
 
         function getActiveTab() {
@@ -8205,14 +8127,7 @@
           if (panelPlan) panelPlan.hidden = tab !== "plan";
           if (tab === "plan" && window.TrainingPlan && window.TrainingPlan.init)
             window.TrainingPlan.init();
-          if (panelProjection) panelProjection.hidden = tab !== "projection";
-          if (
-            tab === "projection" &&
-            window.TrainingProjection &&
-            window.TrainingProjection.init
-          )
-            window.TrainingProjection.init();
-          if (panelPerf) panelPerf.hidden = tab !== "performance";
+          if (panelPerformance) panelPerformance.hidden = tab !== "performance";
           if (
             tab === "performance" &&
             window.TrainingPerformance &&
@@ -8253,7 +8168,9 @@
         });
 
         // Session-signal card (in the workout detail panel) → close the panel
-        // and open the Performance tab, scrolled to the score cards.
+        // and open the Performance tab, scrolled to the score cards (moved
+        // here from the removed Performance tab; that tab is now this one,
+        // renamed from Projection).
         document.addEventListener("rd4:open-performance-signal", function () {
           var closeBtn = document.getElementById("dp-close-btn");
           if (closeBtn) closeBtn.click();
