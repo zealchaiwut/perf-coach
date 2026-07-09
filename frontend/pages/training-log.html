@@ -124,9 +124,6 @@
            content-column edge as every .log-card below (no separate math or
            overlap detection needed). */
         margin-left: auto;
-        background: transparent;
-        border-radius: 999px;
-        padding: 3px;
       }
       /* Equal HEIGHT action buttons (Sync / Removed / + Log workout). */
       .log-page-header-actions .sync-chip,
@@ -6427,8 +6424,16 @@
     .log-page-header-inner {
       max-width: none;
       margin: 0;
-      position: relative;         /* anchor for the absolutely-positioned actions */
-      /* JS (_positionNav) sets padding-left to the content column's left edge. */
+      /* .log-page-header-inner is the SOLE flex item of the full-bleed,
+         100vw .log-page-header. Without an explicit width it shrink-wraps
+         to its own content (nav + spacer + actions) instead of spanning the
+         header — which starved .log-nav-spacer's flex:1 of any real space
+         to push .log-page-header-actions into, so the actions cluster never
+         reached the header's right edge. width:100% makes it actually fill
+         the header so the spacer can do its job. */
+      width: 100%;
+      position: relative;
+      /* JS (_positionNav) sets padding-left/right to the content column's edges. */
       padding: 12px 24px;
       display: flex;
       align-items: center;
