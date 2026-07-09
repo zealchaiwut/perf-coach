@@ -284,8 +284,103 @@
     var chBtn = document.getElementById("plan-header-add-btn");
     if (chBtn)
       chBtn.addEventListener("click", function () {
-        openModal(_primaryRace, "race");
+        openRacePicker();
       });
+  }
+
+  // ── Change-race picker: pick which EXISTING race is the A-priority target ──
+  // "Change race" used to just open the current target's own edit form — it
+  // never let you pick a DIFFERENT already-listed race to promote. Only one
+  // race is ever treated as the target/primary (_primaryRace = first
+  // priority=="A" non-done race), so "changing" it means demoting the current
+  // A (if any) to B and promoting the picked race to A — both plain PATCHes
+  // against the existing race-update endpoint, no new backend surface needed.
+  function _raceById(id) {
+    for (var i = 0; i < _races.length; i++) {
+      if (_races[i].id === id) return _races[i];
+    }
+    return null;
+  }
+
+  function _racePickerRowHtml(r, isCurrent) {
+    var distKm = parseFloat(r.distance || 0);
+    var letter = r.priority || "A";
+    return (
+      '<div class="plan-picker-row' + (isCurrent ? " is-current" : "") + '" data-race-id="' + r.id + '">' +
+        '<span class="plan-picker-letter" style="background:' + (_LET_BG[letter] || "#6b7280") + '">' + esc(letter) + "</span>" +
+        '<div class="plan-picker-info">' +
+          '<div class="plan-picker-name">' + esc(r.name || "Unnamed") + "</div>" +
+          '<div class="plan-picker-meta">' + esc(formatDate(r.date)) + (distKm ? " · " + distKm.toFixed(2) + " km" : "") + "</div>" +
+        "</div>" +
+        '<div class="plan-picker-actions">' +
+          '<button type="button" class="plan-picker-editbtn" data-picker-edit="' + r.id + '">Edit</button>' +
+          (isCurrent
+            ? ""
+            : '<button type="button" class="plan-picker-setbtn" data-picker-settarget="' + r.id + '">Set as target</button>') +
+        "</div>" +
+      "</div>"
+    );
+  }
+
+  function openRacePicker() {
+    var overlay = document.getElementById("plan-race-picker-modal");
+    var list = document.getElementById("plan-race-picker-list");
+    if (!overlay || !list) return;
+
+    var candidates = _races.filter(function (r) {
+      return r.type === "race" && r.status !== "done";
+    });
+    list.innerHTML = candidates.length
+      ? candidates
+          .map(function (r) {
+            return _racePickerRowHtml(r, _primaryRace && r.id === _primaryRace.id);
+          })
+          .join("")
+      : '<div class="plan-picker-empty">No upcoming races yet — add one to get started.</div>';
+
+    list.querySelectorAll("[data-picker-settarget]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        _setPrimaryRace(btn.getAttribute("data-picker-settarget"));
+      });
+    });
+    list.querySelectorAll("[data-picker-edit]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var id = btn.getAttribute("data-picker-edit");
+        var race = _raceById(id);
+        closeRacePicker();
+        if (race) openModal(race, "race");
+      });
+    });
+
+    overlay.style.display = "";
+  }
+
+  function closeRacePicker() {
+    var overlay = document.getElementById("plan-race-picker-modal");
+    if (overlay) overlay.style.display = "none";
+  }
+
+  // Promote raceId to A-priority, demoting whatever was previously A (if any
+  // and if it's a different race) to B, so there's still only one target.
+  function _setPrimaryRace(raceId) {
+    var prevPrimary = _primaryRace;
+    var doPromote = function () {
+      apiPatch(_planRaceUrl(raceId), { priority: "A" }, function (res) {
+        closeRacePicker();
+        if (!res.ok) {
+          console.warn("[plan] failed to set primary race", res);
+          return;
+        }
+        refresh();
+      });
+    };
+    if (prevPrimary && prevPrimary.id !== raceId && prevPrimary.priority === "A") {
+      apiPatch(_planRaceUrl(prevPrimary.id), { priority: "B" }, function () {
+        doPromote();
+      });
+    } else {
+      doPromote();
+    }
   }
 
   // ── 2. Calibration status ─────────────────────────────────────────────────
@@ -1951,6 +2046,16 @@
         var cb = _confirmCallback;
         closeConfirm();
         if (cb) cb();
+      });
+
+    var pickerCancel = document.getElementById("plan-race-picker-cancel");
+    if (pickerCancel) pickerCancel.addEventListener("click", closeRacePicker);
+
+    var pickerNewRace = document.getElementById("plan-race-picker-newrace");
+    if (pickerNewRace)
+      pickerNewRace.addEventListener("click", function () {
+        closeRacePicker();
+        openModal(null, "race");
       });
 
     var rampIn = document.getElementById("plan-ramp-rate-input");
