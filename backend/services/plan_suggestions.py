@@ -493,44 +493,27 @@ def build_prompt(facts: dict) -> tuple[str, str]:
         "5. Only propose sessions for these day_offsets — every other day is already "
         f"scheduled, already logged, or in the past: {allowed_str}.\n"
         f"6. Respect ramp limits: do not increase weekly TSS by more than 30% above the trailing average.{taper_note}\n"
-        f"{notes_rule_n}. Populate `notes` with the coach's RATIONALE for this session's choices — why "
-        "this weight/exercise/pairing, referencing fatigue management, what's already logged or planned "
-        "this week, or why you avoided/kept a recently-used exercise (see below). Example style: \"Kept "
-        "controlled because Thursday is intervals — legs need to stay fresh. Walking lunge instead of "
-        "Bulgarian split squat to limit next-day soreness before intervals.\" Null only for rest days.\n"
+        f"{notes_rule_n}. `notes` = the coach's RATIONALE (why this weight/exercise/pairing — fatigue "
+        "management, what's already logged/planned, why an exercise was avoided/kept). Terse coach-style, "
+        "e.g. \"Legs stay fresh — Thursday is intervals.\" Null only for rest days.\n"
         f"{rest_rule}"
         f"{avoid_repeat_rule}"
-        f"{exercises_rule_n}. For every workout_type=\"strength\" or \"plyo\" session, you MUST include "
-        "an `exercises` array of 8-14 entries, grouped into 4-6 sub-sections, styled like a real coach's "
-        "session plan within 60-90 minutes total: \"Warm-up\" (3-4 light activation moves), \"Heavy "
-        "compound\" (1 primary lift — squat/deadlift/press variant), \"Superset 1\" and \"Superset 2\" "
-        "(2 exercises each, PAIRED opposing muscle groups or upper/lower so they can alternate — e.g. a "
-        "hinge with a push, a lunge with a pull), \"Standalone\" (1 optional isolation move), and "
-        "\"Accessories\" (2-3 core/stability/stretch moves). Each entry is {block, name, sets, reps, "
-        "load}: `sets` is an integer; `reps` and `load` are short descriptive strings, not always plain "
-        "numbers (e.g. reps: \"10\", \"12\", \"30s hold\"; load: \"bodyweight\", \"moderate\", "
-        "\"~10-14kg per hand\", \"65% 1RM (~45kg)\", \"light band, per side\"). Example entry: "
-        '{"block": "Heavy compound", "name": "Back squat", "sets": 4, "reps": "8", "load": "65% 1RM (~45kg)"}. '
-        "Never leave exercises empty or omitted for strength/plyo. Set exercises to null for run/rest.\n"
-        f"{blocks_rule_n}. For every workout_type=\"run\" session, you MUST include a `blocks` array "
-        "(2-5 entries) describing the session's phases — the same structure a coach would write for a "
-        "structured workout, not just a duration number. Each entry is {phase, duration_min, repeat, "
-        "rest_min, target}: `phase` is one of \"warmup\", \"main\", \"cooldown\" (repeat \"main\" for "
-        "multiple work segments); `duration_min` is the segment's length in minutes; `repeat` is an "
-        "integer (e.g. 3 for 3 reps of a main set) or null if the phase isn't repeated; `rest_min` is the "
-        "rest between reps (minutes) or null; `target` is a short effort/pace description (e.g. \"easy\", "
-        "\"tempo — comfortably hard\", \"92% CP\") or null. Example for an interval session: "
-        '[{"phase": "warmup", "duration_min": 10, "repeat": null, "rest_min": null, "target": "easy"}, '
-        '{"phase": "main", "duration_min": 10, "repeat": 3, "rest_min": 2, "target": "92% CP"}, '
-        '{"phase": "cooldown", "duration_min": 8, "repeat": null, "rest_min": null, "target": "easy"}]. '
-        "For an easy/steady run use a single non-repeated \"main\" phase. Set blocks to null for "
-        "strength/plyo/rest.\n"
-        f"{long_run_rule_n}. Identify the single 'run' session with the highest target_tss as the "
-        "week's LONG RUN. The day immediately before it must NOT be another hard/interval run "
-        "(no tempo/threshold/interval intent, no high-TSS run) — use rest, an easy run, or a "
-        "non-run session there instead.\n"
-        f"{consec_rule_n}. Do not schedule more than {_MAX_CONSECUTIVE_TRAINING_DAYS} consecutive "
-        "training days without a rest or easy day — balance load against the athlete's current CTL/ATL.\n"
+        f"{exercises_rule_n}. strength/plyo sessions: `exercises` array of 8-14 entries in 4-6 blocks, "
+        "60-90min total — \"Warm-up\" (3-4 activation moves), \"Heavy compound\" (1 primary lift), "
+        "\"Superset 1\"/\"Superset 2\" (2 exercises each, PAIRED opposing muscle groups, e.g. hinge+push), "
+        "\"Standalone\" (1 isolation move), \"Accessories\" (2-3 core/stability moves). Entry = {block, "
+        "name, sets, reps, load}: sets=integer; reps/load are short strings (reps: \"10\"/\"30s hold\"; "
+        "load: \"bodyweight\"/\"moderate\"/\"65% 1RM (~45kg)\"). Never empty for strength/plyo; null for "
+        "run/rest.\n"
+        f"{blocks_rule_n}. run sessions: `blocks` array (2-5 entries), one per phase, not just a duration "
+        "number. Entry = {phase, duration_min, repeat, rest_min, target}: phase is warmup/main/cooldown "
+        "(repeat \"main\" for multiple work segments); repeat=integer reps of that phase or null; "
+        "rest_min=rest between reps or null; target=short effort/pace (\"easy\"/\"tempo\"/\"92% CP\") or "
+        "null. Easy/steady run = single non-repeated \"main\" phase. Null for strength/plyo/rest.\n"
+        f"{long_run_rule_n}. The highest-target_tss run session is the week's LONG RUN — the day before it "
+        "must not be another hard/interval run; use rest, easy run, or non-run instead.\n"
+        f"{consec_rule_n}. No more than {_MAX_CONSECUTIVE_TRAINING_DAYS} consecutive training days without "
+        "a rest/easy day — balance against current CTL/ATL.\n"
     )
 
     trend_str = ", ".join(str(v) for v in (readiness_trend or [])[-7:]) or "no data"
@@ -662,10 +645,19 @@ _LLM_JSON_SCHEMA: dict = {
 
 
 # Worst case: 7 sessions, each up to 14 exercises (~40 tokens/entry) or 5
-# blocks, plus a 600-char notes field — comfortably needs more than Groq's
+# blocks, plus a 600-char notes field — needs comfortably more than Groq's
 # implicit completion default, which otherwise truncates the JSON mid-object
 # (surfaces as an opaque 400 "max completion tokens reached").
-_LLM_MAX_COMPLETION_TOKENS = 6000
+#
+# Also bounded from above: this org's Groq on_demand tier caps openai/gpt-oss-*
+# models at 8000 tokens/minute TOTAL (input + this budget) — confirmed via a
+# live 413 ("Request too large ... tokens per minute (TPM): Limit 8000") that
+# silently fell back to the deterministic template (which never reads the
+# athlete's free-text notes) on every retry. Input runs ~1650-1750 tokens for
+# a typical request post-prompt-trim (see build_prompt), so 5700 leaves ~550
+# tokens (~7%) of headroom under the cap while still exceeding the ~5200-5500
+# token worst case above by a real margin.
+_LLM_MAX_COMPLETION_TOKENS = 5700
 
 
 def _call_llm(facts: dict, feedback: str = "") -> dict | None:
