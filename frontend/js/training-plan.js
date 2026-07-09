@@ -568,6 +568,12 @@ information about.
   }
 
   function _renderWeekLoad() {
+    // Refresh the week-plan card's target-dependent bits (header total,
+    // "Suggest sessions" label, banner) whenever fresh data arrives —
+    // regardless of whether the Session-load-this-week card itself is on
+    // screen, since both read from the same _wlData.
+    _updateWeekTargetUI();
+
     var body = document.getElementById('wl-body');
     var emptyEl = document.getElementById('wl-empty');
     if (!body) return;
@@ -679,15 +685,18 @@ information about.
           '<button class="pl-arw" id="pl-prev" aria-label="Previous week">‹</button>' +
           '<span class="pl-wktitle" id="pl-wktitle">' + esc(_fmtWeekTitle(_weekStart)) + '</span>' +
           '<button class="pl-arw" id="pl-next" aria-label="Next week">›</button>' +
+          '<span class="pl-weektotal" id="pl-weektotal" hidden></span>' +
         '</div>' +
         '<div class="pl-btnrow">' +
           /* Repurposed to open the AI next-week suggestions panel (issue #1315).
              It proxies a click to the suggestions module's own (hidden) trigger
-             button, which lives in a separate closure. */
-          '<button class="pl-btn pl-ghost" id="pl-suggest" title="AI-suggested sessions for next week">✨ Suggest sessions</button>' +
+             button, which lives in a separate closure. Label includes the
+             Session Load Plan's weekly target once _wlData loads — see
+             _updateWeekTargetUI(). */
+          '<button class="pl-btn pl-ghost" id="pl-suggest" title="AI-suggested sessions for this week">✨ Suggest sessions</button>' +
           '<button class="pl-btn pl-dark" id="pl-add">+ Add</button>' +
         '</div></div>' +
-        '<div class="pl-infobanner" style="margin-bottom:12px;">Synced workouts from Strava/Stryd auto-match to planned sessions. Drag a <b>planned</b> or <b>missed</b> card to reschedule; ambiguous or missing matches need a quick confirm below. These planned sessions <b>don’t feed Projection’s ramp/taper load model</b> — separate systems.</div>' +
+        '<div class="pl-infobanner" id="pl-infobanner" style="margin-bottom:12px;">Sessions are generated to hit your weekly target, respecting the ramp rule and your rest days.</div>' +
         '<div class="pl-weeklist" id="plan-week-list"></div>' +
         '<div class="pl-legend">' +
           '<span><b style="background:var(--pl-run)"></b>Run</span><span><b style="background:var(--pl-lift)"></b>Strength / Plyo</span>' +
@@ -709,7 +718,40 @@ information about.
       var panel = document.getElementById('plan-suggestions-panel');
       if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     };
+    _updateWeekTargetUI();
     if (_bundle) _renderWeekList();
+  }
+
+  // Target-dependent bits of the week-plan card (header total, "Suggest
+  // sessions" label, banner) — factored out of _renderWeekSection so
+  // _loadWeekLoad's async GET /api/plan/week-load can refresh just these
+  // nodes in place once data arrives, without wiping the day list.
+  function _updateWeekTargetUI() {
+    var d = _wlData;
+    var target = (d && d.target_tss != null) ? Math.round(d.target_tss) : null;
+
+    var totalEl = document.getElementById('pl-weektotal');
+    if (totalEl) {
+      if (target != null) {
+        totalEl.hidden = false;
+        var stateLabel = d.state === 'on_track' ? 'on track' : d.state === 'under' ? 'under' :
+          d.state === 'over' ? 'over' : '—';
+        totalEl.innerHTML = 'week total <b>' + Math.round(d.projected_tss) + '</b> / ' + target +
+          ' TSS &middot; ' + esc(stateLabel);
+      } else {
+        totalEl.hidden = true;
+      }
+    }
+
+    var sugBtn = document.getElementById('pl-suggest');
+    if (sugBtn) sugBtn.textContent = target != null ? '✨ Suggest sessions · fill to ' + target : '✨ Suggest sessions';
+
+    var bannerEl = document.getElementById('pl-infobanner');
+    if (bannerEl) {
+      bannerEl.innerHTML = target != null
+        ? 'Sessions are generated to hit <b>' + target + ' TSS</b>, respecting the ramp rule and your rest days.'
+        : 'Sessions are generated to hit your weekly target, respecting the ramp rule and your rest days.';
+    }
   }
 
   function _renderWeekList() {
@@ -730,13 +772,41 @@ information about.
       var addDay = isPast
         ? '<div class="pl-addday is-disabled" title="This day has passed — nothing new can be added">+ add</div>'
         : '<div class="pl-addday" data-add-date="' + day.date + '">+ add</div>';
+      var dayTotal = _dayTotalTss(day);
       return '<div class="pl-dayrow ' + cls + '" data-date="' + day.date + '">' +
         '<div class="pl-daylabel"><span class="pl-dname">' + day.dow + '</span><span class="pl-dnum">' + _parseISO(day.date).getDate() + '</span></div>' +
         '<div class="pl-daybody">' + cards + ghosts + rest + addDay +
         '</div>' +
+        (dayTotal != null ? '<span class="pl-dtotal">' + Math.round(dayTotal) + ' TSS</span>' : '') +
       '</div>';
     }).join('');
     _wireWeekEvents();
+  }
+
+  // Real logged TSS (p.actual.tss) when the session is done/matched; the
+  // server-computed historical-baseline estimate (p.estimated_tss, "~" —
+  // ONLY present while the session is still achievable, see
+  // _planned_session_dict) otherwise. Never fabricates a number.
+  function _sessionTss(p) {
+    if (p.actual && p.actual.tss != null) return { value: p.actual.tss, estimated: false };
+    if (p.estimated_tss != null) return { value: p.estimated_tss, estimated: true };
+    return null;
+  }
+
+  function _sessionTssBadge(p) {
+    var t = _sessionTss(p);
+    if (!t) return '';
+    var label = (t.estimated ? '~' : '') + Math.round(t.value) + ' TSS';
+    return '<span class="pl-tss-badge' + (t.estimated ? ' is-estimated' : '') + '">' + label + '</span>';
+  }
+
+  function _dayTotalTss(day) {
+    var total = 0, any = false;
+    (day.planned || []).forEach(function (p) {
+      var t = _sessionTss(p);
+      if (t) { total += t.value; any = true; }
+    });
+    return any ? total : null;
   }
 
   function _statusTag(status, hasActual) {
@@ -838,7 +908,7 @@ information about.
         (draggable ? ' draggable="true"' : '') +
         ' data-sess="' + p.id + '"' + (clickable ? ' data-click="1"' : '') + '>' +
       handle +
-      '<div class="pl-sesstop"><span class="pl-stypetag ' + fam + '">' + (fam === 'run' ? 'run' : 'lift') + '</span>' + _statusTag(p.status, !!p.actual) + '</div>' +
+      '<div class="pl-sesstop"><span class="pl-sesstop-left"><span class="pl-stypetag ' + fam + '">' + (fam === 'run' ? 'run' : 'lift') + '</span>' + _sessionTssBadge(p) + '</span>' + _statusTag(p.status, !!p.actual) + '</div>' +
       '<div class="pl-sn">' + esc(p.name || '(untitled)') + '</div>' +
       '<div class="pl-sm">' + esc(meta) + '</div>' + body +
     '</div>';
@@ -2029,6 +2099,8 @@ information about.
     '.plan-panel .pl-wknav{display:flex;align-items:center;gap:10px;}',
     '.plan-panel .pl-arw{width:26px;height:26px;border:1px solid var(--pl-line);background:var(--pl-tile);border-radius:8px;cursor:pointer;font-size:14px;color:var(--pl-muted);}',
     '.plan-panel .pl-wktitle{font-size:13px;font-weight:800;}',
+    '.plan-panel .pl-weektotal{font-size:11px;color:var(--pl-muted);font-family:var(--pl-mono);margin-left:6px;}',
+    '.plan-panel .pl-weektotal b{color:var(--pl-ink);font-weight:800;}',
     '.plan-panel .pl-weeklist{display:flex;flex-direction:column;gap:10px;margin-top:14px;}',
     '.plan-panel .pl-dayrow{display:flex;gap:14px;padding:12px 14px;border:1px solid var(--pl-line);border-radius:12px;background:var(--pl-tile);align-items:flex-start;}',
     '.plan-panel .pl-dayrow.today{border-color:#c7d2fe;background:#f4f6ff;}',
@@ -2037,6 +2109,7 @@ information about.
     '.plan-panel .pl-daylabel{width:58px;flex-shrink:0;padding-top:2px;}',
     '.plan-panel .pl-daylabel .pl-dname{font-size:10px;font-weight:800;color:var(--pl-faint);text-transform:uppercase;display:block;}',
     '.plan-panel .pl-daylabel .pl-dnum{font-size:20px;font-family:var(--pl-mono);color:var(--pl-ink);font-weight:700;display:block;margin-top:2px;}',
+    '.plan-panel .pl-dtotal{flex-shrink:0;align-self:center;font-size:10.5px;font-weight:700;font-family:var(--pl-mono);color:var(--pl-muted);white-space:nowrap;padding-left:8px;}',
     '.plan-panel .pl-daybody{flex:1;display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;min-width:0;}',
     '.plan-panel .pl-daybody .pl-sess,.plan-panel .pl-daybody .pl-ghost{flex:1 1 250px;max-width:360px;}',
     '.plan-panel .pl-sess{position:relative;border-radius:8px;padding:7px 9px;font-size:11px;cursor:pointer;border-left:3px solid transparent;background:#fff;box-shadow:0 1px 2px rgba(20,28,70,0.06);}',
@@ -2048,6 +2121,9 @@ information about.
     '.plan-panel .pl-stypetag.run{background:var(--pl-blueSoft);color:var(--pl-run);}.plan-panel .pl-stypetag.lift{background:var(--pl-liftSoft);color:#7c3aed;}',
     '.plan-panel .pl-dhandle{position:absolute;top:7px;right:8px;font-size:9px;color:var(--pl-faint);letter-spacing:-1px;}',
     '.plan-panel .pl-sesstop{display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:2px;}',
+    '.plan-panel .pl-sesstop-left{display:flex;align-items:center;gap:6px;}',
+    '.plan-panel .pl-tss-badge{font-size:9.5px;font-weight:700;font-family:var(--pl-mono);color:var(--pl-muted);}',
+    '.plan-panel .pl-tss-badge.is-estimated{color:var(--pl-faint);font-style:italic;}',
     '.plan-panel .pl-stat-tag{font-size:7.5px;font-weight:800;letter-spacing:0.03em;padding:1px 5px;border-radius:4px;text-transform:uppercase;}',
     '.plan-panel .pl-stat-tag.missed{background:var(--pl-redSoft);color:var(--pl-red);}',
     '.plan-panel .pl-stat-tag.review{background:var(--pl-amberSoft);color:var(--pl-amber);}',
