@@ -1128,6 +1128,7 @@ def assemble_facts(
                 plan_taper_weeks = (
                     int(round(float(plan_row.taper_length))) if plan_row and plan_row.taper_length is not None else 3
                 )
+                plan_deload_enabled = bool(plan_row.deload_enabled) if plan_row and plan_row.deload_enabled is not None else False
 
                 last_week_start = current_week_start - timedelta(days=7)
                 last_week_end = current_week_start - timedelta(days=1)
@@ -1139,7 +1140,7 @@ def assemble_facts(
                 lp_result = compute_load_plan(
                     baseline=baseline_tss, ramp_rate=ramp_rate, hold_weeks=plan_hold_weeks,
                     taper_weeks=plan_taper_weeks, weeks_to_race=weeks_to_race,
-                    trailing_28d_avg=trailing_28d_weekly_avg,
+                    trailing_28d_avg=trailing_28d_weekly_avg, deload_enabled=plan_deload_enabled,
                 )
                 week_index = ((target_week_start - current_week_start).days // 7) + 1
                 target_week = next((w for w in lp_result["weeks"] if w["week_index"] == week_index), None)
@@ -1147,6 +1148,10 @@ def assemble_facts(
                     target_tss = target_week["target_tss"]
                     phase = target_week["phase"]
                     remaining_tss = max(0.0, round(target_tss - logged_tss_so_far, 1))
+                    # This week's own moving ceiling (see load_plan.py) —
+                    # supersedes the static estimate above when a race/plan
+                    # resolved a real series to read it from.
+                    acwr_ceiling = target_week["ceiling"] if target_week["ceiling"] is not None else acwr_ceiling
 
         # ── Recent exercise history (avoid defaulting to the same picks) ────
         # Last 14 days of ACTUALLY LOGGED strength/plyo workouts — what the

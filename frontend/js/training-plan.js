@@ -419,11 +419,12 @@ information about.
       if (w.week_index === 1) thisWeekCol = col; // week_index 1 is always "this week", any phase
 
       var h = Math.max(6, (w.target_tss / maxVal) * 100);
-      var cls = 'lp-bar target phase-' + w.phase + (w.clamped ? ' is-clamped' : '');
+      var cls = 'lp-bar target phase-' + w.phase + (w.clamped ? ' is-clamped' : '') + (w.deload ? ' is-deload' : '');
       var colCls = 'lp-bar-col' + (w.week_index === 1 ? ' is-this-week' : '');
       barsHtml += '<div class="' + colCls + '"><div class="' + cls + '" style="height:' + h + '%" title="' +
-        esc(PHASE_LABEL[w.phase] || w.phase) + (w.clamped ? ' — ACWR-clamped' : '') + '">' +
-        '<span class="lp-bar-value">' + Math.round(w.target_tss) + '</span></div></div>';
+        esc(PHASE_LABEL[w.phase] || w.phase) + (w.deload ? ' — deload week (cut 30%)' : '') +
+        (w.clamped ? ' — ACWR-clamped' : '') + '">' +
+        '<span class="lp-bar-value">' + Math.round(w.target_tss) + (w.deload ? '<span class="lp-deload-mark">▼</span>' : '') + '</span></div></div>';
       axisHtml += axisCol(w.week_start);
     });
 
@@ -490,6 +491,8 @@ information about.
       _setNum('lp-ramp-input', _lpData.ramp_rate * 100);
       _setNum('lp-hold-input', _lpData.hold_weeks);
       _setNum('lp-taper-input', _lpData.taper_weeks);
+      var deloadEl = document.getElementById('lp-recovery-toggle');
+      if (deloadEl) deloadEl.checked = !!_lpData.deload_enabled;
       _renderWeekBudget();
     }
   }
@@ -503,6 +506,7 @@ information about.
     var rampIn = document.getElementById('lp-ramp-input');
     var holdIn = document.getElementById('lp-hold-input');
     var taperIn = document.getElementById('lp-taper-input');
+    var deloadIn = document.getElementById('lp-recovery-toggle');
     var errEl = document.getElementById('lp-settings-error');
     var savedEl = document.getElementById('lp-settings-saved');
     if (errEl) errEl.textContent = '';
@@ -524,7 +528,10 @@ information about.
       return;
     }
 
-    _api('PUT', '/api/plan/rules', { ramp_rate: rampPct / 100, hold_weeks: hold, taper_weeks: taper })
+    _api('PUT', '/api/plan/rules', {
+      ramp_rate: rampPct / 100, hold_weeks: hold, taper_weeks: taper,
+      deload_enabled: deloadIn ? !!deloadIn.checked : false,
+    })
       .then(function () {
         if (savedEl) {
           savedEl.style.display = '';

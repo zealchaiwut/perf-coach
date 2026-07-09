@@ -16622,6 +16622,7 @@ class PlanRulesIn(BaseModel):
     ramp_rate: Optional[float] = None
     hold_weeks: Optional[int] = None
     taper_weeks: Optional[int] = None
+    deload_enabled: Optional[bool] = None
 
 
 def _validate_plan_rules(body: "PlanRulesIn") -> None:
@@ -16640,6 +16641,7 @@ def _plan_rules_dict(plan: TrainingPlan) -> dict:
         "ramp_rate": float(plan.ramp_rate) if plan.ramp_rate is not None else 0.05,
         "hold_weeks": int(plan.hold_weeks) if plan.hold_weeks is not None else 4,
         "taper_weeks": float(plan.taper_length) if plan.taper_length is not None else 3.0,
+        "deload_enabled": bool(plan.deload_enabled) if plan.deload_enabled is not None else False,
     }
 
 
@@ -16657,6 +16659,8 @@ def put_plan_rules(body: PlanRulesIn, user: User = Depends(resolve_user)):
             plan.hold_weeks = body.hold_weeks
         if body.taper_weeks is not None:
             plan.taper_length = body.taper_weeks
+        if body.deload_enabled is not None:
+            plan.deload_enabled = body.deload_enabled
         session.commit()
         session.refresh(plan)
         return JSONResponse(_plan_rules_dict(plan))
@@ -16703,6 +16707,7 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
             taper_weeks=int(round(rules["taper_weeks"])),
             weeks_to_race=weeks_to_race,
             trailing_28d_avg=trailing_28d_avg,
+            deload_enabled=rules["deload_enabled"],
         )
 
         weeks_out = []
@@ -16726,6 +16731,7 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
             "ramp_rate": rules["ramp_rate"],
             "hold_weeks": rules["hold_weeks"],
             "taper_weeks": result["taper_weeks"],
+            "deload_enabled": rules["deload_enabled"],
             "weeks_to_race": weeks_to_race,
             "ramp_weeks": result["ramp_weeks"],
             "peak": result["peak"],
@@ -16830,7 +16836,12 @@ def get_plan_week_load(
         total_28d = float(sum(daily_values))
         trailing_28d_avg = round(total_28d / 4.0, 1)
         acwr_ratio = compute_acwr(daily_values).get("ratio")
-        acwr_ceiling = round(ACWR_CEILING_MULT * trailing_28d_avg, 1) if trailing_28d_avg else None
+        # Fallback only for a queried week outside the computed series (before
+        # week 1 or past the race) — normally acwr_ceiling comes straight off
+        # target_week below, the SAME moving ceiling the season chart uses;
+        # see load_plan.py's "Moving ceiling" — a week-specific ceiling, not a
+        # single static number frozen at today's trailing average.
+        _static_acwr_ceiling = round(ACWR_CEILING_MULT * trailing_28d_avg, 1) if trailing_28d_avg else None
 
         result = compute_load_plan(
             baseline=baseline_tss,
@@ -16839,12 +16850,14 @@ def get_plan_week_load(
             taper_weeks=int(round(rules["taper_weeks"])),
             weeks_to_race=weeks_to_race,
             trailing_28d_avg=trailing_28d_avg,
+            deload_enabled=rules["deload_enabled"],
         )
 
         week_index = ((query_week_start - this_week_start).days // 7) + 1
         target_week = next((w for w in result["weeks"] if w["week_index"] == week_index), None)
         target_tss = target_week["target_tss"] if target_week else None
         clamped = target_week["clamped"] if target_week else False
+        acwr_ceiling = target_week["ceiling"] if target_week else _static_acwr_ceiling
 
         estimate_baseline = _est_baseline(str(user.id), db)
 

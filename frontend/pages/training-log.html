@@ -4339,10 +4339,10 @@
             </div>
             <div class="lp-settings-row lp-settings-row--toggle">
               <label>
-                <input id="lp-recovery-toggle" type="checkbox" disabled />
+                <input id="lp-recovery-toggle" type="checkbox" />
                 Cut 30% every 4th week
               </label>
-              <span class="lp-hint-text">Coming soon</span>
+              <span class="lp-hint-text">Weeks 4, 8, 12&hellip; become a deload; the next week resumes the ramp as if it hadn't been cut.</span>
             </div>
             <div class="lp-week-budget" id="lp-week-budget">
               <div class="lp-week-budget-bar" id="lp-week-budget-bar"></div>
@@ -5615,6 +5615,17 @@
          of phase color, so "why isn't my ramp doing anything" is legible. */
       .plan-merged .lp-bar.is-clamped {
         border-top: 3px solid var(--pm-amber) !important;
+      }
+      /* Deload week ("cut 30% every 4th week"): a dashed outline so it reads
+         as an intentional down week, not a data gap or a clamp. */
+      .plan-merged .lp-bar.is-deload {
+        outline: 2px dashed var(--pm-muted);
+        outline-offset: -2px;
+      }
+      .plan-merged .lp-deload-mark {
+        margin-left: 2px;
+        font-size: 8px;
+        opacity: 0.75;
       }
       .plan-merged .lp-bar-col.is-this-week .lp-bar {
         box-shadow: 0 0 0 2px var(--pm-ink);

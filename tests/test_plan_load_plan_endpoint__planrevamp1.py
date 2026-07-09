@@ -193,7 +193,8 @@ def test_load_plan_returns_race_anchored_series(bare_client):
 
 def test_load_plan_default_rules_match_migration_backfill(bare_client):
     """A brand-new plan (no explicit PUT /api/plan/rules yet) uses the
-    migration-backfilled defaults: ramp_rate 0.05, hold_weeks 4, taper_weeks 3."""
+    migration-backfilled defaults: ramp_rate 0.05, hold_weeks 4, taper_weeks 3,
+    deload_enabled False."""
     client, user_id = bare_client
     race_date = _race_date_in_week(19)
     _add_a_race(client, race_date)
@@ -203,6 +204,61 @@ def test_load_plan_default_rules_match_migration_backfill(bare_client):
     assert body["ramp_rate"] == pytest.approx(0.05)
     assert body["hold_weeks"] == 4
     assert body["taper_weeks"] == pytest.approx(3.0)
+    assert body["deload_enabled"] is False
+    assert all("deload" in w and "ceiling" in w for w in body["weeks"])
+
+
+# ── deload toggle roundtrip + moving ceiling on the live endpoint ───────────
+
+def test_put_plan_rules_roundtrips_deload_enabled(bare_client):
+    client, user_id = bare_client
+    r = client.put("/api/plan/rules", json={"deload_enabled": True})
+    assert r.status_code == 200, r.text
+    assert r.json()["deload_enabled"] is True
+
+    r = client.get("/api/plans")
+    assert len(r.json()) == 1, "PUT /api/plan/rules must not create a second plan row"
+
+    r = client.put("/api/plan/rules", json={"ramp_rate": 0.06})
+    assert r.status_code == 200, r.text
+    assert r.json()["deload_enabled"] is True, "unrelated PUT must not reset deload_enabled"
+
+
+def test_load_plan_reflects_deload_enabled(bare_client):
+    client, user_id = bare_client
+    race_date = _race_date_in_week(19)
+    _add_a_race(client, race_date)
+    client.put("/api/plan/rules", json={"deload_enabled": True})
+
+    this_monday = _monday_of(date.today())
+    last_monday = this_monday - timedelta(days=7)
+    _add_workout(client, last_monday, 316)
+
+    r = client.get("/api/plan/load-plan")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["deload_enabled"] is True
+    week4 = next(w for w in body["weeks"] if w["week_index"] == 4)
+    assert week4["deload"] is True
+
+
+def test_ceiling_moves_instead_of_flatlining_on_the_live_endpoint(bare_client):
+    client, user_id = bare_client
+    race_date = _race_date_in_week(19)
+    _add_a_race(client, race_date)
+    # A large ramp so several weeks clamp — trailing_28d_avg will end up low
+    # since only a couple of workouts are seeded.
+    client.put("/api/plan/rules", json={"ramp_rate": 0.09})
+    this_monday = _monday_of(date.today())
+    last_monday = this_monday - timedelta(days=7)
+    _add_workout(client, last_monday, 300)
+
+    r = client.get("/api/plan/load-plan")
+    assert r.status_code == 200, r.text
+    weeks = r.json()["weeks"]
+    clamped = [w["target_tss"] for w in weeks if w["clamped"]]
+    if len(clamped) >= 2:
+        assert len(set(clamped)) > 1, "clamped weeks must not flatline to one static ceiling"
 
 
 # ── AC3: baseline uses actual TSS, not planned ──────────────────────────────
