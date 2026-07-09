@@ -117,18 +117,14 @@
         align-items: center;
         gap: 6px;
         flex-shrink: 0;
-        /* Absolutely positioned; JS (_positionNav) right-aligns this to the
-           content column's right edge (same as .training-sub-tabs on the
-           left) so the two clusters bookend the columns below. Falls back to
-           right-aligned before JS runs. */
-        position: absolute;
-        right: 12px;
-        top: 50%;
-        transform: translateY(-50%);
-        /* Grouped into one glass pill, matching .training-sub-tabs, instead
-           of three loose floating buttons. */
-        background: rgba(255, 255, 255, 0.14);
-        border: 1px solid rgba(255, 255, 255, 0.2);
+        /* Normal flex-row flow, pushed to the far right by .log-nav-spacer
+           (flex:1) ahead of it — NOT absolutely positioned. That guarantees
+           its right edge lands exactly on .log-page-header-inner's own
+           padding-box right edge, which JS (_positionNav) sets to the same
+           content-column edge as every .log-card below (no separate math or
+           overlap detection needed). */
+        margin-left: auto;
+        background: transparent;
         border-radius: 999px;
         padding: 3px;
       }

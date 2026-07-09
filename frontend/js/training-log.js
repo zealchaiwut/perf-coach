@@ -5433,7 +5433,6 @@
     );
 
     var inner = document.querySelector(".log-page-header-inner");
-    var actions = document.querySelector(".log-page-header-actions");
     if (!inner) return;
 
     // On phones/tablets the drawer is full-width — desktop column alignment
@@ -5441,10 +5440,6 @@
     if (!isDesktop()) {
       inner.style.removeProperty("padding-left");
       inner.style.removeProperty("padding-right");
-      if (actions) {
-        actions.style.removeProperty("left");
-        actions.style.removeProperty("right");
-      }
       return;
     }
 
@@ -5452,31 +5447,18 @@
     // #plan-race-header / any .pm-card); computed from geometry (all four tabs
     // share max-width:1000 + 24px padding, border-box) rather than measuring
     // #list-main, which is display:none on Plan/Projection/Performance.
-    // The actions cluster's right edge matches that same content box's right
-    // edge (contentLeft is symmetric — used as both padding-left and
-    // padding-right below) so "+ Log" lines up with the columns underneath.
+    // The actions cluster (.log-page-header-actions) is a normal flex child
+    // pushed right by .log-nav-spacer, so setting this same padding-right
+    // aligns its right edge with the content column's right edge too.
     var CONTENT_MAX = 1000,
       PAD = 24;
     var vw = document.documentElement.clientWidth;
     var contentLeft = Math.max(0, (vw - CONTENT_MAX) / 2) + PAD;
     inner.style.paddingLeft = contentLeft + "px";
     inner.style.paddingRight = contentLeft + "px";
-    if (actions) {
-      actions.style.right = contentLeft + "px";
-      actions.style.left = "auto";
-      // At in-between (tablet-ish) widths the sub-tab nav can run wide enough
-      // to collide with the right-aligned actions cluster, since actions is
-      // absolutely positioned and doesn't reserve flex space. Measure after
-      // the right-align and push the cluster past the nav's own edge instead
-      // when they'd overlap.
-      var navEl = document.getElementById("training-sub-tabs");
-      var navRect = navEl ? navEl.getBoundingClientRect() : null;
-      var actionsRect = actions.getBoundingClientRect();
-      if (navRect && actionsRect.left < navRect.right + 12) {
-        actions.style.left = navRect.right + 12 + "px";
-        actions.style.right = "auto";
-      }
-    }
+    // actions is a normal flex-row child pushed right by .log-nav-spacer
+    // (flex:1) — its right edge lands on inner's padding-right automatically,
+    // no separate positioning needed.
   }
   window.addEventListener("load", _positionNav);
   window.addEventListener("resize", _positionNav);
