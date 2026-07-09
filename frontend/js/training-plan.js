@@ -146,8 +146,8 @@ information about.
           _openDetailById(id);
         }
       });
-      _wirePlanSettings();
-      _loadPlanSettings();
+      _wireLoadPlanSettings();
+      _loadLoadPlan();
     },
     // Deep link from outside the Plan tab (e.g. the Log calendar): scope the
     // week to the session's date and flag it to open once init()'s own
@@ -273,141 +273,278 @@ information about.
   // the resulting week load resolves (see init() below).
   var _pendingOpenId = null;
 
-  // ── Plan settings (ramp rate / taper window / schedule preview) ─────────────
-  // Moved here from the Projection tab (now renamed Performance,
-  // training-performance.js), which now shows Race-readiness specificity in
-  // this card's old spot instead. Static
-  // HTML host (#plan-settings-section) — wired once in init() via property
-  // assignment (.onclick/.oninput), which is safely idempotent across
-  // init()'s repeat calls, same convention _renderWeekSection() uses above.
-  var _planEntityId = null; // TrainingPlan UUID from GET /api/plans
+  // ── Session Load Plan (Plan-tab revamp, Part 1) ─────────────────────────────
+  // Race-anchored ramp/hold/taper weekly TSS targets. Every number rendered
+  // here comes straight from GET /api/plan/load-plan — the math (ramp/hold/
+  // taper/ACWR-ceiling) lives ONLY in backend/services/load_plan.py; this
+  // file just draws it. See docs/calculations/load-plan.md. Static HTML host
+  // (#load-plan-section) — wired once in init() via property assignment
+  // (.onclick/.oninput), same idempotent convention as the rest of this file.
+  var _lpData = null; // last GET /api/plan/load-plan response (null = no A race)
+  var PHASE_LABEL = { ramp: 'Target — ramp', hold: 'Target — peak hold', taper: 'Target — taper', race: 'Race week' };
 
-  function _computeScheduleSeries(rampRate, taperWindow, weeks) {
-    weeks = weeks || 20;
-    var BASE_TSS = 55;
-    var PLATEAU = 100;
-    var taper = Math.max(0, Math.min(Math.floor(taperWindow), weeks - 1));
-    var arr = [];
-    for (var w = 1; w <= weeks; w++) {
-      var tss;
-      if (w <= weeks - taper) {
-        tss = Math.min(PLATEAU, BASE_TSS + rampRate * (w - 1));
-      } else {
-        var into = w - (weeks - taper);
-        tss = PLATEAU * (into === 1 ? 0.62 : 0.42);
-      }
-      arr.push(tss);
-    }
-    return arr;
+  function _fmtPct1(fraction) {
+    return (Math.round(fraction * 1000) / 10) + '%';
+  }
+  function _fmtShortDate(iso) {
+    var d = _parseISO(iso);
+    return MON[d.getMonth()] + ' ' + d.getDate();
   }
 
-  function _renderSchedulePreview() {
-    var host = document.getElementById('plan-sched');
-    var labs = document.getElementById('plan-wklabels');
+  function _loadLoadPlan() {
+    _api('GET', '/api/plan/load-plan').then(function (data) {
+      _lpData = data;
+      _renderLoadPlan();
+    }).catch(function () {
+      _lpData = null;
+      _renderLoadPlan();
+    });
+  }
+
+  function _renderLoadPlan() {
+    var rulesStrip = document.getElementById('lp-rules-strip');
+    var chartWrap = document.getElementById('lp-chart-wrap');
+    var legend = document.getElementById('lp-legend');
+    var footnote = document.getElementById('lp-footnote');
+    var emptyEl = document.getElementById('lp-empty');
+    var warnEl = document.getElementById('lp-warning');
+    var subtitle = document.getElementById('lp-subtitle');
+    var cogBtn = document.getElementById('lp-cog-btn');
+
+    if (!_lpData) {
+      if (rulesStrip) rulesStrip.hidden = true;
+      if (chartWrap) { chartWrap.hidden = true; chartWrap.innerHTML = ''; }
+      if (legend) legend.hidden = true;
+      if (footnote) footnote.hidden = true;
+      if (warnEl) warnEl.hidden = true;
+      if (emptyEl) emptyEl.hidden = false;
+      if (subtitle) subtitle.innerHTML = '&nbsp;';
+      if (cogBtn) cogBtn.hidden = true;
+      return;
+    }
+
+    if (emptyEl) emptyEl.hidden = true;
+    if (cogBtn) cogBtn.hidden = false;
+
+    if (subtitle) {
+      var firstWeek = _lpData.weeks[0];
+      var lastWeek = _lpData.weeks[_lpData.weeks.length - 1];
+      subtitle.textContent =
+        (firstWeek ? _fmtShortDate(firstWeek.week_start) : '') + ' → ' +
+        _fmtShortDate(_lpData.race.date) + ' · ' + _lpData.race.name;
+    }
+
+    if (rulesStrip) {
+      rulesStrip.hidden = false;
+      _setText('lp-rule-race', _lpData.race.name + ' · ' + _fmtShortDate(_lpData.race.date));
+      _setText('lp-rule-weeks', _lpData.weeks_to_race + ' weeks');
+      _setText('lp-rule-ramp', '+' + _fmtPct1(_lpData.ramp_rate) + ' / week');
+      _setText('lp-rule-hold', _lpData.hold_weeks + ' wks · ' + Math.round(_lpData.peak) + ' TSS');
+      _setText('lp-rule-taper', _lpData.taper_weeks + ' weeks');
+    }
+
+    if (warnEl) {
+      if (_lpData.warning) { warnEl.hidden = false; warnEl.textContent = _lpData.warning; }
+      else warnEl.hidden = true;
+    }
+
+    _renderLoadPlanChart();
+    _renderWeekBudget();
+
+    if (legend) {
+      legend.hidden = false;
+      legend.innerHTML =
+        _legendItem('#4f6ef7', 'Actual (logged)') +
+        _legendItem('#e6ebfe', 'Target — ramp', '#4f6ef7') +
+        _legendItem('#e4e9fd', 'Target — peak hold', '#6d87f8') +
+        _legendItem('#fdf3da', 'Target — taper', '#d97706') +
+        _legendItem('#fee2e2', 'Race week', '#dc2626');
+    }
+    if (footnote) footnote.hidden = false;
+  }
+
+  function _legendItem(bg, label, borderColor) {
+    var style = 'background:' + bg + (borderColor ? ';border:1.5px solid ' + borderColor : '');
+    return '<span class="lp-legend-item"><span class="lp-legend-swatch" style="' + style + '"></span>' + esc(label) + '</span>';
+  }
+
+  function _setText(id, text) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = text;
+  }
+
+  function _renderLoadPlanChart() {
+    var host = document.getElementById('lp-chart-wrap');
     if (!host) return;
-    host.innerHTML = '';
-    if (labs) labs.innerHTML = '';
+    host.hidden = false;
 
-    var rampIn = document.getElementById('plan-ramp-rate-input');
-    var taperIn = document.getElementById('plan-taper-window-input');
-    var rampRate = rampIn ? Math.max(0, parseFloat(rampIn.value) || 0) : 0;
-    var taperWindow = taperIn ? Math.max(0, parseFloat(taperIn.value) || 0) : 0;
+    var prior = _lpData.prior_weeks || [];
+    var weeks = _lpData.weeks || [];
+    var totalCols = prior.length + weeks.length;
+    if (totalCols === 0) { host.innerHTML = ''; return; }
 
-    var weeks = 20;
-    var series = _computeScheduleSeries(rampRate, taperWindow, weeks);
-    var taper = Math.max(0, Math.min(Math.floor(taperWindow), series.length));
-    var max = Math.max.apply(null, series.concat([1]));
+    var allValues = prior.map(function (p) { return p.actual_tss; })
+      .concat(weeks.map(function (w) { return w.target_tss; }));
+    var maxVal = Math.max.apply(null, allValues.concat([1]));
 
-    series.forEach(function (tss, i) {
-      var bar = document.createElement('div');
-      bar.className = 'pm-bar' + (i >= series.length - taper ? ' taper' : '');
-      bar.style.height = (tss / max) * 100 + '%';
-      bar.title = 'Wk ' + (i + 1) + ' · ' + Math.round(tss) + ' TSS';
-      host.appendChild(bar);
-      if (labs) {
-        var s = document.createElement('span');
-        s.textContent = (i + 1) % 2 === 1 ? 'Wk ' + (i + 1) : '';
-        labs.appendChild(s);
-      }
-    });
-  }
+    var barsHtml = '';
+    var axisHtml = '';
+    var prevMonth = null;
 
-  function _validatePlanSettingsInputs() {
-    var rampIn = document.getElementById('plan-ramp-rate-input');
-    var taperIn = document.getElementById('plan-taper-window-input');
-    var rampErr = document.getElementById('plan-ramp-rate-error');
-    var taperErr = document.getElementById('plan-taper-window-error');
-    var valid = true;
-
-    if (rampErr) rampErr.textContent = '';
-    if (taperErr) taperErr.textContent = '';
-    if (rampIn) rampIn.classList.remove('is-invalid');
-    if (taperIn) taperIn.classList.remove('is-invalid');
-
-    var rampVal = rampIn ? rampIn.value.trim() : '';
-    var taperVal = taperIn ? taperIn.value.trim() : '';
-
-    if (rampVal === '' || isNaN(Number(rampVal)) || Number(rampVal) < 0) {
-      if (rampErr) rampErr.textContent = 'Enter a number ≥ 0.';
-      if (rampIn) rampIn.classList.add('is-invalid');
-      valid = false;
+    function axisCol(iso) {
+      var d = _parseISO(iso);
+      var m = d.getMonth();
+      var showMonth = m !== prevMonth;
+      prevMonth = m;
+      return '<div class="lp-axis-col">' + d.getDate() +
+        (showMonth ? '<span class="mon">' + MON[m] + '</span>' : '') + '</div>';
     }
-    if (taperVal === '' || isNaN(Number(taperVal)) || Number(taperVal) < 0) {
-      if (taperErr) taperErr.textContent = 'Enter a number ≥ 0.';
-      if (taperIn) taperIn.classList.add('is-invalid');
-      valid = false;
-    }
-    return valid;
-  }
 
-  function _loadPlanSettings() {
-    _api('GET', '/api/plans').then(function (data) {
-      var plan = Array.isArray(data) && data.length > 0 ? data[0] : null;
-      var rampIn = document.getElementById('plan-ramp-rate-input');
-      var taperIn = document.getElementById('plan-taper-window-input');
-      if (plan) {
-        _planEntityId = plan.id;
-        if (rampIn) rampIn.value = plan.ramp_rate != null ? plan.ramp_rate : 0;
-        if (taperIn) taperIn.value = plan.taper_length != null ? plan.taper_length : 0;
-      } else {
-        if (rampIn) rampIn.value = 0;
-        if (taperIn) taperIn.value = 0;
-      }
-      _renderSchedulePreview();
-    }).catch(function () { _renderSchedulePreview(); });
-  }
-
-  function _savePlanSettings() {
-    if (!_validatePlanSettingsInputs()) return;
-    var rampIn = document.getElementById('plan-ramp-rate-input');
-    var taperIn = document.getElementById('plan-taper-window-input');
-    var savedEl = document.getElementById('plan-settings-saved');
-    var rampRate = parseFloat(rampIn ? rampIn.value : 0);
-    var taperLength = parseFloat(taperIn ? taperIn.value : 0);
-    var body = { ramp_rate: rampRate, taper_length: taperLength };
-
-    var req = _planEntityId
-      ? _api('PATCH', '/api/plans/' + _planEntityId, body)
-      : _api('POST', '/api/plans', Object.assign({ name: 'Training Plan' }, body));
-    req.then(function (plan) {
-      if (plan && plan.id) _planEntityId = plan.id;
-      if (savedEl) {
-        savedEl.style.display = '';
-        setTimeout(function () { savedEl.style.display = 'none'; }, 2000);
-      }
-    }).catch(function (e) {
-      var rampErr = document.getElementById('plan-ramp-rate-error');
-      if (rampErr) rampErr.textContent = e.message || 'Save failed.';
+    prior.forEach(function (p) {
+      var h = Math.max(6, (p.actual_tss / maxVal) * 100);
+      barsHtml += '<div class="lp-bar-col"><div class="lp-bar actual" style="height:' + h + '%">' +
+        '<span class="lp-bar-value">' + Math.round(p.actual_tss) + '</span></div></div>';
+      axisHtml += axisCol(p.week_start);
     });
+
+    var thisWeekCol = -1, raceCol = -1;
+    var holdFirst = -1, holdLast = -1;
+
+    weeks.forEach(function (w, i) {
+      var col = prior.length + i;
+      if (w.phase === 'ramp' && w.week_index === 1) thisWeekCol = col;
+      if (w.phase === 'hold') { if (holdFirst < 0) holdFirst = col; holdLast = col; }
+      if (w.phase === 'race') raceCol = col;
+      if (w.week_index === 1) thisWeekCol = col; // week_index 1 is always "this week", any phase
+
+      var h = Math.max(6, (w.target_tss / maxVal) * 100);
+      var cls = 'lp-bar target phase-' + w.phase + (w.clamped ? ' is-clamped' : '');
+      var colCls = 'lp-bar-col' + (w.week_index === 1 ? ' is-this-week' : '');
+      barsHtml += '<div class="' + colCls + '"><div class="' + cls + '" style="height:' + h + '%" title="' +
+        esc(PHASE_LABEL[w.phase] || w.phase) + (w.clamped ? ' — ACWR-clamped' : '') + '">' +
+        '<span class="lp-bar-value">' + Math.round(w.target_tss) + '</span></div></div>';
+      axisHtml += axisCol(w.week_start);
+    });
+
+    var bracketHtml = '';
+    if (holdFirst >= 0 && holdLast >= 0) {
+      var left = (holdFirst / totalCols) * 100;
+      var width = ((holdLast - holdFirst + 1) / totalCols) * 100;
+      bracketHtml = '<div class="lp-bracket" style="left:' + left + '%;width:' + width + '%">' +
+        '<span class="lp-bracket-lab">PEAK HOLD · ' + _lpData.hold_weeks + ' WKS</span></div>';
+    }
+
+    var flagHtml = '';
+    if (thisWeekCol >= 0) {
+      var twLeft = ((thisWeekCol + 0.5) / totalCols) * 100;
+      flagHtml += '<div class="lp-flag-this-week" style="left:' + twLeft + '%">THIS WEEK</div>';
+    }
+    if (raceCol >= 0) {
+      var rLeft = ((raceCol + 0.5) / totalCols) * 100;
+      flagHtml += '<div class="lp-flag-race" style="left:' + rLeft + '%">' +
+        '<div class="caret">▲</div><div class="lp-flag-race-badge">RACE DAY<br>' +
+        esc(_fmtRaceDayLabel(_lpData.race.date)) + '</div></div>';
+    }
+
+    host.innerHTML =
+      '<div class="lp-bracket-row" style="position:relative;height:14px;">' + bracketHtml + '</div>' +
+      '<div class="lp-bars">' + barsHtml + '</div>' +
+      '<div class="lp-axis">' + axisHtml + '</div>' +
+      '<div class="lp-flag-row">' + flagHtml + '</div>';
   }
 
-  function _wirePlanSettings() {
-    var rampIn = document.getElementById('plan-ramp-rate-input');
-    var taperIn = document.getElementById('plan-taper-window-input');
-    var saveBtn = document.getElementById('plan-save-settings-btn');
-    if (rampIn) rampIn.oninput = _renderSchedulePreview;
-    if (taperIn) taperIn.oninput = _renderSchedulePreview;
-    if (saveBtn) saveBtn.onclick = _savePlanSettings;
+  function _fmtRaceDayLabel(iso) {
+    var d = _parseISO(iso);
+    return DOW[(d.getDay() + 6) % 7].charAt(0) + DOW[(d.getDay() + 6) % 7].slice(1).toLowerCase() +
+      ' ' + MON[d.getMonth()] + ' ' + d.getDate();
+  }
+
+  function _renderWeekBudget() {
+    var bar = document.getElementById('lp-week-budget-bar');
+    var line = document.getElementById('lp-week-budget-line');
+    if (!bar || !_lpData) return;
+    var ramp = _lpData.ramp_weeks, hold = _lpData.hold_weeks, taper = _lpData.taper_weeks;
+    var total = Math.max(1, ramp + hold + taper);
+    bar.innerHTML =
+      '<span class="ramp" style="flex:' + ramp + ' 0 0" title="Ramp · ' + ramp + ' wks"></span>' +
+      '<span class="hold" style="flex:' + hold + ' 0 0" title="Peak hold · ' + hold + ' wks"></span>' +
+      '<span class="taper" style="flex:' + taper + ' 0 0" title="Taper · ' + taper + ' wks"></span>';
+    if (line) {
+      line.textContent = 'ramp ' + ramp + ' + hold ' + hold + ' + taper ' + taper + ' = ' + total +
+        ' weeks · peak ' + Math.round(_lpData.peak) + ' TSS';
+    }
+  }
+
+  // ── Settings panel (cog toggle, ramp slider<->input sync, save) ─────────────
+
+  function _toggleLoadPlanSettings() {
+    var panel = document.getElementById('lp-settings-panel');
+    var cogBtn = document.getElementById('lp-cog-btn');
+    if (!panel) return;
+    var opening = panel.hidden;
+    panel.hidden = !opening;
+    if (cogBtn) cogBtn.classList.toggle('is-active', opening);
+    if (opening && _lpData) {
+      _setNum('lp-ramp-slider', _lpData.ramp_rate * 100);
+      _setNum('lp-ramp-input', _lpData.ramp_rate * 100);
+      _setNum('lp-hold-input', _lpData.hold_weeks);
+      _setNum('lp-taper-input', _lpData.taper_weeks);
+      _renderWeekBudget();
+    }
+  }
+
+  function _setNum(id, val) {
+    var el = document.getElementById(id);
+    if (el) el.value = val;
+  }
+
+  function _saveLoadPlanRules() {
+    var rampIn = document.getElementById('lp-ramp-input');
+    var holdIn = document.getElementById('lp-hold-input');
+    var taperIn = document.getElementById('lp-taper-input');
+    var errEl = document.getElementById('lp-settings-error');
+    var savedEl = document.getElementById('lp-settings-saved');
+    if (errEl) errEl.textContent = '';
+
+    var rampPct = rampIn ? parseFloat(rampIn.value) : NaN;
+    var hold = holdIn ? parseInt(holdIn.value, 10) : NaN;
+    var taper = taperIn ? parseInt(taperIn.value, 10) : NaN;
+
+    if (isNaN(rampPct) || rampPct < 0 || rampPct > 10) {
+      if (errEl) errEl.textContent = 'Ramp rate must be between 0 and 10%.';
+      return;
+    }
+    if (isNaN(hold) || hold < 0) {
+      if (errEl) errEl.textContent = 'Peak hold must be 0 or more weeks.';
+      return;
+    }
+    if (isNaN(taper) || taper < 0) {
+      if (errEl) errEl.textContent = 'Taper window must be 0 or more weeks.';
+      return;
+    }
+
+    _api('PUT', '/api/plan/rules', { ramp_rate: rampPct / 100, hold_weeks: hold, taper_weeks: taper })
+      .then(function () {
+        if (savedEl) {
+          savedEl.style.display = '';
+          setTimeout(function () { savedEl.style.display = 'none'; }, 2000);
+        }
+        _loadLoadPlan();
+      })
+      .catch(function (e) {
+        if (errEl) errEl.textContent = e.message || 'Save failed.';
+      });
+  }
+
+  function _wireLoadPlanSettings() {
+    var cogBtn = document.getElementById('lp-cog-btn');
+    var rampSlider = document.getElementById('lp-ramp-slider');
+    var rampInput = document.getElementById('lp-ramp-input');
+    var saveBtn = document.getElementById('lp-save-btn');
+    if (cogBtn) cogBtn.onclick = _toggleLoadPlanSettings;
+    if (rampSlider) rampSlider.oninput = function () { if (rampInput) rampInput.value = rampSlider.value; };
+    if (rampInput) rampInput.oninput = function () { if (rampSlider) rampSlider.value = rampInput.value; };
+    if (saveBtn) saveBtn.onclick = _saveLoadPlanRules;
   }
 
   // ── Render shell ────────────────────────────────────────────────────────────

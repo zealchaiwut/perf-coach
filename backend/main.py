@@ -68,6 +68,7 @@ from backend.services.training_load import (
 )
 from backend.services.specificity_progress import specificity_progress as _specificity_progress
 from backend.services.daily_load import daily_load_series as _daily_load_series
+from backend.services.load_plan import compute_load_plan
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
 from backend.services.weight_ewma import compute_ewma as _compute_ewma, DEFAULT_SPAN as _EWMA_DEFAULT_SPAN
@@ -16587,6 +16588,153 @@ def _resolve_or_create_plan(session, user_id):
         session.commit()
         session.refresh(plan)
     return plan
+
+
+# ── Session Load Plan (Plan-tab revamp, Part 1) ─────────────────────────────
+# See docs/calculations/load-plan.md — backend/services/load_plan.py is the
+# single source of truth for the ramp/hold/taper math; this section only
+# resolves the A race + reads baseline/trailing-average TSS and calls it.
+
+def _resolve_load_plan_a_race(db, user_id, today):
+    """Next upcoming, planned, A-priority race.
+
+    Deliberately the SAME convention plan_suggestions.assemble_facts already
+    uses (future + status=planned + priority=A) — a race that already
+    happened or isn't confirmed can't be ramped/taper toward. This is
+    narrower than _compute_plan_bundle's "primary race" (any status/date);
+    see docs/calculations/load-plan.md "Known weaknesses" for why the two
+    conventions coexist.
+    """
+    return (
+        db.query(Race)
+        .filter(
+            Race.user_id == user_id,
+            Race.race_date > today,
+            Race.status == "planned",
+            Race.priority == "A",
+        )
+        .order_by(Race.race_date)
+        .first()
+    )
+
+
+class PlanRulesIn(BaseModel):
+    ramp_rate: Optional[float] = None
+    hold_weeks: Optional[int] = None
+    taper_weeks: Optional[int] = None
+
+
+def _validate_plan_rules(body: "PlanRulesIn") -> None:
+    if body.ramp_rate is not None and not (0 <= body.ramp_rate <= 0.10):
+        raise HTTPException(
+            status_code=422, detail="ramp_rate must be between 0 and 0.10 (0-10%/week)"
+        )
+    if body.hold_weeks is not None and body.hold_weeks < 0:
+        raise HTTPException(status_code=422, detail="hold_weeks must be >= 0")
+    if body.taper_weeks is not None and body.taper_weeks < 0:
+        raise HTTPException(status_code=422, detail="taper_weeks must be >= 0")
+
+
+def _plan_rules_dict(plan: TrainingPlan) -> dict:
+    return {
+        "ramp_rate": float(plan.ramp_rate) if plan.ramp_rate is not None else 0.05,
+        "hold_weeks": int(plan.hold_weeks) if plan.hold_weeks is not None else 4,
+        "taper_weeks": float(plan.taper_length) if plan.taper_length is not None else 3.0,
+    }
+
+
+@app.put("/api/plan/rules")
+def put_plan_rules(body: PlanRulesIn, user: User = Depends(resolve_user)):
+    """Update ramp_rate / hold_weeks / taper_weeks on the athlete's existing
+    TrainingPlan row. Plan and Performance tabs edit the SAME row — this
+    must never create a second one (_resolve_or_create_plan enforces that)."""
+    _validate_plan_rules(body)
+    with Session(engine) as session:
+        plan = _resolve_or_create_plan(session, user.id)
+        if body.ramp_rate is not None:
+            plan.ramp_rate = body.ramp_rate
+        if body.hold_weeks is not None:
+            plan.hold_weeks = body.hold_weeks
+        if body.taper_weeks is not None:
+            plan.taper_length = body.taper_weeks
+        session.commit()
+        session.refresh(plan)
+        return JSONResponse(_plan_rules_dict(plan))
+
+
+@app.get("/api/plan/load-plan")
+def get_plan_load_plan(user: User = Depends(resolve_user)):
+    """Race-anchored weekly TSS target series for the Session Load Plan card.
+
+    Returns the resolved A race, the rules, the full week-by-week target
+    series (this week through race week), and the prior 4 weeks of actual
+    TSS. 204 with no body when there's no A race — the chart is meaningless
+    without a race date.
+    """
+    from backend.utils.time import today_bangkok
+
+    today = today_bangkok()
+    with Session(engine) as db:
+        race = _resolve_load_plan_a_race(db, user.id, today)
+        if race is None:
+            return Response(status_code=204)
+
+        plan = _resolve_or_create_plan(db, user.id)
+        rules = _plan_rules_dict(plan)
+
+        this_week_start = today - _timedelta(days=today.weekday())
+        race_week_start = race.race_date - _timedelta(days=race.race_date.weekday())
+        weeks_to_race = ((race_week_start - this_week_start).days // 7) + 1
+
+        last_week_start = this_week_start - _timedelta(days=7)
+        last_week_end = this_week_start - _timedelta(days=1)
+        baseline_volume = _get_weekly_volume(str(user.id), last_week_start, last_week_end)
+        baseline = baseline_volume["total_tss"]
+
+        start_28 = today - _timedelta(days=27)
+        series_28 = daily_tss_series(str(user.id), start_28, today)
+        total_28d = float(sum(v for _, v in series_28))
+        trailing_28d_avg = round(total_28d / 4.0, 1)
+
+        result = compute_load_plan(
+            baseline=baseline,
+            ramp_rate=rules["ramp_rate"],
+            hold_weeks=rules["hold_weeks"],
+            taper_weeks=int(round(rules["taper_weeks"])),
+            weeks_to_race=weeks_to_race,
+            trailing_28d_avg=trailing_28d_avg,
+        )
+
+        weeks_out = []
+        for w in result["weeks"]:
+            week_start = this_week_start + _timedelta(weeks=w["week_index"] - 1)
+            weeks_out.append({**w, "week_start": week_start.isoformat()})
+
+        prior_weeks = []
+        for i in range(4, 0, -1):
+            ws = this_week_start - _timedelta(weeks=i)
+            we = ws + _timedelta(days=6)
+            vol = _get_weekly_volume(str(user.id), ws, we)
+            prior_weeks.append({"week_start": ws.isoformat(), "actual_tss": vol["total_tss"]})
+
+        return JSONResponse({
+            "race": {
+                "id": str(race.id),
+                "name": race.name,
+                "date": race.race_date.isoformat(),
+            },
+            "ramp_rate": rules["ramp_rate"],
+            "hold_weeks": rules["hold_weeks"],
+            "taper_weeks": result["taper_weeks"],
+            "weeks_to_race": weeks_to_race,
+            "ramp_weeks": result["ramp_weeks"],
+            "peak": result["peak"],
+            "baseline_tss": baseline,
+            "trailing_28d_avg": trailing_28d_avg,
+            "prior_weeks": prior_weeks,
+            "weeks": weeks_out,
+            "warning": result["warning"],
+        })
 
 
 @app.get("/api/plan/computed")

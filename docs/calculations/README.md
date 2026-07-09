@@ -46,6 +46,7 @@ daily_metrics (HRV, RHR, sleep, energy, mood) ──► readiness (4 formulas! s
 | [readiness.md](readiness.md) | Daily readiness score(s) | `services/readiness/`, inline formulas in `main.py` |
 | [acwr-guardrail.md](acwr-guardrail.md) | Injury-risk ratio + ramp warnings | `acwr.py`, `guardrail.py` |
 | [plan-matching.md](plan-matching.md) | Plan-tab planned-session → workout matcher (states, thresholds) | `plan_matching.py` |
+| [load-plan.md](load-plan.md) | Race-anchored ramp/hold/taper weekly TSS targets (Session Load Plan) | `load_plan.py` |
 
 ## Caching summary
 
