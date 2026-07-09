@@ -6476,6 +6476,8 @@
       --lrx-runSoft: #e6ebfe;
       --lrx-lift: #8b5cf6;
       --lrx-liftSoft: #ede9fe;
+      /* orange-700, not the lighter --speed orange — that fails 4.5:1 white-text contrast */
+      --lrx-plyo: #c2410c;
       --lrx-lime: #cff245;
       --lrx-ink: #1b2340;
       --lrx-muted: #6b7280;
@@ -6758,14 +6760,12 @@
     table.lrx-cal th { font-size: 11px; font-weight: 800; letter-spacing: 0.06em; color: var(--lrx-faint); text-transform: uppercase; padding: 0 0 8px; text-align: center; }
     table.lrx-cal th.wk { text-align: right; padding-right: 2px; width: 128px; }
     .lrx-calrow { cursor: pointer; }
-    /* Fixed 100px keeps EVERY week row the same height whether or not its days
-       carry planned-session tags. `height` on a table cell is only a MINIMUM
-       in standard table layout — a day with the worst case (day number + two
-       dots + two stacked tags) was still growing past a plain height rule,
-       making that week's whole row taller than lighter weeks. overflow:hidden
-       makes 100px an actual cap, not just a floor, so every row truly matches. */
-    .lrx-calrow td { border-top: 1px solid var(--lrx-line); height: 100px; overflow: hidden; vertical-align: top; text-align: center; }
-    .lrx-calrow .dnum { font-size: 14px; font-family: var(--lrx-mono); color: var(--lrx-ink); padding-top: 7px; display: inline-block; }
+    /* Fixed 62px keeps EVERY week row the same height regardless of how many
+       sessions a day has — the marker row below is itself fixed-height and
+       caps at 3 blocks + a "+N" chip, so unlike the old dot/tag stack this
+       genuinely never needs more room. */
+    .lrx-calrow td { border-top: 1px solid var(--lrx-line); min-height: 62px; vertical-align: top; text-align: center; padding: 7px 5px 8px; }
+    .lrx-calrow .dnum { font-size: 12px; font-family: var(--lrx-mono); color: var(--lrx-ink); display: block; margin-bottom: 6px; }
     .lrx-calrow td.out .dnum { color: #cbd2e0; }
     /* Today marker: a ring inside the day cell (inset shadow avoids disturbing
        the table's border-collapse layout) plus a bolded accent day number. */
@@ -6775,18 +6775,31 @@
        .entry-row.is-active list row, so the one workout reads as flagged in
        both views. Wins over the today ring when they coincide (later rule). */
     .lrx-calrow td.cal-day.deep-linked { box-shadow: inset 0 0 0 2px #2b4ca8; border-radius: 10px; }
-    .lrx-dot { width: 6px; height: 6px; border-radius: 50%; margin: 3px auto 0; }
-    .lrx-dot.run { background: var(--lrx-run); }
-    .lrx-dot.lift { background: var(--lrx-lift); }
-    /* Planned-session tags (from Plan) — filled once done, outlined while
-       still planned/missed/needs-review, so status reads at a glance. Plain
-       block in the calendar cell (stacks under .dnum on its own line, same
-       as .lrx-dot already does); the legend overrides to inline-block. */
-    .lrx-caltag { font-size: 8.5px; font-weight: 800; font-family: var(--lrx-mono); border-radius: 4px; padding: 1px 4px; margin: 3px auto 0; width: fit-content; letter-spacing: -0.02em; line-height: 1.5; cursor: pointer; }
-    .lrx-caltag:hover { filter: brightness(0.94); }
-    .lrx-caltag.run.planned { background: none; border: 1px solid var(--lrx-run); color: var(--lrx-run); }
-    .lrx-caltag.lift.planned { background: none; border: 1px solid var(--lrx-lift); color: var(--lrx-lift); }
-    .lrx-callegend .lrx-caltag { display: inline-block; margin: 0 5px 0 0; cursor: default; }
+
+    /* ── Calendar day markers — one row per day, one block per session ──────
+       Solid filled = logged, outlined = planned (same hue, no fill). Hue =
+       workout type. The number is TSS (actual for logged, estimated for
+       planned) — no icons, no type text, so hierarchy stays real > hypothetical. */
+    .cal-markers { display: flex; gap: 4px; align-items: stretch; }
+    .cal-mk {
+      flex: 1 1 0; min-width: 0;
+      display: flex; align-items: center; justify-content: center;
+      height: 24px; border-radius: 6px;
+      border: 1.5px solid transparent;
+      font-family: var(--lrx-mono); font-size: 11px; font-weight: 700;
+      letter-spacing: -0.02em; line-height: 1; cursor: default;
+    }
+    .cal-mk.logged { color: #fff; }
+    .cal-mk.logged.run { background: var(--lrx-run); border-color: var(--lrx-run); }
+    .cal-mk.logged.strength { background: var(--lrx-lift); border-color: var(--lrx-lift); }
+    .cal-mk.logged.plyo { background: var(--lrx-plyo); border-color: var(--lrx-plyo); }
+    .cal-mk.plan { background: transparent; font-weight: 600; cursor: pointer; }
+    .cal-mk.plan.run { border-color: var(--lrx-run); color: var(--lrx-run); }
+    .cal-mk.plan.strength { border-color: var(--lrx-lift); color: var(--lrx-lift); }
+    .cal-mk.plan.plyo { border-color: var(--lrx-plyo); color: var(--lrx-plyo); }
+    .cal-mk.plan:hover { filter: brightness(0.94); }
+    .cal-mk.more { flex: 0 0 auto; min-width: 22px; padding: 0 4px; background: var(--lrx-tile); color: var(--lrx-muted); border-color: transparent; }
+    .lrx-callegend .cal-mk { margin: 0 5px 0 0; }
     .lrx-wkcell { text-align: right; padding: 7px 2px 0 8px; width: 128px; }
     .lrx-wkcell .wt { font-size: 14px; font-weight: 700; font-family: var(--lrx-mono); }
     .lrx-wkcell .wkkm { font-size: 12px; color: var(--lrx-muted); font-family: var(--lrx-mono); }

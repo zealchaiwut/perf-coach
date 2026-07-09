@@ -5269,33 +5269,31 @@
         if (entry.type === "rest" || !entry.date) return;
         var d = calDayData[entry.date];
         if (!d) {
-          d = { types: [], totalTss: 0, km: 0 };
+          d = { types: [], totalTss: 0, km: 0, entries: [] };
           calDayData[entry.date] = d;
         }
         var t = (entry.type || "").toLowerCase();
         if (t && d.types.indexOf(t) === -1) d.types.push(t);
         if (entry.tss > 0) d.totalTss += entry.tss;
         if (entry.distance_km > 0) d.km += entry.distance_km;
+        // One marker per logged session (calendar redesign) — kept separate
+        // from the day-level totalTss/km rollup above, which other code
+        // (week aggregates) still reads.
+        d.entries.push({ type: t, tss: entry.tss > 0 ? entry.tss : null });
       });
     });
   }
 
-  // Normalize a raw workout_type to the two calendar dot families.
-  function _calDotType(t) {
+  // Normalize a raw workout_type to one of the three marker hues (run/
+  // strength/plyo each get their own color).
+  function _calMarkerType(t) {
     t = (t || "").toLowerCase();
     if (t === "run" || t === "bike") return "run";
-    return "lift"; // strength/lift/wod → violet
+    if (t === "plyo") return "plyo";
+    return "strength"; // strength/lift/wod/unknown
   }
+  var _calMarkerLabel = { run: "run", strength: "strength", plyo: "plyo" };
 
-  // Planned-session tags (issue: see Plan sessions on the Log calendar).
-  // Bucket run vs everything else (strength/plyo → "Strength", same family
-  // split as the existing dots) and fetch on demand per displayed month.
-  function _calPlannedFamily(t) {
-    return (t || "").toLowerCase() === "run" ? "run" : "lift";
-  }
-  function _calPlannedLabel(fam) {
-    return fam === "run" ? "Run" : "Strength";
-  }
   function _calIsDoneStatus(s) {
     return s === "done_auto" || s === "done_manual";
   }
@@ -5330,36 +5328,59 @@
       .catch(function () {});
   }
 
-  // Per-day tag HTML: one tag per family (run/lift), "done" wins over
-  // "planned" if a day has more than one session in the same family. A done
-  // (linked/matched) session drops its tag entirely — the real-workout dot
-  // for that day already shows it happened, so the tag would just duplicate
-  // it; the tag stays only while the session is still upcoming/unmatched.
-  function _calPlannedTagsHtml(dateStr) {
+  // One marker per session, logged + still-open planned merged into a single
+  // row (calendar redesign): solid filled = logged, outline = planned; hue =
+  // type; the number is TSS (estimated for planned). A done/matched planned
+  // session is dropped — its logged counterpart already has a block, so
+  // showing both would duplicate the same session. Capped at 3 blocks + a
+  // "+N" overflow chip so the row (and therefore the cell) never grows.
+  function _calMarkerBlockHtml(item) {
+    var tssText = item.tss != null ? String(Math.round(item.tss)) : "—";
+    var stateLabel = item.state === "logged" ? "Logged" : "Planned";
+    var typeLabel = _calMarkerLabel[item.type] || item.type;
+    var label =
+      item.tss != null
+        ? stateLabel + " " + typeLabel + ", " + (item.state === "plan" ? "estimated " : "") + tssText + " TSS"
+        : stateLabel + " " + typeLabel + ", TSS unavailable";
+    var attrs =
+      item.state === "plan"
+        ? ' data-plan-session="' + esc(item.id) + '" data-plan-date="' + esc(item.date) + '"'
+        : "";
+    return (
+      '<div class="cal-mk ' + item.state + " " + item.type + '"' + attrs +
+      ' title="' + esc(label) + '" aria-label="' + esc(label) + '">' +
+      esc(tssText) + "</div>"
+    );
+  }
+
+  function _calMarkersHtml(dateStr) {
+    var items = [];
+    var dd = calDayData[dateStr];
+    if (dd && dd.entries) {
+      dd.entries.forEach(function (e) {
+        items.push({ state: "logged", type: _calMarkerType(e.type), tss: e.tss });
+      });
+    }
     var pd = calPlannedData[dateStr];
-    if (!pd || !pd.length) return "";
-    var byFam = {};
-    pd.forEach(function (p) {
-      var fam = _calPlannedFamily(p.type);
-      var done = _calIsDoneStatus(p.status);
-      if (!byFam[fam] || (done && !byFam[fam].done))
-        byFam[fam] = { done: done, id: p.id };
-    });
-    var html = "";
-    ["run", "lift"].forEach(function (fam) {
-      if (!byFam[fam] || byFam[fam].done) return;
-      html +=
-        '<div class="lrx-caltag ' +
-        fam +
-        ' planned" data-plan-session="' +
-        byFam[fam].id +
-        '" data-plan-date="' +
-        dateStr +
-        '" title="Open in Plan">[' +
-        _calPlannedLabel(fam) +
-        "]</div>";
-    });
-    return html;
+    if (pd) {
+      pd.forEach(function (p) {
+        if (_calIsDoneStatus(p.status)) return;
+        items.push({
+          state: "plan", type: _calMarkerType(p.type),
+          tss: p.estimatedTss > 0 ? p.estimatedTss : null,
+          id: p.id, date: dateStr,
+        });
+      });
+    }
+    if (!items.length) return "";
+
+    var shown = items.slice(0, 3).map(_calMarkerBlockHtml).join("");
+    var extra = items.length - 3;
+    var overflow =
+      extra > 0
+        ? '<div class="cal-mk more" aria-label="' + extra + " more session" + (extra === 1 ? "" : "s") + '">+' + extra + "</div>"
+        : "";
+    return '<div class="cal-markers">' + shown + overflow + "</div>";
   }
 
   // Displayed month as 'YYYY-MM' — consumed by the summary (decision 3).
@@ -5512,17 +5533,6 @@
           html += '<td class="out"></td>';
         } else {
           var dStr = year + "-" + pad(month + 1) + "-" + pad(dayNum);
-          var dd2 = calDayData[dStr];
-          var dots = "";
-          if (dd2 && dd2.types.length) {
-            var fam = {};
-            dd2.types.forEach(function (t) {
-              fam[_calDotType(t)] = 1;
-            });
-            ["run", "lift"].forEach(function (f) {
-              if (fam[f]) dots += '<div class="lrx-dot ' + f + '"></div>';
-            });
-          }
           var todayCls = (dStr === todayStr) ? " is-today" : "";
           html +=
             '<td class="cal-day' + todayCls + '" data-date="' +
@@ -5530,8 +5540,7 @@
             '"><span class="dnum">' +
             dayNum +
             "</span>" +
-            dots +
-            _calPlannedTagsHtml(dStr) +
+            _calMarkersHtml(dStr) +
             "</td>";
           dayNum++;
         }
@@ -5543,14 +5552,14 @@
       html +=
         '<td class="lrx-wkcell">' +
         '<div class="wt">' +
-        Math.round(wa.tss) +
-        " TSS" +
-        (wa.estTss > 0 ? ' <span class="wkest">(' + Math.round(totalTss) + " TSS)</span>" : "") +
+        (wa.estTss > 0
+          ? Math.round(wa.tss) + " / " + Math.round(totalTss) + " TSS"
+          : Math.round(wa.tss) + " TSS") +
         "</div>" +
         '<div class="wkkm">' +
-        wa.km.toFixed(1) +
-        " km" +
-        (wa.estKm > 0 ? ' <span class="wkest">(' + totalKm.toFixed(1) + " km)</span>" : "") +
+        (wa.estKm > 0
+          ? wa.km.toFixed(1) + " / " + totalKm.toFixed(1) + " km"
+          : wa.km.toFixed(1) + " km") +
         "</div>" +
         '<div class="lrx-wkbar">' +
         '<span class="lrx-wkbar-actual" style="width:' + actualPct.toFixed(0) + '%"></span>' +
@@ -5562,11 +5571,12 @@
     html +=
       "</tbody></table>" +
       '<div class="lrx-callegend">' +
-      '<span><b style="background:var(--lrx-run)"></b>Run logged</span>' +
-      '<span><b style="background:var(--lrx-lift)"></b>Lift logged</span>' +
-      '<span><span class="lrx-caltag run planned">[Run]</span>Plan session — not yet done</span>' +
-      '<span><span class="lrx-wkbar-est" style="display:inline-block;width:14px;height:8px;border-radius:2px;vertical-align:middle;"></span> Estimated TSS from planned (not yet logged)</span>' +
-      '<span style="color:var(--lrx-faint)">click a week to scope · click the month title for the month total</span>' +
+      '<span><b style="background:var(--lrx-run)"></b>Run</span>' +
+      '<span><b style="background:var(--lrx-lift)"></b>Strength</span>' +
+      '<span><b style="background:var(--lrx-plyo)"></b>Plyo</span>' +
+      '<span><span class="cal-mk plan run" style="width:20px;height:16px;flex:none;font-size:0;">&nbsp;</span>Outline = planned, not yet done</span>' +
+      '<span><span class="lrx-wkbar-est" style="display:inline-block;width:14px;height:8px;border-radius:2px;vertical-align:middle;"></span> Estimated TSS from plan</span>' +
+      '<span style="color:var(--lrx-faint)">solid = logged · outline = planned · number = TSS · click a week to scope</span>' +
       "</div>";
     el.innerHTML = html;
 
@@ -5616,9 +5626,9 @@
     var tbody = el.querySelector("tbody");
     if (tbody) {
       tbody.addEventListener("click", function (e) {
-        // Plan-session tag → deep link to Plan, skip the week-scope/scroll
+        // Plan-session marker → deep link to Plan, skip the week-scope/scroll
         // behavior below entirely (this is a navigation, not a scope click).
-        var tag = e.target.closest(".lrx-caltag");
+        var tag = e.target.closest("[data-plan-session]");
         if (tag) {
           e.stopPropagation();
           document.dispatchEvent(
