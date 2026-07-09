@@ -4285,6 +4285,58 @@
       <div id="plan-suggestions-trigger-row" class="pl-sug-trigger-row" style="display:none;">
         <button id="plan-suggestions-trigger" class="pl-sug-trigger-btn" type="button">✨ Show AI next-week suggestions</button>
       </div>
+
+      <!-- ── Plan settings + schedule preview (moved from Projection tab;
+           that slot now shows Race-readiness specificity instead) ────────── -->
+      <div class="pm-card" id="plan-settings-section">
+        <div class="pm-ckhead">
+          <span class="pm-sectitle">Plan settings</span>
+          <button id="plan-save-settings-btn" class="pm-ckbtn dark" type="button">
+            Save
+          </button>
+        </div>
+        <div class="pm-settingsrow">
+          <div class="pm-field">
+            <div class="pm-lab">Ramp rate</div>
+            <div class="pm-inputline">
+              <input
+                id="plan-ramp-rate-input"
+                type="number"
+                min="0"
+                step="1"
+                value="0"
+                aria-describedby="plan-ramp-rate-error"
+              />
+              <span class="pm-unit">TSS/week</span>
+            </div>
+            <span id="plan-ramp-rate-error" class="pm-fielderr" role="alert"></span>
+          </div>
+          <div class="pm-field">
+            <div class="pm-lab">Taper window</div>
+            <div class="pm-inputline">
+              <input
+                id="plan-taper-window-input"
+                type="number"
+                min="0"
+                step="1"
+                value="0"
+                aria-describedby="plan-taper-window-error"
+              />
+              <span class="pm-unit">weeks</span>
+            </div>
+            <span id="plan-taper-window-error" class="pm-fielderr" role="alert"></span>
+          </div>
+        </div>
+        <p id="plan-settings-saved" class="pm-saved" style="display: none">
+          &#10003; Saved
+        </p>
+        <span class="pm-sectitle">Schedule preview</span>
+        <div class="pm-csub">
+          Weekly planned TSS — build ramp then a taper into the A race.
+        </div>
+        <div class="pm-schedwrap" id="plan-sched"></div>
+        <div class="pm-wklabels" id="plan-wklabels"></div>
+      </div>
     </div>
 
     <!-- Projection panel (issue #650) -->
@@ -4420,61 +4472,8 @@
             ></svg>
           </div>
 
-          <!-- 5. Plan settings + schedule preview -->
-          <div class="pm-card" id="plan-settings-section">
-            <div class="pm-ckhead">
-              <span class="pm-sectitle">Plan settings</span>
-              <button id="plan-save-settings-btn" class="pm-ckbtn dark" type="button">
-                Save
-              </button>
-            </div>
-            <div class="pm-settingsrow">
-              <div class="pm-field">
-                <div class="pm-lab">Ramp rate</div>
-                <div class="pm-inputline">
-                  <input
-                    id="plan-ramp-rate-input"
-                    type="number"
-                    min="0"
-                    step="1"
-                    value="0"
-                    aria-describedby="plan-ramp-rate-error"
-                  />
-                  <span class="pm-unit">TSS/week</span>
-                </div>
-                <span id="plan-ramp-rate-error" class="pm-fielderr" role="alert"></span>
-              </div>
-              <div class="pm-field">
-                <div class="pm-lab">Taper window</div>
-                <div class="pm-inputline">
-                  <input
-                    id="plan-taper-window-input"
-                    type="number"
-                    min="0"
-                    step="1"
-                    value="0"
-                    aria-describedby="plan-taper-window-error"
-                  />
-                  <span class="pm-unit">weeks</span>
-                </div>
-                <span id="plan-taper-window-error" class="pm-fielderr" role="alert"></span>
-              </div>
-            </div>
-            <p id="plan-settings-saved" class="pm-saved" style="display: none">
-              &#10003; Saved
-            </p>
-            <span class="pm-sectitle">Schedule preview</span>
-            <div class="pm-csub">
-              Weekly planned TSS — build ramp then a taper into the A race.
-            </div>
-            <canvas id="plan-schedule-canvas" style="display:none"></canvas>
-            <div class="pm-schedwrap" id="plan-sched"></div>
-            <div class="pm-wklabels" id="plan-wklabels"></div>
-          </div>
-
-          </div><!-- /pm-row2 (form curve + plan settings) -->
-
-          <!-- 6. Race-readiness specificity -->
+          <!-- 5. Race-readiness specificity (Plan settings moved to the Plan
+               tab — see #plan-settings-section there) -->
           <div class="pm-card" id="plan-spec-section">
             <span class="pm-sectitle">Race-readiness specificity</span>
             <div class="pm-csub" id="plan-spec-sub">
@@ -4485,9 +4484,11 @@
             </div>
             <div id="plan-spec-bars"></div>
           </div>
+
+          </div><!-- /pm-row2 (form curve + race-readiness specificity) -->
         </div>
       </div>
-      <!-- end Plan tab panel -->
+      <!-- end Projection tab panel -->
     </div>
 
     <!-- Performance panel (issue #811; reworked feature/performance-tab-rework) -->

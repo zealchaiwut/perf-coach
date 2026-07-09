@@ -1091,73 +1091,7 @@
     });
   }
 
-  // ── 5. Schedule preview bars ──────────────────────────────────────────────
-  function _computeScheduleSeries(rampRate, taperWindow, weeks) {
-    weeks = weeks || 20;
-    var BASE_TSS = 55;
-    var PLATEAU = 100;
-    var taper = Math.max(0, Math.min(Math.floor(taperWindow), weeks - 1));
-    var arr = [];
-    for (var w = 1; w <= weeks; w++) {
-      var tss;
-      if (w <= weeks - taper) {
-        tss = Math.min(PLATEAU, BASE_TSS + rampRate * (w - 1));
-      } else {
-        var into = w - (weeks - taper);
-        tss = PLATEAU * (into === 1 ? 0.62 : 0.42);
-      }
-      arr.push(tss);
-    }
-    return arr;
-  }
-
-  function renderSchedulePreview() {
-    var host = document.getElementById("plan-sched");
-    var labs = document.getElementById("plan-wklabels");
-    if (!host) return;
-    host.innerHTML = "";
-    if (labs) labs.innerHTML = "";
-
-    var rampIn = document.getElementById("plan-ramp-rate-input");
-    var taperIn = document.getElementById("plan-taper-window-input");
-    var rampRate = rampIn ? Math.max(0, parseFloat(rampIn.value) || 0) : 0;
-    var taperWindow = taperIn ? Math.max(0, parseFloat(taperIn.value) || 0) : 0;
-
-    // Prefer planned_load from the plan projection when available.
-    var weeks = 20;
-    var series;
-    var planned = _projection && _projection.planned_load;
-    if (Array.isArray(planned) && planned.length > 0) {
-      // aggregate daily planned load into weeks
-      var byWeek = [];
-      for (var i = 0; i < planned.length; i += 7) {
-        var chunk = planned.slice(i, i + 7);
-        var sum = chunk.reduce(function (a, b) { return a + (b || 0); }, 0);
-        byWeek.push(sum);
-      }
-      series = byWeek.length ? byWeek : _computeScheduleSeries(rampRate, taperWindow, weeks);
-    } else {
-      series = _computeScheduleSeries(rampRate, taperWindow, weeks);
-    }
-
-    var taper = Math.max(0, Math.min(Math.floor(taperWindow), series.length));
-    var max = Math.max.apply(null, series.concat([1]));
-
-    series.forEach(function (tss, i) {
-      var bar = document.createElement("div");
-      bar.className = "pm-bar" + (i >= series.length - taper ? " taper" : "");
-      bar.style.height = (tss / max) * 100 + "%";
-      bar.title = "Wk " + (i + 1) + " · " + Math.round(tss) + " TSS";
-      host.appendChild(bar);
-      if (labs) {
-        var s = document.createElement("span");
-        s.textContent = (i + 1) % 2 === 1 ? "Wk " + (i + 1) : "";
-        labs.appendChild(s);
-      }
-    });
-  }
-
-  // ── 6. Specificity bars ───────────────────────────────────────────────────
+  // ── 5. Specificity bars ───────────────────────────────────────────────────
   function renderSpecBars() {
     var host = document.getElementById("plan-spec-bars");
     var emptyEl = document.getElementById("plan-spec-empty");
@@ -1204,94 +1138,15 @@
       .join("");
   }
 
-  // ── Plan settings ─────────────────────────────────────────────────────────
-  function _validateSettingsInputs() {
-    var rampIn = document.getElementById("plan-ramp-rate-input");
-    var taperIn = document.getElementById("plan-taper-window-input");
-    var rampErr = document.getElementById("plan-ramp-rate-error");
-    var taperErr = document.getElementById("plan-taper-window-error");
-    var valid = true;
-
-    if (rampErr) rampErr.textContent = "";
-    if (taperErr) taperErr.textContent = "";
-    if (rampIn) rampIn.classList.remove("is-invalid");
-    if (taperIn) taperIn.classList.remove("is-invalid");
-
-    var rampVal = rampIn ? rampIn.value.trim() : "";
-    var taperVal = taperIn ? taperIn.value.trim() : "";
-
-    if (rampVal === "" || isNaN(Number(rampVal)) || Number(rampVal) < 0) {
-      if (rampErr) rampErr.textContent = "Enter a number ≥ 0.";
-      if (rampIn) rampIn.classList.add("is-invalid");
-      valid = false;
-    }
-    if (taperVal === "" || isNaN(Number(taperVal)) || Number(taperVal) < 0) {
-      if (taperErr) taperErr.textContent = "Enter a number ≥ 0.";
-      if (taperIn) taperIn.classList.add("is-invalid");
-      valid = false;
-    }
-    return valid;
-  }
-
-  function loadPlanSettings() {
+  // ── Plan entity id ────────────────────────────────────────────────────────
+  // Ramp-rate/taper-window settings + schedule preview moved to the Plan tab
+  // (training-plan.js) — this module still needs _planEntityId itself, since
+  // every race/checkpoint URL (_planRaceUrl) is /api/plans/{id}/races|... .
+  function _loadPlanEntityId() {
     apiGet("/api/plans", function (data) {
       var plan = Array.isArray(data) && data.length > 0 ? data[0] : null;
-      var rampIn = document.getElementById("plan-ramp-rate-input");
-      var taperIn = document.getElementById("plan-taper-window-input");
-
-      if (plan) {
-        _planEntityId = plan.id;
-        if (rampIn) rampIn.value = plan.ramp_rate != null ? plan.ramp_rate : 0;
-        if (taperIn)
-          taperIn.value = plan.taper_length != null ? plan.taper_length : 0;
-      } else {
-        if (rampIn) rampIn.value = 0;
-        if (taperIn) taperIn.value = 0;
-      }
-      renderSchedulePreview();
+      if (plan) _planEntityId = plan.id;
     });
-  }
-
-  function savePlanSettings() {
-    if (!_validateSettingsInputs()) return;
-
-    var rampIn = document.getElementById("plan-ramp-rate-input");
-    var taperIn = document.getElementById("plan-taper-window-input");
-    var savedEl = document.getElementById("plan-settings-saved");
-
-    var rampRate = parseFloat(rampIn ? rampIn.value : 0);
-    var taperLength = parseFloat(taperIn ? taperIn.value : 0);
-
-    function onSaved(res) {
-      if (!res.ok) {
-        var rampErr = document.getElementById("plan-ramp-rate-error");
-        if (rampErr)
-          rampErr.textContent =
-            res.data && res.data.detail ? res.data.detail : "Save failed.";
-        return;
-      }
-      _planEntityId = res.data.id;
-      if (savedEl) {
-        savedEl.style.display = "";
-        setTimeout(function () {
-          savedEl.style.display = "none";
-        }, 2000);
-      }
-    }
-
-    if (_planEntityId) {
-      apiPatch(
-        "/api/plans/" + _planEntityId,
-        { ramp_rate: rampRate, taper_length: taperLength },
-        onSaved,
-      );
-    } else {
-      apiPost(
-        "/api/plans",
-        { name: "Training Plan", ramp_rate: rampRate, taper_length: taperLength },
-        onSaved,
-      );
-    }
   }
 
   // ── Render orchestration ──────────────────────────────────────────────────
@@ -1301,7 +1156,6 @@
     renderRaceCards();
     renderFormCurve();
     renderSpecBars();
-    renderSchedulePreview();
   }
 
   // Map the single /api/plan/computed bundle into local state, then render
@@ -1356,16 +1210,16 @@
 
   function refresh() {
     // _planId (user id) still drives _ensurePlanId for /api/plan/computed.
-    // _planEntityId (TrainingPlan UUID) is set by loadPlanSettings() and drives
-    // all /api/plans/{id}/races|checkpoints|projection calls.
+    // _planEntityId (TrainingPlan UUID) is set by _loadPlanEntityId() and
+    // drives all /api/plans/{id}/races|checkpoints|projection calls.
     _ensurePlanId(function () {
       apiGet("/api/plan/computed", function (bundle) {
         applyBundle(bundle);
       });
     });
-    // Plan settings (ramp/taper + schedule preview) is a separate concern from
-    // the computed bundle; load it independently so Save keeps working.
-    loadPlanSettings();
+    // Independent of the computed bundle so races/checkpoints keep working
+    // even if the bundle call fails.
+    _loadPlanEntityId();
   }
 
   // Force a server-side recompute (ignores cache), then re-render. Shows a
@@ -2057,15 +1911,6 @@
         closeRacePicker();
         openModal(null, "race");
       });
-
-    var rampIn = document.getElementById("plan-ramp-rate-input");
-    var taperIn = document.getElementById("plan-taper-window-input");
-    var saveSettingsBtn = document.getElementById("plan-save-settings-btn");
-
-    if (rampIn) rampIn.addEventListener("input", renderSchedulePreview);
-    if (taperIn) taperIn.addEventListener("input", renderSchedulePreview);
-    if (saveSettingsBtn)
-      saveSettingsBtn.addEventListener("click", savePlanSettings);
 
     var planModal = document.getElementById("plan-race-modal");
     if (planModal)

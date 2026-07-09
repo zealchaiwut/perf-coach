@@ -3,7 +3,8 @@
  * Ported from the interactive mock (plan-tab-mock.html): a single scrolling
  * page with three regions — Week plan (always), Add panel (collapsed), Detail
  * panel (collapsed) as a mutually-exclusive accordion. Wired to the live
- * /api/planned-sessions endpoints. Distinct from Projection's ramp/taper model.
+ * /api/planned-sessions endpoints. Also owns Plan settings (ramp rate/taper
+ * window/schedule preview) — moved here from Projection's ramp/taper model.
  *
  * CSS is injected once, scoped under .plan-panel with a pl- prefix so it never
  * clashes with the Log/Projection/Performance styles. All glyphs are clean UTF-8.
@@ -145,6 +146,8 @@ information about.
           _openDetailById(id);
         }
       });
+      _wirePlanSettings();
+      _loadPlanSettings();
     },
     // Deep link from outside the Plan tab (e.g. the Log calendar): scope the
     // week to the session's date and flag it to open once init()'s own
@@ -269,6 +272,142 @@ information about.
   // Set by openSession() before the tab switch triggers init(); consumed once
   // the resulting week load resolves (see init() below).
   var _pendingOpenId = null;
+
+  // ── Plan settings (ramp rate / taper window / schedule preview) ─────────────
+  // Moved here from the Projection tab (training-projection.js), which now
+  // shows Race-readiness specificity in this card's old spot instead. Static
+  // HTML host (#plan-settings-section) — wired once in init() via property
+  // assignment (.onclick/.oninput), which is safely idempotent across
+  // init()'s repeat calls, same convention _renderWeekSection() uses above.
+  var _planEntityId = null; // TrainingPlan UUID from GET /api/plans
+
+  function _computeScheduleSeries(rampRate, taperWindow, weeks) {
+    weeks = weeks || 20;
+    var BASE_TSS = 55;
+    var PLATEAU = 100;
+    var taper = Math.max(0, Math.min(Math.floor(taperWindow), weeks - 1));
+    var arr = [];
+    for (var w = 1; w <= weeks; w++) {
+      var tss;
+      if (w <= weeks - taper) {
+        tss = Math.min(PLATEAU, BASE_TSS + rampRate * (w - 1));
+      } else {
+        var into = w - (weeks - taper);
+        tss = PLATEAU * (into === 1 ? 0.62 : 0.42);
+      }
+      arr.push(tss);
+    }
+    return arr;
+  }
+
+  function _renderSchedulePreview() {
+    var host = document.getElementById('plan-sched');
+    var labs = document.getElementById('plan-wklabels');
+    if (!host) return;
+    host.innerHTML = '';
+    if (labs) labs.innerHTML = '';
+
+    var rampIn = document.getElementById('plan-ramp-rate-input');
+    var taperIn = document.getElementById('plan-taper-window-input');
+    var rampRate = rampIn ? Math.max(0, parseFloat(rampIn.value) || 0) : 0;
+    var taperWindow = taperIn ? Math.max(0, parseFloat(taperIn.value) || 0) : 0;
+
+    var weeks = 20;
+    var series = _computeScheduleSeries(rampRate, taperWindow, weeks);
+    var taper = Math.max(0, Math.min(Math.floor(taperWindow), series.length));
+    var max = Math.max.apply(null, series.concat([1]));
+
+    series.forEach(function (tss, i) {
+      var bar = document.createElement('div');
+      bar.className = 'pm-bar' + (i >= series.length - taper ? ' taper' : '');
+      bar.style.height = (tss / max) * 100 + '%';
+      bar.title = 'Wk ' + (i + 1) + ' · ' + Math.round(tss) + ' TSS';
+      host.appendChild(bar);
+      if (labs) {
+        var s = document.createElement('span');
+        s.textContent = (i + 1) % 2 === 1 ? 'Wk ' + (i + 1) : '';
+        labs.appendChild(s);
+      }
+    });
+  }
+
+  function _validatePlanSettingsInputs() {
+    var rampIn = document.getElementById('plan-ramp-rate-input');
+    var taperIn = document.getElementById('plan-taper-window-input');
+    var rampErr = document.getElementById('plan-ramp-rate-error');
+    var taperErr = document.getElementById('plan-taper-window-error');
+    var valid = true;
+
+    if (rampErr) rampErr.textContent = '';
+    if (taperErr) taperErr.textContent = '';
+    if (rampIn) rampIn.classList.remove('is-invalid');
+    if (taperIn) taperIn.classList.remove('is-invalid');
+
+    var rampVal = rampIn ? rampIn.value.trim() : '';
+    var taperVal = taperIn ? taperIn.value.trim() : '';
+
+    if (rampVal === '' || isNaN(Number(rampVal)) || Number(rampVal) < 0) {
+      if (rampErr) rampErr.textContent = 'Enter a number ≥ 0.';
+      if (rampIn) rampIn.classList.add('is-invalid');
+      valid = false;
+    }
+    if (taperVal === '' || isNaN(Number(taperVal)) || Number(taperVal) < 0) {
+      if (taperErr) taperErr.textContent = 'Enter a number ≥ 0.';
+      if (taperIn) taperIn.classList.add('is-invalid');
+      valid = false;
+    }
+    return valid;
+  }
+
+  function _loadPlanSettings() {
+    _api('GET', '/api/plans').then(function (data) {
+      var plan = Array.isArray(data) && data.length > 0 ? data[0] : null;
+      var rampIn = document.getElementById('plan-ramp-rate-input');
+      var taperIn = document.getElementById('plan-taper-window-input');
+      if (plan) {
+        _planEntityId = plan.id;
+        if (rampIn) rampIn.value = plan.ramp_rate != null ? plan.ramp_rate : 0;
+        if (taperIn) taperIn.value = plan.taper_length != null ? plan.taper_length : 0;
+      } else {
+        if (rampIn) rampIn.value = 0;
+        if (taperIn) taperIn.value = 0;
+      }
+      _renderSchedulePreview();
+    }).catch(function () { _renderSchedulePreview(); });
+  }
+
+  function _savePlanSettings() {
+    if (!_validatePlanSettingsInputs()) return;
+    var rampIn = document.getElementById('plan-ramp-rate-input');
+    var taperIn = document.getElementById('plan-taper-window-input');
+    var savedEl = document.getElementById('plan-settings-saved');
+    var rampRate = parseFloat(rampIn ? rampIn.value : 0);
+    var taperLength = parseFloat(taperIn ? taperIn.value : 0);
+    var body = { ramp_rate: rampRate, taper_length: taperLength };
+
+    var req = _planEntityId
+      ? _api('PATCH', '/api/plans/' + _planEntityId, body)
+      : _api('POST', '/api/plans', Object.assign({ name: 'Training Plan' }, body));
+    req.then(function (plan) {
+      if (plan && plan.id) _planEntityId = plan.id;
+      if (savedEl) {
+        savedEl.style.display = '';
+        setTimeout(function () { savedEl.style.display = 'none'; }, 2000);
+      }
+    }).catch(function (e) {
+      var rampErr = document.getElementById('plan-ramp-rate-error');
+      if (rampErr) rampErr.textContent = e.message || 'Save failed.';
+    });
+  }
+
+  function _wirePlanSettings() {
+    var rampIn = document.getElementById('plan-ramp-rate-input');
+    var taperIn = document.getElementById('plan-taper-window-input');
+    var saveBtn = document.getElementById('plan-save-settings-btn');
+    if (rampIn) rampIn.oninput = _renderSchedulePreview;
+    if (taperIn) taperIn.oninput = _renderSchedulePreview;
+    if (saveBtn) saveBtn.onclick = _savePlanSettings;
+  }
 
   // ── Render shell ────────────────────────────────────────────────────────────
   function _renderAll() {
