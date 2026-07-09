@@ -15,7 +15,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.db import engine
-from backend.models import User, Workout
+from backend.main import _planned_session_dict
+from backend.models import PlannedSession, User, Workout
 from backend.services import training_load as tl
 
 
@@ -138,3 +139,66 @@ def test_rest_type_never_estimated():
     assert tl.estimate_planned_session_metrics(_BASELINE, "rest", structure) == {
         "estimated_tss": None, "estimated_distance_km": None,
     }
+
+
+# ── _planned_session_dict: no estimate for past or missed sessions ──────────
+# "we won't be able to make it" — a session whose date has already gone by
+# (whether or not the reconcile sweep has flipped it to status=missed yet)
+# can't still happen, so it shouldn't inflate "TSS still coming this week".
+
+_RUN_STRUCTURE = {"blocks": [{"phase": "main", "duration_min": 60}]}
+
+
+def test_no_estimate_for_past_unmatched_session(estimate_user):
+    past = date.today() - timedelta(days=2)
+    with Session(engine) as s:
+        p = PlannedSession(user_id=estimate_user, planned_date=past, session_type="run",
+                            name="Missed run", status="planned", structure=_RUN_STRUCTURE)
+        s.add(p); s.commit(); s.refresh(p)
+        pid = p.id
+
+    baseline = {"run_pace_min_per_km": {"short": None, "moderate": 6.0, "long": None},
+                "run_tss_per_min": 1.0, "strength_tss_per_min": None}
+    with Session(engine) as s:
+        p = s.get(PlannedSession, pid)
+        d = _planned_session_dict(p, None, baseline)
+    assert d["estimated_tss"] is None
+    assert d["estimated_distance_km"] is None
+
+
+def test_no_estimate_for_explicitly_missed_session(estimate_user):
+    today = date.today()
+    with Session(engine) as s:
+        p = PlannedSession(user_id=estimate_user, planned_date=today, session_type="run",
+                            name="Missed run", status="missed", structure=_RUN_STRUCTURE)
+        s.add(p); s.commit(); s.refresh(p)
+        pid = p.id
+
+    baseline = {"run_pace_min_per_km": {"short": None, "moderate": 6.0, "long": None},
+                "run_tss_per_min": 1.0, "strength_tss_per_min": None}
+    with Session(engine) as s:
+        p = s.get(PlannedSession, pid)
+        d = _planned_session_dict(p, None, baseline)
+    assert d["estimated_tss"] is None
+    assert d["estimated_distance_km"] is None
+
+
+def test_estimate_present_for_todays_and_future_planned_sessions(estimate_user):
+    today = date.today()
+    tomorrow = today + timedelta(days=1)
+    with Session(engine) as s:
+        p1 = PlannedSession(user_id=estimate_user, planned_date=today, session_type="run",
+                             name="Today's run", status="planned", structure=_RUN_STRUCTURE)
+        p2 = PlannedSession(user_id=estimate_user, planned_date=tomorrow, session_type="run",
+                             name="Tomorrow's run", status="planned", structure=_RUN_STRUCTURE)
+        s.add_all([p1, p2]); s.commit()
+        ids = [p1.id, p2.id]
+
+    baseline = {"run_pace_min_per_km": {"short": None, "moderate": 6.0, "long": None},
+                "run_tss_per_min": 1.0, "strength_tss_per_min": None}
+    with Session(engine) as s:
+        for pid in ids:
+            p = s.get(PlannedSession, pid)
+            d = _planned_session_dict(p, None, baseline)
+            assert d["estimated_tss"] == 60
+            assert d["estimated_distance_km"] == 10.0

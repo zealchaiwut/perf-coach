@@ -7295,12 +7295,21 @@ def _planned_session_dict(p, matched=None, estimate_baseline=None) -> dict:
         "created_at": p.created_at.isoformat() if p.created_at else None,
         "updated_at": p.updated_at.isoformat() if p.updated_at else None,
     }
-    # Rough, formula-only (no LLM) estimated TSS/distance for a still-open
-    # session, so a "what's coming this week" progress view isn't blind to
-    # planned-but-not-logged work — see training_load.estimate_planned_
-    # session_metrics. Skipped once matched/done: the real actual numbers
-    # already cover that day, an estimate would just be noise.
-    if estimate_baseline is not None and matched is None:
+    # Rough, formula-only (no LLM) estimated TSS/distance for a still-open,
+    # still-ACHIEVABLE session, so a "what's coming this week" progress view
+    # isn't blind to planned-but-not-logged work — see training_load.
+    # estimate_planned_session_metrics. Excluded for: matched/done sessions
+    # (the real actual numbers already cover that day — an estimate would
+    # just be noise), explicitly missed sessions, and any unmatched session
+    # whose date has already passed (effectively missed even before the
+    # reconcile sweep flips its status) — none of those can still happen,
+    # so counting them toward "TSS still coming" would overstate it.
+    if (
+        estimate_baseline is not None
+        and matched is None
+        and p.status != "missed"
+        and p.planned_date >= _date.today()
+    ):
         from backend.services.training_load import estimate_planned_session_metrics as _est
         d.update(_est(estimate_baseline, p.session_type, p.structure))
     else:

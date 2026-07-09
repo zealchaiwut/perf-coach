@@ -6722,9 +6722,16 @@
     .lrx-calnav .mtitle.scoped { background: var(--lrx-blueSoft); color: var(--lrx-lavHi); }
     .lrx-arw { width: 32px; height: 32px; border: 1px solid var(--lrx-line); background: var(--lrx-tile); border-radius: 8px; cursor: pointer; font-size: 16px; color: var(--lrx-muted); }
     .lrx-today { font-size: 13px; font-weight: 600; color: var(--lrx-muted); background: var(--lrx-tile); border: 1px solid var(--lrx-line); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
-    table.lrx-cal { width: 100%; border-collapse: separate; border-spacing: 0; }
+    /* table-layout:auto (the default) sizes each COLUMN to its own widest
+       cell across every row — a column that happens to show "[Strength]"
+       (wider than "[Run]" or a bare dot) anywhere in the month ends up
+       visibly wider than the others. table-layout:fixed pins every day
+       column to an equal share of the remaining width once the Total
+       column's own width is set, so Mon–Sun always line up evenly
+       regardless of which day happens to carry the widest tag. */
+    table.lrx-cal { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; }
     table.lrx-cal th { font-size: 11px; font-weight: 800; letter-spacing: 0.06em; color: var(--lrx-faint); text-transform: uppercase; padding: 0 0 8px; text-align: center; }
-    table.lrx-cal th.wk { text-align: right; padding-right: 2px; }
+    table.lrx-cal th.wk { text-align: right; padding-right: 2px; width: 128px; }
     .lrx-calrow { cursor: pointer; }
     /* Fixed 100px keeps EVERY week row the same height whether or not its days
        carry planned-session tags. `height` on a table cell is only a MINIMUM
@@ -6968,7 +6975,7 @@
     }
 
     @media (max-width: 640px) {
-      .lrx-wkcell { width: 96px; }
+      .lrx-wkcell, table.lrx-cal th.wk { width: 96px; }
       #layout-wrapper .detail-panel { width: 100vw; max-width: 100vw; }
     }
 

@@ -5543,12 +5543,14 @@
       html +=
         '<td class="lrx-wkcell">' +
         '<div class="wt">' +
-        Math.round(totalTss) +
-        " TSS</div>" +
+        Math.round(wa.tss) +
+        " TSS" +
+        (wa.estTss > 0 ? ' <span class="wkest">(' + Math.round(totalTss) + " TSS)</span>" : "") +
+        "</div>" +
         '<div class="wkkm">' +
-        totalKm.toFixed(1) +
+        wa.km.toFixed(1) +
         " km" +
-        (wa.estTss > 0 ? ' <span class="wkest">(~' + Math.round(wa.estTss) + " planned)</span>" : "") +
+        (wa.estKm > 0 ? ' <span class="wkest">(' + totalKm.toFixed(1) + " km)</span>" : "") +
         "</div>" +
         '<div class="lrx-wkbar">' +
         '<span class="lrx-wkbar-actual" style="width:' + actualPct.toFixed(0) + '%"></span>' +
