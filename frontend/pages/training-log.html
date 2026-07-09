@@ -115,15 +115,22 @@
       .log-page-header-actions {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 6px;
         flex-shrink: 0;
-        /* Absolutely positioned; JS (_positionNav) sets `left` to the detail
-           drawer's left edge so the two clusters line up with the columns below.
-           Falls back to right-aligned before JS runs. */
+        /* Absolutely positioned; JS (_positionNav) right-aligns this to the
+           content column's right edge (same as .training-sub-tabs on the
+           left) so the two clusters bookend the columns below. Falls back to
+           right-aligned before JS runs. */
         position: absolute;
         right: 12px;
         top: 50%;
         transform: translateY(-50%);
+        /* Grouped into one glass pill, matching .training-sub-tabs, instead
+           of three loose floating buttons. */
+        background: rgba(255, 255, 255, 0.14);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 999px;
+        padding: 3px;
       }
       /* Equal HEIGHT action buttons (Sync / Removed / + Log workout). */
       .log-page-header-actions .sync-chip,
