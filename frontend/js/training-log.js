@@ -5319,6 +5319,8 @@
               id: p.id,
               type: p.session_type,
               status: p.status,
+              estimatedTss: p.estimated_tss,
+              estimatedDistanceKm: p.estimated_distance_km,
             });
           });
         });
@@ -5434,10 +5436,16 @@
     var rows = Math.ceil(totalCells / 7);
 
     // Build per-week aggregates (Mon–Sun rows over this month's cells).
+    // estTss/estKm are ADDITIONAL to tss/km — rough formula-only estimates
+    // (see training_load.estimate_planned_session_metrics; no LLM) for
+    // still-open planned sessions, so the week total reflects what's coming,
+    // not just what's already logged. Done/matched sessions are excluded
+    // from calPlannedData's estimate fields server-side (real numbers
+    // already cover them via calDayData), so there's no double counting.
     var weekAgg = [];
     var dayNum = 1;
     for (var row = 0; row < rows; row++) {
-      var w = { tss: 0, km: 0, sessions: 0, startDate: null, endDate: null };
+      var w = { tss: 0, km: 0, estTss: 0, estKm: 0, sessions: 0, startDate: null, endDate: null };
       for (var col = 0; col < 7; col++) {
         var cellIdx = row * 7 + col;
         if (cellIdx >= startOffset && dayNum <= lastDayNum) {
@@ -5450,6 +5458,10 @@
             w.km += dd.km;
             if (dd.totalTss > 0 || dd.types.length) w.sessions += 1;
           }
+          (calPlannedData[ds] || []).forEach(function (p) {
+            if (p.estimatedTss > 0) w.estTss += p.estimatedTss;
+            if (p.estimatedDistanceKm > 0) w.estKm += p.estimatedDistanceKm;
+          });
           dayNum++;
         }
       }
@@ -5459,7 +5471,7 @@
       null,
       weekAgg
         .map(function (w) {
-          return w.tss;
+          return w.tss + w.estTss;
         })
         .concat([1]),
     );
@@ -5524,18 +5536,24 @@
           dayNum++;
         }
       }
-      var barPct = wa.tss > 0 ? (wa.tss / maxWk) * 100 : 0;
+      var totalTss = wa.tss + wa.estTss;
+      var totalKm = wa.km + wa.estKm;
+      var actualPct = totalTss > 0 ? (wa.tss / maxWk) * 100 : 0;
+      var estPct = totalTss > 0 ? (wa.estTss / maxWk) * 100 : 0;
       html +=
         '<td class="lrx-wkcell">' +
         '<div class="wt">' +
-        Math.round(wa.tss) +
+        Math.round(totalTss) +
         " TSS</div>" +
         '<div class="wkkm">' +
-        wa.km.toFixed(1) +
-        " km</div>" +
-        '<div class="lrx-wkbar"><span style="width:' +
-        barPct.toFixed(0) +
-        '%"></span></div>' +
+        totalKm.toFixed(1) +
+        " km" +
+        (wa.estTss > 0 ? ' <span class="wkest">(~' + Math.round(wa.estTss) + " planned)</span>" : "") +
+        "</div>" +
+        '<div class="lrx-wkbar">' +
+        '<span class="lrx-wkbar-actual" style="width:' + actualPct.toFixed(0) + '%"></span>' +
+        (wa.estTss > 0 ? '<span class="lrx-wkbar-est" style="width:' + estPct.toFixed(0) + '%"></span>' : "") +
+        "</div>" +
         "</td>";
       html += "</tr>";
     }
@@ -5545,6 +5563,7 @@
       '<span><b style="background:var(--lrx-run)"></b>Run logged</span>' +
       '<span><b style="background:var(--lrx-lift)"></b>Lift logged</span>' +
       '<span><span class="lrx-caltag run planned">[Run]</span>Plan session — not yet done</span>' +
+      '<span><span class="lrx-wkbar-est" style="display:inline-block;width:14px;height:8px;border-radius:2px;vertical-align:middle;"></span> Estimated TSS from planned (not yet logged)</span>' +
       '<span style="color:var(--lrx-faint)">click a week to scope · click the month title for the month total</span>' +
       "</div>";
     el.innerHTML = html;

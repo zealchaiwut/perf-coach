@@ -1111,3 +1111,164 @@ def get_weekly_volume(user_id: str, week_start: date, week_end: date) -> dict:
         "session_count": session_count,
         "workout_types": workout_types,
     }
+
+
+# ── Planned-session TSS/distance estimation (rough, formula-only, no LLM) ─────
+# Calendar/Plan progress bars want a sense of "TSS and km still coming this
+# week" from PLANNED sessions, not just what's already logged — but
+# PlannedSession has no duration/TSS columns (target_tss only ever existed
+# ephemerally in the AI-suggestions flow, never persisted). Rather than a
+# model call, derive it from the athlete's OWN recent pace/TSS-per-minute and
+# scale it by the planned session's duration. Deliberately coarse ("roughly
+# estimate", not a real TSS calc) — the real compute_running_tss/pace-IF
+# machinery in tss.py needs a target pace or actual splits, neither of which
+# a plan has.
+_PLANNED_ESTIMATE_LOOKBACK_DAYS = 90
+# Run sessions bucketed by duration — a long run and an interval session are
+# typically run at meaningfully different paces, so one overall average would
+# misrepresent both. Strength/plyo get a single combined TSS-per-minute rate
+# (no distance concept).
+_RUN_DURATION_BUCKETS = (("short", 0, 35), ("moderate", 35, 75), ("long", 75, None))
+# Structure's exercise entries carry no duration — 5min/exercise (rest
+# included) is a rough stand-in so a strength session still gets an estimate.
+_STRENGTH_MIN_PER_EXERCISE = 5.0
+
+
+def estimate_historical_pace_and_tss(user_id, db=None) -> dict:
+    """Rough per-user baseline for estimate_planned_session_metrics(): average
+    run pace (min/km) bucketed by duration, plus average TSS-per-minute for
+    run and for strength/plyo, each from the trailing
+    _PLANNED_ESTIMATE_LOOKBACK_DAYS of logged workouts. Any bucket with no
+    supporting data returns None for that piece — callers must handle that
+    (no data ⇒ no estimate, never a fabricated number).
+    """
+    uid = user_id if isinstance(user_id, _uuid_mod.UUID) else _uuid_mod.UUID(str(user_id))
+    cutoff = date.today() - timedelta(days=_PLANNED_ESTIMATE_LOOKBACK_DAYS)
+
+    def _query(session):
+        return (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= cutoff,
+                Workout.duration_seconds.isnot(None),
+                Workout.duration_seconds > 0,
+            )
+            .all()
+        )
+
+    if db is not None:
+        workouts = _query(db)
+    else:
+        with Session(engine) as session:
+            workouts = _query(session)
+
+    run_pace_buckets = {b[0]: {"dur_min": 0.0, "dist_km": 0.0} for b in _RUN_DURATION_BUCKETS}
+    run_tss = {"dur_min": 0.0, "tss": 0.0}
+    strength_tss = {"dur_min": 0.0, "tss": 0.0}
+
+    for w in workouts:
+        dur_min = float(w.duration_seconds) / 60.0
+        wt = (w.workout_type or "").lower()
+        if wt == "run":
+            if w.distance_km:
+                for name, lo, hi in _RUN_DURATION_BUCKETS:
+                    if dur_min >= lo and (hi is None or dur_min < hi):
+                        run_pace_buckets[name]["dur_min"] += dur_min
+                        run_pace_buckets[name]["dist_km"] += float(w.distance_km)
+                        break
+            if w.tss:
+                run_tss["dur_min"] += dur_min
+                run_tss["tss"] += float(w.tss)
+        elif wt in ("strength", "plyo") and w.tss:
+            strength_tss["dur_min"] += dur_min
+            strength_tss["tss"] += float(w.tss)
+
+    run_pace_min_per_km = {
+        name: (v["dur_min"] / v["dist_km"]) if v["dist_km"] > 0 else None
+        for name, v in run_pace_buckets.items()
+    }
+    return {
+        "run_pace_min_per_km": run_pace_min_per_km,
+        "run_tss_per_min": (run_tss["tss"] / run_tss["dur_min"]) if run_tss["dur_min"] > 0 else None,
+        "strength_tss_per_min": (strength_tss["tss"] / strength_tss["dur_min"]) if strength_tss["dur_min"] > 0 else None,
+    }
+
+
+def _planned_duration_minutes(workout_type: str, structure) -> Optional[float]:
+    """Best-effort planned duration in minutes from a session's structure —
+    run: sum of block durations (see plan_matching._planned_duration_seconds,
+    duplicated here in minutes to avoid a service-to-service import cycle);
+    strength/plyo: exercise count × _STRENGTH_MIN_PER_EXERCISE proxy."""
+    if not structure or not isinstance(structure, dict):
+        return None
+    wt = (workout_type or "").lower()
+    if wt == "run":
+        blocks = structure.get("blocks")
+        if not isinstance(blocks, list) or not blocks:
+            return None
+        total = 0.0
+        saw = False
+        for b in blocks:
+            if not isinstance(b, dict):
+                continue
+            dur = b.get("duration_min")
+            if dur is None:
+                continue
+            try:
+                dur = float(dur)
+            except (TypeError, ValueError):
+                continue
+            repeat = b.get("repeat")
+            try:
+                repeat = max(1, int(repeat)) if repeat is not None else 1
+            except (TypeError, ValueError):
+                repeat = 1
+            rest = b.get("rest_min")
+            try:
+                rest = float(rest) if rest is not None else 0.0
+            except (TypeError, ValueError):
+                rest = 0.0
+            total += dur * repeat + rest * max(0, repeat - 1)
+            saw = True
+        return total if saw else None
+    if wt in ("strength", "plyo"):
+        exercises = structure.get("exercises")
+        if not isinstance(exercises, list) or not exercises:
+            return None
+        return len(exercises) * _STRENGTH_MIN_PER_EXERCISE
+    return None
+
+
+def estimate_planned_session_metrics(baseline: dict, workout_type: str, structure) -> dict:
+    """Apply an estimate_historical_pace_and_tss() baseline to ONE planned
+    session's structure. Returns {"estimated_tss": int|None,
+    "estimated_distance_km": float|None} — both None when there's nothing to
+    estimate from (no duration derivable, or no matching history)."""
+    out = {"estimated_tss": None, "estimated_distance_km": None}
+    dur_min = _planned_duration_minutes(workout_type, structure)
+    if not dur_min:
+        return out
+    wt = (workout_type or "").lower()
+
+    if wt == "run":
+        for name, lo, hi in _RUN_DURATION_BUCKETS:
+            if dur_min >= lo and (hi is None or dur_min < hi):
+                pace = baseline.get("run_pace_min_per_km", {}).get(name)
+                break
+        else:
+            pace = None
+        if pace is None:
+            # This duration bucket has no history of its own — fall back to
+            # averaging whichever buckets DO have data rather than giving up.
+            available = [v for v in baseline.get("run_pace_min_per_km", {}).values() if v]
+            pace = (sum(available) / len(available)) if available else None
+        if pace:
+            out["estimated_distance_km"] = round(dur_min / pace, 1)
+        if baseline.get("run_tss_per_min"):
+            out["estimated_tss"] = round(dur_min * baseline["run_tss_per_min"])
+    elif wt in ("strength", "plyo"):
+        if baseline.get("strength_tss_per_min"):
+            out["estimated_tss"] = round(dur_min * baseline["strength_tss_per_min"])
+
+    return out
