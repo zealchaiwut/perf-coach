@@ -46,7 +46,7 @@ def _call_monthly_no_workouts(user):
 
     with (
         patch("backend.main.Session") as MockSession,
-        patch("backend.main.compute_fitness_series", return_value=[]),
+        patch("backend.main.get_snapshot_series", return_value=[]),
         patch("backend.main._get_app_config", return_value="1.0"),
         patch("backend.main.get_guardrail_result", return_value=default_guardrail),
     ):

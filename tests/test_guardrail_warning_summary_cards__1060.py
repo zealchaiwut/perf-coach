@@ -143,7 +143,7 @@ def _call_weekly_endpoint(user, guardrail_result=None):
 
     with (
         patch("backend.main.Session") as MockSession,
-        patch("backend.main.compute_fitness_series", return_value=[]),
+        patch("backend.main.get_snapshot_series", return_value=[]),
         patch("backend.main.get_guardrail_result", return_value=guardrail_result),
     ):
         MockSession.return_value = mock_db
@@ -188,7 +188,7 @@ def _call_monthly_endpoint(user, workouts, guardrail_result=None):
 
     with (
         patch("backend.main.Session") as MockSession,
-        patch("backend.main.compute_fitness_series", return_value=fitness_series),
+        patch("backend.main.get_snapshot_series", return_value=fitness_series),
         patch("backend.main._get_app_config", side_effect=lambda key, default="": default),
         patch("backend.main.get_guardrail_result", return_value=guardrail_result),
     ):

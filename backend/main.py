@@ -39,12 +39,11 @@ from backend.services.tss import STRENGTH_TSS_SCALE as _STRENGTH_TSS_SCALE, STRE
 from backend.services.tss import persist_running_tss as _persist_running_tss
 from backend.services.tss import recompute_user_running_tss as _recompute_user_running_tss
 from backend.services.training_load import (
-    _ewma_alpha,
     current_load,
     daily_tss_series,
     daily_update,
     compute_load_curves,
-    compute_fitness_series,
+    get_snapshot_series,
     readiness_label as training_readiness_label,
     project_form,
     resolve_user_ewma_days,
@@ -9196,8 +9195,10 @@ def get_readiness(
     Training-load readiness endpoint with backward-compatible wellness score range.
 
     Without params: returns CTL, ATL, TSB, readiness_label, series, and
-    building_baseline for today's training state. Uses compute_fitness_series to
-    derive all metric values; no raw query is present in this branch.
+    building_baseline for today's training state. Uses get_snapshot_series
+    (training_load.py) to derive all metric values — the single source of
+    truth also read by the weekly coach report and the fitness/fatigue/form
+    chart; no raw query is present in this branch.
 
     With both 'from' and 'to' params: returns the legacy wellness readiness score
     range — a list of { date, score } objects (or null) per day in [from, to].
@@ -9242,15 +9243,19 @@ def get_readiness(
             d += timedelta(days=1)
         return JSONResponse(result)
 
-    # ── Training-load readiness (CTL / ATL / TSB) ────────────────────────────────
+    # ── Training-load readiness (CTL / ATL / TSB / ACWR) ─────────────────────────
+    # Single source of truth: get_snapshot_series() (training_load.py) — the
+    # SAME snapshot-backed path the weekly coach report and the fitness/
+    # fatigue/form chart read, so this card can never disagree with them for
+    # the same date. See docs/calculations/training-load.md.
     today = _date.today()
-    warmup_start = today - _timedelta(days=180)
-    series = compute_fitness_series(str(user.id), warmup_start, today)
+    series_start = today - _timedelta(days=89)
+    series = get_snapshot_series(str(user.id), series_start, today)
 
     window_start = today - _timedelta(days=BASELINE_WINDOW_DAYS)
     workout_days_in_window = sum(
         1 for row in series
-        if row["tss"] > 0 and row["date"] >= window_start
+        if row["tss"] and row["tss"] > 0 and row["date"] >= window_start
     )
     building_baseline = workout_days_in_window < BASELINE_MIN_WORKOUT_DAYS
 
@@ -9269,16 +9274,15 @@ def get_readiness(
     atl = round(last["atl"], 1)
     tsb = round(last["tsb"], 1)
 
-    series_start = today - _timedelta(days=89)
     chart_series = [
         {
             "date": str(row["date"]),
             "ctl": row["ctl"],
             "atl": row["atl"],
             "tsb": row["tsb"],
+            "acwr": row["acwr"],
         }
         for row in series
-        if row["date"] >= series_start
     ]
 
     return JSONResponse({
@@ -9479,6 +9483,13 @@ def get_performance_chart(
     from backend.services.body_modifier import get_body_modifier_for_user as _get_body_modifier
     _body_modifier = _get_body_modifier(uid)
 
+    # Single source of truth for CTL/ATL/TSB: get_snapshot_series() — the
+    # same snapshot-backed path the readiness card and the weekly coach
+    # report read, so this chart can never disagree with them for the same
+    # date. daily_load_series is still built above for the endurance/speed
+    # score plumbing, which is unrelated to this bug.
+    snapshot_series = get_snapshot_series(str(uid), d_start, d_end)
+
     # Delegate to the pure computation function
     result = compute_performance_chart(
         daily_load_series=load_series,
@@ -9488,6 +9499,7 @@ def get_performance_chart(
         start_date=start_date,
         end_date=end_date,
         body_modifier=_body_modifier,
+        snapshot_series=snapshot_series,
     )
 
     return JSONResponse(result)
@@ -12392,58 +12404,21 @@ def get_training_load(
         if session.query(User).filter(User.id == uid).first() is None:
             raise HTTPException(status_code=404, detail="User not found")
 
-        snaps = (
-            session.query(TrainingLoadSnapshot)
-            .filter(
-                TrainingLoadSnapshot.user_id == uid,
-                TrainingLoadSnapshot.snapshot_date >= from_d,
-                TrainingLoadSnapshot.snapshot_date <= to_d,
-            )
-            .order_by(TrainingLoadSnapshot.snapshot_date)
-            .all()
-        )
-
-    snap_map = {s.snapshot_date: s for s in snaps}
-    all_dates = [from_d + _timedelta(days=i) for i in range((to_d - from_d).days + 1)]
-    missing_dates = [d for d in all_dates if d not in snap_map]
-
-    tss_map: dict = {}
-    if missing_dates:
-        hist_missing = [d for d in missing_dates if d <= today]
-        if hist_missing:
-            tss_series = daily_tss_series(str(uid), min(hist_missing), max(hist_missing))
-            tss_map = {d: t for d, t in tss_series}
-
-    ctl_alpha = _ewma_alpha(42)
-    atl_alpha = _ewma_alpha(7)
-    ctl, atl = 0.0, 0.0
-    curves_out = []
-
-    for d in all_dates:
-        if d in snap_map:
-            s = snap_map[d]
-            ctl = s.ctl
-            atl = s.atl
-            tsb = ctl - atl
-            curves_out.append({
-                "date": d.isoformat(),
-                "tss": s.tss_for_day,
-                "ctl": round(ctl, 1),
-                "atl": round(atl, 1),
-                "tsb": round(tsb, 1),
-            })
-        else:
-            tss = tss_map.get(d, 0)
-            ctl = ctl + (tss - ctl) * ctl_alpha
-            atl = atl + (tss - atl) * atl_alpha
-            tsb = ctl - atl
-            curves_out.append({
-                "date": d.isoformat(),
-                "tss": tss,
-                "ctl": round(ctl, 1),
-                "atl": round(atl, 1),
-                "tsb": round(tsb, 1),
-            })
+    # Single source of truth: get_snapshot_series() (training_load.py) — no
+    # more inline hardcoded-42/7, cold-starts-at-0 recompute for missing
+    # dates; every day gets a real, calibration-aware, snapshot-cached value.
+    to_d_capped = min(to_d, today)
+    series = get_snapshot_series(str(uid), from_d, to_d_capped) if from_d <= to_d_capped else []
+    curves_out = [
+        {
+            "date": row["date"].isoformat(),
+            "tss": row["tss"],
+            "ctl": round(row["ctl"], 1),
+            "atl": round(row["atl"], 1),
+            "tsb": round(row["tsb"], 1),
+        }
+        for row in series
+    ]
 
     return JSONResponse({
         "curves": curves_out,
@@ -12565,56 +12540,12 @@ def recompute_training_load(
         if session.query(User).filter(User.id == uid).first() is None:
             raise HTTPException(status_code=404, detail="User not found")
 
-        seed_snap = (
-            session.query(TrainingLoadSnapshot)
-            .filter(
-                TrainingLoadSnapshot.user_id == uid,
-                TrainingLoadSnapshot.snapshot_date == from_d - _timedelta(days=1),
-            )
-            .first()
-        )
-
-    seed_ctl = float(seed_snap.ctl) if seed_snap else 0.0
-    seed_atl = float(seed_snap.atl) if seed_snap else 0.0
-
-    tss_series = daily_tss_series(str(uid), from_d, today)
-    tss_map = {d: t for d, t in tss_series}
-
-    ctl_alpha = _ewma_alpha(42)
-    atl_alpha = _ewma_alpha(7)
-    ctl, atl = seed_ctl, seed_atl
-    rows = []
-    current = from_d
-    while current <= today:
-        tss = tss_map.get(current, 0)
-        ctl = ctl + (tss - ctl) * ctl_alpha
-        atl = atl + (tss - atl) * atl_alpha
-        tsb = ctl - atl
-        rows.append({
-            "user_id": uid,
-            "snapshot_date": current,
-            "tss_for_day": tss,
-            "ctl": round(ctl, 2),
-            "atl": round(atl, 2),
-            "tsb": round(tsb, 2),
-        })
-        current += _timedelta(days=1)
-
-    if rows:
-        insert_stmt = _pg_insert(TrainingLoadSnapshot).values(rows)
-        upsert_stmt = insert_stmt.on_conflict_do_update(
-            index_elements=["user_id", "snapshot_date"],
-            set_={
-                "tss_for_day": insert_stmt.excluded.tss_for_day,
-                "ctl": insert_stmt.excluded.ctl,
-                "atl": insert_stmt.excluded.atl,
-                "tsb": insert_stmt.excluded.tsb,
-                "computed_at": _datetime.now(tz=_timezone.utc),
-            },
-        )
-        with Session(engine) as session:
-            session.execute(upsert_stmt)
-            session.commit()
+    # Single source of truth: get_snapshot_series() — was a hand-rolled
+    # duplicate of daily_update()'s math (hardcoded 42/7, no calibration, no
+    # ACWR, seeded from only the PRIOR day's snapshot instead of a full
+    # 180-day warmup) that could silently write a bad row into the same
+    # cache current_load() trusts. See docs/calculations/training-load.md.
+    rows = get_snapshot_series(str(uid), from_d, today)
 
     return JSONResponse({
         "recomputed": len(rows),
@@ -12650,6 +12581,7 @@ def refresh_training_load(
         "ctl": result["ctl"],
         "atl": result["atl"],
         "tsb": result["tsb"],
+        "acwr": result["acwr"],
     })
 
 
@@ -12673,56 +12605,10 @@ def backfill_training_load(
         if session.query(User).filter(User.id == uid).first() is None:
             raise HTTPException(status_code=404, detail="User not found")
 
-        seed_snap = (
-            session.query(TrainingLoadSnapshot)
-            .filter(
-                TrainingLoadSnapshot.user_id == uid,
-                TrainingLoadSnapshot.snapshot_date == from_d - _timedelta(days=1),
-            )
-            .first()
-        )
-
-    seed_ctl = float(seed_snap.ctl) if seed_snap else 0.0
-    seed_atl = float(seed_snap.atl) if seed_snap else 0.0
-
-    tss_series = daily_tss_series(str(uid), from_d, today)
-    tss_map = {d: t for d, t in tss_series}
-
-    ctl_alpha = _ewma_alpha(42)
-    atl_alpha = _ewma_alpha(7)
-    ctl, atl = seed_ctl, seed_atl
-    rows = []
-    current = from_d
-    while current <= today:
-        tss = tss_map.get(current, 0)
-        ctl = ctl + (tss - ctl) * ctl_alpha
-        atl = atl + (tss - atl) * atl_alpha
-        tsb = ctl - atl
-        rows.append({
-            "user_id": uid,
-            "snapshot_date": current,
-            "tss_for_day": tss,
-            "ctl": round(ctl, 2),
-            "atl": round(atl, 2),
-            "tsb": round(tsb, 2),
-        })
-        current += _timedelta(days=1)
-
-    if rows:
-        insert_stmt = _pg_insert(TrainingLoadSnapshot).values(rows)
-        upsert_stmt = insert_stmt.on_conflict_do_update(
-            index_elements=["user_id", "snapshot_date"],
-            set_={
-                "tss_for_day": insert_stmt.excluded.tss_for_day,
-                "ctl": insert_stmt.excluded.ctl,
-                "atl": insert_stmt.excluded.atl,
-                "tsb": insert_stmt.excluded.tsb,
-                "computed_at": _datetime.now(tz=_timezone.utc),
-            },
-        )
-        with Session(engine) as session:
-            session.execute(upsert_stmt)
-            session.commit()
+    # Single source of truth: get_snapshot_series() — was a byte-for-byte
+    # duplicate of recompute_training_load's own hand-rolled math (see that
+    # endpoint's comment); consolidated into the same canonical path.
+    rows = get_snapshot_series(str(uid), from_d, today)
 
     return JSONResponse({
         "backfilled": len(rows),
@@ -15957,8 +15843,12 @@ def get_athlete_weekly_summary(
         duration_seconds_change = _volume["duration_seconds"] - _prior_volume["duration_seconds"]
 
         # ── TSB / load (AC5, AC9) ─────────────────────────────────────────────
+        # Single source of truth: get_snapshot_series() — the same
+        # snapshot-backed path the readiness card and the fitness/fatigue/
+        # form chart read, so this "Summary" digest card can never disagree
+        # with them for the same date.
         warmup_start = ws - _timedelta(days=180)
-        load_series = compute_fitness_series(str(uid), warmup_start, load_end)
+        load_series = get_snapshot_series(str(uid), warmup_start, load_end)
 
         def _tsb_at(target_date):
             for row in reversed(load_series):
@@ -17446,24 +17336,14 @@ def get_athlete_monthly_summary(
             weight_rate_percent_per_week = round(rate_pct, 3)
 
     # ── Fitness / form metrics (CTL/ATL/TSB) ──────────────────────────────────
-    lookback_start = month_start - _timedelta(days=180)
-    fitness_curve = compute_fitness_series(str(uid), lookback_start, month_end)
-
-    # Extract month-specific data points from the full curve
-    month_entries = [
-        entry for entry in fitness_curve
-        if month_start <= entry["date"] <= month_end
-    ] if fitness_curve else []
+    # Single source of truth: get_snapshot_series() (training_load.py) —
+    # same snapshot-backed path every other CTL/ATL/TSB consumer reads.
+    month_entries = get_snapshot_series(str(uid), month_start, month_end)
 
     if month_entries:
         ctl_at_start = month_entries[0]["ctl"]
         ctl_at_end = month_entries[-1]["ctl"]
         tsb_at_end = month_entries[-1]["tsb"]
-    elif fitness_curve:
-        last = fitness_curve[-1]
-        ctl_at_start = last["ctl"]
-        ctl_at_end = last["ctl"]
-        tsb_at_end = last["tsb"]
     else:
         ctl_at_start = 0.0
         ctl_at_end = 0.0

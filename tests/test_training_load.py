@@ -224,12 +224,16 @@ def test_current_load_as_of_past_date():
 
 def test_current_load_reads_snapshot_cache_single_query():
     """Cache hit: current_load must do exactly 1 query and skip the recompute."""
+    from backend.services.training_load import _FORMULA_VERSION
+
     today = date(2024, 6, 1)
     snap = MagicMock()
     snap.snapshot_date = today
     snap.ctl = 55.5
     snap.atl = 40.2
     snap.tsb = 15.3
+    snap.acwr = 1.1
+    snap.formula_version = _FORMULA_VERSION
 
     mock_session = _mock_session_snapshot(snap)
 
@@ -239,7 +243,7 @@ def test_current_load_reads_snapshot_cache_single_query():
     ):
         result = current_load(_USER_ID, as_of=today)
 
-    assert result == {"date": today, "ctl": 55.5, "atl": 40.2, "tsb": 15.3}
+    assert result == {"date": today, "ctl": 55.5, "atl": 40.2, "tsb": 15.3, "acwr": 1.1}
     mock_series.assert_not_called()
     mock_session.query.assert_called_once()
 
@@ -443,41 +447,15 @@ def test_api_training_load_current_tsb_neg15_is_productive():
 # ---------------------------------------------------------------------------
 
 
-# (a) backfill creates snapshot rows for date range
-
-
-def test_backfill_creates_snapshot_rows():
-    from scripts.backfill_training_load import _compute_backfill_rows
-
-    start = date(2024, 1, 1)
-    end = date(2024, 1, 10)
-    tss_by_date = {start + timedelta(days=i): 80 for i in range(10)}
-
-    rows = _compute_backfill_rows(str(uuid.uuid4()), start, tss_by_date, end)
-
-    assert len(rows) == 10
-    assert rows[0]["snapshot_date"] == start
-    assert rows[-1]["snapshot_date"] == end
-    for r in rows:
-        assert "ctl" in r and "atl" in r and "tsb" in r and "tss_for_day" in r
-    assert all(r["ctl"] > 0 for r in rows)
-
-
-# (b) re-running backfill produces identical rows (computation is idempotent)
-
-
-def test_backfill_is_idempotent():
-    from scripts.backfill_training_load import _compute_backfill_rows
-
-    start = date(2024, 1, 1)
-    end = date(2024, 1, 5)
-    tss_by_date = {start + timedelta(days=i): 60 for i in range(5)}
-    uid = str(uuid.uuid4())
-
-    rows1 = _compute_backfill_rows(uid, start, tss_by_date, end)
-    rows2 = _compute_backfill_rows(uid, start, tss_by_date, end)
-
-    assert rows1 == rows2
+# (a)/(b) backfill row generation + idempotency — scripts/backfill_training_load.py
+# used to hand-roll its own hardcoded-42/7 EWMA (_compute_backfill_rows, a pure
+# function these tests exercised directly). That duplication is exactly the bug
+# class this consolidation fixes: the script now delegates entirely to
+# training_load.get_snapshot_series() (the single source of truth), so there is
+# no separate pure function left to unit-test here — equivalent coverage (row
+# count for a date range, idempotent re-run, ctl>0 for positive TSS, tss_for_day
+# present) lives in tests/test_training_load_single_source__loadmetricfix1.py's
+# get_snapshot_series tests instead.
 
 
 # (c) GET reads from snapshots when all dates are cached
