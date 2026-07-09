@@ -1253,7 +1253,19 @@ information about.
     '</div>';
     document.getElementById('pl-detclose').onclick = _closeDetail;
     var editBtn = document.getElementById('pl-det-edit');
-    if (editBtn) editBtn.onclick = function () { _openEdit(p); };
+    if (editBtn) editBtn.onclick = function () {
+      // Once matched, the planned template is history — what's actually
+      // editable is the real logged workout. Redirect to it instead of
+      // opening the (now-stale) plan structure editor, so Plan/Log/Detail
+      // stay one source of truth rather than two that can drift apart.
+      if (p.actual && p.actual.id) {
+        document.dispatchEvent(new CustomEvent('plan:view-workout', {
+          detail: { workoutId: p.actual.id }
+        }));
+        return;
+      }
+      _openEdit(p);
+    };
     var delBtn = document.getElementById('pl-det-delete');
     if (delBtn) delBtn.onclick = function () {
       if (!window.confirm('Delete this planned session? This can’t be undone.')) return;
@@ -1342,7 +1354,7 @@ information about.
     return '<div class="pl-dethead"><span class="pl-dettag run">Run</span>' +
         '<span style="font-size:11px;color:var(--pl-faint);font-family:var(--pl-mono)">' + esc(_fmtDayDate(p.planned_date)) + '</span>' +
         '<span style="flex:1"></span><button class="pl-btn pl-ghost pl-danger" id="pl-det-delete" title="Delete this planned session">Delete</button>' +
-        '<button class="pl-btn pl-ghost" id="pl-det-edit">Edit</button></div>' +
+        '<button class="pl-btn pl-ghost" id="pl-det-edit" title="' + (p.actual && p.actual.id ? 'Edit the logged workout' : 'Edit the plan') + '">' + (p.actual && p.actual.id ? 'Edit workout' : 'Edit') + '</button></div>' +
       '<div class="pl-dettitle">' + esc(p.name || '(untitled)') + '</div>' +
       _detailIdRowHtml(p) +
       _detailStatusActionsHtml(p) +
@@ -1431,7 +1443,7 @@ information about.
     return '<div class="pl-dethead"><span class="pl-dettag lift">' + typeLabel + '</span>' +
         '<span style="font-size:11px;color:var(--pl-faint);font-family:var(--pl-mono)">' + esc(_fmtDayDate(p.planned_date)) + '</span>' +
         '<span style="flex:1"></span><button class="pl-btn pl-ghost pl-danger" id="pl-det-delete" title="Delete this planned session">Delete</button>' +
-        '<button class="pl-btn pl-ghost" id="pl-det-edit">Edit</button></div>' +
+        '<button class="pl-btn pl-ghost" id="pl-det-edit" title="' + (p.actual && p.actual.id ? 'Edit the logged workout' : 'Edit the plan') + '">' + (p.actual && p.actual.id ? 'Edit workout' : 'Edit') + '</button></div>' +
       '<div class="pl-dettitle">' + esc(p.name || '(untitled)') + '</div>' +
       _detailIdRowHtml(p) +
       _detailStatusActionsHtml(p) +
