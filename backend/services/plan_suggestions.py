@@ -57,7 +57,7 @@ _SURFACE = "plan_suggestion"
 # hash identically across a prompt change. Hit exactly this in production:
 # a fix to build_prompt() had no visible effect because the athlete's retry
 # used unchanged facts and kept matching a pre-fix cached row.
-_PROMPT_VERSION = "2026-07-09.6"
+_PROMPT_VERSION = "2026-07-09.7"
 
 # ── Scoping / rules constants (day-offset semantics: 0=Monday .. 6=Sunday of
 # the target week; facts["week_start"] is that Monday's ISO date) ────────────
@@ -501,8 +501,13 @@ def build_prompt(facts: dict) -> tuple[str, str]:
         "3. At most 7 sessions total. If the athlete's notes describe MORE THAN ONE "
         "distinct session on the same day (e.g. \"short strength tomorrow followed by "
         "an easy run\" = two separate sessions, same day), you MUST output BOTH as "
-        "separate entries with the same day_offset — do not collapse them into one. "
-        "Each still counts toward the 7-session cap and the day's/week's TSS limits.\n"
+        "separate entries with the SAME day_offset value repeated across two array "
+        "items — do not collapse them into one, and do not merge the easy run into "
+        "the strength session's own duration/TSS. Minimal example of what two same-"
+        "day entries look like in the suggestions array (values illustrative only): "
+        '[{"day_offset": 4, "workout_type": "strength", ...}, {"day_offset": 4, '
+        '"workout_type": "run", ...}]. Each entry still counts toward the 7-session '
+        "cap and the day's/week's TSS limits.\n"
         "4. workout_type must be exactly one of: run, strength, plyo, rest.\n"
         "5. Only propose sessions for these day_offsets — every other day is already "
         f"scheduled, already logged, or in the past: {allowed_str}.\n"
