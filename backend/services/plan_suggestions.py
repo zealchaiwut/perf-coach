@@ -418,7 +418,18 @@ def fallback_suggestions(facts: dict) -> list[dict]:
                           and s["day_offset"] not in rest_requested]
             if candidates:
                 pick = min(candidates, key=lambda s: s["target_tss"])
+                # The picked candidate is a RUN row — its duration_minutes/
+                # target_tss came from that run's own (often much shorter,
+                # sometimes 0-TSS "optional easy jog") template numbers. Left
+                # unchanged, the converted session claimed e.g. 30min/0 TSS
+                # while carrying the full 10-entry _UPPER_BODY_STRENGTH_
+                # EXERCISES list — self-contradictory (can't fit 10 exercises
+                # in 30min, and a real strength session isn't 0 TSS). Reuse
+                # the same duration/TSS-fraction the template's own strength
+                # rows use (see _TEMPLATE day_offset 1) instead.
                 pick.update(workout_type="strength",
+                            target_tss=round(target_weekly * 0.15),
+                            duration_minutes=45,
                             intent="Extra strength session (requested more strength this week).",
                             exercises=[dict(e) for e in _UPPER_BODY_STRENGTH_EXERCISES], blocks=None)
         else:  # "less"

@@ -1109,16 +1109,38 @@ information about.
       '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-ai-save" disabled>Save session</button><button class="pl-btn pl-ghost" id="pl-ai-cancel">Cancel</button></div>';
   }
 
+  // Local, read-only preview rows — _sugExercisesHtml/_sugBlocksHtml live in
+  // the separate Plan Suggestions closure below and aren't reachable here.
+  function _aiPreviewExRow(x) {
+    var sr = (x.sets != null && x.reps != null) ? (x.sets + ' × ' + x.reps) : (x.sets != null ? x.sets + ' sets' : '');
+    return '<div class="pl-exd"><span class="pl-en">' + esc(x.name || 'Exercise') + '</span>' +
+      '<span class="pl-sr">' + esc(sr) + '</span>' +
+      '<span class="pl-es" style="color:var(--pl-faint)">' + esc(x.load || '') + '</span></div>';
+  }
+  function _aiPreviewBlockRow(b) {
+    var dur = b.duration_min != null ? b.duration_min + ' min' : '';
+    var main = (b.repeat && b.repeat > 1) ? (b.repeat + ' × ' + dur) : dur;
+    return '<div class="pl-exd"><span class="pl-en">' + esc(_phaseLabel(b.phase)) + '</span>' +
+      '<span class="pl-sr">' + esc(main) + '</span>' +
+      '<span class="pl-es" style="color:var(--pl-faint)">' + esc(b.target || '') + '</span></div>';
+  }
+
   function _aiSessionPreviewHtml(s) {
     var tssStr = s.target_tss > 0 ? s.target_tss + ' TSS' : '';
     var durStr = s.duration_minutes > 0 ? s.duration_minutes + 'min' : '';
     var meta = [tssStr, durStr].filter(Boolean).join(' · ');
+    var body = '';
+    if (Array.isArray(s.exercises) && s.exercises.length) {
+      body = '<div class="pl-blocklist" style="margin-top:8px;">' + s.exercises.map(_aiPreviewExRow).join('') + '</div>';
+    } else if (Array.isArray(s.blocks) && s.blocks.length) {
+      body = '<div class="pl-blocklist" style="margin-top:8px;">' + s.blocks.map(_aiPreviewBlockRow).join('') + '</div>';
+    }
     return '<div class="pl-previewbox ok">' +
         '<b>' + esc((s.workout_type || '').toUpperCase()) + '</b>' + (meta ? ' · ' + esc(meta) : '') +
         (s.intent ? ' · ' + esc(s.intent) : '') +
       '</div>' +
       (s.notes ? '<div class="pl-infobanner" style="margin-top:6px;">' + esc(s.notes) + '</div>' : '') +
-      _sugExercisesHtml(s.exercises) + _sugBlocksHtml(s.blocks);
+      body;
   }
 
   function _aiSessionToPayload(dateIso, s) {
@@ -2008,12 +2030,25 @@ information about.
         var note = refinePanel.querySelector('.pl-sug-refine-input').value.trim();
         if (!note) { statusEl.textContent = 'Add a note first'; return; }
         goBtn.disabled = true; statusEl.textContent = 'Regenerating…';
-        _api('POST', '/api/plan/suggestions/session', {
-          date: _formatSugDate(s.day_offset),
-          workout_type: s.workout_type,
-          note: note,
-          current_session: s,
+        // Raw fetch, not _api() — that helper lives in the OTHER closure (the
+        // main Plan-tab module above) and isn't reachable from here; this
+        // closure's own convention is plain fetch (see _addSuggestion).
+        fetch('/api/plan/suggestions/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            date: _formatSugDate(s.day_offset),
+            workout_type: s.workout_type,
+            note: note,
+            current_session: s,
+          }),
         })
+          .then(function (r) {
+            return r.json().then(function (d) {
+              if (!r.ok) throw new Error((d && d.detail) || ('HTTP ' + r.status));
+              return d;
+            });
+          })
           .then(function (data) {
             _suggestionsData.suggestions[idx] = data.session;
             _renderSuggestions(_suggestionsData); // small list — cheap full re-render
