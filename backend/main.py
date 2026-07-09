@@ -68,7 +68,7 @@ from backend.services.training_load import (
 )
 from backend.services.specificity_progress import specificity_progress as _specificity_progress
 from backend.services.daily_load import daily_load_series as _daily_load_series
-from backend.services.load_plan import compute_load_plan
+from backend.services.load_plan import compute_load_plan, ACWR_CEILING_MULT
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
 from backend.services.weight_ewma import compute_ewma as _compute_ewma, DEFAULT_SPAN as _EWMA_DEFAULT_SPAN
@@ -16734,6 +16734,167 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
             "prior_weeks": prior_weeks,
             "weeks": weeks_out,
             "warning": result["warning"],
+        })
+
+
+# ── Session load · this week (Plan-tab revamp, Part 2) ──────────────────────
+# See docs/calculations/load-plan.md. target_tss is read from the SAME
+# compute_load_plan series get_plan_load_plan builds — never recomputed here.
+
+def _week_planned_tss(db, user_id, week_start, week_end, estimate_baseline, today, require_still_achievable=True):
+    """Sum estimated_tss across planned sessions in a week that never became
+    a real logged workout (matched is None, not missed — those are covered
+    by baseline_tss/logged_tss instead).
+
+    require_still_achievable=True (the default, for the CURRENT/future
+    "planned_tss" component of projected_tss) additionally excludes sessions
+    whose date has already passed — same achievability rule
+    _planned_session_dict uses, since a past, never-logged session is
+    effectively missed even before the reconcile sweep flips its status.
+
+    require_still_achievable=False is for baseline_planned_tss: the
+    retrospective "what did I plan for last week" comparison is ALWAYS about
+    a past week by definition, so excluding past dates there would zero out
+    every result — the whole point is comparing hindsight plan vs actual.
+    """
+    from backend.services.training_load import estimate_planned_session_metrics as _est
+
+    rows = (
+        db.query(PlannedSession)
+        .filter(
+            PlannedSession.user_id == user_id,
+            PlannedSession.planned_date >= week_start,
+            PlannedSession.planned_date <= week_end,
+            PlannedSession.matched_workout_id.is_(None),
+            PlannedSession.status != "missed",
+        )
+        .all()
+    )
+    total = 0.0
+    for p in rows:
+        if require_still_achievable and p.planned_date < today:
+            continue
+        est = _est(estimate_baseline, p.session_type, p.structure)
+        if est.get("estimated_tss"):
+            total += est["estimated_tss"]
+    return round(total, 1)
+
+
+@app.get("/api/plan/week-load")
+def get_plan_week_load(
+    week_start: Optional[str] = Query(default=None),
+    user: User = Depends(resolve_user),
+):
+    """Weekly target-vs-actual for the Session load · this week card.
+
+    week_start (optional, YYYY-MM-DD, normalized to that week's Monday)
+    defaults to the current ISO week — lets the frontend keep this card in
+    sync with whichever week is selected in the Week plan card's nav.
+    204 with no body when there's no A race (same as GET /api/plan/load-plan
+    — the target is meaningless without one).
+    """
+    from backend.utils.time import today_bangkok
+    from backend.services.training_load import estimate_historical_pace_and_tss as _est_baseline
+    from backend.services.acwr import compute_acwr
+
+    today = today_bangkok()
+    with Session(engine) as db:
+        race = _resolve_load_plan_a_race(db, user.id, today)
+        if race is None:
+            return Response(status_code=204)
+
+        plan = _resolve_or_create_plan(db, user.id)
+        rules = _plan_rules_dict(plan)
+
+        this_week_start = today - _timedelta(days=today.weekday())
+        if week_start is not None:
+            try:
+                parsed = _date.fromisoformat(week_start)
+            except ValueError:
+                raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
+            query_week_start = parsed - _timedelta(days=parsed.weekday())
+        else:
+            query_week_start = this_week_start
+        query_week_end = query_week_start + _timedelta(days=6)
+
+        race_week_start = race.race_date - _timedelta(days=race.race_date.weekday())
+        weeks_to_race = ((race_week_start - this_week_start).days // 7) + 1
+
+        last_week_start = this_week_start - _timedelta(days=7)
+        last_week_end = this_week_start - _timedelta(days=1)
+        baseline_tss = _get_weekly_volume(str(user.id), last_week_start, last_week_end)["total_tss"]
+
+        start_28 = today - _timedelta(days=27)
+        series_28 = daily_tss_series(str(user.id), start_28, today)
+        daily_values = [v for _, v in series_28]
+        total_28d = float(sum(daily_values))
+        trailing_28d_avg = round(total_28d / 4.0, 1)
+        acwr_ratio = compute_acwr(daily_values).get("ratio")
+        acwr_ceiling = round(ACWR_CEILING_MULT * trailing_28d_avg, 1) if trailing_28d_avg else None
+
+        result = compute_load_plan(
+            baseline=baseline_tss,
+            ramp_rate=rules["ramp_rate"],
+            hold_weeks=rules["hold_weeks"],
+            taper_weeks=int(round(rules["taper_weeks"])),
+            weeks_to_race=weeks_to_race,
+            trailing_28d_avg=trailing_28d_avg,
+        )
+
+        week_index = ((query_week_start - this_week_start).days // 7) + 1
+        target_week = next((w for w in result["weeks"] if w["week_index"] == week_index), None)
+        target_tss = target_week["target_tss"] if target_week else None
+        clamped = target_week["clamped"] if target_week else False
+
+        estimate_baseline = _est_baseline(str(user.id), db)
+
+        # baseline_planned_tss: what was PLANNED for the same last-completed
+        # week baseline_tss covers — showing "planned 340 · logged 316"
+        # alongside the actual is the argument for ramping off actuals, not
+        # optimistic plans (see docs/calculations/load-plan.md).
+        baseline_planned_tss = _week_planned_tss(
+            db, user.id, last_week_start, last_week_end, estimate_baseline, today,
+            require_still_achievable=False,
+        )
+
+        logged_tss = _get_weekly_volume(str(user.id), query_week_start, query_week_end)["total_tss"]
+        planned_tss = _week_planned_tss(
+            db, user.id, query_week_start, query_week_end, estimate_baseline, today
+        )
+        projected_tss = round(logged_tss + planned_tss, 1)
+
+        state = None
+        if target_tss:
+            lower, upper = target_tss * 0.95, target_tss * 1.05
+            if projected_tss < lower:
+                state = "under"
+            elif projected_tss > upper:
+                state = "over"
+            else:
+                state = "on_track"
+
+        prior_weeks = []
+        for i in range(4, 0, -1):
+            ws = this_week_start - _timedelta(weeks=i)
+            we = ws + _timedelta(days=6)
+            vol = _get_weekly_volume(str(user.id), ws, we)
+            prior_weeks.append({"week_start": ws.isoformat(), "actual_tss": vol["total_tss"]})
+
+        return JSONResponse({
+            "week_start": query_week_start.isoformat(),
+            "target_tss": target_tss,
+            "baseline_tss": baseline_tss,
+            "baseline_planned_tss": baseline_planned_tss,
+            "prior_4_weeks_actual": prior_weeks,
+            "ramp_rate": rules["ramp_rate"],
+            "acwr_ceiling": acwr_ceiling,
+            "acwr": acwr_ratio,
+            "trailing_28d_avg": trailing_28d_avg,
+            "logged_tss": logged_tss,
+            "planned_tss": planned_tss,
+            "projected_tss": projected_tss,
+            "clamped": clamped,
+            "state": state,
         })
 
 

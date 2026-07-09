@@ -148,6 +148,7 @@ information about.
       });
       _wireLoadPlanSettings();
       _loadLoadPlan();
+      _loadWeekLoad(_iso(_weekStart));
     },
     // Deep link from outside the Plan tab (e.g. the Log calendar): scope the
     // week to the session's date and flag it to open once init()'s own
@@ -530,6 +531,7 @@ information about.
           setTimeout(function () { savedEl.style.display = 'none'; }, 2000);
         }
         _loadLoadPlan();
+        _loadWeekLoad();
       })
       .catch(function (e) {
         if (errEl) errEl.textContent = e.message || 'Save failed.';
@@ -545,6 +547,120 @@ information about.
     if (rampSlider) rampSlider.oninput = function () { if (rampInput) rampInput.value = rampSlider.value; };
     if (rampInput) rampInput.oninput = function () { if (rampSlider) rampSlider.value = rampInput.value; };
     if (saveBtn) saveBtn.onclick = _saveLoadPlanRules;
+  }
+
+  // ── Session load · this week (Plan-tab revamp, Part 2) ──────────────────────
+  // target_tss/clamped always come straight from GET /api/plan/week-load,
+  // itself backed by the same compute_load_plan series as the Session Load
+  // Plan card above — never recomputed client-side. See
+  // docs/calculations/load-plan.md.
+  var _wlData = null;
+
+  function _loadWeekLoad(weekStartISO) {
+    var url = '/api/plan/week-load' + (weekStartISO ? '?week_start=' + weekStartISO : '');
+    _api('GET', url).then(function (data) {
+      _wlData = data;
+      _renderWeekLoad();
+    }).catch(function () {
+      _wlData = null;
+      _renderWeekLoad();
+    });
+  }
+
+  function _renderWeekLoad() {
+    var body = document.getElementById('wl-body');
+    var emptyEl = document.getElementById('wl-empty');
+    if (!body) return;
+
+    if (!_wlData || _wlData.target_tss == null) {
+      body.hidden = true;
+      if (emptyEl) emptyEl.hidden = false;
+      return;
+    }
+    if (emptyEl) emptyEl.hidden = true;
+    body.hidden = false;
+
+    var d = _wlData;
+    _setText('wl-target-val', Math.round(d.target_tss));
+
+    var pill = document.getElementById('wl-state-pill');
+    if (pill) {
+      pill.className = 'wl-state-pill' + (d.state ? ' ' + d.state : '');
+      pill.textContent = d.state === 'on_track' ? 'On track' : d.state === 'under' ? 'Under' :
+        d.state === 'over' ? 'Over' : '—';
+    }
+
+    var lower = Math.round(d.target_tss * 0.95), upper = Math.round(d.target_tss * 1.05);
+    var diff = Math.round(d.projected_tss - d.target_tss);
+    var diffStr = (diff > 0 ? '+' : '') + diff;
+    var inOut = (d.projected_tss >= lower && d.projected_tss <= upper) ? 'inside' : 'outside';
+    var line = document.getElementById('wl-projected-line');
+    if (line) {
+      line.innerHTML = 'projected <b>' + Math.round(d.projected_tss) + '</b> &middot; ' + esc(diffStr) +
+        ' ' + inOut + ' &plusmn;5% band (' + lower + '&ndash;' + upper + ')';
+    }
+
+    _setText('wl-baseline-val', Math.round(d.baseline_tss) + ' TSS');
+    _setText('wl-ramp-val', (d.ramp_rate * 100).toFixed(1).replace(/\.0$/, '') + '%');
+    _setText('wl-target-cell-val', Math.round(d.target_tss) + ' TSS');
+
+    var spark = document.getElementById('wl-sparkline');
+    if (spark) {
+      var priors = d.prior_4_weeks_actual || [];
+      var maxV = Math.max.apply(null, priors.map(function (p) { return p.actual_tss; }).concat([1]));
+      spark.innerHTML = priors.map(function (p) {
+        var h = Math.max(4, (p.actual_tss / maxV) * 100);
+        return '<span style="height:' + h + '%" title="' + esc(p.week_start) + ': ' +
+          Math.round(p.actual_tss) + ' TSS"></span>';
+      }).join('');
+    }
+    _setText(
+      'wl-baseline-compare',
+      'planned ' + Math.round(d.baseline_planned_tss) + ' · logged ' + Math.round(d.baseline_tss),
+    );
+
+    if (d.acwr_ceiling != null) {
+      _setText('wl-guardrail-ceiling', Math.round(d.acwr_ceiling));
+      _setText(
+        'wl-guardrail-detail',
+        'ACWR ' + (d.acwr != null ? d.acwr.toFixed(2) : '—') +
+          ' · 28-d avg ' + Math.round(d.trailing_28d_avg),
+      );
+    } else {
+      _setText('wl-guardrail-ceiling', '—');
+      _setText('wl-guardrail-detail', '');
+    }
+
+    // Gauge: logged (solid) + planned (hatched) stacked, scaled to whichever
+    // is bigger — the ceiling, the target, or the projected total — so both
+    // ticks always land on-gauge, even for a clamped (target < ceiling-ish)
+    // or way-over week.
+    var scaleMax = Math.max(d.target_tss, d.acwr_ceiling || 0, d.projected_tss, 1) * 1.05;
+    var loggedPct = Math.min(100, (d.logged_tss / scaleMax) * 100);
+    var plannedPct = Math.min(100 - loggedPct, (d.planned_tss / scaleMax) * 100);
+    var loggedEl = document.getElementById('wl-gauge-logged');
+    var plannedEl = document.getElementById('wl-gauge-planned');
+    if (loggedEl) loggedEl.style.width = loggedPct + '%';
+    if (plannedEl) { plannedEl.style.left = loggedPct + '%'; plannedEl.style.width = plannedPct + '%'; }
+    var targetTick = document.getElementById('wl-gauge-tick-target');
+    if (targetTick) targetTick.style.left = Math.min(100, (d.target_tss / scaleMax) * 100) + '%';
+    var ceilingTick = document.getElementById('wl-gauge-tick-ceiling');
+    if (ceilingTick) {
+      if (d.acwr_ceiling != null) {
+        ceilingTick.style.display = '';
+        ceilingTick.style.left = Math.min(100, (d.acwr_ceiling / scaleMax) * 100) + '%';
+      } else {
+        ceilingTick.style.display = 'none';
+      }
+    }
+    var legend = document.getElementById('wl-gauge-legend');
+    if (legend) {
+      legend.innerHTML =
+        '<span><span class="sw" style="background:var(--pm-blue)"></span>Logged ' + Math.round(d.logged_tss) + '</span>' +
+        '<span><span class="sw" style="background:repeating-linear-gradient(45deg,var(--pm-blueSoft) 0 3px,transparent 3px 6px),rgba(79,110,247,0.18)"></span>Planned ' + Math.round(d.planned_tss) + '</span>' +
+        '<span>Projected ' + Math.round(d.projected_tss) + ' / ' + Math.round(d.target_tss) + ' TSS' +
+          (d.clamped ? ' &middot; <span style="color:var(--pm-amber);font-weight:700;">clamped</span>' : '') + '</span>';
+    }
   }
 
   // ── Render shell ────────────────────────────────────────────────────────────
@@ -579,8 +695,12 @@ information about.
           '<span><b style="background:var(--pl-green)"></b>Done</span><span><b style="background:var(--pl-amber)"></b>Needs review</span><span><b style="background:var(--pl-red)"></b>Missed</span>' +
         '</div>' +
       '</div>';
-    document.getElementById('pl-prev').onclick = function () { _weekStart = _addDays(_weekStart, -7); _renderWeekSection(); _loadWeek(); };
-    document.getElementById('pl-next').onclick = function () { _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(); };
+    document.getElementById('pl-prev').onclick = function () {
+      _weekStart = _addDays(_weekStart, -7); _renderWeekSection(); _loadWeek(); _loadWeekLoad(_iso(_weekStart));
+    };
+    document.getElementById('pl-next').onclick = function () {
+      _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(); _loadWeekLoad(_iso(_weekStart));
+    };
     document.getElementById('pl-add').onclick = function () { _openAdd('single'); };
     var sugBtn = document.getElementById('pl-suggest');
     if (sugBtn) sugBtn.onclick = function () {

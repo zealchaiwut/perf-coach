@@ -4368,6 +4368,65 @@
           </p>
           <p class="lp-warning" id="lp-warning" hidden></p>
         </div>
+
+        <!-- ── Session load · this week (Plan-tab revamp, Part 2) — where the
+             target comes from, and how logged + planned sessions add up to
+             it. No separate Load History card; history is just the
+             sparkline + baseline number. ─────────────────────────────────── -->
+        <div class="pm-card wl-card" id="week-load-section">
+          <div class="pm-ckhead">
+            <span class="pm-sectitle">Session load &middot; this week</span>
+          </div>
+          <p class="pm-csub">Where the target comes from, and how your sessions add up to it.</p>
+
+          <div class="wl-body" id="wl-body" hidden>
+            <div class="wl-target-row">
+              <div class="wl-target-big">
+                <span id="wl-target-val">—</span>
+                <span class="wl-target-unit">TSS target</span>
+              </div>
+              <span class="wl-state-pill" id="wl-state-pill">—</span>
+            </div>
+            <div class="wl-projected-line" id="wl-projected-line"></div>
+
+            <div class="wl-chain">
+              <div class="wl-chain-cell">
+                <div class="wl-chain-lab">Baseline &middot; last wk actual</div>
+                <div class="wl-chain-val" id="wl-baseline-val">—</div>
+                <div class="wl-sparkline" id="wl-sparkline"></div>
+                <div class="wl-baseline-compare" id="wl-baseline-compare"></div>
+              </div>
+              <div class="wl-chain-op">&times;</div>
+              <div class="wl-chain-cell">
+                <div class="wl-chain-lab">Ramp</div>
+                <div class="wl-chain-val" id="wl-ramp-val">—</div>
+              </div>
+              <div class="wl-chain-op">=</div>
+              <div class="wl-chain-cell wl-target-cell">
+                <div class="wl-chain-lab">Target</div>
+                <div class="wl-chain-val" id="wl-target-cell-val">—</div>
+              </div>
+              <div class="wl-chain-cell wl-guardrail-cell">
+                <div class="wl-chain-lab">Guardrail</div>
+                <div class="wl-chain-val" id="wl-guardrail-ceiling">—</div>
+                <div class="wl-guardrail-sub">ceiling</div>
+                <div class="wl-guardrail-detail" id="wl-guardrail-detail"></div>
+              </div>
+            </div>
+
+            <div class="wl-gauge-wrap">
+              <div class="wl-gauge" id="wl-gauge">
+                <div class="wl-gauge-logged" id="wl-gauge-logged"></div>
+                <div class="wl-gauge-planned" id="wl-gauge-planned"></div>
+                <div class="wl-gauge-tick wl-gauge-tick--target" id="wl-gauge-tick-target" title="Target"></div>
+                <div class="wl-gauge-tick wl-gauge-tick--ceiling" id="wl-gauge-tick-ceiling" title="ACWR ceiling"></div>
+              </div>
+              <div class="wl-gauge-legend" id="wl-gauge-legend"></div>
+            </div>
+          </div>
+
+          <p class="lp-empty" id="wl-empty" hidden>Set a goal race to generate a weekly target.</p>
+        </div>
       </div>
       <div id="plan-week-section"></div>
       <div id="plan-add-section"></div>
@@ -5663,6 +5722,213 @@
       @media (max-width: 640px) {
         .plan-merged .lp-rules-strip {
           grid-template-columns: repeat(2, 1fr);
+        }
+      }
+
+      /* ── Session load · this week (Plan-tab revamp, Part 2) ──────────────
+         See docs/calculations/load-plan.md — target_tss here is always the
+         SAME number GET /api/plan/load-plan's week series already shows;
+         this card explains where it came from and how close this week's
+         sessions get to it. ───────────────────────────────────────────── */
+      .plan-merged .wl-target-row {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .plan-merged .wl-target-big {
+        font-size: 34px;
+        font-weight: 700;
+        font-family: var(--pm-mono);
+        color: var(--pm-ink);
+        line-height: 1;
+      }
+      .plan-merged .wl-target-unit {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--pm-muted);
+        font-family: initial;
+        margin-left: 4px;
+      }
+      .plan-merged .wl-state-pill {
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        padding: 5px 11px;
+        border-radius: 999px;
+        background: var(--pm-tile);
+        color: var(--pm-muted);
+      }
+      .plan-merged .wl-state-pill.under {
+        background: var(--pm-amberSoft);
+        color: var(--pm-amber);
+      }
+      .plan-merged .wl-state-pill.on_track {
+        background: var(--pm-greenSoft);
+        color: var(--pm-green);
+      }
+      .plan-merged .wl-state-pill.over {
+        background: var(--pm-redSoft);
+        color: var(--pm-red);
+      }
+      .plan-merged .wl-projected-line {
+        font-size: 12.5px;
+        color: var(--pm-muted);
+        margin-top: 4px;
+      }
+      .plan-merged .wl-projected-line b {
+        color: var(--pm-ink);
+        font-family: var(--pm-mono);
+        font-weight: 700;
+      }
+
+      .plan-merged .wl-chain {
+        display: flex;
+        align-items: stretch;
+        gap: 10px;
+        margin: 18px 0 4px;
+        flex-wrap: wrap;
+      }
+      .plan-merged .wl-chain-cell {
+        flex: 1 1 130px;
+        min-width: 120px;
+        background: var(--pm-tile);
+        border: 1px solid var(--pm-line);
+        border-radius: 10px;
+        padding: 10px 12px;
+      }
+      .plan-merged .wl-chain-cell.wl-target-cell {
+        background: var(--pm-blueSoft);
+        border-color: var(--pm-blue);
+      }
+      .plan-merged .wl-chain-cell.wl-guardrail-cell {
+        flex-basis: 160px;
+      }
+      .plan-merged .wl-chain-op {
+        align-self: center;
+        font-size: 20px;
+        font-weight: 700;
+        color: var(--pm-faint);
+        flex: 0 0 auto;
+      }
+      .plan-merged .wl-chain-lab {
+        font-size: 9.5px;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--pm-faint);
+      }
+      .plan-merged .wl-chain-val {
+        font-size: 18px;
+        font-weight: 700;
+        font-family: var(--pm-mono);
+        color: var(--pm-ink);
+        margin-top: 4px;
+      }
+      .plan-merged .wl-target-cell .wl-chain-val {
+        color: var(--pm-blue);
+      }
+      .plan-merged .wl-sparkline {
+        display: flex;
+        align-items: flex-end;
+        gap: 2px;
+        height: 22px;
+        margin-top: 8px;
+      }
+      .plan-merged .wl-sparkline > span {
+        flex: 1;
+        min-width: 0;
+        background: var(--pm-line);
+        border-radius: 2px 2px 0 0;
+        min-height: 2px;
+      }
+      .plan-merged .wl-baseline-compare {
+        font-size: 10.5px;
+        color: var(--pm-faint);
+        margin-top: 5px;
+        font-family: var(--pm-mono);
+      }
+      .plan-merged .wl-guardrail-ceiling,
+      .plan-merged .wl-chain-cell.wl-guardrail-cell .wl-chain-val {
+        color: var(--pm-amber);
+      }
+      .plan-merged .wl-guardrail-sub {
+        font-size: 10px;
+        color: var(--pm-faint);
+        margin-top: -2px;
+      }
+      .plan-merged .wl-guardrail-detail {
+        font-size: 10.5px;
+        color: var(--pm-muted);
+        margin-top: 6px;
+        font-family: var(--pm-mono);
+        line-height: 1.5;
+      }
+
+      .plan-merged .wl-gauge-wrap {
+        margin-top: 16px;
+      }
+      .plan-merged .wl-gauge {
+        position: relative;
+        height: 16px;
+        border-radius: 8px;
+        background: var(--pm-tile);
+        overflow: visible;
+      }
+      .plan-merged .wl-gauge-logged,
+      .plan-merged .wl-gauge-planned {
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 100%;
+      }
+      .plan-merged .wl-gauge-logged {
+        background: var(--pm-blue);
+        border-radius: 8px 0 0 8px;
+        z-index: 1;
+      }
+      .plan-merged .wl-gauge-planned {
+        background-image: repeating-linear-gradient(
+          45deg, var(--pm-blueSoft) 0 4px, transparent 4px 8px
+        );
+        background-color: rgba(79, 110, 247, 0.18);
+      }
+      .plan-merged .wl-gauge-tick {
+        position: absolute;
+        top: -3px;
+        bottom: -3px;
+        width: 2px;
+        background: var(--pm-ink);
+        z-index: 2;
+      }
+      .plan-merged .wl-gauge-tick--ceiling {
+        background: var(--pm-amber);
+      }
+      .plan-merged .wl-gauge-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+        margin-top: 10px;
+        font-size: 11px;
+        color: var(--pm-muted);
+      }
+      .plan-merged .wl-gauge-legend span.sw {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+        margin-right: 5px;
+        vertical-align: -1px;
+      }
+      @media (max-width: 640px) {
+        .plan-merged .wl-chain {
+          flex-direction: column;
+        }
+        .plan-merged .wl-chain-op {
+          align-self: flex-start;
+          padding-left: 4px;
         }
       }
 
