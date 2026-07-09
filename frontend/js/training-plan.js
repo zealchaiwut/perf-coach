@@ -816,7 +816,7 @@ information about.
     { name: 'Back squat', sets: 5, reps: 5, load: '78% 1RM' },
     { name: 'Romanian deadlift', sets: 4, reps: 8, load: 'moderate' }
   ];
-  var _sfStrengthMode = 'detailed'; // 'simple' | 'detailed'
+  var _sfStrengthMode = 'detailed'; // 'simple' | 'detailed' | 'json'
   var _sfFocus = ''; // seed for the simple-mode Focus input (edit prefill)
 
   function _renderStructureBuilder() {
@@ -835,9 +835,14 @@ information about.
       host.innerHTML = '<div class="pl-subtoggle" id="pl-strmode" style="margin-bottom:12px;">' +
           '<button class="' + (_sfStrengthMode === 'simple' ? 'on' : '') + '" data-str="simple">Simple</button>' +
           '<button class="' + (_sfStrengthMode === 'detailed' ? 'on' : '') + '" data-str="detailed">Detailed</button>' +
+          '<button class="' + (_sfStrengthMode === 'json' ? 'on' : '') + '" data-str="json">JSON</button>' +
         '</div>' +
         (_sfStrengthMode === 'simple'
           ? '<div class="pl-fld"><label>Focus</label><input id="pl-str-focus" placeholder="Lower / posterior chain" value="' + esc(_sfFocus || '') + '"/></div>'
+          : _sfStrengthMode === 'json'
+          ? '<div class="pl-fld" style="margin-bottom:6px;"><label>Exercises (JSON)</label></div>' +
+            '<textarea class="pl-jsonta" id="pl-exjson-ta" style="min-height:160px;">' + esc(JSON.stringify(_sfExercises, null, 2)) + '</textarea>' +
+            '<div id="pl-exjson-err"></div>'
           : '<div class="pl-fld" style="margin-bottom:6px;"><label>Exercises</label></div>' +
             '<div class="pl-blocklist" id="pl-exlist">' + _sfExercises.map(_exRowHtml).join('') + '</div>' +
             '<button class="pl-addblock" id="pl-addex">+ Add exercise</button>');
@@ -905,6 +910,23 @@ information about.
       });
       var add = document.getElementById('pl-addex');
       if (add) add.onclick = function () { _sfExercises.push({ name: '', sets: 3, reps: 10, load: '' }); _renderStructureBuilder(); };
+    }
+    var jsonTa = document.getElementById('pl-exjson-ta');
+    if (jsonTa) {
+      jsonTa.addEventListener('input', function () {
+        var err = document.getElementById('pl-exjson-err');
+        try {
+          var parsed = JSON.parse(jsonTa.value);
+          if (!Array.isArray(parsed)) throw new Error('Must be a JSON array of exercises.');
+          // Kept in sync live so Simple/Detailed/Save all read the same
+          // _sfExercises array regardless of which mode last touched it —
+          // last-valid-parse wins; invalid JSON is flagged but never clears it.
+          _sfExercises = parsed;
+          if (err) err.innerHTML = '';
+        } catch (e) {
+          if (err) err.innerHTML = '<div class="pl-previewbox err">Invalid JSON — ' + esc(e.message) + '</div>';
+        }
+      });
     }
   }
 
