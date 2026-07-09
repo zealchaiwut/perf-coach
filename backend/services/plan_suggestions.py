@@ -57,7 +57,7 @@ _SURFACE = "plan_suggestion"
 # hash identically across a prompt change. Hit exactly this in production:
 # a fix to build_prompt() had no visible effect because the athlete's retry
 # used unchanged facts and kept matching a pre-fix cached row.
-_PROMPT_VERSION = "2026-07-09.4"
+_PROMPT_VERSION = "2026-07-09.6"
 
 # ── Scoping / rules constants (day-offset semantics: 0=Monday .. 6=Sunday of
 # the target week; facts["week_start"] is that Monday's ISO date) ────────────
@@ -450,6 +450,7 @@ def build_prompt(facts: dict) -> tuple[str, str]:
     if emphasis not in _VALID_STRENGTH_EMPHASIS:
         emphasis = "same"
     notes = (facts.get("notes") or "").strip()
+    today_offset = facts.get("today_offset")
     existing_week = facts.get("existing_week") or []
     recent_exercise_names = facts.get("recent_exercise_names") or []
 
@@ -497,10 +498,11 @@ def build_prompt(facts: dict) -> tuple[str, str]:
         f"1. Total weekly TSS across all sessions must not exceed {round(max(float(trailing), FALLBACK_MIN_WEEKLY_TSS) * ACWR_HIGH_BOUND)} "
         f"(ACWR safe ceiling: trailing 28-day weekly average {round(float(trailing))} × {ACWR_HIGH_BOUND}).\n"
         "2. Each session's target_tss must be between 0 and 400.\n"
-        "3. You may propose at most 7 sessions. More than one session on the same "
-        "day_offset IS allowed when the athlete's notes call for it (e.g. a short "
-        "strength session followed later by an easy run) — each still counts toward "
-        "the 7-session cap and the day's/week's TSS limits.\n"
+        "3. At most 7 sessions total. If the athlete's notes describe MORE THAN ONE "
+        "distinct session on the same day (e.g. \"short strength tomorrow followed by "
+        "an easy run\" = two separate sessions, same day), you MUST output BOTH as "
+        "separate entries with the same day_offset — do not collapse them into one. "
+        "Each still counts toward the 7-session cap and the day's/week's TSS limits.\n"
         "4. workout_type must be exactly one of: run, strength, plyo, rest.\n"
         "5. Only propose sessions for these day_offsets — every other day is already "
         f"scheduled, already logged, or in the past: {allowed_str}.\n"
@@ -569,6 +571,13 @@ def build_prompt(facts: dict) -> tuple[str, str]:
     elif emphasis == "less":
         user += "The athlete wants LESS strength training than usual this week.\n"
     if notes:
+        # today_offset anchors "today"/"tomorrow"/day-name language in the notes to
+        # an actual day_offset — without it the model has to infer which offset is
+        # "today" purely from which day names appear in allowed_str, which is
+        # unreliable (observed: intervals requested "today" landing on the wrong
+        # day_offset).
+        if today_offset is not None:
+            user += f"TODAY is day_offset {today_offset} ({_DAY_NAMES[today_offset]}). "
         user += f"Additional notes from the athlete: {notes}\n"
     user += (
         f"\nPropose sessions ONLY for day_offset(s) {allowed_str} "
@@ -1017,6 +1026,7 @@ def assemble_facts(
         "next_race_distance_km": None,
         "next_race_goal_time_seconds": None,
         "week_start": target_week_start.isoformat(),
+        "today_offset": offset_of_today if 0 <= offset_of_today <= 6 else None,
         "allowed_offsets": allowed_offsets,
         "existing_week": existing_week,
         "preferred_rest_days": rest_days,
