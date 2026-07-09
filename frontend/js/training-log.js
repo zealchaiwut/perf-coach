@@ -5329,7 +5329,10 @@
   }
 
   // Per-day tag HTML: one tag per family (run/lift), "done" wins over
-  // "planned" if a day has more than one session in the same family.
+  // "planned" if a day has more than one session in the same family. A done
+  // (linked/matched) session drops its tag entirely — the real-workout dot
+  // for that day already shows it happened, so the tag would just duplicate
+  // it; the tag stays only while the session is still upcoming/unmatched.
   function _calPlannedTagsHtml(dateStr) {
     var pd = calPlannedData[dateStr];
     if (!pd || !pd.length) return "";
@@ -5342,12 +5345,11 @@
     });
     var html = "";
     ["run", "lift"].forEach(function (fam) {
-      if (!byFam[fam]) return;
+      if (!byFam[fam] || byFam[fam].done) return;
       html +=
         '<div class="lrx-caltag ' +
         fam +
-        (byFam[fam].done ? " done" : " planned") +
-        '" data-plan-session="' +
+        ' planned" data-plan-session="' +
         byFam[fam].id +
         '" data-plan-date="' +
         dateStr +
@@ -5540,9 +5542,8 @@
     html +=
       "</tbody></table>" +
       '<div class="lrx-callegend">' +
-      '<span><b style="background:var(--lrx-run)"></b>Run</span>' +
-      '<span><b style="background:var(--lrx-lift)"></b>Lift</span>' +
-      '<span><span class="lrx-caltag run done">[Run]</span>Plan session — done</span>' +
+      '<span><b style="background:var(--lrx-run)"></b>Run logged</span>' +
+      '<span><b style="background:var(--lrx-lift)"></b>Lift logged</span>' +
       '<span><span class="lrx-caltag run planned">[Run]</span>Plan session — not yet done</span>' +
       '<span style="color:var(--lrx-faint)">click a week to scope · click the month title for the month total</span>' +
       "</div>";

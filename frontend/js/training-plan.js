@@ -320,16 +320,22 @@ information about.
     if (!host || !_bundle) return;
     var todayStr = _todayISO();
     host.innerHTML = (_bundle.days || []).map(function (day) {
-      var cls = day.date === todayStr ? 'today' : (day.date < todayStr ? 'past' : '');
+      var isPast = day.date < todayStr;
+      var cls = day.date === todayStr ? 'today' : (isPast ? 'past' : '');
       var cards = (day.planned || []).map(function (p) { return _plannedCardHtml(p, day); }).join('');
       var ghosts = (day.unplanned || []).filter(function (u) { return !_dismissedGhosts[u.id]; })
         .map(function (u) { return _ghostCardHtml(u, day); }).join('');
       var hasContent = (day.planned || []).length || ghosts;
       var rest = !hasContent ? '<div class="pl-restday">Rest day</div>' : '';
+      // A past day is done — no NEW session should be added to it. Existing
+      // cards keep every action (match/change match/mark missed/delete); only
+      // the "+ add" trigger for a fresh session is disabled.
+      var addDay = isPast
+        ? '<div class="pl-addday is-disabled" title="This day has passed — nothing new can be added">+ add</div>'
+        : '<div class="pl-addday" data-add-date="' + day.date + '">+ add</div>';
       return '<div class="pl-dayrow ' + cls + '" data-date="' + day.date + '">' +
         '<div class="pl-daylabel"><span class="pl-dname">' + day.dow + '</span><span class="pl-dnum">' + _parseISO(day.date).getDate() + '</span></div>' +
-        '<div class="pl-daybody">' + cards + ghosts + rest +
-          '<div class="pl-addday" data-add-date="' + day.date + '">+ add</div>' +
+        '<div class="pl-daybody">' + cards + ghosts + rest + addDay +
         '</div>' +
       '</div>';
     }).join('');
@@ -457,9 +463,19 @@ information about.
   }
 
   function _ghostCardHtml(u, day) {
-    var opts = (day.planned || []).filter(function (p) {
-      return p.status !== 'done_auto' && p.status !== 'done_manual' && p.session_type !== 'rest';
-    }).map(function (p) { return '<option value="' + p.id + '">' + esc(p.name || '(untitled)') + '</option>'; }).join('');
+    // Match candidates span the whole loaded week, not just the ghost's own
+    // day — a Tuesday run should still be matchable to a Friday-planned run,
+    // and a day whose only planned session is already taken (e.g. strength)
+    // shouldn't leave a same-day-only run with nothing to map to.
+    var allDays = (_bundle && _bundle.days) || [day];
+    var opts = allDays.reduce(function (acc, d) {
+      return acc.concat((d.planned || []).filter(function (p) {
+        return p.status !== 'done_auto' && p.status !== 'done_manual' && p.session_type !== 'rest';
+      }).map(function (p) {
+        var label = (p.name || '(untitled)') + (d.date !== u.date ? ' — ' + d.dow + ' ' + _parseISO(d.date).getDate() : '');
+        return '<option value="' + p.id + '">' + esc(label) + '</option>';
+      }));
+    }, []).join('');
     var mapper = opts
       ? '<select class="pl-ghostsel" data-ghostsel="' + u.id + '"><option value="">Map to…</option>' + opts + '</select>' +
         '<div class="pl-candbtns"><button class="pl-btn pl-ghost pl-tiny" data-map="' + u.id + '">Map</button><button class="pl-btn pl-ghost pl-tiny" data-ignore="' + u.id + '">Ignore</button></div>'
@@ -537,7 +553,7 @@ information about.
         _renderWeekList();
       });
     });
-    host.querySelectorAll('.pl-addday').forEach(function (el) {
+    host.querySelectorAll('.pl-addday[data-add-date]').forEach(function (el) {
       el.addEventListener('click', function () { _openAdd('single', el.getAttribute('data-add-date')); });
     });
 
@@ -800,7 +816,7 @@ information about.
     { name: 'Back squat', sets: 5, reps: 5, load: '78% 1RM' },
     { name: 'Romanian deadlift', sets: 4, reps: 8, load: 'moderate' }
   ];
-  var _sfStrengthMode = 'detailed'; // 'simple' | 'detailed'
+  var _sfStrengthMode = 'detailed'; // 'simple' | 'detailed' | 'json'
   var _sfFocus = ''; // seed for the simple-mode Focus input (edit prefill)
 
   function _renderStructureBuilder() {
@@ -819,10 +835,20 @@ information about.
       host.innerHTML = '<div class="pl-subtoggle" id="pl-strmode" style="margin-bottom:12px;">' +
           '<button class="' + (_sfStrengthMode === 'simple' ? 'on' : '') + '" data-str="simple">Simple</button>' +
           '<button class="' + (_sfStrengthMode === 'detailed' ? 'on' : '') + '" data-str="detailed">Detailed</button>' +
+          '<button class="' + (_sfStrengthMode === 'json' ? 'on' : '') + '" data-str="json">JSON</button>' +
         '</div>' +
         (_sfStrengthMode === 'simple'
           ? '<div class="pl-fld"><label>Focus</label><input id="pl-str-focus" placeholder="Lower / posterior chain" value="' + esc(_sfFocus || '') + '"/></div>'
+          : _sfStrengthMode === 'json'
+          ? '<div class="pl-fld" style="margin-bottom:6px;"><label>Exercises (JSON)</label></div>' +
+            '<textarea class="pl-jsonta" id="pl-exjson-ta" style="min-height:160px;">' + esc(JSON.stringify(_sfExercises, null, 2)) + '</textarea>' +
+            '<div id="pl-exjson-err"></div>'
           : '<div class="pl-fld" style="margin-bottom:6px;"><label>Exercises</label></div>' +
+            // RPE here is a blank-by-default TARGET the coach can optionally
+            // set going in — distinct from the real logged RPE, which is
+            // only known once the session is actually trained and shows up
+            // on the matched workout's detail instead (see _liftDetailHtml).
+            '<div class="pl-exhead"><span>Name</span><span>Sets</span><span>Reps</span><span>Load</span><span>RPE</span><span></span></div>' +
             '<div class="pl-blocklist" id="pl-exlist">' + _sfExercises.map(_exRowHtml).join('') + '</div>' +
             '<button class="pl-addblock" id="pl-addex">+ Add exercise</button>');
       _wireStrengthBuilder();
@@ -844,6 +870,10 @@ information about.
       '<input class="pl-bdur" data-f="sets" value="' + esc(x.sets != null ? x.sets : '') + '" placeholder="sets"/>' +
       '<input class="pl-bdur" data-f="reps" value="' + esc(x.reps != null ? x.reps : '') + '" placeholder="reps"/>' +
       '<input class="pl-btgt" data-f="load" value="' + esc(x.load || '') + '" placeholder="load"/>' +
+      // Target RPE for this exercise (blank until the coach sets one) — this
+      // is the PLANNED target, separate from the real logged RPE that shows
+      // on the matched workout's actual detail once trained.
+      '<input class="pl-bdur" data-f="rpe" value="' + esc(x.rpe != null ? x.rpe : '') + '" placeholder="RPE"/>' +
       '<button class="pl-rm" data-rm-ex="' + i + '">✕</button></div>';
   }
 
@@ -888,7 +918,24 @@ information about.
         b.addEventListener('click', function () { _sfExercises.splice(+b.getAttribute('data-rm-ex'), 1); _renderStructureBuilder(); });
       });
       var add = document.getElementById('pl-addex');
-      if (add) add.onclick = function () { _sfExercises.push({ name: '', sets: 3, reps: 10, load: '' }); _renderStructureBuilder(); };
+      if (add) add.onclick = function () { _sfExercises.push({ name: '', sets: 3, reps: 10, load: '', rpe: '' }); _renderStructureBuilder(); };
+    }
+    var jsonTa = document.getElementById('pl-exjson-ta');
+    if (jsonTa) {
+      jsonTa.addEventListener('input', function () {
+        var err = document.getElementById('pl-exjson-err');
+        try {
+          var parsed = JSON.parse(jsonTa.value);
+          if (!Array.isArray(parsed)) throw new Error('Must be a JSON array of exercises.');
+          // Kept in sync live so Simple/Detailed/Save all read the same
+          // _sfExercises array regardless of which mode last touched it —
+          // last-valid-parse wins; invalid JSON is flagged but never clears it.
+          _sfExercises = parsed;
+          if (err) err.innerHTML = '';
+        } catch (e) {
+          if (err) err.innerHTML = '<div class="pl-previewbox err">Invalid JSON — ' + esc(e.message) + '</div>';
+        }
+      });
     }
   }
 
@@ -1206,7 +1253,19 @@ information about.
     '</div>';
     document.getElementById('pl-detclose').onclick = _closeDetail;
     var editBtn = document.getElementById('pl-det-edit');
-    if (editBtn) editBtn.onclick = function () { _openEdit(p); };
+    if (editBtn) editBtn.onclick = function () {
+      // Once matched, the planned template is history — what's actually
+      // editable is the real logged workout. Redirect to it instead of
+      // opening the (now-stale) plan structure editor, so Plan/Log/Detail
+      // stay one source of truth rather than two that can drift apart.
+      if (p.actual && p.actual.id) {
+        document.dispatchEvent(new CustomEvent('plan:view-workout', {
+          detail: { workoutId: p.actual.id }
+        }));
+        return;
+      }
+      _openEdit(p);
+    };
     var delBtn = document.getElementById('pl-det-delete');
     if (delBtn) delBtn.onclick = function () {
       if (!window.confirm('Delete this planned session? This can’t be undone.')) return;
@@ -1219,6 +1278,23 @@ information about.
       var pre = document.getElementById('pl-stryd-pre');
       var text = pre ? pre.textContent : '';
       _copyText(text, copyBtn);
+    };
+    var idCopyBtn = document.getElementById('pl-detid-copy');
+    // Icon-only button — _copyText() swaps textContent for feedback, which
+    // would blow away the SVG. Toggle a class + title instead (same pattern
+    // as the Log tab's dp-id-copy).
+    if (idCopyBtn) idCopyBtn.onclick = function () {
+      function flash() {
+        idCopyBtn.classList.add('pl-detid-copy--done');
+        idCopyBtn.setAttribute('title', 'Copied!');
+        setTimeout(function () {
+          idCopyBtn.classList.remove('pl-detid-copy--done');
+          idCopyBtn.setAttribute('title', 'Copy ID');
+        }, 1400);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(p.id).then(flash).catch(function () { _fallbackCopy(p.id); flash(); });
+      } else { _fallbackCopy(p.id); flash(); }
     };
     _wireDetailEvents(host);
   }
@@ -1256,6 +1332,14 @@ information about.
   function _phaseLabel(ph) { return ph === 'warmup' ? 'Warmup' : (ph === 'cooldown' ? 'Cooldown' : (ph === 'main' ? 'Main set' : (ph || 'Block'))); }
   function _phaseCls(ph) { return ph === 'warmup' ? 'warm' : (ph === 'cooldown' ? 'cool' : 'main'); }
 
+  function _detailIdRowHtml(p) {
+    if (!p.id) return '';
+    return '<div class="pl-detid-row"><code class="pl-detid" id="pl-detid-value">' + esc(p.id) + '</code>' +
+      '<button type="button" class="pl-detid-copy" id="pl-detid-copy" aria-label="Copy session ID" title="Copy ID">' +
+      '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>' +
+      '</button></div>';
+  }
+
   function _runDetailHtml(p) {
     var s = p.structure || {}, blocks = Array.isArray(s.blocks) ? s.blocks : [];
     var segs = blocks.map(function (b) {
@@ -1270,8 +1354,9 @@ information about.
     return '<div class="pl-dethead"><span class="pl-dettag run">Run</span>' +
         '<span style="font-size:11px;color:var(--pl-faint);font-family:var(--pl-mono)">' + esc(_fmtDayDate(p.planned_date)) + '</span>' +
         '<span style="flex:1"></span><button class="pl-btn pl-ghost pl-danger" id="pl-det-delete" title="Delete this planned session">Delete</button>' +
-        '<button class="pl-btn pl-ghost" id="pl-det-edit">Edit</button></div>' +
+        '<button class="pl-btn pl-ghost" id="pl-det-edit" title="' + (p.actual && p.actual.id ? 'Edit the logged workout' : 'Edit the plan') + '">' + (p.actual && p.actual.id ? 'Edit workout' : 'Edit') + '</button></div>' +
       '<div class="pl-dettitle">' + esc(p.name || '(untitled)') + '</div>' +
+      _detailIdRowHtml(p) +
       _detailStatusActionsHtml(p) +
       (p.notes ? '' : '') +
       _runTiles(p) +
@@ -1305,12 +1390,50 @@ information about.
   }
 
   function _liftDetailHtml(p) {
-    var s = p.structure || {}, exs = Array.isArray(s.exercises) ? s.exercises : [];
+    var s = p.structure || {}, plannedExs = Array.isArray(s.exercises) ? s.exercises : [];
     var focus = s.focus || '';
     var typeLabel = p.session_type === 'plyo' ? 'Plyo' : 'Strength';
+    // A matched session shows what ACTUALLY happened (real sets/reps/weight/
+    // RPE, live off the matched Workout — see _workout_actual_summary), not
+    // the plan. It's always fetched fresh on load, so editing the workout's
+    // exercises on the Log tab shows up here next time this panel opens —
+    // no separate "sync back" step needed.
+    var actual = p.actual;
+    var actualExs = actual && Array.isArray(actual.exercises) ? actual.exercises : [];
+    var usingActual = actualExs.length > 0;
+    // Real logged exercises have no block field of their own — but the plan
+    // they were matched against usually named the same exercises under a
+    // block, so borrow that grouping by name (case/whitespace-insensitive)
+    // rather than always falling back to one flat list once matched.
+    if (usingActual) {
+      var blockByName = {};
+      plannedExs.forEach(function (x) {
+        if (x && x.name && x.block) blockByName[String(x.name).toLowerCase().trim()] = x.block;
+      });
+      actualExs = actualExs.map(function (x) {
+        var b = blockByName[String(x.name || '').toLowerCase().trim()];
+        return b ? Object.assign({}, x, { block: b }) : x;
+      });
+    }
+    var exs = usingActual ? actualExs : plannedExs;
+
+    // One row template for both planned and actual exercises — same columns
+    // (name / sets×reps / load-or-weight / RPE), same plain styling. Actual
+    // rows use the real weight_kg + logged RPE (blank shows as a faint "—",
+    // not a colored badge); planned rows use the free-text load + optional
+    // target RPE. Kept as one function, not two, so matched vs. unmatched
+    // sessions render one visual design instead of two.
     function _exRow(x) {
       var sr = (x.sets != null && x.reps != null) ? (x.sets + ' × ' + x.reps) : (x.sets != null ? x.sets + ' sets' : '');
-      return '<div class="pl-exd"><span class="pl-en">' + esc(x.name || 'Exercise') + '</span><span class="pl-es">' + esc(sr) + '</span><span class="pl-es" style="color:var(--pl-faint)">' + esc(x.load || '') + '</span></div>';
+      var loadTxt = usingActual ? (x.weight_kg != null ? x.weight_kg + 'kg' : '') : (x.load || '');
+      var rpeVal = x.rpe != null && x.rpe !== '' ? x.rpe : null;
+      var rpeHtml = rpeVal != null
+        ? '<span class="pl-es">' + (usingActual ? 'RPE ' : 'Target RPE ') + esc(rpeVal) + '</span>'
+        : (usingActual ? '<span class="pl-es" style="color:var(--pl-faint)">RPE —</span>' : '');
+      return '<div class="pl-exd"><span class="pl-en">' + esc(x.name || 'Exercise') + '</span>' +
+        '<span class="pl-sr">' + esc(sr) + '</span>' +
+        '<span class="pl-es" style="color:var(--pl-faint)">' + esc(loadTxt) + '</span>' +
+        rpeHtml + '</div>';
     }
     var exHtml;
     if (!exs.length) {
@@ -1318,6 +1441,8 @@ information about.
     } else if (exs.some(function (x) { return x && x.block; })) {
       // Group by the pasted-back `block` label (Warm-up / Heavy compound /
       // Superset 1 / … / Accessories), preserving order of first appearance.
+      // Real logged exercises never carry a block, so matched sessions just
+      // fall through to the flat list below.
       var order = [];
       exs.forEach(function (x) {
         var b = (x && x.block) ? x.block : 'Other';
@@ -1334,12 +1459,18 @@ information about.
     return '<div class="pl-dethead"><span class="pl-dettag lift">' + typeLabel + '</span>' +
         '<span style="font-size:11px;color:var(--pl-faint);font-family:var(--pl-mono)">' + esc(_fmtDayDate(p.planned_date)) + '</span>' +
         '<span style="flex:1"></span><button class="pl-btn pl-ghost pl-danger" id="pl-det-delete" title="Delete this planned session">Delete</button>' +
-        '<button class="pl-btn pl-ghost" id="pl-det-edit">Edit</button></div>' +
+        '<button class="pl-btn pl-ghost" id="pl-det-edit" title="' + (p.actual && p.actual.id ? 'Edit the logged workout' : 'Edit the plan') + '">' + (p.actual && p.actual.id ? 'Edit workout' : 'Edit') + '</button></div>' +
       '<div class="pl-dettitle">' + esc(p.name || '(untitled)') + '</div>' +
+      _detailIdRowHtml(p) +
       _detailStatusActionsHtml(p) +
+      (actual && actual.needs_rpe
+        ? '<div class="pl-infobanner" style="margin:8px 0;">Some exercises are missing RPE.' +
+            (actual.id ? ' <button type="button" class="pl-rpe-fixlink" data-viewfull="' + esc(actual.id) + '">Add it on the logged workout →</button>' : '') +
+          '</div>'
+        : '') +
       '<div class="pl-dettiles">' +
         '<div class="pl-dettile"><div class="l">Type</div><div class="v" style="font-size:14px;">' + typeLabel + '</div></div>' +
-        (focus ? '<div class="pl-dettile"><div class="l">Focus</div><div class="v" style="font-size:14px;">' + esc(focus) + '</div></div>' : '') +
+        (focus && !usingActual ? '<div class="pl-dettile"><div class="l">Focus</div><div class="v" style="font-size:14px;">' + esc(focus) + '</div></div>' : '') +
       '</div>' +
       (exs.length ? '<div class="pl-segwrap"><div class="pl-sectitle" style="margin-bottom:8px;">Exercises</div>' + exHtml + '</div>' : '') +
       (p.notes ? '<div class="pl-fld" style="margin-top:16px;"><label>Coach notes</label><div class="pl-notebox">' + esc(p.notes) + '</div></div>' : '') +
@@ -1453,6 +1584,8 @@ information about.
     // "View full workout →" deep link.
     '.plan-panel .pl-viewfull{display:block;margin-top:4px;font-size:9.5px;color:var(--pl-run);background:none;border:none;cursor:pointer;padding:0;text-align:left;}',
     '.plan-panel .pl-viewfull:hover{text-decoration:underline;}',
+    // RPE-missing banner on a matched session's detail panel.
+    '.plan-panel .pl-rpe-fixlink{background:none;border:none;padding:0;font-size:12px;font-weight:700;color:inherit;text-decoration:underline;cursor:pointer;font-family:inherit;}',
     '.plan-panel .pl-candlist{margin-top:7px;display:flex;flex-direction:column;gap:4px;}',
     '.plan-panel .pl-candrow{display:flex;align-items:center;gap:6px;font-size:10px;background:#fff;border:1px solid var(--pl-line);border-radius:6px;padding:5px 7px;cursor:pointer;}',
     '.plan-panel .pl-candrow .pl-cn{font-weight:600;}.plan-panel .pl-candrow .pl-cm{color:var(--pl-faint);font-family:var(--pl-mono);margin-left:auto;}',
@@ -1463,6 +1596,8 @@ information about.
     '.plan-panel .pl-ghostsel{width:100%;font-size:10.5px;border:1px solid var(--pl-line);border-radius:6px;padding:4px 6px;margin-top:6px;background:#fff;}',
     '.plan-panel .pl-daybody .pl-addday{border:1.5px dashed #d7dcec;border-radius:8px;flex:0 0 76px;min-height:52px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:10.5px;color:var(--pl-faint);cursor:pointer;}',
     '.plan-panel .pl-addday:hover{color:var(--pl-lavHi);border-color:#c7d2fe;}',
+    '.plan-panel .pl-addday.is-disabled{cursor:not-allowed;opacity:0.5;border-style:solid;}',
+    '.plan-panel .pl-addday.is-disabled:hover{color:var(--pl-faint);border-color:#d7dcec;}',
     '.plan-panel .pl-restday{font-size:11px;color:var(--pl-faint);font-style:italic;align-self:center;padding:6px 4px;}',
     '.plan-panel .pl-legend{display:flex;gap:14px;margin-top:12px;font-size:11px;color:var(--pl-muted);flex-wrap:wrap;}',
     '.plan-panel .pl-legend b{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;}',
@@ -1473,7 +1608,7 @@ information about.
     '.plan-panel .pl-subtoggle button{font-size:11.5px;font-weight:700;color:var(--pl-muted);background:var(--pl-tile);border:1px solid var(--pl-line);padding:6px 12px;border-radius:7px;cursor:pointer;font-family:inherit;}',
     '.plan-panel .pl-subtoggle button.on{background:var(--pl-ink);color:#fff;border-color:var(--pl-ink);}',
     '.plan-panel .pl-jsontools{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center;}',
-    '.plan-panel .pl-jsonta{width:100%;min-height:230px;font-family:var(--pl-mono);font-size:12px;line-height:1.65;border:1px solid var(--pl-line);background:#0f1330;color:#cfe0ff;border-radius:10px;padding:14px;resize:vertical;white-space:pre;}',
+    '.plan-panel .pl-jsonta{width:100%;max-width:100%;min-height:230px;font-family:var(--pl-mono);font-size:12px;line-height:1.65;border:1px solid var(--pl-line);background:#0f1330;color:#cfe0ff;border-radius:10px;padding:14px;resize:vertical;white-space:pre;overflow:auto;}',
     '.plan-panel .pl-previewbox{margin-top:12px;border-radius:10px;padding:12px 14px;font-size:12.5px;}',
     '.plan-panel .pl-previewbox.ok{background:var(--pl-greenSoft);color:#14532d;}',
     '.plan-panel .pl-previewbox.err{background:var(--pl-redSoft);color:#7f1d1d;font-family:var(--pl-mono);white-space:pre-wrap;}',
@@ -1494,6 +1629,8 @@ information about.
     '.plan-panel .pl-block input{border:1px solid var(--pl-line);background:#fff;border-radius:6px;padding:6px 8px;font-size:11.5px;font-family:var(--pl-mono);}',
     '.plan-panel .pl-block .pl-bdur{width:70px;}.plan-panel .pl-block .pl-btgt{width:96px;}.plan-panel .pl-block .pl-exname{flex:1;min-width:120px;font-family:inherit;}',
     '.plan-panel .pl-block .pl-rm{margin-left:auto;color:var(--pl-faint);cursor:pointer;font-size:13px;background:none;border:none;}',
+    '.plan-panel .pl-exhead{display:flex;gap:8px;padding:0 11px;margin-top:8px;font-size:9.5px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:var(--pl-faint);}',
+    '.plan-panel .pl-exhead span:nth-child(1){flex:1;min-width:120px;}.plan-panel .pl-exhead span:nth-child(2){width:70px;}.plan-panel .pl-exhead span:nth-child(3){width:70px;}.plan-panel .pl-exhead span:nth-child(4){width:96px;}.plan-panel .pl-exhead span:nth-child(5){width:70px;}.plan-panel .pl-exhead span:nth-child(6){width:20px;}',
     '.plan-panel .pl-addblock{font-size:11.5px;font-weight:700;color:var(--pl-lavHi);background:none;border:1px dashed #c7d2fe;border-radius:8px;padding:7px;cursor:pointer;text-align:center;margin-top:8px;width:100%;}',
     '.plan-panel .pl-bulktbl{width:100%;border-collapse:separate;border-spacing:0 8px;}',
     '.plan-panel .pl-bulktbl th{font-size:9px;font-weight:800;color:var(--pl-faint);text-transform:uppercase;letter-spacing:0.04em;text-align:left;padding:0 8px 4px;}',
@@ -1506,6 +1643,11 @@ information about.
     '.plan-panel .pl-dettag{font-size:9px;font-weight:800;letter-spacing:0.04em;padding:3px 8px;border-radius:6px;text-transform:uppercase;}',
     '.plan-panel .pl-dettag.run{background:var(--pl-blueSoft);color:var(--pl-run);}.plan-panel .pl-dettag.lift{background:var(--pl-liftSoft);color:#7c3aed;}',
     '.plan-panel .pl-dettitle{font-size:19px;font-weight:800;margin-top:10px;}',
+    '.plan-panel .pl-detid-row{display:flex;align-items:center;gap:6px;margin-top:3px;}',
+    '.plan-panel .pl-detid{font-size:10.5px;font-family:var(--pl-mono);color:var(--pl-faint);letter-spacing:-0.01em;}',
+    '.plan-panel .pl-detid-copy{display:flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;border:none;background:none;color:var(--pl-faint);cursor:pointer;border-radius:4px;}',
+    '.plan-panel .pl-detid-copy:hover{background:var(--pl-tile);color:var(--pl-muted);}',
+    '.plan-panel .pl-detid-copy--done{color:var(--pl-green);}',
     '.plan-panel .pl-dettiles{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;}',
     '.plan-panel .pl-dettile{flex:1;min-width:120px;background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:11px;padding:11px 13px;}',
     '.plan-panel .pl-dettile .l{font-size:9px;font-weight:800;color:var(--pl-faint);text-transform:uppercase;}.plan-panel .pl-dettile .v{font-size:18px;font-weight:700;font-family:var(--pl-mono);margin-top:4px;}',
@@ -1525,6 +1667,7 @@ information about.
     '.plan-panel .pl-copybtn{background:var(--pl-lime);color:#1b2340;border:none;border-radius:8px;padding:7px 13px;font-size:11.5px;font-weight:800;cursor:pointer;flex-shrink:0;}',
     '.plan-panel .pl-exd{display:flex;align-items:center;gap:12px;background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:10px;padding:10px 13px;margin-bottom:8px;flex-wrap:wrap;}',
     '.plan-panel .pl-exd .pl-en{flex:1;min-width:120px;font-size:13px;font-weight:600;}.plan-panel .pl-exd .pl-es{font-size:11.5px;color:var(--pl-muted);font-family:var(--pl-mono);}',
+    '.plan-panel .pl-exd .pl-sr{font-size:14px;font-weight:800;color:#7c3aed;font-family:var(--pl-mono);}',
     // Exercises grouped by pasted-back `block` label.
     '.plan-panel .pl-exblock{margin-bottom:18px;padding:12px 12px 4px;border-radius:12px;background:rgba(13,30,67,0.03);}',
     '.plan-panel .pl-exblock:last-child{margin-bottom:0;}',
