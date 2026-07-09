@@ -1267,6 +1267,23 @@ information about.
       var text = pre ? pre.textContent : '';
       _copyText(text, copyBtn);
     };
+    var idCopyBtn = document.getElementById('pl-detid-copy');
+    // Icon-only button — _copyText() swaps textContent for feedback, which
+    // would blow away the SVG. Toggle a class + title instead (same pattern
+    // as the Log tab's dp-id-copy).
+    if (idCopyBtn) idCopyBtn.onclick = function () {
+      function flash() {
+        idCopyBtn.classList.add('pl-detid-copy--done');
+        idCopyBtn.setAttribute('title', 'Copied!');
+        setTimeout(function () {
+          idCopyBtn.classList.remove('pl-detid-copy--done');
+          idCopyBtn.setAttribute('title', 'Copy ID');
+        }, 1400);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(p.id).then(flash).catch(function () { _fallbackCopy(p.id); flash(); });
+      } else { _fallbackCopy(p.id); flash(); }
+    };
     _wireDetailEvents(host);
   }
 
@@ -1303,6 +1320,14 @@ information about.
   function _phaseLabel(ph) { return ph === 'warmup' ? 'Warmup' : (ph === 'cooldown' ? 'Cooldown' : (ph === 'main' ? 'Main set' : (ph || 'Block'))); }
   function _phaseCls(ph) { return ph === 'warmup' ? 'warm' : (ph === 'cooldown' ? 'cool' : 'main'); }
 
+  function _detailIdRowHtml(p) {
+    if (!p.id) return '';
+    return '<div class="pl-detid-row"><code class="pl-detid" id="pl-detid-value">' + esc(p.id) + '</code>' +
+      '<button type="button" class="pl-detid-copy" id="pl-detid-copy" aria-label="Copy session ID" title="Copy ID">' +
+      '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>' +
+      '</button></div>';
+  }
+
   function _runDetailHtml(p) {
     var s = p.structure || {}, blocks = Array.isArray(s.blocks) ? s.blocks : [];
     var segs = blocks.map(function (b) {
@@ -1319,6 +1344,7 @@ information about.
         '<span style="flex:1"></span><button class="pl-btn pl-ghost pl-danger" id="pl-det-delete" title="Delete this planned session">Delete</button>' +
         '<button class="pl-btn pl-ghost" id="pl-det-edit">Edit</button></div>' +
       '<div class="pl-dettitle">' + esc(p.name || '(untitled)') + '</div>' +
+      _detailIdRowHtml(p) +
       _detailStatusActionsHtml(p) +
       (p.notes ? '' : '') +
       _runTiles(p) +
@@ -1407,6 +1433,7 @@ information about.
         '<span style="flex:1"></span><button class="pl-btn pl-ghost pl-danger" id="pl-det-delete" title="Delete this planned session">Delete</button>' +
         '<button class="pl-btn pl-ghost" id="pl-det-edit">Edit</button></div>' +
       '<div class="pl-dettitle">' + esc(p.name || '(untitled)') + '</div>' +
+      _detailIdRowHtml(p) +
       _detailStatusActionsHtml(p) +
       (actual && actual.needs_rpe
         ? '<div class="pl-rpe-banner">⚠ Some exercises are missing RPE.' +
@@ -1555,7 +1582,7 @@ information about.
     '.plan-panel .pl-subtoggle button{font-size:11.5px;font-weight:700;color:var(--pl-muted);background:var(--pl-tile);border:1px solid var(--pl-line);padding:6px 12px;border-radius:7px;cursor:pointer;font-family:inherit;}',
     '.plan-panel .pl-subtoggle button.on{background:var(--pl-ink);color:#fff;border-color:var(--pl-ink);}',
     '.plan-panel .pl-jsontools{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center;}',
-    '.plan-panel .pl-jsonta{width:100%;min-height:230px;font-family:var(--pl-mono);font-size:12px;line-height:1.65;border:1px solid var(--pl-line);background:#0f1330;color:#cfe0ff;border-radius:10px;padding:14px;resize:vertical;white-space:pre;}',
+    '.plan-panel .pl-jsonta{width:100%;max-width:100%;min-height:230px;font-family:var(--pl-mono);font-size:12px;line-height:1.65;border:1px solid var(--pl-line);background:#0f1330;color:#cfe0ff;border-radius:10px;padding:14px;resize:vertical;white-space:pre;overflow:auto;}',
     '.plan-panel .pl-previewbox{margin-top:12px;border-radius:10px;padding:12px 14px;font-size:12.5px;}',
     '.plan-panel .pl-previewbox.ok{background:var(--pl-greenSoft);color:#14532d;}',
     '.plan-panel .pl-previewbox.err{background:var(--pl-redSoft);color:#7f1d1d;font-family:var(--pl-mono);white-space:pre-wrap;}',
@@ -1590,6 +1617,11 @@ information about.
     '.plan-panel .pl-dettag{font-size:9px;font-weight:800;letter-spacing:0.04em;padding:3px 8px;border-radius:6px;text-transform:uppercase;}',
     '.plan-panel .pl-dettag.run{background:var(--pl-blueSoft);color:var(--pl-run);}.plan-panel .pl-dettag.lift{background:var(--pl-liftSoft);color:#7c3aed;}',
     '.plan-panel .pl-dettitle{font-size:19px;font-weight:800;margin-top:10px;}',
+    '.plan-panel .pl-detid-row{display:flex;align-items:center;gap:6px;margin-top:3px;}',
+    '.plan-panel .pl-detid{font-size:10.5px;font-family:var(--pl-mono);color:var(--pl-faint);letter-spacing:-0.01em;}',
+    '.plan-panel .pl-detid-copy{display:flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;border:none;background:none;color:var(--pl-faint);cursor:pointer;border-radius:4px;}',
+    '.plan-panel .pl-detid-copy:hover{background:var(--pl-tile);color:var(--pl-muted);}',
+    '.plan-panel .pl-detid-copy--done{color:var(--pl-green);}',
     '.plan-panel .pl-dettiles{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;}',
     '.plan-panel .pl-dettile{flex:1;min-width:120px;background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:11px;padding:11px 13px;}',
     '.plan-panel .pl-dettile .l{font-size:9px;font-weight:800;color:var(--pl-faint);text-transform:uppercase;}.plan-panel .pl-dettile .v{font-size:18px;font-weight:700;font-family:var(--pl-mono);margin-top:4px;}',
