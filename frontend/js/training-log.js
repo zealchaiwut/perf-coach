@@ -881,25 +881,27 @@
   var ACWR_HIGH = 1.5;
   var ACWR_MIN_DAYS = 28;
 
+  var ACWR_STATUS_META = {
+    detraining: { word: "DETRAINING", color: "var(--lrx-amber)" },
+    productive: { word: "PRODUCTIVE", color: "var(--lrx-green)" },
+    high_risk: { word: "HIGH RISK", color: "var(--lrx-red)" },
+    baseline_forming: { word: "BUILDING", color: "var(--lrx-muted)" },
+  };
+
+  // Same rv/rl/lrx-rband/lrx-rstatus shape as the CTL/ATL/TSB tiles (see
+  // rcard() above) — no trend chart (no ACWR time series available) and no
+  // guidance paragraph, so this tile is intentionally shorter than its
+  // siblings rather than padded out to match (see #acwr-tile's
+  // align-self:flex-start in CSS).
   function _acwrTileHtml() {
     return (
       '<div class="lrx-rcard" id="acwr-tile">' +
-      '<div class="rl" style="margin-bottom:6px;">Training load ratio (ACWR)</div>' +
-      '<div class="perf-acwr-body">' +
-      '<div class="perf-acwr-ratio-wrap">' +
-      '<span id="perf-acwr-ratio" class="perf-acwr-ratio">–</span>' +
-      '<span id="perf-acwr-band" class="perf-acwr-band-badge">–</span>' +
+      '<div class="rv" id="acwr-ratio">–</div>' +
+      '<div class="rl">ACWR · Load ratio</div>' +
+      '<div class="lrx-rband perf-acwr-rband" id="acwr-band">' +
+      '<div class="mk" id="acwr-marker" style="left:50%"></div>' +
       "</div>" +
-      '<div id="perf-acwr-bandbar" class="perf-acwr-bandbar" hidden>' +
-      '<div class="lrx-rband perf-acwr-rband"><div id="perf-acwr-marker" class="mk"></div></div>' +
-      '<div class="perf-acwr-scale"><span>0</span><span>0.8</span><span>1.3</span><span>1.5</span><span>2.0</span></div>' +
-      "</div>" +
-      '<p id="perf-acwr-guidance" class="perf-acwr-guidance">–</p>' +
-      "</div>" +
-      '<div id="perf-acwr-bb" class="perf-acwr-baseline" hidden>' +
-      '<span class="perf-bb-icon">⏳</span>' +
-      "<span>Baseline forming: log at least 28 days of training to see your ACWR.</span>" +
-      "</div>" +
+      '<div class="lrx-rstatus" id="acwr-status">–</div>' +
       "</div>"
     );
   }
@@ -911,7 +913,7 @@
   }
 
   function _loadAcwrTile() {
-    if (!document.getElementById("perf-acwr-ratio")) return;
+    if (!document.getElementById("acwr-ratio")) return;
     _perfAthleteIdFor(function (athleteId) {
       var today = new Date().toLocaleDateString("en-CA");
       var start = new Date();
@@ -923,13 +925,13 @@
           var series = Array.isArray(data) ? data.map(function (d) { return d.daily_load || 0; }) : [];
           _renderAcwrTile(_computeAcwr(series));
         })
-        .catch(function () { _renderAcwrTile({ ratio: null, band: null, guidance: null }); });
+        .catch(function () { _renderAcwrTile({ ratio: null, band: null }); });
     });
   }
 
   function _computeAcwr(series) {
     var n = series.length;
-    if (n < ACWR_MIN_DAYS) return { ratio: null, band: "baseline_forming", guidance: null };
+    if (n < ACWR_MIN_DAYS) return { ratio: null, band: "baseline_forming" };
     var acute = 0;
     for (var i = n - 7; i < n; i++) acute += (series[i] || 0);
     var priorTotals = [];
@@ -943,48 +945,33 @@
     });
     var chronic = priorTotals.length
       ? priorTotals.reduce(function (a, b) { return a + b; }, 0) / priorTotals.length : 0;
-    if (chronic === 0) return { ratio: null, band: null, guidance: null };
+    if (chronic === 0) return { ratio: null, band: null };
     var ratio = acute / chronic;
     var band = ratio < ACWR_LOWER ? "detraining" : (ratio > ACWR_HIGH ? "high_risk" : "productive");
-    var GUIDANCE = {
-      detraining: "Acute load is below chronic baseline. Consider gradually increasing volume to maintain fitness.",
-      productive: "Training load is in the optimal range. Continue current stress to build fitness.",
-      high_risk: "Acute load spike is above chronic baseline. Reduce volume to lower injury risk.",
-    };
-    return { ratio: ratio, band: band, guidance: GUIDANCE[band] };
+    return { ratio: ratio, band: band };
   }
 
   function _renderAcwrTile(acwr) {
-    var ratioEl = document.getElementById("perf-acwr-ratio");
-    var bandEl = document.getElementById("perf-acwr-band");
-    var guidanceEl = document.getElementById("perf-acwr-guidance");
-    var bbEl = document.getElementById("perf-acwr-bb");
-    var bandbarEl = document.getElementById("perf-acwr-bandbar");
-    var markerEl = document.getElementById("perf-acwr-marker");
+    var ratioEl = document.getElementById("acwr-ratio");
+    var statusEl = document.getElementById("acwr-status");
+    var markerEl = document.getElementById("acwr-marker");
     if (!ratioEl) return;
 
     if (acwr.band === "baseline_forming" || acwr.ratio === null) {
-      ratioEl.style.display = "none";
-      if (bandEl) bandEl.style.display = "none";
-      if (guidanceEl) guidanceEl.style.display = "none";
-      if (bandbarEl) bandbarEl.hidden = true;
-      if (bbEl) bbEl.hidden = false;
+      ratioEl.textContent = "–";
+      var bf = ACWR_STATUS_META.baseline_forming;
+      if (statusEl) { statusEl.textContent = bf.word; statusEl.style.color = bf.color; }
+      if (markerEl) markerEl.style.visibility = "hidden";
       return;
     }
-    if (bbEl) bbEl.hidden = true;
-    ratioEl.style.display = "";
     ratioEl.textContent = acwr.ratio.toFixed(2);
-    if (bandEl) {
-      bandEl.style.display = "";
-      bandEl.textContent = acwr.band ? acwr.band.replace(/_/g, " ") : "—";
-      bandEl.className = "perf-acwr-band-badge perf-acwr-band--" + (acwr.band || "");
-    }
-    if (bandbarEl && markerEl) {
-      bandbarEl.hidden = false;
+    var meta = ACWR_STATUS_META[acwr.band] || { word: "—", color: "var(--lrx-muted)" };
+    if (statusEl) { statusEl.textContent = meta.word; statusEl.style.color = meta.color; }
+    if (markerEl) {
+      markerEl.style.visibility = "";
       var pct = Math.max(2, Math.min(98, (acwr.ratio / 2.0) * 100));
       markerEl.style.left = pct.toFixed(1) + "%";
     }
-    if (guidanceEl) { guidanceEl.style.display = ""; guidanceEl.textContent = acwr.guidance || "—"; }
   }
 
   // ── Fitness · Fatigue · Form chart (CTL/ATL/TSB) ────────────────────────────
