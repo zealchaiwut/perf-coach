@@ -197,10 +197,21 @@
         .log-page-header-actions {
           flex-wrap: nowrap;
           gap: 6px;
+          /* Labels stay visible now (see below) — on the narrowest phones
+             three labeled buttons may not all fit; scroll horizontally
+             within the cluster itself rather than clipping "+ Log" off the
+             edge of the screen. */
+          max-width: 100%;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;
         }
-        .log-page-header-actions .btn-label {
+        .log-page-header-actions::-webkit-scrollbar {
           display: none;
         }
+        /* Labels stay visible — the sub-tab nav wraps to its own row below
+           these buttons (see the 879px query), so there's no space pressure
+           forcing icon-only buttons here. */
         .log-page-header .btn-secondary,
         .log-page-header .btn-accent {
           padding: 0 10px;
@@ -6945,16 +6956,17 @@
         display: none;
       }
       .log-page-header-actions {
-        order: 2;
+        order: 3;
         position: static;
         transform: none;
         margin-left: auto;
         flex-shrink: 0;
         gap: 10px;
         align-self: center;
+        margin-top: 2px;
       }
       .log-page-header .training-sub-tabs {
-        order: 3;
+        order: 2;
         display: flex;
         flex: 1 1 100%;
         width: 100%;
@@ -6962,7 +6974,7 @@
         box-sizing: border-box;
         gap: 4px;
         padding: 5px;
-        margin: 2px 0 0;
+        margin: 0;
       }
       .log-page-header .training-sub-tab {
         flex: 1 1 0;
