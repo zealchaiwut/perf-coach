@@ -5452,8 +5452,9 @@
     // #plan-race-header / any .pm-card); computed from geometry (all four tabs
     // share max-width:1000 + 24px padding, border-box) rather than measuring
     // #list-main, which is display:none on Plan/Projection/Performance.
-    // The actions cluster starts at the detail window's LEFT edge (the drawer:
-    // width 600, inset 12 from the right) so it sits above that column.
+    // The actions cluster's right edge matches that same content box's right
+    // edge (contentLeft is symmetric — used as both padding-left and
+    // padding-right below) so "+ Log" lines up with the columns underneath.
     var CONTENT_MAX = 1000,
       PAD = 24;
     var vw = document.documentElement.clientWidth;
@@ -5461,11 +5462,8 @@
     inner.style.paddingLeft = contentLeft + "px";
     inner.style.paddingRight = contentLeft + "px";
     if (actions) {
-      var DRAWER_INSET = 12,
-        DRAWER_W = Math.min(600, Math.round(vw * 0.94));
-      var drawerLeft = Math.max(0, vw - DRAWER_INSET - DRAWER_W);
-      actions.style.left = drawerLeft + "px";
-      actions.style.right = "auto";
+      actions.style.right = contentLeft + "px";
+      actions.style.left = "auto";
     }
   }
   window.addEventListener("load", _positionNav);
