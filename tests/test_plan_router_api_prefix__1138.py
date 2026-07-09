@@ -5,7 +5,7 @@ Acceptance criteria verified:
        so race/checkpoint/projection routes are served under /api/plans/{plan_id}/...
 - AC2: Un-prefixed paths (e.g. GET /plans/{plan_id}/races) return 404;
        /api/plans/{plan_id}/races returns the correct response
-- AC3: _planRaceUrl helper in training-projection.js prepends /api
+- AC3: _planRaceUrl helper in training-performance.js prepends /api
 - AC4: All race/checkpoint/projection endpoints return the same data as before —
        only the URL prefix changes
 - AC5: No duplicate route registrations (old un-prefixed paths not active alongside new ones)
@@ -72,13 +72,13 @@ def test_ac1_routes_start_with_api_plans():
 # ── AC3: frontend _planRaceUrl prepends /api ──────────────────────────────────
 
 def test_ac3_plan_race_url_helper_has_api_prefix():
-    """AC3: _planRaceUrl in training-projection.js must return a path starting with /api/plans/."""
-    js_path = _ROOT / "frontend" / "js" / "training-projection.js"
-    assert js_path.exists(), f"training-projection.js not found at {js_path}"
+    """AC3: _planRaceUrl in training-performance.js must return a path starting with /api/plans/."""
+    js_path = _ROOT / "frontend" / "js" / "training-performance.js"
+    assert js_path.exists(), f"training-performance.js not found at {js_path}"
     content = js_path.read_text()
     # Find the _planRaceUrl function body
     m = re.search(r'function _planRaceUrl\([^)]*\)\s*\{([^}]+)\}', content)
-    assert m, "_planRaceUrl function not found in training-projection.js"
+    assert m, "_planRaceUrl function not found in training-performance.js"
     body = m.group(1)
     assert "/api/plans/" in body, (
         f"_planRaceUrl must use '/api/plans/' but got: {body.strip()!r}"

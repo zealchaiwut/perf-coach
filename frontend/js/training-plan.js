@@ -274,8 +274,9 @@ information about.
   var _pendingOpenId = null;
 
   // ── Plan settings (ramp rate / taper window / schedule preview) ─────────────
-  // Moved here from the Projection tab (training-projection.js), which now
-  // shows Race-readiness specificity in this card's old spot instead. Static
+  // Moved here from the Projection tab (now renamed Performance,
+  // training-performance.js), which now shows Race-readiness specificity in
+  // this card's old spot instead. Static
   // HTML host (#plan-settings-section) — wired once in init() via property
   // assignment (.onclick/.oninput), which is safely idempotent across
   // init()'s repeat calls, same convention _renderWeekSection() uses above.

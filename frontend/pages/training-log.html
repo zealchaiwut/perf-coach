@@ -498,7 +498,7 @@
         background: rgba(255, 255, 255, 0.12);
       }
 
-      /* ── Placeholder panels (Projection / Performance) ──
+      /* ── Placeholder panels (Plan / Performance) ──
          Match the Log shell EXACTLY (.log-layout / #layout-wrapper.has-panel:
          max-width 1000px, padding 20px 24px 60px) so all three sub-tabs share
          the same content-left/right edge and _positionNav aligns the tab strip
@@ -4068,7 +4068,6 @@
         <div class="log-page-header-inner">
         <div class="log-page-header-info">
           <h1 class="log-page-title">Training</h1>
-          <p class="log-subtitle" id="log-subtitle">Loading…</p>
         </div>
         <nav
           class="training-sub-tabs"
@@ -4085,7 +4084,7 @@
             aria-selected="true"
             aria-controls="layout-wrapper"
           >
-            Log
+            Summary
           </button>
           <button
             id="log-tab-plan"
@@ -4099,16 +4098,16 @@
             Plan
           </button>
           <button
-            id="log-tab-projection"
+            id="log-tab-performance"
             class="training-sub-tab"
-            data-tab="projection"
+            data-tab="performance"
             type="button"
             role="tab"
             aria-selected="false"
-            aria-controls="training-panel-projection"
+            aria-controls="training-panel-performance"
           >
-            <span class="tab-label-long">Projection</span
-            ><span class="tab-label-short" aria-hidden="true">Proj</span>
+            <span class="tab-label-long">Performance</span
+            ><span class="tab-label-short" aria-hidden="true">Perf</span>
           </button>
         </nav>
         <span class="log-nav-spacer"></span>
@@ -4248,6 +4247,62 @@
       tabindex="0"
       hidden
     >
+      <!-- ── Plan settings + schedule preview — pinned to the top of the Plan
+           tab (was unstyled at the bottom: its .pm-card/.pm-* rules are
+           scoped to .plan-merged, which only wrapped the Projection tab, so
+           it rendered as bare unstyled text here). Wrapped in .plan-merged
+           to pick up that styling; utilization TBD. ─────────────────────── -->
+      <div class="plan-merged">
+        <div class="pm-card" id="plan-settings-section">
+          <div class="pm-ckhead">
+            <span class="pm-sectitle">Plan settings</span>
+            <button id="plan-save-settings-btn" class="pm-ckbtn dark" type="button">
+              Save
+            </button>
+          </div>
+          <div class="pm-settingsrow">
+            <div class="pm-field">
+              <div class="pm-lab">Ramp rate</div>
+              <div class="pm-inputline">
+                <input
+                  id="plan-ramp-rate-input"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value="0"
+                  aria-describedby="plan-ramp-rate-error"
+                />
+                <span class="pm-unit">TSS/week</span>
+              </div>
+              <span id="plan-ramp-rate-error" class="pm-fielderr" role="alert"></span>
+            </div>
+            <div class="pm-field">
+              <div class="pm-lab">Taper window</div>
+              <div class="pm-inputline">
+                <input
+                  id="plan-taper-window-input"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value="0"
+                  aria-describedby="plan-taper-window-error"
+                />
+                <span class="pm-unit">weeks</span>
+              </div>
+              <span id="plan-taper-window-error" class="pm-fielderr" role="alert"></span>
+            </div>
+          </div>
+          <p id="plan-settings-saved" class="pm-saved" style="display: none">
+            &#10003; Saved
+          </p>
+          <span class="pm-sectitle">Schedule preview</span>
+          <div class="pm-csub">
+            Weekly planned TSS — build ramp then a taper into the A race.
+          </div>
+          <div class="pm-schedwrap" id="plan-sched"></div>
+          <div class="pm-wklabels" id="plan-wklabels"></div>
+        </div>
+      </div>
       <div id="plan-week-section"></div>
       <div id="plan-add-section"></div>
       <div id="plan-detail-section"></div>
@@ -4274,69 +4329,18 @@
         <button id="plan-suggestions-trigger" class="pl-sug-trigger-btn" type="button">✨ Show AI next-week suggestions</button>
       </div>
 
-      <!-- ── Plan settings + schedule preview (moved from Projection tab;
-           that slot now shows Race-readiness specificity instead) ────────── -->
-      <div class="pm-card" id="plan-settings-section">
-        <div class="pm-ckhead">
-          <span class="pm-sectitle">Plan settings</span>
-          <button id="plan-save-settings-btn" class="pm-ckbtn dark" type="button">
-            Save
-          </button>
-        </div>
-        <div class="pm-settingsrow">
-          <div class="pm-field">
-            <div class="pm-lab">Ramp rate</div>
-            <div class="pm-inputline">
-              <input
-                id="plan-ramp-rate-input"
-                type="number"
-                min="0"
-                step="1"
-                value="0"
-                aria-describedby="plan-ramp-rate-error"
-              />
-              <span class="pm-unit">TSS/week</span>
-            </div>
-            <span id="plan-ramp-rate-error" class="pm-fielderr" role="alert"></span>
-          </div>
-          <div class="pm-field">
-            <div class="pm-lab">Taper window</div>
-            <div class="pm-inputline">
-              <input
-                id="plan-taper-window-input"
-                type="number"
-                min="0"
-                step="1"
-                value="0"
-                aria-describedby="plan-taper-window-error"
-              />
-              <span class="pm-unit">weeks</span>
-            </div>
-            <span id="plan-taper-window-error" class="pm-fielderr" role="alert"></span>
-          </div>
-        </div>
-        <p id="plan-settings-saved" class="pm-saved" style="display: none">
-          &#10003; Saved
-        </p>
-        <span class="pm-sectitle">Schedule preview</span>
-        <div class="pm-csub">
-          Weekly planned TSS — build ramp then a taper into the A race.
-        </div>
-        <div class="pm-schedwrap" id="plan-sched"></div>
-        <div class="pm-wklabels" id="plan-wklabels"></div>
-      </div>
     </div>
 
-    <!-- Projection panel (issue #650) -->
+    <!-- Performance panel (issue #650; renamed from Projection) -->
     <div
-      id="training-panel-projection"
+      id="training-panel-performance"
       class="tab-panel-placeholder"
       role="tabpanel"
-      aria-labelledby="log-tab-projection"
+      aria-labelledby="log-tab-performance"
       tabindex="0"
       hidden
     >
-      <!-- ── Projection tab panel ───────────────────────────────────── -->
+      <!-- ── Performance tab panel ───────────────────────────────────── -->
       <div id="plan-tab-panel">
         <!-- ── Merged Plan panel (mock: plan-merge) ─────────────────────── -->
         <div class="plan-merged">
@@ -4475,6 +4479,32 @@
 
           </div><!-- /pm-row2 (header + calibration) -->
 
+          <!-- ── Projected at next checkpoint — moved here from the removed
+               Performance tab; sits above the races list so the headline
+               number the athlete cares about is visible without scrolling -->
+          <div id="perf-proj" class="pm-card perf-proj-card">
+            <div class="pm-ckhead">
+              <span class="pm-sectitle">Projected at next checkpoint</span>
+              <span class="perf-tag">New</span>
+            </div>
+            <div id="perf-proj-body" hidden>
+              <div class="perf-proj-meta" id="perf-proj-meta"></div>
+              <div class="perf-projgrid">
+                <div class="perf-projtile perf-projtile--e">
+                  <div class="perf-projtile-l">Endurance</div>
+                  <div class="perf-projtile-v" id="perf-proj-endurance">–</div>
+                </div>
+                <div class="perf-projtile perf-projtile--s">
+                  <div class="perf-projtile-l">Speed</div>
+                  <div class="perf-projtile-v" id="perf-proj-speed">–</div>
+                </div>
+              </div>
+            </div>
+            <div class="perf-proj-empty" id="perf-proj-empty" hidden>
+              No upcoming checkpoint — add one above.
+            </div>
+          </div>
+
           <!-- 3. Races & projections (HERO) -->
           <div class="pm-card">
             <div class="pm-ckhead">
@@ -4576,31 +4606,6 @@
 
           </div><!-- /pm-row2 (form curve + race-readiness specificity) -->
 
-          <!-- ── Projected at next checkpoint — moved here from the removed
-               Performance tab ───────────────────────────────────────────── -->
-          <div id="perf-proj" class="pm-card perf-proj-card">
-            <div class="pm-ckhead">
-              <span class="pm-sectitle">Projected at next checkpoint</span>
-              <span class="perf-tag">New</span>
-            </div>
-            <div id="perf-proj-body" hidden>
-              <div class="perf-proj-meta" id="perf-proj-meta"></div>
-              <div class="perf-projgrid">
-                <div class="perf-projtile perf-projtile--e">
-                  <div class="perf-projtile-l">Endurance</div>
-                  <div class="perf-projtile-v" id="perf-proj-endurance">–</div>
-                </div>
-                <div class="perf-projtile perf-projtile--s">
-                  <div class="perf-projtile-l">Speed</div>
-                  <div class="perf-projtile-v" id="perf-proj-speed">–</div>
-                </div>
-              </div>
-            </div>
-            <div class="perf-proj-empty" id="perf-proj-empty" hidden>
-              No upcoming checkpoint — add one above.
-            </div>
-          </div>
-
           <!-- ── Personal records — moved here from the removed Performance
                tab ─────────────────────────────────────────────────────── -->
           <div class="pm-card perf-pr-card">
@@ -4611,7 +4616,7 @@
           </div>
         </div>
       </div>
-      <!-- end Projection tab panel -->
+      <!-- end Performance tab panel -->
     </div>
 
     <style>
@@ -5431,10 +5436,11 @@
         }
       }
 
-      /* ── "Performance" styles (former sub-tab, now dissolved — its cards
-         are hosted inside Projection/.plan-merged and the Log page, so these
-         --perf-* vars and .perf-card live at :root/unscoped instead of under
-         a since-removed .perf-panel ancestor). ─────────────────────────────── */
+      /* ── "Performance" styles (former standalone sub-tab, dissolved — its
+         cards are now hosted inside the Performance tab (renamed from
+         Projection)/.plan-merged and the Log page, so these --perf-* vars
+         and .perf-card live at :root/unscoped instead of under a
+         since-removed .perf-panel ancestor). ─────────────────────────────── */
       :root {
         --perf-endur: #16a34a;
         --perf-speed: #ea580c;
@@ -5912,6 +5918,10 @@
         background: var(--card-bg);
         color: var(--text-primary);
         box-shadow: var(--card-shadow);
+      }
+      #perf-chart-wrap {
+        position: relative;
+        height: 220px; /* match .vc-body (Weekly volume) */
       }
       .perf-chart-baseline {
         padding: 20px;
@@ -6492,7 +6502,7 @@
     /* ── Centered shell, overlay drawer (no reserved column) ─────────────── */
     /* 1000px (narrowed from 1120) so the wider 600px overlay drawer coexists
        cleanly with the centered content on a 1440 viewport. Shared across all
-       four tabs (Log/Plan/Projection/Performance). */
+       three sub-tabs (Summary/Plan/Performance). */
     .log-layout {
       max-width: 1000px;
       padding: 20px 24px 60px;
@@ -7196,6 +7206,57 @@
       <section id="load-surfaces" aria-label="Training load">
         <!-- Readiness widget: Fitness/Fatigue/Form tiles + recovery hint (issue #640) -->
         <div id="readiness-widget" class="readiness-widget log-card" hidden></div>
+
+        <!-- Fitness / Fatigue / Form chart (CTL / ATL / TSB) — moved here from
+             the removed Performance tab; sized to match Weekly volume below -->
+        <div id="perf-chart-card" class="perf-card perf-chart-card log-card">
+          <div class="perf-chart-header">
+            <span class="perf-sectitle perf-sectitle--strong perf-chart-title"
+              >Fitness · Fatigue · Form</span
+            >
+            <div
+              class="perf-range-selector"
+              role="group"
+              aria-label="Date range"
+            >
+              <button class="perf-range-btn" data-range="30D" type="button">
+                30D
+              </button>
+              <button
+                class="perf-range-btn active"
+                data-range="90D"
+                type="button"
+              >
+                90D
+              </button>
+              <button class="perf-range-btn" data-range="6M" type="button">
+                6M
+              </button>
+              <button class="perf-range-btn" data-range="1Y" type="button">
+                1Y
+              </button>
+            </div>
+          </div>
+          <p class="perf-chart-caption">
+            CTL = fitness (42-day), ATL = fatigue (7-day), TSB = form. Dashed
+            line = today.
+          </p>
+          <div id="perf-chart-bb" class="perf-chart-baseline" hidden>
+            <span class="perf-bb-icon">📈</span>
+            <span
+              >Building baseline: keep training to see the fitness chart.</span
+            >
+          </div>
+          <div id="perf-chart-wrap">
+            <canvas
+              id="perf-fitness-canvas"
+              height="220"
+              role="img"
+              aria-label="Fitness/Fatigue/Form time series: CTL, ATL, and TSB lines"
+            ></canvas>
+          </div>
+        </div>
+
         <!-- Legacy load-widget (kept for load_context path; hidden by default) -->
         <div id="load-widget" class="load-widget log-card" hidden></div>
         <!-- Weekly volume chart (Chart.js) -->
@@ -7209,56 +7270,6 @@
           </div>
         </div>
       </section>
-
-      <!-- Fitness / Fatigue / Form chart (CTL / ATL / TSB) — moved here from
-           the removed Performance tab -->
-      <div id="perf-chart-card" class="perf-card perf-chart-card log-card">
-        <div class="perf-chart-header">
-          <span class="perf-sectitle perf-sectitle--strong perf-chart-title"
-            >Fitness · Fatigue · Form</span
-          >
-          <div
-            class="perf-range-selector"
-            role="group"
-            aria-label="Date range"
-          >
-            <button class="perf-range-btn" data-range="30D" type="button">
-              30D
-            </button>
-            <button
-              class="perf-range-btn active"
-              data-range="90D"
-              type="button"
-            >
-              90D
-            </button>
-            <button class="perf-range-btn" data-range="6M" type="button">
-              6M
-            </button>
-            <button class="perf-range-btn" data-range="1Y" type="button">
-              1Y
-            </button>
-          </div>
-        </div>
-        <p class="perf-chart-caption">
-          CTL = fitness (42-day), ATL = fatigue (7-day), TSB = form. Dashed
-          line = today.
-        </p>
-        <div id="perf-chart-bb" class="perf-chart-baseline" hidden>
-          <span class="perf-bb-icon">📈</span>
-          <span
-            >Building baseline: keep training to see the fitness chart.</span
-          >
-        </div>
-        <div id="perf-chart-wrap">
-          <canvas
-            id="perf-fitness-canvas"
-            height="220"
-            role="img"
-            aria-label="Fitness/Fatigue/Form time series: CTL, ATL, and TSB lines"
-          ></canvas>
-        </div>
-      </div>
 
       <!-- Month calendar (Log sub-tab, desktop only) — issue #638 -->
       <div id="log-calendar" class="log-card log-card--calendar" aria-label="Monthly training calendar"></div>
@@ -8160,7 +8171,7 @@
     <script src="js/lib/run-detail-view.js"></script>
     <script src="js/training.js"></script>
     <script src="js/training-log.js"></script>
-    <script src="js/training-projection.js"></script>
+    <script src="js/training-performance.js"></script>
     <script src="js/training-plan.js"></script>
     <script src="js/user.js"></script>
     <script src="js/env.js"></script>
@@ -8168,12 +8179,12 @@
       /* Sub-tab switching — no page reload, panel swap only */
       (function () {
         "use strict";
-        var TABS = ["log", "plan", "projection"];
+        var TABS = ["log", "plan", "performance"];
 
         var layoutWrapper = document.getElementById("layout-wrapper");
         var mainCards = document.querySelectorAll("main .log-card");
         var panelPlan = document.getElementById("training-panel-plan");
-        var panelProjection = document.getElementById("training-panel-projection");
+        var panelPerformance = document.getElementById("training-panel-performance");
         var logNewBtn = document.getElementById("log-new-btn");
 
         function getActiveTab() {
@@ -8200,13 +8211,13 @@
           if (panelPlan) panelPlan.hidden = tab !== "plan";
           if (tab === "plan" && window.TrainingPlan && window.TrainingPlan.init)
             window.TrainingPlan.init();
-          if (panelProjection) panelProjection.hidden = tab !== "projection";
+          if (panelPerformance) panelPerformance.hidden = tab !== "performance";
           if (
-            tab === "projection" &&
-            window.TrainingProjection &&
-            window.TrainingProjection.init
+            tab === "performance" &&
+            window.TrainingPerformance &&
+            window.TrainingPerformance.init
           )
-            window.TrainingProjection.init();
+            window.TrainingPerformance.init();
           // Hide "Log workout" button when not on Log tab
           if (logNewBtn) logNewBtn.style.display = isLog ? "" : "none";
         }
@@ -8241,14 +8252,15 @@
         });
 
         // Session-signal card (in the workout detail panel) → close the panel
-        // and open the Projection tab, scrolled to the score cards (moved
-        // here from the removed Performance tab).
+        // and open the Performance tab, scrolled to the score cards (moved
+        // here from the removed Performance tab; that tab is now this one,
+        // renamed from Projection).
         document.addEventListener("rd4:open-performance-signal", function () {
           var closeBtn = document.getElementById("dp-close-btn");
           if (closeBtn) closeBtn.click();
-          history.pushState({ tab: "projection" }, "",
-            window.location.pathname + window.location.search + "#projection");
-          activateTab("projection");
+          history.pushState({ tab: "performance" }, "",
+            window.location.pathname + window.location.search + "#performance");
+          activateTab("performance");
           var target = document.getElementById("perf-score-endurance");
           if (target && target.scrollIntoView) {
             target.scrollIntoView({ behavior: "smooth", block: "center" });

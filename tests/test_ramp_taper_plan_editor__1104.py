@@ -250,8 +250,8 @@ def test_ac4_schedule_preview_section_in_html():
 # ── AC8: JS contains no forecast or projection math ──────────────────────────
 
 def test_ac8_no_projection_api_call_in_plan_js():
-    """AC8: training-projection.js does not call a forecast or projection endpoint."""
-    js_path = _ROOT / "frontend" / "js" / "training-projection.js"
+    """AC8: training-performance.js does not call a forecast or projection endpoint."""
+    js_path = _ROOT / "frontend" / "js" / "training-performance.js"
     js = js_path.read_text(encoding="utf-8")
     assert "/api/projection" not in js, "plan JS must not call a projection endpoint"
     assert "/api/forecast" not in js, "plan JS must not call a forecast endpoint"
@@ -278,9 +278,9 @@ def test_ac3_js_has_schedule_preview_render_function():
 
 
 def test_ac3_projection_js_no_longer_owns_plan_settings():
-    """AC3 (new): training-projection.js no longer wires the ramp/taper inputs
+    """AC3 (new): training-performance.js no longer wires the ramp/taper inputs
     or renders the schedule preview — that moved to training-plan.js."""
-    js_path = _ROOT / "frontend" / "js" / "training-projection.js"
+    js_path = _ROOT / "frontend" / "js" / "training-performance.js"
     js = js_path.read_text(encoding="utf-8")
     assert "plan-ramp-rate-input" not in js
     assert "renderSchedulePreview" not in js

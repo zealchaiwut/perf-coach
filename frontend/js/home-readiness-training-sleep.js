@@ -649,7 +649,7 @@
     var header =
       '<div class="card-head">' +
         '<div class="ttl"><i class="ti ti-chart-line"></i>Performance</div>' +
-        '<a href="/log#projection">View trends &#8594;</a>' +
+        '<a href="/log#performance">View trends &#8594;</a>' +
       '</div>';
     el.innerHTML = header + '<div class="hperf-loading">Loading…</div>';
 

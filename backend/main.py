@@ -5300,8 +5300,9 @@ app.add_api_route("/weight/targets", _serve_weight_targets, include_in_schema=Fa
 
 def _serve_projection_redirect():
     # Projection was merged into the Training → Projection sub-tab
-    # (issue #1226; tab renamed Plan → Projection in feature/performance-tab-rework).
-    return RedirectResponse(url="/log#projection", status_code=302)
+    # (issue #1226; tab renamed Plan → Projection in feature/performance-tab-rework;
+    # later renamed Projection → Performance, 2026-07-09).
+    return RedirectResponse(url="/log#performance", status_code=302)
 
 app.add_api_route("/projection", _serve_projection_redirect, include_in_schema=False)
 app.add_api_route("/projection.html", _serve_projection_redirect, include_in_schema=False)

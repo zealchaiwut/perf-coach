@@ -51,7 +51,7 @@ def html():
 
 @pytest.fixture(scope="module")
 def plan_js():
-    p = os.path.join(os.path.dirname(__file__), "../frontend/js/training-projection.js")
+    p = os.path.join(os.path.dirname(__file__), "../frontend/js/training-performance.js")
     with open(p, encoding="utf-8") as f:
         return f.read()
 
@@ -61,19 +61,17 @@ def plan_js():
 def _plan_panel_html(html):
     """Extract the Plan panel section from the page HTML.
 
-    training-panel-performance was removed (2026-07-09: Performance tab
-    dissolved, its sections redistributed into this panel and the Log page)
-    — the old end-boundary anchor no longer exists, so this always falls
-    back to a fixed window. Bumped 20000 -> 60000: the panel grew by several
-    hundred lines (score cards, moving-your-scores, projected-checkpoint,
-    personal records all moved in) and 20000 chars started truncating
-    content that used to be comfortably inside the window.
+    training-panel-performance (2026-07-09: renamed from
+    training-panel-projection, which is what this test originally called the
+    Plan tab's panel — it was never the removed standalone Performance tab)
+    is the last sub-tab panel in the page, so there's no distinct end-boundary
+    id to search for; always fall back to a fixed window. Kept at 60000 (was
+    bumped from 20000 when score cards, moving-your-scores,
+    projected-checkpoint, and personal records were relocated into this panel).
     """
-    start = html.find('id="training-panel-projection"')
-    assert start != -1, "training-panel-projection must exist in the page"
-    perf_start = html.find('id="training-panel-performance"', start)
-    end = perf_start if perf_start != -1 else start + 60000
-    return html[start:end]
+    start = html.find('id="training-panel-performance"')
+    assert start != -1, "training-panel-performance must exist in the page"
+    return html[start:start + 60000]
 
 
 def _styles(html):

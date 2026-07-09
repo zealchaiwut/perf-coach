@@ -1156,6 +1156,7 @@
     renderRaceCards();
     renderFormCurve();
     renderSpecBars();
+    _renderPerfProjection();
   }
 
   // Map the single /api/plan/computed bundle into local state, then render
@@ -1929,21 +1930,21 @@
   // cards, "what's moving your scores", personal records, and projected-at-
   // next-checkpoint. Kept close to verbatim (own fetches, own state, _perf*
   // naming) rather than integrated with this module's own bundle/_planEntityId
-  // plumbing — the two projection data shapes differ (see _loadPerfProjection)
-  // and merging them is a separate follow-up, not part of this relocation.
-  // Fetched once per page load (_perfBooted below), not on every tab-switch.
+  // plumbing. Projected-at-next-checkpoint is the exception: it reads _races
+  // directly (see _renderPerfProjection, called from renderAll) so it agrees
+  // with the race cards' own estimate instead of running a separate calc.
+  // The rest is fetched once per page load (_perfBooted below), not on every
+  // tab-switch.
   // ══════════════════════════════════════════════════════════════════════════
   var _perfBooted = false;
   var _perfAthleteId = null;
   var _perfTz = "UTC";
   var _perfFitnessChart = null;
   var _perfActiveRange = "90D";
-  var _perfPlanId = null; // separate from this module's own _planEntityId
   var _perfContribs = { endurance: null, speed: null };
   var _perfFeedRows = { endurance: null, speed: null };
   var PERF_RANGE_DAYS = { "30D": 30, "90D": 90, "6M": 180, "1Y": 365 };
   var PERF_TREND_COLOR = { endurance: "#16a34a", speed: "#ea580c" };
-  var PERF_ACWR_LOWER = 0.8, PERF_ACWR_HIGH = 1.5, PERF_ACWR_MIN_DAYS = 28;
 
   function _perfBoot() {
     if (_perfBooted) return;
@@ -1961,8 +1962,8 @@
           _loadPerfScores();
           _loadPerfFeeds();
           _loadPerfMoves();
-          _loadPerfProjection();
           _loadPerfPR();
+          _renderPerfProjection();
         });
     }
     if (userId) { _perfAthleteId = userId; resolvePrefsAndLoad(); }
@@ -2283,53 +2284,47 @@
   }
 
   // ── Projected at next checkpoint ─────────────────────────────────────────────
-  // Self-contained fetch (own /api/plans + /api/plans/{id}/projection call),
-  // deliberately not reusing this module's own _planEntityId/_projection —
-  // that bundle data has a different shape (form_curve/race_markers, not a
-  // races[] array with estimated_time/half_equivalent per race).
-  function _loadPerfProjection() {
-    if (!_perfAthleteId) return;
-    fetch("/api/plans", { credentials: "same-origin" })
-      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-      .then(function (plans) {
-        var plan = Array.isArray(plans) && plans.length ? plans[0] : null;
-        if (!plan || !plan.id) { _renderPerfProjEmpty(); return; }
-        _perfPlanId = plan.id;
-        return fetch("/api/plans/" + _perfPlanId + "/projection", { credentials: "same-origin" })
-          .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-          .then(function (data) { _renderPerfProjection(data); });
-      })
-      .catch(function () { _renderPerfProjEmpty(); });
-  }
-  function _renderPerfProjEmpty() {
-    var body = document.getElementById("perf-proj-body");
-    var empty = document.getElementById("perf-proj-empty");
-    if (body) body.hidden = true;
-    if (empty) empty.hidden = false;
-  }
-  function _renderPerfProjection(data) {
+  // Reads _races directly (already loaded by applyBundle()) instead of its own
+  // /api/plans/{id}/projection fetch — that endpoint runs a SEPARATE, less-
+  // integrated estimate model (score_to_estimated_finish_time off a flat
+  // projected-load assumption) that disagreed with the authoritative one every
+  // race card already shows (r.computed.estimate, from _race_readiness_impl's
+  // time_curve — the same engine behind the time-curve chart at the top of
+  // this tab). Reported live: this card said 2:15:11 while the SAME race's
+  // card below said 2:30:42. Fixed by sourcing both from the one estimate.
+  var RIEGEL_EXPONENT = 1.06; // backend/services/riegel.py — single source of truth
+  function _renderPerfProjection() {
     var body = document.getElementById("perf-proj-body");
     var empty = document.getElementById("perf-proj-empty");
     var metaEl = document.getElementById("perf-proj-meta");
     var endEl = document.getElementById("perf-proj-endurance");
     var spdEl = document.getElementById("perf-proj-speed");
-    var races = (data && Array.isArray(data.races)) ? data.races : [];
-    var todayStr = _perfToday();
-    var upcoming = races.filter(function (r) { return r.date && r.date >= todayStr; })
+    if (!body && !empty) return;
+
+    var todayStr = todayISO();
+    var upcoming = _races
+      .filter(function (r) { return r.date && r.date >= todayStr && r.status !== "done"; })
       .sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
     var next = upcoming.length ? upcoming[0] : null;
-    if (!next) { _renderPerfProjEmpty(); return; }
+    var est = next && next.computed && next.computed.estimate;
+
+    if (!next || !est || est.est == null) {
+      if (body) body.hidden = true;
+      if (empty) empty.hidden = false;
+      return;
+    }
     if (empty) empty.hidden = true;
     if (body) body.hidden = false;
-    if (metaEl) metaEl.textContent = (next.name || "Checkpoint") + " · " + _perfFmtMmmD(next.date);
+    if (metaEl) metaEl.textContent = (next.name || "Checkpoint") + " · " + formatDate(next.date);
     if (endEl) {
-      endEl.innerHTML = next.estimated_time ? esc(next.estimated_time) : "—";
+      endEl.innerHTML = esc(fmtTime(est.est));
       var tile = endEl.closest(".perf-projtile");
       var lbl = tile ? tile.querySelector(".perf-projtile-l") : null;
       if (lbl) lbl.textContent = "Est. finish";
     }
     if (spdEl) {
-      spdEl.innerHTML = next.half_equivalent ? esc(next.half_equivalent) : "—";
+      var halfSeconds = Math.round(est.est * Math.pow(0.5, RIEGEL_EXPONENT));
+      spdEl.innerHTML = esc(fmtTime(halfSeconds));
       var tile2 = spdEl.closest(".perf-projtile");
       var lbl2 = tile2 ? tile2.querySelector(".perf-projtile-l") : null;
       if (lbl2) lbl2.textContent = "Half equiv.";
@@ -2429,5 +2424,5 @@
     }, 150);
   });
 
-  window.TrainingProjection = { init: init };
+  window.TrainingPerformance = { init: init };
 })();

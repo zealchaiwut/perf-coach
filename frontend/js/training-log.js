@@ -1055,7 +1055,7 @@
       },
       options: {
         responsive: true,
-        maintainAspectRatio: true,
+        maintainAspectRatio: false,
         interaction: { mode: "index", intersect: false },
         plugins: {
           legend: {
@@ -6289,7 +6289,7 @@
         : "") +
       "</div>" +
       '<div class="sd-supercomp-links">' +
-      '<a class="sd-supercomp-link" href="training-log.html#projection">&#8594; Projection</a>' +
+      '<a class="sd-supercomp-link" href="training-log.html#performance">&#8594; Performance</a>' +
       "</div>" +
       "</div>";
 
