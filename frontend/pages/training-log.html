@@ -6722,16 +6722,24 @@
     .lrx-calnav .mtitle.scoped { background: var(--lrx-blueSoft); color: var(--lrx-lavHi); }
     .lrx-arw { width: 32px; height: 32px; border: 1px solid var(--lrx-line); background: var(--lrx-tile); border-radius: 8px; cursor: pointer; font-size: 16px; color: var(--lrx-muted); }
     .lrx-today { font-size: 13px; font-weight: 600; color: var(--lrx-muted); background: var(--lrx-tile); border: 1px solid var(--lrx-line); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
-    table.lrx-cal { width: 100%; border-collapse: separate; border-spacing: 0; }
+    /* table-layout:auto (the default) sizes each COLUMN to its own widest
+       cell across every row — a column that happens to show "[Strength]"
+       (wider than "[Run]" or a bare dot) anywhere in the month ends up
+       visibly wider than the others. table-layout:fixed pins every day
+       column to an equal share of the remaining width once the Total
+       column's own width is set, so Mon–Sun always line up evenly
+       regardless of which day happens to carry the widest tag. */
+    table.lrx-cal { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; }
     table.lrx-cal th { font-size: 11px; font-weight: 800; letter-spacing: 0.06em; color: var(--lrx-faint); text-transform: uppercase; padding: 0 0 8px; text-align: center; }
-    table.lrx-cal th.wk { text-align: right; padding-right: 2px; }
+    table.lrx-cal th.wk { text-align: right; padding-right: 2px; width: 128px; }
     .lrx-calrow { cursor: pointer; }
-    /* Fixed 92px keeps EVERY week row the same height whether or not its days
-       carry planned-session tags. 92px fits the worst case (day number + up to
-       two dots + up to two stacked tags ≈ 78px) so a tagged day never grows
-       its row taller than an untagged one. `height` on a table cell is a
-       minimum and all cells in a row share the row height, so this evens them. */
-    .lrx-calrow td { border-top: 1px solid var(--lrx-line); height: 92px; vertical-align: top; text-align: center; }
+    /* Fixed 100px keeps EVERY week row the same height whether or not its days
+       carry planned-session tags. `height` on a table cell is only a MINIMUM
+       in standard table layout — a day with the worst case (day number + two
+       dots + two stacked tags) was still growing past a plain height rule,
+       making that week's whole row taller than lighter weeks. overflow:hidden
+       makes 100px an actual cap, not just a floor, so every row truly matches. */
+    .lrx-calrow td { border-top: 1px solid var(--lrx-line); height: 100px; overflow: hidden; vertical-align: top; text-align: center; }
     .lrx-calrow .dnum { font-size: 14px; font-family: var(--lrx-mono); color: var(--lrx-ink); padding-top: 7px; display: inline-block; }
     .lrx-calrow td.out .dnum { color: #cbd2e0; }
     /* Today marker: a ring inside the day cell (inset shadow avoids disturbing
@@ -6757,8 +6765,16 @@
     .lrx-wkcell { text-align: right; padding: 7px 2px 0 8px; width: 128px; }
     .lrx-wkcell .wt { font-size: 14px; font-weight: 700; font-family: var(--lrx-mono); }
     .lrx-wkcell .wkkm { font-size: 12px; color: var(--lrx-muted); font-family: var(--lrx-mono); }
-    .lrx-wkbar { height: 5px; background: var(--lrx-tile); border-radius: 3px; margin-top: 5px; overflow: hidden; }
-    .lrx-wkbar span { display: block; height: 100%; background: linear-gradient(90deg, #6366f1, #4f6ef7); border-radius: 3px; }
+    .lrx-wkbar { display: flex; height: 5px; background: var(--lrx-tile); border-radius: 3px; margin-top: 5px; overflow: hidden; }
+    .lrx-wkbar-actual { display: block; height: 100%; background: linear-gradient(90deg, #6366f1, #4f6ef7); flex-shrink: 0; }
+    /* Estimated (not-yet-logged) portion — same hue, lower opacity + a
+       diagonal hatch so it visually reads as "projected", not real. */
+    .lrx-wkbar-est {
+      display: block; height: 100%; flex-shrink: 0; opacity: 0.45;
+      background-color: #6366f1;
+      background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.5) 0 2px, transparent 2px 5px);
+    }
+    .wkest { font-size: 10px; color: var(--lrx-faint); }
     /* Selected week: a border ring around the whole row (top+bottom on every
        cell, plus the outer edges) so the scoped week reads as a bordered band,
        mirrored by .day-group.lrx-week-hl in the log list below. */
@@ -6959,7 +6975,7 @@
     }
 
     @media (max-width: 640px) {
-      .lrx-wkcell { width: 96px; }
+      .lrx-wkcell, table.lrx-cal th.wk { width: 96px; }
       #layout-wrapper .detail-panel { width: 100vw; max-width: 100vw; }
     }
 

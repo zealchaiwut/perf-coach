@@ -7281,8 +7281,8 @@ def _workout_actual_summary(w) -> dict:
     }
 
 
-def _planned_session_dict(p, matched=None) -> dict:
-    return {
+def _planned_session_dict(p, matched=None, estimate_baseline=None) -> dict:
+    d = {
         "id": str(p.id),
         "planned_date": str(p.planned_date),
         "session_type": p.session_type,
@@ -7295,6 +7295,27 @@ def _planned_session_dict(p, matched=None) -> dict:
         "created_at": p.created_at.isoformat() if p.created_at else None,
         "updated_at": p.updated_at.isoformat() if p.updated_at else None,
     }
+    # Rough, formula-only (no LLM) estimated TSS/distance for a still-open,
+    # still-ACHIEVABLE session, so a "what's coming this week" progress view
+    # isn't blind to planned-but-not-logged work — see training_load.
+    # estimate_planned_session_metrics. Excluded for: matched/done sessions
+    # (the real actual numbers already cover that day — an estimate would
+    # just be noise), explicitly missed sessions, and any unmatched session
+    # whose date has already passed (effectively missed even before the
+    # reconcile sweep flips its status) — none of those can still happen,
+    # so counting them toward "TSS still coming" would overstate it.
+    if (
+        estimate_baseline is not None
+        and matched is None
+        and p.status != "missed"
+        and p.planned_date >= _date.today()
+    ):
+        from backend.services.training_load import estimate_planned_session_metrics as _est
+        d.update(_est(estimate_baseline, p.session_type, p.structure))
+    else:
+        d["estimated_tss"] = None
+        d["estimated_distance_km"] = None
+    return d
 
 
 def _ghost_workout_dict(w) -> dict:
@@ -7381,6 +7402,13 @@ def get_planned_sessions(
             for w in session.query(Workout).filter(Workout.id.in_(list(ghost_ids))).all():
                 ghost_map[w.id] = w
 
+        # Once per request, not per session — feeds estimated_tss/
+        # estimated_distance_km on each still-open (unmatched) row below.
+        estimate_baseline = None
+        if any(r.matched_workout_id is None for r in rows):
+            from backend.services.training_load import estimate_historical_pace_and_tss as _est_baseline
+            estimate_baseline = _est_baseline(uid, session)
+
         # Group by day across the full range (empty days included → Rest day UI).
         _DOW = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
         by_day = {}
@@ -7393,7 +7421,7 @@ def get_planned_sessions(
             if bucket is None:
                 continue
             matched = matched_map.get(r.matched_workout_id) if r.matched_workout_id else None
-            d = _planned_session_dict(r, matched)
+            d = _planned_session_dict(r, matched, estimate_baseline)
             # Attach the ±1-day candidate pool so the UI can offer a confirm list
             # for a needs_review session even when the candidate is on an
             # adjacent day (ghosts only surface same-day workouts).
