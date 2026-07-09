@@ -5464,6 +5464,18 @@
     if (actions) {
       actions.style.right = contentLeft + "px";
       actions.style.left = "auto";
+      // At in-between (tablet-ish) widths the sub-tab nav can run wide enough
+      // to collide with the right-aligned actions cluster, since actions is
+      // absolutely positioned and doesn't reserve flex space. Measure after
+      // the right-align and push the cluster past the nav's own edge instead
+      // when they'd overlap.
+      var navEl = document.getElementById("training-sub-tabs");
+      var navRect = navEl ? navEl.getBoundingClientRect() : null;
+      var actionsRect = actions.getBoundingClientRect();
+      if (navRect && actionsRect.left < navRect.right + 12) {
+        actions.style.left = navRect.right + 12 + "px";
+        actions.style.right = "auto";
+      }
     }
   }
   window.addEventListener("load", _positionNav);
