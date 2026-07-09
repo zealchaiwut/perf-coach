@@ -725,34 +725,10 @@
   }
 
   // ── Readiness widget (issue #697) ────────────────────────────────────────────
-  // Fetches /api/readiness and renders Fitness/Fatigue/Freshness tiles
-  // with a readiness label and per-metric sparklines. Hidden on error.
-
-  // Draw a small SVG trend line into an <svg> element from a numeric series.
-  function _lrxTrendLine(svgId, pts, color) {
-    var svg = document.getElementById(svgId);
-    if (!svg || !pts || pts.length < 2) return;
-    while (svg.firstChild) svg.removeChild(svg.firstChild);
-    var W = 120,
-      H = 52;
-    var mn = Math.min.apply(null, pts),
-      mx = Math.max.apply(null, pts);
-    var d = pts
-      .map(function (v, i) {
-        var x = (i / (pts.length - 1)) * W;
-        var y = H - ((v - mn) / (mx - mn + 0.001)) * (H - 6) - 3;
-        return (i ? "L" : "M") + x.toFixed(1) + " " + y.toFixed(1);
-      })
-      .join(" ");
-    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
-    var NS = "http://www.w3.org/2000/svg";
-    var path = document.createElementNS(NS, "path");
-    path.setAttribute("d", d);
-    path.setAttribute("fill", "none");
-    path.setAttribute("stroke", color);
-    path.setAttribute("stroke-width", "1.8");
-    svg.appendChild(path);
-  }
+  // Fetches /api/readiness and renders Fitness/Fatigue/Freshness tiles with a
+  // readiness label. No per-tile sparkline — the Fitness/Fatigue/Form chart
+  // below (issue #528) already shows the same CTL/ATL/TSB series over time,
+  // so these tiles stay number/label/bar/status only, matching ACWR's shape.
 
   // Readiness band model: [min,max] for marker placement + status thresholds.
   // First-pass ranges (tunable): CTL/ATL 0–60, TSB −25..+15.
@@ -785,8 +761,6 @@
     atl: "linear-gradient(90deg,#22c55e,#eab308,#ef4444)",
     tsb: "linear-gradient(90deg,#f59e0b,#22c55e,#60a5fa)",
   };
-  var _LRX_TREND_COLOR = { ctl: "#4f6ef7", atl: "#dc2626", tsb: "#16a34a" };
-
   function renderReadinessWidget(data) {
     var el = document.getElementById("readiness-widget");
     if (!el) return;
@@ -800,10 +774,9 @@
       return;
     }
 
-    var series = data.series || [];
     var rlabel = data.readiness_label || "";
 
-    function rcard(metric, val, abbr, label, chartId) {
+    function rcard(metric, val, abbr, label) {
       var st = _lrxReadStatus(metric, val);
       var pct = _lrxMarkerPct(metric, val);
       return (
@@ -827,9 +800,6 @@
         '">' +
         st.word +
         "</div>" +
-        '<svg class="lrx-rchart" id="' +
-        chartId +
-        '"></svg>' +
         "</div>"
       );
     }
@@ -840,33 +810,12 @@
       (rlabel ? '<span class="lrx-chip b">' + esc(rlabel) + "</span>" : "") +
       "</div>" +
       '<div class="lrx-readfull">' +
-      rcard("ctl", data.ctl, "CTL", "Fitness", "lrx-r-ctl") +
-      rcard("atl", data.atl, "ATL", "Fatigue", "lrx-r-atl") +
-      rcard("tsb", data.tsb, "TSB", "Freshness", "lrx-r-tsb") +
+      rcard("ctl", data.ctl, "CTL", "Fitness") +
+      rcard("atl", data.atl, "ATL", "Fatigue") +
+      rcard("tsb", data.tsb, "TSB", "Freshness") +
       _acwrTileHtml() +
       "</div>";
     el.hidden = false;
-    _lrxTrendLine(
-      "lrx-r-ctl",
-      series.map(function (d) {
-        return d.ctl;
-      }),
-      _LRX_TREND_COLOR.ctl,
-    );
-    _lrxTrendLine(
-      "lrx-r-atl",
-      series.map(function (d) {
-        return d.atl;
-      }),
-      _LRX_TREND_COLOR.atl,
-    );
-    _lrxTrendLine(
-      "lrx-r-tsb",
-      series.map(function (d) {
-        return d.tsb;
-      }),
-      _LRX_TREND_COLOR.tsb,
-    );
     _loadAcwrTile();
   }
 
