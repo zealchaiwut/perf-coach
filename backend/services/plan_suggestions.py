@@ -50,6 +50,15 @@ _FALLBACK_RAMP_FACTOR: float = 1.10
 
 _SURFACE = "plan_suggestion"
 
+# Bumped whenever build_prompt() or _LLM_JSON_SCHEMA changes meaningfully.
+# Folded into build_signature() below so an edited prompt can never silently
+# serve an LlmGeneration row cached from the OLD prompt — the cache key is
+# only the `facts` dict, and identical facts (same notes/rest-days/emphasis)
+# hash identically across a prompt change. Hit exactly this in production:
+# a fix to build_prompt() had no visible effect because the athlete's retry
+# used unchanged facts and kept matching a pre-fix cached row.
+_PROMPT_VERSION = "2026-07-09.4"
+
 # ── Scoping / rules constants (day-offset semantics: 0=Monday .. 6=Sunday of
 # the target week; facts["week_start"] is that Monday's ISO date) ────────────
 
@@ -574,8 +583,12 @@ def build_prompt(facts: dict) -> tuple[str, str]:
 
 
 def build_signature(facts: dict) -> str:
-    """SHA-256 signature over the facts dict (stable key ordering)."""
-    serialised = json.dumps(facts, sort_keys=True, default=str)
+    """SHA-256 signature over (_PROMPT_VERSION, facts dict), stable key ordering.
+
+    Versioned so a build_prompt()/schema edit invalidates every previously
+    cached LlmGeneration row instead of silently continuing to serve them.
+    """
+    serialised = json.dumps({"prompt_version": _PROMPT_VERSION, "facts": facts}, sort_keys=True, default=str)
     return hashlib.sha256(serialised.encode()).hexdigest()
 
 
@@ -1057,6 +1070,7 @@ def get_suggestions(
         surface=surface,
         signature=sig,
         generate_fn=_generate,
+        model_tier="deep",  # matches _call_llm's model_tier — see llm.get_or_generate
     )
 
     if cached_or_new is not None:

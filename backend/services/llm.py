@@ -118,12 +118,16 @@ def get_or_generate(
     generate_fn,
     *,
     db=None,
+    model_tier: str = "fast",
 ) -> dict | None:
     """Return cached LLM payload or call generate_fn and cache the result.
 
     generate_fn() must return dict | None; None means generation failed and
     nothing is stored. Callers always fall back when this returns None.
     db is a SQLAlchemy Session; when None a new session is created internally.
+    model_tier labels the cached row for debugging (defaults to "fast" for
+    backward compat) — pass the tier generate_fn() actually calls with, or
+    the cache table misreports which model produced a given payload.
     """
     from backend.models import LlmGeneration
 
@@ -157,7 +161,7 @@ def get_or_generate(
             surface=surface,
             input_signature=signature,
             payload=payload,
-            model=_model("fast"),
+            model=_model(model_tier),
         )
         db.add(row)
         db.commit()
