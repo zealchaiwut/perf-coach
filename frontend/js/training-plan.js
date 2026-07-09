@@ -1431,7 +1431,7 @@ information about.
         ? '<span class="pl-es">' + (usingActual ? 'RPE ' : 'Target RPE ') + esc(rpeVal) + '</span>'
         : (usingActual ? '<span class="pl-es" style="color:var(--pl-faint)">RPE —</span>' : '');
       return '<div class="pl-exd"><span class="pl-en">' + esc(x.name || 'Exercise') + '</span>' +
-        '<span class="pl-es">' + esc(sr) + '</span>' +
+        '<span class="pl-sr">' + esc(sr) + '</span>' +
         '<span class="pl-es" style="color:var(--pl-faint)">' + esc(loadTxt) + '</span>' +
         rpeHtml + '</div>';
     }
@@ -1667,6 +1667,7 @@ information about.
     '.plan-panel .pl-copybtn{background:var(--pl-lime);color:#1b2340;border:none;border-radius:8px;padding:7px 13px;font-size:11.5px;font-weight:800;cursor:pointer;flex-shrink:0;}',
     '.plan-panel .pl-exd{display:flex;align-items:center;gap:12px;background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:10px;padding:10px 13px;margin-bottom:8px;flex-wrap:wrap;}',
     '.plan-panel .pl-exd .pl-en{flex:1;min-width:120px;font-size:13px;font-weight:600;}.plan-panel .pl-exd .pl-es{font-size:11.5px;color:var(--pl-muted);font-family:var(--pl-mono);}',
+    '.plan-panel .pl-exd .pl-sr{font-size:14px;font-weight:800;color:#7c3aed;font-family:var(--pl-mono);}',
     // Exercises grouped by pasted-back `block` label.
     '.plan-panel .pl-exblock{margin-bottom:18px;padding:12px 12px 4px;border-radius:12px;background:rgba(13,30,67,0.03);}',
     '.plan-panel .pl-exblock:last-child{margin-bottom:0;}',
