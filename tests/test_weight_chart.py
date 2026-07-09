@@ -484,15 +484,20 @@ def test_weight_chart_458_7d_range_token(client):
         _delete_user(client, uid)
 
 
-def test_weight_chart_458_all_range_token_plan_series_starts_at_plan_at(client):
-    """AC: range=ALL with entries before plan start — plan_series starts at plan start_date, not earliest entry."""
+def test_weight_chart_458_all_range_token_plan_series_spans_full_chart_range(client):
+    """AC (superseded 2026-07-09, hotfix): with entries before plan start, plan_series
+    now spans the FULL chart range (not just from plan start_date onward) — a
+    target created partway through the displayed history used to leave most of
+    the chart with no plan_series/ahead-behind shading at all. plan_at() clamps
+    to start_weight_kg before the plan's own start_date, so pre-plan days render
+    as a flat line at the starting weight rather than a fabricated trend."""
     uid, cookie = _create_user(client)
     try:
         plan_start = TODAY - datetime.timedelta(days=60)
         # Log entries going back 90 days, before the plan start
         for i in [90, 80, 70, 60, 50, 40, 30, 20, 10]:
             _log_weight(client, cookie, 89.0, (TODAY - datetime.timedelta(days=i)).isoformat())
-        _create_target_458(client, cookie)  # plan starts today-60
+        _create_target_458(client, cookie)  # plan starts today-60, start_weight_kg=90.0
 
         r = client.get("/api/weight-chart", params={"range": "ALL"}, cookies={"session": cookie})
         assert r.status_code == 200, r.text
@@ -502,18 +507,24 @@ def test_weight_chart_458_all_range_token_plan_series_starts_at_plan_at(client):
         assert data["range"]["from"] == (TODAY - datetime.timedelta(days=90)).isoformat()
         assert data["range"]["to"] == TODAY_STR
 
-        # plan_series starts from plan start_date (today-60), not earliest entry (today-90)
+        # plan_series now covers the WHOLE chart range, matching data["range"].
         assert "plan_series" in data, "plan_series missing for ALL range with active target"
         ps = data["plan_series"]
-        assert ps[0]["date"] == plan_start.isoformat(), (
-            f"plan_series should start at plan_start={plan_start}, got {ps[0]['date']}"
+        assert ps[0]["date"] == data["range"]["from"], (
+            f"plan_series should start at the chart range start, got {ps[0]['date']}"
         )
         assert ps[-1]["date"] == TODAY_STR, f"plan_series should end today, got {ps[-1]['date']}"
         # No duplicate dates
         dates = [pt["date"] for pt in ps]
         assert len(dates) == len(set(dates)), "Duplicate dates in plan_series"
-        # Exactly 61 entries (today-60 inclusive through today)
-        assert len(ps) == 61, f"Expected 61 plan_series entries for plan spanning 60 days, got {len(ps)}"
+        # 91 entries (today-90 inclusive through today) — the full chart window.
+        assert len(ps) == 91, f"Expected 91 plan_series entries spanning the full chart range, got {len(ps)}"
+        # Before the plan's own start_date, plan_at() clamps flat at start_weight_kg.
+        pre_plan = [pt for pt in ps if pt["date"] < plan_start.isoformat()]
+        assert pre_plan, "expected some plan_series entries before the plan's start_date"
+        assert all(pt["plan_kg"] == 90.0 for pt in pre_plan), (
+            "plan_series before start_date should clamp flat at start_weight_kg, not extrapolate"
+        )
     finally:
         _delete_user(client, uid)
 

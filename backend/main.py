@@ -2010,20 +2010,23 @@ def get_weight_chart(
             .first()
         )
 
-        # ── Plan series (one point per day from plan inception; omitted when no target) ─────
-        # Starts from max(from_d, plan_start_date) so pre-plan dates are excluded.
+        # ── Plan series (one point per day across the whole displayed window;
+        # omitted when no target) ─────────────────────────────────────────────
+        # Spans the full [from_d, to_d] chart window, not just from the target's
+        # own start_date onward — plan_at() already clamps to start_weight_kg
+        # before start_date and target_weight_kg after target_date, so a date
+        # before the plan existed renders as a flat line at the starting
+        # weight rather than a fabricated trend. Previously this was gated to
+        # start no earlier than the target's start_date, which meant a target
+        # created partway through the displayed range (e.g. day 25 of a 30-day
+        # chart) showed the plan line/ahead-behind shading for only the last
+        # few days — most of the chart had no plan_series entries at all.
         if active_target is not None:
-            _ps_start = (
-                active_target.start_date
-                if isinstance(active_target.start_date, _date)
-                else _date.fromisoformat(str(active_target.start_date))
-            )
-            _ps_from = max(from_d, _ps_start)
-            _ps_days = (to_d - _ps_from).days + 1
+            _ps_days = (to_d - from_d).days + 1
             plan_series = [
                 {
-                    "date": str(_ps_from + _timedelta(days=i)),
-                    "plan_kg": float(round(_weight_plan_at(active_target, _ps_from + _timedelta(days=i)), 2)),
+                    "date": str(from_d + _timedelta(days=i)),
+                    "plan_kg": float(round(_weight_plan_at(active_target, from_d + _timedelta(days=i)), 2)),
                 }
                 for i in range(max(0, _ps_days))
             ]
