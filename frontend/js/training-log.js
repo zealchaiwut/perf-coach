@@ -878,26 +878,66 @@
     });
   }
 
-  function _computeAcwr(series) {
-    var n = series.length;
-    if (n < ACWR_MIN_DAYS) return { ratio: null, band: "baseline_forming" };
+  // Acute:chronic ratio "as of" series[idx], given a chronological daily-load
+  // array. Shared by the readiness tile (idx = series.length-1, "today") and
+  // the FFF chart's ACWR line (idx = each displayed day's position in a
+  // dense, gap-filled load series — see _computeAcwrSeriesForDates).
+  function _acwrRatioAt(series, idx) {
+    if (idx < ACWR_MIN_DAYS - 1) return null;
     var acute = 0;
-    for (var i = n - 7; i < n; i++) acute += (series[i] || 0);
+    for (var i = idx - 6; i <= idx; i++) acute += (series[i] || 0);
     var priorTotals = [];
     [
-      series.slice(Math.max(0, n - 35), n - 28),
-      series.slice(Math.max(0, n - 28), n - 21),
-      series.slice(Math.max(0, n - 21), n - 14),
-      series.slice(Math.max(0, n - 14), n - 7),
+      [idx - 34, idx - 28],
+      [idx - 27, idx - 21],
+      [idx - 20, idx - 14],
+      [idx - 13, idx - 7],
     ].forEach(function (w) {
-      if (w.length) priorTotals.push(w.reduce(function (a, b) { return a + (b || 0); }, 0));
+      var lo = Math.max(0, w[0]), hi = w[1];
+      if (hi < lo) return;
+      var tot = 0;
+      for (var j = lo; j <= hi; j++) tot += (series[j] || 0);
+      priorTotals.push(tot);
     });
     var chronic = priorTotals.length
       ? priorTotals.reduce(function (a, b) { return a + b; }, 0) / priorTotals.length : 0;
-    if (chronic === 0) return { ratio: null, band: null };
-    var ratio = acute / chronic;
-    var band = ratio < ACWR_LOWER ? "detraining" : (ratio > ACWR_HIGH ? "high_risk" : "productive");
-    return { ratio: ratio, band: band };
+    return chronic ? acute / chronic : null;
+  }
+
+  function _acwrBandFor(ratio) {
+    return ratio < ACWR_LOWER ? "detraining" : (ratio > ACWR_HIGH ? "high_risk" : "productive");
+  }
+
+  function _computeAcwr(series) {
+    if (series.length < ACWR_MIN_DAYS) return { ratio: null, band: "baseline_forming" };
+    var ratio = _acwrRatioAt(series, series.length - 1);
+    if (ratio === null) return { ratio: null, band: null };
+    return { ratio: ratio, band: _acwrBandFor(ratio) };
+  }
+
+  // Builds a dense (no date gaps) daily-load array spanning fromDateStr..
+  // toDateStr, then returns the ACWR ratio for each date in `dates` (the
+  // FFF chart's own displayed date labels) — null where there isn't yet
+  // ACWR_MIN_DAYS of history behind that date.
+  function _computeAcwrSeriesForDates(dates, loadData, fromDateStr, toDateStr) {
+    var loadByDate = {};
+    (Array.isArray(loadData) ? loadData : []).forEach(function (d) {
+      if (d && d.date) loadByDate[d.date] = d.daily_load || 0;
+    });
+    var denseDates = [];
+    var d = new Date(fromDateStr + "T00:00:00");
+    var end = new Date(toDateStr + "T00:00:00");
+    while (d <= end) {
+      denseDates.push(d.toLocaleDateString("en-CA"));
+      d.setDate(d.getDate() + 1);
+    }
+    var denseLoads = denseDates.map(function (ds) { return loadByDate[ds] || 0; });
+    var indexOf = {};
+    denseDates.forEach(function (ds, i) { indexOf[ds] = i; });
+    return dates.map(function (ds) {
+      var idx = indexOf[ds];
+      return idx === undefined ? null : _acwrRatioAt(denseLoads, idx);
+    });
   }
 
   function _renderAcwrTile(acwr) {
@@ -946,15 +986,25 @@
     var days = FFF_RANGE_DAYS[_fffActiveRange] || 90;
     var startDate = _fffDateStr(days);
     var endDate = _fffDateStr(0);
+    // 34 extra days of daily-load lookback so the ACWR line has enough
+    // history to compute a ratio for the FIRST displayed day too, not just
+    // ones ACWR_MIN_DAYS+ after the range start.
+    var loadFromDate = _fffDateStr(days + 34);
     var chartBB = document.getElementById("perf-chart-bb");
     var chartWrap = document.getElementById("perf-chart-wrap");
 
     _perfAthleteIdFor(function (athleteId) {
-      var url = "/api/performance/chart?athlete_id=" + encodeURIComponent(athleteId) +
+      var chartUrl = "/api/performance/chart?athlete_id=" + encodeURIComponent(athleteId) +
         "&start_date=" + startDate + "&end_date=" + endDate;
-      fetch(url)
-        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-        .then(function (data) {
+      var loadUrl = "/api/athletes/" + encodeURIComponent(athleteId) + "/daily-load" +
+        "?start_date=" + loadFromDate + "&end_date=" + endDate;
+      Promise.all([
+        fetch(chartUrl).then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); }),
+        fetch(loadUrl).then(function (r) { return r.ok ? r.json() : []; }).catch(function () { return []; }),
+      ])
+        .then(function (results) {
+          var data = results[0];
+          var loadData = results[1];
           if (data.building_baseline || !data.dates || !data.dates.length) {
             if (chartBB) chartBB.hidden = false;
             if (chartWrap) chartWrap.hidden = true;
@@ -962,7 +1012,8 @@
           }
           if (chartBB) chartBB.hidden = true;
           if (chartWrap) chartWrap.hidden = false;
-          _renderFffChart(data);
+          var acwrSeries = _computeAcwrSeriesForDates(data.dates, loadData, loadFromDate, endDate);
+          _renderFffChart(data, acwrSeries);
         })
         .catch(function () {
           if (chartBB) chartBB.hidden = false;
@@ -971,7 +1022,7 @@
     });
   }
 
-  function _renderFffChart(data) {
+  function _renderFffChart(data, acwrSeries) {
     var canvas = document.getElementById("perf-fitness-canvas");
     if (!canvas || !window.Chart) return;
     if (_fffChart) { _fffChart.destroy(); _fffChart = null; }
@@ -987,6 +1038,10 @@
           { label: "CTL (Fitness)", data: data.ctl, borderColor: "#1b2340", backgroundColor: "transparent", borderWidth: 2, pointRadius: 0, tension: 0.3 },
           { label: "ATL (Fatigue)", data: data.atl, borderColor: "#f59e0b", backgroundColor: "transparent", borderWidth: 2, pointRadius: 0, tension: 0.3 },
           { label: "TSB (Form)", data: data.tsb, borderColor: "#10b981", backgroundColor: "transparent", borderWidth: 2, pointRadius: 0, tension: 0.3 },
+          {
+            label: "ACWR", data: acwrSeries || [], borderColor: "#a855f7", backgroundColor: "transparent",
+            borderWidth: 2, borderDash: [5, 3], pointRadius: 0, tension: 0.3, yAxisID: "y1", spanGaps: true,
+          },
         ],
       },
       options: {
@@ -1002,6 +1057,7 @@
             callbacks: {
               label: function (ctx) {
                 var v = ctx.parsed.y;
+                if (ctx.dataset.label === "ACWR") return v != null ? "ACWR: " + v.toFixed(2) : "ACWR: —";
                 return ctx.dataset.label + ": " + (v != null ? v.toFixed(1) : "—");
               },
             },
@@ -1010,6 +1066,11 @@
         scales: {
           x: { ticks: { maxTicksLimit: 8, font: { size: 10 }, color: "#9aa3b8" }, grid: { display: false } },
           y: { ticks: { font: { size: 10 }, color: "#9aa3b8" }, grid: { color: "rgba(13,30,67,0.05)" } },
+          y1: {
+            position: "right", min: 0, max: 2.5,
+            ticks: { font: { size: 10 }, color: "#a855f7", stepSize: 0.5 },
+            grid: { drawOnChartArea: false },
+          },
         },
       },
       plugins: [{

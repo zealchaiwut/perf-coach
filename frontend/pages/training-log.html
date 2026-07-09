@@ -5882,22 +5882,13 @@
       }
 
       /* Fitness chart */
-      .perf-chart-card {
-        padding: 16px 18px;
-      }
       .perf-chart-header {
         display: flex;
         align-items: center;
-        justify-content: space-between;
+        justify-content: flex-end;
         flex-wrap: wrap;
         gap: 8px;
         margin-bottom: 4px;
-      }
-      .perf-chart-title {
-        font-size: 12px;
-        font-weight: 700;
-        color: var(--text-primary);
-        letter-spacing: -0.01em;
       }
       .perf-chart-caption {
         font-size: 10.5px;
@@ -6471,6 +6462,37 @@
       background: #fff;
       padding: 18px 20px;
     }
+    /* Readiness + Fitness/Fatigue/Form/ACWR merged card: one shared card,
+       two halves, vertical divider. Each half carries its own padding
+       instead of the outer .log-card padding, so the divider can run the
+       full inner height without a gap on either side. */
+    #layout-wrapper .rf-merged.log-card {
+      display: flex;
+      align-items: stretch;
+      padding: 0;
+    }
+    .rf-half {
+      flex: 1 1 50%;
+      min-width: 0;
+      padding: 16px 18px;
+    }
+    .rf-divider {
+      width: 1px;
+      align-self: stretch;
+      background: var(--card-border, #e5e7eb);
+      margin: 16px 0;
+      flex-shrink: 0;
+    }
+    @media (max-width: 680px) {
+      #layout-wrapper .rf-merged.log-card {
+        flex-direction: column;
+      }
+      .rf-divider {
+        width: auto;
+        height: 1px;
+        margin: 0 18px;
+      }
+    }
     .lrx-sectitle {
       font-size: 13px;
       font-weight: 800;
@@ -6567,7 +6589,9 @@
     .lrx-chip.b { background: var(--lrx-blueSoft); color: var(--lrx-lavHi); }
 
     /* ── Readiness full cards ────────────────────────────────────────────── */
-    .lrx-readfull { display: flex; gap: 12px; }
+    /* 2x2 (was a 1x4 row) — the readiness half is now half the card's width
+       (see .rf-merged), too narrow for four tiles side by side. */
+    .lrx-readfull { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .lrx-rcard {
       flex: 1;
       background: var(--lrx-tile);
@@ -7140,56 +7164,58 @@
 
       <!-- issue #528: training-load surfaces — readiness widget + weekly volume chart -->
       <section id="load-surfaces" aria-label="Training load">
-        <!-- Readiness widget: Fitness/Fatigue/Form tiles + recovery hint (issue #640) -->
-        <div id="readiness-widget" class="readiness-widget log-card" hidden></div>
-
-        <!-- Fitness / Fatigue / Form chart (CTL / ATL / TSB) — moved here from
-             the removed Performance tab; sized to match Weekly volume below -->
-        <div id="perf-chart-card" class="perf-card perf-chart-card log-card">
-          <div class="perf-chart-header">
-            <span class="perf-sectitle perf-sectitle--strong perf-chart-title"
-              >Fitness · Fatigue · Form</span
-            >
-            <div
-              class="perf-range-selector"
-              role="group"
-              aria-label="Date range"
-            >
-              <button class="perf-range-btn" data-range="30D" type="button">
-                30D
-              </button>
-              <button
-                class="perf-range-btn active"
-                data-range="90D"
-                type="button"
+        <!-- Readiness (tiles + recovery hint, issue #640) merged side-by-side
+             with the Fitness/Fatigue/Form/ACWR chart — one card, vertical
+             divider, half width each. -->
+        <div class="rf-merged log-card">
+          <div id="readiness-widget" class="readiness-widget rf-half" hidden></div>
+          <div class="rf-divider" aria-hidden="true"></div>
+          <!-- Fitness / Fatigue / Form / ACWR chart — moved here from the
+               removed Performance tab; no title (redundant next to
+               Readiness), just the range selector + caption legend. -->
+          <div id="perf-chart-card" class="rf-half">
+            <div class="perf-chart-header">
+              <div
+                class="perf-range-selector"
+                role="group"
+                aria-label="Date range"
               >
-                90D
-              </button>
-              <button class="perf-range-btn" data-range="6M" type="button">
-                6M
-              </button>
-              <button class="perf-range-btn" data-range="1Y" type="button">
-                1Y
-              </button>
+                <button class="perf-range-btn" data-range="30D" type="button">
+                  30D
+                </button>
+                <button
+                  class="perf-range-btn active"
+                  data-range="90D"
+                  type="button"
+                >
+                  90D
+                </button>
+                <button class="perf-range-btn" data-range="6M" type="button">
+                  6M
+                </button>
+                <button class="perf-range-btn" data-range="1Y" type="button">
+                  1Y
+                </button>
+              </div>
             </div>
-          </div>
-          <p class="perf-chart-caption">
-            CTL = fitness (42-day), ATL = fatigue (7-day), TSB = form. Dashed
-            line = today.
-          </p>
-          <div id="perf-chart-bb" class="perf-chart-baseline" hidden>
-            <span class="perf-bb-icon">📈</span>
-            <span
-              >Building baseline: keep training to see the fitness chart.</span
-            >
-          </div>
-          <div id="perf-chart-wrap">
-            <canvas
-              id="perf-fitness-canvas"
-              height="220"
-              role="img"
-              aria-label="Fitness/Fatigue/Form time series: CTL, ATL, and TSB lines"
-            ></canvas>
+            <p class="perf-chart-caption">
+              CTL = fitness (42-day), ATL = fatigue (7-day), TSB = form,
+              ACWR = load ratio. Dashed line = today.
+            </p>
+            <div id="perf-chart-bb" class="perf-chart-baseline" hidden>
+              <span class="perf-bb-icon">📈</span>
+              <span
+                >Building baseline: keep training to see the fitness chart.</span
+              >
+            </div>
+            <div id="perf-chart-wrap">
+              <canvas
+                id="perf-fitness-canvas"
+                height="220"
+                role="img"
+                aria-label="Fitness/Fatigue/Form/ACWR time series: CTL, ATL, TSB, and ACWR lines"
+              ></canvas>
+            </div>
           </div>
         </div>
 
