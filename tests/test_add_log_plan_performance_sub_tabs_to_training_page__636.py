@@ -63,11 +63,14 @@ def test_nav_label_not_training_log(nav_js):
 # ── AC2: Training route shows three sub-tabs: Log, Plan, Performance ─────────
 
 def test_training_page_has_three_subtabs(training_log_html):
-    """AC2: The training page contains three sub-tab buttons: Log, Plan, Performance."""
+    """AC2 (updated 2026-07-09 — Performance tab dissolved, its sections
+    redistributed into Projection/Log rather than kept as a 3rd content tab
+    named "Performance"): three sub-tab buttons: Log, Plan, Projection."""
     assert 'data-tab="log"' in training_log_html, "Log sub-tab button with data-tab='log' must be present"
-    assert 'data-tab="projection"' in training_log_html, "Plan sub-tab button with data-tab='plan' must be present"
-    assert 'data-tab="performance"' in training_log_html, \
-        "Performance sub-tab button with data-tab='performance' must be present"
+    assert 'data-tab="plan"' in training_log_html, "Plan sub-tab button with data-tab='plan' must be present"
+    assert 'data-tab="projection"' in training_log_html, "Projection sub-tab button with data-tab='projection' must be present"
+    assert 'data-tab="performance"' not in training_log_html, \
+        "Performance sub-tab was removed — its sections moved into Projection/Log"
 
 
 def test_training_page_subtabs_label_text(training_log_html):
@@ -101,15 +104,16 @@ def test_log_subtab_is_active_by_default(training_log_html):
 
 
 def test_log_panel_visible_by_default(training_log_html):
-    """AC3: The Log panel is not hidden by default (no hidden attribute on it)."""
-    # Plan and Performance panels should be hidden; Log content should not have hidden
-    assert 'id="training-panel-projection"' in training_log_html, "Panel for Plan must exist"
-    assert 'id="training-panel-performance"' in training_log_html, "Panel for Performance must exist"
-    # Those panels should have 'hidden' attribute
-    assert re.search(r'id="training-panel-projection"[^>]*hidden|hidden[^>]*id="training-panel-projection"', training_log_html), \
+    """AC3 (updated 2026-07-09 — Performance panel removed): the Log panel is
+    not hidden by default; Plan and Projection panels are."""
+    assert 'id="training-panel-plan"' in training_log_html, "Panel for Plan must exist"
+    assert 'id="training-panel-projection"' in training_log_html, "Panel for Projection must exist"
+    assert 'id="training-panel-performance"' not in training_log_html, \
+        "Performance panel was removed"
+    assert re.search(r'id="training-panel-plan"[^>]*hidden|hidden[^>]*id="training-panel-plan"', training_log_html), \
         "Plan panel should be hidden by default"
-    assert re.search(r'id="training-panel-performance"[^>]*hidden|hidden[^>]*id="training-panel-performance"', training_log_html), \
-        "Performance panel should be hidden by default"
+    assert re.search(r'id="training-panel-projection"[^>]*hidden|hidden[^>]*id="training-panel-projection"', training_log_html), \
+        "Projection panel should be hidden by default"
 
 
 # ── AC4: Existing deep links (/log) render the Log sub-tab ──────────────────
@@ -229,10 +233,11 @@ def test_uat_step1_nav_item_reads_training(nav_js):
 
 
 def test_uat_step2_page_has_three_subtabs(training_log_html):
-    """UAT Step 2: Training page HTML has three sub-tabs visible."""
+    """UAT Step 2 (updated 2026-07-09): Training page HTML has three sub-tabs
+    visible — Log, Plan, Projection (Performance dissolved into these)."""
     assert 'data-tab="log"' in training_log_html
+    assert 'data-tab="plan"' in training_log_html
     assert 'data-tab="projection"' in training_log_html
-    assert 'data-tab="performance"' in training_log_html
 
 
 def test_uat_step6_deep_link_still_works(training_log_html):

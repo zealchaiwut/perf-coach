@@ -1695,7 +1695,7 @@
       });
     }
 
-    // Session-signal card → jump to the Performance tab (page listens for this).
+    // Session-signal card → jump to the Projection tab's score cards (page listens for this).
     var sigCard = container.querySelector(".rd4-signal--link");
     if (sigCard) {
       var goPerf = function () {

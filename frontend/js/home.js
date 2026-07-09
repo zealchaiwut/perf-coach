@@ -88,8 +88,8 @@
 
     var header =
       '<div class="card-head">' +
-        '<div class="ttl"><a href="/log#performance" style="color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:7px;"><i class="ti ti-trophy" style="color:var(--gold);"></i>Personal records</a></div>' +
-        '<a href="/log#performance">All PRs &#8594;</a>' +
+        '<div class="ttl"><a href="/log#projection" style="color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:7px;"><i class="ti ti-trophy" style="color:var(--gold);"></i>Personal records</a></div>' +
+        '<a href="/log#projection">All PRs &#8594;</a>' +
       '</div>';
     card.innerHTML = header + UIStates.loadingHTML();
 
@@ -110,7 +110,7 @@
     if (!tiles.length) {
       var emptyEl = document.createElement('div');
       emptyEl.className = 'perf-empty';
-      emptyEl.innerHTML = '<a href="/log#performance">Set your personal records &#8594;</a>';
+      emptyEl.innerHTML = '<a href="/log#projection">Set your personal records &#8594;</a>';
       card.appendChild(emptyEl);
       return;
     }

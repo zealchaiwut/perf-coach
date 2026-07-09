@@ -683,6 +683,7 @@
         // Apply current type/search client filter after rendering
         applyClientFilter();
         fetchReadinessWidget();
+        _loadFffChart();
         // Re-sync active row highlight if panel is still open
         if (activeDetailWorkoutId) {
           activePosIndex = findPosIndex(activeDetailWorkoutId);
@@ -842,6 +843,7 @@
       rcard("ctl", data.ctl, "CTL", "Fitness", "lrx-r-ctl") +
       rcard("atl", data.atl, "ATL", "Fatigue", "lrx-r-atl") +
       rcard("tsb", data.tsb, "TSB", "Freshness", "lrx-r-tsb") +
+      _acwrTileHtml() +
       "</div>";
     el.hidden = false;
     _lrxTrendLine(
@@ -865,7 +867,242 @@
       }),
       _LRX_TREND_COLOR.tsb,
     );
+    _loadAcwrTile();
   }
+
+  // ── Training load ratio (ACWR) — 4th readiness tile ─────────────────────────
+  // Moved here from the removed Performance tab. Not part of the /api/readiness
+  // payload (that endpoint has no ACWR field), so it's a separate fetch against
+  // /api/athletes/{id}/daily-load, with the same client-side ratio/band math
+  // the Performance tab used (backend/services/acwr.py exists but isn't wired
+  // to a route the frontend calls — this mirrors that pre-existing choice,
+  // not a new decision made during the move).
+  var ACWR_LOWER = 0.8;
+  var ACWR_HIGH = 1.5;
+  var ACWR_MIN_DAYS = 28;
+
+  function _acwrTileHtml() {
+    return (
+      '<div class="lrx-rcard" id="acwr-tile">' +
+      '<div class="rl" style="margin-bottom:6px;">Training load ratio (ACWR)</div>' +
+      '<div class="perf-acwr-body">' +
+      '<div class="perf-acwr-ratio-wrap">' +
+      '<span id="perf-acwr-ratio" class="perf-acwr-ratio">–</span>' +
+      '<span id="perf-acwr-band" class="perf-acwr-band-badge">–</span>' +
+      "</div>" +
+      '<div id="perf-acwr-bandbar" class="perf-acwr-bandbar" hidden>' +
+      '<div class="lrx-rband perf-acwr-rband"><div id="perf-acwr-marker" class="mk"></div></div>' +
+      '<div class="perf-acwr-scale"><span>0</span><span>0.8</span><span>1.3</span><span>1.5</span><span>2.0</span></div>' +
+      "</div>" +
+      '<p id="perf-acwr-guidance" class="perf-acwr-guidance">–</p>' +
+      "</div>" +
+      '<div id="perf-acwr-bb" class="perf-acwr-baseline" hidden>' +
+      '<span class="perf-bb-icon">⏳</span>' +
+      "<span>Baseline forming: log at least 28 days of training to see your ACWR.</span>" +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function _perfAthleteIdFor(cb) {
+    var uid = window.getCurrentUserId ? window.getCurrentUserId() : null;
+    if (uid) { cb(uid); return; }
+    window.addEventListener("userReady", function (e) { cb(e.detail.userId); }, { once: true });
+  }
+
+  function _loadAcwrTile() {
+    if (!document.getElementById("perf-acwr-ratio")) return;
+    _perfAthleteIdFor(function (athleteId) {
+      var today = new Date().toLocaleDateString("en-CA");
+      var start = new Date();
+      start.setDate(start.getDate() - 35);
+      var startDate = start.toLocaleDateString("en-CA");
+      fetch("/api/athletes/" + athleteId + "/daily-load?start_date=" + startDate + "&end_date=" + today)
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+        .then(function (data) {
+          var series = Array.isArray(data) ? data.map(function (d) { return d.daily_load || 0; }) : [];
+          _renderAcwrTile(_computeAcwr(series));
+        })
+        .catch(function () { _renderAcwrTile({ ratio: null, band: null, guidance: null }); });
+    });
+  }
+
+  function _computeAcwr(series) {
+    var n = series.length;
+    if (n < ACWR_MIN_DAYS) return { ratio: null, band: "baseline_forming", guidance: null };
+    var acute = 0;
+    for (var i = n - 7; i < n; i++) acute += (series[i] || 0);
+    var priorTotals = [];
+    [
+      series.slice(Math.max(0, n - 35), n - 28),
+      series.slice(Math.max(0, n - 28), n - 21),
+      series.slice(Math.max(0, n - 21), n - 14),
+      series.slice(Math.max(0, n - 14), n - 7),
+    ].forEach(function (w) {
+      if (w.length) priorTotals.push(w.reduce(function (a, b) { return a + (b || 0); }, 0));
+    });
+    var chronic = priorTotals.length
+      ? priorTotals.reduce(function (a, b) { return a + b; }, 0) / priorTotals.length : 0;
+    if (chronic === 0) return { ratio: null, band: null, guidance: null };
+    var ratio = acute / chronic;
+    var band = ratio < ACWR_LOWER ? "detraining" : (ratio > ACWR_HIGH ? "high_risk" : "productive");
+    var GUIDANCE = {
+      detraining: "Acute load is below chronic baseline. Consider gradually increasing volume to maintain fitness.",
+      productive: "Training load is in the optimal range. Continue current stress to build fitness.",
+      high_risk: "Acute load spike is above chronic baseline. Reduce volume to lower injury risk.",
+    };
+    return { ratio: ratio, band: band, guidance: GUIDANCE[band] };
+  }
+
+  function _renderAcwrTile(acwr) {
+    var ratioEl = document.getElementById("perf-acwr-ratio");
+    var bandEl = document.getElementById("perf-acwr-band");
+    var guidanceEl = document.getElementById("perf-acwr-guidance");
+    var bbEl = document.getElementById("perf-acwr-bb");
+    var bandbarEl = document.getElementById("perf-acwr-bandbar");
+    var markerEl = document.getElementById("perf-acwr-marker");
+    if (!ratioEl) return;
+
+    if (acwr.band === "baseline_forming" || acwr.ratio === null) {
+      ratioEl.style.display = "none";
+      if (bandEl) bandEl.style.display = "none";
+      if (guidanceEl) guidanceEl.style.display = "none";
+      if (bandbarEl) bandbarEl.hidden = true;
+      if (bbEl) bbEl.hidden = false;
+      return;
+    }
+    if (bbEl) bbEl.hidden = true;
+    ratioEl.style.display = "";
+    ratioEl.textContent = acwr.ratio.toFixed(2);
+    if (bandEl) {
+      bandEl.style.display = "";
+      bandEl.textContent = acwr.band ? acwr.band.replace(/_/g, " ") : "—";
+      bandEl.className = "perf-acwr-band-badge perf-acwr-band--" + (acwr.band || "");
+    }
+    if (bandbarEl && markerEl) {
+      bandbarEl.hidden = false;
+      var pct = Math.max(2, Math.min(98, (acwr.ratio / 2.0) * 100));
+      markerEl.style.left = pct.toFixed(1) + "%";
+    }
+    if (guidanceEl) { guidanceEl.style.display = ""; guidanceEl.textContent = acwr.guidance || "—"; }
+  }
+
+  // ── Fitness · Fatigue · Form chart (CTL/ATL/TSB) ────────────────────────────
+  // Moved here from the removed Performance tab — the detailed Chart.js line
+  // chart (30D/90D/6M/1Y range), distinct from the readiness widget's compact
+  // sparkline tiles above (both stay; this is the expanded view).
+  var _fffChart = null;
+  var _fffActiveRange = "90D";
+  var FFF_RANGE_DAYS = { "30D": 30, "90D": 90, "6M": 180, "1Y": 365 };
+
+  function _fffDateStr(daysAgo) {
+    var d = new Date();
+    d.setDate(d.getDate() - daysAgo);
+    return d.toLocaleDateString("en-CA");
+  }
+
+  function _loadFffChart(rangeKey) {
+    if (!document.getElementById("perf-fitness-canvas")) return;
+    _fffActiveRange = rangeKey || _fffActiveRange;
+    document.querySelectorAll(".perf-range-btn").forEach(function (btn) {
+      btn.classList.toggle("active", btn.dataset.range === _fffActiveRange);
+    });
+    var days = FFF_RANGE_DAYS[_fffActiveRange] || 90;
+    var startDate = _fffDateStr(days);
+    var endDate = _fffDateStr(0);
+    var chartBB = document.getElementById("perf-chart-bb");
+    var chartWrap = document.getElementById("perf-chart-wrap");
+
+    _perfAthleteIdFor(function (athleteId) {
+      var url = "/api/performance/chart?athlete_id=" + encodeURIComponent(athleteId) +
+        "&start_date=" + startDate + "&end_date=" + endDate;
+      fetch(url)
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+        .then(function (data) {
+          if (data.building_baseline || !data.dates || !data.dates.length) {
+            if (chartBB) chartBB.hidden = false;
+            if (chartWrap) chartWrap.hidden = true;
+            return;
+          }
+          if (chartBB) chartBB.hidden = true;
+          if (chartWrap) chartWrap.hidden = false;
+          _renderFffChart(data);
+        })
+        .catch(function () {
+          if (chartBB) chartBB.hidden = false;
+          if (chartWrap) chartWrap.hidden = true;
+        });
+    });
+  }
+
+  function _renderFffChart(data) {
+    var canvas = document.getElementById("perf-fitness-canvas");
+    if (!canvas || !window.Chart) return;
+    if (_fffChart) { _fffChart.destroy(); _fffChart = null; }
+
+    var todayStr = _fffDateStr(0);
+    var todayIdx = data.dates ? data.dates.indexOf(todayStr) : -1;
+
+    _fffChart = new window.Chart(canvas, {
+      type: "line",
+      data: {
+        labels: data.dates || [],
+        datasets: [
+          { label: "CTL (Fitness)", data: data.ctl, borderColor: "#1b2340", backgroundColor: "transparent", borderWidth: 2, pointRadius: 0, tension: 0.3 },
+          { label: "ATL (Fatigue)", data: data.atl, borderColor: "#f59e0b", backgroundColor: "transparent", borderWidth: 2, pointRadius: 0, tension: 0.3 },
+          { label: "TSB (Form)", data: data.tsb, borderColor: "#10b981", backgroundColor: "transparent", borderWidth: 2, pointRadius: 0, tension: 0.3 },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: {
+            display: true, position: "top",
+            labels: { font: { size: 11, family: "Inter Tight, system-ui, sans-serif" }, color: "#6b7280", boxWidth: 12, padding: 10 },
+          },
+          tooltip: {
+            callbacks: {
+              label: function (ctx) {
+                var v = ctx.parsed.y;
+                return ctx.dataset.label + ": " + (v != null ? v.toFixed(1) : "—");
+              },
+            },
+          },
+        },
+        scales: {
+          x: { ticks: { maxTicksLimit: 8, font: { size: 10 }, color: "#9aa3b8" }, grid: { display: false } },
+          y: { ticks: { font: { size: 10 }, color: "#9aa3b8" }, grid: { color: "rgba(13,30,67,0.05)" } },
+        },
+      },
+      plugins: [{
+        id: "todayMarker",
+        afterDraw: function (chart) {
+          if (todayIdx < 0) return;
+          var ctx2 = chart.ctx;
+          var meta = chart.getDatasetMeta(0);
+          if (!meta || !meta.data || !meta.data[todayIdx]) return;
+          var xPos = meta.data[todayIdx].x;
+          ctx2.save();
+          ctx2.beginPath();
+          ctx2.moveTo(xPos, chart.chartArea.top);
+          ctx2.lineTo(xPos, chart.chartArea.bottom);
+          ctx2.strokeStyle = "rgba(234,88,12,0.7)";
+          ctx2.lineWidth = 1.5;
+          ctx2.setLineDash([4, 3]);
+          ctx2.stroke();
+          ctx2.restore();
+        },
+      }],
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    document.querySelectorAll(".perf-range-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () { _loadFffChart(btn.dataset.range); });
+    });
+  });
 
   function fetchReadinessWidget() {
     var el = document.getElementById("readiness-widget");
@@ -6053,7 +6290,6 @@
       "</div>" +
       '<div class="sd-supercomp-links">' +
       '<a class="sd-supercomp-link" href="training-log.html#projection">&#8594; Projection</a>' +
-      '<a class="sd-supercomp-link" href="training-log.html#performance">&#8594; Performance</a>' +
       "</div>" +
       "</div>";
 

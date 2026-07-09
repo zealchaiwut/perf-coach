@@ -1924,11 +1924,494 @@
       });
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // Ported from the removed Performance tab (training-performance.js): score
+  // cards, "what's moving your scores", personal records, and projected-at-
+  // next-checkpoint. Kept close to verbatim (own fetches, own state, _perf*
+  // naming) rather than integrated with this module's own bundle/_planEntityId
+  // plumbing — the two projection data shapes differ (see _loadPerfProjection)
+  // and merging them is a separate follow-up, not part of this relocation.
+  // Fetched once per page load (_perfBooted below), not on every tab-switch.
+  // ══════════════════════════════════════════════════════════════════════════
+  var _perfBooted = false;
+  var _perfAthleteId = null;
+  var _perfTz = "UTC";
+  var _perfFitnessChart = null;
+  var _perfActiveRange = "90D";
+  var _perfPlanId = null; // separate from this module's own _planEntityId
+  var _perfContribs = { endurance: null, speed: null };
+  var _perfFeedRows = { endurance: null, speed: null };
+  var PERF_RANGE_DAYS = { "30D": 30, "90D": 90, "6M": 180, "1Y": 365 };
+  var PERF_TREND_COLOR = { endurance: "#16a34a", speed: "#ea580c" };
+  var PERF_ACWR_LOWER = 0.8, PERF_ACWR_HIGH = 1.5, PERF_ACWR_MIN_DAYS = 28;
+
+  function _perfBoot() {
+    if (_perfBooted) return;
+    _perfBooted = true;
+    var userId = window.getCurrentUserId ? window.getCurrentUserId() : null;
+    function resolvePrefsAndLoad() {
+      fetch("/api/user-preferences", { credentials: "same-origin" })
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+        .then(function (data) {
+          var tz = data && data.row && data.row.timezone;
+          if (tz && typeof tz === "string") _perfTz = tz;
+        })
+        .catch(function () {})
+        .then(function () {
+          _loadPerfScores();
+          _loadPerfFeeds();
+          _loadPerfMoves();
+          _loadPerfProjection();
+          _loadPerfPR();
+        });
+    }
+    if (userId) { _perfAthleteId = userId; resolvePrefsAndLoad(); }
+    else {
+      window.addEventListener("userReady", function (e) {
+        _perfAthleteId = e.detail.userId;
+        resolvePrefsAndLoad();
+      }, { once: true });
+    }
+  }
+
+  function _perfToday() {
+    return new Date().toLocaleDateString("en-CA", { timeZone: _perfTz });
+  }
+  function _perfDateMinusDays(days) {
+    var d = new Date();
+    d.setDate(d.getDate() - days);
+    return d.toLocaleDateString("en-CA", { timeZone: _perfTz });
+  }
+  function _perfFmtMmmD(iso) {
+    var parts = String(iso).split("-");
+    if (parts.length !== 3) return iso;
+    var d = new Date(Date.UTC(+parts[0], +parts[1] - 1, +parts[2]));
+    var mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getUTCMonth()];
+    return mon + " " + d.getUTCDate();
+  }
+  function _perfFmtPace(secPerKm) {
+    if (secPerKm == null) return null;
+    var s = Math.round(secPerKm);
+    var m = Math.floor(s / 60), sec = s % 60;
+    return m + ":" + String(sec).padStart(2, "0") + " /km";
+  }
+
+  // ── Score cards (Endurance | Speed) ─────────────────────────────────────────
+  function _loadPerfScores() {
+    if (!_perfAthleteId) return;
+    fetch("/api/athletes/" + _perfAthleteId + "/performance")
+      .then(function (r) { return r.json().catch(function () { return null; }); })
+      .then(function (data) {
+        var state = data && typeof data === "object" ? data.state : null;
+        if (state === "scored") {
+          _renderPerfScoreCard("endurance", data.endurance);
+          _renderPerfScoreCard("speed", data.speed);
+          _perfContribs.endurance = (data.endurance && data.endurance.contributions) || null;
+          _perfContribs.speed = (data.speed && data.speed.contributions) || null;
+          if (_perfFeedRows.endurance) _renderPerfFeed("endurance", _perfFeedRows.endurance);
+          if (_perfFeedRows.speed) _renderPerfFeed("speed", _perfFeedRows.speed);
+          return;
+        }
+        if (state === "needs_thresholds") {
+          _renderPerfThresholdHint("endurance");
+          _renderPerfThresholdHint("speed");
+          return;
+        }
+        if (state === "building_baseline") {
+          var reason = (data && data.reason) || "Keep training: your baseline is building.";
+          _renderPerfBuildingBaseline("endurance", reason);
+          _renderPerfBuildingBaseline("speed", reason);
+          return;
+        }
+        _renderPerfScoreError("endurance");
+        _renderPerfScoreError("speed");
+      })
+      .catch(function () {
+        _renderPerfScoreError("endurance");
+        _renderPerfScoreError("speed");
+      });
+  }
+
+  function _perfCardParts(type) {
+    var card = document.getElementById("perf-score-" + type);
+    if (!card) return null;
+    return {
+      card: card,
+      body: card.querySelector(".perf-card-body"),
+      score: card.querySelector(".perf-score-val"),
+      blk: card.querySelector(".perf-blk"),
+      insight: card.querySelector(".perf-insight"),
+      spark: card.querySelector(".perf-spark"),
+      bb: card.querySelector(".perf-building-baseline"),
+      thresh: card.querySelector(".perf-threshold-hint"),
+      error: card.querySelector(".perf-error"),
+      warn: card.querySelector(".perf-speed-warn"),
+      band: card.querySelector(".perf-speed-band"),
+    };
+  }
+
+  function _resetPerfStates(p) {
+    if (p.body) p.body.style.display = "none";
+    if (p.bb) p.bb.hidden = true;
+    if (p.thresh) p.thresh.hidden = true;
+    if (p.error) p.error.hidden = true;
+    if (p.warn) p.warn.hidden = true;
+    if (p.band) p.band.hidden = true;
+  }
+
+  function _renderPerfScoreCard(type, data) {
+    var p = _perfCardParts(type);
+    if (!p) return;
+    _resetPerfStates(p);
+    if (!data || typeof data !== "object" || data.score == null) {
+      _renderPerfScoreError(type);
+      return;
+    }
+    var score = data.score, dir = data.direction || "flat";
+    var trend = Array.isArray(data.trend) ? data.trend : [];
+    if (p.body) p.body.style.display = "";
+    if (p.score) p.score.textContent = Math.round(score);
+    if (p.blk) {
+      var delta = _perfBlockDelta(trend, data.trend_dates);
+      if (delta === null) {
+        p.blk.hidden = true;
+      } else {
+        p.blk.hidden = false;
+        p.blk.classList.remove("perf-blk--down", "perf-blk--flat");
+        if (delta > 0) p.blk.textContent = "↑ +" + delta + " this block";
+        else if (delta < 0) { p.blk.textContent = "↓ −" + Math.abs(delta) + " this block"; p.blk.classList.add("perf-blk--down"); }
+        else { p.blk.textContent = "flat this block"; p.blk.classList.add("perf-blk--flat"); }
+      }
+    }
+    if (p.insight) p.insight.textContent = _perfInsightText(dir, trend);
+    if (p.spark && trend.length >= 2) _drawPerfTrend(p.spark, trend, PERF_TREND_COLOR[type]);
+    else if (p.spark) p.spark.innerHTML = "";
+    if (p.warn) p.warn.hidden = data.low_data_warning !== true;
+    if (p.band) {
+      var cb = data.confidence_band;
+      if (cb && typeof cb === "object" && cb.lower != null && cb.upper != null) {
+        p.band.hidden = false;
+        var lowerEl = p.band.querySelector("b:first-child");
+        var upperEl = p.band.querySelector("b:last-child");
+        if (lowerEl) lowerEl.textContent = Math.round(cb.lower);
+        if (upperEl) upperEl.textContent = Math.round(cb.upper);
+      } else { p.band.hidden = true; }
+    }
+  }
+
+  function _perfBlockDelta(trend, trendDates) {
+    if (!Array.isArray(trend) || trend.length < 2) return null;
+    var last = trend[trend.length - 1];
+    if (last == null) return null;
+    var base = null;
+    if (Array.isArray(trendDates) && trendDates.length === trend.length) {
+      var lastMs = Date.parse(trendDates[trendDates.length - 1] + "T00:00:00");
+      var cutoff = lastMs - 28 * 86400000;
+      for (var i = trend.length - 1; i >= 0; i--) {
+        var ms = Date.parse(trendDates[i] + "T00:00:00");
+        if (!isNaN(ms) && ms <= cutoff) { base = trend[i]; break; }
+      }
+      if (base == null) return null;
+    } else { base = trend[0]; }
+    if (base == null) return null;
+    return Math.round(last - base);
+  }
+
+  function _perfInsightText(dir, trend) {
+    var n = trend.length;
+    var span = n >= 2 ? " over the last " + Math.min(n, 8) + " sessions" : "";
+    if (dir === "improving") return "Trending up" + span + ".";
+    if (dir === "declining") return "Easing off — trending down" + span + ".";
+    return "Holding steady" + span + ".";
+  }
+
+  function _drawPerfTrend(svg, pts, color) {
+    var W = 340, H = 56;
+    var mn = Math.min.apply(null, pts), mx = Math.max.apply(null, pts);
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.innerHTML = "";
+    var P2 = pts.map(function (v, i) {
+      return [i / (pts.length - 1) * W, H - (v - mn) / (mx - mn + 0.001) * (H - 10) - 5];
+    });
+    var d = P2.map(function (p, i) { return (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1); }).join(" ");
+    svg.appendChild(E("path", { d: d, fill: "none", stroke: color, "stroke-width": 2.2, "stroke-linejoin": "round" }));
+    var last = P2[P2.length - 1];
+    svg.appendChild(E("circle", { cx: last[0], cy: last[1], r: 3.5, fill: color }));
+  }
+
+  function _renderPerfThresholdHint(type) {
+    var p = _perfCardParts(type);
+    if (!p) return;
+    _resetPerfStates(p);
+    if (p.thresh) p.thresh.hidden = false;
+    _emptyPerfFeed(type, "Set thresholds to see the sessions feeding this score.");
+  }
+  function _renderPerfBuildingBaseline(type, reason) {
+    var p = _perfCardParts(type);
+    if (!p) return;
+    _resetPerfStates(p);
+    if (p.bb) { p.bb.hidden = false; var r = p.bb.querySelector(".perf-bb-reason"); if (r) r.textContent = reason; }
+  }
+  function _renderPerfScoreError(type) {
+    var p = _perfCardParts(type);
+    if (!p) return;
+    _resetPerfStates(p);
+    if (p.error) p.error.hidden = false;
+  }
+
+  // ── Feeding lists ────────────────────────────────────────────────────────
+  function _emptyPerfFeed(type, msg) {
+    var host = document.getElementById("perf-feed-" + type);
+    if (host) host.innerHTML = '<p class="perf-feed-empty">' + esc(msg) + "</p>";
+  }
+  function _loadPerfFeeds() {
+    if (!_perfAthleteId) return;
+    var from = _perfDateMinusDays(120), to = _perfToday();
+    fetch("/api/training-log?from=" + from + "&to=" + to + "&include_rest=false", { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (data) {
+        var entries = _flattenPerfEntries(data);
+        _renderPerfFeed("endurance", _pickPerfEndurance(entries));
+        _renderPerfFeed("speed", _pickPerfSpeed(entries));
+      })
+      .catch(function () {
+        _emptyPerfFeed("endurance", "Could not load recent sessions.");
+        _emptyPerfFeed("speed", "Could not load recent sessions.");
+      });
+  }
+  function _flattenPerfEntries(data) {
+    var out = [];
+    ((data && data.weeks) || []).forEach(function (wk) {
+      (wk.entries || wk.workouts || []).forEach(function (e) { if (e && e.type !== "rest") out.push(e); });
+    });
+    out.sort(function (a, b) { return (a.date < b.date) ? 1 : (a.date > b.date ? -1 : 0); });
+    return out;
+  }
+  function _pickPerfEndurance(entries) {
+    var runs = entries.filter(function (e) {
+      var t = (e.type || "").toLowerCase();
+      return (t === "run" || t === "long_run" || t === "longrun") && (e.distance_km || 0) >= 8;
+    });
+    if (!runs.length) runs = entries.filter(function (e) { return (e.type || "").toLowerCase().indexOf("run") !== -1; });
+    return runs.slice(0, 5);
+  }
+  function _isPerfInterval(e) {
+    if ((e.run_subtype || "").toLowerCase() === "interval") return true;
+    var t = (e.type || "").toLowerCase();
+    return t === "workout" || t === "track" || t === "tempo";
+  }
+  function _pickPerfSpeed(entries) { return entries.filter(_isPerfInterval).slice(0, 5); }
+
+  function _renderPerfFeed(type, rows) {
+    _perfFeedRows[type] = rows;
+    var host = document.getElementById("perf-feed-" + type);
+    if (!host) return;
+    if (!rows.length) {
+      _emptyPerfFeed(type, type === "endurance" ? "No long runs in the last 120 days." : "No interval sessions in the last 120 days.");
+      return;
+    }
+    var contribMap = _perfContribs[type] || null;
+    host.innerHTML = rows.map(function (w) {
+      var meta = [];
+      if (w.distance_km != null) meta.push(w.distance_km.toFixed(1) + " km");
+      var pace = _perfFmtPace(w.average_pace_seconds_per_km);
+      if (pace) meta.push(pace);
+      if (w.avg_hr != null) meta.push("HR " + w.avg_hr);
+      var src = w.has_stryd ? "st" : (w.has_strava ? "s" : "");
+      var srcHtml = src ? '<span class="perf-src perf-src--' + src + '">' + (src === "s" ? "S" : "St") + "</span>" : "";
+      var chipHtml;
+      var contrib = (contribMap && w.date != null) ? contribMap[w.date] : undefined;
+      if (typeof contrib === "number") {
+        var n = Math.round(contrib * 10) / 10;
+        var cls = n > 0 ? "up" : (n < 0 ? "down" : "flat");
+        var txt = (n > 0 ? "+" : "") + n;
+        chipHtml = '<span class="perf-dchip perf-dchip--' + cls + '" title="contribution to ' + type + ' score">' + txt + "</span>";
+      } else {
+        chipHtml = (w.tss != null) ? '<span class="perf-dchip">' + Math.round(w.tss) + " TSS</span>" : "";
+      }
+      var href = "/log?workout=" + encodeURIComponent(w.id);
+      return '<a class="perf-frow" href="' + href + '">' +
+        '<span class="perf-fdate">' + esc(_perfFmtMmmD(w.date)) + "</span>" +
+        '<span class="perf-fmain">' +
+          '<span class="perf-fn">' + esc(w.title || "Workout") + "</span>" +
+          '<span class="perf-fm">' + esc(meta.join(" · ") || "—") + "</span>" +
+        "</span>" + srcHtml + chipHtml +
+        '<span class="perf-farr">→</span>' +
+      "</a>";
+    }).join("");
+  }
+
+  // ── What's moving your scores ───────────────────────────────────────────────
+  function _loadPerfMoves() {
+    if (!_perfAthleteId) return;
+    var from = _perfDateMinusDays(56), to = _perfToday();
+    fetch("/api/training-log?from=" + from + "&to=" + to + "&include_rest=false", { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (data) { _renderPerfMoves(_flattenPerfEntries(data)); })
+      .catch(function () {
+        var host = document.getElementById("perf-moves");
+        if (host) host.innerHTML = '<p class="perf-feed-empty">Could not load recent training.</p>';
+      });
+  }
+  function _renderPerfMoves(entries) {
+    var host = document.getElementById("perf-moves");
+    if (!host) return;
+    function count(pred) { return entries.filter(pred).length; }
+    var longRuns = count(function (e) { return (e.type || "").toLowerCase().indexOf("run") !== -1 && (e.distance_km || 0) >= 12; });
+    var intervals = count(_isPerfInterval);
+    var strength = count(function (e) { var t = (e.type || "").toLowerCase(); return t === "strength" || t === "gym" || t === "plyo" || t === "plyometric"; });
+    var rows = [
+      ["Long runs", longRuns + " in last 8 wks", "g", "→ endurance", "run"],
+      ["Intervals", intervals + " sessions", "g", "→ speed", "interval"],
+      ["Strength & plyo", strength + " sessions", "b", "lagged → economy", "strength"],
+    ];
+    host.innerHTML = rows.map(function (m) {
+      return '<button type="button" class="perf-arow" data-filter-type="' + esc(m[4]) + '">' +
+        '<span class="perf-an">' + esc(m[0]) + ' <span class="perf-a">→</span></span>' +
+        '<span class="perf-aright">' +
+          '<span class="perf-adet">' + esc(m[1]) + "</span>" +
+          '<span class="perf-achip perf-achip--' + m[2] + '">' + esc(m[3]) + "</span>" +
+        "</span>" +
+      "</button>";
+    }).join("");
+    Array.prototype.forEach.call(host.querySelectorAll(".perf-arow"), function (btn) {
+      btn.addEventListener("click", function () {
+        window.location.href = "/log?types=" + encodeURIComponent(btn.getAttribute("data-filter-type"));
+      });
+    });
+  }
+
+  // ── Projected at next checkpoint ─────────────────────────────────────────────
+  // Self-contained fetch (own /api/plans + /api/plans/{id}/projection call),
+  // deliberately not reusing this module's own _planEntityId/_projection —
+  // that bundle data has a different shape (form_curve/race_markers, not a
+  // races[] array with estimated_time/half_equivalent per race).
+  function _loadPerfProjection() {
+    if (!_perfAthleteId) return;
+    fetch("/api/plans", { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (plans) {
+        var plan = Array.isArray(plans) && plans.length ? plans[0] : null;
+        if (!plan || !plan.id) { _renderPerfProjEmpty(); return; }
+        _perfPlanId = plan.id;
+        return fetch("/api/plans/" + _perfPlanId + "/projection", { credentials: "same-origin" })
+          .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+          .then(function (data) { _renderPerfProjection(data); });
+      })
+      .catch(function () { _renderPerfProjEmpty(); });
+  }
+  function _renderPerfProjEmpty() {
+    var body = document.getElementById("perf-proj-body");
+    var empty = document.getElementById("perf-proj-empty");
+    if (body) body.hidden = true;
+    if (empty) empty.hidden = false;
+  }
+  function _renderPerfProjection(data) {
+    var body = document.getElementById("perf-proj-body");
+    var empty = document.getElementById("perf-proj-empty");
+    var metaEl = document.getElementById("perf-proj-meta");
+    var endEl = document.getElementById("perf-proj-endurance");
+    var spdEl = document.getElementById("perf-proj-speed");
+    var races = (data && Array.isArray(data.races)) ? data.races : [];
+    var todayStr = _perfToday();
+    var upcoming = races.filter(function (r) { return r.date && r.date >= todayStr; })
+      .sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
+    var next = upcoming.length ? upcoming[0] : null;
+    if (!next) { _renderPerfProjEmpty(); return; }
+    if (empty) empty.hidden = true;
+    if (body) body.hidden = false;
+    if (metaEl) metaEl.textContent = (next.name || "Checkpoint") + " · " + _perfFmtMmmD(next.date);
+    if (endEl) {
+      endEl.innerHTML = next.estimated_time ? esc(next.estimated_time) : "—";
+      var tile = endEl.closest(".perf-projtile");
+      var lbl = tile ? tile.querySelector(".perf-projtile-l") : null;
+      if (lbl) lbl.textContent = "Est. finish";
+    }
+    if (spdEl) {
+      spdEl.innerHTML = next.half_equivalent ? esc(next.half_equivalent) : "—";
+      var tile2 = spdEl.closest(".perf-projtile");
+      var lbl2 = tile2 ? tile2.querySelector(".perf-projtile-l") : null;
+      if (lbl2) lbl2.textContent = "Half equiv.";
+    }
+  }
+
+  // ── Personal records grid ───────────────────────────────────────────────────
+  var PERF_PR_LABELS = {
+    longestByDistance: "Longest run (km)", longestByDuration: "Longest run (time)",
+    weeklyDistanceRecord: "Best week (km)", weeklyLoadRecord: "Best week (TSS)",
+    "1km": "Best 1 km", "1mile": "Best 1 mile", "5km": "Best 5 km", "10km": "Best 10 km",
+    half_marathon: "Best half marathon", marathon: "Best marathon",
+    best1Min: "Best 1-min power", best5Min: "Best 5-min power", best20Min: "Best 20-min power",
+  };
+  function _loadPerfPR() {
+    if (!_perfAthleteId) return;
+    fetch("/api/athletes/" + _perfAthleteId + "/run-personal-records")
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (data) { _renderPerfPR(data); })
+      .catch(function () { _renderPerfPR(null); });
+  }
+  function _renderPerfPR(data) {
+    var strip = document.getElementById("perf-pr-strip");
+    if (!strip) return;
+    if (!data) { strip.innerHTML = '<p class="perf-pr-empty">No personal records yet.</p>'; return; }
+    var items = [];
+    [
+      { key: "volumeRecords", keys: ["longestByDistance", "longestByDuration", "weeklyDistanceRecord", "weeklyLoadRecord"] },
+      { key: "speedRecords", keys: ["5km", "10km", "half_marathon", "marathon", "1mile", "1km"] },
+      { key: "powerRecords", keys: ["best20Min", "best5Min", "best1Min"] },
+    ].forEach(function (cat) {
+      var group = data[cat.key];
+      if (!group || typeof group !== "object" || group.reason) return;
+      cat.keys.forEach(function (k) {
+        var rec = group[k];
+        if (rec && typeof rec === "object") items.push({ label: k, rec: rec });
+      });
+    });
+    if (!items.length) { strip.innerHTML = '<p class="perf-pr-empty">No personal records yet.</p>'; return; }
+    strip.innerHTML = items.map(function (item) {
+      var label = PERF_PR_LABELS[item.label] || item.label;
+      var rec = item.rec;
+      if (rec.reason) {
+        return '<div class="perf-prtile perf-prtile--unavailable">' +
+          '<div class="perf-pr-name">' + esc(label) + "</div>" +
+          '<div class="perf-pr-reason">' + esc(rec.reason) + "</div></div>";
+      }
+      var v = _formatPerfPrValue(item.label, rec.value);
+      var date = rec.date || "—";
+      var src = rec.sourceWorkout && rec.sourceWorkout.id
+        ? '<a class="perf-pr-link" href="/log?workout=' + esc(String(rec.sourceWorkout.id)) + '">View workout</a>'
+        : "";
+      return '<div class="perf-prtile">' +
+        '<div class="perf-pr-name">' + esc(label) + "</div>" +
+        '<div class="perf-pr-val">' + v + "</div>" +
+        '<div class="perf-pr-date">' + esc(date) + "</div>" + src + "</div>";
+    }).join("");
+  }
+  function _formatPerfPrValue(key, value) {
+    if (value == null) return "—";
+    var timeKeys = ["5km", "10km", "half_marathon", "marathon", "1km", "1mile", "longestByDuration"];
+    if (timeKeys.indexOf(key) !== -1) {
+      var s = Math.round(value);
+      var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+      if (h > 0) return h + ":" + String(m).padStart(2, "0") + ":" + String(sec).padStart(2, "0");
+      return m + ":" + String(sec).padStart(2, "0");
+    }
+    if (key === "best1Min" || key === "best5Min" || key === "best20Min") return Math.round(value) + "<small> W</small>";
+    if (key === "longestByDistance" || key === "weeklyDistanceRecord") return parseFloat(value).toFixed(1) + "<small> km</small>";
+    if (key === "weeklyLoadRecord") return Math.round(value) + "<small> TSS</small>";
+    return esc(String(value));
+  }
+
   // ── Public init ───────────────────────────────────────────────────────────
   function init() {
     if (!_initialized) {
       _initialized = true;
       wireEvents();
+      _perfBoot();
+      document.querySelectorAll(".perf-retry-btn").forEach(function (btn) {
+        btn.addEventListener("click", function () { _loadPerfScores(); });
+      });
     }
     refresh();
   }

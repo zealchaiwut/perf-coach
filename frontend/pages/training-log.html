@@ -4110,18 +4110,6 @@
             <span class="tab-label-long">Projection</span
             ><span class="tab-label-short" aria-hidden="true">Proj</span>
           </button>
-          <button
-            id="log-tab-performance"
-            class="training-sub-tab"
-            data-tab="performance"
-            type="button"
-            role="tab"
-            aria-selected="false"
-            aria-controls="training-panel-performance"
-          >
-            <span class="tab-label-long">Performance</span
-            ><span class="tab-label-short" aria-hidden="true">Perf</span>
-          </button>
         </nav>
         <span class="log-nav-spacer"></span>
         <div class="log-page-header-actions">
@@ -4352,6 +4340,107 @@
       <div id="plan-tab-panel">
         <!-- ── Merged Plan panel (mock: plan-merge) ─────────────────────── -->
         <div class="plan-merged">
+          <!-- ── Score cards: Endurance + Speed (2-up) — moved here from the
+               removed Performance tab ─────────────────────────────────── -->
+          <div class="perf-scorewrap">
+            <!-- Endurance score card -->
+            <div id="perf-score-endurance" class="perf-card">
+              <div class="perf-chead">
+                <span class="perf-sectitle">Endurance</span>
+                <span class="perf-tag">Trend</span>
+              </div>
+              <div class="perf-card-body">
+                <div class="perf-bigscore perf-bigscore--e">
+                  <span class="perf-score-val"></span>
+                  <span class="perf-blk" hidden></span>
+                </div>
+                <p class="perf-insight"></p>
+                <svg class="perf-trend perf-spark" aria-label="Endurance trend sparkline"></svg>
+                <div class="perf-flabel">Last 5 long runs feeding this score</div>
+                <div class="perf-feed" id="perf-feed-endurance">
+                  <p class="perf-feed-loading">Loading…</p>
+                </div>
+              </div>
+              <div class="perf-building-baseline" hidden>
+                <span class="perf-bb-icon">📈</span>
+                <p class="perf-bb-reason"></p>
+              </div>
+              <div class="perf-threshold-hint" hidden>
+                <p class="perf-hint-text">
+                  To compute your score, set your <strong>FTP</strong>,
+                  <strong>threshold HR</strong>, and
+                  <strong>threshold pace</strong> in
+                  <a href="/settings#thresholds">Settings → Thresholds</a>.
+                </p>
+              </div>
+              <div class="perf-error" hidden>
+                <span class="perf-error-text">Could not load score.</span>
+                <button type="button" class="perf-retry-btn">Retry</button>
+              </div>
+            </div>
+
+            <!-- Speed score card -->
+            <div id="perf-score-speed" class="perf-card">
+              <div class="perf-chead">
+                <span class="perf-sectitle">Speed</span>
+                <span class="perf-tag">Trend</span>
+              </div>
+              <div class="perf-card-body">
+                <div class="perf-bigscore perf-bigscore--s">
+                  <span class="perf-score-val"></span>
+                  <span class="perf-blk" hidden></span>
+                </div>
+                <p class="perf-insight"></p>
+                <svg class="perf-trend perf-spark" aria-label="Speed trend sparkline"></svg>
+                <div class="perf-flabel">Last 5 interval sessions feeding this score</div>
+                <div class="perf-feed" id="perf-feed-speed">
+                  <p class="perf-feed-loading">Loading…</p>
+                </div>
+              </div>
+              <div class="perf-building-baseline" hidden>
+                <span class="perf-bb-icon">⚡</span>
+                <p class="perf-bb-reason"></p>
+              </div>
+              <div class="perf-threshold-hint" hidden>
+                <p class="perf-hint-text">
+                  To compute your score, set your <strong>FTP</strong>,
+                  <strong>threshold HR</strong>, and
+                  <strong>threshold pace</strong> in
+                  <a href="/settings#thresholds">Settings → Thresholds</a>.
+                </p>
+              </div>
+              <div class="perf-error" hidden>
+                <span class="perf-error-text">Could not load score.</span>
+                <button type="button" class="perf-retry-btn">Retry</button>
+              </div>
+              <span class="perf-speed-warn" hidden title="Score based on limited data — results may be less precise">⚠ Low data</span>
+              <div class="perf-speed-band" hidden><b></b>–<b></b></div>
+            </div>
+          </div>
+          <!-- /.perf-scorewrap -->
+
+          <!-- ── What's moving your scores ─────────────────────────────── -->
+          <div class="perf-card perf-moves-card">
+            <div class="perf-chead" style="margin-bottom: 0">
+              <span class="perf-sectitle perf-sectitle--strong"
+                >What's moving your scores</span
+              >
+              <span class="perf-tag">New</span>
+            </div>
+            <div class="perf-movesub" id="perf-moves-sub">
+              Recent training composition — associations from your sessions, not
+              proof of cause. Tap a row to filter the log.
+            </div>
+            <div id="perf-moves">
+              <p class="perf-feed-loading">Loading…</p>
+            </div>
+            <div class="perf-movefoot">
+              Strength and plyo take 6–12 weeks to show; intervals respond faster;
+              weight helps until it starts costing power. Each row filters the log
+              to the sessions behind it.
+            </div>
+          </div>
+
           <!-- Row: A-race header + calibration status -->
           <div class="pm-row2">
           <!-- 1. A-race header -->
@@ -4486,208 +4575,12 @@
           </div>
 
           </div><!-- /pm-row2 (form curve + race-readiness specificity) -->
-        </div>
-      </div>
-      <!-- end Projection tab panel -->
-    </div>
 
-    <!-- Performance panel (issue #811; reworked feature/performance-tab-rework) -->
-    <div
-      id="training-panel-performance"
-      class="tab-panel-placeholder perf-panel"
-      role="tabpanel"
-      aria-labelledby="log-tab-performance"
-      tabindex="0"
-      hidden
-    >
-      <!-- ── Score cards: Endurance + Speed (2-up) ─────────────────────────── -->
-      <div class="perf-scorewrap">
-        <!-- Endurance score card -->
-        <div id="perf-score-endurance" class="perf-card">
-          <div class="perf-chead">
-            <span class="perf-sectitle">Endurance</span>
-            <span class="perf-tag">Trend</span>
-          </div>
-          <div class="perf-card-body">
-            <div class="perf-bigscore perf-bigscore--e">
-              <span class="perf-score-val"></span>
-              <span class="perf-blk" hidden></span>
-            </div>
-            <p class="perf-insight"></p>
-            <svg class="perf-trend perf-spark" aria-label="Endurance trend sparkline"></svg>
-            <div class="perf-flabel">Last 5 long runs feeding this score</div>
-            <div class="perf-feed" id="perf-feed-endurance">
-              <p class="perf-feed-loading">Loading…</p>
-            </div>
-          </div>
-          <div class="perf-building-baseline" hidden>
-            <span class="perf-bb-icon">📈</span>
-            <p class="perf-bb-reason"></p>
-          </div>
-          <div class="perf-threshold-hint" hidden>
-            <p class="perf-hint-text">
-              To compute your score, set your <strong>FTP</strong>,
-              <strong>threshold HR</strong>, and
-              <strong>threshold pace</strong> in
-              <a href="/settings#thresholds">Settings → Thresholds</a>.
-            </p>
-          </div>
-          <div class="perf-error" hidden>
-            <span class="perf-error-text">Could not load score.</span>
-            <button type="button" class="perf-retry-btn">Retry</button>
-          </div>
-        </div>
-
-        <!-- Speed score card -->
-        <div id="perf-score-speed" class="perf-card">
-          <div class="perf-chead">
-            <span class="perf-sectitle">Speed</span>
-            <span class="perf-tag">Trend</span>
-          </div>
-          <div class="perf-card-body">
-            <div class="perf-bigscore perf-bigscore--s">
-              <span class="perf-score-val"></span>
-              <span class="perf-blk" hidden></span>
-            </div>
-            <p class="perf-insight"></p>
-            <svg class="perf-trend perf-spark" aria-label="Speed trend sparkline"></svg>
-            <div class="perf-flabel">Last 5 interval sessions feeding this score</div>
-            <div class="perf-feed" id="perf-feed-speed">
-              <p class="perf-feed-loading">Loading…</p>
-            </div>
-          </div>
-          <div class="perf-building-baseline" hidden>
-            <span class="perf-bb-icon">⚡</span>
-            <p class="perf-bb-reason"></p>
-          </div>
-          <div class="perf-threshold-hint" hidden>
-            <p class="perf-hint-text">
-              To compute your score, set your <strong>FTP</strong>,
-              <strong>threshold HR</strong>, and
-              <strong>threshold pace</strong> in
-              <a href="/settings#thresholds">Settings → Thresholds</a>.
-            </p>
-          </div>
-          <div class="perf-error" hidden>
-            <span class="perf-error-text">Could not load score.</span>
-            <button type="button" class="perf-retry-btn">Retry</button>
-          </div>
-          <span class="perf-speed-warn" hidden title="Score based on limited data — results may be less precise">⚠ Low data</span>
-          <div class="perf-speed-band" hidden><b></b>–<b></b></div>
-        </div>
-      </div>
-      <!-- /.perf-scorewrap -->
-
-      <!-- ── What's moving your scores ─────────────────────────────────────── -->
-      <div class="perf-card perf-moves-card">
-        <div class="perf-chead" style="margin-bottom: 0">
-          <span class="perf-sectitle perf-sectitle--strong"
-            >What's moving your scores</span
-          >
-          <span class="perf-tag">New</span>
-        </div>
-        <div class="perf-movesub" id="perf-moves-sub">
-          Recent training composition — associations from your sessions, not
-          proof of cause. Tap a row to filter the log.
-        </div>
-        <div id="perf-moves">
-          <p class="perf-feed-loading">Loading…</p>
-        </div>
-        <div class="perf-movefoot">
-          Strength and plyo take 6–12 weeks to show; intervals respond faster;
-          weight helps until it starts costing power. Each row filters the log
-          to the sessions behind it.
-        </div>
-      </div>
-
-      <!-- ── FFF chart (half) + ACWR + projected checkpoint stack ──────────── -->
-      <div class="perf-row2">
-        <!-- Fitness / Fatigue / Form chart (CTL / ATL / TSB) -->
-        <div id="perf-chart-card" class="perf-card perf-chart-card">
-          <div class="perf-chart-header">
-            <span class="perf-sectitle perf-sectitle--strong perf-chart-title"
-              >Fitness · Fatigue · Form</span
-            >
-            <div
-              class="perf-range-selector"
-              role="group"
-              aria-label="Date range"
-            >
-              <button class="perf-range-btn" data-range="30D" type="button">
-                30D
-              </button>
-              <button
-                class="perf-range-btn active"
-                data-range="90D"
-                type="button"
-              >
-                90D
-              </button>
-              <button class="perf-range-btn" data-range="6M" type="button">
-                6M
-              </button>
-              <button class="perf-range-btn" data-range="1Y" type="button">
-                1Y
-              </button>
-            </div>
-          </div>
-          <p class="perf-chart-caption">
-            CTL = fitness (42-day), ATL = fatigue (7-day), TSB = form. Dashed
-            line = today.
-          </p>
-          <div id="perf-chart-bb" class="perf-chart-baseline" hidden>
-            <span class="perf-bb-icon">📈</span>
-            <span
-              >Building baseline: keep training to see the fitness chart.</span
-            >
-          </div>
-          <div id="perf-chart-wrap">
-            <canvas
-              id="perf-fitness-canvas"
-              height="220"
-              role="img"
-              aria-label="Fitness/Fatigue/Form time series: CTL, ATL, and TSB lines"
-            ></canvas>
-          </div>
-        </div>
-
-        <!-- Right stack: ACWR + Projected at next checkpoint -->
-        <div class="perf-rstack">
-          <!-- ACWR Guidance -->
-          <div id="perf-acwr" class="perf-card perf-acwr-card">
-            <div class="perf-chead">
-              <span class="perf-sectitle">Training load ratio (ACWR)</span>
-            </div>
-            <div class="perf-acwr-body">
-              <div class="perf-acwr-ratio-wrap">
-                <span id="perf-acwr-ratio" class="perf-acwr-ratio">–</span>
-                <span id="perf-acwr-band" class="perf-acwr-band-badge">–</span>
-              </div>
-              <!-- Zone band + marker (matches the readiness .lrx-rband style).
-                   Scale 0 → 2.0; marker positioned by numeric ratio. -->
-              <div id="perf-acwr-bandbar" class="perf-acwr-bandbar" hidden>
-                <div class="lrx-rband perf-acwr-rband">
-                  <div id="perf-acwr-marker" class="mk"></div>
-                </div>
-                <div class="perf-acwr-scale">
-                  <span>0</span><span>0.8</span><span>1.3</span><span>1.5</span><span>2.0</span>
-                </div>
-              </div>
-              <p id="perf-acwr-guidance" class="perf-acwr-guidance">–</p>
-            </div>
-            <div id="perf-acwr-bb" class="perf-acwr-baseline" hidden>
-              <span class="perf-bb-icon">⏳</span>
-              <span
-                >Baseline forming: log at least 28 days of training to see your
-                ACWR.</span
-              >
-            </div>
-          </div>
-
-          <!-- Projected at next checkpoint -->
-          <div id="perf-proj" class="perf-card perf-proj-card">
-            <div class="perf-chead">
-              <span class="perf-sectitle">Projected at next checkpoint</span>
+          <!-- ── Projected at next checkpoint — moved here from the removed
+               Performance tab ───────────────────────────────────────────── -->
+          <div id="perf-proj" class="pm-card perf-proj-card">
+            <div class="pm-ckhead">
+              <span class="pm-sectitle">Projected at next checkpoint</span>
               <span class="perf-tag">New</span>
             </div>
             <div id="perf-proj-body" hidden>
@@ -4702,27 +4595,24 @@
                   <div class="perf-projtile-v" id="perf-proj-speed">–</div>
                 </div>
               </div>
-              <a class="perf-plink" href="#projection"
-                >See full projection →</a
-              >
             </div>
             <div class="perf-proj-empty" id="perf-proj-empty" hidden>
-              No upcoming checkpoint —
-              <a class="perf-plink" href="#projection">add one on Projection</a>.
+              No upcoming checkpoint — add one above.
+            </div>
+          </div>
+
+          <!-- ── Personal records — moved here from the removed Performance
+               tab ─────────────────────────────────────────────────────── -->
+          <div class="pm-card perf-pr-card">
+            <span class="pm-sectitle">Personal records</span>
+            <div id="perf-pr-strip" class="perf-prgrid">
+              <p class="perf-pr-loading">Loading…</p>
             </div>
           </div>
         </div>
       </div>
-
-      <!-- ── Personal records ──────────────────────────────────────────────── -->
-      <div class="perf-card perf-pr-card">
-        <span class="perf-sectitle">Personal records</span>
-        <div id="perf-pr-strip" class="perf-prgrid">
-          <p class="perf-pr-loading">Loading…</p>
-        </div>
-      </div>
+      <!-- end Projection tab panel -->
     </div>
-    <!-- /#training-panel-performance -->
 
     <style>
       /* ── Merged Plan panel styles (scoped under .plan-merged) ────────────── */
@@ -5541,8 +5431,11 @@
         }
       }
 
-      /* ── Performance sub-tab styles (reworked) ───────────────────────────── */
-      .perf-panel {
+      /* ── "Performance" styles (former sub-tab, now dissolved — its cards
+         are hosted inside Projection/.plan-merged and the Log page, so these
+         --perf-* vars and .perf-card live at :root/unscoped instead of under
+         a since-removed .perf-panel ancestor). ─────────────────────────────── */
+      :root {
         --perf-endur: #16a34a;
         --perf-speed: #ea580c;
         --perf-faint: #9aa3b8;
@@ -5555,12 +5448,8 @@
         --perf-blueSoft: #e6ebfe;
         --perf-strava: #ea580c;
         --perf-stryd: #1b2340;
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-        padding-top: 4px;
       }
-      .perf-panel .perf-card {
+      .perf-card {
         background: #fff;
         border-radius: 16px;
         padding: 18px 20px;
@@ -7321,6 +7210,56 @@
         </div>
       </section>
 
+      <!-- Fitness / Fatigue / Form chart (CTL / ATL / TSB) — moved here from
+           the removed Performance tab -->
+      <div id="perf-chart-card" class="perf-card perf-chart-card log-card">
+        <div class="perf-chart-header">
+          <span class="perf-sectitle perf-sectitle--strong perf-chart-title"
+            >Fitness · Fatigue · Form</span
+          >
+          <div
+            class="perf-range-selector"
+            role="group"
+            aria-label="Date range"
+          >
+            <button class="perf-range-btn" data-range="30D" type="button">
+              30D
+            </button>
+            <button
+              class="perf-range-btn active"
+              data-range="90D"
+              type="button"
+            >
+              90D
+            </button>
+            <button class="perf-range-btn" data-range="6M" type="button">
+              6M
+            </button>
+            <button class="perf-range-btn" data-range="1Y" type="button">
+              1Y
+            </button>
+          </div>
+        </div>
+        <p class="perf-chart-caption">
+          CTL = fitness (42-day), ATL = fatigue (7-day), TSB = form. Dashed
+          line = today.
+        </p>
+        <div id="perf-chart-bb" class="perf-chart-baseline" hidden>
+          <span class="perf-bb-icon">📈</span>
+          <span
+            >Building baseline: keep training to see the fitness chart.</span
+          >
+        </div>
+        <div id="perf-chart-wrap">
+          <canvas
+            id="perf-fitness-canvas"
+            height="220"
+            role="img"
+            aria-label="Fitness/Fatigue/Form time series: CTL, ATL, and TSB lines"
+          ></canvas>
+        </div>
+      </div>
+
       <!-- Month calendar (Log sub-tab, desktop only) — issue #638 -->
       <div id="log-calendar" class="log-card log-card--calendar" aria-label="Monthly training calendar"></div>
 
@@ -8223,20 +8162,18 @@
     <script src="js/training-log.js"></script>
     <script src="js/training-projection.js"></script>
     <script src="js/training-plan.js"></script>
-    <script src="js/training-performance.js"></script>
     <script src="js/user.js"></script>
     <script src="js/env.js"></script>
     <script>
       /* Sub-tab switching — no page reload, panel swap only */
       (function () {
         "use strict";
-        var TABS = ["log", "plan", "projection", "performance"];
+        var TABS = ["log", "plan", "projection"];
 
         var layoutWrapper = document.getElementById("layout-wrapper");
         var mainCards = document.querySelectorAll("main .log-card");
         var panelPlan = document.getElementById("training-panel-plan");
         var panelProjection = document.getElementById("training-panel-projection");
-        var panelPerf = document.getElementById("training-panel-performance");
         var logNewBtn = document.getElementById("log-new-btn");
 
         function getActiveTab() {
@@ -8270,13 +8207,6 @@
             window.TrainingProjection.init
           )
             window.TrainingProjection.init();
-          if (panelPerf) panelPerf.hidden = tab !== "performance";
-          if (
-            tab === "performance" &&
-            window.TrainingPerformance &&
-            window.TrainingPerformance.init
-          )
-            window.TrainingPerformance.init();
           // Hide "Log workout" button when not on Log tab
           if (logNewBtn) logNewBtn.style.display = isLog ? "" : "none";
         }
@@ -8311,13 +8241,14 @@
         });
 
         // Session-signal card (in the workout detail panel) → close the panel
-        // and open the Performance tab, scrolled to the score cards.
+        // and open the Projection tab, scrolled to the score cards (moved
+        // here from the removed Performance tab).
         document.addEventListener("rd4:open-performance-signal", function () {
           var closeBtn = document.getElementById("dp-close-btn");
           if (closeBtn) closeBtn.click();
-          history.pushState({ tab: "performance" }, "",
-            window.location.pathname + window.location.search + "#performance");
-          activateTab("performance");
+          history.pushState({ tab: "projection" }, "",
+            window.location.pathname + window.location.search + "#projection");
+          activateTab("projection");
           var target = document.getElementById("perf-score-endurance");
           if (target && target.scrollIntoView) {
             target.scrollIntoView({ behavior: "smooth", block: "center" });

@@ -59,11 +59,20 @@ def plan_js():
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _plan_panel_html(html):
-    """Extract the Plan panel section from the page HTML."""
+    """Extract the Plan panel section from the page HTML.
+
+    training-panel-performance was removed (2026-07-09: Performance tab
+    dissolved, its sections redistributed into this panel and the Log page)
+    — the old end-boundary anchor no longer exists, so this always falls
+    back to a fixed window. Bumped 20000 -> 60000: the panel grew by several
+    hundred lines (score cards, moving-your-scores, projected-checkpoint,
+    personal records all moved in) and 20000 chars started truncating
+    content that used to be comfortably inside the window.
+    """
     start = html.find('id="training-panel-projection"')
     assert start != -1, "training-panel-projection must exist in the page"
     perf_start = html.find('id="training-panel-performance"', start)
-    end = perf_start if perf_start != -1 else start + 20000
+    end = perf_start if perf_start != -1 else start + 60000
     return html[start:end]
 
 
