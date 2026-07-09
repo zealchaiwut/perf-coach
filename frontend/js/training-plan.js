@@ -1403,41 +1403,43 @@ information about.
     var usingActual = actualExs.length > 0;
     var exs = usingActual ? actualExs : plannedExs;
 
-    function _plannedExRow(x) {
+    // One row template for both planned and actual exercises — same columns
+    // (name / sets×reps / load-or-weight / RPE), same plain styling. Actual
+    // rows use the real weight_kg + logged RPE (blank shows as a faint "—",
+    // not a colored badge); planned rows use the free-text load + optional
+    // target RPE. Kept as one function, not two, so matched vs. unmatched
+    // sessions render one visual design instead of two.
+    function _exRow(x) {
       var sr = (x.sets != null && x.reps != null) ? (x.sets + ' × ' + x.reps) : (x.sets != null ? x.sets + ' sets' : '');
-      var target = x.rpe != null && x.rpe !== '' ? '<span class="pl-es">Target RPE ' + esc(x.rpe) + '</span>' : '';
-      return '<div class="pl-exd"><span class="pl-en">' + esc(x.name || 'Exercise') + '</span><span class="pl-es">' + esc(sr) + '</span><span class="pl-es" style="color:var(--pl-faint)">' + esc(x.load || '') + '</span>' + target + '</div>';
-    }
-    function _actualExRow(x) {
-      var sr = (x.sets != null && x.reps != null) ? (x.sets + ' × ' + x.reps) : (x.sets != null ? x.sets + ' sets' : '');
-      var wt = x.weight_kg != null ? x.weight_kg + 'kg' : '';
-      var rpeMissing = x.rpe == null;
-      var rpeHtml = rpeMissing
-        ? '<span class="pl-rpe-missing" title="No RPE logged for this exercise">RPE —</span>'
-        : '<span class="pl-es">RPE ' + esc(x.rpe) + '</span>';
+      var loadTxt = usingActual ? (x.weight_kg != null ? x.weight_kg + 'kg' : '') : (x.load || '');
+      var rpeVal = x.rpe != null && x.rpe !== '' ? x.rpe : null;
+      var rpeHtml = rpeVal != null
+        ? '<span class="pl-es">' + (usingActual ? 'RPE ' : 'Target RPE ') + esc(rpeVal) + '</span>'
+        : (usingActual ? '<span class="pl-es" style="color:var(--pl-faint)">RPE —</span>' : '');
       return '<div class="pl-exd"><span class="pl-en">' + esc(x.name || 'Exercise') + '</span>' +
-        '<span class="pl-es">' + esc([sr, wt].filter(Boolean).join(' @ ')) + '</span>' + rpeHtml + '</div>';
+        '<span class="pl-es">' + esc(sr) + '</span>' +
+        '<span class="pl-es" style="color:var(--pl-faint)">' + esc(loadTxt) + '</span>' +
+        rpeHtml + '</div>';
     }
-    var exRow = usingActual ? _actualExRow : _plannedExRow;
-
     var exHtml;
     if (!exs.length) {
       exHtml = focus ? '' : '<div class="pl-exd"><span class="pl-en" style="color:var(--pl-faint)">No exercises listed.</span></div>';
-    } else if (!usingActual && exs.some(function (x) { return x && x.block; })) {
+    } else if (exs.some(function (x) { return x && x.block; })) {
       // Group by the pasted-back `block` label (Warm-up / Heavy compound /
       // Superset 1 / … / Accessories), preserving order of first appearance.
-      // Actual (logged) exercises have no block grouping — flat list.
+      // Real logged exercises never carry a block, so matched sessions just
+      // fall through to the flat list below.
       var order = [];
       exs.forEach(function (x) {
         var b = (x && x.block) ? x.block : 'Other';
         if (order.indexOf(b) === -1) order.push(b);
       });
       exHtml = order.map(function (b) {
-        var rows = exs.filter(function (x) { return ((x && x.block) ? x.block : 'Other') === b; }).map(exRow).join('');
+        var rows = exs.filter(function (x) { return ((x && x.block) ? x.block : 'Other') === b; }).map(_exRow).join('');
         return '<div class="pl-exblock"><div class="pl-exblock-h">' + esc(b) + '</div>' + rows + '</div>';
       }).join('');
     } else {
-      exHtml = exs.map(exRow).join('');
+      exHtml = exs.map(_exRow).join('');
     }
 
     return '<div class="pl-dethead"><span class="pl-dettag lift">' + typeLabel + '</span>' +
@@ -1448,7 +1450,7 @@ information about.
       _detailIdRowHtml(p) +
       _detailStatusActionsHtml(p) +
       (actual && actual.needs_rpe
-        ? '<div class="pl-rpe-banner">⚠ Some exercises are missing RPE.' +
+        ? '<div class="pl-infobanner" style="margin:8px 0;">Some exercises are missing RPE.' +
             (actual.id ? ' <button type="button" class="pl-rpe-fixlink" data-viewfull="' + esc(actual.id) + '">Add it on the logged workout →</button>' : '') +
           '</div>'
         : '') +
@@ -1569,9 +1571,7 @@ information about.
     '.plan-panel .pl-viewfull{display:block;margin-top:4px;font-size:9.5px;color:var(--pl-run);background:none;border:none;cursor:pointer;padding:0;text-align:left;}',
     '.plan-panel .pl-viewfull:hover{text-decoration:underline;}',
     // RPE-missing banner on a matched session's detail panel.
-    '.plan-panel .pl-rpe-banner{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px;color:#8a5a00;background:#fff6e0;border:1px solid #f0d896;border-radius:7px;padding:6px 9px;margin:8px 0;}',
-    '.plan-panel .pl-rpe-fixlink{background:none;border:none;padding:0;font-size:11px;font-weight:700;color:#8a5a00;text-decoration:underline;cursor:pointer;}',
-    '.plan-panel .pl-rpe-missing{font-size:9.5px;font-weight:700;color:#b3480a;background:#ffe9d9;border-radius:4px;padding:1px 5px;}',
+    '.plan-panel .pl-rpe-fixlink{background:none;border:none;padding:0;font-size:12px;font-weight:700;color:inherit;text-decoration:underline;cursor:pointer;font-family:inherit;}',
     '.plan-panel .pl-candlist{margin-top:7px;display:flex;flex-direction:column;gap:4px;}',
     '.plan-panel .pl-candrow{display:flex;align-items:center;gap:6px;font-size:10px;background:#fff;border:1px solid var(--pl-line);border-radius:6px;padding:5px 7px;cursor:pointer;}',
     '.plan-panel .pl-candrow .pl-cn{font-weight:600;}.plan-panel .pl-candrow .pl-cm{color:var(--pl-faint);font-family:var(--pl-mono);margin-left:auto;}',
