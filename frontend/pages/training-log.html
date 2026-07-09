@@ -4120,6 +4120,7 @@
         </nav>
         <span class="log-nav-spacer"></span>
         <div class="log-page-header-actions">
+          <span id="log-sync-feedback" role="status" aria-live="polite"></span>
           <div id="sync-widget" class="sync-widget">
             <button
               id="sync-toggle-btn"
@@ -4201,7 +4202,6 @@
             <i class="ti ti-plus" aria-hidden="true"></i>
             <span class="btn-label">Log</span>
           </button>
-          <span id="log-sync-feedback" role="status" aria-live="polite"></span>
         </div>
         </div>
       </header>
@@ -4547,28 +4547,6 @@
             </div>
           </div>
           <!-- /.perf-scorewrap -->
-
-          <!-- ── What's moving your scores ─────────────────────────────── -->
-          <div class="perf-card perf-moves-card">
-            <div class="perf-chead" style="margin-bottom: 0">
-              <span class="perf-sectitle perf-sectitle--strong"
-                >What's moving your scores</span
-              >
-              <span class="perf-tag">New</span>
-            </div>
-            <div class="perf-movesub" id="perf-moves-sub">
-              Recent training composition — associations from your sessions, not
-              proof of cause. Tap a row to filter the log.
-            </div>
-            <div id="perf-moves">
-              <p class="perf-feed-loading">Loading…</p>
-            </div>
-            <div class="perf-movefoot">
-              Strength and plyo take 6–12 weeks to show; intervals respond faster;
-              weight helps until it starts costing power. Each row filters the log
-              to the sessions behind it.
-            </div>
-          </div>
 
           <!-- Row: A-race header + calibration status -->
           <div class="pm-row2">
@@ -6315,83 +6293,6 @@
         font-size: 12px;
         color: var(--perf-faint);
         padding: 10px 0 2px;
-      }
-
-      /* What's moving */
-      .perf-movesub {
-        font-size: 12.5px;
-        color: var(--perf-muted);
-        margin: 6px 0 6px;
-      }
-      .perf-arow {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        padding: 14px 0;
-        border-top: 1px solid var(--perf-line);
-        cursor: pointer;
-        background: none;
-        border-left: none;
-        border-right: none;
-        border-bottom: none;
-        width: 100%;
-        text-align: left;
-        font: inherit;
-        color: inherit;
-      }
-      .perf-arow:first-of-type {
-        border-top: none;
-      }
-      .perf-arow:hover {
-        background: #fafbff;
-      }
-      .perf-arow .perf-an {
-        font-size: 14px;
-        font-weight: 600;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-      }
-      .perf-arow .perf-an .perf-a {
-        color: var(--perf-faint);
-        font-size: 12px;
-      }
-      .perf-arow .perf-aright {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-      }
-      .perf-arow .perf-adet {
-        font-size: 12px;
-        color: var(--perf-muted);
-        font-family: var(--mono);
-      }
-      .perf-achip {
-        font-size: 11px;
-        font-weight: 700;
-        padding: 3px 9px;
-        border-radius: 6px;
-      }
-      .perf-achip--g {
-        background: var(--perf-greenSoft);
-        color: var(--perf-green);
-      }
-      .perf-achip--b {
-        background: var(--perf-blueSoft);
-        color: var(--perf-lavHi);
-      }
-      .perf-achip--n {
-        background: var(--perf-tile);
-        color: var(--perf-muted);
-      }
-      .perf-movefoot {
-        font-size: 12px;
-        color: var(--perf-muted);
-        line-height: 1.5;
-        margin-top: 14px;
-        padding-top: 14px;
-        border-top: 1px solid var(--perf-line);
       }
 
       /* Two-column: FFF + right stack */
