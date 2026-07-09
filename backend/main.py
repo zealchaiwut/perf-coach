@@ -15878,10 +15878,13 @@ def get_athlete_weekly_summary(
 ):
     """Return a flat weekly summary for an ISO week.
 
-    Aggregates volume (distance_km, total_tss, session_count), fitness signal
-    changes (endurance_score_change, speed_score_change), load form
-    (form_tsb_change, readiness_next_week), and weight trend (weight_change_kg)
-    into a single response keyed to a Monday–Sunday ISO week.
+    Aggregates volume (distance_km, total_tss, session_count, duration_seconds)
+    plus each one's week-over-week delta vs. the prior Monday-Sunday week
+    (distance_change_km, total_tss_change, session_count_change,
+    duration_seconds_change), fitness signal changes (endurance_score_change,
+    speed_score_change), load form (form_tsb_change — a WITHIN-week TSB trend,
+    not a volume delta — plus readiness_next_week), and weight trend
+    (weight_change_kg) into a single response keyed to a Monday–Sunday ISO week.
 
     Query params:
         week: optional YYYY-MM-DD date inside the target week (normalized to
@@ -15925,7 +15928,11 @@ def get_athlete_weekly_summary(
         # Cap the load series end at today — daily_tss_series rejects future dates.
         load_end = min(we, today)
 
-        _sig = _summary_signature(session, uid) + "|" + ws.isoformat()
+        # "|v2" busts any cached row from before *_change fields (distance/
+        # tss/session/duration week-over-week deltas) were added to the
+        # payload — same signature otherwise means same underlying data, but
+        # the OLD cached shape is missing these keys entirely.
+        _sig = _summary_signature(session, uid) + "|" + ws.isoformat() + "|v2"
         _cached = _summary_cache_get(uid, "weekly", _sig)
         if _cached is not None:
             return JSONResponse(_cached)
@@ -15936,6 +15943,18 @@ def get_athlete_weekly_summary(
         distance_km = _volume["distance_km"]
         total_tss = _volume["total_tss"]
         workout_types = _volume["workout_types"]
+
+        # ── Week-over-week deltas — the prior comparable (Monday-Sunday) week,
+        # so every summary tile (Distance/Load/Sessions/Duration) gets a real
+        # comparable number instead of only form_tsb_change (a WITHIN-week TSB
+        # trend, not a volume delta) being available for just one of them.
+        _prior_ws = ws - _timedelta(days=7)
+        _prior_we = _prior_ws + _timedelta(days=6)
+        _prior_volume = _get_weekly_volume(str(uid), _prior_ws, _prior_we)
+        distance_change_km = round(distance_km - _prior_volume["distance_km"], 2)
+        total_tss_change = round(total_tss - _prior_volume["total_tss"], 1)
+        session_count_change = session_count - _prior_volume["session_count"]
+        duration_seconds_change = _volume["duration_seconds"] - _prior_volume["duration_seconds"]
 
         # ── TSB / load (AC5, AC9) ─────────────────────────────────────────────
         warmup_start = ws - _timedelta(days=180)
@@ -16110,6 +16129,10 @@ def get_athlete_weekly_summary(
         "total_tss": total_tss,
         "session_count": session_count,
         "duration_seconds": _volume["duration_seconds"],
+        "distance_change_km": distance_change_km,
+        "total_tss_change": total_tss_change,
+        "session_count_change": session_count_change,
+        "duration_seconds_change": duration_seconds_change,
         "endurance_score_change": endurance_score_change,
         "speed_score_change": speed_score_change,
         "weight_change_kg": weight_change_kg,

@@ -6072,6 +6072,21 @@
       .replace(/"/g, "&quot;");
   }
 
+  // Compact rollup for the summary-digest Duration tile: 3h 3m, 45m, 2h.
+  // Local copy — this file's other top-level module (fmtDurationCompact at
+  // line ~107) lives in a SEPARATE closure and is out of scope here; this
+  // module already keeps its own local _esc() rather than reaching across
+  // IIFEs, so follow the same convention instead of introducing a shared
+  // global.
+  function fmtDurationCompact(secs) {
+    if (!secs) return "0m";
+    var h = Math.floor(secs / 3600),
+      m = Math.floor((secs % 3600) / 60);
+    if (h > 0 && m > 0) return h + "h " + m + "m";
+    if (h > 0) return h + "h";
+    return m + "m";
+  }
+
   function _fmtDelta(val, unit) {
     if (val == null) return null;
     var n = Number(val);
@@ -6116,24 +6131,46 @@
 
   // ── Shared tiles + chips (weekly and monthly share the same top block) ───────
 
-  // Mock sumtiles: label, big value+unit, and a delta line. The summary
-  // endpoint has no volume/session week-over-week deltas, so the delta line is
-  // driven by the available *_change fields where meaningful: Load ← form TSB
-  // change (form trend); Volume/Sessions have no comparable delta → flat "—".
-  function _sdDelta(change, unit, noun) {
+  // Sumtiles: label, big value+unit, and a delta line vs. the prior comparable
+  // week (weekly endpoint only — *_change fields for distance/tss/session/
+  // duration; monthly has none of these, so its tiles fall through to the
+  // shared flat "—" below). decimals defaults to 1 (matches Weight's "-0.5
+  // kg" style in the chips row); pass 0 for whole-number deltas (TSS,
+  // sessions).
+  function _sdDelta(change, unit, noun, decimals) {
     if (change == null || !isFinite(Number(change))) {
       return '<div class="lrx-delta flat">—</div>';
     }
     var n = Number(change);
+    var d = decimals == null ? 1 : decimals;
     var cls = n > 0 ? "up" : n < 0 ? "down" : "flat";
     var arrow = n > 0 ? "▲ " : n < 0 ? "▼ " : "= ";
     var txt =
       arrow +
       (n > 0 ? "+" : "") +
-      n.toFixed(1) +
+      n.toFixed(d) +
       (unit ? " " + unit : "") +
       (noun ? " " + noun : "");
     return '<div class="lrx-delta ' + cls + '">' + _esc(txt) + "</div>";
+  }
+  // Duration delta needs h/m formatting, not a plain decimal — reuses the
+  // same fmtDurationCompact the tile's own value uses, so "+1h 05m" reads
+  // consistently with "4h 49m" above it.
+  function _sdDurationDelta(changeSeconds) {
+    if (changeSeconds == null || !isFinite(Number(changeSeconds))) {
+      return '<div class="lrx-delta flat">—</div>';
+    }
+    var n = Number(changeSeconds);
+    if (n === 0) return '<div class="lrx-delta flat">= 0m</div>';
+    var cls = n > 0 ? "up" : "down";
+    var arrow = n > 0 ? "▲ +" : "▼ -";
+    return (
+      '<div class="lrx-delta ' +
+      cls +
+      '">' +
+      _esc(arrow + fmtDurationCompact(Math.abs(n))) +
+      "</div>"
+    );
   }
   function _sdTiles(data) {
     function tile(label, val, unit, deltaHtml) {
@@ -6152,15 +6189,30 @@
     }
     return (
       '<div class="lrx-sumgrid">' +
-      tile("Distance", (data.distance_km || 0).toFixed(1), "km", null) +
+      tile(
+        "Distance",
+        (data.distance_km || 0).toFixed(1),
+        "km",
+        _sdDelta(data.distance_change_km, "km", null),
+      ) +
       tile(
         "Load",
         Math.round(data.total_tss || 0),
         "TSS",
-        _sdDelta(data.form_tsb_change, null, "form"),
+        _sdDelta(data.total_tss_change, "TSS", null, 0),
       ) +
-      tile("Sessions", data.session_count || 0, "", null) +
-      tile("Duration", fmtDurationCompact(data.duration_seconds || 0), "", null) +
+      tile(
+        "Sessions",
+        data.session_count || 0,
+        "",
+        _sdDelta(data.session_count_change, "", null, 0),
+      ) +
+      tile(
+        "Duration",
+        fmtDurationCompact(data.duration_seconds || 0),
+        "",
+        _sdDurationDelta(data.duration_seconds_change),
+      ) +
       "</div>"
     );
   }
