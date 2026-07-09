@@ -769,16 +769,20 @@ information about.
 
   function _renderAddBody() {
     var editing = !!_addState.editId;
-    var subs = _addState.top === 'single' ? [['form', 'Form'], ['json', 'JSON']]
+    var subs = _addState.top === 'single' ? [['form', 'Form'], ['json', 'JSON'], ['ai', 'Ask AI']]
       : [['form', 'Form'], ['json', 'JSON'], ['sep', 'Separator']];
-    // Editing pins the structured Form — the JSON sub-tab is a CREATE affordance
-    // (paste an AI-generated plan) and would duplicate instead of update.
+    // Editing pins the structured Form — the JSON/Ask-AI sub-tabs are CREATE
+    // affordances (paste or generate a fresh plan) and would duplicate
+    // instead of update.
     var subHtml = editing ? '' : '<div class="pl-subtoggle" id="pl-addsub">' + subs.map(function (x) {
       return '<button class="' + (x[0] === _addState.sub ? 'on' : '') + '" data-sm="' + x[0] + '">' + x[1] + '</button>';
     }).join('') + '</div>';
     var content;
-    if (_addState.top === 'single') content = _addState.sub === 'form' ? _singleFormHtml() : _singleJSONHtml();
-    else content = _addState.sub === 'form' ? _bulkFormHtml() : (_addState.sub === 'json' ? _bulkJSONHtml() : _bulkSepHtml());
+    if (_addState.top === 'single') {
+      content = _addState.sub === 'form' ? _singleFormHtml() : (_addState.sub === 'json' ? _singleJSONHtml() : _singleAIHtml());
+    } else {
+      content = _addState.sub === 'form' ? _bulkFormHtml() : (_addState.sub === 'json' ? _bulkJSONHtml() : _bulkSepHtml());
+    }
     document.getElementById('pl-addbody').innerHTML = subHtml + content;
     var modeEl0 = document.getElementById('pl-addmode');
     if (modeEl0) [].forEach.call(modeEl0.children, function (b) {
@@ -990,6 +994,8 @@ information about.
       };
     } else if (_addState.top === 'single' && _addState.sub === 'json') {
       _wireSingleJSON();
+    } else if (_addState.top === 'single' && _addState.sub === 'ai') {
+      _wireSingleAI();
     } else if (_addState.top === 'bulk' && _addState.sub === 'form') {
       _wireBulkForm();
     } else if (_addState.top === 'bulk' && _addState.sub === 'json') {
@@ -1079,6 +1085,102 @@ information about.
       out.innerHTML = '<div class="pl-previewbox ok">Valid — ' + esc(parts.join(' · ')) + '</div>';
       return obj;
     } catch (e) { out.innerHTML = '<div class="pl-previewbox err">Invalid JSON — ' + esc(e.message) + '</div>'; return null; }
+  }
+
+  // ── Single session — Ask AI (generate one day from date/type/note) ──────────
+  // Shares the backend's single-session generator with the suggestion-row
+  // "Refine" action below — same endpoint, same session shape, this side just
+  // starts from a blank date/type instead of an existing suggestion.
+  var _aiSessionResult = null; // the last generated session, pending Save
+
+  function _singleAIHtml() {
+    _aiSessionResult = null;
+    return '<div class="pl-frow">' +
+        '<div class="pl-fld"><label>Date</label><input type="date" id="pl-ai-date" value="' + esc(_addState.presetDate) + '"/></div>' +
+        '<div class="pl-fld"><label>Type</label><select id="pl-ai-type">' +
+          '<option value="run">Run</option><option value="strength">Strength</option>' +
+          '<option value="plyo">Plyo</option><option value="rest">Rest</option>' +
+        '</select></div>' +
+      '</div>' +
+      '<div class="pl-fld" style="margin-top:10px;"><label>Note to the coach (optional)</label>' +
+        '<textarea id="pl-ai-note" placeholder="e.g. focus on hip mobility, keep it under 30 minutes"></textarea></div>' +
+      '<div class="pl-btnrow" style="margin-top:10px;"><button class="pl-btn pl-ghost" id="pl-ai-gen">✨ Generate</button></div>' +
+      '<div id="pl-ai-prev"></div>' +
+      '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-ai-save" disabled>Save session</button><button class="pl-btn pl-ghost" id="pl-ai-cancel">Cancel</button></div>';
+  }
+
+  // Local, read-only preview rows — _sugExercisesHtml/_sugBlocksHtml live in
+  // the separate Plan Suggestions closure below and aren't reachable here.
+  function _aiPreviewExRow(x) {
+    var sr = (x.sets != null && x.reps != null) ? (x.sets + ' × ' + x.reps) : (x.sets != null ? x.sets + ' sets' : '');
+    return '<div class="pl-exd"><span class="pl-en">' + esc(x.name || 'Exercise') + '</span>' +
+      '<span class="pl-sr">' + esc(sr) + '</span>' +
+      '<span class="pl-es" style="color:var(--pl-faint)">' + esc(x.load || '') + '</span></div>';
+  }
+  function _aiPreviewBlockRow(b) {
+    var dur = b.duration_min != null ? b.duration_min + ' min' : '';
+    var main = (b.repeat && b.repeat > 1) ? (b.repeat + ' × ' + dur) : dur;
+    return '<div class="pl-exd"><span class="pl-en">' + esc(_phaseLabel(b.phase)) + '</span>' +
+      '<span class="pl-sr">' + esc(main) + '</span>' +
+      '<span class="pl-es" style="color:var(--pl-faint)">' + esc(b.target || '') + '</span></div>';
+  }
+
+  function _aiSessionPreviewHtml(s) {
+    var tssStr = s.target_tss > 0 ? s.target_tss + ' TSS' : '';
+    var durStr = s.duration_minutes > 0 ? s.duration_minutes + 'min' : '';
+    var meta = [tssStr, durStr].filter(Boolean).join(' · ');
+    var body = '';
+    if (Array.isArray(s.exercises) && s.exercises.length) {
+      body = '<div class="pl-blocklist" style="margin-top:8px;">' + s.exercises.map(_aiPreviewExRow).join('') + '</div>';
+    } else if (Array.isArray(s.blocks) && s.blocks.length) {
+      body = '<div class="pl-blocklist" style="margin-top:8px;">' + s.blocks.map(_aiPreviewBlockRow).join('') + '</div>';
+    }
+    return '<div class="pl-previewbox ok">' +
+        '<b>' + esc((s.workout_type || '').toUpperCase()) + '</b>' + (meta ? ' · ' + esc(meta) : '') +
+        (s.intent ? ' · ' + esc(s.intent) : '') +
+      '</div>' +
+      (s.notes ? '<div class="pl-infobanner" style="margin-top:6px;">' + esc(s.notes) + '</div>' : '') +
+      body;
+  }
+
+  function _aiSessionToPayload(dateIso, s) {
+    var body = { planned_date: dateIso, session_type: s.workout_type, name: s.intent ? s.intent.substring(0, 80) : null, notes: s.notes || null, structure: null };
+    if (Array.isArray(s.exercises) && s.exercises.length) body.structure = { exercises: s.exercises };
+    else if (Array.isArray(s.blocks) && s.blocks.length) body.structure = { blocks: s.blocks };
+    return body;
+  }
+
+  function _wireSingleAI() {
+    document.getElementById('pl-ai-cancel').onclick = _closeAdd;
+    var genBtn = document.getElementById('pl-ai-gen');
+    var saveBtn = document.getElementById('pl-ai-save');
+    genBtn.onclick = function () {
+      var dateEl = document.getElementById('pl-ai-date');
+      if (!dateEl.value) { _toast('Pick a date first', true); return; }
+      genBtn.disabled = true; genBtn.textContent = 'Generating…';
+      saveBtn.disabled = true;
+      _api('POST', '/api/plan/suggestions/session', {
+        date: dateEl.value,
+        workout_type: document.getElementById('pl-ai-type').value,
+        note: document.getElementById('pl-ai-note').value || null,
+      })
+        .then(function (data) {
+          _aiSessionResult = data.session;
+          document.getElementById('pl-ai-prev').innerHTML = _aiSessionPreviewHtml(_aiSessionResult);
+          saveBtn.disabled = false;
+        })
+        .catch(function (e) {
+          document.getElementById('pl-ai-prev').innerHTML = '<div class="pl-previewbox err">' + esc(e.message || 'Could not generate a session — try again.') + '</div>';
+        })
+        .finally(function () { genBtn.disabled = false; genBtn.textContent = '✨ Generate'; });
+    };
+    saveBtn.onclick = function () {
+      if (!_aiSessionResult) return;
+      var dateEl = document.getElementById('pl-ai-date');
+      _api('POST', '/api/planned-sessions', _aiSessionToPayload(dateEl.value, _aiSessionResult))
+        .then(function () { _toast('Session saved'); _closeAdd(); _loadWeek(); })
+        .catch(function (e) { _toast(e.message || 'Save failed', true); });
+    };
   }
 
   function _bulkFormHtml() {
@@ -1711,6 +1813,11 @@ information about.
     '.pl-sug-add{font-size:11px;font-weight:700;background:var(--pl-lime);color:#1b2340;border:none;border-radius:7px;padding:5px 11px;cursor:pointer;flex-shrink:0;}',
     '.pl-sug-add:disabled{opacity:0.5;cursor:default;}',
     '.pl-sug-add.added{background:#d1fae5;color:#065f46;}',
+    '.pl-sug-refine-toggle{font-size:10.5px;font-weight:600;background:none;border:1px solid var(--pl-line);border-radius:6px;padding:4px 7px;cursor:pointer;color:var(--pl-lavHi);}',
+    '.pl-sug-refine-toggle:hover{background:var(--pl-tile);}',
+    '.pl-sug-refine-panel{display:flex;align-items:center;gap:6px;margin:4px 0 6px 46px;flex-wrap:wrap;}',
+    '.pl-sug-refine-input{flex:1;min-width:180px;font-size:11.5px;border:1px solid var(--pl-line);border-radius:6px;padding:5px 8px;font-family:inherit;}',
+    '.pl-sug-refine-status{font-size:10.5px;color:var(--pl-muted);}',
     '.pl-sug-trigger-row{margin:10px 0 4px;display:flex;justify-content:flex-start;}',
     '.pl-sug-trigger-btn{font-size:12px;font-weight:700;color:var(--pl-lavHi);background:none;border:1px dashed #c7d2fe;border-radius:8px;padding:7px 13px;cursor:pointer;}',
     // ── Pre-generation preferences form ─────────────────────────────────────
@@ -1872,10 +1979,18 @@ information about.
           ? '<span class="pl-sug-adjust">' +
               '<button type="button" class="pl-sug-adj" data-adj="lighter" data-idx="' + idx + '" title="Fewer sets/reps or shorter — not just a lower TSS number">▾ Lighter</button>' +
               '<button type="button" class="pl-sug-adj" data-adj="harder" data-idx="' + idx + '" title="More sets/reps or longer — not just a higher TSS number">▴ Harder</button>' +
+              '<button type="button" class="pl-sug-refine-toggle" title="Regenerate this session with a note — e.g. change focus, faster intervals">✎ Refine</button>' +
             '</span>' +
             '<button class="pl-sug-add" type="button" data-idx="' + idx + '">Add</button>'
           : '') +
       '</div>' +
+      (wt !== 'rest'
+        ? '<div class="pl-sug-refine-panel" style="display:none;">' +
+            '<input type="text" class="pl-sug-refine-input" placeholder="e.g. change focus to posterior chain, faster intervals..."/>' +
+            '<button type="button" class="pl-sug-refine-go pl-btn pl-ghost">Regenerate</button>' +
+            '<span class="pl-sug-refine-status"></span>' +
+          '</div>'
+        : '') +
       (s.notes ? '<div class="pl-sug-notes-line">' + esc(s.notes) + '</div>' : '') +
       _sugExercisesHtml(wt !== 'rest' ? s.exercises : null) +
       _sugBlocksHtml(wt === 'run' ? s.blocks : null);
@@ -1898,6 +2013,50 @@ information about.
     if (addBtn) {
       addBtn.addEventListener('click', function () {
         _addSuggestion(s, addBtn);
+      });
+    }
+
+    var refineToggle = wrap.querySelector('.pl-sug-refine-toggle');
+    var refinePanel = wrap.querySelector('.pl-sug-refine-panel');
+    if (refineToggle && refinePanel) {
+      refineToggle.addEventListener('click', function () {
+        var open = refinePanel.style.display === 'none';
+        refinePanel.style.display = open ? '' : 'none';
+        if (open) refinePanel.querySelector('.pl-sug-refine-input').focus();
+      });
+      var goBtn = refinePanel.querySelector('.pl-sug-refine-go');
+      var statusEl = refinePanel.querySelector('.pl-sug-refine-status');
+      goBtn.addEventListener('click', function () {
+        var note = refinePanel.querySelector('.pl-sug-refine-input').value.trim();
+        if (!note) { statusEl.textContent = 'Add a note first'; return; }
+        goBtn.disabled = true; statusEl.textContent = 'Regenerating…';
+        // Raw fetch, not _api() — that helper lives in the OTHER closure (the
+        // main Plan-tab module above) and isn't reachable from here; this
+        // closure's own convention is plain fetch (see _addSuggestion).
+        fetch('/api/plan/suggestions/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            date: _formatSugDate(s.day_offset),
+            workout_type: s.workout_type,
+            note: note,
+            current_session: s,
+          }),
+        })
+          .then(function (r) {
+            return r.json().then(function (d) {
+              if (!r.ok) throw new Error((d && d.detail) || ('HTTP ' + r.status));
+              return d;
+            });
+          })
+          .then(function (data) {
+            _suggestionsData.suggestions[idx] = data.session;
+            _renderSuggestions(_suggestionsData); // small list — cheap full re-render
+          })
+          .catch(function (e) {
+            statusEl.textContent = e.message || 'Could not regenerate — try again.';
+            goBtn.disabled = false;
+          });
       });
     }
     return wrap;

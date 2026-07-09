@@ -443,6 +443,62 @@ def get_plan_suggestions(
     return JSONResponse(result)
 
 
+class SingleSessionRequest(BaseModel):
+    # ISO date (YYYY-MM-DD) the session is FOR — its day_offset is derived
+    # from this date's own week (Monday=0), not the caller's current view.
+    date: str
+    workout_type: Optional[str] = None  # "run"|"strength"|"plyo"|"rest"; hint only
+    note: Optional[str] = None
+    # Present only when REFINING an already-suggested session (same shape as
+    # a suggestions[] item) — omitted when creating a fresh one from scratch.
+    current_session: Optional[dict] = None
+
+
+@router.post("/plan/suggestions/session")
+def generate_plan_session(
+    body: SingleSessionRequest,
+    user: User = Depends(resolve_user),
+):
+    """Generate or refine ONE session for a single day via the LLM — shared by
+    the Add-session "Ask AI" mode (fresh session from date/type/note) and a
+    suggestion row's "Refine" action (revise an existing suggestion with a
+    note, e.g. "change strength focus" or "faster intervals").
+
+    No deterministic-template fallback here (unlike the whole-week endpoint
+    above) — a single templated session isn't a meaningful substitute for a
+    specific athlete request. Returns 422 if the LLM is unavailable or
+    couldn't produce a valid session after 2 tries; the caller keeps
+    whatever it had before.
+
+    Response: {"session": {day_offset, workout_type, target_tss,
+    duration_minutes, intent, notes, exercises, blocks}}.
+    """
+    from backend.services.plan_suggestions import generate_single_session as _generate_single_session
+
+    try:
+        target_date = _date.fromisoformat(body.date)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="date must be YYYY-MM-DD")
+
+    week_start = target_date - _timedelta(days=target_date.weekday())
+    day_offset = (target_date - week_start).days
+
+    if body.workout_type is not None and body.workout_type not in ("run", "strength", "plyo", "rest"):
+        raise HTTPException(status_code=422, detail="workout_type must be run, strength, plyo, or rest")
+
+    session = _generate_single_session(
+        str(user.id),
+        day_offset,
+        (body.note or "").strip(),
+        workout_type=body.workout_type,
+        current_session=body.current_session,
+        week_start=week_start,
+    )
+    if session is None:
+        raise HTTPException(status_code=422, detail="Could not generate a session for this request — try again or adjust the note.")
+    return JSONResponse({"session": session})
+
+
 @router.get("/plans/{plan_id}/projection")
 async def get_plan_projection(
     plan_id: str,
