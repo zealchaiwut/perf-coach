@@ -10,8 +10,8 @@ Single pure function, `compute_load_plan(baseline, ramp_rate, hold_weeks,
 taper_weeks, weeks_to_race, trailing_28d_avg, deload_enabled=False)`. No SQL,
 no dates — the calling endpoint resolves the A race, `weeks_to_race`,
 `baseline` (last completed week's **actual** TSS, never planned — a missed
-week must lower future targets, not silently inflate them), and
-`trailing_28d_avg`.
+week must lower future targets, not silently inflate them — capped against
+chronic load, see "Baseline cap" below), and `trailing_28d_avg`.
 
 ```
 build_weeks = weeks_to_race - taper_weeks
@@ -93,6 +93,41 @@ where week 4 *would have been* without the cut — exactly the "return to
 before cut" behaviour a real deload week is supposed to have. (The moving
 ceiling above still sees the cut value in its rolling window, which is
 correct — it's real load history, even if intentionally reduced.)
+
+### Baseline cap (2026-07-10 fix)
+
+`baseline` (last completed week's actual TSS) is wrong when that week was
+itself a spike — the ramp would then compound an overshoot that already
+exists before the plan even starts. Example from a real report: CTL ≈ 32
+implies chronic load ≈ 224 TSS/week, but the seeding week ran 316 TSS —
+roughly 40% above chronic. Ramping 5%/week off 316 keeps that overshoot
+alive for the whole build.
+
+`compute_load_plan` now caps the baseline actually used for the ramp/peak
+math: `baseline = min(raw_baseline, BASELINE_CAP_MULT * chronic_weekly)`,
+where `chronic_weekly` is the SAME `trailing_28d_avg` already passed in for
+the moving ceiling above — one number, two uses, never a second independent
+"chronic load" estimate. `BASELINE_CAP_MULT = 1.15`, a named constant (not a
+literal). The result exposes all four values so callers can render the cap
+instead of hiding it:
+
+```
+raw_baseline     — last week's actual TSS, uncapped
+baseline         — the value actually used for ramp/peak (may equal raw_baseline)
+chronic_weekly   — == trailing_28d_avg; None if not enough history
+baseline_capped  — True when baseline < raw_baseline
+```
+
+**The Session Load Plan card must say so plainly when `baseline_capped` is
+true** — e.g. *"Baseline capped: last week (316) exceeded chronic load;
+using 258."* A silent cap is worse than no cap: the athlete sees a lower
+number than their own logged week and, without an explanation, reads it as
+the ramp being broken rather than as a safety feature working as intended.
+
+This is a **different guard** from the moving ACWR ceiling: the cap fixes
+the ramp's *starting point* (once); the ceiling limits *each week* going
+forward. Both apply — the cap runs first, then every downstream week
+(including week 1) is still subject to its own moving ceiling.
 
 ## A-race resolution and endpoints (`backend/main.py`)
 

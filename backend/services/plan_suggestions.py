@@ -578,6 +578,17 @@ def build_prompt(facts: dict) -> tuple[str, str]:
                      "efforts) even as total time drops.",
             "race": "RACE PHASE: the race itself plus short shakeouts only — no long runs, "
                     "no new heavy strength, no new hard efforts.",
+            # A deterministic training_verdict.compute_verdict() result of
+            # "hold"/"back_off" overrides the ramp/hold phase entirely (see
+            # load_plan.py's "Verdict consolidation") — the athlete's own
+            # current CTL/ATL/TSB/ACWR says this is not a week to build from.
+            # Never fall through to the generic "Normal mix" default here;
+            # that's exactly the bug this system is supposed to prevent.
+            "consolidation": "CONSOLIDATION — the athlete's current training-load verdict says "
+                              "hold or back off, not build. Easy/moderate sessions only: no new "
+                              "hard intervals, no long-run PRs, no heavy new strength. The target "
+                              "TSS itself is already reduced to reflect this — fill it with easy "
+                              "volume, not intensity.",
         }.get(phase, "Normal mix: one long run, one quality/hard session, supporting easy "
                      "runs and strength.")
         target_rule = (
@@ -1095,6 +1106,8 @@ def assemble_facts(
         acwr_ceiling = None
         phase = None
         days_remaining_in_week = None
+        verdict = None
+        verdict_reason = None
 
         if _target_aware_enabled():
             from backend.models import TrainingPlan
@@ -1137,10 +1150,21 @@ def assemble_facts(
                 race_week_start = next_race.race_date - timedelta(days=next_race.race_date.weekday())
                 weeks_to_race = ((race_week_start - current_week_start).days // 7) + 1
 
+                from backend.services.training_load import current_load as _current_load
+                from backend.services.training_verdict import compute_verdict as _compute_verdict
+
+                _snap = _current_load(str(user_id), as_of=today)
+                verdict_result = _compute_verdict(
+                    _snap, chronic_weekly=trailing_28d_weekly_avg, today=today,
+                )
+                verdict = verdict_result["verdict"]
+                verdict_reason = verdict_result["reason"]
+
                 lp_result = compute_load_plan(
                     baseline=baseline_tss, ramp_rate=ramp_rate, hold_weeks=plan_hold_weeks,
                     taper_weeks=plan_taper_weeks, weeks_to_race=weeks_to_race,
                     trailing_28d_avg=trailing_28d_weekly_avg, deload_enabled=plan_deload_enabled,
+                    verdict=verdict_result["verdict"],
                 )
                 week_index = ((target_week_start - current_week_start).days // 7) + 1
                 target_week = next((w for w in lp_result["weeks"] if w["week_index"] == week_index), None)
@@ -1229,6 +1253,12 @@ def assemble_facts(
         facts["acwr_ceiling"] = acwr_ceiling
         facts["days_remaining_in_week"] = days_remaining_in_week
         facts["phase"] = phase
+        # Deterministic verdict (backend/services/training_verdict.py) — a
+        # "hold"/"back_off" verdict already reshaped target_tss/phase above
+        # ("consolidation") via compute_load_plan(verdict=...); these two are
+        # for the prompt/report layer's own reference, not re-derivation.
+        facts["verdict"] = verdict
+        facts["verdict_reason"] = verdict_reason
 
     return facts
 

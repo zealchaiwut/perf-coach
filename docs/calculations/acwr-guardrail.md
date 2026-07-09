@@ -22,8 +22,55 @@ ratio) or when multiple stressors rise together (guardrail).
   (`workout_type LIKE '%plyo%'`); weight-loss kg/week (first-vs-last entry).
 - Zero baseline + any positive current = "sharp rise" (:49-63).
 
+## Verdict thresholds (`backend/services/training_verdict.py`)
+
+The deterministic `back_off` / `hold` / `build` verdict for the weekly coach
+report and the Plan tab (see `docs/calculations/load-plan.md`) uses its own
+named thresholds, checked in this order:
+
+| Constant | Value | Fires when |
+|---|---|---|
+| `ACWR_BACK_OFF_THRESHOLD` | 1.5 | `acwr > 1.5` → `back_off` (mirrors `acwr.HIGH_BOUND`) |
+| `ACWR_HOLD_THRESHOLD` | 1.3 | `acwr > 1.3` → `hold` (mirrors `acwr.UPPER_BOUND`) |
+| `ATL_CTL_HOLD_RATIO` | 1.25 | `atl > 1.25 × ctl` → `hold` — catches a fresh spike ACWR's 28-day chronic window hasn't caught up to yet |
+| `TSB_HOLD_FLOOR` | −25 | `tsb < −25` → `hold` — stricter than `training_load.FORM_BURIED_CEILING` (−10), which is a routine-fatigue label, not a hold trigger |
+
+The `ATL_CTL_HOLD_RATIO` and `TSB_HOLD_FLOOR` checks only apply once
+`ctl > _MIN_CTL_FOR_HOLD_GUARDS` (15.0). Below that floor the athlete is
+cold-starting — a brand-new user, or anyone returning after a long break —
+and CTL (42-day EWMA) hasn't had time to reflect any real fitness yet, while
+ATL (7-day EWMA) reacts to the first workout immediately. Without the floor,
+literally every new user's first logged workout would trip `hold`, which is
+the same perpetual-flatline failure this whole fix removes, just moved from
+the old static ceiling to the verdict layer. The ACWR checks don't need this
+guard: `compute_acwr` already returns `None` during its own `baseline_forming`
+window (see above), and both ACWR branches are gated on `is not None`.
+
+Anything not caught by the above is `build`. The convergence estimate
+(`expected_ctl_in_3w`, `weeks_to_converge`, `converge_date`) attached to a
+non-`build` verdict is a **separate, simpler** approximation — it projects
+CTL toward ATL under a "hold current load steady" assumption using the
+ATL:CTL ratio, not a re-simulation of the real windowed ACWR (which would
+need per-day load assumptions the verdict function isn't given). Label it as
+an estimate wherever it's surfaced; do not present it as a forecast.
+
+**ACWR's injury-predictive validity is contested in the sports-science
+literature** — the rolling-average variant used here (see "Known weaknesses"
+below) is specifically the one most criticized. The verdict and any report
+text derived from it should read as a load-management flag ("this is
+outside your recent normal range"), never as a medical diagnosis or an
+injury prediction.
+
 ## Known weaknesses
 
+0. **No override mechanism exists yet for the verdict.** The athlete has no
+   way to say "I know the verdict says hold, I'm doing this anyway" and have
+   that logged. Spec intent (subjective signals — sleep, resting HR, morning
+   legs — can outweigh a load-only verdict): when an override UI is built,
+   log `{verdict, user_action, date}` per override so the thresholds
+   (`ACWR_BACK_OFF_THRESHOLD` etc.) can eventually be evaluated against real
+   outcomes — an easily-ignored rule with no feedback loop gets ignored on
+   exactly the days it matters. **TODO**, not built in this pass.
 1. Rolling-average ACWR is the variant most criticized in the literature —
    EWMA-ACWR is preferred, and the codebase already computes EWMAs everywhere
    else.

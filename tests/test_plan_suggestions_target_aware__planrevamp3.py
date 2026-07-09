@@ -291,7 +291,12 @@ class TestAssembleFactsFlagOn:
 
         facts = ps.assemble_facts(str(target_user))
         assert facts["target_tss"] is not None
-        assert facts["phase"] in ("ramp", "hold", "taper", "race")
+        # "consolidation" is a legitimate phase too (load-metric fix, Part
+        # B.4): a lone 200-TSS workout with no other history is exactly the
+        # kind of sparse, spiky data that makes compute_verdict flag
+        # hold/back_off, which overrides ramp/hold to a flat consolidation
+        # target — see backend/services/training_verdict.py.
+        assert facts["phase"] in ("ramp", "hold", "taper", "race", "consolidation")
         assert facts["remaining_tss"] == max(0.0, round(facts["target_tss"] - facts["logged_tss_so_far"], 1))
         assert facts["acwr_ceiling"] is not None
 

@@ -199,8 +199,12 @@ def test_ramp_eventually_escapes_the_ceiling_instead_of_flatlining_forever():
     # A large but not extreme ramp: clamped for the first few weeks, then the
     # moving window catches up and the ramp resumes climbing on its own —
     # never permanently pinned like the old static-ceiling behaviour was.
+    # ramp_rate=0.10 (not 0.05): since the baseline cap (BASELINE_CAP_MULT=
+    # 1.15) already seeds the ramp within the ceiling's own 1.3x band, a 5%
+    # ramp off a capped baseline no longer breaches the ceiling at all — this
+    # test needs a steeper ramp to still exercise early clamping.
     result = compute_load_plan(
-        baseline=316, ramp_rate=0.05, hold_weeks=4, taper_weeks=3, weeks_to_race=19,
+        baseline=316, ramp_rate=0.10, hold_weeks=4, taper_weeks=3, weeks_to_race=19,
         trailing_28d_avg=200.0,
     )
     weeks = result["weeks"]

@@ -2916,7 +2916,8 @@ def get_weekly_summary(
         build_response,
     )
     from backend.services.guardrail import get_guardrail_result
-    from backend.services.training_load import current_load
+    from backend.services.training_load import current_load, daily_tss_series as _dts
+    from backend.services.training_verdict import compute_verdict
 
     uid = current_user.id
 
@@ -2986,12 +2987,24 @@ def get_weekly_summary(
             for pr in prs_orm
         ]
 
-    # CTL/ATL/TSB at week start and end
+    # CTL/ATL/TSB/ACWR at week start and end — single source of truth
+    # (backend/services/training_load.py; see docs/calculations/training-load.md).
     load_start = current_load(str(uid), as_of=prev_week_end)
     load_end = current_load(str(uid), as_of=week_end)
 
     # Guardrail flags for the current week
     guardrail = get_guardrail_result(str(uid), as_of_date=week_end)
+
+    # Deterministic verdict (Part B) — computed here, in Python, from the
+    # SAME snapshot load_end already is. The LLM never decides this; it only
+    # explains it (see weekly_summary._build_prompt/validate_summary). Uses
+    # week_end (capped at today) so a future-dated week query never asks
+    # daily_tss_series for future days.
+    _verdict_as_of = min(week_end, _date_cls.today())
+    _chronic_start = _verdict_as_of - _td(days=27)
+    _chronic_series = _dts(str(uid), _chronic_start, _verdict_as_of)
+    chronic_weekly = round(sum(v for _, v in _chronic_series) / 4.0, 1)
+    verdict = compute_verdict(load_end, chronic_weekly=chronic_weekly, today=_verdict_as_of)
 
     facts = assemble_facts(
         week_start=week_start,
@@ -3005,6 +3018,7 @@ def get_weekly_summary(
         tsb_end=load_end["tsb"],
         guardrail=guardrail,
         prs=prs,
+        verdict=verdict,
     )
 
     narrative, source = get_narrative(user_id=str(uid), week_start=week_start.isoformat(), facts=facts)
@@ -16531,6 +16545,25 @@ def _resolve_load_plan_a_race(db, user_id, today):
     )
 
 
+def _resolve_current_verdict(user_id, today, trailing_28d_avg=None):
+    """Deterministic back_off/hold/build verdict as of `today` — shared by
+    every Plan-tab endpoint (and GET /api/weekly-summary has its own
+    week-scoped version) so they can never disagree about whether the
+    athlete should be building right now. Computed from the SAME Part-A
+    snapshot (training_load.current_load) every other consumer reads; never
+    an LLM decision. See backend/services/training_verdict.py.
+    """
+    from backend.services.training_load import current_load as _current_load, daily_tss_series as _dts
+    from backend.services.training_verdict import compute_verdict as _compute_verdict
+
+    snap = _current_load(str(user_id), as_of=today)
+    if trailing_28d_avg is None:
+        start_28 = today - _timedelta(days=27)
+        series_28 = _dts(str(user_id), start_28, today)
+        trailing_28d_avg = round(sum(v for _, v in series_28) / 4.0, 1)
+    return _compute_verdict(snap, chronic_weekly=trailing_28d_avg, today=today)
+
+
 class PlanRulesIn(BaseModel):
     ramp_rate: Optional[float] = None
     hold_weeks: Optional[int] = None
@@ -16613,6 +16646,8 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
         total_28d = float(sum(v for _, v in series_28))
         trailing_28d_avg = round(total_28d / 4.0, 1)
 
+        verdict = _resolve_current_verdict(user.id, today, trailing_28d_avg=trailing_28d_avg)
+
         result = compute_load_plan(
             baseline=baseline,
             ramp_rate=rules["ramp_rate"],
@@ -16621,6 +16656,7 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
             weeks_to_race=weeks_to_race,
             trailing_28d_avg=trailing_28d_avg,
             deload_enabled=rules["deload_enabled"],
+            verdict=verdict["verdict"],
         )
 
         weeks_out = []
@@ -16649,10 +16685,27 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
             "ramp_weeks": result["ramp_weeks"],
             "peak": result["peak"],
             "baseline_tss": baseline,
+            # The ramp/peak math above already used the CAPPED baseline
+            # internally when last week's actual TSS spiked well above
+            # chronic load — these three surface that plainly (never
+            # silently) rather than leaving the athlete to wonder why the
+            # ramp looks lower than their own logged week. See
+            # docs/calculations/load-plan.md "Baseline cap".
+            "capped_baseline_tss": result["baseline"],
+            "chronic_weekly_tss": result["chronic_weekly"],
+            "baseline_capped": result["baseline_capped"],
             "trailing_28d_avg": trailing_28d_avg,
             "prior_weeks": prior_weeks,
             "weeks": weeks_out,
             "warning": result["warning"],
+            # Deterministic verdict (never an LLM decision) — see
+            # backend/services/training_verdict.py. "hold"/"back_off"
+            # already reshaped the weeks above into a flat consolidation
+            # block; this is what the card's verdict pill reads.
+            "verdict": verdict["verdict"],
+            "verdict_reason": verdict["reason"],
+            "weeks_to_converge": verdict["weeks_to_converge"],
+            "converge_date": verdict["converge_date"],
         })
 
 
@@ -16756,6 +16809,8 @@ def get_plan_week_load(
         # single static number frozen at today's trailing average.
         _static_acwr_ceiling = round(ACWR_CEILING_MULT * trailing_28d_avg, 1) if trailing_28d_avg else None
 
+        verdict = _resolve_current_verdict(user.id, today, trailing_28d_avg=trailing_28d_avg)
+
         result = compute_load_plan(
             baseline=baseline_tss,
             ramp_rate=rules["ramp_rate"],
@@ -16764,6 +16819,7 @@ def get_plan_week_load(
             weeks_to_race=weeks_to_race,
             trailing_28d_avg=trailing_28d_avg,
             deload_enabled=rules["deload_enabled"],
+            verdict=verdict["verdict"],
         )
 
         week_index = ((query_week_start - this_week_start).days // 7) + 1
@@ -16810,6 +16866,12 @@ def get_plan_week_load(
             "week_start": query_week_start.isoformat(),
             "target_tss": target_tss,
             "baseline_tss": baseline_tss,
+            # See docs/calculations/load-plan.md "Baseline cap" — target_tss
+            # above already reflects the capped baseline when last week
+            # spiked above chronic load; these surface that on the
+            # Baseline×Ramp=Target chain instead of leaving it silent.
+            "capped_baseline_tss": result["baseline"],
+            "baseline_capped": result["baseline_capped"],
             "baseline_planned_tss": baseline_planned_tss,
             "prior_4_weeks_actual": prior_weeks,
             "ramp_rate": rules["ramp_rate"],
@@ -16821,6 +16883,11 @@ def get_plan_week_load(
             "projected_tss": projected_tss,
             "clamped": clamped,
             "state": state,
+            # Deterministic verdict — see backend/services/training_verdict.py.
+            "verdict": verdict["verdict"],
+            "verdict_reason": verdict["reason"],
+            "weeks_to_converge": verdict["weeks_to_converge"],
+            "converge_date": verdict["converge_date"],
         })
 
 
