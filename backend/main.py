@@ -7232,7 +7232,16 @@ def _validate_planned_date(s: str) -> _date:
 
 
 def _workout_actual_summary(w) -> dict:
-    """Compact actual-workout summary attached to a matched planned session."""
+    """Compact actual-workout summary attached to a matched planned session.
+
+    Includes the REAL logged exercises (name/sets/reps/weight/RPE, from
+    WorkoutExercise) when present, so the Plan tab's session detail can show
+    what actually happened at the gym instead of only the planned structure —
+    and `needs_rpe` flags when any of them is missing an RPE, so the athlete
+    is prompted to fill it in. Because this always reads live off the matched
+    Workout row, editing that workout's exercises (e.g. adding RPE) on the Log
+    tab is reflected here on the next Plan-tab load — no separate sync step.
+    """
     dist = float(w.distance_km) if w.distance_km is not None else None
     dur_min = round(w.duration_seconds / 60) if w.duration_seconds else None
     bits = []
@@ -7242,6 +7251,20 @@ def _workout_actual_summary(w) -> dict:
         bits.append(str(round(float(w.tss))) + " TSS")
     elif dist:
         bits.append(("%.1f" % dist) + " km")
+
+    exercises = []
+    for e in sorted(w.exercises or [], key=lambda e: e.display_order):
+        exercises.append({
+            "id": str(e.id),
+            "name": e.name,
+            "sets": e.sets,
+            "reps": e.reps,
+            "weight_kg": float(e.weight_kg) if e.weight_kg is not None else None,
+            "duration": e.duration,
+            "rpe": e.rpe,
+        })
+    needs_rpe = any(e["rpe"] is None for e in exercises) if exercises else False
+
     return {
         "id": str(w.id),
         "name": w.name,
@@ -7253,6 +7276,8 @@ def _workout_actual_summary(w) -> dict:
         "tss": float(w.tss) if w.tss is not None else None,
         "feeling": w.feeling,
         "meta": " · ".join(bits),
+        "exercises": exercises,
+        "needs_rpe": needs_rpe,
     }
 
 

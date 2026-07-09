@@ -320,16 +320,22 @@ information about.
     if (!host || !_bundle) return;
     var todayStr = _todayISO();
     host.innerHTML = (_bundle.days || []).map(function (day) {
-      var cls = day.date === todayStr ? 'today' : (day.date < todayStr ? 'past' : '');
+      var isPast = day.date < todayStr;
+      var cls = day.date === todayStr ? 'today' : (isPast ? 'past' : '');
       var cards = (day.planned || []).map(function (p) { return _plannedCardHtml(p, day); }).join('');
       var ghosts = (day.unplanned || []).filter(function (u) { return !_dismissedGhosts[u.id]; })
         .map(function (u) { return _ghostCardHtml(u, day); }).join('');
       var hasContent = (day.planned || []).length || ghosts;
       var rest = !hasContent ? '<div class="pl-restday">Rest day</div>' : '';
+      // A past day is done — no NEW session should be added to it. Existing
+      // cards keep every action (match/change match/mark missed/delete); only
+      // the "+ add" trigger for a fresh session is disabled.
+      var addDay = isPast
+        ? '<div class="pl-addday is-disabled" title="This day has passed — nothing new can be added">+ add</div>'
+        : '<div class="pl-addday" data-add-date="' + day.date + '">+ add</div>';
       return '<div class="pl-dayrow ' + cls + '" data-date="' + day.date + '">' +
         '<div class="pl-daylabel"><span class="pl-dname">' + day.dow + '</span><span class="pl-dnum">' + _parseISO(day.date).getDate() + '</span></div>' +
-        '<div class="pl-daybody">' + cards + ghosts + rest +
-          '<div class="pl-addday" data-add-date="' + day.date + '">+ add</div>' +
+        '<div class="pl-daybody">' + cards + ghosts + rest + addDay +
         '</div>' +
       '</div>';
     }).join('');
@@ -457,9 +463,19 @@ information about.
   }
 
   function _ghostCardHtml(u, day) {
-    var opts = (day.planned || []).filter(function (p) {
-      return p.status !== 'done_auto' && p.status !== 'done_manual' && p.session_type !== 'rest';
-    }).map(function (p) { return '<option value="' + p.id + '">' + esc(p.name || '(untitled)') + '</option>'; }).join('');
+    // Match candidates span the whole loaded week, not just the ghost's own
+    // day — a Tuesday run should still be matchable to a Friday-planned run,
+    // and a day whose only planned session is already taken (e.g. strength)
+    // shouldn't leave a same-day-only run with nothing to map to.
+    var allDays = (_bundle && _bundle.days) || [day];
+    var opts = allDays.reduce(function (acc, d) {
+      return acc.concat((d.planned || []).filter(function (p) {
+        return p.status !== 'done_auto' && p.status !== 'done_manual' && p.session_type !== 'rest';
+      }).map(function (p) {
+        var label = (p.name || '(untitled)') + (d.date !== u.date ? ' — ' + d.dow + ' ' + _parseISO(d.date).getDate() : '');
+        return '<option value="' + p.id + '">' + esc(label) + '</option>';
+      }));
+    }, []).join('');
     var mapper = opts
       ? '<select class="pl-ghostsel" data-ghostsel="' + u.id + '"><option value="">Map to…</option>' + opts + '</select>' +
         '<div class="pl-candbtns"><button class="pl-btn pl-ghost pl-tiny" data-map="' + u.id + '">Map</button><button class="pl-btn pl-ghost pl-tiny" data-ignore="' + u.id + '">Ignore</button></div>'
@@ -537,7 +553,7 @@ information about.
         _renderWeekList();
       });
     });
-    host.querySelectorAll('.pl-addday').forEach(function (el) {
+    host.querySelectorAll('.pl-addday[data-add-date]').forEach(function (el) {
       el.addEventListener('click', function () { _openAdd('single', el.getAttribute('data-add-date')); });
     });
 
@@ -1305,30 +1321,53 @@ information about.
   }
 
   function _liftDetailHtml(p) {
-    var s = p.structure || {}, exs = Array.isArray(s.exercises) ? s.exercises : [];
+    var s = p.structure || {}, plannedExs = Array.isArray(s.exercises) ? s.exercises : [];
     var focus = s.focus || '';
     var typeLabel = p.session_type === 'plyo' ? 'Plyo' : 'Strength';
-    function _exRow(x) {
+    // A matched session shows what ACTUALLY happened (real sets/reps/weight/
+    // RPE, live off the matched Workout — see _workout_actual_summary), not
+    // the plan. It's always fetched fresh on load, so editing the workout's
+    // exercises on the Log tab shows up here next time this panel opens —
+    // no separate "sync back" step needed.
+    var actual = p.actual;
+    var actualExs = actual && Array.isArray(actual.exercises) ? actual.exercises : [];
+    var usingActual = actualExs.length > 0;
+    var exs = usingActual ? actualExs : plannedExs;
+
+    function _plannedExRow(x) {
       var sr = (x.sets != null && x.reps != null) ? (x.sets + ' × ' + x.reps) : (x.sets != null ? x.sets + ' sets' : '');
       return '<div class="pl-exd"><span class="pl-en">' + esc(x.name || 'Exercise') + '</span><span class="pl-es">' + esc(sr) + '</span><span class="pl-es" style="color:var(--pl-faint)">' + esc(x.load || '') + '</span></div>';
     }
+    function _actualExRow(x) {
+      var sr = (x.sets != null && x.reps != null) ? (x.sets + ' × ' + x.reps) : (x.sets != null ? x.sets + ' sets' : '');
+      var wt = x.weight_kg != null ? x.weight_kg + 'kg' : '';
+      var rpeMissing = x.rpe == null;
+      var rpeHtml = rpeMissing
+        ? '<span class="pl-rpe-missing" title="No RPE logged for this exercise">RPE —</span>'
+        : '<span class="pl-es">RPE ' + esc(x.rpe) + '</span>';
+      return '<div class="pl-exd"><span class="pl-en">' + esc(x.name || 'Exercise') + '</span>' +
+        '<span class="pl-es">' + esc([sr, wt].filter(Boolean).join(' @ ')) + '</span>' + rpeHtml + '</div>';
+    }
+    var exRow = usingActual ? _actualExRow : _plannedExRow;
+
     var exHtml;
     if (!exs.length) {
       exHtml = focus ? '' : '<div class="pl-exd"><span class="pl-en" style="color:var(--pl-faint)">No exercises listed.</span></div>';
-    } else if (exs.some(function (x) { return x && x.block; })) {
+    } else if (!usingActual && exs.some(function (x) { return x && x.block; })) {
       // Group by the pasted-back `block` label (Warm-up / Heavy compound /
       // Superset 1 / … / Accessories), preserving order of first appearance.
+      // Actual (logged) exercises have no block grouping — flat list.
       var order = [];
       exs.forEach(function (x) {
         var b = (x && x.block) ? x.block : 'Other';
         if (order.indexOf(b) === -1) order.push(b);
       });
       exHtml = order.map(function (b) {
-        var rows = exs.filter(function (x) { return ((x && x.block) ? x.block : 'Other') === b; }).map(_exRow).join('');
+        var rows = exs.filter(function (x) { return ((x && x.block) ? x.block : 'Other') === b; }).map(exRow).join('');
         return '<div class="pl-exblock"><div class="pl-exblock-h">' + esc(b) + '</div>' + rows + '</div>';
       }).join('');
     } else {
-      exHtml = exs.map(_exRow).join('');
+      exHtml = exs.map(exRow).join('');
     }
 
     return '<div class="pl-dethead"><span class="pl-dettag lift">' + typeLabel + '</span>' +
@@ -1337,9 +1376,14 @@ information about.
         '<button class="pl-btn pl-ghost" id="pl-det-edit">Edit</button></div>' +
       '<div class="pl-dettitle">' + esc(p.name || '(untitled)') + '</div>' +
       _detailStatusActionsHtml(p) +
+      (actual && actual.needs_rpe
+        ? '<div class="pl-rpe-banner">⚠ Some exercises are missing RPE.' +
+            (actual.id ? ' <button type="button" class="pl-rpe-fixlink" data-viewfull="' + esc(actual.id) + '">Add it on the logged workout →</button>' : '') +
+          '</div>'
+        : '') +
       '<div class="pl-dettiles">' +
         '<div class="pl-dettile"><div class="l">Type</div><div class="v" style="font-size:14px;">' + typeLabel + '</div></div>' +
-        (focus ? '<div class="pl-dettile"><div class="l">Focus</div><div class="v" style="font-size:14px;">' + esc(focus) + '</div></div>' : '') +
+        (focus && !usingActual ? '<div class="pl-dettile"><div class="l">Focus</div><div class="v" style="font-size:14px;">' + esc(focus) + '</div></div>' : '') +
       '</div>' +
       (exs.length ? '<div class="pl-segwrap"><div class="pl-sectitle" style="margin-bottom:8px;">Exercises</div>' + exHtml + '</div>' : '') +
       (p.notes ? '<div class="pl-fld" style="margin-top:16px;"><label>Coach notes</label><div class="pl-notebox">' + esc(p.notes) + '</div></div>' : '') +
@@ -1453,6 +1497,10 @@ information about.
     // "View full workout →" deep link.
     '.plan-panel .pl-viewfull{display:block;margin-top:4px;font-size:9.5px;color:var(--pl-run);background:none;border:none;cursor:pointer;padding:0;text-align:left;}',
     '.plan-panel .pl-viewfull:hover{text-decoration:underline;}',
+    // RPE-missing banner on a matched session's detail panel.
+    '.plan-panel .pl-rpe-banner{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px;color:#8a5a00;background:#fff6e0;border:1px solid #f0d896;border-radius:7px;padding:6px 9px;margin:8px 0;}',
+    '.plan-panel .pl-rpe-fixlink{background:none;border:none;padding:0;font-size:11px;font-weight:700;color:#8a5a00;text-decoration:underline;cursor:pointer;}',
+    '.plan-panel .pl-rpe-missing{font-size:9.5px;font-weight:700;color:#b3480a;background:#ffe9d9;border-radius:4px;padding:1px 5px;}',
     '.plan-panel .pl-candlist{margin-top:7px;display:flex;flex-direction:column;gap:4px;}',
     '.plan-panel .pl-candrow{display:flex;align-items:center;gap:6px;font-size:10px;background:#fff;border:1px solid var(--pl-line);border-radius:6px;padding:5px 7px;cursor:pointer;}',
     '.plan-panel .pl-candrow .pl-cn{font-weight:600;}.plan-panel .pl-candrow .pl-cm{color:var(--pl-faint);font-family:var(--pl-mono);margin-left:auto;}',
@@ -1463,6 +1511,8 @@ information about.
     '.plan-panel .pl-ghostsel{width:100%;font-size:10.5px;border:1px solid var(--pl-line);border-radius:6px;padding:4px 6px;margin-top:6px;background:#fff;}',
     '.plan-panel .pl-daybody .pl-addday{border:1.5px dashed #d7dcec;border-radius:8px;flex:0 0 76px;min-height:52px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:10.5px;color:var(--pl-faint);cursor:pointer;}',
     '.plan-panel .pl-addday:hover{color:var(--pl-lavHi);border-color:#c7d2fe;}',
+    '.plan-panel .pl-addday.is-disabled{cursor:not-allowed;opacity:0.5;border-style:solid;}',
+    '.plan-panel .pl-addday.is-disabled:hover{color:var(--pl-faint);border-color:#d7dcec;}',
     '.plan-panel .pl-restday{font-size:11px;color:var(--pl-faint);font-style:italic;align-self:center;padding:6px 4px;}',
     '.plan-panel .pl-legend{display:flex;gap:14px;margin-top:12px;font-size:11px;color:var(--pl-muted);flex-wrap:wrap;}',
     '.plan-panel .pl-legend b{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;}',
