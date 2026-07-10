@@ -6457,6 +6457,7 @@
         min-width: 0;
       }
       .perf-frow .perf-fn {
+        display: block;
         font-size: 13px;
         font-weight: 600;
         white-space: nowrap;
@@ -6464,11 +6465,15 @@
         text-overflow: ellipsis;
       }
       .perf-frow .perf-fm {
+        display: block;
         font-size: 11px;
         color: var(--perf-muted);
         font-family: var(--mono);
         margin-top: 1px;
       }
+      /* Stale anchor (past the decay grace) — warm tint, as on the old table. */
+      .perf-frow.stale { background: #fffbeb; }
+      .perf-frow.stale:hover { background: #fef7dd; }
       .perf-src {
         font-size: 9px;
         font-weight: 800;

@@ -2248,9 +2248,10 @@
               '<span class="perf-fm">' + bits.join(" \u00b7 ") + "</span>" +
             "</span>" + chip +
             (a.run_id ? '<span class="perf-farr">\u2192</span>' : "");
+          var cls = "perf-frow" + (a.is_stale ? " stale" : "");
           return a.run_id
-            ? '<a class="perf-frow" href="/log?workout=' + encodeURIComponent(a.run_id) + '">' + inner + "</a>"
-            : '<div class="perf-frow">' + inner + "</div>";
+            ? '<a class="' + cls + '" href="/log?workout=' + encodeURIComponent(a.run_id) + '">' + inner + "</a>"
+            : '<div class="' + cls + '">' + inner + "</div>";
         }).join("");
       } else {
         p.anchors.hidden = true;
