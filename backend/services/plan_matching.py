@@ -268,32 +268,29 @@ def reconcile_user(session: _Session, user_id) -> dict:
 def unplanned_workout_ids(session: _Session, user_id, start: _date, end: _date) -> set:
     """Workout ids in [start,end] NOT linked to any planned session — ghosts.
 
-    Only workouts on a day that HAS at least one planned session of a compatible
-    type-family count as ghosts (an unmatched activity the user might map).
+    Every real, unmatched workout in the week surfaces (was: only when a
+    same-day compatible-type planned session existed to map it to — which hid
+    a logged run entirely on a day whose only planned session was strength,
+    e.g. a Tuesday leg day masking that day's real run). The week bundle is
+    always a single 7-day window, so this stays cheap regardless.
     """
     from backend.models import PlannedSession, Workout
 
     uid = user_id if isinstance(user_id, _uuid.UUID) else _uuid.UUID(str(user_id))
 
-    planned = (
-        session.query(PlannedSession)
+    matched_ids = {
+        r[0] for r in session.query(PlannedSession.matched_workout_id)
         .filter(
             PlannedSession.user_id == uid,
             PlannedSession.planned_date >= start,
             PlannedSession.planned_date <= end,
+            PlannedSession.matched_workout_id.isnot(None),
         )
         .all()
-    )
-    matched_ids = {p.matched_workout_id for p in planned if p.matched_workout_id is not None}
-    # planned sessions by date (excluding rest) for the compatibility check
-    by_date: dict = {}
-    for p in planned:
-        if (p.session_type or "").lower() == "rest":
-            continue
-        by_date.setdefault(p.planned_date, []).append(p)
+    }
 
     workouts = (
-        session.query(Workout)
+        session.query(Workout.id)
         .filter(
             Workout.user_id == uid,
             Workout.workout_date >= start,
@@ -301,13 +298,4 @@ def unplanned_workout_ids(session: _Session, user_id, start: _date, end: _date) 
         )
         .all()
     )
-    ghosts = set()
-    for w in workouts:
-        if w.id in matched_ids:
-            continue
-        sessions_that_day = by_date.get(w.workout_date)
-        if not sessions_that_day:
-            continue
-        if any(_type_family_matches(p.session_type, w) for p in sessions_that_day):
-            ghosts.add(w.id)
-    return ghosts
+    return {w.id for w in workouts if w.id not in matched_ids}

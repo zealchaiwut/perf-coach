@@ -42,18 +42,111 @@ other distances: Riegel T2 = T1·(D2/D1)^1.06    riegel.py:26-76
   the `2 − pace/threshold` map duplicated between race_finish_estimator.py and
   score_ceiling.py.
 
+### Score-anchored blended estimate (2026-07-10)
+
+The base of the estimate chain is now the athlete's own DISPLAYED
+Endurance/Speed scores — the two anchor points of their personal
+pace-duration curve — instead of the CTL/race-anchor ceiling (kept only as
+the fallback when no endurance score exists yet):
+
+```
+w_s(D)  = clamp(0.5 − 0.18·ln(D / 21.1), 0.15, 0.85)   # speed weight
+base    = w_s·Speed + (1−w_s)·Endurance                 # blended score
+expressible = base × (1 + tsb/20)                       # unchanged TSB factor
+finish  = vdot_to_race_pace(score_to_vdot(expressible), D) × D
+× calibration correction, capped at the Riegel floor    # unchanged
+```
+
+A 10 K leans on Speed (w_s ≈ 0.63), a marathon on Endurance (w_s ≈ 0.38).
+This is what makes the estimate reconcile with the score cards — higher
+scores ⇒ faster estimate, always (the old ceiling pipeline was independent
+of the displayed scores, producing the reported paradox of a slower
+projection at higher scores). `race_finish_estimator.blended_scores_estimate`
+returns the interpretable decomposition (per-anchor paces + weight),
+surfaced as `time_curve.estimate_basis` and rendered under "Projected now".
+The required-score badges (`_plan_race_scores`) share the same
+`speed_weight_for_distance` — one formula, two consumers.
+
+**Bundle cache now versions the formula** (`_BUNDLE_VERSION` inside
+`_plan_signature`): the computed_cache signature previously tracked only
+DATA changes, so estimator changes shipped invisibly until a data edit
+happened to bust the cache — bump the version with any estimate-formula
+change.
+
+### Riegel floor + race-day sample (2026-07-10 fix)
+
+Two corrections to the estimate chain, motivated by a live paradox (athlete
+ran an actual half in 2:19:26 with LOWER scores than today's, yet the next
+half was projected at 2:38:03):
+
+- **Race-day sample.** The per-race "estimated" figure (`_plan_race_scores`
+  and `_compute_plan_bundle`'s estimate block) now reads the LAST projection
+  sample — the race's own date, after the modeled build+taper — instead of
+  `projection[0]` (~tomorrow), which froze the estimate at today's
+  mid-build fatigue via the `× (1 + tsb/20)` expressible factor. The
+  frontend "Projected now" readout still deliberately reads sample 0.
+- **Riegel floor.** Every time-curve sample (history from the demonstrated
+  race's own date forward; all projection days) is capped at the Riegel
+  equivalent (`T × (D2/D1)^1.06`) of the best race actually finished in the
+  last 90 days — the same window the race-anchored ceiling already uses. A
+  demonstrated result is a fact; a TSB-suppressed heuristic must not
+  predict slower than it. Exposed as `time_curve.riegel_floor_seconds`.
+
+Neither replaces real recalibration (§3's "closed loop that doesn't close"
+still stands) — the floor is a hard sanity bound, not a learned correction.
+
 ### Weaknesses
 
 1. Score 100 ⇒ exactly threshold pace for **any distance** — no
    distance-dependent fatigue in the primary estimate (Riegel used only for
-   half-splits).
+   half-splits and the demonstrated-race floor above).
 2. CTL/150 makes race prediction hostage to TSS calibration (see tss.md
    defaults problem).
-3. A slow B race craters the ceiling until the race is deleted.
+3. A slow B race craters the ceiling until the race is deleted (the Riegel
+   floor is one-sided — it prevents under-prediction, not over-prediction).
 4. √horizon confidence band is pure heuristic, not derived from residuals.
-5. Flat-average future load ignores the athlete's actual plan.
+5. Flat-average future load ignores the athlete's actual plan (and the
+   race-day sample above still assumes ZERO load between now and race day —
+   optimistic on TSB, pessimistic on CTL).
 
 ## 3. Plan calibration (post-race)
+
+### Race calibration loop — CLOSED (2026-07-10, `backend/services/race_calibration.py`)
+
+The recalibrate-from-race loop is now real (the old
+`projection._recalibrate_from_race` NotImplementedError stub is superseded):
+
+- **When a race is finished** (status `done` + `actual_time_seconds`), a
+  `race_calibrations` row is created: the RAW model's race-eve prediction (a
+  deterministic backcast from data as-of that date — load curves, prior-race
+  anchor/floor, TSB factor, no prior correction applied) vs the actual
+  result, and `correction = actual / predicted` (UNclamped in storage).
+  Self-healing: `ensure_calibrations` runs from the plan bundle and the
+  calibration-status endpoint — the single choke points every race-mutation
+  path funnels through — so no per-endpoint done-transition hooks exist to
+  miss.
+- **Every finish estimate is multiplied by the blended correction**:
+  weighted geometric mean of stored corrections, recency-weighted
+  (`RECENCY_HALF_LIFE_DAYS = 180`) × distance-similarity-weighted
+  (`exp(-|ln(d_target/d_race)|)` — a race at 2×/½× the target distance
+  counts half), clamped to `CORRECTION_CLAMP = (0.90, 1.10)`. Applied
+  BEFORE the Riegel floor cap; unlike the 90-day anchor/floor it never
+  expires, only fades as newer races out-weigh it. Surfaced as
+  `time_curve.calibration_correction` / `calibration_n_races` and on the
+  calibration-status card (`correction_pct`, `n_calibrations`;
+  "last recalibrated" now means a real calibration row, not the last done
+  race's updated_at).
+- **Predictions are persisted** (`race_predictions`, one row per race per
+  day the bundle computes an estimate — what was actually SHOWN, correction
+  included). Not consumed by the correction math (corrections measure the
+  raw model via backcast, each an independent bias sample); this is the
+  residual history a future learned confidence band needs (ML-readiness
+  item 1).
+- Known approximations: the backcast uses TODAY's threshold-pace preference
+  (preferences aren't versioned), and per-user Banister time-constant
+  fitting remains a separate unintegrated stack (below).
+
+### Legacy ctl/atl-days suggestions (still open)
 
 `training_load.compute_calibration_suggestions` (:800-914) + endpoints
 (main.py:12686-12950):

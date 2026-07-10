@@ -384,34 +384,34 @@ def test_create_race_with_invalid_date_fails(user_and_client):
     assert r.status_code == 422, f"Expected 422 for invalid date, got {r.status_code}: {r.text}"
 
 
-# ── JS wiring: training-projection.js uses plan router ─────────────────────────────
+# ── JS wiring: training-performance.js uses plan router ─────────────────────────────
 
 def test_training_plan_js_references_plan_router():
-    """AC3/AC5: training-projection.js uses the plan router URL pattern (/plans/)."""
-    js_path = _ROOT / "frontend" / "js" / "training-projection.js"
-    assert js_path.exists(), f"training-projection.js not found at {js_path}"
+    """AC3/AC5: training-performance.js uses the plan router URL pattern (/plans/)."""
+    js_path = _ROOT / "frontend" / "js" / "training-performance.js"
+    assert js_path.exists(), f"training-performance.js not found at {js_path}"
     source = js_path.read_text()
     assert "/plans/" in source, (
-        "training-projection.js must reference the plan router (/plans/) — "
+        "training-performance.js must reference the plan router (/plans/) — "
         "found only old /api/races references"
     )
 
 
 def test_training_plan_js_uses_patch_for_edits():
-    """AC5: training-projection.js uses PATCH method for editing races."""
-    js_path = _ROOT / "frontend" / "js" / "training-projection.js"
+    """AC5: training-performance.js uses PATCH method for editing races."""
+    js_path = _ROOT / "frontend" / "js" / "training-performance.js"
     source = js_path.read_text()
     assert "PATCH" in source or "apiPatch" in source, (
-        "training-projection.js must use PATCH for edits to match the plan router"
+        "training-performance.js must use PATCH for edits to match the plan router"
     )
 
 
 def test_training_plan_js_validates_name():
-    """AC9: training-projection.js validates that name is not empty before submitting."""
-    js_path = _ROOT / "frontend" / "js" / "training-projection.js"
+    """AC9: training-performance.js validates that name is not empty before submitting."""
+    js_path = _ROOT / "frontend" / "js" / "training-performance.js"
     source = js_path.read_text()
     assert "Name is required" in source or "name" in source.lower(), (
-        "training-projection.js should validate the name field"
+        "training-performance.js should validate the name field"
     )
 
 

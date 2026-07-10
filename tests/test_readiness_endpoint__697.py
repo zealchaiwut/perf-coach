@@ -114,12 +114,14 @@ def test_readiness_label_constants_exist():
 
 # ── Endpoint source inspection ────────────────────────────────────────────────
 
-def test_endpoint_calls_compute_fitness_series():
-    """AC6: The GET /api/readiness handler calls compute_fitness_series."""
+def test_endpoint_calls_get_snapshot_series():
+    """AC6: The GET /api/readiness handler calls get_snapshot_series — the
+    single source of truth for CTL/ATL/TSB/ACWR (training_load.py), same
+    path the weekly coach report and fitness/fatigue/form chart read."""
     import backend.main as m
     source = inspect.getsource(m.get_readiness)
-    assert "compute_fitness_series" in source, (
-        "get_readiness must call compute_fitness_series to derive metric values"
+    assert "get_snapshot_series" in source, (
+        "get_readiness must call get_snapshot_series to derive metric values"
     )
 
 

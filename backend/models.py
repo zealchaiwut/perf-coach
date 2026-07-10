@@ -441,6 +441,73 @@ class DailyMetric(Base):
     )
 
 
+class FuelSettings(Base):
+    """One row per user — the calorie-budget model's inputs (see
+    docs/calculations/fuel.md and backend/services/fuel.py). Maintenance is
+    an ESTIMATE until the calibrate flow runs (`maintenance_source`); never
+    presented as authoritative — see fuel.md §0."""
+    __tablename__ = "fuel_settings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    weight_kg = Column(Numeric(5, 2), nullable=False)
+    lean_mass_kg = Column(Numeric(5, 2), nullable=True)  # fallback: weight_kg * 0.76
+    base_kcal = Column(Integer, nullable=False)
+    maintenance_source = Column(Text, nullable=False, server_default=text("'estimated'"))
+    deficit_kcal = Column(Integer, nullable=False, server_default=text("300"))
+    protein_g_per_kg = Column(Numeric(4, 2), nullable=False, server_default=text("2.0"))
+    fat_g = Column(Integer, nullable=False, server_default=text("70"))
+    ea_floor = Column(Numeric(5, 2), nullable=False, server_default=text("30.0"))
+    run_kcal_per_kg_per_km = Column(Numeric(4, 2), nullable=False, server_default=text("1.0"))
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        CheckConstraint("maintenance_source IN ('estimated', 'measured')", name="ck_fuel_settings_maintenance_source"),
+        CheckConstraint("deficit_kcal >= 0 AND deficit_kcal <= 750", name="ck_fuel_settings_deficit_kcal"),
+        CheckConstraint("protein_g_per_kg >= 0.25 AND protein_g_per_kg <= 2.5", name="ck_fuel_settings_protein_g_per_kg"),
+        CheckConstraint("fat_g > 0", name="ck_fuel_settings_fat_g"),
+        CheckConstraint("ea_floor > 0", name="ck_fuel_settings_ea_floor"),
+        CheckConstraint("run_kcal_per_kg_per_km > 0", name="ck_fuel_settings_run_kcal_per_kg_per_km"),
+    )
+
+
+class FuelEntry(Base):
+    """One row per user per day (upsert, not append) — the day's logged food
+    against the five tracked rows + a catch-all `other_*` bucket. See
+    docs/calculations/fuel.md."""
+    __tablename__ = "fuel_entries"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    entry_date = Column(Date, nullable=False)
+    meat_g = Column(Integer, nullable=False, server_default=text("0"))
+    rice_g = Column(Integer, nullable=False, server_default=text("0"))
+    eggs = Column(Integer, nullable=False, server_default=text("0"))
+    fruit_g = Column(Integer, nullable=False, server_default=text("0"))
+    oil_tsp = Column(Numeric(4, 1), nullable=False, server_default=text("0"))
+    other_kcal = Column(Integer, nullable=False, server_default=text("0"))
+    other_protein_g = Column(Numeric(6, 1), nullable=False, server_default=text("0"))
+    other_carbs_g = Column(Numeric(6, 1), nullable=False, server_default=text("0"))
+    other_fat_g = Column(Numeric(6, 1), nullable=False, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "entry_date", name="uq_fuel_entries_user_date"),
+        Index("ix_fuel_entries_user_date", "user_id", entry_date.desc()),
+        CheckConstraint("meat_g >= 0", name="ck_fuel_entries_meat_g"),
+        CheckConstraint("rice_g >= 0", name="ck_fuel_entries_rice_g"),
+        CheckConstraint("eggs >= 0", name="ck_fuel_entries_eggs"),
+        CheckConstraint("fruit_g >= 0", name="ck_fuel_entries_fruit_g"),
+        CheckConstraint("oil_tsp >= 0", name="ck_fuel_entries_oil_tsp"),
+        CheckConstraint("other_kcal >= 0", name="ck_fuel_entries_other_kcal"),
+        CheckConstraint("other_protein_g >= 0", name="ck_fuel_entries_other_protein_g"),
+        CheckConstraint("other_carbs_g >= 0", name="ck_fuel_entries_other_carbs_g"),
+        CheckConstraint("other_fat_g >= 0", name="ck_fuel_entries_other_fat_g"),
+    )
+
+
 class PersonalRecord(Base):
     __tablename__ = "personal_records"
 
@@ -807,6 +874,12 @@ class UserPreferences(Base):
 
 
 class TrainingLoadSnapshot(Base):
+    """The sole persisted CTL/ATL/TSB/ACWR record for a user+date — see
+    backend/services/training_load.py's daily_update()/get_snapshot_series()
+    and docs/calculations/training-load.md. No other code path may compute
+    and independently render these metrics; every consumer reads this row
+    (computing it on a cache miss/stale formula_version, then storing it)."""
+
     __tablename__ = "training_load_snapshots"
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
@@ -816,6 +889,17 @@ class TrainingLoadSnapshot(Base):
     ctl = Column(Float, nullable=False)
     atl = Column(Float, nullable=False)
     tsb = Column(Float, nullable=False)
+    # Acute:Chronic Workload Ratio, from acwr.compute_acwr() over the 35-day
+    # window ending this date. Nullable — None when there isn't enough
+    # trailing history yet (acwr.py's own _MIN_DAYS guard), same convention
+    # every other ACWR consumer already follows.
+    acwr = Column(Float, nullable=True)
+    # Stamps which formula/constants produced this row (mirrors the
+    # tss_method stamping pattern on Workout) — a row whose formula_version
+    # doesn't match training_load._FORMULA_VERSION is treated as a cache
+    # miss and recomputed, so a change to the EWMA/ACWR math can never
+    # silently keep serving stale-shape rows forever.
+    formula_version = Column(Text, nullable=True)
     computed_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
     __table_args__ = (
@@ -1120,6 +1204,59 @@ class RaceCheckpoint(Base):
         )
 
 
+class RaceCalibration(Base):
+    """One calibration event per finished race: what the model predicted vs
+    what the athlete actually ran, and the resulting correction factor
+    (actual/predicted). The weighted blend of these rows (recency +
+    distance-similarity, clamped) corrects every future finish estimate —
+    the real implementation of the previously-stubbed recalibrate-from-race
+    loop. See backend/services/race_calibration.py and
+    docs/calculations/projection.md §3."""
+    __tablename__ = "race_calibrations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    race_id = Column(UUID(as_uuid=True), ForeignKey("races.id", ondelete="CASCADE"), nullable=False, unique=True)
+    race_date = Column(Date, nullable=False)
+    distance_km = Column(Numeric(8, 3), nullable=False)
+    predicted_seconds = Column(Integer, nullable=False)
+    actual_seconds = Column(Integer, nullable=False)
+    correction = Column(Numeric(6, 4), nullable=False)  # actual / predicted, UNclamped
+    source = Column(Text, nullable=False, server_default=text("'backcast'"))  # backcast | stored_prediction
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        Index("ix_race_calibrations_user_date", "user_id", "race_date"),
+        CheckConstraint("predicted_seconds > 0", name="ck_race_calibrations_predicted_seconds"),
+        CheckConstraint("actual_seconds > 0", name="ck_race_calibrations_actual_seconds"),
+        CheckConstraint("correction > 0", name="ck_race_calibrations_correction"),
+        CheckConstraint("source IN ('backcast', 'stored_prediction')", name="ck_race_calibrations_source"),
+    )
+
+
+class RacePrediction(Base):
+    """Daily persisted race-day finish predictions — one row per race per day
+    the bundle computed an estimate. Future calibrations diff the actual
+    result against what was actually SHOWN to the athlete instead of a
+    backcast, and the residual history is the dataset every learned
+    confidence band needs (docs/calculations/README.md ML-blocker #1)."""
+    __tablename__ = "race_predictions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    race_id = Column(UUID(as_uuid=True), ForeignKey("races.id", ondelete="CASCADE"), nullable=False)
+    prediction_date = Column(Date, nullable=False)
+    predicted_seconds = Column(Integer, nullable=False)
+    band_seconds = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("race_id", "prediction_date", name="uq_race_predictions_race_day"),
+        Index("ix_race_predictions_user_race", "user_id", "race_id"),
+        CheckConstraint("predicted_seconds > 0", name="ck_race_predictions_predicted_seconds"),
+    )
+
+
 class AthleteDurationCurve(Base):
     """Per-athlete best-effort duration curve aggregated across all run workouts.
 
@@ -1239,10 +1376,20 @@ class TrainingPlan(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     name = Column(Text, nullable=False)
-    ramp_rate = Column(Numeric(6, 2), nullable=True)
+    # Fraction, e.g. 0.05 = 5%/week (see backend/services/load_plan.py). Was
+    # Numeric(6, 2)/absolute TSS-per-week in the old client-only schedule
+    # preview; widened+repurposed for the race-anchored Session Load Plan.
+    ramp_rate = Column(Numeric(6, 4), nullable=True)
     taper_start = Column(Numeric(6, 2), nullable=True)
     taper_length = Column(Numeric(6, 2), nullable=True)
     taper_shape = Column(Text, nullable=True)
+    # Peak-hold length in weeks between the end of the ramp and the start of
+    # the taper. Raising this LOWERS peak load (it shortens the ramp) — see
+    # docs/calculations/load-plan.md.
+    hold_weeks = Column(Integer, nullable=False, server_default=text("4"))
+    # "Cut 30% every 4th week" deload toggle — see load_plan.py's
+    # DELOAD_CUT_FRACTION / compute_load_plan(deload_enabled=...).
+    deload_enabled = Column(Boolean, nullable=False, server_default=text("false"))
     # Cached computed Plan-tab bundle + the signature it was computed for
     # (see GET /api/plan/computed). Recomputed when the signature changes.
     computed_cache = Column(JSONB, nullable=True)

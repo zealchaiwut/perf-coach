@@ -159,6 +159,109 @@ def score_to_estimated_finish_time(
     }
 
 
+# ── Two-anchor blend: Endurance + Speed scores → race estimate ───────────────
+# The athlete's two displayed scores are two anchor points on their personal
+# pace-duration curve: Endurance (from easy/steady aerobic efforts,
+# HR-extrapolated to threshold) anchors the LONG end; Speed (from best
+# sustained hard efforts) anchors the SHORT end. For a race distance D the
+# blended VDOT is the linear interpolation between them in log-distance
+# space, centred on the half marathon:
+#
+#     w_s(D)   = clamp(0.5 − SPEED_WEIGHT_SLOPE · ln(D / SPEED_WEIGHT_REFERENCE_KM),
+#                      SPEED_WEIGHT_MIN, SPEED_WEIGHT_MAX)
+#     vdot(D)  = w_s · vdot(Speed) + (1 − w_s) · vdot(Endurance)
+#     pace(D)  = vdot_to_race_pace_seconds(vdot(D), D)      # Daniels inversion
+#     finish   = pace × D
+#
+# i.e. a 10 K leans on Speed (w_s ≈ 0.63), a marathon leans on Endurance
+# (w_s ≈ 0.38), a half is the 50/50 midpoint. Same weighting the
+# required-score badges already use (main._plan_race_scores) — one formula,
+# two consumers. Blending on the score scale or the VDOT scale is identical
+# (score→VDOT is linear); done on VDOT here for the interpretable per-anchor
+# paces in the returned basis.
+SPEED_WEIGHT_REFERENCE_KM: float = 21.1
+SPEED_WEIGHT_SLOPE: float = 0.18
+SPEED_WEIGHT_MIN: float = 0.15
+SPEED_WEIGHT_MAX: float = 0.85
+
+
+def speed_weight_for_distance(distance_km: float) -> float:
+    """Speed-anchor weight for a race distance (see block comment above)."""
+    le = math.log(float(distance_km) / SPEED_WEIGHT_REFERENCE_KM)
+    return max(SPEED_WEIGHT_MIN, min(SPEED_WEIGHT_MAX, 0.5 - SPEED_WEIGHT_SLOPE * le))
+
+
+def blended_scores_estimate(
+    endurance_score: float | None,
+    speed_score: float | None,
+    distance_km: float | None,
+    thresholds: dict | None,
+) -> dict:
+    """Race estimate anchored on the athlete's DISPLAYED End/Spd scores.
+
+    Returns the score_to_estimated_finish_time shape plus a ``basis`` dict —
+    the interpretable decomposition ("with this Endurance you hold X:XX /km
+    at this distance; with this Speed, Y:YY /km; blended at w_s → Z:ZZ /km"):
+
+        basis = {
+          endurance_score, endurance_vdot, endurance_pace_seconds_per_km,
+          speed_score, speed_vdot, speed_pace_seconds_per_km,
+          speed_weight, blended_vdot, blended_pace_seconds_per_km,
+        }
+
+    Endurance is mandatory (it anchors every race distance); with no Speed
+    score the blend degenerates to endurance-only (w_s = 0). Falls back to
+    score_to_estimated_finish_time's own fallback chain when a VDOT pace
+    can't be formed.
+    """
+    _null = {"estimated_finish_seconds": None, "estimated_finish_time": None, "basis": None}
+    if endurance_score is None:
+        return {**_null, "reason": "endurance score is None"}
+    if distance_km is None:
+        return {**_null, "reason": "distance_km is None"}
+    try:
+        distance_km = float(distance_km)
+    except (TypeError, ValueError):
+        return {**_null, "reason": "distance_km is not numeric"}
+    if distance_km <= 0:
+        return {**_null, "reason": "distance_km must be positive"}
+
+    e = max(0.0, min(100.0, float(endurance_score)))
+    s = max(0.0, min(100.0, float(speed_score))) if speed_score is not None else None
+
+    vdot_e = score_to_vdot(e)
+    vdot_s = score_to_vdot(s) if s is not None else None
+    w_s = speed_weight_for_distance(distance_km) if vdot_s is not None else 0.0
+    blended_vdot = w_s * (vdot_s or 0.0) + (1.0 - w_s) * vdot_e
+
+    pace = vdot_to_race_pace_seconds(blended_vdot, distance_km)
+    if pace is None:
+        # Same threshold-pace fallback contract as the single-score estimator.
+        blended_score = w_s * (s or 0.0) + (1.0 - w_s) * e
+        return {**score_to_estimated_finish_time(blended_score, thresholds, distance_km), "basis": None}
+
+    pace_e = vdot_to_race_pace_seconds(vdot_e, distance_km)
+    pace_s = vdot_to_race_pace_seconds(vdot_s, distance_km) if vdot_s is not None else None
+
+    total_seconds = int(round(pace * distance_km))
+    return {
+        "estimated_finish_seconds": total_seconds,
+        "estimated_finish_time": _format_hhmmss(total_seconds),
+        "reason": None,
+        "basis": {
+            "endurance_score": round(e, 1),
+            "endurance_vdot": round(vdot_e, 1),
+            "endurance_pace_seconds_per_km": round(pace_e) if pace_e is not None else None,
+            "speed_score": round(s, 1) if s is not None else None,
+            "speed_vdot": round(vdot_s, 1) if vdot_s is not None else None,
+            "speed_pace_seconds_per_km": round(pace_s) if pace_s is not None else None,
+            "speed_weight": round(w_s, 3),
+            "blended_vdot": round(blended_vdot, 1),
+            "blended_pace_seconds_per_km": round(pace),
+        },
+    }
+
+
 def apply_finish_estimates(
     entries: list[dict],
     thresholds: dict | None,

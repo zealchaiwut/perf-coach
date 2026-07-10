@@ -290,15 +290,19 @@ def test_summary_card_has_stat_tiles_row_in_css(inline_styles):
 
 
 def test_summary_card_uses_log_card_class(training_log_html):
-    """AC7: Summary digest card uses the log-card base class for consistent styling."""
-    # The summary card should use the log-card styling pattern
-    card_section = re.search(
-        r'id="summary-digest-card"[^>]*class=["\'][^"\']*log-card[^"\']*["\']|'
-        r'class=["\'][^"\']*log-card[^"\']*["\'][^>]*id="summary-digest-card"',
-        training_log_html
-    )
-    assert card_section, (
-        "summary-digest-card must include the log-card class for consistent card styling"
+    """AC7: Summary digest card uses the log-card base class for consistent styling.
+
+    summary-digest-card is now a section within a shared card (merged with
+    Readiness/chart and the weekly coach report) rather than a standalone
+    .log-card itself — it inherits card styling from that wrapper, so check
+    for a .log-card ancestor instead of the class on the element itself.
+    """
+    idx = training_log_html.find('id="summary-digest-card"')
+    assert idx != -1, "summary-digest-card element not found"
+    preceding = training_log_html[:idx]
+    wrapper_open = preceding.rfind('<div class="log-card">')
+    assert wrapper_open != -1, (
+        "summary-digest-card must be nested inside a .log-card wrapper for consistent card styling"
     )
 
 

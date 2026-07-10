@@ -961,7 +961,12 @@
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 8px;
-      margin-top: 14px;
+      /* auto top/bottom margins on this flex-column child (see
+         #home-top-row-right) split whatever space is left below the header
+         evenly, so the row (with its divider) floats vertically centered
+         instead of sitting pinned right under the header. */
+      margin-top: auto;
+      margin-bottom: auto;
       padding-top: 14px;
       border-top: 1px solid rgba(11, 21, 48, 0.08);
     }

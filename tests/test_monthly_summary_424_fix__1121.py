@@ -126,7 +126,7 @@ def test_424_returned_when_no_workouts():
 
     with (
         patch("backend.main.Session") as MockSession,
-        patch("backend.main.compute_fitness_series", return_value=[]),
+        patch("backend.main.get_snapshot_series", return_value=[]),
         patch("backend.main._get_app_config", return_value=""),
         patch("backend.main._summary_cache_get", return_value=None),
         patch("backend.main._summary_signature", return_value="sig"),
@@ -159,7 +159,7 @@ def test_monthly_endpoint_does_not_call_weekly_summary():
 
     with (
         patch("backend.main.Session") as MockSession,
-        patch("backend.main.compute_fitness_series", return_value=[]),
+        patch("backend.main.get_snapshot_series", return_value=[]),
         patch("backend.main._get_app_config", return_value=""),
         patch("backend.main._summary_cache_get", return_value=None),
         patch("backend.main._summary_signature", return_value="sig"),
@@ -186,7 +186,7 @@ def test_424_detail_does_not_mention_weekly_aggregation():
 
     with (
         patch("backend.main.Session") as MockSession,
-        patch("backend.main.compute_fitness_series", return_value=[]),
+        patch("backend.main.get_snapshot_series", return_value=[]),
         patch("backend.main._get_app_config", return_value=""),
         patch("backend.main._summary_cache_get", return_value=None),
         patch("backend.main._summary_signature", return_value="sig"),
@@ -212,7 +212,7 @@ def test_424_detail_mentions_training_sessions():
 
     with (
         patch("backend.main.Session") as MockSession,
-        patch("backend.main.compute_fitness_series", return_value=[]),
+        patch("backend.main.get_snapshot_series", return_value=[]),
         patch("backend.main._get_app_config", return_value=""),
         patch("backend.main._summary_cache_get", return_value=None),
         patch("backend.main._summary_signature", return_value="sig"),
@@ -245,7 +245,7 @@ def test_200_returned_when_workouts_exist():
 
     with (
         patch("backend.main.Session") as MockSession,
-        patch("backend.main.compute_fitness_series", return_value=fitness),
+        patch("backend.main.get_snapshot_series", return_value=fitness),
         patch("backend.main._get_app_config", return_value=""),
         patch("backend.main.get_guardrail_result", return_value=_default_guardrail),
     ):

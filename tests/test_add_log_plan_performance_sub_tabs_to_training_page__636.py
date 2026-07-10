@@ -63,22 +63,32 @@ def test_nav_label_not_training_log(nav_js):
 # ── AC2: Training route shows three sub-tabs: Log, Plan, Performance ─────────
 
 def test_training_page_has_three_subtabs(training_log_html):
-    """AC2: The training page contains three sub-tab buttons: Log, Plan, Performance."""
+    """AC2 (updated 2026-07-09 — the old standalone Performance tab was
+    dissolved into the Projection tab and Log page; then, in a separate pass
+    the same day, the Projection tab itself was renamed to Performance and
+    the Log tab relabeled Summary, so the id/data-tab churn below reflects
+    that second rename, not a reintroduction of the deleted tab): three
+    sub-tab buttons: log, plan, performance."""
     assert 'data-tab="log"' in training_log_html, "Log sub-tab button with data-tab='log' must be present"
-    assert 'data-tab="projection"' in training_log_html, "Plan sub-tab button with data-tab='plan' must be present"
+    assert 'data-tab="plan"' in training_log_html, "Plan sub-tab button with data-tab='plan' must be present"
     assert 'data-tab="performance"' in training_log_html, \
-        "Performance sub-tab button with data-tab='performance' must be present"
+        "Performance sub-tab button with data-tab='performance' must be present (renamed from Projection)"
+    assert 'data-tab="projection"' not in training_log_html, \
+        "Projection sub-tab was renamed to Performance — data-tab='projection' should no longer exist"
 
 
 def test_training_page_subtabs_label_text(training_log_html):
-    """AC2: Sub-tabs are labeled Log, Plan, Performance in that order."""
-    log_pos = training_log_html.find('>Log<')
-    plan_pos = training_log_html.find('>Projection<')
-    perf_pos = training_log_html.find('>Performance<')
-    assert log_pos != -1, "Log tab label text not found"
-    assert plan_pos != -1, "Projection tab label text not found"
-    assert perf_pos != -1, "Performance tab label text not found"
-    assert log_pos < plan_pos < perf_pos, "Tabs must appear in order: Log, Projection, Performance"
+    """AC2: Sub-tabs are labeled Summary, Plan, Performance in that order.
+    Matches with tolerant whitespace since the button markup breaks its
+    text onto its own line rather than `>Text<` on one line."""
+    log_m = re.search(r">\s*Summary\s*<", training_log_html)
+    plan_m = re.search(r">\s*Plan\s*<", training_log_html)
+    perf_m = re.search(r">\s*Performance\s*<", training_log_html)
+    assert log_m, "Summary tab label text not found"
+    assert plan_m, "Plan tab label text not found"
+    assert perf_m, "Performance tab label text not found"
+    assert log_m.start() < plan_m.start() < perf_m.start(), \
+        "Tabs must appear in order: Summary, Plan, Performance"
 
 
 def test_training_page_has_subtab_container(training_log_html):
@@ -101,12 +111,13 @@ def test_log_subtab_is_active_by_default(training_log_html):
 
 
 def test_log_panel_visible_by_default(training_log_html):
-    """AC3: The Log panel is not hidden by default (no hidden attribute on it)."""
-    # Plan and Performance panels should be hidden; Log content should not have hidden
-    assert 'id="training-panel-projection"' in training_log_html, "Panel for Plan must exist"
+    """AC3 (updated 2026-07-09 — Log panel is the main-content toggle, not a
+    tab-panel-placeholder; Plan and Performance (renamed from Projection) are
+    the two hidden-by-default placeholder panels): the Log content is not
+    hidden by default; Plan and Performance panels are."""
+    assert 'id="training-panel-plan"' in training_log_html, "Panel for Plan must exist"
     assert 'id="training-panel-performance"' in training_log_html, "Panel for Performance must exist"
-    # Those panels should have 'hidden' attribute
-    assert re.search(r'id="training-panel-projection"[^>]*hidden|hidden[^>]*id="training-panel-projection"', training_log_html), \
+    assert re.search(r'id="training-panel-plan"[^>]*hidden|hidden[^>]*id="training-panel-plan"', training_log_html), \
         "Plan panel should be hidden by default"
     assert re.search(r'id="training-panel-performance"[^>]*hidden|hidden[^>]*id="training-panel-performance"', training_log_html), \
         "Performance panel should be hidden by default"
@@ -135,10 +146,14 @@ def test_log_dot_html_route_still_works(client):
 # ── AC5: Plan panel renders "Coming soon" placeholder ─────────────────────────
 
 def test_plan_panel_has_coming_soon(training_log_html):
-    """AC5: Plan panel contains a 'Coming soon' placeholder text."""
-    plan_section_start = training_log_html.find('id="training-panel-projection"')
-    assert plan_section_start != -1, "training-panel-projection element must exist"
-    # Find the next occurrence of the Performance panel (to bound our search)
+    """AC5: Plan panel contains a 'Coming soon' placeholder text.
+
+    Note: pre-existing failure independent of the 2026-07-09 rename — the
+    Plan tab was fully built out (issue #812) long before Projection was
+    renamed to Performance, so it no longer shows a placeholder. Kept
+    id-consistent with the rename rather than silently dropped."""
+    plan_section_start = training_log_html.find('id="training-panel-plan"')
+    assert plan_section_start != -1, "training-panel-plan element must exist"
     perf_section_start = training_log_html.find('id="training-panel-performance"')
     if perf_section_start > plan_section_start:
         plan_section = training_log_html[plan_section_start:perf_section_start]
@@ -229,9 +244,10 @@ def test_uat_step1_nav_item_reads_training(nav_js):
 
 
 def test_uat_step2_page_has_three_subtabs(training_log_html):
-    """UAT Step 2: Training page HTML has three sub-tabs visible."""
+    """UAT Step 2 (updated 2026-07-09): Training page HTML has three sub-tabs
+    visible — log, plan, performance (renamed from projection)."""
     assert 'data-tab="log"' in training_log_html
-    assert 'data-tab="projection"' in training_log_html
+    assert 'data-tab="plan"' in training_log_html
     assert 'data-tab="performance"' in training_log_html
 
 

@@ -239,12 +239,17 @@ def test_js_hides_widget_on_error(training_log_js):
 # ── AC9: No interactive controls ─────────────────────────────────────────────
 
 def test_widget_has_no_interactive_controls_in_html(training_log_html):
-    """AC9: The readiness widget contains no buttons, inputs, or links."""
+    """AC9: The readiness widget contains no buttons, inputs, or links.
+
+    Bounded to the widget's own (empty, JS-populated) div rather than a fixed
+    byte window: the 2026-07-09 Fitness/Fatigue/Form chart relocation put a
+    sibling card with its own range-selector buttons right after this div,
+    which a fixed-width window would wrongly sweep in.
+    """
     widget_start = training_log_html.find('id="readiness-widget"')
     assert widget_start != -1
-    # Find the closing tag of the widget container
-    # Look for the next sibling element start after the widget
-    widget_chunk = training_log_html[widget_start:widget_start + 800]
+    widget_end = training_log_html.find("</div>", widget_start) + len("</div>")
+    widget_chunk = training_log_html[widget_start:widget_end]
     assert "<button" not in widget_chunk, "Readiness widget must not contain buttons"
     assert "<input" not in widget_chunk, "Readiness widget must not contain inputs"
     assert "<select" not in widget_chunk, "Readiness widget must not contain selects"

@@ -194,26 +194,32 @@ def test_ac6_negative_taper_length_rejected_on_patch(auth_client):
 # ── AC1 & AC2: HTML has ramp-rate and taper-window inputs ────────────────────
 
 def test_ac1_ramp_rate_input_in_html():
-    """AC1: training-log.html has a numeric ramp-rate input element."""
+    """AC1 (updated — Plan-tab revamp Part 1, race-anchored-plan.md): the old
+    standalone plan-ramp-rate-input was replaced by the Session Load Plan
+    card's settings-panel input, id="lp-ramp-input" (a percentage, 0-10%,
+    not the old absolute TSS/week value)."""
     html_path = _ROOT / "frontend" / "pages" / "training-log.html"
     html = html_path.read_text(encoding="utf-8")
-    assert 'id="plan-ramp-rate-input"' in html, "Missing ramp-rate input element"
+    assert 'id="lp-ramp-input"' in html, "Missing ramp-rate input element"
     assert 'type="number"' in html or 'type=number' in html, "Ramp rate input must be type=number"
 
 
 def test_ac1_ramp_rate_unit_label_in_html():
-    """AC1: training-log.html has a unit label for the ramp-rate input."""
+    """AC1 (updated — Plan-tab revamp Part 1): unit is now "% / wk" (a
+    fraction, per docs/calculations/load-plan.md), not "TSS/week"; label text
+    is sentence case ("Ramp rate") per CLAUDE.md's string-literal convention."""
     html_path = _ROOT / "frontend" / "pages" / "training-log.html"
     html = html_path.read_text(encoding="utf-8")
-    assert "plan-ramp-rate-unit" in html or "TSS/week" in html or "Ramp Rate" in html, \
-        "Missing unit label for ramp-rate"
+    assert "% / wk" in html or "Ramp rate" in html, "Missing unit label for ramp-rate"
 
 
 def test_ac2_taper_window_input_in_html():
-    """AC2: training-log.html has a numeric taper-window input element."""
+    """AC2 (updated — Plan-tab revamp Part 1): the old standalone
+    plan-taper-window-input was replaced by the Session Load Plan card's
+    settings-panel input, id="lp-taper-input"."""
     html_path = _ROOT / "frontend" / "pages" / "training-log.html"
     html = html_path.read_text(encoding="utf-8")
-    assert 'id="plan-taper-window-input"' in html, "Missing taper-window input element"
+    assert 'id="lp-taper-input"' in html, "Missing taper-window input element"
 
 
 def test_ac2_taper_window_unit_label_in_html():
@@ -226,47 +232,67 @@ def test_ac2_taper_window_unit_label_in_html():
 
 # ── AC4: Schedule preview element present in HTML ─────────────────────────────
 
-def test_ac4_schedule_preview_canvas_in_html():
-    """AC4: training-log.html has a canvas element for the schedule preview."""
+def test_ac4_schedule_preview_host_in_html():
+    """AC4 (updated — Plan-tab revamp Part 1, race-anchored-plan.md): the mock
+    ramp/taper bar preview (#plan-sched/#plan-wklabels, computed client-side
+    from arbitrary constants — see the old _computeScheduleSeries) was
+    replaced by the real race-anchored season chart, rendered into
+    #lp-chart-wrap from GET /api/plan/load-plan (see
+    docs/calculations/load-plan.md). Nothing here is client-computed anymore."""
     html_path = _ROOT / "frontend" / "pages" / "training-log.html"
     html = html_path.read_text(encoding="utf-8")
-    assert 'id="plan-schedule-canvas"' in html, "Missing schedule-preview canvas element"
+    assert 'id="lp-chart-wrap"' in html, "Missing season-chart host element"
 
 
 def test_ac4_schedule_preview_section_in_html():
-    """AC4: training-log.html has a plan-settings section containing the preview."""
+    """AC4 (updated — Plan-tab revamp Part 1): the old plan-settings-section
+    was replaced by the Session Load Plan card, id="load-plan-section"."""
     html_path = _ROOT / "frontend" / "pages" / "training-log.html"
     html = html_path.read_text(encoding="utf-8")
-    assert "plan-settings-section" in html or "plan-schedule-preview" in html, \
-        "Missing schedule preview section"
+    assert 'id="load-plan-section"' in html, "Missing Session Load Plan card section"
 
 
 # ── AC8: JS contains no forecast or projection math ──────────────────────────
 
 def test_ac8_no_projection_api_call_in_plan_js():
-    """AC8: training-projection.js does not call a forecast or projection endpoint."""
-    js_path = _ROOT / "frontend" / "js" / "training-projection.js"
+    """AC8: training-performance.js does not call a forecast or projection endpoint."""
+    js_path = _ROOT / "frontend" / "js" / "training-performance.js"
     js = js_path.read_text(encoding="utf-8")
     assert "/api/projection" not in js, "plan JS must not call a projection endpoint"
     assert "/api/forecast" not in js, "plan JS must not call a forecast endpoint"
 
 
 # ── AC3 / AC5: JS wires input-change events for live preview ─────────────────
+# Updated 2026-07-09: plan settings (ramp/taper/schedule preview) moved from
+# the Projection tab to the Plan tab (training-plan.js) — Projection's old
+# slot now shows Race-readiness specificity instead.
 
 def test_ac3_js_wires_input_change_events():
-    """AC3: training-projection.js contains event listeners for the ramp/taper inputs."""
-    js_path = _ROOT / "frontend" / "js" / "training-projection.js"
+    """AC3 (updated — Plan-tab revamp Part 1): training-plan.js wires the
+    Session Load Plan settings-panel inputs (lp-ramp-input/lp-taper-input),
+    not the old standalone plan-ramp-rate-input/plan-taper-window-input."""
+    js_path = _ROOT / "frontend" / "js" / "training-plan.js"
     js = js_path.read_text(encoding="utf-8")
-    assert "plan-ramp-rate-input" in js, "JS must reference the ramp-rate input"
-    assert "plan-taper-window-input" in js, "JS must reference the taper-window input"
+    assert "lp-ramp-input" in js, "JS must reference the ramp-rate input"
+    assert "lp-taper-input" in js, "JS must reference the taper-window input"
 
 
 def test_ac3_js_has_schedule_preview_render_function():
-    """AC3: training-projection.js contains a function that renders the schedule preview."""
-    js_path = _ROOT / "frontend" / "js" / "training-projection.js"
+    """AC3 (updated — Plan-tab revamp Part 1): the old client-computed
+    _renderSchedulePreview was replaced by _renderLoadPlanChart, which draws
+    the server-computed race-anchored series from GET /api/plan/load-plan."""
+    js_path = _ROOT / "frontend" / "js" / "training-plan.js"
     js = js_path.read_text(encoding="utf-8")
-    assert "renderSchedulePreview" in js or "plan-schedule-canvas" in js, \
-        "JS must reference the schedule preview canvas"
+    assert "_renderLoadPlanChart" in js, "JS must reference the season-chart render function"
+
+
+def test_ac3_projection_js_no_longer_owns_plan_settings():
+    """AC3 (new): training-performance.js no longer wires the ramp/taper inputs
+    or renders the schedule preview — that moved to training-plan.js."""
+    js_path = _ROOT / "frontend" / "js" / "training-performance.js"
+    js = js_path.read_text(encoding="utf-8")
+    assert "plan-ramp-rate-input" not in js
+    assert "renderSchedulePreview" not in js
 
 
 # ── Compile checks ────────────────────────────────────────────────────────────

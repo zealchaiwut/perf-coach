@@ -1,4 +1,4 @@
-"""Tests for issue #751: Primary A-race selection may pick past race in training-projection.js.
+"""Tests for issue #751: Primary A-race selection may pick past race in training-performance.js.
 
 Acceptance criteria verified:
 - AC1: _primaryRace predicate excludes r.status === "done" from A-priority race selection.
@@ -12,11 +12,11 @@ Acceptance criteria verified:
 import pathlib
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
-_JS_PATH = _ROOT / "frontend" / "js" / "training-projection.js"
+_JS_PATH = _ROOT / "frontend" / "js" / "training-performance.js"
 
 
 def _src() -> str:
-    assert _JS_PATH.exists(), f"training-projection.js not found at {_JS_PATH}"
+    assert _JS_PATH.exists(), f"training-performance.js not found at {_JS_PATH}"
     return _JS_PATH.read_text()
 
 
@@ -31,7 +31,7 @@ def test_ac1_primary_race_a_priority_predicate_excludes_done():
         or "r.status !== 'done'" in src
     )
     assert has_done_exclusion, (
-        "training-projection.js must exclude r.status === 'done' from _primaryRace selection; "
+        "training-performance.js must exclude r.status === 'done' from _primaryRace selection; "
         "add `&& r.status !== \"done\"` to the .find() predicate"
     )
 
@@ -42,7 +42,7 @@ def test_ac1_done_exclusion_is_near_primary_race_assignment():
     # Find the assignment inside applyBundle (not the initial var declaration).
     # Look for the block where _races.find( is called to set _primaryRace.
     idx = src.find("_races.find(")
-    assert idx >= 0, "_races.find( not found in training-projection.js"
+    assert idx >= 0, "_races.find( not found in training-performance.js"
 
     # Extract ~400 chars from the first _races.find( call to capture the full assignment block
     block = src[idx : idx + 400]

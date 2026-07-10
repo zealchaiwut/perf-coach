@@ -51,20 +51,6 @@
     "Nov",
     "Dec",
   ];
-  var MONTHS_FULL = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-  ];
   var DAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
   function esc(s) {
@@ -683,6 +669,7 @@
         // Apply current type/search client filter after rendering
         applyClientFilter();
         fetchReadinessWidget();
+        _loadFffChart();
         // Re-sync active row highlight if panel is still open
         if (activeDetailWorkoutId) {
           activePosIndex = findPosIndex(activeDetailWorkoutId);
@@ -724,34 +711,10 @@
   }
 
   // ── Readiness widget (issue #697) ────────────────────────────────────────────
-  // Fetches /api/readiness and renders Fitness/Fatigue/Freshness tiles
-  // with a readiness label and per-metric sparklines. Hidden on error.
-
-  // Draw a small SVG trend line into an <svg> element from a numeric series.
-  function _lrxTrendLine(svgId, pts, color) {
-    var svg = document.getElementById(svgId);
-    if (!svg || !pts || pts.length < 2) return;
-    while (svg.firstChild) svg.removeChild(svg.firstChild);
-    var W = 120,
-      H = 52;
-    var mn = Math.min.apply(null, pts),
-      mx = Math.max.apply(null, pts);
-    var d = pts
-      .map(function (v, i) {
-        var x = (i / (pts.length - 1)) * W;
-        var y = H - ((v - mn) / (mx - mn + 0.001)) * (H - 6) - 3;
-        return (i ? "L" : "M") + x.toFixed(1) + " " + y.toFixed(1);
-      })
-      .join(" ");
-    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
-    var NS = "http://www.w3.org/2000/svg";
-    var path = document.createElementNS(NS, "path");
-    path.setAttribute("d", d);
-    path.setAttribute("fill", "none");
-    path.setAttribute("stroke", color);
-    path.setAttribute("stroke-width", "1.8");
-    svg.appendChild(path);
-  }
+  // Fetches /api/readiness and renders Fitness/Fatigue/Freshness tiles with a
+  // readiness label. No per-tile sparkline — the Fitness/Fatigue/Form chart
+  // below (issue #528) already shows the same CTL/ATL/TSB series over time,
+  // so these tiles stay number/label/bar/status only, matching ACWR's shape.
 
   // Readiness band model: [min,max] for marker placement + status thresholds.
   // First-pass ranges (tunable): CTL/ATL 0–60, TSB −25..+15.
@@ -784,8 +747,6 @@
     atl: "linear-gradient(90deg,#22c55e,#eab308,#ef4444)",
     tsb: "linear-gradient(90deg,#f59e0b,#22c55e,#60a5fa)",
   };
-  var _LRX_TREND_COLOR = { ctl: "#4f6ef7", atl: "#dc2626", tsb: "#16a34a" };
-
   function renderReadinessWidget(data) {
     var el = document.getElementById("readiness-widget");
     if (!el) return;
@@ -799,10 +760,9 @@
       return;
     }
 
-    var series = data.series || [];
     var rlabel = data.readiness_label || "";
 
-    function rcard(metric, val, abbr, label, chartId) {
+    function rcard(metric, val, abbr, label) {
       var st = _lrxReadStatus(metric, val);
       var pct = _lrxMarkerPct(metric, val);
       return (
@@ -826,9 +786,6 @@
         '">' +
         st.word +
         "</div>" +
-        '<svg class="lrx-rchart" id="' +
-        chartId +
-        '"></svg>' +
         "</div>"
       );
     }
@@ -839,33 +796,300 @@
       (rlabel ? '<span class="lrx-chip b">' + esc(rlabel) + "</span>" : "") +
       "</div>" +
       '<div class="lrx-readfull">' +
-      rcard("ctl", data.ctl, "CTL", "Fitness", "lrx-r-ctl") +
-      rcard("atl", data.atl, "ATL", "Fatigue", "lrx-r-atl") +
-      rcard("tsb", data.tsb, "TSB", "Freshness", "lrx-r-tsb") +
+      rcard("ctl", data.ctl, "CTL", "Fitness") +
+      rcard("atl", data.atl, "ATL", "Fatigue") +
+      rcard("tsb", data.tsb, "TSB", "Freshness") +
+      _acwrTileHtml() +
       "</div>";
     el.hidden = false;
-    _lrxTrendLine(
-      "lrx-r-ctl",
-      series.map(function (d) {
-        return d.ctl;
-      }),
-      _LRX_TREND_COLOR.ctl,
-    );
-    _lrxTrendLine(
-      "lrx-r-atl",
-      series.map(function (d) {
-        return d.atl;
-      }),
-      _LRX_TREND_COLOR.atl,
-    );
-    _lrxTrendLine(
-      "lrx-r-tsb",
-      series.map(function (d) {
-        return d.tsb;
-      }),
-      _LRX_TREND_COLOR.tsb,
+    _loadAcwrTile();
+  }
+
+  // ── Training load ratio (ACWR) — 4th readiness tile ─────────────────────────
+  // Moved here from the removed Performance tab. Not part of the /api/readiness
+  // payload (that endpoint has no ACWR field), so it's a separate fetch against
+  // /api/athletes/{id}/daily-load, with the same client-side ratio/band math
+  // the Performance tab used (backend/services/acwr.py exists but isn't wired
+  // to a route the frontend calls — this mirrors that pre-existing choice,
+  // not a new decision made during the move).
+  var ACWR_LOWER = 0.8;
+  var ACWR_HIGH = 1.5;
+  var ACWR_MIN_DAYS = 28;
+
+  var ACWR_STATUS_META = {
+    detraining: { word: "DETRAINING", color: "var(--lrx-amber)" },
+    productive: { word: "PRODUCTIVE", color: "var(--lrx-green)" },
+    high_risk: { word: "HIGH RISK", color: "var(--lrx-red)" },
+    baseline_forming: { word: "BUILDING", color: "var(--lrx-muted)" },
+  };
+
+  // Same rv/rl/lrx-rband/lrx-rstatus shape as the CTL/ATL/TSB tiles (see
+  // rcard() above) — no trend chart (no ACWR time series available) and no
+  // guidance paragraph, so this tile is intentionally shorter than its
+  // siblings rather than padded out to match (see #acwr-tile's
+  // align-self:flex-start in CSS).
+  function _acwrTileHtml() {
+    return (
+      '<div class="lrx-rcard" id="acwr-tile">' +
+      '<div class="rv" id="acwr-ratio">–</div>' +
+      '<div class="rl">ACWR · Load ratio</div>' +
+      '<div class="lrx-rband perf-acwr-rband" id="acwr-band">' +
+      '<div class="mk" id="acwr-marker" style="left:50%"></div>' +
+      "</div>" +
+      '<div class="lrx-rstatus" id="acwr-status">–</div>' +
+      "</div>"
     );
   }
+
+  function _perfAthleteIdFor(cb) {
+    var uid = window.getCurrentUserId ? window.getCurrentUserId() : null;
+    if (uid) { cb(uid); return; }
+    window.addEventListener("userReady", function (e) { cb(e.detail.userId); }, { once: true });
+  }
+
+  function _loadAcwrTile() {
+    if (!document.getElementById("acwr-ratio")) return;
+    _perfAthleteIdFor(function (athleteId) {
+      var today = new Date().toLocaleDateString("en-CA");
+      var start = new Date();
+      start.setDate(start.getDate() - 35);
+      var startDate = start.toLocaleDateString("en-CA");
+      fetch("/api/athletes/" + athleteId + "/daily-load?start_date=" + startDate + "&end_date=" + today)
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+        .then(function (data) {
+          var series = Array.isArray(data) ? data.map(function (d) { return d.daily_load || 0; }) : [];
+          _renderAcwrTile(_computeAcwr(series));
+        })
+        .catch(function () { _renderAcwrTile({ ratio: null, band: null }); });
+    });
+  }
+
+  // Acute:chronic ratio "as of" series[idx], given a chronological daily-load
+  // array. Shared by the readiness tile (idx = series.length-1, "today") and
+  // the FFF chart's ACWR line (idx = each displayed day's position in a
+  // dense, gap-filled load series — see _computeAcwrSeriesForDates).
+  function _acwrRatioAt(series, idx) {
+    if (idx < ACWR_MIN_DAYS - 1) return null;
+    var acute = 0;
+    for (var i = idx - 6; i <= idx; i++) acute += (series[i] || 0);
+    var priorTotals = [];
+    [
+      [idx - 34, idx - 28],
+      [idx - 27, idx - 21],
+      [idx - 20, idx - 14],
+      [idx - 13, idx - 7],
+    ].forEach(function (w) {
+      var lo = Math.max(0, w[0]), hi = w[1];
+      if (hi < lo) return;
+      var tot = 0;
+      for (var j = lo; j <= hi; j++) tot += (series[j] || 0);
+      priorTotals.push(tot);
+    });
+    var chronic = priorTotals.length
+      ? priorTotals.reduce(function (a, b) { return a + b; }, 0) / priorTotals.length : 0;
+    return chronic ? acute / chronic : null;
+  }
+
+  function _acwrBandFor(ratio) {
+    return ratio < ACWR_LOWER ? "detraining" : (ratio > ACWR_HIGH ? "high_risk" : "productive");
+  }
+
+  function _computeAcwr(series) {
+    if (series.length < ACWR_MIN_DAYS) return { ratio: null, band: "baseline_forming" };
+    var ratio = _acwrRatioAt(series, series.length - 1);
+    if (ratio === null) return { ratio: null, band: null };
+    return { ratio: ratio, band: _acwrBandFor(ratio) };
+  }
+
+  // Builds a dense (no date gaps) daily-load array spanning fromDateStr..
+  // toDateStr, then returns the ACWR ratio for each date in `dates` (the
+  // FFF chart's own displayed date labels) — null where there isn't yet
+  // ACWR_MIN_DAYS of history behind that date.
+  function _computeAcwrSeriesForDates(dates, loadData, fromDateStr, toDateStr) {
+    var loadByDate = {};
+    (Array.isArray(loadData) ? loadData : []).forEach(function (d) {
+      if (d && d.date) loadByDate[d.date] = d.daily_load || 0;
+    });
+    var denseDates = [];
+    var d = new Date(fromDateStr + "T00:00:00");
+    var end = new Date(toDateStr + "T00:00:00");
+    while (d <= end) {
+      denseDates.push(d.toLocaleDateString("en-CA"));
+      d.setDate(d.getDate() + 1);
+    }
+    var denseLoads = denseDates.map(function (ds) { return loadByDate[ds] || 0; });
+    var indexOf = {};
+    denseDates.forEach(function (ds, i) { indexOf[ds] = i; });
+    return dates.map(function (ds) {
+      var idx = indexOf[ds];
+      return idx === undefined ? null : _acwrRatioAt(denseLoads, idx);
+    });
+  }
+
+  function _renderAcwrTile(acwr) {
+    var ratioEl = document.getElementById("acwr-ratio");
+    var statusEl = document.getElementById("acwr-status");
+    var markerEl = document.getElementById("acwr-marker");
+    if (!ratioEl) return;
+
+    if (acwr.band === "baseline_forming" || acwr.ratio === null) {
+      ratioEl.textContent = "–";
+      var bf = ACWR_STATUS_META.baseline_forming;
+      if (statusEl) { statusEl.textContent = bf.word; statusEl.style.color = bf.color; }
+      if (markerEl) markerEl.style.visibility = "hidden";
+      return;
+    }
+    ratioEl.textContent = acwr.ratio.toFixed(2);
+    var meta = ACWR_STATUS_META[acwr.band] || { word: "—", color: "var(--lrx-muted)" };
+    if (statusEl) { statusEl.textContent = meta.word; statusEl.style.color = meta.color; }
+    if (markerEl) {
+      markerEl.style.visibility = "";
+      var pct = Math.max(2, Math.min(98, (acwr.ratio / 2.0) * 100));
+      markerEl.style.left = pct.toFixed(1) + "%";
+    }
+  }
+
+  // ── Fitness · Fatigue · Form chart (CTL/ATL/TSB/ACWR) ───────────────────────
+  // Moved here from the removed Performance tab — the detailed Chart.js line
+  // chart, distinct from the readiness widget's compact tiles above (both
+  // stay; this is the expanded view). Fixed to a 30-day window — no range
+  // toggle — so the chart gets the full height of its half of the card.
+  var _fffChart = null;
+  var FFF_RANGE_DAYS_FIXED = 30;
+
+  function _fffDateStr(daysAgo) {
+    var d = new Date();
+    d.setDate(d.getDate() - daysAgo);
+    return d.toLocaleDateString("en-CA");
+  }
+
+  function _loadFffChart() {
+    if (!document.getElementById("perf-fitness-canvas")) return;
+    var days = FFF_RANGE_DAYS_FIXED;
+    var startDate = _fffDateStr(days);
+    var endDate = _fffDateStr(0);
+    // 34 extra days of daily-load lookback so the ACWR line has enough
+    // history to compute a ratio for the FIRST displayed day too, not just
+    // ones ACWR_MIN_DAYS+ after the range start.
+    var loadFromDate = _fffDateStr(days + 34);
+    var chartBB = document.getElementById("perf-chart-bb");
+    var chartWrap = document.getElementById("perf-chart-wrap");
+
+    _perfAthleteIdFor(function (athleteId) {
+      var chartUrl = "/api/performance/chart?athlete_id=" + encodeURIComponent(athleteId) +
+        "&start_date=" + startDate + "&end_date=" + endDate;
+      var loadUrl = "/api/athletes/" + encodeURIComponent(athleteId) + "/daily-load" +
+        "?start_date=" + loadFromDate + "&end_date=" + endDate;
+      Promise.all([
+        fetch(chartUrl).then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); }),
+        fetch(loadUrl).then(function (r) { return r.ok ? r.json() : []; }).catch(function () { return []; }),
+      ])
+        .then(function (results) {
+          var data = results[0];
+          var loadData = results[1];
+          if (data.building_baseline || !data.dates || !data.dates.length) {
+            if (chartBB) chartBB.hidden = false;
+            if (chartWrap) chartWrap.hidden = true;
+            return;
+          }
+          if (chartBB) chartBB.hidden = true;
+          if (chartWrap) chartWrap.hidden = false;
+          var acwrSeries = _computeAcwrSeriesForDates(data.dates, loadData, loadFromDate, endDate);
+          _renderFffChart(data, acwrSeries);
+        })
+        .catch(function () {
+          if (chartBB) chartBB.hidden = false;
+          if (chartWrap) chartWrap.hidden = true;
+        });
+    });
+  }
+
+  function _renderFffChart(data, acwrSeries) {
+    var canvas = document.getElementById("perf-fitness-canvas");
+    if (!canvas || !window.Chart) return;
+    if (_fffChart) { _fffChart.destroy(); _fffChart = null; }
+
+    var todayStr = _fffDateStr(0);
+    var todayIdx = data.dates ? data.dates.indexOf(todayStr) : -1;
+
+    _fffChart = new window.Chart(canvas, {
+      type: "line",
+      data: {
+        labels: data.dates || [],
+        datasets: [
+          { label: "CTL (Fitness)", data: data.ctl, borderColor: "#1b2340", backgroundColor: "transparent", borderWidth: 2, pointRadius: 0, tension: 0.3 },
+          { label: "ATL (Fatigue)", data: data.atl, borderColor: "#f59e0b", backgroundColor: "transparent", borderWidth: 2, pointRadius: 0, tension: 0.3 },
+          { label: "TSB (Form)", data: data.tsb, borderColor: "#10b981", backgroundColor: "transparent", borderWidth: 2, pointRadius: 0, tension: 0.3 },
+          {
+            label: "ACWR", data: acwrSeries || [], borderColor: "#a855f7", backgroundColor: "transparent",
+            borderWidth: 2, borderDash: [5, 3], pointRadius: 0, tension: 0.3, yAxisID: "y1", spanGaps: true,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: {
+            display: true, position: "top",
+            labels: { font: { size: 11, family: "Inter Tight, system-ui, sans-serif" }, color: "#6b7280", boxWidth: 12, padding: 10 },
+          },
+          tooltip: {
+            callbacks: {
+              title: function (items) {
+                var iso = items && items[0] ? items[0].label : null;
+                return iso ? fmtShortDate(iso) : "";
+              },
+              label: function (ctx) {
+                var v = ctx.parsed.y;
+                if (ctx.dataset.label === "ACWR") return v != null ? "ACWR: " + v.toFixed(2) : "ACWR: —";
+                return ctx.dataset.label + ": " + (v != null ? v.toFixed(1) : "—");
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            ticks: {
+              maxTicksLimit: 8, font: { size: 10 }, color: "#9aa3b8",
+              callback: function (value) {
+                var iso = this.getLabelForValue(value);
+                return iso ? fmtShortDate(iso) : iso;
+              },
+            },
+            grid: { display: false },
+          },
+          y: { ticks: { font: { size: 10 }, color: "#9aa3b8" }, grid: { color: "rgba(13,30,67,0.05)" } },
+          y1: {
+            position: "right", min: 0, max: 2.5,
+            ticks: { font: { size: 10 }, color: "#a855f7", stepSize: 0.5 },
+            grid: { drawOnChartArea: false },
+          },
+        },
+      },
+      plugins: [{
+        id: "todayMarker",
+        afterDraw: function (chart) {
+          if (todayIdx < 0) return;
+          var ctx2 = chart.ctx;
+          var meta = chart.getDatasetMeta(0);
+          if (!meta || !meta.data || !meta.data[todayIdx]) return;
+          var xPos = meta.data[todayIdx].x;
+          ctx2.save();
+          ctx2.beginPath();
+          ctx2.moveTo(xPos, chart.chartArea.top);
+          ctx2.lineTo(xPos, chart.chartArea.bottom);
+          ctx2.strokeStyle = "rgba(234,88,12,0.7)";
+          ctx2.lineWidth = 1.5;
+          ctx2.setLineDash([4, 3]);
+          ctx2.stroke();
+          ctx2.restore();
+        },
+      }],
+    });
+  }
+
 
   function fetchReadinessWidget() {
     var el = document.getElementById("readiness-widget");
@@ -1183,7 +1407,6 @@
   // ── Log list rendering ────────────────────────────────────────────────────
 
   // issue #637: day-grouped list — replaces week-grouped rendering for Log sub-tab.
-  // Month separator with a monthly rollup (Run TSS / Lift TSS / Time / KM).
   function _hdrValSpan(n) {
     var el = document.createElement("span");
     el.className = "log-hdr-val";
@@ -1191,68 +1414,29 @@
     return el;
   }
 
-  function buildSeparator(titleText, agg, variant) {
-    // Week separators use the mock's .lrx-wkhdr (label + "N TSS · N km").
-    // Month separators are rendered as a light label row (kept minimal so the
-    // week headers carry the totals, matching the mock's week-grouped list).
-    if (variant === "week-sep") {
-      var sep = document.createElement("div");
-      sep.className = "lrx-wkhdr";
-      var tss = agg ? Math.round((agg.runTss || 0) + (agg.liftTss || 0)) : 0;
-      var km = agg ? Math.round(agg.km * 10) / 10 : 0;
-      var wl = document.createElement("span");
-      wl.className = "wl";
-      wl.textContent = (titleText || "").replace(/^Week of\s*/, "");
-      var wr = document.createElement("span");
-      wr.className = "wr";
-      wr.appendChild(_hdrValSpan(tss));
-      wr.appendChild(document.createTextNode(" TSS · "));
-      wr.appendChild(_hdrValSpan(km));
-      wr.appendChild(document.createTextNode(" km"));
-      sep.appendChild(wl);
-      sep.appendChild(wr);
-      return sep;
-    }
-
+  // Week separator: the mock's .lrx-wkhdr (label + "N TSS · N km"). The
+  // monthly Run/Lift TSS + time + km rollup this used to render alongside
+  // (as a "month-sep" band) now lives in the calendar card's header instead
+  // — see _calMonthStatsHtml.
+  function buildWeekSeparator(titleText, agg) {
     var sep = document.createElement("div");
-    sep.className = "month-sep" + (variant ? " " + variant : "");
-
-    var title = document.createElement("div");
-    title.className = "month-sep-title";
-    title.textContent = titleText;
-    sep.appendChild(title);
-
-    var stats = document.createElement("div");
-    stats.className = "month-sep-stats";
-    var parts = [
-      ["Run TSS", agg ? Math.round(agg.runTss) : 0],
-      ["Lift TSS", agg ? Math.round(agg.liftTss) : 0],
-      ["Time", agg && agg.secs ? fmtDurationCompact(agg.secs) : "0m"],
-      ["KM", agg ? Math.round(agg.km * 10) / 10 : 0],
-    ];
-    parts.forEach(function (p) {
-      var chip = document.createElement("span");
-      chip.className = "month-stat";
-      var val = document.createElement("span");
-      val.className = "month-stat-val";
-      val.textContent = p[1];
-      var lbl = document.createElement("span");
-      lbl.className = "month-stat-lbl";
-      lbl.textContent = p[0];
-      chip.appendChild(val);
-      chip.appendChild(lbl);
-      stats.appendChild(chip);
-    });
-    sep.appendChild(stats);
+    sep.className = "lrx-wkhdr";
+    var tss = agg ? Math.round((agg.runTss || 0) + (agg.liftTss || 0)) : 0;
+    var km = agg ? Math.round(agg.km * 10) / 10 : 0;
+    var wl = document.createElement("span");
+    wl.className = "wl";
+    wl.textContent = (titleText || "").replace(/^Week of\s*/, "");
+    var wr = document.createElement("span");
+    wr.className = "wr";
+    wr.appendChild(_hdrValSpan(tss));
+    wr.appendChild(document.createTextNode(" TSS · "));
+    wr.appendChild(_hdrValSpan(km));
+    wr.appendChild(document.createTextNode(" km"));
+    sep.appendChild(wl);
+    sep.appendChild(wr);
     return sep;
   }
 
-  function _monthTitle(dateStr) {
-    var d = new Date(dateStr + "T00:00:00");
-    return isNaN(d.getMonth())
-      ? (dateStr || "").slice(0, 7)
-      : MONTHS_FULL[d.getMonth()] + " " + d.getFullYear();
-  }
   function _mondayOf(dateStr) {
     var d = new Date(dateStr + "T00:00:00");
     var dow = d.getDay(),
@@ -1320,7 +1504,7 @@
       return a < b ? 1 : a > b ? -1 : 0;
     });
 
-    // Full month + week rollups up front, so each separator shows correct totals
+    // Full week rollups up front, so each separator shows correct totals
     // even before the whole period has been rendered.
     function addAgg(map, key, e) {
       if (!map[key]) map[key] = { runTss: 0, liftTss: 0, secs: 0, km: 0 };
@@ -1331,11 +1515,8 @@
       if (e.duration_seconds) map[key].secs += Number(e.duration_seconds) || 0;
       if (e.distance_km) map[key].km += Number(e.distance_km) || 0;
     }
-    var monthAgg = {},
-      weekAgg = {};
+    var weekAgg = {};
     entries.forEach(function (e) {
-      var mk = (e.date || "").slice(0, 7);
-      if (mk) addAgg(monthAgg, mk, e);
       if (e.date) addAgg(weekAgg, _weekKey(e.date), e);
     });
 
@@ -1343,7 +1524,6 @@
       container: container,
       days: days,
       dayMap: dayMap,
-      monthAgg: monthAgg,
       weekAgg: weekAgg,
       cursor: 0,
       lastMonthKey: null,
@@ -1365,17 +1545,17 @@
       var dateStr = st.days[st.cursor++];
       var monthKey = dateStr.slice(0, 7);
       if (monthKey !== st.lastMonthKey) {
+        // Monthly Run/Lift TSS + time + km rollup now lives in the calendar
+        // card's header (see _calMonthStatsHtml) instead of a repeating
+        // separator here — just track the boundary to reset the week key.
         st.lastMonthKey = monthKey;
         st.lastWeekKey = null;
-        st.container.appendChild(
-          buildSeparator(_monthTitle(dateStr), st.monthAgg[monthKey], ""),
-        );
       }
       var wk = _weekKey(dateStr);
       if (wk !== st.lastWeekKey) {
         st.lastWeekKey = wk;
         st.container.appendChild(
-          buildSeparator(_weekTitle(dateStr), st.weekAgg[wk], "week-sep"),
+          buildWeekSeparator(_weekTitle(dateStr), st.weekAgg[wk]),
         );
       }
 
@@ -5196,7 +5376,6 @@
     );
 
     var inner = document.querySelector(".log-page-header-inner");
-    var actions = document.querySelector(".log-page-header-actions");
     if (!inner) return;
 
     // On phones/tablets the drawer is full-width — desktop column alignment
@@ -5204,10 +5383,6 @@
     if (!isDesktop()) {
       inner.style.removeProperty("padding-left");
       inner.style.removeProperty("padding-right");
-      if (actions) {
-        actions.style.removeProperty("left");
-        actions.style.removeProperty("right");
-      }
       return;
     }
 
@@ -5215,21 +5390,18 @@
     // #plan-race-header / any .pm-card); computed from geometry (all four tabs
     // share max-width:1000 + 24px padding, border-box) rather than measuring
     // #list-main, which is display:none on Plan/Projection/Performance.
-    // The actions cluster starts at the detail window's LEFT edge (the drawer:
-    // width 600, inset 12 from the right) so it sits above that column.
+    // The actions cluster (.log-page-header-actions) is a normal flex child
+    // pushed right by .log-nav-spacer, so setting this same padding-right
+    // aligns its right edge with the content column's right edge too.
     var CONTENT_MAX = 1000,
       PAD = 24;
     var vw = document.documentElement.clientWidth;
     var contentLeft = Math.max(0, (vw - CONTENT_MAX) / 2) + PAD;
     inner.style.paddingLeft = contentLeft + "px";
     inner.style.paddingRight = contentLeft + "px";
-    if (actions) {
-      var DRAWER_INSET = 12,
-        DRAWER_W = Math.min(600, Math.round(vw * 0.94));
-      var drawerLeft = Math.max(0, vw - DRAWER_INSET - DRAWER_W);
-      actions.style.left = drawerLeft + "px";
-      actions.style.right = "auto";
-    }
+    // actions is a normal flex-row child pushed right by .log-nav-spacer
+    // (flex:1) — its right edge lands on inner's padding-right automatically,
+    // no separate positioning needed.
   }
   window.addEventListener("load", _positionNav);
   window.addEventListener("resize", _positionNav);
@@ -5269,33 +5441,31 @@
         if (entry.type === "rest" || !entry.date) return;
         var d = calDayData[entry.date];
         if (!d) {
-          d = { types: [], totalTss: 0, km: 0 };
+          d = { types: [], totalTss: 0, km: 0, entries: [] };
           calDayData[entry.date] = d;
         }
         var t = (entry.type || "").toLowerCase();
         if (t && d.types.indexOf(t) === -1) d.types.push(t);
         if (entry.tss > 0) d.totalTss += entry.tss;
         if (entry.distance_km > 0) d.km += entry.distance_km;
+        // One marker per logged session (calendar redesign) — kept separate
+        // from the day-level totalTss/km rollup above, which other code
+        // (week aggregates) still reads.
+        d.entries.push({ type: t, tss: entry.tss > 0 ? entry.tss : null });
       });
     });
   }
 
-  // Normalize a raw workout_type to the two calendar dot families.
-  function _calDotType(t) {
+  // Normalize a raw workout_type to one of the three marker hues (run/
+  // strength/plyo each get their own color).
+  function _calMarkerType(t) {
     t = (t || "").toLowerCase();
     if (t === "run" || t === "bike") return "run";
-    return "lift"; // strength/lift/wod → violet
+    if (t === "plyo") return "plyo";
+    return "strength"; // strength/lift/wod/unknown
   }
+  var _calMarkerLabel = { run: "run", strength: "strength", plyo: "plyo" };
 
-  // Planned-session tags (issue: see Plan sessions on the Log calendar).
-  // Bucket run vs everything else (strength/plyo → "Strength", same family
-  // split as the existing dots) and fetch on demand per displayed month.
-  function _calPlannedFamily(t) {
-    return (t || "").toLowerCase() === "run" ? "run" : "lift";
-  }
-  function _calPlannedLabel(fam) {
-    return fam === "run" ? "Run" : "Strength";
-  }
   function _calIsDoneStatus(s) {
     return s === "done_auto" || s === "done_manual";
   }
@@ -5319,6 +5489,8 @@
               id: p.id,
               type: p.session_type,
               status: p.status,
+              estimatedTss: p.estimated_tss,
+              estimatedDistanceKm: p.estimated_distance_km,
             });
           });
         });
@@ -5328,34 +5500,104 @@
       .catch(function () {});
   }
 
-  // Per-day tag HTML: one tag per family (run/lift), "done" wins over
-  // "planned" if a day has more than one session in the same family.
-  function _calPlannedTagsHtml(dateStr) {
+  // One marker per session, logged + still-open planned merged into a single
+  // row (calendar redesign): solid filled = logged, outline = planned; hue =
+  // type; the number is TSS (estimated for planned). A done/matched planned
+  // session is dropped — its logged counterpart already has a block, so
+  // showing both would duplicate the same session. Capped at 3 blocks + a
+  // "+N" overflow chip so the row (and therefore the cell) never grows.
+  function _calMarkerBlockHtml(item) {
+    var tssText = item.tss != null ? String(Math.round(item.tss)) : "—";
+    var stateLabel = item.state === "logged" ? "Logged" : "Planned";
+    var typeLabel = _calMarkerLabel[item.type] || item.type;
+    var label =
+      item.tss != null
+        ? stateLabel + " " + typeLabel + ", " + (item.state === "plan" ? "estimated " : "") + tssText + " TSS"
+        : stateLabel + " " + typeLabel + ", TSS unavailable";
+    var attrs =
+      item.state === "plan"
+        ? ' data-plan-session="' + esc(item.id) + '" data-plan-date="' + esc(item.date) + '"'
+        : "";
+    return (
+      '<div class="cal-mk ' + item.state + " " + item.type + '"' + attrs +
+      ' title="' + esc(label) + '" aria-label="' + esc(label) + '">' +
+      esc(tssText) + "</div>"
+    );
+  }
+
+  function _calMarkersHtml(dateStr) {
+    var items = [];
+    var dd = calDayData[dateStr];
+    if (dd && dd.entries) {
+      dd.entries.forEach(function (e) {
+        items.push({ state: "logged", type: _calMarkerType(e.type), tss: e.tss });
+      });
+    }
     var pd = calPlannedData[dateStr];
-    if (!pd || !pd.length) return "";
-    var byFam = {};
-    pd.forEach(function (p) {
-      var fam = _calPlannedFamily(p.type);
-      var done = _calIsDoneStatus(p.status);
-      if (!byFam[fam] || (done && !byFam[fam].done))
-        byFam[fam] = { done: done, id: p.id };
+    if (pd) {
+      pd.forEach(function (p) {
+        if (_calIsDoneStatus(p.status)) return;
+        items.push({
+          state: "plan", type: _calMarkerType(p.type),
+          tss: p.estimatedTss > 0 ? p.estimatedTss : null,
+          id: p.id, date: dateStr,
+        });
+      });
+    }
+    if (!items.length) return "";
+
+    var shown = items.slice(0, 3).map(_calMarkerBlockHtml).join("");
+    var extra = items.length - 3;
+    var overflow =
+      extra > 0
+        ? '<div class="cal-mk more" aria-label="' + extra + " more session" + (extra === 1 ? "" : "s") + '">+' + extra + "</div>"
+        : "";
+    return '<div class="cal-markers">' + shown + overflow + "</div>";
+  }
+
+  // Monthly Run/Lift TSS + time + distance rollup for the displayed calendar
+  // month, reusing the same entry shape (and normalizeTypeKey split) as the
+  // day-grouped list's month separator used to — now rendered in the
+  // calendar header instead (issue: monthly summary merged into calendar).
+  function _calMonthlyAgg(year, month) {
+    var prefix = year + "-" + pad(month + 1);
+    var agg = { runTss: 0, liftTss: 0, secs: 0, km: 0 };
+    (lastWeeks || []).forEach(function (week) {
+      (week.entries || []).forEach(function (e) {
+        if (e.type === "rest" || !e.date || e.date.slice(0, 7) !== prefix) return;
+        var tk = normalizeTypeKey(e.type),
+          tss = Number(e.tss) || 0;
+        if (tk === "run") agg.runTss += tss;
+        else if (tk === "lift") agg.liftTss += tss;
+        if (e.duration_seconds) agg.secs += Number(e.duration_seconds) || 0;
+        if (e.distance_km) agg.km += Number(e.distance_km) || 0;
+      });
     });
-    var html = "";
-    ["run", "lift"].forEach(function (fam) {
-      if (!byFam[fam]) return;
-      html +=
-        '<div class="lrx-caltag ' +
-        fam +
-        (byFam[fam].done ? " done" : " planned") +
-        '" data-plan-session="' +
-        byFam[fam].id +
-        '" data-plan-date="' +
-        dateStr +
-        '" title="Open in Plan">[' +
-        _calPlannedLabel(fam) +
-        "]</div>";
-    });
-    return html;
+    return agg;
+  }
+
+  function _calMonthStatsHtml(agg) {
+    var parts = [
+      ["Run TSS", Math.round(agg.runTss)],
+      ["Lift TSS", Math.round(agg.liftTss)],
+      ["Time", agg.secs ? fmtDurationCompact(agg.secs) : "0m"],
+      ["KM", Math.round(agg.km * 10) / 10],
+    ];
+    return (
+      '<div class="month-sep-stats cal-month-stats">' +
+      parts
+        .map(function (p) {
+          return (
+            '<span class="month-stat"><span class="month-stat-val">' +
+            esc(p[1]) +
+            '</span><span class="month-stat-lbl">' +
+            esc(p[0]) +
+            "</span></span>"
+          );
+        })
+        .join("") +
+      "</div>"
+    );
   }
 
   // Displayed month as 'YYYY-MM' — consumed by the summary (decision 3).
@@ -5432,10 +5674,16 @@
     var rows = Math.ceil(totalCells / 7);
 
     // Build per-week aggregates (Mon–Sun rows over this month's cells).
+    // estTss/estKm are ADDITIONAL to tss/km — rough formula-only estimates
+    // (see training_load.estimate_planned_session_metrics; no LLM) for
+    // still-open planned sessions, so the week total reflects what's coming,
+    // not just what's already logged. Done/matched sessions are excluded
+    // from calPlannedData's estimate fields server-side (real numbers
+    // already cover them via calDayData), so there's no double counting.
     var weekAgg = [];
     var dayNum = 1;
     for (var row = 0; row < rows; row++) {
-      var w = { tss: 0, km: 0, sessions: 0, startDate: null, endDate: null };
+      var w = { tss: 0, km: 0, estTss: 0, estKm: 0, sessions: 0, startDate: null, endDate: null };
       for (var col = 0; col < 7; col++) {
         var cellIdx = row * 7 + col;
         if (cellIdx >= startOffset && dayNum <= lastDayNum) {
@@ -5448,6 +5696,10 @@
             w.km += dd.km;
             if (dd.totalTss > 0 || dd.types.length) w.sessions += 1;
           }
+          (calPlannedData[ds] || []).forEach(function (p) {
+            if (p.estimatedTss > 0) w.estTss += p.estimatedTss;
+            if (p.estimatedDistanceKm > 0) w.estKm += p.estimatedDistanceKm;
+          });
           dayNum++;
         }
       }
@@ -5457,7 +5709,7 @@
       null,
       weekAgg
         .map(function (w) {
-          return w.tss;
+          return w.tss + w.estTss;
         })
         .concat([1]),
     );
@@ -5477,6 +5729,7 @@
       (isCurrentMonth ? " disabled" : "") +
       ">Today</button>" +
       "</div>" +
+      _calMonthStatsHtml(_calMonthlyAgg(year, month)) +
       '<table class="lrx-cal"><thead><tr>';
     CAL_WEEKDAY_ABBR.forEach(function (a) {
       html += "<th>" + esc(a) + "</th>";
@@ -5498,17 +5751,6 @@
           html += '<td class="out"></td>';
         } else {
           var dStr = year + "-" + pad(month + 1) + "-" + pad(dayNum);
-          var dd2 = calDayData[dStr];
-          var dots = "";
-          if (dd2 && dd2.types.length) {
-            var fam = {};
-            dd2.types.forEach(function (t) {
-              fam[_calDotType(t)] = 1;
-            });
-            ["run", "lift"].forEach(function (f) {
-              if (fam[f]) dots += '<div class="lrx-dot ' + f + '"></div>';
-            });
-          }
           var todayCls = (dStr === todayStr) ? " is-today" : "";
           html +=
             '<td class="cal-day' + todayCls + '" data-date="' +
@@ -5516,24 +5758,31 @@
             '"><span class="dnum">' +
             dayNum +
             "</span>" +
-            dots +
-            _calPlannedTagsHtml(dStr) +
+            _calMarkersHtml(dStr) +
             "</td>";
           dayNum++;
         }
       }
-      var barPct = wa.tss > 0 ? (wa.tss / maxWk) * 100 : 0;
+      var totalTss = wa.tss + wa.estTss;
+      var totalKm = wa.km + wa.estKm;
+      var actualPct = totalTss > 0 ? (wa.tss / maxWk) * 100 : 0;
+      var estPct = totalTss > 0 ? (wa.estTss / maxWk) * 100 : 0;
       html +=
         '<td class="lrx-wkcell">' +
         '<div class="wt">' +
-        Math.round(wa.tss) +
-        " TSS</div>" +
+        (wa.estTss > 0
+          ? Math.round(wa.tss) + " / " + Math.round(totalTss) + " TSS"
+          : Math.round(wa.tss) + " TSS") +
+        "</div>" +
         '<div class="wkkm">' +
-        wa.km.toFixed(1) +
-        " km</div>" +
-        '<div class="lrx-wkbar"><span style="width:' +
-        barPct.toFixed(0) +
-        '%"></span></div>' +
+        (wa.estKm > 0
+          ? wa.km.toFixed(1) + " / " + totalKm.toFixed(1) + " km"
+          : wa.km.toFixed(1) + " km") +
+        "</div>" +
+        '<div class="lrx-wkbar">' +
+        '<span class="lrx-wkbar-actual" style="width:' + actualPct.toFixed(0) + '%"></span>' +
+        (wa.estTss > 0 ? '<span class="lrx-wkbar-est" style="width:' + estPct.toFixed(0) + '%"></span>' : "") +
+        "</div>" +
         "</td>";
       html += "</tr>";
     }
@@ -5541,10 +5790,10 @@
       "</tbody></table>" +
       '<div class="lrx-callegend">' +
       '<span><b style="background:var(--lrx-run)"></b>Run</span>' +
-      '<span><b style="background:var(--lrx-lift)"></b>Lift</span>' +
-      '<span><span class="lrx-caltag run done">[Run]</span>Plan session — done</span>' +
-      '<span><span class="lrx-caltag run planned">[Run]</span>Plan session — not yet done</span>' +
-      '<span style="color:var(--lrx-faint)">click a week to scope · click the month title for the month total</span>' +
+      '<span><b style="background:var(--lrx-lift)"></b>Strength</span>' +
+      '<span><b style="background:var(--lrx-plyo)"></b>Plyo</span>' +
+      '<span><span class="cal-mk plan run" style="width:20px;height:16px;flex:none;font-size:0;">&nbsp;</span>Outline = planned, not yet done</span>' +
+      '<span><span class="lrx-wkbar-est" style="display:inline-block;width:14px;height:8px;border-radius:2px;vertical-align:middle;"></span> Estimated TSS from plan</span>' +
       "</div>";
     el.innerHTML = html;
 
@@ -5594,9 +5843,9 @@
     var tbody = el.querySelector("tbody");
     if (tbody) {
       tbody.addEventListener("click", function (e) {
-        // Plan-session tag → deep link to Plan, skip the week-scope/scroll
+        // Plan-session marker → deep link to Plan, skip the week-scope/scroll
         // behavior below entirely (this is a navigation, not a scope click).
-        var tag = e.target.closest(".lrx-caltag");
+        var tag = e.target.closest("[data-plan-session]");
         if (tag) {
           e.stopPropagation();
           document.dispatchEvent(
@@ -5810,6 +6059,21 @@
       .replace(/"/g, "&quot;");
   }
 
+  // Compact rollup for the summary-digest Duration tile: 3h 3m, 45m, 2h.
+  // Local copy — this file's other top-level module (fmtDurationCompact at
+  // line ~107) lives in a SEPARATE closure and is out of scope here; this
+  // module already keeps its own local _esc() rather than reaching across
+  // IIFEs, so follow the same convention instead of introducing a shared
+  // global.
+  function fmtDurationCompact(secs) {
+    if (!secs) return "0m";
+    var h = Math.floor(secs / 3600),
+      m = Math.floor((secs % 3600) / 60);
+    if (h > 0 && m > 0) return h + "h " + m + "m";
+    if (h > 0) return h + "h";
+    return m + "m";
+  }
+
   function _fmtDelta(val, unit) {
     if (val == null) return null;
     var n = Number(val);
@@ -5854,24 +6118,46 @@
 
   // ── Shared tiles + chips (weekly and monthly share the same top block) ───────
 
-  // Mock sumtiles: label, big value+unit, and a delta line. The summary
-  // endpoint has no volume/session week-over-week deltas, so the delta line is
-  // driven by the available *_change fields where meaningful: Load ← form TSB
-  // change (form trend); Volume/Sessions have no comparable delta → flat "—".
-  function _sdDelta(change, unit, noun) {
+  // Sumtiles: label, big value+unit, and a delta line vs. the prior comparable
+  // week (weekly endpoint only — *_change fields for distance/tss/session/
+  // duration; monthly has none of these, so its tiles fall through to the
+  // shared flat "—" below). decimals defaults to 1 (matches Weight's "-0.5
+  // kg" style in the chips row); pass 0 for whole-number deltas (TSS,
+  // sessions).
+  function _sdDelta(change, unit, noun, decimals) {
     if (change == null || !isFinite(Number(change))) {
       return '<div class="lrx-delta flat">—</div>';
     }
     var n = Number(change);
+    var d = decimals == null ? 1 : decimals;
     var cls = n > 0 ? "up" : n < 0 ? "down" : "flat";
     var arrow = n > 0 ? "▲ " : n < 0 ? "▼ " : "= ";
     var txt =
       arrow +
       (n > 0 ? "+" : "") +
-      n.toFixed(1) +
+      n.toFixed(d) +
       (unit ? " " + unit : "") +
       (noun ? " " + noun : "");
     return '<div class="lrx-delta ' + cls + '">' + _esc(txt) + "</div>";
+  }
+  // Duration delta needs h/m formatting, not a plain decimal — reuses the
+  // same fmtDurationCompact the tile's own value uses, so "+1h 05m" reads
+  // consistently with "4h 49m" above it.
+  function _sdDurationDelta(changeSeconds) {
+    if (changeSeconds == null || !isFinite(Number(changeSeconds))) {
+      return '<div class="lrx-delta flat">—</div>';
+    }
+    var n = Number(changeSeconds);
+    if (n === 0) return '<div class="lrx-delta flat">= 0m</div>';
+    var cls = n > 0 ? "up" : "down";
+    var arrow = n > 0 ? "▲ +" : "▼ -";
+    return (
+      '<div class="lrx-delta ' +
+      cls +
+      '">' +
+      _esc(arrow + fmtDurationCompact(Math.abs(n))) +
+      "</div>"
+    );
   }
   function _sdTiles(data) {
     function tile(label, val, unit, deltaHtml) {
@@ -5890,14 +6176,30 @@
     }
     return (
       '<div class="lrx-sumgrid">' +
-      tile("Volume", (data.distance_km || 0).toFixed(1), "km", null) +
+      tile(
+        "Distance",
+        (data.distance_km || 0).toFixed(1),
+        "km",
+        _sdDelta(data.distance_change_km, "km", null),
+      ) +
       tile(
         "Load",
         Math.round(data.total_tss || 0),
         "TSS",
-        _sdDelta(data.form_tsb_change, null, "form"),
+        _sdDelta(data.total_tss_change, "TSS", null, 0),
       ) +
-      tile("Sessions", data.session_count || 0, "", null) +
+      tile(
+        "Sessions",
+        data.session_count || 0,
+        "",
+        _sdDelta(data.session_count_change, "", null, 0),
+      ) +
+      tile(
+        "Duration",
+        fmtDurationCompact(data.duration_seconds || 0),
+        "",
+        _sdDurationDelta(data.duration_seconds_change),
+      ) +
       "</div>"
     );
   }
@@ -6020,7 +6322,6 @@
         : "") +
       "</div>" +
       '<div class="sd-supercomp-links">' +
-      '<a class="sd-supercomp-link" href="training-log.html#projection">&#8594; Projection</a>' +
       '<a class="sd-supercomp-link" href="training-log.html#performance">&#8594; Performance</a>' +
       "</div>" +
       "</div>";
@@ -6093,6 +6394,7 @@
               distance_km: 0,
               total_tss: 0,
               session_count: 0,
+              duration_seconds: 0,
               supercompensation_state: "flat",
               call_to_action: null,
               weight_change_kg: null,
@@ -6178,7 +6480,7 @@
       };
       body.innerHTML =
         '<div class="lrx-sumgrid">' +
-        '<div class="lrx-sumtile"><div class="lab">Volume</div><div class="val">' +
+        '<div class="lrx-sumtile"><div class="lab">Distance</div><div class="val">' +
         data.distance_km.toFixed(1) +
         " <small>km</small></div>" +
         '<div class="lrx-delta flat">selected week</div></div>' +
@@ -6321,7 +6623,7 @@
   }
 
   function loadWeeklySummary() {
-    // The coach report now lives as a section inside the Summary card.
+    // The coach report is its own card, after Readiness + the FFF chart.
     var card = document.getElementById("wsc-section");
     if (!card) return;
 

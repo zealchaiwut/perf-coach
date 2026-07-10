@@ -40,6 +40,7 @@ EXPECTED_KEYS = {
     "distance_km",
     "total_tss",
     "session_count",
+    "duration_seconds",
     "endurance_score_change",
     "speed_score_change",
     "weight_change_kg",
@@ -172,7 +173,7 @@ def _call_endpoint(
 
     with (
         patch("backend.main.Session") as MockSession,
-        patch("backend.main.compute_fitness_series", return_value=fitness_series),
+        patch("backend.main.get_snapshot_series", return_value=fitness_series),
         patch("backend.main._get_app_config", side_effect=config_fn),
         patch("backend.main.get_guardrail_result", return_value=_default_guardrail),
     ):
@@ -511,7 +512,7 @@ def test_http_424_when_no_workouts_in_month():
 
     with (
         patch("backend.main.Session") as MockSession,
-        patch("backend.main.compute_fitness_series", return_value=[]),
+        patch("backend.main.get_snapshot_series", return_value=[]),
         patch("backend.main._get_app_config", return_value=""),
     ):
         MockSession.return_value = mock_db
@@ -543,7 +544,7 @@ def test_http_424_body_is_descriptive():
 
     with (
         patch("backend.main.Session") as MockSession,
-        patch("backend.main.compute_fitness_series", return_value=[]),
+        patch("backend.main.get_snapshot_series", return_value=[]),
         patch("backend.main._get_app_config", return_value=""),
     ):
         MockSession.return_value = mock_db

@@ -1,12 +1,26 @@
-"""Weekly summary narrative service (issue #1314).
+"""Weekly summary narrative service (issue #1314; verdict-aware since the
+load-metric single-source-of-truth fix).
 
 Exposes:
   assemble_facts(...)           — pure function: weekly metrics from pre-fetched data
-  build_fallback_narrative(...) — pure function: deterministic text from facts
+  build_fallback_narrative(...) — pure function: deterministic text from facts,
+                                   states the verdict explicitly
   numeral_guard_passes(...)     — validate LLM numbers against facts string
+  validate_summary(...)         — pure function: list of violation reasons (empty = valid);
+                                   rejects narration that contradicts the verdict
   build_signature(...)          — cache key for llm_generations
-  get_narrative(...)            — LLM (DEEP tier) + cache wrapper, fallback-safe
+  get_narrative(...)            — LLM (DEEP tier) + retry-once-then-fallback + cache wrapper
   build_response(...)           — final response shape
+
+Verdict-aware (backend/services/training_verdict.py): the LLM is never asked
+to decide whether the athlete should back off, hold, or build — that verdict
+is computed deterministically upstream (from the Part-A training-load
+snapshot) and passed into facts as a GIVEN. The LLM's only job is to explain
+it in prose; validate_summary rejects any narration that contradicts it
+(recommending an increase when verdict != "build") and the plain-Python
+retry loop below gives it one chance to fix that before falling back to the
+deterministic template — matching the existing LLM_COACH_ENABLED fallback
+contract. No LangGraph — see docs/calculations/acwr-guardrail.md.
 """
 
 from __future__ import annotations
@@ -15,7 +29,7 @@ import hashlib
 import json
 import re
 from datetime import date
-from typing import Any
+from typing import Any, Optional
 
 import backend.services.llm as llm
 from backend.utils.log import get_logger
@@ -23,6 +37,41 @@ from backend.utils.log import get_logger
 _log = get_logger(__name__)
 
 _MAX_NARRATIVE_LEN = 800
+
+# Retry-once-then-fallback — matches plan_suggestions.py's contract.
+_MAX_SUMMARY_ATTEMPTS = 2
+
+# Language that reads as "increase your training load" — forbidden in the
+# narrative whenever verdict != "build". Deliberately broad (false positives
+# just cost one retry); a missed increase-recommendation is the actual bug
+# this guards against.
+_INCREASE_LANGUAGE_PATTERNS = (
+    r"\bincrease\b", r"\bincreasing\b", r"\bramp(ing)?\s+up\b", r"\bramp\s+it\s+up\b",
+    r"\badd(ing)?\s+(more\s+)?(volume|load|tss|mileage|intensity)\b",
+    r"\bpush(ing)?\s+harder\b", r"\bmore\s+training\b", r"\bstep(ping)?\s+up\b",
+    r"\bbuild(ing)?\s+(on|from)\s+this\b", r"\bkeep\s+(pushing|building|ramping)\b",
+)
+
+# A match is legitimate hold/back_off language, not a contradiction, when it's
+# negated ("don't add load", "avoid increasing volume") — scan a short window
+# before the match for one of these instead of trying variable-length
+# lookbehind (Python re doesn't support it).
+_NEGATION_WORDS = (
+    "don't", "do not", "doesn't", "does not", "won't", "avoid", "without",
+    "not to", "never", "hold off", "holding off", "no need to", "shouldn't",
+    "skip", "resist the urge to",
+)
+_NEGATION_WINDOW = 25
+
+
+def _increase_language_violation(lowered: str) -> bool:
+    """True iff the text contains un-negated increase-language."""
+    for pat in _INCREASE_LANGUAGE_PATTERNS:
+        for m in re.finditer(pat, lowered):
+            prefix = lowered[max(0, m.start() - _NEGATION_WINDOW):m.start()]
+            if not any(neg in prefix for neg in _NEGATION_WORDS):
+                return True
+    return False
 
 _NARRATIVE_JSON_SCHEMA = {
     "type": "object",
@@ -50,11 +99,18 @@ def assemble_facts(
     tsb_end: float,
     guardrail: dict,
     prs: list[dict],
+    verdict: Optional[dict] = None,
 ) -> dict:
     """Assemble weekly summary facts from pre-fetched data.
 
     Pure function — no database access, no network calls.
     All raw data is passed in by the endpoint caller.
+
+    verdict: the deterministic training_verdict.compute_verdict() result
+        (computed by the caller from the Part-A snapshot at week_end), or
+        None. When provided, its fields land in facts as GIVENS the LLM must
+        explain, never derive or contradict — see build_prompt()/
+        validate_summary() below.
     """
     def _sum_attr(workouts, attr, cast=float):
         vals = [cast(w[attr]) for w in workouts if w.get(attr) is not None]
@@ -94,6 +150,11 @@ def assemble_facts(
         "guardrail_message": guardrail.get("guardrail_message", ""),
         "acwr": guardrail.get("acwr"),
         "prs_achieved": prs,
+        "verdict": (verdict or {}).get("verdict"),
+        "verdict_reason": (verdict or {}).get("reason"),
+        "expected_ctl_in_3w": (verdict or {}).get("expected_ctl_in_3w"),
+        "weeks_to_converge": (verdict or {}).get("weeks_to_converge"),
+        "converge_date": (verdict or {}).get("converge_date"),
     }
 
 
@@ -101,17 +162,50 @@ def assemble_facts(
 # Fallback narrative — pure function
 # ---------------------------------------------------------------------------
 
+def _verdict_sentence(facts: dict) -> str:
+    """Deterministic verdict statement — states the given verdict plainly,
+    with the convergence estimate for anything other than "build". Used by
+    BOTH the fallback template and as ground truth for validate_summary's
+    contradiction check; the LLM path is instructed to explain this, never
+    derive or contradict it."""
+    verdict = facts.get("verdict")
+    if not verdict:
+        return ""
+    reason = facts.get("verdict_reason") or ""
+    if verdict == "back_off":
+        sentence = f"Back off this week: {reason}."
+    elif verdict == "hold":
+        sentence = f"Hold current load, don't add: {reason}."
+    else:
+        sentence = f"Build: {reason}."
+
+    weeks = facts.get("weeks_to_converge")
+    converge_date = facts.get("converge_date")
+    expected_ctl = facts.get("expected_ctl_in_3w")
+    if verdict != "build" and weeks and converge_date and expected_ctl is not None:
+        sentence += (
+            f" CTL is estimated to reach ~{expected_ctl:.0f} within 3 weeks, bringing load back "
+            f"under the guardrail around {converge_date} (~{weeks} week{'s' if weeks != 1 else ''})."
+        )
+    return sentence
+
+
 def build_fallback_narrative(facts: dict) -> str:
     """Build a deterministic coach-style bullet summary from facts.
 
-    Pure function — no I/O.
+    Pure function — no I/O. Always states the verdict when one is present in
+    facts (verdict-aware since the load-metric fix) — this is the template
+    LLM_COACH_ENABLED=0 falls back to, so the verdict must reach the athlete
+    even with the LLM entirely off.
     """
     count = facts.get("workout_count", 0)
+    verdict_sentence = _verdict_sentence(facts)
     if not count:
-        return (
+        base = (
             "No training logged this week. Rest is part of the plan — "
             "come back strong next week."
         )
+        return (base + " " + verdict_sentence) if verdict_sentence else base
 
     lines = []
 
@@ -152,6 +246,10 @@ def build_fallback_narrative(facts: dict) -> str:
             f"Form (TSB): {facts.get('tsb_end', 0):.1f}."
         )
 
+    # Verdict (deterministic — see _verdict_sentence)
+    if verdict_sentence:
+        lines.append(verdict_sentence)
+
     # PRs
     prs = facts.get("prs_achieved") or []
     if prs:
@@ -165,6 +263,11 @@ def build_fallback_narrative(facts: dict) -> str:
             lines.append(f"⚠ Load warning: {msg}")
         else:
             lines.append("⚠ Load warning: consider easing off this week.")
+
+    # Subjective signals — the report closes by asking, not only asserting
+    # (spec B.5). A fixed question keeps the deterministic template honest
+    # about not being the whole picture.
+    lines.append("How's sleep, resting HR, and how do your legs feel in the morning?")
 
     return " ".join(lines)
 
@@ -180,6 +283,51 @@ def numeral_guard_passes(text: str, facts_str: str) -> bool:
         if n not in facts_str:
             return False
     return True
+
+
+# ---------------------------------------------------------------------------
+# Verdict-contradiction validation
+# ---------------------------------------------------------------------------
+
+def validate_summary(text: str, facts: dict) -> list[str]:
+    """Return a list of human-readable violation reasons (empty == valid).
+
+    Same numeral-guard/length checks get_narrative already applied, PLUS the
+    verdict checks: reject narration that recommends an increase when
+    verdict != "build", and require the verdict itself to be stated (not
+    just implied) so the athlete sees the same word the deterministic
+    template would have used. Each reason is fed straight back to the model
+    as retry feedback — see _feedback_block.
+    """
+    errs: list[str] = []
+
+    if not text:
+        errs.append("narrative is empty")
+        return errs
+
+    if len(text) > _MAX_NARRATIVE_LEN:
+        errs.append(f"narrative exceeds {_MAX_NARRATIVE_LEN} characters")
+
+    facts_str = _facts_to_str(facts)
+    if not numeral_guard_passes(text, facts_str):
+        errs.append("narrative contains a number that does not appear in the given data")
+
+    verdict = facts.get("verdict")
+    if verdict:
+        lowered = text.lower()
+        if verdict != "build" and _increase_language_violation(lowered):
+            errs.append(
+                f"narrative recommends increasing training load, but the given verdict is "
+                f"{verdict!r} — never recommend an increase when verdict is 'hold' or 'back_off'"
+            )
+        verdict_word = verdict.replace("_", " ")
+        if verdict_word not in lowered and verdict not in lowered:
+            errs.append(
+                f"narrative must explicitly state the verdict ({verdict_word!r}) — "
+                "explain it, do not omit or re-derive it"
+            )
+
+    return errs
 
 
 # ---------------------------------------------------------------------------
@@ -205,6 +353,13 @@ def _facts_to_str(facts: dict) -> str:
         if v is None or isinstance(v, (list, dict)):
             continue
         parts.append(f"{k}={v}")
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            # Both the fallback template and the LLM display numbers rounded
+            # to varying precision (CTL/TSB at .1f, ACWR at .2f, convergence
+            # CTL at .0f) — include those roundings so numeral_guard_passes
+            # matches on the displayed form, not just the raw stored value.
+            for nd in (0, 1, 2):
+                parts.append(f"{v:.{nd}f}")
     # Also include PR names in facts_str so guard doesn't flag them
     for pr in facts.get("prs_achieved") or []:
         parts.append(str(pr.get("value_numeric", "")))
@@ -215,31 +370,49 @@ def _facts_to_str(facts: dict) -> str:
 # LLM + cache wrapper
 # ---------------------------------------------------------------------------
 
-def get_narrative(
-    user_id: str,
-    week_start: str,
-    facts: dict,
-    *,
-    db=None,
-) -> tuple[str, str]:
-    """Return (narrative, source) where source is 'llm' or 'fallback'.
+def _feedback_block(errs: list[str]) -> str:
+    """Correction feedback appended to the user prompt on a retry — same
+    contract as plan_suggestions.py's _feedback_block."""
+    return (
+        "\n\nYour previous answer was REJECTED for these reasons:\n- "
+        + "\n- ".join(errs)
+        + "\nFix every issue and return corrected JSON matching the schema."
+    )
 
-    Uses GROQ_MODEL_DEEP tier and caches in llm_generations.
-    """
-    fallback = build_fallback_narrative(facts)
 
-    if not llm.llm_enabled():
-        return fallback, "fallback"
-
-    facts_str = _facts_to_str(facts)
-    sig = build_signature(user_id, week_start, facts)
-
+def _build_prompt(facts: dict, facts_str: str) -> tuple[str, str]:
+    """Build (system_prompt, user_prompt). The verdict (when present) is a
+    GIVEN the model must explain, never derive or contradict — it must not
+    recommend an increase when verdict != "build", and must state the
+    verdict explicitly (validate_summary enforces both)."""
     system = (
         "You are a performance coach writing a brief weekly training report. "
         "Rules: 2-4 sentences max, use ONLY the numbers given in the data, "
         "no medical advice, no injury warnings unless explicitly flagged in the data, "
-        "no emoji, supportive and direct coach tone."
+        "no emoji, supportive and direct coach tone. "
+        "End with one short question about a subjective signal not in the data — sleep, "
+        "resting HR, or how their legs feel in the morning — the report should ask, not only assert."
     )
+
+    verdict = facts.get("verdict")
+    if verdict:
+        verdict_word = verdict.replace("_", " ")
+        system += (
+            f"\nGIVEN VERDICT (do not derive, do not contradict): {verdict_word!r} — "
+            f"{facts.get('verdict_reason', '')}. State this verdict explicitly in the narrative, "
+            "in your own words. "
+        )
+        if verdict != "build":
+            system += (
+                "The athlete must NOT increase training load this week — do not recommend adding "
+                "volume, intensity, or mileage in any form. "
+            )
+            if facts.get("weeks_to_converge") and facts.get("converge_date"):
+                system += (
+                    f"You may mention that load is expected back within the safe range in "
+                    f"~{facts['weeks_to_converge']} week(s), around {facts['converge_date']} — "
+                    "label this as an estimate, not a guarantee."
+                )
 
     count = facts.get("workout_count", 0)
     if count == 0:
@@ -259,14 +432,56 @@ def get_narrative(
             'Return JSON: {"narrative": "..."}'
         )
 
+    return system, user_prompt
+
+
+def get_narrative(
+    user_id: str,
+    week_start: str,
+    facts: dict,
+    *,
+    db=None,
+) -> tuple[str, str]:
+    """Return (narrative, source) where source is 'llm' or 'fallback'.
+
+    Uses GROQ_MODEL_DEEP tier and caches in llm_generations. Retries once
+    with the specific validate_summary violation appended (plain Python
+    loop, no LangGraph — matches plan_suggestions.py's contract), then falls
+    back to the deterministic template. The retry loop runs INSIDE the
+    cached generate_fn so the cache key covers the whole attempt sequence,
+    not each individual attempt.
+    """
+    fallback = build_fallback_narrative(facts)
+
+    if not llm.llm_enabled():
+        return fallback, "fallback"
+
+    facts_str = _facts_to_str(facts)
+    sig = build_signature(user_id, week_start, facts)
+    system, base_user_prompt = _build_prompt(facts, facts_str)
+
     def _generate():
-        return llm.complete_structured(
-            system=system,
-            user=user_prompt,
-            schema_name="weekly_summary",
-            json_schema=_NARRATIVE_JSON_SCHEMA,
-            model_tier="deep",
-        )
+        feedback = ""
+        for attempt in range(1, _MAX_SUMMARY_ATTEMPTS + 1):
+            raw = llm.complete_structured(
+                system=system,
+                user=base_user_prompt + feedback,
+                schema_name="weekly_summary",
+                json_schema=_NARRATIVE_JSON_SCHEMA,
+                model_tier="deep",
+            )
+            if raw is None:
+                # Transient generation failure — worth one retry, same as
+                # plan_suggestions.py's orchestrator.
+                _log.warning("weekly_summary attempt %d: LLM call failed/unavailable", attempt)
+                continue
+            text = raw.get("narrative", "")
+            errs = validate_summary(text, facts)
+            if not errs:
+                return {"narrative": text}
+            _log.warning("weekly_summary retry %d rejected: %s", attempt, errs)
+            feedback = _feedback_block(errs)
+        return None
 
     result = llm.get_or_generate(
         user_id=user_id,
@@ -274,6 +489,7 @@ def get_narrative(
         signature=sig,
         generate_fn=_generate,
         db=db,
+        model_tier="deep",
     )
 
     if result is None:
@@ -283,12 +499,10 @@ def get_narrative(
     if not text:
         return fallback, "fallback"
 
-    if len(text) > _MAX_NARRATIVE_LEN:
-        _log.warning("weekly_summary: narrative too long, using fallback")
-        return fallback, "fallback"
-
-    if not numeral_guard_passes(text, facts_str):
-        _log.warning("weekly_summary: numeral guard failed, using fallback")
+    # Belt-and-suspenders: re-validate even a cache hit (a cached row from
+    # before this validation existed could otherwise slip through).
+    if validate_summary(text, facts):
+        _log.warning("weekly_summary: cached narrative fails current validation, using fallback")
         return fallback, "fallback"
 
     return text, "llm"

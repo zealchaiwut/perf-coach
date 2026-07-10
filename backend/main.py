@@ -39,12 +39,11 @@ from backend.services.tss import STRENGTH_TSS_SCALE as _STRENGTH_TSS_SCALE, STRE
 from backend.services.tss import persist_running_tss as _persist_running_tss
 from backend.services.tss import recompute_user_running_tss as _recompute_user_running_tss
 from backend.services.training_load import (
-    _ewma_alpha,
     current_load,
     daily_tss_series,
     daily_update,
     compute_load_curves,
-    compute_fitness_series,
+    get_snapshot_series,
     readiness_label as training_readiness_label,
     project_form,
     resolve_user_ewma_days,
@@ -68,6 +67,7 @@ from backend.services.training_load import (
 )
 from backend.services.specificity_progress import specificity_progress as _specificity_progress
 from backend.services.daily_load import daily_load_series as _daily_load_series
+from backend.services.load_plan import compute_load_plan, ACWR_CEILING_MULT
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
 from backend.services.weight_ewma import compute_ewma as _compute_ewma, DEFAULT_SPAN as _EWMA_DEFAULT_SPAN
@@ -93,13 +93,14 @@ from backend.services.heat_correction import (
 from backend.services.goal_arrival_caller import resolve_arrival_projection as _resolve_arrival_projection
 from backend.services.performance_constants import NEEDS_THRESHOLDS_REASON as _NEEDS_THRESHOLDS_REASON
 from backend.services.backfill_performance import backfill_performance_for_athlete as _backfill_performance_for_athlete
-from backend.services.projection import project_fitness as _project_fitness, compute_expressible_score as _compute_expressible_score
+from backend.services.projection import project_fitness as _project_fitness, compute_expressible_score as _compute_expressible_score, capped_form_factor as _capped_form_factor
 from backend.services.score_ceiling import projected_ctl_to_score_ceiling as _projected_ctl_to_score_ceiling
 from backend.services.economy_stimulus import compute_economy_stimulus as _compute_economy_stimulus
 from backend.services.ceiling_bonus import compute_ceiling_bonus as _compute_ceiling_bonus, LAG_WINDOW_DAYS as _LAG_WINDOW_DAYS, LAG_PEAK_DAYS as _LAG_PEAK_DAYS
 from backend.services.race_finish_estimator import score_to_estimated_finish_time as _score_to_estimated_finish_time
 from backend.routers.projection import router as _plan_router
 from backend.routers.strength_sessions import router as _strength_sessions_router
+from backend.routers.fuel import router as _fuel_router
 from backend.services.guardrail import get_guardrail_result
 from backend.services.body_modifier import get_body_modifier_guardrail_for_user
 from backend.services.lap_classify import aggregate_intensity_zones as _agg_zones
@@ -125,6 +126,7 @@ _log = _logging.getLogger(__name__)
 app = FastAPI()
 app.include_router(_plan_router)
 app.include_router(_strength_sessions_router)
+app.include_router(_fuel_router)
 
 
 def _today_bkk() -> _date:
@@ -2010,20 +2012,23 @@ def get_weight_chart(
             .first()
         )
 
-        # ── Plan series (one point per day from plan inception; omitted when no target) ─────
-        # Starts from max(from_d, plan_start_date) so pre-plan dates are excluded.
+        # ── Plan series (one point per day across the whole displayed window;
+        # omitted when no target) ─────────────────────────────────────────────
+        # Spans the full [from_d, to_d] chart window, not just from the target's
+        # own start_date onward — plan_at() already clamps to start_weight_kg
+        # before start_date and target_weight_kg after target_date, so a date
+        # before the plan existed renders as a flat line at the starting
+        # weight rather than a fabricated trend. Previously this was gated to
+        # start no earlier than the target's start_date, which meant a target
+        # created partway through the displayed range (e.g. day 25 of a 30-day
+        # chart) showed the plan line/ahead-behind shading for only the last
+        # few days — most of the chart had no plan_series entries at all.
         if active_target is not None:
-            _ps_start = (
-                active_target.start_date
-                if isinstance(active_target.start_date, _date)
-                else _date.fromisoformat(str(active_target.start_date))
-            )
-            _ps_from = max(from_d, _ps_start)
-            _ps_days = (to_d - _ps_from).days + 1
+            _ps_days = (to_d - from_d).days + 1
             plan_series = [
                 {
-                    "date": str(_ps_from + _timedelta(days=i)),
-                    "plan_kg": float(round(_weight_plan_at(active_target, _ps_from + _timedelta(days=i)), 2)),
+                    "date": str(from_d + _timedelta(days=i)),
+                    "plan_kg": float(round(_weight_plan_at(active_target, from_d + _timedelta(days=i)), 2)),
                 }
                 for i in range(max(0, _ps_days))
             ]
@@ -2913,7 +2918,8 @@ def get_weekly_summary(
         build_response,
     )
     from backend.services.guardrail import get_guardrail_result
-    from backend.services.training_load import current_load
+    from backend.services.training_load import current_load, daily_tss_series as _dts
+    from backend.services.training_verdict import compute_verdict
 
     uid = current_user.id
 
@@ -2983,12 +2989,24 @@ def get_weekly_summary(
             for pr in prs_orm
         ]
 
-    # CTL/ATL/TSB at week start and end
+    # CTL/ATL/TSB/ACWR at week start and end — single source of truth
+    # (backend/services/training_load.py; see docs/calculations/training-load.md).
     load_start = current_load(str(uid), as_of=prev_week_end)
     load_end = current_load(str(uid), as_of=week_end)
 
     # Guardrail flags for the current week
     guardrail = get_guardrail_result(str(uid), as_of_date=week_end)
+
+    # Deterministic verdict (Part B) — computed here, in Python, from the
+    # SAME snapshot load_end already is. The LLM never decides this; it only
+    # explains it (see weekly_summary._build_prompt/validate_summary). Uses
+    # week_end (capped at today) so a future-dated week query never asks
+    # daily_tss_series for future days.
+    _verdict_as_of = min(week_end, _date_cls.today())
+    _chronic_start = _verdict_as_of - _td(days=27)
+    _chronic_series = _dts(str(uid), _chronic_start, _verdict_as_of)
+    chronic_weekly = round(sum(v for _, v in _chronic_series) / 4.0, 1)
+    verdict = compute_verdict(load_end, chronic_weekly=chronic_weekly, today=_verdict_as_of)
 
     facts = assemble_facts(
         week_start=week_start,
@@ -3002,6 +3020,7 @@ def get_weekly_summary(
         tsb_end=load_end["tsb"],
         guardrail=guardrail,
         prs=prs,
+        verdict=verdict,
     )
 
     narrative, source = get_narrative(user_id=str(uid), week_start=week_start.isoformat(), facts=facts)
@@ -5297,8 +5316,9 @@ app.add_api_route("/weight/targets", _serve_weight_targets, include_in_schema=Fa
 
 def _serve_projection_redirect():
     # Projection was merged into the Training → Projection sub-tab
-    # (issue #1226; tab renamed Plan → Projection in feature/performance-tab-rework).
-    return RedirectResponse(url="/log#projection", status_code=302)
+    # (issue #1226; tab renamed Plan → Projection in feature/performance-tab-rework;
+    # later renamed Projection → Performance, 2026-07-09).
+    return RedirectResponse(url="/log#performance", status_code=302)
 
 app.add_api_route("/projection", _serve_projection_redirect, include_in_schema=False)
 app.add_api_route("/projection.html", _serve_projection_redirect, include_in_schema=False)
@@ -5595,6 +5615,51 @@ _RUN_SUBTYPE_VALUES = {"interval", "longrun", "easy", "tempo"}
 _FEELING_VALUES = frozenset({"hard", "ok", "easy"})
 
 
+def _classified_manual_laps_map(session, run_workouts, prefs_dict) -> dict:
+    """{workout_id: [classified manual-lap dicts]} for workouts whose Stryd
+    activity carries lap-button laps (stryd_activities.manual_laps). Short
+    reps are invisible inside 1 km auto-splits — a 2-min rep at 4:30/km
+    dilutes to a ~6:15/km split — so the speed score prefers these when the
+    athlete marked reps (running_performance._speed_effort_pace_duration
+    precedence 0). Bands come from the SAME classify_laps as auto-splits."""
+    from types import SimpleNamespace
+    from backend.services.lap_classify import classify_laps as _cl
+
+    pks = {wk.stryd_activity_pk for wk in run_workouts if getattr(wk, "stryd_activity_pk", None)}
+    if not pks:
+        return {}
+    rows = (
+        session.query(StrydActivity.id, StrydActivity.manual_laps)
+        .filter(StrydActivity.id.in_(pks))
+        .all()
+    )
+    by_pk = {rid: ml for rid, ml in rows if ml}
+    out: dict = {}
+    for wk in run_workouts:
+        ml = by_pk.get(getattr(wk, "stryd_activity_pk", None))
+        if not ml:
+            continue
+        shims = [
+            SimpleNamespace(
+                avg_power=l.get("avg_power"), avg_hr=l.get("avg_hr"),
+                duration_seconds=l.get("duration_seconds"),
+                distance_km=l.get("distance_km"),
+            )
+            for l in ml
+        ]
+        out[wk.id] = [
+            {
+                "band": c.get("band"),
+                "avg_power": l.get("avg_power"),
+                "avg_hr": l.get("avg_hr"),
+                "distance_km": float(l["distance_km"]) if l.get("distance_km") is not None else None,
+                "duration_seconds": l.get("duration_seconds"),
+            }
+            for l, c in zip(ml, _cl(shims, prefs_dict or {}))
+        ]
+    return out
+
+
 def _workout_signal_scores(session, workout) -> dict:
     """Per-session endurance/speed scores for the signal card.
 
@@ -5643,7 +5708,7 @@ def _workout_signal_scores(session, workout) -> dict:
             Workout.workout_type, Workout.duration_seconds, Workout.distance_km,
             Workout.tss, Workout.avg_hr, Workout.avg_power, Workout.name,
             Workout.speed_signal, Workout.speed_signal_basis,
-            Workout.speed_signal_window_seconds,
+            Workout.speed_signal_window_seconds, Workout.stryd_activity_pk,
         ))
         .filter(
             Workout.user_id == workout.user_id,
@@ -5671,12 +5736,12 @@ def _workout_signal_scores(session, workout) -> dict:
         ):
             splits_by_wk.setdefault(s.workout_id, []).append(s)
 
-    def _build(max_date, before_date=None):
+    _ml_map = _classified_manual_laps_map(session, run_workouts, prefs_dict)
+
+    def _build(max_date):
         runs = []
         for wk in run_workouts:
             if wk.workout_date > max_date:
-                continue
-            if before_date is not None and wk.workout_date >= before_date:
                 continue
             splits = splits_by_wk.get(wk.id, [])
             laps = [
@@ -5729,42 +5794,41 @@ def _workout_signal_scores(session, workout) -> dict:
                     "speed_signal": wk.speed_signal,
                     "speed_signal_basis": wk.speed_signal_basis,
                     "speed_signal_window_seconds": wk.speed_signal_window_seconds,
+                    "manual_laps": _ml_map.get(wk.id, []),
                     "ftp_w": (prefs_dict or {}).get("ftp_w"),
                 }
             )
         return runs
 
-    d = workout.workout_date
-
-    def _score(fn, runs, race_perf):
-        r = fn(runs, prefs_dict or None, zone_constants, race_perf=race_perf)
-        s = r.get("score") if isinstance(r, dict) else None
-        return s if isinstance(s, (int, float)) and not isinstance(s, bool) else None
-
     # "One score everywhere": *_current is the athlete's score AS OF TODAY —
-    # identical to the Performance tab and identical on every workout card. The
-    # per-session distinction lives entirely in *_delta = the contribution this
-    # session's DATE made (score as-of-that-date minus score as-of the day
-    # before). Race VDOT floor is taken at the matching date for each.
+    # identical to the Performance tab (same body_modifier, same race floor).
+    # *_delta is this run's MARGINAL contribution to that score
+    # (run_contributions from running_performance._aggregate_and_shape — the
+    # single source shared with the Performance-tab feed badges; never derive
+    # a second delta here). None when this run didn't qualify for that score.
+    from backend.services.body_modifier import get_body_modifier_for_user as _get_bm
+
+    _bm = _get_bm(workout.user_id)
     _race_today = _latest_race_perf(session, workout.user_id, as_of=_today)
-    _race_asof = _latest_race_perf(session, workout.user_id, as_of=d)
-    _race_prev = _latest_race_perf(session, workout.user_id, as_of=(d - _timedelta(days=1)) if d else None)
-
     today_runs = _build(_today)
-    e_cur = _score(compute_endurance_score, today_runs, _race_today)
-    s_cur = _score(compute_speed_score, today_runs, _race_today)
+    wid = str(workout.id)
 
-    asof = _build(d)
-    prev = _build(d, before_date=d)
-    e_asof = _score(compute_endurance_score, asof, _race_asof)
-    s_asof = _score(compute_speed_score, asof, _race_asof)
-    e_prev = _score(compute_endurance_score, prev, _race_prev)
-    s_prev = _score(compute_speed_score, prev, _race_prev)
+    def _score_and_delta(fn):
+        r = fn(today_runs, prefs_dict or None, zone_constants, body_modifier=_bm, race_perf=_race_today)
+        if not isinstance(r, dict):
+            return None, None
+        s = r.get("score")
+        s = s if isinstance(s, (int, float)) and not isinstance(s, bool) else None
+        delta = (r.get("run_contributions") or {}).get(wid)
+        return s, delta
+
+    e_cur, e_delta = _score_and_delta(compute_endurance_score)
+    s_cur, s_delta = _score_and_delta(compute_speed_score)
     return {
         "endurance_score_current": round(e_cur, 1) if e_cur is not None else None,
-        "endurance_score_delta": round(e_asof - e_prev, 1) if e_asof is not None and e_prev is not None else None,
+        "endurance_score_delta": round(e_delta, 1) if e_delta is not None else None,
         "speed_score_current": round(s_cur, 1) if s_cur is not None else None,
-        "speed_score_delta": round(s_asof - s_prev, 1) if s_asof is not None and s_prev is not None else None,
+        "speed_score_delta": round(s_delta, 1) if s_delta is not None else None,
     }
 
 
@@ -5817,7 +5881,7 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
             Workout.workout_type, Workout.duration_seconds, Workout.distance_km,
             Workout.tss, Workout.avg_hr, Workout.avg_power, Workout.name,
             Workout.speed_signal, Workout.speed_signal_basis,
-            Workout.speed_signal_window_seconds,
+            Workout.speed_signal_window_seconds, Workout.stryd_activity_pk,
         ))
         .filter(
             Workout.user_id == user_id,
@@ -5844,6 +5908,8 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
             .all()
         ):
             splits_by_wk.setdefault(s.workout_id, []).append(s)
+
+    _ml_map_asof = _classified_manual_laps_map(session, run_workouts, prefs_dict)
 
     runs = []
     for wk in run_workouts:
@@ -5898,6 +5964,7 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
                 "speed_signal": wk.speed_signal,
                 "speed_signal_basis": wk.speed_signal_basis,
                 "speed_signal_window_seconds": wk.speed_signal_window_seconds,
+                "manual_laps": _ml_map_asof.get(wk.id, []),
                 "ftp_w": (prefs_dict or {}).get("ftp_w"),
             }
         )
@@ -7232,7 +7299,16 @@ def _validate_planned_date(s: str) -> _date:
 
 
 def _workout_actual_summary(w) -> dict:
-    """Compact actual-workout summary attached to a matched planned session."""
+    """Compact actual-workout summary attached to a matched planned session.
+
+    Includes the REAL logged exercises (name/sets/reps/weight/RPE, from
+    WorkoutExercise) when present, so the Plan tab's session detail can show
+    what actually happened at the gym instead of only the planned structure —
+    and `needs_rpe` flags when any of them is missing an RPE, so the athlete
+    is prompted to fill it in. Because this always reads live off the matched
+    Workout row, editing that workout's exercises (e.g. adding RPE) on the Log
+    tab is reflected here on the next Plan-tab load — no separate sync step.
+    """
     dist = float(w.distance_km) if w.distance_km is not None else None
     dur_min = round(w.duration_seconds / 60) if w.duration_seconds else None
     bits = []
@@ -7242,6 +7318,20 @@ def _workout_actual_summary(w) -> dict:
         bits.append(str(round(float(w.tss))) + " TSS")
     elif dist:
         bits.append(("%.1f" % dist) + " km")
+
+    exercises = []
+    for e in sorted(w.exercises or [], key=lambda e: e.display_order):
+        exercises.append({
+            "id": str(e.id),
+            "name": e.name,
+            "sets": e.sets,
+            "reps": e.reps,
+            "weight_kg": float(e.weight_kg) if e.weight_kg is not None else None,
+            "duration": e.duration,
+            "rpe": e.rpe,
+        })
+    needs_rpe = any(e["rpe"] is None for e in exercises) if exercises else False
+
     return {
         "id": str(w.id),
         "name": w.name,
@@ -7253,11 +7343,13 @@ def _workout_actual_summary(w) -> dict:
         "tss": float(w.tss) if w.tss is not None else None,
         "feeling": w.feeling,
         "meta": " · ".join(bits),
+        "exercises": exercises,
+        "needs_rpe": needs_rpe,
     }
 
 
-def _planned_session_dict(p, matched=None) -> dict:
-    return {
+def _planned_session_dict(p, matched=None, estimate_baseline=None) -> dict:
+    d = {
         "id": str(p.id),
         "planned_date": str(p.planned_date),
         "session_type": p.session_type,
@@ -7270,6 +7362,27 @@ def _planned_session_dict(p, matched=None) -> dict:
         "created_at": p.created_at.isoformat() if p.created_at else None,
         "updated_at": p.updated_at.isoformat() if p.updated_at else None,
     }
+    # Rough, formula-only (no LLM) estimated TSS/distance for a still-open,
+    # still-ACHIEVABLE session, so a "what's coming this week" progress view
+    # isn't blind to planned-but-not-logged work — see training_load.
+    # estimate_planned_session_metrics. Excluded for: matched/done sessions
+    # (the real actual numbers already cover that day — an estimate would
+    # just be noise), explicitly missed sessions, and any unmatched session
+    # whose date has already passed (effectively missed even before the
+    # reconcile sweep flips its status) — none of those can still happen,
+    # so counting them toward "TSS still coming" would overstate it.
+    if (
+        estimate_baseline is not None
+        and matched is None
+        and p.status != "missed"
+        and p.planned_date >= _date.today()
+    ):
+        from backend.services.training_load import estimate_planned_session_metrics as _est
+        d.update(_est(estimate_baseline, p.session_type, p.structure))
+    else:
+        d["estimated_tss"] = None
+        d["estimated_distance_km"] = None
+    return d
 
 
 def _ghost_workout_dict(w) -> dict:
@@ -7356,6 +7469,13 @@ def get_planned_sessions(
             for w in session.query(Workout).filter(Workout.id.in_(list(ghost_ids))).all():
                 ghost_map[w.id] = w
 
+        # Once per request, not per session — feeds estimated_tss/
+        # estimated_distance_km on each still-open (unmatched) row below.
+        estimate_baseline = None
+        if any(r.matched_workout_id is None for r in rows):
+            from backend.services.training_load import estimate_historical_pace_and_tss as _est_baseline
+            estimate_baseline = _est_baseline(uid, session)
+
         # Group by day across the full range (empty days included → Rest day UI).
         _DOW = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
         by_day = {}
@@ -7368,7 +7488,7 @@ def get_planned_sessions(
             if bucket is None:
                 continue
             matched = matched_map.get(r.matched_workout_id) if r.matched_workout_id else None
-            d = _planned_session_dict(r, matched)
+            d = _planned_session_dict(r, matched, estimate_baseline)
             # Attach the ±1-day candidate pool so the UI can offer a confirm list
             # for a needs_review session even when the candidate is on an
             # adjacent day (ghosts only surface same-day workouts).
@@ -9138,8 +9258,10 @@ def get_readiness(
     Training-load readiness endpoint with backward-compatible wellness score range.
 
     Without params: returns CTL, ATL, TSB, readiness_label, series, and
-    building_baseline for today's training state. Uses compute_fitness_series to
-    derive all metric values; no raw query is present in this branch.
+    building_baseline for today's training state. Uses get_snapshot_series
+    (training_load.py) to derive all metric values — the single source of
+    truth also read by the weekly coach report and the fitness/fatigue/form
+    chart; no raw query is present in this branch.
 
     With both 'from' and 'to' params: returns the legacy wellness readiness score
     range — a list of { date, score } objects (or null) per day in [from, to].
@@ -9184,15 +9306,19 @@ def get_readiness(
             d += timedelta(days=1)
         return JSONResponse(result)
 
-    # ── Training-load readiness (CTL / ATL / TSB) ────────────────────────────────
+    # ── Training-load readiness (CTL / ATL / TSB / ACWR) ─────────────────────────
+    # Single source of truth: get_snapshot_series() (training_load.py) — the
+    # SAME snapshot-backed path the weekly coach report and the fitness/
+    # fatigue/form chart read, so this card can never disagree with them for
+    # the same date. See docs/calculations/training-load.md.
     today = _date.today()
-    warmup_start = today - _timedelta(days=180)
-    series = compute_fitness_series(str(user.id), warmup_start, today)
+    series_start = today - _timedelta(days=89)
+    series = get_snapshot_series(str(user.id), series_start, today)
 
     window_start = today - _timedelta(days=BASELINE_WINDOW_DAYS)
     workout_days_in_window = sum(
         1 for row in series
-        if row["tss"] > 0 and row["date"] >= window_start
+        if row["tss"] and row["tss"] > 0 and row["date"] >= window_start
     )
     building_baseline = workout_days_in_window < BASELINE_MIN_WORKOUT_DAYS
 
@@ -9211,16 +9337,15 @@ def get_readiness(
     atl = round(last["atl"], 1)
     tsb = round(last["tsb"], 1)
 
-    series_start = today - _timedelta(days=89)
     chart_series = [
         {
             "date": str(row["date"]),
             "ctl": row["ctl"],
             "atl": row["atl"],
             "tsb": row["tsb"],
+            "acwr": row["acwr"],
         }
         for row in series
-        if row["date"] >= series_start
     ]
 
     return JSONResponse({
@@ -9421,6 +9546,13 @@ def get_performance_chart(
     from backend.services.body_modifier import get_body_modifier_for_user as _get_body_modifier
     _body_modifier = _get_body_modifier(uid)
 
+    # Single source of truth for CTL/ATL/TSB: get_snapshot_series() — the
+    # same snapshot-backed path the readiness card and the weekly coach
+    # report read, so this chart can never disagree with them for the same
+    # date. daily_load_series is still built above for the endurance/speed
+    # score plumbing, which is unrelated to this bug.
+    snapshot_series = get_snapshot_series(str(uid), d_start, d_end)
+
     # Delegate to the pure computation function
     result = compute_performance_chart(
         daily_load_series=load_series,
@@ -9430,6 +9562,7 @@ def get_performance_chart(
         start_date=start_date,
         end_date=end_date,
         body_modifier=_body_modifier,
+        snapshot_series=snapshot_series,
     )
 
     return JSONResponse(result)
@@ -12334,58 +12467,21 @@ def get_training_load(
         if session.query(User).filter(User.id == uid).first() is None:
             raise HTTPException(status_code=404, detail="User not found")
 
-        snaps = (
-            session.query(TrainingLoadSnapshot)
-            .filter(
-                TrainingLoadSnapshot.user_id == uid,
-                TrainingLoadSnapshot.snapshot_date >= from_d,
-                TrainingLoadSnapshot.snapshot_date <= to_d,
-            )
-            .order_by(TrainingLoadSnapshot.snapshot_date)
-            .all()
-        )
-
-    snap_map = {s.snapshot_date: s for s in snaps}
-    all_dates = [from_d + _timedelta(days=i) for i in range((to_d - from_d).days + 1)]
-    missing_dates = [d for d in all_dates if d not in snap_map]
-
-    tss_map: dict = {}
-    if missing_dates:
-        hist_missing = [d for d in missing_dates if d <= today]
-        if hist_missing:
-            tss_series = daily_tss_series(str(uid), min(hist_missing), max(hist_missing))
-            tss_map = {d: t for d, t in tss_series}
-
-    ctl_alpha = _ewma_alpha(42)
-    atl_alpha = _ewma_alpha(7)
-    ctl, atl = 0.0, 0.0
-    curves_out = []
-
-    for d in all_dates:
-        if d in snap_map:
-            s = snap_map[d]
-            ctl = s.ctl
-            atl = s.atl
-            tsb = ctl - atl
-            curves_out.append({
-                "date": d.isoformat(),
-                "tss": s.tss_for_day,
-                "ctl": round(ctl, 1),
-                "atl": round(atl, 1),
-                "tsb": round(tsb, 1),
-            })
-        else:
-            tss = tss_map.get(d, 0)
-            ctl = ctl + (tss - ctl) * ctl_alpha
-            atl = atl + (tss - atl) * atl_alpha
-            tsb = ctl - atl
-            curves_out.append({
-                "date": d.isoformat(),
-                "tss": tss,
-                "ctl": round(ctl, 1),
-                "atl": round(atl, 1),
-                "tsb": round(tsb, 1),
-            })
+    # Single source of truth: get_snapshot_series() (training_load.py) — no
+    # more inline hardcoded-42/7, cold-starts-at-0 recompute for missing
+    # dates; every day gets a real, calibration-aware, snapshot-cached value.
+    to_d_capped = min(to_d, today)
+    series = get_snapshot_series(str(uid), from_d, to_d_capped) if from_d <= to_d_capped else []
+    curves_out = [
+        {
+            "date": row["date"].isoformat(),
+            "tss": row["tss"],
+            "ctl": round(row["ctl"], 1),
+            "atl": round(row["atl"], 1),
+            "tsb": round(row["tsb"], 1),
+        }
+        for row in series
+    ]
 
     return JSONResponse({
         "curves": curves_out,
@@ -12507,56 +12603,12 @@ def recompute_training_load(
         if session.query(User).filter(User.id == uid).first() is None:
             raise HTTPException(status_code=404, detail="User not found")
 
-        seed_snap = (
-            session.query(TrainingLoadSnapshot)
-            .filter(
-                TrainingLoadSnapshot.user_id == uid,
-                TrainingLoadSnapshot.snapshot_date == from_d - _timedelta(days=1),
-            )
-            .first()
-        )
-
-    seed_ctl = float(seed_snap.ctl) if seed_snap else 0.0
-    seed_atl = float(seed_snap.atl) if seed_snap else 0.0
-
-    tss_series = daily_tss_series(str(uid), from_d, today)
-    tss_map = {d: t for d, t in tss_series}
-
-    ctl_alpha = _ewma_alpha(42)
-    atl_alpha = _ewma_alpha(7)
-    ctl, atl = seed_ctl, seed_atl
-    rows = []
-    current = from_d
-    while current <= today:
-        tss = tss_map.get(current, 0)
-        ctl = ctl + (tss - ctl) * ctl_alpha
-        atl = atl + (tss - atl) * atl_alpha
-        tsb = ctl - atl
-        rows.append({
-            "user_id": uid,
-            "snapshot_date": current,
-            "tss_for_day": tss,
-            "ctl": round(ctl, 2),
-            "atl": round(atl, 2),
-            "tsb": round(tsb, 2),
-        })
-        current += _timedelta(days=1)
-
-    if rows:
-        insert_stmt = _pg_insert(TrainingLoadSnapshot).values(rows)
-        upsert_stmt = insert_stmt.on_conflict_do_update(
-            index_elements=["user_id", "snapshot_date"],
-            set_={
-                "tss_for_day": insert_stmt.excluded.tss_for_day,
-                "ctl": insert_stmt.excluded.ctl,
-                "atl": insert_stmt.excluded.atl,
-                "tsb": insert_stmt.excluded.tsb,
-                "computed_at": _datetime.now(tz=_timezone.utc),
-            },
-        )
-        with Session(engine) as session:
-            session.execute(upsert_stmt)
-            session.commit()
+    # Single source of truth: get_snapshot_series() — was a hand-rolled
+    # duplicate of daily_update()'s math (hardcoded 42/7, no calibration, no
+    # ACWR, seeded from only the PRIOR day's snapshot instead of a full
+    # 180-day warmup) that could silently write a bad row into the same
+    # cache current_load() trusts. See docs/calculations/training-load.md.
+    rows = get_snapshot_series(str(uid), from_d, today)
 
     return JSONResponse({
         "recomputed": len(rows),
@@ -12592,6 +12644,7 @@ def refresh_training_load(
         "ctl": result["ctl"],
         "atl": result["atl"],
         "tsb": result["tsb"],
+        "acwr": result["acwr"],
     })
 
 
@@ -12615,56 +12668,10 @@ def backfill_training_load(
         if session.query(User).filter(User.id == uid).first() is None:
             raise HTTPException(status_code=404, detail="User not found")
 
-        seed_snap = (
-            session.query(TrainingLoadSnapshot)
-            .filter(
-                TrainingLoadSnapshot.user_id == uid,
-                TrainingLoadSnapshot.snapshot_date == from_d - _timedelta(days=1),
-            )
-            .first()
-        )
-
-    seed_ctl = float(seed_snap.ctl) if seed_snap else 0.0
-    seed_atl = float(seed_snap.atl) if seed_snap else 0.0
-
-    tss_series = daily_tss_series(str(uid), from_d, today)
-    tss_map = {d: t for d, t in tss_series}
-
-    ctl_alpha = _ewma_alpha(42)
-    atl_alpha = _ewma_alpha(7)
-    ctl, atl = seed_ctl, seed_atl
-    rows = []
-    current = from_d
-    while current <= today:
-        tss = tss_map.get(current, 0)
-        ctl = ctl + (tss - ctl) * ctl_alpha
-        atl = atl + (tss - atl) * atl_alpha
-        tsb = ctl - atl
-        rows.append({
-            "user_id": uid,
-            "snapshot_date": current,
-            "tss_for_day": tss,
-            "ctl": round(ctl, 2),
-            "atl": round(atl, 2),
-            "tsb": round(tsb, 2),
-        })
-        current += _timedelta(days=1)
-
-    if rows:
-        insert_stmt = _pg_insert(TrainingLoadSnapshot).values(rows)
-        upsert_stmt = insert_stmt.on_conflict_do_update(
-            index_elements=["user_id", "snapshot_date"],
-            set_={
-                "tss_for_day": insert_stmt.excluded.tss_for_day,
-                "ctl": insert_stmt.excluded.ctl,
-                "atl": insert_stmt.excluded.atl,
-                "tsb": insert_stmt.excluded.tsb,
-                "computed_at": _datetime.now(tz=_timezone.utc),
-            },
-        )
-        with Session(engine) as session:
-            session.execute(upsert_stmt)
-            session.commit()
+    # Single source of truth: get_snapshot_series() — was a byte-for-byte
+    # duplicate of recompute_training_load's own hand-rolled math (see that
+    # endpoint's comment); consolidated into the same canonical path.
+    rows = get_snapshot_series(str(uid), from_d, today)
 
     return JSONResponse({
         "backfilled": len(rows),
@@ -14083,21 +14090,25 @@ def get_calibration_status(user: User = Depends(resolve_user)):
     All values are derived from model constants (CTL_DAYS) and live DB state —
     nothing is hardcoded.
     """
+    from backend.services.race_calibration import (
+        combined_correction as _combined_correction,
+        ensure_calibrations as _ensure_calibrations,
+        load_calibrations as _load_calibrations,
+    )
+
     today = _date.today()
     window_90 = today - _timedelta(days=_CALIB_WINDOW_90)
     window_42 = today - _timedelta(days=_CALIB_WINDOW_42)
 
     with Session(engine) as db:
-        last_race = (
-            db.query(Race)
-            .filter(
-                Race.user_id == user.id,
-                Race.status == "done",
-                Race.actual_time_seconds.isnot(None),
-            )
-            .order_by(Race.updated_at.desc())
-            .first()
-        )
+        # Self-heal first so the card reports REAL calibration rows (created
+        # from predicted-vs-actual on finished races), not just race dates.
+        try:
+            _ensure_calibrations(str(user.id), db)
+        except Exception:
+            _log.warning("ensure_calibrations failed in calibration status", exc_info=True)
+
+        cal_rows = _load_calibrations(str(user.id), db)
 
         count_90 = (
             db.query(TrainingLoadSnapshot)
@@ -14117,22 +14128,22 @@ def get_calibration_status(user: User = Depends(resolve_user)):
             .count()
         )
 
-        # Finished races (real result) within the 90-day window count as
-        # calibration records (issue #1226).
-        race_count_90 = (
-            db.query(Race)
-            .filter(
-                Race.user_id == user.id,
-                Race.status == "done",
-                Race.actual_time_seconds.isnot(None),
-                Race.race_date >= window_90,
-            )
-            .count()
-        )
+        # Real calibration rows within the 90-day window (issue #1226 counted
+        # done races; these are strictly a subset that actually calibrated).
+        race_count_90 = sum(1 for c in cal_rows if c["race_date"] >= window_90)
 
-    return JSONResponse(
-        _compute_calibration_status(last_race, count_90, count_42, race_count_90)
-    )
+    status = _compute_calibration_status(None, count_90, count_42, race_count_90)
+    # "Last recalibrated" now means a REAL predicted-vs-actual calibration row
+    # (the previous version echoed the last done race's updated_at while the
+    # recalibrate function was an unimplemented stub).
+    latest = cal_rows[0] if cal_rows else None
+    status["last_calibration_date"] = latest["race_date"].isoformat() if latest else None
+    status["calibrated"] = latest is not None
+    blend = _combined_correction(cal_rows, None, today=today)
+    status["correction"] = blend["correction"]
+    status["correction_pct"] = round((blend["correction"] - 1.0) * 100.0, 1)
+    status["n_calibrations"] = blend["n"]
+    return JSONResponse(status)
 
 
 # ── Race Checkpoints ──────────────────────────────────────────────────────────
@@ -14650,22 +14661,22 @@ def _race_readiness_impl(
     # within 90 days into an endurance ceiling and use it as the estimate
     # baseline, instead of the CTL-derived score which discards race results
     # (issue #1226). Falls back to the CTL ceiling when no recent race exists.
+    _anchor_cut = today - _timedelta(days=90)
+    _done_races = (
+        db.query(Race)
+        .filter(
+            Race.user_id == user.id,
+            Race.status == "done",
+            Race.actual_time_seconds.isnot(None),
+            Race.distance_km.isnot(None),
+            Race.race_date >= _anchor_cut,
+        )
+        .all()
+    )
     _race_anchor_ceiling = None
     if threshold_pace and float(threshold_pace) > 0:
         from backend.services.score_ceiling import (
             ceiling_from_b_race_result as _ceiling_from_race,
-        )
-        _anchor_cut = today - _timedelta(days=90)
-        _done_races = (
-            db.query(Race)
-            .filter(
-                Race.user_id == user.id,
-                Race.status == "done",
-                Race.actual_time_seconds.isnot(None),
-                Race.distance_km.isnot(None),
-                Race.race_date >= _anchor_cut,
-            )
-            .all()
         )
         for _dr in _done_races:
             _c = _ceiling_from_race(
@@ -14677,7 +14688,75 @@ def _race_readiness_impl(
             ):
                 _race_anchor_ceiling = _ec
 
+    # Riegel floor: the model must never predict SLOWER than the Riegel
+    # equivalent of a race the athlete actually finished in the last 90 days
+    # (T2 = T1 × (D2/D1)^1.06 — backend/services/riegel.py). The expressible-
+    # score chain punishes current fatigue (score × (1 + tsb/20)); mid-build
+    # that suppressed the estimate BELOW a demonstrated result (reported live:
+    # projected half 2:38 while the athlete ran 2:19 ten weeks earlier with
+    # LOWER scores). A demonstrated result is a fact; a TSB-suppressed
+    # heuristic is not — the fact wins. History samples are only capped from
+    # the demonstrated race's own date forward.
+    from backend.services.riegel import riegel_project as _riegel_project
+
+    _riegel_caps: list[tuple] = []  # (race_date, equivalent_seconds at THIS race's distance)
+    if _tc_distance:
+        for _dr in _done_races:
+            _eq = _riegel_project(_dr.actual_time_seconds, float(_dr.distance_km), _tc_distance)
+            if _eq is not None:
+                _riegel_caps.append((_dr.race_date, int(_eq)))
+
+    def _riegel_cap_for(sample_date):
+        caps = [eq for rd, eq in _riegel_caps if rd <= sample_date]
+        return min(caps) if caps else None
+
+    # Calibration correction — the weighted blend of stored predicted-vs-
+    # actual race corrections (recency + distance-similarity, clamped ±10%;
+    # backend/services/race_calibration.py). Applied to every raw estimate
+    # BEFORE the Riegel floor cap: the correction fixes systematic model
+    # bias, the floor stays the hard demonstrated-result bound. Unlike the
+    # 90-day anchor/floor this never expires.
+    from backend.services.race_calibration import (
+        combined_correction as _combined_correction,
+        load_calibrations as _load_calibrations,
+    )
+
+    _cal_rows = _load_calibrations(str(user.id), db)
+    _cal_blend = _combined_correction(_cal_rows, _tc_distance, today=today)
+    _correction = _cal_blend["correction"]
+
+    def _corrected(seconds: int, sample_date) -> int:
+        seconds = int(round(seconds * _correction))
+        cap = _riegel_cap_for(sample_date)
+        if cap is not None and seconds > cap:
+            seconds = cap
+        return seconds
+
+    # Base score for the estimate chain — the athlete's DISPLAYED End/Spd
+    # scores, blended by log-distance weight (10 K leans on Speed, marathon
+    # on Endurance; see race_finish_estimator.blended_scores_estimate). This
+    # is what makes the estimate reconcile with the score cards: higher
+    # scores → faster estimate, always. Falls back to the old race-anchor /
+    # CTL ceiling only when the athlete has no endurance score yet. The
+    # per-day TSB factor, calibration correction, and Riegel floor still
+    # apply on top.
+    from backend.services.race_finish_estimator import (
+        blended_scores_estimate as _blended_scores_estimate,
+        speed_weight_for_distance as _speed_weight_for_distance,
+    )
+
+    _cur_scores = _athlete_scores_as_of(db, user.id, today)
+    _cur_end = _cur_scores.get("endurance")
+    _cur_spd = _cur_scores.get("speed")
+    _score_anchored = _cur_end is not None and _tc_distance
+    _blend_base: Optional[float] = None
+    if _score_anchored:
+        _w_s = _speed_weight_for_distance(_tc_distance) if _cur_spd is not None else 0.0
+        _blend_base = _w_s * (_cur_spd or 0.0) + (1.0 - _w_s) * _cur_end
+
     def _base_ceiling(ctl_value):
+        if _blend_base is not None:
+            return _blend_base
         if _race_anchor_ceiling is not None:
             return _race_anchor_ceiling
         return _projected_ctl_to_score_ceiling(
@@ -14686,6 +14765,9 @@ def _race_readiness_impl(
             reference_date=today,
         )["endurance_ceiling"]
 
+    def _fmt_finish(seconds: int) -> str:
+        return f"{seconds // 3600}:{(seconds % 3600) // 60:02d}:{seconds % 60:02d}"
+
     # History: last 90 days of load_curves → expressible score → estimated finish time
     _tc_history_cutoff = today - _timedelta(days=90)
     time_curve_history = []
@@ -14693,13 +14775,14 @@ def _race_readiness_impl(
         if _row["date"] < _tc_history_cutoff:
             continue
         _base = _base_ceiling(_row["ctl"])
-        _expr = _compute_expressible_score(_base, _row["tsb"], _TIME_CURVE_CEILING_TSB)
+        _expr = _base * _capped_form_factor(_row["tsb"], _TIME_CURVE_CEILING_TSB)
         _est = _score_to_estimated_finish_time(_expr, _tc_thresholds, _tc_distance)
         if _est["estimated_finish_seconds"] is not None:
+            _sec = _corrected(_est["estimated_finish_seconds"], _row["date"])
             time_curve_history.append({
                 "date": _row["date"].isoformat(),
-                "estimated_finish_seconds": _est["estimated_finish_seconds"],
-                "estimated_finish_time": _est["estimated_finish_time"],
+                "estimated_finish_seconds": _sec,
+                "estimated_finish_time": _fmt_finish(_sec),
             })
 
     # Projection: from today to race_date with zero load (taper assumption) + confidence band
@@ -14716,21 +14799,22 @@ def _race_readiness_impl(
             )
             for _day, _day_data in sorted(_proj_series.items()):
                 _base = _base_ceiling(_day_data["ctl"])
-                _expr = _compute_expressible_score(_base, _day_data["tsb"], _TIME_CURVE_CEILING_TSB)
+                _expr = _base * _capped_form_factor(_day_data["tsb"], _TIME_CURVE_CEILING_TSB)
                 _est = _score_to_estimated_finish_time(_expr, _tc_thresholds, _tc_distance)
                 if _est["estimated_finish_seconds"] is None:
                     continue
+                _sec = _corrected(_est["estimated_finish_seconds"], _day)
                 # Treat confidence_band_days as a percentage of estimated finish time.
                 # band(7) ≈ 1.3%, band(90) ≈ 4.7% — a realistic uncertainty envelope.
                 _cb_pct = _day_data["confidence_band"]
-                _band_sec = int(_est["estimated_finish_seconds"] * _cb_pct / 100.0)
+                _band_sec = int(_sec * _cb_pct / 100.0)
                 time_curve_projection.append({
                     "date": _day.isoformat(),
-                    "estimated_finish_seconds": _est["estimated_finish_seconds"],
-                    "estimated_finish_time": _est["estimated_finish_time"],
+                    "estimated_finish_seconds": _sec,
+                    "estimated_finish_time": _fmt_finish(_sec),
                     "confidence_band_seconds": _band_sec,
-                    "upper_seconds": _est["estimated_finish_seconds"] + _band_sec,
-                    "lower_seconds": max(0, _est["estimated_finish_seconds"] - _band_sec),
+                    "upper_seconds": _sec + _band_sec,
+                    "lower_seconds": max(0, _sec - _band_sec),
                 })
 
     # Goal finish time
@@ -14759,6 +14843,23 @@ def _race_readiness_impl(
             "projection": time_curve_projection,
             "goal_finish_seconds": _goal_secs,
             "goal_finish_time": _goal_str,
+            # Riegel equivalent of the best demonstrated race in the last 90
+            # days at THIS race's distance — the cap already applied to every
+            # sample above; surfaced so the UI can say why an estimate is
+            # anchored. None when no recent finished race exists.
+            "riegel_floor_seconds": _riegel_cap_for(today),
+            # Applied calibration correction (weighted blend of predicted-vs-
+            # actual from finished races; 1.0 = no data / perfectly calibrated).
+            "calibration_correction": round(_correction, 4),
+            "calibration_n_races": _cal_blend["n"],
+            # Interpretable decomposition of the estimate: per-anchor paces
+            # from the athlete's own End/Spd scores and the blend weight —
+            # "with this Endurance you hold X /km here; with this Speed, Y;
+            # blended → Z". None when the estimate isn't score-anchored.
+            "estimate_basis": (
+                _blended_scores_estimate(_cur_end, _cur_spd, _tc_distance, _tc_thresholds).get("basis")
+                if _score_anchored else None
+            ),
         },
     }
 
@@ -15370,6 +15471,45 @@ def _build_performance_diagnostic(preferences, runs):
     }
 
 
+@app.get("/api/performance/score-breakdown")
+def get_score_breakdown(
+    metric: str = "endurance", window: str = "28d", user: User = Depends(resolve_user)
+):
+    """Decomposition of the score change over the window: score_then + decay
+    + efforts + consistency = score_now (asserted — a breakdown that doesn't
+    sum raises rather than renders), plus the anchor / non-anchor rows.
+
+    Same canonical scoring compute as /api/athletes/{id}/performance (cached
+    together) — this endpoint just extracts the `breakdown` block, so the
+    score here can never disagree with the Performance card or Home widget.
+    Note: window is currently fixed at running_performance.
+    BREAKDOWN_WINDOW_DAYS; a mismatched request is rejected rather than
+    silently served with a different window.
+    """
+    from backend.services.running_performance import BREAKDOWN_WINDOW_DAYS
+
+    if metric not in ("endurance", "speed"):
+        raise HTTPException(status_code=422, detail="metric must be 'endurance' or 'speed'")
+    expected = f"{BREAKDOWN_WINDOW_DAYS}d"
+    if window != expected:
+        raise HTTPException(status_code=422, detail=f"window must be {expected!r}")
+
+    perf = _json.loads(get_athlete_performance(str(user.id), user=user).body)
+    if perf.get("state") != "scored":
+        raise HTTPException(status_code=409, detail=f"scores not available: {perf.get('state')}")
+    block = (perf.get(metric) or {}).get("breakdown")
+    if block is None:
+        raise HTTPException(status_code=500, detail="breakdown unavailable")
+    if block.get("error") == "residual":
+        # The summation invariant failed (display clamp binding) — refuse to
+        # render an authoritative-looking decomposition that doesn't sum.
+        raise HTTPException(
+            status_code=500,
+            detail=f"breakdown residual {block.get('residual')} exceeds tolerance",
+        )
+    return JSONResponse({"metric": metric, **block})
+
+
 @app.get("/api/athletes/{athlete_id}/performance")
 def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user)):
     """Return endurance and speed performance scores for an athlete (issue #1020).
@@ -15476,6 +15616,7 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
             )
 
             prefs_dict = preferences or {}
+            _ml_map_perf = _classified_manual_laps_map(session, run_workouts, prefs_dict)
 
             runs = []
             for workout in run_workouts:
@@ -15541,6 +15682,9 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
                     "speed_signal": workout.speed_signal,
                     "speed_signal_basis": workout.speed_signal_basis,
                     "speed_signal_window_seconds": workout.speed_signal_window_seconds,
+                    # Stryd lap-button reps — precedence 0 in the speed-effort
+                    # extraction (short reps are invisible in 1 km auto-splits).
+                    "manual_laps": _ml_map_perf.get(workout.id, []),
                     "ftp_w": (prefs_dict or {}).get("ftp_w"),
                 })
 
@@ -15775,6 +15919,19 @@ def _summary_cache_put(user_id, key, sig, payload):
         _performance_log.exception("summary_cache L2 write failed for %s/%s", user_id, key)
 
 
+# Bump whenever the score FORMULA changes so BOTH caches bust on deploy: the
+# durable Neon summary_cache for /performance AND the plan bundle (race
+# estimates read the scores, so a score-model change must invalidate the
+# bundle too — learned the hard way when vdot-v11 shipped invisibly to the
+# race cards).
+# v2 = VDOT re-anchor; v3 = recreational band recalibration + HR exponent;
+# v4 = one-score-everywhere + feed contributions; v5 = races in signature;
+# v6 = run_contributions + model + consistency bonus + improve hint;
+# v7 = power-fallback guards; v8 = implausible-lap filter; v9 = breakdown
+# block; v10 = race_floor_now + floor_binding; v11 = manual-lap reps.
+_PERF_FORMULA_VERSION = "vdot-v11"
+
+
 def _performance_signature(session, user_id, prefs_row) -> str:
     """Cache signature for the Endurance/Speed performance scores.
 
@@ -15786,13 +15943,8 @@ def _performance_signature(session, user_id, prefs_row) -> str:
     aerobic-decoupling threshold). Any of these changing recomputes the scores;
     otherwise repeat loads reuse the cached payload.
     """
-    # Bump this token whenever the score FORMULA changes so the durable Neon
-    # summary_cache busts. v2 = VDOT re-anchor (was relative min/max + EWMA);
-    # v3 = recreational band recalibration (15/58) + endurance HR-extrapolation
-    # exponent; v4 = one-score-everywhere (*_current = today) + feed contributions;
-    # v5 = races in the signature + race anchor selected by race_date (was
-    # updated_at), so a newly logged race refreshes the scores immediately.
-    _FORMULA_VERSION = "vdot-v5"
+    # Formula-version token: _PERF_FORMULA_VERSION (module level, shared with
+    # the plan-bundle signature).
     base = _summary_signature(session, user_id)
     race_row = (
         session.query(func.max(Race.updated_at), func.count(Race.id))
@@ -15809,7 +15961,7 @@ def _performance_signature(session, user_id, prefs_row) -> str:
         )
     else:
         prefs_part = "no-prefs"
-    return base + "|" + races_part + "|" + prefs_part + "|" + _FORMULA_VERSION
+    return base + "|" + races_part + "|" + prefs_part + "|" + _PERF_FORMULA_VERSION
 
 
 @app.get("/api/athletes/{athlete_id}/summary/weekly")
@@ -15820,10 +15972,13 @@ def get_athlete_weekly_summary(
 ):
     """Return a flat weekly summary for an ISO week.
 
-    Aggregates volume (distance_km, total_tss, session_count), fitness signal
-    changes (endurance_score_change, speed_score_change), load form
-    (form_tsb_change, readiness_next_week), and weight trend (weight_change_kg)
-    into a single response keyed to a Monday–Sunday ISO week.
+    Aggregates volume (distance_km, total_tss, session_count, duration_seconds)
+    plus each one's week-over-week delta vs. the prior Monday-Sunday week
+    (distance_change_km, total_tss_change, session_count_change,
+    duration_seconds_change), fitness signal changes (endurance_score_change,
+    speed_score_change), load form (form_tsb_change — a WITHIN-week TSB trend,
+    not a volume delta — plus readiness_next_week), and weight trend
+    (weight_change_kg) into a single response keyed to a Monday–Sunday ISO week.
 
     Query params:
         week: optional YYYY-MM-DD date inside the target week (normalized to
@@ -15867,7 +16022,11 @@ def get_athlete_weekly_summary(
         # Cap the load series end at today — daily_tss_series rejects future dates.
         load_end = min(we, today)
 
-        _sig = _summary_signature(session, uid) + "|" + ws.isoformat()
+        # "|v2" busts any cached row from before *_change fields (distance/
+        # tss/session/duration week-over-week deltas) were added to the
+        # payload — same signature otherwise means same underlying data, but
+        # the OLD cached shape is missing these keys entirely.
+        _sig = _summary_signature(session, uid) + "|" + ws.isoformat() + "|v2"
         _cached = _summary_cache_get(uid, "weekly", _sig)
         if _cached is not None:
             return JSONResponse(_cached)
@@ -15879,9 +16038,25 @@ def get_athlete_weekly_summary(
         total_tss = _volume["total_tss"]
         workout_types = _volume["workout_types"]
 
+        # ── Week-over-week deltas — the prior comparable (Monday-Sunday) week,
+        # so every summary tile (Distance/Load/Sessions/Duration) gets a real
+        # comparable number instead of only form_tsb_change (a WITHIN-week TSB
+        # trend, not a volume delta) being available for just one of them.
+        _prior_ws = ws - _timedelta(days=7)
+        _prior_we = _prior_ws + _timedelta(days=6)
+        _prior_volume = _get_weekly_volume(str(uid), _prior_ws, _prior_we)
+        distance_change_km = round(distance_km - _prior_volume["distance_km"], 2)
+        total_tss_change = round(total_tss - _prior_volume["total_tss"], 1)
+        session_count_change = session_count - _prior_volume["session_count"]
+        duration_seconds_change = _volume["duration_seconds"] - _prior_volume["duration_seconds"]
+
         # ── TSB / load (AC5, AC9) ─────────────────────────────────────────────
+        # Single source of truth: get_snapshot_series() — the same
+        # snapshot-backed path the readiness card and the fitness/fatigue/
+        # form chart read, so this "Summary" digest card can never disagree
+        # with them for the same date.
         warmup_start = ws - _timedelta(days=180)
-        load_series = compute_fitness_series(str(uid), warmup_start, load_end)
+        load_series = get_snapshot_series(str(uid), warmup_start, load_end)
 
         def _tsb_at(target_date):
             for row in reversed(load_series):
@@ -15920,6 +16095,7 @@ def get_athlete_weekly_summary(
 
         prefs_dict = preferences or {}
         zone_constants = make_zone_constants()
+        _ml_map_weekly = _classified_manual_laps_map(session, run_workouts, prefs_dict)
 
         try:
             compute_decoupling = _compute_decoupling
@@ -15984,6 +16160,7 @@ def get_athlete_weekly_summary(
                     "distance_km": float(workout.distance_km) if workout.distance_km is not None else None,
                     "duration_seconds": workout.duration_seconds,
                     "speed_signal": workout.speed_signal,
+                    "manual_laps": _ml_map_weekly.get(workout.id, []),
                 })
             return runs
 
@@ -16051,6 +16228,11 @@ def get_athlete_weekly_summary(
         "distance_km": distance_km,
         "total_tss": total_tss,
         "session_count": session_count,
+        "duration_seconds": _volume["duration_seconds"],
+        "distance_change_km": distance_change_km,
+        "total_tss_change": total_tss_change,
+        "session_count_change": session_count_change,
+        "duration_seconds_change": duration_seconds_change,
         "endurance_score_change": endurance_score_change,
         "speed_score_change": speed_score_change,
         "weight_change_kg": weight_change_kg,
@@ -16289,12 +16471,21 @@ def _plan_signature(session, user_id, plan) -> str:
         prefs_pace_stamp, prefs_updated_at,
     ) = row
     prefs_stamp = prefs_pace_stamp or prefs_updated_at
-    # Bundle-shape version: bump when the cached bundle gains/changes a key so
-    # existing computed_cache rows (old shape) invalidate on deploy instead of
-    # being served stale. bundle-v2 = folded in the primary race's `readiness`.
-    _BUNDLE_VERSION = "bundle-v2"
+    # Bundle-shape version: bump when the cached bundle gains/changes a key OR
+    # the estimate formula changes, so existing computed_cache rows invalidate
+    # on deploy instead of being served stale. bundle-v2 = folded in the
+    # primary race's `readiness`. bundle-v3 = score-anchored blended estimate
+    # + race-day sample + Riegel floor + calibration correction + estimate
+    # basis (reported live: all of those shipped invisibly because the cached
+    # bundle's signature only tracked DATA changes, never code).
+    # bundle-v4 = taper form-factor capped at TAPER_MAX_FORM_FACTOR for
+    # finish estimates.
+    _BUNDLE_VERSION = "bundle-v4"
     parts = [
         _BUNDLE_VERSION,
+        # Race estimates are anchored on the End/Spd scores — a score-model
+        # change must rebuild the bundle too.
+        _PERF_FORMULA_VERSION,
         str(max_wo), str(wo_count), str(max_wo_updated),
         str(max_race), str(max_race_created), str(max_checkpoint_updated),
         str(prefs_stamp),
@@ -16342,7 +16533,11 @@ def _plan_race_scores(session, user_id, race, race_dict, readiness, current_scor
         proj = readiness["time_curve"].get("projection") or []
         hist = readiness["time_curve"].get("history") or []
         if proj:
-            est = proj[0].get("estimated_finish_seconds")
+            # RACE-DAY sample (the projection series ends at this race's
+            # date), not proj[0] (~tomorrow) — using day one froze the
+            # estimate at today's mid-build fatigue and ignored the entire
+            # build+taper between now and the start line.
+            est = proj[-1].get("estimated_finish_seconds")
         elif hist:
             est = hist[-1].get("estimated_finish_seconds")
     if est is None:
@@ -16351,8 +16546,10 @@ def _plan_race_scores(session, user_id, race, race_dict, readiness, current_scor
     goal_pace = goal / dist
     est_pace = est / dist
     gap = (est_pace - goal_pace) / tp * 100.0
-    le = _math.log(dist / 21.1)
-    speed_weight = max(0.15, min(0.85, 0.5 - 0.18 * le))
+    # Same log-distance weighting the estimate itself uses — one formula,
+    # two consumers (race_finish_estimator.speed_weight_for_distance).
+    from backend.services.race_finish_estimator import speed_weight_for_distance as _swfd
+    speed_weight = _swfd(dist)
     end_weight = 1 - speed_weight
     d_end = round(gap * end_weight)
     d_spd = round(gap * speed_weight)
@@ -16422,6 +16619,22 @@ def _compute_plan_bundle(user) -> dict:
         )
         today = _date.today()
 
+        # Self-healing calibration: create the predicted-vs-actual row for any
+        # finished race that lacks one. The bundle is the single choke point
+        # every race-mutation path funnels through (its cache signature
+        # includes race updated_at), so no per-endpoint done-transition hooks
+        # are needed — marking a race done from ANY endpoint calibrates on the
+        # next bundle compute. Best-effort: a backcast failure never blocks
+        # the bundle.
+        from backend.services.race_calibration import (
+            ensure_calibrations as _ensure_calibrations,
+            record_prediction as _record_prediction,
+        )
+        try:
+            _ensure_calibrations(str(user.id), session)
+        except Exception:
+            _log.warning("ensure_calibrations failed", exc_info=True)
+
         # Shared per-user 180-day TSS/EWMA series: every upcoming race's
         # get_race_readiness() call would otherwise recompute this identically.
         _warmup_start = today - _timedelta(days=180)
@@ -16475,12 +16688,20 @@ def _compute_plan_bundle(user) -> dict:
                     e = None
                     band = None
                     if proj:
-                        e = proj[0].get("estimated_finish_seconds")
-                        band = proj[0].get("confidence_band_seconds")
+                        # RACE-DAY sample — the per-race projection series
+                        # ends at this race's own date. proj[0] (~tomorrow)
+                        # froze the estimate at today's mid-build fatigue,
+                        # ignoring the build+taper before the start line.
+                        e = proj[-1].get("estimated_finish_seconds")
+                        band = proj[-1].get("confidence_band_seconds")
                     elif hist:
                         e = hist[-1].get("estimated_finish_seconds")
                     if e is not None:
                         estimate = {"est": e, "band": band}
+                        # Persist what is being SHOWN — the residual history
+                        # a learned confidence band needs (predictions were
+                        # previously computed and discarded). Best-effort.
+                        _record_prediction(user.id, race.id, e, band, session)
             scores = _plan_race_scores(
                 session, user.id, race, rd, readiness, current_scores, tp
             )
@@ -16496,6 +16717,9 @@ def _compute_plan_bundle(user) -> dict:
             "data_sufficiency": calibration.get("data_sufficiency"),
             "band_confidence": calibration.get("band_confidence"),
             "calibrated": calibration.get("calibrated"),
+            "correction": calibration.get("correction"),
+            "correction_pct": calibration.get("correction_pct"),
+            "n_calibrations": calibration.get("n_calibrations"),
         },
         "projection": {
             "form_curve": projection.get("form_curve"),
@@ -16529,6 +16753,402 @@ def _resolve_or_create_plan(session, user_id):
         session.commit()
         session.refresh(plan)
     return plan
+
+
+# ── Session Load Plan (Plan-tab revamp, Part 1) ─────────────────────────────
+# See docs/calculations/load-plan.md — backend/services/load_plan.py is the
+# single source of truth for the ramp/hold/taper math; this section only
+# resolves the A race + reads baseline/trailing-average TSS and calls it.
+
+def _resolve_load_plan_a_race(db, user_id, today):
+    """Next upcoming, planned, A-priority race.
+
+    Deliberately the SAME convention plan_suggestions.assemble_facts already
+    uses (future + status=planned + priority=A) — a race that already
+    happened or isn't confirmed can't be ramped/taper toward. This is
+    narrower than _compute_plan_bundle's "primary race" (any status/date);
+    see docs/calculations/load-plan.md "Known weaknesses" for why the two
+    conventions coexist.
+    """
+    return (
+        db.query(Race)
+        .filter(
+            Race.user_id == user_id,
+            Race.race_date > today,
+            Race.status == "planned",
+            Race.priority == "A",
+        )
+        .order_by(Race.race_date)
+        .first()
+    )
+
+
+def _resolve_current_verdict(user_id, today, trailing_28d_avg=None):
+    """Deterministic back_off/hold/build verdict as of `today` — shared by
+    every Plan-tab endpoint (and GET /api/weekly-summary has its own
+    week-scoped version) so they can never disagree about whether the
+    athlete should be building right now. Computed from the SAME Part-A
+    snapshot (training_load.current_load) every other consumer reads; never
+    an LLM decision. See backend/services/training_verdict.py.
+    """
+    from backend.services.training_load import current_load as _current_load, daily_tss_series as _dts
+    from backend.services.training_verdict import compute_verdict as _compute_verdict
+
+    snap = _current_load(str(user_id), as_of=today)
+    if trailing_28d_avg is None:
+        start_28 = today - _timedelta(days=27)
+        series_28 = _dts(str(user_id), start_28, today)
+        trailing_28d_avg = round(sum(v for _, v in series_28) / 4.0, 1)
+    return _compute_verdict(snap, chronic_weekly=trailing_28d_avg, today=today)
+
+
+class PlanRulesIn(BaseModel):
+    ramp_rate: Optional[float] = None
+    hold_weeks: Optional[int] = None
+    taper_weeks: Optional[int] = None
+    deload_enabled: Optional[bool] = None
+
+
+def _validate_plan_rules(body: "PlanRulesIn") -> None:
+    if body.ramp_rate is not None and not (0 <= body.ramp_rate <= 0.10):
+        raise HTTPException(
+            status_code=422, detail="ramp_rate must be between 0 and 0.10 (0-10%/week)"
+        )
+    if body.hold_weeks is not None and body.hold_weeks < 0:
+        raise HTTPException(status_code=422, detail="hold_weeks must be >= 0")
+    if body.taper_weeks is not None and body.taper_weeks < 0:
+        raise HTTPException(status_code=422, detail="taper_weeks must be >= 0")
+
+
+def _plan_rules_dict(plan: TrainingPlan) -> dict:
+    return {
+        "ramp_rate": float(plan.ramp_rate) if plan.ramp_rate is not None else 0.05,
+        "hold_weeks": int(plan.hold_weeks) if plan.hold_weeks is not None else 4,
+        "taper_weeks": float(plan.taper_length) if plan.taper_length is not None else 3.0,
+        "deload_enabled": bool(plan.deload_enabled) if plan.deload_enabled is not None else False,
+    }
+
+
+@app.put("/api/plan/rules")
+def put_plan_rules(body: PlanRulesIn, user: User = Depends(resolve_user)):
+    """Update ramp_rate / hold_weeks / taper_weeks on the athlete's existing
+    TrainingPlan row. Plan and Performance tabs edit the SAME row — this
+    must never create a second one (_resolve_or_create_plan enforces that)."""
+    _validate_plan_rules(body)
+    with Session(engine) as session:
+        plan = _resolve_or_create_plan(session, user.id)
+        if body.ramp_rate is not None:
+            plan.ramp_rate = body.ramp_rate
+        if body.hold_weeks is not None:
+            plan.hold_weeks = body.hold_weeks
+        if body.taper_weeks is not None:
+            plan.taper_length = body.taper_weeks
+        if body.deload_enabled is not None:
+            plan.deload_enabled = body.deload_enabled
+        session.commit()
+        session.refresh(plan)
+        return JSONResponse(_plan_rules_dict(plan))
+
+
+@app.get("/api/plan/load-plan")
+def get_plan_load_plan(user: User = Depends(resolve_user)):
+    """Race-anchored weekly TSS target series for the Session Load Plan card.
+
+    Returns the resolved A race, the rules, the full week-by-week target
+    series (this week through race week), and the prior 4 weeks of actual
+    TSS. 204 with no body when there's no A race — the chart is meaningless
+    without a race date.
+    """
+    from backend.utils.time import today_bangkok
+
+    today = today_bangkok()
+    with Session(engine) as db:
+        race = _resolve_load_plan_a_race(db, user.id, today)
+        if race is None:
+            return Response(status_code=204)
+
+        plan = _resolve_or_create_plan(db, user.id)
+        rules = _plan_rules_dict(plan)
+
+        this_week_start = today - _timedelta(days=today.weekday())
+        race_week_start = race.race_date - _timedelta(days=race.race_date.weekday())
+        weeks_to_race = ((race_week_start - this_week_start).days // 7) + 1
+
+        last_week_start = this_week_start - _timedelta(days=7)
+        last_week_end = this_week_start - _timedelta(days=1)
+        baseline_volume = _get_weekly_volume(str(user.id), last_week_start, last_week_end)
+        baseline = baseline_volume["total_tss"]
+
+        start_28 = today - _timedelta(days=27)
+        series_28 = daily_tss_series(str(user.id), start_28, today)
+        total_28d = float(sum(v for _, v in series_28))
+        trailing_28d_avg = round(total_28d / 4.0, 1)
+
+        verdict = _resolve_current_verdict(user.id, today, trailing_28d_avg=trailing_28d_avg)
+
+        result = compute_load_plan(
+            baseline=baseline,
+            ramp_rate=rules["ramp_rate"],
+            hold_weeks=rules["hold_weeks"],
+            taper_weeks=int(round(rules["taper_weeks"])),
+            weeks_to_race=weeks_to_race,
+            trailing_28d_avg=trailing_28d_avg,
+            deload_enabled=rules["deload_enabled"],
+            verdict=verdict["verdict"],
+            consolidation_weeks=verdict["weeks_to_converge"],
+        )
+
+        weeks_out = []
+        for w in result["weeks"]:
+            week_start = this_week_start + _timedelta(weeks=w["week_index"] - 1)
+            weeks_out.append({**w, "week_start": week_start.isoformat()})
+
+        prior_weeks = []
+        for i in range(4, 0, -1):
+            ws = this_week_start - _timedelta(weeks=i)
+            we = ws + _timedelta(days=6)
+            vol = _get_weekly_volume(str(user.id), ws, we)
+            prior_weeks.append({"week_start": ws.isoformat(), "actual_tss": vol["total_tss"]})
+
+        return JSONResponse({
+            "race": {
+                "id": str(race.id),
+                "name": race.name,
+                "date": race.race_date.isoformat(),
+            },
+            "ramp_rate": rules["ramp_rate"],
+            "hold_weeks": rules["hold_weeks"],
+            "taper_weeks": result["taper_weeks"],
+            "deload_enabled": rules["deload_enabled"],
+            "weeks_to_race": weeks_to_race,
+            "ramp_weeks": result["ramp_weeks"],
+            "peak": result["peak"],
+            "baseline_tss": baseline,
+            # The ramp/peak math above already used the CAPPED baseline
+            # internally when last week's actual TSS spiked well above
+            # chronic load — these three surface that plainly (never
+            # silently) rather than leaving the athlete to wonder why the
+            # ramp looks lower than their own logged week. See
+            # docs/calculations/load-plan.md "Baseline cap".
+            "capped_baseline_tss": result["baseline"],
+            "chronic_weekly_tss": result["chronic_weekly"],
+            "baseline_capped": result["baseline_capped"],
+            "trailing_28d_avg": trailing_28d_avg,
+            "prior_weeks": prior_weeks,
+            "weeks": weeks_out,
+            "warning": result["warning"],
+            # Deterministic verdict (never an LLM decision) — see
+            # backend/services/training_verdict.py. "hold"/"back_off"
+            # already reshaped the weeks above into a flat consolidation
+            # block; this is what the card's verdict pill reads.
+            "verdict": verdict["verdict"],
+            "verdict_reason": verdict["reason"],
+            "weeks_to_converge": verdict["weeks_to_converge"],
+            "converge_date": verdict["converge_date"],
+            # Other races/checkpoints inside the chart window so the season
+            # chart can mark them (the A race already gets the RACE DAY flag).
+            "markers": [
+                {
+                    "date": m.race_date.isoformat(),
+                    "name": m.name,
+                    "priority": m.priority,
+                    "race_type": m.race_type,
+                }
+                for m in db.query(Race)
+                .filter(
+                    Race.user_id == user.id,
+                    Race.id != race.id,
+                    Race.status == "planned",
+                    Race.race_date >= this_week_start,
+                    Race.race_date <= race.race_date,
+                )
+                .order_by(Race.race_date)
+                .all()
+            ],
+        })
+
+
+# ── Session load · this week (Plan-tab revamp, Part 2) ──────────────────────
+# See docs/calculations/load-plan.md. target_tss is read from the SAME
+# compute_load_plan series get_plan_load_plan builds — never recomputed here.
+
+def _week_planned_tss(db, user_id, week_start, week_end, estimate_baseline, today, require_still_achievable=True):
+    """Sum estimated_tss across planned sessions in a week that never became
+    a real logged workout (matched is None, not missed — those are covered
+    by baseline_tss/logged_tss instead).
+
+    require_still_achievable=True (the default, for the CURRENT/future
+    "planned_tss" component of projected_tss) additionally excludes sessions
+    whose date has already passed — same achievability rule
+    _planned_session_dict uses, since a past, never-logged session is
+    effectively missed even before the reconcile sweep flips its status.
+
+    require_still_achievable=False is for baseline_planned_tss: the
+    retrospective "what did I plan for last week" comparison is ALWAYS about
+    a past week by definition, so excluding past dates there would zero out
+    every result — the whole point is comparing hindsight plan vs actual.
+    """
+    from backend.services.training_load import estimate_planned_session_metrics as _est
+
+    rows = (
+        db.query(PlannedSession)
+        .filter(
+            PlannedSession.user_id == user_id,
+            PlannedSession.planned_date >= week_start,
+            PlannedSession.planned_date <= week_end,
+            PlannedSession.matched_workout_id.is_(None),
+            PlannedSession.status != "missed",
+        )
+        .all()
+    )
+    total = 0.0
+    for p in rows:
+        if require_still_achievable and p.planned_date < today:
+            continue
+        est = _est(estimate_baseline, p.session_type, p.structure)
+        if est.get("estimated_tss"):
+            total += est["estimated_tss"]
+    return round(total, 1)
+
+
+@app.get("/api/plan/week-load")
+def get_plan_week_load(
+    week_start: Optional[str] = Query(default=None),
+    user: User = Depends(resolve_user),
+):
+    """Weekly target-vs-actual for the Session load · this week card.
+
+    week_start (optional, YYYY-MM-DD, normalized to that week's Monday)
+    defaults to the current ISO week — lets the frontend keep this card in
+    sync with whichever week is selected in the Week plan card's nav.
+    204 with no body when there's no A race (same as GET /api/plan/load-plan
+    — the target is meaningless without one).
+    """
+    from backend.utils.time import today_bangkok
+    from backend.services.training_load import estimate_historical_pace_and_tss as _est_baseline
+    from backend.services.acwr import compute_acwr
+
+    today = today_bangkok()
+    with Session(engine) as db:
+        race = _resolve_load_plan_a_race(db, user.id, today)
+        if race is None:
+            return Response(status_code=204)
+
+        plan = _resolve_or_create_plan(db, user.id)
+        rules = _plan_rules_dict(plan)
+
+        this_week_start = today - _timedelta(days=today.weekday())
+        if week_start is not None:
+            try:
+                parsed = _date.fromisoformat(week_start)
+            except ValueError:
+                raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
+            query_week_start = parsed - _timedelta(days=parsed.weekday())
+        else:
+            query_week_start = this_week_start
+        query_week_end = query_week_start + _timedelta(days=6)
+
+        race_week_start = race.race_date - _timedelta(days=race.race_date.weekday())
+        weeks_to_race = ((race_week_start - this_week_start).days // 7) + 1
+
+        last_week_start = this_week_start - _timedelta(days=7)
+        last_week_end = this_week_start - _timedelta(days=1)
+        baseline_tss = _get_weekly_volume(str(user.id), last_week_start, last_week_end)["total_tss"]
+
+        start_28 = today - _timedelta(days=27)
+        series_28 = daily_tss_series(str(user.id), start_28, today)
+        daily_values = [v for _, v in series_28]
+        total_28d = float(sum(daily_values))
+        trailing_28d_avg = round(total_28d / 4.0, 1)
+        acwr_ratio = compute_acwr(daily_values).get("ratio")
+        # Fallback only for a queried week outside the computed series (before
+        # week 1 or past the race) — normally acwr_ceiling comes straight off
+        # target_week below, the SAME moving ceiling the season chart uses;
+        # see load_plan.py's "Moving ceiling" — a week-specific ceiling, not a
+        # single static number frozen at today's trailing average.
+        _static_acwr_ceiling = round(ACWR_CEILING_MULT * trailing_28d_avg, 1) if trailing_28d_avg else None
+
+        verdict = _resolve_current_verdict(user.id, today, trailing_28d_avg=trailing_28d_avg)
+
+        result = compute_load_plan(
+            baseline=baseline_tss,
+            ramp_rate=rules["ramp_rate"],
+            hold_weeks=rules["hold_weeks"],
+            taper_weeks=int(round(rules["taper_weeks"])),
+            weeks_to_race=weeks_to_race,
+            trailing_28d_avg=trailing_28d_avg,
+            deload_enabled=rules["deload_enabled"],
+            verdict=verdict["verdict"],
+            consolidation_weeks=verdict["weeks_to_converge"],
+        )
+
+        week_index = ((query_week_start - this_week_start).days // 7) + 1
+        target_week = next((w for w in result["weeks"] if w["week_index"] == week_index), None)
+        target_tss = target_week["target_tss"] if target_week else None
+        clamped = target_week["clamped"] if target_week else False
+        acwr_ceiling = target_week["ceiling"] if target_week else _static_acwr_ceiling
+
+        estimate_baseline = _est_baseline(str(user.id), db)
+
+        # baseline_planned_tss: what was PLANNED for the same last-completed
+        # week baseline_tss covers — showing "planned 340 · logged 316"
+        # alongside the actual is the argument for ramping off actuals, not
+        # optimistic plans (see docs/calculations/load-plan.md).
+        baseline_planned_tss = _week_planned_tss(
+            db, user.id, last_week_start, last_week_end, estimate_baseline, today,
+            require_still_achievable=False,
+        )
+
+        logged_tss = _get_weekly_volume(str(user.id), query_week_start, query_week_end)["total_tss"]
+        planned_tss = _week_planned_tss(
+            db, user.id, query_week_start, query_week_end, estimate_baseline, today
+        )
+        projected_tss = round(logged_tss + planned_tss, 1)
+
+        state = None
+        if target_tss:
+            lower, upper = target_tss * 0.95, target_tss * 1.05
+            if projected_tss < lower:
+                state = "under"
+            elif projected_tss > upper:
+                state = "over"
+            else:
+                state = "on_track"
+
+        prior_weeks = []
+        for i in range(4, 0, -1):
+            ws = this_week_start - _timedelta(weeks=i)
+            we = ws + _timedelta(days=6)
+            vol = _get_weekly_volume(str(user.id), ws, we)
+            prior_weeks.append({"week_start": ws.isoformat(), "actual_tss": vol["total_tss"]})
+
+        return JSONResponse({
+            "week_start": query_week_start.isoformat(),
+            "target_tss": target_tss,
+            "baseline_tss": baseline_tss,
+            # See docs/calculations/load-plan.md "Baseline cap" — target_tss
+            # above already reflects the capped baseline when last week
+            # spiked above chronic load; these surface that on the
+            # Baseline×Ramp=Target chain instead of leaving it silent.
+            "capped_baseline_tss": result["baseline"],
+            "baseline_capped": result["baseline_capped"],
+            "baseline_planned_tss": baseline_planned_tss,
+            "prior_4_weeks_actual": prior_weeks,
+            "ramp_rate": rules["ramp_rate"],
+            "acwr_ceiling": acwr_ceiling,
+            "acwr": acwr_ratio,
+            "trailing_28d_avg": trailing_28d_avg,
+            "logged_tss": logged_tss,
+            "planned_tss": planned_tss,
+            "projected_tss": projected_tss,
+            "clamped": clamped,
+            "state": state,
+            # Deterministic verdict — see backend/services/training_verdict.py.
+            "verdict": verdict["verdict"],
+            "verdict_reason": verdict["reason"],
+            "weeks_to_converge": verdict["weeks_to_converge"],
+            "converge_date": verdict["converge_date"],
+        })
 
 
 @app.get("/api/plan/computed")
@@ -17022,6 +17642,7 @@ def get_athlete_monthly_summary(
 
     distance_km = _safe_sum(workouts, "distance_km")
     total_tss = _safe_sum(workouts, "tss")
+    duration_seconds = _safe_sum(workouts, "duration_seconds")
 
     # ── Score change (endurance / speed signals) ───────────────────────────────
     endurance_score_change, speed_score_change = _monthly_score_delta(workouts)
@@ -17042,24 +17663,14 @@ def get_athlete_monthly_summary(
             weight_rate_percent_per_week = round(rate_pct, 3)
 
     # ── Fitness / form metrics (CTL/ATL/TSB) ──────────────────────────────────
-    lookback_start = month_start - _timedelta(days=180)
-    fitness_curve = compute_fitness_series(str(uid), lookback_start, month_end)
-
-    # Extract month-specific data points from the full curve
-    month_entries = [
-        entry for entry in fitness_curve
-        if month_start <= entry["date"] <= month_end
-    ] if fitness_curve else []
+    # Single source of truth: get_snapshot_series() (training_load.py) —
+    # same snapshot-backed path every other CTL/ATL/TSB consumer reads.
+    month_entries = get_snapshot_series(str(uid), month_start, month_end)
 
     if month_entries:
         ctl_at_start = month_entries[0]["ctl"]
         ctl_at_end = month_entries[-1]["ctl"]
         tsb_at_end = month_entries[-1]["tsb"]
-    elif fitness_curve:
-        last = fitness_curve[-1]
-        ctl_at_start = last["ctl"]
-        ctl_at_end = last["ctl"]
-        tsb_at_end = last["tsb"]
     else:
         ctl_at_start = 0.0
         ctl_at_end = 0.0
@@ -17103,6 +17714,7 @@ def get_athlete_monthly_summary(
         "distance_km": distance_km,
         "total_tss": total_tss,
         "session_count": session_count,
+        "duration_seconds": duration_seconds,
         "endurance_score_change": endurance_score_change,
         "speed_score_change": speed_score_change,
         "weight_change_kg": weight_change_kg,
