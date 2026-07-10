@@ -2070,7 +2070,6 @@
       thresh: card.querySelector(".perf-threshold-hint"),
       error: card.querySelector(".perf-error"),
       warn: card.querySelector(".perf-speed-warn"),
-      band: card.querySelector(".perf-speed-band"),
     };
   }
 
@@ -2080,7 +2079,6 @@
     if (p.thresh) p.thresh.hidden = true;
     if (p.error) p.error.hidden = true;
     if (p.warn) p.warn.hidden = true;
-    if (p.band) p.band.hidden = true;
   }
 
   function _renderPerfScoreCard(type, data) {
@@ -2096,49 +2094,32 @@
     if (p.body) p.body.style.display = "";
     if (p.score) p.score.textContent = Math.round(score);
     if (p.blk) {
-      var delta = _perfBlockDelta(trend, data.trend_dates);
+      // Delta over the DISPLAYED trend window (last − first sample) — the
+      // same line the sparkline draws, so the chip can never contradict the
+      // curve the athlete is looking at. (The old 28-day "this block" base
+      // lookup did: it said −3 while the drawn endurance trend rose.)
+      var delta = _perfTrendDelta(trend);
       if (delta === null) {
         p.blk.hidden = true;
       } else {
         p.blk.hidden = false;
         p.blk.classList.remove("perf-blk--down", "perf-blk--flat");
-        if (delta > 0) p.blk.textContent = "↑ +" + delta + " this block";
-        else if (delta < 0) { p.blk.textContent = "↓ −" + Math.abs(delta) + " this block"; p.blk.classList.add("perf-blk--down"); }
-        else { p.blk.textContent = "flat this block"; p.blk.classList.add("perf-blk--flat"); }
+        if (delta > 0) p.blk.textContent = "↑ +" + delta;
+        else if (delta < 0) { p.blk.textContent = "↓ −" + Math.abs(delta); p.blk.classList.add("perf-blk--down"); }
+        else { p.blk.textContent = "→ 0"; p.blk.classList.add("perf-blk--flat"); }
       }
     }
     if (p.insight) p.insight.textContent = _perfInsightText(dir, trend);
     if (p.spark && trend.length >= 2) _drawPerfTrend(p.spark, trend, PERF_TREND_COLOR[type]);
     else if (p.spark) p.spark.innerHTML = "";
     if (p.warn) p.warn.hidden = data.low_data_warning !== true;
-    if (p.band) {
-      var cb = data.confidence_band;
-      if (cb && typeof cb === "object" && cb.lower != null && cb.upper != null) {
-        p.band.hidden = false;
-        var lowerEl = p.band.querySelector("b:first-child");
-        var upperEl = p.band.querySelector("b:last-child");
-        if (lowerEl) lowerEl.textContent = Math.round(cb.lower);
-        if (upperEl) upperEl.textContent = Math.round(cb.upper);
-      } else { p.band.hidden = true; }
-    }
   }
 
-  function _perfBlockDelta(trend, trendDates) {
+  function _perfTrendDelta(trend) {
     if (!Array.isArray(trend) || trend.length < 2) return null;
-    var last = trend[trend.length - 1];
-    if (last == null) return null;
-    var base = null;
-    if (Array.isArray(trendDates) && trendDates.length === trend.length) {
-      var lastMs = Date.parse(trendDates[trendDates.length - 1] + "T00:00:00");
-      var cutoff = lastMs - 28 * 86400000;
-      for (var i = trend.length - 1; i >= 0; i--) {
-        var ms = Date.parse(trendDates[i] + "T00:00:00");
-        if (!isNaN(ms) && ms <= cutoff) { base = trend[i]; break; }
-      }
-      if (base == null) return null;
-    } else { base = trend[0]; }
-    if (base == null) return null;
-    return Math.round(last - base);
+    var first = trend[0], last = trend[trend.length - 1];
+    if (first == null || last == null) return null;
+    return Math.round(last - first);
   }
 
   function _perfInsightText(dir, trend) {
