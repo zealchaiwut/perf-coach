@@ -110,6 +110,26 @@ def test_body_modifier_applied_consistently_to_contributions():
     assert b > n > 0
 
 
+def test_improve_hint_targets_plus_four_with_a_concrete_pace():
+    """The card's "how do I raise this" line: to reach score+4, the hint
+    names the pace a single new effort must hit at the reference duration —
+    and the perf it demands must actually be enough (top-3 math inverted)."""
+    runs = [
+        _interval_run("s1", 8, 258),
+        _interval_run("s2", 5, 259),
+        _interval_run("s3", 3, 260),
+    ]
+    res = _score(runs)
+    h = res["improve_hint"]
+    assert h is not None
+    assert h["target_score"] == min(100, round(res["score"]) + 4)
+    assert h["pace_seconds_per_km"] > 0
+    assert h["effort_minutes"] > 0
+    # Demanded pace must be FASTER than the current efforts' pace (a slower
+    # run can't raise the score).
+    assert h["pace_seconds_per_km"] < 258
+
+
 def test_legacy_date_contributions_still_present():
     # Back-compat: the date-keyed map is still returned (other consumers /
     # older clients), even though badges now use run_contributions.

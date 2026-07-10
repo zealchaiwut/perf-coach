@@ -79,6 +79,15 @@ PERFORMANCE_CONFIG: dict = {
     "speed_sparse_band_multiplier": 1.5,
 }
 
+# Reference effort duration for the SPEED improve hint ("run X:XX /km held
+# ~8 min") — a typical sustained hard/interval effort length; endurance's
+# hint uses threshold_effort_minutes above (the same duration its perf
+# points are extrapolated to).
+IMPROVE_SPEED_REF_MINUTES: float = 8.0
+# The improve hint targets this many points above the current score —
+# "Endurance 36 → 40" scale, near enough to be actionable.
+IMPROVE_TARGET_STEP: int = 4
+
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -176,6 +185,9 @@ def compute_endurance_score(
         qualifying_meta, per_run_perf, zc, body_modifier, race_perf,
         include_confidence_band=False,
         baseline_reason_noun="easy/steady",
+        # Endurance perf points are HR-extrapolated to a threshold-length
+        # effort — the improve hint speaks the same reference duration.
+        improve_ref_minutes=PERFORMANCE_CONFIG["threshold_effort_minutes"],
     )
 
 
@@ -245,6 +257,7 @@ def compute_speed_score(
         qualifying_meta, per_run_perf, zc, body_modifier, race_perf,
         include_confidence_band=True,
         baseline_reason_noun="hard/interval",
+        improve_ref_minutes=IMPROVE_SPEED_REF_MINUTES,
     )
 
 
@@ -260,6 +273,7 @@ def _aggregate_and_shape(
     race_perf: dict | None,
     include_confidence_band: bool,
     baseline_reason_noun: str,
+    improve_ref_minutes: float = 30.0,
 ) -> dict[str, Any]:
     """Shared: window filter → decayed top-3 mean → floor → trend/direction."""
     window_days = PERFORMANCE_CONFIG["trailing_window_days"]
@@ -350,6 +364,47 @@ def _aggregate_and_shape(
         without_run = _score_at(without, t_eval, race_perf) if without else 0.0
         run_contributions[rid] = round(score_with_all - _display(without_run), 2)
 
+    # "How do I get from 36 to 40?" — invert the model: the perf a single
+    # NEW effort (today) must score so the decayed top-3 mean (plus the
+    # consistency bonus it also adds) reaches the target, then translate
+    # that perf back through VDOT into a concrete pace at the score type's
+    # reference effort duration. None when a pace can't be formed.
+    improve_hint: dict[str, Any] | None = None
+    try:
+        from backend.services.vdot import VDOT_FLOOR, VDOT_CEIL
+        from backend.services.race_finish_estimator import (
+            _velocity_for_vdot_at_duration as _vel_for_vdot,
+        )
+
+        target_score = min(100, int(round(score)) + IMPROVE_TARGET_STEP)
+        decayed_now = []
+        recent_now = 0
+        for d, perf, _rid in tagged_points:
+            if d > t_eval:
+                continue
+            days = (t_eval - d).days
+            decayed_now.append(max(0.0, perf - decay_points(days)))
+            if days <= CONSISTENCY_WINDOW_DAYS:
+                recent_now += 1
+        decayed_now.sort(reverse=True)
+        d1 = decayed_now[0] if decayed_now else 0.0
+        d2 = decayed_now[1] if len(decayed_now) > 1 else 0.0
+        bonus_new = min(CONSISTENCY_BONUS_CAP, (recent_now + 1) * CONSISTENCY_BONUS_PER_RUN)
+        needed_mean = target_score / body_modifier - bonus_new
+        required_perf = max(0.0, min(100.0, TOP_K * needed_mean - d1 - d2))
+        required_vdot = VDOT_FLOOR + required_perf / 100.0 * (VDOT_CEIL - VDOT_FLOOR)
+        _v = _vel_for_vdot(required_vdot, improve_ref_minutes)
+        if _v is not None and _v > 0:
+            improve_hint = {
+                "target_score": target_score,
+                "required_perf": round(required_perf, 1),
+                "required_vdot": round(required_vdot, 1),
+                "pace_seconds_per_km": int(round(1000.0 / (_v / 60.0))),
+                "effort_minutes": improve_ref_minutes,
+            }
+    except Exception:  # pragma: no cover — hint is best-effort decoration
+        _log.warning("improve_hint computation failed", exc_info=True)
+
     result: dict[str, Any] = {
         "score": round(score, 2),
         "direction": direction,
@@ -358,6 +413,7 @@ def _aggregate_and_shape(
         "contributions": contributions,
         "run_contributions": run_contributions,
         "qualifying_session_count": len(qualifying_meta),
+        "improve_hint": improve_hint,
         # How the score moves, for the UI to state instead of hardcode:
         # top-K anchor decay + the consistency bonus (vdot.py constants).
         "model": {

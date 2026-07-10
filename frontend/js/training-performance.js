@@ -2144,6 +2144,25 @@
         modelEl.hidden = true;
       }
     }
+    // Concrete "how do I raise this" session, inverted from the model
+    // (improve_hint): the pace a single new effort must hit at the score
+    // type's reference duration to lift the top-3 mean to the target.
+    var improveEl = p.card.querySelector(".perf-improve-line");
+    if (improveEl) {
+      var h = data.improve_hint;
+      if (h && h.pace_seconds_per_km != null) {
+        improveEl.hidden = false;
+        var paceTxt = _perfFmtPace(h.pace_seconds_per_km) || (h.pace_seconds_per_km + " s/km");
+        var mins = Math.round(h.effort_minutes);
+        improveEl.innerHTML = (type === "endurance")
+          ? "To reach <b>" + h.target_score + "</b>: hold <b>~" + esc(paceTxt) + "</b> for " + mins +
+            " min at threshold effort (or the same pace at a lower heart rate)."
+          : "To reach <b>" + h.target_score + "</b>: one hard effort at <b>~" + esc(paceTxt) +
+            "</b> held ~" + mins + " min (e.g. long intervals with short rests).";
+      } else {
+        improveEl.hidden = true;
+      }
+    }
     if (p.spark && trend.length >= 2) _drawPerfTrend(p.spark, trend, PERF_TREND_COLOR[type]);
     else if (p.spark) p.spark.innerHTML = "";
     if (p.warn) p.warn.hidden = data.low_data_warning !== true;

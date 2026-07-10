@@ -4470,6 +4470,7 @@
                 </div>
                 <p class="perf-insight"></p>
                 <p class="perf-model-line" hidden></p>
+                <p class="perf-improve-line" hidden></p>
                 <svg class="perf-trend perf-spark" aria-label="Endurance trend sparkline"></svg>
                 <div class="perf-flabel">Last 5 long runs feeding this score</div>
                 <div class="perf-feed" id="perf-feed-endurance">
@@ -4506,6 +4507,7 @@
                 </div>
                 <p class="perf-insight"></p>
                 <p class="perf-model-line" hidden></p>
+                <p class="perf-improve-line" hidden></p>
                 <svg class="perf-trend perf-spark" aria-label="Speed trend sparkline"></svg>
                 <div class="perf-flabel">Last 5 interval sessions feeding this score</div>
                 <div class="perf-feed" id="perf-feed-speed">
@@ -6260,6 +6262,20 @@
         line-height: 1.45;
         color: var(--text-tertiary, #8a93a6);
         margin: 0 0 6px;
+      }
+      /* Concrete session that would raise the score (improve_hint). */
+      .perf-improve-line {
+        font-size: 11px;
+        line-height: 1.45;
+        color: var(--text-secondary, #55607a);
+        background: var(--w-tile, #f1f4fa);
+        border-radius: 7px;
+        padding: 6px 9px;
+        margin: 0 0 8px;
+      }
+      .perf-improve-line b {
+        font-family: var(--mono, "JetBrains Mono", monospace);
+        font-weight: 700;
       }
       .perf-trend {
         width: 100%;

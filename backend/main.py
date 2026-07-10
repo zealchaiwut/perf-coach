@@ -15842,7 +15842,8 @@ def _performance_signature(session, user_id, prefs_row) -> str:
     # exponent; v4 = one-score-everywhere (*_current = today) + feed contributions;
     # v5 = races in the signature + race anchor selected by race_date (was
     # updated_at), so a newly logged race refreshes the scores immediately.
-    _FORMULA_VERSION = "vdot-v5"
+    # v6 = run_contributions + model block + consistency bonus + improve hint.
+    _FORMULA_VERSION = "vdot-v6"
     base = _summary_signature(session, user_id)
     race_row = (
         session.query(func.max(Race.updated_at), func.count(Race.id))
