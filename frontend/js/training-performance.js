@@ -2229,30 +2229,29 @@
     if (p.anchors && p.anchorTable) {
       if (b && b.anchors && b.anchors.length) {
         p.anchors.hidden = false;
-        var rows = ['<div class="perf-anchor-row hdr"><span>Effort</span><span class="num">Raw</span><span class="num">Decay</span><span class="num">Now</span></div>'];
-        b.anchors.forEach(function (a) {
+        // Same row design as the non-anchor list below; the chip reads
+        // "NOW (DECAY)" — today's contribution with what aging took.
+        p.anchorTable.innerHTML = b.anchors.map(function (a) {
           var meta = _perfMetaFor(a.run_id);
           var title = a.run_id === null ? "Race result" : (meta && meta.title) || "Workout";
-          var bits = [_perfFmtMmmD(a.date)];
+          var bits = [];
           if (meta && meta.distance_km != null) bits.push(meta.distance_km.toFixed(1) + " km");
           if (meta && meta.pace) bits.push(meta.pace);
-          bits.push(a.age_weeks + " wk");
-          var surv = a.raw_score > 0 ? Math.max(0, Math.min(100, a.current_contribution / a.raw_score * 100)) : 0;
+          bits.push((a.is_stale ? '<span class="a-age">' : "") + a.age_weeks + " wk" + (a.is_stale ? "</span>" : ""));
+          var chip = '<span class="perf-nowchip">' + a.current_contribution.toFixed(1) +
+            (a.decay_applied < 0 ? ' <span class="loss">(\u2212' + Math.abs(a.decay_applied).toFixed(1) + ")</span>" : "") +
+            "</span>";
           var inner =
-            '<span><span class="a-title">' + esc(title) + "</span>" +
-            '<span class="a-meta"> ' + esc(bits.slice(0, -1).join(" \u00b7 ")) + ' \u00b7 <span class="a-age">' + a.age_weeks + " wk</span></span>" +
-            '<span class="perf-survival"><i style="width:' + surv.toFixed(0) + '%"></i></span></span>' +
-            '<span class="num">' + a.raw_score.toFixed(1) + "</span>" +
-            '<span class="num' + (a.decay_applied < 0 ? " loss" : "") + '">' + (a.decay_applied < 0 ? "\u2212" + Math.abs(a.decay_applied).toFixed(1) : "0.0") + "</span>" +
-            '<span class="num"><b>' + a.current_contribution.toFixed(1) + "</b></span>";
-          var row = a.run_id
-            ? '<a class="perf-anchor-row' + (a.is_stale ? " stale" : "") + '" href="/log?workout=' + encodeURIComponent(a.run_id) + '" style="text-decoration:none;color:inherit;">' + inner + "</a>"
-            : '<div class="perf-anchor-row' + (a.is_stale ? " stale" : "") + '">' + inner + "</div>";
-          rows.push(row);
-        });
-        p.anchorTable.innerHTML = rows.join("");
-
-        // Formula now lives in the change strip above; footer stays hidden.
+            '<span class="perf-fdate">' + esc(_perfFmtMmmD(a.date)) + "</span>" +
+            '<span class="perf-fmain">' +
+              '<span class="perf-fn">' + esc(title) + "</span>" +
+              '<span class="perf-fm">' + bits.join(" \u00b7 ") + "</span>" +
+            "</span>" + chip +
+            (a.run_id ? '<span class="perf-farr">\u2192</span>' : "");
+          return a.run_id
+            ? '<a class="perf-frow" href="/log?workout=' + encodeURIComponent(a.run_id) + '">' + inner + "</a>"
+            : '<div class="perf-frow">' + inner + "</div>";
+        }).join("");
       } else {
         p.anchors.hidden = true;
       }

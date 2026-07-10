@@ -6335,40 +6335,21 @@
       .perf-propbar .seg-efforts { background: #4ade80; }
       .perf-propbar .seg-consistency { background: #bbf7d0; }
 
-      /* Anchor table */
+      /* Anchor list — same row design as the non-anchor list. */
       .perf-anchors { margin-top: 12px; }
-      .perf-anchor-table { border-top: 1px solid var(--card-border, #e5e7eb); }
-      .perf-anchor-row {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) 46px 52px 46px;
-        gap: 8px;
-        align-items: center;
-        padding: 7px 4px;
-        border-bottom: 1px solid var(--card-border, #e5e7eb);
-        font-size: 12px;
-      }
-      .perf-anchor-row.hdr {
-        font-size: 9.5px;
-        font-weight: 800;
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
-        color: var(--perf-faint);
-        padding: 4px;
-      }
-      .perf-anchor-row.stale { background: #fffbeb; }
-      .perf-anchor-row .a-title { font-weight: 700; color: var(--text-primary, #1b2340); }
-      .perf-anchor-row .a-meta { font-size: 10.5px; color: var(--perf-faint); font-family: var(--mono); }
-      .perf-anchor-row.stale .a-age { color: var(--perf-loss); font-weight: 700; }
-      .perf-anchor-row .num { font-family: var(--mono); text-align: right; }
-      .perf-anchor-row .num.loss { color: var(--perf-loss); }
-      .perf-survival {
-        height: 3px;
+      .perf-anchor-table .a-age { color: var(--perf-loss); font-weight: 700; }
+      .perf-nowchip {
+        font-family: var(--mono);
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--text-primary, #1b2340);
         background: var(--w-tile, #f1f4fa);
-        border-radius: 2px;
-        overflow: hidden;
-        margin-top: 3px;
+        border-radius: 6px;
+        padding: 3px 8px;
+        flex-shrink: 0;
+        white-space: nowrap;
       }
-      .perf-survival > i { display: block; height: 100%; background: #93c5fd; }
+      .perf-nowchip .loss { color: var(--perf-loss); font-weight: 600; }
       /* Same visual grammar as the change-strip equation above. */
       .perf-anchor-foot {
         font-family: var(--mono);
