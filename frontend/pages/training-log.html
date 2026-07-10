@@ -4632,6 +4632,7 @@
               <span class="pm-projnow-lab">Projected now</span>
               <span class="pm-projnow-val" id="plan-projected-now-val">—</span>
               <span class="pm-projnow-meta" id="plan-projected-now-meta"></span>
+              <span class="pm-projnow-basis" id="plan-projected-basis"></span>
             </div>
             <svg
               id="plan-timecurve"
@@ -4874,6 +4875,15 @@
         font-size: 11.5px;
         color: var(--pm-muted);
         font-family: var(--pm-mono);
+      }
+      /* How the estimate was formed from the athlete's own scores —
+         "End 36 → 6:37 /km · Spd 49 → 5:44 /km → blended 6:09 /km". */
+      .plan-merged .pm-projnow-basis {
+        flex-basis: 100%;
+        font-size: 11px;
+        color: var(--pm-faint);
+        font-family: var(--pm-mono);
+        margin-top: 2px;
       }
       .plan-merged .pm-bb {
         display: flex;

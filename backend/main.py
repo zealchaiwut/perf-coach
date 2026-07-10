@@ -14681,7 +14681,31 @@ def _race_readiness_impl(
             seconds = cap
         return seconds
 
+    # Base score for the estimate chain — the athlete's DISPLAYED End/Spd
+    # scores, blended by log-distance weight (10 K leans on Speed, marathon
+    # on Endurance; see race_finish_estimator.blended_scores_estimate). This
+    # is what makes the estimate reconcile with the score cards: higher
+    # scores → faster estimate, always. Falls back to the old race-anchor /
+    # CTL ceiling only when the athlete has no endurance score yet. The
+    # per-day TSB factor, calibration correction, and Riegel floor still
+    # apply on top.
+    from backend.services.race_finish_estimator import (
+        blended_scores_estimate as _blended_scores_estimate,
+        speed_weight_for_distance as _speed_weight_for_distance,
+    )
+
+    _cur_scores = _athlete_scores_as_of(db, user.id, today)
+    _cur_end = _cur_scores.get("endurance")
+    _cur_spd = _cur_scores.get("speed")
+    _score_anchored = _cur_end is not None and _tc_distance
+    _blend_base: Optional[float] = None
+    if _score_anchored:
+        _w_s = _speed_weight_for_distance(_tc_distance) if _cur_spd is not None else 0.0
+        _blend_base = _w_s * (_cur_spd or 0.0) + (1.0 - _w_s) * _cur_end
+
     def _base_ceiling(ctl_value):
+        if _blend_base is not None:
+            return _blend_base
         if _race_anchor_ceiling is not None:
             return _race_anchor_ceiling
         return _projected_ctl_to_score_ceiling(
@@ -14777,6 +14801,14 @@ def _race_readiness_impl(
             # actual from finished races; 1.0 = no data / perfectly calibrated).
             "calibration_correction": round(_correction, 4),
             "calibration_n_races": _cal_blend["n"],
+            # Interpretable decomposition of the estimate: per-anchor paces
+            # from the athlete's own End/Spd scores and the blend weight —
+            # "with this Endurance you hold X /km here; with this Speed, Y;
+            # blended → Z". None when the estimate isn't score-anchored.
+            "estimate_basis": (
+                _blended_scores_estimate(_cur_end, _cur_spd, _tc_distance, _tc_thresholds).get("basis")
+                if _score_anchored else None
+            ),
         },
     }
 
@@ -16335,10 +16367,14 @@ def _plan_signature(session, user_id, plan) -> str:
         prefs_pace_stamp, prefs_updated_at,
     ) = row
     prefs_stamp = prefs_pace_stamp or prefs_updated_at
-    # Bundle-shape version: bump when the cached bundle gains/changes a key so
-    # existing computed_cache rows (old shape) invalidate on deploy instead of
-    # being served stale. bundle-v2 = folded in the primary race's `readiness`.
-    _BUNDLE_VERSION = "bundle-v2"
+    # Bundle-shape version: bump when the cached bundle gains/changes a key OR
+    # the estimate formula changes, so existing computed_cache rows invalidate
+    # on deploy instead of being served stale. bundle-v2 = folded in the
+    # primary race's `readiness`. bundle-v3 = score-anchored blended estimate
+    # + race-day sample + Riegel floor + calibration correction + estimate
+    # basis (reported live: all of those shipped invisibly because the cached
+    # bundle's signature only tracked DATA changes, never code).
+    _BUNDLE_VERSION = "bundle-v3"
     parts = [
         _BUNDLE_VERSION,
         str(max_wo), str(wo_count), str(max_wo_updated),
@@ -16401,8 +16437,10 @@ def _plan_race_scores(session, user_id, race, race_dict, readiness, current_scor
     goal_pace = goal / dist
     est_pace = est / dist
     gap = (est_pace - goal_pace) / tp * 100.0
-    le = _math.log(dist / 21.1)
-    speed_weight = max(0.15, min(0.85, 0.5 - 0.18 * le))
+    # Same log-distance weighting the estimate itself uses — one formula,
+    # two consumers (race_finish_estimator.speed_weight_for_distance).
+    from backend.services.race_finish_estimator import speed_weight_for_distance as _swfd
+    speed_weight = _swfd(dist)
     end_weight = 1 - speed_weight
     d_end = round(gap * end_weight)
     d_spd = round(gap * speed_weight)

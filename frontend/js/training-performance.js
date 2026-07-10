@@ -487,6 +487,25 @@
         if (goalSec != null) parts.push("goal " + fmtTime(goalSec));
         metaEl.textContent = parts.join(" · ");
       }
+      // How the estimate was formed from the athlete's own scores — the
+      // interpretable decomposition (time_curve.estimate_basis).
+      var basisEl = document.getElementById("plan-projected-basis");
+      if (basisEl) {
+        var basis = tc && tc.estimate_basis;
+        if (basis && basis.blended_pace_seconds_per_km != null) {
+          var bits = [];
+          if (basis.endurance_score != null && basis.endurance_pace_seconds_per_km != null)
+            bits.push("End " + Math.round(basis.endurance_score) + " → " + fmtPace(basis.endurance_pace_seconds_per_km));
+          if (basis.speed_score != null && basis.speed_pace_seconds_per_km != null)
+            bits.push("Spd " + Math.round(basis.speed_score) + " → " + fmtPace(basis.speed_pace_seconds_per_km));
+          var wPct = basis.speed_weight != null ? Math.round(basis.speed_weight * 100) : null;
+          bits.push("blended" + (wPct != null ? " (" + wPct + "% speed)" : "") + " → " +
+            fmtPace(basis.blended_pace_seconds_per_km));
+          basisEl.textContent = bits.join(" · ");
+        } else {
+          basisEl.textContent = "";
+        }
+      }
     } else {
       _hideProjNow();
     }

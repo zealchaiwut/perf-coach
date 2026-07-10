@@ -42,6 +42,37 @@ other distances: Riegel T2 = T1·(D2/D1)^1.06    riegel.py:26-76
   the `2 − pace/threshold` map duplicated between race_finish_estimator.py and
   score_ceiling.py.
 
+### Score-anchored blended estimate (2026-07-10)
+
+The base of the estimate chain is now the athlete's own DISPLAYED
+Endurance/Speed scores — the two anchor points of their personal
+pace-duration curve — instead of the CTL/race-anchor ceiling (kept only as
+the fallback when no endurance score exists yet):
+
+```
+w_s(D)  = clamp(0.5 − 0.18·ln(D / 21.1), 0.15, 0.85)   # speed weight
+base    = w_s·Speed + (1−w_s)·Endurance                 # blended score
+expressible = base × (1 + tsb/20)                       # unchanged TSB factor
+finish  = vdot_to_race_pace(score_to_vdot(expressible), D) × D
+× calibration correction, capped at the Riegel floor    # unchanged
+```
+
+A 10 K leans on Speed (w_s ≈ 0.63), a marathon on Endurance (w_s ≈ 0.38).
+This is what makes the estimate reconcile with the score cards — higher
+scores ⇒ faster estimate, always (the old ceiling pipeline was independent
+of the displayed scores, producing the reported paradox of a slower
+projection at higher scores). `race_finish_estimator.blended_scores_estimate`
+returns the interpretable decomposition (per-anchor paces + weight),
+surfaced as `time_curve.estimate_basis` and rendered under "Projected now".
+The required-score badges (`_plan_race_scores`) share the same
+`speed_weight_for_distance` — one formula, two consumers.
+
+**Bundle cache now versions the formula** (`_BUNDLE_VERSION` inside
+`_plan_signature`): the computed_cache signature previously tracked only
+DATA changes, so estimator changes shipped invisibly until a data edit
+happened to bust the cache — bump the version with any estimate-formula
+change.
+
 ### Riegel floor + race-day sample (2026-07-10 fix)
 
 Two corrections to the estimate chain, motivated by a live paradox (athlete

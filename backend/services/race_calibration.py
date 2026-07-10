@@ -46,6 +46,13 @@ CORRECTION_CLAMP: tuple[float, float] = (0.90, 1.10)
 # Recency: a calibration this many days old carries half the weight of one
 # from today.
 RECENCY_HALF_LIFE_DAYS: float = 180.0
+# Plausibility window on INDIVIDUAL corrections entering the blend. A real
+# race legitimately runs within ~±25-30% of a sane model; a correction
+# outside this window means the BACKCAST was broken (cold-start model with
+# almost no history — seen live: a race predicted at 2:42 that the athlete
+# ran in 1:51, correction 0.69), not that the model has a 30% bias. Such
+# rows stay stored (honest history) but are excluded from the blend.
+CORRECTION_PLAUSIBLE_RANGE: tuple[float, float] = (0.75, 1.33)
 # Distance similarity: weight = exp(-|ln(d_target / d_race)|) — a race at 2×
 # or ½× the target distance carries weight 0.5; same distance carries 1.0.
 # (ln-ratio symmetric, so 10k→half and half→10k weigh the same.)
@@ -91,9 +98,13 @@ def combined_correction(
     num = 0.0
     den = 0.0
     n = 0
+    lo_p, hi_p = CORRECTION_PLAUSIBLE_RANGE
     for c in calibrations:
         corr = c.get("correction")
         if not isinstance(corr, (int, float)) or corr <= 0:
+            continue
+        if not (lo_p <= corr <= hi_p):
+            # Broken backcast (cold-start model), not model bias — skip.
             continue
         w = calibration_weight(c["race_date"], float(c.get("distance_km") or 0), target_distance_km, today)
         if w <= 0:
