@@ -14606,22 +14606,22 @@ def _race_readiness_impl(
     # within 90 days into an endurance ceiling and use it as the estimate
     # baseline, instead of the CTL-derived score which discards race results
     # (issue #1226). Falls back to the CTL ceiling when no recent race exists.
+    _anchor_cut = today - _timedelta(days=90)
+    _done_races = (
+        db.query(Race)
+        .filter(
+            Race.user_id == user.id,
+            Race.status == "done",
+            Race.actual_time_seconds.isnot(None),
+            Race.distance_km.isnot(None),
+            Race.race_date >= _anchor_cut,
+        )
+        .all()
+    )
     _race_anchor_ceiling = None
     if threshold_pace and float(threshold_pace) > 0:
         from backend.services.score_ceiling import (
             ceiling_from_b_race_result as _ceiling_from_race,
-        )
-        _anchor_cut = today - _timedelta(days=90)
-        _done_races = (
-            db.query(Race)
-            .filter(
-                Race.user_id == user.id,
-                Race.status == "done",
-                Race.actual_time_seconds.isnot(None),
-                Race.distance_km.isnot(None),
-                Race.race_date >= _anchor_cut,
-            )
-            .all()
         )
         for _dr in _done_races:
             _c = _ceiling_from_race(
@@ -14633,6 +14633,28 @@ def _race_readiness_impl(
             ):
                 _race_anchor_ceiling = _ec
 
+    # Riegel floor: the model must never predict SLOWER than the Riegel
+    # equivalent of a race the athlete actually finished in the last 90 days
+    # (T2 = T1 × (D2/D1)^1.06 — backend/services/riegel.py). The expressible-
+    # score chain punishes current fatigue (score × (1 + tsb/20)); mid-build
+    # that suppressed the estimate BELOW a demonstrated result (reported live:
+    # projected half 2:38 while the athlete ran 2:19 ten weeks earlier with
+    # LOWER scores). A demonstrated result is a fact; a TSB-suppressed
+    # heuristic is not — the fact wins. History samples are only capped from
+    # the demonstrated race's own date forward.
+    from backend.services.riegel import riegel_project as _riegel_project
+
+    _riegel_caps: list[tuple] = []  # (race_date, equivalent_seconds at THIS race's distance)
+    if _tc_distance:
+        for _dr in _done_races:
+            _eq = _riegel_project(_dr.actual_time_seconds, float(_dr.distance_km), _tc_distance)
+            if _eq is not None:
+                _riegel_caps.append((_dr.race_date, int(_eq)))
+
+    def _riegel_cap_for(sample_date):
+        caps = [eq for rd, eq in _riegel_caps if rd <= sample_date]
+        return min(caps) if caps else None
+
     def _base_ceiling(ctl_value):
         if _race_anchor_ceiling is not None:
             return _race_anchor_ceiling
@@ -14641,6 +14663,9 @@ def _race_readiness_impl(
             stimulus_history=_stimulus_history,
             reference_date=today,
         )["endurance_ceiling"]
+
+    def _fmt_finish(seconds: int) -> str:
+        return f"{seconds // 3600}:{(seconds % 3600) // 60:02d}:{seconds % 60:02d}"
 
     # History: last 90 days of load_curves → expressible score → estimated finish time
     _tc_history_cutoff = today - _timedelta(days=90)
@@ -14652,10 +14677,14 @@ def _race_readiness_impl(
         _expr = _compute_expressible_score(_base, _row["tsb"], _TIME_CURVE_CEILING_TSB)
         _est = _score_to_estimated_finish_time(_expr, _tc_thresholds, _tc_distance)
         if _est["estimated_finish_seconds"] is not None:
+            _sec = _est["estimated_finish_seconds"]
+            _cap = _riegel_cap_for(_row["date"])
+            if _cap is not None and _sec > _cap:
+                _sec = _cap
             time_curve_history.append({
                 "date": _row["date"].isoformat(),
-                "estimated_finish_seconds": _est["estimated_finish_seconds"],
-                "estimated_finish_time": _est["estimated_finish_time"],
+                "estimated_finish_seconds": _sec,
+                "estimated_finish_time": _fmt_finish(_sec),
             })
 
     # Projection: from today to race_date with zero load (taper assumption) + confidence band
@@ -14676,17 +14705,21 @@ def _race_readiness_impl(
                 _est = _score_to_estimated_finish_time(_expr, _tc_thresholds, _tc_distance)
                 if _est["estimated_finish_seconds"] is None:
                     continue
+                _sec = _est["estimated_finish_seconds"]
+                _cap = _riegel_cap_for(_day)
+                if _cap is not None and _sec > _cap:
+                    _sec = _cap
                 # Treat confidence_band_days as a percentage of estimated finish time.
                 # band(7) ≈ 1.3%, band(90) ≈ 4.7% — a realistic uncertainty envelope.
                 _cb_pct = _day_data["confidence_band"]
-                _band_sec = int(_est["estimated_finish_seconds"] * _cb_pct / 100.0)
+                _band_sec = int(_sec * _cb_pct / 100.0)
                 time_curve_projection.append({
                     "date": _day.isoformat(),
-                    "estimated_finish_seconds": _est["estimated_finish_seconds"],
-                    "estimated_finish_time": _est["estimated_finish_time"],
+                    "estimated_finish_seconds": _sec,
+                    "estimated_finish_time": _fmt_finish(_sec),
                     "confidence_band_seconds": _band_sec,
-                    "upper_seconds": _est["estimated_finish_seconds"] + _band_sec,
-                    "lower_seconds": max(0, _est["estimated_finish_seconds"] - _band_sec),
+                    "upper_seconds": _sec + _band_sec,
+                    "lower_seconds": max(0, _sec - _band_sec),
                 })
 
     # Goal finish time
@@ -14715,6 +14748,11 @@ def _race_readiness_impl(
             "projection": time_curve_projection,
             "goal_finish_seconds": _goal_secs,
             "goal_finish_time": _goal_str,
+            # Riegel equivalent of the best demonstrated race in the last 90
+            # days at THIS race's distance — the cap already applied to every
+            # sample above; surfaced so the UI can say why an estimate is
+            # anchored. None when no recent finished race exists.
+            "riegel_floor_seconds": _riegel_cap_for(today),
         },
     }
 
@@ -16326,7 +16364,11 @@ def _plan_race_scores(session, user_id, race, race_dict, readiness, current_scor
         proj = readiness["time_curve"].get("projection") or []
         hist = readiness["time_curve"].get("history") or []
         if proj:
-            est = proj[0].get("estimated_finish_seconds")
+            # RACE-DAY sample (the projection series ends at this race's
+            # date), not proj[0] (~tomorrow) — using day one froze the
+            # estimate at today's mid-build fatigue and ignored the entire
+            # build+taper between now and the start line.
+            est = proj[-1].get("estimated_finish_seconds")
         elif hist:
             est = hist[-1].get("estimated_finish_seconds")
     if est is None:
@@ -16459,8 +16501,12 @@ def _compute_plan_bundle(user) -> dict:
                     e = None
                     band = None
                     if proj:
-                        e = proj[0].get("estimated_finish_seconds")
-                        band = proj[0].get("confidence_band_seconds")
+                        # RACE-DAY sample — the per-race projection series
+                        # ends at this race's own date. proj[0] (~tomorrow)
+                        # froze the estimate at today's mid-build fatigue,
+                        # ignoring the build+taper before the start line.
+                        e = proj[-1].get("estimated_finish_seconds")
+                        band = proj[-1].get("confidence_band_seconds")
                     elif hist:
                         e = hist[-1].get("estimated_finish_seconds")
                     if e is not None:
