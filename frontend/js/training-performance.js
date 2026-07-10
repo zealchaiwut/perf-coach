@@ -2097,8 +2097,6 @@
       change: card.querySelector(".perf-change"),
       eq: card.querySelector(".perf-eq"),
       propbar: card.querySelector(".perf-propbar"),
-      propkey: card.querySelector(".perf-propkey"),
-      reading: card.querySelector(".perf-reading"),
       anchors: card.querySelector(".perf-anchors"),
       anchorTable: card.querySelector(".perf-anchor-table"),
       anchorFoot: card.querySelector(".perf-anchor-foot"),
@@ -2177,28 +2175,6 @@
               return '<span class="' + m[0] + '" style="width:' + (m[1] / total * 100).toFixed(1) + '%"></span>';
             }).join("")
           : "";
-        p.propkey.innerHTML =
-          '<span><i class="seg-decay" style="background:#fca5a5"></i>decay ' + Math.abs(b.decay).toFixed(1) + "</span>" +
-          '<span><i style="background:#4ade80"></i>efforts ' + Math.abs(b.efforts).toFixed(1) + "</span>" +
-          '<span><i style="background:#bbf7d0"></i>consistency ' + Math.abs(b.consistency).toFixed(1) + "</span>";
-
-        // One-line reading, generated from the signs — never hardcoded.
-        var gains = b.efforts + b.consistency;
-        var readingHtml =
-          "Decay cost <span class=\"loss\">" + _perfNum(b.decay, true) + "</span>; " +
-          "new efforts and consistency returned <span class=\"gain\">" + _perfNum(gains, true) + "</span>. ";
-        if (b.delta < -0.05 && b.efforts < 0.5) {
-          readingHtml += "<b>Not a bad run \u2014 an old one aging out.</b>";
-        } else if (b.delta > 0.05 && b.efforts > Math.abs(b.decay)) {
-          readingHtml += "<b>New efforts outran the decay.</b>";
-        } else if (b.delta > 0.05) {
-          readingHtml += "<b>Slightly ahead of the decay.</b>";
-        } else if (Math.abs(b.delta) <= 0.05) {
-          readingHtml += "<b>Training exactly offset the decay.</b>";
-        } else {
-          readingHtml += "<b>Training slowed the slide, not stopped it.</b>";
-        }
-        p.reading.innerHTML = readingHtml;
       } else {
         p.change.hidden = true;
       }
