@@ -5803,6 +5803,15 @@
         font-family: var(--pm-mono);
         font-weight: 700;
       }
+      /* Projected TSS colored to match the verdict pill (hold/back_off) —
+         same amber/red the row already uses, so an overshoot projection
+         reads as a warning at a glance, not just plain ink. */
+      .plan-merged .wl-projected-line b.wl-projected-num.hold {
+        color: var(--pm-amber);
+      }
+      .plan-merged .wl-projected-line b.wl-projected-num.back_off {
+        color: var(--pm-red);
+      }
 
       .plan-merged .wl-chain {
         display: flex;

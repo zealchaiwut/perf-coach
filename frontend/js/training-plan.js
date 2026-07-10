@@ -648,7 +648,9 @@ information about.
     var inOut = (d.projected_tss >= lower && d.projected_tss <= upper) ? 'inside' : 'outside';
     var line = document.getElementById('wl-projected-line');
     if (line) {
-      line.innerHTML = 'projected <b>' + Math.round(d.projected_tss) + '</b> &middot; ' + esc(diffStr) +
+      var projVerdictCls = (d.verdict === 'hold' || d.verdict === 'back_off') ? d.verdict : '';
+      line.innerHTML = 'projected <b class="wl-projected-num ' + projVerdictCls + '">' +
+        Math.round(d.projected_tss) + '</b>/' + Math.round(d.target_tss) + ' TSS &middot; ' + esc(diffStr) +
         ' ' + inOut + ' &plusmn;5% band (' + lower + '&ndash;' + upper + ')';
     }
 
