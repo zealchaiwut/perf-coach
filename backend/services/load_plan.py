@@ -103,21 +103,33 @@ Verdict consolidation
 When the deterministic training_verdict.compute_verdict() result is
 ``"hold"`` or ``"back_off"`` (see backend/services/training_verdict.py — a
 Python-computed judgment from the Part-A CTL/ATL/TSB/ACWR snapshot, never an
-LLM decision), every week that would otherwise be ``ramp`` or ``hold`` phase
-is overridden to a flat target instead: ``baseline`` when ``"hold"``,
-``BACK_OFF_TARGET_MULT * baseline`` when ``"back_off"``. Its ``phase``
-becomes ``"consolidation"`` so the season chart renders a visibly flat block
-instead of a ramp that would otherwise pretend to continue climbing through
-a state the athlete's own snapshot says isn't safe to build from yet. Taper
-and race weeks are NEVER overridden — they already have their own down-curve
-and a race close enough to be tapering for takes priority over a
-consolidation block.
+LLM decision), the NEAR-TERM weeks that would otherwise be ``ramp`` or
+``hold`` phase are overridden to a flat target instead: ``baseline`` when
+``"hold"``, ``BACK_OFF_TARGET_MULT * baseline`` when ``"back_off"``. Their
+``phase`` becomes ``"consolidation"`` so the season chart renders a visibly
+flat block instead of a ramp that would otherwise pretend to continue
+climbing through a state the athlete's own snapshot says isn't safe to build
+from yet. Taper and race weeks are NEVER overridden — they already have
+their own down-curve and a race close enough to be tapering for takes
+priority over a consolidation block.
+
+**Only the near-term weeks, not the whole season** (2026-07-10 fix): how
+many weeks get flattened is ``consolidation_weeks`` — the SAME
+``weeks_to_converge`` estimate compute_verdict() already computes ("how long
+until this normalizes"), defaulting to 1 (just the current week) when not
+given. Weeks beyond that horizon use the normal ramp/hold formula for their
+own index, exactly as if verdict were "build". Before this fix, a single
+day's verdict flattened the ENTIRE remaining ramp+hold phase (potentially
+15+ weeks) at one TSS value, contradicting the verdict's own "back to normal
+in ~1 week" convergence estimate shown right next to it in the UI — a
+today-only snapshot was being rendered as a multi-month forecast.
 
 The verdict is a snapshot of *today*; it is not baked into the plan beyond
 the current computation — the caller re-derives it fresh on every request
 (from the current CTL/ATL/TSB/ACWR), so as soon as the athlete's numbers
 recover to "build", the very next call resumes the normal ramp/hold/taper
-series with no separate "resume" step required.
+series with no separate "resume" step required. The consolidation-horizon
+fix above makes this true WITHIN a single request too, not just across days.
 
 Deload (every 4th week)
 ------------------------
@@ -238,6 +250,7 @@ def compute_load_plan(
     trailing_28d_avg: Optional[float] = None,
     deload_enabled: bool = False,
     verdict: Optional[str] = None,
+    consolidation_weeks: Optional[int] = None,
 ) -> LoadPlanResult:
     """Compute the per-week target-TSS series from now to an A race.
 
@@ -260,10 +273,21 @@ def compute_load_plan(
             ramp or hold phase by DELOAD_CUT_FRACTION. See module docstring.
         verdict: "hold" | "back_off" | "build" | None — from
             training_verdict.compute_verdict(). "hold"/"back_off" override
-            every ramp/hold week to a flat consolidation target (phase
-            becomes "consolidation"); anything else (including None) leaves
-            the ramp/hold/taper math untouched. See module docstring's
-            "Verdict consolidation" section.
+            ONLY the near-term weeks (see `consolidation_weeks`) to a flat
+            consolidation target (phase becomes "consolidation"); anything
+            else (including None) leaves the ramp/hold/taper math untouched.
+            See module docstring's "Verdict consolidation" section.
+        consolidation_weeks: how many of the NEAREST ramp/hold weeks the
+            "hold"/"back_off" override applies to — from
+            training_verdict.compute_verdict()'s own `weeks_to_converge`
+            estimate (the verdict engine's answer to "how long until this
+            normalizes"). Weeks beyond this horizon use the normal ramp/hold
+            formula for their own index, unaffected — the verdict is a
+            snapshot of TODAY, not a multi-month forecast, so it must not
+            flatline the entire season chart. Defaults to 1 (just the
+            current week) when a verdict is active but this isn't given, or
+            when the estimate is 0/None. Ignored when verdict isn't
+            "hold"/"back_off".
 
     Returns:
         LoadPlanResult — see the module docstring for the math.
@@ -340,17 +364,28 @@ def compute_load_plan(
         return deload_enabled and week_index % _DELOAD_EVERY_N_WEEKS == 0
 
     # Verdict consolidation — see module docstring. Only "hold"/"back_off"
-    # override anything; None/"build" leave the ramp/hold math untouched.
+    # override anything, and ONLY for the near-term weeks the verdict engine
+    # itself says are affected (`consolidation_weeks`, from compute_verdict's
+    # own weeks_to_converge estimate) — a verdict is a snapshot of today, not
+    # a forecast for the whole season. Weeks beyond that horizon fall through
+    # to the normal ramp/hold formula at their own index, same as if verdict
+    # were "build". Defaults to 1 (just the current week) so a bare
+    # "hold"/"back_off" with no horizon given still does something sane
+    # without flatlining the rest of the chart.
     consolidation_target: Optional[float] = None
     if verdict == "hold":
         consolidation_target = baseline
     elif verdict == "back_off":
         consolidation_target = baseline * BACK_OFF_TARGET_MULT
+    consolidation_horizon = (
+        max(1, int(consolidation_weeks)) if consolidation_target is not None and consolidation_weeks
+        else (1 if consolidation_target is not None else 0)
+    )
 
     weeks: List[WeekTarget] = []
 
     for w in range(1, ramp_weeks + 1):
-        if consolidation_target is not None:
+        if consolidation_target is not None and w <= consolidation_horizon:
             value, clamped, ceiling = _finalize(consolidation_target)
             weeks.append({
                 "week_index": w, "target_tss": round(value, 1), "phase": "consolidation",
@@ -370,7 +405,7 @@ def compute_load_plan(
         })
 
     for w in range(ramp_weeks + 1, build_weeks + 1):
-        if consolidation_target is not None:
+        if consolidation_target is not None and w <= consolidation_horizon:
             value, clamped, ceiling = _finalize(consolidation_target)
             weeks.append({
                 "week_index": w, "target_tss": round(value, 1), "phase": "consolidation",
