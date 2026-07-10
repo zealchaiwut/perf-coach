@@ -2102,7 +2102,6 @@
       anchors: card.querySelector(".perf-anchors"),
       anchorTable: card.querySelector(".perf-anchor-table"),
       anchorFoot: card.querySelector(".perf-anchor-foot"),
-      modelLine: card.querySelector(".perf-model-line"),
       improveLine: card.querySelector(".perf-improve-line"),
       nonAnchors: card.querySelector(".perf-nonanchors"),
       nonAnchorLab: card.querySelector(".perf-nonanchor-lab"),
@@ -2205,21 +2204,6 @@
       }
     }
 
-    // Formula line — constants straight from the backend model payload
-    // (vdot.py), INCLUDING the race floor omitted by the old copy.
-    if (p.modelLine) {
-      var m = data.model;
-      if (m) {
-        p.modelLine.hidden = false;
-        p.modelLine.textContent =
-          "score = mean(best " + m.top_k + " efforts, each \u2212" + m.decay_per_week +
-          "/wk after " + m.grace_weeks + " wk grace), floored by your latest race result, + " +
-          m.consistency_bonus_per_run + "/session over " + m.consistency_window_days +
-          " days (max +" + m.consistency_bonus_cap + ").";
-      } else {
-        p.modelLine.hidden = true;
-      }
-    }
 
     // "To reach X" — name the mechanism: a new effort DISPLACES an anchor
     // and resets that anchor's decay clock; it doesn't top up an average.
@@ -2310,7 +2294,7 @@
         p.nonAnchorLab.innerHTML =
           "Other " + noun + " \u00b7 not anchors <span class=\"gaplab\">\u2014 gap to the weakest anchor (" +
           b.weakest_anchor_now.toFixed(1) + ")</span>";
-        var items = (b.non_anchors || []).slice(0, 5);
+        var items = (b.non_anchors || []).slice(0, 2);
         if (!items.length) {
           host.innerHTML = '<p class="perf-feed-empty">No other qualifying sessions in the window.</p>';
         } else {
