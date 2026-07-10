@@ -609,7 +609,14 @@ information about.
     body.hidden = false;
 
     var d = _wlData;
-    _setText('wl-target-val', Math.round(d.target_tss));
+    _setText('wl-target-val', '/' + Math.round(d.target_tss));
+
+    var projEl = document.getElementById('wl-target-projected');
+    if (projEl) {
+      var projVerdictCls = (d.verdict === 'hold' || d.verdict === 'back_off') ? d.verdict : '';
+      projEl.className = 'wl-target-projected' + (projVerdictCls ? ' ' + projVerdictCls : '');
+      projEl.textContent = d.projected_tss != null ? Math.round(d.projected_tss) : '';
+    }
 
     // Deterministic verdict (backend/services/training_verdict.py) — never
     // an LLM decision. Only shown for hold/back_off (build is the default,
