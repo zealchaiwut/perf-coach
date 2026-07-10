@@ -42,16 +42,41 @@ other distances: Riegel T2 = T1·(D2/D1)^1.06    riegel.py:26-76
   the `2 − pace/threshold` map duplicated between race_finish_estimator.py and
   score_ceiling.py.
 
+### Riegel floor + race-day sample (2026-07-10 fix)
+
+Two corrections to the estimate chain, motivated by a live paradox (athlete
+ran an actual half in 2:19:26 with LOWER scores than today's, yet the next
+half was projected at 2:38:03):
+
+- **Race-day sample.** The per-race "estimated" figure (`_plan_race_scores`
+  and `_compute_plan_bundle`'s estimate block) now reads the LAST projection
+  sample — the race's own date, after the modeled build+taper — instead of
+  `projection[0]` (~tomorrow), which froze the estimate at today's
+  mid-build fatigue via the `× (1 + tsb/20)` expressible factor. The
+  frontend "Projected now" readout still deliberately reads sample 0.
+- **Riegel floor.** Every time-curve sample (history from the demonstrated
+  race's own date forward; all projection days) is capped at the Riegel
+  equivalent (`T × (D2/D1)^1.06`) of the best race actually finished in the
+  last 90 days — the same window the race-anchored ceiling already uses. A
+  demonstrated result is a fact; a TSB-suppressed heuristic must not
+  predict slower than it. Exposed as `time_curve.riegel_floor_seconds`.
+
+Neither replaces real recalibration (§3's "closed loop that doesn't close"
+still stands) — the floor is a hard sanity bound, not a learned correction.
+
 ### Weaknesses
 
 1. Score 100 ⇒ exactly threshold pace for **any distance** — no
    distance-dependent fatigue in the primary estimate (Riegel used only for
-   half-splits).
+   half-splits and the demonstrated-race floor above).
 2. CTL/150 makes race prediction hostage to TSS calibration (see tss.md
    defaults problem).
-3. A slow B race craters the ceiling until the race is deleted.
+3. A slow B race craters the ceiling until the race is deleted (the Riegel
+   floor is one-sided — it prevents under-prediction, not over-prediction).
 4. √horizon confidence band is pure heuristic, not derived from residuals.
-5. Flat-average future load ignores the athlete's actual plan.
+5. Flat-average future load ignores the athlete's actual plan (and the
+   race-day sample above still assumes ZERO load between now and race day —
+   optimistic on TSB, pessimistic on CTL).
 
 ## 3. Plan calibration (post-race)
 

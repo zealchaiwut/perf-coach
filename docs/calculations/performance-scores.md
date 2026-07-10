@@ -1,11 +1,36 @@
 # Performance Scores — Endurance & Speed
 
+> **⚠️ STALE — the algorithm sections below describe the PRE-2026-07 model.**
+> `running_performance.py` was rewritten to the VDOT-anchored "decayed
+> top-3 mean" model on 2026-07-02; the live spec is
+> [score-reanchor-proposal.md](score-reanchor-proposal.md) (§4). Trust the
+> code + that proposal, not the min-max/EWMA formulas below. Kept for the
+> historical record of the old model's weaknesses (several motivated the
+> rewrite). The "Per-session deltas" section below IS current.
+
 **Purpose:** two 0–100 scores summarizing how the athlete's easy/steady
 running efficiency (endurance) and high-intensity capability (speed) are
 trending. Computed in `backend/services/running_performance.py` (pure),
 served by `GET /api/athletes/{id}/performance` (main.py:14097-14300) and two
 "as-of" helpers (`_workout_signal_scores` main.py:5402, `_athlete_scores_as_of`
 main.py:5531).
+
+## Per-session deltas — one source (CURRENT, 2026-07-10)
+
+`_aggregate_and_shape` returns **`run_contributions`**: per-run marginal
+contribution to the CURRENT score, keyed by workout id — the display score
+at the final trend date with the run minus without it, body-modifier
+applied. A maintenance run below the decayed top-3 reads exactly `0.0`
+(never negative); a run holding up today's top-3 or the race floor shows
+its real lift; a run decayed out of relevance reads `0.0`.
+
+This is the **single source** for every per-session ±delta badge: the
+Performance-tab feed lists and the workout-detail signal card both read it
+(`_workout_signal_scores` no longer computes its own before/after diff).
+The older date-keyed `contributions` map (score(date) − score(previous
+trend date) — it blamed runs for pure time-decay drift, so a consistently
+training athlete's entire endurance feed read small negatives) is still
+returned for back-compat but must not be used for badges.
 
 ## Endurance score algorithm (running_performance.py:146-270)
 
