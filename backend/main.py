@@ -15919,6 +15919,19 @@ def _summary_cache_put(user_id, key, sig, payload):
         _performance_log.exception("summary_cache L2 write failed for %s/%s", user_id, key)
 
 
+# Bump whenever the score FORMULA changes so BOTH caches bust on deploy: the
+# durable Neon summary_cache for /performance AND the plan bundle (race
+# estimates read the scores, so a score-model change must invalidate the
+# bundle too — learned the hard way when vdot-v11 shipped invisibly to the
+# race cards).
+# v2 = VDOT re-anchor; v3 = recreational band recalibration + HR exponent;
+# v4 = one-score-everywhere + feed contributions; v5 = races in signature;
+# v6 = run_contributions + model + consistency bonus + improve hint;
+# v7 = power-fallback guards; v8 = implausible-lap filter; v9 = breakdown
+# block; v10 = race_floor_now + floor_binding; v11 = manual-lap reps.
+_PERF_FORMULA_VERSION = "vdot-v11"
+
+
 def _performance_signature(session, user_id, prefs_row) -> str:
     """Cache signature for the Endurance/Speed performance scores.
 
@@ -15930,21 +15943,8 @@ def _performance_signature(session, user_id, prefs_row) -> str:
     aerobic-decoupling threshold). Any of these changing recomputes the scores;
     otherwise repeat loads reuse the cached payload.
     """
-    # Bump this token whenever the score FORMULA changes so the durable Neon
-    # summary_cache busts. v2 = VDOT re-anchor (was relative min/max + EWMA);
-    # v3 = recreational band recalibration (15/58) + endurance HR-extrapolation
-    # exponent; v4 = one-score-everywhere (*_current = today) + feed contributions;
-    # v5 = races in the signature + race anchor selected by race_date (was
-    # updated_at), so a newly logged race refreshes the scores immediately.
-    # v6 = run_contributions + model block + consistency bonus + improve hint.
-    # v7 = power-fallback guards (min window, fabricated pace clamped to the
-    # fastest real lap) — uphill power spikes no longer fabricate flat speed.
-    # v8 = implausible-lap filter (pace < 150 s/km = sensor garbage).
-    # v9 = score-change breakdown block (decay/efforts/consistency + anchors).
-    # v10 = breakdown carries race_floor_now always + floor_binding flag.
-    # v11 = Stryd lap-button reps (manual_laps) are the speed effort's
-    #       first-preference source — short reps no longer invisible.
-    _FORMULA_VERSION = "vdot-v11"
+    # Formula-version token: _PERF_FORMULA_VERSION (module level, shared with
+    # the plan-bundle signature).
     base = _summary_signature(session, user_id)
     race_row = (
         session.query(func.max(Race.updated_at), func.count(Race.id))
@@ -15961,7 +15961,7 @@ def _performance_signature(session, user_id, prefs_row) -> str:
         )
     else:
         prefs_part = "no-prefs"
-    return base + "|" + races_part + "|" + prefs_part + "|" + _FORMULA_VERSION
+    return base + "|" + races_part + "|" + prefs_part + "|" + _PERF_FORMULA_VERSION
 
 
 @app.get("/api/athletes/{athlete_id}/summary/weekly")
@@ -16483,6 +16483,9 @@ def _plan_signature(session, user_id, plan) -> str:
     _BUNDLE_VERSION = "bundle-v4"
     parts = [
         _BUNDLE_VERSION,
+        # Race estimates are anchored on the End/Spd scores — a score-model
+        # change must rebuild the bundle too.
+        _PERF_FORMULA_VERSION,
         str(max_wo), str(wo_count), str(max_wo_updated),
         str(max_race), str(max_race_created), str(max_checkpoint_updated),
         str(prefs_stamp),
