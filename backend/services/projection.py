@@ -230,6 +230,22 @@ def tsb_form_factor(projected_tsb: float, ceiling_tsb: float) -> float:
     return 1.0 + (projected_tsb / ceiling_tsb) * EXPRESSIBLE_FORM_FACTOR_SCALE
 
 
+# Cap on the POSITIVE form factor when it feeds a FINISH-TIME estimate.
+# tsb_form_factor is linear and unbounded above (TSB at ceiling doubles the
+# score with scale 1.0) — fine for the form-curve visualization's dynamics,
+# absurd as a race-day performance bonus: taper research puts real gains at
+# ~1-3% pace, not +100% score. Reported live: an 11-week zero-load
+# projection maxed race-day TSB and turned a 2:11 current-fitness half into
+# a 1:54 estimate. Fatigue suppression (factor < 1) is deliberately NOT
+# capped — negative TSB slowing you down has no such physiological ceiling.
+TAPER_MAX_FORM_FACTOR: float = 1.05
+
+
+def capped_form_factor(projected_tsb: float, ceiling_tsb: float) -> float:
+    """tsb_form_factor with the taper bonus capped for finish estimates."""
+    return min(tsb_form_factor(projected_tsb, ceiling_tsb), TAPER_MAX_FORM_FACTOR)
+
+
 def compute_expressible_score(
     base_score: float,
     projected_tsb: float,

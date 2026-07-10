@@ -143,7 +143,7 @@ def backcast_prediction(user_id: str, race, db) -> Optional[int]:
         ceiling_from_b_race_result,
         projected_ctl_to_score_ceiling,
     )
-    from backend.services.projection import compute_expressible_score
+    from backend.services.projection import capped_form_factor
     from backend.services.race_finish_estimator import score_to_estimated_finish_time
     from backend.services.riegel import riegel_project
 
@@ -197,7 +197,7 @@ def backcast_prediction(user_id: str, race, db) -> Optional[int]:
     else:
         base = projected_ctl_to_score_ceiling(eve_row["ctl"], reference_date=eve)["endurance_ceiling"]
 
-    expressible = compute_expressible_score(base, eve_row["tsb"], _TIME_CURVE_CEILING_TSB)
+    expressible = base * capped_form_factor(eve_row["tsb"], _TIME_CURVE_CEILING_TSB)
     est = score_to_estimated_finish_time(
         expressible, {"threshold_pace_seconds_per_km": threshold_pace}, distance
     )

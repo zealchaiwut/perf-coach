@@ -93,7 +93,7 @@ from backend.services.heat_correction import (
 from backend.services.goal_arrival_caller import resolve_arrival_projection as _resolve_arrival_projection
 from backend.services.performance_constants import NEEDS_THRESHOLDS_REASON as _NEEDS_THRESHOLDS_REASON
 from backend.services.backfill_performance import backfill_performance_for_athlete as _backfill_performance_for_athlete
-from backend.services.projection import project_fitness as _project_fitness, compute_expressible_score as _compute_expressible_score
+from backend.services.projection import project_fitness as _project_fitness, compute_expressible_score as _compute_expressible_score, capped_form_factor as _capped_form_factor
 from backend.services.score_ceiling import projected_ctl_to_score_ceiling as _projected_ctl_to_score_ceiling
 from backend.services.economy_stimulus import compute_economy_stimulus as _compute_economy_stimulus
 from backend.services.ceiling_bonus import compute_ceiling_bonus as _compute_ceiling_bonus, LAG_WINDOW_DAYS as _LAG_WINDOW_DAYS, LAG_PEAK_DAYS as _LAG_PEAK_DAYS
@@ -14724,7 +14724,7 @@ def _race_readiness_impl(
         if _row["date"] < _tc_history_cutoff:
             continue
         _base = _base_ceiling(_row["ctl"])
-        _expr = _compute_expressible_score(_base, _row["tsb"], _TIME_CURVE_CEILING_TSB)
+        _expr = _base * _capped_form_factor(_row["tsb"], _TIME_CURVE_CEILING_TSB)
         _est = _score_to_estimated_finish_time(_expr, _tc_thresholds, _tc_distance)
         if _est["estimated_finish_seconds"] is not None:
             _sec = _corrected(_est["estimated_finish_seconds"], _row["date"])
@@ -14748,7 +14748,7 @@ def _race_readiness_impl(
             )
             for _day, _day_data in sorted(_proj_series.items()):
                 _base = _base_ceiling(_day_data["ctl"])
-                _expr = _compute_expressible_score(_base, _day_data["tsb"], _TIME_CURVE_CEILING_TSB)
+                _expr = _base * _capped_form_factor(_day_data["tsb"], _TIME_CURVE_CEILING_TSB)
                 _est = _score_to_estimated_finish_time(_expr, _tc_thresholds, _tc_distance)
                 if _est["estimated_finish_seconds"] is None:
                     continue
@@ -16374,7 +16374,9 @@ def _plan_signature(session, user_id, plan) -> str:
     # + race-day sample + Riegel floor + calibration correction + estimate
     # basis (reported live: all of those shipped invisibly because the cached
     # bundle's signature only tracked DATA changes, never code).
-    _BUNDLE_VERSION = "bundle-v3"
+    # bundle-v4 = taper form-factor capped at TAPER_MAX_FORM_FACTOR for
+    # finish estimates.
+    _BUNDLE_VERSION = "bundle-v4"
     parts = [
         _BUNDLE_VERSION,
         str(max_wo), str(wo_count), str(max_wo_updated),

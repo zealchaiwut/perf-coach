@@ -74,6 +74,29 @@ def test_missing_endurance_score_returns_null():
     assert r["estimated_finish_seconds"] is None
 
 
+# ── Taper form-factor cap ─────────────────────────────────────────────────────
+
+def test_capped_form_factor_limits_taper_bonus_but_not_fatigue():
+    """The linear TSB factor is unbounded above (TSB at ceiling would DOUBLE
+    the score — reported live as a 2:11 half estimated at 1:54 after an
+    11-week zero-load projection maxed race-day freshness). Finish estimates
+    cap the bonus at TAPER_MAX_FORM_FACTOR; fatigue suppression stays
+    uncapped."""
+    from backend.services.projection import (
+        TAPER_MAX_FORM_FACTOR,
+        capped_form_factor,
+        tsb_form_factor,
+    )
+    # Fully-tapered: raw factor would be 2.0, capped to 1.05.
+    assert tsb_form_factor(20.0, 20.0) == pytest.approx(2.0)
+    assert capped_form_factor(20.0, 20.0) == TAPER_MAX_FORM_FACTOR
+    # Mild freshness under the cap passes through unchanged.
+    assert capped_form_factor(0.5, 20.0) == pytest.approx(tsb_form_factor(0.5, 20.0))
+    # Fatigue side untouched.
+    assert capped_form_factor(-10.0, 20.0) == pytest.approx(tsb_form_factor(-10.0, 20.0))
+    assert capped_form_factor(-10.0, 20.0) < 1.0
+
+
 # ── Outlier guard on calibration corrections ─────────────────────────────────
 
 def test_implausible_correction_excluded_from_blend():
