@@ -5930,12 +5930,38 @@
         vertical-align: -1px;
       }
       @media (max-width: 640px) {
+        /* Keep baseline/ramp/target/guardrail in ONE row on mobile instead
+           of stacking (which made this card very tall) — shrink cells and
+           drop their secondary detail (sparkline, compare, guardrail
+           detail) to fit; scrolls horizontally if it still doesn't. */
         .plan-merged .wl-chain {
-          flex-direction: column;
+          flex-wrap: nowrap;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          gap: 6px;
+        }
+        .plan-merged .wl-chain-cell {
+          flex: 0 0 auto;
+          min-width: 78px;
+          padding: 8px 8px;
+        }
+        .plan-merged .wl-chain-cell.wl-guardrail-cell {
+          flex-basis: auto;
         }
         .plan-merged .wl-chain-op {
-          align-self: flex-start;
-          padding-left: 4px;
+          padding: 0 1px;
+        }
+        .plan-merged .wl-chain-lab {
+          font-size: 8px;
+          white-space: nowrap;
+        }
+        .plan-merged .wl-chain-val {
+          font-size: 15px;
+        }
+        .plan-merged .wl-sparkline,
+        .plan-merged .wl-baseline-compare,
+        .plan-merged .wl-guardrail-detail {
+          display: none;
         }
       }
 
