@@ -115,6 +115,11 @@ def test_projection_never_slower_than_demonstrated_race(seeded_athlete):
 
 def test_bundle_estimate_uses_race_day_sample(seeded_athlete):
     client, upcoming_id = seeded_athlete
+    # Self-heal calibrations FIRST so the readiness call and the bundle call
+    # below both see the same calibrated state — the bundle lazily creates
+    # calibration rows for done races, which would otherwise change the
+    # correction between the two requests.
+    assert client.get("/api/calibration/status").status_code == 200
     readiness = client.get(f"/api/races/{upcoming_id}/readiness")
     assert readiness.status_code == 200
     proj = (readiness.json().get("time_curve") or {}).get("projection") or []

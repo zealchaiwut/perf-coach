@@ -420,6 +420,22 @@
         confEl.innerHTML = '<span class="pm-italic">—</span>';
       }
     }
+    // Applied model correction from real predicted-vs-actual race
+    // calibrations ("model ran 4% pessimistic → estimates corrected −4%").
+    var corrEl = document.getElementById("plan-calib-correction");
+    if (corrEl) {
+      var pct = data && typeof data.correction_pct === "number" ? data.correction_pct : null;
+      var n = (data && data.n_calibrations) || 0;
+      if (pct === null || n === 0) {
+        corrEl.innerHTML = '<span class="pm-italic">No finished races yet</span>';
+      } else if (Math.abs(pct) < 0.05) {
+        corrEl.textContent = "None needed (" + n + " race" + (n === 1 ? "" : "s") + ")";
+      } else {
+        var dirTxt = pct > 0 ? "model ran optimistic" : "model ran pessimistic";
+        corrEl.textContent = (pct > 0 ? "+" : "") + pct + "% — " + dirTxt +
+          " (" + n + " race" + (n === 1 ? "" : "s") + ")";
+      }
+    }
   }
 
   // ── 3. Time-curve SVG (projected finish time) ─────────────────────────────

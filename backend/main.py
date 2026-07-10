@@ -14039,21 +14039,25 @@ def get_calibration_status(user: User = Depends(resolve_user)):
     All values are derived from model constants (CTL_DAYS) and live DB state —
     nothing is hardcoded.
     """
+    from backend.services.race_calibration import (
+        combined_correction as _combined_correction,
+        ensure_calibrations as _ensure_calibrations,
+        load_calibrations as _load_calibrations,
+    )
+
     today = _date.today()
     window_90 = today - _timedelta(days=_CALIB_WINDOW_90)
     window_42 = today - _timedelta(days=_CALIB_WINDOW_42)
 
     with Session(engine) as db:
-        last_race = (
-            db.query(Race)
-            .filter(
-                Race.user_id == user.id,
-                Race.status == "done",
-                Race.actual_time_seconds.isnot(None),
-            )
-            .order_by(Race.updated_at.desc())
-            .first()
-        )
+        # Self-heal first so the card reports REAL calibration rows (created
+        # from predicted-vs-actual on finished races), not just race dates.
+        try:
+            _ensure_calibrations(str(user.id), db)
+        except Exception:
+            _log.warning("ensure_calibrations failed in calibration status", exc_info=True)
+
+        cal_rows = _load_calibrations(str(user.id), db)
 
         count_90 = (
             db.query(TrainingLoadSnapshot)
@@ -14073,22 +14077,22 @@ def get_calibration_status(user: User = Depends(resolve_user)):
             .count()
         )
 
-        # Finished races (real result) within the 90-day window count as
-        # calibration records (issue #1226).
-        race_count_90 = (
-            db.query(Race)
-            .filter(
-                Race.user_id == user.id,
-                Race.status == "done",
-                Race.actual_time_seconds.isnot(None),
-                Race.race_date >= window_90,
-            )
-            .count()
-        )
+        # Real calibration rows within the 90-day window (issue #1226 counted
+        # done races; these are strictly a subset that actually calibrated).
+        race_count_90 = sum(1 for c in cal_rows if c["race_date"] >= window_90)
 
-    return JSONResponse(
-        _compute_calibration_status(last_race, count_90, count_42, race_count_90)
-    )
+    status = _compute_calibration_status(None, count_90, count_42, race_count_90)
+    # "Last recalibrated" now means a REAL predicted-vs-actual calibration row
+    # (the previous version echoed the last done race's updated_at while the
+    # recalibrate function was an unimplemented stub).
+    latest = cal_rows[0] if cal_rows else None
+    status["last_calibration_date"] = latest["race_date"].isoformat() if latest else None
+    status["calibrated"] = latest is not None
+    blend = _combined_correction(cal_rows, None, today=today)
+    status["correction"] = blend["correction"]
+    status["correction_pct"] = round((blend["correction"] - 1.0) * 100.0, 1)
+    status["n_calibrations"] = blend["n"]
+    return JSONResponse(status)
 
 
 # ── Race Checkpoints ──────────────────────────────────────────────────────────
@@ -14655,6 +14659,28 @@ def _race_readiness_impl(
         caps = [eq for rd, eq in _riegel_caps if rd <= sample_date]
         return min(caps) if caps else None
 
+    # Calibration correction — the weighted blend of stored predicted-vs-
+    # actual race corrections (recency + distance-similarity, clamped ±10%;
+    # backend/services/race_calibration.py). Applied to every raw estimate
+    # BEFORE the Riegel floor cap: the correction fixes systematic model
+    # bias, the floor stays the hard demonstrated-result bound. Unlike the
+    # 90-day anchor/floor this never expires.
+    from backend.services.race_calibration import (
+        combined_correction as _combined_correction,
+        load_calibrations as _load_calibrations,
+    )
+
+    _cal_rows = _load_calibrations(str(user.id), db)
+    _cal_blend = _combined_correction(_cal_rows, _tc_distance, today=today)
+    _correction = _cal_blend["correction"]
+
+    def _corrected(seconds: int, sample_date) -> int:
+        seconds = int(round(seconds * _correction))
+        cap = _riegel_cap_for(sample_date)
+        if cap is not None and seconds > cap:
+            seconds = cap
+        return seconds
+
     def _base_ceiling(ctl_value):
         if _race_anchor_ceiling is not None:
             return _race_anchor_ceiling
@@ -14677,10 +14703,7 @@ def _race_readiness_impl(
         _expr = _compute_expressible_score(_base, _row["tsb"], _TIME_CURVE_CEILING_TSB)
         _est = _score_to_estimated_finish_time(_expr, _tc_thresholds, _tc_distance)
         if _est["estimated_finish_seconds"] is not None:
-            _sec = _est["estimated_finish_seconds"]
-            _cap = _riegel_cap_for(_row["date"])
-            if _cap is not None and _sec > _cap:
-                _sec = _cap
+            _sec = _corrected(_est["estimated_finish_seconds"], _row["date"])
             time_curve_history.append({
                 "date": _row["date"].isoformat(),
                 "estimated_finish_seconds": _sec,
@@ -14705,10 +14728,7 @@ def _race_readiness_impl(
                 _est = _score_to_estimated_finish_time(_expr, _tc_thresholds, _tc_distance)
                 if _est["estimated_finish_seconds"] is None:
                     continue
-                _sec = _est["estimated_finish_seconds"]
-                _cap = _riegel_cap_for(_day)
-                if _cap is not None and _sec > _cap:
-                    _sec = _cap
+                _sec = _corrected(_est["estimated_finish_seconds"], _day)
                 # Treat confidence_band_days as a percentage of estimated finish time.
                 # band(7) ≈ 1.3%, band(90) ≈ 4.7% — a realistic uncertainty envelope.
                 _cb_pct = _day_data["confidence_band"]
@@ -14753,6 +14773,10 @@ def _race_readiness_impl(
             # sample above; surfaced so the UI can say why an estimate is
             # anchored. None when no recent finished race exists.
             "riegel_floor_seconds": _riegel_cap_for(today),
+            # Applied calibration correction (weighted blend of predicted-vs-
+            # actual from finished races; 1.0 = no data / perfectly calibrated).
+            "calibration_correction": round(_correction, 4),
+            "calibration_n_races": _cal_blend["n"],
         },
     }
 
@@ -16448,6 +16472,22 @@ def _compute_plan_bundle(user) -> dict:
         )
         today = _date.today()
 
+        # Self-healing calibration: create the predicted-vs-actual row for any
+        # finished race that lacks one. The bundle is the single choke point
+        # every race-mutation path funnels through (its cache signature
+        # includes race updated_at), so no per-endpoint done-transition hooks
+        # are needed — marking a race done from ANY endpoint calibrates on the
+        # next bundle compute. Best-effort: a backcast failure never blocks
+        # the bundle.
+        from backend.services.race_calibration import (
+            ensure_calibrations as _ensure_calibrations,
+            record_prediction as _record_prediction,
+        )
+        try:
+            _ensure_calibrations(str(user.id), session)
+        except Exception:
+            _log.warning("ensure_calibrations failed", exc_info=True)
+
         # Shared per-user 180-day TSS/EWMA series: every upcoming race's
         # get_race_readiness() call would otherwise recompute this identically.
         _warmup_start = today - _timedelta(days=180)
@@ -16511,6 +16551,10 @@ def _compute_plan_bundle(user) -> dict:
                         e = hist[-1].get("estimated_finish_seconds")
                     if e is not None:
                         estimate = {"est": e, "band": band}
+                        # Persist what is being SHOWN — the residual history
+                        # a learned confidence band needs (predictions were
+                        # previously computed and discarded). Best-effort.
+                        _record_prediction(user.id, race.id, e, band, session)
             scores = _plan_race_scores(
                 session, user.id, race, rd, readiness, current_scores, tp
             )
@@ -16526,6 +16570,9 @@ def _compute_plan_bundle(user) -> dict:
             "data_sufficiency": calibration.get("data_sufficiency"),
             "band_confidence": calibration.get("band_confidence"),
             "calibrated": calibration.get("calibrated"),
+            "correction": calibration.get("correction"),
+            "correction_pct": calibration.get("correction_pct"),
+            "n_calibrations": calibration.get("n_calibrations"),
         },
         "projection": {
             "form_curve": projection.get("form_curve"),
