@@ -1109,14 +1109,35 @@
     function pct(cur, tgt) {
       return tgt > 0 ? Math.min(100, Math.round((cur / tgt) * 100)) : 0;
     }
+    // current/target come from the backend in the metric's own unit
+    // (specificity_progress: km, or seconds for the duration row).
+    function fmtDur(sec) {
+      sec = Math.round(sec || 0);
+      var h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+      return h > 0 ? h + "h " + String(m).padStart(2, "0") + "m" : m + "m";
+    }
+    function fmtVal(m) {
+      if (m.unit === "seconds") return fmtDur(m.current) + " / " + fmtDur(m.target);
+      return (Math.round(m.current * 10) / 10) + " / " + (Math.round(m.target * 10) / 10) + " km";
+    }
+    // Goal pace for the explainer copy, when derivable from the primary race.
+    var goalPaceTxt = "";
+    if (_primaryRace && _primaryRace.goal_time_seconds && _primaryRace.distance) {
+      goalPaceTxt = " (" + fmtPace(_primaryRace.goal_time_seconds / parseFloat(_primaryRace.distance)) + ")";
+    }
+
     if (sp.volume_at_pace)
-      rows.push(["Goal-pace volume", pct(sp.volume_at_pace.current, sp.volume_at_pace.target)]);
+      rows.push(["Goal-pace volume", pct(sp.volume_at_pace.current, sp.volume_at_pace.target), fmtVal(sp.volume_at_pace),
+        "km run within ±15 s/km of goal pace" + goalPaceTxt + " · target 60% of race distance"]);
     if (sp.longest_pace_effort)
-      rows.push(["Longest-at-pace", pct(sp.longest_pace_effort.current, sp.longest_pace_effort.target)]);
+      rows.push(["Longest-at-pace", pct(sp.longest_pace_effort.current, sp.longest_pace_effort.target), fmtVal(sp.longest_pace_effort),
+        "longest single run at goal pace" + goalPaceTxt + " ±15 s/km · target 90% of race distance"]);
     if (sp.longest_run_by_distance)
-      rows.push(["Longest run (distance)", pct(sp.longest_run_by_distance.current, sp.longest_run_by_distance.target)]);
+      rows.push(["Longest run (distance)", pct(sp.longest_run_by_distance.current, sp.longest_run_by_distance.target), fmtVal(sp.longest_run_by_distance),
+        "longest single run, any pace · target 90% of race distance"]);
     if (sp.longest_run_by_duration)
-      rows.push(["Longest run (duration)", pct(sp.longest_run_by_duration.current, sp.longest_run_by_duration.target)]);
+      rows.push(["Longest run (duration)", pct(sp.longest_run_by_duration.current, sp.longest_run_by_duration.target), fmtVal(sp.longest_run_by_duration),
+        "longest time on feet, any pace · target 90% of goal time"]);
 
     if (rows.length === 0) {
       host.innerHTML = "";
@@ -1127,11 +1148,14 @@
     host.innerHTML = rows
       .map(function (r) {
         return (
+          '<div class="pm-specitem">' +
           '<div class="pm-specrow">' +
           '<div class="pm-specname">' + esc(r[0]) + "</div>" +
           '<div class="pm-spectrack"><div class="pm-specfill" style="width:' +
           r[1] + '%"></div></div>' +
           '<div class="pm-specpct">' + r[1] + "%</div>" +
+          "</div>" +
+          '<div class="pm-specsub"><span class="pm-specval">' + esc(r[2]) + "</span> · " + esc(r[3]) + "</div>" +
           "</div>"
         );
       })
