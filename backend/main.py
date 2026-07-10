@@ -16659,6 +16659,7 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
             trailing_28d_avg=trailing_28d_avg,
             deload_enabled=rules["deload_enabled"],
             verdict=verdict["verdict"],
+            consolidation_weeks=verdict["weeks_to_converge"],
         )
 
         weeks_out = []
@@ -16822,6 +16823,7 @@ def get_plan_week_load(
             trailing_28d_avg=trailing_28d_avg,
             deload_enabled=rules["deload_enabled"],
             verdict=verdict["verdict"],
+            consolidation_weeks=verdict["weeks_to_converge"],
         )
 
         week_index = ((query_week_start - this_week_start).days // 7) + 1

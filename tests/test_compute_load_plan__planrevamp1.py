@@ -221,21 +221,32 @@ def test_deload_disabled_by_default():
     assert all(not w["deload"] for w in result["weeks"])
 
 
-def test_deload_cuts_every_4th_ramp_or_hold_week_by_30_percent():
+def test_deload_cuts_every_4th_ramp_week_by_30_percent_but_never_hold():
+    # ramp_weeks = build_weeks(16) - hold_weeks(4) = 12, so weeks 4/8/12 are
+    # ramp and week 16 is the LAST hold week — exactly the case that used to
+    # wrongly deload the final peak-hold week right before taper.
     result = compute_load_plan(
         baseline=316, ramp_rate=0.05, hold_weeks=4, taper_weeks=3, weeks_to_race=19,
         deload_enabled=True,
     )
     by_index = {w["week_index"]: w for w in result["weeks"]}
-    for idx in (4, 8, 12, 16):
+    for idx in (4, 8, 12):
         w = by_index[idx]
         assert w["deload"] is True
-        assert w["phase"] in ("ramp", "hold")
+        assert w["phase"] == "ramp"
+
+    # Hold weeks (13-16) are NEVER deloaded, even when week_index % 4 == 0 —
+    # taper immediately follows and already IS the recovery reduction.
     non_deload_uncut = compute_load_plan(
         baseline=316, ramp_rate=0.05, hold_weeks=4, taper_weeks=3, weeks_to_race=19,
     )
     uncut_by_index = {w["week_index"]: w for w in non_deload_uncut["weeks"]}
-    for idx in (4, 8, 12, 16):
+    for idx in (13, 14, 15, 16):
+        assert by_index[idx]["deload"] is False
+        assert by_index[idx]["phase"] == "hold"
+        assert by_index[idx]["target_tss"] == uncut_by_index[idx]["target_tss"]
+
+    for idx in (4, 8, 12):
         expected = uncut_by_index[idx]["target_tss"] * (1 - DELOAD_CUT_FRACTION)
         assert abs(by_index[idx]["target_tss"] - expected) < 0.5
 

@@ -77,14 +77,44 @@ def test_capped_baseline_feeds_the_ramp_math():
 
 # ── B.4: verdict consolidation block ─────────────────────────────────────────
 
-def test_hold_verdict_flatlines_ramp_and_hold_weeks_at_baseline():
+def test_hold_verdict_with_no_horizon_flatlines_only_the_current_week():
+    """A verdict is a snapshot of TODAY, not a multi-month forecast — with
+    no consolidation_weeks given, only week 1 flattens; the ramp resumes
+    week 2 onward. (2026-07 fix: this used to flatline the ENTIRE ramp+hold
+    phase off a single day's verdict, contradicting the verdict's own
+    weeks_to_converge estimate shown right next to it in the UI.)"""
     result = compute_load_plan(
         baseline=300, ramp_rate=0.05, hold_weeks=4, taper_weeks=3, weeks_to_race=19,
         verdict="hold",
     )
-    ramp_hold_weeks = [w for w in result["weeks"] if w["week_index"] <= result["build_weeks"]]
-    assert all(w["phase"] == "consolidation" for w in ramp_hold_weeks)
-    assert all(w["target_tss"] == pytest.approx(result["baseline"], abs=0.1) for w in ramp_hold_weeks)
+    week1 = result["weeks"][0]
+    assert week1["phase"] == "consolidation"
+    assert week1["target_tss"] == pytest.approx(result["baseline"], abs=0.1)
+    later_weeks = [w for w in result["weeks"] if 2 <= w["week_index"] <= result["build_weeks"]]
+    assert all(w["phase"] != "consolidation" for w in later_weeks)
+
+
+def test_hold_verdict_with_consolidation_weeks_flattens_only_that_horizon():
+    result = compute_load_plan(
+        baseline=300, ramp_rate=0.05, hold_weeks=4, taper_weeks=3, weeks_to_race=19,
+        verdict="hold", consolidation_weeks=3,
+    )
+    consolidated = [w for w in result["weeks"] if w["week_index"] <= 3]
+    resumed = [w for w in result["weeks"] if 4 <= w["week_index"] <= result["build_weeks"]]
+    assert all(w["phase"] == "consolidation" for w in consolidated)
+    assert all(w["target_tss"] == pytest.approx(result["baseline"], abs=0.1) for w in consolidated)
+    assert all(w["phase"] != "consolidation" for w in resumed)
+    # Week 4 resumes the normal ramp formula at its OWN index (not shifted).
+    week4 = next(w for w in result["weeks"] if w["week_index"] == 4)
+    assert week4["target_tss"] == pytest.approx(300 * 1.05 ** 4, abs=0.5)
+
+
+def test_hold_verdict_consolidation_weeks_zero_still_flattens_current_week():
+    result = compute_load_plan(
+        baseline=300, ramp_rate=0.05, hold_weeks=4, taper_weeks=3, weeks_to_race=19,
+        verdict="hold", consolidation_weeks=0,
+    )
+    assert result["weeks"][0]["phase"] == "consolidation"
 
 
 def test_back_off_verdict_targets_90_percent_of_baseline():

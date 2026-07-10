@@ -609,13 +609,13 @@ information about.
     body.hidden = false;
 
     var d = _wlData;
-    _setText('wl-target-val', Math.round(d.target_tss));
+    _setText('wl-target-val', '/' + Math.round(d.target_tss));
 
-    var pill = document.getElementById('wl-state-pill');
-    if (pill) {
-      pill.className = 'wl-state-pill' + (d.state ? ' ' + d.state : '');
-      pill.textContent = d.state === 'on_track' ? 'On track' : d.state === 'under' ? 'Under' :
-        d.state === 'over' ? 'Over' : '—';
+    var projEl = document.getElementById('wl-target-projected');
+    if (projEl) {
+      var projVerdictCls = (d.verdict === 'hold' || d.verdict === 'back_off') ? d.verdict : '';
+      projEl.className = 'wl-target-projected' + (projVerdictCls ? ' ' + projVerdictCls : '');
+      projEl.textContent = d.projected_tss != null ? Math.round(d.projected_tss) : '';
     }
 
     // Deterministic verdict (backend/services/training_verdict.py) — never
@@ -640,16 +640,6 @@ information about.
       } else {
         verdictRow.hidden = true;
       }
-    }
-
-    var lower = Math.round(d.target_tss * 0.95), upper = Math.round(d.target_tss * 1.05);
-    var diff = Math.round(d.projected_tss - d.target_tss);
-    var diffStr = (diff > 0 ? '+' : '') + diff;
-    var inOut = (d.projected_tss >= lower && d.projected_tss <= upper) ? 'inside' : 'outside';
-    var line = document.getElementById('wl-projected-line');
-    if (line) {
-      line.innerHTML = 'projected <b>' + Math.round(d.projected_tss) + '</b> &middot; ' + esc(diffStr) +
-        ' ' + inOut + ' &plusmn;5% band (' + lower + '&ndash;' + upper + ')';
     }
 
     var baselineEl = document.getElementById('wl-baseline-val');
