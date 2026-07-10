@@ -183,6 +183,45 @@ def test_implausible_fast_laps_are_sensor_garbage_and_ignored():
     assert res["score"] < 90
 
 
+def test_manual_laps_take_precedence_over_diluted_auto_splits():
+    """Stryd lap-button reps are the speed effort's first-preference source:
+    a 2-min rep at ~4:30/km is invisible inside a 1 km auto-split (diluted
+    to ~6:15/km by the recovery jog), but when the athlete marked reps, the
+    reps ARE the demonstration — seen live: recovering the operator's
+    manual laps lifted Speed from 33.7 to 52.6."""
+    diluted = {
+        "run_id": "reps",
+        "workout_date": (date.today() - timedelta(days=3)).isoformat(),
+        # Auto-split view: diluted, classifies steady — would never qualify.
+        "laps": [{"band": "steady", "distance_km": 1.0, "duration_seconds": 375, "avg_hr": 150}],
+        # Lap-button view: six ~2-min reps at ~4:30/km, classified hard.
+        "manual_laps": [
+            {"band": "hard", "distance_km": 0.43, "duration_seconds": 118, "avg_hr": 150}
+            for _ in range(6)
+        ],
+    }
+    baseline = [_interval_run(f"b{i}", 5 + i, 320) for i in range(3)]
+    res = _score(baseline + [diluted])
+    perf = res["debug"]["perRunEfficiency"].get("reps")
+    assert perf is not None, "manual laps must produce a speed point"
+    # And it must reflect the REP pace (~274 s/km), i.e. score above the
+    # slower 320 s/km baselines.
+    baseline_perfs = [res["debug"]["perRunEfficiency"][f"b{i}"] for i in range(3)]
+    assert perf > max(baseline_perfs)
+
+
+def test_manual_laps_respect_plausibility_filter():
+    garbage = {
+        "run_id": "junk",
+        "workout_date": (date.today() - timedelta(days=3)).isoformat(),
+        "laps": [],
+        "manual_laps": [{"band": "hard", "distance_km": 1.0, "duration_seconds": 80, "avg_hr": 160}],
+    }
+    baseline = [_interval_run(f"b{i}", 5 + i, 300) for i in range(3)]
+    res = _score(baseline + [garbage])
+    assert "junk" not in res["debug"]["perRunEfficiency"]
+
+
 def test_legacy_date_contributions_still_present():
     # Back-compat: the date-keyed map is still returned (other consumers /
     # older clients), even though badges now use run_contributions.

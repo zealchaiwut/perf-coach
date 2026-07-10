@@ -5615,6 +5615,51 @@ _RUN_SUBTYPE_VALUES = {"interval", "longrun", "easy", "tempo"}
 _FEELING_VALUES = frozenset({"hard", "ok", "easy"})
 
 
+def _classified_manual_laps_map(session, run_workouts, prefs_dict) -> dict:
+    """{workout_id: [classified manual-lap dicts]} for workouts whose Stryd
+    activity carries lap-button laps (stryd_activities.manual_laps). Short
+    reps are invisible inside 1 km auto-splits — a 2-min rep at 4:30/km
+    dilutes to a ~6:15/km split — so the speed score prefers these when the
+    athlete marked reps (running_performance._speed_effort_pace_duration
+    precedence 0). Bands come from the SAME classify_laps as auto-splits."""
+    from types import SimpleNamespace
+    from backend.services.lap_classify import classify_laps as _cl
+
+    pks = {wk.stryd_activity_pk for wk in run_workouts if getattr(wk, "stryd_activity_pk", None)}
+    if not pks:
+        return {}
+    rows = (
+        session.query(StrydActivity.id, StrydActivity.manual_laps)
+        .filter(StrydActivity.id.in_(pks))
+        .all()
+    )
+    by_pk = {rid: ml for rid, ml in rows if ml}
+    out: dict = {}
+    for wk in run_workouts:
+        ml = by_pk.get(getattr(wk, "stryd_activity_pk", None))
+        if not ml:
+            continue
+        shims = [
+            SimpleNamespace(
+                avg_power=l.get("avg_power"), avg_hr=l.get("avg_hr"),
+                duration_seconds=l.get("duration_seconds"),
+                distance_km=l.get("distance_km"),
+            )
+            for l in ml
+        ]
+        out[wk.id] = [
+            {
+                "band": c.get("band"),
+                "avg_power": l.get("avg_power"),
+                "avg_hr": l.get("avg_hr"),
+                "distance_km": float(l["distance_km"]) if l.get("distance_km") is not None else None,
+                "duration_seconds": l.get("duration_seconds"),
+            }
+            for l, c in zip(ml, _cl(shims, prefs_dict or {}))
+        ]
+    return out
+
+
 def _workout_signal_scores(session, workout) -> dict:
     """Per-session endurance/speed scores for the signal card.
 
@@ -5663,7 +5708,7 @@ def _workout_signal_scores(session, workout) -> dict:
             Workout.workout_type, Workout.duration_seconds, Workout.distance_km,
             Workout.tss, Workout.avg_hr, Workout.avg_power, Workout.name,
             Workout.speed_signal, Workout.speed_signal_basis,
-            Workout.speed_signal_window_seconds,
+            Workout.speed_signal_window_seconds, Workout.stryd_activity_pk,
         ))
         .filter(
             Workout.user_id == workout.user_id,
@@ -5690,6 +5735,8 @@ def _workout_signal_scores(session, workout) -> dict:
             .all()
         ):
             splits_by_wk.setdefault(s.workout_id, []).append(s)
+
+    _ml_map = _classified_manual_laps_map(session, run_workouts, prefs_dict)
 
     def _build(max_date):
         runs = []
@@ -5747,6 +5794,7 @@ def _workout_signal_scores(session, workout) -> dict:
                     "speed_signal": wk.speed_signal,
                     "speed_signal_basis": wk.speed_signal_basis,
                     "speed_signal_window_seconds": wk.speed_signal_window_seconds,
+                    "manual_laps": _ml_map.get(wk.id, []),
                     "ftp_w": (prefs_dict or {}).get("ftp_w"),
                 }
             )
@@ -5833,7 +5881,7 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
             Workout.workout_type, Workout.duration_seconds, Workout.distance_km,
             Workout.tss, Workout.avg_hr, Workout.avg_power, Workout.name,
             Workout.speed_signal, Workout.speed_signal_basis,
-            Workout.speed_signal_window_seconds,
+            Workout.speed_signal_window_seconds, Workout.stryd_activity_pk,
         ))
         .filter(
             Workout.user_id == user_id,
@@ -5860,6 +5908,8 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
             .all()
         ):
             splits_by_wk.setdefault(s.workout_id, []).append(s)
+
+    _ml_map_asof = _classified_manual_laps_map(session, run_workouts, prefs_dict)
 
     runs = []
     for wk in run_workouts:
@@ -5914,6 +5964,7 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
                 "speed_signal": wk.speed_signal,
                 "speed_signal_basis": wk.speed_signal_basis,
                 "speed_signal_window_seconds": wk.speed_signal_window_seconds,
+                "manual_laps": _ml_map_asof.get(wk.id, []),
                 "ftp_w": (prefs_dict or {}).get("ftp_w"),
             }
         )
@@ -15565,6 +15616,7 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
             )
 
             prefs_dict = preferences or {}
+            _ml_map_perf = _classified_manual_laps_map(session, run_workouts, prefs_dict)
 
             runs = []
             for workout in run_workouts:
@@ -15630,6 +15682,9 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
                     "speed_signal": workout.speed_signal,
                     "speed_signal_basis": workout.speed_signal_basis,
                     "speed_signal_window_seconds": workout.speed_signal_window_seconds,
+                    # Stryd lap-button reps — precedence 0 in the speed-effort
+                    # extraction (short reps are invisible in 1 km auto-splits).
+                    "manual_laps": _ml_map_perf.get(workout.id, []),
                     "ftp_w": (prefs_dict or {}).get("ftp_w"),
                 })
 
@@ -15887,7 +15942,9 @@ def _performance_signature(session, user_id, prefs_row) -> str:
     # v8 = implausible-lap filter (pace < 150 s/km = sensor garbage).
     # v9 = score-change breakdown block (decay/efforts/consistency + anchors).
     # v10 = breakdown carries race_floor_now always + floor_binding flag.
-    _FORMULA_VERSION = "vdot-v10"
+    # v11 = Stryd lap-button reps (manual_laps) are the speed effort's
+    #       first-preference source — short reps no longer invisible.
+    _FORMULA_VERSION = "vdot-v11"
     base = _summary_signature(session, user_id)
     race_row = (
         session.query(func.max(Race.updated_at), func.count(Race.id))
@@ -16038,6 +16095,7 @@ def get_athlete_weekly_summary(
 
         prefs_dict = preferences or {}
         zone_constants = make_zone_constants()
+        _ml_map_weekly = _classified_manual_laps_map(session, run_workouts, prefs_dict)
 
         try:
             compute_decoupling = _compute_decoupling
@@ -16102,6 +16160,7 @@ def get_athlete_weekly_summary(
                     "distance_km": float(workout.distance_km) if workout.distance_km is not None else None,
                     "duration_seconds": workout.duration_seconds,
                     "speed_signal": workout.speed_signal,
+                    "manual_laps": _ml_map_weekly.get(workout.id, []),
                 })
             return runs
 

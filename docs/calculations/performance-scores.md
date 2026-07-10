@@ -63,6 +63,23 @@ disagree with the card or Home widget.
 **Color note:** `#ea580c` fails 4.5:1 AA against white; the Speed card
 uses `#c2410c` (`--perf-speed`).
 
+## Speed effort source precedence (CURRENT, 2026-07-10)
+
+`_speed_effort_pace_duration` resolves each run's speed demonstration as:
+
+0. **Stryd lap-button reps** (`stryd_activities.manual_laps`, attached to
+   the run as classified `manual_laps`) — short reps are invisible inside
+   1 km auto-splits (a 2-min rep at 4:30/km dilutes to ~6:15/km), so when
+   the athlete marked reps, those are the demonstration. Backfill for
+   pre-#1295 activities: `scripts/backfill_stryd_manual_laps.py`.
+1. Qualifying hard/interval auto-split laps.
+2. The persisted `speed_signal` fallback — power basis guarded (window
+   ≥ 120 s, converted pace clamped to the fastest REAL lap; an uphill
+   power surge demonstrates no flat speed).
+
+All sources pass the plausibility filter
+(`_MIN_PLAUSIBLE_PACE_S_PER_KM = 150`; faster laps are sensor garbage).
+
 ## Per-session deltas — one source (CURRENT, 2026-07-10)
 
 `_aggregate_and_shape` returns **`run_contributions`**: per-run marginal

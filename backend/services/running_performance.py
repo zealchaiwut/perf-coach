@@ -699,6 +699,8 @@ def _speed_effort_pace_duration(run: dict, bands: list[str], threshold_pace) -> 
     """Resolve the best hard-effort (pace_s_per_km, duration_s) for a run.
 
     Precedence:
+      0. Qualifying MANUAL laps (Stryd lap-button reps) → their real pace +
+         total duration — reps are invisible inside 1 km auto-splits.
       1. Qualifying hard/interval laps present → their real pace + total duration.
       2. Else a persisted ``speed_signal`` (the real reps live in the Stryd
          streams, not the 1 km auto-splits):
@@ -714,6 +716,16 @@ def _speed_effort_pace_duration(run: dict, bands: list[str], threshold_pace) -> 
        Effort duration = ``speed_signal_window_seconds`` when present, else a
        nominal 5 min (a typical hard-effort window).
     """
+    # MANUAL laps first (Stryd lap-button reps, run["manual_laps"], already
+    # band-classified by the caller): short reps are invisible inside 1 km
+    # auto-splits — a 2-min rep at 4:30/km dilutes to a ~6:15/km split and
+    # never classifies hard. When the athlete marked reps, those ARE the
+    # speed demonstration; sum the qualifying ones (same plausibility filter).
+    manual = _qualifying_laps(run.get("manual_laps") or [], bands)
+    m_pace, m_dur = _lap_pace_and_duration(manual)
+    if m_pace is not None and m_dur and m_dur > 0:
+        return m_pace, m_dur
+
     laps = _qualifying_laps(run.get("laps") or [], bands)
     lap_pace, lap_dur = _lap_pace_and_duration(laps)
     if lap_pace is not None and lap_dur and lap_dur > 0:
