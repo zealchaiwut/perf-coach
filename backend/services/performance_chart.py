@@ -71,6 +71,7 @@ def compute_performance_chart(
     start_date: str,
     end_date: str,
     body_modifier: float = 1.0,
+    snapshot_series: list[dict] | None = None,
 ) -> dict:
     """Compute aligned CTL/ATL/TSB/endurance/speed time series for a date range.
 
@@ -81,9 +82,23 @@ def compute_performance_chart(
     daily_load_series:
         Output of ``backend.services.daily_load.daily_load_series()``.
         Should span from at least MIN_HISTORY_DAYS before ``start_date``
-        through ``end_date`` so the fitness EWMA has time to warm up.
+        through ``end_date`` so the fitness EWMA has time to warm up. Used
+        for the endurance/speed score plumbing regardless; also the CTL/
+        ATL/TSB source when ``snapshot_series`` is not supplied.
         Each dict must have ``date`` (ISO-8601 string) and ``daily_load``
         (numeric).
+
+    snapshot_series:
+        Optional pre-computed CTL/ATL/TSB series — a list of dicts each with
+        ``date`` (a date object or ISO string), ``ctl``, ``atl``, ``tsb``
+        keys, typically the output of
+        ``training_load.get_snapshot_series()``. When supplied, this is the
+        SOLE source of the chart's CTL/ATL/TSB (the single source of truth
+        every other consumer reads — see docs/calculations/training-load.md)
+        and ``fitness_model.compute_fitness_series`` is not called at all.
+        Endurance/speed score computation is unaffected either way. Omit
+        (None) only for direct unit tests of this pure function against a
+        synthetic ``daily_load_series`` — the live endpoint always passes it.
 
     runs:
         List of run dicts ordered chronologically, each with:
@@ -124,11 +139,25 @@ def compute_performance_chart(
     except (ValueError, TypeError):
         return _empty("invalid_date_range")
 
-    # Filter full daily_load_series through fitness model
-    fitness_result = compute_fitness_series(daily_load_series)
-    fitness_by_date: dict[str, dict] = {
-        row["date"]: row for row in fitness_result.get("days", [])
-    }
+    # CTL/ATL/TSB source: snapshot_series (the single source of truth) when
+    # supplied by the caller, else fall back to the standalone fitness model
+    # for direct unit tests of this pure function against a synthetic
+    # daily_load_series. See the snapshot_series parameter docstring above.
+    if snapshot_series is not None:
+        fitness_by_date: dict[str, dict] = {
+            str(row["date"]): row for row in snapshot_series
+        }
+        fitness_days_count = len(snapshot_series)
+        fitness_building_baseline = fitness_days_count < MIN_HISTORY_DAYS
+    else:
+        fitness_result = compute_fitness_series(daily_load_series)
+        fitness_by_date = {
+            row["date"]: row for row in fitness_result.get("days", [])
+        }
+        fitness_days_count = len(fitness_result.get("days", []))
+        fitness_building_baseline = (
+            fitness_result.get("building_baseline", True) or fitness_days_count < MIN_HISTORY_DAYS
+        )
 
     # Build the date spine for the requested range
     dates: list[str] = []
@@ -161,14 +190,12 @@ def compute_performance_chart(
     #   (b) the load series contains no non-zero load (brand-new athlete).
     # Endurance/speed score availability does NOT affect this flag — the Fitness
     # Fatigue Form chart (CTL/ATL/TSB) can render independently of scoring readiness.
-    n_history = len(fitness_result.get("days", []))
-    fitness_model_baseline = fitness_result.get("building_baseline", True) or n_history < MIN_HISTORY_DAYS
     has_any_load = any(
         float(row.get("daily_load") or 0) > 0
         for row in (daily_load_series or [])
         if isinstance(row, dict)
     )
-    building_baseline = fitness_model_baseline or not has_any_load
+    building_baseline = fitness_building_baseline or not has_any_load
 
     # Filter runs to the requested date range
     range_runs = [

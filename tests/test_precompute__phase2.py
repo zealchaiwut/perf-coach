@@ -17,7 +17,7 @@ from backend.services import training_load
 
 
 def _stub_du(*_a, **_k):
-    return {"date": date.today(), "tss": 0, "ctl": 1.0, "atl": 2.0, "tsb": -1.0}
+    return {"date": date.today(), "tss": 0, "ctl": 1.0, "atl": 2.0, "tsb": -1.0, "acwr": None}
 
 
 # ── precompute_user orchestration ────────────────────────────────────────────
@@ -106,7 +106,10 @@ def test_current_load_flag_on_reads_snapshot(monkeypatch):
     monkeypatch.setenv("LOAD_READ_FROM_SNAPSHOT", "1")
     uid = "08af003e-bf5f-4e96-b90f-711af7485fb6"
     today = date.today()
-    snap = MagicMock(snapshot_date=today, ctl=10.0, atl=5.0, tsb=5.0)
+    snap = MagicMock(
+        snapshot_date=today, ctl=10.0, atl=5.0, tsb=5.0, acwr=1.2,
+        formula_version=training_load._FORMULA_VERSION,
+    )
     sess = MagicMock()
     sess.__enter__ = lambda s: sess
     sess.__exit__ = MagicMock(return_value=False)

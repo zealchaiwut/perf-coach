@@ -807,6 +807,12 @@ class UserPreferences(Base):
 
 
 class TrainingLoadSnapshot(Base):
+    """The sole persisted CTL/ATL/TSB/ACWR record for a user+date — see
+    backend/services/training_load.py's daily_update()/get_snapshot_series()
+    and docs/calculations/training-load.md. No other code path may compute
+    and independently render these metrics; every consumer reads this row
+    (computing it on a cache miss/stale formula_version, then storing it)."""
+
     __tablename__ = "training_load_snapshots"
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
@@ -816,6 +822,17 @@ class TrainingLoadSnapshot(Base):
     ctl = Column(Float, nullable=False)
     atl = Column(Float, nullable=False)
     tsb = Column(Float, nullable=False)
+    # Acute:Chronic Workload Ratio, from acwr.compute_acwr() over the 35-day
+    # window ending this date. Nullable — None when there isn't enough
+    # trailing history yet (acwr.py's own _MIN_DAYS guard), same convention
+    # every other ACWR consumer already follows.
+    acwr = Column(Float, nullable=True)
+    # Stamps which formula/constants produced this row (mirrors the
+    # tss_method stamping pattern on Workout) — a row whose formula_version
+    # doesn't match training_load._FORMULA_VERSION is treated as a cache
+    # miss and recomputed, so a change to the EWMA/ACWR math can never
+    # silently keep serving stale-shape rows forever.
+    formula_version = Column(Text, nullable=True)
     computed_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
     __table_args__ = (

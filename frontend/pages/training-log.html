@@ -4387,6 +4387,10 @@
               </div>
               <span class="wl-state-pill" id="wl-state-pill">—</span>
             </div>
+            <div class="wl-verdict-row" id="wl-verdict-row" hidden>
+              <span class="wl-verdict-pill" id="wl-verdict-pill">—</span>
+              <span class="wl-verdict-reason" id="wl-verdict-reason"></span>
+            </div>
             <div class="wl-projected-line" id="wl-projected-line"></div>
 
             <div class="wl-chain">
@@ -5589,6 +5593,16 @@
       .plan-merged .lp-bar.target.phase-race .lp-bar-value {
         color: var(--pm-red);
       }
+      /* Consolidation block (training_verdict "hold"/"back_off") — a flat
+         grey band, deliberately unlike the ramp/hold/taper colors, so a
+         verdict-driven pause reads as distinct from a normal plan phase. */
+      .plan-merged .lp-bar.target.phase-consolidation {
+        border-color: var(--pm-muted);
+        background: var(--pm-tile);
+      }
+      .plan-merged .lp-bar.target.phase-consolidation .lp-bar-value {
+        color: var(--pm-muted);
+      }
       /* ACWR-clamped week: visibly pinned via an amber top edge, regardless
          of phase color, so "why isn't my ramp doing anything" is legible. */
       .plan-merged .lp-bar.is-clamped {
@@ -5762,6 +5776,39 @@
         background: var(--pm-redSoft);
         color: var(--pm-red);
       }
+      .plan-merged .wl-verdict-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .plan-merged .wl-verdict-pill {
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        padding: 4px 10px;
+        border-radius: 999px;
+        flex-shrink: 0;
+        background: var(--pm-tile);
+        color: var(--pm-muted);
+      }
+      .plan-merged .wl-verdict-pill.hold {
+        background: var(--pm-amberSoft);
+        color: var(--pm-amber);
+      }
+      .plan-merged .wl-verdict-pill.back_off {
+        background: var(--pm-redSoft);
+        color: var(--pm-red);
+      }
+      .plan-merged .wl-verdict-pill.build {
+        background: var(--pm-greenSoft);
+        color: var(--pm-green);
+      }
+      .plan-merged .wl-verdict-reason {
+        font-size: 12px;
+        color: var(--pm-muted);
+      }
       .plan-merged .wl-projected-line {
         font-size: 12.5px;
         color: var(--pm-muted);
@@ -5818,6 +5865,13 @@
       }
       .plan-merged .wl-target-cell .wl-chain-val {
         color: var(--pm-blue);
+      }
+      .plan-merged .wl-baseline-capped {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--pm-amber);
+        cursor: help;
+        margin-left: 2px;
       }
       .plan-merged .wl-sparkline {
         display: flex;

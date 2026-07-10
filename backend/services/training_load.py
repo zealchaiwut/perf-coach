@@ -33,12 +33,28 @@ from sqlalchemy.orm import Session
 
 from backend.db import engine
 from backend.models import TrainingLoadSnapshot, UserPreferences, Workout
+from backend.services.acwr import compute_acwr
 
 # ── EWMA time constants ───────────────────────────────────────────────────────
 # Chronic Training Load time constant (days).  The standard Banister value.
 CTL_DAYS: int = 42
 # Acute Training Load time constant (days).  Must be less than CTL_DAYS.
 ATL_DAYS: int = 7
+
+# ── Single source of truth ────────────────────────────────────────────────────
+# training_load_snapshots is the SOLE persisted CTL/ATL/TSB/ACWR record.
+# daily_update() is the sole writer; current_load()/get_snapshot_series() are
+# the sole read paths every consumer (readiness, the fitness/fatigue/form
+# chart, the weekly coach report, monthly summary, Plan-tab targets) must go
+# through. Bumped whenever the EWMA/ACWR math or seeding changes — a stored
+# row whose formula_version doesn't match is treated as a cache miss and
+# recomputed, so a formula change can't silently keep serving stale rows.
+# See docs/calculations/training-load.md.
+_FORMULA_VERSION: str = "2026-07-10.1"
+
+# Window length (days) for the ACWR figure stored on each snapshot — matches
+# acwr.compute_acwr's own acute(7d)+chronic(4x7d prior) requirement.
+_ACWR_WINDOW_DAYS: int = 35
 
 
 def resolve_user_ewma_days(user_id: str) -> tuple[int, int]:
@@ -110,6 +126,16 @@ def _load_read_from_snapshot() -> bool:
 def _ewma_alpha(days: int) -> float:
     """Exponential weighted moving average alpha factor."""
     return 1 - math.exp(-1 / days)
+
+
+def _acwr_ratio_for_window(tss_tail: list) -> Optional[float]:
+    """ACWR for the day the window ends on — tss_tail must be the last
+    _ACWR_WINDOW_DAYS daily TSS values (oldest first, ending on that day).
+    None when there isn't enough history (mirrors acwr.py's own guard) or
+    chronic load is zero. Always the SAME acwr.compute_acwr formula every
+    other ACWR consumer (guardrail.py, plan_suggestions.py) already uses —
+    never reimplemented here."""
+    return compute_acwr(tss_tail).get("ratio")
 
 
 def daily_tss_series(
@@ -203,12 +229,18 @@ def current_load(
     user_id: str,
     as_of: Optional[date] = None,
 ) -> dict:
-    """Return CTL, ATL, TSB as of a given date (default: today).
+    """Return CTL, ATL, TSB, ACWR as of a given date (default: today) — THE
+    single source of truth every consumer (readiness, the fitness/fatigue/
+    form chart, the weekly coach report, monthly summary, Plan-tab targets)
+    must call instead of recomputing independently. See
+    docs/calculations/training-load.md.
 
-    Reads today's row from training_load_snapshots when present and fresh
-    (snapshot_date == end date) to avoid a 180-day recompute on the hot path.
-    Falls back to the live recompute when the snapshot is missing or stale,
-    and upserts the result via daily_update() so the next call hits the cache.
+    Reads today's row from training_load_snapshots when present, fresh
+    (snapshot_date == end date), AND stamped with the current
+    _FORMULA_VERSION, to avoid a 180-day recompute on the hot path. Falls
+    back to the live recompute when the snapshot is missing, stale, or from
+    a prior formula version, and upserts the result via daily_update() so
+    the next call hits the cache.
 
     The snapshot cache doesn't record which ctl_days/atl_days it was computed
     with, so a user with a custom calibration (UserPreferences.ctl_days /
@@ -221,7 +253,7 @@ def current_load(
         as_of: restrict series to this date (default: today).
 
     Returns:
-        dict with keys date, ctl, atl, tsb for the last day of the series.
+        dict with keys date, ctl, atl, tsb, acwr for the last day of the series.
     """
     end = as_of if as_of is not None else date.today()
 
@@ -239,12 +271,13 @@ def current_load(
                 )
                 .first()
             )
-            if snap is not None:
+            if snap is not None and snap.formula_version == _FORMULA_VERSION:
                 return {
                     "date": snap.snapshot_date,
                     "ctl": snap.ctl,
                     "atl": snap.atl,
                     "tsb": snap.tsb,
+                    "acwr": snap.acwr,
                 }
 
     computed = daily_update(user_id, target_date=end, ctl_days=ctl_days, atl_days=atl_days)
@@ -253,6 +286,7 @@ def current_load(
         "ctl": computed["ctl"],
         "atl": computed["atl"],
         "tsb": computed["tsb"],
+        "acwr": computed["acwr"],
     }
 
 
@@ -281,7 +315,7 @@ def daily_update(
         atl_days: EWMA time constant for ATL (default: user's calibration, or ATL_DAYS).
 
     Returns:
-        dict with keys: date, tss, ctl, atl, tsb.
+        dict with keys: date, tss, ctl, atl, tsb, acwr.
     """
     target = target_date if target_date is not None else date.today()
     if ctl_days is None or atl_days is None:
@@ -294,6 +328,9 @@ def daily_update(
     series = daily_tss_series(user_id, start, target)
     curves = compute_load_curves(series, ctl_days=ctl_days, atl_days=atl_days)
     last = curves[-1]
+    # series already spans [target-180, target]; reuse its tail instead of a
+    # second DB query for the ACWR window.
+    acwr = _acwr_ratio_for_window([tss for _, tss in series[-_ACWR_WINDOW_DAYS:]])
 
     if uses_custom_calibration:
         return {
@@ -302,6 +339,7 @@ def daily_update(
             "ctl": round(last["ctl"], 2),
             "atl": round(last["atl"], 2),
             "tsb": round(last["tsb"], 2),
+            "acwr": acwr,
         }
 
     uid = _uuid_mod.UUID(str(user_id))
@@ -312,6 +350,8 @@ def daily_update(
         "ctl": round(last["ctl"], 2),
         "atl": round(last["atl"], 2),
         "tsb": round(last["tsb"], 2),
+        "acwr": acwr,
+        "formula_version": _FORMULA_VERSION,
     }
 
     stmt = _pg_insert(TrainingLoadSnapshot).values([row])
@@ -322,6 +362,8 @@ def daily_update(
             "ctl": stmt.excluded.ctl,
             "atl": stmt.excluded.atl,
             "tsb": stmt.excluded.tsb,
+            "acwr": stmt.excluded.acwr,
+            "formula_version": stmt.excluded.formula_version,
             "computed_at": datetime.now(tz=timezone.utc),
         },
     )
@@ -335,7 +377,134 @@ def daily_update(
         "ctl": row["ctl"],
         "atl": row["atl"],
         "tsb": row["tsb"],
+        "acwr": row["acwr"],
     }
+
+
+def get_snapshot_series(
+    user_id: str,
+    from_date: date,
+    to_date: date,
+    ctl_days: Optional[int] = None,
+    atl_days: Optional[int] = None,
+) -> list[dict]:
+    """Range read-through-cache — the single source of truth for any
+    consumer that needs CTL/ATL/TSB/ACWR across multiple days (the fitness/
+    fatigue/form chart, readiness's trend series, monthly summary), instead
+    of an independent recompute per consumer. Every day in [from_date,
+    to_date] is guaranteed a snapshot on return (fresh cache rows reused;
+    missing or stale-formula-version days computed and upserted in ONE
+    batch, not N individual daily_update() calls).
+
+    ctl_days/atl_days default to the user's saved calibration
+    (resolve_user_ewma_days), same as current_load(). A custom calibration
+    never reads or writes the cache — matches current_load()'s own rule —
+    so the whole range is computed live in that case.
+
+    Returns:
+        list of dicts (ascending by date), each with keys: date, tss, ctl,
+        atl, tsb, acwr. acwr is None for early days without enough trailing
+        history (see acwr.py's _MIN_DAYS guard).
+    """
+    if from_date > to_date:
+        raise ValueError(f"from_date {from_date} must not be after to_date {to_date}")
+
+    if ctl_days is None or atl_days is None:
+        default_ctl, default_atl = resolve_user_ewma_days(user_id)
+        ctl_days = ctl_days if ctl_days is not None else default_ctl
+        atl_days = atl_days if atl_days is not None else default_atl
+    uses_custom_calibration = ctl_days != CTL_DAYS or atl_days != ATL_DAYS
+
+    all_dates = [from_date + timedelta(days=i) for i in range((to_date - from_date).days + 1)]
+
+    def _compute_range():
+        # One 180-day-warmup pass covers the whole range; one extra
+        # _ACWR_WINDOW_DAYS-1 days of lookback so the FIRST requested day
+        # also gets a real ACWR window, not just days _ACWR_WINDOW_DAYS+
+        # after from_date.
+        warmup_start = from_date - timedelta(days=180)
+        acwr_lookback_start = from_date - timedelta(days=_ACWR_WINDOW_DAYS - 1)
+        series_start = min(warmup_start, acwr_lookback_start)
+        series = daily_tss_series(user_id, series_start, to_date)
+        curves = compute_load_curves(series, ctl_days=ctl_days, atl_days=atl_days)
+        curve_by_date = {c["date"]: c for c in curves}
+        tss_by_date = {d: t for d, t in series}
+        out = []
+        for d in all_dates:
+            c = curve_by_date.get(d)
+            if c is None:
+                continue
+            window = [
+                tss_by_date.get(d - timedelta(days=_ACWR_WINDOW_DAYS - 1 - i), 0)
+                for i in range(_ACWR_WINDOW_DAYS)
+            ]
+            out.append({
+                "date": d, "tss": c["tss"], "ctl": c["ctl"], "atl": c["atl"],
+                "tsb": c["tsb"], "acwr": _acwr_ratio_for_window(window),
+            })
+        return out
+
+    if uses_custom_calibration or not _load_read_from_snapshot():
+        return _compute_range()
+
+    uid = _uuid_mod.UUID(str(user_id))
+    with Session(engine) as session:
+        existing = {
+            s.snapshot_date: s
+            for s in session.query(TrainingLoadSnapshot).filter(
+                TrainingLoadSnapshot.user_id == uid,
+                TrainingLoadSnapshot.snapshot_date >= from_date,
+                TrainingLoadSnapshot.snapshot_date <= to_date,
+            ).all()
+        }
+
+    stale_or_missing = {
+        d for d in all_dates
+        if d not in existing or existing[d].formula_version != _FORMULA_VERSION
+    }
+
+    computed_by_date: dict = {}
+    if stale_or_missing:
+        rows = []
+        for c in _compute_range():
+            if c["date"] not in stale_or_missing:
+                continue
+            row = {
+                "user_id": uid, "snapshot_date": c["date"], "tss_for_day": c["tss"],
+                "ctl": c["ctl"], "atl": c["atl"], "tsb": c["tsb"], "acwr": c["acwr"],
+                "formula_version": _FORMULA_VERSION,
+            }
+            rows.append(row)
+            computed_by_date[c["date"]] = c
+        if rows:
+            stmt = _pg_insert(TrainingLoadSnapshot).values(rows)
+            upsert = stmt.on_conflict_do_update(
+                index_elements=["user_id", "snapshot_date"],
+                set_={
+                    "tss_for_day": stmt.excluded.tss_for_day,
+                    "ctl": stmt.excluded.ctl,
+                    "atl": stmt.excluded.atl,
+                    "tsb": stmt.excluded.tsb,
+                    "acwr": stmt.excluded.acwr,
+                    "formula_version": stmt.excluded.formula_version,
+                    "computed_at": datetime.now(tz=timezone.utc),
+                },
+            )
+            with Session(engine) as session:
+                session.execute(upsert)
+                session.commit()
+
+    out = []
+    for d in all_dates:
+        if d in computed_by_date:
+            out.append(computed_by_date[d])
+        elif d in existing:
+            s = existing[d]
+            out.append({
+                "date": d, "tss": s.tss_for_day, "ctl": s.ctl, "atl": s.atl,
+                "tsb": s.tsb, "acwr": s.acwr,
+            })
+    return out
 
 
 def _classify_zone(tsb: float) -> str:

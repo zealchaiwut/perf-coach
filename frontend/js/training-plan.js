@@ -282,7 +282,8 @@ information about.
   // (#load-plan-section) — wired once in init() via property assignment
   // (.onclick/.oninput), same idempotent convention as the rest of this file.
   var _lpData = null; // last GET /api/plan/load-plan response (null = no A race)
-  var PHASE_LABEL = { ramp: 'Target — ramp', hold: 'Target — peak hold', taper: 'Target — taper', race: 'Race week' };
+  var PHASE_LABEL = { ramp: 'Target — ramp', hold: 'Target — peak hold', taper: 'Target — taper', race: 'Race week', consolidation: 'Target — consolidation' };
+  var VERDICT_LABEL = { back_off: 'Back off', hold: 'Hold', build: 'Build' };
 
   function _fmtPct1(fraction) {
     return (Math.round(fraction * 1000) / 10) + '%';
@@ -345,7 +346,19 @@ information about.
     }
 
     if (warnEl) {
-      if (_lpData.warning) { warnEl.hidden = false; warnEl.textContent = _lpData.warning; }
+      // Two independent informational banners can both be true at once
+      // (a degenerate ramp/hold/taper config AND a capped baseline) — join
+      // them rather than picking one, since a silent cap is worse than no
+      // cap (docs/calculations/load-plan.md "Baseline cap").
+      var msgs = [];
+      if (_lpData.warning) msgs.push(_lpData.warning);
+      if (_lpData.baseline_capped) {
+        msgs.push(
+          'Baseline capped: last week (' + Math.round(_lpData.baseline_tss) +
+          ') exceeded chronic load; using ' + Math.round(_lpData.capped_baseline_tss) + '.'
+        );
+      }
+      if (msgs.length) { warnEl.hidden = false; warnEl.textContent = msgs.join(' '); }
       else warnEl.hidden = true;
     }
 
@@ -354,12 +367,14 @@ information about.
 
     if (legend) {
       legend.hidden = false;
+      var hasConsolidation = (_lpData.weeks || []).some(function (w) { return w.phase === 'consolidation'; });
       legend.innerHTML =
         _legendItem('#4f6ef7', 'Actual (logged)') +
         _legendItem('#e6ebfe', 'Target — ramp', '#4f6ef7') +
         _legendItem('#e4e9fd', 'Target — peak hold', '#6d87f8') +
         _legendItem('#fdf3da', 'Target — taper', '#d97706') +
-        _legendItem('#fee2e2', 'Race week', '#dc2626');
+        _legendItem('#fee2e2', 'Race week', '#dc2626') +
+        (hasConsolidation ? _legendItem('#f6f7fb', 'Consolidation (hold/back off)', '#6b7280') : '');
     }
     if (footnote) footnote.hidden = false;
   }
@@ -603,6 +618,30 @@ information about.
         d.state === 'over' ? 'Over' : '—';
     }
 
+    // Deterministic verdict (backend/services/training_verdict.py) — never
+    // an LLM decision. Only shown for hold/back_off (build is the default,
+    // unremarkable state — no need to announce it every week).
+    var verdictRow = document.getElementById('wl-verdict-row');
+    if (verdictRow) {
+      if (d.verdict && d.verdict !== 'build') {
+        verdictRow.hidden = false;
+        var vPill = document.getElementById('wl-verdict-pill');
+        if (vPill) {
+          vPill.className = 'wl-verdict-pill ' + d.verdict;
+          vPill.textContent = VERDICT_LABEL[d.verdict] || d.verdict;
+        }
+        var vReason = document.getElementById('wl-verdict-reason');
+        if (vReason) {
+          var extra = (d.weeks_to_converge && d.converge_date)
+            ? ' · back to normal in ~' + d.weeks_to_converge + ' wk (' + _fmtShortDate(d.converge_date) + ')'
+            : '';
+          vReason.textContent = (d.verdict_reason || '') + extra;
+        }
+      } else {
+        verdictRow.hidden = true;
+      }
+    }
+
     var lower = Math.round(d.target_tss * 0.95), upper = Math.round(d.target_tss * 1.05);
     var diff = Math.round(d.projected_tss - d.target_tss);
     var diffStr = (diff > 0 ? '+' : '') + diff;
@@ -613,7 +652,19 @@ information about.
         ' ' + inOut + ' &plusmn;5% band (' + lower + '&ndash;' + upper + ')';
     }
 
-    _setText('wl-baseline-val', Math.round(d.baseline_tss) + ' TSS');
+    var baselineEl = document.getElementById('wl-baseline-val');
+    if (baselineEl) {
+      // A silent cap reads as "the ramp is broken" — say so plainly
+      // (docs/calculations/load-plan.md "Baseline cap") rather than just
+      // showing the lower capped number with no explanation.
+      if (d.baseline_capped) {
+        baselineEl.innerHTML = Math.round(d.capped_baseline_tss) + ' TSS <span class="wl-baseline-capped" title="Last week (' +
+          Math.round(d.baseline_tss) + ' TSS) exceeded chronic load — capped to ' +
+          Math.round(d.capped_baseline_tss) + ' TSS so the ramp does not compound the spike.">(capped)</span>';
+      } else {
+        baselineEl.textContent = Math.round(d.baseline_tss) + ' TSS';
+      }
+    }
     _setText('wl-ramp-val', (d.ramp_rate * 100).toFixed(1).replace(/\.0$/, '') + '%');
     _setText('wl-target-cell-val', Math.round(d.target_tss) + ' TSS');
 

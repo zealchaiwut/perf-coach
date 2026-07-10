@@ -77,6 +77,48 @@ to a snapshot of today's chronic load. A deload week's cut value still enters
 the window, so it legitimately (and correctly) pulls the following weeks'
 ceiling down a little — a real down week does lower rolling chronic load.
 
+Baseline cap
+------------
+``baseline`` (last completed week's actual TSS) is wrong when that week was
+itself a spike. A single hard week can run 30-40% above chronic load without
+being a real change in fitness — ramping 5%/week off a spike compounds an
+overshoot that already exists before the plan even starts.
+
+The baseline actually used for the ramp/peak math is capped against chronic
+load: ``min(raw_baseline, BASELINE_CAP_MULT * chronic_weekly)``, where
+``chronic_weekly`` is the SAME ``trailing_28d_avg`` already passed in for the
+moving ceiling above (one number, two uses — never a second independent
+"chronic load" estimate). When the cap binds, ``baseline_capped`` is True and
+callers MUST surface that plainly (a silent cap reads as "the ramp is
+broken," not as the safety feature it is) — see
+``docs/calculations/load-plan.md``.
+
+This is a different guard from the moving ACWR ceiling above: the cap fixes
+the ramp's STARTING POINT (once, from ``raw_baseline``); the ceiling limits
+EACH WEEK going forward. Both apply; the cap runs first, then every
+downstream week (including week 1) is still subject to its own ceiling.
+
+Verdict consolidation
+----------------------
+When the deterministic training_verdict.compute_verdict() result is
+``"hold"`` or ``"back_off"`` (see backend/services/training_verdict.py — a
+Python-computed judgment from the Part-A CTL/ATL/TSB/ACWR snapshot, never an
+LLM decision), every week that would otherwise be ``ramp`` or ``hold`` phase
+is overridden to a flat target instead: ``baseline`` when ``"hold"``,
+``BACK_OFF_TARGET_MULT * baseline`` when ``"back_off"``. Its ``phase``
+becomes ``"consolidation"`` so the season chart renders a visibly flat block
+instead of a ramp that would otherwise pretend to continue climbing through
+a state the athlete's own snapshot says isn't safe to build from yet. Taper
+and race weeks are NEVER overridden — they already have their own down-curve
+and a race close enough to be tapering for takes priority over a
+consolidation block.
+
+The verdict is a snapshot of *today*; it is not baked into the plan beyond
+the current computation — the caller re-derives it fresh on every request
+(from the current CTL/ATL/TSB/ACWR), so as soon as the athlete's numbers
+recover to "build", the very next call resumes the normal ramp/hold/taper
+series with no separate "resume" step required.
+
 Deload (every 4th week)
 ------------------------
 When ``deload_enabled`` is True, every 4th ``week_index`` (4, 8, 12, ...)
@@ -126,6 +168,15 @@ _CEILING_WINDOW_WEEKS: int = 4
 DELOAD_CUT_FRACTION: float = 0.30
 _DELOAD_EVERY_N_WEEKS: int = 4
 
+# Baseline cap — see the module docstring's "Baseline cap" section. A spike
+# week (last week's actual TSS well above chronic load) must not seed the
+# ramp at the spike's own level; cap it against chronic load instead.
+BASELINE_CAP_MULT: float = 1.15
+
+# Consolidation block (verdict-aware, see module docstring's "Verdict
+# consolidation" section) — the back_off target as a fraction of baseline.
+BACK_OFF_TARGET_MULT: float = 0.9
+
 
 class WeekTarget(TypedDict):
     week_index: int  # 1-based, 1..weeks_to_race
@@ -145,6 +196,10 @@ class LoadPlanResult(TypedDict):
     build_weeks: int
     weeks_to_race: int
     warning: Optional[str]
+    raw_baseline: float  # last completed week's actual TSS, BEFORE any cap
+    baseline: float  # the value actually used for ramp/peak math (may be capped)
+    chronic_weekly: Optional[float]  # == trailing_28d_avg; None if not enough history
+    baseline_capped: bool  # True when baseline < raw_baseline
 
 
 def _taper_fractions(taper_weeks: int) -> List[float]:
@@ -182,32 +237,52 @@ def compute_load_plan(
     weeks_to_race: int,
     trailing_28d_avg: Optional[float] = None,
     deload_enabled: bool = False,
+    verdict: Optional[str] = None,
 ) -> LoadPlanResult:
     """Compute the per-week target-TSS series from now to an A race.
 
     Args:
         baseline: last completed week's ACTUAL TSS (never planned TSS — a
             missed week must lower future targets, not silently inflate them).
+            Capped against chronic load before use — see the module
+            docstring's "Baseline cap" section; the raw/capped/chronic
+            values are all returned so callers can surface the cap.
         ramp_rate: fractional weekly increase, e.g. 0.05 for 5%/week.
         hold_weeks: length of the peak-hold plateau, in weeks.
         taper_weeks: length of the taper, in weeks.
         weeks_to_race: total weeks counted in the series (build + taper).
-        trailing_28d_avg: trailing 28-day average weekly TSS — seeds the
-            MOVING ACWR ceiling (see module docstring). Ceiling is skipped
-            entirely (every week's `ceiling` is None, nothing ever clamps)
-            when this is None or 0 (not enough history yet).
+        trailing_28d_avg: trailing 28-day average weekly TSS — seeds BOTH the
+            baseline cap and the MOVING ACWR ceiling (see module docstring;
+            one number, two uses). Ceiling is skipped entirely (every week's
+            `ceiling` is None) and the baseline is never capped when this is
+            None or 0 (not enough history yet).
         deload_enabled: cut every 4th week (4, 8, 12, ...) that falls in the
             ramp or hold phase by DELOAD_CUT_FRACTION. See module docstring.
+        verdict: "hold" | "back_off" | "build" | None — from
+            training_verdict.compute_verdict(). "hold"/"back_off" override
+            every ramp/hold week to a flat consolidation target (phase
+            becomes "consolidation"); anything else (including None) leaves
+            the ramp/hold/taper math untouched. See module docstring's
+            "Verdict consolidation" section.
 
     Returns:
         LoadPlanResult — see the module docstring for the math.
     """
-    baseline = max(0.0, float(baseline))
+    raw_baseline = max(0.0, float(baseline))
     ramp_rate = float(ramp_rate)
     hold_weeks = max(0, int(hold_weeks))
     taper_weeks = max(0, int(taper_weeks))
     weeks_to_race = max(0, int(weeks_to_race))
     deload_enabled = bool(deload_enabled)
+
+    chronic_weekly = (
+        float(trailing_28d_avg) if trailing_28d_avg is not None and trailing_28d_avg > 0 else None
+    )
+    if chronic_weekly is not None:
+        baseline = min(raw_baseline, BASELINE_CAP_MULT * chronic_weekly)
+    else:
+        baseline = raw_baseline
+    baseline_capped = baseline < raw_baseline
 
     build_weeks = weeks_to_race - taper_weeks
     ramp_weeks = build_weeks - hold_weeks
@@ -264,9 +339,25 @@ def compute_load_plan(
     def _is_deload(week_index: int) -> bool:
         return deload_enabled and week_index % _DELOAD_EVERY_N_WEEKS == 0
 
+    # Verdict consolidation — see module docstring. Only "hold"/"back_off"
+    # override anything; None/"build" leave the ramp/hold math untouched.
+    consolidation_target: Optional[float] = None
+    if verdict == "hold":
+        consolidation_target = baseline
+    elif verdict == "back_off":
+        consolidation_target = baseline * BACK_OFF_TARGET_MULT
+
     weeks: List[WeekTarget] = []
 
     for w in range(1, ramp_weeks + 1):
+        if consolidation_target is not None:
+            value, clamped, ceiling = _finalize(consolidation_target)
+            weeks.append({
+                "week_index": w, "target_tss": round(value, 1), "phase": "consolidation",
+                "clamped": clamped, "deload": False,
+                "ceiling": round(ceiling, 1) if ceiling is not None else None,
+            })
+            continue
         raw = baseline * (1.0 + ramp_rate) ** w
         deload = _is_deload(w)
         if deload:
@@ -279,6 +370,14 @@ def compute_load_plan(
         })
 
     for w in range(ramp_weeks + 1, build_weeks + 1):
+        if consolidation_target is not None:
+            value, clamped, ceiling = _finalize(consolidation_target)
+            weeks.append({
+                "week_index": w, "target_tss": round(value, 1), "phase": "consolidation",
+                "clamped": clamped, "deload": False,
+                "ceiling": round(ceiling, 1) if ceiling is not None else None,
+            })
+            continue
         deload = _is_deload(w)
         raw = peak * (1.0 - DELOAD_CUT_FRACTION) if deload else peak
         value, clamped, ceiling = _finalize(raw)
@@ -313,4 +412,8 @@ def compute_load_plan(
         "build_weeks": build_weeks,
         "weeks_to_race": weeks_to_race,
         "warning": warning,
+        "raw_baseline": round(raw_baseline, 1),
+        "baseline": round(baseline, 1),
+        "chronic_weekly": round(chronic_weekly, 1) if chronic_weekly is not None else None,
+        "baseline_capped": baseline_capped,
     }
