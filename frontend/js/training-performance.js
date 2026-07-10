@@ -2149,12 +2149,24 @@
     if (p.change) {
       if (b) {
         p.change.hidden = false;
-        p.eq.innerHTML =
-          "<b>" + b.score_then.toFixed(1) + "</b>" +
-          ' <span class="' + (b.decay < 0 ? "loss" : "gain") + '">' + (b.decay < 0 ? "\u2212 " : "+ ") + Math.abs(b.decay).toFixed(1) + "</span> <span class=\"lbl\">decay</span>" +
-          ' <span class="' + (b.efforts >= 0 ? "gain" : "loss") + '">' + (b.efforts >= 0 ? "+ " : "\u2212 ") + Math.abs(b.efforts).toFixed(1) + "</span> <span class=\"lbl\">efforts</span>" +
-          ' <span class="' + (b.consistency >= 0 ? "gain" : "loss") + '">' + (b.consistency >= 0 ? "+ " : "\u2212 ") + Math.abs(b.consistency).toFixed(1) + "</span> <span class=\"lbl\">consistency</span>" +
+        // Composition formula — how TODAY's score is built (same content
+        // the anchor footer used to carry): max(avg, race floor) +
+        // consistency, winner bolded. The decay/efforts split lives in the
+        // proportion bar below (titles carry the numbers).
+        var bonus = b.consistency_bonus_now;
+        var avgNum = (b.floor_binding ? "" : "<b>") + b.anchor_mean_now.toFixed(1) + (b.floor_binding ? "" : "</b>");
+        var eqHtml;
+        if (b.race_floor_now != null) {
+          var floorNum = (b.floor_binding ? "<b>" : "") + b.race_floor_now.toFixed(1) + (b.floor_binding ? "</b>" : "");
+          eqHtml = '<span class="lbl">max(</span>' + avgNum + ' <span class="lbl">avg of ' + (b.anchors ? b.anchors.length : 3) + "</span>, " +
+            floorNum + ' <span class="lbl">race floor</span><span class="lbl">)</span>';
+        } else {
+          eqHtml = "<b>" + b.anchor_mean_now.toFixed(1) + '</b> <span class="lbl">avg of ' + (b.anchors ? b.anchors.length : 3) + "</span>";
+        }
+        eqHtml += ' <span class="' + (bonus >= 0 ? "gain" : "loss") + '">' + (bonus >= 0 ? "+ " : "\u2212 ") +
+          Math.abs(bonus).toFixed(1) + '</span> <span class="lbl">consistency</span>' +
           " = <b>" + b.score_now.toFixed(1) + "</b>";
+        p.eq.innerHTML = eqHtml;
 
         // Proportion bar: segment widths share of total |movement|.
         var mags = [
@@ -2163,9 +2175,14 @@
           ["seg-consistency", Math.abs(b.consistency)],
         ];
         var total = mags.reduce(function (a, m) { return a + m[1]; }, 0);
+        var segTitle = {
+          "seg-decay": "decay \u2212" + Math.abs(b.decay).toFixed(1),
+          "seg-efforts": "efforts +" + Math.abs(b.efforts).toFixed(1),
+          "seg-consistency": "consistency " + (b.consistency >= 0 ? "+" : "\u2212") + Math.abs(b.consistency).toFixed(1),
+        };
         p.propbar.innerHTML = total > 0.01
           ? mags.filter(function (m) { return m[1] > 0.001; }).map(function (m) {
-              return '<span class="' + m[0] + '" style="width:' + (m[1] / total * 100).toFixed(1) + '%"></span>';
+              return '<span class="' + m[0] + '" title="' + segTitle[m[0]] + '" style="width:' + (m[1] / total * 100).toFixed(1) + '%"></span>';
             }).join("")
           : "";
       } else {
@@ -2235,23 +2252,7 @@
         });
         p.anchorTable.innerHTML = rows.join("");
 
-        // Footer: the full formula, identical on every card and styled like
-        // the change-strip equation — number then faint label, consistency
-        // signed green/red, the winning max() term bolded.
-        var bonus = b.consistency_bonus_now;
-        var avgNum = (b.floor_binding ? "" : "<b>") + b.anchor_mean_now.toFixed(1) + (b.floor_binding ? "" : "</b>");
-        var foot;
-        if (b.race_floor_now != null) {
-          var floorNum = (b.floor_binding ? "<b>" : "") + b.race_floor_now.toFixed(1) + (b.floor_binding ? "</b>" : "");
-          foot = '<span class="lbl">max(</span>' + avgNum + ' <span class="lbl">avg of ' + b.anchors.length + "</span>, " +
-            floorNum + ' <span class="lbl">race floor</span><span class="lbl">)</span>';
-        } else {
-          foot = "<b>" + b.anchor_mean_now.toFixed(1) + '</b> <span class="lbl">avg of ' + b.anchors.length + "</span>";
-        }
-        foot += ' <span class="' + (bonus >= 0 ? "gain" : "loss") + '">' + (bonus >= 0 ? "+ " : "\u2212 ") +
-          Math.abs(bonus).toFixed(1) + '</span> <span class="lbl">consistency</span>' +
-          " = <b>" + b.score_now.toFixed(1) + "</b>";
-        p.anchorFoot.innerHTML = foot;
+        // Formula now lives in the change strip above; footer stays hidden.
       } else {
         p.anchors.hidden = true;
       }

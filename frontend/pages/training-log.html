@@ -4477,16 +4477,19 @@
                   <div class="perf-eq"></div>
                   <div class="perf-propbar"></div>
                 </div>
-                <div class="perf-anchors" hidden>
-                  <div class="perf-flabel">Anchor efforts · the 3 that set this score</div>
-                  <div class="perf-anchor-table"></div>
-                  <div class="perf-anchor-foot"></div>
-                </div>
                 <p class="perf-improve-line" hidden></p>
-                <div class="perf-nonanchors" hidden>
-                  <div class="perf-flabel perf-nonanchor-lab"></div>
-                  <div class="perf-feed" id="perf-feed-endurance"></div>
-                </div>
+                <details class="perf-details">
+                  <summary>Anchor efforts &amp; other runs</summary>
+                  <div class="perf-anchors" hidden>
+                    <div class="perf-flabel">Anchor efforts · the 3 that set this score</div>
+                    <div class="perf-anchor-table"></div>
+                    <div class="perf-anchor-foot" hidden></div>
+                  </div>
+                  <div class="perf-nonanchors" hidden>
+                    <div class="perf-flabel perf-nonanchor-lab"></div>
+                    <div class="perf-feed" id="perf-feed-endurance"></div>
+                  </div>
+                </details>
               </div>
               <div class="perf-building-baseline" hidden>
                 <span class="perf-bb-icon">📈</span>
@@ -4525,16 +4528,19 @@
                   <div class="perf-eq"></div>
                   <div class="perf-propbar"></div>
                 </div>
-                <div class="perf-anchors" hidden>
-                  <div class="perf-flabel">Anchor efforts · the 3 that set this score</div>
-                  <div class="perf-anchor-table"></div>
-                  <div class="perf-anchor-foot"></div>
-                </div>
                 <p class="perf-improve-line" hidden></p>
-                <div class="perf-nonanchors" hidden>
-                  <div class="perf-flabel perf-nonanchor-lab"></div>
-                  <div class="perf-feed" id="perf-feed-speed"></div>
-                </div>
+                <details class="perf-details">
+                  <summary>Anchor efforts &amp; other runs</summary>
+                  <div class="perf-anchors" hidden>
+                    <div class="perf-flabel">Anchor efforts · the 3 that set this score</div>
+                    <div class="perf-anchor-table"></div>
+                    <div class="perf-anchor-foot" hidden></div>
+                  </div>
+                  <div class="perf-nonanchors" hidden>
+                    <div class="perf-flabel perf-nonanchor-lab"></div>
+                    <div class="perf-feed" id="perf-feed-speed"></div>
+                  </div>
+                </details>
               </div>
               <div class="perf-building-baseline" hidden>
                 <span class="perf-bb-icon">⚡</span>
@@ -6372,6 +6378,28 @@
         white-space: nowrap;
         overflow-x: auto;
       }
+
+      /* Collapsible anchors/other-runs section */
+      .perf-details { margin-top: 10px; }
+      .perf-details > summary {
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--perf-faint);
+        padding: 6px 0;
+        list-style: none;
+        user-select: none;
+      }
+      .perf-details > summary::-webkit-details-marker { display: none; }
+      .perf-details > summary::before {
+        content: "\25B8";
+        display: inline-block;
+        margin-right: 6px;
+        transition: transform 0.15s;
+      }
+      .perf-details[open] > summary::before { transform: rotate(90deg); }
 
       /* Non-anchor list */
       .perf-nonanchors { margin-top: 12px; }
