@@ -16945,6 +16945,26 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
             "verdict_reason": verdict["reason"],
             "weeks_to_converge": verdict["weeks_to_converge"],
             "converge_date": verdict["converge_date"],
+            # Other races/checkpoints inside the chart window so the season
+            # chart can mark them (the A race already gets the RACE DAY flag).
+            "markers": [
+                {
+                    "date": m.race_date.isoformat(),
+                    "name": m.name,
+                    "priority": m.priority,
+                    "race_type": m.race_type,
+                }
+                for m in db.query(Race)
+                .filter(
+                    Race.user_id == user.id,
+                    Race.id != race.id,
+                    Race.status == "planned",
+                    Race.race_date >= this_week_start,
+                    Race.race_date <= race.race_date,
+                )
+                .order_by(Race.race_date)
+                .all()
+            ],
         })
 
 
