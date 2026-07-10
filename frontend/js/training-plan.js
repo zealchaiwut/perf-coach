@@ -642,16 +642,11 @@ information about.
       }
     }
 
-    var lower = Math.round(d.target_tss * 0.95), upper = Math.round(d.target_tss * 1.05);
-    var diff = Math.round(d.projected_tss - d.target_tss);
-    var diffStr = (diff > 0 ? '+' : '') + diff;
-    var inOut = (d.projected_tss >= lower && d.projected_tss <= upper) ? 'inside' : 'outside';
     var line = document.getElementById('wl-projected-line');
     if (line) {
       var projVerdictCls = (d.verdict === 'hold' || d.verdict === 'back_off') ? d.verdict : '';
       line.innerHTML = 'projected <b class="wl-projected-num ' + projVerdictCls + '">' +
-        Math.round(d.projected_tss) + '</b>/' + Math.round(d.target_tss) + ' TSS &middot; ' + esc(diffStr) +
-        ' ' + inOut + ' &plusmn;5% band (' + lower + '&ndash;' + upper + ')';
+        Math.round(d.projected_tss) + '</b>/' + Math.round(d.target_tss) + ' TSS';
     }
 
     var baselineEl = document.getElementById('wl-baseline-val');
