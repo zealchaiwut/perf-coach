@@ -5691,12 +5691,10 @@ def _workout_signal_scores(session, workout) -> dict:
         ):
             splits_by_wk.setdefault(s.workout_id, []).append(s)
 
-    def _build(max_date, before_date=None):
+    def _build(max_date):
         runs = []
         for wk in run_workouts:
             if wk.workout_date > max_date:
-                continue
-            if before_date is not None and wk.workout_date >= before_date:
                 continue
             splits = splits_by_wk.get(wk.id, [])
             laps = [
@@ -5754,37 +5752,35 @@ def _workout_signal_scores(session, workout) -> dict:
             )
         return runs
 
-    d = workout.workout_date
-
-    def _score(fn, runs, race_perf):
-        r = fn(runs, prefs_dict or None, zone_constants, race_perf=race_perf)
-        s = r.get("score") if isinstance(r, dict) else None
-        return s if isinstance(s, (int, float)) and not isinstance(s, bool) else None
-
     # "One score everywhere": *_current is the athlete's score AS OF TODAY —
-    # identical to the Performance tab and identical on every workout card. The
-    # per-session distinction lives entirely in *_delta = the contribution this
-    # session's DATE made (score as-of-that-date minus score as-of the day
-    # before). Race VDOT floor is taken at the matching date for each.
+    # identical to the Performance tab (same body_modifier, same race floor).
+    # *_delta is this run's MARGINAL contribution to that score
+    # (run_contributions from running_performance._aggregate_and_shape — the
+    # single source shared with the Performance-tab feed badges; never derive
+    # a second delta here). None when this run didn't qualify for that score.
+    from backend.services.body_modifier import get_body_modifier_for_user as _get_bm
+
+    _bm = _get_bm(workout.user_id)
     _race_today = _latest_race_perf(session, workout.user_id, as_of=_today)
-    _race_asof = _latest_race_perf(session, workout.user_id, as_of=d)
-    _race_prev = _latest_race_perf(session, workout.user_id, as_of=(d - _timedelta(days=1)) if d else None)
-
     today_runs = _build(_today)
-    e_cur = _score(compute_endurance_score, today_runs, _race_today)
-    s_cur = _score(compute_speed_score, today_runs, _race_today)
+    wid = str(workout.id)
 
-    asof = _build(d)
-    prev = _build(d, before_date=d)
-    e_asof = _score(compute_endurance_score, asof, _race_asof)
-    s_asof = _score(compute_speed_score, asof, _race_asof)
-    e_prev = _score(compute_endurance_score, prev, _race_prev)
-    s_prev = _score(compute_speed_score, prev, _race_prev)
+    def _score_and_delta(fn):
+        r = fn(today_runs, prefs_dict or None, zone_constants, body_modifier=_bm, race_perf=_race_today)
+        if not isinstance(r, dict):
+            return None, None
+        s = r.get("score")
+        s = s if isinstance(s, (int, float)) and not isinstance(s, bool) else None
+        delta = (r.get("run_contributions") or {}).get(wid)
+        return s, delta
+
+    e_cur, e_delta = _score_and_delta(compute_endurance_score)
+    s_cur, s_delta = _score_and_delta(compute_speed_score)
     return {
         "endurance_score_current": round(e_cur, 1) if e_cur is not None else None,
-        "endurance_score_delta": round(e_asof - e_prev, 1) if e_asof is not None and e_prev is not None else None,
+        "endurance_score_delta": round(e_delta, 1) if e_delta is not None else None,
         "speed_score_current": round(s_cur, 1) if s_cur is not None else None,
-        "speed_score_delta": round(s_asof - s_prev, 1) if s_asof is not None and s_prev is not None else None,
+        "speed_score_delta": round(s_delta, 1) if s_delta is not None else None,
     }
 
 

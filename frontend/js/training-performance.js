@@ -2006,8 +2006,8 @@
         if (state === "scored") {
           _renderPerfScoreCard("endurance", data.endurance);
           _renderPerfScoreCard("speed", data.speed);
-          _perfContribs.endurance = (data.endurance && data.endurance.contributions) || null;
-          _perfContribs.speed = (data.speed && data.speed.contributions) || null;
+          _perfContribs.endurance = (data.endurance && data.endurance.run_contributions) || null;
+          _perfContribs.speed = (data.speed && data.speed.run_contributions) || null;
           if (_perfFeedRows.endurance) _renderPerfFeed("endurance", _perfFeedRows.endurance);
           if (_perfFeedRows.speed) _renderPerfFeed("speed", _perfFeedRows.speed);
           return;
@@ -2220,16 +2220,15 @@
       if (w.avg_hr != null) meta.push("HR " + w.avg_hr);
       var src = w.has_stryd ? "st" : (w.has_strava ? "s" : "");
       var srcHtml = src ? '<span class="perf-src perf-src--' + src + '">' + (src === "s" ? "S" : "St") + "</span>" : "";
-      var chipHtml;
-      var contrib = (contribMap && w.date != null) ? contribMap[w.date] : undefined;
-      if (typeof contrib === "number") {
-        var n = Math.round(contrib * 10) / 10;
-        var cls = n > 0 ? "up" : (n < 0 ? "down" : "flat");
-        var txt = (n > 0 ? "+" : "") + n;
-        chipHtml = '<span class="perf-dchip perf-dchip--' + cls + '" title="contribution to ' + type + ' score">' + txt + "</span>";
-      } else {
-        chipHtml = (w.tss != null) ? '<span class="perf-dchip">' + Math.round(w.tss) + " TSS</span>" : "";
-      }
+      // Marginal contribution to the CURRENT score, keyed by workout id
+      // (run_contributions — the single source shared with the workout-detail
+      // panel). A session with no entry didn't qualify for this score at all
+      // → honest 0.0, never a raw-TSS fallback.
+      var contrib = (contribMap && w.id != null) ? contribMap[String(w.id)] : undefined;
+      var n = (typeof contrib === "number") ? Math.round(contrib * 10) / 10 : 0;
+      var cls = n > 0 ? "up" : (n < 0 ? "down" : "flat");
+      var txt = (n > 0 ? "+" : "") + n.toFixed(1);
+      var chipHtml = '<span class="perf-dchip perf-dchip--' + cls + '" title="contribution to ' + type + ' score">' + txt + "</span>";
       var href = "/log?workout=" + encodeURIComponent(w.id);
       return '<a class="perf-frow" href="' + href + '">' +
         '<span class="perf-fdate">' + esc(_perfFmtMmmD(w.date)) + "</span>" +
