@@ -473,12 +473,18 @@ def _aggregate_and_shape(
             if r["run_id"] is not None
             and _date_from_str(r["date"]) is not None and _date_from_str(r["date"]) > then
         ]
-        # When the decayed race floor exceeds the top-K mean, the anchor-table
-        # footer arithmetic ("avg of K + consistency = score") would lie —
-        # surface the floor so the UI can show it as the binding term.
+        # Footer arithmetic: score = max(avg of K, race floor) + consistency.
+        # Surface BOTH terms (floor may be None when no recent race) plus
+        # which one won, so the UI renders the same formula on every card.
         mean_top = (
             sum(a["current_contribution"] for a in anchors) / len(anchors) if anchors else 0.0
         )
+        rp_now = _race_point(race_perf)
+        race_floor_val = None
+        if rp_now is not None and rp_now[0] <= t_eval:
+            race_floor_val = max(
+                0.0, (rp_now[1] - decay_points((t_eval - rp_now[0]).days)) * body_modifier
+            )
         floor_binding = m_b_now > mean_top + 0.01
 
         breakdown = {
@@ -495,7 +501,8 @@ def _aggregate_and_shape(
             "weakest_anchor_now": round(weakest, 2),
             "consistency_bonus_now": round(c_b_now, 2),
             "anchor_mean_now": round(mean_top, 2),
-            "race_floor_now": round(m_b_now, 2) if floor_binding else None,
+            "race_floor_now": round(race_floor_val, 2) if race_floor_val is not None else None,
+            "floor_binding": floor_binding,
         }
         if abs(residual) > BREAKDOWN_RESIDUAL_TOLERANCE:
             # A decomposition that doesn't sum is worse than none — it looks

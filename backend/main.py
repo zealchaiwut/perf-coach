@@ -15886,7 +15886,8 @@ def _performance_signature(session, user_id, prefs_row) -> str:
     # fastest real lap) — uphill power spikes no longer fabricate flat speed.
     # v8 = implausible-lap filter (pace < 150 s/km = sensor garbage).
     # v9 = score-change breakdown block (decay/efforts/consistency + anchors).
-    _FORMULA_VERSION = "vdot-v9"
+    # v10 = breakdown carries race_floor_now always + floor_binding flag.
+    _FORMULA_VERSION = "vdot-v10"
     base = _summary_signature(session, user_id)
     race_row = (
         session.query(func.max(Race.updated_at), func.count(Race.id))

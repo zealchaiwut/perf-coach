@@ -2242,17 +2242,19 @@
         });
         p.anchorTable.innerHTML = rows.join("");
 
-        // Footer: the arithmetic, visible — including the race floor when
-        // it binds (the avg alone would then lie).
+        // Footer: the full formula, identical on every card —
+        // max(avg of K, race floor) + consistency = score, winner bolded.
+        var avgTxt = "avg of " + b.anchors.length + " \u00b7 " + b.anchor_mean_now.toFixed(1);
         var foot;
         if (b.race_floor_now != null) {
-          foot = "race floor <b>" + b.race_floor_now.toFixed(1) + "</b> binds (avg of " + b.anchors.length +
-            " \u00b7 " + b.anchor_mean_now.toFixed(1) + ") + consistency <b>" +
-            _perfNum(b.consistency_bonus_now, true) + "</b> = <b>" + b.score_now.toFixed(1) + "</b>";
-        } else {
-          foot = "avg of " + b.anchors.length + " \u00b7 <b>" + b.anchor_mean_now.toFixed(1) +
-            "</b> + consistency <b>" + _perfNum(b.consistency_bonus_now, true) +
+          var floorTxt = "race floor \u00b7 " + b.race_floor_now.toFixed(1);
+          foot = "max(" +
+            (b.floor_binding ? avgTxt + ", <b>" + floorTxt + "</b>" : "<b>" + avgTxt + "</b>, " + floorTxt) +
+            ") + consistency <b>" + _perfNum(b.consistency_bonus_now, true) +
             "</b> = <b>" + b.score_now.toFixed(1) + "</b>";
+        } else {
+          foot = avgTxt.replace("\u00b7 ", "\u00b7 <b>") + "</b> + consistency <b>" +
+            _perfNum(b.consistency_bonus_now, true) + "</b> = <b>" + b.score_now.toFixed(1) + "</b>";
         }
         p.anchorFoot.innerHTML = foot;
       } else {
