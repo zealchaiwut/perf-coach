@@ -5794,7 +5794,6 @@
       '<span><b style="background:var(--lrx-plyo)"></b>Plyo</span>' +
       '<span><span class="cal-mk plan run" style="width:20px;height:16px;flex:none;font-size:0;">&nbsp;</span>Outline = planned, not yet done</span>' +
       '<span><span class="lrx-wkbar-est" style="display:inline-block;width:14px;height:8px;border-radius:2px;vertical-align:middle;"></span> Estimated TSS from plan</span>' +
-      '<span style="color:var(--lrx-faint)">solid = logged · outline = planned · number = TSS · click a week to scope</span>' +
       "</div>";
     el.innerHTML = html;
 
