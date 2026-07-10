@@ -1135,6 +1135,12 @@
       .volume-chart-card {
         padding: 16px 18px 18px;
       }
+      /* Nested at the top of .log-card--history (no card-in-card border/
+         shadow of its own — the parent card already supplies those) — just
+         a bottom divider to separate it from the workout list below. */
+      .volume-chart-card--nested {
+        border-bottom: 1px solid var(--card-border);
+      }
 
       .vc-header {
         display: flex;
@@ -1168,20 +1174,6 @@
       .day-group {
       }
 
-      /* Month separator with monthly rollup */
-      .month-sep {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 6px;
-        margin: 18px 0 6px;
-        padding: 10px 12px 11px;
-        background: #eaf1ff; /* light blue month band */
-        border-radius: 10px;
-      }
-      .month-sep:first-child {
-        margin-top: 4px;
-      }
       /* Weekly sub-separator — same stats, lighter so months stay dominant. */
       .month-sep.week-sep {
         background: transparent;
@@ -1211,14 +1203,6 @@
       }
       .log-load-more:hover {
         color: var(--text-primary);
-      }
-      .month-sep-title {
-        font-size: 18px;
-        font-weight: 800;
-        letter-spacing: -0.02em;
-        line-height: 1.2;
-        color: var(--text-primary);
-        width: 100%;
       }
       .month-sep-stats {
         display: flex;
@@ -7184,6 +7168,11 @@
     .lrx-rstatus { font-size: 13px; font-weight: 800; text-align: center; letter-spacing: 0.06em; }
 
     /* ── Calendar (week-volume column + nav) ─────────────────────────────── */
+    /* Monthly Run/Lift TSS + time + km rollup, merged into the calendar
+       card's header (used to be a repeating separator in the log list). */
+    .cal-month-stats { margin: -4px 0 14px; }
+    .cal-month-stats .month-stat-val { font-size: 16px; }
+    .cal-month-stats .month-stat-lbl { font-size: 10.5px; }
     .lrx-calnav { display: flex; align-items: center; gap: 10px; }
     .lrx-calnav .mtitle { font-size: 16px; font-weight: 800; color: var(--lrx-ink); cursor: pointer; padding: 4px 10px; border-radius: 8px; }
     .lrx-calnav .mtitle:hover { background: var(--lrx-tile); }
@@ -7272,10 +7261,12 @@
       justify-content: space-between;
       gap: 8px;
       margin: 16px 0 8px;
-      padding: 8px 4px 7px;
-      border-bottom: 1px solid rgba(13, 30, 67, 0.12);
+      padding: 10px 10px 9px;
+      background: var(--lrx-blueSoft);
+      border-radius: 8px;
+      border-bottom: none;
       font-family: inherit;
-      font-size: 11px;
+      font-size: 14px;
       font-weight: 700;
       letter-spacing: 0.06em;
       text-transform: uppercase;
@@ -7283,13 +7274,13 @@
     }
     .lrx-wkhdr:first-child { margin-top: 2px; }
     .lrx-wkhdr .wl {
-      font-size: 11px;
+      font-size: 14px;
       font-weight: 700;
       letter-spacing: 0.06em;
       color: var(--text-tertiary);
     }
     .lrx-wkhdr .wr {
-      font-size: 11px;
+      font-size: 14px;
       font-weight: 700;
       font-family: inherit;
       letter-spacing: 0.06em;
@@ -7652,23 +7643,9 @@
         padding: 0.25rem 0;
       }
 
-      /* Month rollup + workout rows — tighter on phones */
-      .month-sep {
-        padding: 9px 10px 10px;
-        gap: 5px;
-      }
-      .month-sep-title {
-        font-size: 17px;
-      }
-      .month-sep-stats {
-        gap: 6px 10px;
-      }
-      .month-stat-val {
-        font-size: 12px;
-      }
-      .month-stat-lbl {
-        font-size: 7.5px;
-      }
+      /* Workout rows — tighter on phones. The monthly rollup now lives in
+         the calendar card's header, which is desktop-only (>= 1024px) —
+         no phone-width override needed for it here anymore. */
       .lrx-logrow {
         grid-template-columns: 30px minmax(0, 1fr) auto;
         column-gap: 8px;
@@ -7778,24 +7755,25 @@
         </div>
       </div>
 
-      <!-- Legacy load-widget (kept for load_context path; hidden by default)
-           + weekly volume chart — separate from the merged card above. -->
+      <!-- Legacy load-widget (kept for load_context path; hidden by default). -->
       <div id="load-widget" class="load-widget log-card" hidden></div>
-      <div id="volume-chart-card" class="volume-chart-card log-card" hidden>
-        <div class="vc-header">
-          <span class="vc-title">Weekly volume</span>
-        </div>
-        <div class="vc-body">
-          <canvas id="volume-chart" height="220" role="img"
-                  aria-label="Weekly training volume: stacked run and strength TSS with run distance line for the last 8 weeks"></canvas>
-        </div>
-      </div>
 
       <!-- Month calendar (Log sub-tab, desktop only) — issue #638 -->
       <div id="log-calendar" class="log-card log-card--calendar" aria-label="Monthly training calendar"></div>
 
-      <!-- Workout history (Log sub-tab) — issue #637 -->
+      <!-- Workout history (Log sub-tab) — issue #637. Weekly volume chart
+           moved on top of the list, nested inside the same card (no card-
+           in-card chrome — dropped its own .log-card class). -->
       <div class="log-card log-card--history">
+        <div id="volume-chart-card" class="volume-chart-card volume-chart-card--nested" hidden>
+          <div class="vc-header">
+            <span class="vc-title">Weekly volume</span>
+          </div>
+          <div class="vc-body">
+            <canvas id="volume-chart" height="220" role="img"
+                    aria-label="Weekly training volume: stacked run and strength TSS with run distance line for the last 8 weeks"></canvas>
+          </div>
+        </div>
         <div id="log-list"></div>
 
         <div id="log-empty-filter" style="display:none" class="log-empty" role="status">
