@@ -642,13 +642,6 @@ information about.
       }
     }
 
-    var line = document.getElementById('wl-projected-line');
-    if (line) {
-      var projVerdictCls = (d.verdict === 'hold' || d.verdict === 'back_off') ? d.verdict : '';
-      line.innerHTML = 'projected <b class="wl-projected-num ' + projVerdictCls + '">' +
-        Math.round(d.projected_tss) + '</b>/' + Math.round(d.target_tss) + ' TSS';
-    }
-
     var baselineEl = document.getElementById('wl-baseline-val');
     if (baselineEl) {
       // A silent cap reads as "the ramp is broken" — say so plainly

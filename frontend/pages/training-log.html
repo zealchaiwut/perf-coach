@@ -4365,12 +4365,9 @@
 
           <div class="wl-body" id="wl-body" hidden>
             <div class="wl-target-row">
-              <div class="wl-target-left">
-                <div class="wl-target-big">
-                  <span id="wl-target-val">—</span>
-                  <span class="wl-target-unit">TSS target</span>
-                </div>
-                <div class="wl-projected-line" id="wl-projected-line"></div>
+              <div class="wl-target-big">
+                <span id="wl-target-val">—</span>
+                <span class="wl-target-unit">TSS target</span>
               </div>
               <span class="wl-state-pill" id="wl-state-pill">—</span>
             </div>
@@ -5794,33 +5791,6 @@
       .plan-merged .wl-verdict-reason {
         font-size: 12px;
         color: var(--pm-muted);
-      }
-      .plan-merged .wl-target-left {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-      }
-      .plan-merged .wl-projected-line {
-        font-size: 12.5px;
-        color: var(--pm-muted);
-        margin-top: 0;
-      }
-      .plan-merged .wl-projected-line:empty {
-        display: none;
-      }
-      .plan-merged .wl-projected-line b {
-        color: var(--pm-ink);
-        font-family: var(--pm-mono);
-        font-weight: 700;
-      }
-      /* Projected TSS colored to match the verdict pill (hold/back_off) —
-         same amber/red the row already uses, so an overshoot projection
-         reads as a warning at a glance, not just plain ink. */
-      .plan-merged .wl-projected-line b.wl-projected-num.hold {
-        color: var(--pm-amber);
-      }
-      .plan-merged .wl-projected-line b.wl-projected-num.back_off {
-        color: var(--pm-red);
       }
 
       .plan-merged .wl-chain {
