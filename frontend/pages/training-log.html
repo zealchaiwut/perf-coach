@@ -4467,7 +4467,6 @@
               <div class="perf-card-body">
                 <div class="perf-bigscore perf-bigscore--e">
                   <span class="perf-score-val"></span>
-                  <span class="perf-blk" hidden></span>
                 </div>
                 <p class="perf-insight"></p>
                 <svg class="perf-trend perf-spark" aria-label="Endurance trend sparkline"></svg>
@@ -4503,7 +4502,6 @@
               <div class="perf-card-body">
                 <div class="perf-bigscore perf-bigscore--s">
                   <span class="perf-score-val"></span>
-                  <span class="perf-blk" hidden></span>
                 </div>
                 <p class="perf-insight"></p>
                 <svg class="perf-trend perf-spark" aria-label="Speed trend sparkline"></svg>
@@ -4529,7 +4527,6 @@
                 <button type="button" class="perf-retry-btn">Retry</button>
               </div>
               <span class="perf-speed-warn" hidden title="Score based on limited data — results may be less precise">⚠ Low data</span>
-              <div class="perf-speed-band" hidden><b></b>–<b></b></div>
             </div>
           </div>
           <!-- /.perf-scorewrap -->
@@ -4560,6 +4557,12 @@
               <div class="pm-caltile">
                 <div class="pm-lab">Band confidence</div>
                 <div class="pm-v" id="plan-calib-confidence">
+                  <span class="pm-italic">—</span>
+                </div>
+              </div>
+              <div class="pm-caltile">
+                <div class="pm-lab">Model correction</div>
+                <div class="pm-v" id="plan-calib-correction">
                   <span class="pm-italic">—</span>
                 </div>
               </div>
@@ -4629,6 +4632,7 @@
               <span class="pm-projnow-lab">Projected now</span>
               <span class="pm-projnow-val" id="plan-projected-now-val">—</span>
               <span class="pm-projnow-meta" id="plan-projected-now-meta"></span>
+              <span class="pm-projnow-basis" id="plan-projected-basis"></span>
             </div>
             <svg
               id="plan-timecurve"
@@ -4871,6 +4875,15 @@
         font-size: 11.5px;
         color: var(--pm-muted);
         font-family: var(--pm-mono);
+      }
+      /* How the estimate was formed from the athlete's own scores —
+         "End 36 → 6:37 /km · Spd 49 → 5:44 /km → blended 6:09 /km". */
+      .plan-merged .pm-projnow-basis {
+        flex-basis: 100%;
+        font-size: 11px;
+        color: var(--pm-faint);
+        font-family: var(--pm-mono);
+        margin-top: 2px;
       }
       .plan-merged .pm-bb {
         display: flex;
@@ -5973,6 +5986,25 @@
         }
       }
 
+      .plan-merged .pm-specitem {
+        margin-bottom: 12px;
+      }
+      .plan-merged .pm-specitem .pm-specrow {
+        margin-bottom: 3px;
+      }
+      /* Current / target value + one-line formula explainer under each bar —
+         the backend has always returned {current, target, unit}; render it
+         instead of discarding it. */
+      .plan-merged .pm-specsub {
+        font-size: 10.5px;
+        color: var(--pm-faint);
+        line-height: 1.4;
+      }
+      .plan-merged .pm-specsub .pm-specval {
+        font-family: var(--pm-mono);
+        font-weight: 700;
+        color: var(--pm-muted);
+      }
       .plan-merged .pm-specrow {
         display: flex;
         align-items: center;
@@ -6205,21 +6237,6 @@
       .perf-bigscore--s .perf-score-val {
         color: var(--perf-speed);
       }
-      .perf-blk {
-        font-size: 12px;
-        font-weight: 700;
-        font-family: var(--mono);
-        color: var(--perf-green);
-      }
-      .perf-bigscore--s .perf-blk {
-        color: var(--perf-speed);
-      }
-      .perf-blk--down {
-        color: var(--red, #dc2626) !important;
-      }
-      .perf-blk--flat {
-        color: var(--perf-muted) !important;
-      }
       .perf-speed-warn {
         font-size: 10px;
         font-weight: 700;
@@ -6229,19 +6246,6 @@
         border-radius: 6px;
         cursor: default;
         flex-shrink: 0;
-      }
-      .perf-speed-band {
-        font-size: 12px;
-        color: var(--perf-muted);
-        font-family: var(--mono);
-        margin: 2px 0 5px;
-        display: flex;
-        align-items: center;
-        gap: 4px;
-      }
-      .perf-speed-band b {
-        font-weight: 700;
-        color: var(--perf-speed);
       }
       .perf-insight {
         font-size: 12.5px;

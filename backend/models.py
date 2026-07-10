@@ -1204,6 +1204,59 @@ class RaceCheckpoint(Base):
         )
 
 
+class RaceCalibration(Base):
+    """One calibration event per finished race: what the model predicted vs
+    what the athlete actually ran, and the resulting correction factor
+    (actual/predicted). The weighted blend of these rows (recency +
+    distance-similarity, clamped) corrects every future finish estimate —
+    the real implementation of the previously-stubbed recalibrate-from-race
+    loop. See backend/services/race_calibration.py and
+    docs/calculations/projection.md §3."""
+    __tablename__ = "race_calibrations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    race_id = Column(UUID(as_uuid=True), ForeignKey("races.id", ondelete="CASCADE"), nullable=False, unique=True)
+    race_date = Column(Date, nullable=False)
+    distance_km = Column(Numeric(8, 3), nullable=False)
+    predicted_seconds = Column(Integer, nullable=False)
+    actual_seconds = Column(Integer, nullable=False)
+    correction = Column(Numeric(6, 4), nullable=False)  # actual / predicted, UNclamped
+    source = Column(Text, nullable=False, server_default=text("'backcast'"))  # backcast | stored_prediction
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        Index("ix_race_calibrations_user_date", "user_id", "race_date"),
+        CheckConstraint("predicted_seconds > 0", name="ck_race_calibrations_predicted_seconds"),
+        CheckConstraint("actual_seconds > 0", name="ck_race_calibrations_actual_seconds"),
+        CheckConstraint("correction > 0", name="ck_race_calibrations_correction"),
+        CheckConstraint("source IN ('backcast', 'stored_prediction')", name="ck_race_calibrations_source"),
+    )
+
+
+class RacePrediction(Base):
+    """Daily persisted race-day finish predictions — one row per race per day
+    the bundle computed an estimate. Future calibrations diff the actual
+    result against what was actually SHOWN to the athlete instead of a
+    backcast, and the residual history is the dataset every learned
+    confidence band needs (docs/calculations/README.md ML-blocker #1)."""
+    __tablename__ = "race_predictions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    race_id = Column(UUID(as_uuid=True), ForeignKey("races.id", ondelete="CASCADE"), nullable=False)
+    prediction_date = Column(Date, nullable=False)
+    predicted_seconds = Column(Integer, nullable=False)
+    band_seconds = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("race_id", "prediction_date", name="uq_race_predictions_race_day"),
+        Index("ix_race_predictions_user_race", "user_id", "race_id"),
+        CheckConstraint("predicted_seconds > 0", name="ck_race_predictions_predicted_seconds"),
+    )
+
+
 class AthleteDurationCurve(Base):
     """Per-athlete best-effort duration curve aggregated across all run workouts.
 

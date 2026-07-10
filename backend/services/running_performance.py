@@ -272,14 +272,17 @@ def _aggregate_and_shape(
         }
 
     # Points pool: qualifying runs (+ race as an ordinary point at its date).
-    points: list[tuple[date, float]] = []
+    # tagged_points keeps each point's run_id so a single run can be removed
+    # from the pool for the marginal-contribution computation below.
+    tagged_points: list[tuple[date, float, str | None]] = []
     for m in qualifying_meta:
         d = _date_from_str(m["workout_date"])
         if d is not None:
-            points.append((d, float(m["perf"])))
+            tagged_points.append((d, float(m["perf"]), m.get("run_id") or None))
     race_point = _race_point(race_perf)
     if race_point is not None:
-        points.append(race_point)
+        tagged_points.append((race_point[0], race_point[1], None))
+    points: list[tuple[date, float]] = [(d, p) for d, p, _ in tagged_points]
 
     if len(points) < min_runs:
         return {
@@ -307,10 +310,10 @@ def _aggregate_and_shape(
     direction = _compute_direction(trend, zc["direction_slope_threshold"])
     score = max(0.0, min(100.0, raw_score * body_modifier))
 
-    # Per-date contribution: how much this date's effort(s) moved the score
-    # (score(date) − score(previous trend date)), on the same displayed scale.
-    # Free — the trend already holds score(t) per date. Keyed by ISO date so a
-    # feeding session can look up its own contribution (its *_delta).
+    # Per-date contribution (LEGACY, kept for back-compat): score(date) −
+    # score(previous trend date). Includes pure time-decay drift between
+    # dates, so a maintenance run reads slightly negative — prefer
+    # run_contributions below for per-session badges.
     contributions: dict[str, float] = {}
     prev_val = None
     for t, v in zip(trend_dates, trend):
@@ -319,12 +322,36 @@ def _aggregate_and_shape(
             contributions[t.isoformat()] = round(disp - prev_val, 2)
         prev_val = disp
 
+    # Per-RUN marginal contribution to the CURRENT score, keyed by run_id:
+    # score at the final trend date (today, or the last point when history is
+    # stale) WITH the run minus WITHOUT it, on the displayed scale. This
+    # isolates the run's own effect on the score being shown — a maintenance
+    # run below the decayed top-3 shows exactly 0.0 instead of being blamed
+    # for the decay drift that accrued since the previous session; an effort
+    # holding up the top-3 (or the race floor) shows its real lift; a run
+    # that has decayed out of relevance shows 0.0. This is THE single source
+    # for every per-session delta badge (Performance-tab feed AND the
+    # workout-detail panel) — do not derive a second one elsewhere.
+    def _display(v: float) -> float:
+        return max(0.0, min(100.0, v * body_modifier))
+
+    t_eval = trend_dates[-1]
+    score_with_all = _display(_score_at(points, t_eval, race_perf))
+    run_contributions: dict[str, float] = {}
+    for d, perf, rid in tagged_points:
+        if rid is None:
+            continue  # race anchor point, not a run
+        without = [(pd, pp) for pd, pp, prid in tagged_points if prid != rid]
+        without_run = _score_at(without, t_eval, race_perf) if without else 0.0
+        run_contributions[rid] = round(score_with_all - _display(without_run), 2)
+
     result: dict[str, Any] = {
         "score": round(score, 2),
         "direction": direction,
         "trend": [round(v, 2) for v in trend],
         "trend_dates": [t.isoformat() for t in trend_dates],
         "contributions": contributions,
+        "run_contributions": run_contributions,
         "qualifying_session_count": len(qualifying_meta),
         "debug": {"perRunEfficiency": per_run_perf},
     }

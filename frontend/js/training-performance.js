@@ -420,6 +420,22 @@
         confEl.innerHTML = '<span class="pm-italic">—</span>';
       }
     }
+    // Applied model correction from real predicted-vs-actual race
+    // calibrations ("model ran 4% pessimistic → estimates corrected −4%").
+    var corrEl = document.getElementById("plan-calib-correction");
+    if (corrEl) {
+      var pct = data && typeof data.correction_pct === "number" ? data.correction_pct : null;
+      var n = (data && data.n_calibrations) || 0;
+      if (pct === null || n === 0) {
+        corrEl.innerHTML = '<span class="pm-italic">No finished races yet</span>';
+      } else if (Math.abs(pct) < 0.05) {
+        corrEl.textContent = "None needed (" + n + " race" + (n === 1 ? "" : "s") + ")";
+      } else {
+        var dirTxt = pct > 0 ? "model ran optimistic" : "model ran pessimistic";
+        corrEl.textContent = (pct > 0 ? "+" : "") + pct + "% — " + dirTxt +
+          " (" + n + " race" + (n === 1 ? "" : "s") + ")";
+      }
+    }
   }
 
   // ── 3. Time-curve SVG (projected finish time) ─────────────────────────────
@@ -470,6 +486,25 @@
           parts.push("±" + Math.max(1, Math.round(estInfo.band / 60)) + " min");
         if (goalSec != null) parts.push("goal " + fmtTime(goalSec));
         metaEl.textContent = parts.join(" · ");
+      }
+      // How the estimate was formed from the athlete's own scores — the
+      // interpretable decomposition (time_curve.estimate_basis).
+      var basisEl = document.getElementById("plan-projected-basis");
+      if (basisEl) {
+        var basis = tc && tc.estimate_basis;
+        if (basis && basis.blended_pace_seconds_per_km != null) {
+          var bits = [];
+          if (basis.endurance_score != null && basis.endurance_pace_seconds_per_km != null)
+            bits.push("End " + Math.round(basis.endurance_score) + " → " + fmtPace(basis.endurance_pace_seconds_per_km));
+          if (basis.speed_score != null && basis.speed_pace_seconds_per_km != null)
+            bits.push("Spd " + Math.round(basis.speed_score) + " → " + fmtPace(basis.speed_pace_seconds_per_km));
+          var wPct = basis.speed_weight != null ? Math.round(basis.speed_weight * 100) : null;
+          bits.push("blended" + (wPct != null ? " (" + wPct + "% speed)" : "") + " → " +
+            fmtPace(basis.blended_pace_seconds_per_km));
+          basisEl.textContent = bits.join(" · ");
+        } else {
+          basisEl.textContent = "";
+        }
       }
     } else {
       _hideProjNow();
@@ -1109,14 +1144,35 @@
     function pct(cur, tgt) {
       return tgt > 0 ? Math.min(100, Math.round((cur / tgt) * 100)) : 0;
     }
+    // current/target come from the backend in the metric's own unit
+    // (specificity_progress: km, or seconds for the duration row).
+    function fmtDur(sec) {
+      sec = Math.round(sec || 0);
+      var h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+      return h > 0 ? h + "h " + String(m).padStart(2, "0") + "m" : m + "m";
+    }
+    function fmtVal(m) {
+      if (m.unit === "seconds") return fmtDur(m.current) + " / " + fmtDur(m.target);
+      return (Math.round(m.current * 10) / 10) + " / " + (Math.round(m.target * 10) / 10) + " km";
+    }
+    // Goal pace for the explainer copy, when derivable from the primary race.
+    var goalPaceTxt = "";
+    if (_primaryRace && _primaryRace.goal_time_seconds && _primaryRace.distance) {
+      goalPaceTxt = " (" + fmtPace(_primaryRace.goal_time_seconds / parseFloat(_primaryRace.distance)) + ")";
+    }
+
     if (sp.volume_at_pace)
-      rows.push(["Goal-pace volume", pct(sp.volume_at_pace.current, sp.volume_at_pace.target)]);
+      rows.push(["Goal-pace volume", pct(sp.volume_at_pace.current, sp.volume_at_pace.target), fmtVal(sp.volume_at_pace),
+        "km run within ±15 s/km of goal pace" + goalPaceTxt + " · target 60% of race distance"]);
     if (sp.longest_pace_effort)
-      rows.push(["Longest-at-pace", pct(sp.longest_pace_effort.current, sp.longest_pace_effort.target)]);
+      rows.push(["Longest-at-pace", pct(sp.longest_pace_effort.current, sp.longest_pace_effort.target), fmtVal(sp.longest_pace_effort),
+        "longest single run at goal pace" + goalPaceTxt + " ±15 s/km · target 90% of race distance"]);
     if (sp.longest_run_by_distance)
-      rows.push(["Longest run (distance)", pct(sp.longest_run_by_distance.current, sp.longest_run_by_distance.target)]);
+      rows.push(["Longest run (distance)", pct(sp.longest_run_by_distance.current, sp.longest_run_by_distance.target), fmtVal(sp.longest_run_by_distance),
+        "longest single run, any pace · target 90% of race distance"]);
     if (sp.longest_run_by_duration)
-      rows.push(["Longest run (duration)", pct(sp.longest_run_by_duration.current, sp.longest_run_by_duration.target)]);
+      rows.push(["Longest run (duration)", pct(sp.longest_run_by_duration.current, sp.longest_run_by_duration.target), fmtVal(sp.longest_run_by_duration),
+        "longest time on feet, any pace · target 90% of goal time"]);
 
     if (rows.length === 0) {
       host.innerHTML = "";
@@ -1127,11 +1183,14 @@
     host.innerHTML = rows
       .map(function (r) {
         return (
+          '<div class="pm-specitem">' +
           '<div class="pm-specrow">' +
           '<div class="pm-specname">' + esc(r[0]) + "</div>" +
           '<div class="pm-spectrack"><div class="pm-specfill" style="width:' +
           r[1] + '%"></div></div>' +
           '<div class="pm-specpct">' + r[1] + "%</div>" +
+          "</div>" +
+          '<div class="pm-specsub"><span class="pm-specval">' + esc(r[2]) + "</span> · " + esc(r[3]) + "</div>" +
           "</div>"
         );
       })
@@ -2006,8 +2065,8 @@
         if (state === "scored") {
           _renderPerfScoreCard("endurance", data.endurance);
           _renderPerfScoreCard("speed", data.speed);
-          _perfContribs.endurance = (data.endurance && data.endurance.contributions) || null;
-          _perfContribs.speed = (data.speed && data.speed.contributions) || null;
+          _perfContribs.endurance = (data.endurance && data.endurance.run_contributions) || null;
+          _perfContribs.speed = (data.speed && data.speed.run_contributions) || null;
           if (_perfFeedRows.endurance) _renderPerfFeed("endurance", _perfFeedRows.endurance);
           if (_perfFeedRows.speed) _renderPerfFeed("speed", _perfFeedRows.speed);
           return;
@@ -2039,14 +2098,12 @@
       card: card,
       body: card.querySelector(".perf-card-body"),
       score: card.querySelector(".perf-score-val"),
-      blk: card.querySelector(".perf-blk"),
       insight: card.querySelector(".perf-insight"),
       spark: card.querySelector(".perf-spark"),
       bb: card.querySelector(".perf-building-baseline"),
       thresh: card.querySelector(".perf-threshold-hint"),
       error: card.querySelector(".perf-error"),
       warn: card.querySelector(".perf-speed-warn"),
-      band: card.querySelector(".perf-speed-band"),
     };
   }
 
@@ -2056,7 +2113,6 @@
     if (p.thresh) p.thresh.hidden = true;
     if (p.error) p.error.hidden = true;
     if (p.warn) p.warn.hidden = true;
-    if (p.band) p.band.hidden = true;
   }
 
   function _renderPerfScoreCard(type, data) {
@@ -2067,62 +2123,38 @@
       _renderPerfScoreError(type);
       return;
     }
-    var score = data.score, dir = data.direction || "flat";
+    var score = data.score;
     var trend = Array.isArray(data.trend) ? data.trend : [];
     if (p.body) p.body.style.display = "";
     if (p.score) p.score.textContent = Math.round(score);
-    if (p.blk) {
-      var delta = _perfBlockDelta(trend, data.trend_dates);
-      if (delta === null) {
-        p.blk.hidden = true;
-      } else {
-        p.blk.hidden = false;
-        p.blk.classList.remove("perf-blk--down", "perf-blk--flat");
-        if (delta > 0) p.blk.textContent = "↑ +" + delta + " this block";
-        else if (delta < 0) { p.blk.textContent = "↓ −" + Math.abs(delta) + " this block"; p.blk.classList.add("perf-blk--down"); }
-        else { p.blk.textContent = "flat this block"; p.blk.classList.add("perf-blk--flat"); }
-      }
-    }
-    if (p.insight) p.insight.textContent = _perfInsightText(dir, trend);
+    if (p.insight) p.insight.textContent = _perfInsightText(trend);
     if (p.spark && trend.length >= 2) _drawPerfTrend(p.spark, trend, PERF_TREND_COLOR[type]);
     else if (p.spark) p.spark.innerHTML = "";
     if (p.warn) p.warn.hidden = data.low_data_warning !== true;
-    if (p.band) {
-      var cb = data.confidence_band;
-      if (cb && typeof cb === "object" && cb.lower != null && cb.upper != null) {
-        p.band.hidden = false;
-        var lowerEl = p.band.querySelector("b:first-child");
-        var upperEl = p.band.querySelector("b:last-child");
-        if (lowerEl) lowerEl.textContent = Math.round(cb.lower);
-        if (upperEl) upperEl.textContent = Math.round(cb.upper);
-      } else { p.band.hidden = true; }
-    }
   }
 
-  function _perfBlockDelta(trend, trendDates) {
+  function _perfTrendDelta(trend) {
     if (!Array.isArray(trend) || trend.length < 2) return null;
-    var last = trend[trend.length - 1];
-    if (last == null) return null;
-    var base = null;
-    if (Array.isArray(trendDates) && trendDates.length === trend.length) {
-      var lastMs = Date.parse(trendDates[trendDates.length - 1] + "T00:00:00");
-      var cutoff = lastMs - 28 * 86400000;
-      for (var i = trend.length - 1; i >= 0; i--) {
-        var ms = Date.parse(trendDates[i] + "T00:00:00");
-        if (!isNaN(ms) && ms <= cutoff) { base = trend[i]; break; }
-      }
-      if (base == null) return null;
-    } else { base = trend[0]; }
-    if (base == null) return null;
-    return Math.round(last - base);
+    var first = trend[0], last = trend[trend.length - 1];
+    if (first == null || last == null) return null;
+    return Math.round(last - first);
   }
 
-  function _perfInsightText(dir, trend) {
-    var n = trend.length;
-    var span = n >= 2 ? " over the last " + Math.min(n, 8) + " sessions" : "";
-    if (dir === "improving") return "Trending up" + span + ".";
-    if (dir === "declining") return "Easing off — trending down" + span + ".";
-    return "Holding steady" + span + ".";
+  // By construction of the score model (decayed top-3 mean), a run can never
+  // LOWER the score — any decline is pure time decay between peak efforts,
+  // and any rise means a new effort entered the top-3 (or lifted the race
+  // floor). Say WHICH, instead of a bare ±N the athlete can't reconcile
+  // with the per-run 0.0 badges below.
+  function _perfInsightText(trend) {
+    var delta = _perfTrendDelta(trend);
+    if (delta === null) return "Holding steady.";
+    if (delta < 0) {
+      return "Down " + Math.abs(delta) + " over this window — time decay between peak efforts, not any single run.";
+    }
+    if (delta > 0) {
+      return "Up " + delta + " over this window — newer efforts raised your top-3 anchor.";
+    }
+    return "Holding steady over this window.";
   }
 
   function _drawPerfTrend(svg, pts, color) {
@@ -2220,16 +2252,15 @@
       if (w.avg_hr != null) meta.push("HR " + w.avg_hr);
       var src = w.has_stryd ? "st" : (w.has_strava ? "s" : "");
       var srcHtml = src ? '<span class="perf-src perf-src--' + src + '">' + (src === "s" ? "S" : "St") + "</span>" : "";
-      var chipHtml;
-      var contrib = (contribMap && w.date != null) ? contribMap[w.date] : undefined;
-      if (typeof contrib === "number") {
-        var n = Math.round(contrib * 10) / 10;
-        var cls = n > 0 ? "up" : (n < 0 ? "down" : "flat");
-        var txt = (n > 0 ? "+" : "") + n;
-        chipHtml = '<span class="perf-dchip perf-dchip--' + cls + '" title="contribution to ' + type + ' score">' + txt + "</span>";
-      } else {
-        chipHtml = (w.tss != null) ? '<span class="perf-dchip">' + Math.round(w.tss) + " TSS</span>" : "";
-      }
+      // Marginal contribution to the CURRENT score, keyed by workout id
+      // (run_contributions — the single source shared with the workout-detail
+      // panel). A session with no entry didn't qualify for this score at all
+      // → honest 0.0, never a raw-TSS fallback.
+      var contrib = (contribMap && w.id != null) ? contribMap[String(w.id)] : undefined;
+      var n = (typeof contrib === "number") ? Math.round(contrib * 10) / 10 : 0;
+      var cls = n > 0 ? "up" : (n < 0 ? "down" : "flat");
+      var txt = (n > 0 ? "+" : "") + n.toFixed(1);
+      var chipHtml = '<span class="perf-dchip perf-dchip--' + cls + '" title="contribution to ' + type + ' score">' + txt + "</span>";
       var href = "/log?workout=" + encodeURIComponent(w.id);
       return '<a class="perf-frow" href="' + href + '">' +
         '<span class="perf-fdate">' + esc(_perfFmtMmmD(w.date)) + "</span>" +

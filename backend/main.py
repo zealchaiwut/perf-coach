@@ -93,7 +93,7 @@ from backend.services.heat_correction import (
 from backend.services.goal_arrival_caller import resolve_arrival_projection as _resolve_arrival_projection
 from backend.services.performance_constants import NEEDS_THRESHOLDS_REASON as _NEEDS_THRESHOLDS_REASON
 from backend.services.backfill_performance import backfill_performance_for_athlete as _backfill_performance_for_athlete
-from backend.services.projection import project_fitness as _project_fitness, compute_expressible_score as _compute_expressible_score
+from backend.services.projection import project_fitness as _project_fitness, compute_expressible_score as _compute_expressible_score, capped_form_factor as _capped_form_factor
 from backend.services.score_ceiling import projected_ctl_to_score_ceiling as _projected_ctl_to_score_ceiling
 from backend.services.economy_stimulus import compute_economy_stimulus as _compute_economy_stimulus
 from backend.services.ceiling_bonus import compute_ceiling_bonus as _compute_ceiling_bonus, LAG_WINDOW_DAYS as _LAG_WINDOW_DAYS, LAG_PEAK_DAYS as _LAG_PEAK_DAYS
@@ -5691,12 +5691,10 @@ def _workout_signal_scores(session, workout) -> dict:
         ):
             splits_by_wk.setdefault(s.workout_id, []).append(s)
 
-    def _build(max_date, before_date=None):
+    def _build(max_date):
         runs = []
         for wk in run_workouts:
             if wk.workout_date > max_date:
-                continue
-            if before_date is not None and wk.workout_date >= before_date:
                 continue
             splits = splits_by_wk.get(wk.id, [])
             laps = [
@@ -5754,37 +5752,35 @@ def _workout_signal_scores(session, workout) -> dict:
             )
         return runs
 
-    d = workout.workout_date
-
-    def _score(fn, runs, race_perf):
-        r = fn(runs, prefs_dict or None, zone_constants, race_perf=race_perf)
-        s = r.get("score") if isinstance(r, dict) else None
-        return s if isinstance(s, (int, float)) and not isinstance(s, bool) else None
-
     # "One score everywhere": *_current is the athlete's score AS OF TODAY —
-    # identical to the Performance tab and identical on every workout card. The
-    # per-session distinction lives entirely in *_delta = the contribution this
-    # session's DATE made (score as-of-that-date minus score as-of the day
-    # before). Race VDOT floor is taken at the matching date for each.
+    # identical to the Performance tab (same body_modifier, same race floor).
+    # *_delta is this run's MARGINAL contribution to that score
+    # (run_contributions from running_performance._aggregate_and_shape — the
+    # single source shared with the Performance-tab feed badges; never derive
+    # a second delta here). None when this run didn't qualify for that score.
+    from backend.services.body_modifier import get_body_modifier_for_user as _get_bm
+
+    _bm = _get_bm(workout.user_id)
     _race_today = _latest_race_perf(session, workout.user_id, as_of=_today)
-    _race_asof = _latest_race_perf(session, workout.user_id, as_of=d)
-    _race_prev = _latest_race_perf(session, workout.user_id, as_of=(d - _timedelta(days=1)) if d else None)
-
     today_runs = _build(_today)
-    e_cur = _score(compute_endurance_score, today_runs, _race_today)
-    s_cur = _score(compute_speed_score, today_runs, _race_today)
+    wid = str(workout.id)
 
-    asof = _build(d)
-    prev = _build(d, before_date=d)
-    e_asof = _score(compute_endurance_score, asof, _race_asof)
-    s_asof = _score(compute_speed_score, asof, _race_asof)
-    e_prev = _score(compute_endurance_score, prev, _race_prev)
-    s_prev = _score(compute_speed_score, prev, _race_prev)
+    def _score_and_delta(fn):
+        r = fn(today_runs, prefs_dict or None, zone_constants, body_modifier=_bm, race_perf=_race_today)
+        if not isinstance(r, dict):
+            return None, None
+        s = r.get("score")
+        s = s if isinstance(s, (int, float)) and not isinstance(s, bool) else None
+        delta = (r.get("run_contributions") or {}).get(wid)
+        return s, delta
+
+    e_cur, e_delta = _score_and_delta(compute_endurance_score)
+    s_cur, s_delta = _score_and_delta(compute_speed_score)
     return {
         "endurance_score_current": round(e_cur, 1) if e_cur is not None else None,
-        "endurance_score_delta": round(e_asof - e_prev, 1) if e_asof is not None and e_prev is not None else None,
+        "endurance_score_delta": round(e_delta, 1) if e_delta is not None else None,
         "speed_score_current": round(s_cur, 1) if s_cur is not None else None,
-        "speed_score_delta": round(s_asof - s_prev, 1) if s_asof is not None and s_prev is not None else None,
+        "speed_score_delta": round(s_delta, 1) if s_delta is not None else None,
     }
 
 
@@ -14043,21 +14039,25 @@ def get_calibration_status(user: User = Depends(resolve_user)):
     All values are derived from model constants (CTL_DAYS) and live DB state —
     nothing is hardcoded.
     """
+    from backend.services.race_calibration import (
+        combined_correction as _combined_correction,
+        ensure_calibrations as _ensure_calibrations,
+        load_calibrations as _load_calibrations,
+    )
+
     today = _date.today()
     window_90 = today - _timedelta(days=_CALIB_WINDOW_90)
     window_42 = today - _timedelta(days=_CALIB_WINDOW_42)
 
     with Session(engine) as db:
-        last_race = (
-            db.query(Race)
-            .filter(
-                Race.user_id == user.id,
-                Race.status == "done",
-                Race.actual_time_seconds.isnot(None),
-            )
-            .order_by(Race.updated_at.desc())
-            .first()
-        )
+        # Self-heal first so the card reports REAL calibration rows (created
+        # from predicted-vs-actual on finished races), not just race dates.
+        try:
+            _ensure_calibrations(str(user.id), db)
+        except Exception:
+            _log.warning("ensure_calibrations failed in calibration status", exc_info=True)
+
+        cal_rows = _load_calibrations(str(user.id), db)
 
         count_90 = (
             db.query(TrainingLoadSnapshot)
@@ -14077,22 +14077,22 @@ def get_calibration_status(user: User = Depends(resolve_user)):
             .count()
         )
 
-        # Finished races (real result) within the 90-day window count as
-        # calibration records (issue #1226).
-        race_count_90 = (
-            db.query(Race)
-            .filter(
-                Race.user_id == user.id,
-                Race.status == "done",
-                Race.actual_time_seconds.isnot(None),
-                Race.race_date >= window_90,
-            )
-            .count()
-        )
+        # Real calibration rows within the 90-day window (issue #1226 counted
+        # done races; these are strictly a subset that actually calibrated).
+        race_count_90 = sum(1 for c in cal_rows if c["race_date"] >= window_90)
 
-    return JSONResponse(
-        _compute_calibration_status(last_race, count_90, count_42, race_count_90)
-    )
+    status = _compute_calibration_status(None, count_90, count_42, race_count_90)
+    # "Last recalibrated" now means a REAL predicted-vs-actual calibration row
+    # (the previous version echoed the last done race's updated_at while the
+    # recalibrate function was an unimplemented stub).
+    latest = cal_rows[0] if cal_rows else None
+    status["last_calibration_date"] = latest["race_date"].isoformat() if latest else None
+    status["calibrated"] = latest is not None
+    blend = _combined_correction(cal_rows, None, today=today)
+    status["correction"] = blend["correction"]
+    status["correction_pct"] = round((blend["correction"] - 1.0) * 100.0, 1)
+    status["n_calibrations"] = blend["n"]
+    return JSONResponse(status)
 
 
 # ── Race Checkpoints ──────────────────────────────────────────────────────────
@@ -14610,22 +14610,22 @@ def _race_readiness_impl(
     # within 90 days into an endurance ceiling and use it as the estimate
     # baseline, instead of the CTL-derived score which discards race results
     # (issue #1226). Falls back to the CTL ceiling when no recent race exists.
+    _anchor_cut = today - _timedelta(days=90)
+    _done_races = (
+        db.query(Race)
+        .filter(
+            Race.user_id == user.id,
+            Race.status == "done",
+            Race.actual_time_seconds.isnot(None),
+            Race.distance_km.isnot(None),
+            Race.race_date >= _anchor_cut,
+        )
+        .all()
+    )
     _race_anchor_ceiling = None
     if threshold_pace and float(threshold_pace) > 0:
         from backend.services.score_ceiling import (
             ceiling_from_b_race_result as _ceiling_from_race,
-        )
-        _anchor_cut = today - _timedelta(days=90)
-        _done_races = (
-            db.query(Race)
-            .filter(
-                Race.user_id == user.id,
-                Race.status == "done",
-                Race.actual_time_seconds.isnot(None),
-                Race.distance_km.isnot(None),
-                Race.race_date >= _anchor_cut,
-            )
-            .all()
         )
         for _dr in _done_races:
             _c = _ceiling_from_race(
@@ -14637,7 +14637,75 @@ def _race_readiness_impl(
             ):
                 _race_anchor_ceiling = _ec
 
+    # Riegel floor: the model must never predict SLOWER than the Riegel
+    # equivalent of a race the athlete actually finished in the last 90 days
+    # (T2 = T1 × (D2/D1)^1.06 — backend/services/riegel.py). The expressible-
+    # score chain punishes current fatigue (score × (1 + tsb/20)); mid-build
+    # that suppressed the estimate BELOW a demonstrated result (reported live:
+    # projected half 2:38 while the athlete ran 2:19 ten weeks earlier with
+    # LOWER scores). A demonstrated result is a fact; a TSB-suppressed
+    # heuristic is not — the fact wins. History samples are only capped from
+    # the demonstrated race's own date forward.
+    from backend.services.riegel import riegel_project as _riegel_project
+
+    _riegel_caps: list[tuple] = []  # (race_date, equivalent_seconds at THIS race's distance)
+    if _tc_distance:
+        for _dr in _done_races:
+            _eq = _riegel_project(_dr.actual_time_seconds, float(_dr.distance_km), _tc_distance)
+            if _eq is not None:
+                _riegel_caps.append((_dr.race_date, int(_eq)))
+
+    def _riegel_cap_for(sample_date):
+        caps = [eq for rd, eq in _riegel_caps if rd <= sample_date]
+        return min(caps) if caps else None
+
+    # Calibration correction — the weighted blend of stored predicted-vs-
+    # actual race corrections (recency + distance-similarity, clamped ±10%;
+    # backend/services/race_calibration.py). Applied to every raw estimate
+    # BEFORE the Riegel floor cap: the correction fixes systematic model
+    # bias, the floor stays the hard demonstrated-result bound. Unlike the
+    # 90-day anchor/floor this never expires.
+    from backend.services.race_calibration import (
+        combined_correction as _combined_correction,
+        load_calibrations as _load_calibrations,
+    )
+
+    _cal_rows = _load_calibrations(str(user.id), db)
+    _cal_blend = _combined_correction(_cal_rows, _tc_distance, today=today)
+    _correction = _cal_blend["correction"]
+
+    def _corrected(seconds: int, sample_date) -> int:
+        seconds = int(round(seconds * _correction))
+        cap = _riegel_cap_for(sample_date)
+        if cap is not None and seconds > cap:
+            seconds = cap
+        return seconds
+
+    # Base score for the estimate chain — the athlete's DISPLAYED End/Spd
+    # scores, blended by log-distance weight (10 K leans on Speed, marathon
+    # on Endurance; see race_finish_estimator.blended_scores_estimate). This
+    # is what makes the estimate reconcile with the score cards: higher
+    # scores → faster estimate, always. Falls back to the old race-anchor /
+    # CTL ceiling only when the athlete has no endurance score yet. The
+    # per-day TSB factor, calibration correction, and Riegel floor still
+    # apply on top.
+    from backend.services.race_finish_estimator import (
+        blended_scores_estimate as _blended_scores_estimate,
+        speed_weight_for_distance as _speed_weight_for_distance,
+    )
+
+    _cur_scores = _athlete_scores_as_of(db, user.id, today)
+    _cur_end = _cur_scores.get("endurance")
+    _cur_spd = _cur_scores.get("speed")
+    _score_anchored = _cur_end is not None and _tc_distance
+    _blend_base: Optional[float] = None
+    if _score_anchored:
+        _w_s = _speed_weight_for_distance(_tc_distance) if _cur_spd is not None else 0.0
+        _blend_base = _w_s * (_cur_spd or 0.0) + (1.0 - _w_s) * _cur_end
+
     def _base_ceiling(ctl_value):
+        if _blend_base is not None:
+            return _blend_base
         if _race_anchor_ceiling is not None:
             return _race_anchor_ceiling
         return _projected_ctl_to_score_ceiling(
@@ -14646,6 +14714,9 @@ def _race_readiness_impl(
             reference_date=today,
         )["endurance_ceiling"]
 
+    def _fmt_finish(seconds: int) -> str:
+        return f"{seconds // 3600}:{(seconds % 3600) // 60:02d}:{seconds % 60:02d}"
+
     # History: last 90 days of load_curves → expressible score → estimated finish time
     _tc_history_cutoff = today - _timedelta(days=90)
     time_curve_history = []
@@ -14653,13 +14724,14 @@ def _race_readiness_impl(
         if _row["date"] < _tc_history_cutoff:
             continue
         _base = _base_ceiling(_row["ctl"])
-        _expr = _compute_expressible_score(_base, _row["tsb"], _TIME_CURVE_CEILING_TSB)
+        _expr = _base * _capped_form_factor(_row["tsb"], _TIME_CURVE_CEILING_TSB)
         _est = _score_to_estimated_finish_time(_expr, _tc_thresholds, _tc_distance)
         if _est["estimated_finish_seconds"] is not None:
+            _sec = _corrected(_est["estimated_finish_seconds"], _row["date"])
             time_curve_history.append({
                 "date": _row["date"].isoformat(),
-                "estimated_finish_seconds": _est["estimated_finish_seconds"],
-                "estimated_finish_time": _est["estimated_finish_time"],
+                "estimated_finish_seconds": _sec,
+                "estimated_finish_time": _fmt_finish(_sec),
             })
 
     # Projection: from today to race_date with zero load (taper assumption) + confidence band
@@ -14676,21 +14748,22 @@ def _race_readiness_impl(
             )
             for _day, _day_data in sorted(_proj_series.items()):
                 _base = _base_ceiling(_day_data["ctl"])
-                _expr = _compute_expressible_score(_base, _day_data["tsb"], _TIME_CURVE_CEILING_TSB)
+                _expr = _base * _capped_form_factor(_day_data["tsb"], _TIME_CURVE_CEILING_TSB)
                 _est = _score_to_estimated_finish_time(_expr, _tc_thresholds, _tc_distance)
                 if _est["estimated_finish_seconds"] is None:
                     continue
+                _sec = _corrected(_est["estimated_finish_seconds"], _day)
                 # Treat confidence_band_days as a percentage of estimated finish time.
                 # band(7) ≈ 1.3%, band(90) ≈ 4.7% — a realistic uncertainty envelope.
                 _cb_pct = _day_data["confidence_band"]
-                _band_sec = int(_est["estimated_finish_seconds"] * _cb_pct / 100.0)
+                _band_sec = int(_sec * _cb_pct / 100.0)
                 time_curve_projection.append({
                     "date": _day.isoformat(),
-                    "estimated_finish_seconds": _est["estimated_finish_seconds"],
-                    "estimated_finish_time": _est["estimated_finish_time"],
+                    "estimated_finish_seconds": _sec,
+                    "estimated_finish_time": _fmt_finish(_sec),
                     "confidence_band_seconds": _band_sec,
-                    "upper_seconds": _est["estimated_finish_seconds"] + _band_sec,
-                    "lower_seconds": max(0, _est["estimated_finish_seconds"] - _band_sec),
+                    "upper_seconds": _sec + _band_sec,
+                    "lower_seconds": max(0, _sec - _band_sec),
                 })
 
     # Goal finish time
@@ -14719,6 +14792,23 @@ def _race_readiness_impl(
             "projection": time_curve_projection,
             "goal_finish_seconds": _goal_secs,
             "goal_finish_time": _goal_str,
+            # Riegel equivalent of the best demonstrated race in the last 90
+            # days at THIS race's distance — the cap already applied to every
+            # sample above; surfaced so the UI can say why an estimate is
+            # anchored. None when no recent finished race exists.
+            "riegel_floor_seconds": _riegel_cap_for(today),
+            # Applied calibration correction (weighted blend of predicted-vs-
+            # actual from finished races; 1.0 = no data / perfectly calibrated).
+            "calibration_correction": round(_correction, 4),
+            "calibration_n_races": _cal_blend["n"],
+            # Interpretable decomposition of the estimate: per-anchor paces
+            # from the athlete's own End/Spd scores and the blend weight —
+            # "with this Endurance you hold X /km here; with this Speed, Y;
+            # blended → Z". None when the estimate isn't score-anchored.
+            "estimate_basis": (
+                _blended_scores_estimate(_cur_end, _cur_spd, _tc_distance, _tc_thresholds).get("basis")
+                if _score_anchored else None
+            ),
         },
     }
 
@@ -16277,10 +16367,16 @@ def _plan_signature(session, user_id, plan) -> str:
         prefs_pace_stamp, prefs_updated_at,
     ) = row
     prefs_stamp = prefs_pace_stamp or prefs_updated_at
-    # Bundle-shape version: bump when the cached bundle gains/changes a key so
-    # existing computed_cache rows (old shape) invalidate on deploy instead of
-    # being served stale. bundle-v2 = folded in the primary race's `readiness`.
-    _BUNDLE_VERSION = "bundle-v2"
+    # Bundle-shape version: bump when the cached bundle gains/changes a key OR
+    # the estimate formula changes, so existing computed_cache rows invalidate
+    # on deploy instead of being served stale. bundle-v2 = folded in the
+    # primary race's `readiness`. bundle-v3 = score-anchored blended estimate
+    # + race-day sample + Riegel floor + calibration correction + estimate
+    # basis (reported live: all of those shipped invisibly because the cached
+    # bundle's signature only tracked DATA changes, never code).
+    # bundle-v4 = taper form-factor capped at TAPER_MAX_FORM_FACTOR for
+    # finish estimates.
+    _BUNDLE_VERSION = "bundle-v4"
     parts = [
         _BUNDLE_VERSION,
         str(max_wo), str(wo_count), str(max_wo_updated),
@@ -16330,7 +16426,11 @@ def _plan_race_scores(session, user_id, race, race_dict, readiness, current_scor
         proj = readiness["time_curve"].get("projection") or []
         hist = readiness["time_curve"].get("history") or []
         if proj:
-            est = proj[0].get("estimated_finish_seconds")
+            # RACE-DAY sample (the projection series ends at this race's
+            # date), not proj[0] (~tomorrow) — using day one froze the
+            # estimate at today's mid-build fatigue and ignored the entire
+            # build+taper between now and the start line.
+            est = proj[-1].get("estimated_finish_seconds")
         elif hist:
             est = hist[-1].get("estimated_finish_seconds")
     if est is None:
@@ -16339,8 +16439,10 @@ def _plan_race_scores(session, user_id, race, race_dict, readiness, current_scor
     goal_pace = goal / dist
     est_pace = est / dist
     gap = (est_pace - goal_pace) / tp * 100.0
-    le = _math.log(dist / 21.1)
-    speed_weight = max(0.15, min(0.85, 0.5 - 0.18 * le))
+    # Same log-distance weighting the estimate itself uses — one formula,
+    # two consumers (race_finish_estimator.speed_weight_for_distance).
+    from backend.services.race_finish_estimator import speed_weight_for_distance as _swfd
+    speed_weight = _swfd(dist)
     end_weight = 1 - speed_weight
     d_end = round(gap * end_weight)
     d_spd = round(gap * speed_weight)
@@ -16410,6 +16512,22 @@ def _compute_plan_bundle(user) -> dict:
         )
         today = _date.today()
 
+        # Self-healing calibration: create the predicted-vs-actual row for any
+        # finished race that lacks one. The bundle is the single choke point
+        # every race-mutation path funnels through (its cache signature
+        # includes race updated_at), so no per-endpoint done-transition hooks
+        # are needed — marking a race done from ANY endpoint calibrates on the
+        # next bundle compute. Best-effort: a backcast failure never blocks
+        # the bundle.
+        from backend.services.race_calibration import (
+            ensure_calibrations as _ensure_calibrations,
+            record_prediction as _record_prediction,
+        )
+        try:
+            _ensure_calibrations(str(user.id), session)
+        except Exception:
+            _log.warning("ensure_calibrations failed", exc_info=True)
+
         # Shared per-user 180-day TSS/EWMA series: every upcoming race's
         # get_race_readiness() call would otherwise recompute this identically.
         _warmup_start = today - _timedelta(days=180)
@@ -16463,12 +16581,20 @@ def _compute_plan_bundle(user) -> dict:
                     e = None
                     band = None
                     if proj:
-                        e = proj[0].get("estimated_finish_seconds")
-                        band = proj[0].get("confidence_band_seconds")
+                        # RACE-DAY sample — the per-race projection series
+                        # ends at this race's own date. proj[0] (~tomorrow)
+                        # froze the estimate at today's mid-build fatigue,
+                        # ignoring the build+taper before the start line.
+                        e = proj[-1].get("estimated_finish_seconds")
+                        band = proj[-1].get("confidence_band_seconds")
                     elif hist:
                         e = hist[-1].get("estimated_finish_seconds")
                     if e is not None:
                         estimate = {"est": e, "band": band}
+                        # Persist what is being SHOWN — the residual history
+                        # a learned confidence band needs (predictions were
+                        # previously computed and discarded). Best-effort.
+                        _record_prediction(user.id, race.id, e, band, session)
             scores = _plan_race_scores(
                 session, user.id, race, rd, readiness, current_scores, tp
             )
@@ -16484,6 +16610,9 @@ def _compute_plan_bundle(user) -> dict:
             "data_sufficiency": calibration.get("data_sufficiency"),
             "band_confidence": calibration.get("band_confidence"),
             "calibrated": calibration.get("calibrated"),
+            "correction": calibration.get("correction"),
+            "correction_pct": calibration.get("correction_pct"),
+            "n_calibrations": calibration.get("n_calibrations"),
         },
         "projection": {
             "form_curve": projection.get("form_curve"),

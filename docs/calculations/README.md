@@ -78,7 +78,11 @@ Each doc has a detailed "ML-readiness" section. The cross-cutting picture:
 1. **Persist every prediction with a timestamp** (projected CTL/TSB, predicted
    race time, predicted peak week, confidence band). Without a
    forecast-vs-actual dataset, no confidence band or projection model can ever
-   be learned. Today projections are computed and discarded.
+   be learned. *Partially closed 2026-07-10*: race-day finish predictions are
+   now persisted per race per day (`race_predictions`), and finished races
+   produce predicted-vs-actual `race_calibrations` rows that correct future
+   estimates (projection.md §3). Full projection curves and peak-week
+   predictions are still computed and discarded.
 2. **Injury / illness / missed-session log.** Required label for any learned
    guardrail or ACWR replacement. Not collected at all today.
 3. **Consistent session-RPE / feel coverage** linked to morning readiness
