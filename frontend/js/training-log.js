@@ -51,20 +51,6 @@
     "Nov",
     "Dec",
   ];
-  var MONTHS_FULL = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-  ];
   var DAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
   function esc(s) {
@@ -1421,7 +1407,6 @@
   // ── Log list rendering ────────────────────────────────────────────────────
 
   // issue #637: day-grouped list — replaces week-grouped rendering for Log sub-tab.
-  // Month separator with a monthly rollup (Run TSS / Lift TSS / Time / KM).
   function _hdrValSpan(n) {
     var el = document.createElement("span");
     el.className = "log-hdr-val";
@@ -1429,68 +1414,29 @@
     return el;
   }
 
-  function buildSeparator(titleText, agg, variant) {
-    // Week separators use the mock's .lrx-wkhdr (label + "N TSS · N km").
-    // Month separators are rendered as a light label row (kept minimal so the
-    // week headers carry the totals, matching the mock's week-grouped list).
-    if (variant === "week-sep") {
-      var sep = document.createElement("div");
-      sep.className = "lrx-wkhdr";
-      var tss = agg ? Math.round((agg.runTss || 0) + (agg.liftTss || 0)) : 0;
-      var km = agg ? Math.round(agg.km * 10) / 10 : 0;
-      var wl = document.createElement("span");
-      wl.className = "wl";
-      wl.textContent = (titleText || "").replace(/^Week of\s*/, "");
-      var wr = document.createElement("span");
-      wr.className = "wr";
-      wr.appendChild(_hdrValSpan(tss));
-      wr.appendChild(document.createTextNode(" TSS · "));
-      wr.appendChild(_hdrValSpan(km));
-      wr.appendChild(document.createTextNode(" km"));
-      sep.appendChild(wl);
-      sep.appendChild(wr);
-      return sep;
-    }
-
+  // Week separator: the mock's .lrx-wkhdr (label + "N TSS · N km"). The
+  // monthly Run/Lift TSS + time + km rollup this used to render alongside
+  // (as a "month-sep" band) now lives in the calendar card's header instead
+  // — see _calMonthStatsHtml.
+  function buildWeekSeparator(titleText, agg) {
     var sep = document.createElement("div");
-    sep.className = "month-sep" + (variant ? " " + variant : "");
-
-    var title = document.createElement("div");
-    title.className = "month-sep-title";
-    title.textContent = titleText;
-    sep.appendChild(title);
-
-    var stats = document.createElement("div");
-    stats.className = "month-sep-stats";
-    var parts = [
-      ["Run TSS", agg ? Math.round(agg.runTss) : 0],
-      ["Lift TSS", agg ? Math.round(agg.liftTss) : 0],
-      ["Time", agg && agg.secs ? fmtDurationCompact(agg.secs) : "0m"],
-      ["KM", agg ? Math.round(agg.km * 10) / 10 : 0],
-    ];
-    parts.forEach(function (p) {
-      var chip = document.createElement("span");
-      chip.className = "month-stat";
-      var val = document.createElement("span");
-      val.className = "month-stat-val";
-      val.textContent = p[1];
-      var lbl = document.createElement("span");
-      lbl.className = "month-stat-lbl";
-      lbl.textContent = p[0];
-      chip.appendChild(val);
-      chip.appendChild(lbl);
-      stats.appendChild(chip);
-    });
-    sep.appendChild(stats);
+    sep.className = "lrx-wkhdr";
+    var tss = agg ? Math.round((agg.runTss || 0) + (agg.liftTss || 0)) : 0;
+    var km = agg ? Math.round(agg.km * 10) / 10 : 0;
+    var wl = document.createElement("span");
+    wl.className = "wl";
+    wl.textContent = (titleText || "").replace(/^Week of\s*/, "");
+    var wr = document.createElement("span");
+    wr.className = "wr";
+    wr.appendChild(_hdrValSpan(tss));
+    wr.appendChild(document.createTextNode(" TSS · "));
+    wr.appendChild(_hdrValSpan(km));
+    wr.appendChild(document.createTextNode(" km"));
+    sep.appendChild(wl);
+    sep.appendChild(wr);
     return sep;
   }
 
-  function _monthTitle(dateStr) {
-    var d = new Date(dateStr + "T00:00:00");
-    return isNaN(d.getMonth())
-      ? (dateStr || "").slice(0, 7)
-      : MONTHS_FULL[d.getMonth()] + " " + d.getFullYear();
-  }
   function _mondayOf(dateStr) {
     var d = new Date(dateStr + "T00:00:00");
     var dow = d.getDay(),
@@ -1558,7 +1504,7 @@
       return a < b ? 1 : a > b ? -1 : 0;
     });
 
-    // Full month + week rollups up front, so each separator shows correct totals
+    // Full week rollups up front, so each separator shows correct totals
     // even before the whole period has been rendered.
     function addAgg(map, key, e) {
       if (!map[key]) map[key] = { runTss: 0, liftTss: 0, secs: 0, km: 0 };
@@ -1569,11 +1515,8 @@
       if (e.duration_seconds) map[key].secs += Number(e.duration_seconds) || 0;
       if (e.distance_km) map[key].km += Number(e.distance_km) || 0;
     }
-    var monthAgg = {},
-      weekAgg = {};
+    var weekAgg = {};
     entries.forEach(function (e) {
-      var mk = (e.date || "").slice(0, 7);
-      if (mk) addAgg(monthAgg, mk, e);
       if (e.date) addAgg(weekAgg, _weekKey(e.date), e);
     });
 
@@ -1581,7 +1524,6 @@
       container: container,
       days: days,
       dayMap: dayMap,
-      monthAgg: monthAgg,
       weekAgg: weekAgg,
       cursor: 0,
       lastMonthKey: null,
@@ -1603,17 +1545,17 @@
       var dateStr = st.days[st.cursor++];
       var monthKey = dateStr.slice(0, 7);
       if (monthKey !== st.lastMonthKey) {
+        // Monthly Run/Lift TSS + time + km rollup now lives in the calendar
+        // card's header (see _calMonthStatsHtml) instead of a repeating
+        // separator here — just track the boundary to reset the week key.
         st.lastMonthKey = monthKey;
         st.lastWeekKey = null;
-        st.container.appendChild(
-          buildSeparator(_monthTitle(dateStr), st.monthAgg[monthKey], ""),
-        );
       }
       var wk = _weekKey(dateStr);
       if (wk !== st.lastWeekKey) {
         st.lastWeekKey = wk;
         st.container.appendChild(
-          buildSeparator(_weekTitle(dateStr), st.weekAgg[wk], "week-sep"),
+          buildWeekSeparator(_weekTitle(dateStr), st.weekAgg[wk]),
         );
       }
 
@@ -5613,6 +5555,51 @@
     return '<div class="cal-markers">' + shown + overflow + "</div>";
   }
 
+  // Monthly Run/Lift TSS + time + distance rollup for the displayed calendar
+  // month, reusing the same entry shape (and normalizeTypeKey split) as the
+  // day-grouped list's month separator used to — now rendered in the
+  // calendar header instead (issue: monthly summary merged into calendar).
+  function _calMonthlyAgg(year, month) {
+    var prefix = year + "-" + pad(month + 1);
+    var agg = { runTss: 0, liftTss: 0, secs: 0, km: 0 };
+    (lastWeeks || []).forEach(function (week) {
+      (week.entries || []).forEach(function (e) {
+        if (e.type === "rest" || !e.date || e.date.slice(0, 7) !== prefix) return;
+        var tk = normalizeTypeKey(e.type),
+          tss = Number(e.tss) || 0;
+        if (tk === "run") agg.runTss += tss;
+        else if (tk === "lift") agg.liftTss += tss;
+        if (e.duration_seconds) agg.secs += Number(e.duration_seconds) || 0;
+        if (e.distance_km) agg.km += Number(e.distance_km) || 0;
+      });
+    });
+    return agg;
+  }
+
+  function _calMonthStatsHtml(agg) {
+    var parts = [
+      ["Run TSS", Math.round(agg.runTss)],
+      ["Lift TSS", Math.round(agg.liftTss)],
+      ["Time", agg.secs ? fmtDurationCompact(agg.secs) : "0m"],
+      ["KM", Math.round(agg.km * 10) / 10],
+    ];
+    return (
+      '<div class="month-sep-stats cal-month-stats">' +
+      parts
+        .map(function (p) {
+          return (
+            '<span class="month-stat"><span class="month-stat-val">' +
+            esc(p[1]) +
+            '</span><span class="month-stat-lbl">' +
+            esc(p[0]) +
+            "</span></span>"
+          );
+        })
+        .join("") +
+      "</div>"
+    );
+  }
+
   // Displayed month as 'YYYY-MM' — consumed by the summary (decision 3).
   function _calMonthKey() {
     if (!calCurrentMonth) return null;
@@ -5742,6 +5729,7 @@
       (isCurrentMonth ? " disabled" : "") +
       ">Today</button>" +
       "</div>" +
+      _calMonthStatsHtml(_calMonthlyAgg(year, month)) +
       '<table class="lrx-cal"><thead><tr>';
     CAL_WEEKDAY_ABBR.forEach(function (a) {
       html += "<th>" + esc(a) + "</th>";
