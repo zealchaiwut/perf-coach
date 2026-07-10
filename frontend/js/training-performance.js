@@ -2127,7 +2127,23 @@
     var trend = Array.isArray(data.trend) ? data.trend : [];
     if (p.body) p.body.style.display = "";
     if (p.score) p.score.textContent = Math.round(score);
-    if (p.insight) p.insight.textContent = _perfInsightText(trend);
+    if (p.insight) p.insight.textContent = _perfInsightText(trend, data.model);
+    // How the score moves — constants straight from the backend model
+    // payload (vdot.py), never hardcoded here.
+    var modelEl = p.card.querySelector(".perf-model-line");
+    if (modelEl) {
+      var m = data.model;
+      if (m) {
+        modelEl.hidden = false;
+        modelEl.textContent =
+          "Score = your best " + m.top_k + " efforts (each fades −" + m.decay_per_week +
+          "/wk after " + m.grace_weeks + " wk) + consistency: +" + m.consistency_bonus_per_run +
+          " per session in the last " + m.consistency_window_days + " days, max +" +
+          m.consistency_bonus_cap + ".";
+      } else {
+        modelEl.hidden = true;
+      }
+    }
     if (p.spark && trend.length >= 2) _drawPerfTrend(p.spark, trend, PERF_TREND_COLOR[type]);
     else if (p.spark) p.spark.innerHTML = "";
     if (p.warn) p.warn.hidden = data.low_data_warning !== true;
@@ -2140,19 +2156,21 @@
     return Math.round(last - first);
   }
 
-  // By construction of the score model (decayed top-3 mean), a run can never
-  // LOWER the score — any decline is pure time decay between peak efforts,
-  // and any rise means a new effort entered the top-3 (or lifted the race
-  // floor). Say WHICH, instead of a bare ±N the athlete can't reconcile
-  // with the per-run 0.0 badges below.
-  function _perfInsightText(trend) {
+  // By construction of the score model (decayed top-K mean + consistency
+  // bonus), a run can never LOWER the score — any decline is time decay
+  // between peak efforts (or the consistency window emptying), and any rise
+  // means new efforts entered the top-K or the consistency bonus grew. Say
+  // WHICH, with the actual decay rate from the model payload.
+  function _perfInsightText(trend, model) {
     var delta = _perfTrendDelta(trend);
+    var rate = model && model.decay_per_week != null ? model.decay_per_week : null;
     if (delta === null) return "Holding steady.";
     if (delta < 0) {
-      return "Down " + Math.abs(delta) + " over this window — time decay between peak efforts, not any single run.";
+      return "Down " + Math.abs(delta) + " over this window — time decay between peak efforts" +
+        (rate != null ? " (−" + rate + "/wk per anchor effort)" : "") + ", not any single run.";
     }
     if (delta > 0) {
-      return "Up " + delta + " over this window — newer efforts raised your top-3 anchor.";
+      return "Up " + delta + " over this window — newer efforts and steady training.";
     }
     return "Holding steady over this window.";
   }

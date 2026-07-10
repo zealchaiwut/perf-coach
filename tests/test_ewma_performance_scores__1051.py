@@ -440,7 +440,10 @@ class TestBoundaryBehavior:
             pytest.skip("building baseline")
         assert 0 <= result["score"] <= 100
         trend = result["trend"]
-        assert max(trend) - min(trend) < 0.01  # flat — identical efforts
+        # Anchor flat for identical efforts; only the consistency bonus may
+        # accumulate (+CONSISTENCY_BONUS_PER_RUN per session in the window).
+        from backend.services.vdot import CONSISTENCY_BONUS_PER_RUN
+        assert max(trend) - min(trend) <= (len(runs) - 1) * CONSISTENCY_BONUS_PER_RUN + 0.01
 
     def test_endurance_zero_runs_no_crash_and_building_baseline(self):
         """Zero runs → building_baseline, no exception, count is absent or 0."""

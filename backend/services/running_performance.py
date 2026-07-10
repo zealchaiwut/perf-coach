@@ -47,6 +47,11 @@ from backend.services.vdot import (
     rescale_to_score,
     decay_points,
     TOP_K,
+    GRACE_WEEKS,
+    DECAY_PER_WEEK,
+    CONSISTENCY_BONUS_PER_RUN,
+    CONSISTENCY_WINDOW_DAYS,
+    CONSISTENCY_BONUS_CAP,
 )
 
 _log = logging.getLogger(__name__)
@@ -353,6 +358,16 @@ def _aggregate_and_shape(
         "contributions": contributions,
         "run_contributions": run_contributions,
         "qualifying_session_count": len(qualifying_meta),
+        # How the score moves, for the UI to state instead of hardcode:
+        # top-K anchor decay + the consistency bonus (vdot.py constants).
+        "model": {
+            "top_k": TOP_K,
+            "grace_weeks": GRACE_WEEKS,
+            "decay_per_week": DECAY_PER_WEEK,
+            "consistency_bonus_per_run": CONSISTENCY_BONUS_PER_RUN,
+            "consistency_window_days": CONSISTENCY_WINDOW_DAYS,
+            "consistency_bonus_cap": CONSISTENCY_BONUS_CAP,
+        },
         "debug": {"perRunEfficiency": per_run_perf},
     }
 
@@ -370,14 +385,19 @@ def _aggregate_and_shape(
 
 def _score_at(points: list[tuple[date, float]], t: date, race_perf: dict | None) -> float:
     """score(t) = mean of the 3 largest decayed perf points with date ≤ t,
-    floored by a decayed race anchor.
+    floored by a decayed race anchor, plus a capped consistency bonus for
+    sessions in the trailing CONSISTENCY_WINDOW_DAYS (see vdot.py — steady
+    training nudges the score even when no run cracks the top-3).
     """
     decayed = []
+    recent_sessions = 0
     for d, perf in points:
         if d > t:
             continue
         days = (t - d).days
         decayed.append(max(0.0, perf - decay_points(days)))
+        if days <= CONSISTENCY_WINDOW_DAYS:
+            recent_sessions += 1
     if not decayed:
         return 0.0
     decayed.sort(reverse=True)
@@ -391,6 +411,10 @@ def _score_at(points: list[tuple[date, float]], t: date, race_perf: dict | None)
         if rdate <= t:
             floor = max(0.0, rperf - decay_points((t - rdate).days))
             score = max(score, floor)
+
+    # Consistency bonus — applied AFTER the race floor so it stacks on top
+    # of whatever the anchor says (training while anchored still shows).
+    score += min(CONSISTENCY_BONUS_CAP, recent_sessions * CONSISTENCY_BONUS_PER_RUN)
     return score
 
 

@@ -205,6 +205,31 @@ score(t)   = mean of the 3 largest decayed_i over runs with date ≤ t
 - The 90-day window stays as the qualifying cutoff; decay operates inside it.
   (Known artifact: a peak effort ages out entirely at day 91 — accepted.)
 
+#### 4.2 addendum — consistency bonus (2026-07-10)
+
+A run below the decayed top-3 can never move the anchored score — correct
+for the anchor, but operator feedback: weeks of steady training reading as
+"0.0 · 0.0 · 0.0" (and the score only ever drifting down between peak
+efforts) reads as "training does nothing". Added on top of the anchor:
+
+```
+bonus(t)  = min(CONSISTENCY_BONUS_CAP,
+                CONSISTENCY_BONUS_PER_RUN × qualifying sessions in
+                the trailing CONSISTENCY_WINDOW_DAYS before t)
+score(t)  = top3_mean(t) [race-floored] + bonus(t)
+          # +0.2/session, 28-day window, cap +2.0 (vdot.py)
+```
+
+- Bounded: easy volume can never fake fitness (max +2 on the 0–100 band).
+- Visible: each maintenance session's marginal-contribution badge reads
+  +0.2 instead of 0.0; consistent training nudges the score bit by bit.
+- Self-fading: sessions age out of the 28-day window, so stopping training
+  now fades BOTH terms (bonus quickly, anchor at 1.5/wk after grace) —
+  measured decay right after a stop is therefore slightly steeper than the
+  anchor rate alone.
+- The model constants ship in the `/performance` payload (`model` block) so
+  the UI states them instead of hardcoding.
+
 ### 4.3 Race calibration — perf point + floor
 
 The latest finished race converts to VDOT directly (Daniels' native use — the

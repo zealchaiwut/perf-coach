@@ -4469,6 +4469,7 @@
                   <span class="perf-score-val"></span>
                 </div>
                 <p class="perf-insight"></p>
+                <p class="perf-model-line" hidden></p>
                 <svg class="perf-trend perf-spark" aria-label="Endurance trend sparkline"></svg>
                 <div class="perf-flabel">Last 5 long runs feeding this score</div>
                 <div class="perf-feed" id="perf-feed-endurance">
@@ -4504,6 +4505,7 @@
                   <span class="perf-score-val"></span>
                 </div>
                 <p class="perf-insight"></p>
+                <p class="perf-model-line" hidden></p>
                 <svg class="perf-trend perf-spark" aria-label="Speed trend sparkline"></svg>
                 <div class="perf-flabel">Last 5 interval sessions feeding this score</div>
                 <div class="perf-feed" id="perf-feed-speed">
@@ -6251,6 +6253,13 @@
         font-size: 12.5px;
         color: var(--perf-muted);
         margin: 8px 0 6px;
+      }
+      /* How the score moves — decay + consistency constants from the model. */
+      .perf-model-line {
+        font-size: 10.5px;
+        line-height: 1.45;
+        color: var(--text-tertiary, #8a93a6);
+        margin: 0 0 6px;
       }
       .perf-trend {
         width: 100%;

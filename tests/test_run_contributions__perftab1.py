@@ -55,9 +55,13 @@ def test_run_contributions_keyed_by_run_id_and_never_negative():
     assert all(v >= 0 for v in rc.values()), rc
 
 
-def test_maintenance_run_below_top3_contributes_exactly_zero():
+def test_maintenance_run_below_top3_contributes_the_consistency_bonus():
     # Three dominant recent efforts + one slow old one that can't crack
-    # today's top-3 even after the others' decay.
+    # today's top-3 even after the others' decay. It still nudges the score
+    # by exactly the consistency bonus (vdot.CONSISTENCY_BONUS_PER_RUN) —
+    # steady training visibly counts, but can never fake fitness.
+    from backend.services.vdot import CONSISTENCY_BONUS_PER_RUN
+
     runs = [
         _interval_run("strong1", 8, 250),
         _interval_run("strong2", 5, 251),
@@ -65,7 +69,7 @@ def test_maintenance_run_below_top3_contributes_exactly_zero():
         _interval_run("weak", 10, 400),
     ]
     res = _score(runs)
-    assert res["run_contributions"]["weak"] == 0.0
+    assert res["run_contributions"]["weak"] == CONSISTENCY_BONUS_PER_RUN
 
 
 def test_decayed_out_run_contributes_zero():
