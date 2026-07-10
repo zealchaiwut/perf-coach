@@ -100,6 +100,7 @@ from backend.services.ceiling_bonus import compute_ceiling_bonus as _compute_cei
 from backend.services.race_finish_estimator import score_to_estimated_finish_time as _score_to_estimated_finish_time
 from backend.routers.projection import router as _plan_router
 from backend.routers.strength_sessions import router as _strength_sessions_router
+from backend.routers.fuel import router as _fuel_router
 from backend.services.guardrail import get_guardrail_result
 from backend.services.body_modifier import get_body_modifier_guardrail_for_user
 from backend.services.lap_classify import aggregate_intensity_zones as _agg_zones
@@ -125,6 +126,7 @@ _log = _logging.getLogger(__name__)
 app = FastAPI()
 app.include_router(_plan_router)
 app.include_router(_strength_sessions_router)
+app.include_router(_fuel_router)
 
 
 def _today_bkk() -> _date:

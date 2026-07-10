@@ -441,6 +441,73 @@ class DailyMetric(Base):
     )
 
 
+class FuelSettings(Base):
+    """One row per user — the calorie-budget model's inputs (see
+    docs/calculations/fuel.md and backend/services/fuel.py). Maintenance is
+    an ESTIMATE until the calibrate flow runs (`maintenance_source`); never
+    presented as authoritative — see fuel.md §0."""
+    __tablename__ = "fuel_settings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    weight_kg = Column(Numeric(5, 2), nullable=False)
+    lean_mass_kg = Column(Numeric(5, 2), nullable=True)  # fallback: weight_kg * 0.76
+    base_kcal = Column(Integer, nullable=False)
+    maintenance_source = Column(Text, nullable=False, server_default=text("'estimated'"))
+    deficit_kcal = Column(Integer, nullable=False, server_default=text("300"))
+    protein_g_per_kg = Column(Numeric(4, 2), nullable=False, server_default=text("2.0"))
+    fat_g = Column(Integer, nullable=False, server_default=text("70"))
+    ea_floor = Column(Numeric(5, 2), nullable=False, server_default=text("30.0"))
+    run_kcal_per_kg_per_km = Column(Numeric(4, 2), nullable=False, server_default=text("1.0"))
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        CheckConstraint("maintenance_source IN ('estimated', 'measured')", name="ck_fuel_settings_maintenance_source"),
+        CheckConstraint("deficit_kcal >= 0 AND deficit_kcal <= 750", name="ck_fuel_settings_deficit_kcal"),
+        CheckConstraint("protein_g_per_kg >= 0.25 AND protein_g_per_kg <= 2.5", name="ck_fuel_settings_protein_g_per_kg"),
+        CheckConstraint("fat_g > 0", name="ck_fuel_settings_fat_g"),
+        CheckConstraint("ea_floor > 0", name="ck_fuel_settings_ea_floor"),
+        CheckConstraint("run_kcal_per_kg_per_km > 0", name="ck_fuel_settings_run_kcal_per_kg_per_km"),
+    )
+
+
+class FuelEntry(Base):
+    """One row per user per day (upsert, not append) — the day's logged food
+    against the five tracked rows + a catch-all `other_*` bucket. See
+    docs/calculations/fuel.md."""
+    __tablename__ = "fuel_entries"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    entry_date = Column(Date, nullable=False)
+    meat_g = Column(Integer, nullable=False, server_default=text("0"))
+    rice_g = Column(Integer, nullable=False, server_default=text("0"))
+    eggs = Column(Integer, nullable=False, server_default=text("0"))
+    fruit_g = Column(Integer, nullable=False, server_default=text("0"))
+    oil_tsp = Column(Numeric(4, 1), nullable=False, server_default=text("0"))
+    other_kcal = Column(Integer, nullable=False, server_default=text("0"))
+    other_protein_g = Column(Numeric(6, 1), nullable=False, server_default=text("0"))
+    other_carbs_g = Column(Numeric(6, 1), nullable=False, server_default=text("0"))
+    other_fat_g = Column(Numeric(6, 1), nullable=False, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "entry_date", name="uq_fuel_entries_user_date"),
+        Index("ix_fuel_entries_user_date", "user_id", entry_date.desc()),
+        CheckConstraint("meat_g >= 0", name="ck_fuel_entries_meat_g"),
+        CheckConstraint("rice_g >= 0", name="ck_fuel_entries_rice_g"),
+        CheckConstraint("eggs >= 0", name="ck_fuel_entries_eggs"),
+        CheckConstraint("fruit_g >= 0", name="ck_fuel_entries_fruit_g"),
+        CheckConstraint("oil_tsp >= 0", name="ck_fuel_entries_oil_tsp"),
+        CheckConstraint("other_kcal >= 0", name="ck_fuel_entries_other_kcal"),
+        CheckConstraint("other_protein_g >= 0", name="ck_fuel_entries_other_protein_g"),
+        CheckConstraint("other_carbs_g >= 0", name="ck_fuel_entries_other_carbs_g"),
+        CheckConstraint("other_fat_g >= 0", name="ck_fuel_entries_other_fat_g"),
+    )
+
+
 class PersonalRecord(Base):
     __tablename__ = "personal_records"
 
