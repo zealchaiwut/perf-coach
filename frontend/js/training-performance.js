@@ -2118,13 +2118,6 @@
     if (p.warn) p.warn.hidden = true;
   }
 
-  function _perfNum(v, signed) {
-    var n = Math.round(v * 10) / 10;
-    var txt = Math.abs(n).toFixed(1);
-    if (!signed) return txt;
-    return (n >= 0 ? "+" : "\u2212") + txt;
-  }
-
   function _renderPerfScoreCard(type, data) {
     var p = _perfCardParts(type);
     if (!p) return;
@@ -2242,20 +2235,22 @@
         });
         p.anchorTable.innerHTML = rows.join("");
 
-        // Footer: the full formula, identical on every card —
-        // max(avg of K, race floor) + consistency = score, winner bolded.
-        var avgTxt = "avg of " + b.anchors.length + " \u00b7 " + b.anchor_mean_now.toFixed(1);
+        // Footer: the full formula, identical on every card and styled like
+        // the change-strip equation — number then faint label, consistency
+        // signed green/red, the winning max() term bolded.
+        var bonus = b.consistency_bonus_now;
+        var avgNum = (b.floor_binding ? "" : "<b>") + b.anchor_mean_now.toFixed(1) + (b.floor_binding ? "" : "</b>");
         var foot;
         if (b.race_floor_now != null) {
-          var floorTxt = "race floor \u00b7 " + b.race_floor_now.toFixed(1);
-          foot = "max(" +
-            (b.floor_binding ? avgTxt + ", <b>" + floorTxt + "</b>" : "<b>" + avgTxt + "</b>, " + floorTxt) +
-            ") + consistency <b>" + _perfNum(b.consistency_bonus_now, true) +
-            "</b> = <b>" + b.score_now.toFixed(1) + "</b>";
+          var floorNum = (b.floor_binding ? "<b>" : "") + b.race_floor_now.toFixed(1) + (b.floor_binding ? "</b>" : "");
+          foot = '<span class="lbl">max(</span>' + avgNum + ' <span class="lbl">avg of ' + b.anchors.length + "</span>, " +
+            floorNum + ' <span class="lbl">race floor</span><span class="lbl">)</span>';
         } else {
-          foot = avgTxt.replace("\u00b7 ", "\u00b7 <b>") + "</b> + consistency <b>" +
-            _perfNum(b.consistency_bonus_now, true) + "</b> = <b>" + b.score_now.toFixed(1) + "</b>";
+          foot = "<b>" + b.anchor_mean_now.toFixed(1) + '</b> <span class="lbl">avg of ' + b.anchors.length + "</span>";
         }
+        foot += ' <span class="' + (bonus >= 0 ? "gain" : "loss") + '">' + (bonus >= 0 ? "+ " : "\u2212 ") +
+          Math.abs(bonus).toFixed(1) + '</span> <span class="lbl">consistency</span>' +
+          " = <b>" + b.score_now.toFixed(1) + "</b>";
         p.anchorFoot.innerHTML = foot;
       } else {
         p.anchors.hidden = true;
