@@ -611,13 +611,6 @@ information about.
     var d = _wlData;
     _setText('wl-target-val', Math.round(d.target_tss));
 
-    var pill = document.getElementById('wl-state-pill');
-    if (pill) {
-      pill.className = 'wl-state-pill' + (d.state ? ' ' + d.state : '');
-      pill.textContent = d.state === 'on_track' ? 'On track' : d.state === 'under' ? 'Under' :
-        d.state === 'over' ? 'Over' : '—';
-    }
-
     // Deterministic verdict (backend/services/training_verdict.py) — never
     // an LLM decision. Only shown for hold/back_off (build is the default,
     // unremarkable state — no need to announce it every week).
