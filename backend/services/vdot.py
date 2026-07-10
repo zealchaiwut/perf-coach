@@ -32,6 +32,20 @@ GRACE_WEEKS = 2
 DECAY_PER_WEEK = 1.5
 TOP_K = 3
 
+# ── Consistency bonus (proposal §4.2 addendum, 2026-07-10) ─────────────────────
+# A run below the decayed top-3 can never move the anchored score — correct
+# for the ANCHOR (nothing new demonstrated), but it reads as "my training
+# does nothing" week after week. Each qualifying session in the trailing
+# CONSISTENCY_WINDOW_DAYS adds CONSISTENCY_BONUS_PER_RUN to the score,
+# capped at CONSISTENCY_BONUS_CAP — small enough that easy volume can never
+# fake fitness (max +2 on the 0-100 band), visible enough that steady
+# training nudges the number and each session's badge reads +0.2 instead of
+# 0.0. Fades on its own when training stops (sessions age out of the
+# window), independent of the anchor decay above.
+CONSISTENCY_BONUS_PER_RUN = 0.2
+CONSISTENCY_WINDOW_DAYS = 28
+CONSISTENCY_BONUS_CAP = 2.0
+
 
 def vdot_from_pace_duration(velocity_m_per_min: float, duration_min: float) -> float:
     """VDOT (VO2max-equivalent) from sustained velocity and effort duration.

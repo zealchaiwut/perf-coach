@@ -2000,10 +2000,9 @@
   var _perfTz = "UTC";
   var _perfFitnessChart = null;
   var _perfActiveRange = "90D";
-  var _perfContribs = { endurance: null, speed: null };
-  var _perfFeedRows = { endurance: null, speed: null };
+  var _perfBreakdown = { endurance: null, speed: null };
+  var _perfMetaById = {};
   var PERF_RANGE_DAYS = { "30D": 30, "90D": 90, "6M": 180, "1Y": 365 };
-  var PERF_TREND_COLOR = { endurance: "#16a34a", speed: "#ea580c" };
 
   function _perfBoot() {
     if (_perfBooted) return;
@@ -2065,10 +2064,6 @@
         if (state === "scored") {
           _renderPerfScoreCard("endurance", data.endurance);
           _renderPerfScoreCard("speed", data.speed);
-          _perfContribs.endurance = (data.endurance && data.endurance.run_contributions) || null;
-          _perfContribs.speed = (data.speed && data.speed.run_contributions) || null;
-          if (_perfFeedRows.endurance) _renderPerfFeed("endurance", _perfFeedRows.endurance);
-          if (_perfFeedRows.speed) _renderPerfFeed("speed", _perfFeedRows.speed);
           return;
         }
         if (state === "needs_thresholds") {
@@ -2098,8 +2093,16 @@
       card: card,
       body: card.querySelector(".perf-card-body"),
       score: card.querySelector(".perf-score-val"),
-      insight: card.querySelector(".perf-insight"),
-      spark: card.querySelector(".perf-spark"),
+      pill: card.querySelector(".perf-delta-pill"),
+      change: card.querySelector(".perf-change"),
+      eq: card.querySelector(".perf-eq"),
+      propbar: card.querySelector(".perf-propbar"),
+      anchors: card.querySelector(".perf-anchors"),
+      anchorTable: card.querySelector(".perf-anchor-table"),
+      anchorFoot: card.querySelector(".perf-anchor-foot"),
+      improveLine: card.querySelector(".perf-improve-line"),
+      nonAnchors: card.querySelector(".perf-nonanchors"),
+      nonAnchorLab: card.querySelector(".perf-nonanchor-lab"),
       bb: card.querySelector(".perf-building-baseline"),
       thresh: card.querySelector(".perf-threshold-hint"),
       error: card.querySelector(".perf-error"),
@@ -2123,53 +2126,173 @@
       _renderPerfScoreError(type);
       return;
     }
-    var score = data.score;
-    var trend = Array.isArray(data.trend) ? data.trend : [];
     if (p.body) p.body.style.display = "";
-    if (p.score) p.score.textContent = Math.round(score);
-    if (p.insight) p.insight.textContent = _perfInsightText(trend);
-    if (p.spark && trend.length >= 2) _drawPerfTrend(p.spark, trend, PERF_TREND_COLOR[type]);
-    else if (p.spark) p.spark.innerHTML = "";
+    if (p.score) p.score.textContent = Math.round(data.score);
     if (p.warn) p.warn.hidden = data.low_data_warning !== true;
-  }
 
-  function _perfTrendDelta(trend) {
-    if (!Array.isArray(trend) || trend.length < 2) return null;
-    var first = trend[0], last = trend[trend.length - 1];
-    if (first == null || last == null) return null;
-    return Math.round(last - first);
-  }
+    var b = data.breakdown && !data.breakdown.error ? data.breakdown : null;
+    _perfBreakdown[type] = b;
 
-  // By construction of the score model (decayed top-3 mean), a run can never
-  // LOWER the score — any decline is pure time decay between peak efforts,
-  // and any rise means a new effort entered the top-3 (or lifted the race
-  // floor). Say WHICH, instead of a bare ±N the athlete can't reconcile
-  // with the per-run 0.0 badges below.
-  function _perfInsightText(trend) {
-    var delta = _perfTrendDelta(trend);
-    if (delta === null) return "Holding steady.";
-    if (delta < 0) {
-      return "Down " + Math.abs(delta) + " over this window — time decay between peak efforts, not any single run.";
+    // Delta pill — the breakdown's own window delta, never a second source.
+    if (p.pill) {
+      if (b) {
+        var d = Math.round(b.delta * 10) / 10;
+        p.pill.hidden = false;
+        p.pill.className = "perf-delta-pill perf-delta-pill--" + (d > 0 ? "up" : d < 0 ? "down" : "flat");
+        p.pill.textContent = (d > 0 ? "+" : d < 0 ? "\u2212" : "") + Math.abs(d).toFixed(1);
+      } else {
+        p.pill.hidden = true;
+      }
     }
-    if (delta > 0) {
-      return "Up " + delta + " over this window — newer efforts raised your top-3 anchor.";
+
+    // ── Change strip (variant A): equation + proportion bar + reading ──
+    if (p.change) {
+      if (b) {
+        p.change.hidden = false;
+        // Composition formula — how TODAY's score is built (same content
+        // the anchor footer used to carry): max(avg, race floor) +
+        // consistency, winner bolded. The decay/efforts split lives in the
+        // proportion bar below (titles carry the numbers).
+        var bonus = b.consistency_bonus_now;
+        var avgNum = (b.floor_binding ? "" : "<b>") + b.anchor_mean_now.toFixed(1) + (b.floor_binding ? "" : "</b>");
+        var eqHtml;
+        if (b.race_floor_now != null) {
+          var floorNum = (b.floor_binding ? "<b>" : "") + b.race_floor_now.toFixed(1) + (b.floor_binding ? "</b>" : "");
+          eqHtml = '<span class="lbl">max(</span>' + avgNum + ' <span class="lbl">avg of ' + (b.anchors ? b.anchors.length : 3) + "</span>, " +
+            floorNum + ' <span class="lbl">race floor</span><span class="lbl">)</span>';
+        } else {
+          eqHtml = "<b>" + b.anchor_mean_now.toFixed(1) + '</b> <span class="lbl">avg of ' + (b.anchors ? b.anchors.length : 3) + "</span>";
+        }
+        eqHtml += ' <span class="' + (bonus >= 0 ? "gain" : "loss") + '">' + (bonus >= 0 ? "+ " : "\u2212 ") +
+          Math.abs(bonus).toFixed(1) + '</span> <span class="lbl">consistency</span>' +
+          " = <b>" + b.score_now.toFixed(1) + "</b>";
+        p.eq.innerHTML = eqHtml;
+
+        // Proportion bar: segment widths share of total |movement|.
+        var mags = [
+          ["seg-decay", Math.abs(b.decay)],
+          ["seg-efforts", Math.abs(b.efforts)],
+          ["seg-consistency", Math.abs(b.consistency)],
+        ];
+        var total = mags.reduce(function (a, m) { return a + m[1]; }, 0);
+        var segTitle = {
+          "seg-decay": "decay \u2212" + Math.abs(b.decay).toFixed(1),
+          "seg-efforts": "efforts +" + Math.abs(b.efforts).toFixed(1),
+          "seg-consistency": "consistency " + (b.consistency >= 0 ? "+" : "\u2212") + Math.abs(b.consistency).toFixed(1),
+        };
+        p.propbar.innerHTML = total > 0.01
+          ? mags.filter(function (m) { return m[1] > 0.001; }).map(function (m) {
+              return '<span class="' + m[0] + '" title="' + segTitle[m[0]] + '" style="width:' + (m[1] / total * 100).toFixed(1) + '%"></span>';
+            }).join("")
+          : "";
+      } else {
+        p.change.hidden = true;
+      }
     }
-    return "Holding steady over this window.";
+
+
+    // "To reach X" — name the mechanism: a new effort DISPLACES an anchor
+    // and resets that anchor's decay clock; it doesn't top up an average.
+    if (p.improveLine) {
+      var h = data.improve_hint;
+      if (h && h.pace_seconds_per_km != null) {
+        p.improveLine.hidden = false;
+        var paceTxt = _perfFmtPace(h.pace_seconds_per_km) || (h.pace_seconds_per_km + " s/km");
+        var mins = Math.round(h.effort_minutes);
+        var weakest = b && b.anchors && b.anchors.length ? b.anchors[b.anchors.length - 1] : null;
+        var mech = weakest
+          ? " That would replace the " + esc(_perfFmtMmmD(weakest.date)) + " anchor and reset its decay clock."
+          : " That would displace your weakest anchor and reset its decay clock.";
+        p.improveLine.innerHTML = (type === "endurance")
+          ? "<b>To reach " + h.target_score + ":</b> hold <b>~" + esc(paceTxt) + "</b> for " + mins +
+            " min at threshold effort." + mech
+          : "<b>To reach " + h.target_score + ":</b> one hard effort at <b>~" + esc(paceTxt) +
+            "</b> held ~" + mins + " min." + mech;
+      } else {
+        p.improveLine.hidden = true;
+      }
+    }
+
+    _renderPerfBreakdownLists(type);
   }
 
-  function _drawPerfTrend(svg, pts, color) {
-    var W = 340, H = 56;
-    var mn = Math.min.apply(null, pts), mx = Math.max.apply(null, pts);
-    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
-    svg.setAttribute("preserveAspectRatio", "none");
-    svg.innerHTML = "";
-    var P2 = pts.map(function (v, i) {
-      return [i / (pts.length - 1) * W, H - (v - mn) / (mx - mn + 0.001) * (H - 10) - 5];
-    });
-    var d = P2.map(function (p, i) { return (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1); }).join(" ");
-    svg.appendChild(E("path", { d: d, fill: "none", stroke: color, "stroke-width": 2.2, "stroke-linejoin": "round" }));
-    var last = P2[P2.length - 1];
-    svg.appendChild(E("circle", { cx: last[0], cy: last[1], r: 3.5, fill: color }));
+  // ── Anchor table + non-anchor list (joined with workout metadata) ─────────
+  function _perfMetaFor(runId) {
+    return (runId && _perfMetaById[String(runId)]) || null;
+  }
+
+  function _renderPerfBreakdownLists(type) {
+    var p = _perfCardParts(type);
+    if (!p) return;
+    var b = _perfBreakdown[type];
+
+    if (p.anchors && p.anchorTable) {
+      if (b && b.anchors && b.anchors.length) {
+        p.anchors.hidden = false;
+        // Same row design as the non-anchor list below; the chip reads
+        // "NOW (DECAY)" — today's contribution with what aging took.
+        p.anchorTable.innerHTML = b.anchors.map(function (a) {
+          var meta = _perfMetaFor(a.run_id);
+          var title = a.run_id === null ? "Race result" : (meta && meta.title) || "Workout";
+          var bits = [];
+          if (meta && meta.distance_km != null) bits.push(meta.distance_km.toFixed(1) + " km");
+          if (meta && meta.pace) bits.push(meta.pace);
+          bits.push((a.is_stale ? '<span class="a-age">' : "") + a.age_weeks + " wk" + (a.is_stale ? "</span>" : ""));
+          var chip = '<span class="perf-nowchip">' + a.current_contribution.toFixed(1) +
+            (a.decay_applied < 0 ? ' <span class="loss">(\u2212' + Math.abs(a.decay_applied).toFixed(1) + ")</span>" : "") +
+            "</span>";
+          var inner =
+            '<span class="perf-fdate">' + esc(_perfFmtMmmD(a.date)) + "</span>" +
+            '<span class="perf-fmain">' +
+              '<span class="perf-fn">' + esc(title) + "</span>" +
+              '<span class="perf-fm">' + bits.join(" \u00b7 ") + "</span>" +
+            "</span>" + chip +
+            (a.run_id ? '<span class="perf-farr">\u2192</span>' : "");
+          var cls = "perf-frow" + (a.is_stale ? " stale" : "");
+          return a.run_id
+            ? '<a class="' + cls + '" href="/log?workout=' + encodeURIComponent(a.run_id) + '">' + inner + "</a>"
+            : '<div class="' + cls + '">' + inner + "</div>";
+        }).join("");
+      } else {
+        p.anchors.hidden = true;
+      }
+    }
+
+    // Non-anchor list — these do NOT feed the score; show how far short of
+    // displacing the weakest anchor each one fell.
+    var host = document.getElementById("perf-feed-" + type);
+    if (p.nonAnchors && host) {
+      if (b) {
+        p.nonAnchors.hidden = false;
+        var noun = type === "endurance" ? "long runs" : "hard sessions";
+        p.nonAnchorLab.innerHTML =
+          "Other " + noun + " \u00b7 not anchors <span class=\"gaplab\">\u2014 gap to the weakest anchor (" +
+          b.weakest_anchor_now.toFixed(1) + ")</span>";
+        var items = (b.non_anchors || []).slice(0, 2);
+        if (!items.length) {
+          host.innerHTML = '<p class="perf-feed-empty">No other qualifying sessions in the window.</p>';
+        } else {
+          host.innerHTML = items.map(function (r) {
+            var meta = _perfMetaFor(r.run_id);
+            var bits = [];
+            if (meta && meta.distance_km != null) bits.push(meta.distance_km.toFixed(1) + " km");
+            if (meta && meta.pace) bits.push(meta.pace);
+            if (meta && meta.avg_hr != null) bits.push("HR " + meta.avg_hr);
+            return '<a class="perf-frow" href="/log?workout=' + encodeURIComponent(r.run_id) + '">' +
+              '<span class="perf-fdate">' + esc(_perfFmtMmmD(r.date)) + "</span>" +
+              '<span class="perf-fmain">' +
+                '<span class="perf-fn">' + esc((meta && meta.title) || "Workout") + "</span>" +
+                '<span class="perf-fm">' + esc(bits.join(" \u00b7 ") || "\u2014") + "</span>" +
+              "</span>" +
+              '<span class="perf-gapchip" title="how much better this session needed to be to become an anchor">' + r.gap_to_weakest_anchor.toFixed(1) + "</span>" +
+              '<span class="perf-farr">\u2192</span>' +
+            "</a>";
+          }).join("");
+        }
+      } else {
+        p.nonAnchors.hidden = true;
+      }
+    }
   }
 
   function _renderPerfThresholdHint(type) {
@@ -2177,7 +2300,6 @@
     if (!p) return;
     _resetPerfStates(p);
     if (p.thresh) p.thresh.hidden = false;
-    _emptyPerfFeed(type, "Set thresholds to see the sessions feeding this score.");
   }
   function _renderPerfBuildingBaseline(type, reason) {
     var p = _perfCardParts(type);
@@ -2192,85 +2314,31 @@
     if (p.error) p.error.hidden = false;
   }
 
-  // ── Feeding lists ────────────────────────────────────────────────────────
-  function _emptyPerfFeed(type, msg) {
-    var host = document.getElementById("perf-feed-" + type);
-    if (host) host.innerHTML = '<p class="perf-feed-empty">' + esc(msg) + "</p>";
-  }
+  // ── Workout metadata for the anchor/non-anchor rows ───────────────────────
+  // One training-log fetch builds an id → {title, distance, pace, hr} map;
+  // the breakdown rows join against it (the score numbers themselves always
+  // come from the backend breakdown, never recomputed here).
   function _loadPerfFeeds() {
     if (!_perfAthleteId) return;
     var from = _perfDateMinusDays(120), to = _perfToday();
     fetch("/api/training-log?from=" + from + "&to=" + to + "&include_rest=false", { credentials: "same-origin" })
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
       .then(function (data) {
-        var entries = _flattenPerfEntries(data);
-        _renderPerfFeed("endurance", _pickPerfEndurance(entries));
-        _renderPerfFeed("speed", _pickPerfSpeed(entries));
+        ((data && data.weeks) || []).forEach(function (wk) {
+          (wk.entries || wk.workouts || []).forEach(function (e) {
+            if (!e || e.id == null) return;
+            _perfMetaById[String(e.id)] = {
+              title: e.title,
+              distance_km: e.distance_km,
+              pace: _perfFmtPace(e.average_pace_seconds_per_km),
+              avg_hr: e.avg_hr,
+            };
+          });
+        });
+        _renderPerfBreakdownLists("endurance");
+        _renderPerfBreakdownLists("speed");
       })
-      .catch(function () {
-        _emptyPerfFeed("endurance", "Could not load recent sessions.");
-        _emptyPerfFeed("speed", "Could not load recent sessions.");
-      });
-  }
-  function _flattenPerfEntries(data) {
-    var out = [];
-    ((data && data.weeks) || []).forEach(function (wk) {
-      (wk.entries || wk.workouts || []).forEach(function (e) { if (e && e.type !== "rest") out.push(e); });
-    });
-    out.sort(function (a, b) { return (a.date < b.date) ? 1 : (a.date > b.date ? -1 : 0); });
-    return out;
-  }
-  function _pickPerfEndurance(entries) {
-    var runs = entries.filter(function (e) {
-      var t = (e.type || "").toLowerCase();
-      return (t === "run" || t === "long_run" || t === "longrun") && (e.distance_km || 0) >= 8;
-    });
-    if (!runs.length) runs = entries.filter(function (e) { return (e.type || "").toLowerCase().indexOf("run") !== -1; });
-    return runs.slice(0, 5);
-  }
-  function _isPerfInterval(e) {
-    if ((e.run_subtype || "").toLowerCase() === "interval") return true;
-    var t = (e.type || "").toLowerCase();
-    return t === "workout" || t === "track" || t === "tempo";
-  }
-  function _pickPerfSpeed(entries) { return entries.filter(_isPerfInterval).slice(0, 5); }
-
-  function _renderPerfFeed(type, rows) {
-    _perfFeedRows[type] = rows;
-    var host = document.getElementById("perf-feed-" + type);
-    if (!host) return;
-    if (!rows.length) {
-      _emptyPerfFeed(type, type === "endurance" ? "No long runs in the last 120 days." : "No interval sessions in the last 120 days.");
-      return;
-    }
-    var contribMap = _perfContribs[type] || null;
-    host.innerHTML = rows.map(function (w) {
-      var meta = [];
-      if (w.distance_km != null) meta.push(w.distance_km.toFixed(1) + " km");
-      var pace = _perfFmtPace(w.average_pace_seconds_per_km);
-      if (pace) meta.push(pace);
-      if (w.avg_hr != null) meta.push("HR " + w.avg_hr);
-      var src = w.has_stryd ? "st" : (w.has_strava ? "s" : "");
-      var srcHtml = src ? '<span class="perf-src perf-src--' + src + '">' + (src === "s" ? "S" : "St") + "</span>" : "";
-      // Marginal contribution to the CURRENT score, keyed by workout id
-      // (run_contributions — the single source shared with the workout-detail
-      // panel). A session with no entry didn't qualify for this score at all
-      // → honest 0.0, never a raw-TSS fallback.
-      var contrib = (contribMap && w.id != null) ? contribMap[String(w.id)] : undefined;
-      var n = (typeof contrib === "number") ? Math.round(contrib * 10) / 10 : 0;
-      var cls = n > 0 ? "up" : (n < 0 ? "down" : "flat");
-      var txt = (n > 0 ? "+" : "") + n.toFixed(1);
-      var chipHtml = '<span class="perf-dchip perf-dchip--' + cls + '" title="contribution to ' + type + ' score">' + txt + "</span>";
-      var href = "/log?workout=" + encodeURIComponent(w.id);
-      return '<a class="perf-frow" href="' + href + '">' +
-        '<span class="perf-fdate">' + esc(_perfFmtMmmD(w.date)) + "</span>" +
-        '<span class="perf-fmain">' +
-          '<span class="perf-fn">' + esc(w.title || "Workout") + "</span>" +
-          '<span class="perf-fm">' + esc(meta.join(" · ") || "—") + "</span>" +
-        "</span>" + srcHtml + chipHtml +
-        '<span class="perf-farr">→</span>' +
-      "</a>";
-    }).join("");
+      .catch(function () { /* rows render with dates only */ });
   }
 
   // ── Projected at next checkpoint ─────────────────────────────────────────────

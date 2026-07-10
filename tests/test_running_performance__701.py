@@ -505,10 +505,13 @@ class TestScoreNormalization:
         ]
         result = compute_endurance_score(runs, _minimal_prefs(), _make_zone_constants())
         assert 0 <= result.get("score") <= 100
-        assert result.get("direction") == "flat"
-        # Every trend point is the same absolute value (no window rescale).
+        # The ANCHOR is identical every day; the only movement allowed is the
+        # consistency bonus accumulating (+CONSISTENCY_BONUS_PER_RUN per
+        # session in the trailing window) — steady training nudges the score
+        # bit by bit even when no run beats the top-3.
+        from backend.services.vdot import CONSISTENCY_BONUS_PER_RUN
         trend = result["trend"]
-        assert max(trend) - min(trend) < 0.01
+        assert max(trend) - min(trend) <= (len(runs) - 1) * CONSISTENCY_BONUS_PER_RUN + 0.01
 
     def test_improving_series_yields_score_in_range_and_improving_direction(self):
         """An improving (faster) pace series yields a valid score and 'improving'.

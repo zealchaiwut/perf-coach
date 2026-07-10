@@ -463,11 +463,37 @@ information about.
         esc(_fmtRaceDayLabel(_lpData.race.date)) + '</div></div>';
     }
 
+    // Other races / checkpoints in the window — small carets under their
+    // week's bar (the A race keeps the big RACE DAY flag).
+    (_lpData.markers || []).forEach(function (m) {
+      var col = -1;
+      var md = m.date;
+      prior.forEach(function (p, i) {
+        if (md >= p.week_start && md < _isoAddDays(p.week_start, 7)) col = i;
+      });
+      weeks.forEach(function (w, i) {
+        if (md >= w.week_start && md < _isoAddDays(w.week_start, 7)) col = prior.length + i;
+      });
+      if (col < 0 || col === raceCol) return;
+      var mLeft = ((col + 0.5) / totalCols) * 100;
+      var isCp = (m.race_type || '') === 'checkpoint';
+      var lab = isCp ? 'CP' : (m.priority || 'B');
+      flagHtml += '<div class="lp-flag-marker' + (isCp ? ' is-cp' : '') + '" style="left:' + mLeft + '%" title="' +
+        esc(m.name + ' \u00b7 ' + m.date) + '">' +
+        '<div class="caret">▲</div><div class="lp-flag-marker-badge">' + esc(lab) + '</div></div>';
+    });
+
     host.innerHTML =
       '<div class="lp-bracket-row" style="position:relative;height:14px;">' + bracketHtml + '</div>' +
       '<div class="lp-bars">' + barsHtml + '</div>' +
       '<div class="lp-axis">' + axisHtml + '</div>' +
       '<div class="lp-flag-row">' + flagHtml + '</div>';
+  }
+
+  function _isoAddDays(iso, n) {
+    var d = _parseISO(iso);
+    d.setDate(d.getDate() + n);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   }
 
   function _fmtRaceDayLabel(iso) {

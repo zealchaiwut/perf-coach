@@ -47,6 +47,11 @@ from backend.services.vdot import (
     rescale_to_score,
     decay_points,
     TOP_K,
+    GRACE_WEEKS,
+    DECAY_PER_WEEK,
+    CONSISTENCY_BONUS_PER_RUN,
+    CONSISTENCY_WINDOW_DAYS,
+    CONSISTENCY_BONUS_CAP,
 )
 
 _log = logging.getLogger(__name__)
@@ -73,6 +78,20 @@ PERFORMANCE_CONFIG: dict = {
     "speed_sparse_effort_threshold": 5,
     "speed_sparse_band_multiplier": 1.5,
 }
+
+# Reference effort duration for the SPEED improve hint ("run X:XX /km held
+# ~8 min") — a typical sustained hard/interval effort length; endurance's
+# hint uses threshold_effort_minutes above (the same duration its perf
+# points are extrapolated to).
+IMPROVE_SPEED_REF_MINUTES: float = 8.0
+# The improve hint targets this many points above the current score —
+# "Endurance 36 → 40" scale, near enough to be actionable.
+IMPROVE_TARGET_STEP: int = 4
+# Score-change decomposition window and the summation-invariant tolerance
+# (score_then + decay + efforts + consistency must equal score_now within
+# this; beyond it the breakdown is withheld rather than rendered wrong).
+BREAKDOWN_WINDOW_DAYS: int = 28
+BREAKDOWN_RESIDUAL_TOLERANCE: float = 0.05
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +190,9 @@ def compute_endurance_score(
         qualifying_meta, per_run_perf, zc, body_modifier, race_perf,
         include_confidence_band=False,
         baseline_reason_noun="easy/steady",
+        # Endurance perf points are HR-extrapolated to a threshold-length
+        # effort — the improve hint speaks the same reference duration.
+        improve_ref_minutes=PERFORMANCE_CONFIG["threshold_effort_minutes"],
     )
 
 
@@ -240,6 +262,7 @@ def compute_speed_score(
         qualifying_meta, per_run_perf, zc, body_modifier, race_perf,
         include_confidence_band=True,
         baseline_reason_noun="hard/interval",
+        improve_ref_minutes=IMPROVE_SPEED_REF_MINUTES,
     )
 
 
@@ -255,6 +278,7 @@ def _aggregate_and_shape(
     race_perf: dict | None,
     include_confidence_band: bool,
     baseline_reason_noun: str,
+    improve_ref_minutes: float = 30.0,
 ) -> dict[str, Any]:
     """Shared: window filter → decayed top-3 mean → floor → trend/direction."""
     window_days = PERFORMANCE_CONFIG["trailing_window_days"]
@@ -345,6 +369,153 @@ def _aggregate_and_shape(
         without_run = _score_at(without, t_eval, race_perf) if without else 0.0
         run_contributions[rid] = round(score_with_all - _display(without_run), 2)
 
+    # "How do I get from 36 to 40?" — invert the model: the perf a single
+    # NEW effort (today) must score so the decayed top-3 mean (plus the
+    # consistency bonus it also adds) reaches the target, then translate
+    # that perf back through VDOT into a concrete pace at the score type's
+    # reference effort duration. None when a pace can't be formed.
+    improve_hint: dict[str, Any] | None = None
+    try:
+        from backend.services.vdot import VDOT_FLOOR, VDOT_CEIL
+        from backend.services.race_finish_estimator import (
+            _velocity_for_vdot_at_duration as _vel_for_vdot,
+        )
+
+        target_score = min(100, int(round(score)) + IMPROVE_TARGET_STEP)
+        decayed_now = []
+        recent_now = 0
+        for d, perf, _rid in tagged_points:
+            if d > t_eval:
+                continue
+            days = (t_eval - d).days
+            decayed_now.append(max(0.0, perf - decay_points(days)))
+            if days <= CONSISTENCY_WINDOW_DAYS:
+                recent_now += 1
+        decayed_now.sort(reverse=True)
+        d1 = decayed_now[0] if decayed_now else 0.0
+        d2 = decayed_now[1] if len(decayed_now) > 1 else 0.0
+        bonus_new = min(CONSISTENCY_BONUS_CAP, (recent_now + 1) * CONSISTENCY_BONUS_PER_RUN)
+        needed_mean = target_score / body_modifier - bonus_new
+        required_perf = max(0.0, min(100.0, TOP_K * needed_mean - d1 - d2))
+        required_vdot = VDOT_FLOOR + required_perf / 100.0 * (VDOT_CEIL - VDOT_FLOOR)
+        _v = _vel_for_vdot(required_vdot, improve_ref_minutes)
+        if _v is not None and _v > 0:
+            improve_hint = {
+                "target_score": target_score,
+                "required_perf": round(required_perf, 1),
+                "required_vdot": round(required_vdot, 1),
+                "pace_seconds_per_km": int(round(1000.0 / (_v / 60.0))),
+                "effort_minutes": improve_ref_minutes,
+            }
+    except Exception:  # pragma: no cover — hint is best-effort decoration
+        _log.warning("improve_hint computation failed", exc_info=True)
+
+    # ── Change decomposition (score-breakdown card) ──────────────────────
+    # Explain score_now − score_then over BREAKDOWN_WINDOW_DAYS as decay +
+    # efforts + consistency, via three recomputes against fixed pools (never
+    # per-run attribution):
+    #   A = points dated ≤ then;  B = the full pool
+    #   M(P,t) = anchor mean (decayed top-K + race floor), C(P,t) = bonus
+    #   score_then   = M(A,then) + C(A,then)
+    #   decay        = M(A,now) − M(A,then)      (the OLD pool aging)
+    #   efforts      = M(B,now) − M(A,now)       (window's new points, at now)
+    #   consistency  = C(B,now) − C(A,then)
+    # The sum telescopes to M(B,now)+C(B,now) = score_now EXACTLY on the
+    # unclamped display scale; the residual check below catches the one case
+    # the identity can break (the 0/100 display clamp binding).
+    breakdown: dict[str, Any] | None = None
+    try:
+        then = t_eval - timedelta(days=BREAKDOWN_WINDOW_DAYS)
+        pool_a = [(d, pp) for d, pp in points if d <= then]
+        m_a_then = _anchor_mean_at(pool_a, then, race_perf) * body_modifier
+        c_a_then = _bonus_at(pool_a, then) * body_modifier
+        m_a_now = _anchor_mean_at(pool_a, t_eval, race_perf) * body_modifier
+        m_b_now = _anchor_mean_at(points, t_eval, race_perf) * body_modifier
+        c_b_now = _bonus_at(points, t_eval) * body_modifier
+
+        b_score_then = m_a_then + c_a_then
+        b_decay = m_a_now - m_a_then
+        b_efforts = m_b_now - m_a_now
+        b_consistency = c_b_now - c_a_then
+        b_sum = b_score_then + b_decay + b_efforts + b_consistency
+        residual = score - b_sum  # vs the CLAMPED displayed score
+
+        # Anchor rows: the TOP_K decayed points defining today's mean.
+        decorated = []
+        for d, pp, rid in tagged_points:
+            if d > t_eval:
+                continue
+            age_days = (t_eval - d).days
+            dec = min(pp, decay_points(age_days))
+            decorated.append({
+                "run_id": rid,  # None = the race anchor point
+                "date": d.isoformat(),
+                "raw_score": round(pp * body_modifier, 2),
+                "age_weeks": round(age_days / 7.0, 1),
+                "decay_applied": round(-dec * body_modifier, 2),
+                "current_contribution": round((pp - dec) * body_modifier, 2),
+                "is_stale": age_days / 7.0 > GRACE_WEEKS,
+            })
+        decorated.sort(key=lambda r: -r["current_contribution"])
+        anchors = decorated[:TOP_K]
+        weakest = anchors[-1]["current_contribution"] if anchors else 0.0
+        # The race point (run_id None) may BE an anchor but is never listed
+        # as a displaceable non-anchor run.
+        non_anchors = [
+            {
+                "run_id": r["run_id"],
+                "date": r["date"],
+                "raw_score": r["raw_score"],
+                "age_weeks": r["age_weeks"],
+                "gap_to_weakest_anchor": round(r["current_contribution"] - weakest, 2),
+            }
+            for r in decorated[TOP_K:]
+            if r["run_id"] is not None
+            and _date_from_str(r["date"]) is not None and _date_from_str(r["date"]) > then
+        ]
+        # Footer arithmetic: score = max(avg of K, race floor) + consistency.
+        # Surface BOTH terms (floor may be None when no recent race) plus
+        # which one won, so the UI renders the same formula on every card.
+        mean_top = (
+            sum(a["current_contribution"] for a in anchors) / len(anchors) if anchors else 0.0
+        )
+        rp_now = _race_point(race_perf)
+        race_floor_val = None
+        if rp_now is not None and rp_now[0] <= t_eval:
+            race_floor_val = max(
+                0.0, (rp_now[1] - decay_points((t_eval - rp_now[0]).days)) * body_modifier
+            )
+        floor_binding = m_b_now > mean_top + 0.01
+
+        breakdown = {
+            "window_days": BREAKDOWN_WINDOW_DAYS,
+            "score_then": round(b_score_then, 2),
+            "score_now": round(score, 2),
+            "delta": round(score - b_score_then, 2),
+            "decay": round(b_decay, 2),
+            "efforts": round(b_efforts, 2),
+            "consistency": round(b_consistency, 2),
+            "residual": round(residual, 4),
+            "anchors": anchors,
+            "non_anchors": non_anchors,
+            "weakest_anchor_now": round(weakest, 2),
+            "consistency_bonus_now": round(c_b_now, 2),
+            "anchor_mean_now": round(mean_top, 2),
+            "race_floor_now": round(race_floor_val, 2) if race_floor_val is not None else None,
+            "floor_binding": floor_binding,
+        }
+        if abs(residual) > BREAKDOWN_RESIDUAL_TOLERANCE:
+            # A decomposition that doesn't sum is worse than none — it looks
+            # authoritative and is wrong. Don't render it.
+            _log.error(
+                "score breakdown residual %.4f exceeds tolerance (display clamp?)",
+                residual,
+            )
+            breakdown = {"error": "residual", "residual": round(residual, 4)}
+    except Exception:  # pragma: no cover — breakdown is derived decoration
+        _log.warning("score breakdown computation failed", exc_info=True)
+        breakdown = None
+
     result: dict[str, Any] = {
         "score": round(score, 2),
         "direction": direction,
@@ -353,6 +524,18 @@ def _aggregate_and_shape(
         "contributions": contributions,
         "run_contributions": run_contributions,
         "qualifying_session_count": len(qualifying_meta),
+        "improve_hint": improve_hint,
+        "breakdown": breakdown,
+        # How the score moves, for the UI to state instead of hardcode:
+        # top-K anchor decay + the consistency bonus (vdot.py constants).
+        "model": {
+            "top_k": TOP_K,
+            "grace_weeks": GRACE_WEEKS,
+            "decay_per_week": DECAY_PER_WEEK,
+            "consistency_bonus_per_run": CONSISTENCY_BONUS_PER_RUN,
+            "consistency_window_days": CONSISTENCY_WINDOW_DAYS,
+            "consistency_bonus_cap": CONSISTENCY_BONUS_CAP,
+        },
         "debug": {"perRunEfficiency": per_run_perf},
     }
 
@@ -368,16 +551,16 @@ def _aggregate_and_shape(
     return result
 
 
-def _score_at(points: list[tuple[date, float]], t: date, race_perf: dict | None) -> float:
-    """score(t) = mean of the 3 largest decayed perf points with date ≤ t,
-    floored by a decayed race anchor.
-    """
+def _anchor_mean_at(points: list[tuple[date, float]], t: date, race_perf: dict | None) -> float:
+    """Anchor component of score(t): mean of the TOP_K largest decayed perf
+    points with date ≤ t, floored by the decayed race anchor. NO consistency
+    bonus — see _bonus_at; _score_at composes the two. Kept separate so the
+    change decomposition can attribute decay/efforts/consistency exactly."""
     decayed = []
     for d, perf in points:
         if d > t:
             continue
-        days = (t - d).days
-        decayed.append(max(0.0, perf - decay_points(days)))
+        decayed.append(max(0.0, perf - decay_points((t - d).days)))
     if not decayed:
         return 0.0
     decayed.sort(reverse=True)
@@ -392,6 +575,20 @@ def _score_at(points: list[tuple[date, float]], t: date, race_perf: dict | None)
             floor = max(0.0, rperf - decay_points((t - rdate).days))
             score = max(score, floor)
     return score
+
+
+def _bonus_at(points: list[tuple[date, float]], t: date) -> float:
+    """Consistency component of score(t) — see vdot.py constants."""
+    recent = sum(1 for d, _ in points if d <= t and (t - d).days <= CONSISTENCY_WINDOW_DAYS)
+    return min(CONSISTENCY_BONUS_CAP, recent * CONSISTENCY_BONUS_PER_RUN)
+
+
+def _score_at(points: list[tuple[date, float]], t: date, race_perf: dict | None) -> float:
+    """score(t) = anchor mean (decayed top-K, race-floored) + consistency
+    bonus. See _anchor_mean_at / _bonus_at."""
+    if not any(d <= t for d, _ in points):
+        return 0.0
+    return _anchor_mean_at(points, t, race_perf) + _bonus_at(points, t)
 
 
 def _race_point(race_perf: dict | None) -> tuple[date, float] | None:
@@ -432,8 +629,24 @@ def _filter_trailing_window(items: list[dict], window_days: int) -> list[dict]:
     return [item for item, d in dated if d is not None and d >= cutoff]
 
 
+# No human sustains a pace faster than this (150 s/km = 2:30/km; the world
+# mile record averages ~148 s/km). A lap claiming to beat it is sensor/sync
+# garbage — seen live: a corrupted file with three "1 km in ~81 s" laps that
+# classified as hard efforts and pinned the Speed score at a perfect 100.
+_MIN_PLAUSIBLE_PACE_S_PER_KM: float = 150.0
+
+
+def _lap_pace_plausible(lap: dict) -> bool:
+    dur = lap.get("duration_seconds")
+    dist = lap.get("distance_km")
+    if (isinstance(dur, (int, float)) and not isinstance(dur, bool) and dur > 0
+            and isinstance(dist, (int, float)) and not isinstance(dist, bool) and dist > 0):
+        return (float(dur) / float(dist)) >= _MIN_PLAUSIBLE_PACE_S_PER_KM
+    return True  # no pace derivable — other validators handle it
+
+
 def _qualifying_laps(laps: list[dict], bands: list[str]) -> list[dict]:
-    return [lap for lap in laps if lap.get("band") in bands]
+    return [lap for lap in laps if lap.get("band") in bands and _lap_pace_plausible(lap)]
 
 
 def _lap_pace_and_duration(laps: list[dict]) -> tuple[float | None, float | None]:
@@ -461,10 +674,33 @@ def _lap_pace_and_duration(laps: list[dict]) -> tuple[float | None, float | None
     return pace_s_per_km, total_dur
 
 
+# Minimum speed_signal window that may define a run's speed effort via the
+# power-basis fallback — sub-2-minute surges say nothing about sustainable
+# speed (see the guard note inside _speed_effort_pace_duration).
+_MIN_POWER_FALLBACK_WINDOW_S: float = 120.0
+
+
+def _fastest_real_lap_pace(laps: list[dict]) -> float | None:
+    """Fastest ACTUAL pace (s/km) across all laps with usable distance +
+    duration, any band — the hard bound on what pace the run demonstrated."""
+    paces = []
+    for lap in laps:
+        dur = lap.get("duration_seconds")
+        dist = lap.get("distance_km")
+        if (isinstance(dur, (int, float)) and not isinstance(dur, bool) and dur > 0
+                and isinstance(dist, (int, float)) and not isinstance(dist, bool) and dist > 0):
+            pace = float(dur) / float(dist)
+            if pace >= _MIN_PLAUSIBLE_PACE_S_PER_KM:
+                paces.append(pace)
+    return min(paces) if paces else None
+
+
 def _speed_effort_pace_duration(run: dict, bands: list[str], threshold_pace) -> tuple[float | None, float | None]:
     """Resolve the best hard-effort (pace_s_per_km, duration_s) for a run.
 
     Precedence:
+      0. Qualifying MANUAL laps (Stryd lap-button reps) → their real pace +
+         total duration — reps are invisible inside 1 km auto-splits.
       1. Qualifying hard/interval laps present → their real pace + total duration.
       2. Else a persisted ``speed_signal`` (the real reps live in the Stryd
          streams, not the 1 km auto-splits):
@@ -480,6 +716,16 @@ def _speed_effort_pace_duration(run: dict, bands: list[str], threshold_pace) -> 
        Effort duration = ``speed_signal_window_seconds`` when present, else a
        nominal 5 min (a typical hard-effort window).
     """
+    # MANUAL laps first (Stryd lap-button reps, run["manual_laps"], already
+    # band-classified by the caller): short reps are invisible inside 1 km
+    # auto-splits — a 2-min rep at 4:30/km dilutes to a ~6:15/km split and
+    # never classifies hard. When the athlete marked reps, those ARE the
+    # speed demonstration; sum the qualifying ones (same plausibility filter).
+    manual = _qualifying_laps(run.get("manual_laps") or [], bands)
+    m_pace, m_dur = _lap_pace_and_duration(manual)
+    if m_pace is not None and m_dur and m_dur > 0:
+        return m_pace, m_dur
+
     laps = _qualifying_laps(run.get("laps") or [], bands)
     lap_pace, lap_dur = _lap_pace_and_duration(laps)
     if lap_pace is not None and lap_dur and lap_dur > 0:
@@ -503,6 +749,21 @@ def _speed_effort_pace_duration(run: dict, bands: list[str], threshold_pace) -> 
         # Run-level pace–power relation → convert the effort's power ratio to a
         # pace. avg_run_pace corresponds to avg_run_power; running power scales
         # ~linearly with speed, so effort_pace ≈ avg_run_pace × avg_run_power / effort_power.
+        #
+        # GUARDED (2026-07-10): this conversion assumes flat ground. On an
+        # incline the power spike is real but the flat-equivalent PACE it
+        # implies was never run — seen live: a 6% uphill interval session
+        # (best real lap 6:16/km) fabricated a 4:14/km "sustained effort"
+        # from a 112-second 1.3× power window and scored perf 62.6; another
+        # easy run scored a perfect 100.0 the same way. Two guards:
+        #   1. windows shorter than _MIN_POWER_FALLBACK_WINDOW_S can't
+        #      define the run's speed effort at all;
+        #   2. the fabricated pace can never be FASTER than the fastest
+        #      pace the run actually demonstrated (best real lap, else the
+        #      run average) — the speed score anchors demonstrated pace,
+        #      and an uphill power surge demonstrates no flat pace.
+        if duration_s < _MIN_POWER_FALLBACK_WINDOW_S:
+            return None, None
         dist = run.get("distance_km")
         dur = run.get("duration_seconds")
         avg_power = run.get("avg_power")
@@ -516,6 +777,10 @@ def _speed_effort_pace_duration(run: dict, bands: list[str], threshold_pace) -> 
             if effort_power > 0:
                 effort_pace = avg_run_pace * float(avg_power) / effort_power
                 if effort_pace > 0:
+                    fastest_real = _fastest_real_lap_pace(run.get("laps") or [])
+                    if fastest_real is None:
+                        fastest_real = avg_run_pace
+                    effort_pace = max(effort_pace, fastest_real)
                     return effort_pace, duration_s
         # Fallback: treat the intensity ratio against threshold pace.
         if threshold_pace and threshold_pace > 0:
