@@ -2079,7 +2079,6 @@
       card: card,
       body: card.querySelector(".perf-card-body"),
       score: card.querySelector(".perf-score-val"),
-      blk: card.querySelector(".perf-blk"),
       insight: card.querySelector(".perf-insight"),
       spark: card.querySelector(".perf-spark"),
       bb: card.querySelector(".perf-building-baseline"),
@@ -2105,27 +2104,11 @@
       _renderPerfScoreError(type);
       return;
     }
-    var score = data.score, dir = data.direction || "flat";
+    var score = data.score;
     var trend = Array.isArray(data.trend) ? data.trend : [];
     if (p.body) p.body.style.display = "";
     if (p.score) p.score.textContent = Math.round(score);
-    if (p.blk) {
-      // Delta over the DISPLAYED trend window (last − first sample) — the
-      // same line the sparkline draws, so the chip can never contradict the
-      // curve the athlete is looking at. (The old 28-day "this block" base
-      // lookup did: it said −3 while the drawn endurance trend rose.)
-      var delta = _perfTrendDelta(trend);
-      if (delta === null) {
-        p.blk.hidden = true;
-      } else {
-        p.blk.hidden = false;
-        p.blk.classList.remove("perf-blk--down", "perf-blk--flat");
-        if (delta > 0) p.blk.textContent = "↑ +" + delta;
-        else if (delta < 0) { p.blk.textContent = "↓ −" + Math.abs(delta); p.blk.classList.add("perf-blk--down"); }
-        else { p.blk.textContent = "→ 0"; p.blk.classList.add("perf-blk--flat"); }
-      }
-    }
-    if (p.insight) p.insight.textContent = _perfInsightText(dir, trend);
+    if (p.insight) p.insight.textContent = _perfInsightText(trend);
     if (p.spark && trend.length >= 2) _drawPerfTrend(p.spark, trend, PERF_TREND_COLOR[type]);
     else if (p.spark) p.spark.innerHTML = "";
     if (p.warn) p.warn.hidden = data.low_data_warning !== true;
@@ -2138,12 +2121,21 @@
     return Math.round(last - first);
   }
 
-  function _perfInsightText(dir, trend) {
-    var n = trend.length;
-    var span = n >= 2 ? " over the last " + Math.min(n, 8) + " sessions" : "";
-    if (dir === "improving") return "Trending up" + span + ".";
-    if (dir === "declining") return "Easing off — trending down" + span + ".";
-    return "Holding steady" + span + ".";
+  // By construction of the score model (decayed top-3 mean), a run can never
+  // LOWER the score — any decline is pure time decay between peak efforts,
+  // and any rise means a new effort entered the top-3 (or lifted the race
+  // floor). Say WHICH, instead of a bare ±N the athlete can't reconcile
+  // with the per-run 0.0 badges below.
+  function _perfInsightText(trend) {
+    var delta = _perfTrendDelta(trend);
+    if (delta === null) return "Holding steady.";
+    if (delta < 0) {
+      return "Down " + Math.abs(delta) + " over this window — time decay between peak efforts, not any single run.";
+    }
+    if (delta > 0) {
+      return "Up " + delta + " over this window — newer efforts raised your top-3 anchor.";
+    }
+    return "Holding steady over this window.";
   }
 
   function _drawPerfTrend(svg, pts, color) {

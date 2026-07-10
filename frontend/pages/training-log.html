@@ -4467,7 +4467,6 @@
               <div class="perf-card-body">
                 <div class="perf-bigscore perf-bigscore--e">
                   <span class="perf-score-val"></span>
-                  <span class="perf-blk" hidden></span>
                 </div>
                 <p class="perf-insight"></p>
                 <svg class="perf-trend perf-spark" aria-label="Endurance trend sparkline"></svg>
@@ -4503,7 +4502,6 @@
               <div class="perf-card-body">
                 <div class="perf-bigscore perf-bigscore--s">
                   <span class="perf-score-val"></span>
-                  <span class="perf-blk" hidden></span>
                 </div>
                 <p class="perf-insight"></p>
                 <svg class="perf-trend perf-spark" aria-label="Speed trend sparkline"></svg>
@@ -6228,21 +6226,6 @@
       }
       .perf-bigscore--s .perf-score-val {
         color: var(--perf-speed);
-      }
-      .perf-blk {
-        font-size: 12px;
-        font-weight: 700;
-        font-family: var(--mono);
-        color: var(--perf-green);
-      }
-      .perf-bigscore--s .perf-blk {
-        color: var(--perf-speed);
-      }
-      .perf-blk--down {
-        color: var(--red, #dc2626) !important;
-      }
-      .perf-blk--flat {
-        color: var(--perf-muted) !important;
       }
       .perf-speed-warn {
         font-size: 10px;
