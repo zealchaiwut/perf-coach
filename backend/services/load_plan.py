@@ -134,9 +134,14 @@ fix above makes this true WITHIN a single request too, not just across days.
 Deload (every 4th week)
 ------------------------
 When ``deload_enabled`` is True, every 4th ``week_index`` (4, 8, 12, ...)
-that falls in the ramp or hold phase is cut by ``DELOAD_CUT_FRACTION`` (30%)
-BEFORE the ceiling clamp. Taper/race weeks are never cut further — they
-already have their own down-curve, and double-tapering would be wrong.
+that falls in the RAMP phase is cut by ``DELOAD_CUT_FRACTION`` (30%) BEFORE
+the ceiling clamp. Peak-hold weeks are NEVER deloaded (2026-07 fix) — the
+hold phase is immediately followed by taper, which already IS the recovery
+reduction; cutting the last hold week right before a taper is redundant at
+best and, if it lands on hold week 4 (the week right before taper starts),
+would mean the athlete never actually holds a full 4 weeks at peak. Taper/
+race weeks are never cut either — they already have their own down-curve,
+and double-tapering would be wrong.
 
 Critically, the formula for week ``w`` is computed directly from ``w``
 (``baseline * (1 + ramp_rate) ** w``), never recursively from week ``w-1``'s
@@ -413,12 +418,13 @@ def compute_load_plan(
                 "ceiling": round(ceiling, 1) if ceiling is not None else None,
             })
             continue
-        deload = _is_deload(w)
-        raw = peak * (1.0 - DELOAD_CUT_FRACTION) if deload else peak
-        value, clamped, ceiling = _finalize(raw)
+        # Hold weeks are never deloaded — taper (which starts immediately
+        # after) already IS the recovery reduction; see module docstring's
+        # "Deload" section.
+        value, clamped, ceiling = _finalize(peak)
         weeks.append({
             "week_index": w, "target_tss": round(value, 1), "phase": "hold",
-            "clamped": clamped, "deload": deload,
+            "clamped": clamped, "deload": False,
             "ceiling": round(ceiling, 1) if ceiling is not None else None,
         })
 
