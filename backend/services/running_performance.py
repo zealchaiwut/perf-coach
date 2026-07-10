@@ -87,6 +87,11 @@ IMPROVE_SPEED_REF_MINUTES: float = 8.0
 # The improve hint targets this many points above the current score —
 # "Endurance 36 → 40" scale, near enough to be actionable.
 IMPROVE_TARGET_STEP: int = 4
+# Score-change decomposition window and the summation-invariant tolerance
+# (score_then + decay + efforts + consistency must equal score_now within
+# this; beyond it the breakdown is withheld rather than rendered wrong).
+BREAKDOWN_WINDOW_DAYS: int = 28
+BREAKDOWN_RESIDUAL_TOLERANCE: float = 0.05
 
 
 # ---------------------------------------------------------------------------
@@ -405,6 +410,105 @@ def _aggregate_and_shape(
     except Exception:  # pragma: no cover — hint is best-effort decoration
         _log.warning("improve_hint computation failed", exc_info=True)
 
+    # ── Change decomposition (score-breakdown card) ──────────────────────
+    # Explain score_now − score_then over BREAKDOWN_WINDOW_DAYS as decay +
+    # efforts + consistency, via three recomputes against fixed pools (never
+    # per-run attribution):
+    #   A = points dated ≤ then;  B = the full pool
+    #   M(P,t) = anchor mean (decayed top-K + race floor), C(P,t) = bonus
+    #   score_then   = M(A,then) + C(A,then)
+    #   decay        = M(A,now) − M(A,then)      (the OLD pool aging)
+    #   efforts      = M(B,now) − M(A,now)       (window's new points, at now)
+    #   consistency  = C(B,now) − C(A,then)
+    # The sum telescopes to M(B,now)+C(B,now) = score_now EXACTLY on the
+    # unclamped display scale; the residual check below catches the one case
+    # the identity can break (the 0/100 display clamp binding).
+    breakdown: dict[str, Any] | None = None
+    try:
+        then = t_eval - timedelta(days=BREAKDOWN_WINDOW_DAYS)
+        pool_a = [(d, pp) for d, pp in points if d <= then]
+        m_a_then = _anchor_mean_at(pool_a, then, race_perf) * body_modifier
+        c_a_then = _bonus_at(pool_a, then) * body_modifier
+        m_a_now = _anchor_mean_at(pool_a, t_eval, race_perf) * body_modifier
+        m_b_now = _anchor_mean_at(points, t_eval, race_perf) * body_modifier
+        c_b_now = _bonus_at(points, t_eval) * body_modifier
+
+        b_score_then = m_a_then + c_a_then
+        b_decay = m_a_now - m_a_then
+        b_efforts = m_b_now - m_a_now
+        b_consistency = c_b_now - c_a_then
+        b_sum = b_score_then + b_decay + b_efforts + b_consistency
+        residual = score - b_sum  # vs the CLAMPED displayed score
+
+        # Anchor rows: the TOP_K decayed points defining today's mean.
+        decorated = []
+        for d, pp, rid in tagged_points:
+            if d > t_eval:
+                continue
+            age_days = (t_eval - d).days
+            dec = min(pp, decay_points(age_days))
+            decorated.append({
+                "run_id": rid,  # None = the race anchor point
+                "date": d.isoformat(),
+                "raw_score": round(pp * body_modifier, 2),
+                "age_weeks": round(age_days / 7.0, 1),
+                "decay_applied": round(-dec * body_modifier, 2),
+                "current_contribution": round((pp - dec) * body_modifier, 2),
+                "is_stale": age_days / 7.0 > GRACE_WEEKS,
+            })
+        decorated.sort(key=lambda r: -r["current_contribution"])
+        anchors = decorated[:TOP_K]
+        weakest = anchors[-1]["current_contribution"] if anchors else 0.0
+        # The race point (run_id None) may BE an anchor but is never listed
+        # as a displaceable non-anchor run.
+        non_anchors = [
+            {
+                "run_id": r["run_id"],
+                "date": r["date"],
+                "raw_score": r["raw_score"],
+                "age_weeks": r["age_weeks"],
+                "gap_to_weakest_anchor": round(r["current_contribution"] - weakest, 2),
+            }
+            for r in decorated[TOP_K:]
+            if r["run_id"] is not None
+            and _date_from_str(r["date"]) is not None and _date_from_str(r["date"]) > then
+        ]
+        # When the decayed race floor exceeds the top-K mean, the anchor-table
+        # footer arithmetic ("avg of K + consistency = score") would lie —
+        # surface the floor so the UI can show it as the binding term.
+        mean_top = (
+            sum(a["current_contribution"] for a in anchors) / len(anchors) if anchors else 0.0
+        )
+        floor_binding = m_b_now > mean_top + 0.01
+
+        breakdown = {
+            "window_days": BREAKDOWN_WINDOW_DAYS,
+            "score_then": round(b_score_then, 2),
+            "score_now": round(score, 2),
+            "delta": round(score - b_score_then, 2),
+            "decay": round(b_decay, 2),
+            "efforts": round(b_efforts, 2),
+            "consistency": round(b_consistency, 2),
+            "residual": round(residual, 4),
+            "anchors": anchors,
+            "non_anchors": non_anchors,
+            "weakest_anchor_now": round(weakest, 2),
+            "consistency_bonus_now": round(c_b_now, 2),
+            "anchor_mean_now": round(mean_top, 2),
+            "race_floor_now": round(m_b_now, 2) if floor_binding else None,
+        }
+        if abs(residual) > BREAKDOWN_RESIDUAL_TOLERANCE:
+            # A decomposition that doesn't sum is worse than none — it looks
+            # authoritative and is wrong. Don't render it.
+            _log.error(
+                "score breakdown residual %.4f exceeds tolerance (display clamp?)",
+                residual,
+            )
+            breakdown = {"error": "residual", "residual": round(residual, 4)}
+    except Exception:  # pragma: no cover — breakdown is derived decoration
+        _log.warning("score breakdown computation failed", exc_info=True)
+        breakdown = None
+
     result: dict[str, Any] = {
         "score": round(score, 2),
         "direction": direction,
@@ -414,6 +518,7 @@ def _aggregate_and_shape(
         "run_contributions": run_contributions,
         "qualifying_session_count": len(qualifying_meta),
         "improve_hint": improve_hint,
+        "breakdown": breakdown,
         # How the score moves, for the UI to state instead of hardcode:
         # top-K anchor decay + the consistency bonus (vdot.py constants).
         "model": {
@@ -439,21 +544,16 @@ def _aggregate_and_shape(
     return result
 
 
-def _score_at(points: list[tuple[date, float]], t: date, race_perf: dict | None) -> float:
-    """score(t) = mean of the 3 largest decayed perf points with date ≤ t,
-    floored by a decayed race anchor, plus a capped consistency bonus for
-    sessions in the trailing CONSISTENCY_WINDOW_DAYS (see vdot.py — steady
-    training nudges the score even when no run cracks the top-3).
-    """
+def _anchor_mean_at(points: list[tuple[date, float]], t: date, race_perf: dict | None) -> float:
+    """Anchor component of score(t): mean of the TOP_K largest decayed perf
+    points with date ≤ t, floored by the decayed race anchor. NO consistency
+    bonus — see _bonus_at; _score_at composes the two. Kept separate so the
+    change decomposition can attribute decay/efforts/consistency exactly."""
     decayed = []
-    recent_sessions = 0
     for d, perf in points:
         if d > t:
             continue
-        days = (t - d).days
-        decayed.append(max(0.0, perf - decay_points(days)))
-        if days <= CONSISTENCY_WINDOW_DAYS:
-            recent_sessions += 1
+        decayed.append(max(0.0, perf - decay_points((t - d).days)))
     if not decayed:
         return 0.0
     decayed.sort(reverse=True)
@@ -467,11 +567,21 @@ def _score_at(points: list[tuple[date, float]], t: date, race_perf: dict | None)
         if rdate <= t:
             floor = max(0.0, rperf - decay_points((t - rdate).days))
             score = max(score, floor)
-
-    # Consistency bonus — applied AFTER the race floor so it stacks on top
-    # of whatever the anchor says (training while anchored still shows).
-    score += min(CONSISTENCY_BONUS_CAP, recent_sessions * CONSISTENCY_BONUS_PER_RUN)
     return score
+
+
+def _bonus_at(points: list[tuple[date, float]], t: date) -> float:
+    """Consistency component of score(t) — see vdot.py constants."""
+    recent = sum(1 for d, _ in points if d <= t and (t - d).days <= CONSISTENCY_WINDOW_DAYS)
+    return min(CONSISTENCY_BONUS_CAP, recent * CONSISTENCY_BONUS_PER_RUN)
+
+
+def _score_at(points: list[tuple[date, float]], t: date, race_perf: dict | None) -> float:
+    """score(t) = anchor mean (decayed top-K, race-floored) + consistency
+    bonus. See _anchor_mean_at / _bonus_at."""
+    if not any(d <= t for d, _ in points):
+        return 0.0
+    return _anchor_mean_at(points, t, race_perf) + _bonus_at(points, t)
 
 
 def _race_point(race_perf: dict | None) -> tuple[date, float] | None:

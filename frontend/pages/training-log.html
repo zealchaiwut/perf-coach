@@ -4465,16 +4465,30 @@
                 <span class="perf-tag">Trend</span>
               </div>
               <div class="perf-card-body">
-                <div class="perf-bigscore perf-bigscore--e">
-                  <span class="perf-score-val"></span>
+                <div class="perf-scorehead">
+                  <span class="perf-bigscore perf-bigscore--e"><span class="perf-score-val"></span></span>
+                  <span class="perf-delta-pill" hidden></span>
+                  <span class="perf-window-lab">last 28 days</span>
                 </div>
-                <p class="perf-insight"></p>
-                <p class="perf-model-line" hidden></p>
+                <div class="perf-change" hidden>
+                  <div class="perf-change-head">
+                    <span>Where the change came from</span><span class="perf-change-window">28 days</span>
+                  </div>
+                  <div class="perf-eq"></div>
+                  <div class="perf-propbar"></div>
+                  <div class="perf-propkey"></div>
+                  <div class="perf-reading"></div>
+                </div>
+                <div class="perf-anchors" hidden>
+                  <div class="perf-flabel">Anchor efforts · the 3 that set this score</div>
+                  <div class="perf-anchor-table"></div>
+                  <div class="perf-anchor-foot"></div>
+                  <p class="perf-model-line" hidden></p>
+                </div>
                 <p class="perf-improve-line" hidden></p>
-                <svg class="perf-trend perf-spark" aria-label="Endurance trend sparkline"></svg>
-                <div class="perf-flabel">Last 5 long runs feeding this score</div>
-                <div class="perf-feed" id="perf-feed-endurance">
-                  <p class="perf-feed-loading">Loading…</p>
+                <div class="perf-nonanchors" hidden>
+                  <div class="perf-flabel perf-nonanchor-lab"></div>
+                  <div class="perf-feed" id="perf-feed-endurance"></div>
                 </div>
               </div>
               <div class="perf-building-baseline" hidden>
@@ -4502,16 +4516,30 @@
                 <span class="perf-tag">Trend</span>
               </div>
               <div class="perf-card-body">
-                <div class="perf-bigscore perf-bigscore--s">
-                  <span class="perf-score-val"></span>
+                <div class="perf-scorehead">
+                  <span class="perf-bigscore perf-bigscore--s"><span class="perf-score-val"></span></span>
+                  <span class="perf-delta-pill" hidden></span>
+                  <span class="perf-window-lab">last 28 days</span>
                 </div>
-                <p class="perf-insight"></p>
-                <p class="perf-model-line" hidden></p>
+                <div class="perf-change" hidden>
+                  <div class="perf-change-head">
+                    <span>Where the change came from</span><span class="perf-change-window">28 days</span>
+                  </div>
+                  <div class="perf-eq"></div>
+                  <div class="perf-propbar"></div>
+                  <div class="perf-propkey"></div>
+                  <div class="perf-reading"></div>
+                </div>
+                <div class="perf-anchors" hidden>
+                  <div class="perf-flabel">Anchor efforts · the 3 that set this score</div>
+                  <div class="perf-anchor-table"></div>
+                  <div class="perf-anchor-foot"></div>
+                  <p class="perf-model-line" hidden></p>
+                </div>
                 <p class="perf-improve-line" hidden></p>
-                <svg class="perf-trend perf-spark" aria-label="Speed trend sparkline"></svg>
-                <div class="perf-flabel">Last 5 interval sessions feeding this score</div>
-                <div class="perf-feed" id="perf-feed-speed">
-                  <p class="perf-feed-loading">Loading…</p>
+                <div class="perf-nonanchors" hidden>
+                  <div class="perf-flabel perf-nonanchor-lab"></div>
+                  <div class="perf-feed" id="perf-feed-speed"></div>
                 </div>
               </div>
               <div class="perf-building-baseline" hidden>
@@ -6166,7 +6194,10 @@
          since-removed .perf-panel ancestor). ─────────────────────────────── */
       :root {
         --perf-endur: #16a34a;
-        --perf-speed: #ea580c;
+        /* #ea580c fails 4.5:1 AA against white — darkened per spec. */
+        --perf-speed: #c2410c;
+        --perf-loss: #b91c1c;
+        --perf-gain: #16a34a;
         --perf-faint: #9aa3b8;
         --perf-muted: #6b7280;
         --perf-line: #eceef4;
@@ -6241,6 +6272,152 @@
       .perf-bigscore--s .perf-score-val {
         color: var(--perf-speed);
       }
+      /* Score header: big score + delta pill + window label */
+      .perf-scorehead {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 2px;
+      }
+      .perf-scorehead .perf-window-lab {
+        margin-left: auto;
+        font-size: 11px;
+        color: var(--perf-faint);
+        font-family: var(--mono);
+      }
+      .perf-delta-pill {
+        font-size: 12px;
+        font-weight: 800;
+        font-family: var(--mono);
+        border-radius: 999px;
+        padding: 3px 10px;
+      }
+      .perf-delta-pill--down { background: #fee2e2; color: var(--perf-loss); }
+      .perf-delta-pill--up { background: #dcfce7; color: var(--perf-gain); }
+      .perf-delta-pill--flat { background: var(--w-tile, #f1f4fa); color: var(--perf-muted); }
+
+      /* Change strip (variant A): equation + proportion bar + key + reading */
+      .perf-change { margin: 12px 0 4px; }
+      .perf-change-head {
+        display: flex;
+        justify-content: space-between;
+        font-size: 11px;
+        font-weight: 800;
+        color: var(--text-primary, #1b2340);
+        margin-bottom: 5px;
+      }
+      .perf-change-head span:last-child {
+        color: var(--perf-faint);
+        font-weight: 600;
+        font-family: var(--mono);
+      }
+      .perf-eq {
+        font-family: var(--mono);
+        font-size: 12.5px;
+        color: var(--text-primary, #1b2340);
+        margin-bottom: 6px;
+        white-space: nowrap;
+        overflow-x: auto;
+      }
+      .perf-eq .lbl { color: var(--perf-faint); font-size: 11px; }
+      .perf-eq .loss { color: var(--perf-loss); font-weight: 700; }
+      .perf-eq .gain { color: var(--perf-gain); font-weight: 700; }
+      .perf-eq b { font-weight: 800; }
+      .perf-propbar {
+        display: flex;
+        height: 10px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: var(--w-tile, #f1f4fa);
+        margin-bottom: 4px;
+      }
+      .perf-propbar .seg-decay { background: #fca5a5; }
+      .perf-propbar .seg-efforts { background: #4ade80; }
+      .perf-propbar .seg-consistency { background: #bbf7d0; }
+      .perf-propkey {
+        font-size: 10px;
+        color: var(--perf-faint);
+        font-family: var(--mono);
+        display: flex;
+        gap: 12px;
+        margin-bottom: 8px;
+      }
+      .perf-propkey i {
+        display: inline-block;
+        width: 9px; height: 9px;
+        border-radius: 3px;
+        margin-right: 4px;
+        vertical-align: -1px;
+        font-style: normal;
+      }
+      .perf-reading {
+        font-size: 12px;
+        line-height: 1.5;
+        background: var(--w-tile-3, #f7f9fd);
+        border: 1px solid var(--card-border, #e5e7eb);
+        border-radius: 8px;
+        padding: 8px 11px;
+        color: var(--text-secondary, #55607a);
+      }
+      .perf-reading .loss { color: var(--perf-loss); font-weight: 700; font-family: var(--mono); }
+      .perf-reading .gain { color: var(--perf-gain); font-weight: 700; font-family: var(--mono); }
+
+      /* Anchor table */
+      .perf-anchors { margin-top: 12px; }
+      .perf-anchor-table { border-top: 1px solid var(--card-border, #e5e7eb); }
+      .perf-anchor-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 46px 52px 46px;
+        gap: 8px;
+        align-items: center;
+        padding: 7px 4px;
+        border-bottom: 1px solid var(--card-border, #e5e7eb);
+        font-size: 12px;
+      }
+      .perf-anchor-row.hdr {
+        font-size: 9.5px;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--perf-faint);
+        padding: 4px;
+      }
+      .perf-anchor-row.stale { background: #fffbeb; }
+      .perf-anchor-row .a-title { font-weight: 700; color: var(--text-primary, #1b2340); }
+      .perf-anchor-row .a-meta { font-size: 10.5px; color: var(--perf-faint); font-family: var(--mono); }
+      .perf-anchor-row.stale .a-age { color: var(--perf-loss); font-weight: 700; }
+      .perf-anchor-row .num { font-family: var(--mono); text-align: right; }
+      .perf-anchor-row .num.loss { color: var(--perf-loss); }
+      .perf-survival {
+        height: 3px;
+        background: var(--w-tile, #f1f4fa);
+        border-radius: 2px;
+        overflow: hidden;
+        margin-top: 3px;
+      }
+      .perf-survival > i { display: block; height: 100%; background: #93c5fd; }
+      .perf-anchor-foot {
+        font-family: var(--mono);
+        font-size: 11.5px;
+        color: var(--text-secondary, #55607a);
+        padding: 7px 4px 2px;
+      }
+      .perf-anchor-foot b { font-weight: 800; color: var(--text-primary, #1b2340); }
+
+      /* Non-anchor list */
+      .perf-nonanchors { margin-top: 12px; }
+      .perf-nonanchor-lab .gaplab { color: var(--perf-faint); font-weight: 600; text-transform: none; letter-spacing: 0; }
+      .perf-gapchip {
+        font-family: var(--mono);
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--perf-loss);
+        background: #fef2f2;
+        border-radius: 6px;
+        padding: 3px 8px;
+        flex-shrink: 0;
+      }
+
       .perf-speed-warn {
         font-size: 10px;
         font-weight: 700;
@@ -6250,11 +6427,6 @@
         border-radius: 6px;
         cursor: default;
         flex-shrink: 0;
-      }
-      .perf-insight {
-        font-size: 12.5px;
-        color: var(--perf-muted);
-        margin: 8px 0 6px;
       }
       /* How the score moves — decay + consistency constants from the model. */
       .perf-model-line {

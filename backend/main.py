@@ -15420,6 +15420,45 @@ def _build_performance_diagnostic(preferences, runs):
     }
 
 
+@app.get("/api/performance/score-breakdown")
+def get_score_breakdown(
+    metric: str = "endurance", window: str = "28d", user: User = Depends(resolve_user)
+):
+    """Decomposition of the score change over the window: score_then + decay
+    + efforts + consistency = score_now (asserted — a breakdown that doesn't
+    sum raises rather than renders), plus the anchor / non-anchor rows.
+
+    Same canonical scoring compute as /api/athletes/{id}/performance (cached
+    together) — this endpoint just extracts the `breakdown` block, so the
+    score here can never disagree with the Performance card or Home widget.
+    Note: window is currently fixed at running_performance.
+    BREAKDOWN_WINDOW_DAYS; a mismatched request is rejected rather than
+    silently served with a different window.
+    """
+    from backend.services.running_performance import BREAKDOWN_WINDOW_DAYS
+
+    if metric not in ("endurance", "speed"):
+        raise HTTPException(status_code=422, detail="metric must be 'endurance' or 'speed'")
+    expected = f"{BREAKDOWN_WINDOW_DAYS}d"
+    if window != expected:
+        raise HTTPException(status_code=422, detail=f"window must be {expected!r}")
+
+    perf = _json.loads(get_athlete_performance(str(user.id), user=user).body)
+    if perf.get("state") != "scored":
+        raise HTTPException(status_code=409, detail=f"scores not available: {perf.get('state')}")
+    block = (perf.get(metric) or {}).get("breakdown")
+    if block is None:
+        raise HTTPException(status_code=500, detail="breakdown unavailable")
+    if block.get("error") == "residual":
+        # The summation invariant failed (display clamp binding) — refuse to
+        # render an authoritative-looking decomposition that doesn't sum.
+        raise HTTPException(
+            status_code=500,
+            detail=f"breakdown residual {block.get('residual')} exceeds tolerance",
+        )
+    return JSONResponse({"metric": metric, **block})
+
+
 @app.get("/api/athletes/{athlete_id}/performance")
 def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user)):
     """Return endurance and speed performance scores for an athlete (issue #1020).
@@ -15846,7 +15885,8 @@ def _performance_signature(session, user_id, prefs_row) -> str:
     # v7 = power-fallback guards (min window, fabricated pace clamped to the
     # fastest real lap) — uphill power spikes no longer fabricate flat speed.
     # v8 = implausible-lap filter (pace < 150 s/km = sensor garbage).
-    _FORMULA_VERSION = "vdot-v8"
+    # v9 = score-change breakdown block (decay/efforts/consistency + anchors).
+    _FORMULA_VERSION = "vdot-v9"
     base = _summary_signature(session, user_id)
     race_row = (
         session.query(func.max(Race.updated_at), func.count(Race.id))
