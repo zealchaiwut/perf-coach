@@ -15843,7 +15843,10 @@ def _performance_signature(session, user_id, prefs_row) -> str:
     # v5 = races in the signature + race anchor selected by race_date (was
     # updated_at), so a newly logged race refreshes the scores immediately.
     # v6 = run_contributions + model block + consistency bonus + improve hint.
-    _FORMULA_VERSION = "vdot-v6"
+    # v7 = power-fallback guards (min window, fabricated pace clamped to the
+    # fastest real lap) — uphill power spikes no longer fabricate flat speed.
+    # v8 = implausible-lap filter (pace < 150 s/km = sensor garbage).
+    _FORMULA_VERSION = "vdot-v8"
     base = _summary_signature(session, user_id)
     race_row = (
         session.query(func.max(Race.updated_at), func.count(Race.id))

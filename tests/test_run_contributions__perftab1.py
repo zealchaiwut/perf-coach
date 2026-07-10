@@ -130,6 +130,59 @@ def test_improve_hint_targets_plus_four_with_a_concrete_pace():
     assert h["pace_seconds_per_km"] < 258
 
 
+def test_power_fallback_short_window_produces_no_speed_point():
+    """A sub-2-minute power surge can't define a run's speed effort (seen
+    live: a 112 s uphill 1.3x-power window fabricated a 4:14/km flat effort
+    worth perf 62.6 and a +8.9 badge on a 6:28/km session)."""
+    run = {
+        "run_id": "uphill",
+        "workout_date": (date.today() - timedelta(days=3)).isoformat(),
+        "laps": [{"band": "steady", "distance_km": 1.0, "duration_seconds": 380, "avg_hr": 150}],
+        "speed_signal": 1.3, "speed_signal_basis": "power",
+        "speed_signal_window_seconds": 112,
+        "distance_km": 5.8, "duration_seconds": 2252, "avg_power": 180, "ftp_w": 200,
+    }
+    baseline = [_interval_run(f"b{i}", 5 + i, 300) for i in range(3)]
+    res = _score(baseline + [run])
+    assert "uphill" not in res["debug"]["perRunEfficiency"]
+
+
+def test_power_fallback_pace_clamped_to_fastest_real_lap():
+    """The power→pace conversion can never claim a pace faster than the run
+    actually demonstrated — an uphill power ratio implies no flat speed."""
+    run = {
+        "run_id": "uphill2",
+        "workout_date": (date.today() - timedelta(days=3)).isoformat(),
+        # No hard-band laps → falls to the power fallback; fastest REAL lap 380 s/km.
+        "laps": [{"band": "steady", "distance_km": 1.0, "duration_seconds": 380, "avg_hr": 150}],
+        "speed_signal": 1.5, "speed_signal_basis": "power",
+        "speed_signal_window_seconds": 300,
+        "distance_km": 5.8, "duration_seconds": 2252, "avg_power": 190, "ftp_w": 200,
+    }
+    baseline = [_interval_run(f"b{i}", 5 + i, 300) for i in range(3)]
+    res = _score(baseline + [run])
+    perf_uphill = res["debug"]["perRunEfficiency"].get("uphill2")
+    assert perf_uphill is not None
+    # A 380 s/km effort at 5 min must score BELOW the 300 s/km baseline runs.
+    baseline_perfs = [res["debug"]["perRunEfficiency"][f"b{i}"] for i in range(3)]
+    assert perf_uphill < min(baseline_perfs)
+
+
+def test_implausible_fast_laps_are_sensor_garbage_and_ignored():
+    """Laps claiming a pace faster than 2:30/km (beyond the world mile
+    record) are corrupted data, not efforts — seen live: three '1 km in
+    ~81 s' laps pinned the Speed score at a perfect 100."""
+    garbage = {
+        "run_id": "corrupt",
+        "workout_date": (date.today() - timedelta(days=4)).isoformat(),
+        "laps": [{"band": "hard", "distance_km": 0.98, "duration_seconds": 81, "avg_hr": 160}],
+    }
+    baseline = [_interval_run(f"b{i}", 5 + i, 300) for i in range(3)]
+    res = _score(baseline + [garbage])
+    assert "corrupt" not in res["debug"]["perRunEfficiency"]
+    assert res["score"] < 90
+
+
 def test_legacy_date_contributions_still_present():
     # Back-compat: the date-keyed map is still returned (other consumers /
     # older clients), even though badges now use run_contributions.

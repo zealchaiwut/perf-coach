@@ -512,8 +512,24 @@ def _filter_trailing_window(items: list[dict], window_days: int) -> list[dict]:
     return [item for item, d in dated if d is not None and d >= cutoff]
 
 
+# No human sustains a pace faster than this (150 s/km = 2:30/km; the world
+# mile record averages ~148 s/km). A lap claiming to beat it is sensor/sync
+# garbage — seen live: a corrupted file with three "1 km in ~81 s" laps that
+# classified as hard efforts and pinned the Speed score at a perfect 100.
+_MIN_PLAUSIBLE_PACE_S_PER_KM: float = 150.0
+
+
+def _lap_pace_plausible(lap: dict) -> bool:
+    dur = lap.get("duration_seconds")
+    dist = lap.get("distance_km")
+    if (isinstance(dur, (int, float)) and not isinstance(dur, bool) and dur > 0
+            and isinstance(dist, (int, float)) and not isinstance(dist, bool) and dist > 0):
+        return (float(dur) / float(dist)) >= _MIN_PLAUSIBLE_PACE_S_PER_KM
+    return True  # no pace derivable — other validators handle it
+
+
 def _qualifying_laps(laps: list[dict], bands: list[str]) -> list[dict]:
-    return [lap for lap in laps if lap.get("band") in bands]
+    return [lap for lap in laps if lap.get("band") in bands and _lap_pace_plausible(lap)]
 
 
 def _lap_pace_and_duration(laps: list[dict]) -> tuple[float | None, float | None]:
@@ -539,6 +555,27 @@ def _lap_pace_and_duration(laps: list[dict]) -> tuple[float | None, float | None
         return None, None
     pace_s_per_km = total_dur / total_dist
     return pace_s_per_km, total_dur
+
+
+# Minimum speed_signal window that may define a run's speed effort via the
+# power-basis fallback — sub-2-minute surges say nothing about sustainable
+# speed (see the guard note inside _speed_effort_pace_duration).
+_MIN_POWER_FALLBACK_WINDOW_S: float = 120.0
+
+
+def _fastest_real_lap_pace(laps: list[dict]) -> float | None:
+    """Fastest ACTUAL pace (s/km) across all laps with usable distance +
+    duration, any band — the hard bound on what pace the run demonstrated."""
+    paces = []
+    for lap in laps:
+        dur = lap.get("duration_seconds")
+        dist = lap.get("distance_km")
+        if (isinstance(dur, (int, float)) and not isinstance(dur, bool) and dur > 0
+                and isinstance(dist, (int, float)) and not isinstance(dist, bool) and dist > 0):
+            pace = float(dur) / float(dist)
+            if pace >= _MIN_PLAUSIBLE_PACE_S_PER_KM:
+                paces.append(pace)
+    return min(paces) if paces else None
 
 
 def _speed_effort_pace_duration(run: dict, bands: list[str], threshold_pace) -> tuple[float | None, float | None]:
@@ -583,6 +620,21 @@ def _speed_effort_pace_duration(run: dict, bands: list[str], threshold_pace) -> 
         # Run-level pace–power relation → convert the effort's power ratio to a
         # pace. avg_run_pace corresponds to avg_run_power; running power scales
         # ~linearly with speed, so effort_pace ≈ avg_run_pace × avg_run_power / effort_power.
+        #
+        # GUARDED (2026-07-10): this conversion assumes flat ground. On an
+        # incline the power spike is real but the flat-equivalent PACE it
+        # implies was never run — seen live: a 6% uphill interval session
+        # (best real lap 6:16/km) fabricated a 4:14/km "sustained effort"
+        # from a 112-second 1.3× power window and scored perf 62.6; another
+        # easy run scored a perfect 100.0 the same way. Two guards:
+        #   1. windows shorter than _MIN_POWER_FALLBACK_WINDOW_S can't
+        #      define the run's speed effort at all;
+        #   2. the fabricated pace can never be FASTER than the fastest
+        #      pace the run actually demonstrated (best real lap, else the
+        #      run average) — the speed score anchors demonstrated pace,
+        #      and an uphill power surge demonstrates no flat pace.
+        if duration_s < _MIN_POWER_FALLBACK_WINDOW_S:
+            return None, None
         dist = run.get("distance_km")
         dur = run.get("duration_seconds")
         avg_power = run.get("avg_power")
@@ -596,6 +648,10 @@ def _speed_effort_pace_duration(run: dict, bands: list[str], threshold_pace) -> 
             if effort_power > 0:
                 effort_pace = avg_run_pace * float(avg_power) / effort_power
                 if effort_pace > 0:
+                    fastest_real = _fastest_real_lap_pace(run.get("laps") or [])
+                    if fastest_real is None:
+                        fastest_real = avg_run_pace
+                    effort_pace = max(effort_pace, fastest_real)
                     return effort_pace, duration_s
         # Fallback: treat the intensity ratio against threshold pace.
         if threshold_pace and threshold_pace > 0:
