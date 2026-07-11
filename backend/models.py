@@ -1641,3 +1641,32 @@ class LlmGeneration(Base):
         UniqueConstraint("user_id", "surface", "input_signature", name="uq_llm_generations_user_surface_sig"),
         Index("ix_llm_generations_user_surface_sig", "user_id", "surface", "input_signature"),
     )
+
+
+class VerdictHistory(Base):
+    """Persisted snapshot of each day's training verdict and its inputs.
+
+    Written (upserted) whenever compute_verdict runs for the current day so
+    there is a durable record of what the app advised vs what happened.
+    Historical dates are never touched — only today's computation updates
+    this row. The unique constraint enforces one row per user+date.
+    """
+
+    __tablename__ = "verdict_history"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    verdict_date = Column(Date, nullable=False)
+    verdict = Column(String(20), nullable=False)
+    modifiers = Column(JSONB, nullable=True)
+    readiness = Column(Float, nullable=True)
+    ctl = Column(Float, nullable=True)
+    atl = Column(Float, nullable=True)
+    tsb = Column(Float, nullable=True)
+    acwr = Column(Float, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "verdict_date", name="uq_verdict_history_user_date"),
+        Index("ix_verdict_history_user_date", "user_id", "verdict_date"),
+    )
