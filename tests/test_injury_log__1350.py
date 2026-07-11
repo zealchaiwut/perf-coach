@@ -13,11 +13,12 @@ import uuid
 import httpx
 import pytest
 from dotenv import dotenv_values
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session as _OrmSess
 
 from backend.auth import CSRF_COOKIE_NAME, hash_password as _hash_pw
 from backend.models import User as _UserModel
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
 BASE_URL = os.environ.get("UAT_BASE_URL") or "http://localhost:" + os.environ.get("UAT_PORT", "9001")
 if not BASE_URL.startswith("http"):
@@ -39,7 +40,7 @@ def _require_engine():
 
 def _make_user(name: str) -> str:
     _require_engine()
-    r = httpx.post(f"{BASE_URL}/api/users", json={"name": name}, timeout=10.0)
+    r = httpx.post(f"{BASE_URL}/api/users", json={"name": name}, cookies=_admin_cookies(), timeout=10.0)
     assert r.status_code == 201, f"Failed to create user: {r.text}"
     uid = r.json()["id"]
     pw_hash = _hash_pw(_TEST_PW)
