@@ -2980,9 +2980,19 @@ def get_weekly_summary(
     _chronic_start = _verdict_as_of - _td(days=27)
     _chronic_series = _dts(str(uid), _chronic_start, _verdict_as_of)
     chronic_weekly = round(sum(v for _, v in _chronic_series) / 4.0, 1)
-    verdict = compute_verdict(load_end, chronic_weekly=chronic_weekly, today=_verdict_as_of)
+    with Session(engine) as _vsess:
+        _readiness_today, _readiness_7d = _fetch_readiness_for_verdict(uid, _verdict_as_of, _vsess)
+        _active_injuries = _fetch_active_injuries_for_verdict(uid, _vsess)
+    verdict = compute_verdict(
+        load_end,
+        chronic_weekly=chronic_weekly,
+        today=_verdict_as_of,
+        readiness_today=_readiness_today,
+        readiness_7d_mean=_readiness_7d,
+        injury_log=_active_injuries,
+    )
     if _verdict_as_of == _date_cls.today():
-        _upsert_verdict_history(uid, _verdict_as_of, verdict)
+        _upsert_verdict_history(uid, _verdict_as_of, verdict, readiness_score=_readiness_today)
 
     facts = assemble_facts(
         week_start=week_start,
@@ -16830,7 +16840,7 @@ def _upsert_verdict_history(user_id, verdict_date, verdict_result, readiness_sco
         "user_id": user_id,
         "verdict_date": verdict_date,
         "verdict": verdict_result["verdict"],
-        "modifiers": None,
+        "modifiers": verdict_result.get("modifiers") or None,
         "readiness": float(readiness_score) if readiness_score is not None else None,
         "ctl": verdict_result.get("ctl"),
         "atl": verdict_result.get("atl"),
@@ -16861,6 +16871,56 @@ def _upsert_verdict_history(user_id, verdict_date, verdict_result, readiness_sco
         pass  # verdict_history write is best-effort; never break the caller
 
 
+def _fetch_readiness_for_verdict(user_id, today, session):
+    """Return (readiness_today, readiness_7d_mean) from daily_readiness rows.
+
+    Both are None when no readiness rows exist for the user in the window.
+    """
+    from backend.models import DailyReadiness
+    from datetime import timedelta as _td2
+
+    window_start = today - _td2(days=6)
+    rows = (
+        session.query(DailyReadiness.date, DailyReadiness.score)
+        .filter(
+            DailyReadiness.user_id == user_id,
+            DailyReadiness.date >= window_start,
+            DailyReadiness.date <= today,
+        )
+        .all()
+    )
+    if not rows:
+        return None, None
+    scores = [float(r.score) for r in rows]
+    today_row = next((float(r.score) for r in rows if r.date == today), None)
+    mean_7d = round(sum(scores) / len(scores), 2) if scores else None
+    return today_row, mean_7d
+
+
+def _fetch_active_injuries_for_verdict(user_id, session):
+    """Return list of active injury_log dicts for the user (ended_on IS NULL).
+
+    Returns empty list when the injury_log table doesn't exist yet (i.e.
+    when issue #1350's migration hasn't been applied to this environment).
+    """
+    try:
+        from backend.models import InjuryLog
+    except ImportError:
+        return []
+    try:
+        rows = (
+            session.query(InjuryLog.kind, InjuryLog.severity)
+            .filter(
+                InjuryLog.user_id == user_id,
+                InjuryLog.ended_on.is_(None),
+            )
+            .all()
+        )
+        return [{"kind": r.kind, "severity": r.severity} for r in rows]
+    except Exception:
+        return []
+
+
 def _resolve_current_verdict(user_id, today, trailing_28d_avg=None):
     """Deterministic back_off/hold/build verdict as of `today` — shared by
     every Plan-tab endpoint (and GET /api/weekly-summary has its own
@@ -16869,8 +16929,10 @@ def _resolve_current_verdict(user_id, today, trailing_28d_avg=None):
     snapshot (training_load.current_load) every other consumer reads; never
     an LLM decision. See backend/services/training_verdict.py.
 
-    When today matches the real calendar date, the result is persisted to
-    verdict_history (upsert — latest computation wins).
+    Also wires in today's readiness score, 7-day readiness mean, and active
+    injury_log entries as deterministic downgrade inputs. When today matches
+    the real calendar date, the result is persisted to verdict_history
+    (upsert — latest computation wins).
     """
     from backend.services.training_load import current_load as _current_load, daily_tss_series as _dts
     from backend.services.training_verdict import compute_verdict as _compute_verdict
@@ -16880,10 +16942,22 @@ def _resolve_current_verdict(user_id, today, trailing_28d_avg=None):
         start_28 = today - _timedelta(days=27)
         series_28 = _dts(str(user_id), start_28, today)
         trailing_28d_avg = round(sum(v for _, v in series_28) / 4.0, 1)
-    result = _compute_verdict(snap, chronic_weekly=trailing_28d_avg, today=today)
+
+    with Session(engine) as _sess:
+        readiness_today, readiness_7d_mean = _fetch_readiness_for_verdict(user_id, today, _sess)
+        active_injuries = _fetch_active_injuries_for_verdict(user_id, _sess)
+
+    result = _compute_verdict(
+        snap,
+        chronic_weekly=trailing_28d_avg,
+        today=today,
+        readiness_today=readiness_today,
+        readiness_7d_mean=readiness_7d_mean,
+        injury_log=active_injuries,
+    )
     from datetime import date as _real_date
     if today == _real_date.today():
-        _upsert_verdict_history(user_id, today, result)
+        _upsert_verdict_history(user_id, today, result, readiness_score=readiness_today)
     return result
 
 

@@ -152,6 +152,7 @@ def assemble_facts(
         "prs_achieved": prs,
         "verdict": (verdict or {}).get("verdict"),
         "verdict_reason": (verdict or {}).get("reason"),
+        "verdict_modifiers": (verdict or {}).get("modifiers") or [],
         "expected_ctl_in_3w": (verdict or {}).get("expected_ctl_in_3w"),
         "weeks_to_converge": (verdict or {}).get("weeks_to_converge"),
         "converge_date": (verdict or {}).get("converge_date"),
@@ -249,6 +250,24 @@ def build_fallback_narrative(facts: dict) -> str:
     # Verdict (deterministic — see _verdict_sentence)
     if verdict_sentence:
         lines.append(verdict_sentence)
+
+    # Modifier reasons — state which wellness rule caused a downgrade
+    modifiers = facts.get("verdict_modifiers") or []
+    if modifiers:
+        parts = []
+        for m in modifiers:
+            rule = m.get("rule", "")
+            val = m.get("value")
+            if rule == "low_readiness_today":
+                parts.append(f"today's readiness score ({val:.0f})" if isinstance(val, float) else f"today's readiness score ({val})")
+            elif rule == "low_readiness_trend":
+                parts.append(f"7-day readiness average ({val:.0f})" if isinstance(val, float) else f"7-day readiness average ({val})")
+            elif rule == "illness_or_severe_injury":
+                parts.append(f"active {val}")
+            elif rule == "niggle_or_minor_injury":
+                parts.append(f"active {val}")
+        if parts:
+            lines.append(f"Downgrade reason: {'; '.join(parts)}.")
 
     # PRs
     prs = facts.get("prs_achieved") or []
@@ -412,6 +431,25 @@ def _build_prompt(facts: dict, facts_str: str) -> tuple[str, str]:
                     f"You may mention that load is expected back within the safe range in "
                     f"~{facts['weeks_to_converge']} week(s), around {facts['converge_date']} — "
                     "label this as an estimate, not a guarantee."
+                )
+        modifiers = facts.get("verdict_modifiers") or []
+        if modifiers:
+            mod_desc = []
+            for m in modifiers:
+                rule = m.get("rule", "")
+                val = m.get("value")
+                if rule == "low_readiness_today":
+                    mod_desc.append(f"today's readiness score is {val}")
+                elif rule == "low_readiness_trend":
+                    mod_desc.append(f"7-day readiness average is {val}")
+                elif rule == "illness_or_severe_injury":
+                    mod_desc.append(f"active {val}")
+                elif rule == "niggle_or_minor_injury":
+                    mod_desc.append(f"active {val}")
+            if mod_desc:
+                system += (
+                    f" The verdict was downgraded due to wellness signals: {'; '.join(mod_desc)}. "
+                    "Mention this reason when explaining the verdict. "
                 )
 
     count = facts.get("workout_count", 0)
