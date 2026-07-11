@@ -175,11 +175,10 @@ def test_compute_and_store_is_idempotent():
 
 def test_readiness_compute_and_store_imported_at_module_level():
     """AC1: _readiness_compute_and_store is imported at module level in main.py for reuse."""
-    import backend.main as m
-    assert hasattr(m, "_readiness_compute_and_store"), (
+    assert hasattr(_main, "_readiness_compute_and_store"), (
         "services.readiness.job.compute_and_store must be imported as "
         "_readiness_compute_and_store at module level in main.py"
     )
-    assert callable(m._readiness_compute_and_store), (
+    assert callable(_main._readiness_compute_and_store), (
         "_readiness_compute_and_store must be callable"
     )
