@@ -30,7 +30,7 @@ from zoneinfo import ZoneInfo
 
 from backend.auth import require_admin
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, DriveSleepConnection, EconomyCeilingSnapshot, ExerciseCatalog, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession
+from backend.models import AppConfig, DailyMetric, DriveSleepConnection, EconomyCeilingSnapshot, ExerciseCatalog, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, VerdictHistory, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values
 from backend.services.tss import compute_running_tss as _compute_running_tss
@@ -2981,6 +2981,8 @@ def get_weekly_summary(
     _chronic_series = _dts(str(uid), _chronic_start, _verdict_as_of)
     chronic_weekly = round(sum(v for _, v in _chronic_series) / 4.0, 1)
     verdict = compute_verdict(load_end, chronic_weekly=chronic_weekly, today=_verdict_as_of)
+    if _verdict_as_of == _date_cls.today():
+        _upsert_verdict_history(uid, _verdict_as_of, verdict)
 
     facts = assemble_facts(
         week_start=week_start,
@@ -12714,6 +12716,63 @@ def get_training_daily_load(
     return JSONResponse(result)
 
 
+@app.get("/api/training/verdict-history")
+def get_verdict_history(
+    from_: Optional[str] = Query(default=None, alias="from"),
+    to: Optional[str] = Query(default=None),
+    current_user: User = Depends(resolve_user),
+):
+    """Return the persisted daily verdict + inputs series for the session user.
+
+    Query params: from (ISO date, inclusive) and to (ISO date, inclusive).
+    Returns a list of verdict_history rows ordered by date ascending.
+    """
+    if from_ is None or to is None:
+        missing = []
+        if from_ is None:
+            missing.append("from")
+        if to is None:
+            missing.append("to")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing required query parameter(s): {', '.join(missing)}",
+        )
+    try:
+        from_date = _date.fromisoformat(from_)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"'from' is not a valid ISO-8601 date: {from_!r}")
+    try:
+        to_date = _date.fromisoformat(to)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"'to' is not a valid ISO-8601 date: {to!r}")
+
+    with Session(engine) as db:
+        rows = (
+            db.query(VerdictHistory)
+            .filter(
+                VerdictHistory.user_id == current_user.id,
+                VerdictHistory.verdict_date >= from_date,
+                VerdictHistory.verdict_date <= to_date,
+            )
+            .order_by(VerdictHistory.verdict_date)
+            .all()
+        )
+    return JSONResponse([
+        {
+            "verdict_date": row.verdict_date.isoformat(),
+            "verdict": row.verdict,
+            "modifiers": row.modifiers,
+            "readiness": row.readiness,
+            "ctl": row.ctl,
+            "atl": row.atl,
+            "tsb": row.tsb,
+            "acwr": row.acwr,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in rows
+    ])
+
+
 @app.get("/api/athletes/{athlete_id}/daily-load")
 def get_athlete_daily_load(
     athlete_id: str,
@@ -16758,6 +16817,50 @@ def _resolve_load_plan_a_race(db, user_id, today):
     )
 
 
+def _upsert_verdict_history(user_id, verdict_date, verdict_result, readiness_score=None):
+    """Persist a verdict snapshot to verdict_history for the given date.
+
+    Only called when verdict_date == date.today() — historical dates are
+    never touched. Uses ON CONFLICT DO UPDATE so repeated computation of
+    the same day replaces the previous row (latest wins).
+    """
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    row = {
+        "user_id": user_id,
+        "verdict_date": verdict_date,
+        "verdict": verdict_result["verdict"],
+        "modifiers": None,
+        "readiness": float(readiness_score) if readiness_score is not None else None,
+        "ctl": verdict_result.get("ctl"),
+        "atl": verdict_result.get("atl"),
+        "tsb": verdict_result.get("tsb"),
+        "acwr": verdict_result.get("acwr"),
+    }
+    try:
+        with Session(engine) as db:
+            stmt = (
+                pg_insert(VerdictHistory)
+                .values(**row)
+                .on_conflict_do_update(
+                    constraint="uq_verdict_history_user_date",
+                    set_={
+                        "verdict": row["verdict"],
+                        "modifiers": row["modifiers"],
+                        "readiness": row["readiness"],
+                        "ctl": row["ctl"],
+                        "atl": row["atl"],
+                        "tsb": row["tsb"],
+                        "acwr": row["acwr"],
+                    },
+                )
+            )
+            db.execute(stmt)
+            db.commit()
+    except Exception:
+        pass  # verdict_history write is best-effort; never break the caller
+
+
 def _resolve_current_verdict(user_id, today, trailing_28d_avg=None):
     """Deterministic back_off/hold/build verdict as of `today` — shared by
     every Plan-tab endpoint (and GET /api/weekly-summary has its own
@@ -16765,6 +16868,9 @@ def _resolve_current_verdict(user_id, today, trailing_28d_avg=None):
     athlete should be building right now. Computed from the SAME Part-A
     snapshot (training_load.current_load) every other consumer reads; never
     an LLM decision. See backend/services/training_verdict.py.
+
+    When today matches the real calendar date, the result is persisted to
+    verdict_history (upsert — latest computation wins).
     """
     from backend.services.training_load import current_load as _current_load, daily_tss_series as _dts
     from backend.services.training_verdict import compute_verdict as _compute_verdict
@@ -16774,7 +16880,11 @@ def _resolve_current_verdict(user_id, today, trailing_28d_avg=None):
         start_28 = today - _timedelta(days=27)
         series_28 = _dts(str(user_id), start_28, today)
         trailing_28d_avg = round(sum(v for _, v in series_28) / 4.0, 1)
-    return _compute_verdict(snap, chronic_weekly=trailing_28d_avg, today=today)
+    result = _compute_verdict(snap, chronic_weekly=trailing_28d_avg, today=today)
+    from datetime import date as _real_date
+    if today == _real_date.today():
+        _upsert_verdict_history(user_id, today, result)
+    return result
 
 
 class PlanRulesIn(BaseModel):
