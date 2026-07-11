@@ -29,7 +29,7 @@ import hashlib
 import json
 import re
 from datetime import date
-from typing import Any, Optional
+from typing import Optional
 
 import backend.services.llm as llm
 from backend.utils.log import get_logger
