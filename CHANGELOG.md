@@ -1,5 +1,12 @@
 # Changelog
 
+## Sprint 103 — Readiness unification & auto-recompute, verdict v2 (readiness + injuries), verdict history
+
+- #1348: Unify readiness behind the single canonical CV-based calculator (`services/readiness/calculator.py`) across all four readiness surfaces (`GET /api/home/readiness`, the home-summary readiness block, `GET /trends/summary`, and the compute job) — weights HRV 40% / RHR 20% / sleep_quality 20% / energy 20%, HRV baseline 7d, RHR baseline 30d; replaces the legacy sleep_hours/HRV/RHR/mood/energy formula. `ReadinessResult` now also returns per-signal `raw_scores`
+- #1349: Auto-recompute readiness when daily metrics change — `POST/PATCH/PUT /api/daily-metrics` recompute and upsert that day's `daily_readiness`; `DELETE` clears it
+- #1351: Verdict v2 — today's readiness score, the 7-day readiness trend, and active `injury_log` entries deterministically downgrade the load-only back_off/hold/build verdict (downgrade-only, never promote); each fired rule is recorded in a new `modifiers` list on the verdict and surfaced in the weekly-summary narrative. Ships the backing `injury_log` table migration (partial #1350; no ORM model/API/UI yet)
+- #1353: Persist the daily verdict + inputs to a new `verdict_history` table (upsert per user+date, today's computation only); read back via `GET /api/training/verdict-history?from=&to=`
+
 ## Sprint 102 — LLM coaching layer: Groq client, habit insights, readiness narrative, weekly summary, plan suggestions
 
 - #1311: Groq LLM client service: httpx provider, JSON-schema output, llm_generations cache table, fail-safe off by default
