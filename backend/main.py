@@ -108,6 +108,11 @@ from backend.services.polarized_split import check_polarized_split as _check_pol
 from backend.services.lap_classify import classify_laps as _classify_laps
 from backend.services.intensity_distribution import compute_polarized_check as _compute_polarized_check
 from backend.services import worker_client as _worker_client
+from services.readiness.calculator import (
+    compute_readiness as _canonical_readiness,
+    HRV_WINDOW as _RDN_HRV_WINDOW,
+    RHR_WINDOW as _RDN_RHR_WINDOW,
+)
 
 # Ceiling TSB used when computing expressible scores from historical/projected TSB.
 # 20.0 matches the representative value established in issue #1107.
@@ -2591,8 +2596,6 @@ def get_home_readiness(
     date: Optional[str] = Query(default=None),
     current_user: User = Depends(resolve_user),
 ):
-    # Score formula: sleep_hours 30%, hrv 25%, rhr 20%, mood 15%, energy 10%
-    # Per-factor: sleep/HRV/RHR compare vs 7d rolling avg; mood/energy: raw value × 20
     uid = current_user.id
 
     try:
@@ -2600,8 +2603,10 @@ def get_home_readiness(
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid date format")
 
+    # Fetch today's metrics and enough history for both HRV (7d) and RHR (30d) baselines
+    rhr_baseline_start = query_date - _timedelta(days=_RDN_RHR_WINDOW)
+    hrv_baseline_start = query_date - _timedelta(days=_RDN_HRV_WINDOW)
     baseline_end = query_date - _timedelta(days=1)
-    baseline_start = query_date - _timedelta(days=7)
 
     with Session(engine) as session:
         user = session.get(User, uid)
@@ -2621,7 +2626,7 @@ def get_home_readiness(
             session.query(DailyMetric)
             .filter(
                 DailyMetric.user_id == uid,
-                DailyMetric.metric_date >= baseline_start,
+                DailyMetric.metric_date >= rhr_baseline_start,
                 DailyMetric.metric_date <= baseline_end,
             )
             .all()
@@ -2631,9 +2636,11 @@ def get_home_readiness(
         non_null = [v for v in vals if v is not None]
         return round(sum(non_null) / len(non_null), 2) if non_null else None
 
-    hrv_7d_avg = _avg([float(r.hrv) for r in baseline_rows if r.hrv is not None])
-    rhr_7d_avg = _avg([float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None])
-    sleep_7d_avg_hours = _avg([float(r.sleep_hours) for r in baseline_rows if r.sleep_hours is not None])
+    hrv_baseline_vals = [float(r.hrv) for r in baseline_rows if r.hrv is not None and r.metric_date >= hrv_baseline_start]
+    rhr_baseline_vals = [float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None]
+    hrv_7d_avg = _avg(hrv_baseline_vals) if hrv_baseline_vals else None
+    rhr_7d_avg = _avg([float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None and r.metric_date >= hrv_baseline_start])
+    sleep_7d_avg_hours = _avg([float(r.sleep_hours) for r in baseline_rows if r.sleep_hours is not None and r.metric_date >= hrv_baseline_start])
 
     rolling_baseline = {
         "hrv_7d_avg": hrv_7d_avg,
@@ -2643,11 +2650,10 @@ def get_home_readiness(
 
     if metrics is None:
         contributors = [
-            {"factor": "sleep_hours", "value": None, "weight": 0.30, "impact": "neutral"},
-            {"factor": "hrv", "value": None, "weight": 0.25, "impact": "neutral"},
+            {"factor": "hrv", "value": None, "weight": 0.40, "impact": "neutral"},
             {"factor": "rhr", "value": None, "weight": 0.20, "impact": "neutral"},
-            {"factor": "mood", "value": None, "weight": 0.15, "impact": "neutral"},
-            {"factor": "energy", "value": None, "weight": 0.10, "impact": "neutral"},
+            {"factor": "sleep_quality", "value": None, "weight": 0.20, "impact": "neutral"},
+            {"factor": "energy", "value": None, "weight": 0.20, "impact": "neutral"},
         ]
         return JSONResponse({
             "date": query_date.isoformat(),
@@ -2657,84 +2663,51 @@ def get_home_readiness(
             "rolling_baseline": rolling_baseline,
         })
 
-    def _bscore(value, baseline, higher_is_better: bool) -> float:
-        """Score 0-100; returns 50 when value equals baseline or baseline unavailable."""
-        if value is None:
-            return 50.0
-        v = float(value)
-        if baseline is None or baseline == 0:
-            return 50.0
-        b = float(baseline)
-        delta_pct = (v - b) / b * 100.0
-        raw = 50.0 + delta_pct if higher_is_better else 50.0 - delta_pct
-        return min(100.0, max(0.0, raw))
+    result = _canonical_readiness(
+        hrv=float(metrics.hrv) if metrics.hrv is not None else None,
+        resting_hr=float(metrics.resting_hr) if metrics.resting_hr is not None else None,
+        sleep_quality=float(metrics.sleep_quality) if metrics.sleep_quality is not None else None,
+        energy=float(metrics.energy) if metrics.energy is not None else None,
+        hrv_baseline=hrv_baseline_vals,
+        rhr_baseline=rhr_baseline_vals,
+    )
 
-    def _impact(factor_score: float) -> str:
-        if factor_score > 50:
+    if result is None:
+        contributors = [
+            {"factor": "hrv", "value": float(metrics.hrv) if metrics.hrv is not None else None, "weight": 0.40, "impact": "neutral"},
+            {"factor": "rhr", "value": float(metrics.resting_hr) if metrics.resting_hr is not None else None, "weight": 0.20, "impact": "neutral"},
+            {"factor": "sleep_quality", "value": float(metrics.sleep_quality) if metrics.sleep_quality is not None else None, "weight": 0.20, "impact": "neutral"},
+            {"factor": "energy", "value": float(metrics.energy) if metrics.energy is not None else None, "weight": 0.20, "impact": "neutral"},
+        ]
+        return JSONResponse({
+            "date": query_date.isoformat(),
+            "score": None,
+            "score_label": "No data",
+            "contributors": contributors,
+            "rolling_baseline": rolling_baseline,
+        })
+
+    score = int(round(result.score))
+    raw = result.raw_scores
+
+    def _impact(key: str) -> str:
+        v = raw.get(key, 50.0)
+        if v > 50:
             return "positive"
-        if factor_score < 50:
+        if v < 50:
             return "negative"
         return "neutral"
 
-    sleep_score = _bscore(metrics.sleep_hours, sleep_7d_avg_hours, higher_is_better=True)
-    hrv_score = _bscore(metrics.hrv, hrv_7d_avg, higher_is_better=True)
-    rhr_score = _bscore(metrics.resting_hr, rhr_7d_avg, higher_is_better=False)
-    mood_score = float(metrics.mood) * 20.0 if metrics.mood is not None else 50.0
-    energy_score = float(metrics.energy) * 20.0 if metrics.energy is not None else 50.0
-
     contributors = [
-        {
-            "factor": "sleep_hours",
-            "value": float(metrics.sleep_hours) if metrics.sleep_hours is not None else None,
-            "weight": 0.30,
-            "impact": _impact(sleep_score),
-        },
-        {
-            "factor": "hrv",
-            "value": float(metrics.hrv) if metrics.hrv is not None else None,
-            "weight": 0.25,
-            "impact": _impact(hrv_score),
-        },
-        {
-            "factor": "rhr",
-            "value": float(metrics.resting_hr) if metrics.resting_hr is not None else None,
-            "weight": 0.20,
-            "impact": _impact(rhr_score),
-        },
-        {
-            "factor": "mood",
-            "value": float(metrics.mood) if metrics.mood is not None else None,
-            "weight": 0.15,
-            "impact": _impact(mood_score),
-        },
-        {
-            "factor": "energy",
-            "value": float(metrics.energy) if metrics.energy is not None else None,
-            "weight": 0.10,
-            "impact": _impact(energy_score),
-        },
+        {"factor": "hrv", "value": float(metrics.hrv) if metrics.hrv is not None else None, "weight": 0.40, "impact": _impact("hrv")},
+        {"factor": "rhr", "value": float(metrics.resting_hr) if metrics.resting_hr is not None else None, "weight": 0.20, "impact": _impact("rhr")},
+        {"factor": "sleep_quality", "value": float(metrics.sleep_quality) if metrics.sleep_quality is not None else None, "weight": 0.20, "impact": _impact("sleep")},
+        {"factor": "energy", "value": float(metrics.energy) if metrics.energy is not None else None, "weight": 0.20, "impact": _impact("energy")},
     ]
 
-    total = (
-        sleep_score * 0.30
-        + hrv_score * 0.25
-        + rhr_score * 0.20
-        + mood_score * 0.15
-        + energy_score * 0.10
-    )
-    score = int(round(min(100.0, max(0.0, total))))
-
     factors_for_explanation = [
-        {"factor": "sleep_hours", "value": float(metrics.sleep_hours) if metrics.sleep_hours is not None else None,
-         "score": sleep_score, "impact": _impact(sleep_score)},
-        {"factor": "hrv", "value": float(metrics.hrv) if metrics.hrv is not None else None,
-         "score": hrv_score, "impact": _impact(hrv_score)},
-        {"factor": "rhr", "value": float(metrics.resting_hr) if metrics.resting_hr is not None else None,
-         "score": rhr_score, "impact": _impact(rhr_score)},
-        {"factor": "mood", "value": float(metrics.mood) if metrics.mood is not None else None,
-         "score": mood_score, "impact": _impact(mood_score)},
-        {"factor": "energy", "value": float(metrics.energy) if metrics.energy is not None else None,
-         "score": energy_score, "impact": _impact(energy_score)},
+        {"factor": k, "value": contributors[i]["value"], "score": raw.get(k2, 50.0), "impact": contributors[i]["impact"]}
+        for i, (k, k2) in enumerate([("hrv", "hrv"), ("rhr", "rhr"), ("sleep_quality", "sleep"), ("energy", "energy")])
     ]
     explanation_facts = {
         "score": score,
@@ -3275,7 +3248,8 @@ def _build_weight_block(uid, today_bkk):
 def _build_readiness_block(uid, today_bkk):
     """Return readiness block for today, or {"logged": false} when no metrics exist."""
     baseline_end = today_bkk - _timedelta(days=1)
-    baseline_start = today_bkk - _timedelta(days=7)
+    rhr_baseline_start = today_bkk - _timedelta(days=_RDN_RHR_WINDOW)
+    hrv_baseline_start = today_bkk - _timedelta(days=_RDN_HRV_WINDOW)
 
     with Session(engine) as session:
         metrics = (
@@ -3287,7 +3261,7 @@ def _build_readiness_block(uid, today_bkk):
             session.query(DailyMetric)
             .filter(
                 DailyMetric.user_id == uid,
-                DailyMetric.metric_date >= baseline_start,
+                DailyMetric.metric_date >= rhr_baseline_start,
                 DailyMetric.metric_date <= baseline_end,
             )
             .all()
@@ -3300,42 +3274,45 @@ def _build_readiness_block(uid, today_bkk):
         non_null = [v for v in vals if v is not None]
         return round(sum(non_null) / len(non_null), 2) if non_null else None
 
-    hrv_7d_avg = _avg([float(r.hrv) for r in baseline_rows if r.hrv is not None])
-    rhr_7d_avg = _avg([float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None])
-    sleep_7d_avg = _avg([float(r.sleep_hours) for r in baseline_rows if r.sleep_hours is not None])
+    hrv_baseline_vals = [float(r.hrv) for r in baseline_rows if r.hrv is not None and r.metric_date >= hrv_baseline_start]
+    rhr_baseline_vals = [float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None]
+    hrv_7d_avg = _avg(hrv_baseline_vals) if hrv_baseline_vals else None
+    rhr_7d_avg = _avg([float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None and r.metric_date >= hrv_baseline_start])
+    sleep_7d_avg = _avg([float(r.sleep_hours) for r in baseline_rows if r.sleep_hours is not None and r.metric_date >= hrv_baseline_start])
 
-    def _bscore(value, baseline, higher_is_better):
-        if value is None:
-            return 50.0
-        v = float(value)
-        if baseline is None or baseline == 0:
-            return 50.0
-        delta_pct = (v - float(baseline)) / float(baseline) * 100.0
-        raw = 50.0 + delta_pct if higher_is_better else 50.0 - delta_pct
-        return min(100.0, max(0.0, raw))
+    result = _canonical_readiness(
+        hrv=float(metrics.hrv) if metrics.hrv is not None else None,
+        resting_hr=float(metrics.resting_hr) if metrics.resting_hr is not None else None,
+        sleep_quality=float(metrics.sleep_quality) if metrics.sleep_quality is not None else None,
+        energy=float(metrics.energy) if metrics.energy is not None else None,
+        hrv_baseline=hrv_baseline_vals,
+        rhr_baseline=rhr_baseline_vals,
+    )
 
-    sleep_score = _bscore(metrics.sleep_hours, sleep_7d_avg, True)
-    hrv_score = _bscore(metrics.hrv, hrv_7d_avg, True)
-    rhr_score = _bscore(metrics.resting_hr, rhr_7d_avg, False)
-    mood_score = float(metrics.mood) * 20.0 if metrics.mood is not None else 50.0
-    energy_score = float(metrics.energy) * 20.0 if metrics.energy is not None else 50.0
+    if result is None:
+        return {"logged": False}
 
-    total = sleep_score * 0.30 + hrv_score * 0.25 + rhr_score * 0.20 + mood_score * 0.15 + energy_score * 0.10
-    score = int(round(min(100.0, max(0.0, total))))
+    score = int(round(result.score))
+    raw = result.raw_scores
+
+    def _impact(key: str) -> str:
+        v = raw.get(key, 50.0)
+        if v > 50:
+            return "positive"
+        if v < 50:
+            return "negative"
+        return "neutral"
 
     factors = [
-        {"factor": "sleep_hours", "value": float(metrics.sleep_hours) if metrics.sleep_hours is not None else None,
-         "impact": "positive" if sleep_score > 50 else ("negative" if sleep_score < 50 else "neutral"), "score": sleep_score},
         {"factor": "hrv", "value": float(metrics.hrv) if metrics.hrv is not None else None,
-         "impact": "positive" if hrv_score > 50 else ("negative" if hrv_score < 50 else "neutral"), "score": hrv_score},
+         "impact": _impact("hrv"), "score": raw.get("hrv", 50.0)},
         {"factor": "rhr", "value": float(metrics.resting_hr) if metrics.resting_hr is not None else None,
-         "impact": "positive" if rhr_score > 50 else ("negative" if rhr_score < 50 else "neutral"), "score": rhr_score},
-        {"factor": "mood", "value": float(metrics.mood) if metrics.mood is not None else None,
-         "impact": "positive" if mood_score > 50 else ("negative" if mood_score < 50 else "neutral"), "score": mood_score},
+         "impact": _impact("rhr"), "score": raw.get("rhr", 50.0)},
+        {"factor": "sleep_quality", "value": float(metrics.sleep_quality) if metrics.sleep_quality is not None else None,
+         "impact": _impact("sleep"), "score": raw.get("sleep", 50.0)},
         {"factor": "energy", "value": float(metrics.energy) if metrics.energy is not None else None,
-         "impact": "positive" if energy_score > 50 else ("negative" if energy_score < 50 else "neutral"), "score": energy_score},
+         "impact": _impact("energy"), "score": raw.get("energy", 50.0)},
     ]
-    # Top factors by absolute deviation from 50
     top_factors = sorted(factors, key=lambda f: abs(f["score"] - 50), reverse=True)[:3]
     top_factors_clean = [{"factor": f["factor"], "value": f["value"], "impact": f["impact"]} for f in top_factors]
 
@@ -8914,29 +8891,6 @@ def export_weight_targets_csv(
 
 # ── Trends summary endpoint ────────────────────────────────────────────────────
 
-def _compute_readiness(hrv, resting_hr, sleep_hours, sleep_quality, energy, mood):
-    """0-100 readiness score computed from available daily metric fields."""
-    components = []
-    if hrv is not None:
-        # HRV: typical 20-100 ms → map to 0-100
-        components.append(min(100.0, max(0.0, (float(hrv) - 20.0) / 80.0 * 100.0)))
-    if resting_hr is not None:
-        # RHR: lower is better; 40 bpm → 100, 90 bpm → 0
-        components.append(max(0.0, min(100.0, (90.0 - float(resting_hr)) * 2.0)))
-    if sleep_hours is not None:
-        # sleep: 4 h → 0, 9 h → 100
-        components.append(max(0.0, min(100.0, (float(sleep_hours) - 4.0) / 5.0 * 100.0)))
-    if sleep_quality is not None:
-        components.append((float(sleep_quality) - 1.0) / 4.0 * 100.0)
-    if energy is not None:
-        components.append((float(energy) - 1.0) / 4.0 * 100.0)
-    if mood is not None:
-        components.append((float(mood) - 1.0) / 4.0 * 100.0)
-    if not components:
-        return None
-    return round(sum(components) / len(components))
-
-
 def _agg_stats(values):
     non_null = [v for v in values if v is not None]
     if not non_null:
@@ -9009,28 +8963,25 @@ def get_trends_summary(
     prev_to_d = from_d - timedelta(days=1)
     prev_from_d = prev_to_d - timedelta(days=days_count - 1)
 
+    # Single extended metrics fetch covers current period, prev period, and all baselines
+    # (RHR baseline = 30 days before earliest date we score readiness for)
+    extended_metrics_from = min(from_d, prev_from_d) - timedelta(days=_RDN_RHR_WINDOW)
+
     with Session(engine) as session:
-        metrics = (
+        extended_metrics = (
             session.query(DailyMetric)
             .filter(
                 DailyMetric.user_id == uid,
-                DailyMetric.metric_date >= from_d,
+                DailyMetric.metric_date >= extended_metrics_from,
                 DailyMetric.metric_date <= to_d,
             )
             .all()
         )
-        by_date = {str(m.metric_date): m for m in metrics}
-
-        prev_metrics = (
-            session.query(DailyMetric)
-            .filter(
-                DailyMetric.user_id == uid,
-                DailyMetric.metric_date >= prev_from_d,
-                DailyMetric.metric_date <= prev_to_d,
-            )
-            .all()
-        )
-        prev_by_date = {str(m.metric_date): m for m in prev_metrics}
+        all_metrics_by_date = {str(m.metric_date): m for m in extended_metrics}
+        by_date = {d: m for d, m in all_metrics_by_date.items()
+                   if _date.fromisoformat(d) >= from_d}
+        prev_by_date = {d: m for d, m in all_metrics_by_date.items()
+                        if prev_from_d <= _date.fromisoformat(d) <= prev_to_d}
 
         workouts = (
             session.query(Workout)
@@ -9062,17 +9013,10 @@ def get_trends_summary(
             d = str(w.workout_date)
             prev_tss_by_date[d] = prev_tss_by_date.get(d, 0.0) + (w.tss or 0.0)
 
-        baseline_from_d = to_d - timedelta(days=29)
-        baseline_metrics = (
-            session.query(DailyMetric)
-            .filter(
-                DailyMetric.user_id == uid,
-                DailyMetric.metric_date >= baseline_from_d,
-                DailyMetric.metric_date <= to_d,
-            )
-            .all()
-        )
-
+    # Baseline stats for the display fields (30-day window ending at to_d)
+    baseline_from_d = to_d - timedelta(days=29)
+    baseline_metrics = [m for d, m in all_metrics_by_date.items()
+                        if baseline_from_d <= _date.fromisoformat(d) <= to_d]
     baseline_hrv_vals = [float(m.hrv) for m in baseline_metrics if m.hrv is not None]
     baseline_rhr_vals = [float(m.resting_hr) for m in baseline_metrics if m.resting_hr is not None]
 
@@ -9099,15 +9043,40 @@ def get_trends_summary(
     all_dates = _date_range(from_d, to_d)
     prev_dates = _date_range(prev_from_d, prev_to_d)
 
+    def _trends_readiness(target_date_str: str) -> Optional[int]:
+        """Compute canonical readiness for a date using per-date rolling baselines."""
+        target = _date.fromisoformat(target_date_str)
+        m = all_metrics_by_date.get(target_date_str)
+        if m is None:
+            return None
+        hrv_bl = [
+            float(all_metrics_by_date[str(target - timedelta(days=i))].hrv)
+            for i in range(1, _RDN_HRV_WINDOW + 1)
+            if str(target - timedelta(days=i)) in all_metrics_by_date
+            and all_metrics_by_date[str(target - timedelta(days=i))].hrv is not None
+        ]
+        rhr_bl = [
+            float(all_metrics_by_date[str(target - timedelta(days=i))].resting_hr)
+            for i in range(1, _RDN_RHR_WINDOW + 1)
+            if str(target - timedelta(days=i)) in all_metrics_by_date
+            and all_metrics_by_date[str(target - timedelta(days=i))].resting_hr is not None
+        ]
+        r = _canonical_readiness(
+            hrv=float(m.hrv) if m.hrv is not None else None,
+            resting_hr=float(m.resting_hr) if m.resting_hr is not None else None,
+            sleep_quality=float(m.sleep_quality) if m.sleep_quality is not None else None,
+            energy=float(m.energy) if m.energy is not None else None,
+            hrv_baseline=hrv_bl,
+            rhr_baseline=rhr_bl,
+        )
+        return int(round(r.score)) if r is not None else None
+
     readiness_series, hrv_series, rhr_series, sleep_series, energy_series, mood_series, tss_series = [], [], [], [], [], [], []
 
     for d in all_dates:
         m = by_date.get(d)
         sh = float(m.sleep_hours) if m and m.sleep_hours is not None else None
-        readiness_series.append({"date": d, "score": _compute_readiness(
-            m.hrv if m else None, m.resting_hr if m else None, sh,
-            m.sleep_quality if m else None, m.energy if m else None, m.mood if m else None,
-        )})
+        readiness_series.append({"date": d, "score": _trends_readiness(d)})
         hrv_series.append({"date": d, "value": m.hrv if m else None})
         rhr_series.append({"date": d, "value": m.resting_hr if m else None})
         sleep_series.append({"date": d, "hours": sh, "quality": m.sleep_quality if m else None})
@@ -9131,15 +9100,7 @@ def get_trends_summary(
         return sum(vals) / len(vals) if vals else None
 
     def _prev_readiness_avg():
-        vals = []
-        for d in prev_dates:
-            m = prev_by_date.get(d)
-            if not m:
-                continue
-            sh = float(m.sleep_hours) if m.sleep_hours is not None else None
-            r = _compute_readiness(m.hrv, m.resting_hr, sh, m.sleep_quality, m.energy, m.mood)
-            if r is not None:
-                vals.append(r)
+        vals = [v for d in prev_dates if (v := _trends_readiness(d)) is not None]
         return sum(vals) / len(vals) if vals else None
 
     prev_tss_vals = [prev_tss_by_date[d] for d in prev_dates if d in prev_tss_by_date]
@@ -9328,7 +9289,8 @@ def get_readiness(
             "ctl": None,
             "atl": None,
             "tsb": None,
-            "readiness_label": None,
+            "form_label": None,
+            "readiness_label": None,   # deprecated alias — kept for one release
             "series": [],
         })
 
@@ -9348,12 +9310,14 @@ def get_readiness(
         for row in series
     ]
 
+    _form_label = training_readiness_label(tsb)
     return JSONResponse({
         "building_baseline": False,
         "ctl": ctl,
         "atl": atl,
         "tsb": tsb,
-        "readiness_label": training_readiness_label(tsb),
+        "form_label": _form_label,
+        "readiness_label": _form_label,   # deprecated alias — kept for one release
         "series": chart_series,
     })
 

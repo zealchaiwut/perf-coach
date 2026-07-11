@@ -760,7 +760,7 @@
       return;
     }
 
-    var rlabel = data.readiness_label || "";
+    var rlabel = data.form_label || data.readiness_label || "";
 
     function rcard(metric, val, abbr, label) {
       var st = _lrxReadStatus(metric, val);
