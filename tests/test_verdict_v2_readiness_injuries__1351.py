@@ -6,8 +6,6 @@ pure Python tests aligned with existing test_training_verdict__loadmetricfix2.py
 from datetime import date
 import pytest
 from backend.services.training_verdict import (
-    READINESS_LOW_TODAY,
-    READINESS_LOW_TREND,
     compute_verdict,
 )
 

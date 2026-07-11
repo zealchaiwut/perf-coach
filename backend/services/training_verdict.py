@@ -53,6 +53,12 @@ ATL_CTL_HOLD_RATIO: float = 1.25
 # fatigue; this is the threshold for actively holding load, not just a label.
 TSB_HOLD_FLOOR: float = -25.0
 
+# ── Wellness-modifier thresholds (v2) ────────────────────────────────────────
+# Today's canonical readiness score below this triggers a one-step downgrade.
+READINESS_LOW_TODAY: float = 40.0
+# 7-day readiness mean below this triggers a one-step downgrade.
+READINESS_LOW_TREND: float = 50.0
+
 # Below this CTL, the ATL:CTL and TSB hold-checks are skipped entirely. CTL
 # starts at 0 and rises slowly (42-day EWMA); ATL reacts fast (7-day EWMA).
 # For anyone cold-starting (a brand-new user, or returning after a long
@@ -160,6 +166,13 @@ def _project_convergence(ctl: float, atl: float, today: date) -> tuple[Optional[
     return expected_ctl_in_3w, _MAX_CONVERGENCE_WEEKS, (today + timedelta(weeks=_MAX_CONVERGENCE_WEEKS)).isoformat()
 
 
+_VERDICT_ORDER = {"build": 0, "hold": 1, "back_off": 2}
+
+
+def _downgrade_one(v: Verdict) -> Verdict:
+    return {"build": "hold", "hold": "back_off", "back_off": "back_off"}[v]
+
+
 def compute_verdict(
     snap: VerdictSnapshot,
     chronic_weekly: Optional[float] = None,
@@ -249,7 +262,7 @@ def compute_verdict(
         modifiers.append({"rule": "low_readiness_trend", "value": readiness_7d_mean})
         final_verdict = _more_restrictive(final_verdict, _downgrade_one(load_verdict))
 
-    # ── Convergence estimate (useful when not building) ───────────────────
+
     expected_ctl_in_3w = weeks_to_converge = converge_date = None
     if final_verdict != "build":
         expected_ctl_in_3w, weeks_to_converge, converge_date = _project_convergence(ctl, atl, today)

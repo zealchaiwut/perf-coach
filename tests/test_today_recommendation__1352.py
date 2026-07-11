@@ -17,14 +17,13 @@ AC coverage:
 """
 import uuid
 from datetime import date, timedelta
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
 
-from backend.db import engine
 from backend.main import app
-from backend.models import DailyMetric, DailyReadiness, PlannedSession, User
+from backend.models import PlannedSession, User
 from backend.services.today_recommendation import (
     READINESS_REST_THRESHOLD,
     compute_today_recommendation,
@@ -200,80 +199,83 @@ def test_rest_recommendation_has_no_apply_patch():
 
 # ── AC1 & AC3: HTTP endpoint shape ───────────────────────────────────────────
 
-def _make_user(db, suffix="rec1352"):
-    u = User(
-        id=uuid.uuid4(),
-        name=f"test-{suffix}",
-        password_hash="x",
-        is_active=True,
-    )
-    db.add(u)
-    db.flush()
-    return u
+def _make_session_mock(planned_rows, readiness_score):
+    """Build a mock DB session that returns pre-built planned/readiness data."""
+    mock_readiness = None
+    if readiness_score is not None:
+        mock_readiness = MagicMock()
+        mock_readiness.score = readiness_score
+
+    mock_db = MagicMock()
+
+    def _query(model_or_col):
+        q = MagicMock()
+        q.filter.return_value = q
+        q.order_by.return_value = q
+        q.first.return_value = None
+        q.all.return_value = []
+        if model_or_col is PlannedSession:
+            q.all.return_value = planned_rows
+        elif model_or_col is type(mock_readiness) and mock_readiness is not None:
+            q.first.return_value = mock_readiness
+        return q
+
+    mock_db.query.side_effect = _query
+    # DailyReadiness.filter chain — differentiate by checking if result is readiness
+    # The endpoint does db.query(DailyReadiness).filter(...).first()
+    # We detect DailyReadiness by checking the class imported in main
+    from backend.models import DailyReadiness as _DR
+
+    def _query2(model_or_col):
+        q = MagicMock()
+        q.filter.return_value = q
+        q.order_by.return_value = q
+        q.all.return_value = []
+        q.first.return_value = None
+        if model_or_col is PlannedSession:
+            q.all.return_value = planned_rows
+        elif model_or_col is _DR:
+            q.first.return_value = mock_readiness
+        return q
+
+    mock_db.query.side_effect = _query2
+    mock_cm = MagicMock()
+    mock_cm.__enter__.return_value = mock_db
+    mock_cm.__exit__.return_value = False
+    return mock_cm
 
 
 @pytest.fixture()
 def rec_client():
-    """TestClient with a session-authenticated user, today's DailyReadiness row,
-    and a hard interval run planned for today."""
+    """Mocked client: user with today's readiness=75 and a hard interval run."""
     today = date.today()
-    with Session(engine) as db:
-        u = _make_user(db, "rec1352a")
-        uid = u.id
+    uid = uuid.uuid4()
+    ps_id = str(uuid.uuid4())
 
-        dm_id = uuid.uuid4()
-        dm = DailyMetric(
-            id=dm_id,
-            user_id=uid,
-            metric_date=today,
-            resting_hr=50,
-            hrv=65,
-            sleep_hours=8,
-            sleep_quality=4,
-            energy=4,
-            mood=4,
-        )
-        db.add(dm)
-        db.flush()
+    mock_ps = MagicMock()
+    mock_ps.id = uuid.UUID(ps_id)
+    mock_ps.user_id = uid
+    mock_ps.planned_date = today
+    mock_ps.session_type = "run"
+    mock_ps.name = "6×800m intervals"
+    mock_ps.structure = {"blocks": _INTERVAL_BLOCKS}
+    mock_ps.status = "planned"
+    mock_ps.matched_workout_id = None
+    mock_ps.notes = None
+    mock_ps.created_at = None
+    mock_ps.updated_at = None
 
-        dr = DailyReadiness(
-            id=uuid.uuid4(),
-            user_id=uid,
-            date=today,
-            score=75,
-            components={},
-            daily_metric_id=dm_id,
-        )
-        db.add(dr)
-
-        ps = PlannedSession(
-            id=uuid.uuid4(),
-            user_id=uid,
-            planned_date=today,
-            session_type="run",
-            name="6×800m intervals",
-            structure={"blocks": _INTERVAL_BLOCKS},
-            status="planned",
-        )
-        db.add(ps)
-        db.commit()
-        ps_id = str(ps.id)
+    mock_user = MagicMock(spec=User)
+    mock_user.id = uid
 
     from backend.main import resolve_user
+    app.dependency_overrides[resolve_user] = lambda: mock_user
 
-    def _override():
-        with Session(engine) as db2:
-            return db2.get(User, uid)
+    with patch("backend.main.Session", return_value=_make_session_mock([mock_ps], 75.0)), \
+         patch("backend.main._resolve_current_verdict", return_value={"verdict": "hold"}):
+        yield client, ps_id, uid
 
-    app.dependency_overrides[resolve_user] = _override
-    yield client, ps_id, uid
     app.dependency_overrides.pop(resolve_user, None)
-    with Session(engine) as db:
-        db.query(DailyReadiness).filter(DailyReadiness.user_id == uid).delete()
-        db.query(DailyMetric).filter(DailyMetric.user_id == uid).delete()
-        db.query(PlannedSession).filter(PlannedSession.user_id == uid).delete()
-        db.query(User).filter(User.id == uid).delete()
-        db.commit()
 
 
 def test_endpoint_returns_200_with_required_keys(rec_client):
@@ -311,24 +313,18 @@ def test_endpoint_planned_session_summary_present(rec_client):
 
 @pytest.fixture()
 def no_plan_client():
-    today = date.today()
-    with Session(engine) as db:
-        u = _make_user(db, "rec1352b")
-        uid = u.id
-        db.commit()
+    uid = uuid.uuid4()
+    mock_user = MagicMock(spec=User)
+    mock_user.id = uid
 
     from backend.main import resolve_user
+    app.dependency_overrides[resolve_user] = lambda: mock_user
 
-    def _override():
-        with Session(engine) as db2:
-            return db2.get(User, uid)
+    with patch("backend.main.Session", return_value=_make_session_mock([], None)), \
+         patch("backend.main._resolve_current_verdict", return_value={"verdict": "hold"}):
+        yield client, uid
 
-    app.dependency_overrides[resolve_user] = _override
-    yield client, uid
     app.dependency_overrides.pop(resolve_user, None)
-    with Session(engine) as db:
-        db.query(User).filter(User.id == uid).delete()
-        db.commit()
 
 
 def test_no_plan_endpoint_returns_no_plan(no_plan_client):
@@ -344,50 +340,74 @@ def test_no_plan_endpoint_returns_no_plan(no_plan_client):
 
 @pytest.fixture()
 def apply_client():
-    """Two planned sessions: one today (hard), one tomorrow.
-    We'll verify only today's is mutated by the apply action."""
+    """Two mocked planned sessions: today (hard) and tomorrow.
+    PATCH today → today mutates; GET tomorrow → tomorrow unchanged."""
     today = date.today()
     tomorrow = today + timedelta(days=1)
-    with Session(engine) as db:
-        u = _make_user(db, "rec1352c")
-        uid = u.id
+    uid = uuid.uuid4()
+    today_id = str(uuid.uuid4())
+    tomorrow_id = str(uuid.uuid4())
+    today_uuid = uuid.UUID(today_id)
+    tomorrow_uuid = uuid.UUID(tomorrow_id)
 
-        ps_today = PlannedSession(
-            id=uuid.uuid4(),
-            user_id=uid,
-            planned_date=today,
-            session_type="run",
-            name="Tempo run",
-            structure={"blocks": _TEMPO_BLOCKS},
-            status="planned",
-        )
-        ps_tomorrow = PlannedSession(
-            id=uuid.uuid4(),
-            user_id=uid,
-            planned_date=tomorrow,
-            session_type="run",
-            name="Tempo run",
-            structure={"blocks": _TEMPO_BLOCKS},
-            status="planned",
-        )
-        db.add_all([ps_today, ps_tomorrow])
-        db.commit()
-        today_id = str(ps_today.id)
-        tomorrow_id = str(ps_tomorrow.id)
+    # Mutable mock for today (PATCH will set .name, .structure, .updated_at)
+    today_ps = MagicMock()
+    today_ps.id = today_uuid
+    today_ps.user_id = uid
+    today_ps.planned_date = today
+    today_ps.session_type = "run"
+    today_ps.name = "Tempo run"
+    today_ps.structure = {"blocks": _TEMPO_BLOCKS}
+    today_ps.status = "planned"
+    today_ps.matched_workout_id = None
+    today_ps.notes = None
+    today_ps.created_at = None
+    today_ps.updated_at = None
+
+    # Immutable mock for tomorrow
+    tomorrow_ps = MagicMock()
+    tomorrow_ps.id = tomorrow_uuid
+    tomorrow_ps.user_id = uid
+    tomorrow_ps.planned_date = tomorrow
+    tomorrow_ps.session_type = "run"
+    tomorrow_ps.name = "Tempo run"
+    tomorrow_ps.structure = {"blocks": _TEMPO_BLOCKS}
+    tomorrow_ps.status = "planned"
+    tomorrow_ps.matched_workout_id = None
+    tomorrow_ps.notes = None
+    tomorrow_ps.created_at = None
+    tomorrow_ps.updated_at = None
+
+    ps_by_id = {today_uuid: today_ps, tomorrow_uuid: tomorrow_ps}
+
+    def _make_apply_session():
+        mock_db = MagicMock()
+        mock_db.get.side_effect = lambda model, pid: ps_by_id.get(pid)
+
+        def _query(model_or_col):
+            q = MagicMock()
+            q.filter.return_value = q
+            q.order_by.return_value = q
+            q.all.return_value = [tomorrow_ps] if model_or_col is PlannedSession else []
+            q.first.return_value = None
+            return q
+
+        mock_db.query.side_effect = _query
+        mock_cm = MagicMock()
+        mock_cm.__enter__.return_value = mock_db
+        mock_cm.__exit__.return_value = False
+        return mock_cm
+
+    mock_user = MagicMock(spec=User)
+    mock_user.id = uid
 
     from backend.main import resolve_user
+    app.dependency_overrides[resolve_user] = lambda: mock_user
 
-    def _override():
-        with Session(engine) as db2:
-            return db2.get(User, uid)
+    with patch("backend.main.Session", side_effect=lambda *a, **kw: _make_apply_session()):
+        yield client, today_id, tomorrow_id, uid
 
-    app.dependency_overrides[resolve_user] = _override
-    yield client, today_id, tomorrow_id, uid
     app.dependency_overrides.pop(resolve_user, None)
-    with Session(engine) as db:
-        db.query(PlannedSession).filter(PlannedSession.user_id == uid).delete()
-        db.query(User).filter(User.id == uid).delete()
-        db.commit()
 
 
 def test_apply_patch_mutates_only_todays_session(apply_client):
