@@ -4,8 +4,6 @@ Tests against a live UAT server at UAT_BASE_URL.
 Verifies the verdict payload structure includes modifiers field.
 """
 import os
-import pytest
-import httpx
 
 
 BASE_URL = os.environ.get("UAT_BASE_URL") or "http://localhost:9001"
