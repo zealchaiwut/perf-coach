@@ -22,7 +22,7 @@ from fastapi import BackgroundTasks, Body, Depends, FastAPI, File, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import cast as _sa_cast, exc as sa_exc, func, or_, select
+from sqlalchemy import cast as _sa_cast, exc as sa_exc, func, or_, select, text
 from sqlalchemy.types import DateTime as _sa_DateTime
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload, load_only, selectinload
@@ -93,7 +93,7 @@ from backend.services.heat_correction import (
 from backend.services.goal_arrival_caller import resolve_arrival_projection as _resolve_arrival_projection
 from backend.services.performance_constants import NEEDS_THRESHOLDS_REASON as _NEEDS_THRESHOLDS_REASON
 from backend.services.backfill_performance import backfill_performance_for_athlete as _backfill_performance_for_athlete
-from backend.services.projection import project_fitness as _project_fitness, compute_expressible_score as _compute_expressible_score, capped_form_factor as _capped_form_factor
+from backend.services.projection import project_fitness as _project_fitness, capped_form_factor as _capped_form_factor
 from backend.services.score_ceiling import projected_ctl_to_score_ceiling as _projected_ctl_to_score_ceiling
 from backend.services.economy_stimulus import compute_economy_stimulus as _compute_economy_stimulus
 from backend.services.ceiling_bonus import compute_ceiling_bonus as _compute_ceiling_bonus, LAG_WINDOW_DAYS as _LAG_WINDOW_DAYS, LAG_PEAK_DAYS as _LAG_PEAK_DAYS
@@ -113,6 +113,7 @@ from services.readiness.calculator import (
     HRV_WINDOW as _RDN_HRV_WINDOW,
     RHR_WINDOW as _RDN_RHR_WINDOW,
 )
+from services.readiness.job import compute_and_store as _readiness_compute_and_store
 
 # Ceiling TSB used when computing expressible scores from historical/projected TSB.
 # 20.0 matches the representative value established in issue #1107.
@@ -5010,7 +5011,7 @@ from backend.services.habit_adherence import (  # noqa: E402
     detect_slipping_habits as _detect_slipping_habits,
 )
 from backend.services.habit_nudges import build_nudges as _build_nudges, apply_llm_nudges as _apply_llm_nudges  # noqa: E402
-from backend.services.exercise_classifier import get_or_classify as _get_or_classify, normalize_name as _normalize_exercise_name, VALID_BODY_PARTS as _VALID_BODY_PARTS  # noqa: E402
+from backend.services.exercise_classifier import get_or_classify as _get_or_classify, normalize_name as _normalize_exercise_name  # noqa: E402
 
 
 @app.get("/api/adherence-nudges")
@@ -5618,21 +5619,21 @@ def _classified_manual_laps_map(session, run_workouts, prefs_dict) -> dict:
             continue
         shims = [
             SimpleNamespace(
-                avg_power=l.get("avg_power"), avg_hr=l.get("avg_hr"),
-                duration_seconds=l.get("duration_seconds"),
-                distance_km=l.get("distance_km"),
+                avg_power=lap.get("avg_power"), avg_hr=lap.get("avg_hr"),
+                duration_seconds=lap.get("duration_seconds"),
+                distance_km=lap.get("distance_km"),
             )
-            for l in ml
+            for lap in ml
         ]
         out[wk.id] = [
             {
                 "band": c.get("band"),
-                "avg_power": l.get("avg_power"),
-                "avg_hr": l.get("avg_hr"),
-                "distance_km": float(l["distance_km"]) if l.get("distance_km") is not None else None,
-                "duration_seconds": l.get("duration_seconds"),
+                "avg_power": lap.get("avg_power"),
+                "avg_hr": lap.get("avg_hr"),
+                "distance_km": float(lap["distance_km"]) if lap.get("distance_km") is not None else None,
+                "duration_seconds": lap.get("duration_seconds"),
             }
-            for l, c in zip(ml, _cl(shims, prefs_dict or {}))
+            for lap, c in zip(ml, _cl(shims, prefs_dict or {}))
         ]
     return out
 
@@ -8467,7 +8468,9 @@ def create_daily_metric(body: DailyMetricIn, user: User = Depends(resolve_user))
                 content={"error": "A daily metric already exists for this user on this date; use PATCH to update it"},
             )
         session.refresh(row)
-        return JSONResponse(status_code=201, content=_daily_metric_dict(row))
+        result_dict = _daily_metric_dict(row)
+    _readiness_compute_and_store(str(user.id), md)
+    return JSONResponse(status_code=201, content=result_dict)
 
 
 @app.patch("/api/daily-metrics/{uid}/{metric_date}")
@@ -8519,7 +8522,9 @@ def patch_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user: 
             row.kcal_intake = body.kcal_intake
         session.commit()
         session.refresh(row)
-        return JSONResponse(_daily_metric_dict(row))
+        result_dict = _daily_metric_dict(row)
+    _readiness_compute_and_store(str(uid), md)
+    return JSONResponse(result_dict)
 
 
 @app.put("/api/daily-metrics/{uid}/{metric_date}")
@@ -8576,7 +8581,9 @@ def upsert_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user:
             row.kcal_intake = body.kcal_intake
         session.commit()
         session.refresh(row)
-        return JSONResponse(_daily_metric_dict(row))
+        result_dict = _daily_metric_dict(row)
+    _readiness_compute_and_store(str(uid), md)
+    return JSONResponse(result_dict)
 
 
 @app.get("/api/daily-metrics/trend")
@@ -8638,6 +8645,12 @@ def delete_daily_metric(uid: str, metric_date: str, user: User = Depends(resolve
         if row is None:
             raise HTTPException(status_code=404, detail="Daily metric not found")
         session.delete(row)
+        session.commit()
+    with Session(engine) as session:
+        session.execute(
+            text("DELETE FROM daily_readiness WHERE user_id = :uid AND date = :d"),
+            {"uid": str(uid), "d": str(md)},
+        )
         session.commit()
     return Response(status_code=204)
 
@@ -16469,8 +16482,6 @@ def _plan_race_scores(session, user_id, race, race_dict, readiness, current_scor
     Upcoming race  → required End/Spd for its goal + delta from current, using
                      the readiness estimate. None when inputs are missing.
     """
-    import math as _math
-
     status = race_dict.get("status")
     dist = race_dict.get("distance")
     if status == "done" and race_dict.get("actual_time_seconds") is not None:
