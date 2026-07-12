@@ -3447,6 +3447,44 @@
             </div>
           </div>
         </div>
+
+        <!-- ── Weekly cut review card ──────────────────────────────────── -->
+        <div class="card" id="cut-review-card" style="margin-top:16px">
+          <div class="fuel-hdr-top">
+            <h2 style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-tertiary);">Weekly cut review</h2>
+            <span id="cut-review-badge" class="fuel-deficit-chip" style="display:none"></span>
+          </div>
+
+          <div id="cut-review-loading" style="color:var(--text-tertiary);font-size:13px;padding:12px 0">
+            Loading…
+          </div>
+
+          <div id="cut-review-body" hidden>
+            <!-- Headline recommendation -->
+            <div id="cut-review-headline" style="font-size:15px;font-weight:600;margin:10px 0 4px"></div>
+            <!-- One-line action -->
+            <div id="cut-review-action" style="font-size:13px;color:var(--text-secondary);margin-bottom:14px"></div>
+
+            <!-- Two rates side by side + adherence -->
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+              <div>
+                <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.05em">Actual rate</div>
+                <div id="cut-review-actual-rate" style="font-size:20px;font-weight:700;margin-top:2px">—</div>
+                <div style="font-size:11px;color:var(--text-tertiary)">kg/wk</div>
+              </div>
+              <div>
+                <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.05em">Plan rate</div>
+                <div id="cut-review-plan-rate" style="font-size:20px;font-weight:700;margin-top:2px">—</div>
+                <div style="font-size:11px;color:var(--text-tertiary)">kg/wk</div>
+              </div>
+              <div>
+                <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.05em">Log adherence</div>
+                <div id="cut-review-adherence" style="font-size:20px;font-weight:700;margin-top:2px">—</div>
+                <div style="font-size:11px;color:var(--text-tertiary)">% of days logged</div>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- Chart card (Graph) -->
