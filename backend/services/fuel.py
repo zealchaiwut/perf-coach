@@ -27,12 +27,15 @@ from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
 
 from backend.db import engine
-from backend.models import FuelSettings, FuelEntry, Workout, PlannedSession
+from backend.models import FuelSettings, FuelEntry, Workout, PlannedSession, Race, TrainingPlan
 from backend.services.training_load import (
     _planned_duration_minutes,
     estimate_historical_pace_and_tss,
     estimate_planned_session_metrics,
+    get_weekly_volume,
+    daily_tss_series,
 )
+from backend.services.fuel_periodize import resolve_week_phase, effective_deficit_for_phase
 
 # ── Food coefficients — per gram, COOKED weight (except eggs: per egg; oil:
 # per tsp). Approximations (±10-15% error), deliberately chosen over a food
@@ -206,7 +209,27 @@ def settings_to_dict(s: FuelSettings) -> dict:
         "fat_g": s.fat_g,
         "ea_floor": float(s.ea_floor),
         "run_kcal_per_kg_per_km": float(s.run_kcal_per_kg_per_km),
+        "auto_periodize": bool(s.auto_periodize) if s.auto_periodize is not None else True,
     }
+
+
+def compute_effective_deficit(
+    auto_periodize: bool,
+    configured_deficit_kcal: int,
+    week_phase: str,
+    effective_deficit_override: Optional[int] = None,
+) -> int:
+    """Return the deficit to actually apply in the budget, respecting the toggle.
+
+    When auto_periodize is False, always returns configured_deficit_kcal
+    (today's existing behaviour, unchanged). When True, delegates to
+    effective_deficit_for_phase().
+    """
+    if effective_deficit_override is not None:
+        return effective_deficit_override
+    if not auto_periodize:
+        return configured_deficit_kcal
+    return effective_deficit_for_phase(configured_deficit_kcal, week_phase)
 
 
 # ── Entries ──────────────────────────────────────────────────────────────────
@@ -442,12 +465,18 @@ def training_burn_kcal(
 
 # ── Budget (§1.3) ─────────────────────────────────────────────────────────────
 
-def compute_budget(settings: dict, burn: float) -> dict:
+def compute_budget(settings: dict, burn: float, effective_deficit_kcal: Optional[int] = None) -> dict:
     """base + burn - deficit, floored at the energy-availability minimum.
     The EA floor is a HARD STOP: when it binds, the deficit is reduced
-    (never the athlete's choice) — see fuel.md / spec §1.3."""
+    (never the athlete's choice) — see fuel.md / spec §1.3.
+
+    effective_deficit_kcal: if provided, overrides settings["deficit_kcal"] for
+    the budget math (used by deficit periodization). Day-type burn and EA floor
+    logic are applied on top, unchanged.
+    """
     base_kcal = settings["base_kcal"]
-    deficit_kcal = settings["deficit_kcal"]
+    configured_deficit = settings["deficit_kcal"]
+    deficit_kcal = effective_deficit_kcal if effective_deficit_kcal is not None else configured_deficit
     lean_mass_kg = settings["lean_mass_kg"]
     ea_floor = settings["ea_floor"]
 
@@ -461,11 +490,12 @@ def compute_budget(settings: dict, burn: float) -> dict:
 
     return {
         "budget": round(budget),
-        "deficit_target": deficit_kcal,
+        "deficit_target": configured_deficit,
         "deficit_applied": round(deficit_applied),
         "deficit_reduced": deficit_reduced,
         "ea": round(ea, 1) if ea is not None else None,
         "ea_floor_kcal": round(ea_floor_kcal),
+        "effective_deficit_kcal": deficit_kcal,
     }
 
 
@@ -506,6 +536,98 @@ def compute_suggestion(targets: dict, eaten: dict, remaining_kcal: float) -> dic
             "text": text, "message": None}
 
 
+# ── Week phase resolver (DB-backed) ──────────────────────────────────────────
+
+def _resolve_week_phase_from_db(user_id, today: _date, db: Session) -> tuple[str, str, Optional[float]]:
+    """Return (week_phase, reason, trailing_28d_weekly_avg) for the current week.
+
+    Queries races, training plan, and TSS history. Falls back to ("base",
+    reason, None) whenever the required data is absent.
+    """
+    # 1. A or B race within the next 7 days
+    race_7d = (
+        db.query(Race)
+        .filter(
+            Race.user_id == user_id,
+            Race.race_date >= today + timedelta(days=1),
+            Race.race_date <= today + timedelta(days=7),
+            Race.status == "planned",
+            Race.priority.in_(["A", "B"]),
+        )
+        .first()
+    )
+    race_within_7d = race_7d is not None
+
+    # 2. Taper window check against the next A race
+    a_race = (
+        db.query(Race)
+        .filter(
+            Race.user_id == user_id,
+            Race.race_date > today,
+            Race.status == "planned",
+            Race.priority == "A",
+        )
+        .order_by(Race.race_date)
+        .first()
+    )
+
+    plan = db.query(TrainingPlan).filter(TrainingPlan.user_id == user_id).first()
+    taper_weeks = int(round(float(plan.taper_length) if plan and plan.taper_length else 3.0))
+
+    in_taper_window = False
+    if a_race:
+        taper_start = a_race.race_date - timedelta(days=taper_weeks * 7)
+        in_taper_window = today >= taper_start
+
+    # 3. Trailing 28-day weekly TSS average and current-week load plan target
+    trailing_28d_weekly_avg: Optional[float] = None
+    current_week_target_tss: Optional[float] = None
+
+    if a_race and not in_taper_window and not race_within_7d:
+        try:
+            from backend.services.load_plan import compute_load_plan
+
+            start_28 = today - timedelta(days=27)
+            if start_28 <= today:
+                series_28 = daily_tss_series(str(user_id), start_28, today)
+                total_28d = float(sum(v for _, v in series_28))
+                trailing_28d_weekly_avg = total_28d / 4.0
+
+            if trailing_28d_weekly_avg is not None and plan:
+                this_week_start = today - timedelta(days=today.weekday())
+                race_week_start = a_race.race_date - timedelta(days=a_race.race_date.weekday())
+                weeks_to_race = ((race_week_start - this_week_start).days // 7) + 1
+
+                if weeks_to_race >= 1:
+                    last_week_start = this_week_start - timedelta(days=7)
+                    last_week_end = this_week_start - timedelta(days=1)
+                    vol = get_weekly_volume(str(user_id), last_week_start, last_week_end)
+                    baseline = vol["total_tss"]
+                    ramp_rate = float(plan.ramp_rate) if plan.ramp_rate else 0.05
+                    hold_weeks = int(plan.hold_weeks) if plan else 4
+
+                    lp = compute_load_plan(
+                        baseline=baseline,
+                        ramp_rate=ramp_rate,
+                        hold_weeks=hold_weeks,
+                        taper_weeks=taper_weeks,
+                        weeks_to_race=weeks_to_race,
+                        trailing_28d_avg=trailing_28d_weekly_avg,
+                    )
+                    if lp["weeks"]:
+                        current_week_target_tss = lp["weeks"][0]["target_tss"]
+        except Exception:
+            pass  # training data missing → defaults to base phase
+
+    phase, reason = resolve_week_phase(
+        race_within_7d=race_within_7d,
+        in_taper_window=in_taper_window,
+        trailing_28d_weekly_avg=trailing_28d_weekly_avg,
+        current_week_target_tss=current_week_target_tss,
+    )
+    return phase, reason, trailing_28d_weekly_avg
+
+
 # ── Today payload ────────────────────────────────────────────────────────────
 
 def get_today_payload(user_id, target_date: _date, db: Optional[Session] = None) -> dict:
@@ -515,11 +637,19 @@ def get_today_payload(user_id, target_date: _date, db: Optional[Session] = None)
         settings_row = get_or_create_settings(user_id, db=db)
         settings = settings_to_dict(settings_row)
 
+        today = _date.today()
+        week_phase, week_phase_reason, _ = _resolve_week_phase_from_db(user_id, today, db)
+        eff_deficit = compute_effective_deficit(
+            auto_periodize=settings["auto_periodize"],
+            configured_deficit_kcal=settings["deficit_kcal"],
+            week_phase=week_phase,
+        )
+
         burn_info = training_burn_kcal(
             user_id, target_date, settings["weight_kg"], settings["run_kcal_per_kg_per_km"],
-            today=_date.today(), db=db,
+            today=today, db=db,
         )
-        budget_info = compute_budget(settings, burn_info["burn"])
+        budget_info = compute_budget(settings, burn_info["burn"], effective_deficit_kcal=eff_deficit)
         targets = compute_targets(settings, budget_info["budget"])
 
         entry = get_entry(user_id, target_date, db=db)
@@ -539,6 +669,9 @@ def get_today_payload(user_id, target_date: _date, db: Optional[Session] = None)
             "deficit_reduced": budget_info["deficit_reduced"],
             "ea": budget_info["ea"],
             "ea_floor_kcal": budget_info["ea_floor_kcal"],
+            "week_phase": week_phase,
+            "week_phase_reason": week_phase_reason,
+            "effective_deficit_kcal": budget_info["effective_deficit_kcal"],
             "eaten": eaten,
             "remaining": remaining,
             "targets": targets,
@@ -568,6 +701,13 @@ def get_week_payload(user_id, week_start: _date, db: Optional[Session] = None) -
         settings = settings_to_dict(settings_row)
         today = _date.today()
 
+        week_phase, week_phase_reason, _ = _resolve_week_phase_from_db(user_id, today, db)
+        eff_deficit = compute_effective_deficit(
+            auto_periodize=settings["auto_periodize"],
+            configured_deficit_kcal=settings["deficit_kcal"],
+            week_phase=week_phase,
+        )
+
         days = []
         weekly_budget_total = 0.0
         weekly_maintenance_total = 0.0
@@ -577,7 +717,7 @@ def get_week_payload(user_id, week_start: _date, db: Optional[Session] = None) -
                 user_id, d, settings["weight_kg"], settings["run_kcal_per_kg_per_km"],
                 today=today, db=db,
             )
-            budget_info = compute_budget(settings, burn_info["burn"])
+            budget_info = compute_budget(settings, burn_info["burn"], effective_deficit_kcal=eff_deficit)
             entry = get_entry(user_id, d, db=db)
             eaten = compute_food_totals(entry)
 
@@ -601,6 +741,9 @@ def get_week_payload(user_id, week_start: _date, db: Optional[Session] = None) -
             "weekly_budget_total": round(weekly_budget_total),
             "weekly_maintenance_total": round(weekly_maintenance_total),
             "projected_kg_per_week": round(weekly_deficit / _KCAL_PER_KG, 2),
+            "week_phase": week_phase,
+            "week_phase_reason": week_phase_reason,
+            "effective_deficit_kcal": eff_deficit,
         }
     finally:
         if owns_db:

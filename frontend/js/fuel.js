@@ -70,6 +70,16 @@ function _fuelRenderToday(d) {
     }
   }
 
+  const phaseChip = document.getElementById('fuel-phase-chip');
+  if (phaseChip && d.week_phase) {
+    phaseChip.textContent = d.week_phase_reason || d.week_phase;
+    phaseChip.className = `fuel-phase-chip phase-${d.week_phase}`;
+    phaseChip.title = `Effective deficit: ${d.effective_deficit_kcal} kcal`;
+    phaseChip.hidden = false;
+  } else if (phaseChip) {
+    phaseChip.hidden = true;
+  }
+
   const budgetNum = document.getElementById('fuel-budget-num');
   if (budgetNum) budgetNum.textContent = d.budget.toLocaleString();
 
@@ -301,6 +311,8 @@ async function _fuelPopulateSettingsForm() {
       const input = document.getElementById('fs-' + f);
       if (input) input.value = s[f];
     });
+    const toggle = document.getElementById('fs-auto_periodize');
+    if (toggle) toggle.checked = s.auto_periodize !== false;
   } catch (e) {
     if (e.message !== 'auth') console.error('Fuel settings load failed:', e);
   }
@@ -323,6 +335,8 @@ function _fuelInitSettingsForm() {
         const input = document.getElementById('fs-' + f);
         if (input && input.value !== '') body[f] = parseFloat(input.value);
       });
+      const toggle = document.getElementById('fs-auto_periodize');
+      if (toggle) body.auto_periodize = toggle.checked;
       const errEl = document.getElementById('fuel-settings-error');
       if (errEl) errEl.hidden = true;
       try {
@@ -439,8 +453,12 @@ function _fuelRenderWeek(w) {
 
   const note = document.getElementById('fuel-week-note');
   if (note) {
+    let phaseNote = '';
+    if (w.week_phase && w.week_phase !== 'base') {
+      phaseNote = ` <b>${w.week_phase_reason}</b> ·`;
+    }
     note.innerHTML =
-      `Budget follows the plan. <b>Past days use logged workouts; future days use planned sessions.</b> ` +
+      `Budget follows the plan.${phaseNote} <b>Past days use logged workouts; future days use planned sessions.</b> ` +
       `Weekly <b>${w.weekly_budget_total.toLocaleString()}</b> vs ${w.weekly_maintenance_total.toLocaleString()} ` +
       `maintenance ≈ ${w.projected_kg_per_week >= 0 ? '-' : '+'}${Math.abs(w.projected_kg_per_week)} kg/week.`;
   }

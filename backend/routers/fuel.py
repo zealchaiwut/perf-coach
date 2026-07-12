@@ -77,6 +77,7 @@ class _SettingsBody(BaseModel):
     fat_g: Optional[int] = None
     ea_floor: Optional[float] = None
     run_kcal_per_kg_per_km: Optional[float] = None
+    auto_periodize: Optional[bool] = None
 
 
 # ── Fuel today ───────────────────────────────────────────────────────────────

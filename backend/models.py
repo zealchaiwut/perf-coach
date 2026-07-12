@@ -459,6 +459,7 @@ class FuelSettings(Base):
     fat_g = Column(Integer, nullable=False, server_default=text("70"))
     ea_floor = Column(Numeric(5, 2), nullable=False, server_default=text("30.0"))
     run_kcal_per_kg_per_km = Column(Numeric(4, 2), nullable=False, server_default=text("1.0"))
+    auto_periodize = Column(Boolean, nullable=False, server_default=text("true"))
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
