@@ -30,7 +30,7 @@ from zoneinfo import ZoneInfo
 
 from backend.auth import require_admin
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, DriveSleepConnection, EconomyCeilingSnapshot, ExerciseCatalog, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, VerdictHistory, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession
+from backend.models import AppConfig, DailyMetric, DailyReadiness, DriveSleepConnection, EconomyCeilingSnapshot, ExerciseCatalog, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, VerdictHistory, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values
 from backend.services.tss import compute_running_tss as _compute_running_tss
@@ -12861,6 +12861,87 @@ def get_athlete_daily_load(
 
     result = _daily_load_series(workouts, start_date, end_date)
     return JSONResponse(result)
+
+
+# ── Today's training recommendation ──────────────────────────────────────────
+
+@app.get("/api/training/today-recommendation")
+def get_today_recommendation(user: User = Depends(resolve_user)):
+    """Deterministic keep / downgrade / rest / no_plan recommendation for today.
+
+    Combines today's planned session, today's canonical readiness score, and
+    the current training-load verdict to answer the morning question:
+    "should I still do today's workout?" Returns a display-only recommendation
+    with a one-line reason and an optional apply_patch for one-tap downgrade.
+
+    Inputs returned alongside the recommendation (for transparency):
+      readiness   — today's DailyReadiness score (null when not yet logged)
+      verdict     — back_off | hold | build (from training_load)
+      active_injuries — empty list (no injury model yet; reserved for future)
+    """
+    from backend.services.today_recommendation import compute_today_recommendation
+    from backend.utils.time import today_bangkok
+
+    today = today_bangkok()
+    uid = user.id
+
+    with Session(engine) as db:
+        # Today's planned session (first non-rest, else first, else None)
+        planned_rows = (
+            db.query(PlannedSession)
+            .filter(
+                PlannedSession.user_id == uid,
+                PlannedSession.planned_date == today,
+                PlannedSession.status.in_(["planned", "needs_review"]),
+            )
+            .order_by(PlannedSession.created_at)
+            .all()
+        )
+        non_rest = [p for p in planned_rows if p.session_type != "rest"]
+        planned = non_rest[0] if non_rest else (planned_rows[0] if planned_rows else None)
+
+        # Today's readiness score from DailyReadiness (canonical, pre-computed)
+        readiness_row = (
+            db.query(DailyReadiness)
+            .filter(DailyReadiness.user_id == uid, DailyReadiness.date == today)
+            .first()
+        )
+        readiness_score = float(readiness_row.score) if readiness_row else None
+
+    verdict_result = _resolve_current_verdict(uid, today)
+    verdict = verdict_result["verdict"]
+
+    rec = compute_today_recommendation(
+        session_type=planned.session_type if planned else None,
+        session_name=planned.name if planned else None,
+        session_structure=planned.structure if planned else None,
+        readiness_score=readiness_score,
+        verdict=verdict,
+        active_injuries=[],
+    )
+
+    planned_dict = None
+    if planned is not None:
+        planned_dict = {
+            "id": str(planned.id),
+            "planned_date": str(planned.planned_date),
+            "session_type": planned.session_type,
+            "name": planned.name,
+            "structure": planned.structure,
+            "status": planned.status,
+        }
+
+    return JSONResponse({
+        "recommendation": rec["recommendation"],
+        "reason": rec["reason"],
+        "apply_patch": rec["apply_patch"],
+        "planned_session": planned_dict,
+        "inputs": {
+            "readiness": readiness_score,
+            "verdict": verdict,
+            "active_injuries": [],
+        },
+    })
 
 
 # ── Admin gate ────────────────────────────────────────────────────────────────
