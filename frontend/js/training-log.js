@@ -4641,34 +4641,55 @@
   function _initSyncWidget() {
     var toggleBtn = document.getElementById("sync-toggle-btn");
     var panel = document.getElementById("sync-panel");
+    var backdrop = document.getElementById("sync-backdrop");
     if (!toggleBtn || !panel) return;
 
-    // ≤599px the actions cluster becomes an overflow-x scroller (see the
-    // header media query), and a scroll container clips absolutely-positioned
-    // children — so the panel never showed on mobile. Escape the clip by
-    // switching the panel to fixed positioning, anchored to the button.
-    var narrowMq = window.matchMedia("(max-width: 599px)");
+    // The panel and backdrop must escape .log-page-header: its
+    // backdrop-filter makes it the containing block for fixed descendants,
+    // so a fixed backdrop only dims the header bar and the panel's fixed
+    // coordinates resolve against the header instead of the viewport (and
+    // ≤599px the actions cluster is an overflow-x scroller that clips
+    // absolute children on top of that). Portal both to <body> and anchor
+    // the panel to the button with viewport-fixed coordinates.
+    document.body.appendChild(panel);
+    if (backdrop) document.body.appendChild(backdrop);
 
     function _positionSyncPanel() {
-      if (!narrowMq.matches) {
-        panel.style.position = "";
-        panel.style.top = "";
-        panel.style.right = "";
-        return;
-      }
       var rect = toggleBtn.getBoundingClientRect();
       panel.style.position = "fixed";
       panel.style.top = rect.bottom + 7 + "px";
-      panel.style.right = Math.max(8, window.innerWidth - rect.right) + "px";
+      // Center the panel on the button, clamped to an 8px viewport gutter.
+      var panelWidth = panel.offsetWidth || 224;
+      var left = rect.left + rect.width / 2 - panelWidth / 2;
+      left = Math.max(8, Math.min(left, window.innerWidth - panelWidth - 8));
+      panel.style.right = "auto";
+      panel.style.left = left + "px";
+    }
+
+    function _openSyncPanel() {
+      // Unhide first — the panel must have layout for offsetWidth to be
+      // real before centering math runs.
+      panel.hidden = false;
+      _positionSyncPanel();
+      if (backdrop) backdrop.hidden = false;
+      toggleBtn.setAttribute("aria-expanded", "true");
+    }
+
+    function _closeSyncPanel() {
+      panel.hidden = true;
+      if (backdrop) backdrop.hidden = true;
+      toggleBtn.setAttribute("aria-expanded", "false");
     }
 
     toggleBtn.addEventListener("click", function (e) {
       e.stopPropagation();
-      var isOpen = !panel.hidden;
-      if (!isOpen) _positionSyncPanel();
-      panel.hidden = isOpen;
-      toggleBtn.setAttribute("aria-expanded", String(!isOpen));
+      if (panel.hidden) _openSyncPanel();
+      else _closeSyncPanel();
     });
+
+    if (backdrop) {
+      backdrop.addEventListener("click", _closeSyncPanel);
+    }
 
     // Keep the fixed panel glued to the button while the page (or the
     // actions cluster itself) scrolls or the viewport resizes.
@@ -4678,26 +4699,26 @@
     window.addEventListener(
       "scroll",
       function () {
-        if (!panel.hidden && narrowMq.matches) _positionSyncPanel();
+        if (!panel.hidden) _positionSyncPanel();
       },
       true,
     );
 
+    // The backdrop catches most outside clicks; this handles anything above
+    // it in the stacking order (e.g. the header itself).
     document.addEventListener("click", function (e) {
       if (
         !panel.hidden &&
         !panel.contains(e.target) &&
         e.target !== toggleBtn
       ) {
-        panel.hidden = true;
-        toggleBtn.setAttribute("aria-expanded", "false");
+        _closeSyncPanel();
       }
     });
 
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && !panel.hidden) {
-        panel.hidden = true;
-        toggleBtn.setAttribute("aria-expanded", "false");
+        _closeSyncPanel();
       }
     });
 
@@ -4736,8 +4757,7 @@
     var stravaBtn = document.getElementById("sync-btn-strava");
     if (stravaBtn) {
       stravaBtn.addEventListener("click", function () {
-        panel.hidden = true;
-        toggleBtn.setAttribute("aria-expanded", "false");
+        _closeSyncPanel();
         _onSyncProviderClick("Strava", "/api/strava/sync");
       });
     }
@@ -4745,8 +4765,7 @@
     var strydBtn = document.getElementById("sync-btn-stryd");
     if (strydBtn) {
       strydBtn.addEventListener("click", function () {
-        panel.hidden = true;
-        toggleBtn.setAttribute("aria-expanded", "false");
+        _closeSyncPanel();
         _onSyncProviderClick("Stryd", "/api/stryd/sync");
       });
     }
