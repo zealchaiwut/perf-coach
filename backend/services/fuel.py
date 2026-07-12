@@ -155,6 +155,46 @@ def update_settings(user_id, db: Optional[Session] = None, **fields) -> FuelSett
             db.close()
 
 
+def implied_deficit_kcal(target_rate_kg_per_week: float) -> int:
+    """AC1: abs(rate) × 7700 / 7, rounded to nearest 10, clamped to 0–750."""
+    raw = abs(target_rate_kg_per_week) * _KCAL_PER_KG / 7
+    rounded = round(raw / 10) * 10
+    return int(max(0, min(DEFICIT_KCAL_MAX, rounded)))
+
+
+def plan_linkage(plan, current_deficit_kcal: int) -> dict:
+    """Return plan-linkage fields for the fuel-settings payload.
+
+    plan: active WeightPlan row or None.
+    Adds: plan_rate_kg_per_week, implied_deficit_kcal, deficit_gap_kcal, consistency.
+    """
+    if plan is None:
+        return {
+            "plan_rate_kg_per_week": None,
+            "implied_deficit_kcal": None,
+            "deficit_gap_kcal": None,
+            "consistency": "no_plan",
+        }
+    raw_rate = getattr(plan, "target_rate_kg_per_week", None)
+    if raw_rate is None:
+        return {
+            "plan_rate_kg_per_week": None,
+            "implied_deficit_kcal": None,
+            "deficit_gap_kcal": None,
+            "consistency": "no_plan",
+        }
+    rate = float(raw_rate)
+    implied = implied_deficit_kcal(rate)
+    gap = implied - current_deficit_kcal
+    consistency = "aligned" if abs(gap) <= 100 else "mismatch"
+    return {
+        "plan_rate_kg_per_week": rate,
+        "implied_deficit_kcal": implied,
+        "deficit_gap_kcal": gap,
+        "consistency": consistency,
+    }
+
+
 def settings_to_dict(s: FuelSettings) -> dict:
     return {
         "weight_kg": float(s.weight_kg),

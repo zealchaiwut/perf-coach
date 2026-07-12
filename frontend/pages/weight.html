@@ -1282,6 +1282,42 @@
       .fuel-section {
         margin-top: 8px;
       }
+      /* Plan-mismatch banner (AC4) */
+      .fuel-plan-mismatch {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: var(--fuel-amber-soft);
+        border-radius: 10px;
+        padding: 10px 14px;
+        font-size: 13px;
+        color: var(--fuel-amber);
+        margin-bottom: 12px;
+      }
+      .fuel-plan-mismatch-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--fuel-amber);
+        flex-shrink: 0;
+      }
+      .fuel-plan-mismatch-text {
+        flex: 1;
+      }
+      .fuel-plan-sync-btn {
+        background: var(--fuel-amber);
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        padding: 5px 12px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .fuel-plan-sync-btn:hover {
+        opacity: 0.88;
+      }
       .fuel-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -3086,6 +3122,13 @@
         <div class="target-history-hdr" style="background-color: #1f3b8a">
           <h2>Fuel</h2>
         </div>
+        <!-- Plan-mismatch banner — shown only when consistency === 'mismatch' (AC4) -->
+        <div class="fuel-plan-mismatch" id="fuel-plan-mismatch" hidden>
+          <span class="fuel-plan-mismatch-dot"></span>
+          <span class="fuel-plan-mismatch-text" id="fuel-plan-mismatch-text"></span>
+          <button type="button" class="fuel-plan-sync-btn" id="fuel-plan-sync-btn">Sync</button>
+        </div>
+
         <div class="fuel-grid">
           <!-- Fuel today -->
           <div class="card" id="fuel-today-card">
