@@ -4658,12 +4658,19 @@
       var rect = toggleBtn.getBoundingClientRect();
       panel.style.position = "fixed";
       panel.style.top = rect.bottom + 7 + "px";
-      panel.style.right = Math.max(8, window.innerWidth - rect.right) + "px";
+      // Center the panel on the button, clamped to an 8px viewport gutter.
+      var panelWidth = panel.offsetWidth || 224;
+      var left = rect.left + rect.width / 2 - panelWidth / 2;
+      left = Math.max(8, Math.min(left, window.innerWidth - panelWidth - 8));
+      panel.style.right = "auto";
+      panel.style.left = left + "px";
     }
 
     function _openSyncPanel() {
-      _positionSyncPanel();
+      // Unhide first — the panel must have layout for offsetWidth to be
+      // real before centering math runs.
       panel.hidden = false;
+      _positionSyncPanel();
       if (backdrop) backdrop.hidden = false;
       toggleBtn.setAttribute("aria-expanded", "true");
     }
