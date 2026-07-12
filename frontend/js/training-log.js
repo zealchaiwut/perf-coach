@@ -4641,6 +4641,7 @@
   function _initSyncWidget() {
     var toggleBtn = document.getElementById("sync-toggle-btn");
     var panel = document.getElementById("sync-panel");
+    var backdrop = document.getElementById("sync-backdrop");
     if (!toggleBtn || !panel) return;
 
     // ≤599px the actions cluster becomes an overflow-x scroller (see the
@@ -4662,13 +4663,28 @@
       panel.style.right = Math.max(8, window.innerWidth - rect.right) + "px";
     }
 
+    function _openSyncPanel() {
+      _positionSyncPanel();
+      panel.hidden = false;
+      if (backdrop) backdrop.hidden = false;
+      toggleBtn.setAttribute("aria-expanded", "true");
+    }
+
+    function _closeSyncPanel() {
+      panel.hidden = true;
+      if (backdrop) backdrop.hidden = true;
+      toggleBtn.setAttribute("aria-expanded", "false");
+    }
+
     toggleBtn.addEventListener("click", function (e) {
       e.stopPropagation();
-      var isOpen = !panel.hidden;
-      if (!isOpen) _positionSyncPanel();
-      panel.hidden = isOpen;
-      toggleBtn.setAttribute("aria-expanded", String(!isOpen));
+      if (panel.hidden) _openSyncPanel();
+      else _closeSyncPanel();
     });
+
+    if (backdrop) {
+      backdrop.addEventListener("click", _closeSyncPanel);
+    }
 
     // Keep the fixed panel glued to the button while the page (or the
     // actions cluster itself) scrolls or the viewport resizes.
@@ -4683,21 +4699,21 @@
       true,
     );
 
+    // The backdrop catches most outside clicks; this handles anything above
+    // it in the stacking order (e.g. the header itself).
     document.addEventListener("click", function (e) {
       if (
         !panel.hidden &&
         !panel.contains(e.target) &&
         e.target !== toggleBtn
       ) {
-        panel.hidden = true;
-        toggleBtn.setAttribute("aria-expanded", "false");
+        _closeSyncPanel();
       }
     });
 
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && !panel.hidden) {
-        panel.hidden = true;
-        toggleBtn.setAttribute("aria-expanded", "false");
+        _closeSyncPanel();
       }
     });
 
@@ -4736,8 +4752,7 @@
     var stravaBtn = document.getElementById("sync-btn-strava");
     if (stravaBtn) {
       stravaBtn.addEventListener("click", function () {
-        panel.hidden = true;
-        toggleBtn.setAttribute("aria-expanded", "false");
+        _closeSyncPanel();
         _onSyncProviderClick("Strava", "/api/strava/sync");
       });
     }
@@ -4745,8 +4760,7 @@
     var strydBtn = document.getElementById("sync-btn-stryd");
     if (strydBtn) {
       strydBtn.addEventListener("click", function () {
-        panel.hidden = true;
-        toggleBtn.setAttribute("aria-expanded", "false");
+        _closeSyncPanel();
         _onSyncProviderClick("Stryd", "/api/stryd/sync");
       });
     }
