@@ -361,13 +361,16 @@
       .sync-chip[aria-expanded="true"] .sync-chevron {
         transform: rotate(180deg);
       }
-      /* Dim everything behind the sync panel; clicking it closes the panel
-         (wired in _initSyncWidget). Sits one layer under the panel. */
+      /* Dim the whole page behind the sync panel; clicking it closes the
+         panel (wired in _initSyncWidget, which portals both to <body> so
+         .log-page-header's backdrop-filter can't trap the fixed positioning).
+         Above the sticky nav (100) and header (60); one layer under the
+         panel. */
       .sync-backdrop {
         position: fixed;
         inset: 0;
         background: rgba(15, 23, 42, 0.45);
-        z-index: 199;
+        z-index: 1000;
       }
       .sync-backdrop[hidden] {
         display: none;
@@ -384,7 +387,7 @@
           0 2px 8px rgba(0, 0, 0, 0.06);
         min-width: 224px;
         padding: 6px;
-        z-index: 200;
+        z-index: 1001;
       }
       .sync-row {
         display: flex;

@@ -4644,19 +4644,17 @@
     var backdrop = document.getElementById("sync-backdrop");
     if (!toggleBtn || !panel) return;
 
-    // ≤599px the actions cluster becomes an overflow-x scroller (see the
-    // header media query), and a scroll container clips absolutely-positioned
-    // children — so the panel never showed on mobile. Escape the clip by
-    // switching the panel to fixed positioning, anchored to the button.
-    var narrowMq = window.matchMedia("(max-width: 599px)");
+    // The panel and backdrop must escape .log-page-header: its
+    // backdrop-filter makes it the containing block for fixed descendants,
+    // so a fixed backdrop only dims the header bar and the panel's fixed
+    // coordinates resolve against the header instead of the viewport (and
+    // ≤599px the actions cluster is an overflow-x scroller that clips
+    // absolute children on top of that). Portal both to <body> and anchor
+    // the panel to the button with viewport-fixed coordinates.
+    document.body.appendChild(panel);
+    if (backdrop) document.body.appendChild(backdrop);
 
     function _positionSyncPanel() {
-      if (!narrowMq.matches) {
-        panel.style.position = "";
-        panel.style.top = "";
-        panel.style.right = "";
-        return;
-      }
       var rect = toggleBtn.getBoundingClientRect();
       panel.style.position = "fixed";
       panel.style.top = rect.bottom + 7 + "px";
@@ -4694,7 +4692,7 @@
     window.addEventListener(
       "scroll",
       function () {
-        if (!panel.hidden && narrowMq.matches) _positionSyncPanel();
+        if (!panel.hidden) _positionSyncPanel();
       },
       true,
     );
