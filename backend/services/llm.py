@@ -107,7 +107,20 @@ def complete_structured(
         content = data["choices"][0]["message"]["content"]
         return json.loads(content)
     except Exception as exc:
-        _log.warning("LLM request failed", extra={"error": str(exc), "model": model})
+        # Groq puts the actual failure reason (json_validate_failed,
+        # rate_limit details, context length) in the response BODY — without
+        # it a 400/429 in the log is undiagnosable.
+        body = ""
+        response = getattr(exc, "response", None)
+        if response is not None:
+            try:
+                body = response.text[:500]
+            except Exception:
+                body = ""
+        _log.warning(
+            "LLM request failed",
+            extra={"error": str(exc), "model": model, "response_body": body},
+        )
         return None
 
 

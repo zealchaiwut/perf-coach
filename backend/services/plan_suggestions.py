@@ -1332,7 +1332,14 @@ _LLM_SINGLE_SESSION_SCHEMA: dict = {
     "additionalProperties": False,
 }
 
-_SINGLE_SESSION_MAX_COMPLETION_TOKENS = 1500
+# gpt-oss (the "deep" tier) is a reasoning model whose hidden reasoning
+# tokens count against max_completion_tokens — a trivial strength-session
+# request measured 1403 completion tokens with 1014 of them reasoning, so
+# the old cap of 1500 truncated real refine requests mid-JSON and Groq's
+# strict-schema mode surfaced that as an opaque 400 (json_validate_failed).
+# Sized to match the whole-week surface's headroom (5700); Groq bills only
+# tokens actually generated.
+_SINGLE_SESSION_MAX_COMPLETION_TOKENS = 6000
 
 
 def build_single_session_prompt(
