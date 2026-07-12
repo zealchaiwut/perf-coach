@@ -9,7 +9,6 @@ Covers AC items:
 """
 from __future__ import annotations
 
-import pytest
 
 from backend.services.fuel_periodize import (
     RAMP_THRESHOLD_MULT,
