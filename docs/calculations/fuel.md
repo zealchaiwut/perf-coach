@@ -177,9 +177,37 @@ mostly glycogen and water and would produce garbage. On success, sets
 |---|---|---|
 | `GET /api/fuel/today?date=` | snapshot for one date | — |
 | `PUT /api/fuel/entry` | — | upserts today's `fuel_entries` row, returns recomputed `GET` payload |
+| `GET /api/fuel/settings` | `fuel_settings` + active `weight_plans` row | — ; includes plan-linkage fields (see §Plan linkage) |
 | `PUT /api/fuel/settings` | — | updates `fuel_settings` (422 on out-of-range `deficit_kcal`/`protein_g_per_kg`) |
+| `POST /api/fuel/settings/sync-deficit` | active `weight_plans` row | sets `deficit_kcal` to implied value; 409 when no active plan |
 | `POST /api/fuel/calibrate` | last ~3 weeks of `weight_entries` + `fuel_entries` | sets `base_kcal` + `maintenance_source` on success |
 | `GET /api/fuel/week?week_start=` | 7 days, mixed logged/planned per §"Past vs. future" | — |
+
+## Plan linkage (`implied_deficit_kcal`, `plan_linkage`)
+
+The active `WeightPlan.target_rate_kg_per_week` implies a daily calorie deficit:
+
+```
+implied_deficit_kcal = abs(rate) × 7700 / 7
+```
+
+rounded to the nearest 10 kcal and clamped to the existing `0–750` constraint.
+This constant (7 700 kcal/kg) is the accepted average energy density of body fat
+used throughout this project; it is not recalibrated per-athlete.
+
+`GET /api/fuel/settings` adds four fields to the standard settings response:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `plan_rate_kg_per_week` | float \| null | rate from the active plan; null when no plan |
+| `implied_deficit_kcal` | int \| null | computed from the rate above |
+| `deficit_gap_kcal` | int \| null | `implied − configured`; positive = plan needs more deficit than set |
+| `consistency` | string | `aligned` when `\|gap\| ≤ 100`, `mismatch` otherwise, `no_plan` when no active plan |
+
+The Weight page shows a banner when `consistency === 'mismatch'` with both numbers and a
+one-tap **Sync** button that calls `POST /api/fuel/settings/sync-deficit`.
+The EA-floor guard in `compute_budget` is unaffected — it still overrides the deficit
+at budget-computation time when training load is high.
 
 ## Known weaknesses
 

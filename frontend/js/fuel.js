@@ -446,6 +446,55 @@ function _fuelRenderWeek(w) {
   }
 }
 
+// ── Plan-mismatch banner (AC4) ────────────────────────────────────────────
+
+async function _fuelLoadPlanMismatch() {
+  try {
+    const s = await apiFetch('/api/fuel/settings');
+    _fuelRenderPlanMismatch(s);
+  } catch (e) {
+    if (e.message !== 'auth') console.error('Fuel settings load failed:', e);
+  }
+}
+
+function _fuelRenderPlanMismatch(s) {
+  const banner = document.getElementById('fuel-plan-mismatch');
+  if (!banner) return;
+  if (s.consistency !== 'mismatch') {
+    banner.hidden = true;
+    return;
+  }
+  const textEl = document.getElementById('fuel-plan-mismatch-text');
+  if (textEl) {
+    textEl.textContent =
+      `Plan implies ~${s.implied_deficit_kcal} kcal/day, Fuel is set to ${s.deficit_kcal}`;
+  }
+  banner.hidden = false;
+}
+
+function _fuelInitPlanMismatch() {
+  const btn = document.getElementById('fuel-plan-sync-btn');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/fuel/settings/sync-deficit', {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': _fuelCsrfToken() },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const updated = await res.json();
+      _fuelRenderPlanMismatch(updated);
+      // Refresh today card so budget reflects new deficit
+      await _fuelLoadToday();
+    } catch (e) {
+      console.error('Sync deficit failed:', e);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -453,6 +502,8 @@ document.addEventListener('DOMContentLoaded', () => {
   _fuelInitSteppers();
   _fuelInitPresets();
   _fuelInitSettingsForm();
+  _fuelInitPlanMismatch();
   _fuelLoadToday();
   _fuelLoadWeek();
+  _fuelLoadPlanMismatch();
 });
