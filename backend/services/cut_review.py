@@ -384,8 +384,6 @@ def get_weekly_review(
             .all()
         )
 
-        # Build bf readings paired with the nearest weight entry for that date
-        bf_weight_map: dict = {d: w for d, w in sorted_entries}
         all_weight_rows_60d = (
             db.query(WeightEntry)
             .filter(
@@ -429,10 +427,14 @@ def get_weekly_review(
         )
 
         return {
-            "actual_rate_kg_per_week": round(actual_rate_kg_per_week, 3) if actual_rate_kg_per_week is not None else None,
+            "actual_rate_kg_per_week": (
+                round(actual_rate_kg_per_week, 3) if actual_rate_kg_per_week is not None else None
+            ),
             "plan_rate_kg_per_week": round(plan_rate, 3) if plan_rate is not None else None,
             "logging_adherence_pct": round(logging_adherence_pct, 1),
-            "avg_intake_vs_budget_kcal": round(avg_intake_vs_budget_kcal, 1) if avg_intake_vs_budget_kcal is not None else None,
+            "avg_intake_vs_budget_kcal": (
+                round(avg_intake_vs_budget_kcal, 1) if avg_intake_vs_budget_kcal is not None else None
+            ),
             "recommendation": rec["recommendation"],
             "action": rec["action"],
             "suggested_deficit_delta_kcal": rec["suggested_deficit_delta_kcal"],
