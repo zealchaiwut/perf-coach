@@ -534,8 +534,19 @@ information about.
       _setNum('lp-taper-input', _lpData.taper_weeks);
       var deloadEl = document.getElementById('lp-recovery-toggle');
       if (deloadEl) deloadEl.checked = !!_lpData.deload_enabled;
+      var deloadWeekEl = document.getElementById('lp-deload-week-select');
+      if (deloadWeekEl) deloadWeekEl.value = String(_lpData.deload_start_week || 4);
+      _syncDeloadWeekRow();
       _renderWeekBudget();
     }
+  }
+
+  // The deload-week picker only means anything while the deload toggle is
+  // on — hide the row entirely otherwise.
+  function _syncDeloadWeekRow() {
+    var row = document.getElementById('lp-deload-week-row');
+    var deloadEl = document.getElementById('lp-recovery-toggle');
+    if (row) row.hidden = !(deloadEl && deloadEl.checked);
   }
 
   function _setNum(id, val) {
@@ -569,9 +580,11 @@ information about.
       return;
     }
 
+    var deloadWeekIn = document.getElementById('lp-deload-week-select');
     _api('PUT', '/api/plan/rules', {
       ramp_rate: rampPct / 100, hold_weeks: hold, taper_weeks: taper,
       deload_enabled: deloadIn ? !!deloadIn.checked : false,
+      deload_start_week: deloadWeekIn ? parseInt(deloadWeekIn.value, 10) || 4 : 4,
     })
       .then(function () {
         if (savedEl) {
@@ -591,7 +604,9 @@ information about.
     var rampSlider = document.getElementById('lp-ramp-slider');
     var rampInput = document.getElementById('lp-ramp-input');
     var saveBtn = document.getElementById('lp-save-btn');
+    var deloadToggle = document.getElementById('lp-recovery-toggle');
     if (cogBtn) cogBtn.onclick = _toggleLoadPlanSettings;
+    if (deloadToggle) deloadToggle.onchange = _syncDeloadWeekRow;
     if (rampSlider) rampSlider.oninput = function () { if (rampInput) rampInput.value = rampSlider.value; };
     if (rampInput) rampInput.oninput = function () { if (rampSlider) rampSlider.value = rampInput.value; };
     if (saveBtn) saveBtn.onclick = _saveLoadPlanRules;

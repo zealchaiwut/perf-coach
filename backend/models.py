@@ -1390,6 +1390,9 @@ class TrainingPlan(Base):
     # "Cut 30% every 4th week" deload toggle — see load_plan.py's
     # DELOAD_CUT_FRACTION / compute_load_plan(deload_enabled=...).
     deload_enabled = Column(Boolean, nullable=False, server_default=text("false"))
+    # Which week of the 4-week cycle the deload lands on (1-4): first deload
+    # at this week_index, then every 4 weeks (4 → 4, 8, 12; 2 → 2, 6, 10).
+    deload_start_week = Column(Integer, nullable=False, server_default=text("4"))
     # Cached computed Plan-tab bundle + the signature it was computed for
     # (see GET /api/plan/computed). Recomputed when the signature changes.
     computed_cache = Column(JSONB, nullable=True)

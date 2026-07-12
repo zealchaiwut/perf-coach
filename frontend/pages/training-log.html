@@ -4328,6 +4328,18 @@
               </label>
               <span class="lp-hint-text">Cut 30% every 4th week.</span>
             </div>
+            <div class="lp-settings-row" id="lp-deload-week-row" hidden>
+              <label for="lp-deload-week-select">Deload week</label>
+              <span class="lp-settings-num">
+                <select id="lp-deload-week-select">
+                  <option value="1">Week 1 (1, 5, 9, …)</option>
+                  <option value="2">Week 2 (2, 6, 10, …)</option>
+                  <option value="3">Week 3 (3, 7, 11, …)</option>
+                  <option value="4" selected>Week 4 (4, 8, 12, …)</option>
+                </select>
+                <span class="pm-unit">of cycle</span>
+              </span>
+            </div>
             <div class="lp-week-budget" id="lp-week-budget">
               <div class="lp-week-budget-bar" id="lp-week-budget-bar"></div>
               <div class="lp-week-budget-line" id="lp-week-budget-line"></div>
@@ -5462,6 +5474,16 @@
       }
       .plan-merged .lp-settings-num input {
         width: 64px;
+        font-family: var(--pm-mono);
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--pm-ink);
+        border: 1px solid var(--pm-line);
+        background: #fff;
+        border-radius: 7px;
+        padding: 6px 8px;
+      }
+      .plan-merged .lp-settings-num select {
         font-family: var(--pm-mono);
         font-size: 13px;
         font-weight: 600;

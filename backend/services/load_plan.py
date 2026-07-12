@@ -21,7 +21,8 @@ Math
     target(w) for w in ramp_weeks+1 .. build_weeks = peak                             # exactly hold_weeks weeks
     target(w) for taper week i (0-indexed)         = peak * TAPER_CURVE[i]
 
-    if deload_enabled and phase in (ramp, hold) and week_index % 4 == 0:
+    if deload_enabled and phase == ramp and week_index in
+            (deload_start_week, deload_start_week + 4, deload_start_week + 8, ...):
         target(w) *= (1 - DELOAD_CUT_FRACTION)   # deload BEFORE the ceiling clamp
 
     ceiling(w) = ACWR_CEILING_MULT * mean(last 4 weeks' ACTUAL target_tss)   # see "Moving ceiling" below
@@ -133,9 +134,13 @@ fix above makes this true WITHIN a single request too, not just across days.
 
 Deload (every 4th week)
 ------------------------
-When ``deload_enabled`` is True, every 4th ``week_index`` (4, 8, 12, ...)
-that falls in the RAMP phase is cut by ``DELOAD_CUT_FRACTION`` (30%) BEFORE
-the ceiling clamp. Peak-hold weeks are NEVER deloaded (2026-07 fix) — the
+When ``deload_enabled`` is True, every 4th ``week_index`` starting at
+``deload_start_week`` (default 4 → weeks 4, 8, 12, ...; start 2 → weeks
+2, 6, 10, ...) that falls in the RAMP phase is cut by
+``DELOAD_CUT_FRACTION`` (30%) BEFORE the ceiling clamp. The start week is
+the athlete's pick of WHICH week of the 4-week cycle is the down week —
+someone already two weeks into a build wants the next deload in two weeks,
+not re-zeroed to week 4 of the plan. Peak-hold weeks are NEVER deloaded (2026-07 fix) — the
 hold phase is immediately followed by taper, which already IS the recovery
 reduction; cutting the last hold week right before a taper is redundant at
 best and, if it lands on hold week 4 (the week right before taper starts),
@@ -254,6 +259,7 @@ def compute_load_plan(
     weeks_to_race: int,
     trailing_28d_avg: Optional[float] = None,
     deload_enabled: bool = False,
+    deload_start_week: int = 4,
     verdict: Optional[str] = None,
     consolidation_weeks: Optional[int] = None,
 ) -> LoadPlanResult:
@@ -274,8 +280,12 @@ def compute_load_plan(
             one number, two uses). Ceiling is skipped entirely (every week's
             `ceiling` is None) and the baseline is never capped when this is
             None or 0 (not enough history yet).
-        deload_enabled: cut every 4th week (4, 8, 12, ...) that falls in the
-            ramp or hold phase by DELOAD_CUT_FRACTION. See module docstring.
+        deload_enabled: cut every 4th week that falls in the ramp phase by
+            DELOAD_CUT_FRACTION. See module docstring.
+        deload_start_week: which week of the 4-week cycle the deload lands
+            on — first deload at this week_index, then every 4 weeks after
+            (start 4 → 4, 8, 12, ...; start 2 → 2, 6, 10, ...). Clamped to
+            1..4. Ignored when deload_enabled is False.
         verdict: "hold" | "back_off" | "build" | None — from
             training_verdict.compute_verdict(). "hold"/"back_off" override
             ONLY the near-term weeks (see `consolidation_weeks`) to a flat
@@ -303,6 +313,7 @@ def compute_load_plan(
     taper_weeks = max(0, int(taper_weeks))
     weeks_to_race = max(0, int(weeks_to_race))
     deload_enabled = bool(deload_enabled)
+    deload_start_week = min(max(1, int(deload_start_week)), _DELOAD_EVERY_N_WEEKS)
 
     chronic_weekly = (
         float(trailing_28d_avg) if trailing_28d_avg is not None and trailing_28d_avg > 0 else None
@@ -366,7 +377,10 @@ def compute_load_plan(
         return value, clamped, ceiling
 
     def _is_deload(week_index: int) -> bool:
-        return deload_enabled and week_index % _DELOAD_EVERY_N_WEEKS == 0
+        return (
+            deload_enabled
+            and week_index % _DELOAD_EVERY_N_WEEKS == deload_start_week % _DELOAD_EVERY_N_WEEKS
+        )
 
     # Verdict consolidation — see module docstring. Only "hold"/"back_off"
     # override anything, and ONLY for the near-term weeks the verdict engine

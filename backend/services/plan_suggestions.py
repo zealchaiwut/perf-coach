@@ -1142,6 +1142,9 @@ def assemble_facts(
                     int(round(float(plan_row.taper_length))) if plan_row and plan_row.taper_length is not None else 3
                 )
                 plan_deload_enabled = bool(plan_row.deload_enabled) if plan_row and plan_row.deload_enabled is not None else False
+                plan_deload_start_week = (
+                    int(plan_row.deload_start_week) if plan_row and plan_row.deload_start_week is not None else 4
+                )
 
                 last_week_start = current_week_start - timedelta(days=7)
                 last_week_end = current_week_start - timedelta(days=1)
@@ -1164,6 +1167,7 @@ def assemble_facts(
                     baseline=baseline_tss, ramp_rate=ramp_rate, hold_weeks=plan_hold_weeks,
                     taper_weeks=plan_taper_weeks, weeks_to_race=weeks_to_race,
                     trailing_28d_avg=trailing_28d_weekly_avg, deload_enabled=plan_deload_enabled,
+                    deload_start_week=plan_deload_start_week,
                     verdict=verdict_result["verdict"],
                 )
                 week_index = ((target_week_start - current_week_start).days // 7) + 1
