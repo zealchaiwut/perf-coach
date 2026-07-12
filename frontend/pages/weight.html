@@ -1427,6 +1427,35 @@
         color: var(--fuel-amber);
       }
 
+      /* Week-phase chip (periodization) */
+      .fuel-phase-chip {
+        display: inline-block;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        border-radius: 6px;
+        padding: 2px 8px;
+        margin-left: 8px;
+        white-space: nowrap;
+      }
+      .fuel-phase-chip.phase-base    { background: var(--w-tile); color: var(--text-tertiary); }
+      .fuel-phase-chip.phase-ramp    { background: #fef3c7; color: #92400e; }
+      .fuel-phase-chip.phase-taper   { background: #dbeafe; color: #1e40af; }
+      .fuel-phase-chip.phase-race    { background: #fce7f3; color: #9d174d; }
+
+      /* auto-periodize toggle row in settings panel */
+      .fuel-settings-toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 6px 0;
+      }
+      .fuel-settings-toggle-row label {
+        font-size: 12.5px;
+        color: var(--text-secondary);
+      }
+
       /* Derivation chain: base + burn - deficit = budget */
       .fuel-chain {
         display: grid;
@@ -3136,6 +3165,7 @@
               <div class="fuel-title-row">
                 <h2>Fuel today</h2>
                 <span class="fuel-daytype-pill" id="fuel-daytype-pill">REST</span>
+                <span class="fuel-phase-chip phase-base" id="fuel-phase-chip" title="" hidden></span>
               </div>
               <button type="button" class="fuel-cog-btn" id="fuel-settings-toggle" aria-label="Fuel settings" title="Fuel settings">
                 <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
@@ -3177,6 +3207,10 @@
               <div class="fuel-settings-field">
                 <label for="fs-run_kcal_per_kg_per_km">Run kcal/kg/km</label>
                 <input type="number" step="0.05" id="fs-run_kcal_per_kg_per_km" />
+              </div>
+              <div class="fuel-settings-toggle-row">
+                <label for="fs-auto_periodize">Adjust deficit for training phase</label>
+                <input type="checkbox" id="fs-auto_periodize" title="Race/taper weeks → maintenance; ramp weeks → half deficit" />
               </div>
               <div class="fuel-settings-actions">
                 <button type="button" class="log-submit-btn" id="fuel-settings-save" style="width:auto;margin-top:0;padding:8px 16px;">Save settings</button>
