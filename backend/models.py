@@ -1697,3 +1697,24 @@ class VerdictHistory(Base):
         UniqueConstraint("user_id", "verdict_date", name="uq_verdict_history_user_date"),
         Index("ix_verdict_history_user_date", "user_id", "verdict_date"),
     )
+
+
+class BodyMeasurement(Base):
+    """Periodic body composition measurement (waist circumference and/or body-fat %)."""
+
+    __tablename__ = "body_measurements"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    measure_date = Column(Date, nullable=False)
+    waist_cm = Column(Numeric(5, 1), nullable=True)
+    body_fat_pct = Column(Numeric(4, 1), nullable=True)
+    source = Column(String(20), nullable=False, server_default=text("'manual'"))
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "measure_date", name="uq_body_measurements_user_date"),
+        Index("ix_body_measurements_user_date", "user_id", "measure_date"),
+        CheckConstraint("source IN ('manual', 'imported')", name="ck_body_measurements_source"),
+    )
