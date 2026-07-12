@@ -10,7 +10,7 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-from helpers import table_exists, index_exists
+from helpers import column_exists, table_exists, index_exists
 
 revision: str = "1da954a27351bb1b"
 down_revision: Union[str, None] = "8b73d5c83348"
