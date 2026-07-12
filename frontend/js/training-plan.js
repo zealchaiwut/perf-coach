@@ -935,9 +935,10 @@ information about.
       var on = current === f.key;
       // When tagged, hide the non-selected icons; when untagged, show all faint.
       var cls = 'pl-feel-btn' + (on ? ' is-on' : (tagged ? ' is-hidden' : ''));
+      var label = on ? f.label + ' — tap to clear' : f.label;
       return '<button type="button" class="' + cls + '" data-feel="' + workoutId +
-        '" data-feel-val="' + f.key + '" title="' + f.label + '" aria-label="' + f.label +
-        (on ? '" aria-pressed="true' : '') + '">' + f.icon + '</button>';
+        '" data-feel-val="' + f.key + '" title="' + label + '" aria-label="' + label +
+        (on ? '" data-feel-on="1" aria-pressed="true' : '') + '">' + f.icon + '</button>';
     }).join('');
     return '<div class="pl-feelrow" data-feelrow="' + workoutId + '">' + btns + '</div>';
   }
@@ -1054,7 +1055,8 @@ information about.
       b.addEventListener('click', function (e) {
         e.stopPropagation();
         var wid = b.getAttribute('data-feel');
-        var val = b.getAttribute('data-feel-val');
+        // Tapping the already-selected feeling clears it (misclick undo).
+        var val = b.hasAttribute('data-feel-on') ? null : b.getAttribute('data-feel-val');
         // Overwrite immediately, no confirm. Reload the week so the card
         // re-renders from the server (matched actual carries the new feeling).
         _api('PATCH', '/api/workouts/' + wid, { feeling: val })

@@ -1678,7 +1678,8 @@
   // ── Quick-tag effort feeling (😩 hard / 😐 ok / 😊 easy) ───────────────────
   // Shared by the log list row and the detail drawer. Untagged → all three
   // faint; tagged → only the selected icon shown filled. Tap overwrites
-  // immediately (PATCH workouts.feeling), then updates every feeling row for
+  // immediately, tap on the selected icon clears it back to untagged
+  // (PATCH workouts.feeling), then updates every feeling row for
   // that workout in place so Plan/Log stay consistent after the next refresh.
   var FEELINGS = [
     { key: "hard", icon: "😩", label: "Hard" },
@@ -1704,12 +1705,16 @@
       btn.type = "button";
       btn.className = "feel-btn" + (on ? " is-on" : tagged ? " is-hidden" : "");
       btn.textContent = f.icon;
-      btn.title = f.label;
-      btn.setAttribute("aria-label", f.label);
+      btn.title = on ? f.label + " — tap to clear" : f.label;
+      btn.setAttribute(
+        "aria-label",
+        on ? f.label + " — tap to clear" : f.label,
+      );
       if (on) btn.setAttribute("aria-pressed", "true");
       btn.addEventListener("click", function (e) {
         e.stopPropagation();
-        patchFeeling(workoutId, f.key);
+        // Tapping the already-selected feeling clears it (misclick undo).
+        patchFeeling(workoutId, on ? null : f.key);
       });
       wrap.appendChild(btn);
     });
@@ -4638,12 +4643,45 @@
     var panel = document.getElementById("sync-panel");
     if (!toggleBtn || !panel) return;
 
+    // ≤599px the actions cluster becomes an overflow-x scroller (see the
+    // header media query), and a scroll container clips absolutely-positioned
+    // children — so the panel never showed on mobile. Escape the clip by
+    // switching the panel to fixed positioning, anchored to the button.
+    var narrowMq = window.matchMedia("(max-width: 599px)");
+
+    function _positionSyncPanel() {
+      if (!narrowMq.matches) {
+        panel.style.position = "";
+        panel.style.top = "";
+        panel.style.right = "";
+        return;
+      }
+      var rect = toggleBtn.getBoundingClientRect();
+      panel.style.position = "fixed";
+      panel.style.top = rect.bottom + 7 + "px";
+      panel.style.right = Math.max(8, window.innerWidth - rect.right) + "px";
+    }
+
     toggleBtn.addEventListener("click", function (e) {
       e.stopPropagation();
       var isOpen = !panel.hidden;
+      if (!isOpen) _positionSyncPanel();
       panel.hidden = isOpen;
       toggleBtn.setAttribute("aria-expanded", String(!isOpen));
     });
+
+    // Keep the fixed panel glued to the button while the page (or the
+    // actions cluster itself) scrolls or the viewport resizes.
+    window.addEventListener("resize", function () {
+      if (!panel.hidden) _positionSyncPanel();
+    });
+    window.addEventListener(
+      "scroll",
+      function () {
+        if (!panel.hidden && narrowMq.matches) _positionSyncPanel();
+      },
+      true,
+    );
 
     document.addEventListener("click", function (e) {
       if (
