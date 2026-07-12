@@ -17049,6 +17049,7 @@ class PlanRulesIn(BaseModel):
     hold_weeks: Optional[int] = None
     taper_weeks: Optional[int] = None
     deload_enabled: Optional[bool] = None
+    deload_start_week: Optional[int] = None
 
 
 def _validate_plan_rules(body: "PlanRulesIn") -> None:
@@ -17060,6 +17061,10 @@ def _validate_plan_rules(body: "PlanRulesIn") -> None:
         raise HTTPException(status_code=422, detail="hold_weeks must be >= 0")
     if body.taper_weeks is not None and body.taper_weeks < 0:
         raise HTTPException(status_code=422, detail="taper_weeks must be >= 0")
+    if body.deload_start_week is not None and not (1 <= body.deload_start_week <= 4):
+        raise HTTPException(
+            status_code=422, detail="deload_start_week must be between 1 and 4"
+        )
 
 
 def _plan_rules_dict(plan: TrainingPlan) -> dict:
@@ -17068,6 +17073,7 @@ def _plan_rules_dict(plan: TrainingPlan) -> dict:
         "hold_weeks": int(plan.hold_weeks) if plan.hold_weeks is not None else 4,
         "taper_weeks": float(plan.taper_length) if plan.taper_length is not None else 3.0,
         "deload_enabled": bool(plan.deload_enabled) if plan.deload_enabled is not None else False,
+        "deload_start_week": int(plan.deload_start_week) if plan.deload_start_week is not None else 4,
     }
 
 
@@ -17087,6 +17093,8 @@ def put_plan_rules(body: PlanRulesIn, user: User = Depends(resolve_user)):
             plan.taper_length = body.taper_weeks
         if body.deload_enabled is not None:
             plan.deload_enabled = body.deload_enabled
+        if body.deload_start_week is not None:
+            plan.deload_start_week = body.deload_start_week
         session.commit()
         session.refresh(plan)
         return JSONResponse(_plan_rules_dict(plan))
@@ -17136,6 +17144,7 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
             weeks_to_race=weeks_to_race,
             trailing_28d_avg=trailing_28d_avg,
             deload_enabled=rules["deload_enabled"],
+            deload_start_week=rules["deload_start_week"],
             verdict=verdict["verdict"],
             consolidation_weeks=verdict["weeks_to_converge"],
         )
@@ -17162,6 +17171,7 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
             "hold_weeks": rules["hold_weeks"],
             "taper_weeks": result["taper_weeks"],
             "deload_enabled": rules["deload_enabled"],
+            "deload_start_week": rules["deload_start_week"],
             "weeks_to_race": weeks_to_race,
             "ramp_weeks": result["ramp_weeks"],
             "peak": result["peak"],
@@ -17320,6 +17330,7 @@ def get_plan_week_load(
             weeks_to_race=weeks_to_race,
             trailing_28d_avg=trailing_28d_avg,
             deload_enabled=rules["deload_enabled"],
+            deload_start_week=rules["deload_start_week"],
             verdict=verdict["verdict"],
             consolidation_weeks=verdict["weeks_to_converge"],
         )

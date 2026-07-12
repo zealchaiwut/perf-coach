@@ -7,7 +7,8 @@ Suggest-sessions all agree on one number per week.
 ## Load model (`backend/services/load_plan.py`)
 
 Single pure function, `compute_load_plan(baseline, ramp_rate, hold_weeks,
-taper_weeks, weeks_to_race, trailing_28d_avg, deload_enabled=False)`. No SQL,
+taper_weeks, weeks_to_race, trailing_28d_avg, deload_enabled=False,
+deload_start_week=4)`. No SQL,
 no dates — the calling endpoint resolves the A race, `weeks_to_race`,
 `baseline` (last completed week's **actual** TSS, never planned — a missed
 week must lower future targets, not silently inflate them — capped against
@@ -22,7 +23,8 @@ target(w) for w in 1..ramp_weeks              = baseline * (1 + ramp_rate) ** w
 target(w) for w in ramp_weeks+1 .. build_weeks = peak                     # exactly hold_weeks weeks
 target(w) for taper week i (0-indexed)         = peak * TAPER_CURVE[i]
 
-if deload_enabled and phase in (ramp, hold) and week_index % 4 == 0:
+if deload_enabled and phase == ramp
+        and week_index % 4 == deload_start_week % 4:
     target(w) *= (1 - DELOAD_CUT_FRACTION)     # deload BEFORE the ceiling clamp
 
 target(w) = min(target(w), ceiling(w))         # MOVING ceiling always wins — see below
@@ -79,12 +81,18 @@ because the ceiling keeps moving with the plan's own trajectory rather than
 staying pinned to today, the ramp still climbs freely as long as no single
 week jumps more than `ACWR_CEILING_MULT`× above its own trailing window.
 
-### Deload — "cut 30% every 4th week" (`deload_enabled`)
+### Deload — "cut 30% every 4th week" (`deload_enabled`, `deload_start_week`)
 
 When on (`TrainingPlan.deload_enabled`, off by default), every 4th
-`week_index` (4, 8, 12, ...) that falls in the **ramp or hold** phase is cut
-by `DELOAD_CUT_FRACTION = 0.30` before the ceiling clamp. Taper/race weeks
-are never cut further — they already have their own down-curve.
+`week_index` starting at `deload_start_week` (`TrainingPlan.deload_start_week`,
+1–4, default 4 → weeks 4, 8, 12, ...; start 2 → weeks 2, 6, 10, ...) that
+falls in the **ramp** phase is cut by `DELOAD_CUT_FRACTION = 0.30` before
+the ceiling clamp. The start week is the athlete's pick of which week of
+the 4-week cycle is the down week — someone already two weeks into a build
+wants the next deload in two weeks, not re-zeroed to week 4 of the plan.
+Hold weeks are never deloaded (2026-07 fix: taper immediately follows and
+already IS the recovery reduction), and taper/race weeks are never cut
+further — they already have their own down-curve.
 
 The cut is a single down week, not a ramp reset: `target(w)` is always
 computed directly from `baseline * (1 + ramp_rate) ** w` (or `peak` in hold),
@@ -149,7 +157,7 @@ the mean of the last 4 weekly TSS totals from the same daily-load series
 `compute_acwr`/`plan_suggestions` already build — not a new computation.
 
 `PUT /api/plan/rules` updates `ramp_rate`, `hold_weeks`, `taper_length`,
-`deload_enabled` on the athlete's existing `TrainingPlan` row
+`deload_enabled`, `deload_start_week` on the athlete's existing `TrainingPlan` row
 (`_resolve_or_create_plan`) — Plan and Performance tabs edit the **same**
 row; this endpoint must never create a second one.
 

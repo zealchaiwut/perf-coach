@@ -242,6 +242,43 @@ def test_load_plan_reflects_deload_enabled(bare_client):
     assert week4["deload"] is True
 
 
+def test_put_plan_rules_roundtrips_deload_start_week(bare_client):
+    client, user_id = bare_client
+    r = client.put("/api/plan/rules", json={"deload_enabled": True, "deload_start_week": 2})
+    assert r.status_code == 200, r.text
+    assert r.json()["deload_start_week"] == 2
+
+    r = client.put("/api/plan/rules", json={"ramp_rate": 0.06})
+    assert r.status_code == 200, r.text
+    assert r.json()["deload_start_week"] == 2, "unrelated PUT must not reset deload_start_week"
+
+
+def test_put_plan_rules_rejects_out_of_range_deload_start_week(bare_client):
+    client, user_id = bare_client
+    for bad in (0, 5, -1):
+        r = client.put("/api/plan/rules", json={"deload_start_week": bad})
+        assert r.status_code == 422, f"deload_start_week={bad}: {r.status_code} {r.text}"
+
+
+def test_load_plan_reflects_deload_start_week(bare_client):
+    client, user_id = bare_client
+    race_date = _race_date_in_week(19)
+    _add_a_race(client, race_date)
+    client.put("/api/plan/rules", json={"deload_enabled": True, "deload_start_week": 2})
+
+    this_monday = _monday_of(date.today())
+    last_monday = this_monday - timedelta(days=7)
+    _add_workout(client, last_monday, 316)
+
+    r = client.get("/api/plan/load-plan")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["deload_start_week"] == 2
+    by_index = {w["week_index"]: w for w in body["weeks"]}
+    assert by_index[2]["deload"] is True
+    assert by_index[4]["deload"] is False
+
+
 def test_ceiling_moves_instead_of_flatlining_on_the_live_endpoint(bare_client):
     client, user_id = bare_client
     race_date = _race_date_in_week(19)
