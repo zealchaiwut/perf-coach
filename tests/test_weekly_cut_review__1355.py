@@ -20,12 +20,12 @@ BASE_URL = os.environ.get("UAT_BASE_URL", "http://127.0.0.1:9001")
 def authenticated_client():
     """Create an authenticated HTTP client with session and CSRF cookies."""
     client = httpx.Client(base_url=BASE_URL, timeout=10.0)
-    
+
     # Create test user
     name = f"tester1355_{uuid.uuid4().hex[:8]}"
     r = client.post("/api/users", json={"name": name}, cookies=_admin_cookies())
     assert r.status_code == 201, f"Failed to create user: {r.status_code} {r.text}"
-    
+
     uid = r.json()["id"]
     pw = "testpass123secure"
 
@@ -46,7 +46,7 @@ def authenticated_client():
     # Cleanup
     try:
         client.delete(f"/api/users/{uid}", cookies=_admin_cookies())
-    except:
+    except Exception:
         pass
     client.close()
 
@@ -60,7 +60,7 @@ def test_weekly_review__endpoint_returns_200_with_all_fields(authenticated_clien
     r = client.get("/api/fuel/weekly-review")
     assert r.status_code == 200, f"Status {r.status_code}: {r.text}"
     data = r.json()
-    
+
     assert "actual_rate_kg_per_week" in data
     assert "plan_rate_kg_per_week" in data
     assert "logging_adherence_pct" in data
@@ -115,7 +115,7 @@ def test_weekly_review__on_track_nominal_response(authenticated_client):
     r = client.get("/api/fuel/weekly-review")
     assert r.status_code == 200
     data = r.json()
-    
+
     # Verify field types
     assert isinstance(data["logging_adherence_pct"], (int, float))
     assert isinstance(data["recommendation"], str)
@@ -130,7 +130,7 @@ def test_weekly_review__recommendation_values_valid(authenticated_client):
     r = client.get("/api/fuel/weekly-review")
     assert r.status_code == 200
     data = r.json()
-    
+
     valid_recommendations = {
         "insufficient_data",
         "slow_down",
@@ -149,7 +149,7 @@ def test_weekly_review__adherence_pct_range(authenticated_client):
     r = client.get("/api/fuel/weekly-review")
     assert r.status_code == 200
     data = r.json()
-    
+
     assert 0 <= data["logging_adherence_pct"] <= 100
 
 

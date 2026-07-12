@@ -251,9 +251,6 @@ def get_weekly_review(
             1 for d, _ in sorted_entries if d >= window_14d_start
         )
 
-        # Current weight (most recent entry) — used for %BW → kg/wk conversion
-        current_weight_kg = sorted_entries[-1][1] if sorted_entries else settings["weight_kg"]
-
         # ── EWMA over 21d and weekly rate computation ─────────────────────────
         ewma_entries = [{"date": d, "weight_kg": w} for d, w in sorted_entries]
         ewma_values = compute_ewma(ewma_entries) if ewma_entries else []
