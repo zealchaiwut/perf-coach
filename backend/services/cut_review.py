@@ -16,7 +16,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from backend.db import engine
-from backend.services.body_modifier import compute_body_modifier_guardrail, RATE_ZERO_CROSSING
+from backend.services.body_modifier import compute_body_modifier_guardrail
 from backend.services.fuel import (
     DEFICIT_KCAL_MAX,
     compute_budget,
