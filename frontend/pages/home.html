@@ -1183,8 +1183,23 @@
     <p id="greeting-date"></p>
   </div>
 
+  <!-- Quick-log injury/illness action -->
+  <div style="padding:0 16px 4px; display:flex; justify-content:flex-end;">
+    <button id="home-injury-log-btn" type="button"
+      style="display:inline-flex; align-items:center; gap:6px; padding:7px 14px;
+             border-radius:999px; border:1.5px solid rgba(255,255,255,0.35);
+             background:rgba(255,255,255,0.15); color:#fff;
+             font-size:12.5px; font-weight:600; cursor:pointer; font-family:inherit;
+             letter-spacing:-.01em; backdrop-filter:blur(4px);">
+      <span aria-hidden="true" style="font-size:15px;">🩹</span> Log niggle / illness
+    </button>
+  </div>
+
   <!-- Log-today strip (rendered by JS) -->
   <div id="home-log-today-strip"></div>
+
+  <!-- Active injury/illness/niggle strip -->
+  <div id="home-injury-strip" style="padding:0 16px;"></div>
 
   <!-- Banners — stay outside the dashboard grid below, in their own full-width
        block, so they don't have to interrupt a single continuous grid flow. -->
@@ -1354,6 +1369,12 @@
 <script src="js/lib/weight-current-card.js"></script>
 <script src="js/home.js"></script>
 <script src="js/home-grid.js"></script>
+
+<script src="js/injury-log.js"></script>
+<script>
+  document.getElementById('home-injury-log-btn').addEventListener('click', () => InjuryLog.openModal());
+  InjuryLog.renderActiveStrip('home-injury-strip');
+</script>
 
 <script src="js/env.js"></script>
 </body>

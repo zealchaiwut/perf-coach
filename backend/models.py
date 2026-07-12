@@ -1615,6 +1615,32 @@ class ExerciseCatalog(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
 
+INJURY_KIND_VALUES = ("injury", "illness", "niggle")
+
+
+class InjuryLog(Base):
+    """Injury / illness / niggle log entry for one user."""
+
+    __tablename__ = "injury_log"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    kind = Column(String(20), nullable=False)
+    body_area = Column(String(100), nullable=True)
+    severity = Column(Integer, nullable=False)
+    started_on = Column(Date, nullable=False)
+    ended_on = Column(Date, nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("kind IN ('injury', 'illness', 'niggle')", name="ck_injury_log_kind"),
+        CheckConstraint("severity IN (1, 2, 3)", name="ck_injury_log_severity"),
+        CheckConstraint("ended_on IS NULL OR ended_on >= started_on", name="ck_injury_log_ended_after_started"),
+        Index("ix_injury_log_user_started_on", "user_id", "started_on"),
+    )
+
+
 class LlmGeneration(Base):
     """Cached LLM-generated text payloads keyed by (user, surface, input_signature).
 
