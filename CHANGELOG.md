@@ -1,5 +1,10 @@
 # Changelog
 
+## Sprint 104 — Fuel deficit linked to the weight plan, deficit periodization by training week phase
+
+- #1354: Link weight plan to fuel deficit — the active `WeightPlan.target_rate_kg_per_week` now implies a daily calorie deficit (`abs(rate) × 7700 / 7`, rounded to nearest 10, clamped 0–750; `fuel.implied_deficit_kcal`). `GET /api/fuel/settings` now returns the active-plan linkage fields `plan_rate_kg_per_week`, `implied_deficit_kcal`, `deficit_gap_kcal`, and `consistency` (`aligned` when `|gap| ≤ 100`, else `mismatch`, or `no_plan`); the Weight page shows a mismatch banner with both numbers and a one-tap **Sync** button that calls the new `POST /api/fuel/settings/sync-deficit` (sets `deficit_kcal` to the implied value; 409 when no active plan)
+- #1357: Deficit periodization — the fuel budget now respects the current training week phase. New `backend/services/fuel_periodize.py` resolves a phase (precedence race > taper > ramp > base) from planned A/B races, the training plan's taper window, and the load plan's current-week target TSS vs. the trailing-28d weekly average (ramp = target ≥ 1.1×): race/taper → maintenance (0 deficit), ramp → half deficit, base → full configured deficit. Gated by a new `auto_periodize` toggle on `fuel_settings` (default on); `GET /api/fuel/today` and `GET /api/fuel/week` now return `week_phase`, `week_phase_reason`, and `effective_deficit_kcal`, surfaced as a phase chip on the Weight page. The EA-floor hard stop is applied on top, unchanged
+
 ## Sprint 103 — Readiness unification & auto-recompute, verdict v2 (readiness + injuries), verdict history, today recommendation
 
 - #1348: Unify readiness behind the single canonical CV-based calculator (`services/readiness/calculator.py`) across all four readiness surfaces (`GET /api/home/readiness`, the home-summary readiness block, `GET /trends/summary`, and the compute job) — weights HRV 40% / RHR 20% / sleep_quality 20% / energy 20%, HRV baseline 7d, RHR baseline 30d; replaces the legacy sleep_hours/HRV/RHR/mood/energy formula. `ReadinessResult` now also returns per-signal `raw_scores`
