@@ -221,7 +221,12 @@ Unique: `(user_id, metric_date)`.
 
 ## daily_readiness
 
-Computed from `daily_metrics` via `POST /api/readiness/compute`.
+Computed from `daily_metrics` by the single canonical CV-based calculator
+(`services/readiness/calculator.py` — weights HRV 40% / RHR 20% / sleep_quality
+20% / energy 20%; HRV baseline 7d, RHR baseline 30d; Sprint 103 / #1348). Written
+via `POST /api/readiness/compute` and also **auto-recomputed** whenever the
+underlying `daily_metrics` row is created/updated and cleared when it is deleted
+(Sprint 103 / #1349).
 
 | column | type | notes |
 |--------|------|-------|
@@ -878,3 +883,45 @@ Durable cache for LLM-generated coaching text. One row per `(user_id, surface, i
 | created_at | timestamptz | server default now() |
 
 Unique: `(user_id, surface, input_signature)` (`uq_llm_generations_user_surface_sig`). Indexes: `ix_llm_generations_user_id` on `user_id`; `ix_llm_generations_user_surface_sig` on `(user_id, surface, input_signature)`. Migration: `54c084f3e59f_add_llm_generations_table`.
+
+---
+
+## verdict_history _(added Sprint 103)_
+
+Durable snapshot of each day's training verdict and the inputs that produced it. Written (upserted, one row per `(user_id, verdict_date)`) whenever the verdict is computed for the *current* calendar day — historical dates are never overwritten. Lets the app record what it advised vs. what happened. Read via `GET /api/training/verdict-history?from=&to=`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | `gen_random_uuid()` |
+| user_id | UUID FK→users | CASCADE |
+| verdict_date | date | NOT NULL |
+| verdict | varchar(20) | NOT NULL — `back_off` / `hold` / `build` |
+| modifiers | jsonb | nullable — list of `{rule, value}` downgrade rules that fired (verdict v2) |
+| readiness | float | nullable — today's readiness score at compute time |
+| ctl | float | nullable |
+| atl | float | nullable |
+| tsb | float | nullable |
+| acwr | float | nullable |
+| created_at | timestamptz | server default now() |
+
+Unique: `(user_id, verdict_date)` (`uq_verdict_history_user_date`). Index: `ix_verdict_history_user_date` on `(user_id, verdict_date DESC)`. Migration: `bf3b956dd2e0_add_verdict_history_table`.
+
+---
+
+## injury_log _(added Sprint 103 / #1350, migration only)_
+
+Injury / illness / niggle tracking. The table migration landed this sprint to back verdict v2's active-injury downgrade rules (#1351 reads active rows — `ended_on IS NULL` — defensively). The full feature (ORM model, API, quick-log UI) is not yet built, so there is **no `InjuryLog` model in `backend/models.py`** yet.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | `gen_random_uuid()` |
+| user_id | UUID FK→users | CASCADE |
+| kind | varchar(20) | NOT NULL — `injury` / `illness` / `niggle` (check constraint) |
+| body_area | varchar(100) | nullable |
+| severity | int | NOT NULL — 1 / 2 / 3 (check constraint) |
+| started_on | date | NOT NULL |
+| ended_on | date | nullable; must be `>= started_on` when set (check constraint) |
+| notes | text | nullable |
+| created_at | timestamptz | server default now() |
+
+Index: `ix_injury_log_user_started_on` on `(user_id, started_on)`. Migration: `1da954a27351bb1b_add_injury_log_table`.

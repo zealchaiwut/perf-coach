@@ -1141,11 +1141,23 @@
   <main>
     <div class="rl-head">
       <h1>Log workout</h1>
-      <div class="rl-tabs" role="tablist" aria-label="Training view">
-        <button class="training-tab active" data-tab="new" role="tab" aria-selected="true" aria-controls="view-new" id="tab-new">New workout</button>
-        <button class="training-tab" data-tab="history" role="tab" aria-selected="false" aria-controls="view-history" id="tab-history">History</button>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <button id="training-injury-log-btn" type="button"
+          style="display:inline-flex; align-items:center; gap:5px; padding:6px 12px;
+                 border-radius:999px; border:1.5px solid var(--card-border);
+                 background:#fff; color:var(--text-secondary);
+                 font-size:12px; font-weight:600; cursor:pointer; font-family:inherit;">
+          <span aria-hidden="true">🩹</span> Log niggle / illness
+        </button>
+        <div class="rl-tabs" role="tablist" aria-label="Training view">
+          <button class="training-tab active" data-tab="new" role="tab" aria-selected="true" aria-controls="view-new" id="tab-new">New workout</button>
+          <button class="training-tab" data-tab="history" role="tab" aria-selected="false" aria-controls="view-history" id="tab-history">History</button>
+        </div>
       </div>
     </div>
+
+    <!-- Active injury/illness/niggle strip -->
+    <div id="training-injury-strip"></div>
 
     <!-- Sync-later: pull a run in from a device instead of logging by hand -->
     <div class="rl-import">
@@ -1376,6 +1388,11 @@
   <script src="js/lib/training-format.js"></script>
   <script src="js/training.js"></script>
   <script src="js/user.js"></script>
+  <script src="js/injury-log.js"></script>
+  <script>
+    document.getElementById('training-injury-log-btn').addEventListener('click', () => InjuryLog.openModal());
+    InjuryLog.renderActiveStrip('training-injury-strip');
+  </script>
   <script src="js/env.js"></script>
 </body>
 </html>

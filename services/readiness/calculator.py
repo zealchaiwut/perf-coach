@@ -40,6 +40,7 @@ class ReadinessComponents:
 class ReadinessResult:
     score: float            # 0–100, rounded to 2 decimal places
     components: ReadinessComponents
+    raw_scores: dict        # per-signal raw 0–100 scores before weighting
 
 
 def _population_stdev(values: list[float]) -> float:
@@ -144,4 +145,5 @@ def compute_readiness(
             sleep_contribution=round(contributions.get("sleep", 0.0), 4),
             energy_contribution=round(contributions.get("energy", 0.0), 4),
         ),
+        raw_scores={k: round(v, 2) for k, v in raw.items()},
     )

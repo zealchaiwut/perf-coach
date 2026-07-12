@@ -1127,6 +1127,32 @@
     .hperf-msg, .hperf-loading { font-size: 13.5px; color: var(--text-secondary); padding: 4px 0; line-height: 1.5; }
     .hperf-msg a { color: #2b4ca8; text-decoration: none; }
 
+    /* ---- TODAY'S RECOMMENDATION CARD ---- */
+    #home-today-rec-card { padding: 16px; }
+    .rec-loading, .rec-empty { font-size: 13px; color: var(--text-secondary); }
+    .rec-card { display: flex; flex-direction: column; gap: 6px; }
+    .rec-header { display: flex; align-items: center; gap: 8px; }
+    .rec-icon {
+      width: 28px; height: 28px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 700;
+      background: var(--green-soft); color: var(--green);
+      flex-shrink: 0;
+    }
+    .rec-card--rest .rec-icon    { background: var(--amber-soft); color: var(--amber); }
+    .rec-card--downgrade .rec-icon { background: var(--blue-soft); color: var(--blue-text); }
+    .rec-label { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+    .rec-session { font-size: 12px; color: var(--text-secondary); margin-left: 36px; }
+    .rec-reason { font-size: 12.5px; color: var(--text-secondary); margin: 0; line-height: 1.45; }
+    .rec-apply-btn {
+      margin-top: 4px; align-self: flex-start;
+      padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer;
+      font-size: 12px; font-weight: 600;
+      background: var(--blue-soft); color: var(--blue-text);
+    }
+    .rec-apply-btn:hover { opacity: 0.85; }
+    .rec-apply-btn:disabled { opacity: 0.5; cursor: default; }
+
     /* ---- HOME V2: mobile (home.html's own breakpoint is 640px, not 880) ---- */
     @media (max-width: 640px) {
       .rd-ctl-row  { gap: 6px; }
@@ -1157,8 +1183,23 @@
     <p id="greeting-date"></p>
   </div>
 
+  <!-- Quick-log injury/illness action -->
+  <div style="padding:0 16px 4px; display:flex; justify-content:flex-end;">
+    <button id="home-injury-log-btn" type="button"
+      style="display:inline-flex; align-items:center; gap:6px; padding:7px 14px;
+             border-radius:999px; border:1.5px solid rgba(255,255,255,0.35);
+             background:rgba(255,255,255,0.15); color:#fff;
+             font-size:12.5px; font-weight:600; cursor:pointer; font-family:inherit;
+             letter-spacing:-.01em; backdrop-filter:blur(4px);">
+      <span aria-hidden="true" style="font-size:15px;">🩹</span> Log niggle / illness
+    </button>
+  </div>
+
   <!-- Log-today strip (rendered by JS) -->
   <div id="home-log-today-strip"></div>
+
+  <!-- Active injury/illness/niggle strip -->
+  <div id="home-injury-strip" style="padding:0 16px;"></div>
 
   <!-- Banners — stay outside the dashboard grid below, in their own full-width
        block, so they don't have to interrupt a single continuous grid flow. -->
@@ -1177,6 +1218,7 @@
        and #row-log stay OUTSIDE this grid. -->
   <div id="home-dashboard-grid" class="grid-stack">
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-top-row-right" class="grp-training"></div></div></div>
+    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-today-rec-card" class="card grp-training"></div></div></div>
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-next-workout-card" class="card grp-training"></div></div></div>
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-performance-card" class="card grp-training"></div></div></div>
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-training-card" class="card grp-training"></div></div></div>
@@ -1327,6 +1369,12 @@
 <script src="js/lib/weight-current-card.js"></script>
 <script src="js/home.js"></script>
 <script src="js/home-grid.js"></script>
+
+<script src="js/injury-log.js"></script>
+<script>
+  document.getElementById('home-injury-log-btn').addEventListener('click', () => InjuryLog.openModal());
+  InjuryLog.renderActiveStrip('home-injury-strip');
+</script>
 
 <script src="js/env.js"></script>
 </body>
