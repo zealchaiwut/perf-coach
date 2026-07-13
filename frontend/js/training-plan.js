@@ -2407,22 +2407,27 @@ information about.
     '.pl-sched-day.is-closed{opacity:0.45;background:var(--pl-tile);}',
     '.pl-sched-day.drop-hover{border-color:var(--pl-run);background:var(--pl-blueSoft);}',
     '.pl-sched-day-h{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.03em;color:var(--pl-faint);display:flex;justify-content:space-between;padding:0 2px;}',
-    '.pl-slot-chip{display:flex;align-items:center;gap:4px;border-radius:7px;padding:4px 5px;font-size:10px;cursor:grab;border:1px solid transparent;}',
+    // Two-line chip: type + remove on line 1, TSS·min on its own line so the
+    // numbers never truncate in a narrow day column.
+    '.pl-slot-chip{display:flex;flex-direction:column;gap:2px;border-radius:7px;padding:5px 6px;font-size:10px;cursor:grab;border:1px solid transparent;}',
     '.pl-slot-chip:active{cursor:grabbing;}',
-    '.pl-slot-chip.run{background:var(--pl-blueSoft);color:var(--pl-run);}.pl-slot-chip.strength{background:var(--pl-liftSoft);color:#7c3aed;}.pl-slot-chip.plyo{background:var(--pl-amberSoft);color:var(--pl-amber);}.pl-slot-chip.rest{background:#f1f5f9;color:#64748b;}',
-    '.pl-slot-type{font-weight:800;text-transform:uppercase;flex-shrink:0;}',
-    '.pl-slot-meta{font-family:var(--pl-mono);font-size:9.5px;opacity:0.85;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+    '.pl-slot-chip.run{background:var(--pl-blueSoft);color:var(--pl-run);}.pl-slot-chip.strength{background:var(--pl-liftSoft);color:#7c3aed;}.pl-slot-chip.plyo{background:var(--pl-amberSoft);color:var(--pl-amber);}.pl-slot-chip.stretch{background:#ccfbf1;color:#0f766e;}.pl-slot-chip.rest{background:#f1f5f9;color:#64748b;}',
+    '.pl-slot-line1{display:flex;align-items:center;justify-content:space-between;gap:4px;}',
+    '.pl-slot-type{font-weight:800;text-transform:uppercase;}',
+    '.pl-slot-meta{font-family:var(--pl-mono);font-size:9.5px;opacity:0.85;white-space:nowrap;}',
     '.pl-slot-x{background:none;border:none;font-size:12px;line-height:1;color:inherit;opacity:0.55;cursor:pointer;padding:0 2px;flex-shrink:0;}',
     '.pl-slot-x:hover{opacity:1;}',
-    '.pl-slot-addbtn{margin-top:auto;background:none;border:1px dashed var(--pl-line);border-radius:6px;color:var(--pl-faint);font-size:12px;line-height:1;padding:3px 0;cursor:pointer;}',
-    '.pl-slot-addbtn:hover{color:var(--pl-ink);border-color:var(--pl-muted);}',
+    '.pl-slot-addsel{margin-top:auto;background:none;border:1px dashed var(--pl-line);border-radius:6px;color:var(--pl-faint);font-size:11px;font-weight:700;line-height:1;padding:3px 2px;cursor:pointer;text-align:center;-webkit-appearance:none;appearance:none;width:100%;}',
+    '.pl-slot-addsel:hover{color:var(--pl-ink);border-color:var(--pl-muted);}',
     // Rail 2 row additions: day select + editable TSS/duration + fill button.
     '.pl-sug-day-select{font-size:10px;font-weight:800;color:var(--pl-faint);text-transform:uppercase;border:1px solid var(--pl-line);border-radius:6px;padding:3px 4px;background:#fff;cursor:pointer;flex-shrink:0;}',
     '.pl-sug-meta-edit{display:inline-flex;align-items:center;gap:3px;}',
     '.pl-sug-tss-input,.pl-sug-dur-input{width:52px;font-size:11.5px;font-family:var(--pl-mono);border:1px solid var(--pl-line);border-radius:6px;padding:3px 5px;color:var(--pl-ink);}',
     '.pl-sug-gen{font-size:10.5px;font-weight:700;background:none;border:1px solid #c7d2fe;border-radius:6px;padding:4px 8px;cursor:pointer;color:var(--pl-lavHi);}',
     '.pl-sug-gen:hover{background:var(--pl-blueSoft);}',
-    '.pl-sug-gen:disabled{opacity:0.6;cursor:default;}'
+    '.pl-sug-gen:disabled{opacity:0.6;cursor:default;}',
+    '.pl-sug-intent-empty{color:var(--pl-faint);font-style:italic;}',
+    '.pl-sug-type-select.stretch{background:#ccfbf1;color:#0f766e;}'
   ].join('');
 
 }());
@@ -2552,7 +2557,7 @@ information about.
     wrap.dataset.idx = idx;
 
     var wt = (s.workout_type || 'rest').toLowerCase();
-    var types = ['run', 'strength', 'plyo', 'rest'];
+    var types = ['run', 'strength', 'plyo', 'stretch', 'rest'];
     var allowed = (_suggestionsData && _suggestionsData.facts && _suggestionsData.facts.allowed_offsets) || [0, 1, 2, 3, 4, 5, 6];
 
     wrap.innerHTML =
@@ -2570,7 +2575,7 @@ information about.
           '<input type="number" class="pl-sug-tss-input" data-idx="' + idx + '" min="0" max="400" value="' + (s.target_tss || 0) + '" title="Slot TSS budget — AI fills content to match"/> TSS · ' +
           '<input type="number" class="pl-sug-dur-input" data-idx="' + idx + '" min="0" max="600" step="5" value="' + (s.duration_minutes || 0) + '" title="Slot duration — AI fills content to match"/> min' +
         '</span>' +
-        '<span class="pl-sug-intent">' + esc(s.intent || '') + '</span>' +
+        '<span class="pl-sug-intent">' + (s.intent ? esc(s.intent) : '<span class="pl-sug-intent-empty">Not filled yet — ✨ generates the session</span>') + '</span>' +
         (wt !== 'rest'
           ? '<span class="pl-sug-adjust">' +
               '<button type="button" class="pl-sug-gen" data-idx="' + idx + '" title="Generate this session’s content with AI — day/type/TSS/duration stay as set">✨ ' + (s._ai ? 'Regenerate' : 'Fill with AI') + '</button>' +
@@ -2578,7 +2583,9 @@ information about.
               '<button type="button" class="pl-sug-adj" data-adj="harder" data-idx="' + idx + '" title="More sets/reps or longer — not just a higher TSS number">▴ Harder</button>' +
               '<button type="button" class="pl-sug-refine-toggle" title="Regenerate this session with a note — e.g. change focus, faster intervals">✎ Refine</button>' +
             '</span>' +
-            '<button class="pl-sug-add" type="button" data-idx="' + idx + '">Add</button>'
+            (s._added
+              ? '<button class="pl-sug-add added" type="button" disabled>✓ Added</button>'
+              : '<button class="pl-sug-add" type="button" data-idx="' + idx + '">Add</button>')
           : '') +
       '</div>' +
       (wt !== 'rest'
@@ -2695,6 +2702,7 @@ information about.
   }
 
   function _addSuggestion(s, btn) {
+    if (s._added) return;
     btn.disabled = true;
     var dateIso = _formatSugDate(s.day_offset);
     var body = {
@@ -2729,8 +2737,11 @@ information about.
     })
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
       .then(function () {
-        btn.textContent = '✓ Added';
-        btn.classList.add('added');
+        // Sticky per-slot flag — the row survives re-renders (day drags,
+        // other slots' edits) with a disabled "✓ Added" instead of reverting
+        // to an addable button.
+        s._added = true;
+        _renderSuggestions(_suggestionsData);
         if (window.TrainingPlan && window.TrainingPlan.reload) window.TrainingPlan.reload();
       })
       .catch(function () {
@@ -2746,7 +2757,13 @@ information about.
   // desktop; every property is also editable on the rail-2 row below, so
   // touch devices lose nothing.
 
-  var _TYPE_DEFAULTS = { run: { tss: 55, min: 45 }, strength: { tss: 50, min: 45 }, plyo: { tss: 40, min: 30 } };
+  var _TYPE_DEFAULTS = {
+    run: { tss: 55, min: 45 },
+    strength: { tss: 50, min: 45 },
+    plyo: { tss: 40, min: 30 },
+    stretch: { tss: 15, min: 20 },
+  };
+  var _SLOT_TYPES = ['run', 'strength', 'plyo', 'stretch'];
 
   function _slotSumHtml(data) {
     var sum = 0;
@@ -2778,18 +2795,22 @@ information about.
       suggestions.forEach(function (s, i) {
         if (s.day_offset !== d) return;
         var wt = (s.workout_type || 'rest').toLowerCase();
-        var meta = wt === 'rest' ? 'rest' : [(s.target_tss || 0) + ' TSS', (s.duration_minutes || 0) + 'm'].join(' · ');
+        var meta = wt === 'rest' ? '—' : (s.target_tss || 0) + ' TSS · ' + (s.duration_minutes || 0) + 'm';
         chips += '<div class="pl-slot-chip ' + wt + '" draggable="true" data-idx="' + i + '" title="Drag to another day — details below">' +
-          '<span class="pl-slot-type">' + wt + '</span>' +
+          '<span class="pl-slot-line1"><span class="pl-slot-type">' + wt + '</span>' +
+          '<button type="button" class="pl-slot-x" data-idx="' + i + '" title="Remove slot">×</button></span>' +
           '<span class="pl-slot-meta">' + meta + '</span>' +
-          '<button type="button" class="pl-slot-x" data-idx="' + i + '" title="Remove slot">×</button>' +
         '</div>';
       });
+      var addSel = '<select class="pl-slot-addsel" data-day="' + d + '" title="Add a slot">' +
+        '<option value="">+</option>' +
+        _SLOT_TYPES.map(function (t) { return '<option value="' + t + '">' + t + '</option>'; }).join('') +
+      '</select>';
       cols += '<div class="pl-sched-day' + (open ? '' : ' is-closed') + '" data-day="' + d + '"' +
         (open ? '' : ' title="Already scheduled, logged, or in the past"') + '>' +
         '<div class="pl-sched-day-h">' + _DAY_NAMES[d] + ' <span>' + dayDate.getDate() + '</span></div>' +
         chips +
-        (open ? '<button type="button" class="pl-slot-addbtn" data-day="' + d + '" title="Add a slot">+</button>' : '') +
+        (open ? addSel : '') +
       '</div>';
     }
 
@@ -2830,14 +2851,15 @@ information about.
         _renderSuggestions(_suggestionsData);
       });
     });
-    host.querySelectorAll('.pl-slot-addbtn').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var def = _TYPE_DEFAULTS.run;
+    host.querySelectorAll('.pl-slot-addsel').forEach(function (sel) {
+      sel.addEventListener('change', function () {
+        var t = sel.value;
+        if (!t) return;
+        var def = _TYPE_DEFAULTS[t] || _TYPE_DEFAULTS.run;
         _suggestionsData.suggestions.push({
-          day_offset: +btn.dataset.day, workout_type: 'run',
+          day_offset: +sel.dataset.day, workout_type: t,
           target_tss: def.tss, duration_minutes: def.min,
-          intent: 'New session — pick a type and fill with AI.',
-          notes: null, exercises: null, blocks: null,
+          intent: '', notes: null, exercises: null, blocks: null,
         });
         _renderSuggestions(_suggestionsData);
       });
@@ -2917,10 +2939,16 @@ information about.
     if (!suggestions.length) {
       list.innerHTML = '<span style="font-size:12px;color:var(--pl-muted);">Nothing left to suggest — the rest of this week is already scheduled.</span>';
     } else {
-      suggestions.forEach(function (s, i) {
-        if (s.workout_type === 'rest') return; // rail 1 shows rest slots
-        list.appendChild(_buildSugRow(s, i));
-      });
+      // Rows in the same Mon→Sun order as the schedule grid above — but keep
+      // each slot's ORIGINAL index (drag/drop, inputs and generate all key
+      // into the suggestions array by it).
+      suggestions
+        .map(function (s, i) { return { s: s, i: i }; })
+        .sort(function (a, b) { return a.s.day_offset - b.s.day_offset || a.i - b.i; })
+        .forEach(function (p) {
+          if (p.s.workout_type === 'rest') return; // rail 1 shows rest slots
+          list.appendChild(_buildSugRow(p.s, p.i));
+        });
     }
 
     panel.style.display = '';

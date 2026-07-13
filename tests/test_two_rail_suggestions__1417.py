@@ -49,6 +49,36 @@ def test_skeleton_slots_respect_allowed_offsets_and_rest_days():
             assert s["workout_type"] == "rest"
 
 
+def test_skeleton_slots_start_blank():
+    """Slots carry ONLY the budget (day/type/TSS/duration) — content stays
+    blank until the athlete fills a slot with AI. Pre-filled template
+    exercises read as already-generated sessions."""
+    with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)):
+        result = ps.get_suggestions("someone", skeleton=True)
+    for s in result["suggestions"]:
+        assert s["exercises"] is None
+        assert s["blocks"] is None
+        assert s["notes"] is None
+        if s["workout_type"] != "rest":
+            assert s["intent"] == ""
+    # The budget itself must survive the stripping — the week's training
+    # slots can't ALL be zero.
+    assert sum(s["target_tss"] or 0 for s in result["suggestions"]) > 0
+
+
+def test_stretch_is_a_known_workout_type():
+    assert "stretch" in ps.KNOWN_WORKOUT_TYPES
+    errs = ps.validation_errors(
+        [{"day_offset": 4, "workout_type": "stretch", "target_tss": 15,
+          "duration_minutes": 20, "intent": "mobility", "notes": None,
+          "exercises": [{"block": "Mobility", "name": "Couch stretch",
+                          "sets": 2, "reps": "45s hold", "load": "bodyweight"}],
+          "blocks": None}],
+        dict(_FACTS),
+    )
+    assert not [e for e in errs if "workout_type" in e], errs
+
+
 def test_skeleton_false_still_takes_llm_path():
     with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)), \
          mock.patch.object(ps.llm_svc, "get_or_generate", return_value=None) as llm_cache:

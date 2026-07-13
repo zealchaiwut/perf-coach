@@ -7246,7 +7246,7 @@ def delete_workout(workout_id: str, user: User = Depends(resolve_user)):
 # Distinct from Projection's ramp/taper load model (TrainingPlan/PlannedLoad).
 # Link-only: matched_workout_id → workouts.id; Log tab unchanged.
 
-_PLANNED_SESSION_TYPES = {"run", "strength", "plyo", "rest"}
+_PLANNED_SESSION_TYPES = {"run", "strength", "plyo", "stretch", "rest"}
 _PLANNED_STATUSES = {"planned", "missed", "needs_review", "done_auto", "done_manual"}
 
 

@@ -493,8 +493,8 @@ def generate_plan_session(
     week_start = target_date - _timedelta(days=target_date.weekday())
     day_offset = (target_date - week_start).days
 
-    if body.workout_type is not None and body.workout_type not in ("run", "strength", "plyo", "rest"):
-        raise HTTPException(status_code=422, detail="workout_type must be run, strength, plyo, or rest")
+    if body.workout_type is not None and body.workout_type not in ("run", "strength", "plyo", "stretch", "rest"):
+        raise HTTPException(status_code=422, detail="workout_type must be run, strength, plyo, stretch, or rest")
 
     if body.target_tss is not None and not (0 <= body.target_tss <= 400):
         raise HTTPException(status_code=422, detail="target_tss must be between 0 and 400")

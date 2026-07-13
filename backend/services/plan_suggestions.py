@@ -28,7 +28,7 @@ _log = get_logger(__name__)
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-KNOWN_WORKOUT_TYPES: frozenset[str] = frozenset({"run", "strength", "plyo", "rest"})
+KNOWN_WORKOUT_TYPES: frozenset[str] = frozenset({"run", "strength", "plyo", "stretch", "rest"})
 
 # Mirror of acwr.HIGH_BOUND — weekly TSS must not exceed trailing_avg × this.
 ACWR_HIGH_BOUND: float = 1.3
@@ -639,7 +639,7 @@ def build_prompt(facts: dict) -> tuple[str, str]:
         '[{"day_offset": 4, "workout_type": "strength", ...}, {"day_offset": 4, '
         '"workout_type": "run", ...}]. Each entry still counts toward the 7-session '
         "cap and the day's/week's TSS limits.\n"
-        "4. workout_type must be exactly one of: run, strength, plyo, rest.\n"
+        "4. workout_type must be exactly one of: run, strength, plyo, stretch, rest.\n"
         "5. Only propose sessions for these day_offsets — every other day is already "
         f"scheduled, already logged, or in the past: {allowed_str}.\n"
         f"6. Respect ramp limits: do not increase weekly TSS by more than 30% above the trailing average.{taper_note}\n"
@@ -650,7 +650,7 @@ def build_prompt(facts: dict) -> tuple[str, str]:
         "e.g. \"Legs stay fresh — Thursday is intervals.\" Null only for rest days.\n"
         f"{rest_rule}"
         f"{avoid_repeat_rule}"
-        f"{exercises_rule_n}. strength/plyo sessions: DEFAULT `exercises` array of 8-14 entries in 4-6 "
+        f"{exercises_rule_n}. strength/plyo/stretch sessions: DEFAULT `exercises` array of 8-14 entries in 4-6 "
         "blocks, 60-90min total — \"Warm-up\" (3-4 activation moves), \"Heavy compound\" (1 primary lift), "
         "\"Superset 1\"/\"Superset 2\" (2 exercises each, PAIRED opposing muscle groups, e.g. hinge+push), "
         "\"Standalone\" (1 isolation move), \"Accessories\" (2-3 core/stability moves). If the athlete's "
@@ -658,12 +658,14 @@ def build_prompt(facts: dict) -> tuple[str, str]:
         "(\"Warm-up\" + 1-2 of Heavy compound/Superset), 20-35min total — do not pad a requested-short "
         "session up to the default size. Entry = {block, name, sets, reps, load}: sets=integer; reps/load "
         "are short strings (reps: \"10\"/\"30s hold\"; load: \"bodyweight\"/\"moderate\"/\"65% 1RM "
-        "(~45kg)\"). Never empty for strength/plyo; null for run/rest.\n"
+        "(~45kg)\"). A stretch session is mobility/flexibility work: 4-8 hold/flow entries in 1-2 "
+        "blocks, 15-30min, mostly bodyweight — never barbell lifts. Never empty for "
+        "strength/plyo/stretch; null for run/rest.\n"
         f"{blocks_rule_n}. run sessions: `blocks` array (2-5 entries), one per phase, not just a duration "
         "number. Entry = {phase, duration_min, repeat, rest_min, target}: phase is warmup/main/cooldown "
         "(repeat \"main\" for multiple work segments); repeat=integer reps of that phase or null; "
         "rest_min=rest between reps or null; target=short effort/pace (\"easy\"/\"tempo\"/\"92% CP\") or "
-        "null. Easy/steady run = single non-repeated \"main\" phase. Null for strength/plyo/rest.\n"
+        "null. Easy/steady run = single non-repeated \"main\" phase. Null for strength/plyo/stretch/rest.\n"
         f"{long_run_rule_n}. The highest-target_tss run session is the week's LONG RUN — the day before it "
         "must not be another hard/interval run; use rest, easy run, or non-run instead.\n"
         f"{consec_rule_n}. No more than {_MAX_CONSECUTIVE_TRAINING_DAYS} consecutive training days without "
@@ -1329,9 +1331,23 @@ def get_suggestions(
         strength_emphasis=strength_emphasis, notes=notes,
     )
     if skeleton:
+        # Slots only — day/type/TSS/duration. Content (intent/notes/
+        # exercises/blocks) stays blank until the athlete asks for it per
+        # slot ("Fill with AI"); pre-filled template exercises read as
+        # already-generated sessions and muddy what the AI button does.
+        slots = []
+        for s in fallback_suggestions(facts):
+            is_rest = s.get("workout_type") == "rest"
+            slots.append({
+                **s,
+                "intent": s.get("intent") if is_rest else "",
+                "notes": None,
+                "exercises": None,
+                "blocks": None,
+            })
         return {
             "facts": facts,
-            "suggestions": fallback_suggestions(facts),
+            "suggestions": slots,
             "source": "skeleton",
             "attempts": 0,
             "orch": "none",
@@ -1426,13 +1442,14 @@ def build_single_session_prompt(
         f"1. day_offset MUST be {day_offset} ({day_name}) — do not move it to another day.\n"
         f"2. target_tss must be 0-400 and should not by itself push the athlete's "
         f"weekly total above {max_weekly} (their ACWR safe ceiling).\n"
-        "3. workout_type must be exactly one of: run, strength, plyo, rest"
+        "3. workout_type must be exactly one of: run, strength, plyo, stretch, rest"
         + (f" — the athlete asked for \"{workout_type}\"; use that unless their note "
            "explicitly asks for something else.\n" if workout_type else ".\n")
-        + "4. strength/plyo: include `exercises` (4-14 entries, {block, name, sets, reps, "
-        "load}); scale to a short (4-6 entries) session if the note asks for brief/quick. "
-        "run: include `blocks` (2-5 entries, {phase, duration_min, repeat, rest_min, "
-        "target}). rest: both null.\n"
+        + "4. strength/plyo/stretch: include `exercises` (4-14 entries, {block, name, sets, reps, "
+        "load}); scale to a short (4-6 entries) session if the note asks for brief/quick; a "
+        "stretch session is mobility/flexibility holds and flows, mostly bodyweight, never "
+        "barbell lifts. run: include `blocks` (2-5 entries, {phase, duration_min, repeat, "
+        "rest_min, target}). rest: both null.\n"
         "5. `notes` = terse coach rationale for this session, or null for rest.\n"
         f"{budget_rule}"
     )
