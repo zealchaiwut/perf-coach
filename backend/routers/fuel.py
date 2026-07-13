@@ -18,7 +18,6 @@ from backend.db import engine
 from backend.models import FuelEntry, WeightEntry
 from backend.services import cut_review as _cut_review
 from backend.services import fuel as _svc
-from backend.services import cut_review as _cut_review
 from backend.services import weight_plans_repo as _wp_repo
 
 router = APIRouter()
