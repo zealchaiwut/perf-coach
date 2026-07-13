@@ -426,14 +426,24 @@
     if (corrEl) {
       var pct = data && typeof data.correction_pct === "number" ? data.correction_pct : null;
       var n = (data && data.n_calibrations) || 0;
+      // Full sentence on desktop, compact form on phones where this tile is
+      // a quarter of the row (.pm-lab-full/.pm-lab-short flip at 720px).
+      function dual(full, short) {
+        corrEl.innerHTML =
+          '<span class="pm-lab-full">' + full + "</span>" +
+          '<span class="pm-lab-short" title="' + full.replace(/"/g, "&quot;") + '">' + short + "</span>";
+      }
+      var races = n + " race" + (n === 1 ? "" : "s");
       if (pct === null || n === 0) {
-        corrEl.innerHTML = '<span class="pm-italic">No finished races yet</span>';
+        corrEl.innerHTML =
+          '<span class="pm-italic"><span class="pm-lab-full">No finished races yet</span>' +
+          '<span class="pm-lab-short">None yet</span></span>';
       } else if (Math.abs(pct) < 0.05) {
-        corrEl.textContent = "None needed (" + n + " race" + (n === 1 ? "" : "s") + ")";
+        dual("None needed (" + races + ")", "None (" + n + ")");
       } else {
+        var sign = pct > 0 ? "+" : "";
         var dirTxt = pct > 0 ? "model ran optimistic" : "model ran pessimistic";
-        corrEl.textContent = (pct > 0 ? "+" : "") + pct + "% — " + dirTxt +
-          " (" + n + " race" + (n === 1 ? "" : "s") + ")";
+        dual(sign + pct + "% — " + dirTxt + " (" + races + ")", sign + pct + "% (" + n + ")");
       }
     }
   }
