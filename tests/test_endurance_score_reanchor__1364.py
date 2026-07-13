@@ -106,14 +106,14 @@ class TestAbortedSessionGuardBoundary:
             total_duration_s=float(MIN_ENDURANCE_QUALIFYING_SESSION_SECONDS),
         )
         score_without = compute_endurance_score(baseline, _prefs(), _zc())["score"]
-        score_with = compute_endurance_score(
+        result_with = compute_endurance_score(
             baseline + [threshold_run], _prefs(), _zc()
-        )["score"]
+        )
+        score_with = result_with["score"]
         # The threshold run must not enter the pool — score unchanged.
-        assert "score" in compute_endurance_score(baseline + [threshold_run], _prefs(), _zc())
+        assert score_without == score_with
         # The pool is unchanged so the run_contributions for this id should NOT appear.
-        result = compute_endurance_score(baseline + [threshold_run], _prefs(), _zc())
-        assert "at-threshold" not in result.get("run_contributions", {})
+        assert "at-threshold" not in result_with.get("run_contributions", {})
 
     def test_run_below_threshold_is_excluded(self):
         """A session duration < threshold must not contribute to the endurance pool."""
