@@ -6365,6 +6365,16 @@
         grid-template-columns: 1fr 1fr;
         gap: 16px;
       }
+      /* Grid items default to min-width:auto, so the nowrap equation line's
+         intrinsic width blows the cards (and the page) out sideways. */
+      .perf-scorewrap > .perf-card {
+        min-width: 0;
+      }
+      @media (max-width: 700px) {
+        .perf-scorewrap {
+          grid-template-columns: 1fr;
+        }
+      }
       .perf-bigscore {
         display: flex;
         align-items: baseline;
@@ -6429,6 +6439,15 @@
         margin-bottom: 6px;
         white-space: nowrap;
         overflow-x: auto;
+      }
+      /* Mobile: wrap the equation instead of side-scrolling it. */
+      @media (max-width: 560px) {
+        .perf-eq {
+          white-space: normal;
+          overflow-x: visible;
+          font-size: 11.5px;
+          line-height: 1.5;
+        }
       }
       .perf-eq .lbl, .perf-anchor-foot .lbl { color: var(--perf-faint); font-size: 11px; font-weight: 400; }
       .perf-eq .loss, .perf-anchor-foot .loss { color: var(--perf-loss); font-weight: 700; }
