@@ -228,6 +228,44 @@ def test_build_prompt_mentions_notes():
     assert "easing back after a cold" in user_p
 
 
+def test_build_prompt_notes_get_a_binding_rule():
+    """With notes present, the system prompt must carry a numbered rule making
+    them binding scheduling constraints — without it the generic phase-mix
+    template outranks the athlete's own day/type requests (observed: "run
+    Tue, long run Sat, strength Sun" answered with strength Tue/Sat)."""
+    facts = {**_old_style_facts(), "notes": "run Tue, strength Fri"}
+    sys_p, _ = ps.build_prompt(facts)
+    assert "BINDING scheduling constraints" in sys_p
+    # Rule numbering must stay contiguous (no duplicate/skipped numbers).
+    import re
+    nums = [int(m.group(1)) for m in re.finditer(r"^(\d+)\. ", sys_p, re.M)]
+    assert nums == list(range(1, len(nums) + 1)), nums
+
+
+def test_build_prompt_no_binding_rule_without_notes():
+    sys_p, _ = ps.build_prompt({**_old_style_facts(), "notes": None})
+    assert "BINDING scheduling constraints" not in sys_p
+    import re
+    nums = [int(m.group(1)) for m in re.finditer(r"^(\d+)\. ", sys_p, re.M)]
+    assert nums == list(range(1, len(nums) + 1)), nums
+
+
+def test_build_prompt_notes_emit_day_date_mapping():
+    """Day-name language in notes ("Tue", "Sat") must be anchored by the full
+    offset<->day<->date table — today_offset alone is None for a next-week
+    request, leaving the model to guess the mapping."""
+    facts = {
+        **_old_style_facts(),
+        "notes": "run Tue, long run Sat",
+        "week_start": "2026-07-13",
+        "today_offset": None,
+    }
+    _, user_p = ps.build_prompt(facts)
+    assert "Target week day mapping" in user_p
+    assert "1=Tuesday 2026-07-14" in user_p
+    assert "5=Saturday 2026-07-18" in user_p
+
+
 def test_build_prompt_mentions_long_run_and_consecutive_rules():
     sys_p, _ = ps.build_prompt(_old_style_facts())
     assert "long run" in sys_p.lower()
