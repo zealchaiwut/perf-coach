@@ -265,6 +265,84 @@ def _gather_training_verdict(user_id: uuid.UUID, today: datetime.date) -> str | 
         return None
 
 
+def _gather_injury_log(db, user_id: uuid.UUID, today: datetime.date) -> list[dict]:
+    """Query injury_log entries for the last 90 days (window for recurrent_niggle_area)."""
+    cutoff = today - datetime.timedelta(days=90)
+    rows = db.execute(
+        text("""
+            SELECT body_area, severity, started_on, ended_on
+            FROM injury_log
+            WHERE user_id = :uid
+              AND started_on >= :cutoff
+            ORDER BY started_on DESC
+        """),
+        {"uid": str(user_id), "cutoff": cutoff.isoformat()},
+    ).fetchall()
+    result = []
+    for body_area, severity, started_on, ended_on in rows:
+        result.append({
+            "body_area": body_area,
+            "severity": severity,
+            "started_on": started_on.isoformat() if hasattr(started_on, "isoformat") else str(started_on),
+            "ended_on": ended_on.isoformat() if ended_on and hasattr(ended_on, "isoformat") else (str(ended_on) if ended_on else None),
+        })
+    return result
+
+
+def _gather_muscle_volume(db, user_id: uuid.UUID, today: datetime.date) -> list[dict]:
+    """Query muscle_load_daily grouped by week and muscle_group for the last 8 weeks."""
+    cutoff = today - datetime.timedelta(weeks=8)
+    rows = db.execute(
+        text("""
+            SELECT
+                DATE_TRUNC('week', load_date)::date AS week_start,
+                muscle_group,
+                SUM(CAST(load AS double precision)) AS weekly_load
+            FROM muscle_load_daily
+            WHERE user_id = :uid
+              AND load_date >= :cutoff
+            GROUP BY DATE_TRUNC('week', load_date)::date, muscle_group
+            ORDER BY week_start, muscle_group
+        """),
+        {"uid": str(user_id), "cutoff": cutoff.isoformat()},
+    ).fetchall()
+    result = []
+    for ws, muscle_group, weekly_load in rows:
+        result.append({
+            "week_start": ws.isoformat() if hasattr(ws, "isoformat") else str(ws),
+            "muscle_group": muscle_group,
+            "weekly_load": float(weekly_load) if weekly_load is not None else 0.0,
+        })
+    return result
+
+
+def _gather_training_load(db, user_id: uuid.UUID, today: datetime.date) -> dict:
+    """Query weekly running TSS for the last 8 weeks from workouts table."""
+    cutoff = today - datetime.timedelta(weeks=8)
+    rows = db.execute(
+        text("""
+            SELECT
+                DATE_TRUNC('week', workout_date)::date AS week_start,
+                SUM(COALESCE(tss, 0)) AS running_tss
+            FROM workouts
+            WHERE user_id = :uid
+              AND workout_type = 'run'
+              AND workout_date >= :cutoff
+            GROUP BY DATE_TRUNC('week', workout_date)::date
+            ORDER BY week_start
+        """),
+        {"uid": str(user_id), "cutoff": cutoff.isoformat()},
+    ).fetchall()
+    weekly = [
+        {
+            "week_start": ws.isoformat() if hasattr(ws, "isoformat") else str(ws),
+            "running_tss": float(tss) if tss is not None else 0.0,
+        }
+        for ws, tss in rows
+    ]
+    return {"weekly": weekly}
+
+
 def _gather_inputs(db, user_id: uuid.UUID, today: datetime.date, week_start: datetime.date) -> dict:
     """Collect available inputs for the rules engine.
 
@@ -317,6 +395,24 @@ def _gather_inputs(db, user_id: uuid.UUID, today: datetime.date, week_start: dat
         inputs["quality_sessions_3w"] = _gather_quality_sessions_3w(db, user_id, today)
     except Exception:
         _log.warning("quality_sessions_3w unavailable for gap analysis", exc_info=True)
+
+    # injury_log (issue #1373): recent niggle/injury entries for structural rules
+    try:
+        inputs["injury_log"] = _gather_injury_log(db, user_id, today)
+    except Exception:
+        _log.warning("injury_log unavailable for gap analysis", exc_info=True)
+
+    # muscle_volume (issue #1373): weekly strength volume by muscle group
+    try:
+        inputs["muscle_volume"] = _gather_muscle_volume(db, user_id, today)
+    except Exception:
+        _log.warning("muscle_volume unavailable for gap analysis", exc_info=True)
+
+    # training_load (issue #1373): weekly running TSS for ramp detection
+    try:
+        inputs["training_load"] = _gather_training_load(db, user_id, today)
+    except Exception:
+        _log.warning("training_load unavailable for gap analysis", exc_info=True)
 
     return inputs
 
@@ -431,6 +527,19 @@ def _register_builtin_rules() -> None:
     _REGISTRY.register(requires=["intensity_4w"])(intensity_too_hard)
     _REGISTRY.register(requires=["long_run_decoupling_4w"])(aerobic_durability_gap)
     _REGISTRY.register(requires=["speed_score_history_8w", "quality_sessions_3w"])(speed_neglected)
+
+    # issue #1373: structural rules — registered after run-economy rules so that
+    # strength_lapsed (severity 1) sees the higher-severity findings first
+    from backend.services.gap_analysis.rules.recurrent_niggle_area import recurrent_niggle_area
+    _REGISTRY.register(requires=["injury_log"])(recurrent_niggle_area)
+
+    from backend.services.gap_analysis.rules.undertrained_area_under_ramp import undertrained_area_under_ramp
+    _REGISTRY.register(requires=["muscle_volume", "training_load"])(undertrained_area_under_ramp)
+
+    # strength_lapsed registered last — it reads other_findings_codes populated by
+    # the registry as prior rules execute
+    from backend.services.gap_analysis.rules.strength_lapsed import strength_lapsed
+    _REGISTRY.register(requires=["structural_dose"])(strength_lapsed)
 
 
 _register_builtin_rules()
