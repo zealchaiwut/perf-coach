@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import time
 
 import httpx
 
@@ -92,36 +94,56 @@ def complete_structured(
     if max_tokens is not None:
         payload["max_completion_tokens"] = max_tokens
 
-    try:
-        resp = httpx.post(
-            _GROQ_URL,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-            timeout=httpx.Timeout(60.0, connect=10.0),
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        content = data["choices"][0]["message"]["content"]
-        return json.loads(content)
-    except Exception as exc:
-        # Groq puts the actual failure reason (json_validate_failed,
-        # rate_limit details, context length) in the response BODY — without
-        # it a 400/429 in the log is undiagnosable.
-        body = ""
-        response = getattr(exc, "response", None)
-        if response is not None:
-            try:
-                body = response.text[:500]
-            except Exception:
-                body = ""
-        _log.warning(
-            "LLM request failed",
-            extra={"error": str(exc), "model": model, "response_body": body},
-        )
-        return None
+    # One extra try, only for 429: Groq's free tier enforces a small
+    # tokens-per-minute budget and PRE-BOOKS prompt + max_completion_tokens
+    # against it, so back-to-back structured calls (e.g. "Fill sessions with
+    # AI" walking a week of slots) reliably 429 with a "try again in Ns"
+    # hint. Sleeping out that hint and retrying once turns a dead slot into
+    # a slow one. Non-429 failures never retry here — callers own that.
+    attempts = 2
+    for attempt in range(attempts):
+        try:
+            resp = httpx.post(
+                _GROQ_URL,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=httpx.Timeout(60.0, connect=10.0),
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            content = data["choices"][0]["message"]["content"]
+            return json.loads(content)
+        except Exception as exc:
+            # Groq puts the actual failure reason (json_validate_failed,
+            # rate_limit details, context length) in the response BODY —
+            # without it a 400/429 in the log is undiagnosable.
+            body = ""
+            status = None
+            response = getattr(exc, "response", None)
+            if response is not None:
+                status = getattr(response, "status_code", None)
+                try:
+                    body = response.text[:500]
+                except Exception:
+                    body = ""
+            if status == 429 and attempt + 1 < attempts:
+                m = re.search(r"try again in ([0-9.]+)s", body)
+                wait = min(float(m.group(1)) if m else 20.0, 75.0) + 1.0
+                _log.warning(
+                    "LLM rate-limited — waiting to retry",
+                    extra={"model": model, "wait_seconds": wait},
+                )
+                time.sleep(wait)
+                continue
+            _log.warning(
+                "LLM request failed",
+                extra={"error": str(exc), "model": model, "response_body": body},
+            )
+            return None
+    return None
 
 
 def get_or_generate(

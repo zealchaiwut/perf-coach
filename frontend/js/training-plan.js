@@ -2427,6 +2427,7 @@ information about.
     '.pl-sug-gen:hover{background:var(--pl-blueSoft);}',
     '.pl-sug-gen:disabled{opacity:0.6;cursor:default;}',
     '.pl-sug-intent-empty{color:var(--pl-faint);font-style:italic;}',
+    '.pl-rail-note{font-size:11.5px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:6px 10px;margin-bottom:8px;}',
     '.pl-sug-type-select.stretch{background:#ccfbf1;color:#0f766e;}'
   ].join('');
 
@@ -2821,6 +2822,7 @@ information about.
         '<span class="pl-rail-sum">' + _slotSumHtml(data) + '</span>' +
         '<button type="button" class="pl-btn pl-lime pl-fill-all"' + (anyUnfilled ? '' : ' disabled') + '>✨ Fill sessions with AI</button>' +
       '</div>' +
+      (data._fillNote ? '<div class="pl-rail-note">' + esc(data._fillNote) + '</div>' : '') +
       '<div class="pl-sched-grid">' + cols + '</div>';
 
     // Drag & drop between day columns.
@@ -2899,8 +2901,11 @@ information about.
       });
   }
 
-  // Sequential, not parallel — Groq rate-limits burst traffic (observed 429s
-  // on the whole-week path), and one slot at a time gives visible progress.
+  // Sequential, not parallel — Groq's free tier enforces a per-minute token
+  // budget that a burst of slots blows through instantly (observed: first
+  // slot fills, every later one 429s). The backend now sleeps out Groq's
+  // "try again in Ns" hint once per call, so each slot can take up to a
+  // minute or so — the progress label carries that.
   function _fillAllSlots() {
     var slots = (_suggestionsData.suggestions || []).filter(function (s) {
       return s.workout_type !== 'rest' && !s._ai;
@@ -2908,16 +2913,26 @@ information about.
     var loading = _el('plan-suggestions-loading');
     var label = loading ? loading.querySelector('span') : null;
     if (loading) loading.style.display = '';
-    var done = 0;
+    var done = 0, failed = 0;
     var chain = Promise.resolve();
     slots.forEach(function (s) {
       chain = chain.then(function () {
-        if (label) label.textContent = 'Filling session ' + (done + 1) + ' of ' + slots.length + '…';
-        return _generateSlot(s).then(function () { done++; }, function () { done++; /* keep going; row keeps template */ });
+        if (label) {
+          label.textContent = 'Filling session ' + (done + failed + 1) + ' of ' + slots.length +
+            '… (the AI provider rate-limits — a slot can take up to a minute)';
+        }
+        return _generateSlot(s).then(
+          function () { done++; },
+          function () { failed++; /* keep going; row keeps its blank slot */ }
+        );
       });
     });
     chain.then(function () {
       if (loading) loading.style.display = 'none';
+      _suggestionsData._fillNote = failed
+        ? 'Filled ' + done + ' of ' + slots.length + ' — the AI provider rate-limited the rest. ' +
+          'Wait a minute and press ✨ Fill sessions with AI again; already-filled sessions are kept.'
+        : '';
       _renderSuggestions(_suggestionsData);
     });
   }
