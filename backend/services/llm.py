@@ -173,6 +173,18 @@ def complete_structured(
             )
             resp.raise_for_status()
             data = resp.json()
+            usage = data.get("usage") or {}
+            _log.info(
+                "LLM call ok",
+                extra={
+                    "provider": provider,
+                    "model": model,
+                    "schema": schema_name,
+                    "prompt_tokens": usage.get("prompt_tokens"),
+                    "completion_tokens": usage.get("completion_tokens"),
+                    "total_tokens": usage.get("total_tokens"),
+                },
+            )
             content = data["choices"][0]["message"]["content"] or ""
             # json_object mode (GLM) is not strict — some generations wrap the
             # object in markdown fences; strip them before parsing.
