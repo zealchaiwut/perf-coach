@@ -513,6 +513,89 @@ function _fuelInitPlanMismatch() {
   });
 }
 
+// ── Weekly cut review ─────────────────────────────────────────────────────
+
+const _CUT_REVIEW_LABELS = {
+  insufficient_data: 'Not enough data yet',
+  slow_down: 'Slow down — losing too fast',
+  on_track: 'On track',
+  check_logging: 'Log food more consistently',
+  recalibrate_maintenance: 'Consider recalibrating maintenance',
+  increase_deficit: 'Behind plan — consider a small cut',
+  ease_off: 'Ahead of plan — ease off',
+};
+
+async function _fuelLoadWeeklyReview() {
+  const card = document.getElementById('cut-review-card');
+  if (!card) return;
+  try {
+    const data = await apiFetch('/api/fuel/weekly-review');
+    _fuelRenderWeeklyReview(data);
+  } catch (e) {
+    if (e.message !== 'auth') {
+      const loading = document.getElementById('cut-review-loading');
+      if (loading) loading.textContent = 'Review unavailable.';
+    }
+  }
+}
+
+function _fuelRenderWeeklyReview(d) {
+  const loading = document.getElementById('cut-review-loading');
+  const body = document.getElementById('cut-review-body');
+  const badge = document.getElementById('cut-review-badge');
+  if (!body) return;
+
+  if (loading) loading.hidden = true;
+  body.hidden = false;
+
+  const rec = d.recommendation;
+  const headline = document.getElementById('cut-review-headline');
+  if (headline) headline.textContent = _CUT_REVIEW_LABELS[rec] || rec;
+
+  const action = document.getElementById('cut-review-action');
+  if (action) action.textContent = d.action || '';
+
+  const actualEl = document.getElementById('cut-review-actual-rate');
+  if (actualEl) {
+    if (d.actual_rate_kg_per_week != null) {
+      const val = Math.abs(d.actual_rate_kg_per_week).toFixed(2);
+      const sign = d.actual_rate_kg_per_week < 0 ? '−' : '+';
+      actualEl.textContent = sign + val;
+    } else {
+      actualEl.textContent = '—';
+    }
+  }
+
+  const planEl = document.getElementById('cut-review-plan-rate');
+  if (planEl) {
+    if (d.plan_rate_kg_per_week != null) {
+      const val = Math.abs(d.plan_rate_kg_per_week).toFixed(2);
+      const sign = d.plan_rate_kg_per_week < 0 ? '−' : '+';
+      planEl.textContent = sign + val;
+    } else {
+      planEl.textContent = '—';
+    }
+  }
+
+  const adherenceEl = document.getElementById('cut-review-adherence');
+  if (adherenceEl) adherenceEl.textContent = Math.round(d.logging_adherence_pct) + '%';
+
+  if (badge) {
+    badge.textContent = rec.replace(/_/g, ' ');
+    const colorMap = {
+      on_track: 'on-target',
+      insufficient_data: '',
+      slow_down: 'reduced',
+      ease_off: 'reduced',
+      increase_deficit: '',
+      check_logging: '',
+      recalibrate_maintenance: '',
+    };
+    badge.className = 'fuel-deficit-chip ' + (colorMap[rec] || '');
+    badge.style.display = '';
+  }
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -524,4 +607,5 @@ document.addEventListener('DOMContentLoaded', () => {
   _fuelLoadToday();
   _fuelLoadWeek();
   _fuelLoadPlanMismatch();
+  _fuelLoadWeeklyReview();
 });

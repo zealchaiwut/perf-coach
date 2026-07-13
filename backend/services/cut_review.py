@@ -1,10 +1,7 @@
 """Weekly cut review: compares actual EWMA loss rate against the active plan (issue #1355).
-Lean-mass guard added in issue #1359.
 
 Exposes:
   compute_cut_recommendation(**kwargs) -> dict   — pure function, unit-tested
-  compute_losing_lean_mass_flag(readings) -> bool — pure: two bf readings ≥14d apart,
-                                                    lean fell >0.3 kg and weight also fell
   get_weekly_review(user_id, as_of_date, db)     — DB-backed computation for the endpoint
 
 The recommendation enum (first match wins):
@@ -33,52 +30,26 @@ from backend.services.weight_ewma_rate import compute_weekly_pct_bw_rate_of_chan
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
 
+# kg/wk tolerance for on_track: |actual − plan| <= this → on_track
 ON_TRACK_TOLERANCE_KG: float = 0.10
+
+# kg/wk lead beyond which the user is going too fast — recommend ease_off
 EASE_OFF_THRESHOLD_KG: float = 0.15
+
+# Fuel-logging adherence floor; below this we can't diagnose intake vs deficit
 MIN_ADHERENCE_PCT: float = 70.0
+
+# Minimum weigh-ins in the last 14 days to produce a reliable recommendation
 MIN_WEIGH_INS_14D: int = 4
+
+# "Eating at budget" tolerance: avg intake within this many kcal below budget
 AT_BUDGET_TOLERANCE_KCAL: float = 100.0
+
+# Consecutive weeks behind plan needed to suggest recalibrate_maintenance
 RECALIBRATE_WEEKS_THRESHOLD: int = 3
+
+# kcal step for increase / ease suggestions
 DEFICIT_STEP_KCAL: int = 100
-
-# Lean-mass guard threshold (issue #1359)
-LEAN_MASS_LOSS_THRESHOLD_KG: float = 0.3
-LEAN_MASS_MIN_DAYS_APART: int = 14
-
-
-# ── Lean-mass guard (issue #1359) ─────────────────────────────────────────────
-
-def compute_losing_lean_mass_flag(readings: list) -> bool:
-    """Return True when two body-fat readings ≥14 days apart show lean mass
-    falling >0.3 kg while total weight also fell.
-
-    readings: list of dicts with keys 'date' (datetime.date), 'body_fat_pct'
-              (float, as a percentage 0–100), 'weight_kg' (float).
-    Returns False when there are fewer than two readings or no pair is ≥14 days apart.
-    """
-    if len(readings) < 2:
-        return False
-
-    sorted_readings = sorted(readings, key=lambda r: r["date"])
-    older = sorted_readings[0]
-    newer = sorted_readings[-1]
-
-    days_apart = (newer["date"] - older["date"]).days
-    if days_apart < LEAN_MASS_MIN_DAYS_APART:
-        return False
-
-    bf_older = float(older["body_fat_pct"])
-    bf_newer = float(newer["body_fat_pct"])
-    w_older = float(older["weight_kg"])
-    w_newer = float(newer["weight_kg"])
-
-    lean_older = w_older * (1.0 - bf_older / 100.0)
-    lean_newer = w_newer * (1.0 - bf_newer / 100.0)
-
-    lean_loss = lean_older - lean_newer
-    weight_fell = w_newer < w_older
-
-    return lean_loss > LEAN_MASS_LOSS_THRESHOLD_KG and weight_fell
 
 
 # ── Pure recommendation function ──────────────────────────────────────────────
@@ -96,26 +67,32 @@ def compute_cut_recommendation(
     consecutive_weeks_behind: int,
     pct_logged_days_at_or_under_budget: float,
     current_deficit_kcal: int,
-    losing_lean_mass: bool = False,
 ) -> dict:
-    """Return recommendation, action text, optional deficit step, and losing_lean_mass flag.
+    """Return recommendation, action text, and optional deficit step.
 
     Parameters
     ----------
     actual_rate_kg_per_week:
-        Signed: negative = losing weight.
+        Signed: negative = losing weight (matches WeightPlan.target_rate_kg_per_week convention).
     plan_rate_kg_per_week:
-        Signed: negative = losing weight.
+        Signed: negative = losing weight (from WeightPlan.target_rate_kg_per_week).
     weekly_pct_bw_rate:
-        Signed: negative = losing (%BW/wk).
+        Signed: negative = losing (%BW/wk), same convention as body_modifier inputs.
     ea_proxy:
         Energy-availability proxy in [0, 1] from daily_metrics.energy.
-    losing_lean_mass:
-        True when the lean-mass guard (issue #1359) detects falling lean mass
-        alongside falling total weight — appended to the payload as a warning
-        flag; does not change recommendation precedence.
+    logging_adherence_pct:
+        Days with a fuel entry in the trailing 7 days / 7 × 100.
+    avg_intake_vs_budget_kcal:
+        Average of (eaten_kcal − budget_kcal) over logged days in trailing 7 days.
+        Negative = eating under budget.
+    consecutive_weeks_behind:
+        Count of most-recent consecutive weeks where actual loss rate < plan rate.
+    pct_logged_days_at_or_under_budget:
+        % of logged days (last 7d) where eaten_kcal <= budget_kcal.
+    current_deficit_kcal:
+        The user's current deficit setting (used to clamp increase suggestions).
     """
-    # 1. Insufficient data
+    # 1. Insufficient data — no reliable recommendation possible
     if weigh_in_count_14d < MIN_WEIGH_INS_14D or not has_active_plan:
         return {
             "recommendation": "insufficient_data",
@@ -124,10 +101,9 @@ def compute_cut_recommendation(
                 "to get a weekly review."
             ),
             "suggested_deficit_delta_kcal": None,
-            "losing_lean_mass": losing_lean_mass,
         }
 
-    # 2. Slow down — guardrail takes absolute priority
+    # 2. Slow down — guardrail takes absolute priority over all deficit logic
     guardrail = compute_body_modifier_guardrail(
         weekly_pct_bw_rate=weekly_pct_bw_rate,
         ea_proxy=ea_proxy,
@@ -140,22 +116,23 @@ def compute_cut_recommendation(
                 "risks muscle loss and performance."
             ),
             "suggested_deficit_delta_kcal": -DEFICIT_STEP_KCAL,
-            "losing_lean_mass": losing_lean_mass,
         }
 
-    # 3. On track
+    # 3. On track — within tolerance of the plan rate
     if abs(actual_rate_kg_per_week - plan_rate_kg_per_week) <= ON_TRACK_TOLERANCE_KG:
         return {
             "recommendation": "on_track",
             "action": "Keep going — your loss rate is matching the plan.",
             "suggested_deficit_delta_kcal": None,
-            "losing_lean_mass": losing_lean_mass,
         }
 
+    # Determine direction relative to plan
+    # behind = losing less than planned (actual is less negative than plan)
     behind = actual_rate_kg_per_week > plan_rate_kg_per_week
+    # ahead = losing more than planned (actual is more negative than plan)
     ahead = actual_rate_kg_per_week < plan_rate_kg_per_week
 
-    # 4. Check logging
+    # 4. Check logging — behind plan but can't diagnose without sufficient logs
     if behind and logging_adherence_pct < MIN_ADHERENCE_PCT:
         return {
             "recommendation": "check_logging",
@@ -164,10 +141,9 @@ def compute_cut_recommendation(
                 "to diagnose the gap."
             ),
             "suggested_deficit_delta_kcal": None,
-            "losing_lean_mass": losing_lean_mass,
         }
 
-    # 5. Recalibrate maintenance
+    # 5. Recalibrate maintenance — persistently behind despite eating at budget
     if (
         behind
         and consecutive_weeks_behind >= RECALIBRATE_WEEKS_THRESHOLD
@@ -180,10 +156,9 @@ def compute_cut_recommendation(
                 "Use 'Calibrate from history' in Fuel settings."
             ),
             "suggested_deficit_delta_kcal": None,
-            "losing_lean_mass": losing_lean_mass,
         }
 
-    # 6. Increase deficit
+    # 6. Increase deficit — behind plan, adherence OK, eating at budget
     if behind:
         at_budget = avg_intake_vs_budget_kcal >= -AT_BUDGET_TOLERANCE_KCAL
         if at_budget:
@@ -197,10 +172,9 @@ def compute_cut_recommendation(
                         f"(to {clamped} kcal/day)."
                     ),
                     "suggested_deficit_delta_kcal": DEFICIT_STEP_KCAL,
-                    "losing_lean_mass": losing_lean_mass,
                 }
 
-    # 7. Ease off
+    # 7. Ease off — ahead of plan by more than the threshold
     if ahead and (plan_rate_kg_per_week - actual_rate_kg_per_week) > EASE_OFF_THRESHOLD_KG:
         return {
             "recommendation": "ease_off",
@@ -208,15 +182,13 @@ def compute_cut_recommendation(
                 f"Reduce your deficit by {DEFICIT_STEP_KCAL} kcal to slow the pace."
             ),
             "suggested_deficit_delta_kcal": -DEFICIT_STEP_KCAL,
-            "losing_lean_mass": losing_lean_mass,
         }
 
-    # Fallback
+    # Fallback (ahead by ≤ 0.15, or increase capped at 750)
     return {
         "recommendation": "on_track",
         "action": "Keep going — your loss rate is close to plan.",
         "suggested_deficit_delta_kcal": None,
-        "losing_lean_mass": losing_lean_mass,
     }
 
 
@@ -227,15 +199,17 @@ def get_weekly_review(
     as_of_date: Optional[_date] = None,
     db: Optional[Session] = None,
 ) -> dict:
-    """Fetch trailing 7 / 21 day data from the DB and compute the weekly review."""
-    from backend.models import BodyMeasurement, FuelEntry, WeightEntry, WeightPlan
+    """Fetch trailing 7 / 21 day data from the DB and compute the weekly review.
+
+    Returns a dict suitable for direct JSON serialisation.
+    """
+    from backend.models import FuelEntry, WeightEntry, WeightPlan
     from sqlalchemy import text
 
     today = as_of_date or _date.today()
     window_7d_start = today - timedelta(days=7)
     window_14d_start = today - timedelta(days=14)
     window_21d_start = today - timedelta(days=21)
-    window_60d_start = today - timedelta(days=60)
 
     owns_db = db is None
     db = db or Session(engine)
@@ -247,11 +221,7 @@ def get_weekly_review(
             .first()
         )
         has_plan = plan is not None
-        plan_rate = (
-            float(plan.target_rate_kg_per_week)
-            if (plan and plan.target_rate_kg_per_week is not None)
-            else None
-        )
+        plan_rate = float(plan.target_rate_kg_per_week) if (plan and plan.target_rate_kg_per_week is not None) else None
         current_deficit_kcal = 0
 
         settings_row = get_or_create_settings(user_id, db=db)
@@ -270,16 +240,22 @@ def get_weekly_review(
             .all()
         )
 
+        # Deduplicate to one entry per date (latest if multiple)
         by_day: dict = {}
         for w in weight_rows:
             by_day[w.entry_date] = float(w.weight_kg)
         sorted_entries = sorted(by_day.items())
 
-        weigh_in_count_14d = sum(1 for d, _ in sorted_entries if d >= window_14d_start)
+        # Weigh-in count for last 14 days
+        weigh_in_count_14d = sum(
+            1 for d, _ in sorted_entries if d >= window_14d_start
+        )
 
+        # ── EWMA over 21d and weekly rate computation ─────────────────────────
         ewma_entries = [{"date": d, "weight_kg": w} for d, w in sorted_entries]
         ewma_values = compute_ewma(ewma_entries) if ewma_entries else []
 
+        # 7-day actual rate: use all EWMA values (seeded from full 21d window)
         pct_rate_7d: Optional[float] = None
         actual_rate_kg_per_week: Optional[float] = None
         weekly_pct_bw_rate: float = 0.0
@@ -293,8 +269,9 @@ def get_weekly_review(
         # ── 3-week consecutive behind check ───────────────────────────────────
         consecutive_weeks_behind = 0
         if plan_rate is not None and actual_rate_kg_per_week is not None:
+            # Split 21d into 3 non-overlapping 7-day buckets (newest first)
             week_buckets = [
-                (today - timedelta(days=7), today),
+                (today - timedelta(days=7), today),           # last 7d
                 (today - timedelta(days=14), today - timedelta(days=7)),
                 (today - timedelta(days=21), today - timedelta(days=14)),
             ]
@@ -306,19 +283,20 @@ def get_weekly_review(
                     if w_start <= d <= w_end
                 ]
                 if len(week_entries) < 2:
-                    break
+                    break  # can't assess this week — stop counting streak
                 week_ewma = compute_ewma(week_entries)
                 week_pct = compute_weekly_pct_bw_rate_of_change(week_ewma)
                 if week_pct is None:
                     break
                 week_rate_kg = (week_pct / 100.0) * week_entries[0]["weight_kg"]
+                # behind = losing less than planned (actual less negative than plan)
                 if week_rate_kg > plan_rate:
                     streak += 1
                 else:
                     break
             consecutive_weeks_behind = streak
 
-        # ── Fuel entries (7-day window) ───────────────────────────────────────
+        # ── Fuel entries (7-day window for adherence and intake vs budget) ────
         fuel_rows = (
             db.query(FuelEntry)
             .filter(
@@ -329,6 +307,7 @@ def get_weekly_review(
             .all()
         )
 
+        # Compute budget per logged day (base + burn − deficit)
         logged_day_intakes = []
         logged_day_budgets = []
         for fe in fuel_rows:
@@ -373,81 +352,29 @@ def get_weekly_review(
             avg_energy = sum(float(r[0]) for r in energy_rows) / len(energy_rows)
             ea_proxy = (avg_energy - 1.0) / 4.0
 
-        # ── Lean-mass guard (issue #1359) ────────────────────────────────────
-        # Fetch body-fat readings within 60 days; pair oldest + newest in window
-        # to check for lean mass loss during a cut.
-        bf_rows = (
-            db.query(BodyMeasurement)
-            .filter(
-                BodyMeasurement.user_id == user_id,
-                BodyMeasurement.measure_date >= window_60d_start,
-                BodyMeasurement.measure_date <= today,
-                BodyMeasurement.body_fat_pct.isnot(None),
-            )
-            .order_by(BodyMeasurement.measure_date.asc())
-            .all()
-        )
-
-        all_weight_rows_60d = (
-            db.query(WeightEntry)
-            .filter(
-                WeightEntry.user_id == user_id,
-                WeightEntry.entry_date >= window_60d_start,
-                WeightEntry.entry_date <= today,
-            )
-            .order_by(WeightEntry.entry_date.asc())
-            .all()
-        )
-        weight_by_day_60d: dict = {}
-        for w in all_weight_rows_60d:
-            weight_by_day_60d[w.entry_date] = float(w.weight_kg)
-
-        bf_readings_for_guard = []
-        for row in bf_rows:
-            w = weight_by_day_60d.get(row.measure_date)
-            if w is not None:
-                bf_readings_for_guard.append({
-                    "date": row.measure_date,
-                    "body_fat_pct": float(row.body_fat_pct),
-                    "weight_kg": w,
-                })
-
-        losing_lean_mass = compute_losing_lean_mass_flag(bf_readings_for_guard)
-
         # ── Build recommendation ──────────────────────────────────────────────
         rec = compute_cut_recommendation(
             weigh_in_count_14d=weigh_in_count_14d,
             has_active_plan=has_plan and plan_rate is not None,
-            actual_rate_kg_per_week=(
-                actual_rate_kg_per_week if actual_rate_kg_per_week is not None else 0.0
-            ),
+            actual_rate_kg_per_week=actual_rate_kg_per_week if actual_rate_kg_per_week is not None else 0.0,
             plan_rate_kg_per_week=plan_rate if plan_rate is not None else 0.0,
             weekly_pct_bw_rate=weekly_pct_bw_rate,
             ea_proxy=ea_proxy,
             logging_adherence_pct=logging_adherence_pct,
-            avg_intake_vs_budget_kcal=(
-                avg_intake_vs_budget_kcal if avg_intake_vs_budget_kcal is not None else 0.0
-            ),
+            avg_intake_vs_budget_kcal=avg_intake_vs_budget_kcal if avg_intake_vs_budget_kcal is not None else 0.0,
             consecutive_weeks_behind=consecutive_weeks_behind,
             pct_logged_days_at_or_under_budget=pct_at_or_under,
             current_deficit_kcal=current_deficit_kcal,
-            losing_lean_mass=losing_lean_mass,
         )
 
         return {
-            "actual_rate_kg_per_week": (
-                round(actual_rate_kg_per_week, 3) if actual_rate_kg_per_week is not None else None
-            ),
+            "actual_rate_kg_per_week": round(actual_rate_kg_per_week, 3) if actual_rate_kg_per_week is not None else None,
             "plan_rate_kg_per_week": round(plan_rate, 3) if plan_rate is not None else None,
             "logging_adherence_pct": round(logging_adherence_pct, 1),
-            "avg_intake_vs_budget_kcal": (
-                round(avg_intake_vs_budget_kcal, 1)
-                if avg_intake_vs_budget_kcal is not None else None
-            ),
+            "avg_intake_vs_budget_kcal": round(avg_intake_vs_budget_kcal, 1) if avg_intake_vs_budget_kcal is not None else None,
             "recommendation": rec["recommendation"],
             "action": rec["action"],
             "suggested_deficit_delta_kcal": rec["suggested_deficit_delta_kcal"],
-            "losing_lean_mass": rec["losing_lean_mass"],
         }
 
     finally:
