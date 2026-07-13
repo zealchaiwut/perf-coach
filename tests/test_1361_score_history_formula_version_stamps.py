@@ -129,7 +129,7 @@ def test_ac1_model_has_required_columns():
 def test_ac1_unique_constraint_exists():
     """AC1: Unique constraint on (user_id, score_date, formula_version)."""
     constraint_names = {c.name for c in PerformanceScoreHistory.__table__.constraints}
-    assert "uq_perf_score_history_user_date_version" in constraint_names
+    assert "uq_performance_score_history_user_date_version" in constraint_names
 
 
 # ── AC2: formula_versions module ───────────────────────────────────────────
@@ -255,6 +255,7 @@ def test_ac4_score_history_endpoint_returns_range(client):
     if _engine is None:
         pytest.skip("DATABASE_URL_UAT not set")
 
+    from backend.main import _PERF_FORMULA_VERSION
     auth, user_id = _create_and_login(client)
     try:
         today = datetime.date.today()
@@ -263,16 +264,17 @@ def test_ac4_score_history_endpoint_returns_range(client):
         d_minus_10 = today - datetime.timedelta(days=10)
 
         for d in (d_minus_10, d_minus_2, d_minus_1, today):
-            _upsert_score_row(user_id, d, 40.0, 35.0, "v1")
+            _upsert_score_row(user_id, d, 40.0, 35.0, _PERF_FORMULA_VERSION)
 
         r = auth.get(
             "/api/performance/score-history",
             params={"from": d_minus_2.isoformat(), "to": today.isoformat()},
         )
         assert r.status_code == 200, r.text
-        data = r.json()
-        assert isinstance(data, list)
-        dates = {row["score_date"] for row in data}
+        payload = r.json()
+        assert "history" in payload
+        data = payload["history"]
+        dates = {row["date"] for row in data}
         assert d_minus_2.isoformat() in dates
         assert d_minus_1.isoformat() in dates
         assert today.isoformat() in dates
@@ -283,25 +285,29 @@ def test_ac4_score_history_endpoint_returns_range(client):
 
 
 def test_ac4_score_history_latest_version_per_date(client):
-    """AC4: Endpoint returns latest formula_version per date when multiple versions exist."""
+    """AC4: Endpoint returns only current-formula rows; upsert on same version keeps one row."""
     if _engine is None:
         pytest.skip("DATABASE_URL_UAT not set")
 
+    from backend.main import _PERF_FORMULA_VERSION
     auth, user_id = _create_and_login(client)
     try:
         today = datetime.date.today()
-        _upsert_score_row(user_id, today, 42.0, 38.0, "v1")
-        _upsert_score_row(user_id, today, 44.0, 40.0, "v2")
+        # Two upserts for the same (user, date, formula_version) → only one row.
+        _upsert_score_row(user_id, today, 42.0, 38.0, _PERF_FORMULA_VERSION)
+        _upsert_score_row(user_id, today, 44.0, 40.0, _PERF_FORMULA_VERSION)
 
         r = auth.get(
             "/api/performance/score-history",
             params={"from": today.isoformat(), "to": today.isoformat()},
         )
         assert r.status_code == 200, r.text
-        data = r.json()
-        assert len(data) == 1, f"Expected 1 row (latest version), got {len(data)}: {data}"
-        row = data[0]
-        assert row["formula_version"] == "v2"
+        payload = r.json()
+        assert "history" in payload
+        data = payload["history"]
+        matching = [row for row in data if row["date"] == today.isoformat()]
+        assert len(matching) == 1, f"Expected 1 row for today, got {len(matching)}: {data}"
+        assert matching[0]["formula_version"] == _PERF_FORMULA_VERSION
     finally:
         auth.close()
         _delete_user(user_id)
@@ -312,20 +318,24 @@ def test_ac4_score_history_response_fields(client):
     if _engine is None:
         pytest.skip("DATABASE_URL_UAT not set")
 
+    from backend.main import _PERF_FORMULA_VERSION
     auth, user_id = _create_and_login(client)
     try:
         today = datetime.date.today()
-        _upsert_score_row(user_id, today, 42.5, 38.1, "v1")
+        _upsert_score_row(user_id, today, 42.5, 38.1, _PERF_FORMULA_VERSION)
 
         r = auth.get(
             "/api/performance/score-history",
             params={"from": today.isoformat(), "to": today.isoformat()},
         )
         assert r.status_code == 200, r.text
-        data = r.json()
+        payload = r.json()
+        assert "history" in payload
+        assert "formula_version" in payload
+        data = payload["history"]
         assert len(data) >= 1
         row = data[0]
-        required = {"score_date", "endurance", "speed", "formula_version"}
+        required = {"date", "endurance", "speed", "formula_version"}
         assert required <= set(row.keys()), f"Missing fields: {required - set(row.keys())}"
     finally:
         auth.close()
@@ -344,7 +354,7 @@ def test_ac4_score_history_unauthenticated_returns_401():
 
 
 def test_ac4_score_history_empty_range_returns_list(client):
-    """AC4: Range with no data returns an empty list."""
+    """AC4: Range with no data returns an empty history list."""
     if _engine is None:
         pytest.skip("DATABASE_URL_UAT not set")
 
@@ -355,7 +365,9 @@ def test_ac4_score_history_empty_range_returns_list(client):
             params={"from": "2000-01-01", "to": "2000-01-31"},
         )
         assert r.status_code == 200, r.text
-        assert r.json() == []
+        payload = r.json()
+        assert "history" in payload
+        assert payload["history"] == []
     finally:
         auth.close()
         _delete_user(user_id)
@@ -366,18 +378,20 @@ def test_ac4_score_history_user_isolation(client):
     if _engine is None:
         pytest.skip("DATABASE_URL_UAT not set")
 
+    from backend.main import _PERF_FORMULA_VERSION
     auth_a, user_id_a = _create_and_login(client)
     auth_b, user_id_b = _create_and_login(client)
     try:
         today = datetime.date.today()
-        _upsert_score_row(user_id_b, today, 99.9, 99.9, "v1")
+        _upsert_score_row(user_id_b, today, 99.9, 99.9, _PERF_FORMULA_VERSION)
 
         r = auth_a.get(
             "/api/performance/score-history",
             params={"from": today.isoformat(), "to": today.isoformat()},
         )
         assert r.status_code == 200, r.text
-        data = r.json()
+        payload = r.json()
+        data = payload.get("history", [])
         for row in data:
             assert row.get("endurance") != pytest.approx(99.9), "User A saw User B's score"
     finally:
