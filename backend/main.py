@@ -17918,6 +17918,7 @@ def get_projection(user: User = Depends(resolve_user)):
         except Exception:
             economy_contribution = 0.0
 
+    from backend.services.formula_versions import PROJECTION_VERSION
     return JSONResponse({
         "building_baseline": building_baseline,
         "form_curve": form_curve,
@@ -17930,6 +17931,7 @@ def get_projection(user: User = Depends(resolve_user)):
         "economy_contribution": economy_contribution,
         "lag_peak_days": _LAG_PEAK_DAYS,
         "lag_window_days": _LAG_WINDOW_DAYS,
+        "formula_version": PROJECTION_VERSION,
     })
 
 
