@@ -4410,9 +4410,10 @@
                 <div class="wl-baseline-compare" id="wl-baseline-compare"></div>
               </div>
               <div class="wl-chain-op">&times;</div>
-              <div class="wl-chain-cell">
-                <div class="wl-chain-lab">Ramp</div>
+              <div class="wl-chain-cell" id="wl-ramp-cell">
+                <div class="wl-chain-lab" id="wl-ramp-lab">Ramp</div>
                 <div class="wl-chain-val" id="wl-ramp-val">—</div>
+                <div class="wl-deload-sub" id="wl-deload-sub" hidden></div>
               </div>
               <div class="wl-chain-op">=</div>
               <div class="wl-chain-cell wl-target-cell">
@@ -5910,6 +5911,21 @@
         border: 1px solid var(--pm-line);
         border-radius: 10px;
         padding: 10px 12px;
+      }
+      /* Deload week: the ramp cell becomes the down-week cell — amber tint,
+         "Ramp − deload" label, cut percentage under the value. */
+      .plan-merged .wl-chain-cell.is-deload {
+        background: #fffbeb;
+        border-color: #fde68a;
+      }
+      .plan-merged .wl-chain-cell.is-deload .wl-chain-val {
+        color: #b45309;
+      }
+      .plan-merged .wl-deload-sub {
+        font-size: 10px;
+        font-weight: 700;
+        color: #b45309;
+        margin-top: 2px;
       }
       .plan-merged .wl-chain-cell.wl-target-cell {
         background: var(--pm-blueSoft);

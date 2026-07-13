@@ -67,7 +67,7 @@ from backend.services.training_load import (
 )
 from backend.services.specificity_progress import specificity_progress as _specificity_progress
 from backend.services.daily_load import daily_load_series as _daily_load_series
-from backend.services.load_plan import compute_load_plan, ACWR_CEILING_MULT
+from backend.services.load_plan import compute_load_plan, ACWR_CEILING_MULT, DELOAD_CUT_FRACTION
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
 from backend.services.weight_ewma import compute_ewma as _compute_ewma, DEFAULT_SPAN as _EWMA_DEFAULT_SPAN
@@ -17388,6 +17388,11 @@ def get_plan_week_load(
             "baseline_planned_tss": baseline_planned_tss,
             "prior_4_weeks_actual": prior_weeks,
             "ramp_rate": rules["ramp_rate"],
+            # Deload week: the ramp formula gets a further cut BEFORE the
+            # ceiling clamp — the Baseline×Ramp=Target chain must show it or
+            # the target looks broken next to a plain "5%/wk" ramp cell.
+            "deload": bool(target_week["deload"]) if target_week else False,
+            "deload_cut": DELOAD_CUT_FRACTION,
             "acwr_ceiling": acwr_ceiling,
             "acwr": acwr_ratio,
             "trailing_28d_avg": trailing_28d_avg,

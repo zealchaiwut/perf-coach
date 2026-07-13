@@ -263,6 +263,11 @@ information about.
           _detail = updated;
           _renderDetailSection();
         }
+        // Every planned-session mutation funnels through _loadWeek — refresh
+        // the Session-load card's planned/projected numbers in the same
+        // breath, so adding/editing a session recalculates the week TSS
+        // immediately instead of waiting for a page reload.
+        _loadWeekLoad(_iso(_weekStart));
         if (onDone) onDone();
       })
       .catch(function () {
@@ -696,7 +701,26 @@ information about.
         baselineEl.textContent = Math.round(d.baseline_tss) + ' TSS';
       }
     }
-    _setText('wl-ramp-val', (d.ramp_rate * 100).toFixed(1).replace(/\.0$/, '') + '%');
+    var rampPct = (d.ramp_rate * 100).toFixed(1).replace(/\.0$/, '') + '%';
+    var rampCell = document.getElementById('wl-ramp-cell');
+    var deloadSub = document.getElementById('wl-deload-sub');
+    if (d.deload) {
+      // Deload week: the chain is baseline × ramp × (1 − cut), not the plain
+      // ramp — show the cut or the target looks broken next to "5%".
+      var cutPct = Math.round((d.deload_cut || 0.3) * 100);
+      _setText('wl-ramp-lab', 'Ramp − deload');
+      _setText('wl-ramp-val', rampPct + ' − ' + cutPct + '%');
+      if (deloadSub) {
+        deloadSub.hidden = false;
+        deloadSub.textContent = 'deload week — cut ' + cutPct + '% before the ceiling';
+      }
+      if (rampCell) rampCell.classList.add('is-deload');
+    } else {
+      _setText('wl-ramp-lab', 'Ramp');
+      _setText('wl-ramp-val', rampPct);
+      if (deloadSub) { deloadSub.hidden = true; deloadSub.textContent = ''; }
+      if (rampCell) rampCell.classList.remove('is-deload');
+    }
     _setText('wl-target-cell-val', Math.round(d.target_tss) + ' TSS');
 
     var spark = document.getElementById('wl-sparkline');
