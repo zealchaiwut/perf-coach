@@ -7144,6 +7144,14 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             _logging.getLogger(__name__).warning(
                 "checkpoint autodetection failed for workout %s: %s", workout.id, _cd_exc, exc_info=True
             )
+        if workout.workout_type == "strength":
+            try:
+                from backend.services.muscle_load import recompute_strength_load_for_date as _rsl
+                _rsl(uid, workout_date)
+            except Exception as _ml_exc:
+                _logging.getLogger(__name__).warning(
+                    "muscle_load recompute failed for workout %s: %s", workout.id, _ml_exc, exc_info=True
+                )
         return JSONResponse(status_code=201, content=_workout_dict(workout, exercises))
 
 
@@ -7314,6 +7322,15 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             _logging.getLogger(__name__).warning(
                 "autofill recompute failed for user %s: %s", workout.user_id, _af_exc
             )
+        if workout.workout_type == "strength":
+            try:
+                from backend.services.muscle_load import recompute_strength_load_for_date as _rsl
+                for _ml_date in {_old_workout_date, workout.workout_date}:
+                    _rsl(workout.user_id, _ml_date)
+            except Exception as _ml_exc:
+                _logging.getLogger(__name__).warning(
+                    "muscle_load recompute failed for workout %s: %s", wid, _ml_exc, exc_info=True
+                )
         return JSONResponse(_workout_dict(workout, exercises))
 
 
@@ -7331,6 +7348,7 @@ def delete_workout(workout_id: str, user: User = Depends(resolve_user)):
             raise HTTPException(status_code=403, detail="Forbidden")
         _del_date = workout.workout_date
         _del_uid = workout.user_id
+        _del_workout_type = workout.workout_type
         # Tombstone any linked synced activities so the next sync/reconcile does
         # NOT recreate this workout. Snapshot name/date for the Removed list.
         _tombstone_links = []
@@ -7372,6 +7390,15 @@ def delete_workout(workout_id: str, user: User = Depends(resolve_user)):
         _logging.getLogger(__name__).warning(
             "autofill recompute failed for user %s week %s: %s", _del_uid, _del_date, _af_exc
         )
+    if _del_workout_type == "strength":
+        try:
+            from backend.services.muscle_load import recompute_strength_load_for_date as _rsl
+            _rsl(_del_uid, _del_date)
+        except Exception as _ml_exc:
+            _logging.getLogger(__name__).warning(
+                "muscle_load recompute failed after delete for user %s date %s: %s",
+                _del_uid, _del_date, _ml_exc, exc_info=True,
+            )
     return Response(status_code=204)
 
 
