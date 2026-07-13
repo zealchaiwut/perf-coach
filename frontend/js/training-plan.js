@@ -1693,7 +1693,18 @@ information about.
     var meta = [tssStr, durStr].filter(Boolean).join(' · ');
     var body = '';
     if (Array.isArray(s.exercises) && s.exercises.length) {
-      body = '<div class="pl-blocklist" style="margin-top:8px;">' + s.exercises.map(_aiPreviewExRow).join('') + '</div>';
+      // Group by block (Warm-up / Heavy compound / Superset 1 / ...) — the
+      // generated data carries the block names; a flat list hides them.
+      var order = [];
+      s.exercises.forEach(function (x) {
+        var b = (x && x.block) ? x.block : 'Exercises';
+        if (order.indexOf(b) === -1) order.push(b);
+      });
+      body = '<div class="pl-blocklist" style="margin-top:8px;">' + order.map(function (b) {
+        var rows = s.exercises.filter(function (x) { return ((x && x.block) ? x.block : 'Exercises') === b; })
+          .map(_aiPreviewExRow).join('');
+        return '<div class="pl-ai-blockh">' + esc(b) + '</div>' + rows;
+      }).join('') + '</div>';
     } else if (Array.isArray(s.blocks) && s.blocks.length) {
       body = '<div class="pl-blocklist" style="margin-top:8px;">' + s.blocks.map(_aiPreviewBlockRow).join('') + '</div>';
     }
@@ -2293,6 +2304,7 @@ information about.
     '.plan-panel .pl-fld textarea{resize:vertical;min-height:54px;}',
     '.plan-panel .pl-notebox{font-size:13px;color:var(--pl-muted);background:var(--pl-tile);border-radius:9px;padding:10px 13px;}',
     '.plan-panel .pl-blocklist{display:flex;flex-direction:column;gap:8px;margin-top:6px;}',
+    '.plan-panel .pl-ai-blockh{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:var(--pl-faint);margin:4px 0 -2px;}',
     '.plan-panel .pl-block{display:flex;gap:8px;align-items:center;background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:10px;padding:9px 11px;flex-wrap:wrap;}',
     '.plan-panel .pl-block .pl-btag{font-size:9px;font-weight:800;padding:3px 8px;border-radius:6px;flex-shrink:0;width:74px;text-align:center;}',
     '.plan-panel .pl-btag.warm{background:#e0f2fe;color:#0369a1;}.plan-panel .pl-btag.main{background:var(--pl-amberSoft);color:var(--pl-amber);}.plan-panel .pl-btag.cool{background:var(--pl-greenSoft);color:var(--pl-green);}',
