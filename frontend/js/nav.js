@@ -522,6 +522,34 @@
     if (bar) bar.className = "";
   }
 
+  // A finished job keeps being returned by /api/sync/status until it ages
+  // out of the registry (or the 10-min worker-run window), so without a
+  // dismissal record the banner reappears on every page load. Remember the
+  // dismissed job by its started_at (unique per job) in localStorage.
+  var _SSB_DISMISSED_KEY = "ssb-dismissed-job";
+
+  function _ssbJobKey(data) {
+    return String(data.started_at || data.finished_at || "");
+  }
+
+  function _ssbMarkDismissed(data) {
+    try {
+      var k = _ssbJobKey(data);
+      if (k) localStorage.setItem(_SSB_DISMISSED_KEY, k);
+    } catch (e) {
+      /* private mode — banner just stays session-transient */
+    }
+  }
+
+  function _ssbIsDismissed(data) {
+    try {
+      var k = _ssbJobKey(data);
+      return !!k && localStorage.getItem(_SSB_DISMISSED_KEY) === k;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function _ssbRunning(data) {
     var label =
       _PHASE_LABELS[data.phase] ||
@@ -560,10 +588,19 @@
         '<button class="ssb-dismiss" type="button" aria-label="Dismiss">×</button>',
     );
     var dismiss = document.querySelector("#sync-status-bar .ssb-dismiss");
-    if (dismiss) dismiss.addEventListener("click", _ssbHide);
+    if (dismiss)
+      dismiss.addEventListener("click", function () {
+        _ssbMarkDismissed(data);
+        _ssbHide();
+      });
     setTimeout(function () {
       var bar = document.getElementById("sync-status-bar");
-      if (bar && bar.className === "ssb-state-success") _ssbHide();
+      if (bar && bar.className === "ssb-state-success") {
+        // Auto-hide counts as seen too — the same job must not reappear on
+        // the next page load.
+        _ssbMarkDismissed(data);
+        _ssbHide();
+      }
     }, 5000);
   }
 
@@ -577,17 +614,24 @@
         '<button class="ssb-dismiss" type="button">Dismiss</button>',
     );
     var dismiss = document.querySelector("#sync-status-bar .ssb-dismiss");
-    if (dismiss) dismiss.addEventListener("click", _ssbHide);
+    if (dismiss)
+      dismiss.addEventListener("click", function () {
+        _ssbMarkDismissed(data);
+        _ssbHide();
+      });
   }
 
   function _onSyncPollerUpdate(data) {
     if (!data) return;
     if (data.status === "running") {
       _ssbRunning(data);
-    } else if (data.status === "success") {
-      _ssbSuccess(data);
-    } else if (data.status === "error") {
-      _ssbError(data);
+    } else if (data.status === "success" || data.status === "error") {
+      if (_ssbIsDismissed(data)) {
+        _ssbHide();
+        return;
+      }
+      if (data.status === "success") _ssbSuccess(data);
+      else _ssbError(data);
     }
   }
 

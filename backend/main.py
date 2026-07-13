@@ -22,7 +22,7 @@ from fastapi import BackgroundTasks, Body, Depends, FastAPI, File, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import cast as _sa_cast, exc as sa_exc, func, or_, select
+from sqlalchemy import cast as _sa_cast, exc as sa_exc, func, or_, select, text
 from sqlalchemy.types import DateTime as _sa_DateTime
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session, joinedload, load_only, selectinload
@@ -30,7 +30,15 @@ from zoneinfo import ZoneInfo
 
 from backend.auth import require_admin
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, DriveSleepConnection, EconomyCeilingSnapshot, ExerciseCatalog, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession
+from backend.models import (
+    AppConfig, BodyMeasurement, DailyMetric, DailyReadiness, DriveSleepConnection,
+    EconomyCeilingSnapshot, ExerciseCatalog, GoogleOAuthCredentials, Habit, HabitLog,
+    PersonalRecord, Race, RaceCheckpoint, RemovedActivity, RunFormMetrics, SleepImport,
+    StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES,
+    TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, VerdictHistory, WeightEntry,
+    WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit,
+    WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession,
+)
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values
 from backend.services.tss import compute_running_tss as _compute_running_tss
@@ -44,6 +52,7 @@ from backend.services.training_load import (
     daily_update,
     compute_load_curves,
     get_snapshot_series,
+    recompute_user_snapshots,
     readiness_label as training_readiness_label,
     project_form,
     resolve_user_ewma_days,
@@ -67,7 +76,7 @@ from backend.services.training_load import (
 )
 from backend.services.specificity_progress import specificity_progress as _specificity_progress
 from backend.services.daily_load import daily_load_series as _daily_load_series
-from backend.services.load_plan import compute_load_plan, ACWR_CEILING_MULT
+from backend.services.load_plan import compute_load_plan, ACWR_CEILING_MULT, DELOAD_CUT_FRACTION
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
 from backend.services.weight_ewma import compute_ewma as _compute_ewma, DEFAULT_SPAN as _EWMA_DEFAULT_SPAN
@@ -93,7 +102,7 @@ from backend.services.heat_correction import (
 from backend.services.goal_arrival_caller import resolve_arrival_projection as _resolve_arrival_projection
 from backend.services.performance_constants import NEEDS_THRESHOLDS_REASON as _NEEDS_THRESHOLDS_REASON
 from backend.services.backfill_performance import backfill_performance_for_athlete as _backfill_performance_for_athlete
-from backend.services.projection import project_fitness as _project_fitness, compute_expressible_score as _compute_expressible_score, capped_form_factor as _capped_form_factor
+from backend.services.projection import project_fitness as _project_fitness, capped_form_factor as _capped_form_factor
 from backend.services.score_ceiling import projected_ctl_to_score_ceiling as _projected_ctl_to_score_ceiling
 from backend.services.economy_stimulus import compute_economy_stimulus as _compute_economy_stimulus
 from backend.services.ceiling_bonus import compute_ceiling_bonus as _compute_ceiling_bonus, LAG_WINDOW_DAYS as _LAG_WINDOW_DAYS, LAG_PEAK_DAYS as _LAG_PEAK_DAYS
@@ -101,6 +110,7 @@ from backend.services.race_finish_estimator import score_to_estimated_finish_tim
 from backend.routers.projection import router as _plan_router
 from backend.routers.strength_sessions import router as _strength_sessions_router
 from backend.routers.fuel import router as _fuel_router
+from backend.routers.injury_log import router as _injury_log_router
 from backend.services.guardrail import get_guardrail_result
 from backend.services.body_modifier import get_body_modifier_guardrail_for_user
 from backend.services.lap_classify import aggregate_intensity_zones as _agg_zones
@@ -108,6 +118,12 @@ from backend.services.polarized_split import check_polarized_split as _check_pol
 from backend.services.lap_classify import classify_laps as _classify_laps
 from backend.services.intensity_distribution import compute_polarized_check as _compute_polarized_check
 from backend.services import worker_client as _worker_client
+from services.readiness.calculator import (
+    compute_readiness as _canonical_readiness,
+    HRV_WINDOW as _RDN_HRV_WINDOW,
+    RHR_WINDOW as _RDN_RHR_WINDOW,
+)
+from services.readiness.job import compute_and_store as _readiness_compute_and_store
 
 # Ceiling TSB used when computing expressible scores from historical/projected TSB.
 # 20.0 matches the representative value established in issue #1107.
@@ -127,6 +143,7 @@ app = FastAPI()
 app.include_router(_plan_router)
 app.include_router(_strength_sessions_router)
 app.include_router(_fuel_router)
+app.include_router(_injury_log_router)
 
 
 def _today_bkk() -> _date:
@@ -2160,6 +2177,121 @@ def get_weight_chart(
         return JSONResponse(result)
 
 
+# ── Power-to-weight trend endpoint (issue #1360) ─────────────────────────────
+
+from backend.services.power_to_weight import compute_power_to_weight_series as _compute_p2w_series  # noqa: E402
+
+_P2W_RANGE_OFFSETS = {
+    "7D": 6,
+    "30D": 29,
+    "90D": 89,
+    "6M": 183,
+    "1Y": 364,
+}
+_P2W_VALID_RANGES = {*_P2W_RANGE_OFFSETS, "ALL"}
+
+
+@app.get("/api/weight/power-to-weight")
+def get_power_to_weight(
+    range_token: Optional[str] = Query(default=None, alias="range"),
+    user: User = Depends(resolve_user),
+):
+    """Return a daily W/kg series for the selected range.
+
+    Each point has date, power_w, weight_kg (EWMA), w_per_kg.
+    Returns available:false when the user has no ftp_w configured.
+    """
+    uid = user.id
+    today = _today_bkk()
+
+    if range_token is not None and range_token not in _P2W_VALID_RANGES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"range must be one of: {', '.join(sorted(_P2W_VALID_RANGES))}",
+        )
+
+    if range_token is None:
+        range_token = "30D"
+
+    to_d = today
+    if range_token in _P2W_RANGE_OFFSETS:
+        from_d = today - _timedelta(days=_P2W_RANGE_OFFSETS[range_token])
+    else:  # ALL — resolved after earliest-entry lookup below
+        from_d = None
+
+    with Session(engine) as session:
+        # Fetch ftp_w from user_preferences
+        prefs_row = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == uid)
+            .first()
+        )
+        ftp_w = prefs_row.ftp_w if prefs_row is not None else None
+
+        if not ftp_w:
+            return JSONResponse({"available": False, "power_basis": None, "series": [], "current": None})
+
+        # Resolve ALL: use earliest weight entry date
+        if from_d is None:
+            earliest = (
+                session.query(WeightEntry)
+                .filter(WeightEntry.user_id == uid)
+                .order_by(WeightEntry.entry_date.asc())
+                .first()
+            )
+            if earliest is not None:
+                from_d = (
+                    earliest.entry_date
+                    if isinstance(earliest.entry_date, _date)
+                    else _date.fromisoformat(str(earliest.entry_date))
+                )
+            else:
+                from_d = today - _timedelta(days=89)
+
+        # Fetch weight entries with EWMA warmup (6 days before from_d for convergence)
+        fetch_start = from_d - _timedelta(days=6)
+        all_entries = (
+            session.query(WeightEntry)
+            .filter(
+                WeightEntry.user_id == uid,
+                WeightEntry.entry_date >= fetch_start,
+                WeightEntry.entry_date <= to_d,
+            )
+            .order_by(WeightEntry.entry_date.asc(), WeightEntry.entry_time.asc())
+            .all()
+        )
+
+        # Build EWMA-indexed daily series (same logic as /api/weight-chart)
+        _ewma_input = [
+            {
+                "date": (
+                    e.entry_date
+                    if isinstance(e.entry_date, _date)
+                    else _date.fromisoformat(str(e.entry_date))
+                ),
+                "weight_kg": float(e.weight_kg),
+            }
+            for e in all_entries
+        ]
+        _ewma_raw = _compute_ewma(_ewma_input)
+        _ewma_by_date: dict = {
+            e["date"]: v for e, v in zip(_ewma_input, _ewma_raw)
+        }
+
+        # Build dense daily series for [from_d, to_d]
+        num_days = (to_d - from_d).days + 1
+        ewma_series = []
+        _last_ewma: Optional[float] = None
+        for i in range(num_days):
+            day = from_d + _timedelta(days=i)
+            if day in _ewma_by_date:
+                _last_ewma = round(_ewma_by_date[day], 4)
+            ewma_series.append({"date": day, "weight_kg": _last_ewma})
+
+        payload = _compute_p2w_series(ewma_series, ftp_w, from_d, to_d)
+        return JSONResponse(payload)
+
+
 # ── Home weight-summary endpoint ──────────────────────────────────────────────
 
 _WEIGHT_SUMMARY_EMPTY = {
@@ -2591,8 +2723,6 @@ def get_home_readiness(
     date: Optional[str] = Query(default=None),
     current_user: User = Depends(resolve_user),
 ):
-    # Score formula: sleep_hours 30%, hrv 25%, rhr 20%, mood 15%, energy 10%
-    # Per-factor: sleep/HRV/RHR compare vs 7d rolling avg; mood/energy: raw value × 20
     uid = current_user.id
 
     try:
@@ -2600,8 +2730,10 @@ def get_home_readiness(
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid date format")
 
+    # Fetch today's metrics and enough history for both HRV (7d) and RHR (30d) baselines
+    rhr_baseline_start = query_date - _timedelta(days=_RDN_RHR_WINDOW)
+    hrv_baseline_start = query_date - _timedelta(days=_RDN_HRV_WINDOW)
     baseline_end = query_date - _timedelta(days=1)
-    baseline_start = query_date - _timedelta(days=7)
 
     with Session(engine) as session:
         user = session.get(User, uid)
@@ -2621,7 +2753,7 @@ def get_home_readiness(
             session.query(DailyMetric)
             .filter(
                 DailyMetric.user_id == uid,
-                DailyMetric.metric_date >= baseline_start,
+                DailyMetric.metric_date >= rhr_baseline_start,
                 DailyMetric.metric_date <= baseline_end,
             )
             .all()
@@ -2631,9 +2763,11 @@ def get_home_readiness(
         non_null = [v for v in vals if v is not None]
         return round(sum(non_null) / len(non_null), 2) if non_null else None
 
-    hrv_7d_avg = _avg([float(r.hrv) for r in baseline_rows if r.hrv is not None])
-    rhr_7d_avg = _avg([float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None])
-    sleep_7d_avg_hours = _avg([float(r.sleep_hours) for r in baseline_rows if r.sleep_hours is not None])
+    hrv_baseline_vals = [float(r.hrv) for r in baseline_rows if r.hrv is not None and r.metric_date >= hrv_baseline_start]
+    rhr_baseline_vals = [float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None]
+    hrv_7d_avg = _avg(hrv_baseline_vals) if hrv_baseline_vals else None
+    rhr_7d_avg = _avg([float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None and r.metric_date >= hrv_baseline_start])
+    sleep_7d_avg_hours = _avg([float(r.sleep_hours) for r in baseline_rows if r.sleep_hours is not None and r.metric_date >= hrv_baseline_start])
 
     rolling_baseline = {
         "hrv_7d_avg": hrv_7d_avg,
@@ -2643,11 +2777,10 @@ def get_home_readiness(
 
     if metrics is None:
         contributors = [
-            {"factor": "sleep_hours", "value": None, "weight": 0.30, "impact": "neutral"},
-            {"factor": "hrv", "value": None, "weight": 0.25, "impact": "neutral"},
+            {"factor": "hrv", "value": None, "weight": 0.40, "impact": "neutral"},
             {"factor": "rhr", "value": None, "weight": 0.20, "impact": "neutral"},
-            {"factor": "mood", "value": None, "weight": 0.15, "impact": "neutral"},
-            {"factor": "energy", "value": None, "weight": 0.10, "impact": "neutral"},
+            {"factor": "sleep_quality", "value": None, "weight": 0.20, "impact": "neutral"},
+            {"factor": "energy", "value": None, "weight": 0.20, "impact": "neutral"},
         ]
         return JSONResponse({
             "date": query_date.isoformat(),
@@ -2657,84 +2790,51 @@ def get_home_readiness(
             "rolling_baseline": rolling_baseline,
         })
 
-    def _bscore(value, baseline, higher_is_better: bool) -> float:
-        """Score 0-100; returns 50 when value equals baseline or baseline unavailable."""
-        if value is None:
-            return 50.0
-        v = float(value)
-        if baseline is None or baseline == 0:
-            return 50.0
-        b = float(baseline)
-        delta_pct = (v - b) / b * 100.0
-        raw = 50.0 + delta_pct if higher_is_better else 50.0 - delta_pct
-        return min(100.0, max(0.0, raw))
+    result = _canonical_readiness(
+        hrv=float(metrics.hrv) if metrics.hrv is not None else None,
+        resting_hr=float(metrics.resting_hr) if metrics.resting_hr is not None else None,
+        sleep_quality=float(metrics.sleep_quality) if metrics.sleep_quality is not None else None,
+        energy=float(metrics.energy) if metrics.energy is not None else None,
+        hrv_baseline=hrv_baseline_vals,
+        rhr_baseline=rhr_baseline_vals,
+    )
 
-    def _impact(factor_score: float) -> str:
-        if factor_score > 50:
+    if result is None:
+        contributors = [
+            {"factor": "hrv", "value": float(metrics.hrv) if metrics.hrv is not None else None, "weight": 0.40, "impact": "neutral"},
+            {"factor": "rhr", "value": float(metrics.resting_hr) if metrics.resting_hr is not None else None, "weight": 0.20, "impact": "neutral"},
+            {"factor": "sleep_quality", "value": float(metrics.sleep_quality) if metrics.sleep_quality is not None else None, "weight": 0.20, "impact": "neutral"},
+            {"factor": "energy", "value": float(metrics.energy) if metrics.energy is not None else None, "weight": 0.20, "impact": "neutral"},
+        ]
+        return JSONResponse({
+            "date": query_date.isoformat(),
+            "score": None,
+            "score_label": "No data",
+            "contributors": contributors,
+            "rolling_baseline": rolling_baseline,
+        })
+
+    score = int(round(result.score))
+    raw = result.raw_scores
+
+    def _impact(key: str) -> str:
+        v = raw.get(key, 50.0)
+        if v > 50:
             return "positive"
-        if factor_score < 50:
+        if v < 50:
             return "negative"
         return "neutral"
 
-    sleep_score = _bscore(metrics.sleep_hours, sleep_7d_avg_hours, higher_is_better=True)
-    hrv_score = _bscore(metrics.hrv, hrv_7d_avg, higher_is_better=True)
-    rhr_score = _bscore(metrics.resting_hr, rhr_7d_avg, higher_is_better=False)
-    mood_score = float(metrics.mood) * 20.0 if metrics.mood is not None else 50.0
-    energy_score = float(metrics.energy) * 20.0 if metrics.energy is not None else 50.0
-
     contributors = [
-        {
-            "factor": "sleep_hours",
-            "value": float(metrics.sleep_hours) if metrics.sleep_hours is not None else None,
-            "weight": 0.30,
-            "impact": _impact(sleep_score),
-        },
-        {
-            "factor": "hrv",
-            "value": float(metrics.hrv) if metrics.hrv is not None else None,
-            "weight": 0.25,
-            "impact": _impact(hrv_score),
-        },
-        {
-            "factor": "rhr",
-            "value": float(metrics.resting_hr) if metrics.resting_hr is not None else None,
-            "weight": 0.20,
-            "impact": _impact(rhr_score),
-        },
-        {
-            "factor": "mood",
-            "value": float(metrics.mood) if metrics.mood is not None else None,
-            "weight": 0.15,
-            "impact": _impact(mood_score),
-        },
-        {
-            "factor": "energy",
-            "value": float(metrics.energy) if metrics.energy is not None else None,
-            "weight": 0.10,
-            "impact": _impact(energy_score),
-        },
+        {"factor": "hrv", "value": float(metrics.hrv) if metrics.hrv is not None else None, "weight": 0.40, "impact": _impact("hrv")},
+        {"factor": "rhr", "value": float(metrics.resting_hr) if metrics.resting_hr is not None else None, "weight": 0.20, "impact": _impact("rhr")},
+        {"factor": "sleep_quality", "value": float(metrics.sleep_quality) if metrics.sleep_quality is not None else None, "weight": 0.20, "impact": _impact("sleep")},
+        {"factor": "energy", "value": float(metrics.energy) if metrics.energy is not None else None, "weight": 0.20, "impact": _impact("energy")},
     ]
 
-    total = (
-        sleep_score * 0.30
-        + hrv_score * 0.25
-        + rhr_score * 0.20
-        + mood_score * 0.15
-        + energy_score * 0.10
-    )
-    score = int(round(min(100.0, max(0.0, total))))
-
     factors_for_explanation = [
-        {"factor": "sleep_hours", "value": float(metrics.sleep_hours) if metrics.sleep_hours is not None else None,
-         "score": sleep_score, "impact": _impact(sleep_score)},
-        {"factor": "hrv", "value": float(metrics.hrv) if metrics.hrv is not None else None,
-         "score": hrv_score, "impact": _impact(hrv_score)},
-        {"factor": "rhr", "value": float(metrics.resting_hr) if metrics.resting_hr is not None else None,
-         "score": rhr_score, "impact": _impact(rhr_score)},
-        {"factor": "mood", "value": float(metrics.mood) if metrics.mood is not None else None,
-         "score": mood_score, "impact": _impact(mood_score)},
-        {"factor": "energy", "value": float(metrics.energy) if metrics.energy is not None else None,
-         "score": energy_score, "impact": _impact(energy_score)},
+        {"factor": k, "value": contributors[i]["value"], "score": raw.get(k2, 50.0), "impact": contributors[i]["impact"]}
+        for i, (k, k2) in enumerate([("hrv", "hrv"), ("rhr", "rhr"), ("sleep_quality", "sleep"), ("energy", "energy")])
     ]
     explanation_facts = {
         "score": score,
@@ -3006,7 +3106,19 @@ def get_weekly_summary(
     _chronic_start = _verdict_as_of - _td(days=27)
     _chronic_series = _dts(str(uid), _chronic_start, _verdict_as_of)
     chronic_weekly = round(sum(v for _, v in _chronic_series) / 4.0, 1)
-    verdict = compute_verdict(load_end, chronic_weekly=chronic_weekly, today=_verdict_as_of)
+    with Session(engine) as _vsess:
+        _readiness_today, _readiness_7d = _fetch_readiness_for_verdict(uid, _verdict_as_of, _vsess)
+        _active_injuries = _fetch_active_injuries_for_verdict(uid, _vsess)
+    verdict = compute_verdict(
+        load_end,
+        chronic_weekly=chronic_weekly,
+        today=_verdict_as_of,
+        readiness_today=_readiness_today,
+        readiness_7d_mean=_readiness_7d,
+        injury_log=_active_injuries,
+    )
+    if _verdict_as_of == _date_cls.today():
+        _upsert_verdict_history(uid, _verdict_as_of, verdict, readiness_score=_readiness_today)
 
     facts = assemble_facts(
         week_start=week_start,
@@ -3275,7 +3387,8 @@ def _build_weight_block(uid, today_bkk):
 def _build_readiness_block(uid, today_bkk):
     """Return readiness block for today, or {"logged": false} when no metrics exist."""
     baseline_end = today_bkk - _timedelta(days=1)
-    baseline_start = today_bkk - _timedelta(days=7)
+    rhr_baseline_start = today_bkk - _timedelta(days=_RDN_RHR_WINDOW)
+    hrv_baseline_start = today_bkk - _timedelta(days=_RDN_HRV_WINDOW)
 
     with Session(engine) as session:
         metrics = (
@@ -3287,7 +3400,7 @@ def _build_readiness_block(uid, today_bkk):
             session.query(DailyMetric)
             .filter(
                 DailyMetric.user_id == uid,
-                DailyMetric.metric_date >= baseline_start,
+                DailyMetric.metric_date >= rhr_baseline_start,
                 DailyMetric.metric_date <= baseline_end,
             )
             .all()
@@ -3300,42 +3413,45 @@ def _build_readiness_block(uid, today_bkk):
         non_null = [v for v in vals if v is not None]
         return round(sum(non_null) / len(non_null), 2) if non_null else None
 
-    hrv_7d_avg = _avg([float(r.hrv) for r in baseline_rows if r.hrv is not None])
-    rhr_7d_avg = _avg([float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None])
-    sleep_7d_avg = _avg([float(r.sleep_hours) for r in baseline_rows if r.sleep_hours is not None])
+    hrv_baseline_vals = [float(r.hrv) for r in baseline_rows if r.hrv is not None and r.metric_date >= hrv_baseline_start]
+    rhr_baseline_vals = [float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None]
+    hrv_7d_avg = _avg(hrv_baseline_vals) if hrv_baseline_vals else None
+    rhr_7d_avg = _avg([float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None and r.metric_date >= hrv_baseline_start])
+    sleep_7d_avg = _avg([float(r.sleep_hours) for r in baseline_rows if r.sleep_hours is not None and r.metric_date >= hrv_baseline_start])
 
-    def _bscore(value, baseline, higher_is_better):
-        if value is None:
-            return 50.0
-        v = float(value)
-        if baseline is None or baseline == 0:
-            return 50.0
-        delta_pct = (v - float(baseline)) / float(baseline) * 100.0
-        raw = 50.0 + delta_pct if higher_is_better else 50.0 - delta_pct
-        return min(100.0, max(0.0, raw))
+    result = _canonical_readiness(
+        hrv=float(metrics.hrv) if metrics.hrv is not None else None,
+        resting_hr=float(metrics.resting_hr) if metrics.resting_hr is not None else None,
+        sleep_quality=float(metrics.sleep_quality) if metrics.sleep_quality is not None else None,
+        energy=float(metrics.energy) if metrics.energy is not None else None,
+        hrv_baseline=hrv_baseline_vals,
+        rhr_baseline=rhr_baseline_vals,
+    )
 
-    sleep_score = _bscore(metrics.sleep_hours, sleep_7d_avg, True)
-    hrv_score = _bscore(metrics.hrv, hrv_7d_avg, True)
-    rhr_score = _bscore(metrics.resting_hr, rhr_7d_avg, False)
-    mood_score = float(metrics.mood) * 20.0 if metrics.mood is not None else 50.0
-    energy_score = float(metrics.energy) * 20.0 if metrics.energy is not None else 50.0
+    if result is None:
+        return {"logged": False}
 
-    total = sleep_score * 0.30 + hrv_score * 0.25 + rhr_score * 0.20 + mood_score * 0.15 + energy_score * 0.10
-    score = int(round(min(100.0, max(0.0, total))))
+    score = int(round(result.score))
+    raw = result.raw_scores
+
+    def _impact(key: str) -> str:
+        v = raw.get(key, 50.0)
+        if v > 50:
+            return "positive"
+        if v < 50:
+            return "negative"
+        return "neutral"
 
     factors = [
-        {"factor": "sleep_hours", "value": float(metrics.sleep_hours) if metrics.sleep_hours is not None else None,
-         "impact": "positive" if sleep_score > 50 else ("negative" if sleep_score < 50 else "neutral"), "score": sleep_score},
         {"factor": "hrv", "value": float(metrics.hrv) if metrics.hrv is not None else None,
-         "impact": "positive" if hrv_score > 50 else ("negative" if hrv_score < 50 else "neutral"), "score": hrv_score},
+         "impact": _impact("hrv"), "score": raw.get("hrv", 50.0)},
         {"factor": "rhr", "value": float(metrics.resting_hr) if metrics.resting_hr is not None else None,
-         "impact": "positive" if rhr_score > 50 else ("negative" if rhr_score < 50 else "neutral"), "score": rhr_score},
-        {"factor": "mood", "value": float(metrics.mood) if metrics.mood is not None else None,
-         "impact": "positive" if mood_score > 50 else ("negative" if mood_score < 50 else "neutral"), "score": mood_score},
+         "impact": _impact("rhr"), "score": raw.get("rhr", 50.0)},
+        {"factor": "sleep_quality", "value": float(metrics.sleep_quality) if metrics.sleep_quality is not None else None,
+         "impact": _impact("sleep"), "score": raw.get("sleep", 50.0)},
         {"factor": "energy", "value": float(metrics.energy) if metrics.energy is not None else None,
-         "impact": "positive" if energy_score > 50 else ("negative" if energy_score < 50 else "neutral"), "score": energy_score},
+         "impact": _impact("energy"), "score": raw.get("energy", 50.0)},
     ]
-    # Top factors by absolute deviation from 50
     top_factors = sorted(factors, key=lambda f: abs(f["score"] - 50), reverse=True)[:3]
     top_factors_clean = [{"factor": f["factor"], "value": f["value"], "impact": f["impact"]} for f in top_factors]
 
@@ -5033,7 +5149,7 @@ from backend.services.habit_adherence import (  # noqa: E402
     detect_slipping_habits as _detect_slipping_habits,
 )
 from backend.services.habit_nudges import build_nudges as _build_nudges, apply_llm_nudges as _apply_llm_nudges  # noqa: E402
-from backend.services.exercise_classifier import get_or_classify as _get_or_classify, normalize_name as _normalize_exercise_name, VALID_BODY_PARTS as _VALID_BODY_PARTS  # noqa: E402
+from backend.services.exercise_classifier import get_or_classify as _get_or_classify, normalize_name as _normalize_exercise_name  # noqa: E402
 
 
 @app.get("/api/adherence-nudges")
@@ -5440,6 +5556,9 @@ def get_calendar_month(
 
 class ExerciseIn(BaseModel):
     name: str
+    # Training-block grouping (Warm-up / Heavy compound / Superset 1 / ...) —
+    # same vocabulary as PlannedSession.structure.exercises[].block.
+    block: Optional[str] = None
     sets: Optional[int] = None
     reps: Optional[int] = None
     weight_kg: Optional[float] = None
@@ -5522,6 +5641,7 @@ class WorkoutDuplicateIn(BaseModel):
 
 class ExercisePatchIn(BaseModel):
     name: Optional[str] = None
+    block: Optional[str] = None
     sets: Optional[int] = None
     reps: Optional[int] = None
     weight_kg: Optional[float] = None
@@ -5540,6 +5660,8 @@ def _validate_exercise(ex: ExerciseIn) -> None:
     name = ex.name.strip() if ex.name else ""
     if not name:
         raise HTTPException(status_code=422, detail="Exercise name is required")
+    if ex.block is not None and len(ex.block) > 80:
+        raise HTTPException(status_code=422, detail="block must be 80 characters or fewer")
     if ex.sets is not None and ex.sets <= 0:
         raise HTTPException(status_code=422, detail="sets must be > 0")
     if ex.rpe is not None and not (1 <= ex.rpe <= 10):
@@ -5565,6 +5687,7 @@ def _exercise_dict(e: WorkoutExercise) -> dict:
     return {
         "id": str(e.id),
         "display_order": e.display_order,
+        "block": e.block,
         "name": e.name,
         "sets": e.sets,
         "reps": e.reps,
@@ -5641,21 +5764,21 @@ def _classified_manual_laps_map(session, run_workouts, prefs_dict) -> dict:
             continue
         shims = [
             SimpleNamespace(
-                avg_power=l.get("avg_power"), avg_hr=l.get("avg_hr"),
-                duration_seconds=l.get("duration_seconds"),
-                distance_km=l.get("distance_km"),
+                avg_power=lap.get("avg_power"), avg_hr=lap.get("avg_hr"),
+                duration_seconds=lap.get("duration_seconds"),
+                distance_km=lap.get("distance_km"),
             )
-            for l in ml
+            for lap in ml
         ]
         out[wk.id] = [
             {
                 "band": c.get("band"),
-                "avg_power": l.get("avg_power"),
-                "avg_hr": l.get("avg_hr"),
-                "distance_km": float(l["distance_km"]) if l.get("distance_km") is not None else None,
-                "duration_seconds": l.get("duration_seconds"),
+                "avg_power": lap.get("avg_power"),
+                "avg_hr": lap.get("avg_hr"),
+                "distance_km": float(lap["distance_km"]) if lap.get("distance_km") is not None else None,
+                "duration_seconds": lap.get("duration_seconds"),
             }
-            for l, c in zip(ml, _cl(shims, prefs_dict or {}))
+            for lap, c in zip(ml, _cl(shims, prefs_dict or {}))
         ]
     return out
 
@@ -6982,6 +7105,7 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             e = WorkoutExercise(
                 workout_id=workout.id,
                 display_order=i,
+                block=ex.block,
                 name=ex.name.strip(),
                 sets=ex.sets,
                 reps=ex.reps,
@@ -7020,6 +7144,14 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             _logging.getLogger(__name__).warning(
                 "checkpoint autodetection failed for workout %s: %s", workout.id, _cd_exc, exc_info=True
             )
+        if workout.workout_type == "strength":
+            try:
+                from backend.services.muscle_load import recompute_strength_load_for_date as _rsl
+                _rsl(uid, workout_date)
+            except Exception as _ml_exc:
+                _logging.getLogger(__name__).warning(
+                    "muscle_load recompute failed for workout %s: %s", workout.id, _ml_exc, exc_info=True
+                )
         return JSONResponse(status_code=201, content=_workout_dict(workout, exercises))
 
 
@@ -7149,6 +7281,7 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
                 session.add(WorkoutExercise(
                     workout_id=wid,
                     display_order=i,
+                    block=ex.block,
                     name=ex.name.strip(),
                     sets=ex.sets,
                     reps=ex.reps,
@@ -7189,6 +7322,15 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             _logging.getLogger(__name__).warning(
                 "autofill recompute failed for user %s: %s", workout.user_id, _af_exc
             )
+        if workout.workout_type == "strength":
+            try:
+                from backend.services.muscle_load import recompute_strength_load_for_date as _rsl
+                for _ml_date in {_old_workout_date, workout.workout_date}:
+                    _rsl(workout.user_id, _ml_date)
+            except Exception as _ml_exc:
+                _logging.getLogger(__name__).warning(
+                    "muscle_load recompute failed for workout %s: %s", wid, _ml_exc, exc_info=True
+                )
         return JSONResponse(_workout_dict(workout, exercises))
 
 
@@ -7206,6 +7348,7 @@ def delete_workout(workout_id: str, user: User = Depends(resolve_user)):
             raise HTTPException(status_code=403, detail="Forbidden")
         _del_date = workout.workout_date
         _del_uid = workout.user_id
+        _del_workout_type = workout.workout_type
         # Tombstone any linked synced activities so the next sync/reconcile does
         # NOT recreate this workout. Snapshot name/date for the Removed list.
         _tombstone_links = []
@@ -7247,6 +7390,15 @@ def delete_workout(workout_id: str, user: User = Depends(resolve_user)):
         _logging.getLogger(__name__).warning(
             "autofill recompute failed for user %s week %s: %s", _del_uid, _del_date, _af_exc
         )
+    if _del_workout_type == "strength":
+        try:
+            from backend.services.muscle_load import recompute_strength_load_for_date as _rsl
+            _rsl(_del_uid, _del_date)
+        except Exception as _ml_exc:
+            _logging.getLogger(__name__).warning(
+                "muscle_load recompute failed after delete for user %s date %s: %s",
+                _del_uid, _del_date, _ml_exc, exc_info=True,
+            )
     return Response(status_code=204)
 
 
@@ -7254,7 +7406,7 @@ def delete_workout(workout_id: str, user: User = Depends(resolve_user)):
 # Distinct from Projection's ramp/taper load model (TrainingPlan/PlannedLoad).
 # Link-only: matched_workout_id → workouts.id; Log tab unchanged.
 
-_PLANNED_SESSION_TYPES = {"run", "strength", "plyo", "rest"}
+_PLANNED_SESSION_TYPES = {"run", "strength", "plyo", "stretch", "rest"}
 _PLANNED_STATUSES = {"planned", "missed", "needs_review", "done_auto", "done_manual"}
 
 
@@ -7716,6 +7868,7 @@ def duplicate_workout(workout_id: str, body: WorkoutDuplicateIn, user: User = De
             e = WorkoutExercise(
                 workout_id=copy.id,
                 display_order=ex.display_order,
+                block=ex.block,
                 name=ex.name,
                 sets=ex.sets,
                 reps=ex.reps,
@@ -7814,6 +7967,7 @@ def append_exercise(workout_id: str, body: ExerciseIn, user: User = Depends(reso
         ex = WorkoutExercise(
             workout_id=wid,
             display_order=next_order,
+            block=body.block,
             name=body.name.strip(),
             sets=body.sets,
             reps=body.reps,
@@ -7851,6 +8005,11 @@ def patch_exercise(workout_id: str, exercise_id: str, body: ExercisePatchIn, use
             if not name:
                 raise HTTPException(status_code=422, detail="Exercise name is required")
             ex.name = name
+        if body.block is not None:
+            if len(body.block) > 80:
+                raise HTTPException(status_code=422, detail="block must be 80 characters or fewer")
+            # Empty string clears the grouping.
+            ex.block = body.block.strip() or None
         if body.sets is not None:
             if body.sets <= 0:
                 raise HTTPException(status_code=422, detail="sets must be > 0")
@@ -7927,6 +8086,7 @@ def replace_exercises(workout_id: str, body: ExercisesReplaceIn, user: User = De
             new_ex = WorkoutExercise(
                 workout_id=wid,
                 display_order=i,
+                block=ex.block,
                 name=ex.name.strip(),
                 sets=ex.sets,
                 reps=ex.reps,
@@ -8490,7 +8650,9 @@ def create_daily_metric(body: DailyMetricIn, user: User = Depends(resolve_user))
                 content={"error": "A daily metric already exists for this user on this date; use PATCH to update it"},
             )
         session.refresh(row)
-        return JSONResponse(status_code=201, content=_daily_metric_dict(row))
+        result_dict = _daily_metric_dict(row)
+    _readiness_compute_and_store(str(user.id), md)
+    return JSONResponse(status_code=201, content=result_dict)
 
 
 @app.patch("/api/daily-metrics/{uid}/{metric_date}")
@@ -8542,7 +8704,9 @@ def patch_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user: 
             row.kcal_intake = body.kcal_intake
         session.commit()
         session.refresh(row)
-        return JSONResponse(_daily_metric_dict(row))
+        result_dict = _daily_metric_dict(row)
+    _readiness_compute_and_store(str(uid), md)
+    return JSONResponse(result_dict)
 
 
 @app.put("/api/daily-metrics/{uid}/{metric_date}")
@@ -8599,7 +8763,9 @@ def upsert_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user:
             row.kcal_intake = body.kcal_intake
         session.commit()
         session.refresh(row)
-        return JSONResponse(_daily_metric_dict(row))
+        result_dict = _daily_metric_dict(row)
+    _readiness_compute_and_store(str(uid), md)
+    return JSONResponse(result_dict)
 
 
 @app.get("/api/daily-metrics/trend")
@@ -8662,7 +8828,172 @@ def delete_daily_metric(uid: str, metric_date: str, user: User = Depends(resolve
             raise HTTPException(status_code=404, detail="Daily metric not found")
         session.delete(row)
         session.commit()
+    with Session(engine) as session:
+        session.execute(
+            text("DELETE FROM daily_readiness WHERE user_id = :uid AND date = :d"),
+            {"uid": str(uid), "d": str(md)},
+        )
+        session.commit()
     return Response(status_code=204)
+
+
+# ── Body measurements ─────────────────────────────────────────────────────────
+
+class BodyMeasurementCreateIn(BaseModel):
+    measure_date: str               # YYYY-MM-DD
+    waist_cm: Optional[float] = None
+    body_fat_pct: Optional[float] = None
+    notes: Optional[str] = None
+
+
+class BodyMeasurementPatchIn(BaseModel):
+    waist_cm: Optional[float] = None
+    body_fat_pct: Optional[float] = None
+    notes: Optional[str] = None
+
+
+def _bm_dict(m: BodyMeasurement) -> dict:
+    return {
+        "id": str(m.id),
+        "user_id": str(m.user_id),
+        "measure_date": str(m.measure_date),
+        "waist_cm": float(m.waist_cm) if m.waist_cm is not None else None,
+        "body_fat_pct": float(m.body_fat_pct) if m.body_fat_pct is not None else None,
+        "source": m.source,
+        "notes": m.notes,
+        "created_at": m.created_at.isoformat() if m.created_at else None,
+    }
+
+
+def _validate_bm_fields(waist_cm, body_fat_pct):
+    if waist_cm is None and body_fat_pct is None:
+        raise HTTPException(status_code=422, detail="At least one of waist_cm or body_fat_pct is required")
+    if waist_cm is not None and not (40 <= waist_cm <= 200):
+        raise HTTPException(status_code=422, detail="waist_cm must be between 40 and 200")
+    if body_fat_pct is not None and not (3 <= body_fat_pct <= 60):
+        raise HTTPException(status_code=422, detail="body_fat_pct must be between 3 and 60")
+
+
+@app.post("/api/body-measurements")
+def upsert_body_measurement(body: BodyMeasurementCreateIn, user: User = Depends(resolve_user)):
+    uid = user.id
+    _validate_bm_fields(body.waist_cm, body.body_fat_pct)
+
+    try:
+        measure_date = _date.fromisoformat(body.measure_date)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid measure_date; use YYYY-MM-DD")
+
+    set_vals: dict = {}
+    if body.waist_cm is not None:
+        set_vals["waist_cm"] = body.waist_cm
+    if body.body_fat_pct is not None:
+        set_vals["body_fat_pct"] = body.body_fat_pct
+    if body.notes is not None:
+        set_vals["notes"] = body.notes
+
+    with Session(engine) as session:
+        stmt = (
+            _pg_insert(BodyMeasurement)
+            .values(
+                user_id=uid,
+                measure_date=measure_date,
+                waist_cm=body.waist_cm,
+                body_fat_pct=body.body_fat_pct,
+                notes=body.notes,
+                source="manual",
+            )
+            .on_conflict_do_update(
+                index_elements=["user_id", "measure_date"],
+                set_={**set_vals},
+            )
+            .returning(BodyMeasurement.__table__.c.id)
+        )
+        row_id = session.execute(stmt).scalar_one()
+        session.commit()
+        m = session.get(BodyMeasurement, row_id)
+        return JSONResponse(_bm_dict(m))
+
+
+@app.get("/api/body-measurements")
+def list_body_measurements(
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+    user: User = Depends(resolve_user),
+):
+    uid = user.id
+    today = _today_bkk()
+
+    try:
+        from_d = _date.fromisoformat(from_date) if from_date else today - _timedelta(days=89)
+        to_d = _date.fromisoformat(to_date) if to_date else today
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid date format; use YYYY-MM-DD")
+
+    if from_d > to_d:
+        raise HTTPException(status_code=422, detail="from must not be after to")
+
+    with Session(engine) as session:
+        rows = (
+            session.query(BodyMeasurement)
+            .filter(
+                BodyMeasurement.user_id == uid,
+                BodyMeasurement.measure_date >= from_d,
+                BodyMeasurement.measure_date <= to_d,
+            )
+            .order_by(BodyMeasurement.measure_date.asc())
+            .all()
+        )
+        measurements = [_bm_dict(r) for r in rows]
+
+    return JSONResponse({"measurements": measurements, "count": len(measurements)})
+
+
+@app.patch("/api/body-measurements/{measurement_id}")
+def patch_body_measurement(measurement_id: str, body: BodyMeasurementPatchIn, user: User = Depends(resolve_user)):
+    try:
+        mid = _uuid.UUID(measurement_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid measurement_id")
+
+    with Session(engine) as session:
+        m = session.get(BodyMeasurement, mid)
+        if m is None or m.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Measurement not found")
+
+        new_waist = body.waist_cm if "waist_cm" in body.model_fields_set else m.waist_cm
+        new_bf = body.body_fat_pct if "body_fat_pct" in body.model_fields_set else m.body_fat_pct
+        _validate_bm_fields(
+            float(new_waist) if new_waist is not None else None,
+            float(new_bf) if new_bf is not None else None,
+        )
+
+        if "waist_cm" in body.model_fields_set:
+            m.waist_cm = body.waist_cm
+        if "body_fat_pct" in body.model_fields_set:
+            m.body_fat_pct = body.body_fat_pct
+        if "notes" in body.model_fields_set:
+            m.notes = body.notes
+
+        session.commit()
+        session.refresh(m)
+        return JSONResponse(_bm_dict(m))
+
+
+@app.delete("/api/body-measurements/{measurement_id}")
+def delete_body_measurement(measurement_id: str, user: User = Depends(resolve_user)):
+    try:
+        mid = _uuid.UUID(measurement_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid measurement_id")
+
+    with Session(engine) as session:
+        m = session.get(BodyMeasurement, mid)
+        if m is None or m.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Measurement not found")
+        session.delete(m)
+        session.commit()
+    return JSONResponse({"deleted": True})
 
 
 # ── Exports ────────────────────────────────────────────────────────────────────
@@ -8912,30 +9243,62 @@ def export_weight_targets_csv(
     )
 
 
+@app.get("/api/exports/body-measurements")
+def export_body_measurements_csv(
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+    user: User = Depends(resolve_user),
+):
+    uid = user.id
+
+    from_d: Optional[_date] = None
+    to_d: Optional[_date] = None
+    if from_date is not None:
+        try:
+            from_d = _date.fromisoformat(from_date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid 'from' date")
+    if to_date is not None:
+        try:
+            to_d = _date.fromisoformat(to_date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid 'to' date")
+    if from_d is not None and to_d is not None and from_d > to_d:
+        raise HTTPException(status_code=422, detail="'from' must not be after 'to'")
+
+    with Session(engine) as session:
+        q = session.query(BodyMeasurement).filter(BodyMeasurement.user_id == uid)
+        if from_d is not None:
+            q = q.filter(BodyMeasurement.measure_date >= from_d)
+        if to_d is not None:
+            q = q.filter(BodyMeasurement.measure_date <= to_d)
+        rows = q.order_by(BodyMeasurement.measure_date.asc()).all()
+
+    buf = _io.StringIO()
+    writer = _csv.writer(buf, quoting=_csv.QUOTE_MINIMAL)
+    writer.writerow(["measure_date", "waist_cm", "body_fat_pct", "source", "notes"])
+    for r in rows:
+        writer.writerow([
+            str(r.measure_date),
+            float(r.waist_cm) if r.waist_cm is not None else "",
+            float(r.body_fat_pct) if r.body_fat_pct is not None else "",
+            r.source if r.source is not None else "",
+            r.notes if r.notes is not None else "",
+        ])
+
+    if from_d is not None and to_d is not None:
+        filename = f"body-measurements-{from_d}-to-{to_d}.csv"
+    else:
+        filename = "body-measurements-all.csv"
+
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 # ── Trends summary endpoint ────────────────────────────────────────────────────
-
-def _compute_readiness(hrv, resting_hr, sleep_hours, sleep_quality, energy, mood):
-    """0-100 readiness score computed from available daily metric fields."""
-    components = []
-    if hrv is not None:
-        # HRV: typical 20-100 ms → map to 0-100
-        components.append(min(100.0, max(0.0, (float(hrv) - 20.0) / 80.0 * 100.0)))
-    if resting_hr is not None:
-        # RHR: lower is better; 40 bpm → 100, 90 bpm → 0
-        components.append(max(0.0, min(100.0, (90.0 - float(resting_hr)) * 2.0)))
-    if sleep_hours is not None:
-        # sleep: 4 h → 0, 9 h → 100
-        components.append(max(0.0, min(100.0, (float(sleep_hours) - 4.0) / 5.0 * 100.0)))
-    if sleep_quality is not None:
-        components.append((float(sleep_quality) - 1.0) / 4.0 * 100.0)
-    if energy is not None:
-        components.append((float(energy) - 1.0) / 4.0 * 100.0)
-    if mood is not None:
-        components.append((float(mood) - 1.0) / 4.0 * 100.0)
-    if not components:
-        return None
-    return round(sum(components) / len(components))
-
 
 def _agg_stats(values):
     non_null = [v for v in values if v is not None]
@@ -9009,28 +9372,25 @@ def get_trends_summary(
     prev_to_d = from_d - timedelta(days=1)
     prev_from_d = prev_to_d - timedelta(days=days_count - 1)
 
+    # Single extended metrics fetch covers current period, prev period, and all baselines
+    # (RHR baseline = 30 days before earliest date we score readiness for)
+    extended_metrics_from = min(from_d, prev_from_d) - timedelta(days=_RDN_RHR_WINDOW)
+
     with Session(engine) as session:
-        metrics = (
+        extended_metrics = (
             session.query(DailyMetric)
             .filter(
                 DailyMetric.user_id == uid,
-                DailyMetric.metric_date >= from_d,
+                DailyMetric.metric_date >= extended_metrics_from,
                 DailyMetric.metric_date <= to_d,
             )
             .all()
         )
-        by_date = {str(m.metric_date): m for m in metrics}
-
-        prev_metrics = (
-            session.query(DailyMetric)
-            .filter(
-                DailyMetric.user_id == uid,
-                DailyMetric.metric_date >= prev_from_d,
-                DailyMetric.metric_date <= prev_to_d,
-            )
-            .all()
-        )
-        prev_by_date = {str(m.metric_date): m for m in prev_metrics}
+        all_metrics_by_date = {str(m.metric_date): m for m in extended_metrics}
+        by_date = {d: m for d, m in all_metrics_by_date.items()
+                   if _date.fromisoformat(d) >= from_d}
+        prev_by_date = {d: m for d, m in all_metrics_by_date.items()
+                        if prev_from_d <= _date.fromisoformat(d) <= prev_to_d}
 
         workouts = (
             session.query(Workout)
@@ -9062,17 +9422,10 @@ def get_trends_summary(
             d = str(w.workout_date)
             prev_tss_by_date[d] = prev_tss_by_date.get(d, 0.0) + (w.tss or 0.0)
 
-        baseline_from_d = to_d - timedelta(days=29)
-        baseline_metrics = (
-            session.query(DailyMetric)
-            .filter(
-                DailyMetric.user_id == uid,
-                DailyMetric.metric_date >= baseline_from_d,
-                DailyMetric.metric_date <= to_d,
-            )
-            .all()
-        )
-
+    # Baseline stats for the display fields (30-day window ending at to_d)
+    baseline_from_d = to_d - timedelta(days=29)
+    baseline_metrics = [m for d, m in all_metrics_by_date.items()
+                        if baseline_from_d <= _date.fromisoformat(d) <= to_d]
     baseline_hrv_vals = [float(m.hrv) for m in baseline_metrics if m.hrv is not None]
     baseline_rhr_vals = [float(m.resting_hr) for m in baseline_metrics if m.resting_hr is not None]
 
@@ -9099,15 +9452,40 @@ def get_trends_summary(
     all_dates = _date_range(from_d, to_d)
     prev_dates = _date_range(prev_from_d, prev_to_d)
 
+    def _trends_readiness(target_date_str: str) -> Optional[int]:
+        """Compute canonical readiness for a date using per-date rolling baselines."""
+        target = _date.fromisoformat(target_date_str)
+        m = all_metrics_by_date.get(target_date_str)
+        if m is None:
+            return None
+        hrv_bl = [
+            float(all_metrics_by_date[str(target - timedelta(days=i))].hrv)
+            for i in range(1, _RDN_HRV_WINDOW + 1)
+            if str(target - timedelta(days=i)) in all_metrics_by_date
+            and all_metrics_by_date[str(target - timedelta(days=i))].hrv is not None
+        ]
+        rhr_bl = [
+            float(all_metrics_by_date[str(target - timedelta(days=i))].resting_hr)
+            for i in range(1, _RDN_RHR_WINDOW + 1)
+            if str(target - timedelta(days=i)) in all_metrics_by_date
+            and all_metrics_by_date[str(target - timedelta(days=i))].resting_hr is not None
+        ]
+        r = _canonical_readiness(
+            hrv=float(m.hrv) if m.hrv is not None else None,
+            resting_hr=float(m.resting_hr) if m.resting_hr is not None else None,
+            sleep_quality=float(m.sleep_quality) if m.sleep_quality is not None else None,
+            energy=float(m.energy) if m.energy is not None else None,
+            hrv_baseline=hrv_bl,
+            rhr_baseline=rhr_bl,
+        )
+        return int(round(r.score)) if r is not None else None
+
     readiness_series, hrv_series, rhr_series, sleep_series, energy_series, mood_series, tss_series = [], [], [], [], [], [], []
 
     for d in all_dates:
         m = by_date.get(d)
         sh = float(m.sleep_hours) if m and m.sleep_hours is not None else None
-        readiness_series.append({"date": d, "score": _compute_readiness(
-            m.hrv if m else None, m.resting_hr if m else None, sh,
-            m.sleep_quality if m else None, m.energy if m else None, m.mood if m else None,
-        )})
+        readiness_series.append({"date": d, "score": _trends_readiness(d)})
         hrv_series.append({"date": d, "value": m.hrv if m else None})
         rhr_series.append({"date": d, "value": m.resting_hr if m else None})
         sleep_series.append({"date": d, "hours": sh, "quality": m.sleep_quality if m else None})
@@ -9131,15 +9509,7 @@ def get_trends_summary(
         return sum(vals) / len(vals) if vals else None
 
     def _prev_readiness_avg():
-        vals = []
-        for d in prev_dates:
-            m = prev_by_date.get(d)
-            if not m:
-                continue
-            sh = float(m.sleep_hours) if m.sleep_hours is not None else None
-            r = _compute_readiness(m.hrv, m.resting_hr, sh, m.sleep_quality, m.energy, m.mood)
-            if r is not None:
-                vals.append(r)
+        vals = [v for d in prev_dates if (v := _trends_readiness(d)) is not None]
         return sum(vals) / len(vals) if vals else None
 
     prev_tss_vals = [prev_tss_by_date[d] for d in prev_dates if d in prev_tss_by_date]
@@ -9328,7 +9698,8 @@ def get_readiness(
             "ctl": None,
             "atl": None,
             "tsb": None,
-            "readiness_label": None,
+            "form_label": None,
+            "readiness_label": None,   # deprecated alias — kept for one release
             "series": [],
         })
 
@@ -9348,12 +9719,14 @@ def get_readiness(
         for row in series
     ]
 
+    _form_label = training_readiness_label(tsb)
     return JSONResponse({
         "building_baseline": False,
         "ctl": ctl,
         "atl": atl,
         "tsb": tsb,
-        "readiness_label": training_readiness_label(tsb),
+        "form_label": _form_label,
+        "readiness_label": _form_label,   # deprecated alias — kept for one release
         "series": chart_series,
     })
 
@@ -12737,6 +13110,63 @@ def get_training_daily_load(
     return JSONResponse(result)
 
 
+@app.get("/api/training/verdict-history")
+def get_verdict_history(
+    from_: Optional[str] = Query(default=None, alias="from"),
+    to: Optional[str] = Query(default=None),
+    current_user: User = Depends(resolve_user),
+):
+    """Return the persisted daily verdict + inputs series for the session user.
+
+    Query params: from (ISO date, inclusive) and to (ISO date, inclusive).
+    Returns a list of verdict_history rows ordered by date ascending.
+    """
+    if from_ is None or to is None:
+        missing = []
+        if from_ is None:
+            missing.append("from")
+        if to is None:
+            missing.append("to")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing required query parameter(s): {', '.join(missing)}",
+        )
+    try:
+        from_date = _date.fromisoformat(from_)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"'from' is not a valid ISO-8601 date: {from_!r}")
+    try:
+        to_date = _date.fromisoformat(to)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"'to' is not a valid ISO-8601 date: {to!r}")
+
+    with Session(engine) as db:
+        rows = (
+            db.query(VerdictHistory)
+            .filter(
+                VerdictHistory.user_id == current_user.id,
+                VerdictHistory.verdict_date >= from_date,
+                VerdictHistory.verdict_date <= to_date,
+            )
+            .order_by(VerdictHistory.verdict_date)
+            .all()
+        )
+    return JSONResponse([
+        {
+            "verdict_date": row.verdict_date.isoformat(),
+            "verdict": row.verdict,
+            "modifiers": row.modifiers,
+            "readiness": row.readiness,
+            "ctl": row.ctl,
+            "atl": row.atl,
+            "tsb": row.tsb,
+            "acwr": row.acwr,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in rows
+    ])
+
+
 @app.get("/api/athletes/{athlete_id}/daily-load")
 def get_athlete_daily_load(
     athlete_id: str,
@@ -12815,6 +13245,257 @@ def get_athlete_daily_load(
 
     result = _daily_load_series(workouts, start_date, end_date)
     return JSONResponse(result)
+
+
+# ── Today's training recommendation ──────────────────────────────────────────
+
+@app.get("/api/training/today-recommendation")
+def get_today_recommendation(user: User = Depends(resolve_user)):
+    """Deterministic keep / downgrade / rest / no_plan recommendation for today.
+
+    Combines today's planned session, today's canonical readiness score, and
+    the current training-load verdict to answer the morning question:
+    "should I still do today's workout?" Returns a display-only recommendation
+    with a one-line reason and an optional apply_patch for one-tap downgrade.
+
+    Inputs returned alongside the recommendation (for transparency):
+      readiness   — today's DailyReadiness score (null when not yet logged)
+      verdict     — back_off | hold | build (from training_load)
+      active_injuries — the user's active injury_log entries ({kind, severity});
+                        an active injury makes the engine recommend rest
+    """
+    from backend.services.today_recommendation import compute_today_recommendation
+    from backend.utils.time import today_bangkok
+
+    today = today_bangkok()
+    uid = user.id
+
+    with Session(engine) as db:
+        # Today's planned session (first non-rest, else first, else None)
+        planned_rows = (
+            db.query(PlannedSession)
+            .filter(
+                PlannedSession.user_id == uid,
+                PlannedSession.planned_date == today,
+                PlannedSession.status.in_(["planned", "needs_review"]),
+            )
+            .order_by(PlannedSession.created_at)
+            .all()
+        )
+        non_rest = [p for p in planned_rows if p.session_type != "rest"]
+        planned = non_rest[0] if non_rest else (planned_rows[0] if planned_rows else None)
+
+        # Today's readiness score from DailyReadiness (canonical, pre-computed)
+        readiness_row = (
+            db.query(DailyReadiness)
+            .filter(DailyReadiness.user_id == uid, DailyReadiness.date == today)
+            .first()
+        )
+        readiness_score = float(readiness_row.score) if readiness_row else None
+        # Real active injuries — same source the verdict computation uses.
+        # (Was hardcoded [] while the sibling verdict path already consumed
+        # this data, so an active injury never triggered the engine's own
+        # "rest" rule.)
+        active_injuries = _fetch_active_injuries_for_verdict(uid, db)
+
+    verdict_result = _resolve_current_verdict(uid, today)
+    verdict = verdict_result["verdict"]
+
+    rec = compute_today_recommendation(
+        session_type=planned.session_type if planned else None,
+        session_name=planned.name if planned else None,
+        session_structure=planned.structure if planned else None,
+        readiness_score=readiness_score,
+        verdict=verdict,
+        active_injuries=active_injuries,
+    )
+
+    planned_dict = None
+    if planned is not None:
+        planned_dict = {
+            "id": str(planned.id),
+            "planned_date": str(planned.planned_date),
+            "session_type": planned.session_type,
+            "name": planned.name,
+            "structure": planned.structure,
+            "status": planned.status,
+        }
+
+    return JSONResponse({
+        "recommendation": rec["recommendation"],
+        "reason": rec["reason"],
+        "apply_patch": rec["apply_patch"],
+        "planned_session": planned_dict,
+        "inputs": {
+            "readiness": readiness_score,
+            "verdict": verdict,
+            "active_injuries": active_injuries,
+        },
+    })
+
+
+# ── Run Form Metrics ─────────────────────────────────────────────────────────
+
+_FORM_METRICS_ROLLING_DAYS = 28
+
+
+def _rolling_mean(values: list, window: int = _FORM_METRICS_ROLLING_DAYS) -> list:
+    """Return a trailing-window simple mean for each position in values.
+
+    values is a list of (run_date, float|None) tuples sorted ascending.
+    Returns a list of float|None — None when no non-null values exist in window.
+    """
+    out = []
+    for i, (_, v) in enumerate(values):
+        start = max(0, i - window + 1)
+        window_vals = [v2 for _, v2 in values[start : i + 1] if v2 is not None]
+        out.append(round(sum(window_vals) / len(window_vals), 4) if window_vals else None)
+    return out
+
+
+@app.get("/api/training/form-metrics")
+def get_run_form_metrics(
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+    user: User = Depends(resolve_user),
+):
+    """Per-run Stryd running-dynamics series with 28-day rolling means.
+
+    Query params (both optional):
+        from  YYYY-MM-DD  start of range (default: 90 days ago)
+        to    YYYY-MM-DD  end of range   (default: today)
+
+    Response:
+        runs           list of per-run objects sorted by run_date asc
+        rolling_means  28-day trailing means for each metric at each date position
+    """
+    today = _today_bkk()
+    if from_date is None and to_date is None:
+        from_d = today - _timedelta(days=89)
+        to_d = today
+    else:
+        try:
+            from_d = _date.fromisoformat(from_date) if from_date else today - _timedelta(days=89)
+            to_d = _date.fromisoformat(to_date) if to_date else today
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid date format; use YYYY-MM-DD")
+
+    if from_d > to_d:
+        raise HTTPException(status_code=422, detail="from must not be after to")
+    if (to_d - from_d).days > 365:
+        raise HTTPException(status_code=422, detail="Date range cannot exceed 365 days")
+
+    uid = user.id
+    with Session(engine) as session:
+        rows = (
+            session.query(RunFormMetrics)
+            .filter(
+                RunFormMetrics.user_id == uid,
+                RunFormMetrics.run_date >= from_d,
+                RunFormMetrics.run_date <= to_d,
+            )
+            .order_by(RunFormMetrics.run_date.asc())
+            .all()
+        )
+
+    def _f(v):
+        return float(v) if v is not None else None
+
+    runs = [
+        {
+            "run_date": row.run_date.isoformat(),
+            "stryd_activity_pk": str(row.stryd_activity_pk),
+            "workout_id": str(row.workout_id) if row.workout_id else None,
+            "gct_ms": _f(row.gct_ms),
+            "lss_kn_m": _f(row.lss_kn_m),
+            "vertical_oscillation_cm": _f(row.vertical_oscillation_cm),
+            "cadence_spm": _f(row.cadence_spm),
+            "power_w": _f(row.power_w),
+        }
+        for row in rows
+    ]
+
+    metrics = ["gct_ms", "lss_kn_m", "vertical_oscillation_cm", "cadence_spm", "power_w"]
+    rolling_means: dict[str, list] = {}
+    for m in metrics:
+        series = [(r["run_date"], r[m]) for r in runs]
+        rolling_means[m] = _rolling_mean(series)
+
+    return JSONResponse({
+        "from": from_d.isoformat(),
+        "to": to_d.isoformat(),
+        "runs": runs,
+        "rolling_means": rolling_means,
+    })
+
+
+# ── Structural dose endpoint (issue #1369) ────────────────────────────────────
+
+@app.get("/api/training/structural-dose")
+def get_structural_dose(
+    weeks: int = Query(default=8, ge=1, le=52),
+    user: User = Depends(resolve_user),
+):
+    """Per-week plyo and strength dose stats for the session user.
+
+    Query params:
+      weeks (int, default 8, 1–52): number of ISO weeks to include (most-recent week first).
+
+    Response shape:
+    {
+      "weeks": int,
+      "window_start": "YYYY-MM-DD",   # Monday of the oldest week
+      "window_end": "YYYY-MM-DD",     # today (inclusive)
+      "weekly": [
+        {
+          "week_start": "YYYY-MM-DD",          # Monday of this ISO week (oldest→newest)
+          "plyo_sessions": int,                # count of plyo_sessions rows
+          "foot_contacts": int,                # sum of foot_contacts
+          "dominant_plyo_phase": str | null,   # "intro" | "build" | "maintain" | null
+          "strength_days": int                 # unique dates with ≥1 strength record
+        },
+        ...
+      ],
+      "last_plyo_days_ago": int | null,        # days since last plyo session; null = never
+      "last_strength_days_ago": int | null,    # days since last strength day; null = never
+      "foot_contact_trend": "rising" | "flat" | "falling"
+                                               # 4-week FC trend, FC_TREND_THRESHOLD absolute delta
+    }
+
+    Strength de-dup rule: A date counts as 1 strength_day regardless of whether
+    it has rows in strength_sessions, workouts (workout_type='strength'), or both.
+    """
+    from backend.services.structural_dose import compute_structural_dose
+    from backend.utils.time import today_bangkok
+
+    today = today_bangkok()
+    with Session(engine) as db:
+        result = compute_structural_dose(db, user.id, today, weeks=weeks)
+    return JSONResponse(result)
+
+
+@app.get("/api/training/muscle-load")
+def get_muscle_load(
+    weeks: int = Query(default=8, ge=1, le=52),
+    current_user: User = Depends(resolve_user),
+):
+    """Per-muscle-group acute/chronic load, ACWR, and classification (issue #1380).
+
+    Query params:
+        weeks  Number of weeks for the charting series (1–52, default 8)
+
+    Response:
+        as_of          ISO date (today in Bangkok TZ)
+        groups         per-group stats: acute_7d, chronic_28d, acwr, classification,
+                       injured, source_breakdown
+        weekly_series  list of {week_start, week_end, groups} — length = weeks
+        unclassified   exercise names used in the window with no catalog entry
+    """
+    from backend.services.muscle_load_acwr import compute as _compute_muscle_load
+
+    today = _today_bkk()
+    payload = _compute_muscle_load(current_user.id, today, weeks=weeks)
+    return JSONResponse(payload)
 
 
 # ── Admin gate ────────────────────────────────────────────────────────────────
@@ -13945,10 +14626,12 @@ def accept_calibration(
     body: _AcceptCalibrationBody,
     user: User = Depends(resolve_user),
 ):
-    """Accept calibration suggestions and write new constants to user preferences.
+    """Accept calibration suggestions, write new constants, and refresh snapshots.
 
-    This is the explicit accept action (AC4).  Constants are only written when
-    the user explicitly calls this endpoint — no automatic overwrite ever occurs.
+    Constants are only written when the user explicitly calls this endpoint —
+    no automatic overwrite ever occurs.  After saving, all training-load
+    snapshots for this user are recomputed so the CTL/ATL history reflects
+    the new time constants immediately.
     """
     try:
         rid = _uuid.UUID(race_id)
@@ -13974,11 +14657,17 @@ def accept_calibration(
         session.commit()
         session.refresh(prefs)
 
-        return JSONResponse({
-            "ctl_days": prefs.ctl_days,
-            "atl_days": prefs.atl_days,
-            "message": "Fitness constants accepted and saved to your profile.",
-        })
+        ctl_days = prefs.ctl_days
+        atl_days = prefs.atl_days
+
+    snapshots_recomputed = recompute_user_snapshots(str(user.id))
+
+    return JSONResponse({
+        "ctl_days": ctl_days,
+        "atl_days": atl_days,
+        "snapshots_recomputed": snapshots_recomputed,
+        "message": "Fitness constants accepted and saved to your profile.",
+    })
 
 
 # ── Calibration status ────────────────────────────────────────────────────────
@@ -15345,6 +16034,118 @@ def _determine_performance_top_level_state(endurance_result, speed_result) -> st
     return "building_baseline"
 
 
+def _compute_perf_block_delta(today_score: float, block_start_score: float) -> float:
+    """Return today_score − block_start_score (absolute scale, same formula version)."""
+    return today_score - block_start_score
+
+
+def _fetch_perf_block_delta(
+    session,
+    user_id,
+    today,
+    window_days: int,
+    current_score: float,
+    current_formula_version: str,
+    score_type: str,
+):
+    """Query performance_score_history for the row at block_start_date.
+
+    Returns the block delta (float) when a matching-version row exists at
+    today - window_days, or None when history doesn't reach back that far or
+    the formula version differs (version-mixing guard).
+
+    score_type: 'endurance' | 'speed' — which column to read from the row.
+    """
+    from backend.models import PerformanceScoreHistory
+    block_start = today - _timedelta(days=window_days)
+    row = (
+        session.query(PerformanceScoreHistory)
+        .filter(
+            PerformanceScoreHistory.user_id == user_id,
+            PerformanceScoreHistory.score_date == block_start,
+            PerformanceScoreHistory.formula_version == current_formula_version,
+        )
+        .order_by(PerformanceScoreHistory.created_at.desc())
+        .first()
+    )
+    if row is None:
+        return None
+    # Version-mixing guard: reject rows produced by a different formula version
+    # even if they somehow passed the query filter (e.g. in tests with mock sessions).
+    if getattr(row, "formula_version", None) != current_formula_version:
+        return None
+    block_start_score = getattr(row, score_type, None)
+    if block_start_score is None:
+        return None
+    return _compute_perf_block_delta(current_score, block_start_score)
+
+
+def _upsert_perf_score_history(
+    session,
+    user_id,
+    score_date,
+    endurance,
+    speed,
+    formula_version: str,
+) -> None:
+    """Upsert today's endurance/speed scores into performance_score_history.
+
+    Idempotent: recomputing scores on the same day updates the row rather
+    than inserting a duplicate (unique constraint on user_id+score_date+formula_version).
+    Only called for the 'scored' state so null-score rows are never persisted.
+    """
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from backend.models import PerformanceScoreHistory
+    try:
+        stmt = pg_insert(PerformanceScoreHistory).values(
+            user_id=user_id,
+            score_date=score_date,
+            endurance=float(endurance) if endurance is not None else None,
+            speed=float(speed) if speed is not None else None,
+            formula_version=formula_version,
+        )
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_performance_score_history_user_date_version",
+            set_={"endurance": stmt.excluded.endurance, "speed": stmt.excluded.speed},
+        )
+        session.execute(stmt)
+        session.commit()
+    except Exception:
+        _performance_log.warning(
+            "Failed to upsert performance_score_history for user %s on %s",
+            user_id,
+            score_date,
+            exc_info=True,
+        )
+        session.rollback()
+
+
+def _get_perf_history_sparkline(session, user_id, today, window_days: int, formula_version: str):
+    """Return (dates, endurance_values, speed_values) from performance_score_history.
+
+    Reads rows for [today - window_days, today] with the current formula_version,
+    ordered oldest-first. Returns ([], [], []) when no rows exist (caller falls back
+    to in-request trend computation).
+    """
+    from backend.models import PerformanceScoreHistory
+    cutoff = today - _timedelta(days=window_days)
+    rows = (
+        session.query(PerformanceScoreHistory)
+        .filter(
+            PerformanceScoreHistory.user_id == user_id,
+            PerformanceScoreHistory.score_date >= cutoff,
+            PerformanceScoreHistory.score_date <= today,
+            PerformanceScoreHistory.formula_version == formula_version,
+        )
+        .order_by(PerformanceScoreHistory.score_date.asc())
+        .all()
+    )
+    dates = [r.score_date.isoformat() for r in rows]
+    endurance_vals = [r.endurance for r in rows]
+    speed_vals = [r.speed for r in rows]
+    return dates, endurance_vals, speed_vals
+
+
 def _build_performance_response(
     state: str,
     endurance,
@@ -15469,6 +16270,55 @@ def _build_performance_diagnostic(preferences, runs):
         "threshold_hr_present": threshold_hr_present,
         "threshold_pace_present": threshold_pace_present,
     }
+
+
+@app.get("/api/performance/score-history")
+def get_performance_score_history(
+    user: User = Depends(resolve_user),
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+):
+    """Return the persisted performance score series for the session user (issue #1365).
+
+    Query params:
+        from: optional ISO date (YYYY-MM-DD) — start of range (inclusive).
+        to:   optional ISO date (YYYY-MM-DD) — end of range (inclusive).
+
+    Defaults to the last 90 days when neither param is provided.
+    Returns a list of {date, endurance, speed, formula_version} dicts, oldest first.
+    Only rows matching the current _PERF_FORMULA_VERSION are returned so the
+    caller never receives a mixed-version series.
+    """
+    from backend.models import PerformanceScoreHistory
+    today = _datetime.now(_timezone.utc).date()
+    try:
+        _from = _date.fromisoformat(from_date) if from_date else today - _timedelta(days=90)
+        _to = _date.fromisoformat(to_date) if to_date else today
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid date: {exc}")
+
+    with Session(engine) as session:
+        rows = (
+            session.query(PerformanceScoreHistory)
+            .filter(
+                PerformanceScoreHistory.user_id == user.id,
+                PerformanceScoreHistory.score_date >= _from,
+                PerformanceScoreHistory.score_date <= _to,
+                PerformanceScoreHistory.formula_version == _PERF_FORMULA_VERSION,
+            )
+            .order_by(PerformanceScoreHistory.score_date.asc())
+            .all()
+        )
+        result = [
+            {
+                "date": r.score_date.isoformat(),
+                "endurance": r.endurance,
+                "speed": r.speed,
+                "formula_version": r.formula_version,
+            }
+            for r in rows
+        ]
+    return JSONResponse({"history": result, "formula_version": _PERF_FORMULA_VERSION})
 
 
 @app.get("/api/performance/score-breakdown")
@@ -15762,6 +16612,68 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
                 )
             )
 
+        # ── Persist scores + compute history-based block delta (issue #1365) ──
+        today_date = _datetime.now(_timezone.utc).date()
+        end_score = endurance.get("score") if isinstance(endurance, dict) else None
+        spd_score = speed.get("score") if isinstance(speed, dict) else None
+        from backend.services.running_performance import BREAKDOWN_WINDOW_DAYS as _BW_DAYS
+        with Session(engine) as _hist_session:
+            # Write-through: upsert today's scores so history grows each compute.
+            if end_score is not None or spd_score is not None:
+                _upsert_perf_score_history(
+                    session=_hist_session,
+                    user_id=uid,
+                    score_date=today_date,
+                    endurance=end_score,
+                    speed=spd_score,
+                    formula_version=_PERF_FORMULA_VERSION,
+                )
+            # Block delta: today − score at block_start (same formula_version only).
+            end_block_delta = None
+            spd_block_delta = None
+            if end_score is not None:
+                end_block_delta = _fetch_perf_block_delta(
+                    session=_hist_session,
+                    user_id=uid,
+                    today=today_date,
+                    window_days=_BW_DAYS,
+                    current_score=end_score,
+                    current_formula_version=_PERF_FORMULA_VERSION,
+                    score_type="endurance",
+                )
+            if spd_score is not None:
+                spd_block_delta = _fetch_perf_block_delta(
+                    session=_hist_session,
+                    user_id=uid,
+                    today=today_date,
+                    window_days=_BW_DAYS,
+                    current_score=spd_score,
+                    current_formula_version=_PERF_FORMULA_VERSION,
+                    score_type="speed",
+                )
+            # History sparkline: persisted series for the last BREAKDOWN_WINDOW_DAYS.
+            hist_dates, hist_end, hist_spd = _get_perf_history_sparkline(
+                session=_hist_session,
+                user_id=uid,
+                today=today_date,
+                window_days=_BW_DAYS,
+                formula_version=_PERF_FORMULA_VERSION,
+            )
+
+        # Inject block_delta and history_trend into the score dicts (copies).
+        if isinstance(endurance, dict):
+            endurance = dict(endurance)
+            endurance["block_delta"] = round(end_block_delta, 2) if end_block_delta is not None else None
+            if hist_dates:
+                endurance["history_trend"] = hist_end
+                endurance["history_trend_dates"] = hist_dates
+        if isinstance(speed, dict):
+            speed = dict(speed)
+            speed["block_delta"] = round(spd_block_delta, 2) if spd_block_delta is not None else None
+            if hist_dates:
+                speed["history_trend"] = hist_spd
+                speed["history_trend_dates"] = hist_dates
+
         _scored_payload = _build_performance_response(
             state="scored",
             endurance=endurance,
@@ -15928,8 +16840,9 @@ def _summary_cache_put(user_id, key, sig, payload):
 # v4 = one-score-everywhere + feed contributions; v5 = races in signature;
 # v6 = run_contributions + model + consistency bonus + improve hint;
 # v7 = power-fallback guards; v8 = implausible-lap filter; v9 = breakdown
-# block; v10 = race_floor_now + floor_binding; v11 = manual-lap reps.
-_PERF_FORMULA_VERSION = "vdot-v11"
+# block; v10 = race_floor_now + floor_binding; v11 = manual-lap reps;
+# v12 = aborted-session guard (MIN_ENDURANCE_QUALIFYING_SESSION_SECONDS).
+_PERF_FORMULA_VERSION = "vdot-v12"
 
 
 def _performance_signature(session, user_id, prefs_row) -> str:
@@ -16505,8 +17418,6 @@ def _plan_race_scores(session, user_id, race, race_dict, readiness, current_scor
     Upcoming race  → required End/Spd for its goal + delta from current, using
                      the readiness estimate. None when inputs are missing.
     """
-    import math as _math
-
     status = race_dict.get("status")
     dist = race_dict.get("distance")
     if status == "done" and race_dict.get("actual_time_seconds") is not None:
@@ -16783,6 +17694,100 @@ def _resolve_load_plan_a_race(db, user_id, today):
     )
 
 
+def _upsert_verdict_history(user_id, verdict_date, verdict_result, readiness_score=None):
+    """Persist a verdict snapshot to verdict_history for the given date.
+
+    Only called when verdict_date == date.today() — historical dates are
+    never touched. Uses ON CONFLICT DO UPDATE so repeated computation of
+    the same day replaces the previous row (latest wins).
+    """
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    row = {
+        "user_id": user_id,
+        "verdict_date": verdict_date,
+        "verdict": verdict_result["verdict"],
+        "modifiers": verdict_result.get("modifiers") or None,
+        "readiness": float(readiness_score) if readiness_score is not None else None,
+        "ctl": verdict_result.get("ctl"),
+        "atl": verdict_result.get("atl"),
+        "tsb": verdict_result.get("tsb"),
+        "acwr": verdict_result.get("acwr"),
+    }
+    try:
+        with Session(engine) as db:
+            stmt = (
+                pg_insert(VerdictHistory)
+                .values(**row)
+                .on_conflict_do_update(
+                    constraint="uq_verdict_history_user_date",
+                    set_={
+                        "verdict": row["verdict"],
+                        "modifiers": row["modifiers"],
+                        "readiness": row["readiness"],
+                        "ctl": row["ctl"],
+                        "atl": row["atl"],
+                        "tsb": row["tsb"],
+                        "acwr": row["acwr"],
+                    },
+                )
+            )
+            db.execute(stmt)
+            db.commit()
+    except Exception:
+        pass  # verdict_history write is best-effort; never break the caller
+
+
+def _fetch_readiness_for_verdict(user_id, today, session):
+    """Return (readiness_today, readiness_7d_mean) from daily_readiness rows.
+
+    Both are None when no readiness rows exist for the user in the window.
+    """
+    from backend.models import DailyReadiness
+    from datetime import timedelta as _td2
+
+    window_start = today - _td2(days=6)
+    rows = (
+        session.query(DailyReadiness.date, DailyReadiness.score)
+        .filter(
+            DailyReadiness.user_id == user_id,
+            DailyReadiness.date >= window_start,
+            DailyReadiness.date <= today,
+        )
+        .all()
+    )
+    if not rows:
+        return None, None
+    scores = [float(r.score) for r in rows]
+    today_row = next((float(r.score) for r in rows if r.date == today), None)
+    mean_7d = round(sum(scores) / len(scores), 2) if scores else None
+    return today_row, mean_7d
+
+
+def _fetch_active_injuries_for_verdict(user_id, session):
+    """Return list of active injury_log dicts for the user (ended_on IS NULL).
+
+    Returns empty list when the injury_log table doesn't exist yet (i.e.
+    when issue #1350's migration hasn't been applied to this environment).
+    """
+    try:
+        from backend.models import InjuryLog
+    except ImportError:
+        return []
+    try:
+        rows = (
+            session.query(InjuryLog.kind, InjuryLog.severity)
+            .filter(
+                InjuryLog.user_id == user_id,
+                InjuryLog.ended_on.is_(None),
+            )
+            .all()
+        )
+        return [{"kind": r.kind, "severity": r.severity} for r in rows]
+    except Exception:
+        return []
+
+
 def _resolve_current_verdict(user_id, today, trailing_28d_avg=None):
     """Deterministic back_off/hold/build verdict as of `today` — shared by
     every Plan-tab endpoint (and GET /api/weekly-summary has its own
@@ -16790,6 +17795,11 @@ def _resolve_current_verdict(user_id, today, trailing_28d_avg=None):
     athlete should be building right now. Computed from the SAME Part-A
     snapshot (training_load.current_load) every other consumer reads; never
     an LLM decision. See backend/services/training_verdict.py.
+
+    Also wires in today's readiness score, 7-day readiness mean, and active
+    injury_log entries as deterministic downgrade inputs. When today matches
+    the real calendar date, the result is persisted to verdict_history
+    (upsert — latest computation wins).
     """
     from backend.services.training_load import current_load as _current_load, daily_tss_series as _dts
     from backend.services.training_verdict import compute_verdict as _compute_verdict
@@ -16799,7 +17809,23 @@ def _resolve_current_verdict(user_id, today, trailing_28d_avg=None):
         start_28 = today - _timedelta(days=27)
         series_28 = _dts(str(user_id), start_28, today)
         trailing_28d_avg = round(sum(v for _, v in series_28) / 4.0, 1)
-    return _compute_verdict(snap, chronic_weekly=trailing_28d_avg, today=today)
+
+    with Session(engine) as _sess:
+        readiness_today, readiness_7d_mean = _fetch_readiness_for_verdict(user_id, today, _sess)
+        active_injuries = _fetch_active_injuries_for_verdict(user_id, _sess)
+
+    result = _compute_verdict(
+        snap,
+        chronic_weekly=trailing_28d_avg,
+        today=today,
+        readiness_today=readiness_today,
+        readiness_7d_mean=readiness_7d_mean,
+        injury_log=active_injuries,
+    )
+    from datetime import date as _real_date
+    if today == _real_date.today():
+        _upsert_verdict_history(user_id, today, result, readiness_score=readiness_today)
+    return result
 
 
 class PlanRulesIn(BaseModel):
@@ -16807,6 +17833,7 @@ class PlanRulesIn(BaseModel):
     hold_weeks: Optional[int] = None
     taper_weeks: Optional[int] = None
     deload_enabled: Optional[bool] = None
+    deload_start_week: Optional[int] = None
 
 
 def _validate_plan_rules(body: "PlanRulesIn") -> None:
@@ -16818,6 +17845,10 @@ def _validate_plan_rules(body: "PlanRulesIn") -> None:
         raise HTTPException(status_code=422, detail="hold_weeks must be >= 0")
     if body.taper_weeks is not None and body.taper_weeks < 0:
         raise HTTPException(status_code=422, detail="taper_weeks must be >= 0")
+    if body.deload_start_week is not None and not (1 <= body.deload_start_week <= 4):
+        raise HTTPException(
+            status_code=422, detail="deload_start_week must be between 1 and 4"
+        )
 
 
 def _plan_rules_dict(plan: TrainingPlan) -> dict:
@@ -16826,6 +17857,7 @@ def _plan_rules_dict(plan: TrainingPlan) -> dict:
         "hold_weeks": int(plan.hold_weeks) if plan.hold_weeks is not None else 4,
         "taper_weeks": float(plan.taper_length) if plan.taper_length is not None else 3.0,
         "deload_enabled": bool(plan.deload_enabled) if plan.deload_enabled is not None else False,
+        "deload_start_week": int(plan.deload_start_week) if plan.deload_start_week is not None else 4,
     }
 
 
@@ -16845,6 +17877,8 @@ def put_plan_rules(body: PlanRulesIn, user: User = Depends(resolve_user)):
             plan.taper_length = body.taper_weeks
         if body.deload_enabled is not None:
             plan.deload_enabled = body.deload_enabled
+        if body.deload_start_week is not None:
+            plan.deload_start_week = body.deload_start_week
         session.commit()
         session.refresh(plan)
         return JSONResponse(_plan_rules_dict(plan))
@@ -16894,6 +17928,7 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
             weeks_to_race=weeks_to_race,
             trailing_28d_avg=trailing_28d_avg,
             deload_enabled=rules["deload_enabled"],
+            deload_start_week=rules["deload_start_week"],
             verdict=verdict["verdict"],
             consolidation_weeks=verdict["weeks_to_converge"],
         )
@@ -16920,6 +17955,7 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
             "hold_weeks": rules["hold_weeks"],
             "taper_weeks": result["taper_weeks"],
             "deload_enabled": rules["deload_enabled"],
+            "deload_start_week": rules["deload_start_week"],
             "weeks_to_race": weeks_to_race,
             "ramp_weeks": result["ramp_weeks"],
             "peak": result["peak"],
@@ -17078,6 +18114,7 @@ def get_plan_week_load(
             weeks_to_race=weeks_to_race,
             trailing_28d_avg=trailing_28d_avg,
             deload_enabled=rules["deload_enabled"],
+            deload_start_week=rules["deload_start_week"],
             verdict=verdict["verdict"],
             consolidation_weeks=verdict["weeks_to_converge"],
         )
@@ -17135,6 +18172,11 @@ def get_plan_week_load(
             "baseline_planned_tss": baseline_planned_tss,
             "prior_4_weeks_actual": prior_weeks,
             "ramp_rate": rules["ramp_rate"],
+            # Deload week: the ramp formula gets a further cut BEFORE the
+            # ceiling clamp — the Baseline×Ramp=Target chain must show it or
+            # the target looks broken next to a plain "5%/wk" ramp cell.
+            "deload": bool(target_week["deload"]) if target_week else False,
+            "deload_cut": DELOAD_CUT_FRACTION,
             "acwr_ceiling": acwr_ceiling,
             "acwr": acwr_ratio,
             "trailing_28d_avg": trailing_28d_avg,
@@ -17432,6 +18474,7 @@ def get_projection(user: User = Depends(resolve_user)):
         except Exception:
             economy_contribution = 0.0
 
+    from backend.services.formula_versions import PROJECTION_VERSION
     return JSONResponse({
         "building_baseline": building_baseline,
         "form_curve": form_curve,
@@ -17444,6 +18487,7 @@ def get_projection(user: User = Depends(resolve_user)):
         "economy_contribution": economy_contribution,
         "lag_peak_days": _LAG_PEAK_DAYS,
         "lag_window_days": _LAG_WINDOW_DAYS,
+        "formula_version": PROJECTION_VERSION,
     })
 
 

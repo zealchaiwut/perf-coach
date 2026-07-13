@@ -27,12 +27,15 @@ from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
 
 from backend.db import engine
-from backend.models import FuelSettings, FuelEntry, Workout, PlannedSession
+from backend.models import FuelSettings, FuelEntry, Workout, PlannedSession, Race, TrainingPlan
 from backend.services.training_load import (
     _planned_duration_minutes,
     estimate_historical_pace_and_tss,
     estimate_planned_session_metrics,
+    get_weekly_volume,
+    daily_tss_series,
 )
+from backend.services.fuel_periodize import resolve_week_phase, effective_deficit_for_phase
 
 # ── Food coefficients — per gram, COOKED weight (except eggs: per egg; oil:
 # per tsp). Approximations (±10-15% error), deliberately chosen over a food
@@ -155,10 +158,53 @@ def update_settings(user_id, db: Optional[Session] = None, **fields) -> FuelSett
             db.close()
 
 
+def implied_deficit_kcal(target_rate_kg_per_week: float) -> int:
+    """AC1: abs(rate) × 7700 / 7, rounded to nearest 10, clamped to 0–750."""
+    raw = abs(target_rate_kg_per_week) * _KCAL_PER_KG / 7
+    rounded = round(raw / 10) * 10
+    return int(max(0, min(DEFICIT_KCAL_MAX, rounded)))
+
+
+def plan_linkage(plan, current_deficit_kcal: int) -> dict:
+    """Return plan-linkage fields for the fuel-settings payload.
+
+    plan: active WeightPlan row or None.
+    Adds: plan_rate_kg_per_week, implied_deficit_kcal, deficit_gap_kcal, consistency.
+    """
+    if plan is None:
+        return {
+            "plan_rate_kg_per_week": None,
+            "implied_deficit_kcal": None,
+            "deficit_gap_kcal": None,
+            "consistency": "no_plan",
+        }
+    raw_rate = getattr(plan, "target_rate_kg_per_week", None)
+    if raw_rate is None:
+        return {
+            "plan_rate_kg_per_week": None,
+            "implied_deficit_kcal": None,
+            "deficit_gap_kcal": None,
+            "consistency": "no_plan",
+        }
+    rate = float(raw_rate)
+    implied = implied_deficit_kcal(rate)
+    gap = implied - current_deficit_kcal
+    consistency = "aligned" if abs(gap) <= 100 else "mismatch"
+    return {
+        "plan_rate_kg_per_week": rate,
+        "implied_deficit_kcal": implied,
+        "deficit_gap_kcal": gap,
+        "consistency": consistency,
+    }
+
+
 def settings_to_dict(s: FuelSettings) -> dict:
     return {
         "weight_kg": float(s.weight_kg),
-        "lean_mass_kg": float(s.lean_mass_kg) if s.lean_mass_kg is not None else round(float(s.weight_kg) * 0.76, 1),
+        "lean_mass_kg": (
+            float(s.lean_mass_kg) if s.lean_mass_kg is not None
+            else round(float(s.weight_kg) * 0.76, 1)
+        ),
         "base_kcal": s.base_kcal,
         "maintenance_source": s.maintenance_source,
         "deficit_kcal": s.deficit_kcal,
@@ -166,7 +212,83 @@ def settings_to_dict(s: FuelSettings) -> dict:
         "fat_g": s.fat_g,
         "ea_floor": float(s.ea_floor),
         "run_kcal_per_kg_per_km": float(s.run_kcal_per_kg_per_km),
+        "auto_periodize": bool(s.auto_periodize) if s.auto_periodize is not None else True,
     }
+
+
+def compute_effective_deficit(
+    auto_periodize: bool,
+    configured_deficit_kcal: int,
+    week_phase: str,
+    effective_deficit_override: Optional[int] = None,
+) -> int:
+    """Return the deficit to actually apply in the budget, respecting the toggle.
+
+    When auto_periodize is False, always returns configured_deficit_kcal
+    (today's existing behaviour, unchanged). When True, delegates to
+    effective_deficit_for_phase().
+    """
+    if effective_deficit_override is not None:
+        return effective_deficit_override
+    if not auto_periodize:
+        return configured_deficit_kcal
+    return effective_deficit_for_phase(configured_deficit_kcal, week_phase)
+
+
+# ── Lean-mass derivation (issue #1359) ───────────────────────────────────────
+
+_BF_WINDOW_DAYS = 60
+_LEAN_MASS_FALLBACK_FRACTION = 0.76
+
+
+def current_lean_mass_kg(
+    bf_readings: list,
+    *,
+    settings,
+    ewma_weight: float,
+) -> dict:
+    """Return current lean mass and its derivation source.
+
+    Priority:
+      1. 'measured'  — latest body_fat_pct within 60 days → ewma_weight × (1 − bf%)
+      2. 'setting'   — FuelSettings.lean_mass_kg is set
+      3. 'estimated' — ewma_weight × 0.76
+
+    bf_readings: list of objects with attributes/keys body_fat_pct (float, 0–100)
+                 and measure_date (datetime.date); may be empty.
+    settings: FuelSettings row or object with lean_mass_kg attribute.
+    ewma_weight: current EWMA-smoothed bodyweight in kg (used for measured + estimated).
+
+    Returns dict with keys 'lean_mass_kg' (float, rounded to 1 dp) and 'source' (str).
+    """
+    from datetime import date as _d
+    today = _d.today()
+
+    # Find the most-recent bf reading within the 60-day window
+    recent = None
+
+    def _mdate(x):
+        return x.measure_date if hasattr(x, "measure_date") else x["measure_date"]
+
+    for r in sorted(bf_readings, key=_mdate, reverse=True):
+        mdate = r.measure_date if hasattr(r, "measure_date") else r["measure_date"]
+        if (today - mdate).days <= _BF_WINDOW_DAYS:
+            recent = r
+            break
+
+    if recent is not None:
+        bf_pct = float(
+            recent.body_fat_pct if hasattr(recent, "body_fat_pct") else recent["body_fat_pct"]
+        )
+        lean = round(ewma_weight * (1.0 - bf_pct / 100.0), 1)
+        return {"lean_mass_kg": lean, "source": "measured"}
+
+    lean_mass_setting = getattr(settings, "lean_mass_kg", None)
+    if lean_mass_setting is not None:
+        return {"lean_mass_kg": round(float(lean_mass_setting), 1), "source": "setting"}
+
+    lean = round(ewma_weight * _LEAN_MASS_FALLBACK_FRACTION, 1)
+    return {"lean_mass_kg": lean, "source": "estimated"}
 
 
 # ── Entries ──────────────────────────────────────────────────────────────────
@@ -297,7 +419,9 @@ def _workout_burn_kcal(w: Workout, weight_kg: float, run_kcal_per_kg_per_km: flo
     return dur_min * met * weight_kg / 60.0
 
 
-def _planned_burn_kcal(p: PlannedSession, weight_kg: float, run_kcal_per_kg_per_km: float, baseline: dict) -> float:
+def _planned_burn_kcal(
+        p: PlannedSession, weight_kg: float,
+        run_kcal_per_kg_per_km: float, baseline: dict) -> float:
     wt = _normalize_type(p.session_type)
     if wt == "run":
         est = estimate_planned_session_metrics(baseline, p.session_type, p.structure)
@@ -308,8 +432,9 @@ def _planned_burn_kcal(p: PlannedSession, weight_kg: float, run_kcal_per_kg_per_
     return dur_min * met * weight_kg / 60.0
 
 
-def _logged_sessions_and_burn(user_id, target_date: _date, weight_kg: float,
-                               run_kcal_per_kg_per_km: float, db: Session) -> tuple:
+def _logged_sessions_and_burn(
+        user_id, target_date: _date, weight_kg: float,
+        run_kcal_per_kg_per_km: float, db: Session) -> tuple:
     workouts = (
         db.query(Workout)
         .filter(Workout.user_id == user_id, Workout.workout_date == target_date)
@@ -323,8 +448,9 @@ def _logged_sessions_and_burn(user_id, target_date: _date, weight_kg: float,
     return sessions, burn, bool(workouts)
 
 
-def _planned_sessions_and_burn(user_id, target_date: _date, weight_kg: float,
-                                run_kcal_per_kg_per_km: float, baseline: dict, db: Session) -> tuple:
+def _planned_sessions_and_burn(
+        user_id, target_date: _date, weight_kg: float,
+        run_kcal_per_kg_per_km: float, baseline: dict, db: Session) -> tuple:
     planned = (
         db.query(PlannedSession)
         .filter(PlannedSession.user_id == user_id, PlannedSession.planned_date == target_date)
@@ -332,7 +458,10 @@ def _planned_sessions_and_burn(user_id, target_date: _date, weight_kg: float,
     )
     non_rest = [p for p in planned if _normalize_type(p.session_type) != "rest"]
     sessions = [
-        {"type": p.session_type, "duration_min": _planned_duration_minutes(p.session_type, p.structure)}
+        {
+            "type": p.session_type,
+            "duration_min": _planned_duration_minutes(p.session_type, p.structure),
+        }
         for p in non_rest
     ]
     burn = sum(_planned_burn_kcal(p, weight_kg, run_kcal_per_kg_per_km, baseline) for p in non_rest)
@@ -402,12 +531,21 @@ def training_burn_kcal(
 
 # ── Budget (§1.3) ─────────────────────────────────────────────────────────────
 
-def compute_budget(settings: dict, burn: float) -> dict:
+def compute_budget(
+        settings: dict, burn: float, effective_deficit_kcal: Optional[int] = None) -> dict:
     """base + burn - deficit, floored at the energy-availability minimum.
     The EA floor is a HARD STOP: when it binds, the deficit is reduced
-    (never the athlete's choice) — see fuel.md / spec §1.3."""
+    (never the athlete's choice) — see fuel.md / spec §1.3.
+
+    effective_deficit_kcal: if provided, overrides settings["deficit_kcal"] for
+    the budget math (used by deficit periodization). Day-type burn and EA floor
+    logic are applied on top, unchanged.
+    """
     base_kcal = settings["base_kcal"]
-    deficit_kcal = settings["deficit_kcal"]
+    configured_deficit = settings["deficit_kcal"]
+    deficit_kcal = (
+        effective_deficit_kcal if effective_deficit_kcal is not None else configured_deficit
+    )
     lean_mass_kg = settings["lean_mass_kg"]
     ea_floor = settings["ea_floor"]
 
@@ -421,18 +559,32 @@ def compute_budget(settings: dict, burn: float) -> dict:
 
     return {
         "budget": round(budget),
-        "deficit_target": deficit_kcal,
+        "deficit_target": configured_deficit,
         "deficit_applied": round(deficit_applied),
         "deficit_reduced": deficit_reduced,
         "ea": round(ea, 1) if ea is not None else None,
         "ea_floor_kcal": round(ea_floor_kcal),
+        "effective_deficit_kcal": deficit_kcal,
     }
 
 
-def compute_targets(settings: dict, budget: float) -> dict:
-    """Protein is identical every day (fixed, g/kg); carbs are the dial —
-    they scale with the budget (i.e. with training load)."""
-    protein_g = round(settings["weight_kg"] * settings["protein_g_per_kg"])
+def compute_targets(
+    settings: dict,
+    budget: float,
+    *,
+    lean_mass_kg: Optional[float] = None,
+    lean_mass_source: Optional[str] = None,
+) -> dict:
+    """Protein is fixed; carbs scale with budget.
+
+    When lean_mass_source is 'measured', protein is derived from lean mass
+    (g/kg lean body mass) instead of total weight — existing behaviour is
+    preserved for 'setting' and 'estimated' sources.
+    """
+    if lean_mass_source == "measured" and lean_mass_kg is not None:
+        protein_g = round(lean_mass_kg * settings["protein_g_per_kg"])
+    else:
+        protein_g = round(settings["weight_kg"] * settings["protein_g_per_kg"])
     fat_g = settings["fat_g"]
     carbs_g = max(0.0, (budget - protein_g * 4 - fat_g * 9) / 4)
     return {"protein_g": protein_g, "carbs_g": round(carbs_g), "fat_g": fat_g}
@@ -461,12 +613,154 @@ def compute_suggestion(targets: dict, eaten: dict, remaining_kcal: float) -> dic
 
     closes_p = round(meat_g * FOOD["meat"]["p"])
     closes_c = round(rice_g * FOOD["rice"]["c"])
-    text = f"{meat_g} g meat · {rice_g} g rice → closes {closes_p} g protein · {closes_c} g carbs"
-    return {"meat_g": meat_g, "rice_g": rice_g, "closes_protein_g": closes_p, "closes_carbs_g": closes_c,
-            "text": text, "message": None}
+    text = (
+        f"{meat_g} g meat · {rice_g} g rice"
+        f" → closes {closes_p} g protein · {closes_c} g carbs"
+    )
+    return {
+        "meat_g": meat_g, "rice_g": rice_g,
+        "closes_protein_g": closes_p, "closes_carbs_g": closes_c,
+        "text": text, "message": None,
+    }
+
+
+# ── Week phase resolver (DB-backed) ──────────────────────────────────────────
+
+def _resolve_week_phase_from_db(
+        user_id, today: _date, db: Session) -> tuple[str, str, Optional[float]]:
+    """Return (week_phase, reason, trailing_28d_weekly_avg) for the current week.
+
+    Queries races, training plan, and TSS history. Falls back to ("base",
+    reason, None) whenever the required data is absent.
+    """
+    # 1. A or B race within the next 7 days
+    race_7d = (
+        db.query(Race)
+        .filter(
+            Race.user_id == user_id,
+            Race.race_date >= today + timedelta(days=1),
+            Race.race_date <= today + timedelta(days=7),
+            Race.status == "planned",
+            Race.priority.in_(["A", "B"]),
+        )
+        .first()
+    )
+    race_within_7d = race_7d is not None
+
+    # 2. Taper window check against the next A race
+    a_race = (
+        db.query(Race)
+        .filter(
+            Race.user_id == user_id,
+            Race.race_date > today,
+            Race.status == "planned",
+            Race.priority == "A",
+        )
+        .order_by(Race.race_date)
+        .first()
+    )
+
+    plan = db.query(TrainingPlan).filter(TrainingPlan.user_id == user_id).first()
+    taper_weeks = int(round(float(plan.taper_length) if plan and plan.taper_length else 3.0))
+
+    in_taper_window = False
+    if a_race:
+        taper_start = a_race.race_date - timedelta(days=taper_weeks * 7)
+        in_taper_window = today >= taper_start
+
+    # 3. Trailing 28-day weekly TSS average and current-week load plan target
+    trailing_28d_weekly_avg: Optional[float] = None
+    current_week_target_tss: Optional[float] = None
+
+    if a_race and not in_taper_window and not race_within_7d:
+        try:
+            from backend.services.load_plan import compute_load_plan
+
+            start_28 = today - timedelta(days=27)
+            if start_28 <= today:
+                series_28 = daily_tss_series(str(user_id), start_28, today)
+                total_28d = float(sum(v for _, v in series_28))
+                trailing_28d_weekly_avg = total_28d / 4.0
+
+            if trailing_28d_weekly_avg is not None and plan:
+                this_week_start = today - timedelta(days=today.weekday())
+                race_week_start = a_race.race_date - timedelta(days=a_race.race_date.weekday())
+                weeks_to_race = ((race_week_start - this_week_start).days // 7) + 1
+
+                if weeks_to_race >= 1:
+                    last_week_start = this_week_start - timedelta(days=7)
+                    last_week_end = this_week_start - timedelta(days=1)
+                    vol = get_weekly_volume(str(user_id), last_week_start, last_week_end)
+                    baseline = vol["total_tss"]
+                    ramp_rate = float(plan.ramp_rate) if plan.ramp_rate else 0.05
+                    hold_weeks = int(plan.hold_weeks) if plan else 4
+
+                    lp = compute_load_plan(
+                        baseline=baseline,
+                        ramp_rate=ramp_rate,
+                        hold_weeks=hold_weeks,
+                        taper_weeks=taper_weeks,
+                        weeks_to_race=weeks_to_race,
+                        trailing_28d_avg=trailing_28d_weekly_avg,
+                    )
+                    if lp["weeks"]:
+                        current_week_target_tss = lp["weeks"][0]["target_tss"]
+        except Exception:
+            pass  # training data missing → defaults to base phase
+
+    phase, reason = resolve_week_phase(
+        race_within_7d=race_within_7d,
+        in_taper_window=in_taper_window,
+        trailing_28d_weekly_avg=trailing_28d_weekly_avg,
+        current_week_target_tss=current_week_target_tss,
+    )
+    return phase, reason, trailing_28d_weekly_avg
 
 
 # ── Today payload ────────────────────────────────────────────────────────────
+
+def _fetch_lean_mass(user_id, settings_row, db: Session) -> dict:
+    """Fetch body-fat readings and compute lean mass for the given user."""
+    from backend.models import BodyMeasurement, WeightEntry
+
+    today = _date.today()
+    window_start = today - timedelta(days=_BF_WINDOW_DAYS)
+
+    bf_rows = (
+        db.query(BodyMeasurement)
+        .filter(
+            BodyMeasurement.user_id == user_id,
+            BodyMeasurement.measure_date >= window_start,
+            BodyMeasurement.measure_date <= today,
+            BodyMeasurement.body_fat_pct.isnot(None),
+        )
+        .order_by(BodyMeasurement.measure_date.desc())
+        .all()
+    )
+
+    # EWMA weight: use the last 14 days of weight entries
+    weight_rows = (
+        db.query(WeightEntry)
+        .filter(
+            WeightEntry.user_id == user_id,
+            WeightEntry.entry_date >= today - timedelta(days=14),
+            WeightEntry.entry_date <= today,
+        )
+        .order_by(WeightEntry.entry_date.asc())
+        .all()
+    )
+
+    from backend.services.weight_ewma import compute_ewma as _compute_ewma
+    if weight_rows:
+        ewma_vals = _compute_ewma(
+            [{"date": w.entry_date, "weight_kg": float(w.weight_kg)} for w in weight_rows]
+        )
+        ewma_weight = ewma_vals[-1] if ewma_vals else float(settings_row.weight_kg)
+    else:
+        ewma_weight = float(settings_row.weight_kg)
+
+    return current_lean_mass_kg(bf_rows, settings=settings_row, ewma_weight=ewma_weight)
+
 
 def get_today_payload(user_id, target_date: _date, db: Optional[Session] = None) -> dict:
     owns_db = db is None
@@ -475,12 +769,31 @@ def get_today_payload(user_id, target_date: _date, db: Optional[Session] = None)
         settings_row = get_or_create_settings(user_id, db=db)
         settings = settings_to_dict(settings_row)
 
+        today = _date.today()
+        # Phase must follow the REQUESTED day, not the wall clock — a
+        # historical ?date= during a taper week would otherwise get today's
+        # taper/ramp deficit applied to that day's budget. (`today` itself is
+        # still needed below for the planned-vs-logged burn decision.)
+        week_phase, week_phase_reason, _ = _resolve_week_phase_from_db(user_id, target_date, db)
+        eff_deficit = compute_effective_deficit(
+            auto_periodize=settings["auto_periodize"],
+            configured_deficit_kcal=settings["deficit_kcal"],
+            week_phase=week_phase,
+        )
+        lean_info = _fetch_lean_mass(user_id, settings_row, db)
+
         burn_info = training_burn_kcal(
             user_id, target_date, settings["weight_kg"], settings["run_kcal_per_kg_per_km"],
-            today=_date.today(), db=db,
+            today=today, db=db,
         )
-        budget_info = compute_budget(settings, burn_info["burn"])
-        targets = compute_targets(settings, budget_info["budget"])
+        budget_info = compute_budget(
+            settings, burn_info["burn"], effective_deficit_kcal=eff_deficit)
+        targets = compute_targets(
+            settings,
+            budget_info["budget"],
+            lean_mass_kg=lean_info["lean_mass_kg"],
+            lean_mass_source=lean_info["source"],
+        )
 
         entry = get_entry(user_id, target_date, db=db)
         eaten = compute_food_totals(entry)
@@ -499,11 +812,16 @@ def get_today_payload(user_id, target_date: _date, db: Optional[Session] = None)
             "deficit_reduced": budget_info["deficit_reduced"],
             "ea": budget_info["ea"],
             "ea_floor_kcal": budget_info["ea_floor_kcal"],
+            "week_phase": week_phase,
+            "week_phase_reason": week_phase_reason,
+            "effective_deficit_kcal": budget_info["effective_deficit_kcal"],
             "eaten": eaten,
             "remaining": remaining,
             "targets": targets,
             "suggestion": suggestion,
             "maintenance_source": settings["maintenance_source"],
+            "lean_mass_kg": lean_info["lean_mass_kg"],
+            "lean_mass_source": lean_info["source"],
             "entry": {
                 "meat_g": entry.meat_g if entry else 0,
                 "rice_g": entry.rice_g if entry else 0,
@@ -528,6 +846,15 @@ def get_week_payload(user_id, week_start: _date, db: Optional[Session] = None) -
         settings = settings_to_dict(settings_row)
         today = _date.today()
 
+        # Phase follows the REQUESTED week's Monday, not the wall clock —
+        # see get_today_payload above.
+        week_phase, week_phase_reason, _ = _resolve_week_phase_from_db(user_id, week_start, db)
+        eff_deficit = compute_effective_deficit(
+            auto_periodize=settings["auto_periodize"],
+            configured_deficit_kcal=settings["deficit_kcal"],
+            week_phase=week_phase,
+        )
+
         days = []
         weekly_budget_total = 0.0
         weekly_maintenance_total = 0.0
@@ -537,7 +864,8 @@ def get_week_payload(user_id, week_start: _date, db: Optional[Session] = None) -
                 user_id, d, settings["weight_kg"], settings["run_kcal_per_kg_per_km"],
                 today=today, db=db,
             )
-            budget_info = compute_budget(settings, burn_info["burn"])
+            budget_info = compute_budget(
+                settings, burn_info["burn"], effective_deficit_kcal=eff_deficit)
             entry = get_entry(user_id, d, db=db)
             eaten = compute_food_totals(entry)
 
@@ -561,6 +889,9 @@ def get_week_payload(user_id, week_start: _date, db: Optional[Session] = None) -
             "weekly_budget_total": round(weekly_budget_total),
             "weekly_maintenance_total": round(weekly_maintenance_total),
             "projected_kg_per_week": round(weekly_deficit / _KCAL_PER_KG, 2),
+            "week_phase": week_phase,
+            "week_phase_reason": week_phase_reason,
+            "effective_deficit_kcal": eff_deficit,
         }
     finally:
         if owns_db:

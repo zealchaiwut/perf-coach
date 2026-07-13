@@ -28,7 +28,7 @@ _log = get_logger(__name__)
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-KNOWN_WORKOUT_TYPES: frozenset[str] = frozenset({"run", "strength", "plyo", "rest"})
+KNOWN_WORKOUT_TYPES: frozenset[str] = frozenset({"run", "strength", "plyo", "stretch", "rest"})
 
 # Mirror of acwr.HIGH_BOUND — weekly TSS must not exceed trailing_avg × this.
 ACWR_HIGH_BOUND: float = 1.3
@@ -532,6 +532,9 @@ def build_prompt(facts: dict) -> tuple[str, str]:
     target_rule_n = None
     if target_tss is not None:
         target_rule_n = _n; _n += 1
+    notes_binding_rule_n = None
+    if notes:
+        notes_binding_rule_n = _n; _n += 1
     notes_rule_n = _n; _n += 1
     rest_rule_n = None
     if rest_requested:
@@ -544,6 +547,20 @@ def build_prompt(facts: dict) -> tuple[str, str]:
     long_run_rule_n = _n; _n += 1
     consec_rule_n = _n; _n += 1
 
+    # Athlete notes must outrank the generic phase-mix template. Without an
+    # explicit numbered rule the model treats the trailing "Additional notes"
+    # line as background and lays down its default long-run/quality/strength
+    # distribution instead (observed: "run Tue, long run Sat, strength Sun"
+    # answered with strength Tue/Sat and a run Sun).
+    notes_binding_rule = (
+        f"{notes_binding_rule_n}. The athlete's own notes (the 'Additional notes from the athlete' "
+        "line below) are BINDING scheduling constraints, not background context. When they name a "
+        "day and a session type (e.g. \"run Tue, strength Fri\"), you MUST schedule exactly that "
+        "type on that day — including two same-day entries per rule 3 when they ask for both (e.g. "
+        "\"strength and an easy run on Fri\"). Phrasing like \"I had a plan of running Tue\" states "
+        "the athlete's intended plan for THIS week unless it clearly describes already-completed "
+        "training. The generic phase mix in these rules fills in ONLY where the notes are silent.\n"
+    ) if notes_binding_rule_n else ""
     rest_rule = (
         f"{rest_rule_n}. The athlete asked for these day_offsets to be REST: "
         f"{', '.join(str(o) for o in sorted(rest_requested))}. You MUST include an explicit "
@@ -622,17 +639,20 @@ def build_prompt(facts: dict) -> tuple[str, str]:
         '[{"day_offset": 4, "workout_type": "strength", ...}, {"day_offset": 4, '
         '"workout_type": "run", ...}]. Each entry still counts toward the 7-session '
         "cap and the day's/week's TSS limits.\n"
-        "4. workout_type must be exactly one of: run, strength, plyo, rest.\n"
+        "4. workout_type must be exactly one of: run, strength, plyo, stretch, rest.\n"
         "5. Only propose sessions for these day_offsets — every other day is already "
         f"scheduled, already logged, or in the past: {allowed_str}.\n"
         f"6. Respect ramp limits: do not increase weekly TSS by more than 30% above the trailing average.{taper_note}\n"
         f"{target_rule}"
-        f"{notes_rule_n}. `notes` = the coach's RATIONALE (why this weight/exercise/pairing — fatigue "
+        f"{notes_binding_rule}"
+        f"{notes_rule_n}. `intent` = a short session TITLE, 4-5 words max (e.g. \"Full body strength, "
+        "glute focus\") — it becomes the saved session's name; no full sentences. `notes` = the coach's "
+        "RATIONALE (why this weight/exercise/pairing — fatigue "
         "management, what's already logged/planned, why an exercise was avoided/kept). Terse coach-style, "
         "e.g. \"Legs stay fresh — Thursday is intervals.\" Null only for rest days.\n"
         f"{rest_rule}"
         f"{avoid_repeat_rule}"
-        f"{exercises_rule_n}. strength/plyo sessions: DEFAULT `exercises` array of 8-14 entries in 4-6 "
+        f"{exercises_rule_n}. strength/plyo/stretch sessions: DEFAULT `exercises` array of 8-14 entries in 4-6 "
         "blocks, 60-90min total — \"Warm-up\" (3-4 activation moves), \"Heavy compound\" (1 primary lift), "
         "\"Superset 1\"/\"Superset 2\" (2 exercises each, PAIRED opposing muscle groups, e.g. hinge+push), "
         "\"Standalone\" (1 isolation move), \"Accessories\" (2-3 core/stability moves). If the athlete's "
@@ -640,12 +660,17 @@ def build_prompt(facts: dict) -> tuple[str, str]:
         "(\"Warm-up\" + 1-2 of Heavy compound/Superset), 20-35min total — do not pad a requested-short "
         "session up to the default size. Entry = {block, name, sets, reps, load}: sets=integer; reps/load "
         "are short strings (reps: \"10\"/\"30s hold\"; load: \"bodyweight\"/\"moderate\"/\"65% 1RM "
-        "(~45kg)\"). Never empty for strength/plyo; null for run/rest.\n"
+        "(~45kg)\"). A plyo session is EXPLOSIVE jump/power work — box jumps, bounds, hops, depth "
+        "jumps, jump squats, med-ball throws — low reps (3-6), few sets, FULL recovery between "
+        "efforts, bodyweight or light load: never the barbell-lift strength template. A stretch "
+        "session is mobility/flexibility work: 4-8 hold/flow entries in 1-2 blocks, 15-30min, "
+        "mostly bodyweight — never barbell lifts. Never empty for strength/plyo/stretch; null "
+        "for run/rest.\n"
         f"{blocks_rule_n}. run sessions: `blocks` array (2-5 entries), one per phase, not just a duration "
         "number. Entry = {phase, duration_min, repeat, rest_min, target}: phase is warmup/main/cooldown "
         "(repeat \"main\" for multiple work segments); repeat=integer reps of that phase or null; "
         "rest_min=rest between reps or null; target=short effort/pace (\"easy\"/\"tempo\"/\"92% CP\") or "
-        "null. Easy/steady run = single non-repeated \"main\" phase. Null for strength/plyo/rest.\n"
+        "null. Easy/steady run = single non-repeated \"main\" phase. Null for strength/plyo/stretch/rest.\n"
         f"{long_run_rule_n}. The highest-target_tss run session is the week's LONG RUN — the day before it "
         "must not be another hard/interval run; use rest, easy run, or non-run instead.\n"
         f"{consec_rule_n}. No more than {_MAX_CONSECUTIVE_TRAINING_DAYS} consecutive training days without "
@@ -691,11 +716,23 @@ def build_prompt(facts: dict) -> tuple[str, str]:
     elif emphasis == "less":
         user += "The athlete wants LESS strength training than usual this week.\n"
     if notes:
-        # today_offset anchors "today"/"tomorrow"/day-name language in the notes to
-        # an actual day_offset — without it the model has to infer which offset is
-        # "today" purely from which day names appear in allowed_str, which is
-        # unreliable (observed: intervals requested "today" landing on the wrong
-        # day_offset).
+        # Anchor day-name language ("Tue", "Sat") in the notes to concrete
+        # day_offsets. today_offset covers "today"/"tomorrow" but is None for
+        # a next-week request (today isn't in the target week), so ALSO emit
+        # the full offset↔day↔date table whenever week_start is known —
+        # without it the model must infer the mapping from allowed_str alone,
+        # which is unreliable (observed: intervals requested "today" landing
+        # on the wrong day_offset; "run Tue" answered with strength on Tue).
+        week_start_iso = facts.get("week_start")
+        if week_start_iso:
+            try:
+                ws = date.fromisoformat(week_start_iso)
+                mapping = ", ".join(
+                    f"{o}={_DAY_NAMES[o]} {(ws + timedelta(days=o)).isoformat()}" for o in range(7)
+                )
+                user += f"Target week day mapping (day_offset=day date): {mapping}.\n"
+            except ValueError:
+                pass
         if today_offset is not None:
             user += f"TODAY is day_offset {today_offset} ({_DAY_NAMES[today_offset]}). "
         user += f"Additional notes from the athlete: {notes}\n"
@@ -1142,6 +1179,9 @@ def assemble_facts(
                     int(round(float(plan_row.taper_length))) if plan_row and plan_row.taper_length is not None else 3
                 )
                 plan_deload_enabled = bool(plan_row.deload_enabled) if plan_row and plan_row.deload_enabled is not None else False
+                plan_deload_start_week = (
+                    int(plan_row.deload_start_week) if plan_row and plan_row.deload_start_week is not None else 4
+                )
 
                 last_week_start = current_week_start - timedelta(days=7)
                 last_week_end = current_week_start - timedelta(days=1)
@@ -1164,6 +1204,7 @@ def assemble_facts(
                     baseline=baseline_tss, ramp_rate=ramp_rate, hold_weeks=plan_hold_weeks,
                     taper_weeks=plan_taper_weeks, weeks_to_race=weeks_to_race,
                     trailing_28d_avg=trailing_28d_weekly_avg, deload_enabled=plan_deload_enabled,
+                    deload_start_week=plan_deload_start_week,
                     verdict=verdict_result["verdict"],
                 )
                 week_index = ((target_week_start - current_week_start).days // 7) + 1
@@ -1263,6 +1304,126 @@ def assemble_facts(
     return facts
 
 
+def history_skeleton_slots(
+    history: list[tuple[int, str, float, float]],
+    facts: dict,
+    strength_sessions: int | None = None,
+) -> list[dict]:
+    """Rule-based schedule skeleton from the athlete's OWN recent weeks —
+    pure function, zero LLM (two-rail flow, issue #1417).
+
+    history: (weekday 0-6, workout_type, tss, duration_minutes) tuples from
+    the last 3 completed weeks. A weekday/type pair seen at least twice in
+    that window is a habit worth prefilling; its slot gets the median TSS
+    and duration. The highest-TSS run weekday is tagged subtype "long".
+    strength_sessions (when given) is enforced exactly: extra strength
+    slots are trimmed weakest-habit-first; missing ones are added to the
+    lightest open days.
+    """
+    from statistics import median
+
+    allowed = facts.get("allowed_offsets")
+    allowed = list(range(7)) if allowed is None else list(allowed)
+    rest_days = list(facts.get("preferred_rest_days") or [])
+
+    by_day: dict[int, dict[str, list[tuple[float, float]]]] = {}
+    for wd, wtype, tss, dur_min in history:
+        t = (wtype or "").lower()
+        if t not in KNOWN_WORKOUT_TYPES or t == "rest" or not (0 <= wd <= 6):
+            continue
+        by_day.setdefault(wd, {}).setdefault(t, []).append((float(tss or 0), float(dur_min or 0)))
+
+    slots: list[dict] = []
+    for d in range(7):
+        if d in rest_days:
+            slots.append({
+                "day_offset": d, "workout_type": "rest", "target_tss": 0,
+                "duration_minutes": 0, "intent": "Rest day (requested).",
+                "notes": None, "exercises": None, "blocks": None,
+            })
+            continue
+        if d not in allowed:
+            continue
+        for t, vals in sorted(by_day.get(d, {}).items()):
+            if len(vals) < 2:  # not a habit — one-offs don't prefill
+                continue
+            slots.append({
+                "day_offset": d, "workout_type": t,
+                "target_tss": round(median(v[0] for v in vals)),
+                "duration_minutes": int(round(median(v[1] for v in vals) / 5.0) * 5),
+                "intent": "", "notes": None, "exercises": None, "blocks": None,
+                "_habit_count": len(vals),
+            })
+
+    # Long-run tag: the biggest habitual run of the week.
+    runs = [s for s in slots if s["workout_type"] == "run"]
+    if runs:
+        max(runs, key=lambda s: s["target_tss"])["subtype"] = "long"
+
+    if strength_sessions is not None:
+        _enforce_strength_count(slots, strength_sessions, allowed, rest_days)
+
+    for s in slots:
+        s.pop("_habit_count", None)
+    slots.sort(key=lambda s: s["day_offset"])
+    return slots
+
+
+def _enforce_strength_count(slots: list[dict], strength_sessions: int,
+                            allowed: list[int], rest_days: list[int]) -> None:
+    """Make the slot list contain EXACTLY `strength_sessions` strength slots
+    (in place): extras trimmed weakest-habit-first, missing ones added to the
+    lightest open non-rest days. Shared by the history skeleton and the
+    template fallback — an explicit count is binding on both paths."""
+    want = max(0, min(7, int(strength_sessions)))
+    strength = [s for s in slots if s["workout_type"] == "strength"]
+    strength.sort(key=lambda s: (-s.get("_habit_count", 0), -s["target_tss"]))
+    for s in strength[want:]:
+        slots.remove(s)
+    # Add missing strength to the lightest open non-rest days first.
+    day_tss = {d: sum(s["target_tss"] for s in slots if s["day_offset"] == d)
+               for d in allowed if d not in rest_days}
+    have_strength = {s["day_offset"] for s in slots if s["workout_type"] == "strength"}
+    candidates = sorted(
+        [d for d in day_tss if d not in have_strength],
+        key=lambda d: day_tss[d],
+    )
+    for d in candidates[: max(0, want - len(strength[:want]))]:
+        slots.append({
+            "day_offset": d, "workout_type": "strength", "target_tss": 50,
+            "duration_minutes": 45, "intent": "", "notes": None,
+            "exercises": None, "blocks": None,
+        })
+
+
+def _load_history_rows(user_id: str, week_start: "date", db=None) -> list[tuple[int, str, float, float]]:
+    """(weekday, type, tss, duration_minutes) for the 21 days before week_start."""
+    from backend.models import Workout
+
+    _own = db is None
+    if _own:
+        from backend.db import engine
+        from sqlalchemy.orm import Session
+        db = Session(engine)
+    try:
+        rows = (
+            db.query(Workout.workout_date, Workout.workout_type, Workout.tss, Workout.duration_seconds)
+            .filter(
+                Workout.user_id == user_id,
+                Workout.workout_date >= week_start - timedelta(days=21),
+                Workout.workout_date < week_start,
+            )
+            .all()
+        )
+        return [
+            (r[0].weekday(), r[1] or "", float(r[2] or 0), float(r[3] or 0) / 60.0)
+            for r in rows
+        ]
+    finally:
+        if _own:
+            db.close()
+
+
 def get_suggestions(
     user_id: str,
     db=None,
@@ -1271,6 +1432,8 @@ def get_suggestions(
     preferred_rest_days: list[int] | None = None,
     strength_emphasis: str | None = None,
     notes: str | None = None,
+    skeleton: bool = False,
+    strength_sessions: int | None = None,
 ) -> dict:
     """Full entry point: assemble facts → cache-aware LLM call → fallback.
 
@@ -1281,12 +1444,53 @@ def get_suggestions(
     week_start/preferred_rest_days/strength_emphasis/notes are the athlete's
     scoping + preference input (see assemble_facts) — they flow into facts and
     therefore into the cache signature, so different input never collides.
+
+    skeleton=True (two-rail flow, issue #1417) skips the LLM entirely and
+    returns the deterministic template — day/type/TSS/duration slots the
+    athlete then rearranges on the schedule rail before per-slot content is
+    generated via generate_single_session. Instant, zero LLM cost, never
+    cached (the template is pure computation over facts).
     """
     facts = assemble_facts(
         user_id, db=db, week_start=week_start,
         preferred_rest_days=preferred_rest_days,
         strength_emphasis=strength_emphasis, notes=notes,
     )
+    if skeleton:
+        # Rule-based, zero LLM. First choice: the athlete's OWN last 3
+        # weeks — a weekday/type habit prefills a slot with its median
+        # TSS/duration (history_skeleton_slots). Only when there's no
+        # history at all does the generic template fill in. Slots carry
+        # only the budget — content (intent/notes/exercises/blocks) stays
+        # blank until the athlete fills a slot with AI.
+        history = _load_history_rows(user_id, date.fromisoformat(facts["week_start"]), db=db)
+        slots = history_skeleton_slots(history, facts, strength_sessions=strength_sessions)
+        source = "history"
+        if not any(s["workout_type"] != "rest" for s in slots):
+            slots = [
+                {**s, "intent": s.get("intent") if s.get("workout_type") == "rest" else "",
+                 "notes": None, "exercises": None, "blocks": None}
+                for s in fallback_suggestions(facts)
+            ]
+            # An explicit strength count is binding on the template path too
+            # — a no-history athlete asking for 0 strength must not get the
+            # template's hardcoded 2 strength days.
+            if strength_sessions is not None:
+                _allowed = facts.get("allowed_offsets")
+                _allowed = list(range(7)) if _allowed is None else list(_allowed)
+                _enforce_strength_count(
+                    slots, strength_sessions, _allowed,
+                    list(facts.get("preferred_rest_days") or []),
+                )
+                slots.sort(key=lambda s: s["day_offset"])
+            source = "skeleton"
+        return {
+            "facts": facts,
+            "suggestions": slots,
+            "source": source,
+            "attempts": 0,
+            "orch": "none",
+        }
     sig = build_signature(facts)
     orch = _plan_orch()
     surface = _SURFACE if orch == "single" else _SURFACE + ":" + orch
@@ -1328,7 +1532,36 @@ _LLM_SINGLE_SESSION_SCHEMA: dict = {
     "additionalProperties": False,
 }
 
-_SINGLE_SESSION_MAX_COMPLETION_TOKENS = 1500
+# gpt-oss (the "deep" tier) is a reasoning model whose hidden reasoning
+# tokens count against max_completion_tokens — a trivial strength-session
+# request measured 1403 completion tokens with 1014 of them reasoning, so
+# the old cap of 1500 truncated real refine requests mid-JSON and Groq's
+# strict-mode surfaced that as an opaque 400 (json_validate_failed).
+# Sized to match the whole-week surface's headroom (5700); Groq bills only
+# tokens actually generated.
+_SINGLE_SESSION_MAX_COMPLETION_TOKENS = 6000
+# Runs are deliberately cheap (the slot already fixes TSS/duration; the LLM
+# only splits it into warmup/main/cooldown): a small cap matters because
+# Groq's free tier PRE-BOOKS prompt + max_completion_tokens against an 8k
+# tokens-per-minute budget — at 6000 every call costs ~6.9k and only ONE
+# fits per minute; at 2000 a run fill costs ~2.7k and several fit.
+_RUN_SESSION_MAX_COMPLETION_TOKENS = 2000
+
+
+SESSION_SUBTYPES: dict[str, dict[str, str]] = {
+    "run": {
+        "easy": "a conversational, fully aerobic easy run — no quality segments",
+        "long": "the week's LONG run — steady aerobic, even effort, no intervals",
+        "intervals": "an interval session — repeated hard efforts with recovery jogs between",
+        "tempo": "a tempo run — sustained comfortably-hard blocks at threshold-ish effort",
+    },
+    "strength": {
+        "upper": "an UPPER-body strength session — push/pull emphasis, minimal leg loading",
+        "lower": "a LOWER-body strength session — hinge/squat/single-leg emphasis",
+        "full": "a FULL-body strength session — balanced upper/lower/core",
+        "light": "a LIGHT maintenance strength session — short, low load, no grinding sets",
+    },
+}
 
 
 def build_single_session_prompt(
@@ -1337,11 +1570,42 @@ def build_single_session_prompt(
     workout_type: str | None,
     note: str,
     current_session: dict | None = None,
+    target_tss: float | None = None,
+    duration_minutes: int | None = None,
+    subtype: str | None = None,
 ) -> tuple[str, str]:
-    """Build (system_prompt, user_prompt) for a ONE-session generate/refine call."""
+    """Build (system_prompt, user_prompt) for a ONE-session generate/refine call.
+
+    target_tss/duration_minutes are the schedule rail's slot budget (two-rail
+    flow, issue #1417): when given, the session must land on those numbers —
+    the athlete owns the schedule; the LLM only fills content within it.
+    subtype is the slot's optional flavor tag (SESSION_SUBTYPES) — e.g. a run
+    is "easy" vs "intervals", a strength day is "upper" vs "light"."""
     trailing = facts.get("trailing_28d_weekly_avg_tss", 0.0)
     max_weekly = round(max(float(trailing), FALLBACK_MIN_WEEKLY_TSS) * ACWR_HIGH_BOUND)
     day_name = _DAY_NAMES[day_offset]
+
+    budget_rule = ""
+    if target_tss is not None or duration_minutes is not None:
+        parts = []
+        if target_tss is not None:
+            parts.append(f"target_tss MUST be {round(float(target_tss))} (±10%)")
+        if duration_minutes is not None:
+            parts.append(f"duration_minutes MUST be {int(duration_minutes)} (±10%)")
+        budget_rule = (
+            "6. The athlete fixed this session's budget on their schedule: "
+            + " and ".join(parts)
+            + " — size the exercises/blocks to fill exactly that, do not resize the slot.\n"
+        )
+
+    subtype_rule = ""
+    subtype_desc = SESSION_SUBTYPES.get(workout_type or "", {}).get(subtype or "")
+    if subtype_desc:
+        n = 7 if budget_rule else 6
+        subtype_rule = (
+            f"{n}. The athlete tagged this session \"{subtype}\": build {subtype_desc}. "
+            "The tag is binding — do not build a different kind of session.\n"
+        )
 
     system = (
         "You are a running coach. Produce or REVISE exactly ONE training session "
@@ -1351,14 +1615,41 @@ def build_single_session_prompt(
         f"1. day_offset MUST be {day_offset} ({day_name}) — do not move it to another day.\n"
         f"2. target_tss must be 0-400 and should not by itself push the athlete's "
         f"weekly total above {max_weekly} (their ACWR safe ceiling).\n"
-        "3. workout_type must be exactly one of: run, strength, plyo, rest"
+        "3. workout_type must be exactly one of: run, strength, plyo, stretch, rest"
         + (f" — the athlete asked for \"{workout_type}\"; use that unless their note "
            "explicitly asks for something else.\n" if workout_type else ".\n")
-        + "4. strength/plyo: include `exercises` (4-14 entries, {block, name, sets, reps, "
-        "load}); scale to a short (4-6 entries) session if the note asks for brief/quick. "
-        "run: include `blocks` (2-5 entries, {phase, duration_min, repeat, rest_min, "
-        "target}). rest: both null.\n"
-        "5. `notes` = terse coach rationale for this session, or null for rest.\n"
+        + (
+            # Runs are a cheap estimation task — the slot already fixes TSS
+            # and duration; the model only splits them into three phases.
+            # Paired with the small run token cap below, this keeps a run
+            # fill inside Groq's per-minute token budget in one call.
+            "4. run: include `blocks` with EXACTLY 3 entries — warmup, main, cooldown "
+            "({phase, duration_min, repeat, rest_min, target}). Split the session's duration "
+            "across the three phases and give each a short effort target (\"easy\"/\"tempo\"/"
+            "\"5 × 3min hard, 2min jog\" — intervals detail goes in the main block's target "
+            "string, repeat and rest_min). This is a simple estimation, not a design task — "
+            "be brief, no long deliberation. `exercises` null.\n"
+            if workout_type == "run" else
+            "4. strength/plyo/stretch: include `exercises` (4-14 entries, {block, name, sets, reps, "
+            "load}); scale to a short (4-6 entries) session if the note asks for brief/quick. "
+            "For a STRENGTH session, `block` values MUST follow this exact sequence and naming — "
+            "\"Warm-up\" (2-4 activation moves), \"Heavy compound\" (1 primary lift), "
+            "\"Superset 1\" and \"Superset 2\" (2 exercises each, paired opposing muscle groups), "
+            "then \"Accessories\" (2-3 core/stability moves) or \"Standalone\" (1 isolation move), "
+            "finishing with \"Stretch\" (1-2 cool-down stretches). Do NOT invent other block names "
+            "(no \"Upper body push\"/\"Lower body hinge\" style groupings). A plyo "
+            "session is EXPLOSIVE jump/power work — box jumps, bounds, hops, depth jumps, jump "
+            "squats, med-ball throws — low reps (3-6), few sets, FULL recovery between efforts, "
+            "bodyweight or light load: never the barbell-lift strength template. A stretch session "
+            "is mobility/flexibility holds and flows, mostly bodyweight, never barbell lifts. "
+            "run: include `blocks` (2-5 entries, {phase, duration_min, repeat, "
+            "rest_min, target}). rest: both null.\n"
+        )
+        + "5. `intent` = a short session TITLE, 4-5 words max (e.g. \"Full body strength, glute focus\") "
+        "— it becomes the saved session's name, so no full sentences. "
+        "`notes` = terse coach rationale for this session, or null for rest.\n"
+        f"{budget_rule}"
+        f"{subtype_rule}"
     )
 
     user = f"This session is for day_offset {day_offset} ({day_name})."
@@ -1385,12 +1676,17 @@ def generate_single_session(
     preferred_rest_days: list[int] | None = None,
     strength_emphasis: str | None = None,
     notes: str | None = None,
+    target_tss: float | None = None,
+    duration_minutes: int | None = None,
+    subtype: str | None = None,
     db=None,
 ) -> dict | None:
     """Generate or refine ONE session. Returns the session dict, or None on
     failure (LLM unavailable or couldn't produce a valid session in 2 tries —
     callers should keep the athlete's current session and show an error,
-    there is no deterministic-template fallback for a single session)."""
+    there is no deterministic-template fallback for a single session).
+    target_tss/duration_minutes pin the slot budget (two-rail flow) — see
+    build_single_session_prompt."""
     facts = assemble_facts(
         user_id, db=db, week_start=week_start,
         preferred_rest_days=preferred_rest_days,
@@ -1404,14 +1700,24 @@ def generate_single_session(
 
     feedback = ""
     for _attempt in range(2):
-        system, user = build_single_session_prompt(facts, day_offset, workout_type, note, current_session)
+        system, user = build_single_session_prompt(
+            facts, day_offset, workout_type, note, current_session,
+            target_tss=target_tss, duration_minutes=duration_minutes,
+            subtype=subtype,
+        )
         raw = llm_svc.complete_structured(
             system=system,
             user=user + feedback,
             schema_name="single_session",
             json_schema=_LLM_SINGLE_SESSION_SCHEMA,
             model_tier="deep",
-            max_tokens=_SINGLE_SESSION_MAX_COMPLETION_TOKENS,
+            # Runs are a 3-block estimation with a deliberately small cap so
+            # the call fits Groq's per-minute token budget in one go — see
+            # the constants above.
+            max_tokens=(
+                _RUN_SESSION_MAX_COMPLETION_TOKENS if workout_type == "run"
+                else _SINGLE_SESSION_MAX_COMPLETION_TOKENS
+            ),
         )
         if raw is None:
             continue
@@ -1419,7 +1725,49 @@ def generate_single_session(
         if not isinstance(session, dict):
             continue
         errs = validation_errors([session], validation_facts)
+        # The slot budget is a CONTRACT, not a hint — the prompt says "MUST
+        # be X (±10%)" but schema validation alone can't enforce it, so a
+        # non-compliant generation used to silently overwrite the athlete's
+        # fixed numbers. Out-of-tolerance → retry with feedback; if the
+        # retry still misses, clamp the numbers back to the slot's values
+        # (the athlete owns the schedule; the LLM only fills content).
+        errs.extend(_budget_errors(session, target_tss, duration_minutes))
         if not errs:
+            return session
+        if _attempt == 1 and not validation_errors([session], validation_facts):
+            # Final attempt, only the budget is off — force compliance.
+            if target_tss is not None:
+                session["target_tss"] = round(float(target_tss))
+            if duration_minutes is not None:
+                session["duration_minutes"] = int(duration_minutes)
             return session
         feedback = _feedback_block(errs)
     return None
+
+
+# Tolerance for the slot-budget contract — matches the ±10% the prompt
+# states, with a small absolute floor so tiny budgets don't reject rounding.
+_BUDGET_TOLERANCE_FRAC = 0.10
+_BUDGET_TOLERANCE_ABS = 5.0
+
+
+def _budget_errors(session: dict, target_tss, duration_minutes) -> list[str]:
+    errs: list[str] = []
+
+    def _off(got, want) -> bool:
+        if got is None:
+            return True
+        tol = max(_BUDGET_TOLERANCE_ABS, abs(float(want)) * _BUDGET_TOLERANCE_FRAC)
+        return abs(float(got) - float(want)) > tol
+
+    if target_tss is not None and _off(session.get("target_tss"), target_tss):
+        errs.append(
+            f"target_tss must be {round(float(target_tss))} (±10%) — got "
+            f"{session.get('target_tss')}; do not resize the slot."
+        )
+    if duration_minutes is not None and _off(session.get("duration_minutes"), duration_minutes):
+        errs.append(
+            f"duration_minutes must be {int(duration_minutes)} (±10%) — got "
+            f"{session.get('duration_minutes')}; do not resize the slot."
+        )
+    return errs

@@ -338,6 +338,12 @@ class WorkoutExercise(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     workout_id = Column(UUID(as_uuid=True), ForeignKey("workouts.id", ondelete="CASCADE"), nullable=False)
     display_order = Column(Integer, server_default=text("0"), nullable=False)
+    # Training-block grouping (Warm-up / Heavy compound / Superset 1 / ...) —
+    # same vocabulary as PlannedSession.structure.exercises[].block. Nullable:
+    # old rows and ungrouped logs render flat. NOTE: restored after the
+    # sprint-104 merge (15db9bb1) dropped this hunk while the DB column
+    # (migration 1d5caaeaaa26) and every writer in main.py survived.
+    block = Column(String(80), nullable=True)
     name = Column(String(200), nullable=False)
     sets = Column(Integer, nullable=True)
     reps = Column(Integer, nullable=True)
@@ -459,6 +465,7 @@ class FuelSettings(Base):
     fat_g = Column(Integer, nullable=False, server_default=text("70"))
     ea_floor = Column(Numeric(5, 2), nullable=False, server_default=text("30.0"))
     run_kcal_per_kg_per_km = Column(Numeric(4, 2), nullable=False, server_default=text("1.0"))
+    auto_periodize = Column(Boolean, nullable=False, server_default=text("true"))
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
@@ -900,6 +907,14 @@ class TrainingLoadSnapshot(Base):
     # miss and recomputed, so a change to the EWMA/ACWR math can never
     # silently keep serving stale-shape rows forever.
     formula_version = Column(Text, nullable=True)
+    # The per-user EWMA windows this row was computed with (issue #1366 —
+    # user-tunable CTL/ATL constants). Nullable: rows predating the feature.
+    # NOTE: restored after the sprint-104 merge (15db9bb1) dropped this hunk
+    # while migration 3c5bf7cf48ed and training_load.daily_update()'s writes
+    # survived — without these, every snapshot upsert dies with
+    # CompileError: Unconsumed column names.
+    ctl_days = Column(Integer, nullable=True)
+    atl_days = Column(Integer, nullable=True)
     computed_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
     __table_args__ = (
@@ -1390,6 +1405,13 @@ class TrainingPlan(Base):
     # "Cut 30% every 4th week" deload toggle — see load_plan.py's
     # DELOAD_CUT_FRACTION / compute_load_plan(deload_enabled=...).
     deload_enabled = Column(Boolean, nullable=False, server_default=text("false"))
+    # Which week of the 4-week cycle the deload lands on (1-4): first deload
+    # at this week_index, then every 4 weeks (4 → 4, 8, 12; 2 → 2, 6, 10).
+    # NOTE: restored after the sprint-104 merge (15db9bb1) silently dropped
+    # this hunk while the DB column (migration fe28c4815e7e) and every reader
+    # (main.py _plan_rules_dict, plan_suggestions.assemble_facts) survived —
+    # without it those endpoints 500 with AttributeError.
+    deload_start_week = Column(Integer, nullable=False, server_default=text("4"))
     # Cached computed Plan-tab bundle + the signature it was computed for
     # (see GET /api/plan/computed). Recomputed when the signature changes.
     computed_cache = Column(JSONB, nullable=True)
@@ -1615,6 +1637,32 @@ class ExerciseCatalog(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
 
+INJURY_KIND_VALUES = ("injury", "illness", "niggle")
+
+
+class InjuryLog(Base):
+    """Injury / illness / niggle log entry for one user."""
+
+    __tablename__ = "injury_log"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    kind = Column(String(20), nullable=False)
+    body_area = Column(String(100), nullable=True)
+    severity = Column(Integer, nullable=False)
+    started_on = Column(Date, nullable=False)
+    ended_on = Column(Date, nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("kind IN ('injury', 'illness', 'niggle')", name="ck_injury_log_kind"),
+        CheckConstraint("severity IN (1, 2, 3)", name="ck_injury_log_severity"),
+        CheckConstraint("ended_on IS NULL OR ended_on >= started_on", name="ck_injury_log_ended_after_started"),
+        Index("ix_injury_log_user_started_on", "user_id", "started_on"),
+    )
+
+
 class LlmGeneration(Base):
     """Cached LLM-generated text payloads keyed by (user, surface, input_signature).
 
@@ -1640,4 +1688,166 @@ class LlmGeneration(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "surface", "input_signature", name="uq_llm_generations_user_surface_sig"),
         Index("ix_llm_generations_user_surface_sig", "user_id", "surface", "input_signature"),
+    )
+
+
+class VerdictHistory(Base):
+    """Persisted snapshot of each day's training verdict and its inputs.
+
+    Written (upserted) whenever compute_verdict runs for the current day so
+    there is a durable record of what the app advised vs what happened.
+    Historical dates are never touched — only today's computation updates
+    this row. The unique constraint enforces one row per user+date.
+    """
+
+    __tablename__ = "verdict_history"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    verdict_date = Column(Date, nullable=False)
+    verdict = Column(String(20), nullable=False)
+    modifiers = Column(JSONB, nullable=True)
+    readiness = Column(Float, nullable=True)
+    ctl = Column(Float, nullable=True)
+    atl = Column(Float, nullable=True)
+    tsb = Column(Float, nullable=True)
+    acwr = Column(Float, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "verdict_date", name="uq_verdict_history_user_date"),
+        Index("ix_verdict_history_user_date", "user_id", "verdict_date"),
+    )
+
+
+class BodyMeasurement(Base):
+    """Periodic body composition measurement (waist circumference and/or body-fat %)."""
+
+    __tablename__ = "body_measurements"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    measure_date = Column(Date, nullable=False)
+    waist_cm = Column(Numeric(5, 1), nullable=True)
+    body_fat_pct = Column(Numeric(4, 1), nullable=True)
+    source = Column(String(20), nullable=False, server_default=text("'manual'"))
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "measure_date", name="uq_body_measurements_user_date"),
+        Index("ix_body_measurements_user_date", "user_id", "measure_date"),
+        CheckConstraint("source IN ('manual', 'imported')", name="ck_body_measurements_source"),
+    )
+
+
+class PerformanceScoreHistory(Base):
+    """Persisted daily endurance/speed scores with formula version stamps (issue #1361/#1365).
+
+    One row per (user, date, formula_version) — upserted each time scores are
+    computed so there is a durable series to compute block deltas from without
+    relying on the in-request trend[] recomputation.
+    """
+
+    __tablename__ = "performance_score_history"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    score_date = Column(Date, nullable=False)
+    endurance = Column(Float, nullable=True)
+    speed = Column(Float, nullable=True)
+    formula_version = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "score_date", "formula_version",
+            name="uq_performance_score_history_user_date_version",
+        ),
+        Index("ix_performance_score_history_user_date", "user_id", "score_date"),
+    )
+
+
+class RunFormMetrics(Base):
+    """Per-run Stryd running-dynamics extracted from stryd_activities.form_metrics (issue #1368).
+
+    Key mapping (verified against live Stryd calendar API, 2026-06-17 via stryd_sync.py):
+        form_metrics["ground_contact_time_ms"]  -> gct_ms
+        form_metrics["leg_spring_stiffness"]    -> lss_kn_m  (kN/m, Stryd native unit)
+        form_metrics["vertical_oscillation_cm"] -> vertical_oscillation_cm
+        form_metrics["cadence_spm"]             -> cadence_spm
+        stryd_activities.avg_power_w            -> power_w
+    """
+
+    __tablename__ = "run_form_metrics"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    workout_id = Column(UUID(as_uuid=True), ForeignKey("workouts.id", ondelete="SET NULL"), nullable=True)
+    stryd_activity_pk = Column(UUID(as_uuid=True), ForeignKey("stryd_activities.id", ondelete="CASCADE"), nullable=False)
+    run_date = Column(Date, nullable=False)
+    gct_ms = Column(Numeric(8, 2), nullable=True)
+    lss_kn_m = Column(Numeric(8, 4), nullable=True)
+    vertical_oscillation_cm = Column(Numeric(6, 2), nullable=True)
+    cadence_spm = Column(Numeric(6, 2), nullable=True)
+    power_w = Column(Numeric(6, 1), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("stryd_activity_pk", name="uq_run_form_metrics_stryd_activity_pk"),
+        Index("ix_run_form_metrics_user_run_date", "user_id", "run_date"),
+    )
+
+
+class PredictionSnapshot(Base):
+    """Daily persisted projection forecast for forecast-vs-actual accuracy evaluation.
+
+    One row per user per day — written on the first projection computation of the day
+    (later same-day recomputes do NOT overwrite, preserving the morning forecast).
+    The payload JSON contains per-race predicted finish times with race ids, projected
+    CTL at race date, peak CTL + peak week, and formula_version. See issue #1362.
+    """
+    __tablename__ = "prediction_snapshots"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    snapshot_date = Column(Date, nullable=False)
+    payload = Column(JSONB, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "snapshot_date", name="uq_prediction_snapshots_user_date"),
+        Index("ix_prediction_snapshots_user_date", "user_id", "snapshot_date"),
+    )
+
+
+class MuscleLoadDaily(Base):
+    """Per-day TSS-weighted load per muscle group per source (issue #1367).
+
+    Rows are recomputed-idempotent: the writer deletes existing rows for the
+    (user, date, source) triple and inserts fresh ones so re-running never
+    double-counts. The unique constraint enforces one row per
+    (user, date, muscle_group, source).
+    """
+
+    __tablename__ = "muscle_load_daily"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    load_date = Column(Date, nullable=False)
+    muscle_group = Column(String(30), nullable=False)
+    load = Column(Numeric(10, 4), nullable=False)
+    source = Column(String(20), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "load_date", "muscle_group", "source",
+            name="uq_muscle_load_daily_user_date_group_source",
+        ),
+        CheckConstraint(
+            "source IN ('strength', 'run', 'plyo')",
+            name="ck_muscle_load_daily_source",
+        ),
+        Index("ix_muscle_load_daily_user_date", "user_id", "load_date"),
     )

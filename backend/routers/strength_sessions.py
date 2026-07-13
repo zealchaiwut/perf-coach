@@ -4,7 +4,9 @@ All DB work is delegated to strength_sessions_service; no raw ORM calls live her
 """
 from __future__ import annotations
 
+import logging as _logging
 import uuid as _uuid
+from datetime import date as _date
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -13,6 +15,7 @@ from pydantic import BaseModel, validator
 
 from backend.auth import resolve_user
 from backend.services import strength_sessions_service as _svc
+from backend.services.muscle_load import recompute_strength_load_for_date as _recompute_ml
 
 router = APIRouter()
 
@@ -210,11 +213,23 @@ class _PlyoPatchBody(BaseModel):
 
 # ── Strength session endpoints ─────────────────────────────────────────────────
 
+def _trigger_ml(user_id, session_date_str: str) -> None:
+    """Fire muscle-load recompute; never raises."""
+    try:
+        d = _date.fromisoformat(session_date_str)
+        _recompute_ml(user_id, d)
+    except Exception as exc:
+        _logging.getLogger(__name__).warning("muscle_load recompute failed: %s", exc, exc_info=True)
+
+
 @router.post("/api/strength-sessions/batch", status_code=201)
 async def create_strength_sessions_batch(body: _StrengthBatchBody, request: Request):
     user = await resolve_user(request)
     exercises = [ex.dict() for ex in body.exercises]
     result = _svc.create_strength_sessions_batch(user_id=user.id, exercises=exercises)
+    dates = {ex["session_date"] for ex in exercises}
+    for d in dates:
+        _trigger_ml(user.id, d)
     return JSONResponse(result, status_code=201)
 
 
@@ -249,6 +264,7 @@ async def create_strength_session(body: _StrengthCreateBody, request: Request):
         session_rpe=body.session_rpe,
         duration_minutes=body.duration_minutes,
     )
+    _trigger_ml(user.id, body.session_date)
     return JSONResponse(result, status_code=201)
 
 
@@ -257,9 +273,15 @@ async def update_strength_session(session_id: str, body: _StrengthPatchBody, req
     user = await resolve_user(request)
     sid = _parse_session_id(session_id)
     fields = body.dict(exclude_unset=True)
+    old = _svc.get_strength_session(session_id=sid, user_id=user.id)
     result = _svc.update_strength_session(session_id=sid, user_id=user.id, fields=fields)
     if result is None:
         raise HTTPException(status_code=404, detail="strength session not found")
+    dates_to_refresh = {result["session_date"]}
+    if old and old["session_date"] != result["session_date"]:
+        dates_to_refresh.add(old["session_date"])
+    for d in dates_to_refresh:
+        _trigger_ml(user.id, d)
     return JSONResponse(result)
 
 
@@ -267,9 +289,12 @@ async def update_strength_session(session_id: str, body: _StrengthPatchBody, req
 async def delete_strength_session(session_id: str, request: Request):
     user = await resolve_user(request)
     sid = _parse_session_id(session_id)
+    existing = _svc.get_strength_session(session_id=sid, user_id=user.id)
     deleted = _svc.delete_strength_session(session_id=sid, user_id=user.id)
     if not deleted:
         raise HTTPException(status_code=404, detail="strength session not found")
+    if existing:
+        _trigger_ml(user.id, existing["session_date"])
     return Response(status_code=204)
 
 

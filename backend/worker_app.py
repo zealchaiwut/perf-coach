@@ -253,6 +253,25 @@ def _run_backfill(user_id: str) -> None:
         logger.error("job finish: backfill user=%s status=error: %s", user_id, exc, exc_info=True)
 
 
+def _run_form_metrics_backfill(user_id: str) -> None:
+    from backend.services.run_form_metrics_service import upsert_form_metrics_for_user
+
+    recorder = DbRecorder(job_type="form_metrics_backfill", user_id=user_id, triggered_by="manual")
+    logger.info("job start: form_metrics_backfill user=%s", user_id)
+    try:
+        result = upsert_form_metrics_for_user(user_id)
+        recorder.mark_success(user_id, stats=result)
+        logger.info(
+            "job finish: form_metrics_backfill user=%s status=success processed=%d written=%d",
+            user_id, result["processed"], result["written"],
+        )
+    except Exception as exc:
+        recorder.mark_error(user_id, str(exc))
+        logger.error(
+            "job finish: form_metrics_backfill user=%s status=error: %s", user_id, exc, exc_info=True
+        )
+
+
 def _run_banister_refit_batch() -> None:
     from backend.models import User
     from backend.services.banister_pipeline import run_banister_refit_pipeline
@@ -310,6 +329,10 @@ def _h_backfill(p: dict) -> None:
     _run_backfill(p["user_id"])
 
 
+def _h_form_metrics_backfill(p: dict) -> None:
+    _run_form_metrics_backfill(p["user_id"])
+
+
 def _h_banister_refit(p: dict) -> None:
     _run_banister_refit_batch()
 
@@ -334,6 +357,7 @@ _DISPATCH = {
     "strava_sync": _h_strava_sync,
     "stryd_sync": _h_stryd_sync,
     "backfill": _h_backfill,
+    "form_metrics_backfill": _h_form_metrics_backfill,
     "banister_refit": _h_banister_refit,
     "precompute": _h_precompute,
     "garmin_sync": _h_garmin_sync,
@@ -457,6 +481,17 @@ def performance_backfill(body: dict):
         raise HTTPException(status_code=422, detail="user_id is required")
 
     _executor.submit(_run_backfill, user_id)
+    return {"started": True}
+
+
+@app.post("/internal/form-metrics/backfill", dependencies=[Depends(require_worker_secret)])
+def form_metrics_backfill(body: dict):
+    """Backfill run_form_metrics from all historical stryd_activities for a user."""
+    user_id = body.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=422, detail="user_id is required")
+
+    _executor.submit(_run_form_metrics_backfill, user_id)
     return {"started": True}
 
 

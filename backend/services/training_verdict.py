@@ -19,6 +19,12 @@ in docs/calculations/acwr-guardrail.md alongside a note that ACWR's
 injury-predictive validity is contested in the sports-science literature —
 it is a useful flag, not a diagnosis, and the report's language must match
 that confidence level (see backend/services/weekly_summary.py).
+
+v2 additions (issue #1351): readiness score, 7-day readiness trend, and
+active injury_log entries are wired in as deterministic downgrade rules.
+Rules only ever downgrade — they cannot upgrade a verdict that load already
+set. Missing wellness data passes through unchanged. Each fired rule is
+recorded in modifiers: [{"rule": str, "value": any}].
 """
 
 from __future__ import annotations
@@ -46,6 +52,12 @@ ATL_CTL_HOLD_RATIO: float = 1.25
 # stricter than training_load.FORM_BURIED_CEILING (-10), which flags routine
 # fatigue; this is the threshold for actively holding load, not just a label.
 TSB_HOLD_FLOOR: float = -25.0
+
+# ── Wellness-modifier thresholds (v2) ────────────────────────────────────────
+# Today's canonical readiness score below this triggers a one-step downgrade.
+READINESS_LOW_TODAY: float = 40.0
+# 7-day readiness mean below this triggers a one-step downgrade.
+READINESS_LOW_TREND: float = 50.0
 
 # Below this CTL, the ATL:CTL and TSB hold-checks are skipped entirely. CTL
 # starts at 0 and rises slowly (42-day EWMA); ATL reacts fast (7-day EWMA).
@@ -76,6 +88,27 @@ _CONVERGENCE_TARGET_RATIO: float = ACWR_HOLD_THRESHOLD
 # converge within 2 years has a data problem, not a projection problem).
 _MAX_CONVERGENCE_WEEKS: int = 104
 
+# ── Wellness / readiness downgrade thresholds ────────────────────────────────
+# Today's readiness score below this triggers a one-step downgrade.
+READINESS_LOW_TODAY: float = 40.0
+# 7-day mean readiness below this triggers a one-step downgrade.
+READINESS_LOW_TREND: float = 50.0
+
+# Internal severity ordering — lower number = more restrictive.
+_VERDICT_SEVERITY: dict[Verdict, int] = {"back_off": 0, "hold": 1, "build": 2}
+
+
+def _more_restrictive(a: Verdict, b: Verdict) -> Verdict:
+    """Return whichever verdict is more restrictive (lower severity index)."""
+    return a if _VERDICT_SEVERITY[a] < _VERDICT_SEVERITY[b] else b
+
+
+def _downgrade_one(v: Verdict) -> Verdict:
+    """Return verdict one step more restrictive; back_off stays back_off."""
+    if v == "build":
+        return "hold"
+    return "back_off"
+
 
 class VerdictSnapshot(TypedDict, total=False):
     """The subset of current_load()'s/get_snapshot_series()'s return shape
@@ -96,6 +129,7 @@ class VerdictResult(TypedDict):
     expected_ctl_in_3w: Optional[float]
     weeks_to_converge: Optional[int]
     converge_date: Optional[str]
+    modifiers: list  # [{rule: str, value: any}] — which downgrade rules fired
 
 
 def _project_convergence(ctl: float, atl: float, today: date) -> tuple[Optional[float], Optional[int], Optional[str]]:
@@ -132,34 +166,50 @@ def _project_convergence(ctl: float, atl: float, today: date) -> tuple[Optional[
     return expected_ctl_in_3w, _MAX_CONVERGENCE_WEEKS, (today + timedelta(weeks=_MAX_CONVERGENCE_WEEKS)).isoformat()
 
 
+_VERDICT_ORDER = {"build": 0, "hold": 1, "back_off": 2}
+
+
+def _downgrade_one(v: Verdict) -> Verdict:
+    return {"build": "hold", "hold": "back_off", "back_off": "back_off"}[v]
+
+
 def compute_verdict(
     snap: VerdictSnapshot,
     chronic_weekly: Optional[float] = None,
     last_week_actual: Optional[float] = None,
     *,
     today: Optional[date] = None,
+    readiness_today: Optional[float] = None,
+    readiness_7d_mean: Optional[float] = None,
+    injury_log: Optional[list] = None,
 ) -> VerdictResult:
     """Deterministic back_off / hold / build verdict from a training-load
-    snapshot. Pure function — no I/O, no LLM call.
+    snapshot plus optional wellness signals. Pure function — no I/O, no LLM call.
 
     Args:
         snap: dict with acwr/tsb/ctl/atl — typically training_load.
             current_load()'s return value directly.
         chronic_weekly: trailing 28-day average weekly TSS. Accepted for
-            future threshold refinement (e.g. scaling ATL_CTL_HOLD_RATIO by
-            training history depth) — not currently used in the decision,
+            future threshold refinement — not currently used in the decision,
             kept as an explicit parameter so callers don't need to change
             when it is.
         last_week_actual: last completed week's actual TSS. Same as
             chronic_weekly — accepted, not yet used; keeps the signature
-            stable for load_plan.py callers that already have both values
-            on hand from the baseline-cap computation.
+            stable for load_plan.py callers.
         today: for the convergence-date projection; defaults to date.today().
+        readiness_today: canonical readiness score for today (0–100). When
+            below READINESS_LOW_TODAY the load verdict is downgraded one step.
+        readiness_7d_mean: mean readiness over the trailing 7 days. When
+            below READINESS_LOW_TREND the load verdict is downgraded one step.
+        injury_log: list of active injury_log entry dicts (caller filters to
+            ended_on IS NULL). Each must have 'kind' and 'severity'. Illness
+            or injury severity >= 2 caps at back_off; niggle or severity-1
+            injury caps at hold.
 
     Returns:
-        VerdictResult. expected_ctl_in_3w/weeks_to_converge/converge_date
-        are populated whenever verdict is "hold" or "back_off" (the single
-        most useful thing the report can say); None for "build".
+        VerdictResult. Rules only ever downgrade — missing wellness data
+        leaves the load-only verdict unchanged. `modifiers` lists every rule
+        that fired with its triggering value; empty when no rules fired.
     """
     today = today or date.today()
     acwr = snap.get("acwr")
@@ -167,28 +217,58 @@ def compute_verdict(
     ctl = float(snap.get("ctl", 0.0))
     atl = float(snap.get("atl", 0.0))
 
+    # ── Load-only verdict (existing logic, unchanged) ─────────────────────
     if acwr is not None and acwr > ACWR_BACK_OFF_THRESHOLD:
-        verdict: Verdict = "back_off"
+        load_verdict: Verdict = "back_off"
         reason = f"ACWR {acwr:.2f} — acute load {(acwr - 1) * 100:.0f}% above chronic"
     elif acwr is not None and acwr > ACWR_HOLD_THRESHOLD:
-        verdict = "hold"
+        load_verdict = "hold"
         reason = f"ACWR {acwr:.2f} above the {ACWR_HOLD_THRESHOLD} guardrail"
     elif ctl > _MIN_CTL_FOR_HOLD_GUARDS and atl > ATL_CTL_HOLD_RATIO * ctl:
-        verdict = "hold"
+        load_verdict = "hold"
         reason = "acute load well above chronic; let CTL catch up"
     elif ctl > _MIN_CTL_FOR_HOLD_GUARDS and tsb < TSB_HOLD_FLOOR:
-        verdict = "hold"
+        load_verdict = "hold"
         reason = f"TSB {tsb:.1f} — deeply fatigued"
     else:
-        verdict = "build"
+        load_verdict = "build"
         reason = "load and freshness within normal build range"
 
+    # ── Wellness downgrade rules — only ever restrict, never promote ──────
+    final_verdict = load_verdict
+    modifiers: list = []
+
+    for entry in (injury_log or []):
+        kind = (entry.get("kind") or "").lower()
+        severity = int(entry.get("severity") or 0)
+        if kind == "illness" or (kind == "injury" and severity >= 2):
+            modifiers.append({
+                "rule": "illness_or_severe_injury",
+                "value": kind if kind == "illness" else f"injury_severity_{severity}",
+            })
+            final_verdict = _more_restrictive(final_verdict, "back_off")
+        elif kind == "niggle" or (kind == "injury" and severity == 1):
+            modifiers.append({
+                "rule": "niggle_or_minor_injury",
+                "value": kind if kind == "niggle" else f"injury_severity_{severity}",
+            })
+            final_verdict = _more_restrictive(final_verdict, "hold")
+
+    if readiness_today is not None and readiness_today < READINESS_LOW_TODAY:
+        modifiers.append({"rule": "low_readiness_today", "value": readiness_today})
+        final_verdict = _more_restrictive(final_verdict, _downgrade_one(load_verdict))
+
+    if readiness_7d_mean is not None and readiness_7d_mean < READINESS_LOW_TREND:
+        modifiers.append({"rule": "low_readiness_trend", "value": readiness_7d_mean})
+        final_verdict = _more_restrictive(final_verdict, _downgrade_one(load_verdict))
+
+
     expected_ctl_in_3w = weeks_to_converge = converge_date = None
-    if verdict != "build":
+    if final_verdict != "build":
         expected_ctl_in_3w, weeks_to_converge, converge_date = _project_convergence(ctl, atl, today)
 
     return {
-        "verdict": verdict,
+        "verdict": final_verdict,
         "reason": reason,
         "acwr": acwr,
         "tsb": round(tsb, 2),
@@ -197,4 +277,5 @@ def compute_verdict(
         "expected_ctl_in_3w": expected_ctl_in_3w,
         "weeks_to_converge": weeks_to_converge,
         "converge_date": converge_date,
+        "modifiers": modifiers,
     }

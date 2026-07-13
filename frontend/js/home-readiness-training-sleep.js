@@ -624,8 +624,15 @@
       '</div>';
     }
     var score = Math.round(data.score);
-    var trend = Array.isArray(data.trend) ? data.trend : [];
-    var delta = _hpfBlockDelta(trend, data.trend_dates);
+    // Use history-based block_delta from API when available (issue #1365);
+    // fall back to computing from trend[] when history is absent.
+    var delta;
+    if (data.block_delta != null) {
+      delta = Math.round(data.block_delta);
+    } else {
+      var trend = Array.isArray(data.trend) ? data.trend : [];
+      delta = _hpfBlockDelta(trend, data.trend_dates);
+    }
     var deltaHtml = '';
     if (delta !== null) {
       var dcls = delta > 0 ? 'up' : (delta < 0 ? 'down' : 'flat');
@@ -693,6 +700,92 @@
       });
   }
 
+  /* ── Today's recommendation card ────────────────────────────────────────── */
+
+  var _REC_ICONS = { keep: '✓', downgrade: '↓', rest: '⊘', no_plan: '—' };
+  var _REC_LABELS = { keep: 'Go for it', downgrade: 'Downgrade', rest: 'Rest today', no_plan: 'No session' };
+
+  function _recModifierCls(rec) {
+    if (rec === 'rest') return 'rec-card--rest';
+    if (rec === 'downgrade') return 'rec-card--downgrade';
+    return '';
+  }
+
+  function renderTodayRecommendationCard(el) {
+    if (!el) return;
+    el.innerHTML = '<div class="rec-loading">Loading…</div>';
+
+    fetch('/api/training/today-recommendation')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) {
+          el.innerHTML = '<div class="rec-empty">Recommendation unavailable.</div>';
+          return;
+        }
+        var rec = data.recommendation || 'no_plan';
+        var reason = data.reason || '';
+        var ps = data.planned_session;
+        var patch = data.apply_patch;
+
+        var modCls = _recModifierCls(rec);
+        var icon = _REC_ICONS[rec] || '—';
+        var label = _REC_LABELS[rec] || rec;
+
+        var sessionLine = '';
+        if (ps) {
+          var name = esc(ps.name || ps.session_type || 'Session');
+          sessionLine = '<div class="rec-session">' + name + '</div>';
+        }
+
+        var applyHtml = '';
+        if (rec === 'downgrade' && patch) {
+          applyHtml =
+            '<button class="rec-apply-btn" data-ps-id="' + esc(ps && ps.id ? ps.id : '') + '">' +
+              'Apply — convert to easy' +
+            '</button>';
+        }
+
+        el.innerHTML =
+          '<div class="rec-card ' + modCls + '">' +
+            '<div class="rec-header">' +
+              '<span class="rec-icon">' + icon + '</span>' +
+              '<span class="rec-label">' + esc(label) + '</span>' +
+            '</div>' +
+            sessionLine +
+            '<p class="rec-reason">' + esc(reason) + '</p>' +
+            applyHtml +
+          '</div>';
+
+        if (rec === 'downgrade' && patch) {
+          var btn = el.querySelector('.rec-apply-btn');
+          if (btn) {
+            btn.addEventListener('click', function () {
+              var psId = btn.getAttribute('data-ps-id');
+              if (!psId) return;
+              if (!confirm('Convert today\'s session to easy? This cannot be undone.')) return;
+              btn.disabled = true;
+              btn.textContent = 'Applying…';
+              fetch('/api/planned-sessions/' + encodeURIComponent(psId), {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(patch),
+              })
+                .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+                .then(function () { renderTodayRecommendationCard(el); })
+                .catch(function () {
+                  btn.disabled = false;
+                  btn.textContent = 'Apply — convert to easy';
+                  alert('Could not apply change. Please try again.');
+                });
+            });
+          }
+        }
+      })
+      .catch(function () {
+        el.innerHTML = '<div class="rec-empty">Recommendation unavailable.</div>';
+      });
+  }
+
   /* ── Render (accepts pre-fetched summary data from home.js) ─────────────── */
 
   function render(summary, userId) {
@@ -701,6 +794,7 @@
     var slpEl = document.getElementById('home-sleep-card');
     var nwEl  = document.getElementById('home-next-workout-card');
     var pfEl  = document.getElementById('home-performance-card');
+    var recEl = document.getElementById('home-today-rec-card');
 
     if (rdEl) {
       rdEl.classList.add('card');
@@ -728,6 +822,9 @@
     }
     if (pfEl) {
       renderPerformanceCard(pfEl, userId);
+    }
+    if (recEl) {
+      renderTodayRecommendationCard(recEl);
     }
   }
 

@@ -70,6 +70,16 @@ function _fuelRenderToday(d) {
     }
   }
 
+  const phaseChip = document.getElementById('fuel-phase-chip');
+  if (phaseChip && d.week_phase) {
+    phaseChip.textContent = d.week_phase_reason || d.week_phase;
+    phaseChip.className = `fuel-phase-chip phase-${d.week_phase}`;
+    phaseChip.title = `Effective deficit: ${d.effective_deficit_kcal} kcal`;
+    phaseChip.hidden = false;
+  } else if (phaseChip) {
+    phaseChip.hidden = true;
+  }
+
   const budgetNum = document.getElementById('fuel-budget-num');
   if (budgetNum) budgetNum.textContent = d.budget.toLocaleString();
 
@@ -301,6 +311,8 @@ async function _fuelPopulateSettingsForm() {
       const input = document.getElementById('fs-' + f);
       if (input) input.value = s[f];
     });
+    const toggle = document.getElementById('fs-auto_periodize');
+    if (toggle) toggle.checked = s.auto_periodize !== false;
   } catch (e) {
     if (e.message !== 'auth') console.error('Fuel settings load failed:', e);
   }
@@ -323,6 +335,8 @@ function _fuelInitSettingsForm() {
         const input = document.getElementById('fs-' + f);
         if (input && input.value !== '') body[f] = parseFloat(input.value);
       });
+      const toggle = document.getElementById('fs-auto_periodize');
+      if (toggle) body.auto_periodize = toggle.checked;
       const errEl = document.getElementById('fuel-settings-error');
       if (errEl) errEl.hidden = true;
       try {
@@ -439,10 +453,160 @@ function _fuelRenderWeek(w) {
 
   const note = document.getElementById('fuel-week-note');
   if (note) {
+    let phaseNote = '';
+    if (w.week_phase && w.week_phase !== 'base') {
+      phaseNote = ` <b>${w.week_phase_reason}</b> ·`;
+    }
     note.innerHTML =
-      `Budget follows the plan. <b>Past days use logged workouts; future days use planned sessions.</b> ` +
+      `Budget follows the plan.${phaseNote} <b>Past days use logged workouts; future days use planned sessions.</b> ` +
       `Weekly <b>${w.weekly_budget_total.toLocaleString()}</b> vs ${w.weekly_maintenance_total.toLocaleString()} ` +
       `maintenance ≈ ${w.projected_kg_per_week >= 0 ? '-' : '+'}${Math.abs(w.projected_kg_per_week)} kg/week.`;
+  }
+}
+
+// ── Plan-mismatch banner (AC4) ────────────────────────────────────────────
+
+async function _fuelLoadPlanMismatch() {
+  try {
+    const s = await apiFetch('/api/fuel/settings');
+    _fuelRenderPlanMismatch(s);
+  } catch (e) {
+    if (e.message !== 'auth') console.error('Fuel settings load failed:', e);
+  }
+}
+
+function _fuelRenderPlanMismatch(s) {
+  const banner = document.getElementById('fuel-plan-mismatch');
+  if (!banner) return;
+  if (s.consistency !== 'mismatch') {
+    banner.hidden = true;
+    return;
+  }
+  const textEl = document.getElementById('fuel-plan-mismatch-text');
+  if (textEl) {
+    textEl.textContent =
+      `Plan implies ~${s.implied_deficit_kcal} kcal/day, Fuel is set to ${s.deficit_kcal}`;
+  }
+  banner.hidden = false;
+}
+
+function _fuelInitPlanMismatch() {
+  const btn = document.getElementById('fuel-plan-sync-btn');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/fuel/settings/sync-deficit', {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': _fuelCsrfToken() },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const updated = await res.json();
+      _fuelRenderPlanMismatch(updated);
+      // Refresh today card so budget reflects new deficit
+      await _fuelLoadToday();
+    } catch (e) {
+      console.error('Sync deficit failed:', e);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+// ── Weekly cut review ─────────────────────────────────────────────────────
+
+const _CUT_REVIEW_LABELS = {
+  insufficient_data: 'Not enough data yet',
+  slow_down: 'Slow down — losing too fast',
+  on_track: 'On track',
+  check_logging: 'Log food more consistently',
+  recalibrate_maintenance: 'Consider recalibrating maintenance',
+  increase_deficit: 'Behind plan — consider a small cut',
+  ease_off: 'Ahead of plan — ease off',
+  plateau: 'Plateau — weight has stalled',
+};
+
+async function _fuelLoadWeeklyReview() {
+  const card = document.getElementById('cut-review-card');
+  if (!card) return;
+  try {
+    const data = await apiFetch('/api/fuel/weekly-review');
+    _fuelRenderWeeklyReview(data);
+  } catch (e) {
+    if (e.message !== 'auth') {
+      const loading = document.getElementById('cut-review-loading');
+      if (loading) loading.textContent = 'Review unavailable.';
+    }
+  }
+}
+
+function _fuelRenderWeeklyReview(d) {
+  const loading = document.getElementById('cut-review-loading');
+  const body = document.getElementById('cut-review-body');
+  const badge = document.getElementById('cut-review-badge');
+  if (!body) return;
+
+  if (loading) loading.hidden = true;
+  body.hidden = false;
+
+  const rec = d.recommendation;
+  const headline = document.getElementById('cut-review-headline');
+  if (headline) headline.textContent = _CUT_REVIEW_LABELS[rec] || rec;
+
+  const action = document.getElementById('cut-review-action');
+  if (action) action.textContent = d.action || '';
+
+  // Plateau section: show day count + calibrate link when recommendation is plateau
+  const plateauSection = document.getElementById('cut-review-plateau');
+  if (plateauSection) {
+    if (rec === 'plateau' && d.plateau_days != null) {
+      const daysEl = document.getElementById('cut-review-plateau-days');
+      if (daysEl) daysEl.textContent = d.plateau_days;
+      plateauSection.hidden = false;
+    } else {
+      plateauSection.hidden = true;
+    }
+  }
+
+  const actualEl = document.getElementById('cut-review-actual-rate');
+  if (actualEl) {
+    if (d.actual_rate_kg_per_week != null) {
+      const val = Math.abs(d.actual_rate_kg_per_week).toFixed(2);
+      const sign = d.actual_rate_kg_per_week < 0 ? '−' : '+';
+      actualEl.textContent = sign + val;
+    } else {
+      actualEl.textContent = '—';
+    }
+  }
+
+  const planEl = document.getElementById('cut-review-plan-rate');
+  if (planEl) {
+    if (d.plan_rate_kg_per_week != null) {
+      const val = Math.abs(d.plan_rate_kg_per_week).toFixed(2);
+      const sign = d.plan_rate_kg_per_week < 0 ? '−' : '+';
+      planEl.textContent = sign + val;
+    } else {
+      planEl.textContent = '—';
+    }
+  }
+
+  const adherenceEl = document.getElementById('cut-review-adherence');
+  if (adherenceEl) adherenceEl.textContent = Math.round(d.logging_adherence_pct) + '%';
+
+  if (badge) {
+    badge.textContent = rec.replace(/_/g, ' ');
+    const colorMap = {
+      on_track: 'on-target',
+      insufficient_data: '',
+      slow_down: 'reduced',
+      ease_off: 'reduced',
+      increase_deficit: '',
+      check_logging: '',
+      recalibrate_maintenance: '',
+      plateau: '',
+    };
+    badge.className = 'fuel-deficit-chip ' + (colorMap[rec] || '');
+    badge.style.display = '';
   }
 }
 
@@ -453,6 +617,9 @@ document.addEventListener('DOMContentLoaded', () => {
   _fuelInitSteppers();
   _fuelInitPresets();
   _fuelInitSettingsForm();
+  _fuelInitPlanMismatch();
   _fuelLoadToday();
   _fuelLoadWeek();
+  _fuelLoadPlanMismatch();
+  _fuelLoadWeeklyReview();
 });

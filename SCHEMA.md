@@ -221,7 +221,12 @@ Unique: `(user_id, metric_date)`.
 
 ## daily_readiness
 
-Computed from `daily_metrics` via `POST /api/readiness/compute`.
+Computed from `daily_metrics` by the single canonical CV-based calculator
+(`services/readiness/calculator.py` — weights HRV 40% / RHR 20% / sleep_quality
+20% / energy 20%; HRV baseline 7d, RHR baseline 30d; Sprint 103 / #1348). Written
+via `POST /api/readiness/compute` and also **auto-recomputed** whenever the
+underlying `daily_metrics` row is created/updated and cleared when it is deleted
+(Sprint 103 / #1349).
 
 | column | type | notes |
 |--------|------|-------|
@@ -417,9 +422,13 @@ Persistent record of sync runs (Strava/Stryd). In-memory state machine is separa
 | snapshot_date | date | |
 | tss_for_day | int | |
 | ctl / atl / tsb | float | CTL=42d, ATL=7d, TSB=CTL−ATL |
+| acwr | float | nullable |
+| formula_version | text | nullable — cache-invalidation stamp; a mismatch forces a live recompute |
+| ctl_days | int | nullable _(Sprint 105 / #1366)_ — EWMA time constant that produced the row; NULL = module default 42 |
+| atl_days | int | nullable _(Sprint 105 / #1366)_ — EWMA time constant that produced the row; NULL = module default 7 |
 | computed_at | timestamptz | |
 
-Unique: `(user_id, snapshot_date)`.
+Unique: `(user_id, snapshot_date)`. `ctl_days`/`atl_days` record the calibration used so that accepting a new calibration (`POST /api/races/{id}/calibrate/accept`) treats the existing rows as stale and recomputes the full snapshot history with the new constants (`recompute_user_snapshots()`).
 
 ---
 
@@ -878,3 +887,130 @@ Durable cache for LLM-generated coaching text. One row per `(user_id, surface, i
 | created_at | timestamptz | server default now() |
 
 Unique: `(user_id, surface, input_signature)` (`uq_llm_generations_user_surface_sig`). Indexes: `ix_llm_generations_user_id` on `user_id`; `ix_llm_generations_user_surface_sig` on `(user_id, surface, input_signature)`. Migration: `54c084f3e59f_add_llm_generations_table`.
+
+---
+
+## verdict_history _(added Sprint 103)_
+
+Durable snapshot of each day's training verdict and the inputs that produced it. Written (upserted, one row per `(user_id, verdict_date)`) whenever the verdict is computed for the *current* calendar day — historical dates are never overwritten. Lets the app record what it advised vs. what happened. Read via `GET /api/training/verdict-history?from=&to=`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | `gen_random_uuid()` |
+| user_id | UUID FK→users | CASCADE |
+| verdict_date | date | NOT NULL |
+| verdict | varchar(20) | NOT NULL — `back_off` / `hold` / `build` |
+| modifiers | jsonb | nullable — list of `{rule, value}` downgrade rules that fired (verdict v2) |
+| readiness | float | nullable — today's readiness score at compute time |
+| ctl | float | nullable |
+| atl | float | nullable |
+| tsb | float | nullable |
+| acwr | float | nullable |
+| created_at | timestamptz | server default now() |
+
+Unique: `(user_id, verdict_date)` (`uq_verdict_history_user_date`). Index: `ix_verdict_history_user_date` on `(user_id, verdict_date DESC)`. Migration: `bf3b956dd2e0_add_verdict_history_table`.
+
+---
+
+## injury_log _(added Sprint 103 / #1350, migration only)_
+
+Injury / illness / niggle tracking. The table migration landed this sprint to back verdict v2's active-injury downgrade rules (#1351 reads active rows — `ended_on IS NULL` — defensively). The full feature (ORM model, API, quick-log UI) is not yet built, so there is **no `InjuryLog` model in `backend/models.py`** yet.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | `gen_random_uuid()` |
+| user_id | UUID FK→users | CASCADE |
+| kind | varchar(20) | NOT NULL — `injury` / `illness` / `niggle` (check constraint) |
+| body_area | varchar(100) | nullable |
+| severity | int | NOT NULL — 1 / 2 / 3 (check constraint) |
+| started_on | date | NOT NULL |
+| ended_on | date | nullable; must be `>= started_on` when set (check constraint) |
+| notes | text | nullable |
+| created_at | timestamptz | server default now() |
+
+Index: `ix_injury_log_user_started_on` on `(user_id, started_on)`. Migration: `1da954a27351bb1b_add_injury_log_table`.
+
+---
+
+## body_measurements _(added Sprint 104.2 / #1358)_
+
+Periodic body-composition measurements (waist circumference and/or body-fat %). Captured via `POST/GET/PATCH/DELETE /api/body-measurements` (CSV export at `GET /api/exports/body-measurements`). Backs the lean-mass-driven protein target and cut guard (#1359): `current_lean_mass_kg` reads the latest `body_fat_pct` within 60 days to derive lean mass (`ewma_weight × (1 − bf%)`, source `measured`). Model: `BodyMeasurement` in `backend/models.py`.
+## prediction_snapshots _(added Sprint 105 / #1362)_
+
+Daily persisted projection forecast, kept for forecast-vs-actual accuracy evaluation. Written on the first projection computation of the day (`GET /api/plan/projection`); later same-day recomputes are no-ops (`ON CONFLICT DO NOTHING`), so the morning forecast is preserved. Read via `GET /api/projection/snapshots?from=&to=`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | `gen_random_uuid()` |
+| user_id | UUID FK→users | CASCADE |
+| measure_date | date | NOT NULL |
+| waist_cm | numeric(5,1) | nullable |
+| body_fat_pct | numeric(4,1) | nullable |
+| source | varchar(20) | NOT NULL, default `'manual'` — `manual` / `imported` (check constraint `ck_body_measurements_source`) |
+| notes | text | nullable |
+| created_at | timestamptz | NOT NULL, server default now() |
+
+Unique: `(user_id, measure_date)` (`uq_body_measurements_user_date`). Index: `ix_body_measurements_user_date` on `(user_id, measure_date)`. Migration: `da7cbe58ec60_add_body_measurements_table`.
+| snapshot_date | date | NOT NULL |
+| payload | jsonb | NOT NULL — per-race predicted finish times (with race ids), projected CTL at race date, peak CTL + peak week, `formula_version` |
+| created_at | timestamptz | server default now() |
+
+Unique: `(user_id, snapshot_date)` (`uq_prediction_snapshots_user_date`). Index: `ix_prediction_snapshots_user_date` on `(user_id, snapshot_date)`. Migration: `cea323ec2396_add_prediction_snapshots`.
+
+---
+
+## performance_score_history _(added Sprint 105 / #1361, #1365)_
+
+Durable daily endurance/speed scores with formula-version stamps. Upserted (write-through) each time `GET /api/athletes/{id}/performance` computes scores, so there is a persisted absolute-scale series to compute block deltas from rather than the in-request relative `trend[]`. Read via `GET /api/performance/score-history?from=&to=` (defaults to the last 90 days); only rows matching the current formula version are returned so the caller never sees a mixed-version series.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | `gen_random_uuid()` |
+| user_id | UUID FK→users | CASCADE |
+| score_date | date | NOT NULL |
+| endurance | float | nullable |
+| speed | float | nullable |
+| formula_version | text | NOT NULL |
+| created_at | timestamptz | server default now() |
+
+Unique: `(user_id, score_date, formula_version)` (`uq_performance_score_history_user_date_version`). Index: `ix_performance_score_history_user_date` on `(user_id, score_date)`. Migration: `129d863fa625_add_performance_score_history`.
+
+---
+
+## run_form_metrics _(added Sprint 106 / #1368)_
+
+Per-run Stryd running-dynamics extracted from `stryd_activities.form_metrics` JSONB into a queryable, one-row-per-activity table. Upserted incrementally on every Stryd sync (`backend/services/sync_runner.py`) and via full historical backfill on the compute worker (`POST /internal/form-metrics/backfill`, job type `form_metrics_backfill`). Read via `GET /api/training/form-metrics?from=&to=` (per-run series + 28-day trailing rolling means). Model: `RunFormMetrics` in `backend/models.py`. Key mapping: `form_metrics["ground_contact_time_ms"]→gct_ms`, `["leg_spring_stiffness"]→lss_kn_m` (kN/m native), `["vertical_oscillation_cm"]→vertical_oscillation_cm`, `["cadence_spm"]→cadence_spm`, `stryd_activities.avg_power_w→power_w`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | `gen_random_uuid()` |
+| user_id | UUID FK→users | CASCADE |
+| workout_id | UUID FK→workouts | nullable, SET NULL |
+| stryd_activity_pk | UUID FK→stryd_activities | NOT NULL, CASCADE |
+| run_date | date | NOT NULL |
+| gct_ms | numeric(8,2) | nullable — ground-contact time (ms) |
+| lss_kn_m | numeric(8,4) | nullable — leg-spring stiffness (kN/m) |
+| vertical_oscillation_cm | numeric(6,2) | nullable |
+| cadence_spm | numeric(6,2) | nullable |
+| power_w | numeric(6,1) | nullable |
+| created_at | timestamptz | NOT NULL, server default now() |
+
+Unique: `(stryd_activity_pk)` (`uq_run_form_metrics_stryd_activity_pk`). Index: `ix_run_form_metrics_user_run_date` on `(user_id, run_date)`. Migration: `3bd978fbbf19_add_run_form_metrics_table`.
+
+---
+
+## muscle_load_daily _(added Sprint 106 / #1367)_
+
+Per-day TSS-weighted training load per muscle group per source, the ledger backing the muscle-load ACWR machinery. Written recompute-idempotently by `backend/services/muscle_load.py` `recompute_strength_load_for_date` (deletes existing rows for the `(user, date, source)` triple then re-inserts, so re-running never double-counts); triggered after every strength workout/session create/update/delete. Read (aggregated) via `GET /api/training/muscle-load?weeks=` — per-group acute 7d / chronic 28d / ACWR / classification, computed by `backend/services/muscle_load_acwr.py`. Model: `MuscleLoadDaily` in `backend/models.py`. Formula reference: `docs/calculations/muscle-load.md`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | `gen_random_uuid()` |
+| user_id | UUID FK→users | CASCADE |
+| load_date | date | NOT NULL |
+| muscle_group | varchar(30) | NOT NULL |
+| load | numeric(10,4) | NOT NULL |
+| source | varchar(20) | NOT NULL — `strength` / `run` / `plyo` (check constraint `ck_muscle_load_daily_source`) |
+| created_at | timestamptz | NOT NULL, server default now() |
+
+Unique: `(user_id, load_date, muscle_group, source)` (`uq_muscle_load_daily_user_date_group_source`). Index: `ix_muscle_load_daily_user_date` on `(user_id, load_date)`. Migration: `a4cf1cbd5020_add_muscle_load_daily_table`.

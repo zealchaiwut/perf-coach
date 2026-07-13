@@ -27,6 +27,7 @@
   // column span per column-count. Keys are the live widget container ids.
   var REGISTRY = [
     { id: 'home-top-row-right',     w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Readiness
+    { id: 'home-today-rec-card',    w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Today's recommendation
     { id: 'home-next-workout-card', w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Next + Recent
     { id: 'home-performance-card',  w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Performance
     { id: 'home-training-card',     w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Training
