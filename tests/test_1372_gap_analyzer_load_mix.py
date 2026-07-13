@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import datetime
 
-import pytest
-
 _DATE = datetime.date(2026, 7, 14)
 
 
