@@ -5,7 +5,7 @@ Exposes:
   get_weekly_review(user_id, as_of_date, db)     — DB-backed computation for the endpoint
 
 The recommendation enum (first match wins):
-  insufficient_data | slow_down | on_track | check_logging |
+  insufficient_data | slow_down | plateau | on_track | check_logging |
   recalibrate_maintenance | increase_deficit | ease_off
 """
 from __future__ import annotations
@@ -51,6 +51,10 @@ RECALIBRATE_WEEKS_THRESHOLD: int = 3
 # kcal step for increase / ease suggestions
 DEFICIT_STEP_KCAL: int = 100
 
+# Plateau detection: rate > this threshold (not losing) for >= 21 consecutive days
+PLATEAU_RATE_THRESHOLD_KG: float = -0.1   # rate > this value = not losing
+PLATEAU_MIN_DAYS: int = 21
+
 
 # ── Pure recommendation function ──────────────────────────────────────────────
 
@@ -67,6 +71,8 @@ def compute_cut_recommendation(
     consecutive_weeks_behind: int,
     pct_logged_days_at_or_under_budget: float,
     current_deficit_kcal: int,
+    plateau_days: int = 0,
+    pct_at_or_under_budget_21d: float = 0.0,
 ) -> dict:
     """Return recommendation, action text, and optional deficit step.
 
@@ -91,6 +97,11 @@ def compute_cut_recommendation(
         % of logged days (last 7d) where eaten_kcal <= budget_kcal.
     current_deficit_kcal:
         The user's current deficit setting (used to clamp increase suggestions).
+    plateau_days:
+        Consecutive days where EWMA weekly rate > PLATEAU_RATE_THRESHOLD_KG (-0.1 kg/wk).
+        0 = no plateau. >= PLATEAU_MIN_DAYS (21) + adherence >= 70% triggers plateau.
+    pct_at_or_under_budget_21d:
+        % of logged days in the trailing 21-day window where eaten_kcal <= budget.
     """
     # 1. Insufficient data — no reliable recommendation possible
     if weigh_in_count_14d < MIN_WEIGH_INS_14D or not has_active_plan:
@@ -101,6 +112,7 @@ def compute_cut_recommendation(
                 "to get a weekly review."
             ),
             "suggested_deficit_delta_kcal": None,
+            "plateau_days": None,
         }
 
     # 2. Slow down — guardrail takes absolute priority over all deficit logic
@@ -112,10 +124,28 @@ def compute_cut_recommendation(
         return {
             "recommendation": "slow_down",
             "action": (
-                "Reduce your deficit by 100–200 kcal — losing at this pace "
+                "Reduce your deficit by 100-200 kcal — losing at this pace "
                 "risks muscle loss and performance."
             ),
             "suggested_deficit_delta_kcal": -DEFICIT_STEP_KCAL,
+            "plateau_days": None,
+        }
+
+    # 2.5. Plateau — stalled >= 21 days despite staying within budget
+    if (
+        plateau_days >= PLATEAU_MIN_DAYS
+        and pct_at_or_under_budget_21d >= MIN_ADHERENCE_PCT
+    ):
+        return {
+            "recommendation": "plateau",
+            "action": (
+                f"Weight has stalled for {plateau_days} days despite logging within budget. "
+                "Consider recalibrating your maintenance estimate "
+                "(Fuel: Calibrate from history) "
+                "or take a 14-day diet break: set deficit to 0 kcal for 14 days."
+            ),
+            "suggested_deficit_delta_kcal": None,
+            "plateau_days": plateau_days,
         }
 
     # 3. On track — within tolerance of the plan rate
@@ -124,6 +154,7 @@ def compute_cut_recommendation(
             "recommendation": "on_track",
             "action": "Keep going — your loss rate is matching the plan.",
             "suggested_deficit_delta_kcal": None,
+            "plateau_days": None,
         }
 
     # Determine direction relative to plan
@@ -141,6 +172,7 @@ def compute_cut_recommendation(
                 "to diagnose the gap."
             ),
             "suggested_deficit_delta_kcal": None,
+            "plateau_days": None,
         }
 
     # 5. Recalibrate maintenance — persistently behind despite eating at budget
@@ -156,6 +188,7 @@ def compute_cut_recommendation(
                 "Use 'Calibrate from history' in Fuel settings."
             ),
             "suggested_deficit_delta_kcal": None,
+            "plateau_days": None,
         }
 
     # 6. Increase deficit — behind plan, adherence OK, eating at budget
@@ -172,23 +205,28 @@ def compute_cut_recommendation(
                         f"(to {clamped} kcal/day)."
                     ),
                     "suggested_deficit_delta_kcal": DEFICIT_STEP_KCAL,
+                    "plateau_days": None,
                 }
 
     # 7. Ease off — ahead of plan by more than the threshold
-    if ahead and (plan_rate_kg_per_week - actual_rate_kg_per_week) > EASE_OFF_THRESHOLD_KG:
+    if ahead and (
+        plan_rate_kg_per_week - actual_rate_kg_per_week
+    ) > EASE_OFF_THRESHOLD_KG:
         return {
             "recommendation": "ease_off",
             "action": (
                 f"Reduce your deficit by {DEFICIT_STEP_KCAL} kcal to slow the pace."
             ),
             "suggested_deficit_delta_kcal": -DEFICIT_STEP_KCAL,
+            "plateau_days": None,
         }
 
-    # Fallback (ahead by ≤ 0.15, or increase capped at 750)
+    # Fallback (ahead by <= 0.15, or increase capped at 750)
     return {
         "recommendation": "on_track",
         "action": "Keep going — your loss rate is close to plan.",
         "suggested_deficit_delta_kcal": None,
+        "plateau_days": None,
     }
 
 
@@ -331,6 +369,45 @@ def get_weekly_review(
             at_or_under = sum(1 for d in diffs if d <= 0)
             pct_at_or_under = at_or_under / len(diffs) * 100.0
 
+        # ── Fuel entries (21-day window) for plateau adherence gate ───────────
+        fuel_rows_21d = (
+            db.query(FuelEntry)
+            .filter(
+                FuelEntry.user_id == user_id,
+                FuelEntry.entry_date >= window_21d_start,
+                FuelEntry.entry_date <= today,
+            )
+            .all()
+        )
+
+        pct_at_or_under_21d: float = 0.0
+        if fuel_rows_21d:
+            at_under_21d = 0
+            for fe in fuel_rows_21d:
+                totals = compute_food_totals(fe)
+                burn_info = training_burn_kcal(
+                    user_id, fe.entry_date,
+                    settings["weight_kg"], settings["run_kcal_per_kg_per_km"],
+                    today=today, db=db,
+                )
+                budget_info = compute_budget(settings, burn_info["burn"])
+                if totals["kcal"] <= budget_info["budget"]:
+                    at_under_21d += 1
+            pct_at_or_under_21d = at_under_21d / len(fuel_rows_21d) * 100.0
+
+        # ── Plateau detection ─────────────────────────────────────────────────
+        # Count calendar days of the EWMA window where rate > -0.1 kg/wk (not losing)
+        plateau_days: int = 0
+        if len(sorted_entries) >= 2 and len(ewma_values) >= 2:
+            pct_rate_full = compute_weekly_pct_bw_rate_of_change(ewma_values)
+            if pct_rate_full is not None:
+                rate_kg_full = (pct_rate_full / 100.0) * sorted_entries[0][1]
+                if rate_kg_full > PLATEAU_RATE_THRESHOLD_KG:
+                    span_days = (
+                        sorted_entries[-1][0] - sorted_entries[0][0]
+                    ).days + 1
+                    plateau_days = span_days
+
         # ── EA proxy from daily_metrics.energy ───────────────────────────────
         energy_sql = text(
             """
@@ -356,25 +433,41 @@ def get_weekly_review(
         rec = compute_cut_recommendation(
             weigh_in_count_14d=weigh_in_count_14d,
             has_active_plan=has_plan and plan_rate is not None,
-            actual_rate_kg_per_week=actual_rate_kg_per_week if actual_rate_kg_per_week is not None else 0.0,
+            actual_rate_kg_per_week=(
+                actual_rate_kg_per_week if actual_rate_kg_per_week is not None else 0.0
+            ),
             plan_rate_kg_per_week=plan_rate if plan_rate is not None else 0.0,
             weekly_pct_bw_rate=weekly_pct_bw_rate,
             ea_proxy=ea_proxy,
             logging_adherence_pct=logging_adherence_pct,
-            avg_intake_vs_budget_kcal=avg_intake_vs_budget_kcal if avg_intake_vs_budget_kcal is not None else 0.0,
+            avg_intake_vs_budget_kcal=(
+                avg_intake_vs_budget_kcal
+                if avg_intake_vs_budget_kcal is not None else 0.0
+            ),
             consecutive_weeks_behind=consecutive_weeks_behind,
             pct_logged_days_at_or_under_budget=pct_at_or_under,
             current_deficit_kcal=current_deficit_kcal,
+            plateau_days=plateau_days,
+            pct_at_or_under_budget_21d=pct_at_or_under_21d,
         )
 
         return {
-            "actual_rate_kg_per_week": round(actual_rate_kg_per_week, 3) if actual_rate_kg_per_week is not None else None,
-            "plan_rate_kg_per_week": round(plan_rate, 3) if plan_rate is not None else None,
+            "actual_rate_kg_per_week": (
+                round(actual_rate_kg_per_week, 3)
+                if actual_rate_kg_per_week is not None else None
+            ),
+            "plan_rate_kg_per_week": (
+                round(plan_rate, 3) if plan_rate is not None else None
+            ),
             "logging_adherence_pct": round(logging_adherence_pct, 1),
-            "avg_intake_vs_budget_kcal": round(avg_intake_vs_budget_kcal, 1) if avg_intake_vs_budget_kcal is not None else None,
+            "avg_intake_vs_budget_kcal": (
+                round(avg_intake_vs_budget_kcal, 1)
+                if avg_intake_vs_budget_kcal is not None else None
+            ),
             "recommendation": rec["recommendation"],
             "action": rec["action"],
             "suggested_deficit_delta_kcal": rec["suggested_deficit_delta_kcal"],
+            "plateau_days": rec["plateau_days"],
         }
 
     finally:
