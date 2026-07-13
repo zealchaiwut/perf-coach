@@ -5,7 +5,7 @@ with formula version stamps. Unique on (user_id, score_date, formula_version);
 upsert on recompute. Tracked by issue #1361.
 
 Revision ID: 1f0306497830
-Revises: bf525c2c1caa
+Revises: cea323ec2396
 Create Date: 2026-07-13 09:47:46.418865
 
 """
@@ -19,7 +19,7 @@ from helpers import table_exists, index_exists
 
 # revision identifiers, used by Alembic.
 revision: str = '1f0306497830'
-down_revision: Union[str, Sequence[str], None] = 'bf525c2c1caa'
+down_revision: Union[str, Sequence[str], None] = 'cea323ec2396'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
