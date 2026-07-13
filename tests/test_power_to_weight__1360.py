@@ -250,6 +250,8 @@ def p2w_client_session():
         pytest.skip("httpx not available")
     if not _BASE_URL.startswith("http"):
         pytest.skip("UAT_BASE_URL not set")
+    if os.getenv("ENVIRONMENT") != "uat":
+        pytest.skip("integration test requires ENVIRONMENT=uat (Postgres-backed server)")
 
     with httpx.Client(base_url=_BASE_URL, timeout=10.0) as client:
         uid, cookie = _create_and_login(client)
