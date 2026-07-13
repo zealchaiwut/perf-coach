@@ -393,6 +393,14 @@ class PlanSuggestionsRequest(BaseModel):
     rest_days: Optional[list[int]] = None
     strength_emphasis: Optional[str] = None  # "less" | "same" | "more"
     notes: Optional[str] = None
+    # Two-rail flow (issue #1417): True returns rule-based schedule slots
+    # instantly (no LLM) — habits from the athlete's last 3 weeks, generic
+    # template only when there's no history; content per slot is generated
+    # later via POST /plan/suggestions/session.
+    skeleton: Optional[bool] = None
+    # Skeleton only: exact number of strength slots to lay out (0-7);
+    # omitted = however many the history shows.
+    strength_sessions: Optional[int] = None
 
 
 @router.post("/plan/suggestions")
@@ -433,12 +441,18 @@ def get_plan_suggestions(
     strength_emphasis = body.strength_emphasis if body is not None else None
     notes = body.notes if body is not None else None
 
+    strength_sessions = body.strength_sessions if body is not None else None
+    if strength_sessions is not None and not (0 <= strength_sessions <= 7):
+        raise HTTPException(status_code=422, detail="strength_sessions must be between 0 and 7")
+
     result = _get_suggestions(
         str(user.id),
         week_start=week_start,
         preferred_rest_days=rest_days,
         strength_emphasis=strength_emphasis,
         notes=notes,
+        skeleton=bool(body.skeleton) if body is not None else False,
+        strength_sessions=strength_sessions,
     )
     return JSONResponse(result)
 
@@ -452,6 +466,14 @@ class SingleSessionRequest(BaseModel):
     # Present only when REFINING an already-suggested session (same shape as
     # a suggestions[] item) — omitted when creating a fresh one from scratch.
     current_session: Optional[dict] = None
+    # Two-rail flow (issue #1417): the schedule rail's slot budget. When set,
+    # the generated session must land on these numbers (pinned in the prompt)
+    # — the athlete owns the schedule; the LLM only fills the content.
+    target_tss: Optional[float] = None
+    duration_minutes: Optional[int] = None
+    # Optional slot flavor (run: easy/long/intervals/tempo; strength:
+    # upper/lower/full/light — see plan_suggestions.SESSION_SUBTYPES).
+    subtype: Optional[str] = None
 
 
 @router.post("/plan/suggestions/session")
@@ -483,8 +505,22 @@ def generate_plan_session(
     week_start = target_date - _timedelta(days=target_date.weekday())
     day_offset = (target_date - week_start).days
 
-    if body.workout_type is not None and body.workout_type not in ("run", "strength", "plyo", "rest"):
-        raise HTTPException(status_code=422, detail="workout_type must be run, strength, plyo, or rest")
+    if body.workout_type is not None and body.workout_type not in ("run", "strength", "plyo", "stretch", "rest"):
+        raise HTTPException(status_code=422, detail="workout_type must be run, strength, plyo, stretch, or rest")
+
+    if body.target_tss is not None and not (0 <= body.target_tss <= 400):
+        raise HTTPException(status_code=422, detail="target_tss must be between 0 and 400")
+    if body.duration_minutes is not None and not (0 <= body.duration_minutes <= 600):
+        raise HTTPException(status_code=422, detail="duration_minutes must be between 0 and 600")
+    if body.subtype is not None:
+        from backend.services.plan_suggestions import SESSION_SUBTYPES as _SUBTYPES
+        valid = _SUBTYPES.get(body.workout_type or "", {})
+        if body.subtype not in valid:
+            raise HTTPException(
+                status_code=422,
+                detail="subtype must be one of: " + ", ".join(sorted(valid)) if valid
+                else f"workout_type {body.workout_type!r} has no subtypes",
+            )
 
     session = _generate_single_session(
         str(user.id),
@@ -493,6 +529,9 @@ def generate_plan_session(
         workout_type=body.workout_type,
         current_session=body.current_session,
         week_start=week_start,
+        target_tss=body.target_tss,
+        duration_minutes=body.duration_minutes,
+        subtype=body.subtype,
     )
     if session is None:
         raise HTTPException(status_code=422, detail="Could not generate a session for this request — try again or adjust the note.")

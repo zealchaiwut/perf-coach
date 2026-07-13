@@ -338,6 +338,11 @@ class WorkoutExercise(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     workout_id = Column(UUID(as_uuid=True), ForeignKey("workouts.id", ondelete="CASCADE"), nullable=False)
     display_order = Column(Integer, server_default=text("0"), nullable=False)
+    # Training-block grouping (Warm-up / Heavy compound / Superset 1 / ...) —
+    # same vocabulary as PlannedSession.structure.exercises[].block, so a
+    # logged session keeps the grouping its plan had. Nullable: old rows and
+    # ungrouped logs render flat.
+    block = Column(String(80), nullable=True)
     name = Column(String(200), nullable=False)
     sets = Column(Integer, nullable=True)
     reps = Column(Integer, nullable=True)

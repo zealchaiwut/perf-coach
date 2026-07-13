@@ -2166,6 +2166,7 @@
     if (exercises.length) {
       jsonObj.exercises = exercises.map(function (ex) {
         var e = { name: ex.name || "" };
+        if (ex.block) e.block = ex.block;
         if (ex.sets != null) e.sets = ex.sets;
         if (ex.reps != null) e.reps = ex.reps;
         if (ex.weight_kg != null) e.weight_kg = parseFloat(ex.weight_kg);
@@ -2192,8 +2193,8 @@
     jsonPanel.className = "dp-section";
     jsonPanel.innerHTML =
       '<p class="dp-json-hint">Supported fields: <code>name</code>, <code>date</code>, <code>remarks</code> (or <code>notes</code>). ' +
-      'Exercises: <code>name</code>, <code>sets</code>, <code>reps</code>, <code>weight_kg</code>, <code>rpe</code>. ' +
-      'Unknown fields like <code>block</code> or <code>load</code> are silently ignored.</p>' +
+      'Exercises: <code>name</code>, <code>block</code> (training-block group, e.g. "Warm-up"), <code>sets</code>, <code>reps</code>, <code>weight_kg</code>, <code>rpe</code>. ' +
+      'Unknown fields like <code>load</code> are silently ignored.</p>' +
       '<textarea id="dp-edit-json-ta" class="dp-json-ta" spellcheck="false">' + esc(jsonStr) + '</textarea>' +
       '<div class="dp-json-actions">' +
       '<button type="button" class="dp-json-save-btn" id="dp-edit-json-save">Save changes</button>' +
@@ -2245,7 +2246,7 @@
       if ("notes" in parsed) patchBody.remarks = parsed.notes || null;
 
       // Allowed exercise fields; coerce numeric strings to int/null
-      var EXERCISE_ALLOWED = { name: 1, sets: 1, reps: 1, weight_kg: 1, rpe: 1, duration: 1, distance_km: 1, duration_seconds: 1, avg_hr: 1 };
+      var EXERCISE_ALLOWED = { name: 1, block: 1, sets: 1, reps: 1, weight_kg: 1, rpe: 1, duration: 1, distance_km: 1, duration_seconds: 1, avg_hr: 1 };
       var newExercises = (parsed.exercises || []).map(function (ex) {
         var clean = {};
         Object.keys(ex).forEach(function (k) {
@@ -3726,12 +3727,24 @@
       var rpeSum = 0,
         rpeCount = 0;
       var exRows = "";
+      var lastBlock = null;
       exercises.forEach(function (ex) {
         totalVol += _calcExVolume(ex);
         var rpe = _avgRpeFromEx(ex);
         if (rpe != null) {
           rpeSum += parseFloat(rpe);
           rpeCount += 1;
+        }
+        // Training-block header rows (Warm-up / Heavy compound / ...) — the
+        // grouping the plan had, now carried on logged exercises too. Rows
+        // without a block render flat, exactly as before.
+        var blk = ex.block || null;
+        if (blk !== lastBlock) {
+          if (blk) {
+            exRows +=
+              '<tr class="dp-ex-blockrow"><td colspan="5">' + esc(blk) + "</td></tr>";
+          }
+          lastBlock = blk;
         }
         var r = _strengthExRow(ex);
         exRows +=

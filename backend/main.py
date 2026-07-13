@@ -68,7 +68,7 @@ from backend.services.training_load import (
 )
 from backend.services.specificity_progress import specificity_progress as _specificity_progress
 from backend.services.daily_load import daily_load_series as _daily_load_series
-from backend.services.load_plan import compute_load_plan, ACWR_CEILING_MULT
+from backend.services.load_plan import compute_load_plan, ACWR_CEILING_MULT, DELOAD_CUT_FRACTION
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
 from backend.services.weight_ewma import compute_ewma as _compute_ewma, DEFAULT_SPAN as _EWMA_DEFAULT_SPAN
@@ -5433,6 +5433,9 @@ def get_calendar_month(
 
 class ExerciseIn(BaseModel):
     name: str
+    # Training-block grouping (Warm-up / Heavy compound / Superset 1 / ...) —
+    # same vocabulary as PlannedSession.structure.exercises[].block.
+    block: Optional[str] = None
     sets: Optional[int] = None
     reps: Optional[int] = None
     weight_kg: Optional[float] = None
@@ -5515,6 +5518,7 @@ class WorkoutDuplicateIn(BaseModel):
 
 class ExercisePatchIn(BaseModel):
     name: Optional[str] = None
+    block: Optional[str] = None
     sets: Optional[int] = None
     reps: Optional[int] = None
     weight_kg: Optional[float] = None
@@ -5533,6 +5537,8 @@ def _validate_exercise(ex: ExerciseIn) -> None:
     name = ex.name.strip() if ex.name else ""
     if not name:
         raise HTTPException(status_code=422, detail="Exercise name is required")
+    if ex.block is not None and len(ex.block) > 80:
+        raise HTTPException(status_code=422, detail="block must be 80 characters or fewer")
     if ex.sets is not None and ex.sets <= 0:
         raise HTTPException(status_code=422, detail="sets must be > 0")
     if ex.rpe is not None and not (1 <= ex.rpe <= 10):
@@ -5558,6 +5564,7 @@ def _exercise_dict(e: WorkoutExercise) -> dict:
     return {
         "id": str(e.id),
         "display_order": e.display_order,
+        "block": e.block,
         "name": e.name,
         "sets": e.sets,
         "reps": e.reps,
@@ -6975,6 +6982,7 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             e = WorkoutExercise(
                 workout_id=workout.id,
                 display_order=i,
+                block=ex.block,
                 name=ex.name.strip(),
                 sets=ex.sets,
                 reps=ex.reps,
@@ -7142,6 +7150,7 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
                 session.add(WorkoutExercise(
                     workout_id=wid,
                     display_order=i,
+                    block=ex.block,
                     name=ex.name.strip(),
                     sets=ex.sets,
                     reps=ex.reps,
@@ -7247,7 +7256,7 @@ def delete_workout(workout_id: str, user: User = Depends(resolve_user)):
 # Distinct from Projection's ramp/taper load model (TrainingPlan/PlannedLoad).
 # Link-only: matched_workout_id → workouts.id; Log tab unchanged.
 
-_PLANNED_SESSION_TYPES = {"run", "strength", "plyo", "rest"}
+_PLANNED_SESSION_TYPES = {"run", "strength", "plyo", "stretch", "rest"}
 _PLANNED_STATUSES = {"planned", "missed", "needs_review", "done_auto", "done_manual"}
 
 
@@ -7709,6 +7718,7 @@ def duplicate_workout(workout_id: str, body: WorkoutDuplicateIn, user: User = De
             e = WorkoutExercise(
                 workout_id=copy.id,
                 display_order=ex.display_order,
+                block=ex.block,
                 name=ex.name,
                 sets=ex.sets,
                 reps=ex.reps,
@@ -7807,6 +7817,7 @@ def append_exercise(workout_id: str, body: ExerciseIn, user: User = Depends(reso
         ex = WorkoutExercise(
             workout_id=wid,
             display_order=next_order,
+            block=body.block,
             name=body.name.strip(),
             sets=body.sets,
             reps=body.reps,
@@ -7844,6 +7855,11 @@ def patch_exercise(workout_id: str, exercise_id: str, body: ExercisePatchIn, use
             if not name:
                 raise HTTPException(status_code=422, detail="Exercise name is required")
             ex.name = name
+        if body.block is not None:
+            if len(body.block) > 80:
+                raise HTTPException(status_code=422, detail="block must be 80 characters or fewer")
+            # Empty string clears the grouping.
+            ex.block = body.block.strip() or None
         if body.sets is not None:
             if body.sets <= 0:
                 raise HTTPException(status_code=422, detail="sets must be > 0")
@@ -7920,6 +7936,7 @@ def replace_exercises(workout_id: str, body: ExercisesReplaceIn, user: User = De
             new_ex = WorkoutExercise(
                 workout_id=wid,
                 display_order=i,
+                block=ex.block,
                 name=ex.name.strip(),
                 sets=ex.sets,
                 reps=ex.reps,
@@ -17621,6 +17638,11 @@ def get_plan_week_load(
             "baseline_planned_tss": baseline_planned_tss,
             "prior_4_weeks_actual": prior_weeks,
             "ramp_rate": rules["ramp_rate"],
+            # Deload week: the ramp formula gets a further cut BEFORE the
+            # ceiling clamp — the Baseline×Ramp=Target chain must show it or
+            # the target looks broken next to a plain "5%/wk" ramp cell.
+            "deload": bool(target_week["deload"]) if target_week else False,
+            "deload_cut": DELOAD_CUT_FRACTION,
             "acwr_ceiling": acwr_ceiling,
             "acwr": acwr_ratio,
             "trailing_28d_avg": trailing_28d_avg,
