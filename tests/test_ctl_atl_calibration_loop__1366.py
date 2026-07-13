@@ -12,9 +12,8 @@ Acceptance criteria verified:
 """
 import uuid
 from datetime import date, timedelta
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
-import pytest
 
 from backend.services.training_load import (
     ATL_DAYS,

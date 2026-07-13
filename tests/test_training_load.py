@@ -1,6 +1,5 @@
 """Tests for backend/services/training_load.py and /api/training-load endpoints."""
 
-import math
 import uuid
 from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
@@ -38,7 +37,7 @@ def _default_calibration(monkeypatch):
 
 def _mock_session_smart(snap_list=None, seed_snap=None):
     """Session mock that returns different results for User vs TrainingLoadSnapshot queries."""
-    from backend.models import User as _User, TrainingLoadSnapshot as _TLS
+    from backend.models import User as _User
 
     fake_user = MagicMock()
     fake_user.id = uuid.UUID(_USER_ID)
