@@ -24,10 +24,26 @@ from backend.utils.log import get_logger
 _log = get_logger(__name__)
 
 _GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+# z.ai (Zhipu) OpenAI-compatible endpoint — selected when GLM_API_KEY is set
+# (or LLM_PROVIDER=glm). GLM flash models are effectively free and don't
+# share Groq's tight 8k-TPM / 200k-TPD free-tier budget that kept starving
+# the per-slot session fills.
+_GLM_URL = "https://api.z.ai/api/paas/v4/chat/completions"
 _DEFAULT_MODEL_FAST = "llama-3.1-8b-instant"
 _DEFAULT_MODEL_DEEP = "openai/gpt-oss-120b"
+_DEFAULT_GLM_MODEL = "glm-4.7-flash"
 
 _startup_logged = False
+
+
+def _provider() -> str:
+    p = os.getenv("LLM_PROVIDER", "").strip().lower()
+    if p in ("glm", "zai", "z.ai"):
+        return "glm"
+    if p == "groq":
+        return "groq"
+    # No explicit choice: prefer GLM when its key exists.
+    return "glm" if os.getenv("GLM_API_KEY") else "groq"
 
 
 def _emit_startup_info() -> None:
@@ -37,17 +53,24 @@ def _emit_startup_info() -> None:
     _startup_logged = True
     if not os.getenv("LLM_COACH_ENABLED", "").lower() in ("1", "true", "yes"):
         _log.info("LLM coaching disabled (LLM_COACH_ENABLED not set)")
-    elif not os.getenv("GROQ_API_KEY"):
-        _log.info("LLM coaching enabled but GROQ_API_KEY absent — all calls return None")
+    elif not _api_key():
+        _log.info("LLM coaching enabled but no API key for provider %s — all calls return None", _provider())
+
+
+def _api_key() -> str:
+    return os.getenv("GLM_API_KEY", "") if _provider() == "glm" else os.getenv("GROQ_API_KEY", "")
 
 
 def llm_enabled() -> bool:
     flag = os.getenv("LLM_COACH_ENABLED", "").lower() in ("1", "true", "yes")
-    key = bool(os.getenv("GROQ_API_KEY"))
-    return flag and key
+    return flag and bool(_api_key())
 
 
 def _model(tier: str) -> str:
+    if _provider() == "glm":
+        if tier == "fast":
+            return os.getenv("GLM_MODEL_FAST", _DEFAULT_GLM_MODEL)
+        return os.getenv("GLM_MODEL_DEEP", _DEFAULT_GLM_MODEL)
     if tier == "fast":
         return os.getenv("GROQ_MODEL_FAST", _DEFAULT_MODEL_FAST)
     return os.getenv("GROQ_MODEL_DEEP", _DEFAULT_MODEL_DEEP)
@@ -73,24 +96,44 @@ def complete_structured(
     if not llm_enabled():
         return None
 
-    api_key = os.getenv("GROQ_API_KEY", "")
+    provider = _provider()
+    api_key = _api_key()
     model = _model(model_tier)
+    url = _GLM_URL if provider == "glm" else _GROQ_URL
 
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        "response_format": {
-            "type": "json_schema",
-            "json_schema": {
-                "name": schema_name,
-                "schema": json_schema,
-                "strict": True,
+    if provider == "glm":
+        # z.ai has no strict json_schema mode — use json_object and carry the
+        # schema in the system prompt; validation_errors() upstream rejects
+        # and retries anything off-shape, same as Groq's strict mode would.
+        payload = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": system
+                    + "\nReturn ONLY a JSON object (no prose, no markdown fences) matching this JSON Schema:\n"
+                    + json.dumps(json_schema),
+                },
+                {"role": "user", "content": user},
+            ],
+            "response_format": {"type": "json_object"},
+        }
+    else:
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": schema_name,
+                    "schema": json_schema,
+                    "strict": True,
+                },
             },
-        },
-    }
+        }
     if max_tokens is not None:
         payload["max_completion_tokens"] = max_tokens
 
@@ -104,7 +147,7 @@ def complete_structured(
     for attempt in range(attempts):
         try:
             resp = httpx.post(
-                _GROQ_URL,
+                url,
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
@@ -114,7 +157,12 @@ def complete_structured(
             )
             resp.raise_for_status()
             data = resp.json()
-            content = data["choices"][0]["message"]["content"]
+            content = data["choices"][0]["message"]["content"] or ""
+            # json_object mode (GLM) is not strict — some generations wrap the
+            # object in markdown fences; strip them before parsing.
+            content = content.strip()
+            if content.startswith("```"):
+                content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content)
             return json.loads(content)
         except Exception as exc:
             # Groq puts the actual failure reason (json_validate_failed,

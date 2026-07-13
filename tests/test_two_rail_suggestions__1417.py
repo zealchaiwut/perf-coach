@@ -11,6 +11,7 @@ never calls the LLM, and validation rejects before any LLM call).
 """
 from unittest import mock
 
+import backend.services.llm as llm
 import backend.services.plan_suggestions as ps
 
 
@@ -84,6 +85,56 @@ def test_single_session_prompt_ignores_subtype_for_wrong_type():
         _FACTS, 1, "run", "", subtype="upper",
     )
     assert "tagged this session" not in sys_p
+
+
+# ── provider selection (GLM vs Groq) ─────────────────────────────────────────
+
+def test_provider_prefers_glm_when_key_present(monkeypatch):
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    monkeypatch.setenv("GLM_API_KEY", "zk-test")
+    assert llm._provider() == "glm"
+    assert llm._model("deep") == "glm-4.7-flash"
+    assert llm._model("fast") == "glm-4.7-flash"
+
+
+def test_provider_groq_without_glm_key(monkeypatch):
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("GLM_API_KEY", raising=False)
+    assert llm._provider() == "groq"
+    assert llm._model("deep") == "openai/gpt-oss-120b"
+
+
+def test_provider_env_override_wins(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    monkeypatch.setenv("GLM_API_KEY", "zk-test")
+    assert llm._provider() == "groq"
+
+
+def test_glm_payload_uses_json_object_with_inlined_schema(monkeypatch):
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    monkeypatch.setenv("GLM_API_KEY", "zk-test")
+    monkeypatch.setenv("LLM_COACH_ENABLED", "true")
+    captured = {}
+
+    class _Resp:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"choices": [{"message": {"content": '```json\n{"ok": 1}\n```'}}]}
+
+    def _fake_post(url, headers=None, json=None, timeout=None):
+        captured["url"] = url
+        captured["payload"] = json
+        return _Resp()
+
+    monkeypatch.setattr(llm.httpx, "post", _fake_post)
+    out = llm.complete_structured(
+        system="s", user="u", schema_name="x",
+        json_schema={"type": "object"}, model_tier="deep", max_tokens=100,
+    )
+    assert out == {"ok": 1}  # fences stripped
+    assert "api.z.ai" in captured["url"]
+    assert captured["payload"]["response_format"] == {"type": "json_object"}
+    assert "JSON Schema" in captured["payload"]["messages"][0]["content"]
 
 
 def test_run_prompt_is_a_compact_three_block_estimation():
