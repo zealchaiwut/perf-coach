@@ -502,7 +502,7 @@ def form_metrics_backfill(body: dict):
 # is the access boundary. No writes happen here; every endpoint is GET-only.
 
 
-def _resolve_read_user(user_param: str | None) -> "User":  # type: ignore[name-defined]
+def _resolve_read_user(user_param: str | None):
     """Resolve the target user for a Hermes read-API request.
 
     Resolution order:

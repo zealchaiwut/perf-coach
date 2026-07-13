@@ -324,6 +324,8 @@ def test_1449__user_resolution_explicit_param(worker_client):
 
 def test_1449__user_resolution_failure_returns_400(worker_client):
     """AC2: User resolution failure (nonexistent user) returns 400."""
+    if _engine is None:
+        pytest.skip("DATABASE_URL_UAT not set")
     nonexistent_user = f"nouser_{uuid.uuid4().hex[:8]}"
     r = worker_client.get("/api/training/load", params={"user": nonexistent_user})
     assert r.status_code == 400, f"expected 400 for missing user, got {r.status_code}: {r.text}"
