@@ -4393,6 +4393,7 @@
           <div class="wl-body" id="wl-body" hidden>
             <div class="wl-target-row">
               <div class="wl-target-big">
+                <span id="wl-proj-status" class="wl-proj-pill" hidden></span>
                 <span id="wl-target-projected" class="wl-target-projected"></span><span id="wl-target-val">—</span>
                 <span class="wl-target-unit">TSS target</span>
               </div>
@@ -5850,18 +5851,45 @@
         font-family: initial;
         margin-left: 4px;
       }
-      /* Projected TSS prefixed onto the big target number ("406/316") —
-         colored to match the verdict pill so an overshoot projection reads
-         as a warning at a glance. Plain ink (inherits .wl-target-big) when
-         there's no active hold/back_off verdict. */
-      .plan-merged .wl-target-projected.hold {
+      /* Projected TSS prefixed onto the big target number ("406/316"),
+         colored by severity vs the plan: blue on target, amber over the
+         week target, red over the ACWR guardrail — with a matching label
+         pill in front ("on target" / "over target" / "warning"). */
+      .plan-merged .wl-target-projected.wl-proj-on {
+        color: var(--pm-blue, #4f6ef7);
+      }
+      .plan-merged .wl-target-projected.wl-proj-over {
         color: var(--pm-amber);
       }
-      .plan-merged .wl-target-projected.back_off {
+      .plan-merged .wl-target-projected.wl-proj-danger {
         color: var(--pm-red);
       }
       .plan-merged .wl-target-projected:empty {
         display: none;
+      }
+      .plan-merged .wl-proj-pill {
+        display: inline-block;
+        vertical-align: middle;
+        font-size: 10px;
+        font-weight: 800;
+        font-family: initial;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        border-radius: 6px;
+        padding: 3px 8px;
+        margin-right: 8px;
+      }
+      .plan-merged .wl-proj-pill.wl-proj-on {
+        background: #e8edff;
+        color: var(--pm-blue, #4f6ef7);
+      }
+      .plan-merged .wl-proj-pill.wl-proj-over {
+        background: #fdf3da;
+        color: var(--pm-amber);
+      }
+      .plan-merged .wl-proj-pill.wl-proj-danger {
+        background: #fee2e2;
+        color: var(--pm-red);
       }
       .plan-merged .wl-verdict-row {
         display: flex;

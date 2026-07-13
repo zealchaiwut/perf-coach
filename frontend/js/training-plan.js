@@ -659,9 +659,20 @@ information about.
 
     var projEl = document.getElementById('wl-target-projected');
     if (projEl) {
-      var projVerdictCls = (d.verdict === 'hold' || d.verdict === 'back_off') ? d.verdict : '';
-      projEl.className = 'wl-target-projected' + (projVerdictCls ? ' ' + projVerdictCls : '');
-      projEl.textContent = d.projected_tss != null ? Math.round(d.projected_tss) : '';
+      // Status by severity: over the ACWR guardrail = red "warning"; over
+      // the week target = orange "over target"; otherwise blue "on target".
+      var proj = d.projected_tss != null ? d.projected_tss : null;
+      var status = 'on';
+      if (proj != null && d.acwr_ceiling != null && proj > d.acwr_ceiling) status = 'danger';
+      else if (proj != null && proj > d.target_tss) status = 'over';
+      projEl.className = 'wl-target-projected wl-proj-' + status;
+      projEl.textContent = proj != null ? Math.round(proj) : '';
+      var statusPill = document.getElementById('wl-proj-status');
+      if (statusPill) {
+        statusPill.className = 'wl-proj-pill wl-proj-' + status;
+        statusPill.textContent = status === 'danger' ? 'warning' : (status === 'over' ? 'over target' : 'on target');
+        statusPill.hidden = proj == null;
+      }
     }
 
     // Deterministic verdict (backend/services/training_verdict.py) — never
@@ -1449,7 +1460,7 @@ information about.
             // on the matched workout's detail instead (see _liftDetailHtml).
             '<div class="pl-exhead"><span>Name</span><span>Sets</span><span>Reps</span><span>Load</span><span>RPE</span><span></span></div>' +
             '<div class="pl-blocklist" id="pl-exlist">' + _exRowsGroupedHtml() + '</div>' +
-            '<button class="pl-addblock" id="pl-addex">+ Add exercise</button>');
+            '<button class="pl-addblock" id="pl-addgroup">+ Add group</button>');
       _wireStrengthBuilder();
     }
   }
@@ -1463,22 +1474,147 @@ information about.
       '<input class="pl-btgt" data-f="target" value="' + esc(b.target || '') + '" placeholder="target"/>' +
       '<button class="pl-rm" data-rm-block="' + i + '">✕</button></div>';
   }
-  // Interleave block headers (Warm-up / Heavy compound / Superset 1 / ...)
-  // between the editable rows — the data carries `block` per exercise (the
-  // JSON view showed it) but the detailed editor rendered a flat list.
-  // Rows keep their original array index; headers are display-only.
-  function _exRowsGroupedHtml() {
-    var html = '';
-    var lastBlock = null;
+  // Group containers derived from contiguous `block` runs in the flat
+  // _sfExercises array (which stays the single source of truth — the save
+  // path and the JSON view read it unchanged). Each group has a drag handle
+  // (reorders the whole group), an editable name, a remove button, and a
+  // per-group "+ exercise"; rows drag between/within groups.
+  function _exGroups() {
+    var groups = [];
     _sfExercises.forEach(function (x, i) {
-      var b = (x && x.block) ? x.block : null;
-      if (b !== lastBlock) {
-        if (b) html += '<div class="pl-ai-blockh">' + esc(b) + '</div>';
-        lastBlock = b;
+      var b = (x && x.block) ? x.block : '';
+      var last = groups[groups.length - 1];
+      if (!last || last.block !== b) {
+        groups.push({ block: b, idxs: [i] });
+      } else {
+        last.idxs.push(i);
       }
-      html += _exRowHtml(x, i);
     });
-    return html;
+    return groups;
+  }
+
+  function _exRowsGroupedHtml() {
+    return _exGroups().map(function (g, gi) {
+      return '<div class="pl-exgroup" data-gi="' + gi + '">' +
+        '<div class="pl-exgroup-h">' +
+          '<span class="pl-gdrag" title="Drag to reorder this group" data-gdrag="' + gi + '">⠿</span>' +
+          '<input class="pl-gname" data-gname="' + gi + '" value="' + esc(g.block) + '" placeholder="Group name"/>' +
+          '<button type="button" class="pl-rm" data-rm-group="' + gi + '" title="Remove group and its exercises">✕</button>' +
+        '</div>' +
+        g.idxs.map(function (i) { return _exRowHtml(_sfExercises[i], i); }).join('') +
+        '<button type="button" class="pl-addblock pl-addex-in" data-addex-in="' + gi + '">+ exercise</button>' +
+      '</div>';
+    }).join('');
+  }
+
+  // Group-level interactions for the detailed strength editor: rename,
+  // remove, add-exercise-in-group, add-group, and drag & drop of both whole
+  // groups and single exercises. All operations rewrite the flat
+  // _sfExercises array and re-render — the array (with `block` per row)
+  // stays the single source of truth for Simple/JSON/Save.
+  function _wireExerciseGroups(list) {
+    var groups = _exGroups();
+
+    // Rename on change/blur (not per keystroke — re-render would drop focus).
+    list.querySelectorAll('[data-gname]').forEach(function (inp) {
+      inp.addEventListener('change', function () {
+        var g = groups[+inp.getAttribute('data-gname')];
+        if (!g) return;
+        g.idxs.forEach(function (i) { _sfExercises[i].block = inp.value.trim(); });
+        _renderStructureBuilder();
+      });
+    });
+    list.querySelectorAll('[data-rm-group]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var g = groups[+b.getAttribute('data-rm-group')];
+        if (!g) return;
+        for (var k = g.idxs.length - 1; k >= 0; k--) _sfExercises.splice(g.idxs[k], 1);
+        _renderStructureBuilder();
+      });
+    });
+    list.querySelectorAll('[data-addex-in]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var g = groups[+b.getAttribute('data-addex-in')];
+        if (!g) return;
+        _sfExercises.splice(g.idxs[g.idxs.length - 1] + 1, 0,
+          { block: g.block, name: '', sets: 3, reps: 10, load: '', rpe: '' });
+        _renderStructureBuilder();
+      });
+    });
+    var addGroup = document.getElementById('pl-addgroup');
+    if (addGroup) addGroup.onclick = function () {
+      _sfExercises.push({ block: 'New block', name: '', sets: 3, reps: 10, load: '', rpe: '' });
+      _renderStructureBuilder();
+    };
+
+    // Drag & drop. A group is draggable only while the pointer holds its ⠿
+    // handle (otherwise dragging a row would drag the whole group too).
+    function _flatten(gs) {
+      var out = [];
+      gs.forEach(function (g) { g.idxs.forEach(function (i) { out.push(_sfExercises[i]); }); });
+      return out;
+    }
+    list.querySelectorAll('.pl-exgroup').forEach(function (gEl) {
+      var gi = +gEl.getAttribute('data-gi');
+      var handle = gEl.querySelector('.pl-gdrag');
+      if (handle) {
+        handle.addEventListener('mousedown', function () { gEl.setAttribute('draggable', 'true'); });
+        handle.addEventListener('mouseup', function () { gEl.removeAttribute('draggable'); });
+      }
+      gEl.addEventListener('dragstart', function (e) {
+        if (gEl.getAttribute('draggable') !== 'true') return;
+        e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'group', gi: gi }));
+        e.stopPropagation();
+      });
+      gEl.addEventListener('dragend', function () { gEl.removeAttribute('draggable'); });
+      gEl.addEventListener('dragover', function (e) { e.preventDefault(); gEl.classList.add('drop-hover'); });
+      gEl.addEventListener('dragleave', function () { gEl.classList.remove('drop-hover'); });
+      gEl.addEventListener('drop', function (e) {
+        e.preventDefault(); e.stopPropagation();
+        var payload;
+        try { payload = JSON.parse(e.dataTransfer.getData('text/plain')); } catch (err) { return; }
+        var gs = _exGroups();
+        if (payload.kind === 'group' && payload.gi !== gi && gs[payload.gi]) {
+          var moved = gs.splice(payload.gi, 1)[0];
+          gs.splice(gi > payload.gi ? gi - 1 : gi, 0, moved);
+          _sfExercises = _flatten(gs);
+          _renderStructureBuilder();
+        } else if (payload.kind === 'ex' && gs[gi]) {
+          var ex = _sfExercises[payload.i];
+          var tgt = gs[gi];
+          if (!ex || tgt.idxs.indexOf(payload.i) !== -1) return; // own group — no-op
+          // Anchor on the target group's last exercise OBJECT — index math
+          // shifts under the splice, object identity doesn't.
+          var anchor = _sfExercises[tgt.idxs[tgt.idxs.length - 1]];
+          ex.block = tgt.block;
+          _sfExercises.splice(payload.i, 1);
+          _sfExercises.splice(_sfExercises.indexOf(anchor) + 1, 0, ex);
+          _renderStructureBuilder();
+        }
+      });
+    });
+    list.querySelectorAll('.pl-block[data-xi]').forEach(function (row) {
+      row.setAttribute('draggable', 'true');
+      row.addEventListener('dragstart', function (e) {
+        e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'ex', i: +row.getAttribute('data-xi') }));
+        e.stopPropagation();
+      });
+      row.addEventListener('dragover', function (e) { e.preventDefault(); e.stopPropagation(); row.classList.add('drop-hover'); });
+      row.addEventListener('dragleave', function () { row.classList.remove('drop-hover'); });
+      row.addEventListener('drop', function (e) {
+        e.preventDefault(); e.stopPropagation();
+        var payload;
+        try { payload = JSON.parse(e.dataTransfer.getData('text/plain')); } catch (err) { return; }
+        if (payload.kind !== 'ex') return;
+        var from = payload.i, to = +row.getAttribute('data-xi');
+        if (from === to) return;
+        var ex = _sfExercises[from];
+        ex.block = _sfExercises[to].block;
+        _sfExercises.splice(from, 1);
+        _sfExercises.splice(from < to ? to - 1 : to, 0, ex);
+        _renderStructureBuilder();
+      });
+    });
   }
 
   function _exRowHtml(x, i) {
@@ -1534,8 +1670,7 @@ information about.
       list.querySelectorAll('[data-rm-ex]').forEach(function (b) {
         b.addEventListener('click', function () { _sfExercises.splice(+b.getAttribute('data-rm-ex'), 1); _renderStructureBuilder(); });
       });
-      var add = document.getElementById('pl-addex');
-      if (add) add.onclick = function () { _sfExercises.push({ name: '', sets: 3, reps: 10, load: '', rpe: '' }); _renderStructureBuilder(); };
+      _wireExerciseGroups(list);
     }
     var jsonTa = document.getElementById('pl-exjson-ta');
     if (jsonTa) {
@@ -2366,6 +2501,17 @@ information about.
     '.plan-panel .pl-block .pl-rm{margin-left:auto;color:var(--pl-faint);cursor:pointer;font-size:13px;background:none;border:none;}',
     '.plan-panel .pl-exhead{display:flex;gap:8px;padding:0 11px;margin-top:8px;font-size:9.5px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:var(--pl-faint);}',
     '.plan-panel .pl-exhead span:nth-child(1){flex:1;min-width:120px;}.plan-panel .pl-exhead span:nth-child(2){width:70px;}.plan-panel .pl-exhead span:nth-child(3){width:70px;}.plan-panel .pl-exhead span:nth-child(4){width:96px;}.plan-panel .pl-exhead span:nth-child(5){width:70px;}.plan-panel .pl-exhead span:nth-child(6){width:20px;}',
+    // Exercise-group containers (detailed strength editor): drag handle
+    // reorders the group, name is editable inline, rows drag between groups.
+    '.plan-panel .pl-exgroup{border:1px dashed var(--pl-line);border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:8px;}',
+    '.plan-panel .pl-exgroup.drop-hover{border-color:var(--pl-lavHi);background:#f4f6ff;}',
+    '.plan-panel .pl-exgroup-h{display:flex;align-items:center;gap:8px;}',
+    '.plan-panel .pl-gdrag{cursor:grab;color:var(--pl-faint);font-size:13px;line-height:1;padding:2px 4px;user-select:none;}',
+    '.plan-panel .pl-gdrag:active{cursor:grabbing;}',
+    '.plan-panel .pl-gname{flex:0 0 220px;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:var(--pl-muted);border:1px solid transparent;border-radius:6px;padding:4px 6px;background:transparent;}',
+    '.plan-panel .pl-gname:hover,.plan-panel .pl-gname:focus{border-color:var(--pl-line);background:#fff;}',
+    '.plan-panel .pl-addex-in{margin-top:0;font-size:10.5px;padding:4px 0;}',
+    '.plan-panel .pl-block.drop-hover{outline:2px dashed var(--pl-lavHi);outline-offset:-2px;}',
     // Run block-builder header — columns mirror _blockRowHtml: 74px phase
     // tag, 70px min, 96px repeats, 96px target, remove button.
     '.plan-panel .pl-blockhead span:nth-child(1){flex:none;width:74px;min-width:0;}.plan-panel .pl-blockhead span:nth-child(2){width:70px;}.plan-panel .pl-blockhead span:nth-child(3){width:96px;}.plan-panel .pl-blockhead span:nth-child(4){width:96px;}.plan-panel .pl-blockhead span:nth-child(5){width:20px;}',
