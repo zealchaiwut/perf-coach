@@ -30,7 +30,7 @@ from zoneinfo import ZoneInfo
 
 from backend.auth import require_admin
 from backend.db import check_db, engine, environment
-from backend.models import AppConfig, DailyMetric, DailyReadiness, DriveSleepConnection, EconomyCeilingSnapshot, ExerciseCatalog, GoogleOAuthCredentials, Habit, HabitLog, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, VerdictHistory, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession
+from backend.models import AppConfig, DailyMetric, DailyReadiness, DriveSleepConnection, EconomyCeilingSnapshot, ExerciseCatalog, GoogleOAuthCredentials, Habit, HabitLog, PerformanceScoreHistory, PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES, TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, VerdictHistory, WeightEntry, WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit, WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values
 from backend.services.tss import compute_running_tss as _compute_running_tss
@@ -15461,6 +15461,35 @@ def _check_needs_thresholds(preferences) -> bool:
     )
 
 
+def _upsert_performance_score_history(user_id, score_date, endurance_result, speed_result) -> None:
+    """Upsert today's endurance/speed scores into performance_score_history (issue #1361)."""
+    from backend.services.formula_versions import SCORE_VERSION
+    endurance_val = endurance_result.get("score") if isinstance(endurance_result, dict) else None
+    speed_val = speed_result.get("score") if isinstance(speed_result, dict) else None
+    try:
+        with Session(engine) as _hist_sess:
+            _hist_sess.execute(
+                text(
+                    "INSERT INTO performance_score_history"
+                    " (user_id, score_date, endurance, speed, formula_version, created_at)"
+                    " VALUES (:uid, :sd, :e, :s, :fv, now())"
+                    " ON CONFLICT (user_id, score_date, formula_version)"
+                    " DO UPDATE SET endurance = EXCLUDED.endurance, speed = EXCLUDED.speed,"
+                    " created_at = now()"
+                ),
+                {
+                    "uid": str(user_id),
+                    "sd": score_date,
+                    "e": endurance_val,
+                    "s": speed_val,
+                    "fv": SCORE_VERSION,
+                },
+            )
+            _hist_sess.commit()
+    except Exception:
+        _performance_log.warning("failed to upsert performance_score_history", exc_info=True)
+
+
 def _determine_performance_top_level_state(endurance_result, speed_result) -> str:
     """Return the top-level state string from both score results (issue #1020).
 
@@ -16129,6 +16158,8 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
             speed=speed,
             generated_at=generated_at,
         )
+        # Persist scores with formula version stamp (issue #1361).
+        _upsert_performance_score_history(uid, _date.today(), endurance, speed)
         # Cache the computed scored payload; the signature invalidates it when a
         # sync inserts/updates workouts or a relevant threshold changes.
         _summary_cache_put(uid, "performance", _perf_sig, _scored_payload)
@@ -17917,6 +17948,7 @@ def get_projection(user: User = Depends(resolve_user)):
         except Exception:
             economy_contribution = 0.0
 
+    from backend.services.formula_versions import PROJECTION_VERSION
     return JSONResponse({
         "building_baseline": building_baseline,
         "form_curve": form_curve,
@@ -17929,6 +17961,7 @@ def get_projection(user: User = Depends(resolve_user)):
         "economy_contribution": economy_contribution,
         "lag_peak_days": _LAG_PEAK_DAYS,
         "lag_window_days": _LAG_WINDOW_DAYS,
+        "formula_version": PROJECTION_VERSION,
     })
 
 
