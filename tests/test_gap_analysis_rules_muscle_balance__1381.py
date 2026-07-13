@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import datetime
 
-
 from backend.services.muscle_load_acwr import (
     OVERUSED_BOUND,
     ELEVATED_BOUND,
