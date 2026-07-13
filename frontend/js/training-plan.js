@@ -1618,15 +1618,21 @@ information about.
   }
 
   function _exRowHtml(x, i) {
+    // Each numeric field is wrapped in a labeled span: display:contents on
+    // desktop (the column header row carries the names), a visible inline
+    // label on mobile where wrapping detaches inputs from their columns.
+    function fld(label, inputHtml) {
+      return '<label class="pl-exfld"><span class="pl-exfld-l">' + label + '</span>' + inputHtml + '</label>';
+    }
     return '<div class="pl-block" data-xi="' + i + '">' +
       '<input class="pl-exname" data-f="name" value="' + esc(x.name || '') + '" placeholder="Exercise"/>' +
-      '<input class="pl-bdur" data-f="sets" value="' + esc(x.sets != null ? x.sets : '') + '" placeholder="sets"/>' +
-      '<input class="pl-bdur" data-f="reps" value="' + esc(x.reps != null ? x.reps : '') + '" placeholder="reps"/>' +
-      '<input class="pl-btgt" data-f="load" value="' + esc(x.load || '') + '" placeholder="load"/>' +
+      fld('Sets', '<input class="pl-bdur" data-f="sets" value="' + esc(x.sets != null ? x.sets : '') + '" placeholder="sets"/>') +
+      fld('Reps', '<input class="pl-bdur" data-f="reps" value="' + esc(x.reps != null ? x.reps : '') + '" placeholder="reps"/>') +
+      fld('Load', '<input class="pl-btgt" data-f="load" value="' + esc(x.load || '') + '" placeholder="load"/>') +
       // Target RPE for this exercise (blank until the coach sets one) — this
       // is the PLANNED target, separate from the real logged RPE that shows
       // on the matched workout's actual detail once trained.
-      '<input class="pl-bdur" data-f="rpe" value="' + esc(x.rpe != null ? x.rpe : '') + '" placeholder="RPE"/>' +
+      fld('RPE', '<input class="pl-bdur" data-f="rpe" value="' + esc(x.rpe != null ? x.rpe : '') + '" placeholder="RPE"/>') +
       '<button class="pl-rm" data-rm-ex="' + i + '">✕</button></div>';
   }
 
@@ -2182,10 +2188,12 @@ information about.
   // unresolved sessions (planned/missed). Wired by _wireDetailEvents.
   function _detailStatusActionsHtml(p) {
     if (p.status !== 'planned' && p.status !== 'missed') return '';
+    // Short labels so all three fit one row on a 390px phone (grid, equal
+    // thirds; text may wrap to two lines inside a button).
     return '<div class="pl-detactions">' +
-        '<button class="pl-btn pl-ghost pl-tiny" data-pick="' + p.id + '" data-pick-mode="attach">🔗 Attach a recent workout</button>' +
-        '<button class="pl-btn pl-lime pl-tiny" data-markdone="' + p.id + '">✓ Mark as completed</button>' +
-        (p.status === 'planned' ? '<button class="pl-btn pl-ghost pl-tiny" data-missed="' + p.id + '">Mark as missed</button>' : '') +
+        '<button class="pl-btn pl-ghost pl-tiny" data-pick="' + p.id + '" data-pick-mode="attach">🔗 Attach workout</button>' +
+        '<button class="pl-btn pl-lime pl-tiny" data-markdone="' + p.id + '">✓ Completed</button>' +
+        (p.status === 'planned' ? '<button class="pl-btn pl-ghost pl-tiny" data-missed="' + p.id + '">Missed</button>' : '') +
       '</div>' +
       '<div class="pl-picker" data-pickerfor="' + p.id + '" hidden></div>';
   }
@@ -2329,10 +2337,11 @@ information about.
             (actual.id ? ' <button type="button" class="pl-rpe-fixlink" data-viewfull="' + esc(actual.id) + '">Add it on the logged workout →</button>' : '') +
           '</div>'
         : '') +
-      '<div class="pl-dettiles">' +
-        '<div class="pl-dettile"><div class="l">Type</div><div class="v" style="font-size:14px;">' + typeLabel + '</div></div>' +
-        (focus && !usingActual ? '<div class="pl-dettile"><div class="l">Focus</div><div class="v" style="font-size:14px;">' + esc(focus) + '</div></div>' : '') +
-      '</div>' +
+      // No Type tile — the STRENGTH/PLYO tag at the top of the panel already
+      // says it; a whole tile repeating one word was dead weight on mobile.
+      (focus && !usingActual
+        ? '<div class="pl-dettiles"><div class="pl-dettile"><div class="l">Focus</div><div class="v" style="font-size:14px;">' + esc(focus) + '</div></div></div>'
+        : '') +
       (exs.length ? '<div class="pl-segwrap"><div class="pl-sectitle" style="margin-bottom:8px;">Exercises</div>' + exHtml + '</div>' : '') +
       (p.notes ? '<div class="pl-fld" style="margin-top:16px;"><label>Coach notes</label><div class="pl-notebox">' + esc(p.notes) + '</div></div>' : '') +
       '<div class="pl-infobanner" style="margin-top:16px;">No Stryd export here — power-based workout export only applies to runs. This session logs into the Economy model once completed.</div>';
@@ -2379,6 +2388,17 @@ information about.
     '.plan-panel .pl-btn.pl-danger:hover{background:#fee2e2;}',
     '.plan-panel .pl-btn.pl-tiny{font-size:10px;padding:5px 9px;}',
     '.plan-panel .pl-detactions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 4px;}',
+    // Mobile: the three status actions share one row as equal thirds — short
+    // labels, text allowed to wrap to two lines inside a button.
+    '@media(max-width:560px){',
+    '.plan-panel .pl-detactions{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;}',
+    '.plan-panel .pl-detactions .pl-btn{white-space:normal;line-height:1.25;padding:8px 6px;text-align:center;font-size:11.5px;}',
+    '}',
+    // Labeled input wrappers in the detailed exercise editor: invisible on
+    // desktop (display:contents — the column header row names the fields),
+    // visible inline labels on mobile where wrapping breaks column alignment.
+    '.plan-panel .pl-exfld{display:contents;}',
+    '.plan-panel .pl-exfld-l{display:none;}',
     '.plan-panel .pl-btnrow{display:flex;gap:8px;flex-wrap:wrap;}',
     '.plan-panel .pl-loading{font-size:12.5px;color:var(--pl-faint);padding:14px 0;}',
     '.plan-panel .pl-infobanner{background:#f2f5ff;border:1px solid #e0e7ff;border-radius:11px;padding:10px 14px;font-size:12px;color:#3f4a7a;}',
@@ -2501,6 +2521,15 @@ information about.
     '.plan-panel .pl-block .pl-rm{margin-left:auto;color:var(--pl-faint);cursor:pointer;font-size:13px;background:none;border:none;}',
     '.plan-panel .pl-exhead{display:flex;gap:8px;padding:0 11px;margin-top:8px;font-size:9.5px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:var(--pl-faint);}',
     '.plan-panel .pl-exhead span:nth-child(1){flex:1;min-width:120px;}.plan-panel .pl-exhead span:nth-child(2){width:70px;}.plan-panel .pl-exhead span:nth-child(3){width:70px;}.plan-panel .pl-exhead span:nth-child(4){width:96px;}.plan-panel .pl-exhead span:nth-child(5){width:70px;}.plan-panel .pl-exhead span:nth-child(6){width:20px;}',
+    // Mobile exercise editor: hide the column header row (each input carries
+    // its own label via .pl-exfld-l), name goes full-width. MUST come after
+    // the base .pl-exhead rules above — same specificity, cascade order wins.
+    '@media(max-width:560px){',
+    '.plan-panel .pl-exhead{display:none;}',
+    '.plan-panel .pl-block .pl-exname{flex-basis:100%;min-width:0;}',
+    '.plan-panel .pl-exfld{display:inline-flex;align-items:center;gap:5px;}',
+    '.plan-panel .pl-exfld-l{display:inline;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:var(--pl-faint);}',
+    '}',
     // Exercise-group containers (detailed strength editor): drag handle
     // reorders the group, name is editable inline, rows drag between groups.
     '.plan-panel .pl-exgroup{border:1px dashed var(--pl-line);border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:8px;}',
@@ -2552,6 +2581,14 @@ information about.
     '.plan-panel .pl-exd{display:flex;align-items:center;gap:12px;background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:10px;padding:10px 13px;margin-bottom:8px;flex-wrap:wrap;}',
     '.plan-panel .pl-exd .pl-en{flex:1;min-width:120px;font-size:13px;font-weight:600;}.plan-panel .pl-exd .pl-es{font-size:11.5px;color:var(--pl-muted);font-family:var(--pl-mono);}',
     '.plan-panel .pl-exd .pl-sr{font-size:14px;font-weight:800;color:#7c3aed;font-family:var(--pl-mono);}',
+    // Mobile: two clean lines per exercise — name on its own (slightly
+    // larger), then "2 × 12-15  bodyweight  RPE 7" together — instead of the
+    // arbitrary 3-line wrap the desktop flex produced at 390px.
+    '@media(max-width:560px){',
+    '.plan-panel .pl-exd{row-gap:3px;column-gap:10px;}',
+    '.plan-panel .pl-exd .pl-en{flex-basis:100%;min-width:0;font-size:15px;}',
+    '.plan-panel .pl-exd .pl-sr{font-size:13px;}',
+    '}',
     // Exercises grouped by pasted-back `block` label.
     '.plan-panel .pl-exblock{margin-bottom:18px;padding:12px 12px 4px;border-radius:12px;background:rgba(13,30,67,0.03);}',
     '.plan-panel .pl-exblock:last-child{margin-bottom:0;}',
