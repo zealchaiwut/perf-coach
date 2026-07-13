@@ -85,9 +85,10 @@ _REGISTRY.register(requires=["structural_dose"])(my_rule)
 | Key | Source | Contents |
 |-----|--------|----------|
 | `structural_dose` | `backend/services/structural_dose.py` | `last_plyo_days_ago`, `last_strength_days_ago`, weekly plyo/strength buckets |
+| `form_metrics` | `run_form_metrics` table (issue #1368) | `recent_runs` (0–28d), `prior_runs` (28–56d), `long_baseline_runs` (56–180d) — each a list of `{run_date, lss_kn_m, gct_ms, cadence_spm, power_w}` |
 | `week_start` | engine | `datetime.date` — always present |
 
-Future sprints will add: `muscle_volume` (#1367 acwr), `form_metrics` (#1368), `intensity_distribution`, `training_load`, `injury_log` (#1350), `scores`.
+Future sprints will add: `muscle_volume` (#1367 acwr), `intensity_distribution`, `training_load`, `injury_log` (#1350), `scores`.
 
 ---
 
@@ -167,3 +168,86 @@ Fires when `structural_dose.last_plyo_days_ago` is `None` (never recorded) or `>
 - `evidence metric`: `days_since_plyo`
 - `threshold`: 28 days
 - `target`: `plyo`
+
+---
+
+## Run-Economy Rules (issue #1371)
+
+### plyo_deficit
+
+File: `backend/services/gap_analysis/rules/plyo_deficit.py`
+
+Both conditions must be true for the finding to fire:
+
+1. **LSS flat or falling**: 28-day mean LSS (`lss_kn_m`) improved by **strictly less than**
+   `LSS_IMPROVEMENT_THRESHOLD_PCT` (1.0 %) vs the prior 28-day window.
+2. **Plyo dose inadequate**: Average plyo sessions per week over the last
+   `PLYO_DOSE_WINDOW_WEEKS` (4) weeks is **below** `PLYO_SESSIONS_PER_WEEK_MIN` (1.0).
+
+Returns `None` when either 28-day window has fewer than `MIN_RUNS_PER_WINDOW` (3) runs
+with valid LSS data.
+
+Recommendation references the last logged `plyo_phase`; defaults to `"intro"` when
+no phase is on record.
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `LSS_IMPROVEMENT_THRESHOLD_PCT` | 1.0 | Minimum LSS gain (%) to be considered "improving" |
+| `PLYO_SESSIONS_PER_WEEK_MIN` | 1.0 | Sessions/week needed to clear the dose check |
+| `PLYO_DOSE_WINDOW_WEEKS` | 4 | Weeks used to compute average plyo frequency |
+| `MIN_RUNS_PER_WINDOW` | 3 | Minimum valid-LSS runs required per window |
+
+- `code`: `plyo_deficit`
+- `severity`: 2 (recommend)
+- `evidence metrics`: `lss_recent_mean`, `lss_prior_mean`, `lss_improvement_pct`, `plyo_sessions_per_week`
+- `target`: `plyo`
+
+---
+
+### gct_lengthening
+
+File: `backend/services/gap_analysis/rules/gct_lengthening.py`
+
+Fires when ground contact time (GCT) has lengthened at comparable running intensity.
+
+**Pace-band control**: only runs whose power is within `±(GCT_EASY_POWER_BAND_WIDTH_W / 2)`
+of the recent window's mean power are included in both windows. This prevents slow recovery
+runs (lower power → naturally higher GCT) from false-triggering the finding.
+
+Returns `None` when:
+- Either raw window has fewer than `MIN_RUNS_PER_WINDOW` (3) runs with valid GCT + power.
+- After band filtering, either window falls below `MIN_RUNS_PER_WINDOW`.
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `GCT_RISE_THRESHOLD_MS` | 5.0 | Minimum GCT rise (ms) to fire |
+| `GCT_EASY_POWER_BAND_WIDTH_W` | 50.0 | Total intensity control band width (Watts) |
+| `MIN_RUNS_PER_WINDOW` | 3 | Minimum runs required per filtered window |
+
+- `code`: `gct_lengthening`
+- `severity`: 2 (recommend)
+- `evidence metrics`: `gct_recent_mean_ms`, `gct_prior_mean_ms`, `gct_rise_ms`, `power_band_center_w`
+- `target`: `plyo`
+
+---
+
+### cadence_drift
+
+File: `backend/services/gap_analysis/rules/cadence_drift.py`
+
+Fires when the recent 28-day mean cadence has dropped more than `CADENCE_DRIFT_THRESHOLD_PCT`
+below the long baseline (days 57–180).
+
+Returns `None` when either window has fewer than `MIN_RUNS_PER_WINDOW` (3) runs with valid
+cadence data.
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `CADENCE_DRIFT_THRESHOLD_PCT` | 2.0 | Drop (%) required to fire |
+| `CADENCE_BASELINE_WINDOW_DAYS` | 180 | Length of the long baseline window (days) |
+| `MIN_RUNS_PER_WINDOW` | 3 | Minimum valid-cadence runs required per window |
+
+- `code`: `cadence_drift`
+- `severity`: 1 (note)
+- `evidence metrics`: `cadence_recent_mean_spm`, `cadence_baseline_mean_spm`, `cadence_drop_pct`
+- `target`: `run_form`

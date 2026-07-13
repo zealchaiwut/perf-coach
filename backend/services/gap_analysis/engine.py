@@ -26,6 +26,61 @@ __all__ = ["GapAnalysisFinding", "run_gap_analysis", "_REGISTRY"]
 
 # ── Input gathering ───────────────────────────────────────────────────────────
 
+def _gather_form_metrics(db, user_id: uuid.UUID, today: datetime.date) -> dict:
+    """Query run_form_metrics and partition into recent (0-28d), prior (28-56d),
+    and long_baseline (56-180d) windows.
+
+    Returns a dict with keys:
+      recent_runs       — list of row dicts for the last 28 days
+      prior_runs        — list of row dicts for days 29-56
+      long_baseline_runs — list of row dicts for days 57-180
+    """
+    cutoff_recent = today - datetime.timedelta(days=28)
+    cutoff_prior = today - datetime.timedelta(days=56)
+    cutoff_long = today - datetime.timedelta(days=180)
+
+    rows = db.execute(
+        text("""
+            SELECT run_date,
+                   CAST(lss_kn_m AS double precision),
+                   CAST(gct_ms AS double precision),
+                   CAST(cadence_spm AS double precision),
+                   CAST(power_w AS double precision)
+            FROM run_form_metrics
+            WHERE user_id = :uid
+              AND run_date >= :cutoff_long
+              AND run_date <= :today
+            ORDER BY run_date DESC
+        """),
+        {"uid": str(user_id), "cutoff_long": cutoff_long.isoformat(), "today": today.isoformat()},
+    ).fetchall()
+
+    recent_runs = []
+    prior_runs = []
+    long_baseline_runs = []
+
+    for run_date, lss, gct, cad, pw in rows:
+        entry = {
+            "run_date": run_date.isoformat() if hasattr(run_date, "isoformat") else str(run_date),
+            "lss_kn_m": lss,
+            "gct_ms": gct,
+            "cadence_spm": cad,
+            "power_w": pw,
+        }
+        if run_date > cutoff_recent:
+            recent_runs.append(entry)
+        elif run_date > cutoff_prior:
+            prior_runs.append(entry)
+        else:
+            long_baseline_runs.append(entry)
+
+    return {
+        "recent_runs": recent_runs,
+        "prior_runs": prior_runs,
+        "long_baseline_runs": long_baseline_runs,
+    }
+
+
 def _gather_inputs(db, user_id: uuid.UUID, today: datetime.date, week_start: datetime.date) -> dict:
     """Collect available inputs for the rules engine.
 
@@ -40,6 +95,12 @@ def _gather_inputs(db, user_id: uuid.UUID, today: datetime.date, week_start: dat
         inputs["structural_dose"] = compute_structural_dose(db, user_id, today, weeks=8)
     except Exception:
         _log.warning("structural_dose unavailable for gap analysis", exc_info=True)
+
+    # form_metrics (issue #1368): per-run GCT, LSS, cadence, power — partitioned by window
+    try:
+        inputs["form_metrics"] = _gather_form_metrics(db, user_id, today)
+    except Exception:
+        _log.warning("form_metrics unavailable for gap analysis", exc_info=True)
 
     return inputs
 
@@ -135,6 +196,15 @@ def run_gap_analysis(db, user_id: uuid.UUID, today: datetime.date) -> dict:
 def _register_builtin_rules() -> None:
     from backend.services.gap_analysis.rules.no_recent_plyo import no_recent_plyo
     _REGISTRY.register(requires=["structural_dose"])(no_recent_plyo)
+
+    from backend.services.gap_analysis.rules.plyo_deficit import plyo_deficit
+    _REGISTRY.register(requires=["form_metrics", "structural_dose"])(plyo_deficit)
+
+    from backend.services.gap_analysis.rules.gct_lengthening import gct_lengthening
+    _REGISTRY.register(requires=["form_metrics"])(gct_lengthening)
+
+    from backend.services.gap_analysis.rules.cadence_drift import cadence_drift
+    _REGISTRY.register(requires=["form_metrics"])(cadence_drift)
 
 
 _register_builtin_rules()
