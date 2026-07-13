@@ -1721,3 +1721,30 @@ class VerdictHistory(Base):
         UniqueConstraint("user_id", "verdict_date", name="uq_verdict_history_user_date"),
         Index("ix_verdict_history_user_date", "user_id", "verdict_date"),
     )
+
+
+class PerformanceScoreHistory(Base):
+    """Persisted daily endurance/speed scores with formula version stamps (issue #1361/#1365).
+
+    One row per (user, date, formula_version) — upserted each time scores are
+    computed so there is a durable series to compute block deltas from without
+    relying on the in-request trend[] recomputation.
+    """
+
+    __tablename__ = "performance_score_history"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    score_date = Column(Date, nullable=False)
+    endurance = Column(Float, nullable=True)
+    speed = Column(Float, nullable=True)
+    formula_version = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "score_date", "formula_version",
+            name="uq_performance_score_history_user_date_version",
+        ),
+        Index("ix_performance_score_history_user_date", "user_id", "score_date"),
+    )
