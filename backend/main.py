@@ -16289,8 +16289,9 @@ def _summary_cache_put(user_id, key, sig, payload):
 # v4 = one-score-everywhere + feed contributions; v5 = races in signature;
 # v6 = run_contributions + model + consistency bonus + improve hint;
 # v7 = power-fallback guards; v8 = implausible-lap filter; v9 = breakdown
-# block; v10 = race_floor_now + floor_binding; v11 = manual-lap reps.
-_PERF_FORMULA_VERSION = "vdot-v11"
+# block; v10 = race_floor_now + floor_binding; v11 = manual-lap reps;
+# v12 = aborted-session guard (MIN_ENDURANCE_QUALIFYING_SESSION_SECONDS).
+_PERF_FORMULA_VERSION = "vdot-v12"
 
 
 def _performance_signature(session, user_id, prefs_row) -> str:
@@ -17917,6 +17918,7 @@ def get_projection(user: User = Depends(resolve_user)):
         except Exception:
             economy_contribution = 0.0
 
+    from backend.services.formula_versions import PROJECTION_VERSION
     return JSONResponse({
         "building_baseline": building_baseline,
         "form_curve": form_curve,
@@ -17929,6 +17931,7 @@ def get_projection(user: User = Depends(resolve_user)):
         "economy_contribution": economy_contribution,
         "lag_peak_days": _LAG_PEAK_DAYS,
         "lag_window_days": _LAG_WINDOW_DAYS,
+        "formula_version": PROJECTION_VERSION,
     })
 
 
