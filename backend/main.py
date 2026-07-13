@@ -13261,7 +13261,8 @@ def get_today_recommendation(user: User = Depends(resolve_user)):
     Inputs returned alongside the recommendation (for transparency):
       readiness   — today's DailyReadiness score (null when not yet logged)
       verdict     — back_off | hold | build (from training_load)
-      active_injuries — empty list (no injury model yet; reserved for future)
+      active_injuries — the user's active injury_log entries ({kind, severity});
+                        an active injury makes the engine recommend rest
     """
     from backend.services.today_recommendation import compute_today_recommendation
     from backend.utils.time import today_bangkok
@@ -13291,6 +13292,11 @@ def get_today_recommendation(user: User = Depends(resolve_user)):
             .first()
         )
         readiness_score = float(readiness_row.score) if readiness_row else None
+        # Real active injuries — same source the verdict computation uses.
+        # (Was hardcoded [] while the sibling verdict path already consumed
+        # this data, so an active injury never triggered the engine's own
+        # "rest" rule.)
+        active_injuries = _fetch_active_injuries_for_verdict(uid, db)
 
     verdict_result = _resolve_current_verdict(uid, today)
     verdict = verdict_result["verdict"]
@@ -13301,7 +13307,7 @@ def get_today_recommendation(user: User = Depends(resolve_user)):
         session_structure=planned.structure if planned else None,
         readiness_score=readiness_score,
         verdict=verdict,
-        active_injuries=[],
+        active_injuries=active_injuries,
     )
 
     planned_dict = None
@@ -13323,7 +13329,7 @@ def get_today_recommendation(user: User = Depends(resolve_user)):
         "inputs": {
             "readiness": readiness_score,
             "verdict": verdict,
-            "active_injuries": [],
+            "active_injuries": active_injuries,
         },
     })
 

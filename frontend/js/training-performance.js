@@ -426,14 +426,24 @@
     if (corrEl) {
       var pct = data && typeof data.correction_pct === "number" ? data.correction_pct : null;
       var n = (data && data.n_calibrations) || 0;
+      // Full sentence on desktop, compact form on phones where this tile is
+      // a quarter of the row (.pm-lab-full/.pm-lab-short flip at 720px).
+      function dual(full, short) {
+        corrEl.innerHTML =
+          '<span class="pm-lab-full">' + full + "</span>" +
+          '<span class="pm-lab-short" title="' + full.replace(/"/g, "&quot;") + '">' + short + "</span>";
+      }
+      var races = n + " race" + (n === 1 ? "" : "s");
       if (pct === null || n === 0) {
-        corrEl.innerHTML = '<span class="pm-italic">No finished races yet</span>';
+        corrEl.innerHTML =
+          '<span class="pm-italic"><span class="pm-lab-full">No finished races yet</span>' +
+          '<span class="pm-lab-short">None yet</span></span>';
       } else if (Math.abs(pct) < 0.05) {
-        corrEl.textContent = "None needed (" + n + " race" + (n === 1 ? "" : "s") + ")";
+        dual("None needed (" + races + ")", "None (" + n + ")");
       } else {
+        var sign = pct > 0 ? "+" : "";
         var dirTxt = pct > 0 ? "model ran optimistic" : "model ran pessimistic";
-        corrEl.textContent = (pct > 0 ? "+" : "") + pct + "% — " + dirTxt +
-          " (" + n + " race" + (n === 1 ? "" : "s") + ")";
+        dual(sign + pct + "% — " + dirTxt + " (" + races + ")", sign + pct + "% (" + n + ")");
       }
     }
   }
@@ -457,6 +467,15 @@
     var tc = _readiness && _readiness.time_curve;
     var history = (tc && tc.history) || [];
     var projection = (tc && tc.projection) || [];
+    // Only the recent approach matters — the early low-fitness ramp both
+    // wastes half the x-axis and drags the y-domain. Keep the last ~3
+    // months (projection already runs today → race day, so the right edge
+    // IS race day).
+    var cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 90);
+    var cutoffISO = cutoff.toISOString().slice(0, 10);
+    var recent = history.filter(function (e) { return !e.date || e.date >= cutoffISO; });
+    history = recent.length ? recent : history.slice(-90);
     var goalSec = tc && tc.goal_finish_seconds != null
       ? tc.goal_finish_seconds
       : (_primaryRace && _primaryRace.goal_time_seconds) || null;
@@ -515,10 +534,11 @@
     var W = measureChartW(svg);
     var mobile = W < 480;
     var H = mobile ? 240 : 200;
-    // Trim l/r on mobile so the plot area isn't tiny inside the narrow card.
+    // Y labels live INSIDE the plot (right edge) — no left gutter needed,
+    // the full card width goes to data.
     var p = mobile
-      ? { l: 46, r: 16, t: 14, b: 30 }
-      : { l: 54, r: 30, t: 14, b: 26 };
+      ? { l: 12, r: 16, t: 14, b: 30 }
+      : { l: 16, r: 30, t: 14, b: 26 };
     // viewBox + CSS height must move together, else it letterboxes.
     svg.setAttribute("viewBox", "0 0 " + W + " " + H);
     svg.style.height = H + "px";
@@ -586,24 +606,25 @@
       return p.l + (nowT + u * (1 - nowT)) * (W - p.l - p.r);
     }
 
-    // gridlines + labels
-    var ticks = [vmin + (vmax - vmin) * 0.2, (vmin + vmax) / 2, vmax - (vmax - vmin) * 0.2];
-    ticks.forEach(function (v) {
-      svg.appendChild(E("line", { x1: p.l, x2: W - p.r, y1: y(v), y2: y(v), stroke: "#eef1f7" }));
-      var lab = E("text", {
-        x: p.l - 8, y: y(v) + 3, "font-size": FS(10),
-        "font-family": "JetBrains Mono", fill: "#9aa3b8", "text-anchor": "end",
-      });
-      lab.textContent = fmtTime(Math.round(v));
-      svg.appendChild(lab);
-    });
-
-    // projection shaded window
+    // projection shaded window — FIRST, so gridline labels paint above it.
     var nowX = p.l + nowT * (W - p.l - p.r);
     svg.appendChild(E("rect", {
       x: nowX, y: p.t, width: W - p.r - nowX, height: H - p.t - p.b,
       fill: "#f4f7ff", "fill-opacity": 0.7,
     }));
+
+    // gridlines + labels — time values sit INSIDE the plot at the right
+    // edge, just above their gridline (no left gutter).
+    var ticks = [vmin + (vmax - vmin) * 0.2, (vmin + vmax) / 2, vmax - (vmax - vmin) * 0.2];
+    ticks.forEach(function (v) {
+      svg.appendChild(E("line", { x1: p.l, x2: W - p.r, y1: y(v), y2: y(v), stroke: "#eef1f7" }));
+      var lab = E("text", {
+        x: W - p.r - 4, y: y(v) - 4, "font-size": FS(10),
+        "font-family": "JetBrains Mono", fill: "#9aa3b8", "text-anchor": "end",
+      });
+      lab.textContent = fmtTime(Math.round(v));
+      svg.appendChild(lab);
+    });
 
     // confidence band
     var top = [], bot = [];

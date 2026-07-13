@@ -4604,25 +4604,25 @@
             <span class="pm-sectitle">Calibration status</span>
             <div class="pm-calgrid">
               <div class="pm-caltile">
-                <div class="pm-lab">Last recalibrated</div>
+                <div class="pm-lab"><span class="pm-lab-full">Last recalibrated</span><span class="pm-lab-short">Recalibrated</span></div>
                 <div class="pm-v" id="plan-calib-date">
                   <span class="pm-italic">Not yet calibrated</span>
                 </div>
               </div>
               <div class="pm-caltile">
-                <div class="pm-lab">Data sufficiency</div>
+                <div class="pm-lab"><span class="pm-lab-full">Data sufficiency</span><span class="pm-lab-short">Data</span></div>
                 <div class="pm-v" id="plan-calib-sufficiency">
                   <span class="pm-italic">—</span>
                 </div>
               </div>
               <div class="pm-caltile">
-                <div class="pm-lab">Band confidence</div>
+                <div class="pm-lab"><span class="pm-lab-full">Band confidence</span><span class="pm-lab-short">Band</span></div>
                 <div class="pm-v" id="plan-calib-confidence">
                   <span class="pm-italic">—</span>
                 </div>
               </div>
               <div class="pm-caltile">
-                <div class="pm-lab">Model correction</div>
+                <div class="pm-lab"><span class="pm-lab-full">Model correction</span><span class="pm-lab-short">Correction</span></div>
                 <div class="pm-v" id="plan-calib-correction">
                   <span class="pm-italic">—</span>
                 </div>
@@ -4882,6 +4882,9 @@
         color: var(--pm-faint);
         text-transform: uppercase;
       }
+      /* Dual-length labels: full text on desktop, short on phones (the
+         720px media block flips these). */
+      .plan-merged .pm-lab-short { display: none; }
       .plan-merged .pm-italic {
         font-style: italic;
         color: var(--pm-muted);
@@ -6280,9 +6283,39 @@
       }
 
       @media (max-width: 720px) {
-        .plan-merged .pm-rcgrid,
+        /* Goal/Estimated (races) and the four calibration tiles STAY on one
+           row — compact tiles instead of a tall stack of full-width rows. */
+        .plan-merged .pm-rcgrid {
+          gap: 8px;
+        }
+        .plan-merged .pm-rcgrid .pm-col {
+          min-width: 0;
+          padding: 8px 10px;
+        }
         .plan-merged .pm-calgrid {
-          flex-direction: column;
+          gap: 6px;
+        }
+        .plan-merged .pm-caltile {
+          min-width: 0;
+          padding: 8px 8px;
+        }
+        .plan-merged .pm-caltile .pm-lab {
+          font-size: 8.5px;
+          letter-spacing: 0.02em;
+        }
+        .plan-merged .pm-lab-full { display: none; }
+        .plan-merged .pm-lab-short { display: inline; }
+        .plan-merged .pm-caltile .pm-v {
+          font-size: 11.5px;
+          line-height: 1.3;
+          overflow-wrap: anywhere;
+        }
+        /* Badges ("Sufficient"/"High") shrink instead of breaking mid-word. */
+        .plan-merged .pm-caltile .pm-badge {
+          font-size: 9.5px;
+          padding: 2px 6px;
+          overflow-wrap: normal;
+          white-space: nowrap;
         }
         .plan-merged .pm-specname {
           width: 110px;
@@ -6365,6 +6398,16 @@
         grid-template-columns: 1fr 1fr;
         gap: 16px;
       }
+      /* Grid items default to min-width:auto, so the nowrap equation line's
+         intrinsic width blows the cards (and the page) out sideways. */
+      .perf-scorewrap > .perf-card {
+        min-width: 0;
+      }
+      @media (max-width: 700px) {
+        .perf-scorewrap {
+          grid-template-columns: 1fr;
+        }
+      }
       .perf-bigscore {
         display: flex;
         align-items: baseline;
@@ -6429,6 +6472,15 @@
         margin-bottom: 6px;
         white-space: nowrap;
         overflow-x: auto;
+      }
+      /* Mobile: wrap the equation instead of side-scrolling it. */
+      @media (max-width: 560px) {
+        .perf-eq {
+          white-space: normal;
+          overflow-x: visible;
+          font-size: 11.5px;
+          line-height: 1.5;
+        }
       }
       .perf-eq .lbl, .perf-anchor-foot .lbl { color: var(--perf-faint); font-size: 11px; font-weight: 400; }
       .perf-eq .loss, .perf-anchor-foot .loss { color: var(--perf-loss); font-weight: 700; }

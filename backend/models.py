@@ -338,6 +338,12 @@ class WorkoutExercise(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     workout_id = Column(UUID(as_uuid=True), ForeignKey("workouts.id", ondelete="CASCADE"), nullable=False)
     display_order = Column(Integer, server_default=text("0"), nullable=False)
+    # Training-block grouping (Warm-up / Heavy compound / Superset 1 / ...) —
+    # same vocabulary as PlannedSession.structure.exercises[].block. Nullable:
+    # old rows and ungrouped logs render flat. NOTE: restored after the
+    # sprint-104 merge (15db9bb1) dropped this hunk while the DB column
+    # (migration 1d5caaeaaa26) and every writer in main.py survived.
+    block = Column(String(80), nullable=True)
     name = Column(String(200), nullable=False)
     sets = Column(Integer, nullable=True)
     reps = Column(Integer, nullable=True)
@@ -901,6 +907,14 @@ class TrainingLoadSnapshot(Base):
     # miss and recomputed, so a change to the EWMA/ACWR math can never
     # silently keep serving stale-shape rows forever.
     formula_version = Column(Text, nullable=True)
+    # The per-user EWMA windows this row was computed with (issue #1366 —
+    # user-tunable CTL/ATL constants). Nullable: rows predating the feature.
+    # NOTE: restored after the sprint-104 merge (15db9bb1) dropped this hunk
+    # while migration 3c5bf7cf48ed and training_load.daily_update()'s writes
+    # survived — without these, every snapshot upsert dies with
+    # CompileError: Unconsumed column names.
+    ctl_days = Column(Integer, nullable=True)
+    atl_days = Column(Integer, nullable=True)
     computed_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
     __table_args__ = (
@@ -1391,6 +1405,13 @@ class TrainingPlan(Base):
     # "Cut 30% every 4th week" deload toggle — see load_plan.py's
     # DELOAD_CUT_FRACTION / compute_load_plan(deload_enabled=...).
     deload_enabled = Column(Boolean, nullable=False, server_default=text("false"))
+    # Which week of the 4-week cycle the deload lands on (1-4): first deload
+    # at this week_index, then every 4 weeks (4 → 4, 8, 12; 2 → 2, 6, 10).
+    # NOTE: restored after the sprint-104 merge (15db9bb1) silently dropped
+    # this hunk while the DB column (migration fe28c4815e7e) and every reader
+    # (main.py _plan_rules_dict, plan_suggestions.assemble_facts) survived —
+    # without it those endpoints 500 with AttributeError.
+    deload_start_week = Column(Integer, nullable=False, server_default=text("4"))
     # Cached computed Plan-tab bundle + the signature it was computed for
     # (see GET /api/plan/computed). Recomputed when the signature changes.
     computed_cache = Column(JSONB, nullable=True)
