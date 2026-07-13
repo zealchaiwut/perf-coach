@@ -33,8 +33,8 @@ from backend.db import check_db, engine, environment
 from backend.models import (
     AppConfig, BodyMeasurement, DailyMetric, DailyReadiness, DriveSleepConnection,
     EconomyCeilingSnapshot, ExerciseCatalog, GoogleOAuthCredentials, Habit, HabitLog,
-    PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity,
-    StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES,
+    PersonalRecord, Race, RaceCheckpoint, RemovedActivity, RunFormMetrics, SleepImport,
+    StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES,
     TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, VerdictHistory, WeightEntry,
     WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit,
     WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession,
@@ -13298,6 +13298,101 @@ def get_today_recommendation(user: User = Depends(resolve_user)):
             "verdict": verdict,
             "active_injuries": [],
         },
+    })
+
+
+# ── Run Form Metrics ─────────────────────────────────────────────────────────
+
+_FORM_METRICS_ROLLING_DAYS = 28
+
+
+def _rolling_mean(values: list, window: int = _FORM_METRICS_ROLLING_DAYS) -> list:
+    """Return a trailing-window simple mean for each position in values.
+
+    values is a list of (run_date, float|None) tuples sorted ascending.
+    Returns a list of float|None — None when no non-null values exist in window.
+    """
+    out = []
+    for i, (_, v) in enumerate(values):
+        start = max(0, i - window + 1)
+        window_vals = [v2 for _, v2 in values[start : i + 1] if v2 is not None]
+        out.append(round(sum(window_vals) / len(window_vals), 4) if window_vals else None)
+    return out
+
+
+@app.get("/api/training/form-metrics")
+def get_run_form_metrics(
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+    user: User = Depends(resolve_user),
+):
+    """Per-run Stryd running-dynamics series with 28-day rolling means.
+
+    Query params (both optional):
+        from  YYYY-MM-DD  start of range (default: 90 days ago)
+        to    YYYY-MM-DD  end of range   (default: today)
+
+    Response:
+        runs           list of per-run objects sorted by run_date asc
+        rolling_means  28-day trailing means for each metric at each date position
+    """
+    today = _today_bkk()
+    if from_date is None and to_date is None:
+        from_d = today - _timedelta(days=89)
+        to_d = today
+    else:
+        try:
+            from_d = _date.fromisoformat(from_date) if from_date else today - _timedelta(days=89)
+            to_d = _date.fromisoformat(to_date) if to_date else today
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid date format; use YYYY-MM-DD")
+
+    if from_d > to_d:
+        raise HTTPException(status_code=422, detail="from must not be after to")
+    if (to_d - from_d).days > 365:
+        raise HTTPException(status_code=422, detail="Date range cannot exceed 365 days")
+
+    uid = user.id
+    with Session(engine) as session:
+        rows = (
+            session.query(RunFormMetrics)
+            .filter(
+                RunFormMetrics.user_id == uid,
+                RunFormMetrics.run_date >= from_d,
+                RunFormMetrics.run_date <= to_d,
+            )
+            .order_by(RunFormMetrics.run_date.asc())
+            .all()
+        )
+
+    def _f(v):
+        return float(v) if v is not None else None
+
+    runs = [
+        {
+            "run_date": row.run_date.isoformat(),
+            "stryd_activity_pk": str(row.stryd_activity_pk),
+            "workout_id": str(row.workout_id) if row.workout_id else None,
+            "gct_ms": _f(row.gct_ms),
+            "lss_kn_m": _f(row.lss_kn_m),
+            "vertical_oscillation_cm": _f(row.vertical_oscillation_cm),
+            "cadence_spm": _f(row.cadence_spm),
+            "power_w": _f(row.power_w),
+        }
+        for row in rows
+    ]
+
+    metrics = ["gct_ms", "lss_kn_m", "vertical_oscillation_cm", "cadence_spm", "power_w"]
+    rolling_means: dict[str, list] = {}
+    for m in metrics:
+        series = [(r["run_date"], r[m]) for r in runs]
+        rolling_means[m] = _rolling_mean(series)
+
+    return JSONResponse({
+        "from": from_d.isoformat(),
+        "to": to_d.isoformat(),
+        "runs": runs,
+        "rolling_means": rolling_means,
     })
 
 
