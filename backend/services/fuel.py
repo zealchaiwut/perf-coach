@@ -201,7 +201,10 @@ def plan_linkage(plan, current_deficit_kcal: int) -> dict:
 def settings_to_dict(s: FuelSettings) -> dict:
     return {
         "weight_kg": float(s.weight_kg),
-        "lean_mass_kg": float(s.lean_mass_kg) if s.lean_mass_kg is not None else round(float(s.weight_kg) * 0.76, 1),
+        "lean_mass_kg": (
+            float(s.lean_mass_kg) if s.lean_mass_kg is not None
+            else round(float(s.weight_kg) * 0.76, 1)
+        ),
         "base_kcal": s.base_kcal,
         "maintenance_source": s.maintenance_source,
         "deficit_kcal": s.deficit_kcal,
@@ -274,7 +277,9 @@ def current_lean_mass_kg(
             break
 
     if recent is not None:
-        bf_pct = float(recent.body_fat_pct if hasattr(recent, "body_fat_pct") else recent["body_fat_pct"])
+        bf_pct = float(
+            recent.body_fat_pct if hasattr(recent, "body_fat_pct") else recent["body_fat_pct"]
+        )
         lean = round(ewma_weight * (1.0 - bf_pct / 100.0), 1)
         return {"lean_mass_kg": lean, "source": "measured"}
 
@@ -282,7 +287,8 @@ def current_lean_mass_kg(
     if lean_mass_setting is not None:
         return {"lean_mass_kg": round(float(lean_mass_setting), 1), "source": "setting"}
 
-    return {"lean_mass_kg": round(ewma_weight * _LEAN_MASS_FALLBACK_FRACTION, 1), "source": "estimated"}
+    lean = round(ewma_weight * _LEAN_MASS_FALLBACK_FRACTION, 1)
+    return {"lean_mass_kg": lean, "source": "estimated"}
 
 
 # ── Entries ──────────────────────────────────────────────────────────────────
@@ -413,7 +419,9 @@ def _workout_burn_kcal(w: Workout, weight_kg: float, run_kcal_per_kg_per_km: flo
     return dur_min * met * weight_kg / 60.0
 
 
-def _planned_burn_kcal(p: PlannedSession, weight_kg: float, run_kcal_per_kg_per_km: float, baseline: dict) -> float:
+def _planned_burn_kcal(
+        p: PlannedSession, weight_kg: float,
+        run_kcal_per_kg_per_km: float, baseline: dict) -> float:
     wt = _normalize_type(p.session_type)
     if wt == "run":
         est = estimate_planned_session_metrics(baseline, p.session_type, p.structure)
@@ -450,7 +458,10 @@ def _planned_sessions_and_burn(
     )
     non_rest = [p for p in planned if _normalize_type(p.session_type) != "rest"]
     sessions = [
-        {"type": p.session_type, "duration_min": _planned_duration_minutes(p.session_type, p.structure)}
+        {
+            "type": p.session_type,
+            "duration_min": _planned_duration_minutes(p.session_type, p.structure),
+        }
         for p in non_rest
     ]
     burn = sum(_planned_burn_kcal(p, weight_kg, run_kcal_per_kg_per_km, baseline) for p in non_rest)
@@ -520,7 +531,8 @@ def training_burn_kcal(
 
 # ── Budget (§1.3) ─────────────────────────────────────────────────────────────
 
-def compute_budget(settings: dict, burn: float, effective_deficit_kcal: Optional[int] = None) -> dict:
+def compute_budget(
+        settings: dict, burn: float, effective_deficit_kcal: Optional[int] = None) -> dict:
     """base + burn - deficit, floored at the energy-availability minimum.
     The EA floor is a HARD STOP: when it binds, the deficit is reduced
     (never the athlete's choice) — see fuel.md / spec §1.3.
@@ -531,7 +543,9 @@ def compute_budget(settings: dict, burn: float, effective_deficit_kcal: Optional
     """
     base_kcal = settings["base_kcal"]
     configured_deficit = settings["deficit_kcal"]
-    deficit_kcal = effective_deficit_kcal if effective_deficit_kcal is not None else configured_deficit
+    deficit_kcal = (
+        effective_deficit_kcal if effective_deficit_kcal is not None else configured_deficit
+    )
     lean_mass_kg = settings["lean_mass_kg"]
     ea_floor = settings["ea_floor"]
 
@@ -599,14 +613,21 @@ def compute_suggestion(targets: dict, eaten: dict, remaining_kcal: float) -> dic
 
     closes_p = round(meat_g * FOOD["meat"]["p"])
     closes_c = round(rice_g * FOOD["rice"]["c"])
-    text = f"{meat_g} g meat · {rice_g} g rice → closes {closes_p} g protein · {closes_c} g carbs"
-    return {"meat_g": meat_g, "rice_g": rice_g, "closes_protein_g": closes_p, "closes_carbs_g": closes_c,
-            "text": text, "message": None}
+    text = (
+        f"{meat_g} g meat · {rice_g} g rice"
+        f" → closes {closes_p} g protein · {closes_c} g carbs"
+    )
+    return {
+        "meat_g": meat_g, "rice_g": rice_g,
+        "closes_protein_g": closes_p, "closes_carbs_g": closes_c,
+        "text": text, "message": None,
+    }
 
 
 # ── Week phase resolver (DB-backed) ──────────────────────────────────────────
 
-def _resolve_week_phase_from_db(user_id, today: _date, db: Session) -> tuple[str, str, Optional[float]]:
+def _resolve_week_phase_from_db(
+        user_id, today: _date, db: Session) -> tuple[str, str, Optional[float]]:
     """Return (week_phase, reason, trailing_28d_weekly_avg) for the current week.
 
     Queries races, training plan, and TSS history. Falls back to ("base",
@@ -731,7 +752,9 @@ def _fetch_lean_mass(user_id, settings_row, db: Session) -> dict:
 
     from backend.services.weight_ewma import compute_ewma as _compute_ewma
     if weight_rows:
-        ewma_vals = _compute_ewma([{"date": w.entry_date, "weight_kg": float(w.weight_kg)} for w in weight_rows])
+        ewma_vals = _compute_ewma(
+            [{"date": w.entry_date, "weight_kg": float(w.weight_kg)} for w in weight_rows]
+        )
         ewma_weight = ewma_vals[-1] if ewma_vals else float(settings_row.weight_kg)
     else:
         ewma_weight = float(settings_row.weight_kg)
@@ -759,7 +782,8 @@ def get_today_payload(user_id, target_date: _date, db: Optional[Session] = None)
             user_id, target_date, settings["weight_kg"], settings["run_kcal_per_kg_per_km"],
             today=today, db=db,
         )
-        budget_info = compute_budget(settings, burn_info["burn"], effective_deficit_kcal=eff_deficit)
+        budget_info = compute_budget(
+            settings, burn_info["burn"], effective_deficit_kcal=eff_deficit)
         targets = compute_targets(
             settings,
             budget_info["budget"],
@@ -834,7 +858,8 @@ def get_week_payload(user_id, week_start: _date, db: Optional[Session] = None) -
                 user_id, d, settings["weight_kg"], settings["run_kcal_per_kg_per_km"],
                 today=today, db=db,
             )
-            budget_info = compute_budget(settings, burn_info["burn"], effective_deficit_kcal=eff_deficit)
+            budget_info = compute_budget(
+                settings, burn_info["burn"], effective_deficit_kcal=eff_deficit)
             entry = get_entry(user_id, d, db=db)
             eaten = compute_food_totals(entry)
 

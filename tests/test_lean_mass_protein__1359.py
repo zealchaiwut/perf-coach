@@ -53,7 +53,9 @@ def test_lean_mass_source_measured_when_bf_pct_within_60_days():
 def test_lean_mass_source_measured_at_exactly_60_days():
     """AC1: bf% exactly 60 days old is still within the window."""
     settings = _FakeSettings()
-    bf_readings = [_FakeBFReading(body_fat_pct=25.0, measure_date=date.today() - timedelta(days=60))]
+    bf_readings = [
+        _FakeBFReading(body_fat_pct=25.0, measure_date=date.today() - timedelta(days=60))
+    ]
     ewma_weight = 80.0
 
     result = fuel.current_lean_mass_kg(bf_readings, settings=settings, ewma_weight=ewma_weight)
@@ -67,7 +69,9 @@ def test_lean_mass_source_setting_when_no_recent_bf_pct():
     settings = _FakeSettings()
     settings.lean_mass_kg = 62.0
     # bf% reading older than 60 days
-    bf_readings = [_FakeBFReading(body_fat_pct=22.0, measure_date=date.today() - timedelta(days=61))]
+    bf_readings = [
+        _FakeBFReading(body_fat_pct=22.0, measure_date=date.today() - timedelta(days=61))
+    ]
     ewma_weight = 80.0
 
     result = fuel.current_lean_mass_kg(bf_readings, settings=settings, ewma_weight=ewma_weight)
@@ -95,7 +99,7 @@ def test_lean_mass_uses_most_recent_bf_reading_within_window():
     settings.lean_mass_kg = None
     bf_readings = [
         _FakeBFReading(body_fat_pct=25.0, measure_date=date.today() - timedelta(days=30)),
-        _FakeBFReading(body_fat_pct=20.0, measure_date=date.today() - timedelta(days=5)),  # most recent
+        _FakeBFReading(body_fat_pct=20.0, measure_date=date.today() - timedelta(days=5)),  # newest
     ]
     ewma_weight = 80.0
 
@@ -113,7 +117,8 @@ def test_lean_mass_uses_most_recent_bf_reading_within_window():
 def test_protein_target_uses_lean_mass_when_source_measured():
     """AC2: source='measured' → protein = protein_g_per_kg × lean_mass_kg."""
     settings = {"weight_kg": 80.0, "protein_g_per_kg": 2.0, "fat_g": 70}
-    targets = fuel.compute_targets(settings, budget=2400, lean_mass_kg=64.0, lean_mass_source="measured")
+    targets = fuel.compute_targets(
+        settings, budget=2400, lean_mass_kg=64.0, lean_mass_source="measured")
 
     # 2.0 × 64.0 = 128 g protein (not 2.0 × 80 = 160 g)
     assert targets["protein_g"] == 128
@@ -122,7 +127,8 @@ def test_protein_target_uses_lean_mass_when_source_measured():
 def test_protein_target_uses_total_weight_when_source_estimated():
     """AC2: source='estimated' → protein = protein_g_per_kg × weight_kg (existing behavior)."""
     settings = {"weight_kg": 80.0, "protein_g_per_kg": 2.0, "fat_g": 70}
-    targets = fuel.compute_targets(settings, budget=2400, lean_mass_kg=60.8, lean_mass_source="estimated")
+    targets = fuel.compute_targets(
+        settings, budget=2400, lean_mass_kg=60.8, lean_mass_source="estimated")
 
     # 2.0 × 80.0 = 160 g protein (legacy behavior preserved)
     assert targets["protein_g"] == 160
@@ -131,7 +137,8 @@ def test_protein_target_uses_total_weight_when_source_estimated():
 def test_protein_target_uses_total_weight_when_source_setting():
     """AC2: source='setting' → protein = protein_g_per_kg × weight_kg (existing behavior)."""
     settings = {"weight_kg": 80.0, "protein_g_per_kg": 2.0, "fat_g": 70}
-    targets = fuel.compute_targets(settings, budget=2400, lean_mass_kg=62.0, lean_mass_source="setting")
+    targets = fuel.compute_targets(
+        settings, budget=2400, lean_mass_kg=62.0, lean_mass_source="setting")
 
     # 2.0 × 80.0 = 160 g protein
     assert targets["protein_g"] == 160

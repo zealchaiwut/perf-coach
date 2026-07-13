@@ -247,7 +247,11 @@ def get_weekly_review(
             .first()
         )
         has_plan = plan is not None
-        plan_rate = float(plan.target_rate_kg_per_week) if (plan and plan.target_rate_kg_per_week is not None) else None
+        plan_rate = (
+            float(plan.target_rate_kg_per_week)
+            if (plan and plan.target_rate_kg_per_week is not None)
+            else None
+        )
         current_deficit_kcal = 0
 
         settings_row = get_or_create_settings(user_id, db=db)
@@ -414,12 +418,16 @@ def get_weekly_review(
         rec = compute_cut_recommendation(
             weigh_in_count_14d=weigh_in_count_14d,
             has_active_plan=has_plan and plan_rate is not None,
-            actual_rate_kg_per_week=actual_rate_kg_per_week if actual_rate_kg_per_week is not None else 0.0,
+            actual_rate_kg_per_week=(
+                actual_rate_kg_per_week if actual_rate_kg_per_week is not None else 0.0
+            ),
             plan_rate_kg_per_week=plan_rate if plan_rate is not None else 0.0,
             weekly_pct_bw_rate=weekly_pct_bw_rate,
             ea_proxy=ea_proxy,
             logging_adherence_pct=logging_adherence_pct,
-            avg_intake_vs_budget_kcal=avg_intake_vs_budget_kcal if avg_intake_vs_budget_kcal is not None else 0.0,
+            avg_intake_vs_budget_kcal=(
+                avg_intake_vs_budget_kcal if avg_intake_vs_budget_kcal is not None else 0.0
+            ),
             consecutive_weeks_behind=consecutive_weeks_behind,
             pct_logged_days_at_or_under_budget=pct_at_or_under,
             current_deficit_kcal=current_deficit_kcal,
@@ -433,7 +441,8 @@ def get_weekly_review(
             "plan_rate_kg_per_week": round(plan_rate, 3) if plan_rate is not None else None,
             "logging_adherence_pct": round(logging_adherence_pct, 1),
             "avg_intake_vs_budget_kcal": (
-                round(avg_intake_vs_budget_kcal, 1) if avg_intake_vs_budget_kcal is not None else None
+                round(avg_intake_vs_budget_kcal, 1)
+                if avg_intake_vs_budget_kcal is not None else None
             ),
             "recommendation": rec["recommendation"],
             "action": rec["action"],

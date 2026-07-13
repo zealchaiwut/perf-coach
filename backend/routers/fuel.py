@@ -178,7 +178,9 @@ async def post_fuel_calibrate(request: Request):
                 user.id, e.entry_date, settings["weight_kg"], settings["run_kcal_per_kg_per_km"],
                 today=_date.today(), db=db,
             )
-            fuel_entries_and_burn.append((e.entry_date, eaten, settings["base_kcal"], burn_info["burn"]))
+            fuel_entries_and_burn.append(
+                (e.entry_date, eaten, settings["base_kcal"], burn_info["burn"])
+            )
 
         try:
             result = _svc.calibrate(weight_entries, fuel_entries_and_burn)
