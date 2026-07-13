@@ -44,6 +44,7 @@ from backend.services.training_load import (
     daily_update,
     compute_load_curves,
     get_snapshot_series,
+    recompute_user_snapshots,
     readiness_label as training_readiness_label,
     project_form,
     resolve_user_ewma_days,
@@ -14091,10 +14092,12 @@ def accept_calibration(
     body: _AcceptCalibrationBody,
     user: User = Depends(resolve_user),
 ):
-    """Accept calibration suggestions and write new constants to user preferences.
+    """Accept calibration suggestions, write new constants, and refresh snapshots.
 
-    This is the explicit accept action (AC4).  Constants are only written when
-    the user explicitly calls this endpoint — no automatic overwrite ever occurs.
+    Constants are only written when the user explicitly calls this endpoint —
+    no automatic overwrite ever occurs.  After saving, all training-load
+    snapshots for this user are recomputed so the CTL/ATL history reflects
+    the new time constants immediately.
     """
     try:
         rid = _uuid.UUID(race_id)
@@ -14120,11 +14123,17 @@ def accept_calibration(
         session.commit()
         session.refresh(prefs)
 
-        return JSONResponse({
-            "ctl_days": prefs.ctl_days,
-            "atl_days": prefs.atl_days,
-            "message": "Fitness constants accepted and saved to your profile.",
-        })
+        ctl_days = prefs.ctl_days
+        atl_days = prefs.atl_days
+
+    snapshots_recomputed = recompute_user_snapshots(str(user.id))
+
+    return JSONResponse({
+        "ctl_days": ctl_days,
+        "atl_days": atl_days,
+        "snapshots_recomputed": snapshots_recomputed,
+        "message": "Fitness constants accepted and saved to your profile.",
+    })
 
 
 # ── Calibration status ────────────────────────────────────────────────────────
@@ -15491,6 +15500,118 @@ def _determine_performance_top_level_state(endurance_result, speed_result) -> st
     return "building_baseline"
 
 
+def _compute_perf_block_delta(today_score: float, block_start_score: float) -> float:
+    """Return today_score − block_start_score (absolute scale, same formula version)."""
+    return today_score - block_start_score
+
+
+def _fetch_perf_block_delta(
+    session,
+    user_id,
+    today,
+    window_days: int,
+    current_score: float,
+    current_formula_version: str,
+    score_type: str,
+):
+    """Query performance_score_history for the row at block_start_date.
+
+    Returns the block delta (float) when a matching-version row exists at
+    today - window_days, or None when history doesn't reach back that far or
+    the formula version differs (version-mixing guard).
+
+    score_type: 'endurance' | 'speed' — which column to read from the row.
+    """
+    from backend.models import PerformanceScoreHistory
+    block_start = today - _timedelta(days=window_days)
+    row = (
+        session.query(PerformanceScoreHistory)
+        .filter(
+            PerformanceScoreHistory.user_id == user_id,
+            PerformanceScoreHistory.score_date == block_start,
+            PerformanceScoreHistory.formula_version == current_formula_version,
+        )
+        .order_by(PerformanceScoreHistory.created_at.desc())
+        .first()
+    )
+    if row is None:
+        return None
+    # Version-mixing guard: reject rows produced by a different formula version
+    # even if they somehow passed the query filter (e.g. in tests with mock sessions).
+    if getattr(row, "formula_version", None) != current_formula_version:
+        return None
+    block_start_score = getattr(row, score_type, None)
+    if block_start_score is None:
+        return None
+    return _compute_perf_block_delta(current_score, block_start_score)
+
+
+def _upsert_perf_score_history(
+    session,
+    user_id,
+    score_date,
+    endurance,
+    speed,
+    formula_version: str,
+) -> None:
+    """Upsert today's endurance/speed scores into performance_score_history.
+
+    Idempotent: recomputing scores on the same day updates the row rather
+    than inserting a duplicate (unique constraint on user_id+score_date+formula_version).
+    Only called for the 'scored' state so null-score rows are never persisted.
+    """
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from backend.models import PerformanceScoreHistory
+    try:
+        stmt = pg_insert(PerformanceScoreHistory).values(
+            user_id=user_id,
+            score_date=score_date,
+            endurance=float(endurance) if endurance is not None else None,
+            speed=float(speed) if speed is not None else None,
+            formula_version=formula_version,
+        )
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_performance_score_history_user_date_version",
+            set_={"endurance": stmt.excluded.endurance, "speed": stmt.excluded.speed},
+        )
+        session.execute(stmt)
+        session.commit()
+    except Exception:
+        _performance_log.warning(
+            "Failed to upsert performance_score_history for user %s on %s",
+            user_id,
+            score_date,
+            exc_info=True,
+        )
+        session.rollback()
+
+
+def _get_perf_history_sparkline(session, user_id, today, window_days: int, formula_version: str):
+    """Return (dates, endurance_values, speed_values) from performance_score_history.
+
+    Reads rows for [today - window_days, today] with the current formula_version,
+    ordered oldest-first. Returns ([], [], []) when no rows exist (caller falls back
+    to in-request trend computation).
+    """
+    from backend.models import PerformanceScoreHistory
+    cutoff = today - _timedelta(days=window_days)
+    rows = (
+        session.query(PerformanceScoreHistory)
+        .filter(
+            PerformanceScoreHistory.user_id == user_id,
+            PerformanceScoreHistory.score_date >= cutoff,
+            PerformanceScoreHistory.score_date <= today,
+            PerformanceScoreHistory.formula_version == formula_version,
+        )
+        .order_by(PerformanceScoreHistory.score_date.asc())
+        .all()
+    )
+    dates = [r.score_date.isoformat() for r in rows]
+    endurance_vals = [r.endurance for r in rows]
+    speed_vals = [r.speed for r in rows]
+    return dates, endurance_vals, speed_vals
+
+
 def _build_performance_response(
     state: str,
     endurance,
@@ -15615,6 +15736,55 @@ def _build_performance_diagnostic(preferences, runs):
         "threshold_hr_present": threshold_hr_present,
         "threshold_pace_present": threshold_pace_present,
     }
+
+
+@app.get("/api/performance/score-history")
+def get_performance_score_history(
+    user: User = Depends(resolve_user),
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+):
+    """Return the persisted performance score series for the session user (issue #1365).
+
+    Query params:
+        from: optional ISO date (YYYY-MM-DD) — start of range (inclusive).
+        to:   optional ISO date (YYYY-MM-DD) — end of range (inclusive).
+
+    Defaults to the last 90 days when neither param is provided.
+    Returns a list of {date, endurance, speed, formula_version} dicts, oldest first.
+    Only rows matching the current _PERF_FORMULA_VERSION are returned so the
+    caller never receives a mixed-version series.
+    """
+    from backend.models import PerformanceScoreHistory
+    today = _datetime.now(_timezone.utc).date()
+    try:
+        _from = _date.fromisoformat(from_date) if from_date else today - _timedelta(days=90)
+        _to = _date.fromisoformat(to_date) if to_date else today
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid date: {exc}")
+
+    with Session(engine) as session:
+        rows = (
+            session.query(PerformanceScoreHistory)
+            .filter(
+                PerformanceScoreHistory.user_id == user.id,
+                PerformanceScoreHistory.score_date >= _from,
+                PerformanceScoreHistory.score_date <= _to,
+                PerformanceScoreHistory.formula_version == _PERF_FORMULA_VERSION,
+            )
+            .order_by(PerformanceScoreHistory.score_date.asc())
+            .all()
+        )
+        result = [
+            {
+                "date": r.score_date.isoformat(),
+                "endurance": r.endurance,
+                "speed": r.speed,
+                "formula_version": r.formula_version,
+            }
+            for r in rows
+        ]
+    return JSONResponse({"history": result, "formula_version": _PERF_FORMULA_VERSION})
 
 
 @app.get("/api/performance/score-breakdown")
@@ -15908,6 +16078,68 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
                 )
             )
 
+        # ── Persist scores + compute history-based block delta (issue #1365) ──
+        today_date = _datetime.now(_timezone.utc).date()
+        end_score = endurance.get("score") if isinstance(endurance, dict) else None
+        spd_score = speed.get("score") if isinstance(speed, dict) else None
+        from backend.services.running_performance import BREAKDOWN_WINDOW_DAYS as _BW_DAYS
+        with Session(engine) as _hist_session:
+            # Write-through: upsert today's scores so history grows each compute.
+            if end_score is not None or spd_score is not None:
+                _upsert_perf_score_history(
+                    session=_hist_session,
+                    user_id=uid,
+                    score_date=today_date,
+                    endurance=end_score,
+                    speed=spd_score,
+                    formula_version=_PERF_FORMULA_VERSION,
+                )
+            # Block delta: today − score at block_start (same formula_version only).
+            end_block_delta = None
+            spd_block_delta = None
+            if end_score is not None:
+                end_block_delta = _fetch_perf_block_delta(
+                    session=_hist_session,
+                    user_id=uid,
+                    today=today_date,
+                    window_days=_BW_DAYS,
+                    current_score=end_score,
+                    current_formula_version=_PERF_FORMULA_VERSION,
+                    score_type="endurance",
+                )
+            if spd_score is not None:
+                spd_block_delta = _fetch_perf_block_delta(
+                    session=_hist_session,
+                    user_id=uid,
+                    today=today_date,
+                    window_days=_BW_DAYS,
+                    current_score=spd_score,
+                    current_formula_version=_PERF_FORMULA_VERSION,
+                    score_type="speed",
+                )
+            # History sparkline: persisted series for the last BREAKDOWN_WINDOW_DAYS.
+            hist_dates, hist_end, hist_spd = _get_perf_history_sparkline(
+                session=_hist_session,
+                user_id=uid,
+                today=today_date,
+                window_days=_BW_DAYS,
+                formula_version=_PERF_FORMULA_VERSION,
+            )
+
+        # Inject block_delta and history_trend into the score dicts (copies).
+        if isinstance(endurance, dict):
+            endurance = dict(endurance)
+            endurance["block_delta"] = round(end_block_delta, 2) if end_block_delta is not None else None
+            if hist_dates:
+                endurance["history_trend"] = hist_end
+                endurance["history_trend_dates"] = hist_dates
+        if isinstance(speed, dict):
+            speed = dict(speed)
+            speed["block_delta"] = round(spd_block_delta, 2) if spd_block_delta is not None else None
+            if hist_dates:
+                speed["history_trend"] = hist_spd
+                speed["history_trend_dates"] = hist_dates
+
         _scored_payload = _build_performance_response(
             state="scored",
             endurance=endurance,
@@ -16074,8 +16306,9 @@ def _summary_cache_put(user_id, key, sig, payload):
 # v4 = one-score-everywhere + feed contributions; v5 = races in signature;
 # v6 = run_contributions + model + consistency bonus + improve hint;
 # v7 = power-fallback guards; v8 = implausible-lap filter; v9 = breakdown
-# block; v10 = race_floor_now + floor_binding; v11 = manual-lap reps.
-_PERF_FORMULA_VERSION = "vdot-v11"
+# block; v10 = race_floor_now + floor_binding; v11 = manual-lap reps;
+# v12 = aborted-session guard (MIN_ENDURANCE_QUALIFYING_SESSION_SECONDS).
+_PERF_FORMULA_VERSION = "vdot-v12"
 
 
 def _performance_signature(session, user_id, prefs_row) -> str:
@@ -17707,6 +17940,7 @@ def get_projection(user: User = Depends(resolve_user)):
         except Exception:
             economy_contribution = 0.0
 
+    from backend.services.formula_versions import PROJECTION_VERSION
     return JSONResponse({
         "building_baseline": building_baseline,
         "form_curve": form_curve,
@@ -17719,6 +17953,7 @@ def get_projection(user: User = Depends(resolve_user)):
         "economy_contribution": economy_contribution,
         "lag_peak_days": _LAG_PEAK_DAYS,
         "lag_window_days": _LAG_WINDOW_DAYS,
+        "formula_version": PROJECTION_VERSION,
     })
 
 

@@ -99,6 +99,12 @@ returned for back-compat but must not be used for badges.
 
 ## Endurance score algorithm (running_performance.py:146-270)
 
+0. **Aborted-session guard** (issue #1364): a run whose `duration_seconds` is
+   missing or ≤ `MIN_ENDURANCE_QUALIFYING_SESSION_SECONDS` (2400 s / 40 min) is
+   skipped entirely — even if it holds easy/warm-up laps — so a cut-short
+   interval session cannot add a durability perf point. Mirrors the 40-min
+   minimum in `endurance_signal.py` (`_MIN_MOVING_SECONDS = 2400`); only
+   sessions strictly longer than the threshold pass.
 1. **Lap classification** (`lap_classify.py:38-55`): ratio bands
    easy <0.80 ≤ steady <0.90 ≤ tempo <1.00 ≤ threshold <1.06 ≤ hard.
    Endurance uses easy+steady laps; speed uses hard+interval

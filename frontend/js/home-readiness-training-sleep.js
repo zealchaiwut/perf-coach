@@ -624,8 +624,15 @@
       '</div>';
     }
     var score = Math.round(data.score);
-    var trend = Array.isArray(data.trend) ? data.trend : [];
-    var delta = _hpfBlockDelta(trend, data.trend_dates);
+    // Use history-based block_delta from API when available (issue #1365);
+    // fall back to computing from trend[] when history is absent.
+    var delta;
+    if (data.block_delta != null) {
+      delta = Math.round(data.block_delta);
+    } else {
+      var trend = Array.isArray(data.trend) ? data.trend : [];
+      delta = _hpfBlockDelta(trend, data.trend_dates);
+    }
     var deltaHtml = '';
     if (delta !== null) {
       var dcls = delta > 0 ? 'up' : (delta < 0 ? 'down' : 'flat');

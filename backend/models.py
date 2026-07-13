@@ -905,6 +905,11 @@ class TrainingLoadSnapshot(Base):
     # miss and recomputed, so a change to the EWMA/ACWR math can never
     # silently keep serving stale-shape rows forever.
     formula_version = Column(Text, nullable=True)
+    # Records which EWMA time constants produced this row so the cache can be
+    # invalidated when the user accepts a new calibration.  NULL means the row
+    # was computed with the module defaults (CTL_DAYS=42, ATL_DAYS=7).
+    ctl_days = Column(Integer, nullable=True)
+    atl_days = Column(Integer, nullable=True)
     computed_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
     __table_args__ = (
@@ -1259,6 +1264,28 @@ class RacePrediction(Base):
         UniqueConstraint("race_id", "prediction_date", name="uq_race_predictions_race_day"),
         Index("ix_race_predictions_user_race", "user_id", "race_id"),
         CheckConstraint("predicted_seconds > 0", name="ck_race_predictions_predicted_seconds"),
+    )
+
+
+class PredictionSnapshot(Base):
+    """Daily persisted projection forecast for forecast-vs-actual accuracy evaluation.
+
+    One row per user per day — written on the first projection computation of the day
+    (later same-day recomputes do NOT overwrite, preserving the morning forecast).
+    The payload JSON contains per-race predicted finish times with race ids, projected
+    CTL at race date, peak CTL + peak week, and formula_version. See issue #1362.
+    """
+    __tablename__ = "prediction_snapshots"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    snapshot_date = Column(Date, nullable=False)
+    payload = Column(JSONB, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "snapshot_date", name="uq_prediction_snapshots_user_date"),
+        Index("ix_prediction_snapshots_user_date", "user_id", "snapshot_date"),
     )
 
 
@@ -1703,4 +1730,31 @@ class VerdictHistory(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "verdict_date", name="uq_verdict_history_user_date"),
         Index("ix_verdict_history_user_date", "user_id", "verdict_date"),
+    )
+
+
+class PerformanceScoreHistory(Base):
+    """Persisted daily endurance/speed scores with formula version stamps (issue #1361/#1365).
+
+    One row per (user, date, formula_version) — upserted each time scores are
+    computed so there is a durable series to compute block deltas from without
+    relying on the in-request trend[] recomputation.
+    """
+
+    __tablename__ = "performance_score_history"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    score_date = Column(Date, nullable=False)
+    endurance = Column(Float, nullable=True)
+    speed = Column(Float, nullable=True)
+    formula_version = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "score_date", "formula_version",
+            name="uq_performance_score_history_user_date_version",
+        ),
+        Index("ix_performance_score_history_user_date", "user_id", "score_date"),
     )

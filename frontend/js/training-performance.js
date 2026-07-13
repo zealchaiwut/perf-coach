@@ -2133,10 +2133,12 @@
     var b = data.breakdown && !data.breakdown.error ? data.breakdown : null;
     _perfBreakdown[type] = b;
 
-    // Delta pill — the breakdown's own window delta, never a second source.
+    // Delta pill — history-based block_delta (absolute scale, same formula version).
+    // Null when history doesn't reach back to block start → pill hidden (issue #1365).
     if (p.pill) {
-      if (b) {
-        var d = Math.round(b.delta * 10) / 10;
+      var block_delta = (data.block_delta != null) ? data.block_delta : null;
+      if (block_delta !== null) {
+        var d = Math.round(block_delta * 10) / 10;
         p.pill.hidden = false;
         p.pill.className = "perf-delta-pill perf-delta-pill--" + (d > 0 ? "up" : d < 0 ? "down" : "flat");
         p.pill.textContent = (d > 0 ? "+" : d < 0 ? "\u2212" : "") + Math.abs(d).toFixed(1);
