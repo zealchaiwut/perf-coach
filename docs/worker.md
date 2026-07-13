@@ -378,6 +378,146 @@ mirroring the webapp's plist (same `WorkingDirectory`, `ENVIRONMENT=uat`,
 `.venv/bin/uvicorn backend.worker_app:app --port 9100`) plus `caffeinate -s` to
 keep it polling through sleep.
 
+## Read API (Hermes)
+
+The worker exposes a small **read-only** HTTP API on port 9100 for local
+consumption by Hermes (the Mac Mini voice assistant). These routes are
+**not deployed to Render** and must never be reachable from the public
+internet — the tailnet / localhost binding is the security boundary.
+
+**Read-only by design** — all writes happen in the Render web app via
+deeplink, never here. The API has no POST/PATCH/DELETE routes; every
+endpoint is GET-only.
+
+### Shared conventions
+
+**User resolution** — every endpoint accepts an optional `?user=<username>`
+query param. Resolution order:
+1. Explicit `?user=<username>` → that user (by username)
+2. `WORKER_READ_API_USER` env var → that user
+3. Exactly one active user exists → use it
+4. Else → **400**
+
+**Date defaults** — `?date=` params default to today in Asia/Bangkok
+(matching the existing worker scheduler timezone). Pass `YYYY-MM-DD`.
+
+**No auth** on these routes — deliberate contrast with the
+secret-gated `/internal/*` routes (which require `X-Worker-Secret`).
+The tailnet/localhost binding is the access boundary.
+
+### `GET /api/training/load`
+
+CTL/ATL/TSB/ACWR + persisted verdict for the day. Reads from
+`training_load_snapshots` and `verdict_history` — no recomputation.
+If no snapshot exists for the requested date, returns the latest row ≤
+that date (with its actual `snapshot_date`); 404 only if the user has no
+snapshots at all. Verdict is `null` if no row exists for the date.
+
+```bash
+curl "http://localhost:9100/api/training/load?date=2026-07-13"
+```
+
+```json
+{
+  "date": "2026-07-13",
+  "snapshot_date": "2026-07-13",
+  "ctl": 54.2,
+  "atl": 61.8,
+  "tsb": -7.6,
+  "acwr": 1.14,
+  "verdict": "hold",
+  "verdict_date": "2026-07-13"
+}
+```
+
+### `GET /api/scores`
+
+Current Endurance and Speed performance scores with a 7-day trend flag.
+Reads from `performance_score_history` (latest row, newest formula_version).
+Trend is `up` / `flat` / `down` comparing against the value ~7 days earlier
+(±0.5 pt dead-band → `flat`; `flat` when no earlier row). 404 if no
+history at all.
+
+```bash
+curl "http://localhost:9100/api/scores"
+```
+
+```json
+{
+  "as_of": "2026-07-13",
+  "endurance": { "value": 62.4, "trend": "up" },
+  "speed": { "value": 58.1, "trend": "flat" },
+  "formula_version": "v2"
+}
+```
+
+### `GET /api/plan/today`
+
+Today's planned session(s) from `planned_sessions`, or an explicit empty
+state. Date defaults to today (Asia/Bangkok). Returns HTTP 200 in all
+cases — `"planned": false` when no row exists so Hermes always gets a
+narratable answer. Multiple sessions on one date are returned as a list
+under `"sessions"`.
+
+```bash
+curl "http://localhost:9100/api/plan/today"
+```
+
+Example — planned run day:
+
+```json
+{
+  "plan_date": "2026-07-13",
+  "planned": true,
+  "sessions": [
+    {
+      "session_type": "run",
+      "name": "Easy aerobic run",
+      "target": { "distance_km": 8.0, "duration_min": 50, "intensity": "easy" },
+      "note": "Keep HR in zone 2",
+      "status": "pending"
+    }
+  ]
+}
+```
+
+Example — no session planned:
+
+```json
+{
+  "plan_date": "2026-07-13",
+  "planned": false,
+  "sessions": []
+}
+```
+
+### `GET /api/weight/recent`
+
+Last N weigh-ins (default 14, clamped 1–90) from `weight_entries`, newest
+first. Includes the latest EWMA value and a trend over the window
+(`up`/`flat`/`down`, ±0.1 kg dead-band). EWMA computed via the shared
+`backend/services/weight_ewma.py` helper — same smoothing as the dashboard
+weight chart. Returns HTTP 200 with `entries: []` when the user has no
+weigh-ins (`last_logged` and `ewma` are null).
+
+```bash
+curl "http://localhost:9100/api/weight/recent?n=7"
+```
+
+```json
+{
+  "entries": [
+    { "date": "2026-07-13", "time": "07:12", "weight_kg": 68.4 },
+    { "date": "2026-07-12", "time": "07:08", "weight_kg": 68.6 },
+    { "date": "2026-07-11", "time": "07:15", "weight_kg": 68.5 }
+  ],
+  "count": 3,
+  "last_logged": "2026-07-13",
+  "ewma": 68.47,
+  "trend": "down"
+}
+```
+
 ## Audit trail
 
 `worker_job_runs` (see `backend/models.py`) is the source of truth for every
