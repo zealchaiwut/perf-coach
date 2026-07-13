@@ -51,7 +51,9 @@ def _make_easy_run(run_id, efficiency_hint=1.5, decoupling_pct=5.0, workout_date
         "avg_power": power,
         "avg_hr": 140.0,
         "distance_km": 6.0,
-        "duration_seconds": 1800,
+        # Must exceed MIN_ENDURANCE_QUALIFYING_SESSION_SECONDS (2400 s / 40 min)
+        # so the aborted-session guard (issue #1364) does not reject this run.
+        "duration_seconds": 2700,
     }
 
 
@@ -181,7 +183,7 @@ class TestComputeEnduranceBands:
                            "distance_km": 2.0, "duration_seconds": 600.0}],
                 "decoupling_pct": 5.0,
                 "avg_power": 170.0, "avg_hr": 145.0,
-                "distance_km": 5.0, "duration_seconds": 1800,
+                "distance_km": 5.0, "duration_seconds": 2700,
             }
             for i in range(1, MIN_QUALIFYING_RUNS + 1)
         ]
