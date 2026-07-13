@@ -502,7 +502,7 @@ def form_metrics_backfill(body: dict):
 # is the access boundary. No writes happen here; every endpoint is GET-only.
 
 
-def _resolve_read_user(user_param: str | None) -> "User":  # type: ignore[name-defined]
+def _resolve_read_user(user_param: str | None):
     """Resolve the target user for a Hermes read-API request.
 
     Resolution order:
@@ -554,6 +554,61 @@ def _session_to_dict(row) -> dict:
         "target": _extract_target(row.structure),
         "note": row.notes,
         "status": row.status,
+    }
+
+
+@app.get("/api/training/load")
+def training_load(date: str | None = None, user: str | None = None):
+    """Return CTL/ATL/TSB/ACWR + persisted verdict for a date for Hermes.
+
+    Reads from training_load_snapshots (single source of truth) and
+    verdict_history (persisted by _resolve_current_verdict). Does NOT
+    recompute anything.
+    """
+    from backend.models import TrainingLoadSnapshot, VerdictHistory
+    from datetime import date as _date
+
+    resolved_user = _resolve_read_user(user)
+
+    if date is not None:
+        try:
+            target_date = _date.fromisoformat(date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="date must be YYYY-MM-DD")
+    else:
+        target_date = datetime.now(BANGKOK_TZ).date()
+
+    with Session(engine) as s:
+        snap = (
+            s.query(TrainingLoadSnapshot)
+            .filter(
+                TrainingLoadSnapshot.user_id == resolved_user.id,
+                TrainingLoadSnapshot.snapshot_date <= target_date,
+            )
+            .order_by(TrainingLoadSnapshot.snapshot_date.desc())
+            .first()
+        )
+        if snap is None:
+            raise HTTPException(status_code=404, detail="no training load snapshots found for user")
+
+        verdict_row = (
+            s.query(VerdictHistory)
+            .filter(
+                VerdictHistory.user_id == resolved_user.id,
+                VerdictHistory.verdict_date == target_date,
+            )
+            .first()
+        )
+
+    return {
+        "date": target_date.isoformat(),
+        "snapshot_date": snap.snapshot_date.isoformat(),
+        "ctl": snap.ctl,
+        "atl": snap.atl,
+        "tsb": snap.tsb,
+        "acwr": snap.acwr,
+        "verdict": verdict_row.verdict if verdict_row else None,
+        "verdict_date": verdict_row.verdict_date.isoformat() if verdict_row else None,
     }
 
 
