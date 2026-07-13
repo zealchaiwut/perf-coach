@@ -1257,6 +1257,28 @@ class RacePrediction(Base):
     )
 
 
+class PredictionSnapshot(Base):
+    """Daily persisted projection forecast for forecast-vs-actual accuracy evaluation.
+
+    One row per user per day — written on the first projection computation of the day
+    (later same-day recomputes do NOT overwrite, preserving the morning forecast).
+    The payload JSON contains per-race predicted finish times with race ids, projected
+    CTL at race date, peak CTL + peak week, and formula_version. See issue #1362.
+    """
+    __tablename__ = "prediction_snapshots"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    snapshot_date = Column(Date, nullable=False)
+    payload = Column(JSONB, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "snapshot_date", name="uq_prediction_snapshots_user_date"),
+        Index("ix_prediction_snapshots_user_date", "user_id", "snapshot_date"),
+    )
+
+
 class AthleteDurationCurve(Base):
     """Per-athlete best-effort duration curve aggregated across all run workouts.
 
