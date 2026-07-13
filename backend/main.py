@@ -2168,6 +2168,121 @@ def get_weight_chart(
         return JSONResponse(result)
 
 
+# ── Power-to-weight trend endpoint (issue #1360) ─────────────────────────────
+
+from backend.services.power_to_weight import compute_power_to_weight_series as _compute_p2w_series  # noqa: E402
+
+_P2W_RANGE_OFFSETS = {
+    "7D": 6,
+    "30D": 29,
+    "90D": 89,
+    "6M": 183,
+    "1Y": 364,
+}
+_P2W_VALID_RANGES = {*_P2W_RANGE_OFFSETS, "ALL"}
+
+
+@app.get("/api/weight/power-to-weight")
+def get_power_to_weight(
+    range_token: Optional[str] = Query(default=None, alias="range"),
+    user: User = Depends(resolve_user),
+):
+    """Return a daily W/kg series for the selected range.
+
+    Each point has date, power_w, weight_kg (EWMA), w_per_kg.
+    Returns available:false when the user has no ftp_w configured.
+    """
+    uid = user.id
+    today = _today_bkk()
+
+    if range_token is not None and range_token not in _P2W_VALID_RANGES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"range must be one of: {', '.join(sorted(_P2W_VALID_RANGES))}",
+        )
+
+    if range_token is None:
+        range_token = "30D"
+
+    to_d = today
+    if range_token in _P2W_RANGE_OFFSETS:
+        from_d = today - _timedelta(days=_P2W_RANGE_OFFSETS[range_token])
+    else:  # ALL — resolved after earliest-entry lookup below
+        from_d = None
+
+    with Session(engine) as session:
+        # Fetch ftp_w from user_preferences
+        prefs_row = (
+            session.query(UserPreferences)
+            .filter(UserPreferences.user_id == uid)
+            .first()
+        )
+        ftp_w = prefs_row.ftp_w if prefs_row is not None else None
+
+        if not ftp_w:
+            return JSONResponse({"available": False, "power_basis": None, "series": [], "current": None})
+
+        # Resolve ALL: use earliest weight entry date
+        if from_d is None:
+            earliest = (
+                session.query(WeightEntry)
+                .filter(WeightEntry.user_id == uid)
+                .order_by(WeightEntry.entry_date.asc())
+                .first()
+            )
+            if earliest is not None:
+                from_d = (
+                    earliest.entry_date
+                    if isinstance(earliest.entry_date, _date)
+                    else _date.fromisoformat(str(earliest.entry_date))
+                )
+            else:
+                from_d = today - _timedelta(days=89)
+
+        # Fetch weight entries with EWMA warmup (6 days before from_d for convergence)
+        fetch_start = from_d - _timedelta(days=6)
+        all_entries = (
+            session.query(WeightEntry)
+            .filter(
+                WeightEntry.user_id == uid,
+                WeightEntry.entry_date >= fetch_start,
+                WeightEntry.entry_date <= to_d,
+            )
+            .order_by(WeightEntry.entry_date.asc(), WeightEntry.entry_time.asc())
+            .all()
+        )
+
+        # Build EWMA-indexed daily series (same logic as /api/weight-chart)
+        _ewma_input = [
+            {
+                "date": (
+                    e.entry_date
+                    if isinstance(e.entry_date, _date)
+                    else _date.fromisoformat(str(e.entry_date))
+                ),
+                "weight_kg": float(e.weight_kg),
+            }
+            for e in all_entries
+        ]
+        _ewma_raw = _compute_ewma(_ewma_input)
+        _ewma_by_date: dict = {
+            e["date"]: v for e, v in zip(_ewma_input, _ewma_raw)
+        }
+
+        # Build dense daily series for [from_d, to_d]
+        num_days = (to_d - from_d).days + 1
+        ewma_series = []
+        _last_ewma: Optional[float] = None
+        for i in range(num_days):
+            day = from_d + _timedelta(days=i)
+            if day in _ewma_by_date:
+                _last_ewma = round(_ewma_by_date[day], 4)
+            ewma_series.append({"date": day, "weight_kg": _last_ewma})
+
+        payload = _compute_p2w_series(ewma_series, ftp_w, from_d, to_d)
+        return JSONResponse(payload)
+
+
 # ── Home weight-summary endpoint ──────────────────────────────────────────────
 
 _WEIGHT_SUMMARY_EMPTY = {

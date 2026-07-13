@@ -1896,6 +1896,68 @@
         display: inline-block;
       }
 
+      /* ── Power-to-weight card (issue #1360) ───────────────────────────────── */
+      .p2w-card {
+        margin-top: 12px;
+        padding: 16px 20px;
+      }
+      .p2w-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      .p2w-header h2 {
+        margin: 0;
+      }
+      .p2w-basis-chip {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-tertiary);
+        background: var(--bg-2);
+        border-radius: 10px;
+        padding: 2px 8px;
+        letter-spacing: 0.02em;
+      }
+      .p2w-body {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+      .p2w-stat {
+        display: flex;
+        align-items: baseline;
+        gap: 4px;
+        min-width: 80px;
+      }
+      .p2w-headline {
+        font-size: 28px;
+        font-weight: 700;
+        color: var(--text-primary);
+        letter-spacing: -0.5px;
+        line-height: 1;
+      }
+      .p2w-unit {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-tertiary);
+      }
+      .p2w-spark {
+        flex: 1;
+        height: 32px;
+        min-width: 80px;
+        max-width: 200px;
+      }
+      .p2w-delta {
+        font-size: 13px;
+        font-weight: 600;
+        min-width: 60px;
+        text-align: right;
+      }
+      .p2w-delta.good { color: #16a34a; }
+      .p2w-delta.bad  { color: #dc2626; }
+      .p2w-delta.neutral { color: var(--text-tertiary); }
+
       /* ── Target History section ───────────────────────────────────────────── */
       .target-history-section {
         margin-top: 8px;
@@ -3480,6 +3542,22 @@
               /></svg
             >Milestone
           </span>
+        </div>
+      </div>
+
+      <!-- ── Power-to-weight card (issue #1360) ──────────────────────────────── -->
+      <div class="card p2w-card" id="p2w-card" hidden>
+        <div class="p2w-header">
+          <h2>Power-to-weight</h2>
+          <span class="p2w-basis-chip" id="p2w-basis-chip" title="Power basis: current FTP applied flat across the range">flat FTP</span>
+        </div>
+        <div class="p2w-body">
+          <div class="p2w-stat">
+            <div class="p2w-headline" id="p2w-headline"></div>
+            <div class="p2w-unit">W/kg</div>
+          </div>
+          <svg class="p2w-spark" id="p2w-spark" aria-hidden="true"></svg>
+          <div class="p2w-delta" id="p2w-delta"></div>
         </div>
       </div>
 

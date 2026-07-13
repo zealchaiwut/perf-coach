@@ -1511,6 +1511,7 @@ function _initRangeTabs() {
         const data = await fetchChartData(_currentRange, _rangeAbortController.signal);
         if (seq !== _rangeFetchSeq) return;
         renderChart(data, _currentRange);
+        _renderP2WCard(_currentRange);
       } catch (e) {
         if (e.name === 'AbortError') return;
         showPageError('Chart load failed: ' + e.message);
@@ -1674,6 +1675,79 @@ function _initTargetHistoryFilters() {
   }
 }
 
+// ── Power-to-weight card (issue #1360) ────────────────────────────────────
+
+function _p2wDrawSparkline(svgId, pts) {
+  var svg = document.getElementById(svgId);
+  if (!svg) return;
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  var valid = pts.filter(function (v) { return v != null; });
+  if (valid.length < 2) return;
+  var W = 200, H = 32;
+  var mn = Math.min.apply(null, valid);
+  var mx = Math.max.apply(null, valid);
+  var range = mx - mn || 0.001;
+  var d = pts
+    .map(function (v, i) {
+      var x = (i / (pts.length - 1)) * W;
+      var y = H - ((v - mn) / range) * (H - 6) - 3;
+      return (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
+    })
+    .join(' ');
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  var NS = 'http://www.w3.org/2000/svg';
+  var path = document.createElementNS(NS, 'path');
+  path.setAttribute('d', d);
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', '#4f6ef7');
+  path.setAttribute('stroke-width', '1.8');
+  path.setAttribute('stroke-linecap', 'round');
+  svg.appendChild(path);
+}
+
+async function _renderP2WCard(range) {
+  var card = document.getElementById('p2w-card');
+  if (!card) return;
+
+  var rangeMap = { '7d': '7D', '30d': '30D', '90d': '90D', '6m': '6M', '1y': '1Y', 'all': 'ALL' };
+  var apiRange = rangeMap[range] || '30D';
+
+  try {
+    var data = await apiFetch('/api/weight/power-to-weight?range=' + apiRange);
+    if (!data.available) {
+      card.hidden = true;
+      return;
+    }
+    card.hidden = false;
+
+    var headline = document.getElementById('p2w-headline');
+    var deltaEl = document.getElementById('p2w-delta');
+
+    if (data.current && data.current.w_per_kg != null) {
+      headline.textContent = data.current.w_per_kg.toFixed(2);
+    } else {
+      headline.textContent = '—';
+    }
+
+    // Delta label
+    if (data.current && data.current.delta_30d != null) {
+      var d30 = data.current.delta_30d;
+      var sign = d30 >= 0 ? '+' : '';
+      deltaEl.textContent = sign + d30.toFixed(2) + ' vs 30d';
+      deltaEl.className = 'p2w-delta ' + (d30 > 0 ? 'good' : d30 < 0 ? 'bad' : 'neutral');
+    } else {
+      deltaEl.textContent = '';
+      deltaEl.className = 'p2w-delta neutral';
+    }
+
+    // Sparkline from series w_per_kg values
+    var series = data.series || [];
+    _p2wDrawSparkline('p2w-spark', series.map(function (p) { return p.w_per_kg; }));
+  } catch (e) {
+    if (e.message !== 'auth') card.hidden = true;
+  }
+}
+
 // ── Full reload (after mutations) ─────────────────────────────────────────
 
 async function _reload() {
@@ -1701,6 +1775,7 @@ async function _reload() {
     renderTargetHistory(histSummary);
     _cardBSetLoggedState(_recentEntries, chartData.stats ? chartData.stats.current_weight_kg : null);
     await renderBackfillCalendar();
+    _renderP2WCard(_currentRange);
   } catch (e) {
     if (e.message !== 'auth') showPageError('Load error: ' + e.message);
   }
