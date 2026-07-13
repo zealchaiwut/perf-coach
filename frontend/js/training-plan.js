@@ -804,8 +804,12 @@ information about.
     if (sugBtn) sugBtn.onclick = function () {
       var t = document.getElementById('plan-suggestions-trigger');
       if (t) t.click();
-      var panel = document.getElementById('plan-suggestions-panel');
-      if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      // After the panel unhides and the prefs form renders — 'start', not
+      // 'nearest': the panel sits below the fold and 'nearest' barely moves.
+      setTimeout(function () {
+        var panel = document.getElementById('plan-suggestions-panel');
+        if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 50);
     };
     _updateWeekTargetUI();
     if (_bundle) _renderWeekList();
@@ -2192,8 +2196,8 @@ information about.
     '.plan-panel .pl-wktitle{font-size:13px;font-weight:800;}',
     '.plan-panel .pl-weektotal{font-size:11px;color:var(--pl-muted);font-family:var(--pl-mono);margin-left:6px;}',
     '.plan-panel .pl-weektotal b{color:var(--pl-ink);font-weight:800;}',
-    '.plan-panel .pl-weeklist{display:flex;flex-direction:column;gap:10px;margin-top:14px;}',
-    '.plan-panel .pl-dayrow{display:flex;gap:14px;padding:12px 14px;border:1px solid var(--pl-line);border-radius:12px;background:var(--pl-tile);align-items:flex-start;}',
+    '.plan-panel .pl-weeklist{display:flex;flex-direction:column;gap:6px;margin-top:14px;}',
+    '.plan-panel .pl-dayrow{display:flex;gap:12px;padding:7px 12px;border:1px solid var(--pl-line);border-radius:12px;background:var(--pl-tile);align-items:flex-start;}',
     '.plan-panel .pl-dayrow.today{border-color:#c7d2fe;background:#f4f6ff;}',
     '.plan-panel .pl-dayrow.past{opacity:0.94;}',
     '.plan-panel .pl-dayrow.dragover{outline:2px dashed var(--pl-lavHi);outline-offset:-2px;background:#eef2ff;}',
@@ -2260,7 +2264,7 @@ information about.
     '.plan-panel .pl-gtop{margin-bottom:3px;}',
     '.plan-panel .pl-gtag{font-size:8px;font-weight:800;letter-spacing:0.03em;color:var(--pl-faint);background:var(--pl-tile);padding:1px 5px;border-radius:4px;}',
     '.plan-panel .pl-ghostsel{width:100%;font-size:10.5px;border:1px solid var(--pl-line);border-radius:6px;padding:4px 6px;margin-top:6px;background:#fff;}',
-    '.plan-panel .pl-daybody .pl-addday{border:1.5px dashed #d7dcec;border-radius:8px;flex:0 0 76px;min-height:52px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:10.5px;color:var(--pl-faint);cursor:pointer;}',
+    '.plan-panel .pl-daybody .pl-addday{border:1.5px dashed #d7dcec;border-radius:8px;flex:0 0 76px;min-height:34px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:10.5px;color:var(--pl-faint);cursor:pointer;}',
     '.plan-panel .pl-addday:hover{color:var(--pl-lavHi);border-color:#c7d2fe;}',
     '.plan-panel .pl-addday.is-disabled{cursor:not-allowed;opacity:0.5;border-style:solid;}',
     '.plan-panel .pl-addday.is-disabled:hover{color:var(--pl-faint);border-color:#d7dcec;}',
