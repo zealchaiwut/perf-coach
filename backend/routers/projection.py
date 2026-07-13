@@ -11,7 +11,7 @@ import uuid as _uuid
 from datetime import date as _date, timedelta as _timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Query as _Query
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session as _Session
@@ -558,6 +558,7 @@ async def get_plan_projection(
             "date": r["date"],
             "distance_km": r.get("distance"),
             "name": r.get("name") or "",
+            "race_id": r.get("id"),
         }
         for r in races
     ]
@@ -615,4 +616,53 @@ async def get_plan_projection(
         reference_date=today,
         body_modifier=_bm_plan,
     )
+
+    # Persist a forecast snapshot for forecast-vs-actual accuracy (issue #1362).
+    # Throttled to once per day: first write wins, same-day recomputes are no-ops.
+    try:
+        from backend.services.prediction_snapshot import (
+            build_snapshot_payload as _build_snap,
+            maybe_write_prediction_snapshot as _write_snap,
+        )
+        snap_payload = _build_snap(
+            race_projections=payload.get("races", []),
+            ctl_series=payload.get("ctl", []),
+            start_date=start_date,
+            races_meta=races,
+            formula_version="1",
+        )
+        _write_snap(user.id, today, snap_payload)
+    except Exception:
+        pass  # snapshot failures must never break the projection response
+
     return JSONResponse(payload)
+
+
+@router.get("/projection/snapshots")
+async def get_projection_snapshots(
+    from_date: Optional[str] = _Query(default=None, alias="from"),
+    to_date: Optional[str] = _Query(default=None, alias="to"),
+    user: User = Depends(resolve_user),
+):
+    """Return prediction snapshots for the authenticated user.
+
+    Query params ``from`` and ``to`` (ISO YYYY-MM-DD) bound the date range.
+    Response: list of {snapshot_date, payload, created_at}, ordered by date.
+    """
+    from backend.services.prediction_snapshot import list_snapshots as _list_snaps
+
+    from_d = None
+    to_d = None
+    if from_date is not None:
+        try:
+            from_d = _date.fromisoformat(from_date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail={"field": "from", "error": "must be YYYY-MM-DD"})
+    if to_date is not None:
+        try:
+            to_d = _date.fromisoformat(to_date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail={"field": "to", "error": "must be YYYY-MM-DD"})
+
+    rows = _list_snaps(user.id, from_date=from_d, to_date=to_d)
+    return JSONResponse(rows)
