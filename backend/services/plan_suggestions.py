@@ -532,6 +532,9 @@ def build_prompt(facts: dict) -> tuple[str, str]:
     target_rule_n = None
     if target_tss is not None:
         target_rule_n = _n; _n += 1
+    notes_binding_rule_n = None
+    if notes:
+        notes_binding_rule_n = _n; _n += 1
     notes_rule_n = _n; _n += 1
     rest_rule_n = None
     if rest_requested:
@@ -544,6 +547,20 @@ def build_prompt(facts: dict) -> tuple[str, str]:
     long_run_rule_n = _n; _n += 1
     consec_rule_n = _n; _n += 1
 
+    # Athlete notes must outrank the generic phase-mix template. Without an
+    # explicit numbered rule the model treats the trailing "Additional notes"
+    # line as background and lays down its default long-run/quality/strength
+    # distribution instead (observed: "run Tue, long run Sat, strength Sun"
+    # answered with strength Tue/Sat and a run Sun).
+    notes_binding_rule = (
+        f"{notes_binding_rule_n}. The athlete's own notes (the 'Additional notes from the athlete' "
+        "line below) are BINDING scheduling constraints, not background context. When they name a "
+        "day and a session type (e.g. \"run Tue, strength Fri\"), you MUST schedule exactly that "
+        "type on that day — including two same-day entries per rule 3 when they ask for both (e.g. "
+        "\"strength and an easy run on Fri\"). Phrasing like \"I had a plan of running Tue\" states "
+        "the athlete's intended plan for THIS week unless it clearly describes already-completed "
+        "training. The generic phase mix in these rules fills in ONLY where the notes are silent.\n"
+    ) if notes_binding_rule_n else ""
     rest_rule = (
         f"{rest_rule_n}. The athlete asked for these day_offsets to be REST: "
         f"{', '.join(str(o) for o in sorted(rest_requested))}. You MUST include an explicit "
@@ -627,6 +644,7 @@ def build_prompt(facts: dict) -> tuple[str, str]:
         f"scheduled, already logged, or in the past: {allowed_str}.\n"
         f"6. Respect ramp limits: do not increase weekly TSS by more than 30% above the trailing average.{taper_note}\n"
         f"{target_rule}"
+        f"{notes_binding_rule}"
         f"{notes_rule_n}. `notes` = the coach's RATIONALE (why this weight/exercise/pairing — fatigue "
         "management, what's already logged/planned, why an exercise was avoided/kept). Terse coach-style, "
         "e.g. \"Legs stay fresh — Thursday is intervals.\" Null only for rest days.\n"
@@ -691,11 +709,23 @@ def build_prompt(facts: dict) -> tuple[str, str]:
     elif emphasis == "less":
         user += "The athlete wants LESS strength training than usual this week.\n"
     if notes:
-        # today_offset anchors "today"/"tomorrow"/day-name language in the notes to
-        # an actual day_offset — without it the model has to infer which offset is
-        # "today" purely from which day names appear in allowed_str, which is
-        # unreliable (observed: intervals requested "today" landing on the wrong
-        # day_offset).
+        # Anchor day-name language ("Tue", "Sat") in the notes to concrete
+        # day_offsets. today_offset covers "today"/"tomorrow" but is None for
+        # a next-week request (today isn't in the target week), so ALSO emit
+        # the full offset↔day↔date table whenever week_start is known —
+        # without it the model must infer the mapping from allowed_str alone,
+        # which is unreliable (observed: intervals requested "today" landing
+        # on the wrong day_offset; "run Tue" answered with strength on Tue).
+        week_start_iso = facts.get("week_start")
+        if week_start_iso:
+            try:
+                ws = date.fromisoformat(week_start_iso)
+                mapping = ", ".join(
+                    f"{o}={_DAY_NAMES[o]} {(ws + timedelta(days=o)).isoformat()}" for o in range(7)
+                )
+                user += f"Target week day mapping (day_offset=day date): {mapping}.\n"
+            except ValueError:
+                pass
         if today_offset is not None:
             user += f"TODAY is day_offset {today_offset} ({_DAY_NAMES[today_offset]}). "
         user += f"Additional notes from the athlete: {notes}\n"
