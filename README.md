@@ -205,6 +205,16 @@ It syncs all connected users automatically at `WORKER_SYNC_TIMES`
 All `/internal/*` endpoints (except `/internal/health`) require the
 `X-Worker-Secret` header matching `WORKER_SHARED_SECRET` in `.env`.
 
+The worker also exposes a small **read-only** `/api/*` surface on port 9100
+for local consumption by Hermes (the Mac Mini voice assistant) — no
+`X-Worker-Secret`, the tailnet/localhost binding is the access boundary.
+Every route is GET-only and recomputes nothing. Shipped so far:
+`GET /api/training/load` (CTL/ATL/TSB/ACWR + persisted verdict, #1449) and
+`GET /api/plan/today` (today's planned session(s) or an explicit empty
+state, #1451). User resolution is `?user=<username>` → `WORKER_READ_API_USER`
+env → the single active user → 400. Full reference:
+[docs/worker.md](docs/worker.md#read-api-hermes).
+
 ## API
 
 | Endpoint | Description |

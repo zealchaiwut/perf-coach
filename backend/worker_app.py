@@ -495,6 +495,161 @@ def form_metrics_backfill(body: dict):
     return {"started": True}
 
 
+# ── Read API (Hermes) ─────────────────────────────────────────────────────────
+#
+# Read-only endpoints on /api/* for local consumption by Hermes (the Mac Mini
+# voice assistant). No X-Worker-Secret required — the tailnet/localhost binding
+# is the access boundary. No writes happen here; every endpoint is GET-only.
+
+
+def _resolve_read_user(user_param: str | None):
+    """Resolve the target user for a Hermes read-API request.
+
+    Resolution order:
+    1. Explicit ?user=<username> query param
+    2. WORKER_READ_API_USER env var
+    3. Exactly one active user in the DB
+    4. Else → 400
+    """
+    from backend.models import User
+
+    username = user_param or os.getenv("WORKER_READ_API_USER")
+    with Session(engine) as s:
+        if username:
+            user = s.query(User).filter(User.name == username, User.is_active.is_(True)).first()
+            if user is None:
+                raise HTTPException(status_code=400, detail=f"user {username!r} not found or inactive")
+            return user
+        # Fallback: exactly one active user
+        active = s.query(User).filter(User.is_active.is_(True)).all()
+        if len(active) == 1:
+            return active[0]
+        raise HTTPException(status_code=400, detail="?user= required: multiple or zero active users")
+
+
+def _extract_target(structure: dict | None) -> dict:
+    """Extract distance_km, duration_min, intensity from a planned_sessions structure blob.
+
+    Tries top-level keys first, then the first block in structure["blocks"].
+    Returns nulls for any field not found.
+    """
+    out: dict = {"distance_km": None, "duration_min": None, "intensity": None}
+    if not structure or not isinstance(structure, dict):
+        return out
+    for key in out:
+        val = structure.get(key)
+        if val is None:
+            for block in structure.get("blocks", []):
+                if isinstance(block, dict) and block.get(key) is not None:
+                    val = block[key]
+                    break
+        out[key] = val
+    return out
+
+
+def _session_to_dict(row) -> dict:
+    return {
+        "session_type": row.session_type,
+        "name": row.name,
+        "target": _extract_target(row.structure),
+        "note": row.notes,
+        "status": row.status,
+    }
+
+
+@app.get("/api/training/load")
+def training_load(date: str | None = None, user: str | None = None):
+    """Return CTL/ATL/TSB/ACWR + persisted verdict for a date for Hermes.
+
+    Reads from training_load_snapshots (single source of truth) and
+    verdict_history (persisted by _resolve_current_verdict). Does NOT
+    recompute anything.
+    """
+    from backend.models import TrainingLoadSnapshot, VerdictHistory
+    from datetime import date as _date
+
+    resolved_user = _resolve_read_user(user)
+
+    if date is not None:
+        try:
+            target_date = _date.fromisoformat(date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="date must be YYYY-MM-DD")
+    else:
+        target_date = datetime.now(BANGKOK_TZ).date()
+
+    with Session(engine) as s:
+        snap = (
+            s.query(TrainingLoadSnapshot)
+            .filter(
+                TrainingLoadSnapshot.user_id == resolved_user.id,
+                TrainingLoadSnapshot.snapshot_date <= target_date,
+            )
+            .order_by(TrainingLoadSnapshot.snapshot_date.desc())
+            .first()
+        )
+        if snap is None:
+            raise HTTPException(status_code=404, detail="no training load snapshots found for user")
+
+        verdict_row = (
+            s.query(VerdictHistory)
+            .filter(
+                VerdictHistory.user_id == resolved_user.id,
+                VerdictHistory.verdict_date == target_date,
+            )
+            .first()
+        )
+
+    return {
+        "date": target_date.isoformat(),
+        "snapshot_date": snap.snapshot_date.isoformat(),
+        "ctl": snap.ctl,
+        "atl": snap.atl,
+        "tsb": snap.tsb,
+        "acwr": snap.acwr,
+        "verdict": verdict_row.verdict if verdict_row else None,
+        "verdict_date": verdict_row.verdict_date.isoformat() if verdict_row else None,
+    }
+
+
+@app.get("/api/plan/today")
+def plan_today(date: str | None = None, user: str | None = None):
+    """Return today's planned session(s) from planned_sessions for Hermes.
+
+    Always HTTP 200 — planned:false when no row exists so Hermes always gets
+    a narratable answer.
+    """
+    from backend.models import PlannedSession
+
+    resolved_user = _resolve_read_user(user)
+
+    if date is not None:
+        try:
+            from datetime import date as _date
+            plan_date = _date.fromisoformat(date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="date must be YYYY-MM-DD")
+    else:
+        plan_date = datetime.now(BANGKOK_TZ).date()
+
+    with Session(engine) as s:
+        rows = (
+            s.query(PlannedSession)
+            .filter(
+                PlannedSession.user_id == resolved_user.id,
+                PlannedSession.planned_date == plan_date,
+            )
+            .all()
+        )
+
+    planned = len(rows) > 0
+    return {
+        "plan_date": plan_date.isoformat(),
+        "planned": planned,
+        "sessions": [_session_to_dict(r) for r in rows],
+    }
+
+
 # ── Scheduler thread ─────────────────────────────────────────────────────────
 
 def _parse_sync_times() -> list[tuple[int, int]]:
