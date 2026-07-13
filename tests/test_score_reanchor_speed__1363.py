@@ -18,10 +18,8 @@ AC7  – Anchoring math validated against worked examples from the proposal doc
 """
 from __future__ import annotations
 
-import math
 from datetime import date, timedelta
 
-import pytest
 
 from backend.services.vdot import (
     vdot_from_pace_duration,
@@ -37,7 +35,6 @@ from backend.services.vdot import (
 from backend.services.running_performance import (
     compute_endurance_score,
     compute_speed_score,
-    PERFORMANCE_CONFIG,
 )
 from backend.services.zone_constants import make_zone_constants, MIN_QUALIFYING_RUNS
 
@@ -338,7 +335,6 @@ class TestAC5FormulaVersionAndMultipliers:
 
     def test_perf_formula_version_token_exists_in_main(self):
         """_PERF_FORMULA_VERSION must be defined and non-empty in backend.main."""
-        import importlib, sys
         # Avoid re-importing the full FastAPI app — just read the source.
         import ast
         import pathlib
