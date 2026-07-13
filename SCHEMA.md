@@ -928,9 +928,9 @@ Index: `ix_injury_log_user_started_on` on `(user_id, started_on)`. Migration: `1
 
 ---
 
-## body_measurements _(added Sprint 104.1 / #1359)_
+## body_measurements _(added Sprint 104.2 / #1358)_
 
-Periodic body-composition measurements (waist circumference and/or body-fat %). Backs the lean-mass-driven protein target and cut guard: `current_lean_mass_kg` reads the latest `body_fat_pct` within 60 days to derive lean mass (`ewma_weight × (1 − bf%)`, source `measured`). Model: `BodyMeasurement` in `backend/models.py`.
+Periodic body-composition measurements (waist circumference and/or body-fat %). Captured via `POST/GET/PATCH/DELETE /api/body-measurements` (CSV export at `GET /api/exports/body-measurements`). Backs the lean-mass-driven protein target and cut guard (#1359): `current_lean_mass_kg` reads the latest `body_fat_pct` within 60 days to derive lean mass (`ewma_weight × (1 − bf%)`, source `measured`). Model: `BodyMeasurement` in `backend/models.py`.
 
 | column | type | notes |
 |--------|------|-------|

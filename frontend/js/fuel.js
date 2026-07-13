@@ -523,6 +523,7 @@ const _CUT_REVIEW_LABELS = {
   recalibrate_maintenance: 'Consider recalibrating maintenance',
   increase_deficit: 'Behind plan — consider a small cut',
   ease_off: 'Ahead of plan — ease off',
+  plateau: 'Plateau — weight has stalled',
 };
 
 async function _fuelLoadWeeklyReview() {
@@ -554,6 +555,18 @@ function _fuelRenderWeeklyReview(d) {
 
   const action = document.getElementById('cut-review-action');
   if (action) action.textContent = d.action || '';
+
+  // Plateau section: show day count + calibrate link when recommendation is plateau
+  const plateauSection = document.getElementById('cut-review-plateau');
+  if (plateauSection) {
+    if (rec === 'plateau' && d.plateau_days != null) {
+      const daysEl = document.getElementById('cut-review-plateau-days');
+      if (daysEl) daysEl.textContent = d.plateau_days;
+      plateauSection.hidden = false;
+    } else {
+      plateauSection.hidden = true;
+    }
+  }
 
   const actualEl = document.getElementById('cut-review-actual-rate');
   if (actualEl) {
@@ -590,6 +603,7 @@ function _fuelRenderWeeklyReview(d) {
       increase_deficit: '',
       check_logging: '',
       recalibrate_maintenance: '',
+      plateau: '',
     };
     badge.className = 'fuel-deficit-chip ' + (colorMap[rec] || '');
     badge.style.display = '';
