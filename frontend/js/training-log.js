@@ -2166,6 +2166,7 @@
     if (exercises.length) {
       jsonObj.exercises = exercises.map(function (ex) {
         var e = { name: ex.name || "" };
+        if (ex.block) e.block = ex.block;
         if (ex.sets != null) e.sets = ex.sets;
         if (ex.reps != null) e.reps = ex.reps;
         if (ex.weight_kg != null) e.weight_kg = parseFloat(ex.weight_kg);
@@ -2192,8 +2193,8 @@
     jsonPanel.className = "dp-section";
     jsonPanel.innerHTML =
       '<p class="dp-json-hint">Supported fields: <code>name</code>, <code>date</code>, <code>remarks</code> (or <code>notes</code>). ' +
-      'Exercises: <code>name</code>, <code>sets</code>, <code>reps</code>, <code>weight_kg</code>, <code>rpe</code>. ' +
-      'Unknown fields like <code>block</code> or <code>load</code> are silently ignored.</p>' +
+      'Exercises: <code>name</code>, <code>block</code> (training-block group, e.g. "Warm-up"), <code>sets</code>, <code>reps</code>, <code>weight_kg</code>, <code>rpe</code>. ' +
+      'Unknown fields like <code>load</code> are silently ignored.</p>' +
       '<textarea id="dp-edit-json-ta" class="dp-json-ta" spellcheck="false">' + esc(jsonStr) + '</textarea>' +
       '<div class="dp-json-actions">' +
       '<button type="button" class="dp-json-save-btn" id="dp-edit-json-save">Save changes</button>' +
@@ -2245,7 +2246,7 @@
       if ("notes" in parsed) patchBody.remarks = parsed.notes || null;
 
       // Allowed exercise fields; coerce numeric strings to int/null
-      var EXERCISE_ALLOWED = { name: 1, sets: 1, reps: 1, weight_kg: 1, rpe: 1, duration: 1, distance_km: 1, duration_seconds: 1, avg_hr: 1 };
+      var EXERCISE_ALLOWED = { name: 1, block: 1, sets: 1, reps: 1, weight_kg: 1, rpe: 1, duration: 1, distance_km: 1, duration_seconds: 1, avg_hr: 1 };
       var newExercises = (parsed.exercises || []).map(function (ex) {
         var clean = {};
         Object.keys(ex).forEach(function (k) {
@@ -3726,12 +3727,24 @@
       var rpeSum = 0,
         rpeCount = 0;
       var exRows = "";
+      var lastBlock = null;
       exercises.forEach(function (ex) {
         totalVol += _calcExVolume(ex);
         var rpe = _avgRpeFromEx(ex);
         if (rpe != null) {
           rpeSum += parseFloat(rpe);
           rpeCount += 1;
+        }
+        // Training-block header rows (Warm-up / Heavy compound / ...) — the
+        // grouping the plan had, now carried on logged exercises too. Rows
+        // without a block render flat, exactly as before.
+        var blk = ex.block || null;
+        if (blk !== lastBlock) {
+          if (blk) {
+            exRows +=
+              '<tr class="dp-ex-blockrow"><td colspan="5">' + esc(blk) + "</td></tr>";
+          }
+          lastBlock = blk;
         }
         var r = _strengthExRow(ex);
         exRows +=
@@ -4641,34 +4654,55 @@
   function _initSyncWidget() {
     var toggleBtn = document.getElementById("sync-toggle-btn");
     var panel = document.getElementById("sync-panel");
+    var backdrop = document.getElementById("sync-backdrop");
     if (!toggleBtn || !panel) return;
 
-    // ≤599px the actions cluster becomes an overflow-x scroller (see the
-    // header media query), and a scroll container clips absolutely-positioned
-    // children — so the panel never showed on mobile. Escape the clip by
-    // switching the panel to fixed positioning, anchored to the button.
-    var narrowMq = window.matchMedia("(max-width: 599px)");
+    // The panel and backdrop must escape .log-page-header: its
+    // backdrop-filter makes it the containing block for fixed descendants,
+    // so a fixed backdrop only dims the header bar and the panel's fixed
+    // coordinates resolve against the header instead of the viewport (and
+    // ≤599px the actions cluster is an overflow-x scroller that clips
+    // absolute children on top of that). Portal both to <body> and anchor
+    // the panel to the button with viewport-fixed coordinates.
+    document.body.appendChild(panel);
+    if (backdrop) document.body.appendChild(backdrop);
 
     function _positionSyncPanel() {
-      if (!narrowMq.matches) {
-        panel.style.position = "";
-        panel.style.top = "";
-        panel.style.right = "";
-        return;
-      }
       var rect = toggleBtn.getBoundingClientRect();
       panel.style.position = "fixed";
       panel.style.top = rect.bottom + 7 + "px";
-      panel.style.right = Math.max(8, window.innerWidth - rect.right) + "px";
+      // Center the panel on the button, clamped to an 8px viewport gutter.
+      var panelWidth = panel.offsetWidth || 224;
+      var left = rect.left + rect.width / 2 - panelWidth / 2;
+      left = Math.max(8, Math.min(left, window.innerWidth - panelWidth - 8));
+      panel.style.right = "auto";
+      panel.style.left = left + "px";
+    }
+
+    function _openSyncPanel() {
+      // Unhide first — the panel must have layout for offsetWidth to be
+      // real before centering math runs.
+      panel.hidden = false;
+      _positionSyncPanel();
+      if (backdrop) backdrop.hidden = false;
+      toggleBtn.setAttribute("aria-expanded", "true");
+    }
+
+    function _closeSyncPanel() {
+      panel.hidden = true;
+      if (backdrop) backdrop.hidden = true;
+      toggleBtn.setAttribute("aria-expanded", "false");
     }
 
     toggleBtn.addEventListener("click", function (e) {
       e.stopPropagation();
-      var isOpen = !panel.hidden;
-      if (!isOpen) _positionSyncPanel();
-      panel.hidden = isOpen;
-      toggleBtn.setAttribute("aria-expanded", String(!isOpen));
+      if (panel.hidden) _openSyncPanel();
+      else _closeSyncPanel();
     });
+
+    if (backdrop) {
+      backdrop.addEventListener("click", _closeSyncPanel);
+    }
 
     // Keep the fixed panel glued to the button while the page (or the
     // actions cluster itself) scrolls or the viewport resizes.
@@ -4678,26 +4712,26 @@
     window.addEventListener(
       "scroll",
       function () {
-        if (!panel.hidden && narrowMq.matches) _positionSyncPanel();
+        if (!panel.hidden) _positionSyncPanel();
       },
       true,
     );
 
+    // The backdrop catches most outside clicks; this handles anything above
+    // it in the stacking order (e.g. the header itself).
     document.addEventListener("click", function (e) {
       if (
         !panel.hidden &&
         !panel.contains(e.target) &&
         e.target !== toggleBtn
       ) {
-        panel.hidden = true;
-        toggleBtn.setAttribute("aria-expanded", "false");
+        _closeSyncPanel();
       }
     });
 
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && !panel.hidden) {
-        panel.hidden = true;
-        toggleBtn.setAttribute("aria-expanded", "false");
+        _closeSyncPanel();
       }
     });
 
@@ -4736,8 +4770,7 @@
     var stravaBtn = document.getElementById("sync-btn-strava");
     if (stravaBtn) {
       stravaBtn.addEventListener("click", function () {
-        panel.hidden = true;
-        toggleBtn.setAttribute("aria-expanded", "false");
+        _closeSyncPanel();
         _onSyncProviderClick("Strava", "/api/strava/sync");
       });
     }
@@ -4745,8 +4778,7 @@
     var strydBtn = document.getElementById("sync-btn-stryd");
     if (strydBtn) {
       strydBtn.addEventListener("click", function () {
-        panel.hidden = true;
-        toggleBtn.setAttribute("aria-expanded", "false");
+        _closeSyncPanel();
         _onSyncProviderClick("Stryd", "/api/stryd/sync");
       });
     }

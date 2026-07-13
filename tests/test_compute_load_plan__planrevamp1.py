@@ -282,6 +282,57 @@ def test_deload_week_resumes_next_week_from_pre_cut_trajectory():
     assert abs(w5_deload["target_tss"] - w5_plain["target_tss"]) < 0.5  # week 5 is NOT reduced by the cut
 
 
+def test_deload_start_week_shifts_the_cycle():
+    # start 2 → deloads land on ramp weeks 2, 6, 10 — and NOT on 4, 8, 12.
+    result = compute_load_plan(
+        baseline=316, ramp_rate=0.05, hold_weeks=4, taper_weeks=3, weeks_to_race=19,
+        deload_enabled=True, deload_start_week=2,
+    )
+    by_index = {w["week_index"]: w for w in result["weeks"]}
+    for idx in (2, 6, 10):
+        assert by_index[idx]["deload"] is True, idx
+        assert by_index[idx]["phase"] == "ramp"
+    for idx in (4, 8, 12):
+        assert by_index[idx]["deload"] is False, idx
+
+    uncut = compute_load_plan(
+        baseline=316, ramp_rate=0.05, hold_weeks=4, taper_weeks=3, weeks_to_race=19,
+    )
+    uncut_by_index = {w["week_index"]: w for w in uncut["weeks"]}
+    for idx in (2, 6, 10):
+        expected = uncut_by_index[idx]["target_tss"] * (1 - DELOAD_CUT_FRACTION)
+        assert abs(by_index[idx]["target_tss"] - expected) < 0.5
+
+
+def test_deload_start_week_default_matches_legacy_every_4th():
+    # Omitting deload_start_week must be byte-identical to the pre-existing
+    # "weeks 4, 8, 12" behaviour (default 4).
+    legacy = compute_load_plan(
+        baseline=316, ramp_rate=0.05, hold_weeks=4, taper_weeks=3, weeks_to_race=19,
+        deload_enabled=True,
+    )
+    explicit = compute_load_plan(
+        baseline=316, ramp_rate=0.05, hold_weeks=4, taper_weeks=3, weeks_to_race=19,
+        deload_enabled=True, deload_start_week=4,
+    )
+    assert legacy["weeks"] == explicit["weeks"]
+
+
+def test_deload_start_week_clamped_to_cycle_bounds():
+    # Out-of-range values clamp to 1..4 rather than erroring or silently
+    # producing a never-matching cycle.
+    low = compute_load_plan(
+        baseline=316, ramp_rate=0.05, hold_weeks=4, taper_weeks=3, weeks_to_race=19,
+        deload_enabled=True, deload_start_week=0,
+    )
+    assert {w["week_index"] for w in low["weeks"] if w["deload"]} == {1, 5, 9}
+    high = compute_load_plan(
+        baseline=316, ramp_rate=0.05, hold_weeks=4, taper_weeks=3, weeks_to_race=19,
+        deload_enabled=True, deload_start_week=9,
+    )
+    assert {w["week_index"] for w in high["weeks"] if w["deload"]} == {4, 8, 12}
+
+
 # ── AC5: hold + taper >= weeks_to_race clamps and warns ─────────────────────
 
 def test_hold_plus_taper_exceeds_weeks_to_race_clamps_and_warns():

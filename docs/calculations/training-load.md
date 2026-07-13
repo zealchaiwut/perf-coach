@@ -42,9 +42,14 @@ is the concrete mechanism behind the reported bug.
   computes the whole range in ONE 180-day-warm-up pass for whatever's
   missing/stale, and bulk-upserts — never N independent `daily_update` calls.
 - Both honor the user's saved EWMA calibration (`UserPreferences.ctl_days` /
-  `atl_days` via `resolve_user_ewma_days`) the same way `current_load`
-  already did pre-consolidation: a custom calibration always bypasses the
-  cache (the table doesn't record which constants produced a row).
+  `atl_days` via `resolve_user_ewma_days`). Each snapshot row now records
+  the `ctl_days`/`atl_days` used to compute it (nullable columns; NULL means
+  the module defaults 42/7 were used). `_snap_matches_calibration()` checks
+  these stored constants against the user's current calibration: a row
+  computed with different constants is treated as stale and recomputed.
+  Accepting a calibration via `POST /api/races/{id}/calibrate/accept` calls
+  `recompute_user_snapshots()` to backfill the full snapshot history with the
+  new time constants immediately.
 
 **Consumers, all now reading one of the two functions above:**
 

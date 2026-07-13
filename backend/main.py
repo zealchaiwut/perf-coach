@@ -52,6 +52,7 @@ from backend.services.training_load import (
     daily_update,
     compute_load_curves,
     get_snapshot_series,
+    recompute_user_snapshots,
     readiness_label as training_readiness_label,
     project_form,
     resolve_user_ewma_days,
@@ -75,7 +76,7 @@ from backend.services.training_load import (
 )
 from backend.services.specificity_progress import specificity_progress as _specificity_progress
 from backend.services.daily_load import daily_load_series as _daily_load_series
-from backend.services.load_plan import compute_load_plan, ACWR_CEILING_MULT
+from backend.services.load_plan import compute_load_plan, ACWR_CEILING_MULT, DELOAD_CUT_FRACTION
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
 from backend.services.weight_ewma import compute_ewma as _compute_ewma, DEFAULT_SPAN as _EWMA_DEFAULT_SPAN
@@ -5555,6 +5556,9 @@ def get_calendar_month(
 
 class ExerciseIn(BaseModel):
     name: str
+    # Training-block grouping (Warm-up / Heavy compound / Superset 1 / ...) —
+    # same vocabulary as PlannedSession.structure.exercises[].block.
+    block: Optional[str] = None
     sets: Optional[int] = None
     reps: Optional[int] = None
     weight_kg: Optional[float] = None
@@ -5637,6 +5641,7 @@ class WorkoutDuplicateIn(BaseModel):
 
 class ExercisePatchIn(BaseModel):
     name: Optional[str] = None
+    block: Optional[str] = None
     sets: Optional[int] = None
     reps: Optional[int] = None
     weight_kg: Optional[float] = None
@@ -5655,6 +5660,8 @@ def _validate_exercise(ex: ExerciseIn) -> None:
     name = ex.name.strip() if ex.name else ""
     if not name:
         raise HTTPException(status_code=422, detail="Exercise name is required")
+    if ex.block is not None and len(ex.block) > 80:
+        raise HTTPException(status_code=422, detail="block must be 80 characters or fewer")
     if ex.sets is not None and ex.sets <= 0:
         raise HTTPException(status_code=422, detail="sets must be > 0")
     if ex.rpe is not None and not (1 <= ex.rpe <= 10):
@@ -5680,6 +5687,7 @@ def _exercise_dict(e: WorkoutExercise) -> dict:
     return {
         "id": str(e.id),
         "display_order": e.display_order,
+        "block": e.block,
         "name": e.name,
         "sets": e.sets,
         "reps": e.reps,
@@ -7097,6 +7105,7 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             e = WorkoutExercise(
                 workout_id=workout.id,
                 display_order=i,
+                block=ex.block,
                 name=ex.name.strip(),
                 sets=ex.sets,
                 reps=ex.reps,
@@ -7264,6 +7273,7 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
                 session.add(WorkoutExercise(
                     workout_id=wid,
                     display_order=i,
+                    block=ex.block,
                     name=ex.name.strip(),
                     sets=ex.sets,
                     reps=ex.reps,
@@ -7369,7 +7379,7 @@ def delete_workout(workout_id: str, user: User = Depends(resolve_user)):
 # Distinct from Projection's ramp/taper load model (TrainingPlan/PlannedLoad).
 # Link-only: matched_workout_id → workouts.id; Log tab unchanged.
 
-_PLANNED_SESSION_TYPES = {"run", "strength", "plyo", "rest"}
+_PLANNED_SESSION_TYPES = {"run", "strength", "plyo", "stretch", "rest"}
 _PLANNED_STATUSES = {"planned", "missed", "needs_review", "done_auto", "done_manual"}
 
 
@@ -7831,6 +7841,7 @@ def duplicate_workout(workout_id: str, body: WorkoutDuplicateIn, user: User = De
             e = WorkoutExercise(
                 workout_id=copy.id,
                 display_order=ex.display_order,
+                block=ex.block,
                 name=ex.name,
                 sets=ex.sets,
                 reps=ex.reps,
@@ -7929,6 +7940,7 @@ def append_exercise(workout_id: str, body: ExerciseIn, user: User = Depends(reso
         ex = WorkoutExercise(
             workout_id=wid,
             display_order=next_order,
+            block=body.block,
             name=body.name.strip(),
             sets=body.sets,
             reps=body.reps,
@@ -7966,6 +7978,11 @@ def patch_exercise(workout_id: str, exercise_id: str, body: ExercisePatchIn, use
             if not name:
                 raise HTTPException(status_code=422, detail="Exercise name is required")
             ex.name = name
+        if body.block is not None:
+            if len(body.block) > 80:
+                raise HTTPException(status_code=422, detail="block must be 80 characters or fewer")
+            # Empty string clears the grouping.
+            ex.block = body.block.strip() or None
         if body.sets is not None:
             if body.sets <= 0:
                 raise HTTPException(status_code=422, detail="sets must be > 0")
@@ -8042,6 +8059,7 @@ def replace_exercises(workout_id: str, body: ExercisesReplaceIn, user: User = De
             new_ex = WorkoutExercise(
                 workout_id=wid,
                 display_order=i,
+                block=ex.block,
                 name=ex.name.strip(),
                 sets=ex.sets,
                 reps=ex.reps,
@@ -14411,10 +14429,12 @@ def accept_calibration(
     body: _AcceptCalibrationBody,
     user: User = Depends(resolve_user),
 ):
-    """Accept calibration suggestions and write new constants to user preferences.
+    """Accept calibration suggestions, write new constants, and refresh snapshots.
 
-    This is the explicit accept action (AC4).  Constants are only written when
-    the user explicitly calls this endpoint — no automatic overwrite ever occurs.
+    Constants are only written when the user explicitly calls this endpoint —
+    no automatic overwrite ever occurs.  After saving, all training-load
+    snapshots for this user are recomputed so the CTL/ATL history reflects
+    the new time constants immediately.
     """
     try:
         rid = _uuid.UUID(race_id)
@@ -14440,11 +14460,17 @@ def accept_calibration(
         session.commit()
         session.refresh(prefs)
 
-        return JSONResponse({
-            "ctl_days": prefs.ctl_days,
-            "atl_days": prefs.atl_days,
-            "message": "Fitness constants accepted and saved to your profile.",
-        })
+        ctl_days = prefs.ctl_days
+        atl_days = prefs.atl_days
+
+    snapshots_recomputed = recompute_user_snapshots(str(user.id))
+
+    return JSONResponse({
+        "ctl_days": ctl_days,
+        "atl_days": atl_days,
+        "snapshots_recomputed": snapshots_recomputed,
+        "message": "Fitness constants accepted and saved to your profile.",
+    })
 
 
 # ── Calibration status ────────────────────────────────────────────────────────
@@ -15811,6 +15837,118 @@ def _determine_performance_top_level_state(endurance_result, speed_result) -> st
     return "building_baseline"
 
 
+def _compute_perf_block_delta(today_score: float, block_start_score: float) -> float:
+    """Return today_score − block_start_score (absolute scale, same formula version)."""
+    return today_score - block_start_score
+
+
+def _fetch_perf_block_delta(
+    session,
+    user_id,
+    today,
+    window_days: int,
+    current_score: float,
+    current_formula_version: str,
+    score_type: str,
+):
+    """Query performance_score_history for the row at block_start_date.
+
+    Returns the block delta (float) when a matching-version row exists at
+    today - window_days, or None when history doesn't reach back that far or
+    the formula version differs (version-mixing guard).
+
+    score_type: 'endurance' | 'speed' — which column to read from the row.
+    """
+    from backend.models import PerformanceScoreHistory
+    block_start = today - _timedelta(days=window_days)
+    row = (
+        session.query(PerformanceScoreHistory)
+        .filter(
+            PerformanceScoreHistory.user_id == user_id,
+            PerformanceScoreHistory.score_date == block_start,
+            PerformanceScoreHistory.formula_version == current_formula_version,
+        )
+        .order_by(PerformanceScoreHistory.created_at.desc())
+        .first()
+    )
+    if row is None:
+        return None
+    # Version-mixing guard: reject rows produced by a different formula version
+    # even if they somehow passed the query filter (e.g. in tests with mock sessions).
+    if getattr(row, "formula_version", None) != current_formula_version:
+        return None
+    block_start_score = getattr(row, score_type, None)
+    if block_start_score is None:
+        return None
+    return _compute_perf_block_delta(current_score, block_start_score)
+
+
+def _upsert_perf_score_history(
+    session,
+    user_id,
+    score_date,
+    endurance,
+    speed,
+    formula_version: str,
+) -> None:
+    """Upsert today's endurance/speed scores into performance_score_history.
+
+    Idempotent: recomputing scores on the same day updates the row rather
+    than inserting a duplicate (unique constraint on user_id+score_date+formula_version).
+    Only called for the 'scored' state so null-score rows are never persisted.
+    """
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from backend.models import PerformanceScoreHistory
+    try:
+        stmt = pg_insert(PerformanceScoreHistory).values(
+            user_id=user_id,
+            score_date=score_date,
+            endurance=float(endurance) if endurance is not None else None,
+            speed=float(speed) if speed is not None else None,
+            formula_version=formula_version,
+        )
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_performance_score_history_user_date_version",
+            set_={"endurance": stmt.excluded.endurance, "speed": stmt.excluded.speed},
+        )
+        session.execute(stmt)
+        session.commit()
+    except Exception:
+        _performance_log.warning(
+            "Failed to upsert performance_score_history for user %s on %s",
+            user_id,
+            score_date,
+            exc_info=True,
+        )
+        session.rollback()
+
+
+def _get_perf_history_sparkline(session, user_id, today, window_days: int, formula_version: str):
+    """Return (dates, endurance_values, speed_values) from performance_score_history.
+
+    Reads rows for [today - window_days, today] with the current formula_version,
+    ordered oldest-first. Returns ([], [], []) when no rows exist (caller falls back
+    to in-request trend computation).
+    """
+    from backend.models import PerformanceScoreHistory
+    cutoff = today - _timedelta(days=window_days)
+    rows = (
+        session.query(PerformanceScoreHistory)
+        .filter(
+            PerformanceScoreHistory.user_id == user_id,
+            PerformanceScoreHistory.score_date >= cutoff,
+            PerformanceScoreHistory.score_date <= today,
+            PerformanceScoreHistory.formula_version == formula_version,
+        )
+        .order_by(PerformanceScoreHistory.score_date.asc())
+        .all()
+    )
+    dates = [r.score_date.isoformat() for r in rows]
+    endurance_vals = [r.endurance for r in rows]
+    speed_vals = [r.speed for r in rows]
+    return dates, endurance_vals, speed_vals
+
+
 def _build_performance_response(
     state: str,
     endurance,
@@ -15935,6 +16073,55 @@ def _build_performance_diagnostic(preferences, runs):
         "threshold_hr_present": threshold_hr_present,
         "threshold_pace_present": threshold_pace_present,
     }
+
+
+@app.get("/api/performance/score-history")
+def get_performance_score_history(
+    user: User = Depends(resolve_user),
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+):
+    """Return the persisted performance score series for the session user (issue #1365).
+
+    Query params:
+        from: optional ISO date (YYYY-MM-DD) — start of range (inclusive).
+        to:   optional ISO date (YYYY-MM-DD) — end of range (inclusive).
+
+    Defaults to the last 90 days when neither param is provided.
+    Returns a list of {date, endurance, speed, formula_version} dicts, oldest first.
+    Only rows matching the current _PERF_FORMULA_VERSION are returned so the
+    caller never receives a mixed-version series.
+    """
+    from backend.models import PerformanceScoreHistory
+    today = _datetime.now(_timezone.utc).date()
+    try:
+        _from = _date.fromisoformat(from_date) if from_date else today - _timedelta(days=90)
+        _to = _date.fromisoformat(to_date) if to_date else today
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid date: {exc}")
+
+    with Session(engine) as session:
+        rows = (
+            session.query(PerformanceScoreHistory)
+            .filter(
+                PerformanceScoreHistory.user_id == user.id,
+                PerformanceScoreHistory.score_date >= _from,
+                PerformanceScoreHistory.score_date <= _to,
+                PerformanceScoreHistory.formula_version == _PERF_FORMULA_VERSION,
+            )
+            .order_by(PerformanceScoreHistory.score_date.asc())
+            .all()
+        )
+        result = [
+            {
+                "date": r.score_date.isoformat(),
+                "endurance": r.endurance,
+                "speed": r.speed,
+                "formula_version": r.formula_version,
+            }
+            for r in rows
+        ]
+    return JSONResponse({"history": result, "formula_version": _PERF_FORMULA_VERSION})
 
 
 @app.get("/api/performance/score-breakdown")
@@ -16228,6 +16415,68 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
                 )
             )
 
+        # ── Persist scores + compute history-based block delta (issue #1365) ──
+        today_date = _datetime.now(_timezone.utc).date()
+        end_score = endurance.get("score") if isinstance(endurance, dict) else None
+        spd_score = speed.get("score") if isinstance(speed, dict) else None
+        from backend.services.running_performance import BREAKDOWN_WINDOW_DAYS as _BW_DAYS
+        with Session(engine) as _hist_session:
+            # Write-through: upsert today's scores so history grows each compute.
+            if end_score is not None or spd_score is not None:
+                _upsert_perf_score_history(
+                    session=_hist_session,
+                    user_id=uid,
+                    score_date=today_date,
+                    endurance=end_score,
+                    speed=spd_score,
+                    formula_version=_PERF_FORMULA_VERSION,
+                )
+            # Block delta: today − score at block_start (same formula_version only).
+            end_block_delta = None
+            spd_block_delta = None
+            if end_score is not None:
+                end_block_delta = _fetch_perf_block_delta(
+                    session=_hist_session,
+                    user_id=uid,
+                    today=today_date,
+                    window_days=_BW_DAYS,
+                    current_score=end_score,
+                    current_formula_version=_PERF_FORMULA_VERSION,
+                    score_type="endurance",
+                )
+            if spd_score is not None:
+                spd_block_delta = _fetch_perf_block_delta(
+                    session=_hist_session,
+                    user_id=uid,
+                    today=today_date,
+                    window_days=_BW_DAYS,
+                    current_score=spd_score,
+                    current_formula_version=_PERF_FORMULA_VERSION,
+                    score_type="speed",
+                )
+            # History sparkline: persisted series for the last BREAKDOWN_WINDOW_DAYS.
+            hist_dates, hist_end, hist_spd = _get_perf_history_sparkline(
+                session=_hist_session,
+                user_id=uid,
+                today=today_date,
+                window_days=_BW_DAYS,
+                formula_version=_PERF_FORMULA_VERSION,
+            )
+
+        # Inject block_delta and history_trend into the score dicts (copies).
+        if isinstance(endurance, dict):
+            endurance = dict(endurance)
+            endurance["block_delta"] = round(end_block_delta, 2) if end_block_delta is not None else None
+            if hist_dates:
+                endurance["history_trend"] = hist_end
+                endurance["history_trend_dates"] = hist_dates
+        if isinstance(speed, dict):
+            speed = dict(speed)
+            speed["block_delta"] = round(spd_block_delta, 2) if spd_block_delta is not None else None
+            if hist_dates:
+                speed["history_trend"] = hist_spd
+                speed["history_trend_dates"] = hist_dates
+
         _scored_payload = _build_performance_response(
             state="scored",
             endurance=endurance,
@@ -16394,8 +16643,9 @@ def _summary_cache_put(user_id, key, sig, payload):
 # v4 = one-score-everywhere + feed contributions; v5 = races in signature;
 # v6 = run_contributions + model + consistency bonus + improve hint;
 # v7 = power-fallback guards; v8 = implausible-lap filter; v9 = breakdown
-# block; v10 = race_floor_now + floor_binding; v11 = manual-lap reps.
-_PERF_FORMULA_VERSION = "vdot-v11"
+# block; v10 = race_floor_now + floor_binding; v11 = manual-lap reps;
+# v12 = aborted-session guard (MIN_ENDURANCE_QUALIFYING_SESSION_SECONDS).
+_PERF_FORMULA_VERSION = "vdot-v12"
 
 
 def _performance_signature(session, user_id, prefs_row) -> str:
@@ -17386,6 +17636,7 @@ class PlanRulesIn(BaseModel):
     hold_weeks: Optional[int] = None
     taper_weeks: Optional[int] = None
     deload_enabled: Optional[bool] = None
+    deload_start_week: Optional[int] = None
 
 
 def _validate_plan_rules(body: "PlanRulesIn") -> None:
@@ -17397,6 +17648,10 @@ def _validate_plan_rules(body: "PlanRulesIn") -> None:
         raise HTTPException(status_code=422, detail="hold_weeks must be >= 0")
     if body.taper_weeks is not None and body.taper_weeks < 0:
         raise HTTPException(status_code=422, detail="taper_weeks must be >= 0")
+    if body.deload_start_week is not None and not (1 <= body.deload_start_week <= 4):
+        raise HTTPException(
+            status_code=422, detail="deload_start_week must be between 1 and 4"
+        )
 
 
 def _plan_rules_dict(plan: TrainingPlan) -> dict:
@@ -17405,6 +17660,7 @@ def _plan_rules_dict(plan: TrainingPlan) -> dict:
         "hold_weeks": int(plan.hold_weeks) if plan.hold_weeks is not None else 4,
         "taper_weeks": float(plan.taper_length) if plan.taper_length is not None else 3.0,
         "deload_enabled": bool(plan.deload_enabled) if plan.deload_enabled is not None else False,
+        "deload_start_week": int(plan.deload_start_week) if plan.deload_start_week is not None else 4,
     }
 
 
@@ -17424,6 +17680,8 @@ def put_plan_rules(body: PlanRulesIn, user: User = Depends(resolve_user)):
             plan.taper_length = body.taper_weeks
         if body.deload_enabled is not None:
             plan.deload_enabled = body.deload_enabled
+        if body.deload_start_week is not None:
+            plan.deload_start_week = body.deload_start_week
         session.commit()
         session.refresh(plan)
         return JSONResponse(_plan_rules_dict(plan))
@@ -17473,6 +17731,7 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
             weeks_to_race=weeks_to_race,
             trailing_28d_avg=trailing_28d_avg,
             deload_enabled=rules["deload_enabled"],
+            deload_start_week=rules["deload_start_week"],
             verdict=verdict["verdict"],
             consolidation_weeks=verdict["weeks_to_converge"],
         )
@@ -17499,6 +17758,7 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
             "hold_weeks": rules["hold_weeks"],
             "taper_weeks": result["taper_weeks"],
             "deload_enabled": rules["deload_enabled"],
+            "deload_start_week": rules["deload_start_week"],
             "weeks_to_race": weeks_to_race,
             "ramp_weeks": result["ramp_weeks"],
             "peak": result["peak"],
@@ -17657,6 +17917,7 @@ def get_plan_week_load(
             weeks_to_race=weeks_to_race,
             trailing_28d_avg=trailing_28d_avg,
             deload_enabled=rules["deload_enabled"],
+            deload_start_week=rules["deload_start_week"],
             verdict=verdict["verdict"],
             consolidation_weeks=verdict["weeks_to_converge"],
         )
@@ -17714,6 +17975,11 @@ def get_plan_week_load(
             "baseline_planned_tss": baseline_planned_tss,
             "prior_4_weeks_actual": prior_weeks,
             "ramp_rate": rules["ramp_rate"],
+            # Deload week: the ramp formula gets a further cut BEFORE the
+            # ceiling clamp — the Baseline×Ramp=Target chain must show it or
+            # the target looks broken next to a plain "5%/wk" ramp cell.
+            "deload": bool(target_week["deload"]) if target_week else False,
+            "deload_cut": DELOAD_CUT_FRACTION,
             "acwr_ceiling": acwr_ceiling,
             "acwr": acwr_ratio,
             "trailing_28d_avg": trailing_28d_avg,
@@ -18011,6 +18277,7 @@ def get_projection(user: User = Depends(resolve_user)):
         except Exception:
             economy_contribution = 0.0
 
+    from backend.services.formula_versions import PROJECTION_VERSION
     return JSONResponse({
         "building_baseline": building_baseline,
         "form_curve": form_curve,
@@ -18023,6 +18290,7 @@ def get_projection(user: User = Depends(resolve_user)):
         "economy_contribution": economy_contribution,
         "lag_peak_days": _LAG_PEAK_DAYS,
         "lag_window_days": _LAG_WINDOW_DAYS,
+        "formula_version": PROJECTION_VERSION,
     })
 
 

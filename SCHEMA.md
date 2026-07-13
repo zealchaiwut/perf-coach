@@ -422,9 +422,13 @@ Persistent record of sync runs (Strava/Stryd). In-memory state machine is separa
 | snapshot_date | date | |
 | tss_for_day | int | |
 | ctl / atl / tsb | float | CTL=42d, ATL=7d, TSB=CTL−ATL |
+| acwr | float | nullable |
+| formula_version | text | nullable — cache-invalidation stamp; a mismatch forces a live recompute |
+| ctl_days | int | nullable _(Sprint 105 / #1366)_ — EWMA time constant that produced the row; NULL = module default 42 |
+| atl_days | int | nullable _(Sprint 105 / #1366)_ — EWMA time constant that produced the row; NULL = module default 7 |
 | computed_at | timestamptz | |
 
-Unique: `(user_id, snapshot_date)`.
+Unique: `(user_id, snapshot_date)`. `ctl_days`/`atl_days` record the calibration used so that accepting a new calibration (`POST /api/races/{id}/calibrate/accept`) treats the existing rows as stale and recomputes the full snapshot history with the new constants (`recompute_user_snapshots()`).
 
 ---
 
@@ -931,6 +935,9 @@ Index: `ix_injury_log_user_started_on` on `(user_id, started_on)`. Migration: `1
 ## body_measurements _(added Sprint 104.2 / #1358)_
 
 Periodic body-composition measurements (waist circumference and/or body-fat %). Captured via `POST/GET/PATCH/DELETE /api/body-measurements` (CSV export at `GET /api/exports/body-measurements`). Backs the lean-mass-driven protein target and cut guard (#1359): `current_lean_mass_kg` reads the latest `body_fat_pct` within 60 days to derive lean mass (`ewma_weight × (1 − bf%)`, source `measured`). Model: `BodyMeasurement` in `backend/models.py`.
+## prediction_snapshots _(added Sprint 105 / #1362)_
+
+Daily persisted projection forecast, kept for forecast-vs-actual accuracy evaluation. Written on the first projection computation of the day (`GET /api/plan/projection`); later same-day recomputes are no-ops (`ON CONFLICT DO NOTHING`), so the morning forecast is preserved. Read via `GET /api/projection/snapshots?from=&to=`.
 
 | column | type | notes |
 |--------|------|-------|
@@ -944,3 +951,26 @@ Periodic body-composition measurements (waist circumference and/or body-fat %). 
 | created_at | timestamptz | NOT NULL, server default now() |
 
 Unique: `(user_id, measure_date)` (`uq_body_measurements_user_date`). Index: `ix_body_measurements_user_date` on `(user_id, measure_date)`. Migration: `da7cbe58ec60_add_body_measurements_table`.
+| snapshot_date | date | NOT NULL |
+| payload | jsonb | NOT NULL — per-race predicted finish times (with race ids), projected CTL at race date, peak CTL + peak week, `formula_version` |
+| created_at | timestamptz | server default now() |
+
+Unique: `(user_id, snapshot_date)` (`uq_prediction_snapshots_user_date`). Index: `ix_prediction_snapshots_user_date` on `(user_id, snapshot_date)`. Migration: `cea323ec2396_add_prediction_snapshots`.
+
+---
+
+## performance_score_history _(added Sprint 105 / #1361, #1365)_
+
+Durable daily endurance/speed scores with formula-version stamps. Upserted (write-through) each time `GET /api/athletes/{id}/performance` computes scores, so there is a persisted absolute-scale series to compute block deltas from rather than the in-request relative `trend[]`. Read via `GET /api/performance/score-history?from=&to=` (defaults to the last 90 days); only rows matching the current formula version are returned so the caller never sees a mixed-version series.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | `gen_random_uuid()` |
+| user_id | UUID FK→users | CASCADE |
+| score_date | date | NOT NULL |
+| endurance | float | nullable |
+| speed | float | nullable |
+| formula_version | text | NOT NULL |
+| created_at | timestamptz | server default now() |
+
+Unique: `(user_id, score_date, formula_version)` (`uq_performance_score_history_user_date_version`). Index: `ix_performance_score_history_user_date` on `(user_id, score_date)`. Migration: `129d863fa625_add_performance_score_history`.
