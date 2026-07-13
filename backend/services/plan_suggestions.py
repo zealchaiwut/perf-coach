@@ -1514,10 +1514,16 @@ _LLM_SINGLE_SESSION_SCHEMA: dict = {
 # tokens count against max_completion_tokens — a trivial strength-session
 # request measured 1403 completion tokens with 1014 of them reasoning, so
 # the old cap of 1500 truncated real refine requests mid-JSON and Groq's
-# strict-schema mode surfaced that as an opaque 400 (json_validate_failed).
+# strict-mode surfaced that as an opaque 400 (json_validate_failed).
 # Sized to match the whole-week surface's headroom (5700); Groq bills only
 # tokens actually generated.
 _SINGLE_SESSION_MAX_COMPLETION_TOKENS = 6000
+# Runs are deliberately cheap (the slot already fixes TSS/duration; the LLM
+# only splits it into warmup/main/cooldown): a small cap matters because
+# Groq's free tier PRE-BOOKS prompt + max_completion_tokens against an 8k
+# tokens-per-minute budget — at 6000 every call costs ~6.9k and only ONE
+# fits per minute; at 2000 a run fill costs ~2.7k and several fit.
+_RUN_SESSION_MAX_COMPLETION_TOKENS = 2000
 
 
 SESSION_SUBTYPES: dict[str, dict[str, str]] = {
@@ -1590,15 +1596,28 @@ def build_single_session_prompt(
         "3. workout_type must be exactly one of: run, strength, plyo, stretch, rest"
         + (f" — the athlete asked for \"{workout_type}\"; use that unless their note "
            "explicitly asks for something else.\n" if workout_type else ".\n")
-        + "4. strength/plyo/stretch: include `exercises` (4-14 entries, {block, name, sets, reps, "
-        "load}); scale to a short (4-6 entries) session if the note asks for brief/quick. A plyo "
-        "session is EXPLOSIVE jump/power work — box jumps, bounds, hops, depth jumps, jump "
-        "squats, med-ball throws — low reps (3-6), few sets, FULL recovery between efforts, "
-        "bodyweight or light load: never the barbell-lift strength template. A stretch session "
-        "is mobility/flexibility holds and flows, mostly bodyweight, never barbell lifts. "
-        "run: include `blocks` (2-5 entries, {phase, duration_min, repeat, "
-        "rest_min, target}). rest: both null.\n"
-        "5. `notes` = terse coach rationale for this session, or null for rest.\n"
+        + (
+            # Runs are a cheap estimation task — the slot already fixes TSS
+            # and duration; the model only splits them into three phases.
+            # Paired with the small run token cap below, this keeps a run
+            # fill inside Groq's per-minute token budget in one call.
+            "4. run: include `blocks` with EXACTLY 3 entries — warmup, main, cooldown "
+            "({phase, duration_min, repeat, rest_min, target}). Split the session's duration "
+            "across the three phases and give each a short effort target (\"easy\"/\"tempo\"/"
+            "\"5 × 3min hard, 2min jog\" — intervals detail goes in the main block's target "
+            "string, repeat and rest_min). This is a simple estimation, not a design task — "
+            "be brief, no long deliberation. `exercises` null.\n"
+            if workout_type == "run" else
+            "4. strength/plyo/stretch: include `exercises` (4-14 entries, {block, name, sets, reps, "
+            "load}); scale to a short (4-6 entries) session if the note asks for brief/quick. A plyo "
+            "session is EXPLOSIVE jump/power work — box jumps, bounds, hops, depth jumps, jump "
+            "squats, med-ball throws — low reps (3-6), few sets, FULL recovery between efforts, "
+            "bodyweight or light load: never the barbell-lift strength template. A stretch session "
+            "is mobility/flexibility holds and flows, mostly bodyweight, never barbell lifts. "
+            "run: include `blocks` (2-5 entries, {phase, duration_min, repeat, "
+            "rest_min, target}). rest: both null.\n"
+        )
+        + "5. `notes` = terse coach rationale for this session, or null for rest.\n"
         f"{budget_rule}"
         f"{subtype_rule}"
     )
@@ -1662,7 +1681,13 @@ def generate_single_session(
             schema_name="single_session",
             json_schema=_LLM_SINGLE_SESSION_SCHEMA,
             model_tier="deep",
-            max_tokens=_SINGLE_SESSION_MAX_COMPLETION_TOKENS,
+            # Runs are a 3-block estimation with a deliberately small cap so
+            # the call fits Groq's per-minute token budget in one go — see
+            # the constants above.
+            max_tokens=(
+                _RUN_SESSION_MAX_COMPLETION_TOKENS if workout_type == "run"
+                else _SINGLE_SESSION_MAX_COMPLETION_TOKENS
+            ),
         )
         if raw is None:
             continue

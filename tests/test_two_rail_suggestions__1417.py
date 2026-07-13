@@ -86,6 +86,32 @@ def test_single_session_prompt_ignores_subtype_for_wrong_type():
     assert "tagged this session" not in sys_p
 
 
+def test_run_prompt_is_a_compact_three_block_estimation():
+    sys_p, _ = ps.build_single_session_prompt(_FACTS, 1, "run", "")
+    assert "EXACTLY 3 entries" in sys_p
+    assert "simple estimation" in sys_p
+    # The detailed strength template must NOT ride along on a run request.
+    assert "Superset" not in sys_p
+
+
+def test_run_fill_uses_the_small_token_cap():
+    captured = {}
+
+    def _fake_complete(system, user, **kw):
+        captured.update(kw)
+        return None
+
+    with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)), \
+         mock.patch.object(ps.llm_svc, "complete_structured", side_effect=_fake_complete):
+        ps.generate_single_session("someone", 1, "", workout_type="run")
+    assert captured["max_tokens"] == ps._RUN_SESSION_MAX_COMPLETION_TOKENS
+
+    with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)), \
+         mock.patch.object(ps.llm_svc, "complete_structured", side_effect=_fake_complete):
+        ps.generate_single_session("someone", 1, "", workout_type="strength")
+    assert captured["max_tokens"] == ps._SINGLE_SESSION_MAX_COMPLETION_TOKENS
+
+
 def test_single_session_prompt_describes_plyo_distinctly():
     sys_p, _ = ps.build_single_session_prompt(_FACTS, 1, "plyo", "")
     assert "EXPLOSIVE" in sys_p or "explosive" in sys_p
