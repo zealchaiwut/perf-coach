@@ -10,22 +10,18 @@ Acceptance criteria covered:
 """
 from __future__ import annotations
 
-import datetime
 import os
 import pathlib
 import uuid
-from typing import Optional
 
 import pytest
 
 from backend.services.muscle_load_acwr import (
     ALL_GROUPS,
-    BODY_AREA_TO_GROUP,
     CHRONIC_FLOOR,
     DETRAINING_BOUND,
     ELEVATED_BOUND,
     OVERUSED_BOUND,
-    PRIORITY_GROUPS,
     body_area_to_group,
     classify_group,
     compute_acute_chronic,
@@ -241,7 +237,6 @@ def _skip_no_uat():
 
 
 def _create_and_login(client):
-    import httpx
     from sqlalchemy.orm import Session as _OrmSess
 
     from backend.auth import CSRF_COOKIE_NAME, hash_password as _hp
