@@ -81,6 +81,190 @@ def _gather_form_metrics(db, user_id: uuid.UUID, today: datetime.date) -> dict:
     }
 
 
+def _gather_intensity_4w(db, user_id: uuid.UUID, today: datetime.date) -> dict | None:
+    """Aggregate 4-week intensity distribution from stored split bands.
+
+    Uses the intensity_band column persisted on workout_splits at classification
+    time.  Returns None when no classifiable split data exists in the window.
+    """
+    from_date = today - datetime.timedelta(days=28)
+
+    rows = db.execute(
+        text("""
+            SELECT ws.duration_seconds, ws.intensity_band
+            FROM workout_splits ws
+            JOIN workouts w ON ws.workout_id = w.id
+            WHERE w.user_id = :uid
+              AND w.workout_date >= :from_date
+              AND w.workout_date <= :today
+              AND lower(w.workout_type) LIKE '%run%'
+              AND ws.intensity_band IS NOT NULL
+              AND ws.duration_seconds IS NOT NULL
+              AND ws.duration_seconds > 0
+        """),
+        {"uid": str(user_id), "from_date": from_date.isoformat(), "today": today.isoformat()},
+    ).fetchall()
+
+    if not rows:
+        return None
+
+    _LOW = {"easy", "steady"}
+    _MOD = {"tempo"}
+    _HIGH = {"threshold", "hard"}
+
+    low_s = moderate_s = high_s = 0.0
+    for dur, band in rows:
+        d = float(dur)
+        if band in _LOW:
+            low_s += d
+        elif band in _MOD:
+            moderate_s += d
+        elif band in _HIGH:
+            high_s += d
+
+    total = low_s + moderate_s + high_s
+    if total == 0:
+        return None
+
+    return {
+        "low_pct": round(low_s / total * 100, 2),
+        "moderate_pct": round(moderate_s / total * 100, 2),
+        "high_pct": round(high_s / total * 100, 2),
+    }
+
+
+def _gather_long_run_decoupling_4w(db, user_id: uuid.UUID, today: datetime.date) -> dict:
+    """Gather average aerobic decoupling for long runs over the past 4 weeks.
+
+    Long runs are those with duration_seconds > LONG_RUN_MIN_SECONDS (40 min).
+    Uses the stored decoupling_percent column on workouts.
+    """
+    from backend.services.gap_analysis.rules.load_mix import LONG_RUN_MIN_SECONDS
+
+    from_date = today - datetime.timedelta(days=28)
+
+    rows = db.execute(
+        text("""
+            SELECT decoupling_percent
+            FROM workouts
+            WHERE user_id = :uid
+              AND workout_date >= :from_date
+              AND workout_date <= :today
+              AND lower(workout_type) LIKE '%run%'
+              AND duration_seconds > :min_secs
+              AND decoupling_percent IS NOT NULL
+        """),
+        {
+            "uid": str(user_id),
+            "from_date": from_date.isoformat(),
+            "today": today.isoformat(),
+            "min_secs": LONG_RUN_MIN_SECONDS,
+        },
+    ).fetchall()
+
+    count = len(rows)
+    if count == 0:
+        return {"avg_decoupling_pct": None, "count": 0}
+
+    avg = sum(float(r[0]) for r in rows) / count
+    return {"avg_decoupling_pct": round(avg, 2), "count": count}
+
+
+def _gather_speed_score_8w(db, user_id: uuid.UUID, today: datetime.date) -> dict | None:
+    """Gather speed score start/end values over the past 8 weeks using the
+    latest formula_version from performance_score_history.
+
+    Returns None when < 2 score rows exist in the window.
+    """
+    from_date = today - datetime.timedelta(days=56)
+
+    latest_version = db.execute(
+        text("""
+            SELECT formula_version
+            FROM performance_score_history
+            WHERE user_id = :uid
+            ORDER BY score_date DESC
+            LIMIT 1
+        """),
+        {"uid": str(user_id)},
+    ).scalar()
+
+    if latest_version is None:
+        return None
+
+    rows = db.execute(
+        text("""
+            SELECT score_date, speed
+            FROM performance_score_history
+            WHERE user_id = :uid
+              AND formula_version = :fv
+              AND score_date >= :from_date
+              AND score_date <= :today
+              AND speed IS NOT NULL
+            ORDER BY score_date ASC
+        """),
+        {
+            "uid": str(user_id),
+            "fv": latest_version,
+            "from_date": from_date.isoformat(),
+            "today": today.isoformat(),
+        },
+    ).fetchall()
+
+    if len(rows) < 2:
+        return None
+
+    return {
+        "oldest_speed": float(rows[0][1]),
+        "newest_speed": float(rows[-1][1]),
+        "oldest_date": rows[0][0].isoformat() if hasattr(rows[0][0], "isoformat") else str(rows[0][0]),
+        "newest_date": rows[-1][0].isoformat() if hasattr(rows[-1][0], "isoformat") else str(rows[-1][0]),
+        "formula_version": latest_version,
+        "count": len(rows),
+    }
+
+
+def _gather_quality_sessions_3w(db, user_id: uuid.UUID, today: datetime.date) -> dict:
+    """Count quality run sessions (speed_signal IS NOT NULL) over the past 3 weeks."""
+    from_date = today - datetime.timedelta(days=21)
+
+    count = db.execute(
+        text("""
+            SELECT COUNT(*)
+            FROM workouts
+            WHERE user_id = :uid
+              AND workout_date >= :from_date
+              AND workout_date <= :today
+              AND lower(workout_type) LIKE '%run%'
+              AND speed_signal IS NOT NULL
+        """),
+        {
+            "uid": str(user_id),
+            "from_date": from_date.isoformat(),
+            "today": today.isoformat(),
+        },
+    ).scalar() or 0
+
+    return {"count": int(count), "window_weeks": 3}
+
+
+def _gather_training_verdict(user_id: uuid.UUID, today: datetime.date) -> str | None:
+    """Return the current training verdict ("back_off" / "hold" / "build").
+
+    Uses training_load.current_load (which reads from its own engine/session)
+    and training_verdict.compute_verdict.  Returns None on any failure so that
+    rules default to their nominal severity when verdict data is unavailable.
+    """
+    try:
+        from backend.services.training_load import current_load
+        from backend.services.training_verdict import compute_verdict
+        snap = current_load(str(user_id), today)
+        return compute_verdict(snap)["verdict"]
+    except Exception:
+        _log.warning("training_verdict unavailable for gap analysis", exc_info=True)
+        return None
+
+
 def _gather_inputs(db, user_id: uuid.UUID, today: datetime.date, week_start: datetime.date) -> dict:
     """Collect available inputs for the rules engine.
 
@@ -101,6 +285,38 @@ def _gather_inputs(db, user_id: uuid.UUID, today: datetime.date, week_start: dat
         inputs["form_metrics"] = _gather_form_metrics(db, user_id, today)
     except Exception:
         _log.warning("form_metrics unavailable for gap analysis", exc_info=True)
+
+    # training_verdict (issue #1372): back_off / hold / build guardrail
+    try:
+        inputs["training_verdict"] = _gather_training_verdict(user_id, today)
+    except Exception:
+        _log.warning("training_verdict unavailable for gap analysis", exc_info=True)
+
+    # intensity_4w (issue #1372): 4-week duration-weighted intensity distribution
+    try:
+        inputs["intensity_4w"] = _gather_intensity_4w(db, user_id, today)
+    except Exception:
+        _log.warning("intensity_4w unavailable for gap analysis", exc_info=True)
+
+    # long_run_decoupling_4w (issue #1372): avg decoupling on long runs over 4 weeks
+    try:
+        inputs["long_run_decoupling_4w"] = _gather_long_run_decoupling_4w(db, user_id, today)
+    except Exception:
+        _log.warning("long_run_decoupling_4w unavailable for gap analysis", exc_info=True)
+
+    # speed_score_history_8w (issue #1372): speed score series over 8 weeks
+    try:
+        result = _gather_speed_score_8w(db, user_id, today)
+        if result is not None:
+            inputs["speed_score_history_8w"] = result
+    except Exception:
+        _log.warning("speed_score_history_8w unavailable for gap analysis", exc_info=True)
+
+    # quality_sessions_3w (issue #1372): quality run session count over 3 weeks
+    try:
+        inputs["quality_sessions_3w"] = _gather_quality_sessions_3w(db, user_id, today)
+    except Exception:
+        _log.warning("quality_sessions_3w unavailable for gap analysis", exc_info=True)
 
     return inputs
 
@@ -205,6 +421,16 @@ def _register_builtin_rules() -> None:
 
     from backend.services.gap_analysis.rules.cadence_drift import cadence_drift
     _REGISTRY.register(requires=["form_metrics"])(cadence_drift)
+
+    # Load-mix rules (issue #1372)
+    from backend.services.gap_analysis.rules.load_mix import (
+        intensity_too_hard,
+        aerobic_durability_gap,
+        speed_neglected,
+    )
+    _REGISTRY.register(requires=["intensity_4w"])(intensity_too_hard)
+    _REGISTRY.register(requires=["long_run_decoupling_4w"])(aerobic_durability_gap)
+    _REGISTRY.register(requires=["speed_score_history_8w", "quality_sessions_3w"])(speed_neglected)
 
 
 _register_builtin_rules()

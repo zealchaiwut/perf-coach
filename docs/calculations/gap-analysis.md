@@ -86,9 +86,14 @@ _REGISTRY.register(requires=["structural_dose"])(my_rule)
 |-----|--------|----------|
 | `structural_dose` | `backend/services/structural_dose.py` | `last_plyo_days_ago`, `last_strength_days_ago`, weekly plyo/strength buckets |
 | `form_metrics` | `run_form_metrics` table (issue #1368) | `recent_runs` (0–28d), `prior_runs` (28–56d), `long_baseline_runs` (56–180d) — each a list of `{run_date, lss_kn_m, gct_ms, cadence_spm, power_w}` |
+| `training_verdict` | `training_verdict.compute_verdict` (issue #1372) | `"back_off"` \| `"hold"` \| `"build"` — load-mix rules downgrade to severity 1 when `"back_off"` |
+| `intensity_4w` | `workout_splits.intensity_band` (issue #1372) | `{low_pct, moderate_pct, high_pct}` — duration-weighted run-split distribution over 28 days; `None` when no classified splits exist |
+| `long_run_decoupling_4w` | `workouts.decoupling_percent` (issue #1372) | `{avg_decoupling_pct, count}` — average aerobic decoupling for long runs (>40 min) over 28 days |
+| `speed_score_history_8w` | `performance_score_history` (issue #1372) | `{oldest_speed, newest_speed, formula_version, count}` — speed score endpoints over 56 days at the latest formula_version; `None` when < 2 rows |
+| `quality_sessions_3w` | `workouts.speed_signal` (issue #1372) | `{count, window_weeks}` — run workouts with a non-null `speed_signal` over 21 days |
 | `week_start` | engine | `datetime.date` — always present |
 
-Future sprints will add: `muscle_volume` (#1367 acwr), `intensity_distribution`, `training_load`, `injury_log` (#1350), `scores`.
+Future sprints will add: `muscle_volume` (#1367 acwr), `injury_log` (#1350).
 
 ---
 
@@ -251,3 +256,64 @@ cadence data.
 - `severity`: 1 (note)
 - `evidence metrics`: `cadence_recent_mean_spm`, `cadence_baseline_mean_spm`, `cadence_drop_pct`
 - `target`: `run_form`
+
+---
+
+## Load-Mix Rules (issue #1372)
+
+These rules diagnose what *kind* of running is missing. They all share one guardrail:
+**when the current training verdict is `back_off`, each rule downgrades its severity from 2 to 1
+and appends `" (deferred while backing off)"` to its recommendation** so the gap analyzer never
+contradicts the load guardrail.
+
+### intensity_too_hard
+
+File: `backend/services/gap_analysis/rules/load_mix.py`
+
+Fires when the 4-week duration-weighted hard-zone share exceeds the polarized target upper bound.
+Reuses `check_polarized_split` from `polarized_split.py` — thresholds are **not** redefined here.
+Only fires on a `high` band `above` deviation; grey-zone excess alone does not trigger it.
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `HIGH_TARGET_UPPER_BOUND_PCT` | 20.0 | Imported from `_DEFAULT_BOUNDS["high"][1]` |
+
+- `code`: `intensity_too_hard`
+- `severity`: 2 (recommend) → 1 when verdict is `back_off`
+- `evidence metrics`: `high_pct_4w`, `low_pct_4w`, `moderate_pct_4w`
+- `target`: `easy_volume`
+
+### aerobic_durability_gap
+
+Fires when average aerobic decoupling on long runs (> 40 min) exceeds the threshold over a
+4-week window, provided at least `LONG_RUN_MIN_COUNT` long runs have stored decoupling data.
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `LONG_RUN_MIN_SECONDS` | 2400 | Minimum run duration to qualify as a long run (40 min) |
+| `LONG_RUN_MIN_COUNT` | 2 | Minimum long-run sample required before the rule fires |
+| `DECOUPLING_THRESHOLD_PCT` | 5.0 | Average decoupling % that triggers the finding |
+
+- `code`: `aerobic_durability_gap`
+- `severity`: 2 (recommend) → 1 when verdict is `back_off`
+- `evidence metrics`: `avg_decoupling_pct_4w`, `long_run_count_4w`
+- `target`: `long_run`
+
+### speed_neglected
+
+Fires when the Speed score (latest `formula_version` from `performance_score_history`) has
+decayed by more than `SPEED_DECAY_THRESHOLD` over 8 weeks **and** quality sessions (runs with
+a non-null `speed_signal`) average fewer than `QUALITY_SESSIONS_MIN_PER_WEEK` per week over
+the past 3 weeks.  Mirrors the pattern of a hypothetical `base_neglected` rule for Endurance,
+with the quality-session count as volume evidence.
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `SPEED_DECAY_THRESHOLD` | 10.0 | Points drop (oldest − newest) required to fire |
+| `QUALITY_SESSIONS_WINDOW_WEEKS` | 3 | Rolling window for quality session count |
+| `QUALITY_SESSIONS_MIN_PER_WEEK` | 1.0 | Minimum quality sessions/week to suppress the rule |
+
+- `code`: `speed_neglected`
+- `severity`: 2 (recommend) → 1 when verdict is `back_off`
+- `evidence metrics`: `speed_score_decay_8w`, `speed_score_newest`, `quality_sessions_3w`
+- `target`: `speed`
