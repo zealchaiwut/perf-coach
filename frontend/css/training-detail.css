@@ -363,6 +363,17 @@
 }
 .dp-ex-table tbody tr:last-child td { border-bottom: none; }
 .dp-ex-td-name { font-weight: 600; }
+/* Training-block header rows (Warm-up / Heavy compound / …) interleaved in
+   the exercises table — mirrors the planned session's grouping. */
+.dp-ex-blockrow td {
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-sub);
+  background: var(--bg-soft, #f8fafc);
+  padding: 5px 8px;
+}
 .dp-ex-td-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .dp-ex-rpe-pill {
   display: inline-block;
