@@ -175,6 +175,17 @@ def test_run_fill_uses_the_small_token_cap():
     assert captured["max_tokens"] == ps._SINGLE_SESSION_MAX_COMPLETION_TOKENS
 
 
+def test_strength_prompt_pins_canonical_block_names():
+    sys_p, _ = ps.build_single_session_prompt(_FACTS, 6, "strength", "")
+    for block in ("Warm-up", "Heavy compound", "Superset 1", "Superset 2",
+                  "Accessories", "Standalone", "Stretch"):
+        assert block in sys_p, block
+    assert "Do NOT invent other block names" in sys_p
+    # The run branch must not carry the strength block spec.
+    run_sys, _ = ps.build_single_session_prompt(_FACTS, 1, "run", "")
+    assert "Heavy compound" not in run_sys
+
+
 def test_single_session_prompt_describes_plyo_distinctly():
     sys_p, _ = ps.build_single_session_prompt(_FACTS, 1, "plyo", "")
     assert "EXPLOSIVE" in sys_p or "explosive" in sys_p
