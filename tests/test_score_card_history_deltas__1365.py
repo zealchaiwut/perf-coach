@@ -13,6 +13,7 @@ Acceptance Criteria covered:
 """
 import datetime
 import inspect
+import pytest
 from types import SimpleNamespace
 from unittest import mock
 
@@ -104,8 +105,6 @@ class TestAC1DeltaMath:
         )
         assert result == pytest.approx(0.0, abs=0.01)
 
-
-import pytest
 
 
 # ─────────────────────────────────────────────────────────────────────────────
