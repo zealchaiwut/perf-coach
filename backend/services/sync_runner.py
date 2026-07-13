@@ -187,6 +187,38 @@ def run_strava_sync(
         recorder.mark_error(uid, str(exc))
 
 
+def _upsert_form_metrics_incremental(uid: _uuid.UUID, stryd_activity_ids: list) -> None:
+    """Upsert run_form_metrics rows for the given external Stryd activity string IDs.
+
+    Failures are silently logged — form-metrics extraction must never fail a sync.
+    """
+    from sqlalchemy import select as _sel
+    from backend.models import StrydActivity as _SA
+    from backend.services.run_form_metrics_service import upsert_form_metrics_for_activity as _upsert
+
+    if not stryd_activity_ids:
+        return
+    try:
+        with Session(engine) as session:
+            rows = session.execute(
+                _sel(_SA).where(_SA.stryd_activity_id.in_(stryd_activity_ids))
+            ).scalars().all()
+            for activity in rows:
+                try:
+                    session.refresh(activity, attribute_names=["form_metrics"])
+                    _upsert(session, activity)
+                except Exception as _exc:  # noqa: BLE001
+                    _logging.getLogger(__name__).warning(
+                        "form_metrics incremental upsert skipped for %s: %s",
+                        activity.stryd_activity_id, _exc,
+                    )
+            session.commit()
+    except Exception as exc:  # noqa: BLE001
+        _logging.getLogger(__name__).warning(
+            "form_metrics incremental upsert failed for user %s: %s", uid, exc
+        )
+
+
 def run_stryd_sync(
     user_id: str,
     since_date: Optional[str] = None,
@@ -221,6 +253,13 @@ def run_stryd_sync(
                 stryd_activity_ids=all_ids[-_DAILY_RECONCILE_LIMIT:],
             )
         run_plan_matcher(uid)
+        # Extract running-dynamics into run_form_metrics (incremental path).
+        # Uses the full stryd_activity_ids list (not DAILY_RECONCILE_LIMIT-trimmed)
+        # so every newly upserted activity gets its form row, not just the last 10.
+        _upsert_form_metrics_incremental(
+            uid,
+            result.get("stryd_activity_ids") or [],
+        )
         recorder.mark_success(uid)
     except Exception as exc:  # noqa: BLE001
         recorder.mark_error(uid, str(exc))

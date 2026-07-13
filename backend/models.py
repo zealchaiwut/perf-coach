@@ -1747,6 +1747,37 @@ class PerformanceScoreHistory(Base):
     )
 
 
+class RunFormMetrics(Base):
+    """Per-run Stryd running-dynamics extracted from stryd_activities.form_metrics (issue #1368).
+
+    Key mapping (verified against live Stryd calendar API, 2026-06-17 via stryd_sync.py):
+        form_metrics["ground_contact_time_ms"]  -> gct_ms
+        form_metrics["leg_spring_stiffness"]    -> lss_kn_m  (kN/m, Stryd native unit)
+        form_metrics["vertical_oscillation_cm"] -> vertical_oscillation_cm
+        form_metrics["cadence_spm"]             -> cadence_spm
+        stryd_activities.avg_power_w            -> power_w
+    """
+
+    __tablename__ = "run_form_metrics"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    workout_id = Column(UUID(as_uuid=True), ForeignKey("workouts.id", ondelete="SET NULL"), nullable=True)
+    stryd_activity_pk = Column(UUID(as_uuid=True), ForeignKey("stryd_activities.id", ondelete="CASCADE"), nullable=False)
+    run_date = Column(Date, nullable=False)
+    gct_ms = Column(Numeric(8, 2), nullable=True)
+    lss_kn_m = Column(Numeric(8, 4), nullable=True)
+    vertical_oscillation_cm = Column(Numeric(6, 2), nullable=True)
+    cadence_spm = Column(Numeric(6, 2), nullable=True)
+    power_w = Column(Numeric(6, 1), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("stryd_activity_pk", name="uq_run_form_metrics_stryd_activity_pk"),
+        Index("ix_run_form_metrics_user_run_date", "user_id", "run_date"),
+    )
+
+
 class PredictionSnapshot(Base):
     """Daily persisted projection forecast for forecast-vs-actual accuracy evaluation.
 
