@@ -13,7 +13,6 @@ Thresholds documented in docs/calculations/gap-analysis.md.
 from __future__ import annotations
 
 import datetime
-from collections import Counter
 from typing import Optional
 
 from backend.services.gap_analysis.schemas import GapAnalysisFinding

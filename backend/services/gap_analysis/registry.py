@@ -11,7 +11,7 @@ The engine calls ``registry.run_all(inputs, week_start)`` which:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable
 
 _log = logging.getLogger(__name__)

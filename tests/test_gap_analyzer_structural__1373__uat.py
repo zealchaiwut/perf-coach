@@ -4,9 +4,7 @@ These are lightweight integration tests that verify the rules integrate
 correctly with the engine and gap_findings table.
 """
 import datetime
-import pytest
 
-from backend.services.gap_analysis.engine import run_gap_analysis
 from backend.services.gap_analysis.rules.recurrent_niggle_area import recurrent_niggle_area
 from backend.services.gap_analysis.rules.undertrained_area_under_ramp import undertrained_area_under_ramp
 from backend.services.gap_analysis.rules.strength_lapsed import strength_lapsed
