@@ -2393,7 +2393,36 @@ information about.
     '.pl-sug-daychk input{margin:0;}',
     '.pl-sug-daychk.is-closed{opacity:0.4;cursor:not-allowed;}',
     '.pl-sug-select{font-size:13px;padding:7px 10px;border:1px solid var(--pl-line);border-radius:8px;background:#fff;color:var(--pl-ink);width:auto;align-self:flex-start;}',
-    '.pl-sug-notes{font-size:13px;padding:9px 11px;border:1px solid var(--pl-line);border-radius:9px;background:#fff;color:var(--pl-ink);min-height:52px;resize:vertical;font-family:inherit;}'
+    '.pl-sug-notes{font-size:13px;padding:9px 11px;border:1px solid var(--pl-line);border-radius:9px;background:#fff;color:var(--pl-ink);min-height:52px;resize:vertical;font-family:inherit;}',
+    // ── Two-rail suggestions (issue #1417): rail 1 schedule grid ─────────────
+    '#plan-suggestions-sched{margin-bottom:12px;}',
+    '.pl-rail-head{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;}',
+    '.pl-rail-title{font-size:11px;font-weight:800;color:var(--pl-muted);text-transform:uppercase;letter-spacing:0.03em;flex:1;}',
+    '.pl-rail-sum{font-size:12px;font-family:var(--pl-mono);color:var(--pl-muted);}',
+    '.pl-rail-sum b.on{color:#16a34a;}.pl-rail-sum b.under{color:var(--pl-amber);}.pl-rail-sum b.over{color:#b91c1c;}',
+    '.pl-fill-all{font-size:11.5px;padding:6px 12px;}',
+    '.pl-fill-all:disabled{opacity:0.45;cursor:default;}',
+    '.pl-sched-grid{display:grid;grid-template-columns:repeat(7,minmax(76px,1fr));gap:6px;overflow-x:auto;}',
+    '.pl-sched-day{background:#fff;border:1px solid var(--pl-line);border-radius:9px;padding:5px;min-height:74px;display:flex;flex-direction:column;gap:4px;}',
+    '.pl-sched-day.is-closed{opacity:0.45;background:var(--pl-tile);}',
+    '.pl-sched-day.drop-hover{border-color:var(--pl-run);background:var(--pl-blueSoft);}',
+    '.pl-sched-day-h{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.03em;color:var(--pl-faint);display:flex;justify-content:space-between;padding:0 2px;}',
+    '.pl-slot-chip{display:flex;align-items:center;gap:4px;border-radius:7px;padding:4px 5px;font-size:10px;cursor:grab;border:1px solid transparent;}',
+    '.pl-slot-chip:active{cursor:grabbing;}',
+    '.pl-slot-chip.run{background:var(--pl-blueSoft);color:var(--pl-run);}.pl-slot-chip.strength{background:var(--pl-liftSoft);color:#7c3aed;}.pl-slot-chip.plyo{background:var(--pl-amberSoft);color:var(--pl-amber);}.pl-slot-chip.rest{background:#f1f5f9;color:#64748b;}',
+    '.pl-slot-type{font-weight:800;text-transform:uppercase;flex-shrink:0;}',
+    '.pl-slot-meta{font-family:var(--pl-mono);font-size:9.5px;opacity:0.85;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+    '.pl-slot-x{background:none;border:none;font-size:12px;line-height:1;color:inherit;opacity:0.55;cursor:pointer;padding:0 2px;flex-shrink:0;}',
+    '.pl-slot-x:hover{opacity:1;}',
+    '.pl-slot-addbtn{margin-top:auto;background:none;border:1px dashed var(--pl-line);border-radius:6px;color:var(--pl-faint);font-size:12px;line-height:1;padding:3px 0;cursor:pointer;}',
+    '.pl-slot-addbtn:hover{color:var(--pl-ink);border-color:var(--pl-muted);}',
+    // Rail 2 row additions: day select + editable TSS/duration + fill button.
+    '.pl-sug-day-select{font-size:10px;font-weight:800;color:var(--pl-faint);text-transform:uppercase;border:1px solid var(--pl-line);border-radius:6px;padding:3px 4px;background:#fff;cursor:pointer;flex-shrink:0;}',
+    '.pl-sug-meta-edit{display:inline-flex;align-items:center;gap:3px;}',
+    '.pl-sug-tss-input,.pl-sug-dur-input{width:52px;font-size:11.5px;font-family:var(--pl-mono);border:1px solid var(--pl-line);border-radius:6px;padding:3px 5px;color:var(--pl-ink);}',
+    '.pl-sug-gen{font-size:10.5px;font-weight:700;background:none;border:1px solid #c7d2fe;border-radius:6px;padding:4px 8px;cursor:pointer;color:var(--pl-lavHi);}',
+    '.pl-sug-gen:hover{background:var(--pl-blueSoft);}',
+    '.pl-sug-gen:disabled{opacity:0.6;cursor:default;}'
   ].join('');
 
 }());
@@ -2518,29 +2547,33 @@ information about.
   }
 
   function _buildSugRow(s, idx) {
-    var dow = _DAY_NAMES[s.day_offset] || ('D' + s.day_offset);
-    var tssStr = s.target_tss > 0 ? s.target_tss + ' TSS' : '';
-    var durStr = s.duration_minutes > 0 ? s.duration_minutes + 'min' : '';
-    var metaParts = [tssStr, durStr].filter(Boolean);
-    var metaStr = metaParts.join(' · ');
-
     var wrap = document.createElement('div');
     wrap.className = 'pl-sug-row-wrap';
     wrap.dataset.idx = idx;
 
     var wt = (s.workout_type || 'rest').toLowerCase();
     var types = ['run', 'strength', 'plyo', 'rest'];
+    var allowed = (_suggestionsData && _suggestionsData.facts && _suggestionsData.facts.allowed_offsets) || [0, 1, 2, 3, 4, 5, 6];
 
     wrap.innerHTML =
       '<div class="pl-sug-row">' +
-        '<span class="pl-sug-day">' + dow + '</span>' +
+        '<select class="pl-sug-day-select" data-idx="' + idx + '" title="Move to another day">' +
+          _DAY_NAMES.map(function (n, d) {
+            var ok = allowed.indexOf(d) !== -1 || d === s.day_offset;
+            return '<option value="' + d + '"' + (d === s.day_offset ? ' selected' : '') + (ok ? '' : ' disabled') + '>' + n + '</option>';
+          }).join('') +
+        '</select>' +
         '<select class="pl-sug-type-select ' + wt + '" data-idx="' + idx + '">' +
           types.map(function (t) { return '<option value="' + t + '"' + (t === wt ? ' selected' : '') + '>' + t + '</option>'; }).join('') +
         '</select>' +
-        (metaStr ? '<span class="pl-sug-meta">' + metaStr + '</span>' : '') +
+        '<span class="pl-sug-meta pl-sug-meta-edit">' +
+          '<input type="number" class="pl-sug-tss-input" data-idx="' + idx + '" min="0" max="400" value="' + (s.target_tss || 0) + '" title="Slot TSS budget — AI fills content to match"/> TSS · ' +
+          '<input type="number" class="pl-sug-dur-input" data-idx="' + idx + '" min="0" max="600" step="5" value="' + (s.duration_minutes || 0) + '" title="Slot duration — AI fills content to match"/> min' +
+        '</span>' +
         '<span class="pl-sug-intent">' + esc(s.intent || '') + '</span>' +
         (wt !== 'rest'
           ? '<span class="pl-sug-adjust">' +
+              '<button type="button" class="pl-sug-gen" data-idx="' + idx + '" title="Generate this session’s content with AI — day/type/TSS/duration stay as set">✨ ' + (s._ai ? 'Regenerate' : 'Fill with AI') + '</button>' +
               '<button type="button" class="pl-sug-adj" data-adj="lighter" data-idx="' + idx + '" title="Fewer sets/reps or shorter — not just a lower TSS number">▾ Lighter</button>' +
               '<button type="button" class="pl-sug-adj" data-adj="harder" data-idx="' + idx + '" title="More sets/reps or longer — not just a higher TSS number">▴ Harder</button>' +
               '<button type="button" class="pl-sug-refine-toggle" title="Regenerate this session with a note — e.g. change focus, faster intervals">✎ Refine</button>' +
@@ -2561,10 +2594,44 @@ information about.
 
     var typeSel = wrap.querySelector('.pl-sug-type-select');
     typeSel.addEventListener('change', function () {
+      var prev = s.workout_type;
       s.workout_type = typeSel.value;
       if (typeSel.value === 'rest') { s.target_tss = 0; s.duration_minutes = 0; }
+      if (prev !== typeSel.value) { s.exercises = null; s.blocks = null; s._ai = false; }
       _renderSuggestions(_suggestionsData); // small list — cheap full re-render
     });
+
+    var daySel = wrap.querySelector('.pl-sug-day-select');
+    daySel.addEventListener('change', function () {
+      s.day_offset = +daySel.value;
+      _renderSuggestions(_suggestionsData);
+    });
+
+    var tssIn = wrap.querySelector('.pl-sug-tss-input');
+    tssIn.addEventListener('change', function () {
+      s.target_tss = Math.max(0, Math.min(400, parseInt(tssIn.value, 10) || 0));
+      _renderSuggestions(_suggestionsData);
+    });
+    var durIn = wrap.querySelector('.pl-sug-dur-input');
+    durIn.addEventListener('change', function () {
+      s.duration_minutes = Math.max(0, Math.min(600, parseInt(durIn.value, 10) || 0));
+      _renderSuggestions(_suggestionsData);
+    });
+
+    var genBtn = wrap.querySelector('.pl-sug-gen');
+    if (genBtn) {
+      genBtn.addEventListener('click', function () {
+        genBtn.disabled = true;
+        genBtn.textContent = '… generating';
+        _generateSlot(s)
+          .then(function () { _renderSuggestions(_suggestionsData); })
+          .catch(function (e) {
+            genBtn.disabled = false;
+            genBtn.textContent = '✨ Retry';
+            genBtn.title = (e && e.message) || 'Could not generate — try again.';
+          });
+      });
+    }
 
     wrap.querySelectorAll('.pl-sug-adj').forEach(function (btn) {
       btn.addEventListener('click', function () {
@@ -2614,6 +2681,7 @@ information about.
             });
           })
           .then(function (data) {
+            data.session._ai = true;
             _suggestionsData.suggestions[idx] = data.session;
             _renderSuggestions(_suggestionsData); // small list — cheap full re-render
           })
@@ -2671,6 +2739,167 @@ information about.
       });
   }
 
+  // ── Rail 1: the schedule the athlete owns (issue #1417) ─────────────────────
+  // Day/type/TSS/duration placement is deterministic and user-controlled;
+  // the LLM only ever fills a slot's CONTENT within the budget the slot
+  // already carries (see _generateSlot). Chips drag between day columns on
+  // desktop; every property is also editable on the rail-2 row below, so
+  // touch devices lose nothing.
+
+  var _TYPE_DEFAULTS = { run: { tss: 55, min: 45 }, strength: { tss: 50, min: 45 }, plyo: { tss: 40, min: 30 } };
+
+  function _slotSumHtml(data) {
+    var sum = 0;
+    (data.suggestions || []).forEach(function (s) { sum += s.workout_type !== 'rest' ? (s.target_tss || 0) : 0; });
+    var target = data.facts && data.facts.target_tss ? Math.round(data.facts.target_tss) : null;
+    if (target == null) return 'Σ ' + Math.round(sum) + ' TSS';
+    var cls = sum > target * 1.05 ? 'over' : (sum < target * 0.95 ? 'under' : 'on');
+    return 'Σ <b class="' + cls + '">' + Math.round(sum) + '</b> / ' + target + ' TSS target';
+  }
+
+  function _renderScheduleRail(data) {
+    var host = _el('plan-suggestions-sched');
+    if (!host) {
+      host = document.createElement('div');
+      host.id = 'plan-suggestions-sched';
+      var list = _el('plan-suggestions-list');
+      list.parentNode.insertBefore(host, list);
+    }
+    var suggestions = data.suggestions || [];
+    var allowed = (data.facts && data.facts.allowed_offsets) || [0, 1, 2, 3, 4, 5, 6];
+    var restDays = (data.facts && data.facts.preferred_rest_days) || [];
+    var ws = _parseISO(_weekStartISO());
+
+    var cols = '';
+    for (var d = 0; d < 7; d++) {
+      var open = allowed.indexOf(d) !== -1 || restDays.indexOf(d) !== -1;
+      var dayDate = new Date(ws); dayDate.setDate(ws.getDate() + d);
+      var chips = '';
+      suggestions.forEach(function (s, i) {
+        if (s.day_offset !== d) return;
+        var wt = (s.workout_type || 'rest').toLowerCase();
+        var meta = wt === 'rest' ? 'rest' : [(s.target_tss || 0) + ' TSS', (s.duration_minutes || 0) + 'm'].join(' · ');
+        chips += '<div class="pl-slot-chip ' + wt + '" draggable="true" data-idx="' + i + '" title="Drag to another day — details below">' +
+          '<span class="pl-slot-type">' + wt + '</span>' +
+          '<span class="pl-slot-meta">' + meta + '</span>' +
+          '<button type="button" class="pl-slot-x" data-idx="' + i + '" title="Remove slot">×</button>' +
+        '</div>';
+      });
+      cols += '<div class="pl-sched-day' + (open ? '' : ' is-closed') + '" data-day="' + d + '"' +
+        (open ? '' : ' title="Already scheduled, logged, or in the past"') + '>' +
+        '<div class="pl-sched-day-h">' + _DAY_NAMES[d] + ' <span>' + dayDate.getDate() + '</span></div>' +
+        chips +
+        (open ? '<button type="button" class="pl-slot-addbtn" data-day="' + d + '" title="Add a slot">+</button>' : '') +
+      '</div>';
+    }
+
+    var anyUnfilled = suggestions.some(function (s) { return s.workout_type !== 'rest' && !s._ai; });
+    host.innerHTML =
+      '<div class="pl-rail-head">' +
+        '<span class="pl-rail-title">Schedule — drag, resize, then fill</span>' +
+        '<span class="pl-rail-sum">' + _slotSumHtml(data) + '</span>' +
+        '<button type="button" class="pl-btn pl-lime pl-fill-all"' + (anyUnfilled ? '' : ' disabled') + '>✨ Fill sessions with AI</button>' +
+      '</div>' +
+      '<div class="pl-sched-grid">' + cols + '</div>';
+
+    // Drag & drop between day columns.
+    host.querySelectorAll('.pl-slot-chip').forEach(function (chip) {
+      chip.addEventListener('dragstart', function (e) {
+        e.dataTransfer.setData('text/plain', chip.dataset.idx);
+        e.dataTransfer.effectAllowed = 'move';
+      });
+      chip.addEventListener('click', function (e) {
+        if (e.target.classList.contains('pl-slot-x')) return;
+        var row = document.querySelector('.pl-sug-row-wrap[data-idx="' + chip.dataset.idx + '"]');
+        if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    });
+    host.querySelectorAll('.pl-sched-day:not(.is-closed)').forEach(function (col) {
+      col.addEventListener('dragover', function (e) { e.preventDefault(); col.classList.add('drop-hover'); });
+      col.addEventListener('dragleave', function () { col.classList.remove('drop-hover'); });
+      col.addEventListener('drop', function (e) {
+        e.preventDefault();
+        var idx = parseInt(e.dataTransfer.getData('text/plain'), 10);
+        var s = _suggestionsData.suggestions[idx];
+        if (s) { s.day_offset = +col.dataset.day; _renderSuggestions(_suggestionsData); }
+      });
+    });
+    host.querySelectorAll('.pl-slot-x').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        _suggestionsData.suggestions.splice(+btn.dataset.idx, 1);
+        _renderSuggestions(_suggestionsData);
+      });
+    });
+    host.querySelectorAll('.pl-slot-addbtn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var def = _TYPE_DEFAULTS.run;
+        _suggestionsData.suggestions.push({
+          day_offset: +btn.dataset.day, workout_type: 'run',
+          target_tss: def.tss, duration_minutes: def.min,
+          intent: 'New session — pick a type and fill with AI.',
+          notes: null, exercises: null, blocks: null,
+        });
+        _renderSuggestions(_suggestionsData);
+      });
+    });
+    var fillBtn = host.querySelector('.pl-fill-all');
+    if (fillBtn) fillBtn.addEventListener('click', _fillAllSlots);
+  }
+
+  // ── Rail 2: per-slot content generation ─────────────────────────────────────
+  // Keeps the slot's own day/type/TSS/duration authoritative — only the
+  // content fields (intent/notes/exercises/blocks) come from the LLM.
+  function _generateSlot(s, statusEl) {
+    return fetch('/api/plan/suggestions/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        date: _formatSugDate(s.day_offset),
+        workout_type: s.workout_type,
+        note: _lastPrefs.notes || null,
+        target_tss: s.target_tss || null,
+        duration_minutes: s.duration_minutes || null,
+      }),
+    })
+      .then(function (r) {
+        return r.json().then(function (d) {
+          if (!r.ok) throw new Error((d && d.detail) || ('HTTP ' + r.status));
+          return d;
+        });
+      })
+      .then(function (data) {
+        var g = data.session || {};
+        s.intent = g.intent || s.intent;
+        s.notes = g.notes || s.notes;
+        s.exercises = g.exercises || null;
+        s.blocks = g.blocks || null;
+        s._ai = true;
+      });
+  }
+
+  // Sequential, not parallel — Groq rate-limits burst traffic (observed 429s
+  // on the whole-week path), and one slot at a time gives visible progress.
+  function _fillAllSlots() {
+    var slots = (_suggestionsData.suggestions || []).filter(function (s) {
+      return s.workout_type !== 'rest' && !s._ai;
+    });
+    var loading = _el('plan-suggestions-loading');
+    var label = loading ? loading.querySelector('span') : null;
+    if (loading) loading.style.display = '';
+    var done = 0;
+    var chain = Promise.resolve();
+    slots.forEach(function (s) {
+      chain = chain.then(function () {
+        if (label) label.textContent = 'Filling session ' + (done + 1) + ' of ' + slots.length + '…';
+        return _generateSlot(s).then(function () { done++; }, function () { done++; /* keep going; row keeps template */ });
+      });
+    });
+    chain.then(function () {
+      if (loading) loading.style.display = 'none';
+      _renderSuggestions(_suggestionsData);
+    });
+  }
+
   function _renderSuggestions(data) {
     _suggestionsData = data;
     var panel = _el('plan-suggestions-panel');
@@ -2679,7 +2908,9 @@ information about.
     if (!panel || !list) return;
 
     var src = data.source || 'fallback';
-    if (srcEl) srcEl.textContent = src === 'llm' ? 'AI' : 'template';
+    if (srcEl) srcEl.textContent = src === 'llm' ? 'AI' : (src === 'skeleton' ? 'schedule' : 'template');
+
+    _renderScheduleRail(data);
 
     list.innerHTML = '';
     var suggestions = data.suggestions || [];
@@ -2687,6 +2918,7 @@ information about.
       list.innerHTML = '<span style="font-size:12px;color:var(--pl-muted);">Nothing left to suggest — the rest of this week is already scheduled.</span>';
     } else {
       suggestions.forEach(function (s, i) {
+        if (s.workout_type === 'rest') return; // rail 1 shows rest slots
         list.appendChild(_buildSugRow(s, i));
       });
     }
@@ -2757,7 +2989,7 @@ information about.
             '<label class="pl-sug-prefs-label" for="pl-sug-notes">Anything else the coach should know?</label>' +
             '<textarea id="pl-sug-notes" class="pl-sug-notes" placeholder="e.g. easing back after a cold, prioritize a long run Saturday…" maxlength="300">' + esc(_lastPrefs.notes) + '</textarea>' +
           '</div>' +
-          '<div class="pl-btnrow"><button type="button" class="pl-btn pl-lime" id="pl-sug-generate">Generate suggestions</button>' +
+          '<div class="pl-btnrow"><button type="button" class="pl-btn pl-lime" id="pl-sug-generate">Build schedule</button>' +
           '<button type="button" class="pl-btn pl-ghost" id="pl-sug-cancel">Cancel</button></div>'
         ) : (
           '<div class="pl-infobanner">The rest of this week is already fully scheduled or logged — nothing left to suggest here. Use the week arrows to look at next week instead.</div>' +
@@ -2799,9 +3031,17 @@ information about.
     panel.style.display = '';
     // Show the overlay ON TOP of whatever's already there (the prefs form, or
     // last time's suggestion list) — don't clear it first, so the panel never
-    // goes blank while the LLM call is in flight.
-    if (loading) loading.style.display = '';
+    // goes blank while the call is in flight.
+    if (loading) {
+      loading.style.display = '';
+      var lbl = loading.querySelector('span');
+      if (lbl) lbl.textContent = 'Building schedule…';
+    }
 
+    // Two-rail flow (issue #1417): fetch the deterministic schedule skeleton
+    // (instant, no LLM). The athlete rearranges the slots on the schedule
+    // rail, then fills content per slot (✨ buttons) — the LLM never chooses
+    // which day gets which session type again.
     fetch('/api/plan/suggestions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2810,6 +3050,7 @@ information about.
         rest_days: _lastPrefs.restDays,
         strength_emphasis: _lastPrefs.strengthEmphasis,
         notes: _lastPrefs.notes,
+        skeleton: true,
       }),
     })
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })

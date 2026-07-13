@@ -1305,6 +1305,7 @@ def get_suggestions(
     preferred_rest_days: list[int] | None = None,
     strength_emphasis: str | None = None,
     notes: str | None = None,
+    skeleton: bool = False,
 ) -> dict:
     """Full entry point: assemble facts → cache-aware LLM call → fallback.
 
@@ -1315,12 +1316,26 @@ def get_suggestions(
     week_start/preferred_rest_days/strength_emphasis/notes are the athlete's
     scoping + preference input (see assemble_facts) — they flow into facts and
     therefore into the cache signature, so different input never collides.
+
+    skeleton=True (two-rail flow, issue #1417) skips the LLM entirely and
+    returns the deterministic template — day/type/TSS/duration slots the
+    athlete then rearranges on the schedule rail before per-slot content is
+    generated via generate_single_session. Instant, zero LLM cost, never
+    cached (the template is pure computation over facts).
     """
     facts = assemble_facts(
         user_id, db=db, week_start=week_start,
         preferred_rest_days=preferred_rest_days,
         strength_emphasis=strength_emphasis, notes=notes,
     )
+    if skeleton:
+        return {
+            "facts": facts,
+            "suggestions": fallback_suggestions(facts),
+            "source": "skeleton",
+            "attempts": 0,
+            "orch": "none",
+        }
     sig = build_signature(facts)
     orch = _plan_orch()
     surface = _SURFACE if orch == "single" else _SURFACE + ":" + orch
@@ -1378,11 +1393,30 @@ def build_single_session_prompt(
     workout_type: str | None,
     note: str,
     current_session: dict | None = None,
+    target_tss: float | None = None,
+    duration_minutes: int | None = None,
 ) -> tuple[str, str]:
-    """Build (system_prompt, user_prompt) for a ONE-session generate/refine call."""
+    """Build (system_prompt, user_prompt) for a ONE-session generate/refine call.
+
+    target_tss/duration_minutes are the schedule rail's slot budget (two-rail
+    flow, issue #1417): when given, the session must land on those numbers —
+    the athlete owns the schedule; the LLM only fills content within it."""
     trailing = facts.get("trailing_28d_weekly_avg_tss", 0.0)
     max_weekly = round(max(float(trailing), FALLBACK_MIN_WEEKLY_TSS) * ACWR_HIGH_BOUND)
     day_name = _DAY_NAMES[day_offset]
+
+    budget_rule = ""
+    if target_tss is not None or duration_minutes is not None:
+        parts = []
+        if target_tss is not None:
+            parts.append(f"target_tss MUST be {round(float(target_tss))} (±10%)")
+        if duration_minutes is not None:
+            parts.append(f"duration_minutes MUST be {int(duration_minutes)} (±10%)")
+        budget_rule = (
+            "6. The athlete fixed this session's budget on their schedule: "
+            + " and ".join(parts)
+            + " — size the exercises/blocks to fill exactly that, do not resize the slot.\n"
+        )
 
     system = (
         "You are a running coach. Produce or REVISE exactly ONE training session "
@@ -1400,6 +1434,7 @@ def build_single_session_prompt(
         "run: include `blocks` (2-5 entries, {phase, duration_min, repeat, rest_min, "
         "target}). rest: both null.\n"
         "5. `notes` = terse coach rationale for this session, or null for rest.\n"
+        f"{budget_rule}"
     )
 
     user = f"This session is for day_offset {day_offset} ({day_name})."
@@ -1426,12 +1461,16 @@ def generate_single_session(
     preferred_rest_days: list[int] | None = None,
     strength_emphasis: str | None = None,
     notes: str | None = None,
+    target_tss: float | None = None,
+    duration_minutes: int | None = None,
     db=None,
 ) -> dict | None:
     """Generate or refine ONE session. Returns the session dict, or None on
     failure (LLM unavailable or couldn't produce a valid session in 2 tries —
     callers should keep the athlete's current session and show an error,
-    there is no deterministic-template fallback for a single session)."""
+    there is no deterministic-template fallback for a single session).
+    target_tss/duration_minutes pin the slot budget (two-rail flow) — see
+    build_single_session_prompt."""
     facts = assemble_facts(
         user_id, db=db, week_start=week_start,
         preferred_rest_days=preferred_rest_days,
@@ -1445,7 +1484,10 @@ def generate_single_session(
 
     feedback = ""
     for _attempt in range(2):
-        system, user = build_single_session_prompt(facts, day_offset, workout_type, note, current_session)
+        system, user = build_single_session_prompt(
+            facts, day_offset, workout_type, note, current_session,
+            target_tss=target_tss, duration_minutes=duration_minutes,
+        )
         raw = llm_svc.complete_structured(
             system=system,
             user=user + feedback,

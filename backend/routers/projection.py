@@ -393,6 +393,10 @@ class PlanSuggestionsRequest(BaseModel):
     rest_days: Optional[list[int]] = None
     strength_emphasis: Optional[str] = None  # "less" | "same" | "more"
     notes: Optional[str] = None
+    # Two-rail flow (issue #1417): True returns the deterministic template
+    # slots instantly (no LLM) for the schedule rail; content per slot is
+    # generated later via POST /plan/suggestions/session.
+    skeleton: Optional[bool] = None
 
 
 @router.post("/plan/suggestions")
@@ -439,6 +443,7 @@ def get_plan_suggestions(
         preferred_rest_days=rest_days,
         strength_emphasis=strength_emphasis,
         notes=notes,
+        skeleton=bool(body.skeleton) if body is not None else False,
     )
     return JSONResponse(result)
 
@@ -452,6 +457,11 @@ class SingleSessionRequest(BaseModel):
     # Present only when REFINING an already-suggested session (same shape as
     # a suggestions[] item) — omitted when creating a fresh one from scratch.
     current_session: Optional[dict] = None
+    # Two-rail flow (issue #1417): the schedule rail's slot budget. When set,
+    # the generated session must land on these numbers (pinned in the prompt)
+    # — the athlete owns the schedule; the LLM only fills the content.
+    target_tss: Optional[float] = None
+    duration_minutes: Optional[int] = None
 
 
 @router.post("/plan/suggestions/session")
@@ -486,6 +496,11 @@ def generate_plan_session(
     if body.workout_type is not None and body.workout_type not in ("run", "strength", "plyo", "rest"):
         raise HTTPException(status_code=422, detail="workout_type must be run, strength, plyo, or rest")
 
+    if body.target_tss is not None and not (0 <= body.target_tss <= 400):
+        raise HTTPException(status_code=422, detail="target_tss must be between 0 and 400")
+    if body.duration_minutes is not None and not (0 <= body.duration_minutes <= 600):
+        raise HTTPException(status_code=422, detail="duration_minutes must be between 0 and 600")
+
     session = _generate_single_session(
         str(user.id),
         day_offset,
@@ -493,6 +508,8 @@ def generate_plan_session(
         workout_type=body.workout_type,
         current_session=body.current_session,
         week_start=week_start,
+        target_tss=body.target_tss,
+        duration_minutes=body.duration_minutes,
     )
     if session is None:
         raise HTTPException(status_code=422, detail="Could not generate a session for this request — try again or adjust the note.")
