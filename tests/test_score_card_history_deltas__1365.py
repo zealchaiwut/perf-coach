@@ -300,7 +300,6 @@ class TestAC3StaleAnchorTint:
     """is_stale flag on anchors and .stale CSS class are unchanged."""
 
     def test_is_stale_in_breakdown_anchors(self):
-        from backend.services.running_performance import GRACE_WEEKS
         import backend.services.running_performance as rp
         src = inspect.getsource(rp)
         assert "is_stale" in src, "is_stale must remain in breakdown anchors in running_performance.py"
