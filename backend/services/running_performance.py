@@ -71,6 +71,16 @@ _log = logging.getLogger(__name__)
 #   genuinely detrained run (higher HR for the same pace) still reads lower.
 #   equivalent_pace = lap_pace × (avg_hr / threshold_hr) ** exponent.
 # speed_sparse_effort_threshold / speed_sparse_band_multiplier: confidence band.
+
+# Aborted-session guard (issue #1364): sessions at or below this total-duration
+# threshold are excluded from the endurance/durability signal.  A session the
+# athlete cut short (e.g. an interval session stopped after 15 min) must not
+# add any aerobic perf point — even if it has easy/warmup laps — because those
+# laps represent an incomplete effort.  Mirrors the 40-minute minimum in
+# endurance_signal.py (_MIN_MOVING_SECONDS = 2400), keeping the two thresholds
+# in sync.  Sessions with duration_seconds strictly GREATER than this value pass.
+MIN_ENDURANCE_QUALIFYING_SESSION_SECONDS: int = 2400  # 40 minutes
+
 PERFORMANCE_CONFIG: dict = {
     "trailing_window_days": 90,
     "threshold_effort_minutes": 30.0,
@@ -151,6 +161,19 @@ def compute_endurance_score(
 
     for run in runs:
         run_id = run.get("run_id", "")
+
+        # Aborted-session guard: short or cut-short sessions must not contribute
+        # any perf point (proposal §1; issue #1364).  A 15-min interval session
+        # with a 9-min warmup lap still has an "easy" lap, but trusting it as an
+        # endurance signal from an incomplete effort is wrong.
+        session_dur = run.get("duration_seconds")
+        if (
+            not isinstance(session_dur, (int, float))
+            or isinstance(session_dur, bool)
+            or session_dur <= MIN_ENDURANCE_QUALIFYING_SESSION_SECONDS
+        ):
+            continue
+
         laps = _qualifying_laps(run.get("laps") or [], bands)
         lap_pace, _dur = _lap_pace_and_duration(laps)
         avg_hr = _weighted_lap_hr(laps)
