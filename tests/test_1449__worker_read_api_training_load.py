@@ -14,8 +14,10 @@ AC coverage:
 """
 import os
 import pathlib
+import socket
 import uuid
 from datetime import date, datetime, timedelta
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -46,6 +48,24 @@ else:
 _engine = create_engine(_uat_url, pool_pre_ping=True) if _uat_url else None
 
 BANGKOK_TZ = ZoneInfo("Asia/Bangkok")
+
+
+def _worker_reachable() -> bool:
+    """Return True if the worker server is accepting connections."""
+    parsed = urlparse(WORKER_BASE_URL)
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or 9100
+    try:
+        with socket.create_connection((host, port), timeout=2):
+            return True
+    except OSError:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _worker_reachable(),
+    reason="worker server not reachable at " + WORKER_BASE_URL,
+)
 
 
 def _create_test_user() -> tuple[str, str]:
