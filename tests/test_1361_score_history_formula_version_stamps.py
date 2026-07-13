@@ -15,10 +15,12 @@ import uuid
 
 import httpx
 import pytest
+from fastapi.testclient import TestClient as _TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session as _OrmSess
 
 from backend.auth import CSRF_COOKIE_NAME, hash_password as _hash_pw
+from backend.main import app as _app
 from backend.models import User as _UserModel, PerformanceScoreHistory
 from tests._admin_helpers import admin_cookies as _admin_cookies
 
@@ -330,13 +332,14 @@ def test_ac4_score_history_response_fields(client):
         _delete_user(user_id)
 
 
-def test_ac4_score_history_unauthenticated_returns_401(client):
-    """AC4: Unauthenticated request returns 401."""
+def test_ac4_score_history_unauthenticated_returns_401():
+    """AC4: Unauthenticated request returns 401 (tested via TestClient, not live server)."""
     today = datetime.date.today()
-    r = client.get(
-        "/api/performance/score-history",
-        params={"from": today.isoformat(), "to": today.isoformat()},
-    )
+    with _TestClient(_app) as tc:
+        r = tc.get(
+            "/api/performance/score-history",
+            params={"from": today.isoformat(), "to": today.isoformat()},
+        )
     assert r.status_code == 401
 
 
