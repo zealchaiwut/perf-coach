@@ -14,7 +14,6 @@ import uuid
 from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
-
 from backend.services.training_load import (
     ATL_DAYS,
     CTL_DAYS,
@@ -99,8 +98,6 @@ def _captured_upsert_row(mock_sess, engine_mock, series, ctl_days, atl_days):
     """Run daily_update and capture the dict passed to _pg_insert().values()."""
     import backend.services.training_load as tl_mod
     captured_rows = []
-
-    original_pg_insert = tl_mod._pg_insert
 
     def _fake_pg_insert(model):
         stmt = MagicMock()

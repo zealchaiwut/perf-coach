@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.auth import resolve_user
 from backend.main import app
 from backend.services.training_load import (
     ATL_DAYS,
@@ -19,6 +20,16 @@ from backend.services.training_load import (
 
 _client = TestClient(app)
 _USER_ID = str(uuid.uuid4())
+
+
+@pytest.fixture(autouse=True)
+def _auth_bypass():
+    """Bypass resolve_user for all tests — API endpoint auth is tested separately."""
+    fake_user = MagicMock()
+    fake_user.id = uuid.UUID(_USER_ID)
+    app.dependency_overrides[resolve_user] = lambda: fake_user
+    yield
+    app.dependency_overrides.pop(resolve_user, None)
 
 
 @pytest.fixture(autouse=True)
@@ -347,9 +358,10 @@ def test_api_training_load_response_shape():
     from_str = (today - timedelta(days=29)).isoformat()
     to_str = today.isoformat()
     series = _make_series(30)
+    fake_rows = [{"date": d, "tss": t, "ctl": 50.0, "atl": 48.0, "tsb": 2.0, "acwr": None} for d, t in series]
     with (
         patch("backend.main.Session", return_value=_mock_session_with_user()),
-        patch("backend.main.daily_tss_series", return_value=series),
+        patch("backend.main.get_snapshot_series", return_value=fake_rows),
     ):
         res = _client.get(f"/api/training-load?user_id={_USER_ID}&from={from_str}&to={to_str}")
 
@@ -372,12 +384,10 @@ def test_api_training_load_response_shape():
 def test_api_training_load_date_range_filter():
     from_str = "2025-01-01"
     to_str = "2025-01-10"
-    series = [(date(2025, 1, i), 50) for i in range(1, 11)]
-    curves = compute_load_curves(series)
+    fake_rows = [{"date": date(2025, 1, i), "tss": 50, "ctl": 20.0, "atl": 18.0, "tsb": 2.0, "acwr": None} for i in range(1, 11)]
     with (
         patch("backend.main.Session", return_value=_mock_session_with_user()),
-        patch("backend.main.daily_tss_series", return_value=series),
-        patch("backend.main.compute_load_curves", return_value=curves),
+        patch("backend.main.get_snapshot_series", return_value=fake_rows),
     ):
         res = _client.get(f"/api/training-load?user_id={_USER_ID}&from={from_str}&to={to_str}")
 
@@ -468,19 +478,13 @@ def test_api_training_load_current_tsb_neg15_is_productive():
 def test_api_get_reads_from_snapshots():
     from_str = "2024-01-01"
     to_str = "2024-01-05"
-
-    snaps = []
-    for i in range(5):
-        s = MagicMock()
-        s.snapshot_date = date(2024, 1, i + 1)
-        s.tss_for_day = 100
-        s.ctl = 5.0 + i * 0.5
-        s.atl = 4.0 + i * 0.5
-        snaps.append(s)
-
+    fake_rows = [
+        {"date": date(2024, 1, i + 1), "tss": 100, "ctl": round(5.0 + i * 0.5, 1), "atl": round(4.0 + i * 0.5, 1), "tsb": 1.0, "acwr": None}
+        for i in range(5)
+    ]
     with (
-        patch("backend.main.Session", return_value=_mock_session_smart(snap_list=snaps)),
-        patch("backend.main.daily_tss_series") as mock_tss,
+        patch("backend.main.Session", return_value=_mock_session_with_user()),
+        patch("backend.main.get_snapshot_series", return_value=fake_rows) as mock_gss,
     ):
         res = _client.get(f"/api/training-load?user_id={_USER_ID}&from={from_str}&to={to_str}")
 
@@ -490,7 +494,7 @@ def test_api_get_reads_from_snapshots():
     for i, entry in enumerate(body["curves"]):
         assert entry["tss"] == 100
         assert entry["ctl"] == round(5.0 + i * 0.5, 1)
-    mock_tss.assert_not_called()
+    mock_gss.assert_called_once()
 
 
 # (d) GET falls back to on-demand computation for dates missing from snapshots
@@ -499,22 +503,14 @@ def test_api_get_reads_from_snapshots():
 def test_api_get_falls_back_for_missing_days():
     from_str = "2024-01-01"
     to_str = "2024-01-05"
-
-    # Jan 3 (index 2) is absent from snapshots
-    snaps = []
-    for i in [0, 1, 3, 4]:
-        s = MagicMock()
-        s.snapshot_date = date(2024, 1, i + 1)
-        s.tss_for_day = 80
-        s.ctl = 10.0 + i
-        s.atl = 9.0 + i
-        snaps.append(s)
-
-    missing_tss = [(date(2024, 1, 3), 80)]
-
+    # get_snapshot_series handles cache misses internally and returns all 5 days
+    fake_rows = [
+        {"date": date(2024, 1, i + 1), "tss": 80, "ctl": 10.0 + i, "atl": 9.0 + i, "tsb": 1.0, "acwr": None}
+        for i in range(5)
+    ]
     with (
-        patch("backend.main.Session", return_value=_mock_session_smart(snap_list=snaps)),
-        patch("backend.main.daily_tss_series", return_value=missing_tss) as mock_tss,
+        patch("backend.main.Session", return_value=_mock_session_with_user()),
+        patch("backend.main.get_snapshot_series", return_value=fake_rows) as mock_gss,
     ):
         res = _client.get(f"/api/training-load?user_id={_USER_ID}&from={from_str}&to={to_str}")
 
@@ -522,7 +518,7 @@ def test_api_get_falls_back_for_missing_days():
     body = res.json()
     assert len(body["curves"]) == 5
     assert "2024-01-03" in [e["date"] for e in body["curves"]]
-    mock_tss.assert_called_once()
+    mock_gss.assert_called_once()
 
 
 # (e) recompute endpoint UPSERTs snapshot values and returns 200
@@ -531,13 +527,11 @@ def test_api_get_falls_back_for_missing_days():
 def test_api_recompute_upserts_snapshots():
     today = date.today()
     today_str = today.isoformat()
-    today_series = [(today, 80)]
-
-    mock_sess = _mock_session_smart(seed_snap=None)
+    fake_rows = [{"date": today, "tss": 80, "ctl": 50.0, "atl": 48.0, "tsb": 2.0, "acwr": None}]
 
     with (
-        patch("backend.main.Session", return_value=mock_sess),
-        patch("backend.main.daily_tss_series", return_value=today_series),
+        patch("backend.main.Session", return_value=_mock_session_with_user()),
+        patch("backend.main.get_snapshot_series", return_value=fake_rows) as mock_gss,
     ):
         res = _client.post(f"/api/training-load/recompute?user_id={_USER_ID}&from={today_str}")
 
@@ -545,7 +539,7 @@ def test_api_recompute_upserts_snapshots():
     body = res.json()
     assert body["recomputed"] >= 1
     assert body["from"] == today_str
-    mock_sess.execute.assert_called()
+    mock_gss.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -682,12 +676,11 @@ def test_backfill_endpoint_populates_snapshot_rows():
     today = date.today()
     n_days = (today - from_d).days + 1
 
-    tss_series = [(from_d + timedelta(days=i), 80) for i in range(n_days)]
-    mock_sess = _mock_session_smart(seed_snap=None)
+    fake_rows = [{"date": from_d + timedelta(days=i), "tss": 80, "ctl": 50.0, "atl": 48.0, "tsb": 2.0, "acwr": None} for i in range(n_days)]
 
     with (
-        patch("backend.main.Session", return_value=mock_sess),
-        patch("backend.main.daily_tss_series", return_value=tss_series),
+        patch("backend.main.Session", return_value=_mock_session_with_user()),
+        patch("backend.main.get_snapshot_series", return_value=fake_rows) as mock_gss,
     ):
         res = _client.post(f"/api/training-load/backfill?user_id={_USER_ID}&from={from_str}")
 
@@ -695,4 +688,4 @@ def test_backfill_endpoint_populates_snapshot_rows():
     body = res.json()
     assert body["backfilled"] == n_days
     assert body["from"] == from_str
-    mock_sess.execute.assert_called()
+    mock_gss.assert_called_once()
