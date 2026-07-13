@@ -38,6 +38,12 @@ class RuleRegistry:
         findings = []
         skipped_rules = []
 
+        # Inject live list of fired codes so later rules can suppress themselves.
+        # Each rule sees the codes of all findings that have fired *before* it.
+        fired_codes: list[str] = []
+        inputs = dict(inputs)  # shallow copy — don't mutate caller's dict
+        inputs["other_findings_codes"] = fired_codes
+
         for entry in self._rules:
             fn_name = entry.fn.__name__
             missing = [k for k in entry.requires if k not in inputs]
@@ -49,6 +55,7 @@ class RuleRegistry:
                 result = entry.fn(inputs)
                 if result is not None:
                     findings.append(result)
+                    fired_codes.append(result.code)
             except Exception:
                 _log.warning("Rule %s raised an exception; skipping", fn_name, exc_info=True)
                 skipped_rules.append(fn_name)

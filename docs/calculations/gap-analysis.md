@@ -91,9 +91,13 @@ _REGISTRY.register(requires=["structural_dose"])(my_rule)
 | `long_run_decoupling_4w` | `workouts.decoupling_percent` (issue #1372) | `{avg_decoupling_pct, count}` — average aerobic decoupling for long runs (>40 min) over 28 days |
 | `speed_score_history_8w` | `performance_score_history` (issue #1372) | `{oldest_speed, newest_speed, formula_version, count}` — speed score endpoints over 56 days at the latest formula_version; `None` when < 2 rows |
 | `quality_sessions_3w` | `workouts.speed_signal` (issue #1372) | `{count, window_weeks}` — run workouts with a non-null `speed_signal` over 21 days |
+| `injury_log` | `injury_log` table (issue #1350, #1373) | List of `{body_area, severity, started_on, ended_on}` for the last 90 days |
+| `muscle_volume` | `muscle_load_daily` table (issue #1367, #1373) | List of `{week_start, muscle_group, weekly_load}` for the last 8 weeks |
+| `training_load` | `workouts` table (issue #1373) | `{"weekly": [{week_start, running_tss}]}` for the last 8 weeks |
 | `week_start` | engine | `datetime.date` — always present |
+| `other_findings_codes` | registry (runtime, #1373) | List of `code` strings for findings that fired *before* the current rule. Injected by the registry so late rules can suppress themselves. |
 
-Future sprints will add: `muscle_volume` (#1367 acwr), `injury_log` (#1350).
+Future sprints will add: `intensity_distribution`, `scores`.
 
 ---
 
@@ -317,3 +321,85 @@ with the quality-session count as volume evidence.
 - `severity`: 2 (recommend) → 1 when verdict is `back_off`
 - `evidence metrics`: `speed_score_decay_8w`, `speed_score_newest`, `quality_sessions_3w`
 - `target`: `speed`
+
+---
+
+## Structural Rules (issue #1373)
+
+### recurrent_niggle_area
+
+File: `backend/services/gap_analysis/rules/recurrent_niggle_area.py`
+
+Fires when any muscle group (resolved from `body_area` via `BODY_AREA_TO_MUSCLE_GROUP`) has
+`>= RECURRENT_NIGGLE_MIN_COUNT` injury-log entries within the last `RECURRENT_NIGGLE_WINDOW_DAYS`
+days. Fires for the group with the highest count; ties broken alphabetically.
+
+**Body area → muscle group mapping**: `BODY_AREA_TO_MUSCLE_GROUP` in
+`backend/services/muscle_load.py`. Examples: `left_calf` / `right_calf` → `calf`;
+`left_hamstring` / `right_hamstring` → `hamstring`; `left_glute` / `right_glute` → `glute`.
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `RECURRENT_NIGGLE_WINDOW_DAYS` | 90 | Lookback window for counting entries |
+| `RECURRENT_NIGGLE_MIN_COUNT` | 2 | Minimum entries for same group to fire |
+
+- `code`: `recurrent_niggle_area`
+- `severity`: 3 (priority)
+- `evidence metrics`: `niggle_count`, `most_recent_entry_date`
+- `target`: canonical muscle group (e.g. `calf`)
+
+---
+
+### undertrained_area_under_ramp
+
+File: `backend/services/gap_analysis/rules/undertrained_area_under_ramp.py`
+
+Fires when **both** conditions hold for a lower-body priority muscle group
+(`LOWER_BODY_PRIORITY_GROUPS = {calf, hamstring, glute}`):
+
+1. **Zero strength volume**: The group has `weekly_load = 0` in `muscle_load_daily` for
+   `>= ZERO_VOLUME_WEEKS_THRESHOLD` (4) consecutive trailing weeks.
+2. **TSS is ramping**: The 4-week average running TSS has risen by more than
+   `TSS_RAMP_THRESHOLD` (10 %) vs the prior 2-week average.
+
+**Active severe injury guard**: If an active (ended_on=None) injury of severity
+`>= ACTIVE_INJURY_SEVERITY_THRESHOLD` (2) maps to the same muscle group, the loading
+recommendation is suppressed and a recovery-deferring message is surfaced instead.
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `LOWER_BODY_PRIORITY_GROUPS` | `{calf, hamstring, glute}` | Groups monitored for this rule |
+| `ZERO_VOLUME_WEEKS_THRESHOLD` | 4 | Trailing weeks of zero volume required |
+| `TSS_RAMP_THRESHOLD` | 10.0 | Minimum TSS increase (%) to confirm ramp |
+| `TSS_RAMP_WINDOW_WEEKS` | 4 | Total weeks for TSS ramp comparison |
+| `ACTIVE_INJURY_SEVERITY_THRESHOLD` | 2 | Injury severity that suppresses loading advice |
+
+- `code`: `undertrained_area_under_ramp`
+- `severity`: 2 (recommend)
+- `evidence metrics`: `zero_volume_weeks`, `tss_ramp_pct`, `running_tss_recent_mean`
+- `target`: canonical muscle group
+
+---
+
+### strength_lapsed
+
+File: `backend/services/gap_analysis/rules/strength_lapsed.py`
+
+Fires when no strength sessions at all were recorded in the last `STRENGTH_LAPSED_DAYS`
+(21) days. Acts as a general fallback reminder.
+
+**Suppression**: automatically suppressed when `recurrent_niggle_area` or
+`undertrained_area_under_ramp` already fired in the same run — those rules provide specific
+actionable advice and stacking a generic reminder adds no value.
+
+The registry injects `other_findings_codes` into inputs as rules execute in order, so
+`strength_lapsed` (registered last) can check this list.
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `STRENGTH_LAPSED_DAYS` | 21 | Days without strength session to fire |
+
+- `code`: `strength_lapsed`
+- `severity`: 1 (note)
+- `evidence metrics`: `days_since_strength`
+- `target`: `null` (general finding)
