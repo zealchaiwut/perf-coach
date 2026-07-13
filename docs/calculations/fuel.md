@@ -128,10 +128,43 @@ longest session."*).
 Macro targets (`compute_targets`):
 
 ```python
-protein_g = round(weight_kg * protein_g_per_kg)   # fixed · 2 g/kg, identical on rest and long-run days
-fat_g     = settings.fat_g                        # constant — where the deficit comes from
+# protein base depends on lean-mass source (see § Lean-mass derivation below)
+protein_g = round(lean_mass_kg * protein_g_per_kg)  # when source == 'measured'
+protein_g = round(weight_kg * protein_g_per_kg)     # when source == 'setting' or 'estimated'
+fat_g     = settings.fat_g                          # constant — where the deficit comes from
 carbs_g   = max(0, (budget - protein_g*4 - fat_g*9) / 4)   # the dial — scales with training load
 ```
+
+## Lean-mass derivation (`current_lean_mass_kg`)
+
+Lean mass is derived at request time and determines both the EA-floor denominator
+(already in `compute_budget`) and the protein target base. Priority:
+
+| Priority | Condition | Formula | `source` |
+|---|---|---|---|
+| 1 | Latest `body_measurements.body_fat_pct` within 60 days | `ewma_weight × (1 − bf%)` | `measured` |
+| 2 | `fuel_settings.lean_mass_kg` is set | the stored value | `setting` |
+| 3 | Neither | `ewma_weight × 0.76` | `estimated` |
+
+`ewma_weight` is the EWMA-smoothed bodyweight over the last 14 days (same
+`compute_ewma` used elsewhere in the weight service). If no weight entries exist
+in that window, the raw `fuel_settings.weight_kg` is used instead.
+
+The `lean_mass_kg` and `lean_mass_source` fields are exposed in the
+`GET /api/fuel/today` payload so the UI can show the derivation.
+
+## Lean-mass guard in the weekly cut review
+
+`compute_losing_lean_mass_flag` in `backend/services/cut_review.py` inspects
+`body_measurements` readings within a 60-day window. It fires when **all** of:
+
+1. Two readings with a paired weight entry are at least 14 days apart.
+2. Lean mass fell more than 0.3 kg between the oldest and newest reading.
+3. Total scale weight also fell over that period.
+
+When the guard fires, `losing_lean_mass: true` is appended to the weekly-review
+payload as a warning. It does **not** change recommendation precedence — the
+athlete is warned but the recommendation logic is unchanged.
 
 ## Suggestion (`compute_suggestion`)
 
@@ -177,9 +210,37 @@ mostly glycogen and water and would produce garbage. On success, sets
 |---|---|---|
 | `GET /api/fuel/today?date=` | snapshot for one date | — |
 | `PUT /api/fuel/entry` | — | upserts today's `fuel_entries` row, returns recomputed `GET` payload |
+| `GET /api/fuel/settings` | `fuel_settings` + active `weight_plans` row | — ; includes plan-linkage fields (see §Plan linkage) |
 | `PUT /api/fuel/settings` | — | updates `fuel_settings` (422 on out-of-range `deficit_kcal`/`protein_g_per_kg`) |
+| `POST /api/fuel/settings/sync-deficit` | active `weight_plans` row | sets `deficit_kcal` to implied value; 409 when no active plan |
 | `POST /api/fuel/calibrate` | last ~3 weeks of `weight_entries` + `fuel_entries` | sets `base_kcal` + `maintenance_source` on success |
 | `GET /api/fuel/week?week_start=` | 7 days, mixed logged/planned per §"Past vs. future" | — |
+
+## Plan linkage (`implied_deficit_kcal`, `plan_linkage`)
+
+The active `WeightPlan.target_rate_kg_per_week` implies a daily calorie deficit:
+
+```
+implied_deficit_kcal = abs(rate) × 7700 / 7
+```
+
+rounded to the nearest 10 kcal and clamped to the existing `0–750` constraint.
+This constant (7 700 kcal/kg) is the accepted average energy density of body fat
+used throughout this project; it is not recalibrated per-athlete.
+
+`GET /api/fuel/settings` adds four fields to the standard settings response:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `plan_rate_kg_per_week` | float \| null | rate from the active plan; null when no plan |
+| `implied_deficit_kcal` | int \| null | computed from the rate above |
+| `deficit_gap_kcal` | int \| null | `implied − configured`; positive = plan needs more deficit than set |
+| `consistency` | string | `aligned` when `\|gap\| ≤ 100`, `mismatch` otherwise, `no_plan` when no active plan |
+
+The Weight page shows a banner when `consistency === 'mismatch'` with both numbers and a
+one-tap **Sync** button that calls `POST /api/fuel/settings/sync-deficit`.
+The EA-floor guard in `compute_budget` is unaffected — it still overrides the deficit
+at budget-computation time when training load is high.
 
 ## Known weaknesses
 

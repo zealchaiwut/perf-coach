@@ -16,7 +16,9 @@ from sqlalchemy.orm import Session
 from backend.auth import resolve_user
 from backend.db import engine
 from backend.models import FuelEntry, WeightEntry
+from backend.services import cut_review as _cut_review
 from backend.services import fuel as _svc
+from backend.services import weight_plans_repo as _wp_repo
 
 router = APIRouter()
 
@@ -76,15 +78,25 @@ class _SettingsBody(BaseModel):
     fat_g: Optional[int] = None
     ea_floor: Optional[float] = None
     run_kcal_per_kg_per_km: Optional[float] = None
+    auto_periodize: Optional[bool] = None
 
 
 # ── Fuel today ───────────────────────────────────────────────────────────────
+
+def _settings_payload(user_id, db) -> dict:
+    """Build the full fuel settings payload including plan linkage fields."""
+    settings_row = _svc.get_or_create_settings(user_id, db=db)
+    active_plan = _wp_repo.get_active_plan(db, user_id)
+    payload = _svc.settings_to_dict(settings_row)
+    payload.update(_svc.plan_linkage(active_plan, settings_row.deficit_kcal))
+    return payload
+
 
 @router.get("/api/fuel/settings")
 async def get_fuel_settings(request: Request):
     user = await resolve_user(request)
     with Session(engine) as db:
-        return JSONResponse(_svc.settings_to_dict(_svc.get_or_create_settings(user.id, db=db)))
+        return JSONResponse(_settings_payload(user.id, db))
 
 
 @router.get("/api/fuel/today")
@@ -115,6 +127,22 @@ async def put_fuel_settings(body: _SettingsBody, request: Request):
         except _svc.SettingsValidationError as e:
             raise HTTPException(status_code=422, detail=str(e))
         return JSONResponse(_svc.get_today_payload(user.id, _date.today(), db=db))
+
+
+@router.post("/api/fuel/settings/sync-deficit")
+async def post_fuel_sync_deficit(request: Request):
+    """AC3: set deficit_kcal to the implied value from the active weight plan.
+
+    Returns 409 when no active plan exists.
+    """
+    user = await resolve_user(request)
+    with Session(engine) as db:
+        active_plan = _wp_repo.get_active_plan(db, user.id)
+        if active_plan is None or active_plan.target_rate_kg_per_week is None:
+            raise HTTPException(status_code=409, detail="no_active_plan")
+        new_deficit = _svc.implied_deficit_kcal(float(active_plan.target_rate_kg_per_week))
+        _svc.update_settings(user.id, db=db, deficit_kcal=new_deficit)
+        return JSONResponse(_settings_payload(user.id, db))
 
 
 @router.post("/api/fuel/calibrate")
@@ -150,7 +178,9 @@ async def post_fuel_calibrate(request: Request):
                 user.id, e.entry_date, settings["weight_kg"], settings["run_kcal_per_kg_per_km"],
                 today=_date.today(), db=db,
             )
-            fuel_entries_and_burn.append((e.entry_date, eaten, settings["base_kcal"], burn_info["burn"]))
+            fuel_entries_and_burn.append(
+                (e.entry_date, eaten, settings["base_kcal"], burn_info["burn"])
+            )
 
         try:
             result = _svc.calibrate(weight_entries, fuel_entries_and_burn)
@@ -180,3 +210,12 @@ async def get_fuel_week(request: Request, week_start: Optional[str] = None):
     ws = _parse_date(week_start, param="week_start")
     with Session(engine) as db:
         return JSONResponse(_svc.get_week_payload(user.id, ws, db=db))
+
+
+# ── Weekly cut review ─────────────────────────────────────────────────────────
+
+@router.get("/api/fuel/weekly-review")
+async def get_fuel_weekly_review(request: Request):
+    user = await resolve_user(request)
+    with Session(engine) as db:
+        return JSONResponse(_cut_review.get_weekly_review(user.id, db=db))

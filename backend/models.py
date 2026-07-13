@@ -338,11 +338,6 @@ class WorkoutExercise(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     workout_id = Column(UUID(as_uuid=True), ForeignKey("workouts.id", ondelete="CASCADE"), nullable=False)
     display_order = Column(Integer, server_default=text("0"), nullable=False)
-    # Training-block grouping (Warm-up / Heavy compound / Superset 1 / ...) —
-    # same vocabulary as PlannedSession.structure.exercises[].block, so a
-    # logged session keeps the grouping its plan had. Nullable: old rows and
-    # ungrouped logs render flat.
-    block = Column(String(80), nullable=True)
     name = Column(String(200), nullable=False)
     sets = Column(Integer, nullable=True)
     reps = Column(Integer, nullable=True)
@@ -464,6 +459,7 @@ class FuelSettings(Base):
     fat_g = Column(Integer, nullable=False, server_default=text("70"))
     ea_floor = Column(Numeric(5, 2), nullable=False, server_default=text("30.0"))
     run_kcal_per_kg_per_km = Column(Numeric(4, 2), nullable=False, server_default=text("1.0"))
+    auto_periodize = Column(Boolean, nullable=False, server_default=text("true"))
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
@@ -905,11 +901,6 @@ class TrainingLoadSnapshot(Base):
     # miss and recomputed, so a change to the EWMA/ACWR math can never
     # silently keep serving stale-shape rows forever.
     formula_version = Column(Text, nullable=True)
-    # Records which EWMA time constants produced this row so the cache can be
-    # invalidated when the user accepts a new calibration.  NULL means the row
-    # was computed with the module defaults (CTL_DAYS=42, ATL_DAYS=7).
-    ctl_days = Column(Integer, nullable=True)
-    atl_days = Column(Integer, nullable=True)
     computed_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
     __table_args__ = (
@@ -1267,28 +1258,6 @@ class RacePrediction(Base):
     )
 
 
-class PredictionSnapshot(Base):
-    """Daily persisted projection forecast for forecast-vs-actual accuracy evaluation.
-
-    One row per user per day — written on the first projection computation of the day
-    (later same-day recomputes do NOT overwrite, preserving the morning forecast).
-    The payload JSON contains per-race predicted finish times with race ids, projected
-    CTL at race date, peak CTL + peak week, and formula_version. See issue #1362.
-    """
-    __tablename__ = "prediction_snapshots"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    snapshot_date = Column(Date, nullable=False)
-    payload = Column(JSONB, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
-
-    __table_args__ = (
-        UniqueConstraint("user_id", "snapshot_date", name="uq_prediction_snapshots_user_date"),
-        Index("ix_prediction_snapshots_user_date", "user_id", "snapshot_date"),
-    )
-
-
 class AthleteDurationCurve(Base):
     """Per-athlete best-effort duration curve aggregated across all run workouts.
 
@@ -1422,9 +1391,6 @@ class TrainingPlan(Base):
     # "Cut 30% every 4th week" deload toggle — see load_plan.py's
     # DELOAD_CUT_FRACTION / compute_load_plan(deload_enabled=...).
     deload_enabled = Column(Boolean, nullable=False, server_default=text("false"))
-    # Which week of the 4-week cycle the deload lands on (1-4): first deload
-    # at this week_index, then every 4 weeks (4 → 4, 8, 12; 2 → 2, 6, 10).
-    deload_start_week = Column(Integer, nullable=False, server_default=text("4"))
     # Cached computed Plan-tab bundle + the signature it was computed for
     # (see GET /api/plan/computed). Recomputed when the signature changes.
     computed_cache = Column(JSONB, nullable=True)
@@ -1733,6 +1699,27 @@ class VerdictHistory(Base):
     )
 
 
+class BodyMeasurement(Base):
+    """Periodic body composition measurement (waist circumference and/or body-fat %)."""
+
+    __tablename__ = "body_measurements"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    measure_date = Column(Date, nullable=False)
+    waist_cm = Column(Numeric(5, 1), nullable=True)
+    body_fat_pct = Column(Numeric(4, 1), nullable=True)
+    source = Column(String(20), nullable=False, server_default=text("'manual'"))
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "measure_date", name="uq_body_measurements_user_date"),
+        Index("ix_body_measurements_user_date", "user_id", "measure_date"),
+        CheckConstraint("source IN ('manual', 'imported')", name="ck_body_measurements_source"),
+    )
+
+
 class PerformanceScoreHistory(Base):
     """Persisted daily endurance/speed scores with formula version stamps (issue #1361/#1365).
 
@@ -1757,4 +1744,26 @@ class PerformanceScoreHistory(Base):
             name="uq_performance_score_history_user_date_version",
         ),
         Index("ix_performance_score_history_user_date", "user_id", "score_date"),
+    )
+
+
+class PredictionSnapshot(Base):
+    """Daily persisted projection forecast for forecast-vs-actual accuracy evaluation.
+
+    One row per user per day — written on the first projection computation of the day
+    (later same-day recomputes do NOT overwrite, preserving the morning forecast).
+    The payload JSON contains per-race predicted finish times with race ids, projected
+    CTL at race date, peak CTL + peak week, and formula_version. See issue #1362.
+    """
+    __tablename__ = "prediction_snapshots"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    snapshot_date = Column(Date, nullable=False)
+    payload = Column(JSONB, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "snapshot_date", name="uq_prediction_snapshots_user_date"),
+        Index("ix_prediction_snapshots_user_date", "user_id", "snapshot_date"),
     )

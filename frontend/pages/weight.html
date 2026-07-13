@@ -1282,6 +1282,42 @@
       .fuel-section {
         margin-top: 8px;
       }
+      /* Plan-mismatch banner (AC4) */
+      .fuel-plan-mismatch {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: var(--fuel-amber-soft);
+        border-radius: 10px;
+        padding: 10px 14px;
+        font-size: 13px;
+        color: var(--fuel-amber);
+        margin-bottom: 12px;
+      }
+      .fuel-plan-mismatch-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--fuel-amber);
+        flex-shrink: 0;
+      }
+      .fuel-plan-mismatch-text {
+        flex: 1;
+      }
+      .fuel-plan-sync-btn {
+        background: var(--fuel-amber);
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        padding: 5px 12px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .fuel-plan-sync-btn:hover {
+        opacity: 0.88;
+      }
       .fuel-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -1389,6 +1425,35 @@
       .fuel-deficit-chip.reduced {
         background: var(--fuel-amber-soft);
         color: var(--fuel-amber);
+      }
+
+      /* Week-phase chip (periodization) */
+      .fuel-phase-chip {
+        display: inline-block;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        border-radius: 6px;
+        padding: 2px 8px;
+        margin-left: 8px;
+        white-space: nowrap;
+      }
+      .fuel-phase-chip.phase-base    { background: var(--w-tile); color: var(--text-tertiary); }
+      .fuel-phase-chip.phase-ramp    { background: #fef3c7; color: #92400e; }
+      .fuel-phase-chip.phase-taper   { background: #dbeafe; color: #1e40af; }
+      .fuel-phase-chip.phase-race    { background: #fce7f3; color: #9d174d; }
+
+      /* auto-periodize toggle row in settings panel */
+      .fuel-settings-toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 6px 0;
+      }
+      .fuel-settings-toggle-row label {
+        font-size: 12.5px;
+        color: var(--text-secondary);
       }
 
       /* Derivation chain: base + burn - deficit = budget */
@@ -1830,6 +1895,68 @@
         border-radius: 3px;
         display: inline-block;
       }
+
+      /* ── Power-to-weight card (issue #1360) ───────────────────────────────── */
+      .p2w-card {
+        margin-top: 12px;
+        padding: 16px 20px;
+      }
+      .p2w-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      .p2w-header h2 {
+        margin: 0;
+      }
+      .p2w-basis-chip {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-tertiary);
+        background: var(--bg-2);
+        border-radius: 10px;
+        padding: 2px 8px;
+        letter-spacing: 0.02em;
+      }
+      .p2w-body {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+      .p2w-stat {
+        display: flex;
+        align-items: baseline;
+        gap: 4px;
+        min-width: 80px;
+      }
+      .p2w-headline {
+        font-size: 28px;
+        font-weight: 700;
+        color: var(--text-primary);
+        letter-spacing: -0.5px;
+        line-height: 1;
+      }
+      .p2w-unit {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-tertiary);
+      }
+      .p2w-spark {
+        flex: 1;
+        height: 32px;
+        min-width: 80px;
+        max-width: 200px;
+      }
+      .p2w-delta {
+        font-size: 13px;
+        font-weight: 600;
+        min-width: 60px;
+        text-align: right;
+      }
+      .p2w-delta.good { color: #16a34a; }
+      .p2w-delta.bad  { color: #dc2626; }
+      .p2w-delta.neutral { color: var(--text-tertiary); }
 
       /* ── Target History section ───────────────────────────────────────────── */
       .target-history-section {
@@ -2790,6 +2917,98 @@
         background: var(--success);
         border-color: var(--success);
       }
+
+      /* ── Body measurements section ──────────────────────────────────────────── */
+      .bm-section {
+        background: var(--w-tile-3);
+        border: 1px solid var(--card-border);
+        border-radius: 10px;
+        padding: 12px 14px;
+      }
+      .bm-hint {
+        font-size: 11px;
+        color: var(--text-tertiary);
+        margin: 0 0 8px;
+        min-height: 16px;
+      }
+      .bm-row {
+        display: flex;
+        gap: 8px;
+        align-items: flex-end;
+        flex-wrap: wrap;
+      }
+      .bm-field {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        flex: 1;
+        min-width: 90px;
+      }
+      .bm-field label {
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--text-tertiary);
+      }
+      .bm-field input[type="number"] {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid #d1d5db;
+        border-radius: 7px;
+        padding: 6px 8px;
+        font-size: 14px;
+        font-family: "JetBrains Mono", monospace;
+        background: var(--card-bg);
+        color: var(--text-primary);
+      }
+      .bm-field input[type="number"]:focus {
+        outline: none;
+        border-color: #2563eb;
+      }
+      .bm-save-btn {
+        height: 34px;
+        padding: 0 14px;
+        border: none;
+        border-radius: 7px;
+        background: var(--primary, #1d4ed8);
+        color: #fff;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+      .bm-save-btn:hover { background: #1e40af; }
+      .bm-error {
+        font-size: 11.5px;
+        color: var(--danger, #dc2626);
+        margin-top: 4px;
+        min-height: 16px;
+      }
+      /* Waist sparkline */
+      #waist-sparkline-wrap {
+        margin-top: 12px;
+      }
+      .waist-trend-label {
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        color: var(--text-tertiary);
+        margin: 0 0 6px;
+      }
+      #waist-sparkline {
+        width: 100%;
+        height: 60px;
+        display: block;
+      }
+      #waist-sparkline-empty {
+        font-size: 12px;
+        color: var(--text-tertiary);
+        text-align: center;
+        padding: 8px 0;
+      }
     </style>
   </head>
   <body>
@@ -2927,6 +3146,49 @@
                 </button>
               </div>
             </div>
+            <!-- Body measurements compact entry -->
+            <div class="merged-sep"></div>
+            <div class="bm-section" id="bm-section">
+              <div class="hcb-top">
+                <span class="hcb-label">BODY MEASUREMENTS</span>
+              </div>
+              <p class="bm-hint" id="bm-hint"></p>
+              <div class="bm-row">
+                <div class="bm-field">
+                  <label for="bm-waist-input">Waist (cm)</label>
+                  <input
+                    type="number"
+                    id="bm-waist-input"
+                    step="0.1"
+                    min="40"
+                    max="200"
+                    inputmode="decimal"
+                    placeholder="e.g. 88.5"
+                  />
+                </div>
+                <div class="bm-field">
+                  <label for="bm-bf-input">Body fat % <span style="font-weight:400;text-transform:none;font-size:9px">(optional)</span></label>
+                  <input
+                    type="number"
+                    id="bm-bf-input"
+                    step="0.1"
+                    min="3"
+                    max="60"
+                    inputmode="decimal"
+                    placeholder="e.g. 18.5"
+                  />
+                </div>
+                <button class="bm-save-btn" id="bm-save-btn" type="button">Save</button>
+              </div>
+              <p class="bm-error" id="bm-error" role="alert"></p>
+              <!-- Waist trend sparkline -->
+              <div id="waist-sparkline-wrap" hidden>
+                <p class="waist-trend-label">Waist trend</p>
+                <svg id="waist-sparkline" role="img" aria-label="Waist trend"></svg>
+                <p id="waist-sparkline-empty" hidden>No waist data yet.</p>
+              </div>
+            </div>
+
             <div id="progress-card" hidden>
               <div class="merged-sep"></div>
               <div class="progress-card-hdr">
@@ -3086,6 +3348,13 @@
         <div class="target-history-hdr" style="background-color: #1f3b8a">
           <h2>Fuel</h2>
         </div>
+        <!-- Plan-mismatch banner — shown only when consistency === 'mismatch' (AC4) -->
+        <div class="fuel-plan-mismatch" id="fuel-plan-mismatch" hidden>
+          <span class="fuel-plan-mismatch-dot"></span>
+          <span class="fuel-plan-mismatch-text" id="fuel-plan-mismatch-text"></span>
+          <button type="button" class="fuel-plan-sync-btn" id="fuel-plan-sync-btn">Sync</button>
+        </div>
+
         <div class="fuel-grid">
           <!-- Fuel today -->
           <div class="card" id="fuel-today-card">
@@ -3093,6 +3362,7 @@
               <div class="fuel-title-row">
                 <h2>Fuel today</h2>
                 <span class="fuel-daytype-pill" id="fuel-daytype-pill">REST</span>
+                <span class="fuel-phase-chip phase-base" id="fuel-phase-chip" title="" hidden></span>
               </div>
               <button type="button" class="fuel-cog-btn" id="fuel-settings-toggle" aria-label="Fuel settings" title="Fuel settings">
                 <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
@@ -3134,6 +3404,10 @@
               <div class="fuel-settings-field">
                 <label for="fs-run_kcal_per_kg_per_km">Run kcal/kg/km</label>
                 <input type="number" step="0.05" id="fs-run_kcal_per_kg_per_km" />
+              </div>
+              <div class="fuel-settings-toggle-row">
+                <label for="fs-auto_periodize">Adjust deficit for training phase</label>
+                <input type="checkbox" id="fs-auto_periodize" title="Race/taper weeks → maintenance; ramp weeks → half deficit" />
               </div>
               <div class="fuel-settings-actions">
                 <button type="button" class="log-submit-btn" id="fuel-settings-save" style="width:auto;margin-top:0;padding:8px 16px;">Save settings</button>
@@ -3308,6 +3582,54 @@
             </div>
           </div>
         </div>
+
+        <!-- Weekly cut review card -->
+        <div class="card" id="cut-review-card" style="margin-top:16px">
+          <div class="fuel-hdr-top">
+            <h2 style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-tertiary);">Weekly cut review</h2>
+            <span id="cut-review-badge" class="fuel-deficit-chip" style="display:none"></span>
+          </div>
+
+          <div id="cut-review-loading" style="color:var(--text-tertiary);font-size:13px;padding:12px 0">
+            Loading...
+          </div>
+
+          <div id="cut-review-body" hidden>
+            <div id="cut-review-headline" style="font-size:15px;font-weight:600;margin:10px 0 4px"></div>
+            <div id="cut-review-action" style="font-size:13px;color:var(--text-secondary);margin-bottom:14px"></div>
+
+            <!-- Plateau-specific actions (shown only when rec === 'plateau') -->
+            <div id="cut-review-plateau" hidden style="margin-bottom:14px;padding:10px 12px;background:var(--card-bg,#1e2430);border-radius:8px">
+              <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px">
+                Stalled for <span id="cut-review-plateau-days"></span> days. Two options:
+              </div>
+              <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">
+                1. <a id="cut-review-calibrate-link" href="/weight#fuel-calibrate" style="color:var(--accent,#6c9ef8)">Recalibrate maintenance</a>: updates your estimated maintenance from recent history.
+              </div>
+              <div style="font-size:12px;color:var(--text-secondary)">
+                2. <strong>Diet break</strong>: manually set your deficit to 0 kcal for 14 days in Fuel settings, then resume.
+              </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+              <div>
+                <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.05em">Actual rate</div>
+                <div id="cut-review-actual-rate" style="font-size:20px;font-weight:700;margin-top:2px"></div>
+                <div style="font-size:11px;color:var(--text-tertiary)">kg/wk</div>
+              </div>
+              <div>
+                <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.05em">Plan rate</div>
+                <div id="cut-review-plan-rate" style="font-size:20px;font-weight:700;margin-top:2px"></div>
+                <div style="font-size:11px;color:var(--text-tertiary)">kg/wk</div>
+              </div>
+              <div>
+                <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.05em">Log adherence</div>
+                <div id="cut-review-adherence" style="font-size:20px;font-weight:700;margin-top:2px"></div>
+                <div style="font-size:11px;color:var(--text-tertiary)">% of days logged</div>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- Chart card (Graph) -->
@@ -3403,6 +3725,22 @@
               /></svg
             >Milestone
           </span>
+        </div>
+      </div>
+
+      <!-- ── Power-to-weight card (issue #1360) ──────────────────────────────── -->
+      <div class="card p2w-card" id="p2w-card" hidden>
+        <div class="p2w-header">
+          <h2>Power-to-weight</h2>
+          <span class="p2w-basis-chip" id="p2w-basis-chip" title="Power basis: current FTP applied flat across the range">flat FTP</span>
+        </div>
+        <div class="p2w-body">
+          <div class="p2w-stat">
+            <div class="p2w-headline" id="p2w-headline"></div>
+            <div class="p2w-unit">W/kg</div>
+          </div>
+          <svg class="p2w-spark" id="p2w-spark" aria-hidden="true"></svg>
+          <div class="p2w-delta" id="p2w-delta"></div>
         </div>
       </div>
 

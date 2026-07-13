@@ -1511,6 +1511,7 @@ function _initRangeTabs() {
         const data = await fetchChartData(_currentRange, _rangeAbortController.signal);
         if (seq !== _rangeFetchSeq) return;
         renderChart(data, _currentRange);
+        _renderP2WCard(_currentRange);
       } catch (e) {
         if (e.name === 'AbortError') return;
         showPageError('Chart load failed: ' + e.message);
@@ -1674,6 +1675,79 @@ function _initTargetHistoryFilters() {
   }
 }
 
+// ── Power-to-weight card (issue #1360) ────────────────────────────────────
+
+function _p2wDrawSparkline(svgId, pts) {
+  var svg = document.getElementById(svgId);
+  if (!svg) return;
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  var valid = pts.filter(function (v) { return v != null; });
+  if (valid.length < 2) return;
+  var W = 200, H = 32;
+  var mn = Math.min.apply(null, valid);
+  var mx = Math.max.apply(null, valid);
+  var range = mx - mn || 0.001;
+  var d = pts
+    .map(function (v, i) {
+      var x = (i / (pts.length - 1)) * W;
+      var y = H - ((v - mn) / range) * (H - 6) - 3;
+      return (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
+    })
+    .join(' ');
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  var NS = 'http://www.w3.org/2000/svg';
+  var path = document.createElementNS(NS, 'path');
+  path.setAttribute('d', d);
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', '#4f6ef7');
+  path.setAttribute('stroke-width', '1.8');
+  path.setAttribute('stroke-linecap', 'round');
+  svg.appendChild(path);
+}
+
+async function _renderP2WCard(range) {
+  var card = document.getElementById('p2w-card');
+  if (!card) return;
+
+  var rangeMap = { '7d': '7D', '30d': '30D', '90d': '90D', '6m': '6M', '1y': '1Y', 'all': 'ALL' };
+  var apiRange = rangeMap[range] || '30D';
+
+  try {
+    var data = await apiFetch('/api/weight/power-to-weight?range=' + apiRange);
+    if (!data.available) {
+      card.hidden = true;
+      return;
+    }
+    card.hidden = false;
+
+    var headline = document.getElementById('p2w-headline');
+    var deltaEl = document.getElementById('p2w-delta');
+
+    if (data.current && data.current.w_per_kg != null) {
+      headline.textContent = data.current.w_per_kg.toFixed(2);
+    } else {
+      headline.textContent = '—';
+    }
+
+    // Delta label
+    if (data.current && data.current.delta_30d != null) {
+      var d30 = data.current.delta_30d;
+      var sign = d30 >= 0 ? '+' : '';
+      deltaEl.textContent = sign + d30.toFixed(2) + ' vs 30d';
+      deltaEl.className = 'p2w-delta ' + (d30 > 0 ? 'good' : d30 < 0 ? 'bad' : 'neutral');
+    } else {
+      deltaEl.textContent = '';
+      deltaEl.className = 'p2w-delta neutral';
+    }
+
+    // Sparkline from series w_per_kg values
+    var series = data.series || [];
+    _p2wDrawSparkline('p2w-spark', series.map(function (p) { return p.w_per_kg; }));
+  } catch (e) {
+    if (e.message !== 'auth') card.hidden = true;
+  }
+}
+
 // ── Full reload (after mutations) ─────────────────────────────────────────
 
 async function _reload() {
@@ -1701,9 +1775,187 @@ async function _reload() {
     renderTargetHistory(histSummary);
     _cardBSetLoggedState(_recentEntries, chartData.stats ? chartData.stats.current_weight_kg : null);
     await renderBackfillCalendar();
+    _renderP2WCard(_currentRange);
   } catch (e) {
     if (e.message !== 'auth') showPageError('Load error: ' + e.message);
   }
+}
+
+// ── Body measurements ──────────────────────────────────────────────────────
+
+function _renderWaistSparkline(measurements) {
+  const wrap = document.getElementById('waist-sparkline-wrap');
+  const svg = document.getElementById('waist-sparkline');
+  const empty = document.getElementById('waist-sparkline-empty');
+  if (!wrap || !svg) return;
+
+  const pts = measurements.filter((m) => m.waist_cm != null).map((m) => ({
+    date: m.measure_date,
+    v: m.waist_cm,
+  }));
+
+  if (!pts.length) {
+    wrap.hidden = false;
+    svg.setAttribute('width', '0');
+    svg.setAttribute('height', '0');
+    if (empty) empty.hidden = false;
+    return;
+  }
+
+  wrap.hidden = false;
+  if (empty) empty.hidden = true;
+
+  const W = 300, H = 48, PL = 4, PR = 4, PT = 6, PB = 12;
+  const cw = W - PL - PR;
+  const ch = H - PT - PB;
+
+  const vals = pts.map((p) => p.v);
+  const lo = Math.min(...vals);
+  const hi = Math.max(...vals);
+  const span = hi - lo || 1;
+
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('preserveAspectRatio', 'none');
+  svg.innerHTML = '';
+
+  const ns = 'http://www.w3.org/2000/svg';
+  const n = pts.length;
+  const xi = (i) => PL + (n > 1 ? (i / (n - 1)) * cw : cw / 2);
+  const yi = (v) => PT + ch - ((v - lo) / span) * ch;
+
+  // Trend line
+  if (n > 1) {
+    const poly = document.createElementNS(ns, 'polyline');
+    poly.setAttribute('points', pts.map((p, i) => `${xi(i)},${yi(p.v)}`).join(' '));
+    poly.setAttribute('fill', 'none');
+    poly.setAttribute('stroke', '#f59e0b');
+    poly.setAttribute('stroke-width', '1.5');
+    poly.setAttribute('stroke-linecap', 'round');
+    poly.setAttribute('stroke-linejoin', 'round');
+    svg.appendChild(poly);
+  }
+
+  // Dots
+  pts.forEach((p, i) => {
+    const c = document.createElementNS(ns, 'circle');
+    c.setAttribute('cx', xi(i));
+    c.setAttribute('cy', yi(p.v));
+    c.setAttribute('r', '2.5');
+    c.setAttribute('fill', '#f59e0b');
+    svg.appendChild(c);
+  });
+
+  // First & last labels
+  const labelY = H - 1;
+  [[0, 'start'], [n - 1, 'end']].forEach(([idx, anchor]) => {
+    if (idx < 0 || idx >= n) return;
+    const lbl = document.createElementNS(ns, 'text');
+    lbl.setAttribute('x', xi(idx));
+    lbl.setAttribute('y', labelY);
+    lbl.setAttribute('text-anchor', anchor === 'start' ? 'start' : 'end');
+    lbl.setAttribute('font-size', '9');
+    lbl.setAttribute('fill', '#9ca3af');
+    lbl.textContent = `${pts[idx].v.toFixed(1)} cm`;
+    svg.appendChild(lbl);
+  });
+}
+
+async function _loadBodyMeasurements() {
+  const today = todayISO();
+  const from = addDays(today, -89);
+  try {
+    const data = await apiFetch(`/api/body-measurements?from=${from}&to=${today}`);
+    return data.measurements || [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function _updateBmHint(measurements) {
+  const hint = document.getElementById('bm-hint');
+  if (!hint) return;
+  if (!measurements.length) {
+    hint.textContent = 'No measurements yet — log your waist to start tracking.';
+    return;
+  }
+  const sorted = [...measurements].sort((a, b) => b.measure_date.localeCompare(a.measure_date));
+  const latest = sorted[0].measure_date;
+  const today = todayISO();
+  const days = Math.round((new Date(today + 'T00:00:00') - new Date(latest + 'T00:00:00')) / 86400000);
+  if (days === 0) {
+    hint.textContent = 'Measured today.';
+  } else if (days < 7) {
+    hint.textContent = `Last measured ${days} day${days > 1 ? 's' : ''} ago.`;
+  } else {
+    hint.textContent = `Last measured ${days} days ago — time for a check-in!`;
+  }
+}
+
+async function _refreshBodyMeasurements() {
+  const measurements = await _loadBodyMeasurements();
+  _updateBmHint(measurements);
+  _renderWaistSparkline(measurements);
+}
+
+function _initBodyMeasurements() {
+  const saveBtn = document.getElementById('bm-save-btn');
+  const waistInput = document.getElementById('bm-waist-input');
+  const bfInput = document.getElementById('bm-bf-input');
+  const errEl = document.getElementById('bm-error');
+
+  if (!saveBtn) return;
+
+  _refreshBodyMeasurements();
+
+  saveBtn.addEventListener('click', async () => {
+    if (errEl) errEl.textContent = '';
+
+    const waistRaw = waistInput ? waistInput.value.trim() : '';
+    const bfRaw = bfInput ? bfInput.value.trim() : '';
+    const waist = waistRaw !== '' ? parseFloat(waistRaw) : null;
+    const bf = bfRaw !== '' ? parseFloat(bfRaw) : null;
+
+    if (waist === null && bf === null) {
+      if (errEl) errEl.textContent = 'Enter waist and/or body fat %.';
+      return;
+    }
+    if (waist !== null && (waist < 40 || waist > 200)) {
+      if (errEl) errEl.textContent = 'Waist must be between 40 and 200 cm.';
+      return;
+    }
+    if (bf !== null && (bf < 3 || bf > 60)) {
+      if (errEl) errEl.textContent = 'Body fat must be between 3 and 60%.';
+      return;
+    }
+
+    const payload = { measure_date: todayISO() };
+    if (waist !== null) payload.waist_cm = waist;
+    if (bf !== null) payload.body_fat_pct = bf;
+
+    try {
+      saveBtn.disabled = true;
+      const csrfCookie = document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('csrf_token='));
+      const csrfToken = csrfCookie ? csrfCookie.split('=')[1] : '';
+      const res = await fetch('/api/body-measurements', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+        body: JSON.stringify(payload),
+      });
+      if (res.status === 401 || res.status === 403) { window.location.href = '/login'; return; }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        if (errEl) errEl.textContent = err.detail || `Error ${res.status}`;
+        return;
+      }
+      if (waistInput) waistInput.value = '';
+      if (bfInput) bfInput.value = '';
+      await _refreshBodyMeasurements();
+    } catch (e) {
+      if (errEl) errEl.textContent = 'Save failed: ' + e.message;
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
@@ -1735,6 +1987,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   _initEditPanel();
   _initTargetHistoryFilters();
   _initBackfillCalendar();
+  _initBodyMeasurements();
 
   const exportBtn = document.getElementById('export-csv-btn');
   if (exportBtn) {
