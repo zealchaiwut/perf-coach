@@ -16,14 +16,10 @@ from __future__ import annotations
 
 import datetime
 
-import pytest
 
 from backend.services.muscle_load_acwr import (
     OVERUSED_BOUND,
     ELEVATED_BOUND,
-    DETRAINING_BOUND,
-    CHRONIC_FLOOR,
-    PRIORITY_GROUPS,
 )
 from backend.services.gap_analysis.rules.muscle_balance import (
     muscle_overused,

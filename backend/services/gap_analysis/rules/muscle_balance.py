@@ -39,7 +39,6 @@ from __future__ import annotations
 
 from backend.services.gap_analysis.schemas import GapAnalysisFinding
 from backend.services.muscle_load_acwr import (
-    CHRONIC_FLOOR,
     ELEVATED_BOUND,
     OVERUSED_BOUND,
     PRIORITY_GROUPS,
