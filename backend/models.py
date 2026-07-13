@@ -1767,3 +1767,35 @@ class PredictionSnapshot(Base):
         UniqueConstraint("user_id", "snapshot_date", name="uq_prediction_snapshots_user_date"),
         Index("ix_prediction_snapshots_user_date", "user_id", "snapshot_date"),
     )
+
+
+class MuscleLoadDaily(Base):
+    """Per-day TSS-weighted load per muscle group per source (issue #1367).
+
+    Rows are recomputed-idempotent: the writer deletes existing rows for the
+    (user, date, source) triple and inserts fresh ones so re-running never
+    double-counts. The unique constraint enforces one row per
+    (user, date, muscle_group, source).
+    """
+
+    __tablename__ = "muscle_load_daily"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    load_date = Column(Date, nullable=False)
+    muscle_group = Column(String(30), nullable=False)
+    load = Column(Numeric(10, 4), nullable=False)
+    source = Column(String(20), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "load_date", "muscle_group", "source",
+            name="uq_muscle_load_daily_user_date_group_source",
+        ),
+        CheckConstraint(
+            "source IN ('strength', 'run', 'plyo')",
+            name="ck_muscle_load_daily_source",
+        ),
+        Index("ix_muscle_load_daily_user_date", "user_id", "load_date"),
+    )
