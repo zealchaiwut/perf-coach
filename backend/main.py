@@ -44,6 +44,7 @@ from backend.services.training_load import (
     daily_update,
     compute_load_curves,
     get_snapshot_series,
+    recompute_user_snapshots,
     readiness_label as training_readiness_label,
     project_form,
     resolve_user_ewma_days,
@@ -14074,10 +14075,12 @@ def accept_calibration(
     body: _AcceptCalibrationBody,
     user: User = Depends(resolve_user),
 ):
-    """Accept calibration suggestions and write new constants to user preferences.
+    """Accept calibration suggestions, write new constants, and refresh snapshots.
 
-    This is the explicit accept action (AC4).  Constants are only written when
-    the user explicitly calls this endpoint — no automatic overwrite ever occurs.
+    Constants are only written when the user explicitly calls this endpoint —
+    no automatic overwrite ever occurs.  After saving, all training-load
+    snapshots for this user are recomputed so the CTL/ATL history reflects
+    the new time constants immediately.
     """
     try:
         rid = _uuid.UUID(race_id)
@@ -14103,11 +14106,17 @@ def accept_calibration(
         session.commit()
         session.refresh(prefs)
 
-        return JSONResponse({
-            "ctl_days": prefs.ctl_days,
-            "atl_days": prefs.atl_days,
-            "message": "Fitness constants accepted and saved to your profile.",
-        })
+        ctl_days = prefs.ctl_days
+        atl_days = prefs.atl_days
+
+    snapshots_recomputed = recompute_user_snapshots(str(user.id))
+
+    return JSONResponse({
+        "ctl_days": ctl_days,
+        "atl_days": atl_days,
+        "snapshots_recomputed": snapshots_recomputed,
+        "message": "Fitness constants accepted and saved to your profile.",
+    })
 
 
 # ── Calibration status ────────────────────────────────────────────────────────

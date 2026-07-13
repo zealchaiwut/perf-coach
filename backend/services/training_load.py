@@ -225,6 +225,17 @@ def compute_load_curves(
     return result
 
 
+def _snap_matches_calibration(snap, ctl_days: int, atl_days: int) -> bool:
+    """True when a snapshot row was computed with the given time constants.
+
+    A NULL ctl_days/atl_days on the snapshot means the row was written before
+    per-user calibration was recorded — treat it as the module defaults.
+    """
+    snap_ctl = snap.ctl_days if snap.ctl_days is not None else CTL_DAYS
+    snap_atl = snap.atl_days if snap.atl_days is not None else ATL_DAYS
+    return snap_ctl == ctl_days and snap_atl == atl_days
+
+
 def current_load(
     user_id: str,
     as_of: Optional[date] = None,
@@ -236,17 +247,10 @@ def current_load(
     docs/calculations/training-load.md.
 
     Reads today's row from training_load_snapshots when present, fresh
-    (snapshot_date == end date), AND stamped with the current
-    _FORMULA_VERSION, to avoid a 180-day recompute on the hot path. Falls
-    back to the live recompute when the snapshot is missing, stale, or from
-    a prior formula version, and upserts the result via daily_update() so
-    the next call hits the cache.
-
-    The snapshot cache doesn't record which ctl_days/atl_days it was computed
-    with, so a user with a custom calibration (UserPreferences.ctl_days /
-    atl_days) always bypasses the cache and recomputes live — otherwise a
-    snapshot cached under the default constants would silently outlive a
-    calibration change for the rest of that day.
+    (snapshot_date == end date, formula_version matches, and ctl_days/atl_days
+    match the user's current calibration), to avoid a 180-day recompute on the
+    hot path. Falls back to the live recompute when the snapshot is missing,
+    stale, version-mismatched, or computed with different calibration constants.
 
     Args:
         user_id: the user's ID.
@@ -258,9 +262,8 @@ def current_load(
     end = as_of if as_of is not None else date.today()
 
     ctl_days, atl_days = resolve_user_ewma_days(user_id)
-    uses_custom_calibration = ctl_days != CTL_DAYS or atl_days != ATL_DAYS
 
-    if not uses_custom_calibration and _load_read_from_snapshot():
+    if _load_read_from_snapshot():
         uid = _uuid_mod.UUID(str(user_id))
         with Session(engine) as session:
             snap = (
@@ -271,7 +274,11 @@ def current_load(
                 )
                 .first()
             )
-            if snap is not None and snap.formula_version == _FORMULA_VERSION:
+            if (
+                snap is not None
+                and snap.formula_version == _FORMULA_VERSION
+                and _snap_matches_calibration(snap, ctl_days, atl_days)
+            ):
                 return {
                     "date": snap.snapshot_date,
                     "ctl": snap.ctl,
@@ -301,12 +308,9 @@ def daily_update(
     Uses a 6-month warmup window for EWMA convergence. Safe to re-run (idempotent).
 
     ctl_days/atl_days default to the user's saved calibration (UserPreferences)
-    when not passed explicitly. The snapshot cache doesn't record which
-    constants produced a row, so a row computed under a custom calibration is
-    only ever written for that same user's own (user_id, snapshot_date) key —
-    it can't leak into another user's cache — but skip the write entirely when
-    a custom calibration is in play, so a same-day revert to the default
-    calibration can't read back a stale custom-computed snapshot.
+    when not passed explicitly. The snapshot row records the constants that
+    produced it so the cache can be invalidated when the user accepts a new
+    calibration (ctl_days/atl_days mismatch → treated as a cache miss).
 
     Args:
         user_id: the user's ID.
@@ -322,7 +326,6 @@ def daily_update(
         default_ctl, default_atl = resolve_user_ewma_days(user_id)
         ctl_days = ctl_days if ctl_days is not None else default_ctl
         atl_days = atl_days if atl_days is not None else default_atl
-    uses_custom_calibration = ctl_days != CTL_DAYS or atl_days != ATL_DAYS
 
     start = target - timedelta(days=180)
     series = daily_tss_series(user_id, start, target)
@@ -331,16 +334,6 @@ def daily_update(
     # series already spans [target-180, target]; reuse its tail instead of a
     # second DB query for the ACWR window.
     acwr = _acwr_ratio_for_window([tss for _, tss in series[-_ACWR_WINDOW_DAYS:]])
-
-    if uses_custom_calibration:
-        return {
-            "date": target,
-            "tss": last["tss"],
-            "ctl": round(last["ctl"], 2),
-            "atl": round(last["atl"], 2),
-            "tsb": round(last["tsb"], 2),
-            "acwr": acwr,
-        }
 
     uid = _uuid_mod.UUID(str(user_id))
     row = {
@@ -352,6 +345,8 @@ def daily_update(
         "tsb": round(last["tsb"], 2),
         "acwr": acwr,
         "formula_version": _FORMULA_VERSION,
+        "ctl_days": ctl_days,
+        "atl_days": atl_days,
     }
 
     stmt = _pg_insert(TrainingLoadSnapshot).values([row])
@@ -364,6 +359,8 @@ def daily_update(
             "tsb": stmt.excluded.tsb,
             "acwr": stmt.excluded.acwr,
             "formula_version": stmt.excluded.formula_version,
+            "ctl_days": stmt.excluded.ctl_days,
+            "atl_days": stmt.excluded.atl_days,
             "computed_at": datetime.now(tz=timezone.utc),
         },
     )
@@ -393,13 +390,13 @@ def get_snapshot_series(
     fatigue/form chart, readiness's trend series, monthly summary), instead
     of an independent recompute per consumer. Every day in [from_date,
     to_date] is guaranteed a snapshot on return (fresh cache rows reused;
-    missing or stale-formula-version days computed and upserted in ONE
-    batch, not N individual daily_update() calls).
+    missing, stale-formula-version, or wrong-calibration days computed and
+    upserted in ONE batch, not N individual daily_update() calls).
 
     ctl_days/atl_days default to the user's saved calibration
-    (resolve_user_ewma_days), same as current_load(). A custom calibration
-    never reads or writes the cache — matches current_load()'s own rule —
-    so the whole range is computed live in that case.
+    (resolve_user_ewma_days), same as current_load(). Snapshot rows record
+    the constants used; a mismatch between the stored ctl_days/atl_days and
+    the user's current calibration is treated as a cache miss.
 
     Returns:
         list of dicts (ascending by date), each with keys: date, tss, ctl,
@@ -413,7 +410,6 @@ def get_snapshot_series(
         default_ctl, default_atl = resolve_user_ewma_days(user_id)
         ctl_days = ctl_days if ctl_days is not None else default_ctl
         atl_days = atl_days if atl_days is not None else default_atl
-    uses_custom_calibration = ctl_days != CTL_DAYS or atl_days != ATL_DAYS
 
     all_dates = [from_date + timedelta(days=i) for i in range((to_date - from_date).days + 1)]
 
@@ -444,7 +440,7 @@ def get_snapshot_series(
             })
         return out
 
-    if uses_custom_calibration or not _load_read_from_snapshot():
+    if not _load_read_from_snapshot():
         return _compute_range()
 
     uid = _uuid_mod.UUID(str(user_id))
@@ -460,7 +456,9 @@ def get_snapshot_series(
 
     stale_or_missing = {
         d for d in all_dates
-        if d not in existing or existing[d].formula_version != _FORMULA_VERSION
+        if d not in existing
+        or existing[d].formula_version != _FORMULA_VERSION
+        or not _snap_matches_calibration(existing[d], ctl_days, atl_days)
     }
 
     computed_by_date: dict = {}
@@ -473,6 +471,8 @@ def get_snapshot_series(
                 "user_id": uid, "snapshot_date": c["date"], "tss_for_day": c["tss"],
                 "ctl": c["ctl"], "atl": c["atl"], "tsb": c["tsb"], "acwr": c["acwr"],
                 "formula_version": _FORMULA_VERSION,
+                "ctl_days": ctl_days,
+                "atl_days": atl_days,
             }
             rows.append(row)
             computed_by_date[c["date"]] = c
@@ -487,6 +487,8 @@ def get_snapshot_series(
                     "tsb": stmt.excluded.tsb,
                     "acwr": stmt.excluded.acwr,
                     "formula_version": stmt.excluded.formula_version,
+                    "ctl_days": stmt.excluded.ctl_days,
+                    "atl_days": stmt.excluded.atl_days,
                     "computed_at": datetime.now(tz=timezone.utc),
                 },
             )
@@ -505,6 +507,34 @@ def get_snapshot_series(
                 "tsb": s.tsb, "acwr": s.acwr,
             })
     return out
+
+
+def recompute_user_snapshots(user_id: str) -> int:
+    """Recompute and persist all training-load snapshots for a user from their
+    earliest TSS workout to today, using the user's current calibration constants.
+
+    Called after accepting a new calibration so the snapshot history reflects
+    the updated ctl_days/atl_days. Reuses get_snapshot_series() — the single
+    source of truth — which treats any snapshot whose stored constants differ
+    from the user's current calibration as stale and rewrites it.
+
+    Returns:
+        Number of snapshot rows computed (0 when the user has no TSS workouts).
+    """
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(
+                "SELECT MIN(workout_date) FROM workouts "
+                "WHERE user_id = :uid AND tss IS NOT NULL"
+            ),
+            {"uid": str(user_id)},
+        ).first()
+    if row is None or row[0] is None:
+        return 0
+    earliest = row[0]
+    today = date.today()
+    rows = get_snapshot_series(user_id, earliest, today)
+    return len(rows)
 
 
 def _classify_zone(tsb: float) -> str:
