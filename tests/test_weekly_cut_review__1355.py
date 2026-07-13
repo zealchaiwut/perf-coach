@@ -19,6 +19,11 @@ BASE_URL = os.environ.get("UAT_BASE_URL", "http://127.0.0.1:9001")
 @pytest.fixture
 def authenticated_client():
     """Create an authenticated HTTP client with session and CSRF cookies."""
+    try:
+        httpx.get(BASE_URL + "/api/auth/me", timeout=3.0)
+    except Exception:
+        pytest.skip("UAT server not reachable")
+
     client = httpx.Client(base_url=BASE_URL, timeout=10.0)
 
     # Create test user
