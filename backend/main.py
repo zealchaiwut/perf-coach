@@ -13468,6 +13468,30 @@ def get_structural_dose(
     return JSONResponse(result)
 
 
+@app.get("/api/training/muscle-load")
+def get_muscle_load(
+    weeks: int = Query(default=8, ge=1, le=52),
+    current_user: User = Depends(resolve_user),
+):
+    """Per-muscle-group acute/chronic load, ACWR, and classification (issue #1380).
+
+    Query params:
+        weeks  Number of weeks for the charting series (1–52, default 8)
+
+    Response:
+        as_of          ISO date (today in Bangkok TZ)
+        groups         per-group stats: acute_7d, chronic_28d, acwr, classification,
+                       injured, source_breakdown
+        weekly_series  list of {week_start, week_end, groups} — length = weeks
+        unclassified   exercise names used in the window with no catalog entry
+    """
+    from backend.services.muscle_load_acwr import compute as _compute_muscle_load
+
+    today = _today_bkk()
+    payload = _compute_muscle_load(current_user.id, today, weeks=weeks)
+    return JSONResponse(payload)
+
+
 # ── Admin gate ────────────────────────────────────────────────────────────────
 
 class AdminLoginIn(BaseModel):
