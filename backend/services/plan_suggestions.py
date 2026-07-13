@@ -645,7 +645,9 @@ def build_prompt(facts: dict) -> tuple[str, str]:
         f"6. Respect ramp limits: do not increase weekly TSS by more than 30% above the trailing average.{taper_note}\n"
         f"{target_rule}"
         f"{notes_binding_rule}"
-        f"{notes_rule_n}. `notes` = the coach's RATIONALE (why this weight/exercise/pairing — fatigue "
+        f"{notes_rule_n}. `intent` = a short session TITLE, 4-5 words max (e.g. \"Full body strength, "
+        "glute focus\") — it becomes the saved session's name; no full sentences. `notes` = the coach's "
+        "RATIONALE (why this weight/exercise/pairing — fatigue "
         "management, what's already logged/planned, why an exercise was avoided/kept). Terse coach-style, "
         "e.g. \"Legs stay fresh — Thursday is intervals.\" Null only for rest days.\n"
         f"{rest_rule}"
@@ -1623,7 +1625,9 @@ def build_single_session_prompt(
             "run: include `blocks` (2-5 entries, {phase, duration_min, repeat, "
             "rest_min, target}). rest: both null.\n"
         )
-        + "5. `notes` = terse coach rationale for this session, or null for rest.\n"
+        + "5. `intent` = a short session TITLE, 4-5 words max (e.g. \"Full body strength, glute focus\") "
+        "— it becomes the saved session's name, so no full sentences. "
+        "`notes` = terse coach rationale for this session, or null for rest.\n"
         f"{budget_rule}"
         f"{subtype_rule}"
     )

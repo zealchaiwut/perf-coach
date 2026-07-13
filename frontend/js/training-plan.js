@@ -812,7 +812,7 @@ information about.
         '<div class="pl-infobanner" id="pl-infobanner" style="margin-bottom:12px;">Sessions are generated to hit your weekly target, respecting the ramp rule and your rest days.</div>' +
         '<div class="pl-weeklist" id="plan-week-list"></div>' +
         '<div class="pl-legend">' +
-          '<span><b style="background:var(--pl-run)"></b>Run</span><span><b style="background:var(--pl-lift)"></b>Strength / Plyo</span>' +
+          '<span><b style="background:var(--pl-run)"></b>Run</span><span><b style="background:var(--pl-lift)"></b>Strength</span><span><b style="background:var(--pl-amber)"></b>Plyo</span>' +
           '<span style="color:var(--pl-faint);margin:0 2px;">·</span>' +
           '<span><b style="background:var(--pl-green)"></b>Done</span><span><b style="background:var(--pl-amber)"></b>Needs review</span><span><b style="background:var(--pl-red)"></b>Missed</span>' +
         '</div>' +
@@ -954,7 +954,15 @@ information about.
     return p.notes ? String(p.notes).slice(0, 40) : '';
   }
 
-  function _famClass(t) { return (t === 'run') ? 'run' : 'lift'; }
+  // Type family for card styling — plyo and stretch get their own colors
+  // (matching the Suggest-sessions palette: plyo amber, stretch teal)
+  // instead of masquerading as purple "lift".
+  function _famClass(t) {
+    if (t === 'run') return 'run';
+    if (t === 'plyo') return 'plyo';
+    if (t === 'stretch') return 'stretch';
+    return 'lift';
+  }
 
   // Quick-tag effort feeling row (😩 hard / 😐 ok / 😊 easy). Untagged → all
   // three faint; tagged → only the selected icon shown filled, others hidden.
@@ -1026,7 +1034,7 @@ information about.
         (draggable ? ' draggable="true"' : '') +
         ' data-sess="' + p.id + '"' + (clickable ? ' data-click="1"' : '') + '>' +
       handle +
-      '<div class="pl-sesstop"><span class="pl-sesstop-left"><span class="pl-stypetag ' + fam + '">' + (fam === 'run' ? 'run' : 'lift') + '</span>' + _sessionTssBadge(p) + '</span>' + _statusTag(p.status, !!p.actual) + '</div>' +
+      '<div class="pl-sesstop"><span class="pl-sesstop-left"><span class="pl-stypetag ' + fam + '">' + fam + '</span>' + _sessionTssBadge(p) + '</span>' + _statusTag(p.status, !!p.actual) + '</div>' +
       '<div class="pl-sn">' + esc(p.name || '(untitled)') + '</div>' +
       '<div class="pl-sm">' + esc(meta) + '</div>' + body +
     '</div>';
@@ -1440,7 +1448,7 @@ information about.
             // only known once the session is actually trained and shows up
             // on the matched workout's detail instead (see _liftDetailHtml).
             '<div class="pl-exhead"><span>Name</span><span>Sets</span><span>Reps</span><span>Load</span><span>RPE</span><span></span></div>' +
-            '<div class="pl-blocklist" id="pl-exlist">' + _sfExercises.map(_exRowHtml).join('') + '</div>' +
+            '<div class="pl-blocklist" id="pl-exlist">' + _exRowsGroupedHtml() + '</div>' +
             '<button class="pl-addblock" id="pl-addex">+ Add exercise</button>');
       _wireStrengthBuilder();
     }
@@ -1455,6 +1463,24 @@ information about.
       '<input class="pl-btgt" data-f="target" value="' + esc(b.target || '') + '" placeholder="target"/>' +
       '<button class="pl-rm" data-rm-block="' + i + '">✕</button></div>';
   }
+  // Interleave block headers (Warm-up / Heavy compound / Superset 1 / ...)
+  // between the editable rows — the data carries `block` per exercise (the
+  // JSON view showed it) but the detailed editor rendered a flat list.
+  // Rows keep their original array index; headers are display-only.
+  function _exRowsGroupedHtml() {
+    var html = '';
+    var lastBlock = null;
+    _sfExercises.forEach(function (x, i) {
+      var b = (x && x.block) ? x.block : null;
+      if (b !== lastBlock) {
+        if (b) html += '<div class="pl-ai-blockh">' + esc(b) + '</div>';
+        lastBlock = b;
+      }
+      html += _exRowHtml(x, i);
+    });
+    return html;
+  }
+
   function _exRowHtml(x, i) {
     return '<div class="pl-block" data-xi="' + i + '">' +
       '<input class="pl-exname" data-f="name" value="' + esc(x.name || '') + '" placeholder="Exercise"/>' +
@@ -2247,9 +2273,11 @@ information about.
     '.plan-panel .pl-sess.dragging{opacity:0.4;}',
     '.plan-panel .pl-sess[draggable="true"]{cursor:grab;}',
     '.plan-panel .pl-sess.run{border-left-color:var(--pl-run);}.plan-panel .pl-sess.lift{border-left-color:var(--pl-lift);}',
+    '.plan-panel .pl-sess.plyo{border-left-color:var(--pl-amber);}.plan-panel .pl-sess.stretch{border-left-color:#0f766e;}',
     '.plan-panel .pl-sess .pl-sn{font-weight:700;font-size:11.5px;}.plan-panel .pl-sess .pl-sm{color:var(--pl-muted);font-family:var(--pl-mono);font-size:10px;margin-top:2px;}',
     '.plan-panel .pl-stypetag{font-size:8px;font-weight:800;letter-spacing:0.03em;padding:1px 5px;border-radius:4px;text-transform:uppercase;display:inline-block;}',
     '.plan-panel .pl-stypetag.run{background:var(--pl-blueSoft);color:var(--pl-run);}.plan-panel .pl-stypetag.lift{background:var(--pl-liftSoft);color:#7c3aed;}',
+    '.plan-panel .pl-stypetag.plyo{background:var(--pl-amberSoft);color:var(--pl-amber);}.plan-panel .pl-stypetag.stretch{background:#ccfbf1;color:#0f766e;}',
     '.plan-panel .pl-dhandle{position:absolute;top:7px;right:8px;font-size:9px;color:var(--pl-faint);letter-spacing:-1px;}',
     '.plan-panel .pl-sesstop{display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:2px;}',
     '.plan-panel .pl-sesstop-left{display:flex;align-items:center;gap:6px;}',
