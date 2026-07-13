@@ -1768,6 +1768,37 @@ class PerformanceScoreHistory(Base):
     )
 
 
+class RunFormMetrics(Base):
+    """Per-run Stryd running-dynamics extracted from stryd_activities.form_metrics (issue #1368).
+
+    Key mapping (verified against live Stryd calendar API, 2026-06-17 via stryd_sync.py):
+        form_metrics["ground_contact_time_ms"]  -> gct_ms
+        form_metrics["leg_spring_stiffness"]    -> lss_kn_m  (kN/m, Stryd native unit)
+        form_metrics["vertical_oscillation_cm"] -> vertical_oscillation_cm
+        form_metrics["cadence_spm"]             -> cadence_spm
+        stryd_activities.avg_power_w            -> power_w
+    """
+
+    __tablename__ = "run_form_metrics"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    workout_id = Column(UUID(as_uuid=True), ForeignKey("workouts.id", ondelete="SET NULL"), nullable=True)
+    stryd_activity_pk = Column(UUID(as_uuid=True), ForeignKey("stryd_activities.id", ondelete="CASCADE"), nullable=False)
+    run_date = Column(Date, nullable=False)
+    gct_ms = Column(Numeric(8, 2), nullable=True)
+    lss_kn_m = Column(Numeric(8, 4), nullable=True)
+    vertical_oscillation_cm = Column(Numeric(6, 2), nullable=True)
+    cadence_spm = Column(Numeric(6, 2), nullable=True)
+    power_w = Column(Numeric(6, 1), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("stryd_activity_pk", name="uq_run_form_metrics_stryd_activity_pk"),
+        Index("ix_run_form_metrics_user_run_date", "user_id", "run_date"),
+    )
+
+
 class PredictionSnapshot(Base):
     """Daily persisted projection forecast for forecast-vs-actual accuracy evaluation.
 
@@ -1787,4 +1818,36 @@ class PredictionSnapshot(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "snapshot_date", name="uq_prediction_snapshots_user_date"),
         Index("ix_prediction_snapshots_user_date", "user_id", "snapshot_date"),
+    )
+
+
+class MuscleLoadDaily(Base):
+    """Per-day TSS-weighted load per muscle group per source (issue #1367).
+
+    Rows are recomputed-idempotent: the writer deletes existing rows for the
+    (user, date, source) triple and inserts fresh ones so re-running never
+    double-counts. The unique constraint enforces one row per
+    (user, date, muscle_group, source).
+    """
+
+    __tablename__ = "muscle_load_daily"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    load_date = Column(Date, nullable=False)
+    muscle_group = Column(String(30), nullable=False)
+    load = Column(Numeric(10, 4), nullable=False)
+    source = Column(String(20), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "load_date", "muscle_group", "source",
+            name="uq_muscle_load_daily_user_date_group_source",
+        ),
+        CheckConstraint(
+            "source IN ('strength', 'run', 'plyo')",
+            name="ck_muscle_load_daily_source",
+        ),
+        Index("ix_muscle_load_daily_user_date", "user_id", "load_date"),
     )

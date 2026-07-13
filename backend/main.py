@@ -33,8 +33,8 @@ from backend.db import check_db, engine, environment
 from backend.models import (
     AppConfig, BodyMeasurement, DailyMetric, DailyReadiness, DriveSleepConnection,
     EconomyCeilingSnapshot, ExerciseCatalog, GoogleOAuthCredentials, Habit, HabitLog,
-    PersonalRecord, Race, RaceCheckpoint, RemovedActivity, SleepImport, StravaActivity,
-    StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES,
+    PersonalRecord, Race, RaceCheckpoint, RemovedActivity, RunFormMetrics, SleepImport,
+    StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES,
     TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, VerdictHistory, WeightEntry,
     WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit,
     WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession,
@@ -7144,6 +7144,14 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             _logging.getLogger(__name__).warning(
                 "checkpoint autodetection failed for workout %s: %s", workout.id, _cd_exc, exc_info=True
             )
+        if workout.workout_type == "strength":
+            try:
+                from backend.services.muscle_load import recompute_strength_load_for_date as _rsl
+                _rsl(uid, workout_date)
+            except Exception as _ml_exc:
+                _logging.getLogger(__name__).warning(
+                    "muscle_load recompute failed for workout %s: %s", workout.id, _ml_exc, exc_info=True
+                )
         return JSONResponse(status_code=201, content=_workout_dict(workout, exercises))
 
 
@@ -7314,6 +7322,15 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             _logging.getLogger(__name__).warning(
                 "autofill recompute failed for user %s: %s", workout.user_id, _af_exc
             )
+        if workout.workout_type == "strength":
+            try:
+                from backend.services.muscle_load import recompute_strength_load_for_date as _rsl
+                for _ml_date in {_old_workout_date, workout.workout_date}:
+                    _rsl(workout.user_id, _ml_date)
+            except Exception as _ml_exc:
+                _logging.getLogger(__name__).warning(
+                    "muscle_load recompute failed for workout %s: %s", wid, _ml_exc, exc_info=True
+                )
         return JSONResponse(_workout_dict(workout, exercises))
 
 
@@ -7331,6 +7348,7 @@ def delete_workout(workout_id: str, user: User = Depends(resolve_user)):
             raise HTTPException(status_code=403, detail="Forbidden")
         _del_date = workout.workout_date
         _del_uid = workout.user_id
+        _del_workout_type = workout.workout_type
         # Tombstone any linked synced activities so the next sync/reconcile does
         # NOT recreate this workout. Snapshot name/date for the Removed list.
         _tombstone_links = []
@@ -7372,6 +7390,15 @@ def delete_workout(workout_id: str, user: User = Depends(resolve_user)):
         _logging.getLogger(__name__).warning(
             "autofill recompute failed for user %s week %s: %s", _del_uid, _del_date, _af_exc
         )
+    if _del_workout_type == "strength":
+        try:
+            from backend.services.muscle_load import recompute_strength_load_for_date as _rsl
+            _rsl(_del_uid, _del_date)
+        except Exception as _ml_exc:
+            _logging.getLogger(__name__).warning(
+                "muscle_load recompute failed after delete for user %s date %s: %s",
+                _del_uid, _del_date, _ml_exc, exc_info=True,
+            )
     return Response(status_code=204)
 
 
@@ -13305,6 +13332,170 @@ def get_today_recommendation(user: User = Depends(resolve_user)):
             "active_injuries": active_injuries,
         },
     })
+
+
+# ── Run Form Metrics ─────────────────────────────────────────────────────────
+
+_FORM_METRICS_ROLLING_DAYS = 28
+
+
+def _rolling_mean(values: list, window: int = _FORM_METRICS_ROLLING_DAYS) -> list:
+    """Return a trailing-window simple mean for each position in values.
+
+    values is a list of (run_date, float|None) tuples sorted ascending.
+    Returns a list of float|None — None when no non-null values exist in window.
+    """
+    out = []
+    for i, (_, v) in enumerate(values):
+        start = max(0, i - window + 1)
+        window_vals = [v2 for _, v2 in values[start : i + 1] if v2 is not None]
+        out.append(round(sum(window_vals) / len(window_vals), 4) if window_vals else None)
+    return out
+
+
+@app.get("/api/training/form-metrics")
+def get_run_form_metrics(
+    from_date: Optional[str] = Query(default=None, alias="from"),
+    to_date: Optional[str] = Query(default=None, alias="to"),
+    user: User = Depends(resolve_user),
+):
+    """Per-run Stryd running-dynamics series with 28-day rolling means.
+
+    Query params (both optional):
+        from  YYYY-MM-DD  start of range (default: 90 days ago)
+        to    YYYY-MM-DD  end of range   (default: today)
+
+    Response:
+        runs           list of per-run objects sorted by run_date asc
+        rolling_means  28-day trailing means for each metric at each date position
+    """
+    today = _today_bkk()
+    if from_date is None and to_date is None:
+        from_d = today - _timedelta(days=89)
+        to_d = today
+    else:
+        try:
+            from_d = _date.fromisoformat(from_date) if from_date else today - _timedelta(days=89)
+            to_d = _date.fromisoformat(to_date) if to_date else today
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid date format; use YYYY-MM-DD")
+
+    if from_d > to_d:
+        raise HTTPException(status_code=422, detail="from must not be after to")
+    if (to_d - from_d).days > 365:
+        raise HTTPException(status_code=422, detail="Date range cannot exceed 365 days")
+
+    uid = user.id
+    with Session(engine) as session:
+        rows = (
+            session.query(RunFormMetrics)
+            .filter(
+                RunFormMetrics.user_id == uid,
+                RunFormMetrics.run_date >= from_d,
+                RunFormMetrics.run_date <= to_d,
+            )
+            .order_by(RunFormMetrics.run_date.asc())
+            .all()
+        )
+
+    def _f(v):
+        return float(v) if v is not None else None
+
+    runs = [
+        {
+            "run_date": row.run_date.isoformat(),
+            "stryd_activity_pk": str(row.stryd_activity_pk),
+            "workout_id": str(row.workout_id) if row.workout_id else None,
+            "gct_ms": _f(row.gct_ms),
+            "lss_kn_m": _f(row.lss_kn_m),
+            "vertical_oscillation_cm": _f(row.vertical_oscillation_cm),
+            "cadence_spm": _f(row.cadence_spm),
+            "power_w": _f(row.power_w),
+        }
+        for row in rows
+    ]
+
+    metrics = ["gct_ms", "lss_kn_m", "vertical_oscillation_cm", "cadence_spm", "power_w"]
+    rolling_means: dict[str, list] = {}
+    for m in metrics:
+        series = [(r["run_date"], r[m]) for r in runs]
+        rolling_means[m] = _rolling_mean(series)
+
+    return JSONResponse({
+        "from": from_d.isoformat(),
+        "to": to_d.isoformat(),
+        "runs": runs,
+        "rolling_means": rolling_means,
+    })
+
+
+# ── Structural dose endpoint (issue #1369) ────────────────────────────────────
+
+@app.get("/api/training/structural-dose")
+def get_structural_dose(
+    weeks: int = Query(default=8, ge=1, le=52),
+    user: User = Depends(resolve_user),
+):
+    """Per-week plyo and strength dose stats for the session user.
+
+    Query params:
+      weeks (int, default 8, 1–52): number of ISO weeks to include (most-recent week first).
+
+    Response shape:
+    {
+      "weeks": int,
+      "window_start": "YYYY-MM-DD",   # Monday of the oldest week
+      "window_end": "YYYY-MM-DD",     # today (inclusive)
+      "weekly": [
+        {
+          "week_start": "YYYY-MM-DD",          # Monday of this ISO week (oldest→newest)
+          "plyo_sessions": int,                # count of plyo_sessions rows
+          "foot_contacts": int,                # sum of foot_contacts
+          "dominant_plyo_phase": str | null,   # "intro" | "build" | "maintain" | null
+          "strength_days": int                 # unique dates with ≥1 strength record
+        },
+        ...
+      ],
+      "last_plyo_days_ago": int | null,        # days since last plyo session; null = never
+      "last_strength_days_ago": int | null,    # days since last strength day; null = never
+      "foot_contact_trend": "rising" | "flat" | "falling"
+                                               # 4-week FC trend, FC_TREND_THRESHOLD absolute delta
+    }
+
+    Strength de-dup rule: A date counts as 1 strength_day regardless of whether
+    it has rows in strength_sessions, workouts (workout_type='strength'), or both.
+    """
+    from backend.services.structural_dose import compute_structural_dose
+    from backend.utils.time import today_bangkok
+
+    today = today_bangkok()
+    with Session(engine) as db:
+        result = compute_structural_dose(db, user.id, today, weeks=weeks)
+    return JSONResponse(result)
+
+
+@app.get("/api/training/muscle-load")
+def get_muscle_load(
+    weeks: int = Query(default=8, ge=1, le=52),
+    current_user: User = Depends(resolve_user),
+):
+    """Per-muscle-group acute/chronic load, ACWR, and classification (issue #1380).
+
+    Query params:
+        weeks  Number of weeks for the charting series (1–52, default 8)
+
+    Response:
+        as_of          ISO date (today in Bangkok TZ)
+        groups         per-group stats: acute_7d, chronic_28d, acwr, classification,
+                       injured, source_breakdown
+        weekly_series  list of {week_start, week_end, groups} — length = weeks
+        unclassified   exercise names used in the window with no catalog entry
+    """
+    from backend.services.muscle_load_acwr import compute as _compute_muscle_load
+
+    today = _today_bkk()
+    payload = _compute_muscle_load(current_user.id, today, weeks=weeks)
+    return JSONResponse(payload)
 
 
 # ── Admin gate ────────────────────────────────────────────────────────────────

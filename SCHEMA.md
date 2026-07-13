@@ -974,3 +974,43 @@ Durable daily endurance/speed scores with formula-version stamps. Upserted (writ
 | created_at | timestamptz | server default now() |
 
 Unique: `(user_id, score_date, formula_version)` (`uq_performance_score_history_user_date_version`). Index: `ix_performance_score_history_user_date` on `(user_id, score_date)`. Migration: `129d863fa625_add_performance_score_history`.
+
+---
+
+## run_form_metrics _(added Sprint 106 / #1368)_
+
+Per-run Stryd running-dynamics extracted from `stryd_activities.form_metrics` JSONB into a queryable, one-row-per-activity table. Upserted incrementally on every Stryd sync (`backend/services/sync_runner.py`) and via full historical backfill on the compute worker (`POST /internal/form-metrics/backfill`, job type `form_metrics_backfill`). Read via `GET /api/training/form-metrics?from=&to=` (per-run series + 28-day trailing rolling means). Model: `RunFormMetrics` in `backend/models.py`. Key mapping: `form_metrics["ground_contact_time_ms"]→gct_ms`, `["leg_spring_stiffness"]→lss_kn_m` (kN/m native), `["vertical_oscillation_cm"]→vertical_oscillation_cm`, `["cadence_spm"]→cadence_spm`, `stryd_activities.avg_power_w→power_w`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | `gen_random_uuid()` |
+| user_id | UUID FK→users | CASCADE |
+| workout_id | UUID FK→workouts | nullable, SET NULL |
+| stryd_activity_pk | UUID FK→stryd_activities | NOT NULL, CASCADE |
+| run_date | date | NOT NULL |
+| gct_ms | numeric(8,2) | nullable — ground-contact time (ms) |
+| lss_kn_m | numeric(8,4) | nullable — leg-spring stiffness (kN/m) |
+| vertical_oscillation_cm | numeric(6,2) | nullable |
+| cadence_spm | numeric(6,2) | nullable |
+| power_w | numeric(6,1) | nullable |
+| created_at | timestamptz | NOT NULL, server default now() |
+
+Unique: `(stryd_activity_pk)` (`uq_run_form_metrics_stryd_activity_pk`). Index: `ix_run_form_metrics_user_run_date` on `(user_id, run_date)`. Migration: `3bd978fbbf19_add_run_form_metrics_table`.
+
+---
+
+## muscle_load_daily _(added Sprint 106 / #1367)_
+
+Per-day TSS-weighted training load per muscle group per source, the ledger backing the muscle-load ACWR machinery. Written recompute-idempotently by `backend/services/muscle_load.py` `recompute_strength_load_for_date` (deletes existing rows for the `(user, date, source)` triple then re-inserts, so re-running never double-counts); triggered after every strength workout/session create/update/delete. Read (aggregated) via `GET /api/training/muscle-load?weeks=` — per-group acute 7d / chronic 28d / ACWR / classification, computed by `backend/services/muscle_load_acwr.py`. Model: `MuscleLoadDaily` in `backend/models.py`. Formula reference: `docs/calculations/muscle-load.md`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | `gen_random_uuid()` |
+| user_id | UUID FK→users | CASCADE |
+| load_date | date | NOT NULL |
+| muscle_group | varchar(30) | NOT NULL |
+| load | numeric(10,4) | NOT NULL |
+| source | varchar(20) | NOT NULL — `strength` / `run` / `plyo` (check constraint `ck_muscle_load_daily_source`) |
+| created_at | timestamptz | NOT NULL, server default now() |
+
+Unique: `(user_id, load_date, muscle_group, source)` (`uq_muscle_load_daily_user_date_group_source`). Index: `ix_muscle_load_daily_user_date` on `(user_id, load_date)`. Migration: `a4cf1cbd5020_add_muscle_load_daily_table`.
