@@ -148,6 +148,63 @@ Sum ≈ 40.0 ✓
 ## Unclassified Exercises
 
 Exercises not found in `exercise_catalog` contribute no load to any group.
-Their names are logged at DEBUG level and will be surfaced in the ACWR
-read endpoint (next sprint) via an `unclassified: [names]` field so the
-user can prompt a catalog classification.
+Their names are surfaced in the `GET /api/training/muscle-load` response via
+an `unclassified: [names]` field so the user can prompt a catalog classification.
+
+---
+
+## ACWR Read Layer (issue #1380)
+
+### Endpoint
+
+`GET /api/training/muscle-load?weeks=N` (default N=8, range 1–52).
+Derives `acute_7d`, `chronic_28d`, `acwr`, and classification for each
+canonical group from `muscle_load_daily`. Session-user scoped; anonymous → 401.
+
+### Math
+
+Mirrors `backend/services/acwr.py` (uncoupled rolling-window variant):
+
+```
+acute_7d    = Σ daily_load for days [today−6 … today]
+chronic_28d = mean( weekly_total(days −35…−29),
+                    weekly_total(days −28…−22),
+                    weekly_total(days −21…−15),
+                    weekly_total(days −14…−8) )
+acwr        = acute_7d / chronic_28d   (null when chronic_28d < CHRONIC_FLOOR)
+```
+
+Daily load is the sum across all sources (strength + run + plyo).
+The acute window is **excluded** from chronic — the same "uncoupled" variant
+used in `acwr.py`.
+
+### Classification constants (`backend/services/muscle_load_acwr.py`)
+
+| Constant         | Value | Meaning                                          |
+|------------------|-------|--------------------------------------------------|
+| `CHRONIC_FLOOR`  | 5.0   | Weekly chronic below this → ACWR undefined       |
+| `OVERUSED_BOUND` | 1.5   | acwr > 1.5 → **overused** (= acwr.HIGH_BOUND)   |
+| `ELEVATED_BOUND` | 1.3   | acwr > 1.3 → **elevated** (= acwr.UPPER_BOUND)  |
+| `DETRAINING_BOUND`| 0.8  | acwr < 0.8 → **detraining** (= acwr.LOWER_BOUND)|
+
+Classification logic (checked in order):
+
+1. `chronic < CHRONIC_FLOOR` → **untrained** (priority group) or **inactive**
+2. `acwr > OVERUSED_BOUND` → **overused**
+3. `acwr > ELEVATED_BOUND` → **elevated**
+4. `acwr >= DETRAINING_BOUND` → **balanced**
+5. otherwise → **detraining**
+
+**Priority groups** (lower-body focus; flagged `untrained` when chronic is
+near zero): `calf`, `hamstring`, `glute`, `hip`.
+
+Non-priority groups with near-zero chronic are classified `inactive`
+(informational; not flagged as a training gap).
+
+### Injury tagging
+
+Active `injury_log` entries (started_on ≤ today AND ended_on IS NULL or ≥
+today) whose `body_area` maps to a canonical group via `BODY_AREA_TO_GROUP`
+(in `muscle_load_acwr.py`) cause that group's payload entry to carry
+`"injured": true`. The classification is still computed — the tag rides
+alongside so downstream consumers (gap-analyzer rules, planner) can defer.
