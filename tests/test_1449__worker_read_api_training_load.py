@@ -15,15 +15,15 @@ AC coverage:
 import os
 import pathlib
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session as _OrmSess
 
-from backend.auth import CSRF_COOKIE_NAME, hash_password as _hash_pw
+from backend.auth import hash_password as _hash_pw
 from backend.models import (
     TrainingLoadSnapshot,
     User as _UserModel,

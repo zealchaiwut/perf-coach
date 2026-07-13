@@ -115,7 +115,7 @@ def test_explicit_date_returns_correct_shape():
         MockSession.return_value.__exit__ = MagicMock(return_value=False)
 
         def query_side_effect(model):
-            from backend.models import TrainingLoadSnapshot, VerdictHistory
+            from backend.models import TrainingLoadSnapshot
             if model is TrainingLoadSnapshot:
                 q = MagicMock()
                 q.filter.return_value.order_by.return_value.first.return_value = snap
@@ -157,7 +157,7 @@ def test_fallback_to_latest_snapshot_when_no_row_for_date():
         MockSession.return_value.__exit__ = MagicMock(return_value=False)
 
         def query_side_effect(model):
-            from backend.models import TrainingLoadSnapshot, VerdictHistory
+            from backend.models import TrainingLoadSnapshot
             if model is TrainingLoadSnapshot:
                 q = MagicMock()
                 q.filter.return_value.order_by.return_value.first.return_value = older_snap
@@ -194,7 +194,7 @@ def test_404_when_no_snapshots_at_all():
         MockSession.return_value.__exit__ = MagicMock(return_value=False)
 
         def query_side_effect(model):
-            from backend.models import TrainingLoadSnapshot, VerdictHistory
+            from backend.models import TrainingLoadSnapshot
             if model is TrainingLoadSnapshot:
                 q = MagicMock()
                 q.filter.return_value.order_by.return_value.first.return_value = None
@@ -226,7 +226,7 @@ def test_null_verdict_when_no_verdict_row():
         MockSession.return_value.__exit__ = MagicMock(return_value=False)
 
         def query_side_effect(model):
-            from backend.models import TrainingLoadSnapshot, VerdictHistory
+            from backend.models import TrainingLoadSnapshot
             if model is TrainingLoadSnapshot:
                 q = MagicMock()
                 q.filter.return_value.order_by.return_value.first.return_value = snap
@@ -261,7 +261,7 @@ def test_acwr_can_be_null():
         MockSession.return_value.__exit__ = MagicMock(return_value=False)
 
         def query_side_effect(model):
-            from backend.models import TrainingLoadSnapshot, VerdictHistory
+            from backend.models import TrainingLoadSnapshot
             if model is TrainingLoadSnapshot:
                 q = MagicMock()
                 q.filter.return_value.order_by.return_value.first.return_value = snap
@@ -298,7 +298,7 @@ def test_default_date_is_today_bangkok():
         MockSession.return_value.__exit__ = MagicMock(return_value=False)
 
         def query_side_effect(model):
-            from backend.models import TrainingLoadSnapshot, VerdictHistory
+            from backend.models import TrainingLoadSnapshot
             if model is TrainingLoadSnapshot:
                 q = MagicMock()
                 q.filter.return_value.order_by.return_value.first.return_value = snap
