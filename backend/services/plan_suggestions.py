@@ -658,9 +658,12 @@ def build_prompt(facts: dict) -> tuple[str, str]:
         "(\"Warm-up\" + 1-2 of Heavy compound/Superset), 20-35min total — do not pad a requested-short "
         "session up to the default size. Entry = {block, name, sets, reps, load}: sets=integer; reps/load "
         "are short strings (reps: \"10\"/\"30s hold\"; load: \"bodyweight\"/\"moderate\"/\"65% 1RM "
-        "(~45kg)\"). A stretch session is mobility/flexibility work: 4-8 hold/flow entries in 1-2 "
-        "blocks, 15-30min, mostly bodyweight — never barbell lifts. Never empty for "
-        "strength/plyo/stretch; null for run/rest.\n"
+        "(~45kg)\"). A plyo session is EXPLOSIVE jump/power work — box jumps, bounds, hops, depth "
+        "jumps, jump squats, med-ball throws — low reps (3-6), few sets, FULL recovery between "
+        "efforts, bodyweight or light load: never the barbell-lift strength template. A stretch "
+        "session is mobility/flexibility work: 4-8 hold/flow entries in 1-2 blocks, 15-30min, "
+        "mostly bodyweight — never barbell lifts. Never empty for strength/plyo/stretch; null "
+        "for run/rest.\n"
         f"{blocks_rule_n}. run sessions: `blocks` array (2-5 entries), one per phase, not just a duration "
         "number. Entry = {phase, duration_min, repeat, rest_min, target}: phase is warmup/main/cooldown "
         "(repeat \"main\" for multiple work segments); repeat=integer reps of that phase or null; "
@@ -1403,6 +1406,22 @@ _LLM_SINGLE_SESSION_SCHEMA: dict = {
 _SINGLE_SESSION_MAX_COMPLETION_TOKENS = 6000
 
 
+SESSION_SUBTYPES: dict[str, dict[str, str]] = {
+    "run": {
+        "easy": "a conversational, fully aerobic easy run — no quality segments",
+        "long": "the week's LONG run — steady aerobic, even effort, no intervals",
+        "intervals": "an interval session — repeated hard efforts with recovery jogs between",
+        "tempo": "a tempo run — sustained comfortably-hard blocks at threshold-ish effort",
+    },
+    "strength": {
+        "upper": "an UPPER-body strength session — push/pull emphasis, minimal leg loading",
+        "lower": "a LOWER-body strength session — hinge/squat/single-leg emphasis",
+        "full": "a FULL-body strength session — balanced upper/lower/core",
+        "light": "a LIGHT maintenance strength session — short, low load, no grinding sets",
+    },
+}
+
+
 def build_single_session_prompt(
     facts: dict,
     day_offset: int,
@@ -1411,12 +1430,15 @@ def build_single_session_prompt(
     current_session: dict | None = None,
     target_tss: float | None = None,
     duration_minutes: int | None = None,
+    subtype: str | None = None,
 ) -> tuple[str, str]:
     """Build (system_prompt, user_prompt) for a ONE-session generate/refine call.
 
     target_tss/duration_minutes are the schedule rail's slot budget (two-rail
     flow, issue #1417): when given, the session must land on those numbers —
-    the athlete owns the schedule; the LLM only fills content within it."""
+    the athlete owns the schedule; the LLM only fills content within it.
+    subtype is the slot's optional flavor tag (SESSION_SUBTYPES) — e.g. a run
+    is "easy" vs "intervals", a strength day is "upper" vs "light"."""
     trailing = facts.get("trailing_28d_weekly_avg_tss", 0.0)
     max_weekly = round(max(float(trailing), FALLBACK_MIN_WEEKLY_TSS) * ACWR_HIGH_BOUND)
     day_name = _DAY_NAMES[day_offset]
@@ -1434,6 +1456,15 @@ def build_single_session_prompt(
             + " — size the exercises/blocks to fill exactly that, do not resize the slot.\n"
         )
 
+    subtype_rule = ""
+    subtype_desc = SESSION_SUBTYPES.get(workout_type or "", {}).get(subtype or "")
+    if subtype_desc:
+        n = 7 if budget_rule else 6
+        subtype_rule = (
+            f"{n}. The athlete tagged this session \"{subtype}\": build {subtype_desc}. "
+            "The tag is binding — do not build a different kind of session.\n"
+        )
+
     system = (
         "You are a running coach. Produce or REVISE exactly ONE training session "
         "for a single day — not a whole week. Return ONLY a JSON object matching "
@@ -1446,12 +1477,16 @@ def build_single_session_prompt(
         + (f" — the athlete asked for \"{workout_type}\"; use that unless their note "
            "explicitly asks for something else.\n" if workout_type else ".\n")
         + "4. strength/plyo/stretch: include `exercises` (4-14 entries, {block, name, sets, reps, "
-        "load}); scale to a short (4-6 entries) session if the note asks for brief/quick; a "
-        "stretch session is mobility/flexibility holds and flows, mostly bodyweight, never "
-        "barbell lifts. run: include `blocks` (2-5 entries, {phase, duration_min, repeat, "
+        "load}); scale to a short (4-6 entries) session if the note asks for brief/quick. A plyo "
+        "session is EXPLOSIVE jump/power work — box jumps, bounds, hops, depth jumps, jump "
+        "squats, med-ball throws — low reps (3-6), few sets, FULL recovery between efforts, "
+        "bodyweight or light load: never the barbell-lift strength template. A stretch session "
+        "is mobility/flexibility holds and flows, mostly bodyweight, never barbell lifts. "
+        "run: include `blocks` (2-5 entries, {phase, duration_min, repeat, "
         "rest_min, target}). rest: both null.\n"
         "5. `notes` = terse coach rationale for this session, or null for rest.\n"
         f"{budget_rule}"
+        f"{subtype_rule}"
     )
 
     user = f"This session is for day_offset {day_offset} ({day_name})."
@@ -1480,6 +1515,7 @@ def generate_single_session(
     notes: str | None = None,
     target_tss: float | None = None,
     duration_minutes: int | None = None,
+    subtype: str | None = None,
     db=None,
 ) -> dict | None:
     """Generate or refine ONE session. Returns the session dict, or None on
@@ -1504,6 +1540,7 @@ def generate_single_session(
         system, user = build_single_session_prompt(
             facts, day_offset, workout_type, note, current_session,
             target_tss=target_tss, duration_minutes=duration_minutes,
+            subtype=subtype,
         )
         raw = llm_svc.complete_structured(
             system=system,

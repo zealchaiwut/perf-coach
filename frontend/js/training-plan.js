@@ -2428,7 +2428,8 @@ information about.
     '.pl-sug-gen:disabled{opacity:0.6;cursor:default;}',
     '.pl-sug-intent-empty{color:var(--pl-faint);font-style:italic;}',
     '.pl-rail-note{font-size:11.5px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:6px 10px;margin-bottom:8px;}',
-    '.pl-sug-type-select.stretch{background:#ccfbf1;color:#0f766e;}'
+    '.pl-sug-type-select.stretch{background:#ccfbf1;color:#0f766e;}',
+    '.pl-sug-subtype-select{font-size:10px;font-weight:700;color:var(--pl-muted);border:1px solid var(--pl-line);border-radius:6px;padding:3px 4px;background:#fff;cursor:pointer;flex-shrink:0;}'
   ].join('');
 
 }());
@@ -2572,6 +2573,12 @@ information about.
         '<select class="pl-sug-type-select ' + wt + '" data-idx="' + idx + '">' +
           types.map(function (t) { return '<option value="' + t + '"' + (t === wt ? ' selected' : '') + '>' + t + '</option>'; }).join('') +
         '</select>' +
+        (_SLOT_SUBTYPES[wt]
+          ? '<select class="pl-sug-subtype-select" data-idx="' + idx + '" title="Optional flavor — binding when the slot is filled with AI">' +
+              '<option value="">any</option>' +
+              _SLOT_SUBTYPES[wt].map(function (t) { return '<option value="' + t + '"' + (t === s.subtype ? ' selected' : '') + '>' + t + '</option>'; }).join('') +
+            '</select>'
+          : '') +
         '<span class="pl-sug-meta pl-sug-meta-edit">' +
           '<input type="number" class="pl-sug-tss-input" data-idx="' + idx + '" min="0" max="400" value="' + (s.target_tss || 0) + '" title="Slot TSS budget — AI fills content to match"/> TSS · ' +
           '<input type="number" class="pl-sug-dur-input" data-idx="' + idx + '" min="0" max="600" step="5" value="' + (s.duration_minutes || 0) + '" title="Slot duration — AI fills content to match"/> min' +
@@ -2605,9 +2612,17 @@ information about.
       var prev = s.workout_type;
       s.workout_type = typeSel.value;
       if (typeSel.value === 'rest') { s.target_tss = 0; s.duration_minutes = 0; }
-      if (prev !== typeSel.value) { s.exercises = null; s.blocks = null; s._ai = false; }
+      if (prev !== typeSel.value) { s.exercises = null; s.blocks = null; s._ai = false; s.subtype = null; }
       _renderSuggestions(_suggestionsData); // small list — cheap full re-render
     });
+
+    var subSel = wrap.querySelector('.pl-sug-subtype-select');
+    if (subSel) {
+      subSel.addEventListener('change', function () {
+        s.subtype = subSel.value || null;
+        _renderSuggestions(_suggestionsData);
+      });
+    }
 
     var daySel = wrap.querySelector('.pl-sug-day-select');
     daySel.addEventListener('change', function () {
@@ -2765,6 +2780,12 @@ information about.
     stretch: { tss: 15, min: 20 },
   };
   var _SLOT_TYPES = ['run', 'strength', 'plyo', 'stretch'];
+  // Optional per-slot flavor, mirrored by SESSION_SUBTYPES on the backend —
+  // it becomes a binding prompt rule when the slot is filled.
+  var _SLOT_SUBTYPES = {
+    run: ['easy', 'long', 'intervals', 'tempo'],
+    strength: ['upper', 'lower', 'full', 'light'],
+  };
 
   function _slotSumHtml(data) {
     var sum = 0;
@@ -2797,8 +2818,9 @@ information about.
         if (s.day_offset !== d) return;
         var wt = (s.workout_type || 'rest').toLowerCase();
         var meta = wt === 'rest' ? '—' : (s.target_tss || 0) + ' TSS · ' + (s.duration_minutes || 0) + 'm';
+        var typeLabel = wt + (s.subtype ? ' · ' + s.subtype : '');
         chips += '<div class="pl-slot-chip ' + wt + '" draggable="true" data-idx="' + i + '" title="Drag to another day — details below">' +
-          '<span class="pl-slot-line1"><span class="pl-slot-type">' + wt + '</span>' +
+          '<span class="pl-slot-line1"><span class="pl-slot-type">' + esc(typeLabel) + '</span>' +
           '<button type="button" class="pl-slot-x" data-idx="' + i + '" title="Remove slot">×</button></span>' +
           '<span class="pl-slot-meta">' + meta + '</span>' +
         '</div>';
@@ -2883,6 +2905,7 @@ information about.
         note: _lastPrefs.notes || null,
         target_tss: s.target_tss || null,
         duration_minutes: s.duration_minutes || null,
+        subtype: s.subtype || null,
       }),
     })
       .then(function (r) {

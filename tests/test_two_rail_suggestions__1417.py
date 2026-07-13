@@ -66,6 +66,29 @@ def test_skeleton_slots_start_blank():
     assert sum(s["target_tss"] or 0 for s in result["suggestions"]) > 0
 
 
+def test_single_session_prompt_pins_subtype():
+    sys_p, _ = ps.build_single_session_prompt(
+        _FACTS, 1, "run", "", subtype="intervals",
+    )
+    assert 'tagged this session "intervals"' in sys_p
+    assert "interval session" in sys_p
+    assert "The tag is binding" in sys_p
+
+
+def test_single_session_prompt_ignores_subtype_for_wrong_type():
+    # "upper" is a strength subtype — meaningless for a run; no rule emitted.
+    sys_p, _ = ps.build_single_session_prompt(
+        _FACTS, 1, "run", "", subtype="upper",
+    )
+    assert "tagged this session" not in sys_p
+
+
+def test_single_session_prompt_describes_plyo_distinctly():
+    sys_p, _ = ps.build_single_session_prompt(_FACTS, 1, "plyo", "")
+    assert "EXPLOSIVE" in sys_p or "explosive" in sys_p
+    assert "never the barbell-lift strength template" in sys_p
+
+
 def test_stretch_is_a_known_workout_type():
     assert "stretch" in ps.KNOWN_WORKOUT_TYPES
     errs = ps.validation_errors(

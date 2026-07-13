@@ -462,6 +462,9 @@ class SingleSessionRequest(BaseModel):
     # — the athlete owns the schedule; the LLM only fills the content.
     target_tss: Optional[float] = None
     duration_minutes: Optional[int] = None
+    # Optional slot flavor (run: easy/long/intervals/tempo; strength:
+    # upper/lower/full/light — see plan_suggestions.SESSION_SUBTYPES).
+    subtype: Optional[str] = None
 
 
 @router.post("/plan/suggestions/session")
@@ -500,6 +503,15 @@ def generate_plan_session(
         raise HTTPException(status_code=422, detail="target_tss must be between 0 and 400")
     if body.duration_minutes is not None and not (0 <= body.duration_minutes <= 600):
         raise HTTPException(status_code=422, detail="duration_minutes must be between 0 and 600")
+    if body.subtype is not None:
+        from backend.services.plan_suggestions import SESSION_SUBTYPES as _SUBTYPES
+        valid = _SUBTYPES.get(body.workout_type or "", {})
+        if body.subtype not in valid:
+            raise HTTPException(
+                status_code=422,
+                detail="subtype must be one of: " + ", ".join(sorted(valid)) if valid
+                else f"workout_type {body.workout_type!r} has no subtypes",
+            )
 
     session = _generate_single_session(
         str(user.id),
@@ -510,6 +522,7 @@ def generate_plan_session(
         week_start=week_start,
         target_tss=body.target_tss,
         duration_minutes=body.duration_minutes,
+        subtype=body.subtype,
     )
     if session is None:
         raise HTTPException(status_code=422, detail="Could not generate a session for this request — try again or adjust the note.")
