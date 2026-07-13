@@ -2394,6 +2394,9 @@ information about.
     '.pl-sug-daychk.is-closed{opacity:0.4;cursor:not-allowed;}',
     '.pl-sug-select{font-size:13px;padding:7px 10px;border:1px solid var(--pl-line);border-radius:8px;background:#fff;color:var(--pl-ink);width:auto;align-self:flex-start;}',
     '.pl-sug-notes{font-size:13px;padding:9px 11px;border:1px solid var(--pl-line);border-radius:9px;background:#fff;color:var(--pl-ink);min-height:52px;resize:vertical;font-family:inherit;}',
+    '.pl-sug-count-wrap{display:flex;align-items:center;gap:8px;}',
+    '.pl-sug-count{width:70px;font-size:13px;padding:7px 10px;border:1px solid var(--pl-line);border-radius:8px;background:#fff;color:var(--pl-ink);font-family:var(--pl-mono);}',
+    '.pl-sug-count-hint{font-size:11px;color:var(--pl-faint);}',
     // ── Two-rail suggestions (issue #1417): rail 1 schedule grid ─────────────
     '#plan-suggestions-sched{margin-bottom:12px;}',
     '.pl-rail-head{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;}',
@@ -2440,7 +2443,10 @@ information about.
   var _suggestionsData = null;
   // Remembered across Refresh clicks so re-opening the prefs form doesn't
   // lose what the athlete already told it.
-  var _lastPrefs = { restDays: [], strengthEmphasis: 'same', notes: '' };
+  // Rest days + optional exact strength-session count ('' = auto from the
+  // athlete's own last-3-weeks history). No free-text — the schedule rail is
+  // rule-based (zero LLM); per-slot Refine carries any free-form asks.
+  var _lastPrefs = { restDays: [], strengthSessions: '' };
 
   var _DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   var _DAY_NAMES_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -2902,7 +2908,7 @@ information about.
       body: JSON.stringify({
         date: _formatSugDate(s.day_offset),
         workout_type: s.workout_type,
-        note: _lastPrefs.notes || null,
+        note: null,
         target_tss: s.target_tss || null,
         duration_minutes: s.duration_minutes || null,
         subtype: s.subtype || null,
@@ -2968,7 +2974,13 @@ information about.
     if (!panel || !list) return;
 
     var src = data.source || 'fallback';
-    if (srcEl) srcEl.textContent = src === 'llm' ? 'AI' : (src === 'skeleton' ? 'schedule' : 'template');
+    if (srcEl) {
+      srcEl.textContent =
+        src === 'llm' ? 'AI'
+        : src === 'history' ? 'from your last 3 weeks'
+        : src === 'skeleton' ? 'template (no history yet)'
+        : 'template';
+    }
 
     _renderScheduleRail(data);
 
@@ -3044,16 +3056,9 @@ information about.
             '<div class="pl-sug-daychks">' + dayChecks + '</div>' +
           '</div>' +
           '<div class="pl-sug-prefs-row">' +
-            '<label class="pl-sug-prefs-label" for="pl-sug-emphasis">Strength this week</label>' +
-            '<select id="pl-sug-emphasis" class="pl-sug-select">' +
-              '<option value="less"' + (_lastPrefs.strengthEmphasis === 'less' ? ' selected' : '') + '>Less</option>' +
-              '<option value="same"' + (_lastPrefs.strengthEmphasis === 'same' ? ' selected' : '') + '>Same</option>' +
-              '<option value="more"' + (_lastPrefs.strengthEmphasis === 'more' ? ' selected' : '') + '>More</option>' +
-            '</select>' +
-          '</div>' +
-          '<div class="pl-sug-prefs-row">' +
-            '<label class="pl-sug-prefs-label" for="pl-sug-notes">Anything else the coach should know?</label>' +
-            '<textarea id="pl-sug-notes" class="pl-sug-notes" placeholder="e.g. easing back after a cold, prioritize a long run Saturday…" maxlength="300">' + esc(_lastPrefs.notes) + '</textarea>' +
+            '<label class="pl-sug-prefs-label" for="pl-sug-strength-count">Strength sessions</label>' +
+            '<span class="pl-sug-count-wrap"><input id="pl-sug-strength-count" class="pl-sug-count" type="number" min="0" max="7" step="1" placeholder="auto" value="' + esc(_lastPrefs.strengthSessions) + '"/>' +
+            '<span class="pl-sug-count-hint">blank = match your recent weeks</span></span>' +
           '</div>' +
           '<div class="pl-btnrow"><button type="button" class="pl-btn pl-lime" id="pl-sug-generate">Build schedule</button>' +
           '<button type="button" class="pl-btn pl-ghost" id="pl-sug-cancel">Cancel</button></div>'
@@ -3073,10 +3078,8 @@ information about.
     });
     var genBtn = _el('pl-sug-generate');
     if (genBtn) genBtn.addEventListener('click', function () {
-      var emphasisEl = _el('pl-sug-emphasis');
-      var notesEl = _el('pl-sug-notes');
-      if (emphasisEl) _lastPrefs.strengthEmphasis = emphasisEl.value;
-      if (notesEl) _lastPrefs.notes = notesEl.value;
+      var countEl = _el('pl-sug-strength-count');
+      if (countEl) _lastPrefs.strengthSessions = countEl.value.trim();
       _loadSuggestions();
     });
     var cancelBtn = _el('pl-sug-cancel');
@@ -3104,19 +3107,20 @@ information about.
       if (lbl) lbl.textContent = 'Building schedule…';
     }
 
-    // Two-rail flow (issue #1417): fetch the deterministic schedule skeleton
-    // (instant, no LLM). The athlete rearranges the slots on the schedule
-    // rail, then fills content per slot (✨ buttons) — the LLM never chooses
-    // which day gets which session type again.
+    // Two-rail flow (issue #1417): fetch the rule-based schedule skeleton
+    // (instant, no LLM) — habits from the athlete's own last 3 weeks, with
+    // an optional exact strength-session count. The athlete rearranges the
+    // slots on the schedule rail, then fills content per slot (✨ buttons)
+    // — the LLM never chooses which day gets which session type again.
+    var strengthCount = parseInt(_lastPrefs.strengthSessions, 10);
     fetch('/api/plan/suggestions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         week_start: _weekStartISO(),
         rest_days: _lastPrefs.restDays,
-        strength_emphasis: _lastPrefs.strengthEmphasis,
-        notes: _lastPrefs.notes,
         skeleton: true,
+        strength_sessions: isNaN(strengthCount) ? null : strengthCount,
       }),
     })
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })

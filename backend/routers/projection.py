@@ -393,10 +393,14 @@ class PlanSuggestionsRequest(BaseModel):
     rest_days: Optional[list[int]] = None
     strength_emphasis: Optional[str] = None  # "less" | "same" | "more"
     notes: Optional[str] = None
-    # Two-rail flow (issue #1417): True returns the deterministic template
-    # slots instantly (no LLM) for the schedule rail; content per slot is
-    # generated later via POST /plan/suggestions/session.
+    # Two-rail flow (issue #1417): True returns rule-based schedule slots
+    # instantly (no LLM) — habits from the athlete's last 3 weeks, generic
+    # template only when there's no history; content per slot is generated
+    # later via POST /plan/suggestions/session.
     skeleton: Optional[bool] = None
+    # Skeleton only: exact number of strength slots to lay out (0-7);
+    # omitted = however many the history shows.
+    strength_sessions: Optional[int] = None
 
 
 @router.post("/plan/suggestions")
@@ -437,6 +441,10 @@ def get_plan_suggestions(
     strength_emphasis = body.strength_emphasis if body is not None else None
     notes = body.notes if body is not None else None
 
+    strength_sessions = body.strength_sessions if body is not None else None
+    if strength_sessions is not None and not (0 <= strength_sessions <= 7):
+        raise HTTPException(status_code=422, detail="strength_sessions must be between 0 and 7")
+
     result = _get_suggestions(
         str(user.id),
         week_start=week_start,
@@ -444,6 +452,7 @@ def get_plan_suggestions(
         strength_emphasis=strength_emphasis,
         notes=notes,
         skeleton=bool(body.skeleton) if body is not None else False,
+        strength_sessions=strength_sessions,
     )
     return JSONResponse(result)
 

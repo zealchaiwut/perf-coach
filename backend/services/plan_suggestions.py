@@ -1302,6 +1302,117 @@ def assemble_facts(
     return facts
 
 
+def history_skeleton_slots(
+    history: list[tuple[int, str, float, float]],
+    facts: dict,
+    strength_sessions: int | None = None,
+) -> list[dict]:
+    """Rule-based schedule skeleton from the athlete's OWN recent weeks —
+    pure function, zero LLM (two-rail flow, issue #1417).
+
+    history: (weekday 0-6, workout_type, tss, duration_minutes) tuples from
+    the last 3 completed weeks. A weekday/type pair seen at least twice in
+    that window is a habit worth prefilling; its slot gets the median TSS
+    and duration. The highest-TSS run weekday is tagged subtype "long".
+    strength_sessions (when given) is enforced exactly: extra strength
+    slots are trimmed weakest-habit-first; missing ones are added to the
+    lightest open days.
+    """
+    from statistics import median
+
+    allowed = facts.get("allowed_offsets")
+    allowed = list(range(7)) if allowed is None else list(allowed)
+    rest_days = list(facts.get("preferred_rest_days") or [])
+
+    by_day: dict[int, dict[str, list[tuple[float, float]]]] = {}
+    for wd, wtype, tss, dur_min in history:
+        t = (wtype or "").lower()
+        if t not in KNOWN_WORKOUT_TYPES or t == "rest" or not (0 <= wd <= 6):
+            continue
+        by_day.setdefault(wd, {}).setdefault(t, []).append((float(tss or 0), float(dur_min or 0)))
+
+    slots: list[dict] = []
+    for d in range(7):
+        if d in rest_days:
+            slots.append({
+                "day_offset": d, "workout_type": "rest", "target_tss": 0,
+                "duration_minutes": 0, "intent": "Rest day (requested).",
+                "notes": None, "exercises": None, "blocks": None,
+            })
+            continue
+        if d not in allowed:
+            continue
+        for t, vals in sorted(by_day.get(d, {}).items()):
+            if len(vals) < 2:  # not a habit — one-offs don't prefill
+                continue
+            slots.append({
+                "day_offset": d, "workout_type": t,
+                "target_tss": round(median(v[0] for v in vals)),
+                "duration_minutes": int(round(median(v[1] for v in vals) / 5.0) * 5),
+                "intent": "", "notes": None, "exercises": None, "blocks": None,
+                "_habit_count": len(vals),
+            })
+
+    # Long-run tag: the biggest habitual run of the week.
+    runs = [s for s in slots if s["workout_type"] == "run"]
+    if runs:
+        max(runs, key=lambda s: s["target_tss"])["subtype"] = "long"
+
+    if strength_sessions is not None:
+        want = max(0, min(7, int(strength_sessions)))
+        strength = [s for s in slots if s["workout_type"] == "strength"]
+        strength.sort(key=lambda s: (-s.get("_habit_count", 0), -s["target_tss"]))
+        for s in strength[want:]:
+            slots.remove(s)
+        # Add missing strength to the lightest open non-rest days first.
+        day_tss = {d: sum(s["target_tss"] for s in slots if s["day_offset"] == d)
+                   for d in allowed if d not in rest_days}
+        have_strength = {s["day_offset"] for s in slots if s["workout_type"] == "strength"}
+        candidates = sorted(
+            [d for d in day_tss if d not in have_strength],
+            key=lambda d: day_tss[d],
+        )
+        for d in candidates[: max(0, want - len(strength[:want]))]:
+            slots.append({
+                "day_offset": d, "workout_type": "strength", "target_tss": 50,
+                "duration_minutes": 45, "intent": "", "notes": None,
+                "exercises": None, "blocks": None,
+            })
+
+    for s in slots:
+        s.pop("_habit_count", None)
+    slots.sort(key=lambda s: s["day_offset"])
+    return slots
+
+
+def _load_history_rows(user_id: str, week_start: "date", db=None) -> list[tuple[int, str, float, float]]:
+    """(weekday, type, tss, duration_minutes) for the 21 days before week_start."""
+    from backend.models import Workout
+
+    _own = db is None
+    if _own:
+        from backend.db import engine
+        from sqlalchemy.orm import Session
+        db = Session(engine)
+    try:
+        rows = (
+            db.query(Workout.workout_date, Workout.workout_type, Workout.tss, Workout.duration_seconds)
+            .filter(
+                Workout.user_id == user_id,
+                Workout.workout_date >= week_start - timedelta(days=21),
+                Workout.workout_date < week_start,
+            )
+            .all()
+        )
+        return [
+            (r[0].weekday(), r[1] or "", float(r[2] or 0), float(r[3] or 0) / 60.0)
+            for r in rows
+        ]
+    finally:
+        if _own:
+            db.close()
+
+
 def get_suggestions(
     user_id: str,
     db=None,
@@ -1311,6 +1422,7 @@ def get_suggestions(
     strength_emphasis: str | None = None,
     notes: str | None = None,
     skeleton: bool = False,
+    strength_sessions: int | None = None,
 ) -> dict:
     """Full entry point: assemble facts → cache-aware LLM call → fallback.
 
@@ -1334,24 +1446,26 @@ def get_suggestions(
         strength_emphasis=strength_emphasis, notes=notes,
     )
     if skeleton:
-        # Slots only — day/type/TSS/duration. Content (intent/notes/
-        # exercises/blocks) stays blank until the athlete asks for it per
-        # slot ("Fill with AI"); pre-filled template exercises read as
-        # already-generated sessions and muddy what the AI button does.
-        slots = []
-        for s in fallback_suggestions(facts):
-            is_rest = s.get("workout_type") == "rest"
-            slots.append({
-                **s,
-                "intent": s.get("intent") if is_rest else "",
-                "notes": None,
-                "exercises": None,
-                "blocks": None,
-            })
+        # Rule-based, zero LLM. First choice: the athlete's OWN last 3
+        # weeks — a weekday/type habit prefills a slot with its median
+        # TSS/duration (history_skeleton_slots). Only when there's no
+        # history at all does the generic template fill in. Slots carry
+        # only the budget — content (intent/notes/exercises/blocks) stays
+        # blank until the athlete fills a slot with AI.
+        history = _load_history_rows(user_id, date.fromisoformat(facts["week_start"]), db=db)
+        slots = history_skeleton_slots(history, facts, strength_sessions=strength_sessions)
+        source = "history"
+        if not any(s["workout_type"] != "rest" for s in slots):
+            slots = [
+                {**s, "intent": s.get("intent") if s.get("workout_type") == "rest" else "",
+                 "notes": None, "exercises": None, "blocks": None}
+                for s in fallback_suggestions(facts)
+            ]
+            source = "skeleton"
         return {
             "facts": facts,
             "suggestions": slots,
-            "source": "skeleton",
+            "source": source,
             "attempts": 0,
             "orch": "none",
         }

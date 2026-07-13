@@ -30,6 +30,7 @@ _FACTS = {
 
 def test_skeleton_returns_template_without_llm():
     with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)), \
+         mock.patch.object(ps, "_load_history_rows", return_value=[]), \
          mock.patch.object(ps.llm_svc, "get_or_generate") as llm_cache, \
          mock.patch.object(ps.llm_svc, "complete_structured") as llm_call:
         result = ps.get_suggestions("someone", skeleton=True)
@@ -41,7 +42,8 @@ def test_skeleton_returns_template_without_llm():
 
 
 def test_skeleton_slots_respect_allowed_offsets_and_rest_days():
-    with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)):
+    with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)), \
+         mock.patch.object(ps, "_load_history_rows", return_value=[]):
         result = ps.get_suggestions("someone", skeleton=True)
     for s in result["suggestions"]:
         assert s["day_offset"] in _FACTS["allowed_offsets"] + _FACTS["preferred_rest_days"]
@@ -53,7 +55,8 @@ def test_skeleton_slots_start_blank():
     """Slots carry ONLY the budget (day/type/TSS/duration) — content stays
     blank until the athlete fills a slot with AI. Pre-filled template
     exercises read as already-generated sessions."""
-    with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)):
+    with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)), \
+         mock.patch.object(ps, "_load_history_rows", return_value=[]):
         result = ps.get_suggestions("someone", skeleton=True)
     for s in result["suggestions"]:
         assert s["exercises"] is None
@@ -108,6 +111,81 @@ def test_skeleton_false_still_takes_llm_path():
         result = ps.get_suggestions("someone", skeleton=False)
     llm_cache.assert_called_once()
     assert result["source"] in ("llm", "fallback")
+
+
+# ── history-based skeleton (rule-based, zero LLM) ────────────────────────────
+
+# 3 weeks of a consistent pattern: Tue easy run, Wed intervals, Sat long run,
+# Sun strength; one-off Thursday ride of week 2 must NOT prefill.
+_HISTORY = [
+    # (weekday, type, tss, duration_minutes)
+    (1, "run", 55, 60), (1, "run", 52, 55), (1, "run", 58, 62),
+    (2, "run", 78, 60), (2, "run", 82, 65),
+    (5, "run", 120, 110), (5, "run", 112, 105), (5, "run", 131, 118),
+    (6, "strength", 47, 45), (6, "strength", 51, 48),
+    (3, "plyo", 40, 30),  # once only — not a habit
+]
+
+_HFACTS = {**_FACTS, "allowed_offsets": [1, 2, 3, 4, 5, 6], "preferred_rest_days": [0]}
+
+
+def test_history_skeleton_prefills_habits_with_median_budget():
+    slots = ps.history_skeleton_slots(_HISTORY, _HFACTS)
+    by_day = {}
+    for s in slots:
+        by_day.setdefault(s["day_offset"], []).append(s)
+    assert by_day[0][0]["workout_type"] == "rest"
+    assert by_day[1][0]["workout_type"] == "run"
+    assert by_day[1][0]["target_tss"] == 55  # median of 55/52/58
+    assert by_day[5][0]["target_tss"] == 120
+    assert by_day[6][0]["workout_type"] == "strength"
+    assert 3 not in by_day, "a one-off is not a habit and must not prefill"
+    # Content blank — budget only.
+    for s in slots:
+        assert s["exercises"] is None and s["blocks"] is None
+
+
+def test_history_skeleton_tags_biggest_run_as_long():
+    slots = ps.history_skeleton_slots(_HISTORY, _HFACTS)
+    sat = next(s for s in slots if s["day_offset"] == 5)
+    assert sat.get("subtype") == "long"
+    tue = next(s for s in slots if s["day_offset"] == 1)
+    assert tue.get("subtype") is None
+
+
+def test_history_skeleton_enforces_strength_count():
+    # History has 1 strength habit; ask for 3 → 2 added on the lightest days.
+    slots = ps.history_skeleton_slots(_HISTORY, _HFACTS, strength_sessions=3)
+    assert sum(1 for s in slots if s["workout_type"] == "strength") == 3
+    # Ask for 0 → the Sunday habit is trimmed.
+    slots = ps.history_skeleton_slots(_HISTORY, _HFACTS, strength_sessions=0)
+    assert not any(s["workout_type"] == "strength" for s in slots)
+
+
+def test_history_skeleton_respects_allowed_offsets():
+    facts = {**_HFACTS, "allowed_offsets": [2, 5]}
+    slots = ps.history_skeleton_slots(_HISTORY, facts)
+    for s in slots:
+        if s["workout_type"] != "rest":
+            assert s["day_offset"] in (2, 5)
+
+
+def test_skeleton_endpoint_path_uses_history_when_present():
+    with mock.patch.object(ps, "assemble_facts", return_value=dict(_HFACTS)), \
+         mock.patch.object(ps, "_load_history_rows", return_value=list(_HISTORY)), \
+         mock.patch.object(ps.llm_svc, "get_or_generate") as llm_cache:
+        result = ps.get_suggestions("someone", skeleton=True)
+    llm_cache.assert_not_called()
+    assert result["source"] == "history"
+    assert any(s["workout_type"] == "run" for s in result["suggestions"])
+
+
+def test_skeleton_falls_back_to_template_without_history():
+    with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)), \
+         mock.patch.object(ps, "_load_history_rows", return_value=[]):
+        result = ps.get_suggestions("someone", skeleton=True)
+    assert result["source"] == "skeleton"
+    assert any(s["workout_type"] != "rest" for s in result["suggestions"])
 
 
 # ── slot-budget pinning in the single-session prompt ─────────────────────────
