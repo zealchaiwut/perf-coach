@@ -900,6 +900,11 @@ class TrainingLoadSnapshot(Base):
     # miss and recomputed, so a change to the EWMA/ACWR math can never
     # silently keep serving stale-shape rows forever.
     formula_version = Column(Text, nullable=True)
+    # Records which EWMA time constants produced this row so the cache can be
+    # invalidated when the user accepts a new calibration.  NULL means the row
+    # was computed with the module defaults (CTL_DAYS=42, ATL_DAYS=7).
+    ctl_days = Column(Integer, nullable=True)
+    atl_days = Column(Integer, nullable=True)
     computed_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
     __table_args__ = (

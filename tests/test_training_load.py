@@ -234,6 +234,11 @@ def test_current_load_reads_snapshot_cache_single_query():
     snap.tsb = 15.3
     snap.acwr = 1.1
     snap.formula_version = _FORMULA_VERSION
+    # NULL means the snapshot was computed with the module defaults (CTL_DAYS/ATL_DAYS);
+    # the _default_calibration fixture pins resolve_user_ewma_days to those same
+    # defaults, so the staleness check passes and the cache is used.
+    snap.ctl_days = None
+    snap.atl_days = None
 
     mock_session = _mock_session_snapshot(snap)
 
