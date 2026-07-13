@@ -5432,6 +5432,9 @@ def get_calendar_month(
 
 class ExerciseIn(BaseModel):
     name: str
+    # Training-block grouping (Warm-up / Heavy compound / Superset 1 / ...) —
+    # same vocabulary as PlannedSession.structure.exercises[].block.
+    block: Optional[str] = None
     sets: Optional[int] = None
     reps: Optional[int] = None
     weight_kg: Optional[float] = None
@@ -5514,6 +5517,7 @@ class WorkoutDuplicateIn(BaseModel):
 
 class ExercisePatchIn(BaseModel):
     name: Optional[str] = None
+    block: Optional[str] = None
     sets: Optional[int] = None
     reps: Optional[int] = None
     weight_kg: Optional[float] = None
@@ -5532,6 +5536,8 @@ def _validate_exercise(ex: ExerciseIn) -> None:
     name = ex.name.strip() if ex.name else ""
     if not name:
         raise HTTPException(status_code=422, detail="Exercise name is required")
+    if ex.block is not None and len(ex.block) > 80:
+        raise HTTPException(status_code=422, detail="block must be 80 characters or fewer")
     if ex.sets is not None and ex.sets <= 0:
         raise HTTPException(status_code=422, detail="sets must be > 0")
     if ex.rpe is not None and not (1 <= ex.rpe <= 10):
@@ -5557,6 +5563,7 @@ def _exercise_dict(e: WorkoutExercise) -> dict:
     return {
         "id": str(e.id),
         "display_order": e.display_order,
+        "block": e.block,
         "name": e.name,
         "sets": e.sets,
         "reps": e.reps,
@@ -6974,6 +6981,7 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             e = WorkoutExercise(
                 workout_id=workout.id,
                 display_order=i,
+                block=ex.block,
                 name=ex.name.strip(),
                 sets=ex.sets,
                 reps=ex.reps,
@@ -7141,6 +7149,7 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
                 session.add(WorkoutExercise(
                     workout_id=wid,
                     display_order=i,
+                    block=ex.block,
                     name=ex.name.strip(),
                     sets=ex.sets,
                     reps=ex.reps,
@@ -7708,6 +7717,7 @@ def duplicate_workout(workout_id: str, body: WorkoutDuplicateIn, user: User = De
             e = WorkoutExercise(
                 workout_id=copy.id,
                 display_order=ex.display_order,
+                block=ex.block,
                 name=ex.name,
                 sets=ex.sets,
                 reps=ex.reps,
@@ -7806,6 +7816,7 @@ def append_exercise(workout_id: str, body: ExerciseIn, user: User = Depends(reso
         ex = WorkoutExercise(
             workout_id=wid,
             display_order=next_order,
+            block=body.block,
             name=body.name.strip(),
             sets=body.sets,
             reps=body.reps,
@@ -7843,6 +7854,11 @@ def patch_exercise(workout_id: str, exercise_id: str, body: ExercisePatchIn, use
             if not name:
                 raise HTTPException(status_code=422, detail="Exercise name is required")
             ex.name = name
+        if body.block is not None:
+            if len(body.block) > 80:
+                raise HTTPException(status_code=422, detail="block must be 80 characters or fewer")
+            # Empty string clears the grouping.
+            ex.block = body.block.strip() or None
         if body.sets is not None:
             if body.sets <= 0:
                 raise HTTPException(status_code=422, detail="sets must be > 0")
@@ -7919,6 +7935,7 @@ def replace_exercises(workout_id: str, body: ExercisesReplaceIn, user: User = De
             new_ex = WorkoutExercise(
                 workout_id=wid,
                 display_order=i,
+                block=ex.block,
                 name=ex.name.strip(),
                 sets=ex.sets,
                 reps=ex.reps,
