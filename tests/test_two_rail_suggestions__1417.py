@@ -110,6 +110,18 @@ def test_provider_env_override_wins(monkeypatch):
     assert llm._provider() == "groq"
 
 
+def test_cerebras_is_opt_in_only(monkeypatch):
+    # A present key alone never selects Cerebras — only LLM_PROVIDER does.
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("GLM_API_KEY", raising=False)
+    monkeypatch.setenv("CEREBRAS_API_KEY", "csk-test")
+    assert llm._provider() == "groq"
+    monkeypatch.setenv("LLM_PROVIDER", "cerebras")
+    assert llm._provider() == "cerebras"
+    assert llm._model("deep") == "gpt-oss-120b"
+    assert llm._api_key() == "csk-test"
+
+
 def test_glm_payload_uses_json_object_with_inlined_schema(monkeypatch):
     monkeypatch.delenv("LLM_PROVIDER", raising=False)
     monkeypatch.setenv("GLM_API_KEY", "zk-test")

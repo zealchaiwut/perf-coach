@@ -29,9 +29,13 @@ _GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 # share Groq's tight 8k-TPM / 200k-TPD free-tier budget that kept starving
 # the per-slot session fills.
 _GLM_URL = "https://api.z.ai/api/paas/v4/chat/completions"
+# Cerebras (OpenAI-compatible, json_schema-capable) — opt-in only, via
+# LLM_PROVIDER=cerebras; never auto-selected.
+_CEREBRAS_URL = "https://api.cerebras.ai/v1/chat/completions"
 _DEFAULT_MODEL_FAST = "llama-3.1-8b-instant"
 _DEFAULT_MODEL_DEEP = "openai/gpt-oss-120b"
 _DEFAULT_GLM_MODEL = "glm-4.7-flash"
+_DEFAULT_CEREBRAS_MODEL = "gpt-oss-120b"
 
 _startup_logged = False
 
@@ -40,6 +44,8 @@ def _provider() -> str:
     p = os.getenv("LLM_PROVIDER", "").strip().lower()
     if p in ("glm", "zai", "z.ai"):
         return "glm"
+    if p == "cerebras":
+        return "cerebras"
     if p == "groq":
         return "groq"
     # No explicit choice: prefer GLM when its key exists.
@@ -58,7 +64,12 @@ def _emit_startup_info() -> None:
 
 
 def _api_key() -> str:
-    return os.getenv("GLM_API_KEY", "") if _provider() == "glm" else os.getenv("GROQ_API_KEY", "")
+    p = _provider()
+    if p == "glm":
+        return os.getenv("GLM_API_KEY", "")
+    if p == "cerebras":
+        return os.getenv("CEREBRAS_API_KEY", "")
+    return os.getenv("GROQ_API_KEY", "")
 
 
 def llm_enabled() -> bool:
@@ -67,10 +78,15 @@ def llm_enabled() -> bool:
 
 
 def _model(tier: str) -> str:
-    if _provider() == "glm":
+    p = _provider()
+    if p == "glm":
         if tier == "fast":
             return os.getenv("GLM_MODEL_FAST", _DEFAULT_GLM_MODEL)
         return os.getenv("GLM_MODEL_DEEP", _DEFAULT_GLM_MODEL)
+    if p == "cerebras":
+        if tier == "fast":
+            return os.getenv("CEREBRAS_MODEL_FAST", _DEFAULT_CEREBRAS_MODEL)
+        return os.getenv("CEREBRAS_MODEL_DEEP", _DEFAULT_CEREBRAS_MODEL)
     if tier == "fast":
         return os.getenv("GROQ_MODEL_FAST", _DEFAULT_MODEL_FAST)
     return os.getenv("GROQ_MODEL_DEEP", _DEFAULT_MODEL_DEEP)
@@ -99,7 +115,7 @@ def complete_structured(
     provider = _provider()
     api_key = _api_key()
     model = _model(model_tier)
-    url = _GLM_URL if provider == "glm" else _GROQ_URL
+    url = {"glm": _GLM_URL, "cerebras": _CEREBRAS_URL}.get(provider, _GROQ_URL)
 
     if provider == "glm":
         # z.ai has no strict json_schema mode — use json_object and carry the
