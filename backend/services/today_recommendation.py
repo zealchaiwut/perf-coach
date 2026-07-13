@@ -150,7 +150,7 @@ def compute_today_recommendation(
             "recommendation": "downgrade",
             "reason": "Training load spike (ACWR elevated) — swap today's hard session for an easy one.",
             "apply_patch": {
-                "name": "Easy " + (session_name or session_type).lstrip("Easy "),
+                "name": "Easy " + (session_name or session_type).removeprefix("Easy "),
                 "structure": easy_structure,
             },
         }
@@ -162,7 +162,7 @@ def compute_today_recommendation(
             "recommendation": "downgrade",
             "reason": "Holding load this week — convert today's hard session to easy.",
             "apply_patch": {
-                "name": "Easy " + (session_name or session_type).lstrip("Easy "),
+                "name": "Easy " + (session_name or session_type).removeprefix("Easy "),
                 "structure": easy_structure,
             },
         }

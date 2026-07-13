@@ -1361,30 +1361,39 @@ def history_skeleton_slots(
         max(runs, key=lambda s: s["target_tss"])["subtype"] = "long"
 
     if strength_sessions is not None:
-        want = max(0, min(7, int(strength_sessions)))
-        strength = [s for s in slots if s["workout_type"] == "strength"]
-        strength.sort(key=lambda s: (-s.get("_habit_count", 0), -s["target_tss"]))
-        for s in strength[want:]:
-            slots.remove(s)
-        # Add missing strength to the lightest open non-rest days first.
-        day_tss = {d: sum(s["target_tss"] for s in slots if s["day_offset"] == d)
-                   for d in allowed if d not in rest_days}
-        have_strength = {s["day_offset"] for s in slots if s["workout_type"] == "strength"}
-        candidates = sorted(
-            [d for d in day_tss if d not in have_strength],
-            key=lambda d: day_tss[d],
-        )
-        for d in candidates[: max(0, want - len(strength[:want]))]:
-            slots.append({
-                "day_offset": d, "workout_type": "strength", "target_tss": 50,
-                "duration_minutes": 45, "intent": "", "notes": None,
-                "exercises": None, "blocks": None,
-            })
+        _enforce_strength_count(slots, strength_sessions, allowed, rest_days)
 
     for s in slots:
         s.pop("_habit_count", None)
     slots.sort(key=lambda s: s["day_offset"])
     return slots
+
+
+def _enforce_strength_count(slots: list[dict], strength_sessions: int,
+                            allowed: list[int], rest_days: list[int]) -> None:
+    """Make the slot list contain EXACTLY `strength_sessions` strength slots
+    (in place): extras trimmed weakest-habit-first, missing ones added to the
+    lightest open non-rest days. Shared by the history skeleton and the
+    template fallback — an explicit count is binding on both paths."""
+    want = max(0, min(7, int(strength_sessions)))
+    strength = [s for s in slots if s["workout_type"] == "strength"]
+    strength.sort(key=lambda s: (-s.get("_habit_count", 0), -s["target_tss"]))
+    for s in strength[want:]:
+        slots.remove(s)
+    # Add missing strength to the lightest open non-rest days first.
+    day_tss = {d: sum(s["target_tss"] for s in slots if s["day_offset"] == d)
+               for d in allowed if d not in rest_days}
+    have_strength = {s["day_offset"] for s in slots if s["workout_type"] == "strength"}
+    candidates = sorted(
+        [d for d in day_tss if d not in have_strength],
+        key=lambda d: day_tss[d],
+    )
+    for d in candidates[: max(0, want - len(strength[:want]))]:
+        slots.append({
+            "day_offset": d, "workout_type": "strength", "target_tss": 50,
+            "duration_minutes": 45, "intent": "", "notes": None,
+            "exercises": None, "blocks": None,
+        })
 
 
 def _load_history_rows(user_id: str, week_start: "date", db=None) -> list[tuple[int, str, float, float]]:
@@ -1463,6 +1472,17 @@ def get_suggestions(
                  "notes": None, "exercises": None, "blocks": None}
                 for s in fallback_suggestions(facts)
             ]
+            # An explicit strength count is binding on the template path too
+            # — a no-history athlete asking for 0 strength must not get the
+            # template's hardcoded 2 strength days.
+            if strength_sessions is not None:
+                _allowed = facts.get("allowed_offsets")
+                _allowed = list(range(7)) if _allowed is None else list(_allowed)
+                _enforce_strength_count(
+                    slots, strength_sessions, _allowed,
+                    list(facts.get("preferred_rest_days") or []),
+                )
+                slots.sort(key=lambda s: s["day_offset"])
             source = "skeleton"
         return {
             "facts": facts,
@@ -1705,7 +1725,49 @@ def generate_single_session(
         if not isinstance(session, dict):
             continue
         errs = validation_errors([session], validation_facts)
+        # The slot budget is a CONTRACT, not a hint — the prompt says "MUST
+        # be X (±10%)" but schema validation alone can't enforce it, so a
+        # non-compliant generation used to silently overwrite the athlete's
+        # fixed numbers. Out-of-tolerance → retry with feedback; if the
+        # retry still misses, clamp the numbers back to the slot's values
+        # (the athlete owns the schedule; the LLM only fills content).
+        errs.extend(_budget_errors(session, target_tss, duration_minutes))
         if not errs:
+            return session
+        if _attempt == 1 and not validation_errors([session], validation_facts):
+            # Final attempt, only the budget is off — force compliance.
+            if target_tss is not None:
+                session["target_tss"] = round(float(target_tss))
+            if duration_minutes is not None:
+                session["duration_minutes"] = int(duration_minutes)
             return session
         feedback = _feedback_block(errs)
     return None
+
+
+# Tolerance for the slot-budget contract — matches the ±10% the prompt
+# states, with a small absolute floor so tiny budgets don't reject rounding.
+_BUDGET_TOLERANCE_FRAC = 0.10
+_BUDGET_TOLERANCE_ABS = 5.0
+
+
+def _budget_errors(session: dict, target_tss, duration_minutes) -> list[str]:
+    errs: list[str] = []
+
+    def _off(got, want) -> bool:
+        if got is None:
+            return True
+        tol = max(_BUDGET_TOLERANCE_ABS, abs(float(want)) * _BUDGET_TOLERANCE_FRAC)
+        return abs(float(got) - float(want)) > tol
+
+    if target_tss is not None and _off(session.get("target_tss"), target_tss):
+        errs.append(
+            f"target_tss must be {round(float(target_tss))} (±10%) — got "
+            f"{session.get('target_tss')}; do not resize the slot."
+        )
+    if duration_minutes is not None and _off(session.get("duration_minutes"), duration_minutes):
+        errs.append(
+            f"duration_minutes must be {int(duration_minutes)} (±10%) — got "
+            f"{session.get('duration_minutes')}; do not resize the slot."
+        )
+    return errs

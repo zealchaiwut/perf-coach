@@ -181,7 +181,12 @@ def test_load_plan_returns_race_anchored_series(bare_client):
     assert len(body["weeks"]) == 19
 
     phases = [w["phase"] for w in body["weeks"]]
-    assert phases.count("ramp") == body["ramp_weeks"]
+    # The verdict engine may override the NEAREST ramp/hold weeks to
+    # "consolidation" (this fixture's sudden 316-TSS week trips back_off/
+    # hold, and verdict-v2's weeks_to_converge can flatten several weeks) —
+    # those overridden weeks still belong to the ramp budget, so count them
+    # together instead of demanding a pure ramp.
+    assert phases.count("ramp") + phases.count("consolidation") == body["ramp_weeks"]
     assert phases[-1] == "race"
     assert "hold" in phases
 

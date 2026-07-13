@@ -770,7 +770,11 @@ def get_today_payload(user_id, target_date: _date, db: Optional[Session] = None)
         settings = settings_to_dict(settings_row)
 
         today = _date.today()
-        week_phase, week_phase_reason, _ = _resolve_week_phase_from_db(user_id, today, db)
+        # Phase must follow the REQUESTED day, not the wall clock — a
+        # historical ?date= during a taper week would otherwise get today's
+        # taper/ramp deficit applied to that day's budget. (`today` itself is
+        # still needed below for the planned-vs-logged burn decision.)
+        week_phase, week_phase_reason, _ = _resolve_week_phase_from_db(user_id, target_date, db)
         eff_deficit = compute_effective_deficit(
             auto_periodize=settings["auto_periodize"],
             configured_deficit_kcal=settings["deficit_kcal"],
@@ -842,7 +846,9 @@ def get_week_payload(user_id, week_start: _date, db: Optional[Session] = None) -
         settings = settings_to_dict(settings_row)
         today = _date.today()
 
-        week_phase, week_phase_reason, _ = _resolve_week_phase_from_db(user_id, today, db)
+        # Phase follows the REQUESTED week's Monday, not the wall clock —
+        # see get_today_payload above.
+        week_phase, week_phase_reason, _ = _resolve_week_phase_from_db(user_id, week_start, db)
         eff_deficit = compute_effective_deficit(
             auto_periodize=settings["auto_periodize"],
             configured_deficit_kcal=settings["deficit_kcal"],

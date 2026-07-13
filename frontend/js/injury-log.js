@@ -203,6 +203,14 @@ const InjuryLog = (() => {
 
   // ── Active strip ─────────────────────────────────────────────────────────
 
+  // body_area is free text headed for innerHTML — escape it (self-XSS
+  // otherwise: a pasted payload would run on every home/training load).
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+  }
+
   async function renderActiveStrip(containerId) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -226,7 +234,7 @@ const InjuryLog = (() => {
 
       const items = entries.map(e => {
         const col = sevColors[e.severity] || sevColors[1];
-        const label = [KIND_LABELS[e.kind] || e.kind, e.body_area].filter(Boolean).join(' — ');
+        const label = esc([KIND_LABELS[e.kind] || e.kind, e.body_area].filter(Boolean).join(' — '));
         const sevLabel = SEV_LABELS[e.severity] || '';
         return `
           <div style="
