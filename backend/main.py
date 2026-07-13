@@ -13423,6 +13423,51 @@ def get_run_form_metrics(
     })
 
 
+# ── Structural dose endpoint (issue #1369) ────────────────────────────────────
+
+@app.get("/api/training/structural-dose")
+def get_structural_dose(
+    weeks: int = Query(default=8, ge=1, le=52),
+    user: User = Depends(resolve_user),
+):
+    """Per-week plyo and strength dose stats for the session user.
+
+    Query params:
+      weeks (int, default 8, 1–52): number of ISO weeks to include (most-recent week first).
+
+    Response shape:
+    {
+      "weeks": int,
+      "window_start": "YYYY-MM-DD",   # Monday of the oldest week
+      "window_end": "YYYY-MM-DD",     # today (inclusive)
+      "weekly": [
+        {
+          "week_start": "YYYY-MM-DD",          # Monday of this ISO week (oldest→newest)
+          "plyo_sessions": int,                # count of plyo_sessions rows
+          "foot_contacts": int,                # sum of foot_contacts
+          "dominant_plyo_phase": str | null,   # "intro" | "build" | "maintain" | null
+          "strength_days": int                 # unique dates with ≥1 strength record
+        },
+        ...
+      ],
+      "last_plyo_days_ago": int | null,        # days since last plyo session; null = never
+      "last_strength_days_ago": int | null,    # days since last strength day; null = never
+      "foot_contact_trend": "rising" | "flat" | "falling"
+                                               # 4-week FC trend, FC_TREND_THRESHOLD absolute delta
+    }
+
+    Strength de-dup rule: A date counts as 1 strength_day regardless of whether
+    it has rows in strength_sessions, workouts (workout_type='strength'), or both.
+    """
+    from backend.services.structural_dose import compute_structural_dose
+    from backend.utils.time import today_bangkok
+
+    today = today_bangkok()
+    with Session(engine) as db:
+        result = compute_structural_dose(db, user.id, today, weeks=weeks)
+    return JSONResponse(result)
+
+
 # ── Admin gate ────────────────────────────────────────────────────────────────
 
 class AdminLoginIn(BaseModel):
