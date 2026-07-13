@@ -925,3 +925,22 @@ Injury / illness / niggle tracking. The table migration landed this sprint to ba
 | created_at | timestamptz | server default now() |
 
 Index: `ix_injury_log_user_started_on` on `(user_id, started_on)`. Migration: `1da954a27351bb1b_add_injury_log_table`.
+
+---
+
+## body_measurements _(added Sprint 104.2 / #1358)_
+
+Periodic body-composition measurements (waist circumference and/or body-fat %). Captured via `POST/GET/PATCH/DELETE /api/body-measurements` (CSV export at `GET /api/exports/body-measurements`). Backs the lean-mass-driven protein target and cut guard (#1359): `current_lean_mass_kg` reads the latest `body_fat_pct` within 60 days to derive lean mass (`ewma_weight × (1 − bf%)`, source `measured`). Model: `BodyMeasurement` in `backend/models.py`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | `gen_random_uuid()` |
+| user_id | UUID FK→users | CASCADE |
+| measure_date | date | NOT NULL |
+| waist_cm | numeric(5,1) | nullable |
+| body_fat_pct | numeric(4,1) | nullable |
+| source | varchar(20) | NOT NULL, default `'manual'` — `manual` / `imported` (check constraint `ck_body_measurements_source`) |
+| notes | text | nullable |
+| created_at | timestamptz | NOT NULL, server default now() |
+
+Unique: `(user_id, measure_date)` (`uq_body_measurements_user_date`). Index: `ix_body_measurements_user_date` on `(user_id, measure_date)`. Migration: `da7cbe58ec60_add_body_measurements_table`.

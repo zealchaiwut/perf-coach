@@ -128,10 +128,43 @@ longest session."*).
 Macro targets (`compute_targets`):
 
 ```python
-protein_g = round(weight_kg * protein_g_per_kg)   # fixed · 2 g/kg, identical on rest and long-run days
-fat_g     = settings.fat_g                        # constant — where the deficit comes from
+# protein base depends on lean-mass source (see § Lean-mass derivation below)
+protein_g = round(lean_mass_kg * protein_g_per_kg)  # when source == 'measured'
+protein_g = round(weight_kg * protein_g_per_kg)     # when source == 'setting' or 'estimated'
+fat_g     = settings.fat_g                          # constant — where the deficit comes from
 carbs_g   = max(0, (budget - protein_g*4 - fat_g*9) / 4)   # the dial — scales with training load
 ```
+
+## Lean-mass derivation (`current_lean_mass_kg`)
+
+Lean mass is derived at request time and determines both the EA-floor denominator
+(already in `compute_budget`) and the protein target base. Priority:
+
+| Priority | Condition | Formula | `source` |
+|---|---|---|---|
+| 1 | Latest `body_measurements.body_fat_pct` within 60 days | `ewma_weight × (1 − bf%)` | `measured` |
+| 2 | `fuel_settings.lean_mass_kg` is set | the stored value | `setting` |
+| 3 | Neither | `ewma_weight × 0.76` | `estimated` |
+
+`ewma_weight` is the EWMA-smoothed bodyweight over the last 14 days (same
+`compute_ewma` used elsewhere in the weight service). If no weight entries exist
+in that window, the raw `fuel_settings.weight_kg` is used instead.
+
+The `lean_mass_kg` and `lean_mass_source` fields are exposed in the
+`GET /api/fuel/today` payload so the UI can show the derivation.
+
+## Lean-mass guard in the weekly cut review
+
+`compute_losing_lean_mass_flag` in `backend/services/cut_review.py` inspects
+`body_measurements` readings within a 60-day window. It fires when **all** of:
+
+1. Two readings with a paired weight entry are at least 14 days apart.
+2. Lean mass fell more than 0.3 kg between the oldest and newest reading.
+3. Total scale weight also fell over that period.
+
+When the guard fires, `losing_lean_mass: true` is appended to the weekly-review
+payload as a warning. It does **not** change recommendation precedence — the
+athlete is warned but the recommendation logic is unchanged.
 
 ## Suggestion (`compute_suggestion`)
 

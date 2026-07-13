@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from backend.auth import resolve_user
 from backend.db import engine
 from backend.models import FuelEntry, WeightEntry
+from backend.services import cut_review as _cut_review
 from backend.services import fuel as _svc
 from backend.services import weight_plans_repo as _wp_repo
 
@@ -177,7 +178,9 @@ async def post_fuel_calibrate(request: Request):
                 user.id, e.entry_date, settings["weight_kg"], settings["run_kcal_per_kg_per_km"],
                 today=_date.today(), db=db,
             )
-            fuel_entries_and_burn.append((e.entry_date, eaten, settings["base_kcal"], burn_info["burn"]))
+            fuel_entries_and_burn.append(
+                (e.entry_date, eaten, settings["base_kcal"], burn_info["burn"])
+            )
 
         try:
             result = _svc.calibrate(weight_entries, fuel_entries_and_burn)
@@ -207,3 +210,12 @@ async def get_fuel_week(request: Request, week_start: Optional[str] = None):
     ws = _parse_date(week_start, param="week_start")
     with Session(engine) as db:
         return JSONResponse(_svc.get_week_payload(user.id, ws, db=db))
+
+
+# ── Weekly cut review ─────────────────────────────────────────────────────────
+
+@router.get("/api/fuel/weekly-review")
+async def get_fuel_weekly_review(request: Request):
+    user = await resolve_user(request)
+    with Session(engine) as db:
+        return JSONResponse(_cut_review.get_weekly_review(user.id, db=db))
