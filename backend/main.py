@@ -13474,6 +13474,38 @@ def get_structural_dose(
     return JSONResponse(result)
 
 
+# ── Gap analysis endpoint (issue #1370) ───────────────────────────────────────
+
+@app.get("/api/training/gap-analysis")
+def get_gap_analysis(user: User = Depends(resolve_user)):
+    """Compute (or refresh) this week's training gap findings for the session user.
+
+    Runs the rules engine against available inputs (structural dose, etc.),
+    upserts findings into gap_findings preserving status, and returns:
+    {
+      "week_start":    "YYYY-MM-DD",
+      "computed_at":   "ISO datetime",
+      "findings": [
+        {
+          "code":           str,
+          "severity":       1|2|3,
+          "recommendation": str,
+          "evidence":       [{metric, value, threshold, window}],
+          "target":         str | null
+        }, ...
+      ],
+      "skipped_rules": [str, ...]
+    }
+    """
+    from backend.services.gap_analysis.engine import run_gap_analysis
+    from backend.utils.time import today_bangkok
+
+    today = today_bangkok()
+    with Session(engine) as db:
+        result = run_gap_analysis(db, user.id, today)
+    return JSONResponse(result)
+
+
 @app.get("/api/training/muscle-load")
 def get_muscle_load(
     weeks: int = Query(default=8, ge=1, le=52),
