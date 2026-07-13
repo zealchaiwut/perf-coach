@@ -1,5 +1,12 @@
 # Changelog
 
+## Sprint 105 — Prediction snapshots, persisted score history + block deltas, closing the CTL/ATL calibration loop
+
+- #1362: Prediction snapshots — persist the morning projection forecast once per day to a new `prediction_snapshots` table (first write of the day wins; same-day recomputes are no-ops) for forecast-vs-actual accuracy evaluation; payload holds per-race predicted finish times (with race ids), projected CTL at race date, and peak CTL + peak week; read back via `GET /api/projection/snapshots?from=&to=`
+- #1361/#1365: Persisted performance score history + honest block deltas — new `performance_score_history` table stores daily endurance/speed scores with a `formula_version` stamp (write-through on each performance compute); score-card block-delta pills are now computed on the absolute scale from this persisted history (today − score at block start, same formula version only) instead of the misleading in-request relative `trend[]`, and hide when history doesn't reach back to block start; new `GET /api/performance/score-history?from=&to=` returns the persisted series (last 90 days by default, current formula version only)
+- #1366: Close the CTL/ATL calibration loop — `training_load_snapshots` now records the `ctl_days`/`atl_days` that produced each row, so a snapshot computed with different constants is treated as a cache miss; accepting a calibration (`POST /api/races/{id}/calibrate/accept`) now backfills the full snapshot history with the new time constants immediately (`recompute_user_snapshots()`) and returns `snapshots_recomputed`. Removes the old "custom calibration always bypasses the cache" workaround
+- #1363: Score re-anchor A — TDD test suite for absolute VDOT anchoring + Speed score (tests only; implementation to follow)
+
 ## Sprint 103 — Readiness unification & auto-recompute, verdict v2 (readiness + injuries), verdict history, today recommendation
 
 - #1348: Unify readiness behind the single canonical CV-based calculator (`services/readiness/calculator.py`) across all four readiness surfaces (`GET /api/home/readiness`, the home-summary readiness block, `GET /trends/summary`, and the compute job) — weights HRV 40% / RHR 20% / sleep_quality 20% / energy 20%, HRV baseline 7d, RHR baseline 30d; replaces the legacy sleep_hours/HRV/RHR/mood/energy formula. `ReadinessResult` now also returns per-signal `raw_scores`
