@@ -3103,7 +3103,8 @@ information about.
       '<div class="pl-rail-head">' +
         '<span class="pl-rail-title">Schedule — drag, resize, then fill</span>' +
         '<span class="pl-rail-sum">' + _slotSumHtml(data) + '</span>' +
-        '<button type="button" class="pl-btn pl-lime pl-fill-all"' + (anyUnfilled ? '' : ' disabled') + '>✨ Fill sessions with AI</button>' +
+        '<button type="button" class="pl-btn pl-lime pl-fill-all"' + (anyUnfilled && !_fillAllRunning ? '' : ' disabled') + '>' +
+          (_fillAllRunning ? '… filling' : '✨ Fill sessions with AI') + '</button>' +
       '</div>' +
       (data._fillNote ? '<div class="pl-rail-note">' + esc(data._fillNote) + '</div>' : '') +
       '<div class="pl-sched-grid">' + cols + '</div>';
@@ -3190,10 +3191,20 @@ information about.
   // slot fills, every later one 429s). The backend now sleeps out Groq's
   // "try again in Ns" hint once per call, so each slot can take up to a
   // minute or so — the progress label carries that.
+  // True while a fill-all chain is in flight: the fill button renders
+  // disabled (no duplicate concurrent chains against the rate-limited
+  // provider) and _renderSuggestions leaves the progress overlay alone (any
+  // unrelated re-render used to hide it mid-chain).
+  var _fillAllRunning = false;
+
   function _fillAllSlots() {
+    if (_fillAllRunning) return;
     var slots = (_suggestionsData.suggestions || []).filter(function (s) {
       return s.workout_type !== 'rest' && !s._ai;
     });
+    if (!slots.length) return;
+    _fillAllRunning = true;
+    _renderSuggestions(_suggestionsData); // repaint with the button disabled
     var loading = _el('plan-suggestions-loading');
     var label = loading ? loading.querySelector('span') : null;
     if (loading) loading.style.display = '';
@@ -3201,6 +3212,7 @@ information about.
     var chain = Promise.resolve();
     slots.forEach(function (s) {
       chain = chain.then(function () {
+        if (loading) loading.style.display = ''; // survive interim re-renders
         if (label) {
           label.textContent = 'Filling session ' + (done + failed + 1) + ' of ' + slots.length +
             '… (the AI provider rate-limits — a slot can take up to a minute)';
@@ -3212,6 +3224,7 @@ information about.
       });
     });
     chain.then(function () {
+      _fillAllRunning = false;
       if (loading) loading.style.display = 'none';
       _suggestionsData._fillNote = failed
         ? 'Filled ' + done + ' of ' + slots.length + ' — the AI provider rate-limited the rest. ' +
@@ -3259,8 +3272,10 @@ information about.
     panel.style.display = '';
     var prefsEl = _el('plan-suggestions-prefs');
     if (prefsEl) prefsEl.innerHTML = '';
+    // Never hide the progress overlay while a fill-all chain is running —
+    // unrelated re-renders (a TSS edit, a chip drag) used to blank it.
     var loading = _el('plan-suggestions-loading');
-    if (loading) loading.style.display = 'none';
+    if (loading && !_fillAllRunning) loading.style.display = 'none';
   }
 
   // ── Pre-generation preferences form ──────────────────────────────────────────
@@ -3285,6 +3300,11 @@ information about.
     if (!host) return;
     var list = _el('plan-suggestions-list');
     if (list) list.innerHTML = '';
+    // Clear the schedule rail too — leaving the previous generation's grid
+    // rendered (and interactive) above a fresh prefs form let a stale chip
+    // drag re-render the old suggestions and wipe the prefs being entered.
+    var sched = _el('plan-suggestions-sched');
+    if (sched) sched.innerHTML = '';
     var loading = _el('plan-suggestions-loading');
     if (loading) loading.style.display = 'none';
 
