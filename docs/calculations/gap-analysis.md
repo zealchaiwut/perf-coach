@@ -311,8 +311,8 @@ Fires when average aerobic decoupling on long runs (> 40 min) exceeds the thresh
 Fires when the Speed score (latest `formula_version` from `performance_score_history`) has
 decayed by more than `SPEED_DECAY_THRESHOLD` over 8 weeks **and** quality sessions (runs with
 a non-null `speed_signal`) average fewer than `QUALITY_SESSIONS_MIN_PER_WEEK` per week over
-the past 3 weeks.  Mirrors the pattern of a hypothetical `base_neglected` rule for Endurance,
-with the quality-session count as volume evidence.
+the past 3 weeks.  Mirrors the pattern of `base_neglected` (for Endurance with volume
+evidence), with the quality-session count as volume evidence.
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
@@ -324,6 +324,33 @@ with the quality-session count as volume evidence.
 - `severity`: 2 (recommend) → 1 when verdict is `back_off`
 - `evidence metrics`: `speed_score_decay_8w`, `speed_score_newest`, `quality_sessions_3w`
 - `target`: `speed`
+
+### base_neglected
+
+File: `backend/services/gap_analysis/rules/load_mix.py` (issue #1464)
+
+Fires when the Endurance score (latest `formula_version` from `performance_score_history`) has
+decayed by more than `ENDURANCE_DECAY_THRESHOLD` over 8 weeks **and** easy-volume runs (runs
+with a null `speed_signal`, i.e. non-quality sessions) average fewer than
+`EASY_RUNS_MIN_PER_WEEK` per week over the past 3 weeks.  Mirrors `speed_neglected` but
+anchored to the Endurance score with easy-run volume as the evidence.
+
+Input keys:
+- `endurance_score_history_8w` — gathered by `_gather_endurance_score_8w` in `engine.py`;
+  reads the `endurance` column from `performance_score_history`.
+- `easy_runs_3w` — gathered by `_gather_easy_runs_3w` in `engine.py`; counts runs with
+  `speed_signal IS NULL` over the past 3 weeks.
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `ENDURANCE_DECAY_THRESHOLD` | 10.0 | Points drop (oldest − newest) required to fire |
+| `EASY_RUNS_WINDOW_WEEKS` | 3 | Rolling window for easy run count |
+| `EASY_RUNS_MIN_PER_WEEK` | 2.0 | Minimum easy runs/week to suppress the rule |
+
+- `code`: `base_neglected`
+- `severity`: 2 (recommend) → 1 when verdict is `back_off`
+- `evidence metrics`: `endurance_score_decay_8w`, `endurance_score_newest`, `easy_runs_3w`
+- `target`: `easy_volume`
 
 ---
 
@@ -493,6 +520,7 @@ the `planned_sessions.structure` JSONB column — no migration needed.
 | `cadence_drift` | run | Cadence-focus easy run | Z1-Z2, target ≥170 spm | yes |
 | `aerobic_durability_gap` | run | Aerobic long run | 70–90 min Z1-Z2, monitor decoupling | yes |
 | `speed_neglected` | run | Speed interval session | 6×400 m at 5 km effort, 90 s recovery | yes |
+| `base_neglected` | run | Easy aerobic run | 30–60 min easy pace (Z1-Z2), conversational effort | yes |
 | `strength_lapsed` | strength | General strength session | Full-body, 3×8–10, moderate load after break | yes |
 | `undertrained_area_under_ramp` | strength | Targeted strength block | 3×10–12, controlled tempo | yes |
 | `muscle_untrained.{group}` | strength | Targeted strength: {group} | Eccentric 3×12–15, moderate load | yes |

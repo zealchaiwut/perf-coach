@@ -75,6 +75,15 @@ _EXACT: dict[str, Optional[dict]] = {
         "structure": None,
         "load_adding": True,
     },
+    # ── Base neglected → easy aerobic run (severity 2) ───────────────────────
+    "base_neglected": {
+        "session_type": "run",
+        "name": "Easy aerobic run",
+        "notes": "30–60 min at easy conversational pace (Z1-Z2). Keep effort low — "
+                 "you should be able to hold a full sentence. This is base-building volume.",
+        "structure": None,
+        "load_adding": True,
+    },
     # ── Strength lapsed (severity 1) ─────────────────────────────────────────
     "strength_lapsed": {
         "session_type": "strength",
