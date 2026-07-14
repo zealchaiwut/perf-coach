@@ -7206,6 +7206,7 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
         if workout.user_id != user.id:
             raise HTTPException(status_code=403, detail="Forbidden")
         _old_workout_date = workout.workout_date
+        _old_workout_type = workout.workout_type
         if body.name is not None:
             name = body.name.strip()
             if not name:
@@ -7356,7 +7357,7 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             _logging.getLogger(__name__).warning(
                 "autofill recompute failed for user %s: %s", workout.user_id, _af_exc
             )
-        if workout.workout_type == "strength":
+        if "strength" in {_old_workout_type, workout.workout_type}:
             try:
                 from backend.services.muscle_load import recompute_strength_load_for_date as _rsl
                 for _ml_date in {_old_workout_date, workout.workout_date}:
