@@ -4890,6 +4890,60 @@
         margin: 0;
         line-height: 1.45;
       }
+      /* Add-to-plan footer (issue #1376) */
+      .gap-finding-footer {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+      .gap-atp-btn {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--pm-ink);
+        background: transparent;
+        border: 1px solid var(--gap-accent, var(--pm-line));
+        border-radius: 6px;
+        padding: 4px 10px;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: background 0.12s, opacity 0.12s;
+      }
+      .gap-atp-btn:hover:not(:disabled) { background: rgba(0,0,0,0.05); }
+      .gap-atp-btn:disabled, .gap-atp-btn--disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .gap-atp-status {
+        font-size: 11px;
+        color: var(--pm-muted);
+      }
+      .gap-atp-picker {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: 4px;
+      }
+      .gap-atp-date {
+        font-size: 11px;
+        border: 1px solid var(--pm-line);
+        border-radius: 6px;
+        padding: 3px 6px;
+        background: var(--pm-tile);
+        color: var(--pm-ink);
+      }
+      .gap-atp-confirm {
+        font-size: 11px;
+        font-weight: 600;
+        background: var(--pm-accent, #3b82f6);
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        padding: 4px 10px;
+        cursor: pointer;
+      }
+      .gap-atp-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
 
       /* Race header content floats vertically centered in its stretched card. */
       .plan-merged #plan-race-header {

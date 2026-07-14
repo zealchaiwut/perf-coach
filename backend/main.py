@@ -13511,7 +13511,9 @@ def get_gap_analysis(user: User = Depends(resolve_user)):
     with Session(engine) as db:
         result = run_gap_analysis(db, user.id, today)
 
-        # Enrich each finding with evidence text (issue #1374) and LLM phrasing (issue #1375)
+        # Enrich each finding with evidence text (issue #1374), LLM phrasing (issue #1375),
+        # and add-to-plan template flags (issue #1376).
+        from backend.services.gap_analysis.templates import get_template, is_load_adding as _is_load_adding
         enriched = []
         for f in result["findings"]:
             phrasing_result = get_finding_phrasing(
@@ -13520,17 +13522,127 @@ def get_gap_analysis(user: User = Depends(resolve_user)):
                 week_start=week_start,
                 db=db,
             )
+            code = f["code"]
+            try:
+                tmpl = get_template(code)
+                has_tmpl = tmpl is not None
+            except KeyError:
+                has_tmpl = False
             enriched.append({
                 **f,
-                "evidence_text": render_evidence_text(f["code"], f["evidence"], f.get("target")),
+                "evidence_text": render_evidence_text(code, f["evidence"], f.get("target")),
                 "phrasing": phrasing_result["phrasing"],
                 "phrasing_source": phrasing_result["phrasing_source"],
+                "has_template": has_tmpl,
+                "load_adding": _is_load_adding(code),
             })
 
     return JSONResponse({
         **result,
         "findings": sort_findings_for_panel(enriched),
+        "verdict": _gap_get_verdict_for_user(user.id, today),
     })
+
+
+# ── Add-to-plan helper (issue #1376) ─────────────────────────────────────────
+
+def _gap_get_verdict_for_user(user_id, today) -> Optional[str]:
+    """Return the current training verdict (back_off/hold/build) or None on failure."""
+    try:
+        from backend.services.gap_analysis.engine import _gather_training_verdict
+        return _gather_training_verdict(user_id, today)
+    except Exception:
+        return None
+
+
+class _GapAddToPlanBody(BaseModel):
+    date: str
+
+
+@app.post("/api/training/gap-analysis/{code}/add-to-plan", status_code=201)
+def gap_add_to_plan(
+    code: str,
+    body: _GapAddToPlanBody,
+    user: User = Depends(resolve_user),
+):
+    """Create a planned session from a gap-analysis finding template (issue #1376).
+
+    Path param:
+        code   Gap-analysis rule code (e.g. 'plyo_deficit')
+
+    Body:
+        date   ISO date (YYYY-MM-DD) for the planned session
+
+    Responses:
+        201  Created planned session dict
+        404  No template exists for this code
+        409  Either (a) an identical gap-generated session exists this week,
+             or (b) the current training verdict is back_off and the template
+             adds training load
+        422  Invalid date
+    """
+    from backend.services.gap_analysis.templates import get_template, is_load_adding
+    from backend.utils.time import today_bangkok
+
+    # Resolve template — KeyError → 404, None → 404
+    try:
+        tmpl = get_template(code)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"No template for gap rule: {code!r}")
+    if tmpl is None:
+        raise HTTPException(status_code=404, detail=f"No add-to-plan action for rule: {code!r}")
+
+    # Validate date
+    target_date = _validate_planned_date(body.date)
+
+    # Verdict guard: block load-adding sessions when back_off
+    if is_load_adding(code):
+        today = today_bangkok()
+        verdict = _gap_get_verdict_for_user(user.id, today)
+        if verdict == "back_off":
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "back_off", "message": "Training verdict is back_off — load-adding sessions are disabled."},
+            )
+
+    # 409 if identical gap-generated session already exists this week
+    week_start = target_date - _timedelta(days=target_date.weekday())
+    week_end = week_start + _timedelta(days=6)
+
+    with Session(engine) as db:
+        existing = (
+            db.query(PlannedSession)
+            .filter(
+                PlannedSession.user_id == user.id,
+                PlannedSession.planned_date >= week_start,
+                PlannedSession.planned_date <= week_end,
+                PlannedSession.structure.op("->>")("_gap_code") == code,
+            )
+            .first()
+        )
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "already_planned_this_week", "message": f"A {code!r} session is already planned this week."},
+            )
+
+        # Build structure: embed origin tag alongside template structure
+        structure = dict(tmpl.get("structure") or {})
+        structure["_gap_code"] = code
+
+        row = PlannedSession(
+            user_id=user.id,
+            planned_date=target_date,
+            session_type=_validate_planned_type(tmpl["session_type"]),
+            name=tmpl.get("name"),
+            structure=structure,
+            notes=tmpl.get("notes"),
+            status="planned",
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return JSONResponse(status_code=201, content=_planned_session_dict(row))
 
 
 @app.get("/api/training/muscle-load")

@@ -2054,7 +2054,100 @@
     }
   }
 
-  // ── What-to-improve gap panel (issue #1374) ──────────────────────────────────
+  // ── What-to-improve gap panel (issue #1374, #1376) ───────────────────────────
+
+  function _gapNextFreeDay(weekStart) {
+    // Default date for the date picker: next day from today, within the current Mon-Sun week.
+    var today = new Date();
+    var tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    // Clamp to Sunday of the current week
+    var ws = new Date(weekStart + "T00:00:00");
+    var sun = new Date(ws); sun.setDate(ws.getDate() + 6);
+    var target = tomorrow > sun ? sun : tomorrow;
+    // Format as YYYY-MM-DD
+    var m = String(target.getMonth() + 1).padStart(2, "0");
+    var d = String(target.getDate()).padStart(2, "0");
+    return target.getFullYear() + "-" + m + "-" + d;
+  }
+
+  function _gapAddToplan(code, defaultDate, btn, statusEl) {
+    // Build inline date picker + confirm button
+    var picker = btn.parentNode.querySelector(".gap-atp-picker");
+    if (picker) { picker.remove(); return; }  // toggle off if open
+
+    var wrap = document.createElement("span");
+    wrap.className = "gap-atp-picker";
+
+    var input = document.createElement("input");
+    input.type = "date";
+    input.className = "gap-atp-date";
+    input.value = defaultDate;
+
+    var confirm = document.createElement("button");
+    confirm.className = "gap-atp-confirm";
+    confirm.textContent = "Add";
+
+    wrap.appendChild(input);
+    wrap.appendChild(confirm);
+    btn.parentNode.appendChild(wrap);
+
+    confirm.addEventListener("click", function () {
+      var date = input.value;
+      if (!date) return;
+      confirm.disabled = true;
+      confirm.textContent = "…";
+
+      fetch("/api/training/gap-analysis/" + encodeURIComponent(code) + "/add-to-plan", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: date }),
+      })
+        .then(function (r) {
+          if (r.status === 409) {
+            return r.json().then(function (d) {
+              var detail = (d && d.detail) || {};
+              if (typeof detail === "object" && detail.code === "back_off") {
+                throw new Error("Training verdict is back off — rest first.");
+              }
+              throw new Error("Already planned this week.");
+            });
+          }
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          return r.json();
+        })
+        .then(function () {
+          wrap.remove();
+          if (statusEl) {
+            statusEl.textContent = "Added to plan ✓";
+            statusEl.hidden = false;
+          }
+          btn.disabled = true;
+          btn.title = "Session added to plan";
+        })
+        .catch(function (err) {
+          confirm.disabled = false;
+          confirm.textContent = "Add";
+          if (statusEl) {
+            statusEl.textContent = err.message || "Error";
+            statusEl.hidden = false;
+          }
+        });
+    });
+
+    // Close picker on outside click
+    var _closeOnOutside = function (e) {
+      if (!wrap.contains(e.target) && e.target !== btn) {
+        wrap.remove();
+        document.removeEventListener("click", _closeOnOutside);
+      }
+    };
+    // Defer so the current click doesn't immediately close it
+    setTimeout(function () {
+      document.addEventListener("click", _closeOnOutside);
+    }, 0);
+  }
 
   function _loadGapPanel() {
     var elLoading  = document.getElementById("gap-panel-loading");
@@ -2081,8 +2174,11 @@
       .then(function (data) {
         _setVisible(elLoading, false);
 
+        var verdict = data.verdict || null;
+        var weekStart = data.week_start || null;
+
         // Week label
-        if (elWeek && data.week_start) elWeek.textContent = "wk " + data.week_start;
+        if (elWeek && weekStart) elWeek.textContent = "wk " + weekStart;
 
         var findings = (data.findings || []).slice(0, 3);
 
@@ -2117,6 +2213,37 @@
 
           card.appendChild(headline);
           card.appendChild(evidence);
+
+          // Add-to-plan button (issue #1376)
+          if (f.has_template) {
+            var footer = document.createElement("div");
+            footer.className = "gap-finding-footer";
+
+            var atpBtn = document.createElement("button");
+            atpBtn.className = "gap-atp-btn";
+            atpBtn.textContent = "+ Add to plan";
+
+            var isBackOff = verdict === "back_off" && f.load_adding;
+            if (isBackOff) {
+              atpBtn.disabled = true;
+              atpBtn.title = "Training verdict is back off — rest this week before adding load.";
+              atpBtn.className += " gap-atp-btn--disabled";
+            } else {
+              var statusEl = document.createElement("span");
+              statusEl.className = "gap-atp-status";
+              statusEl.hidden = true;
+
+              var defaultDate = weekStart ? _gapNextFreeDay(weekStart) : "";
+              atpBtn.addEventListener("click", function () {
+                _gapAddToplan(f.code, defaultDate, atpBtn, statusEl);
+              });
+              footer.appendChild(statusEl);
+            }
+
+            footer.appendChild(atpBtn);
+            card.appendChild(footer);
+          }
+
           elFindings.appendChild(card);
         });
         _setVisible(elFindings, true);
