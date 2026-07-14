@@ -79,7 +79,17 @@ _log = logging.getLogger(__name__)
 # laps represent an incomplete effort.  Mirrors the 40-minute minimum in
 # endurance_signal.py (_MIN_MOVING_SECONDS = 2400), keeping the two thresholds
 # in sync.  Sessions with duration_seconds strictly GREATER than this value pass.
+# Sessions with duration_seconds=None are also excluded (no lap-level fallback
+# is applied — a session whose total duration is unknown can't pass the guard).
 MIN_ENDURANCE_QUALIFYING_SESSION_SECONDS: int = 2400  # 40 minutes
+
+# Plan-relative guard (issue #1433): if the run dict includes
+# ``planned_duration_seconds``, the session must complete at least this
+# fraction of the plan to qualify for the endurance pool.  An athlete who cut a
+# planned 60-min run to 40 min completed the session; one who stopped at 20 min
+# (33 %) did not — even if 20 min exceeds the absolute 40-min minimum (it
+# doesn't here, but a 4-hour plan cut to 2½ hours would).
+PLAN_SHORT_CUT_RATIO: float = 0.75  # must complete ≥75 % of planned duration
 
 PERFORMANCE_CONFIG: dict = {
     "trailing_window_days": 90,
@@ -166,11 +176,27 @@ def compute_endurance_score(
         # any perf point (proposal §1; issue #1364).  A 15-min interval session
         # with a 9-min warmup lap still has an "easy" lap, but trusting it as an
         # endurance signal from an incomplete effort is wrong.
+        # Sessions with duration_seconds=None are excluded; we do not fall back
+        # to lap-level durations because we can't verify the full session length.
         session_dur = run.get("duration_seconds")
         if (
             not isinstance(session_dur, (int, float))
             or isinstance(session_dur, bool)
             or session_dur <= MIN_ENDURANCE_QUALIFYING_SESSION_SECONDS
+        ):
+            continue
+
+        # Plan-relative guard (issue #1433): if planned_duration_seconds is
+        # provided, the session must have completed at least PLAN_SHORT_CUT_RATIO
+        # of the plan.  This catches long-plan sessions cut materially short —
+        # e.g. a 4-hour ultra plan abandoned at 2 hours exceeds the absolute
+        # 40-min threshold but is still an incomplete effort.
+        planned_dur = run.get("planned_duration_seconds")
+        if (
+            isinstance(planned_dur, (int, float))
+            and not isinstance(planned_dur, bool)
+            and planned_dur > 0
+            and session_dur < planned_dur * PLAN_SHORT_CUT_RATIO
         ):
             continue
 
