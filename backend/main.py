@@ -13779,10 +13779,14 @@ def get_muscle_load(
         weekly_series  list of {week_start, week_end, groups} — length = weeks
         unclassified   exercise names used in the window with no catalog entry
     """
-    from backend.services.muscle_load_acwr import compute as _compute_muscle_load
+    from backend.services.muscle_load_acwr import (
+        compute as _compute_muscle_load,
+        sort_groups_worst_first as _sort_groups,
+    )
 
     today = _today_bkk()
     payload = _compute_muscle_load(current_user.id, today, weeks=weeks)
+    payload["sorted_groups"] = _sort_groups(payload["groups"])
     return JSONResponse(payload)
 
 

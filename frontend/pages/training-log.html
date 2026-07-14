@@ -4616,6 +4616,28 @@
             <div id="gap-panel-muted" hidden></div>
           </div>
 
+          <!-- ── Muscle balance card (issue #1382) ─────────────────────── -->
+          <div class="pm-card" id="muscle-balance-card">
+            <div class="pm-ckhead">
+              <span class="pm-sectitle">Muscle balance</span>
+            </div>
+            <div id="muscle-balance-loading" class="mbal-loading">Loading…</div>
+            <div id="muscle-balance-rows" class="mbal-rows" hidden></div>
+            <div id="muscle-balance-show-all" class="mbal-show-all-wrap" hidden>
+              <button class="mbal-show-all-btn" type="button" id="muscle-balance-show-all-btn">
+                Show inactive groups ▾
+              </button>
+              <div id="muscle-balance-inactive-rows" class="mbal-inactive-rows"></div>
+            </div>
+            <div id="muscle-balance-unclassified" class="mbal-unclassified" hidden></div>
+            <div id="muscle-balance-empty" class="mbal-empty" hidden>
+              No muscle load data yet.
+            </div>
+            <div id="muscle-balance-error" class="mbal-error" hidden>
+              Could not load muscle balance data.
+            </div>
+          </div>
+
           <!-- Row: A-race header + calibration status -->
           <div class="pm-row2">
           <!-- 1. A-race header -->
@@ -5000,6 +5022,139 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+
+      /* ── Muscle balance card (issue #1382) ──────────────────────────────── */
+      .mbal-loading, .mbal-empty, .mbal-error {
+        font-size: 13px;
+        color: var(--pm-muted);
+        padding: 8px 0 4px;
+      }
+      .mbal-error { color: var(--pm-red); }
+      .mbal-rows { display: flex; flex-direction: column; gap: 0; }
+      .mbal-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 0;
+        border-bottom: 1px solid var(--pm-line);
+        cursor: pointer;
+        border-radius: 0;
+        transition: background 0.1s;
+      }
+      .mbal-row:last-child { border-bottom: none; }
+      .mbal-row:hover { background: var(--pm-tile); margin: 0 -4px; padding-left: 4px; padding-right: 4px; border-radius: 6px; }
+      .mbal-group-name {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--pm-ink);
+        width: 88px;
+        flex-shrink: 0;
+        text-transform: capitalize;
+      }
+      .mbal-bar-wrap {
+        flex: 1;
+        min-width: 0;
+        height: 6px;
+        background: var(--pm-line);
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      .mbal-bar {
+        height: 100%;
+        border-radius: 3px;
+        background: var(--mbal-bar-color, var(--pm-blue));
+        transition: width 0.3s ease;
+      }
+      .mbal-chip {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        padding: 2px 7px;
+        border-radius: 5px;
+        flex-shrink: 0;
+        white-space: nowrap;
+      }
+      .mbal-chip--overused  { background: var(--pm-redSoft);   color: var(--pm-red); }
+      .mbal-chip--elevated  { background: var(--pm-amberSoft); color: var(--pm-amber); }
+      .mbal-chip--balanced  { background: var(--pm-tile);      color: var(--pm-muted); }
+      .mbal-chip--detraining{ background: #e6ebfe;             color: #4f6ef7; }
+      .mbal-chip--untrained { background: #e6ebfe;             color: #4f6ef7; }
+      .mbal-chip--inactive  { background: var(--pm-tile);      color: var(--pm-faint); }
+      .mbal-injured-mark {
+        font-size: 11px;
+        color: var(--pm-red);
+        flex-shrink: 0;
+        font-weight: 700;
+      }
+      /* Expanded detail panel */
+      .mbal-detail {
+        background: var(--pm-tile);
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin: 0 0 6px;
+        display: none;
+      }
+      .mbal-detail.is-open { display: block; }
+      .mbal-detail-head {
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--pm-faint);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 6px;
+      }
+      .mbal-sparkline {
+        width: 100%;
+        height: 44px;
+        display: block;
+        margin-bottom: 8px;
+      }
+      .mbal-source-split {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .mbal-source-pill {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--pm-ink);
+        background: #fff;
+        border: 1px solid var(--pm-line);
+        border-radius: 6px;
+        padding: 2px 8px;
+      }
+      /* Show all toggle */
+      .mbal-show-all-wrap {
+        margin-top: 4px;
+        padding-top: 8px;
+        border-top: 1px solid var(--pm-line);
+      }
+      .mbal-show-all-btn {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--pm-muted);
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        padding: 2px 0;
+        letter-spacing: -0.01em;
+      }
+      .mbal-show-all-btn:hover { color: var(--pm-ink); }
+      .mbal-inactive-rows { display: none; }
+      .mbal-inactive-rows.is-shown { display: block; }
+      /* Unclassified footnote */
+      .mbal-unclassified {
+        margin-top: 10px;
+        padding-top: 8px;
+        border-top: 1px solid var(--pm-line);
+        font-size: 11px;
+        color: var(--pm-faint);
+      }
+      @media (max-width: 520px) {
+        .mbal-group-name { width: 68px; font-size: 12px; }
+        .mbal-chip { font-size: 9px; padding: 2px 5px; }
       }
 
       /* Race header content floats vertically centered in its stretched card. */
