@@ -7653,6 +7653,43 @@ def get_planned_sessions(
                 bucket["unplanned"].append(_ghost_workout_dict(w))
 
         days = [by_day[k] for k in sorted(by_day.keys())]
+
+        # ── Plan-guard warnings per session (issue #1383) ─────────────────────
+        # Compute once; attach plan_warnings to each still-planned session.
+        try:
+            from backend.services.muscle_load_acwr import compute as _cml
+            from backend.services.plan_guard import (
+                check_session as _pg_check,
+                estimate_session_footprint as _pg_fp,
+                extract_strength_exercise_names as _pg_ex_names,
+                fetch_catalog_for_exercises as _pg_catalog,
+            )
+            _today_pg = _date.today()
+            _ml_payload = _cml(uid, _today_pg)
+            _group_stats = _ml_payload.get("groups", {})
+
+            # Batch catalog lookup for all strength sessions in the week
+            _all_strength_names: list[str] = []
+            for _day in days:
+                for _sess in _day["planned"]:
+                    if _sess.get("session_type") == "strength" and _sess.get("structure"):
+                        _all_strength_names.extend(_pg_ex_names(_sess["structure"]))
+            _catalog_batch = _pg_catalog(_all_strength_names) if _all_strength_names else {}
+
+            for _day in days:
+                for _sess in _day["planned"]:
+                    _stype = _sess.get("session_type", "")
+                    _cat = _catalog_batch if _stype == "strength" else None
+                    _fp = _pg_fp(_stype, _sess.get("structure"), catalog=_cat)
+                    _chk = _pg_check(_stype, _fp, _group_stats)
+                    _sess["plan_warnings"] = _chk.get("warnings", [])
+        except Exception:
+            # Never let plan-guard errors break the weekly bundle
+            for _day in days:
+                for _sess in _day["planned"]:
+                    if "plan_warnings" not in _sess:
+                        _sess["plan_warnings"] = []
+
         return JSONResponse({"from": str(start), "to": str(end), "days": days})
 
 
@@ -13788,6 +13825,65 @@ def get_muscle_load(
     payload = _compute_muscle_load(current_user.id, today, weeks=weeks)
     payload["sorted_groups"] = _sort_groups(payload["groups"])
     return JSONResponse(payload)
+
+
+# ── Plan-guard check (issue #1383) ────────────────────────────────────────────
+
+class PlanCheckIn(BaseModel):
+    session_type: str
+    structure: Optional[dict] = None
+
+
+@app.post("/api/training/plan-check")
+def post_plan_check(body: PlanCheckIn, current_user: User = Depends(resolve_user)):
+    """Muscle-aware planning guard: check a planned session draft against the
+    user's current muscle-group classifications.
+
+    Request body:
+        session_type  — run | plyo | strength | rest | stretch
+        structure     — optional planned-session structure dict (exercises/blocks)
+
+    Response:
+        warnings     — [{muscle_group, classification, message}]
+                       Fired when a dominant group (share >= threshold) is
+                       overused or injured.
+        suggestions  — [{muscle_group, reason}]
+                       Untrained priority groups the session could target
+                       (strength) or empty for run/plyo.
+
+    Always 200 — warnings are informational, never blocking.
+    """
+    from backend.services.muscle_load_acwr import compute as _compute_muscle_load
+    from backend.services.plan_guard import (
+        check_session as _check,
+        estimate_session_footprint as _footprint,
+        extract_strength_exercise_names as _ex_names,
+        fetch_catalog_for_exercises as _fetch_catalog,
+    )
+
+    stype = (body.session_type or "").strip().lower()
+    if stype not in _PLANNED_SESSION_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "session_type", "error": "must be one of: " + ", ".join(sorted(_PLANNED_SESSION_TYPES))},
+        )
+
+    today = _today_bkk()
+
+    # Fetch current muscle classifications (one DB call covers all groups)
+    muscle_payload = _compute_muscle_load(current_user.id, today)
+    group_stats = muscle_payload.get("groups", {})
+
+    # Build catalog only for strength sessions with named exercises
+    catalog = None
+    if stype == "strength":
+        names = _ex_names(body.structure)
+        if names:
+            catalog = _fetch_catalog(names)
+
+    fp = _footprint(stype, body.structure, catalog=catalog)
+    result = _check(stype, fp, group_stats)
+    return JSONResponse(result)
 
 
 # ── Admin gate ────────────────────────────────────────────────────────────────
