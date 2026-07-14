@@ -44,17 +44,17 @@ def _delete_user(user_id: str) -> None:
 def _tc_create_and_login(tc):
     """Create a fresh test user, log in, and return user_id as str."""
     uid = str(uuid.uuid4())[:8]
-    r = tc.post("/api/auth/register", json={
-        "username": f"gap1462_{uid}",
-        "password": _TEST_PW,
-        "name": f"gap1462_{uid}",
-    })
-    assert r.status_code == 201, f"register failed: {r.text}"
+    username = f"gap1462_{uid}"
+    r = tc.post("/api/users", json={"name": username})
+    assert r.status_code == 201, f"create user failed: {r.text}"
     user_id = r.json()["id"]
-    r2 = tc.post("/api/auth/login", json={
-        "username": f"gap1462_{uid}",
-        "password": _TEST_PW,
-    })
+    # Set password directly — /api/users creates the user without a password
+    from backend.auth import hash_password as _hash_pw
+    with _OrmSess(_engine) as sess:
+        u = sess.get(_UserModel, uuid.UUID(user_id))
+        u.password_hash = _hash_pw(_TEST_PW)
+        sess.commit()
+    r2 = tc.post("/api/auth/login", json={"username": username, "password": _TEST_PW})
     assert r2.status_code == 200, f"login failed: {r2.text}"
     return user_id
 
