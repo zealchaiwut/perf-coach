@@ -16,8 +16,7 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session as _OrmSess
 
-from backend.auth import hash_password as _hash_pw
-from backend.models import GapFinding, User as _UserModel
+from backend.models import User as _UserModel
 
 _TEST_PW = "test1462pw!"
 
