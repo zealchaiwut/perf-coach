@@ -248,6 +248,60 @@ def _gather_quality_sessions_3w(db, user_id: uuid.UUID, today: datetime.date) ->
     return {"count": int(count), "window_weeks": 3}
 
 
+def _gather_muscle_load_ledger(user_id: uuid.UUID, today: datetime.date) -> dict | None:
+    """Build the muscle_load_ledger input for muscle-balance rules (issue #1381).
+
+    Calls muscle_load_acwr.compute() (which uses its own DB session) and enriches
+    each group with:
+      trending_up     — True when this week's load exceeds the prior week
+      weeks_untrained — consecutive recent weeks with near-zero weekly load
+
+    Returns None when there are fewer than 4 weeks with any muscle-load data
+    (insufficient history → rules will be skipped and reported as such).
+    """
+    from backend.services.muscle_load_acwr import (
+        compute as _ml_compute,
+        CHRONIC_FLOOR as _CHRONIC_FLOOR,
+    )
+
+    data = _ml_compute(user_id, today, weeks=8)
+    weekly_series = data["weekly_series"]  # list of {week_start, week_end, groups}, oldest first
+
+    # Count weeks with any meaningful load data across all groups
+    weeks_with_data = sum(
+        1 for entry in weekly_series
+        if any(v > 0 for v in entry["groups"].values())
+    )
+    if weeks_with_data < 4:
+        return None
+
+    groups = data["groups"]
+    result_groups: dict = {}
+    for group, gdata in groups.items():
+        last_load = weekly_series[-1]["groups"].get(group, 0.0)
+        prior_load = weekly_series[-2]["groups"].get(group, 0.0) if len(weekly_series) >= 2 else 0.0
+        trending_up = last_load > prior_load
+
+        weeks_untrained = 0
+        for entry in reversed(weekly_series):
+            week_load = entry["groups"].get(group, 0.0)
+            if week_load < _CHRONIC_FLOOR:
+                weeks_untrained += 1
+            else:
+                break
+
+        result_groups[group] = {
+            **gdata,
+            "trending_up": trending_up,
+            "weeks_untrained": weeks_untrained,
+        }
+
+    return {
+        "groups": result_groups,
+        "history_weeks": len(weekly_series),
+    }
+
+
 def _gather_training_verdict(user_id: uuid.UUID, today: datetime.date) -> str | None:
     """Return the current training verdict ("back_off" / "hold" / "build").
 
@@ -414,6 +468,14 @@ def _gather_inputs(db, user_id: uuid.UUID, today: datetime.date, week_start: dat
     except Exception:
         _log.warning("training_load unavailable for gap analysis", exc_info=True)
 
+    # muscle_load_ledger (issue #1381): per-group ACWR, classification, trend and history
+    try:
+        ledger = _gather_muscle_load_ledger(user_id, today)
+        if ledger is not None:
+            inputs["muscle_load_ledger"] = ledger
+    except Exception:
+        _log.warning("muscle_load_ledger unavailable for gap analysis", exc_info=True)
+
     return inputs
 
 
@@ -536,10 +598,18 @@ def _register_builtin_rules() -> None:
     from backend.services.gap_analysis.rules.undertrained_area_under_ramp import undertrained_area_under_ramp
     _REGISTRY.register(requires=["muscle_volume", "training_load"])(undertrained_area_under_ramp)
 
-    # strength_lapsed registered last — it reads other_findings_codes populated by
-    # the registry as prior rules execute
+    # strength_lapsed registered last among pack C rules so it sees prior findings
     from backend.services.gap_analysis.rules.strength_lapsed import strength_lapsed
     _REGISTRY.register(requires=["structural_dose"])(strength_lapsed)
+
+    # Muscle-balance rules (issue #1381) — registered after pack C so that
+    # recurrent_niggle_area can claim groups before these run.
+    from backend.services.gap_analysis.rules.muscle_balance import (
+        muscle_overused,
+        muscle_untrained,
+    )
+    _REGISTRY.register(requires=["muscle_load_ledger"])(muscle_overused)
+    _REGISTRY.register(requires=["muscle_load_ledger"])(muscle_untrained)
 
 
 _register_builtin_rules()
