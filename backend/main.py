@@ -8898,8 +8898,6 @@ def delete_daily_metric(uid: str, metric_date: str, user: User = Depends(resolve
         if row is None:
             raise HTTPException(status_code=404, detail="Daily metric not found")
         session.delete(row)
-        session.commit()
-    with Session(engine) as session:
         session.execute(
             text("DELETE FROM daily_readiness WHERE user_id = :uid AND date = :d"),
             {"uid": str(uid), "d": str(md)},
