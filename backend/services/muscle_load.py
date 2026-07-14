@@ -112,6 +112,55 @@ MUSCLE_GROUP_MAP: dict[str, str] = {
     "brachialis": "arm",
 }
 
+# Maps injury-log body_area strings → canonical muscle group (issue #1373).
+# Covers left/right variants for lower-body areas most relevant to running.
+BODY_AREA_TO_MUSCLE_GROUP: dict[str, str] = {
+    # calf
+    "calf": "calf",
+    "left_calf": "calf",
+    "right_calf": "calf",
+    # hamstring
+    "hamstring": "hamstring",
+    "left_hamstring": "hamstring",
+    "right_hamstring": "hamstring",
+    # glute
+    "glute": "glute",
+    "left_glute": "glute",
+    "right_glute": "glute",
+    "gluteus": "glute",
+    # quad
+    "quad": "quad",
+    "left_quad": "quad",
+    "right_quad": "quad",
+    "quadriceps": "quad",
+    # hip
+    "hip": "hip",
+    "left_hip": "hip",
+    "right_hip": "hip",
+    # knee
+    "knee": "quad",
+    "left_knee": "quad",
+    "right_knee": "quad",
+    # shin / lower leg
+    "shin": "calf",
+    "left_shin": "calf",
+    "right_shin": "calf",
+    "achilles": "calf",
+    "left_achilles": "calf",
+    "right_achilles": "calf",
+    # plantar
+    "plantar": "calf",
+    "left_plantar": "calf",
+    "right_plantar": "calf",
+    # back
+    "lower_back": "back",
+    "back": "back",
+    # shoulder / arm
+    "shoulder": "shoulder",
+    "left_shoulder": "shoulder",
+    "right_shoulder": "shoulder",
+}
+
 
 def normalize_part(part: str) -> str:
     """Normalize a catalog body-part string to a canonical muscle group.

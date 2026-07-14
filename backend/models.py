@@ -1851,3 +1851,39 @@ class MuscleLoadDaily(Base):
         ),
         Index("ix_muscle_load_daily_user_date", "user_id", "load_date"),
     )
+
+
+class GapFinding(Base):
+    """Gap-analyzer finding: one persistent row per (user, week_start, code) (issue #1370).
+
+    code      — stable string id for the rule that fired (e.g. 'no_recent_plyo')
+    severity  — 1=note, 2=recommend, 3=priority
+    evidence  — machine-readable list [{metric, value, threshold, window}]
+    target    — nullable: muscle group or session type
+    status    — 'active' | 'accepted' | 'dismissed' (accept/dismiss in sprint 108)
+    Recomputing upserts evidence/recommendation/computed_at but PRESERVES status.
+    """
+
+    __tablename__ = "gap_findings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    week_start = Column(Date, nullable=False)
+    code = Column(String(80), nullable=False)
+    severity = Column(Integer, nullable=False)
+    recommendation = Column(Text, nullable=False)
+    evidence = Column(JSONB, nullable=False, default=list)
+    target = Column(String(100), nullable=True)
+    computed_at = Column(DateTime(timezone=True), nullable=False)
+    status = Column(String(20), nullable=False, server_default=text("'active'"))
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "week_start", "code", name="uq_gap_findings_user_week_code"),
+        CheckConstraint("severity IN (1, 2, 3)", name="ck_gap_findings_severity"),
+        CheckConstraint(
+            "status IN ('active', 'accepted', 'dismissed')",
+            name="ck_gap_findings_status",
+        ),
+        Index("ix_gap_findings_user_week_start", "user_id", "week_start"),
+    )
