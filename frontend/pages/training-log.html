@@ -4592,6 +4592,28 @@
           </div>
           <!-- /.perf-scorewrap -->
 
+          <!-- ── What to improve panel (issue #1374) ───────────────────── -->
+          <div class="pm-card" id="gap-panel">
+            <div class="pm-ckhead">
+              <span class="pm-sectitle">What to improve</span>
+              <span class="perf-tag" id="gap-panel-week"></span>
+            </div>
+            <!-- Loading state -->
+            <div id="gap-panel-loading" class="gap-loading">Loading…</div>
+            <!-- Finding cards (up to 3) -->
+            <div id="gap-panel-findings" hidden></div>
+            <!-- Empty state -->
+            <div id="gap-panel-empty" class="gap-empty" hidden>
+              No gaps flagged this week.
+            </div>
+            <!-- Error state -->
+            <div id="gap-panel-error" class="gap-error" hidden>
+              Could not load recommendations.
+            </div>
+            <!-- Skipped-rules footnote -->
+            <div id="gap-panel-skipped" class="gap-skipped" hidden></div>
+          </div>
+
           <!-- Row: A-race header + calibration status -->
           <div class="pm-row2">
           <!-- 1. A-race header -->
@@ -4815,6 +4837,60 @@
         align-items: stretch;
       }
       .plan-merged .pm-row2 > .pm-card { min-width: 0; }
+
+      /* ── What to improve panel (issue #1374) ──────────────────────────── */
+      .gap-loading {
+        font-size: 13px;
+        color: var(--pm-muted);
+        padding: 8px 0 4px;
+      }
+      .gap-empty {
+        font-size: 13px;
+        color: var(--pm-muted);
+        padding: 8px 0 4px;
+      }
+      .gap-error {
+        font-size: 13px;
+        color: var(--pm-red);
+        padding: 8px 0 4px;
+      }
+      .gap-skipped {
+        font-size: 11px;
+        color: var(--pm-faint);
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px solid var(--pm-line);
+      }
+      #gap-panel-findings {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 10px;
+      }
+      .gap-finding {
+        border-radius: 10px;
+        padding: 12px 14px;
+        border-left: 3px solid var(--gap-accent, var(--pm-line));
+        background: var(--pm-tile);
+      }
+      .gap-finding--sev3 { --gap-accent: var(--pm-red); background: var(--pm-redSoft); }
+      .gap-finding--sev2 { --gap-accent: var(--pm-amber); background: var(--pm-amberSoft); }
+      .gap-finding--sev1 { --gap-accent: var(--pm-line); }
+      .gap-finding-headline {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--pm-ink);
+        margin: 0 0 4px;
+        line-height: 1.35;
+      }
+      .gap-finding--sev1 .gap-finding-headline { color: var(--pm-muted); }
+      .gap-finding-evidence {
+        font-size: 12px;
+        color: var(--pm-muted);
+        margin: 0;
+        line-height: 1.45;
+      }
+
       /* Race header content floats vertically centered in its stretched card. */
       .plan-merged #plan-race-header {
         display: flex;
