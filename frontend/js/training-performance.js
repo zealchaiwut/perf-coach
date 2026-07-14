@@ -2042,6 +2042,7 @@
           _loadPerfFeeds();
           _loadPerfPR();
           _renderPerfProjection();
+          _loadGapPanel();
         });
     }
     if (userId) { _perfAthleteId = userId; resolvePrefsAndLoad(); }
@@ -2051,6 +2052,79 @@
         resolvePrefsAndLoad();
       }, { once: true });
     }
+  }
+
+  // ── What-to-improve gap panel (issue #1374) ──────────────────────────────────
+
+  function _loadGapPanel() {
+    var elLoading  = document.getElementById("gap-panel-loading");
+    var elFindings = document.getElementById("gap-panel-findings");
+    var elEmpty    = document.getElementById("gap-panel-empty");
+    var elError    = document.getElementById("gap-panel-error");
+    var elSkipped  = document.getElementById("gap-panel-skipped");
+    var elWeek     = document.getElementById("gap-panel-week");
+    if (!elLoading) return;
+
+    function _setVisible(el, on) { if (el) el.hidden = !on; }
+
+    _setVisible(elLoading, true);
+    _setVisible(elFindings, false);
+    _setVisible(elEmpty, false);
+    _setVisible(elError, false);
+    _setVisible(elSkipped, false);
+
+    fetch("/api/training/gap-analysis", { credentials: "same-origin" })
+      .then(function (r) {
+        if (!r.ok) return Promise.reject(r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        _setVisible(elLoading, false);
+
+        // Week label
+        if (elWeek && data.week_start) elWeek.textContent = "wk " + data.week_start;
+
+        var findings = (data.findings || []).slice(0, 3);
+
+        // Skipped footnote — never silently drop
+        var skipped = data.skipped_rules || [];
+        if (skipped.length > 0) {
+          var names = skipped.map(function (s) {
+            return s.replace(/_/g, " ");
+          }).join(", ");
+          elSkipped.textContent = "Some checks skipped: no data for " + names + ".";
+          _setVisible(elSkipped, true);
+        }
+
+        if (findings.length === 0) {
+          _setVisible(elEmpty, true);
+          return;
+        }
+
+        elFindings.innerHTML = "";
+        findings.forEach(function (f) {
+          var sev = f.severity || 1;
+          var card = document.createElement("div");
+          card.className = "gap-finding gap-finding--sev" + sev;
+
+          var headline = document.createElement("p");
+          headline.className = "gap-finding-headline";
+          headline.textContent = f.recommendation || "";
+
+          var evidence = document.createElement("p");
+          evidence.className = "gap-finding-evidence";
+          evidence.textContent = f.evidence_text || "";
+
+          card.appendChild(headline);
+          card.appendChild(evidence);
+          elFindings.appendChild(card);
+        });
+        _setVisible(elFindings, true);
+      })
+      .catch(function () {
+        _setVisible(elLoading, false);
+        _setVisible(elError, true);
+      });
   }
 
   function _perfToday() {

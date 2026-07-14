@@ -13491,19 +13491,36 @@ def get_gap_analysis(user: User = Depends(resolve_user)):
           "severity":       1|2|3,
           "recommendation": str,
           "evidence":       [{metric, value, threshold, window}],
+          "evidence_text":  str,   // deterministic sentence (issue #1374)
           "target":         str | null
         }, ...
-      ],
+      ],  // ordered severity desc, code asc (issue #1374)
       "skipped_rules": [str, ...]
     }
     """
     from backend.services.gap_analysis.engine import run_gap_analysis
+    from backend.services.gap_analysis.evidence_text import (
+        render_evidence_text,
+        sort_findings_for_panel,
+    )
     from backend.utils.time import today_bangkok
 
     today = today_bangkok()
     with Session(engine) as db:
         result = run_gap_analysis(db, user.id, today)
-    return JSONResponse(result)
+
+    # Enrich each finding with a rendered evidence sentence (issue #1374)
+    enriched = []
+    for f in result["findings"]:
+        enriched.append({
+            **f,
+            "evidence_text": render_evidence_text(f["code"], f["evidence"], f.get("target")),
+        })
+
+    return JSONResponse({
+        **result,
+        "findings": sort_findings_for_panel(enriched),
+    })
 
 
 @app.get("/api/training/muscle-load")
