@@ -80,6 +80,16 @@ def compute_and_store(user_id: str, target_date: date) -> Optional[dict]:
         )
 
         if result is None:
+            # All scored inputs are null — delete any stale daily_readiness row so the
+            # previous score is not left behind when the user clears their metrics.
+            session.execute(
+                text(
+                    "DELETE FROM daily_readiness "
+                    "WHERE user_id = :uid AND date = :d"
+                ),
+                {"uid": user_id, "d": str(target_date)},
+            )
+            session.commit()
             return None
 
         components_json = json.dumps({
