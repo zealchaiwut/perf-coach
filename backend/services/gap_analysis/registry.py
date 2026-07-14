@@ -38,11 +38,14 @@ class RuleRegistry:
         findings = []
         skipped_rules = []
 
-        # Inject live list of fired codes so later rules can suppress themselves.
-        # Each rule sees the codes of all findings that have fired *before* it.
+        # Inject live tracking structures so later rules can react to prior findings.
+        # fired_codes: list[str] of rule codes that have fired (backward compat with pack C)
+        # claimed_groups: set[str] of target groups already claimed by a higher-priority rule
         fired_codes: list[str] = []
+        claimed_groups: set[str] = set()
         inputs = dict(inputs)  # shallow copy — don't mutate caller's dict
         inputs["other_findings_codes"] = fired_codes
+        inputs["claimed_groups"] = claimed_groups
 
         for entry in self._rules:
             fn_name = entry.fn.__name__
@@ -53,9 +56,19 @@ class RuleRegistry:
                 continue
             try:
                 result = entry.fn(inputs)
-                if result is not None:
+                if result is None:
+                    pass
+                elif isinstance(result, list):
+                    for r in result:
+                        findings.append(r)
+                        fired_codes.append(r.code)
+                        if r.target:
+                            claimed_groups.add(r.target)
+                else:
                     findings.append(result)
                     fired_codes.append(result.code)
+                    if result.target:
+                        claimed_groups.add(result.target)
             except Exception:
                 _log.warning("Rule %s raised an exception; skipping", fn_name, exc_info=True)
                 skipped_rules.append(fn_name)

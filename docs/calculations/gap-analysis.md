@@ -94,10 +94,13 @@ _REGISTRY.register(requires=["structural_dose"])(my_rule)
 | `injury_log` | `injury_log` table (issue #1350, #1373) | List of `{body_area, severity, started_on, ended_on}` for the last 90 days |
 | `muscle_volume` | `muscle_load_daily` table (issue #1367, #1373) | List of `{week_start, muscle_group, weekly_load}` for the last 8 weeks |
 | `training_load` | `workouts` table (issue #1373) | `{"weekly": [{week_start, running_tss}]}` for the last 8 weeks |
+| `muscle_load_ledger` | `muscle_load_acwr.compute()` (issue #1381) | `{groups: {group: {acute_7d, chronic_28d, acwr, classification, injured, source_breakdown, trending_up, weeks_untrained}}, history_weeks}` — per-muscle-group load stats; `None` / absent when fewer than 4 weeks of muscle load data exist |
 | `week_start` | engine | `datetime.date` — always present |
 | `other_findings_codes` | registry (runtime, #1373) | List of `code` strings for findings that fired *before* the current rule. Injected by the registry so late rules can suppress themselves. |
+| `claimed_groups` | registry (runtime, #1381) | `set[str]` of target group strings already claimed by a higher-priority rule. Pack D rules skip any group in this set to enforce one finding per group per week. |
 
 Future sprints will add: `intensity_distribution`, `scores`.
+
 
 ---
 
@@ -403,3 +406,68 @@ The registry injects `other_findings_codes` into inputs as rules execute in orde
 - `severity`: 1 (note)
 - `evidence metrics`: `days_since_strength`
 - `target`: `null` (general finding)
+
+---
+
+## Muscle Balance Rules (issue #1381)
+
+File: `backend/services/gap_analysis/rules/muscle_balance.py`
+
+These rules translate per-muscle-group ACWR classifications (computed by `muscle_load_acwr.py`,
+issue #1380) into actionable findings. All thresholds are **imported** from `muscle_load_acwr`
+— never redefined here.
+
+**Dedup with pack C**: the registry injects a `claimed_groups` set. When `recurrent_niggle_area`
+(pack C, issue #1373) fires for a group, that group is added to `claimed_groups`. Both rules here
+skip any group already claimed, enforcing "one finding per group per week max".
+
+**Insufficient history**: both rules require `muscle_load_ledger` in inputs. If the user has
+fewer than 4 weeks of muscle-load data, `_gather_muscle_load_ledger` returns `None` and the
+engine omits the key → both rules appear in `skipped_rules` instead of firing.
+
+### muscle_overused
+
+Fires for every group classified as `overused` or `elevated` that is not already claimed.
+
+| Condition | Severity |
+|-----------|----------|
+| `overused` + `trending_up` | 3 (priority) |
+| `overused` (not trending) | 2 (recommend) |
+| `elevated` | 2 (recommend) |
+
+**Injured interaction**: an injured group with `overused` or `elevated` classification still fires
+— the recommendation becomes rest-flavored ("rest it completely") rather than reduce-load-flavored.
+
+| Constant | Source | Value | Meaning |
+|----------|--------|-------|---------|
+| `OVERUSED_BOUND` | `muscle_load_acwr` | 1.5 | ACWR above which group is overused |
+| `ELEVATED_BOUND` | `muscle_load_acwr` | 1.3 | ACWR above which group is elevated |
+
+- `code`: `muscle_overused.{group}` (e.g. `muscle_overused.calf`)
+- `severity`: 3 or 2 (see table)
+- `evidence metrics`: `acwr`, `acute_7d`, `chronic_28d`, `main_source`, `source_share_{main_source}`
+- `target`: the muscle group string (e.g. `"calf"`)
+
+### muscle_untrained
+
+Fires for untrained priority groups and detraining groups not already claimed.
+
+| Condition | Severity | Code prefix |
+|-----------|----------|-------------|
+| Priority group (`calf`/`hamstring`/`glute`/`hip`) classified `untrained` ≥ 4 consecutive weeks | 2 (recommend) | `muscle_untrained.{group}` |
+| Any group classified `detraining` | 1 (note) | `muscle_detraining.{group}` |
+
+**Injured suppression**: if a group is `injured`, `muscle_untrained` is suppressed for it even if
+classified `untrained` or `detraining` — consistent with the principle that gap analyzer never
+prescribes loading an actively injured area.
+
+| Constant | Source | Value | Meaning |
+|----------|--------|-------|---------|
+| `UNTRAINED_MIN_WEEKS` | `muscle_balance` | 4 | Consecutive weeks near-zero load before untrained fires |
+| `PRIORITY_GROUPS` | `muscle_load_acwr` | `{calf, hamstring, glute, hip}` | Groups for which `untrained` becomes severity 2 |
+
+- `code`: `muscle_untrained.{group}` or `muscle_detraining.{group}`
+- `severity`: 2 or 1 (see table)
+- `evidence metrics` (untrained): `weeks_untrained`, `classification`
+- `evidence metrics` (detraining): `classification`, `chronic_28d`, `acwr`
+- `target`: the muscle group string
