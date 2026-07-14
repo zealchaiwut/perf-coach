@@ -3120,6 +3120,39 @@ def get_weekly_summary(
     if _verdict_as_of == _date_cls.today():
         _upsert_verdict_history(uid, _verdict_as_of, verdict, readiness_score=_readiness_today)
 
+    # Gap findings (issue #1378): query active findings for the week.
+    # None when the analyzer has never run (key absent from facts → backward compat).
+    # [] when analyzer ran but no active findings remain.
+    from backend.models import GapFinding as _GapFinding
+    with Session(engine) as _gfsess:
+        _any_finding = _gfsess.query(_GapFinding).filter(
+            _GapFinding.user_id == uid,
+            _GapFinding.week_start == week_start,
+        ).first()
+        if _any_finding is not None:
+            _active_findings_orm = (
+                _gfsess.query(_GapFinding)
+                .filter(
+                    _GapFinding.user_id == uid,
+                    _GapFinding.week_start == week_start,
+                    _GapFinding.status == "active",
+                )
+                .order_by(_GapFinding.severity.desc())
+                .all()
+            )
+            _gap_findings_for_facts = [
+                {
+                    "code": gf.code,
+                    "severity": gf.severity,
+                    "recommendation": gf.recommendation,
+                    "evidence": gf.evidence or [],
+                    "target": gf.target,
+                }
+                for gf in _active_findings_orm
+            ]
+        else:
+            _gap_findings_for_facts = None
+
     facts = assemble_facts(
         week_start=week_start,
         current_workouts=curr_workouts,
@@ -3133,6 +3166,7 @@ def get_weekly_summary(
         guardrail=guardrail,
         prs=prs,
         verdict=verdict,
+        gap_findings=_gap_findings_for_facts,
     )
 
     narrative, source = get_narrative(user_id=str(uid), week_start=week_start.isoformat(), facts=facts)
