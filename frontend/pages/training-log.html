@@ -4497,6 +4497,7 @@
                 <div class="perf-scorehead">
                   <span class="perf-bigscore perf-bigscore--e"><span class="perf-score-val"></span></span>
                   <span class="perf-delta-pill" hidden></span>
+                  <div class="perf-sparkline-wrap" aria-hidden="true"></div>
                   <span class="perf-window-lab">last 28 days</span>
                 </div>
                 <div class="perf-change" hidden>
@@ -4548,6 +4549,7 @@
                 <div class="perf-scorehead">
                   <span class="perf-bigscore perf-bigscore--s"><span class="perf-score-val"></span></span>
                   <span class="perf-delta-pill" hidden></span>
+                  <div class="perf-sparkline-wrap" aria-hidden="true"></div>
                   <span class="perf-window-lab">last 28 days</span>
                 </div>
                 <div class="perf-change" hidden>
@@ -6791,6 +6793,18 @@
       .perf-delta-pill--down { background: #fee2e2; color: var(--perf-loss); }
       .perf-delta-pill--up { background: #dcfce7; color: var(--perf-gain); }
       .perf-delta-pill--flat { background: var(--w-tile, #f1f4fa); color: var(--perf-muted); }
+      .perf-sparkline-wrap {
+        flex: 1 1 auto;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+      }
+      .perf-sparkline {
+        display: block;
+        width: 100%;
+        height: 28px;
+        overflow: visible;
+      }
 
       /* Change strip (variant A): equation + proportion bar + key + reading */
       .perf-change { margin: 12px 0 4px; }
