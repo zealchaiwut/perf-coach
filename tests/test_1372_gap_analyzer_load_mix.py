@@ -417,6 +417,199 @@ class TestVerdictDeferral:
         assert r3 is not None and r3.severity == 2
 
 
+# ── base_neglected ────────────────────────────────────────────────────────────
+
+class TestBaseNeglected:
+    def _rule(self):
+        from backend.services.gap_analysis.rules.load_mix import base_neglected
+        return base_neglected
+
+    def test_fires_when_endurance_decayed_and_easy_runs_low(self):
+        """Fire: endurance decayed > threshold AND < 2 easy runs/week over 3 weeks."""
+        rule = self._rule()
+        result = rule(_inputs(
+            endurance_score_history_8w={
+                "oldest_endurance": 75.0, "newest_endurance": 60.0,
+                "formula_version": "v1", "count": 10,
+            },
+            easy_runs_3w={"count": 2, "window_weeks": 3},
+            training_verdict="build",
+        ))
+        assert result is not None
+        assert result.code == "base_neglected"
+        assert result.severity == 2
+
+    def test_silent_when_endurance_not_decayed_enough(self):
+        """No-fire: endurance decay below threshold."""
+        rule = self._rule()
+        result = rule(_inputs(
+            endurance_score_history_8w={
+                "oldest_endurance": 75.0, "newest_endurance": 73.0,
+                "formula_version": "v1", "count": 10,
+            },
+            easy_runs_3w={"count": 0, "window_weeks": 3},
+            training_verdict="build",
+        ))
+        assert result is None
+
+    def test_silent_when_easy_runs_adequate(self):
+        """No-fire: even with decay, enough easy runs per week."""
+        rule = self._rule()
+        result = rule(_inputs(
+            endurance_score_history_8w={
+                "oldest_endurance": 75.0, "newest_endurance": 60.0,
+                "formula_version": "v1", "count": 10,
+            },
+            easy_runs_3w={"count": 7, "window_weeks": 3},
+            training_verdict="build",
+        ))
+        assert result is None
+
+    def test_returns_none_when_endurance_history_absent(self):
+        """Insufficient data: endurance_score_history_8w missing → None."""
+        rule = self._rule()
+        result = rule(_inputs(
+            easy_runs_3w={"count": 0, "window_weeks": 3},
+            training_verdict="build",
+        ))
+        assert result is None
+
+    def test_returns_none_when_easy_runs_absent(self):
+        """Insufficient data: easy_runs_3w missing → None."""
+        rule = self._rule()
+        result = rule(_inputs(
+            endurance_score_history_8w={
+                "oldest_endurance": 75.0, "newest_endurance": 60.0,
+                "formula_version": "v1", "count": 10,
+            },
+            training_verdict="build",
+        ))
+        assert result is None
+
+    def test_returns_none_when_endurance_history_none(self):
+        """Insufficient data: endurance_score_history_8w is None → None."""
+        rule = self._rule()
+        result = rule(_inputs(
+            endurance_score_history_8w=None,
+            easy_runs_3w={"count": 0, "window_weeks": 3},
+            training_verdict="build",
+        ))
+        assert result is None
+
+    def test_returns_none_when_oldest_or_newest_none(self):
+        """Insufficient data: oldest_endurance or newest_endurance is None → None."""
+        rule = self._rule()
+        result = rule(_inputs(
+            endurance_score_history_8w={
+                "oldest_endurance": None, "newest_endurance": 60.0,
+                "formula_version": "v1", "count": 5,
+            },
+            easy_runs_3w={"count": 0, "window_weeks": 3},
+            training_verdict="build",
+        ))
+        assert result is None
+
+    def test_back_off_verdict_downgrades_to_severity_1(self):
+        """AC4: back_off → severity 1 with deferred marker."""
+        rule = self._rule()
+        result = rule(_inputs(
+            endurance_score_history_8w={
+                "oldest_endurance": 75.0, "newest_endurance": 60.0,
+                "formula_version": "v1", "count": 10,
+            },
+            easy_runs_3w={"count": 2, "window_weeks": 3},
+            training_verdict="back_off",
+        ))
+        assert result is not None
+        assert result.severity == 1
+        assert "back" in result.recommendation.lower() or "defer" in result.recommendation.lower()
+
+    def test_non_back_off_stays_severity_2(self):
+        """Non-back_off verdicts keep severity 2."""
+        rule = self._rule()
+        for verdict in ("hold", "build"):
+            result = rule(_inputs(
+                endurance_score_history_8w={
+                    "oldest_endurance": 75.0, "newest_endurance": 60.0,
+                    "formula_version": "v1", "count": 10,
+                },
+                easy_runs_3w={"count": 2, "window_weeks": 3},
+                training_verdict=verdict,
+            ))
+            assert result is not None
+            assert result.severity == 2, f"Expected severity 2 for verdict={verdict}"
+
+    def test_fires_when_verdict_missing(self):
+        """When training_verdict key absent, rule fires at severity 2."""
+        rule = self._rule()
+        result = rule(_inputs(
+            endurance_score_history_8w={
+                "oldest_endurance": 75.0, "newest_endurance": 60.0,
+                "formula_version": "v1", "count": 10,
+            },
+            easy_runs_3w={"count": 2, "window_weeks": 3},
+        ))
+        assert result is not None
+        assert result.severity == 2
+
+    def test_evidence_contains_endurance_decay(self):
+        """Evidence includes endurance decay metric with threshold."""
+        rule = self._rule()
+        result = rule(_inputs(
+            endurance_score_history_8w={
+                "oldest_endurance": 75.0, "newest_endurance": 60.0,
+                "formula_version": "v1", "count": 10,
+            },
+            easy_runs_3w={"count": 2, "window_weeks": 3},
+            training_verdict="build",
+        ))
+        assert result is not None
+        metrics = {e["metric"] for e in result.evidence}
+        assert any("endurance" in m or "decay" in m for m in metrics)
+
+    def test_evidence_contains_easy_runs(self):
+        """Evidence includes easy run count."""
+        rule = self._rule()
+        result = rule(_inputs(
+            endurance_score_history_8w={
+                "oldest_endurance": 75.0, "newest_endurance": 60.0,
+                "formula_version": "v1", "count": 10,
+            },
+            easy_runs_3w={"count": 2, "window_weeks": 3},
+            training_verdict="build",
+        ))
+        assert result is not None
+        metrics = {e["metric"] for e in result.evidence}
+        assert any("easy" in m or "run" in m for m in metrics)
+
+    def test_target_is_easy_volume(self):
+        """Target should be 'easy_volume'."""
+        rule = self._rule()
+        result = rule(_inputs(
+            endurance_score_history_8w={
+                "oldest_endurance": 75.0, "newest_endurance": 60.0,
+                "formula_version": "v1", "count": 10,
+            },
+            easy_runs_3w={"count": 2, "window_weeks": 3},
+            training_verdict="build",
+        ))
+        assert result is not None
+        assert result.target == "easy_volume"
+
+    def test_registered_in_engine(self):
+        """base_neglected is registered in the engine registry."""
+        from backend.services.gap_analysis.engine import _REGISTRY
+        names = [e.fn.__name__ for e in _REGISTRY._rules]
+        assert "base_neglected" in names
+
+    def test_requires_endurance_inputs(self):
+        """Rule is registered with correct requires."""
+        from backend.services.gap_analysis.engine import _REGISTRY
+        entry = next(e for e in _REGISTRY._rules if e.fn.__name__ == "base_neglected")
+        assert "endurance_score_history_8w" in entry.requires
+        assert "easy_runs_3w" in entry.requires
+
+
 # ── AC5: constants and module-level documentation ──────────────────────────────
 
 class TestConstantsAndPurity:
@@ -429,6 +622,9 @@ class TestConstantsAndPurity:
         assert hasattr(load_mix, "SPEED_DECAY_THRESHOLD")
         assert hasattr(load_mix, "QUALITY_SESSIONS_WINDOW_WEEKS")
         assert hasattr(load_mix, "QUALITY_SESSIONS_MIN_PER_WEEK")
+        assert hasattr(load_mix, "ENDURANCE_DECAY_THRESHOLD")
+        assert hasattr(load_mix, "EASY_RUNS_WINDOW_WEEKS")
+        assert hasattr(load_mix, "EASY_RUNS_MIN_PER_WEEK")
 
     def test_rules_return_none_on_empty_inputs(self):
         """AC5: all rules return None on an empty inputs dict (no keys beyond week_start)."""
@@ -436,11 +632,13 @@ class TestConstantsAndPurity:
             intensity_too_hard,
             aerobic_durability_gap,
             speed_neglected,
+            base_neglected,
         )
         empty = {"week_start": _DATE}
         assert intensity_too_hard(empty) is None
         assert aerobic_durability_gap(empty) is None
         assert speed_neglected(empty) is None
+        assert base_neglected(empty) is None
 
     def test_rules_are_pure_functions(self):
         """AC5: repeated calls produce the same result (no side effects)."""
