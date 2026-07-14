@@ -166,7 +166,6 @@ def test_gap_analysis_feedback__muted_list_provides_suppressed_findings(authenti
     # Verify muted list structure exists in response
     # The response should have either findings[] or muted[], or both
     findings = data.get("findings", [])
-    muted = data.get("muted")  # May be None, list, or dict
 
     # At minimum, findings should be a list
     assert isinstance(findings, list), "findings should be a list in response"
