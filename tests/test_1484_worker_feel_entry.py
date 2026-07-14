@@ -17,7 +17,7 @@ import os
 import pathlib
 import socket
 import uuid
-from datetime import date, timedelta
+from datetime import date
 from urllib.parse import urlparse
 
 import httpx
