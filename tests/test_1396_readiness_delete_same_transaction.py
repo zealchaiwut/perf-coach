@@ -12,7 +12,6 @@ Acceptance Criteria (derived from issue body):
        the first session has already committed.
 """
 import inspect
-import ast
 
 import backend.main as _main
 
