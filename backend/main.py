@@ -16482,10 +16482,13 @@ def _fetch_perf_block_delta(
         session.query(PerformanceScoreHistory)
         .filter(
             PerformanceScoreHistory.user_id == user_id,
-            PerformanceScoreHistory.score_date == block_start,
+            PerformanceScoreHistory.score_date <= block_start,
             PerformanceScoreHistory.formula_version == current_formula_version,
         )
-        .order_by(PerformanceScoreHistory.created_at.desc())
+        .order_by(
+            PerformanceScoreHistory.score_date.desc(),
+            PerformanceScoreHistory.created_at.desc(),
+        )
         .first()
     )
     if row is None:
