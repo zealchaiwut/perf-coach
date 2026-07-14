@@ -2149,6 +2149,102 @@
     }, 0);
   }
 
+  function _gapPostStatus(code, status, onDone) {
+    fetch("/api/training/gap-analysis/" + encodeURIComponent(code) + "/status", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: status }),
+    })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function () { if (onDone) onDone(); })
+      .catch(function (err) { console.warn("gap status update failed:", err); });
+  }
+
+  function _buildGapFeedbackControls(f, reloadFn) {
+    var wrap = document.createElement("div");
+    wrap.className = "gap-feedback-controls";
+
+    var dismissBtn = document.createElement("button");
+    dismissBtn.className = "gap-fb-btn gap-fb-dismiss";
+    dismissBtn.title = "Mute for 28 days";
+    dismissBtn.textContent = "Mute";
+    dismissBtn.addEventListener("click", function () {
+      dismissBtn.disabled = true;
+      _gapPostStatus(f.code, "dismissed", reloadFn);
+    });
+
+    var acceptBtn = document.createElement("button");
+    acceptBtn.className = "gap-fb-btn gap-fb-accept";
+    acceptBtn.title = "Mark as done";
+    acceptBtn.textContent = "Done ✓";
+    acceptBtn.addEventListener("click", function () {
+      acceptBtn.disabled = true;
+      _gapPostStatus(f.code, "accepted", reloadFn);
+    });
+
+    wrap.appendChild(dismissBtn);
+    wrap.appendChild(acceptBtn);
+    return wrap;
+  }
+
+  function _buildGapCard(f, verdict, weekStart, reloadFn, isAccepted) {
+    var sev = f.severity || 1;
+    var card = document.createElement("div");
+    card.className = "gap-finding gap-finding--sev" + sev;
+    if (isAccepted) card.className += " gap-finding--accepted";
+
+    var headline = document.createElement("p");
+    headline.className = "gap-finding-headline";
+    headline.textContent = (isAccepted ? "✓ " : "") + (f.recommendation || "");
+
+    var evidence = document.createElement("p");
+    evidence.className = "gap-finding-evidence";
+    evidence.textContent = f.evidence_text || "";
+
+    card.appendChild(headline);
+    card.appendChild(evidence);
+
+    // Add-to-plan button (issue #1376)
+    if (f.has_template && !isAccepted) {
+      var footer = document.createElement("div");
+      footer.className = "gap-finding-footer";
+
+      var atpBtn = document.createElement("button");
+      atpBtn.className = "gap-atp-btn";
+      atpBtn.textContent = "+ Add to plan";
+
+      var isBackOff = verdict === "back_off" && f.load_adding;
+      if (isBackOff) {
+        atpBtn.disabled = true;
+        atpBtn.title = "Training verdict is back off — rest this week before adding load.";
+        atpBtn.className += " gap-atp-btn--disabled";
+      } else {
+        var statusEl = document.createElement("span");
+        statusEl.className = "gap-atp-status";
+        statusEl.hidden = true;
+        var defaultDate = weekStart ? _gapNextFreeDay(weekStart) : "";
+        atpBtn.addEventListener("click", function () {
+          _gapAddToplan(f.code, defaultDate, atpBtn, statusEl);
+        });
+        footer.appendChild(statusEl);
+      }
+
+      footer.appendChild(atpBtn);
+      card.appendChild(footer);
+    }
+
+    // Accept/dismiss controls (issue #1377) — not shown on already-accepted findings
+    if (!isAccepted) {
+      card.appendChild(_buildGapFeedbackControls(f, reloadFn));
+    }
+
+    return card;
+  }
+
   function _loadGapPanel() {
     var elLoading  = document.getElementById("gap-panel-loading");
     var elFindings = document.getElementById("gap-panel-findings");
@@ -2156,6 +2252,7 @@
     var elError    = document.getElementById("gap-panel-error");
     var elSkipped  = document.getElementById("gap-panel-skipped");
     var elWeek     = document.getElementById("gap-panel-week");
+    var elMuted    = document.getElementById("gap-panel-muted");
     if (!elLoading) return;
 
     function _setVisible(el, on) { if (el) el.hidden = !on; }
@@ -2165,6 +2262,7 @@
     _setVisible(elEmpty, false);
     _setVisible(elError, false);
     _setVisible(elSkipped, false);
+    _setVisible(elMuted, false);
 
     fetch("/api/training/gap-analysis", { credentials: "same-origin" })
       .then(function (r) {
@@ -2181,6 +2279,7 @@
         if (elWeek && weekStart) elWeek.textContent = "wk " + weekStart;
 
         var findings = (data.findings || []).slice(0, 3);
+        var muted = data.muted || [];
 
         // Skipped footnote — never silently drop
         var skipped = data.skipped_rules || [];
@@ -2192,61 +2291,66 @@
           _setVisible(elSkipped, true);
         }
 
-        if (findings.length === 0) {
+        if (findings.length === 0 && muted.length === 0) {
           _setVisible(elEmpty, true);
           return;
         }
 
+        // Main findings
         elFindings.innerHTML = "";
         findings.forEach(function (f) {
-          var sev = f.severity || 1;
-          var card = document.createElement("div");
-          card.className = "gap-finding gap-finding--sev" + sev;
-
-          var headline = document.createElement("p");
-          headline.className = "gap-finding-headline";
-          headline.textContent = f.recommendation || "";
-
-          var evidence = document.createElement("p");
-          evidence.className = "gap-finding-evidence";
-          evidence.textContent = f.evidence_text || "";
-
-          card.appendChild(headline);
-          card.appendChild(evidence);
-
-          // Add-to-plan button (issue #1376)
-          if (f.has_template) {
-            var footer = document.createElement("div");
-            footer.className = "gap-finding-footer";
-
-            var atpBtn = document.createElement("button");
-            atpBtn.className = "gap-atp-btn";
-            atpBtn.textContent = "+ Add to plan";
-
-            var isBackOff = verdict === "back_off" && f.load_adding;
-            if (isBackOff) {
-              atpBtn.disabled = true;
-              atpBtn.title = "Training verdict is back off — rest this week before adding load.";
-              atpBtn.className += " gap-atp-btn--disabled";
-            } else {
-              var statusEl = document.createElement("span");
-              statusEl.className = "gap-atp-status";
-              statusEl.hidden = true;
-
-              var defaultDate = weekStart ? _gapNextFreeDay(weekStart) : "";
-              atpBtn.addEventListener("click", function () {
-                _gapAddToplan(f.code, defaultDate, atpBtn, statusEl);
-              });
-              footer.appendChild(statusEl);
-            }
-
-            footer.appendChild(atpBtn);
-            card.appendChild(footer);
-          }
-
-          elFindings.appendChild(card);
+          var isAccepted = f.status === "accepted";
+          elFindings.appendChild(_buildGapCard(f, verdict, weekStart, _loadGapPanel, isAccepted));
         });
+        if (findings.length === 0 && muted.length > 0) {
+          var noActive = document.createElement("p");
+          noActive.className = "gap-no-active";
+          noActive.textContent = "No active findings this week.";
+          elFindings.appendChild(noActive);
+        }
         _setVisible(elFindings, true);
+
+        // Muted / suppressed section (issue #1377)
+        if (elMuted && muted.length > 0) {
+          elMuted.innerHTML = "";
+          var toggle = document.createElement("button");
+          toggle.className = "gap-muted-toggle";
+          toggle.textContent = "Muted (" + muted.length + ")";
+          var muteList = document.createElement("div");
+          muteList.className = "gap-muted-list";
+          muteList.hidden = true;
+
+          muted.forEach(function (f) {
+            var row = document.createElement("div");
+            row.className = "gap-muted-row";
+
+            var label = document.createElement("span");
+            label.className = "gap-muted-label";
+            label.textContent = f.recommendation || f.code;
+
+            var restoreBtn = document.createElement("button");
+            restoreBtn.className = "gap-fb-btn gap-fb-restore";
+            restoreBtn.textContent = "Restore";
+            restoreBtn.title = "Show again in main panel";
+            restoreBtn.addEventListener("click", function () {
+              restoreBtn.disabled = true;
+              _gapPostStatus(f.code, "active", _loadGapPanel);
+            });
+
+            row.appendChild(label);
+            row.appendChild(restoreBtn);
+            muteList.appendChild(row);
+          });
+
+          toggle.addEventListener("click", function () {
+            muteList.hidden = !muteList.hidden;
+            toggle.textContent = (muteList.hidden ? "Muted" : "Muted ▾") + " (" + muted.length + ")";
+          });
+
+          elMuted.appendChild(toggle);
+          elMuted.appendChild(muteList);
+          _setVisible(elMuted, true);
+        }
       })
       .catch(function () {
         _setVisible(elLoading, false);

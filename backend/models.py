@@ -1877,6 +1877,11 @@ class GapFinding(Base):
     computed_at = Column(DateTime(timezone=True), nullable=False)
     status = Column(String(20), nullable=False, server_default=text("'active'"))
     created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+    # Suppression metadata (issue #1377)
+    dismissed_at = Column(DateTime(timezone=True), nullable=True)
+    dismissed_severity = Column(Integer, nullable=True)
+    accepted_at = Column(DateTime(timezone=True), nullable=True)
+    accepted_evidence_hash = Column(String(64), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("user_id", "week_start", "code", name="uq_gap_findings_user_week_code"),
