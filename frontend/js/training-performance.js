@@ -2692,6 +2692,7 @@
       body: card.querySelector(".perf-card-body"),
       score: card.querySelector(".perf-score-val"),
       pill: card.querySelector(".perf-delta-pill"),
+      sparkline: card.querySelector(".perf-sparkline-wrap"),
       change: card.querySelector(".perf-change"),
       eq: card.querySelector(".perf-eq"),
       propbar: card.querySelector(".perf-propbar"),
@@ -2716,6 +2717,52 @@
     if (p.warn) p.warn.hidden = true;
   }
 
+  function _perfSparklineSvg(values) {
+    var vals = (values || []).filter(function (v) { return v != null; });
+    if (vals.length < 2) return null;
+    var W = 80, H = 28, pad = 2;
+    var n = vals.length;
+    var minV = Math.min.apply(null, vals);
+    var maxV = Math.max.apply(null, vals);
+    var range = maxV - minV || 1;
+
+    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.classList.add("perf-sparkline");
+    svg.setAttribute("aria-hidden", "true");
+
+    var pts = vals.map(function (v, i) {
+      var x = pad + (i / (n - 1)) * (W - pad * 2);
+      var y = H - pad - ((v - minV) / range) * (H - pad * 2);
+      return [x, y];
+    });
+
+    var pathD = pts.map(function (p, i) {
+      return (i === 0 ? "M" : "L") + p[0].toFixed(1) + "," + p[1].toFixed(1);
+    }).join(" ");
+
+    var fillD = pathD +
+      " L" + pts[pts.length - 1][0].toFixed(1) + "," + H +
+      " L" + pts[0][0].toFixed(1) + "," + H + " Z";
+
+    var fill = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    fill.setAttribute("d", fillD);
+    fill.setAttribute("fill", "rgba(79,110,247,0.12)");
+    svg.appendChild(fill);
+
+    var line = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    line.setAttribute("d", pathD);
+    line.setAttribute("fill", "none");
+    line.setAttribute("stroke", "#4f6ef7");
+    line.setAttribute("stroke-width", "1.5");
+    line.setAttribute("stroke-linecap", "round");
+    line.setAttribute("stroke-linejoin", "round");
+    svg.appendChild(line);
+
+    return svg;
+  }
+
   function _renderPerfScoreCard(type, data) {
     var p = _perfCardParts(type);
     if (!p) return;
@@ -2727,6 +2774,27 @@
     if (p.body) p.body.style.display = "";
     if (p.score) p.score.textContent = Math.round(data.score);
     if (p.warn) p.warn.hidden = data.low_data_warning !== true;
+
+    // Sparkline: prefer persisted history_trend / history_trend_dates; fall
+    // back to in-request trend / trend_dates only when history is absent.
+    if (p.sparkline) {
+      var useHistory = data.history_trend && data.history_trend.length >= 2;
+      var sparkVals = useHistory
+        ? data.history_trend
+        : (data.trend && data.trend.length >= 2 ? data.trend : null);
+      var sparkDates = useHistory
+        ? data.history_trend_dates
+        : (data.trend_dates || null);
+      p.sparkline.innerHTML = "";
+      var sparkSvg = sparkVals ? _perfSparklineSvg(sparkVals) : null;
+      if (sparkSvg) {
+        if (sparkDates && sparkDates.length) {
+          sparkSvg.setAttribute("title",
+            sparkDates[0] + " – " + sparkDates[sparkDates.length - 1]);
+        }
+        p.sparkline.appendChild(sparkSvg);
+      }
+    }
 
     var b = data.breakdown && !data.breakdown.error ? data.breakdown : null;
     _perfBreakdown[type] = b;
