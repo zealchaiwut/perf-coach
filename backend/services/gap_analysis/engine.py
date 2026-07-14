@@ -12,7 +12,7 @@ import datetime
 import logging
 import uuid
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from backend.services.gap_analysis.registry import RuleRegistry
 from backend.services.gap_analysis.schemas import GapAnalysisFinding  # re-export
@@ -248,6 +248,89 @@ def _gather_quality_sessions_3w(db, user_id: uuid.UUID, today: datetime.date) ->
     return {"count": int(count), "window_weeks": 3}
 
 
+def _gather_endurance_score_8w(db, user_id: uuid.UUID, today: datetime.date) -> dict | None:
+    """Gather endurance score start/end values over the past 8 weeks using the
+    latest formula_version from performance_score_history.
+
+    Mirrors _gather_speed_score_8w but reads the endurance column.
+    Returns None when < 2 score rows exist in the window.
+    """
+    from_date = today - datetime.timedelta(days=56)
+
+    latest_version = db.execute(
+        text("""
+            SELECT formula_version
+            FROM performance_score_history
+            WHERE user_id = :uid
+            ORDER BY score_date DESC
+            LIMIT 1
+        """),
+        {"uid": str(user_id)},
+    ).scalar()
+
+    if latest_version is None:
+        return None
+
+    rows = db.execute(
+        text("""
+            SELECT score_date, endurance
+            FROM performance_score_history
+            WHERE user_id = :uid
+              AND formula_version = :fv
+              AND score_date >= :from_date
+              AND score_date <= :today
+              AND endurance IS NOT NULL
+            ORDER BY score_date ASC
+        """),
+        {
+            "uid": str(user_id),
+            "fv": latest_version,
+            "from_date": from_date.isoformat(),
+            "today": today.isoformat(),
+        },
+    ).fetchall()
+
+    if len(rows) < 2:
+        return None
+
+    return {
+        "oldest_endurance": float(rows[0][1]),
+        "newest_endurance": float(rows[-1][1]),
+        "oldest_date": rows[0][0].isoformat() if hasattr(rows[0][0], "isoformat") else str(rows[0][0]),
+        "newest_date": rows[-1][0].isoformat() if hasattr(rows[-1][0], "isoformat") else str(rows[-1][0]),
+        "formula_version": latest_version,
+        "count": len(rows),
+    }
+
+
+def _gather_easy_runs_3w(db, user_id: uuid.UUID, today: datetime.date) -> dict:
+    """Count easy-volume run sessions (speed_signal IS NULL) over the past 3 weeks.
+
+    Easy/aerobic runs are those without a quality speed signal — the volume
+    complement to quality_sessions_3w.  Used as volume evidence for base_neglected.
+    """
+    from_date = today - datetime.timedelta(days=21)
+
+    count = db.execute(
+        text("""
+            SELECT COUNT(*)
+            FROM workouts
+            WHERE user_id = :uid
+              AND workout_date >= :from_date
+              AND workout_date <= :today
+              AND lower(workout_type) LIKE '%run%'
+              AND speed_signal IS NULL
+        """),
+        {
+            "uid": str(user_id),
+            "from_date": from_date.isoformat(),
+            "today": today.isoformat(),
+        },
+    ).scalar() or 0
+
+    return {"count": int(count), "window_weeks": 3}
+
+
 def _gather_muscle_load_ledger(user_id: uuid.UUID, today: datetime.date) -> dict | None:
     """Build the muscle_load_ledger input for muscle-balance rules (issue #1381).
 
@@ -450,6 +533,20 @@ def _gather_inputs(db, user_id: uuid.UUID, today: datetime.date, week_start: dat
     except Exception:
         _log.warning("quality_sessions_3w unavailable for gap analysis", exc_info=True)
 
+    # endurance_score_history_8w (issue #1464): endurance score series over 8 weeks
+    try:
+        result = _gather_endurance_score_8w(db, user_id, today)
+        if result is not None:
+            inputs["endurance_score_history_8w"] = result
+    except Exception:
+        _log.warning("endurance_score_history_8w unavailable for gap analysis", exc_info=True)
+
+    # easy_runs_3w (issue #1464): easy-volume run count over 3 weeks
+    try:
+        inputs["easy_runs_3w"] = _gather_easy_runs_3w(db, user_id, today)
+    except Exception:
+        _log.warning("easy_runs_3w unavailable for gap analysis", exc_info=True)
+
     # injury_log (issue #1373): recent niggle/injury entries for structural rules
     try:
         inputs["injury_log"] = _gather_injury_log(db, user_id, today)
@@ -546,6 +643,34 @@ def run_gap_analysis(db, user_id: uuid.UUID, today: datetime.date) -> dict:
             _upsert_finding(db, user_id, week_start, f, now)
         except Exception:
             _log.error("Failed to upsert finding %s for user %s", f.code, user_id, exc_info=True)
+
+    # Delete active rows whose code no longer fires this week (issue #1462).
+    # Only active rows are removed; accepted/dismissed rows are preserved.
+    firing_codes = [f.code for f in findings]
+    try:
+        if firing_codes:
+            db.execute(
+                text("""
+                    DELETE FROM gap_findings
+                    WHERE user_id = :uid
+                      AND week_start = :ws
+                      AND status = 'active'
+                      AND code NOT IN :codes
+                """).bindparams(bindparam("codes", expanding=True)),
+                {"uid": str(user_id), "ws": week_start.isoformat(), "codes": firing_codes},
+            )
+        else:
+            db.execute(
+                text("""
+                    DELETE FROM gap_findings
+                    WHERE user_id = :uid
+                      AND week_start = :ws
+                      AND status = 'active'
+                """),
+                {"uid": str(user_id), "ws": week_start.isoformat()},
+            )
+    except Exception:
+        _log.error("Failed to deactivate stale gap findings for user %s", user_id, exc_info=True)
     db.commit()
 
     return {
@@ -580,15 +705,17 @@ def _register_builtin_rules() -> None:
     from backend.services.gap_analysis.rules.cadence_drift import cadence_drift
     _REGISTRY.register(requires=["form_metrics"])(cadence_drift)
 
-    # Load-mix rules (issue #1372)
+    # Load-mix rules (issue #1372, #1464)
     from backend.services.gap_analysis.rules.load_mix import (
         intensity_too_hard,
         aerobic_durability_gap,
         speed_neglected,
+        base_neglected,
     )
     _REGISTRY.register(requires=["intensity_4w"])(intensity_too_hard)
     _REGISTRY.register(requires=["long_run_decoupling_4w"])(aerobic_durability_gap)
     _REGISTRY.register(requires=["speed_score_history_8w", "quality_sessions_3w"])(speed_neglected)
+    _REGISTRY.register(requires=["endurance_score_history_8w", "easy_runs_3w"])(base_neglected)
 
     # issue #1373: structural rules — registered after run-economy rules so that
     # strength_lapsed (severity 1) sees the higher-severity findings first

@@ -7206,6 +7206,7 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
         if workout.user_id != user.id:
             raise HTTPException(status_code=403, detail="Forbidden")
         _old_workout_date = workout.workout_date
+        _old_workout_type = workout.workout_type
         if body.name is not None:
             name = body.name.strip()
             if not name:
@@ -7356,7 +7357,7 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             _logging.getLogger(__name__).warning(
                 "autofill recompute failed for user %s: %s", workout.user_id, _af_exc
             )
-        if workout.workout_type == "strength":
+        if "strength" in {_old_workout_type, workout.workout_type}:
             try:
                 from backend.services.muscle_load import recompute_strength_load_for_date as _rsl
                 for _ml_date in {_old_workout_date, workout.workout_date}:
@@ -8898,8 +8899,6 @@ def delete_daily_metric(uid: str, metric_date: str, user: User = Depends(resolve
         if row is None:
             raise HTTPException(status_code=404, detail="Daily metric not found")
         session.delete(row)
-        session.commit()
-    with Session(engine) as session:
         session.execute(
             text("DELETE FROM daily_readiness WHERE user_id = :uid AND date = :d"),
             {"uid": str(uid), "d": str(md)},
@@ -16484,10 +16483,13 @@ def _fetch_perf_block_delta(
         session.query(PerformanceScoreHistory)
         .filter(
             PerformanceScoreHistory.user_id == user_id,
-            PerformanceScoreHistory.score_date == block_start,
+            PerformanceScoreHistory.score_date <= block_start,
             PerformanceScoreHistory.formula_version == current_formula_version,
         )
-        .order_by(PerformanceScoreHistory.created_at.desc())
+        .order_by(
+            PerformanceScoreHistory.score_date.desc(),
+            PerformanceScoreHistory.created_at.desc(),
+        )
         .first()
     )
     if row is None:
@@ -18157,7 +18159,7 @@ def _upsert_verdict_history(user_id, verdict_date, verdict_result, readiness_sco
             db.execute(stmt)
             db.commit()
     except Exception:
-        pass  # verdict_history write is best-effort; never break the caller
+        _log.warning("verdict_history write failed (best-effort); caller unaffected", exc_info=True)
 
 
 def _fetch_readiness_for_verdict(user_id, today, session):

@@ -1,10 +1,11 @@
-"""Load-mix rules pack (issue #1372).
+"""Load-mix rules pack (issue #1372, #1464).
 
-Three rules that diagnose *what kind* of running is missing:
+Four rules that diagnose *what kind* of running is missing:
 
   intensity_too_hard     — 4-week hard-zone share above the polarized target
   aerobic_durability_gap — long-run aerobic decoupling too high over 4 weeks
   speed_neglected        — speed score decayed while quality sessions are absent
+  base_neglected         — endurance score decayed while easy-run volume is low
 
 All are pure functions.  Input data is gathered by the engine and supplied via
 the inputs dict; no DB access inside these rules.
@@ -26,6 +27,9 @@ DECOUPLING_THRESHOLD_PCT      Avg aerobic decoupling % that triggers the rule.
 SPEED_DECAY_THRESHOLD         Speed score drop (points) that triggers the rule.
 QUALITY_SESSIONS_WINDOW_WEEKS Weeks over which quality sessions are counted.
 QUALITY_SESSIONS_MIN_PER_WEEK Minimum quality sessions / week to suppress rule.
+ENDURANCE_DECAY_THRESHOLD     Endurance score drop (points) that triggers base_neglected.
+EASY_RUNS_WINDOW_WEEKS        Weeks over which easy runs are counted.
+EASY_RUNS_MIN_PER_WEEK        Minimum easy runs / week to suppress base_neglected.
 """
 from __future__ import annotations
 
@@ -60,6 +64,15 @@ QUALITY_SESSIONS_WINDOW_WEEKS: int = 3
 # Average quality sessions per week required to suppress the rule.
 # "< 1 quality session/week in 3 weeks" = count < 3 total.
 QUALITY_SESSIONS_MIN_PER_WEEK: float = 1.0
+
+# ── Base neglected thresholds ─────────────────────────────────────────────────
+# Endurance score drop (points) over 8 weeks that constitutes meaningful decay.
+ENDURANCE_DECAY_THRESHOLD: float = 10.0
+# Rolling window used to measure easy-run volume frequency.
+EASY_RUNS_WINDOW_WEEKS: int = 3
+# Average easy runs per week required to suppress the rule.
+# "< 2 easy runs/week in 3 weeks" = count < 6 total.
+EASY_RUNS_MIN_PER_WEEK: float = 2.0
 
 _BACK_OFF_SUFFIX = " (deferred while backing off)"
 
@@ -278,5 +291,79 @@ def speed_neglected(inputs: dict) -> Optional[GapAnalysisFinding]:
         recommendation=rec,
         evidence=evidence,
         target="speed",
+        week_start=inputs["week_start"],
+    )
+
+
+# ── Rule: base_neglected ──────────────────────────────────────────────────────
+
+def base_neglected(inputs: dict) -> Optional[GapAnalysisFinding]:
+    """Severity-2 finding when endurance score has decayed while easy-run volume is low.
+
+    Mirrors speed_neglected but anchored to the Endurance score from
+    performance_score_history and the count of easy-volume runs (speed_signal IS
+    NULL) as the volume evidence.
+
+    Returns None when:
+    - endurance_score_history_8w or easy_runs_3w input is absent/None
+    - Endurance score decay <= ENDURANCE_DECAY_THRESHOLD (not enough decay)
+    - Easy runs >= EASY_RUNS_MIN_PER_WEEK × EASY_RUNS_WINDOW_WEEKS
+      (athlete is already doing enough aerobic volume)
+    """
+    endurance_hist = inputs.get("endurance_score_history_8w")
+    easy = inputs.get("easy_runs_3w")
+
+    if endurance_hist is None or easy is None:
+        return None
+
+    oldest_endurance = endurance_hist.get("oldest_endurance")
+    newest_endurance = endurance_hist.get("newest_endurance")
+
+    if oldest_endurance is None or newest_endurance is None:
+        return None
+
+    decay = oldest_endurance - newest_endurance
+    if decay <= ENDURANCE_DECAY_THRESHOLD:
+        return None
+
+    easy_count = easy.get("count", 0)
+    easy_min = EASY_RUNS_MIN_PER_WEEK * EASY_RUNS_WINDOW_WEEKS
+    if easy_count >= easy_min:
+        return None
+
+    rec = (
+        "Aerobic base is eroding and easy-run volume is low — add one or two "
+        "easy aerobic runs per week (30–60 min at conversational pace) to rebuild "
+        "your endurance foundation."
+    )
+    severity, rec = _apply_verdict_deferral(2, rec, inputs)
+
+    evidence = [
+        {
+            "metric": "endurance_score_decay_8w",
+            "value": round(decay, 1),
+            "threshold": ENDURANCE_DECAY_THRESHOLD,
+            "window": "8w",
+        },
+        {
+            "metric": "endurance_score_newest",
+            "value": round(newest_endurance, 1),
+            "threshold": None,
+            "window": "8w",
+        },
+        {
+            "metric": "easy_runs_3w",
+            "value": easy_count,
+            "threshold": int(easy_min),
+            "window": f"{EASY_RUNS_WINDOW_WEEKS}w",
+        },
+    ]
+
+    return GapAnalysisFinding(
+        code="base_neglected",
+        severity=severity,
+        recommendation=rec,
+        evidence=evidence,
+        target="easy_volume",
         week_start=inputs["week_start"],
     )
