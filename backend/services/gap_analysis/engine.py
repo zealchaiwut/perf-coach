@@ -12,7 +12,7 @@ import datetime
 import logging
 import uuid
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from backend.services.gap_analysis.registry import RuleRegistry
 from backend.services.gap_analysis.schemas import GapAnalysisFinding  # re-export
@@ -546,6 +546,34 @@ def run_gap_analysis(db, user_id: uuid.UUID, today: datetime.date) -> dict:
             _upsert_finding(db, user_id, week_start, f, now)
         except Exception:
             _log.error("Failed to upsert finding %s for user %s", f.code, user_id, exc_info=True)
+
+    # Delete active rows whose code no longer fires this week (issue #1462).
+    # Only active rows are removed; accepted/dismissed rows are preserved.
+    firing_codes = [f.code for f in findings]
+    try:
+        if firing_codes:
+            db.execute(
+                text("""
+                    DELETE FROM gap_findings
+                    WHERE user_id = :uid
+                      AND week_start = :ws
+                      AND status = 'active'
+                      AND code NOT IN :codes
+                """).bindparams(bindparam("codes", expanding=True)),
+                {"uid": str(user_id), "ws": week_start.isoformat(), "codes": firing_codes},
+            )
+        else:
+            db.execute(
+                text("""
+                    DELETE FROM gap_findings
+                    WHERE user_id = :uid
+                      AND week_start = :ws
+                      AND status = 'active'
+                """),
+                {"uid": str(user_id), "ws": week_start.isoformat()},
+            )
+    except Exception:
+        _log.error("Failed to deactivate stale gap findings for user %s", user_id, exc_info=True)
     db.commit()
 
     return {
