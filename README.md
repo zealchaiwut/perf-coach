@@ -208,15 +208,25 @@ It syncs all connected users automatically at `WORKER_SYNC_TIMES`
 All `/internal/*` endpoints (except `/internal/health`) require the
 `X-Worker-Secret` header matching `WORKER_SHARED_SECRET` in `.env`.
 
-The worker also exposes a small **read-only** `/api/*` surface on port 9100
-for local consumption by Hermes (the Mac Mini voice assistant) — no
-`X-Worker-Secret`, the tailnet/localhost binding is the access boundary.
-Every route is GET-only and recomputes nothing. Shipped so far:
-`GET /api/training/load` (CTL/ATL/TSB/ACWR + persisted verdict, #1449) and
-`GET /api/plan/today` (today's planned session(s) or an explicit empty
-state, #1451). User resolution is `?user=<username>` → `WORKER_READ_API_USER`
+The worker also exposes a small `/api/*` surface on port 9100 for local
+consumption by Hermes (the Mac Mini voice assistant) — the tailnet/localhost
+binding is the access boundary. The read routes take no `X-Worker-Secret` and
+recompute nothing: `GET /api/training/load` (CTL/ATL/TSB/ACWR + persisted
+verdict, #1449) and `GET /api/plan/today` (today's planned session(s) or an
+explicit empty state, #1451). There is one authenticated write route,
+`POST /feel-entry` (#1484), which logs a session-feel/RPE row into
+`workout_feel` and requires an `Authorization: Bearer <WORKER_API_TOKEN>`
+header (401 on a missing/wrong token, 503 when the env var is unset). User
+resolution across these routes is `?user=<username>` → `WORKER_READ_API_USER`
 env → the single active user → 400. Full reference:
 [docs/worker.md](docs/worker.md#read-api-hermes).
+
+The worker feeds the **Hermes coaching brief** (#1483): `scripts/export_brief.py`
+aggregates today/tomorrow sessions, form metrics, recent adherence, and
+advisories into a versioned `perfcoach_brief.latest.json` snapshot, written
+atomically behind a file lock. Run `python scripts/export_brief.py --dry-run`
+to preview; `--date`, `--env`, `--user`, `--output`, and `--worker-url` flags
+tune the run.
 
 ## API
 
