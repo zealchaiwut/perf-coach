@@ -11,8 +11,6 @@ from __future__ import annotations
 
 from datetime import date
 
-import pytest
-
 from backend.services import weekly_summary as ws
 
 
