@@ -2043,6 +2043,7 @@
           _loadPerfPR();
           _renderPerfProjection();
           _loadGapPanel();
+          _loadMuscleBalance();
         });
     }
     if (userId) { _perfAthleteId = userId; resolvePrefsAndLoad(); }
@@ -2243,6 +2244,277 @@
     }
 
     return card;
+  }
+
+  // ── Muscle balance card (issue #1382) ────────────────────────────────────
+
+  var _mbalData = null; // cached API response
+
+  function _mbalChipClass(cls) {
+    var map = {
+      overused: "mbal-chip--overused",
+      elevated: "mbal-chip--elevated",
+      balanced: "mbal-chip--balanced",
+      detraining: "mbal-chip--detraining",
+      untrained: "mbal-chip--untrained",
+      inactive: "mbal-chip--inactive",
+    };
+    return map[cls] || "mbal-chip--inactive";
+  }
+
+  function _mbalBarColor(cls) {
+    var map = {
+      overused: "#dc2626",
+      elevated: "#d97706",
+      balanced: "#16a34a",
+      detraining: "#4f6ef7",
+      untrained: "#4f6ef7",
+      inactive: "#d1d5db",
+    };
+    return map[cls] || "#d1d5db";
+  }
+
+  function _mbalSparklineSvg(groupName, weeklySeries) {
+    var vals = (weeklySeries || []).map(function (w) {
+      return (w.groups && w.groups[groupName]) ? +w.groups[groupName] : 0;
+    });
+    var maxV = Math.max.apply(null, vals.concat([1]));
+    var W = 200, H = 36, pad = 2;
+    var n = vals.length;
+    if (n < 2) return null;
+
+    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.classList.add("mbal-sparkline");
+    svg.setAttribute("aria-hidden", "true");
+
+    var pts = vals.map(function (v, i) {
+      var x = pad + (i / (n - 1)) * (W - pad * 2);
+      var y = H - pad - (v / maxV) * (H - pad * 2);
+      return [x, y];
+    });
+
+    var pathD = pts.map(function (p, i) {
+      return (i === 0 ? "M" : "L") + p[0].toFixed(1) + "," + p[1].toFixed(1);
+    }).join(" ");
+
+    var line = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    line.setAttribute("d", pathD);
+    line.setAttribute("fill", "none");
+    line.setAttribute("stroke", "#4f6ef7");
+    line.setAttribute("stroke-width", "1.5");
+    line.setAttribute("stroke-linecap", "round");
+    line.setAttribute("stroke-linejoin", "round");
+    svg.appendChild(line);
+
+    // Shade under line
+    var fillD = pathD + " L" + pts[pts.length - 1][0].toFixed(1) + "," + H + " L" + pts[0][0].toFixed(1) + "," + H + " Z";
+    var fill = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    fill.setAttribute("d", fillD);
+    fill.setAttribute("fill", "rgba(79,110,247,0.12)");
+    svg.insertBefore(fill, line);
+
+    return svg;
+  }
+
+  function _mbalBuildRow(item, weeklySeries, isInactive) {
+    var grp = item.group;
+    var cls = item.classification || "inactive";
+    var injured = !!item.injured;
+    var acute = item.acute_7d || 0;
+    var chronic = item.chronic_28d || 0;
+    var barPct = chronic > 0 ? Math.min((acute / (chronic * 1.5)) * 100, 100) : 0;
+
+    var wrap = document.createElement("div");
+    wrap.className = "mbal-row-wrap";
+
+    var row = document.createElement("div");
+    row.className = "mbal-row";
+    row.setAttribute("role", "button");
+    row.setAttribute("tabindex", "0");
+    row.setAttribute("aria-expanded", "false");
+    row.setAttribute("aria-label", grp + " — " + cls);
+
+    var nameEl = document.createElement("span");
+    nameEl.className = "mbal-group-name";
+    nameEl.textContent = grp.charAt(0).toUpperCase() + grp.slice(1);
+    row.appendChild(nameEl);
+
+    var barWrap = document.createElement("div");
+    barWrap.className = "mbal-bar-wrap";
+    var bar = document.createElement("div");
+    bar.className = "mbal-bar";
+    bar.style.width = barPct.toFixed(1) + "%";
+    bar.style.setProperty("--mbal-bar-color", _mbalBarColor(cls));
+    bar.style.background = _mbalBarColor(cls);
+    barWrap.appendChild(bar);
+    row.appendChild(barWrap);
+
+    if (injured) {
+      var injMark = document.createElement("span");
+      injMark.className = "mbal-injured-mark";
+      injMark.title = "Active injury";
+      injMark.textContent = "⚑";
+      row.appendChild(injMark);
+    }
+
+    var chip = document.createElement("span");
+    chip.className = "mbal-chip " + _mbalChipClass(cls);
+    chip.textContent = cls;
+    row.appendChild(chip);
+
+    wrap.appendChild(row);
+
+    // Expand detail panel
+    var detail = document.createElement("div");
+    detail.className = "mbal-detail";
+    wrap.appendChild(detail);
+
+    function toggleDetail() {
+      var open = detail.classList.toggle("is-open");
+      row.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open && !detail._built) {
+        detail._built = true;
+
+        var head = document.createElement("div");
+        head.className = "mbal-detail-head";
+        head.textContent = "8-week load";
+        detail.appendChild(head);
+
+        var spark = _mbalSparklineSvg(grp, weeklySeries);
+        if (spark) detail.appendChild(spark);
+
+        var srcBreak = item.source_breakdown || {};
+        var srcKeys = Object.keys(srcBreak).sort(function (a, b) {
+          return srcBreak[b] - srcBreak[a];
+        });
+        if (srcKeys.length > 0) {
+          var srcWrap = document.createElement("div");
+          srcWrap.className = "mbal-source-split";
+          srcKeys.forEach(function (src) {
+            var pct = Math.round(srcBreak[src] * 100);
+            var pill = document.createElement("span");
+            pill.className = "mbal-source-pill";
+            pill.textContent = src + " " + pct + "%";
+            srcWrap.appendChild(pill);
+          });
+          detail.appendChild(srcWrap);
+        } else {
+          var noSrc = document.createElement("span");
+          noSrc.style.cssText = "font-size:11px;color:var(--pm-faint)";
+          noSrc.textContent = "No source data";
+          detail.appendChild(noSrc);
+        }
+      }
+    }
+
+    row.addEventListener("click", toggleDetail);
+    row.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleDetail(); }
+    });
+
+    return wrap;
+  }
+
+  function _loadMuscleBalance() {
+    var elLoading = document.getElementById("muscle-balance-loading");
+    var elRows = document.getElementById("muscle-balance-rows");
+    var elShowAll = document.getElementById("muscle-balance-show-all");
+    var elShowAllBtn = document.getElementById("muscle-balance-show-all-btn");
+    var elInactiveRows = document.getElementById("muscle-balance-inactive-rows");
+    var elUnclassified = document.getElementById("muscle-balance-unclassified");
+    var elEmpty = document.getElementById("muscle-balance-empty");
+    var elError = document.getElementById("muscle-balance-error");
+    if (!elLoading) return;
+
+    function _sv(el, on) { if (el) el.hidden = !on; }
+
+    _sv(elLoading, true);
+    _sv(elRows, false);
+    _sv(elShowAll, false);
+    _sv(elUnclassified, false);
+    _sv(elEmpty, false);
+    _sv(elError, false);
+
+    fetch("/api/training/muscle-load", { credentials: "same-origin" })
+      .then(function (r) {
+        if (!r.ok) return Promise.reject(r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        _sv(elLoading, false);
+        _mbalData = data;
+
+        var sorted = data.sorted_groups || [];
+        var weeklySeries = data.weekly_series || [];
+        var unclassified = data.unclassified || [];
+
+        // Check if any group has load data
+        var hasData = sorted.some(function (g) {
+          return (g.acute_7d || 0) > 0 || (g.chronic_28d || 0) > 0;
+        });
+
+        if (!hasData && sorted.length === 0) {
+          _sv(elEmpty, true);
+          return;
+        }
+
+        // Split active vs inactive
+        var active = sorted.filter(function (g) { return g.classification !== "inactive"; });
+        var inactive = sorted.filter(function (g) { return g.classification === "inactive"; });
+
+        if (active.length === 0 && inactive.length === 0) {
+          _sv(elEmpty, true);
+          return;
+        }
+
+        // Render active rows
+        elRows.innerHTML = "";
+        active.forEach(function (item) {
+          elRows.appendChild(_mbalBuildRow(item, weeklySeries, false));
+        });
+        _sv(elRows, true);
+
+        // Inactive groups under "show all"
+        if (inactive.length > 0) {
+          elInactiveRows.innerHTML = "";
+          inactive.forEach(function (item) {
+            elInactiveRows.appendChild(_mbalBuildRow(item, weeklySeries, true));
+          });
+          _sv(elShowAll, true);
+
+          if (elShowAllBtn && !elShowAllBtn._wired) {
+            elShowAllBtn._wired = true;
+            elShowAllBtn.addEventListener("click", function () {
+              var shown = elInactiveRows.classList.toggle("is-shown");
+              elShowAllBtn.textContent = shown
+                ? "Hide inactive ▴"
+                : "Show inactive groups ▾";
+            });
+          }
+        }
+
+        // Unclassified footnote
+        if (unclassified.length > 0) {
+          elUnclassified.innerHTML = "";
+          var foot = document.createElement("span");
+          foot.textContent = unclassified.length + " exercise" + (unclassified.length === 1 ? "" : "s") + " not in catalog (not contributing to any group): " + unclassified.slice(0, 5).join(", ") + (unclassified.length > 5 ? "…" : "");
+          elUnclassified.appendChild(foot);
+          _sv(elUnclassified, true);
+        }
+
+        // Empty state: all data present but all groups have 0 load → show "no data yet"
+        if (!hasData) {
+          _sv(elEmpty, true);
+          _sv(elRows, false);
+          _sv(elShowAll, false);
+        }
+      })
+      .catch(function () {
+        _sv(elLoading, false);
+        _sv(elError, true);
+      });
   }
 
   function _loadGapPanel() {
