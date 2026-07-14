@@ -13503,19 +13503,29 @@ def get_gap_analysis(user: User = Depends(resolve_user)):
         render_evidence_text,
         sort_findings_for_panel,
     )
+    from backend.services.gap_analysis.phrasing import get_finding_phrasing
     from backend.utils.time import today_bangkok
 
     today = today_bangkok()
+    week_start = (today - _timedelta(days=today.weekday())).isoformat()
     with Session(engine) as db:
         result = run_gap_analysis(db, user.id, today)
 
-    # Enrich each finding with a rendered evidence sentence (issue #1374)
-    enriched = []
-    for f in result["findings"]:
-        enriched.append({
-            **f,
-            "evidence_text": render_evidence_text(f["code"], f["evidence"], f.get("target")),
-        })
+        # Enrich each finding with evidence text (issue #1374) and LLM phrasing (issue #1375)
+        enriched = []
+        for f in result["findings"]:
+            phrasing_result = get_finding_phrasing(
+                f,
+                user_id=user.id,
+                week_start=week_start,
+                db=db,
+            )
+            enriched.append({
+                **f,
+                "evidence_text": render_evidence_text(f["code"], f["evidence"], f.get("target")),
+                "phrasing": phrasing_result["phrasing"],
+                "phrasing_source": phrasing_result["phrasing_source"],
+            })
 
     return JSONResponse({
         **result,
