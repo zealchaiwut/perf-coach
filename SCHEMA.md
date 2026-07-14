@@ -1019,7 +1019,7 @@ Unique: `(user_id, load_date, muscle_group, source)` (`uq_muscle_load_daily_user
 
 ## gap_findings _(added Sprint 107 / #1370)_
 
-One persistent row per `(user_id, week_start, code)` emitted by the gap-analyzer rules engine (`backend/services/gap_analysis/`). Each row is a prioritized "what to improve" finding for a given ISO week. Written by `run_gap_analysis` on every call to `GET /api/training/gap-analysis`, which **upserts** on the unique key — `severity` / `recommendation` / `evidence` / `target` / `computed_at` are refreshed, but `status` is **preserved** so an athlete-accepted or dismissed finding survives recomputes (accept/dismiss lands in a later sprint). Model: `GapFinding` in `backend/models.py`. Contract/formula reference: `docs/calculations/gap-analysis.md`.
+One persistent row per `(user_id, week_start, code)` emitted by the gap-analyzer rules engine (`backend/services/gap_analysis/`). Each row is a prioritized "what to improve" finding for a given ISO week. Written by `run_gap_analysis` on every call to `GET /api/training/gap-analysis`, which **upserts** on the unique key — `severity` / `recommendation` / `evidence` / `target` / `computed_at` are refreshed, but `status` is **preserved** so an athlete-accepted or dismissed finding survives recomputes. Athlete feedback (`POST /api/training/gap-analysis/{code}/status`, Sprint 108 / #1377) sets `status` and stamps the suppression columns below; the GET then partitions findings into visible / `muted` via `backend/services/gap_analysis/suppression.py`. Model: `GapFinding` in `backend/models.py`. Contract/formula reference: `docs/calculations/gap-analysis.md`.
 
 | column | type | notes |
 |--------|------|-------|
@@ -1033,6 +1033,10 @@ One persistent row per `(user_id, week_start, code)` emitted by the gap-analyzer
 | target | varchar(100) | nullable — muscle group or session type addressed |
 | computed_at | timestamptz | NOT NULL — when the engine ran |
 | status | varchar(20) | NOT NULL, default `'active'` — `active` / `accepted` / `dismissed` (check constraint `ck_gap_findings_status`) |
+| dismissed_at | timestamptz | nullable — when the athlete dismissed this finding (Sprint 108 / #1377) |
+| dismissed_severity | int | nullable — severity captured at dismissal; a later recompute at higher severity can re-surface the finding (Sprint 108 / #1377) |
+| accepted_at | timestamptz | nullable — when the athlete accepted this finding (Sprint 108 / #1377) |
+| accepted_evidence_hash | varchar(64) | nullable — hash of the evidence at accept time; the finding stays muted while the hash still matches (Sprint 108 / #1377) |
 | created_at | timestamptz | NOT NULL, server default now() |
 
-Unique: `(user_id, week_start, code)` (`uq_gap_findings_user_week_code`). Index: `ix_gap_findings_user_week_start` on `(user_id, week_start)`. Migration: `2bbdfbb8ea10_add_gap_findings_table`.
+Unique: `(user_id, week_start, code)` (`uq_gap_findings_user_week_code`). Index: `ix_gap_findings_user_week_start` on `(user_id, week_start)`. Migrations: `2bbdfbb8ea10_add_gap_findings_table`, `8d14fe27be6b_add_suppression_columns_to_gap_findings`.

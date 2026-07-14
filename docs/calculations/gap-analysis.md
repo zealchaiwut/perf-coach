@@ -471,3 +471,43 @@ prescribes loading an actively injured area.
 - `evidence metrics` (untrained): `weeks_untrained`, `classification`
 - `evidence metrics` (detraining): `classification`, `chronic_28d`, `acwr`
 - `target`: the muscle group string
+
+---
+
+## Add-to-plan Templates (issue #1376)
+
+File: `backend/services/gap_analysis/templates.py`
+
+Every gap-analysis finding with a template gains an "Add to plan" button in the
+improvement panel. Tapping it creates a `planned_session` row pre-filled with the
+prescription text. The session is tagged by storing `{"_gap_code": "<code>"}` in
+the `planned_sessions.structure` JSONB column — no migration needed.
+
+**Session template registry** (`get_template(code)` in `templates.py`):
+
+| Rule code | session_type | name | Prescription (notes) | load_adding |
+|-----------|-------------|------|----------------------|-------------|
+| `plyo_deficit` | plyo | Plyometric intro session | 2×[10 pogo jumps, 10 low box jumps] | yes |
+| `no_recent_plyo` | plyo | Plyo re-entry session | 2×[10 pogo, 10 low box jumps] | yes |
+| `gct_lengthening` | strength | Calf capacity strength block | Eccentric calf raises 3×12 each side, 3 s lowering | yes |
+| `cadence_drift` | run | Cadence-focus easy run | Z1-Z2, target ≥170 spm | yes |
+| `aerobic_durability_gap` | run | Aerobic long run | 70–90 min Z1-Z2, monitor decoupling | yes |
+| `speed_neglected` | run | Speed interval session | 6×400 m at 5 km effort, 90 s recovery | yes |
+| `strength_lapsed` | strength | General strength session | Full-body, 3×8–10, moderate load after break | yes |
+| `undertrained_area_under_ramp` | strength | Targeted strength block | 3×10–12, controlled tempo | yes |
+| `muscle_untrained.{group}` | strength | Targeted strength: {group} | Eccentric 3×12–15, moderate load | yes |
+| `muscle_detraining.{group}` | strength | Maintenance strength: {group} | 2×12–15, light load | yes |
+| `muscle_overused.*` | — | (no template) | Reducing load rule — no add-to-plan action | — |
+| `intensity_too_hard` | — | (no template) | Reducing rule — no add-to-plan action | — |
+| `recurrent_niggle_area` | — | (no template) | Recovery rule — no add-to-plan action | — |
+
+**Verdict guard**: when `training_verdict == "back_off"`, add-to-plan for any
+`load_adding=True` template is rejected by the server (HTTP 409 with
+`code: "back_off"`) and disabled in the UI with a tooltip.
+
+**Duplicate guard**: a second add-to-plan for the same `code` within the same
+calendar week returns HTTP 409 (`code: "already_planned_this_week"`).
+
+**Endpoint**: `POST /api/training/gap-analysis/{code}/add-to-plan`
+- Body: `{"date": "YYYY-MM-DD"}`
+- Response: 201 with the created `planned_session` dict

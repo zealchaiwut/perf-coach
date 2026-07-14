@@ -1,4 +1,4 @@
-# Code State — sprint-107.1
+# Code State — sprint-108.1
 
 _Deterministic snapshot generated at sprint finish. Do not hand-edit — regenerated each sprint._
 
@@ -10,33 +10,34 @@ _Deterministic snapshot generated at sprint finish. Do not hand-edit — regener
 - **`docs/`** — Project documentation
 - **`alembic/`** — Database migration scripts
 
-## Recent Deltas (sprint-107.1)
+## Recent Deltas (sprint-108.1)
 
-Files changed: **30**
+Files changed: **31**
 
-- `backend/` — 17 file(s)
-- `tests/` — 8 file(s)
+- `tests/` — 12 file(s)
+- `backend/` — 9 file(s)
 - `(root)/` — 3 file(s)
+- `docs/` — 3 file(s)
+- `frontend/` — 3 file(s)
 - `alembic/` — 1 file(s)
-- `docs/` — 1 file(s)
 
 ## Hot Files (last 90 days)
 
 | File | Commits |
 |------|---------|
-| `backend/main.py` | 442 |
-| `frontend/pages/training-log.html` | 211 |
+| `backend/main.py` | 449 |
+| `frontend/pages/training-log.html` | 215 |
 | `frontend/js/training-log.js` | 133 |
-| `backend/models.py` | 129 |
-| `CHANGELOG.md` | 93 |
-| `README.md` | 77 |
-| `frontend/js/training-plan.js` | 77 |
+| `backend/models.py` | 130 |
+| `CHANGELOG.md` | 94 |
+| `README.md` | 78 |
+| `frontend/js/training-plan.js` | 78 |
 | `frontend/pages/weight.html` | 61 |
 | `frontend/pages/home.html` | 55 |
 | `frontend/js/weight.js` | 44 |
 | `frontend/js/home.js` | 44 |
-| `frontend/js/training-performance.js` | 38 |
-| `SCHEMA.md` | 37 |
+| `frontend/js/training-performance.js` | 42 |
+| `SCHEMA.md` | 38 |
 | `frontend/pages/habits.html` | 36 |
 | `frontend/pages/settings.html` | 34 |
 | `frontend/js/nav.js` | 30 |
@@ -47,6 +48,6 @@ Files changed: **30**
 
 ## Generated
 
-Sprint: `sprint-107.1`  
-Timestamp: `2026-07-14T03:59:55Z`  
+Sprint: `sprint-108.1`  
+Timestamp: `2026-07-14T07:36:46Z`  
 _Generated deterministically — no LLM required._
