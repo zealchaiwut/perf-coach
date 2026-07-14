@@ -9,7 +9,7 @@ AC coverage:
 import os
 import pytest
 import httpx
-from datetime import date, timedelta
+from datetime import date
 
 
 # Resolved from UAT .env at runtime; see tester skill Step 0.

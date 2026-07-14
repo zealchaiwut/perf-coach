@@ -2,8 +2,6 @@
 import os
 import pytest
 import httpx
-from datetime import datetime, timedelta
-import json
 
 
 # Resolved from UAT .env at runtime; see tester skill Step 0.

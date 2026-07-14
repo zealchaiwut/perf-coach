@@ -1,11 +1,8 @@
 """Tests for issue #1375: LLM coach phrasing for gap findings (runs against UAT)"""
 import os
-import json
 import pytest
 import httpx
-from datetime import datetime, timedelta
-from unittest.mock import patch, MagicMock
-import hashlib
+from unittest.mock import patch
 
 
 # Resolved from UAT .env at runtime; see tester skill Step 0.
@@ -186,7 +183,6 @@ def test_llm_gap_finding_phrasing__phrasing_schema_single_text_field():
     except (ModuleNotFoundError, ImportError):
         pytest.skip("Phrasing module not available (feature may not be deployed yet)")
 
-    import json
 
     # The schema should only allow {"phrasing": "string"}
     schema = phrasing_module._PHRASING_JSON_SCHEMA
