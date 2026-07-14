@@ -7,16 +7,17 @@ AC coverage:
 """
 from __future__ import annotations
 
-import datetime
 import os
 import pathlib
 import uuid
+from datetime import timedelta
 
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session as _OrmSess
 
 from backend.models import User as _UserModel
+from backend.utils.time import today_bangkok
 
 _TEST_PW = "test1462pw!"
 
@@ -39,6 +40,12 @@ def _delete_user(user_id: str) -> None:
         if u:
             sess.delete(u)
             sess.commit()
+
+
+def _current_week_start():
+    """Return the ISO Monday of the current Bangkok week (mirrors run_gap_analysis)."""
+    today = today_bangkok()
+    return today - timedelta(days=today.weekday())
 
 
 def _tc_create_and_login(tc):
@@ -72,9 +79,7 @@ def test_ac1_stale_active_finding_is_deleted():
     with TestClient(app) as tc:
         user_id = _tc_create_and_login(tc)
         try:
-            week_start = (
-                datetime.date.today() - datetime.timedelta(days=datetime.date.today().weekday())
-            )
+            week_start = _current_week_start()
             stale_code = "__test_stale_1462__"
 
             # Seed an active gap_findings row for a code that no real rule produces
@@ -132,9 +137,7 @@ def test_ac2_accepted_stale_finding_is_preserved():
     with TestClient(app) as tc:
         user_id = _tc_create_and_login(tc)
         try:
-            week_start = (
-                datetime.date.today() - datetime.timedelta(days=datetime.date.today().weekday())
-            )
+            week_start = _current_week_start()
             accepted_code = "__test_accepted_1462__"
 
             with _OrmSess(_engine) as sess:
@@ -176,9 +179,7 @@ def test_ac2_dismissed_stale_finding_is_preserved():
     with TestClient(app) as tc:
         user_id = _tc_create_and_login(tc)
         try:
-            week_start = (
-                datetime.date.today() - datetime.timedelta(days=datetime.date.today().weekday())
-            )
+            week_start = _current_week_start()
             dismissed_code = "__test_dismissed_1462__"
 
             with _OrmSess(_engine) as sess:
@@ -229,7 +230,6 @@ def test_ac3_still_upserts_firing_findings():
             assert "week_start" in payload
 
             # For a fresh user with no plyo, no_recent_plyo always fires
-            codes_in_db = set()
             with _OrmSess(_engine) as sess:
                 rows = sess.execute(
                     text("SELECT code, status FROM gap_findings WHERE user_id = :uid"),
