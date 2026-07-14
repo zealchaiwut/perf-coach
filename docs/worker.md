@@ -380,14 +380,13 @@ keep it polling through sleep.
 
 ## Read API (Hermes)
 
-The worker exposes a small **read-only** HTTP API on port 9100 for local
-consumption by Hermes (the Mac Mini voice assistant). These routes are
-**not deployed to Render** and must never be reachable from the public
-internet — the tailnet / localhost binding is the security boundary.
+The worker exposes a small HTTP API on port 9100 for local consumption by
+Hermes (the Mac Mini voice assistant). These routes are **not deployed to
+Render** and must never be reachable from the public internet — the tailnet /
+localhost binding is the security boundary.
 
-**Read-only by design** — all writes happen in the Render web app via
-deeplink, never here. The API has no POST/PATCH/DELETE routes; every
-endpoint is GET-only.
+Most routes are read-only (GET), with one authenticated write route
+(`POST /feel-entry`) for Hermes to log session-feel/RPE data.
 
 ### Shared conventions
 
@@ -401,9 +400,71 @@ query param. Resolution order:
 **Date defaults** — `?date=` params default to today in Asia/Bangkok
 (matching the existing worker scheduler timezone). Pass `YYYY-MM-DD`.
 
-**No auth** on these routes — deliberate contrast with the
-secret-gated `/internal/*` routes (which require `X-Worker-Secret`).
-The tailnet/localhost binding is the access boundary.
+**No auth on GET routes** — deliberate contrast with the secret-gated
+`/internal/*` routes (which require `X-Worker-Secret`). The tailnet/localhost
+binding is the access boundary. The write route (`POST /feel-entry`) uses
+its own bearer-token guard; see below.
+
+### `POST /feel-entry`
+
+Insert a feel/RPE entry into `workout_feel`. Guarded by a static bearer token
+so external orchestrators (Hermes) can write feel data without touching the
+webapp's own auth flow.
+
+**Auth:** `Authorization: Bearer <token>` where `<token>` is the value of the
+`WORKER_API_TOKEN` environment variable on the worker. Requests with a missing
+or incorrect token receive **401**.
+
+**User resolution:** same chain as the read API — optional `?user=<username>`
+query param, then `WORKER_READ_API_USER` env var, then single active user.
+
+**Request body (JSON):**
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `feel_date` | string (YYYY-MM-DD) | **yes** | Date of the session feel |
+| `rpe_1_to_10` | integer 1–10 | no | Perceived exertion; out-of-range → 400 |
+| `notes` | string ≤ 10,000 chars | no | Free-text note; exceeding cap → 400 |
+
+At least one of `rpe_1_to_10` or `notes` must be present; omitting both → 400.
+
+**Auto-link:** after insert the handler runs the same `auto_link_feel_entries`
+logic as the webapp — if exactly one workout exists for the user on `feel_date`,
+the new row is linked to it automatically. If no same-day workout exists the
+row is still inserted successfully with `workout_id: null`.
+
+**Responses:**
+- `201` — row inserted; body contains the full record (at minimum `id`)
+- `400` — validation error (`feel_date` missing, RPE out of range, notes too long, neither field supplied)
+- `401` — missing or wrong bearer token
+- `503` — `WORKER_API_TOKEN` env var not configured on the worker
+
+**Example:**
+
+```bash
+curl -X POST http://localhost:9100/feel-entry \
+  -H "Authorization: Bearer $WORKER_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"feel_date": "2026-07-14", "rpe_1_to_10": 7, "notes": "Felt strong on intervals"}'
+```
+
+```json
+{
+  "id": "b1f62c3d-...",
+  "user_id": "a2c9...",
+  "feel_date": "2026-07-14",
+  "workout_id": "d3e8...",
+  "rpe_1_to_10": 7,
+  "notes": "Felt strong on intervals",
+  "created_at": "2026-07-14T11:30:00+00:00"
+}
+```
+
+**Worker env var:**
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `WORKER_API_TOKEN` | _(unset)_ | Static bearer token for `POST /feel-entry`. Requests fail with 503 if unset. |
 
 ### `GET /api/training/load`
 
