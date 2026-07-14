@@ -4612,6 +4612,8 @@
             </div>
             <!-- Skipped-rules footnote -->
             <div id="gap-panel-skipped" class="gap-skipped" hidden></div>
+            <!-- Muted / suppressed findings (issue #1377) -->
+            <div id="gap-panel-muted" hidden></div>
           </div>
 
           <!-- Row: A-race header + calibration status -->
@@ -4944,6 +4946,61 @@
         cursor: pointer;
       }
       .gap-atp-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
+
+      /* Accept / dismiss feedback controls (issue #1377) */
+      .gap-feedback-controls {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 8px;
+      }
+      .gap-fb-btn {
+        font-size: 11px;
+        font-weight: 500;
+        background: transparent;
+        border: 1px solid var(--pm-line);
+        border-radius: 6px;
+        padding: 3px 9px;
+        cursor: pointer;
+        color: var(--pm-muted);
+        transition: background 0.12s, color 0.12s;
+      }
+      .gap-fb-btn:hover:not(:disabled) { background: rgba(0,0,0,0.05); color: var(--pm-ink); }
+      .gap-fb-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+      .gap-fb-accept { border-color: var(--pm-green, #22c55e); color: var(--pm-green, #22c55e); }
+      .gap-fb-restore { font-size: 10px; }
+      .gap-finding--accepted { opacity: 0.72; }
+      .gap-no-active { font-size: 12px; color: var(--pm-muted); margin: 6px 0 0; }
+      /* Muted section */
+      #gap-panel-muted { margin-top: 10px; border-top: 1px solid var(--pm-line); padding-top: 8px; }
+      .gap-muted-toggle {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--pm-muted);
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        padding: 2px 0;
+      }
+      .gap-muted-toggle:hover { color: var(--pm-ink); }
+      .gap-muted-list { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+      .gap-muted-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 8px;
+        border-radius: 6px;
+        background: var(--pm-tile);
+      }
+      .gap-muted-label {
+        font-size: 12px;
+        color: var(--pm-muted);
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
 
       /* Race header content floats vertically centered in its stretched card. */
       .plan-merged #plan-race-header {

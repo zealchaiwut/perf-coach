@@ -13507,7 +13507,8 @@ def get_gap_analysis(user: User = Depends(resolve_user)):
     from backend.utils.time import today_bangkok
 
     today = today_bangkok()
-    week_start = (today - _timedelta(days=today.weekday())).isoformat()
+    week_start_date = today - _timedelta(days=today.weekday())
+    week_start = week_start_date.isoformat()
     with Session(engine) as db:
         result = run_gap_analysis(db, user.id, today)
 
@@ -13537,11 +13538,127 @@ def get_gap_analysis(user: User = Depends(resolve_user)):
                 "load_adding": _is_load_adding(code),
             })
 
+        # Apply suppression filter (issue #1377): partition into visible / muted
+        from backend.services.gap_analysis.suppression import apply_suppression
+        partitioned = apply_suppression(db, user.id, week_start_date, enriched)
+
+    sorted_visible = sort_findings_for_panel(partitioned["findings"])
+    sorted_muted = sort_findings_for_panel(partitioned["muted"])
+
     return JSONResponse({
         **result,
-        "findings": sort_findings_for_panel(enriched),
+        "findings": sorted_visible,
+        "muted": sorted_muted,
         "verdict": _gap_get_verdict_for_user(user.id, today),
     })
+
+
+# ── Finding feedback: accept / dismiss (issue #1377) ─────────────────────────
+
+_GAP_STATUS_VALID = frozenset({"active", "accepted", "dismissed"})
+
+
+class _GapStatusBody(BaseModel):
+    status: str
+
+
+@app.post("/api/training/gap-analysis/{code}/status")
+def gap_update_status(
+    code: str,
+    body: _GapStatusBody,
+    user: User = Depends(resolve_user),
+):
+    """Update the feedback status of this week's gap-finding.
+
+    Path param:
+        code   Gap-analysis rule code (e.g. 'cadence_drift')
+
+    Body:
+        status   "accepted" | "dismissed" | "active" (restores)
+
+    Responses:
+        200  Updated finding dict with new status
+        404  No gap_findings row for this user/week/code
+        422  Invalid status value
+    """
+    from backend.utils.time import today_bangkok
+    from backend.services.gap_analysis.suppression import evidence_hash as _ev_hash
+
+    if body.status not in _GAP_STATUS_VALID:
+        raise HTTPException(
+            status_code=422,
+            detail=f"status must be one of: {sorted(_GAP_STATUS_VALID)}",
+        )
+
+    today = today_bangkok()
+    week_start = (today - _timedelta(days=today.weekday())).isoformat()
+    now_dt = _datetime.now(tz=_timezone.utc)
+
+    with Session(engine) as db:
+        row = db.execute(
+            text("""
+                SELECT id, severity, evidence, status
+                FROM gap_findings
+                WHERE user_id = :uid AND week_start = :ws AND code = :code
+            """),
+            {"uid": str(user.id), "ws": week_start, "code": code},
+        ).fetchone()
+
+        if row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No gap finding for code={code!r} this week",
+            )
+
+        row_id, severity, evidence, current_status = row
+        new_status = body.status
+
+        import json as _json
+        evidence_list = evidence if isinstance(evidence, list) else (_json.loads(evidence) if evidence else [])
+        ev_hash = _ev_hash(evidence_list)
+
+        if new_status == "dismissed":
+            db.execute(
+                text("""
+                    UPDATE gap_findings
+                    SET status = 'dismissed',
+                        dismissed_at = :now,
+                        dismissed_severity = :sev,
+                        accepted_at = NULL,
+                        accepted_evidence_hash = NULL
+                    WHERE id = :rid
+                """),
+                {"now": now_dt, "sev": severity, "rid": str(row_id)},
+            )
+        elif new_status == "accepted":
+            db.execute(
+                text("""
+                    UPDATE gap_findings
+                    SET status = 'accepted',
+                        accepted_at = :now,
+                        accepted_evidence_hash = :evh,
+                        dismissed_at = NULL,
+                        dismissed_severity = NULL
+                    WHERE id = :rid
+                """),
+                {"now": now_dt, "evh": ev_hash, "rid": str(row_id)},
+            )
+        else:  # active — restore
+            db.execute(
+                text("""
+                    UPDATE gap_findings
+                    SET status = 'active',
+                        dismissed_at = NULL,
+                        dismissed_severity = NULL,
+                        accepted_at = NULL,
+                        accepted_evidence_hash = NULL
+                    WHERE id = :rid
+                """),
+                {"rid": str(row_id)},
+            )
+        db.commit()
+
+    return JSONResponse({"code": code, "status": new_status, "week_start": week_start})
 
 
 # ── Add-to-plan helper (issue #1376) ─────────────────────────────────────────
