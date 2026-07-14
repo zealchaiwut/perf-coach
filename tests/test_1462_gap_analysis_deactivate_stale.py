@@ -12,13 +12,17 @@ import pathlib
 import uuid
 from datetime import timedelta
 
+import httpx
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session as _OrmSess
 
+from backend.auth import hash_password as _hash_pw
 from backend.models import User as _UserModel
 from backend.utils.time import today_bangkok
+from tests._admin_helpers import admin_cookies as _admin_cookies
 
+BASE_URL = os.environ.get("UAT_BASE_URL") or "http://127.0.0.1:9001"
 _TEST_PW = "test1462pw!"
 
 _root = pathlib.Path(__file__).resolve().parents[1]
@@ -48,22 +52,30 @@ def _current_week_start():
     return today - timedelta(days=today.weekday())
 
 
-def _tc_create_and_login(tc):
-    """Create a fresh test user, log in, and return user_id as str."""
-    uid = str(uuid.uuid4())[:8]
-    username = f"gap1462_{uid}"
-    r = tc.post("/api/users", json={"name": username})
+def _create_and_login(client: httpx.Client) -> tuple[httpx.Client, str]:
+    """Create a test user, set password, log in, return (auth_client, user_id)."""
+    if _engine is None:
+        pytest.skip("DATABASE_URL_UAT not set")
+
+    user_name = f"gap1462_{uuid.uuid4().hex[:8]}"
+    r = client.post("/api/users", json={"name": user_name}, cookies=_admin_cookies())
     assert r.status_code == 201, f"create user failed: {r.text}"
     user_id = r.json()["id"]
+
     # Set password directly — /api/users creates the user without a password
-    from backend.auth import hash_password as _hash_pw
     with _OrmSess(_engine) as sess:
         u = sess.get(_UserModel, uuid.UUID(user_id))
         u.password_hash = _hash_pw(_TEST_PW)
         sess.commit()
-    r2 = tc.post("/api/auth/login", json={"username": username, "password": _TEST_PW})
+
+    # Log in
+    r2 = client.post("/api/auth/login", json={"username": user_name, "password": _TEST_PW})
     assert r2.status_code == 200, f"login failed: {r2.text}"
-    return user_id
+
+    # Return a new authenticated client with the session cookie
+    auth_client = httpx.Client(base_url=BASE_URL, timeout=10.0)
+    auth_client.cookies.update(client.cookies)
+    return auth_client, user_id
 
 
 # ── AC1: stale active rows are deleted on recompute ──────────────────────────
@@ -73,11 +85,8 @@ def test_ac1_stale_active_finding_is_deleted():
     if _engine is None:
         pytest.skip("DATABASE_URL_UAT not set")
 
-    from fastapi.testclient import TestClient
-    from backend.main import app
-
-    with TestClient(app) as tc:
-        user_id = _tc_create_and_login(tc)
+    with httpx.Client(base_url=BASE_URL, timeout=10.0) as client:
+        auth_client, user_id = _create_and_login(client)
         try:
             week_start = _current_week_start()
             stale_code = "__test_stale_1462__"
@@ -107,7 +116,7 @@ def test_ac1_stale_active_finding_is_deleted():
             assert row[0] == "active"
 
             # Run gap analysis — this will NOT fire our stale code
-            r = tc.get("/api/training/gap-analysis")
+            r = auth_client.get("/api/training/gap-analysis")
             assert r.status_code == 200, r.text
 
             # The stale active row must be gone
@@ -131,11 +140,8 @@ def test_ac2_accepted_stale_finding_is_preserved():
     if _engine is None:
         pytest.skip("DATABASE_URL_UAT not set")
 
-    from fastapi.testclient import TestClient
-    from backend.main import app
-
-    with TestClient(app) as tc:
-        user_id = _tc_create_and_login(tc)
+    with httpx.Client(base_url=BASE_URL, timeout=10.0) as client:
+        auth_client, user_id = _create_and_login(client)
         try:
             week_start = _current_week_start()
             accepted_code = "__test_accepted_1462__"
@@ -154,7 +160,7 @@ def test_ac2_accepted_stale_finding_is_preserved():
                 )
                 sess.commit()
 
-            r = tc.get("/api/training/gap-analysis")
+            r = auth_client.get("/api/training/gap-analysis")
             assert r.status_code == 200, r.text
 
             with _OrmSess(_engine) as sess:
@@ -173,11 +179,8 @@ def test_ac2_dismissed_stale_finding_is_preserved():
     if _engine is None:
         pytest.skip("DATABASE_URL_UAT not set")
 
-    from fastapi.testclient import TestClient
-    from backend.main import app
-
-    with TestClient(app) as tc:
-        user_id = _tc_create_and_login(tc)
+    with httpx.Client(base_url=BASE_URL, timeout=10.0) as client:
+        auth_client, user_id = _create_and_login(client)
         try:
             week_start = _current_week_start()
             dismissed_code = "__test_dismissed_1462__"
@@ -196,7 +199,7 @@ def test_ac2_dismissed_stale_finding_is_preserved():
                 )
                 sess.commit()
 
-            r = tc.get("/api/training/gap-analysis")
+            r = auth_client.get("/api/training/gap-analysis")
             assert r.status_code == 200, r.text
 
             with _OrmSess(_engine) as sess:
@@ -217,13 +220,10 @@ def test_ac3_still_upserts_firing_findings():
     if _engine is None:
         pytest.skip("DATABASE_URL_UAT not set")
 
-    from fastapi.testclient import TestClient
-    from backend.main import app
-
-    with TestClient(app) as tc:
-        user_id = _tc_create_and_login(tc)
+    with httpx.Client(base_url=BASE_URL, timeout=10.0) as client:
+        auth_client, user_id = _create_and_login(client)
         try:
-            r = tc.get("/api/training/gap-analysis")
+            r = auth_client.get("/api/training/gap-analysis")
             assert r.status_code == 200, r.text
             payload = r.json()
             assert "findings" in payload
