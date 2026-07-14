@@ -18157,7 +18157,7 @@ def _upsert_verdict_history(user_id, verdict_date, verdict_result, readiness_sco
             db.execute(stmt)
             db.commit()
     except Exception:
-        pass  # verdict_history write is best-effort; never break the caller
+        _log.warning("verdict_history write failed (best-effort); caller unaffected", exc_info=True)
 
 
 def _fetch_readiness_for_verdict(user_id, today, session):
