@@ -1,5 +1,5 @@
 """Weekly summary narrative service (issue #1314; verdict-aware since the
-load-metric single-source-of-truth fix).
+load-metric single-source-of-truth fix; gap-finding integration issue #1378).
 
 Exposes:
   assemble_facts(...)           — pure function: weekly metrics from pre-fetched data
@@ -7,7 +7,8 @@ Exposes:
                                    states the verdict explicitly
   numeral_guard_passes(...)     — validate LLM numbers against facts string
   validate_summary(...)         — pure function: list of violation reasons (empty = valid);
-                                   rejects narration that contradicts the verdict
+                                   rejects narration that contradicts the verdict or a
+                                   severity-3 gap finding
   build_signature(...)          — cache key for llm_generations
   get_narrative(...)            — LLM (DEEP tier) + retry-once-then-fallback + cache wrapper
   build_response(...)           — final response shape
@@ -21,6 +22,14 @@ it in prose; validate_summary rejects any narration that contradicts it
 retry loop below gives it one chance to fix that before falling back to the
 deterministic template — matching the existing LLM_COACH_ENABLED fallback
 contract. No LangGraph — see docs/calculations/acwr-guardrail.md.
+
+Gap-finding integration (issue #1378): when the gap analyzer has run for the
+week, assemble_facts receives the week's active findings and populates a
+gap_findings key with the top finding (highest severity). validate_summary
+rejects narration that contradicts a severity-3 "reduce/avoid" finding using
+the same increase-language check as the verdict path. build_fallback_narrative
+renders the finding recommendation line so the athlete sees it even with LLM
+off. When the key is absent (analyzer never ran), all paths are unchanged.
 """
 
 from __future__ import annotations
@@ -63,6 +72,17 @@ _NEGATION_WORDS = (
 )
 _NEGATION_WINDOW = 25
 
+# Gap-finding contradiction detection (issue #1378):
+# Severity-3 findings whose recommendation says reduce/avoid/rest are
+# "reduce-type" — the narrative must not recommend increasing load (same
+# check as the verdict path). Match on the recommendation text, not the
+# narrative, so "avoid increasing" in the recommendation doesn't self-trigger.
+_FINDING_REDUCE_PATTERN = re.compile(
+    r"\b(reduce|reducing|avoid|avoiding|rest|resting|protect|protecting|limit|limiting|"
+    r"ease|easing|lighten|cut\s+back|minimize|minimizing|refrain|back\s+off|backing\s+off)\b",
+    re.IGNORECASE,
+)
+
 
 def _increase_language_violation(lowered: str) -> bool:
     """True iff the text contains un-negated increase-language."""
@@ -100,6 +120,7 @@ def assemble_facts(
     guardrail: dict,
     prs: list[dict],
     verdict: Optional[dict] = None,
+    gap_findings: Optional[list[dict]] = None,
 ) -> dict:
     """Assemble weekly summary facts from pre-fetched data.
 
@@ -111,6 +132,11 @@ def assemble_facts(
         None. When provided, its fields land in facts as GIVENS the LLM must
         explain, never derive or contradict — see build_prompt()/
         validate_summary() below.
+
+    gap_findings: list of active gap-finding dicts for the week, or None.
+        None  → key absent from facts (analyzer has never run; backward-compat).
+        []    → key present but empty dict (analyzer ran, no active findings).
+        [...]  → key present with top finding (highest severity) + others_count.
     """
     def _sum_attr(workouts, attr, cast=float):
         vals = [cast(w[attr]) for w in workouts if w.get(attr) is not None]
@@ -131,7 +157,7 @@ def assemble_facts(
         if wt:
             by_type[wt] = by_type.get(wt, 0) + 1
 
-    return {
+    out: dict = {
         "week_start": week_start.isoformat(),
         "workout_count": len(current_workouts),
         "workout_count_by_type": by_type,
@@ -157,6 +183,30 @@ def assemble_facts(
         "weeks_to_converge": (verdict or {}).get("weeks_to_converge"),
         "converge_date": (verdict or {}).get("converge_date"),
     }
+
+    # gap_findings integration (issue #1378):
+    # Key absent when gap_findings is None (analyzer never ran — backward compat).
+    if gap_findings is not None:
+        if not gap_findings:
+            out["gap_findings"] = {}
+        else:
+            # Pick the finding with the highest severity; stable sort by severity desc.
+            sorted_findings = sorted(gap_findings, key=lambda f: f.get("severity", 0), reverse=True)
+            top = sorted_findings[0]
+            evidence = top.get("evidence") or []
+            evidence_value = evidence[0]["value"] if evidence else None
+            out["gap_findings"] = {
+                "top": {
+                    "code": top.get("code"),
+                    "severity": top.get("severity"),
+                    "recommendation": top.get("recommendation"),
+                    "evidence_value": evidence_value,
+                    "target": top.get("target"),
+                },
+                "others_count": len(sorted_findings) - 1,
+            }
+
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +256,18 @@ def build_fallback_narrative(facts: dict) -> str:
             "No training logged this week. Rest is part of the plan — "
             "come back strong next week."
         )
-        return (base + " " + verdict_sentence) if verdict_sentence else base
+        parts = [base]
+        if verdict_sentence:
+            parts.append(verdict_sentence)
+        # Gap finding applies even to zero-workout weeks (issue #1378)
+        gf = facts.get("gap_findings")
+        if gf and gf.get("top"):
+            top = gf["top"]
+            rec = top.get("recommendation", "")
+            severity = top.get("severity", 0)
+            label = "Priority gap" if severity == 3 else "Gap finding"
+            parts.append(f"{label}: {rec}")
+        return " ".join(parts)
 
     lines = []
 
@@ -283,6 +344,20 @@ def build_fallback_narrative(facts: dict) -> str:
         else:
             lines.append("⚠ Load warning: consider easing off this week.")
 
+    # Gap finding (issue #1378): render top finding recommendation when present.
+    # Key absent → analyzer never ran → no change. Key = {} → no active findings.
+    gf = facts.get("gap_findings")
+    if gf and gf.get("top"):
+        top = gf["top"]
+        rec = top.get("recommendation", "")
+        severity = top.get("severity", 0)
+        label = "Priority gap" if severity == 3 else "Gap finding"
+        others = gf.get("others_count", 0)
+        finding_line = f"{label}: {rec}"
+        if others > 0:
+            finding_line += f" ({others} more finding{'s' if others > 1 else ''} this week.)"
+        lines.append(finding_line)
+
     # Subjective signals — the report closes by asking, not only asserting
     # (spec B.5). A fixed question keeps the deterministic template honest
     # about not being the whole picture.
@@ -346,6 +421,25 @@ def validate_summary(text: str, facts: dict) -> list[str]:
                 "explain it, do not omit or re-derive it"
             )
 
+    # Gap-finding contradiction check (issue #1378): same rejection mechanism
+    # as the verdict check above. Only fires for severity-3 findings whose
+    # recommendation is a "reduce/avoid" directive — these are hard constraints
+    # the LLM must not override. "Add X" type severity-3 findings are already
+    # communicated via the prompt; no automatic contradiction check needed there.
+    gf = facts.get("gap_findings")
+    if gf and gf.get("top"):
+        top = gf["top"]
+        if top.get("severity") == 3:
+            rec = (top.get("recommendation") or "").lower()
+            if _FINDING_REDUCE_PATTERN.search(rec):
+                lowered = text.lower()
+                if _increase_language_violation(lowered):
+                    errs.append(
+                        "narrative recommends increasing training load, but there is an active "
+                        "severity-3 gap finding advising to reduce/avoid — do not contradict "
+                        f"the finding: {top.get('recommendation', '')!r}"
+                    )
+
     return errs
 
 
@@ -382,6 +476,12 @@ def _facts_to_str(facts: dict) -> str:
     # Also include PR names in facts_str so guard doesn't flag them
     for pr in facts.get("prs_achieved") or []:
         parts.append(str(pr.get("value_numeric", "")))
+    # Include gap finding evidence value so numeral guard doesn't flag it
+    gf = facts.get("gap_findings") or {}
+    ev = (gf.get("top") or {}).get("evidence_value")
+    if ev is not None and isinstance(ev, (int, float)) and not isinstance(ev, bool):
+        for nd in (0, 1, 2):
+            parts.append(f"{ev:.{nd}f}")
     return " ".join(parts)
 
 
@@ -451,6 +551,26 @@ def _build_prompt(facts: dict, facts_str: str) -> tuple[str, str]:
                     f" The verdict was downgraded due to wellness signals: {'; '.join(mod_desc)}. "
                     "Mention this reason when explaining the verdict. "
                 )
+
+    # Gap-finding context (issue #1378): tell the LLM about the top finding so
+    # it can mention it consistently. Severity-3 reduce-type findings carry the
+    # hard constraint; others are advisory context.
+    gf = facts.get("gap_findings")
+    if gf and gf.get("top"):
+        top = gf["top"]
+        rec = (top.get("recommendation") or "").lower()
+        severity = top.get("severity", 0)
+        finding_note = (
+            f"\nGAP FINDING (from the training gap analyzer — mention it in the narrative, "
+            f"do not contradict it): severity={severity}, "
+            f"recommendation={top.get('recommendation', '')!r}. "
+        )
+        if severity == 3 and _FINDING_REDUCE_PATTERN.search(rec):
+            finding_note += (
+                "This is a priority finding. Do NOT recommend increasing load or training "
+                "in the area flagged by this finding."
+            )
+        system += finding_note
 
     count = facts.get("workout_count", 0)
     if count == 0:
