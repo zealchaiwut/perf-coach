@@ -579,6 +579,74 @@ curl "http://localhost:9100/api/weight/recent?n=7"
 }
 ```
 
+### `GET /api/weight/status`
+
+The weight block consumed by the Hermes coaching brief exporter
+(`scripts/export_brief.py`) in a single round trip — deliberately more than
+`/api/weight/recent` above, which is a raw recent-entries view. All
+computation lives in `backend/services/weight_plan.py`
+(`compute_weight_status`, `compute_current_pace_kg_per_week`,
+`compute_required_pace_kg_per_week`, `compute_on_track`) — DB-read, no LLM/
+model calls anywhere in this path.
+
+**`current_kg` is always a 7-day rolling average of `weight_entries.weight_kg`
+— never a single day's weigh-in.** It falls back to the average of whatever
+readings exist in a wider (~55 day) lookback when fewer than 2 entries fall
+in the trailing 7 days, and to `null` when the user has no weigh-ins at all.
+`trend_7d` / `trend_28d` are window-average deltas (current N-day average
+minus the immediately preceding N-day average, in kg) — same rule, never a
+day-over-day delta.
+
+`target_kg` / `target_date` / `pace_kg_per_week` / `on_track` /
+`projection_date` all come from the user's active `weight_targets` row (the
+same one the webapp's `GET /api/weight-targets/active` reads) and are `null`
+when there is no active target. `on_track` compares `pace_kg_per_week`
+against the pace required to hit `target_date` on time, direction-aware for
+loss vs. gain targets. `projection_date` reuses the existing
+`weight_plan.project_hit_date` extrapolation (7-day pace) and is `null` when
+pace is flat, insufficient, or moving away from the goal.
+
+Returns HTTP 200 in every case — zero weigh-ins and/or no active target are
+unremarkable, expected states for a headless client and must never error.
+
+```bash
+curl "http://localhost:9100/api/weight/status?date=2026-07-13"
+```
+
+```json
+{
+  "current_kg": 68.5,
+  "trend_7d": -0.3,
+  "trend_28d": -1.1,
+  "target_kg": 65.0,
+  "target_date": "2026-09-01",
+  "pace_kg_per_week": 0.32,
+  "on_track": true,
+  "projection_date": "2026-08-25"
+}
+```
+
+`pace_kg_per_week` follows the same sign convention as the rest of this
+module: positive means losing weight, negative means gaining. For a loss
+target (as above), a positive pace at or above the required rate is
+`on_track: true`; for a gain target, a sufficiently negative pace is
+`on_track: true`.
+
+Example — no weigh-ins and no active target:
+
+```json
+{
+  "current_kg": null,
+  "trend_7d": null,
+  "trend_28d": null,
+  "target_kg": null,
+  "target_date": null,
+  "pace_kg_per_week": null,
+  "on_track": null,
+  "projection_date": null
+}
+```
+
 ## Audit trail
 
 `worker_job_runs` (see `backend/models.py`) is the source of truth for every

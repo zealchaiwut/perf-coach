@@ -58,13 +58,21 @@ def strength_lapsed(inputs: dict) -> Optional[GapAnalysisFinding]:
         }
     ]
 
+    if days_ago is None:
+        recommendation = (
+            "No strength sessions on record — schedule one this week to "
+            "maintain structural resilience."
+        )
+    else:
+        recommendation = (
+            f"{days_ago} days since your last strength session — schedule "
+            "one this week to maintain structural resilience."
+        )
+
     return GapAnalysisFinding(
         code="strength_lapsed",
         severity=1,
-        recommendation=(
-            "No strength sessions in the last 3 weeks — schedule at least one "
-            "strength session this week to maintain structural resilience."
-        ),
+        recommendation=recommendation,
         evidence=evidence,
         target=None,
         week_start=inputs["week_start"],

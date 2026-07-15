@@ -530,6 +530,239 @@ def project_hit_date(target, session, as_of_date: datetime.date) -> Optional[dat
     return as_of_date + datetime.timedelta(days=days_needed)
 
 
+# ── Hermes weight-brief status (issue: Hermes weight block) ─────────────────
+#
+# The functions below back the worker's GET /api/weight/status read endpoint.
+# They are DB-read functions (like compute_gap/project_hit_date above) rather
+# than strictly pure — same established pattern in this module — but they
+# never mutate anything and never raise for missing data; every branch has an
+# explicit null/None fallback so the read endpoint can always return HTTP 200.
+#
+# Design rule (do not relax): the brief must never surface a single day's
+# weight. current_kg is always a rolling average over several days, and
+# trend_7d/trend_28d are always window-average deltas, never a point-to-point
+# day-over-day delta.
+
+_ROLLUP_LOOKBACK_DAYS: int = 55
+"""Wide enough to cover two full trailing 28-day windows (current + prior)."""
+
+
+def _weight_rollup(rows: list, as_of_date: datetime.date) -> dict:
+    """Pure helper: rows is a list of (entry_date, weight_kg) tuples, any order,
+    expected to span at least the trailing _ROLLUP_LOOKBACK_DAYS days from
+    as_of_date (callers fetch that window from the DB before calling this).
+
+    Returns {"current_kg", "trend_7d", "trend_28d"}.
+
+    current_kg: average weight_kg over the trailing 7-day window
+    [as_of_date-6, as_of_date]. Falls back to the average of every row given
+    (i.e. "whatever's available" over the wider lookback) when the 7-day
+    window has fewer than 2 entries, and to None when there are no rows at
+    all. Never returns a single day's raw entry.
+
+    trend_7d / trend_28d: (average over the current N-day window) minus
+    (average over the immediately preceding N-day window), in kg. None
+    whenever either window is empty — always a window-to-window delta, never
+    a single day-over-day comparison.
+    """
+    def _window(start_days_ago: int, end_days_ago: int) -> list:
+        lo = as_of_date - datetime.timedelta(days=end_days_ago)
+        hi = as_of_date - datetime.timedelta(days=start_days_ago)
+        return [w for (d, w) in rows if lo <= d <= hi]
+
+    def _avg(vals: list) -> Optional[float]:
+        return round(sum(vals) / len(vals), 2) if vals else None
+
+    window_7 = _window(0, 6)
+    if len(window_7) >= 2:
+        current_kg = _avg(window_7)
+    else:
+        # Fallback: fewer than 2 readings in the last week — average whatever
+        # is available in the wider lookback rather than surfacing one entry.
+        all_vals = [w for (_, w) in rows]
+        current_kg = _avg(all_vals)
+
+    prior_7 = _window(7, 13)
+    trend_7d = None
+    if window_7 and prior_7:
+        trend_7d = round(sum(window_7) / len(window_7) - sum(prior_7) / len(prior_7), 2)
+
+    window_28 = _window(0, 27)
+    prior_28 = _window(28, 55)
+    trend_28d = None
+    if window_28 and prior_28:
+        trend_28d = round(sum(window_28) / len(window_28) - sum(prior_28) / len(prior_28), 2)
+
+    return {"current_kg": current_kg, "trend_7d": trend_7d, "trend_28d": trend_28d}
+
+
+def compute_current_pace_kg_per_week(target, session, as_of_date: datetime.date) -> Optional[float]:
+    """Kg/week pace from weigh-ins logged since the target was created.
+
+    Mirrors the pace calc in backend/main.py's _compute_weight_target_active
+    (14-day window, filtered to entries created since the target's creation
+    time) so the worker read-API reports the same number the webapp's active-
+    target view shows. Kept here as its own directly-callable function rather
+    than imported from backend.main, which starts daemon threads at import
+    time and must never be imported by the worker (see worker_app.py's module
+    docstring).
+
+    Positive = losing weight over the window; negative = gaining. None when
+    there's fewer than 1 entry in the window, or a single entry logged on the
+    same day the target started (zero elapsed days).
+    """
+    from backend.models import WeightEntry  # local import to avoid circular dep
+
+    cutoff_14 = as_of_date - datetime.timedelta(days=14)
+    entries_14 = (
+        session.query(WeightEntry)
+        .filter(
+            WeightEntry.user_id == target.user_id,
+            WeightEntry.entry_date >= cutoff_14,
+            WeightEntry.created_at >= target.created_at,
+        )
+        .order_by(WeightEntry.entry_date.asc())
+        .all()
+    )
+
+    if len(entries_14) >= 2:
+        first_e, last_e = entries_14[0], entries_14[-1]
+        days_span = (last_e.entry_date - first_e.entry_date).days
+        if days_span <= 0:
+            return None
+        kg_change = float(first_e.weight_kg) - float(last_e.weight_kg)
+        return round(kg_change / days_span * 7, 4)
+
+    if len(entries_14) == 1:
+        start_date = _as_date(target.start_date)
+        days_elapsed = (as_of_date - start_date).days
+        if days_elapsed <= 0:
+            return None
+        kg_change = float(target.start_weight_kg) - float(entries_14[0].weight_kg)
+        return round(kg_change / days_elapsed * 7, 4)
+
+    return None
+
+
+def compute_required_pace_kg_per_week(target, session, as_of_date: datetime.date) -> Optional[float]:
+    """Required kg/week pace to reach target.target_date, based on the same
+    current-basis (7d avg, or latest-entry-within-14d fallback) compute_gap
+    already uses. None once target_date has passed (weeks_remaining <= 0).
+    """
+    target_date = _as_date(target.target_date)
+    days_remaining = (target_date - as_of_date).days
+    weeks_remaining = days_remaining / 7.0
+    if weeks_remaining <= 0:
+        return None
+
+    gap_data = compute_gap(target, session, as_of_date)
+    current_basis_kg = gap_data.get("current_basis_kg")
+    current_weight = current_basis_kg if current_basis_kg is not None else float(target.start_weight_kg)
+    kg_to_go = current_weight - float(target.target_weight_kg)
+    return round(kg_to_go / weeks_remaining, 4)
+
+
+def compute_on_track(
+    target,
+    current_pace_kg_per_week: Optional[float],
+    required_pace_kg_per_week: Optional[float],
+) -> Optional[bool]:
+    """True when current pace is moving toward the target at or ahead of the
+    pace required to hit target_date on time. Direction-aware:
+
+    - Loss target (target_weight_kg < start_weight_kg): required/current pace
+      are both positive while the goal isn't yet reached; on_track requires
+      current_pace_kg_per_week >= required_pace_kg_per_week.
+    - Gain target: required/current pace are both negative (per this module's
+      "positive = losing" sign convention) while the goal isn't yet reached;
+      on_track requires current_pace_kg_per_week <= required_pace_kg_per_week
+      (i.e. gaining at least as fast, expressed as a more-negative pace).
+    - Either way, once required_pace_kg_per_week implies the goal is already
+      met/exceeded (<=0 for a loss target, >=0 for a gain target), returns
+      True regardless of current pace.
+
+    Returns None when either pace is unavailable (insufficient weigh-in data
+    to judge) — never guesses.
+    """
+    if current_pace_kg_per_week is None or required_pace_kg_per_week is None:
+        return None
+
+    is_loss = float(target.target_weight_kg) < float(target.start_weight_kg)
+    if is_loss:
+        if required_pace_kg_per_week <= 0:
+            return True
+        return current_pace_kg_per_week >= required_pace_kg_per_week
+    else:
+        if required_pace_kg_per_week >= 0:
+            return True
+        return current_pace_kg_per_week <= required_pace_kg_per_week
+
+
+def compute_weight_status(session, user_id, as_of_date: datetime.date) -> dict:
+    """Assemble the Hermes-brief weight block for a user: 7-day rolling-average
+    current weight, 7d/28d trend deltas, active target info, current vs.
+    required pace, on-track flag, and a hit-date projection.
+
+    Always returns a fully-keyed dict — never raises for a user with zero
+    weigh-ins or no active WeightTarget; every field is simply None in those
+    cases (see _weight_rollup's fallback rules for current_kg specifically).
+
+    Returns
+    -------
+    dict with keys: current_kg, trend_7d, trend_28d, target_kg, target_date
+    (ISO string or None), pace_kg_per_week, on_track (bool or None),
+    projection_date (ISO string or None).
+    """
+    from backend.models import WeightEntry, WeightTarget  # local import to avoid circular dep
+
+    rollup_window_start = as_of_date - datetime.timedelta(days=_ROLLUP_LOOKBACK_DAYS)
+    rows = (
+        session.query(WeightEntry)
+        .filter(
+            WeightEntry.user_id == user_id,
+            WeightEntry.entry_date >= rollup_window_start,
+            WeightEntry.entry_date <= as_of_date,
+        )
+        .all()
+    )
+    weight_rows = [(r.entry_date, float(r.weight_kg)) for r in rows]
+    rollup = _weight_rollup(weight_rows, as_of_date)
+
+    target = (
+        session.query(WeightTarget)
+        .filter(WeightTarget.user_id == user_id, WeightTarget.status == "active")
+        .first()
+    )
+
+    if target is None:
+        return {
+            "current_kg": rollup["current_kg"],
+            "trend_7d": rollup["trend_7d"],
+            "trend_28d": rollup["trend_28d"],
+            "target_kg": None,
+            "target_date": None,
+            "pace_kg_per_week": None,
+            "on_track": None,
+            "projection_date": None,
+        }
+
+    current_pace = compute_current_pace_kg_per_week(target, session, as_of_date)
+    required_pace = compute_required_pace_kg_per_week(target, session, as_of_date)
+    on_track = compute_on_track(target, current_pace, required_pace)
+    hit_date = project_hit_date(target, session, as_of_date)
+
+    return {
+        "current_kg": rollup["current_kg"],
+        "trend_7d": rollup["trend_7d"],
+        "trend_28d": rollup["trend_28d"],
+        "target_kg": float(target.target_weight_kg),
+        "target_date": str(_as_date(target.target_date)),
+        "pace_kg_per_week": current_pace,
+        "on_track": on_track,
+        "projection_date": hit_date.isoformat() if hit_date is not None else None,
+    }
+
+
 def _snap_to_month_start(d: datetime.date) -> datetime.date:
     """Round date to nearest 1st-of-month."""
     # First of current month

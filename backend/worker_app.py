@@ -650,6 +650,99 @@ def plan_today(date: str | None = None, user: str | None = None):
     }
 
 
+@app.get("/api/weight/recent")
+def weight_recent(n: int = 14, user: str | None = None):
+    """Last N weigh-ins (default 14, clamped 1-90) from weight_entries, newest
+    first, with the latest EWMA value (backend.services.weight_ewma — same
+    smoothing as the dashboard weight chart) and an up/flat/down trend across
+    the returned window (±0.1 kg dead-band). Always HTTP 200 — entries: []
+    with last_logged/ewma/trend null when the user has no weigh-ins.
+    """
+    from backend.models import WeightEntry
+    from backend.services.weight_ewma import compute_ewma
+
+    resolved_user = _resolve_read_user(user)
+    n_clamped = max(1, min(90, n))
+
+    with Session(engine) as s:
+        rows = (
+            s.query(WeightEntry)
+            .filter(WeightEntry.user_id == resolved_user.id)
+            .order_by(WeightEntry.entry_date.desc(), WeightEntry.entry_time.desc())
+            .limit(n_clamped)
+            .all()
+        )
+
+    if not rows:
+        return {
+            "entries": [],
+            "count": 0,
+            "last_logged": None,
+            "ewma": None,
+            "trend": None,
+        }
+
+    # rows are newest-first; compute_ewma expects chronological (oldest-first) order.
+    chronological = list(reversed(rows))
+    ewma_inputs = [{"date": r.entry_date, "weight_kg": float(r.weight_kg)} for r in chronological]
+    smoothed = compute_ewma(ewma_inputs)
+
+    ewma_latest = round(smoothed[-1], 2)
+    trend_delta = smoothed[-1] - smoothed[0]
+    if trend_delta > 0.1:
+        trend = "up"
+    elif trend_delta < -0.1:
+        trend = "down"
+    else:
+        trend = "flat"
+
+    entries = [
+        {
+            "date": r.entry_date.isoformat(),
+            "time": r.entry_time.isoformat(timespec="minutes") if r.entry_time else None,
+            "weight_kg": float(r.weight_kg),
+        }
+        for r in rows
+    ]
+
+    return {
+        "entries": entries,
+        "count": len(entries),
+        "last_logged": rows[0].entry_date.isoformat(),
+        "ewma": ewma_latest,
+        "trend": trend,
+    }
+
+
+@app.get("/api/weight/status")
+def weight_status(date: str | None = None, user: str | None = None):
+    """Weight block for the Hermes coaching brief in one round trip: 7-day
+    rolling-average current weight (never a single day's entry), 7d/28d
+    trend deltas, active WeightTarget info, current vs. required pace, an
+    on-track flag, and a hit-date projection. All computation lives in
+    backend.services.weight_plan.compute_weight_status (DB-read, no LLM/model
+    calls anywhere in this path). Always HTTP 200 with null fields — zero
+    weigh-ins and/or no active target are unremarkable, expected states for a
+    headless client that must never crash on missing data.
+    """
+    from datetime import date as _date
+
+    from backend.services.weight_plan import compute_weight_status
+
+    resolved_user = _resolve_read_user(user)
+
+    if date is not None:
+        try:
+            as_of_date = _date.fromisoformat(date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="date must be YYYY-MM-DD")
+    else:
+        as_of_date = datetime.now(BANGKOK_TZ).date()
+
+    with Session(engine) as s:
+        return compute_weight_status(s, resolved_user.id, as_of_date)
+
+
 # ── Feel-entry write API (Hermes) ─────────────────────────────────────────────
 #
 # POST /feel-entry — guarded by a static bearer token (WORKER_API_TOKEN env
