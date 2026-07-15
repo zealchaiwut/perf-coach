@@ -22,7 +22,7 @@ import urllib.request
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 BANGKOK_TZ = ZoneInfo("Asia/Bangkok")
 DEFAULT_WINDOW_DAYS = 14
 WORKER_DEFAULT_URL = "http://127.0.0.1:9100"
@@ -94,6 +94,110 @@ def _plan_to_session(plan_resp: dict, for_date: date) -> dict:
         "duration_min": None,
         "notes": None,
     }
+
+
+# All-null weight block — returned whenever the worker's /api/weight/status
+# is unreachable or errors, so a weight-tracking hiccup never takes down the
+# whole brief export (unlike _fetch_plan, which is allowed to raise).
+_NULL_WEIGHT_BLOCK: dict = {
+    "current_kg": None,
+    "trend_7d": None,
+    "trend_28d": None,
+    "target_kg": None,
+    "target_date": None,
+    "pace_kg_per_week": None,
+    "on_track": None,
+    "projection_date": None,
+}
+
+
+def _fetch_weight_status(worker_url: str, date_str: str, username: str | None) -> dict:
+    """Fetch the weight block from the worker's /api/weight/status.
+
+    Mirrors _fetch_plan's HTTP-call style (urllib, 10s timeout), but degrades
+    to an all-null weight block on any network/parsing error instead of
+    raising — the weight block is a nice-to-have addition to the brief, not
+    load-bearing like today's/tomorrow's planned session.
+    """
+    url = f"{worker_url.rstrip('/')}/api/weight/status?date={date_str}"
+    if username:
+        url += f"&user={urllib.request.quote(username)}"
+
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            data = json.loads(resp.read())
+            return {**_NULL_WEIGHT_BLOCK, **data}
+    except Exception as exc:
+        print(f"WARNING: weight status unavailable: {exc}", file=sys.stderr)
+        return dict(_NULL_WEIGHT_BLOCK)
+
+
+def _assemble_weight(user_id: str, for_date: date, worker_url: str, username: str | None) -> dict:
+    """Assemble the brief's top-level "weight" block.
+
+    user_id is accepted for signature symmetry with the other _assemble_*
+    functions in this module but isn't used directly here — like
+    _fetch_plan, the worker resolves the target user itself from ?user=
+    (falling back to WORKER_READ_API_USER / single-active-user).
+    """
+    return _fetch_weight_status(worker_url, for_date.isoformat(), username)
+
+
+def _compute_weight_advisory(weight: dict, verdict: str | None) -> dict | None:
+    """Rule-computed (no LLM/model calls) weight advisory, cross-referenced
+    against the current training verdict/phase. Returns at most one advisory
+    dict {key, severity, text}, or None.
+
+    Decision table (training phase always wins over pace when they conflict):
+
+    | target set? | on_track      | verdict == "build" (load-increasing) | advisory                                   |
+    |-------------|---------------|---------------------------------------|---------------------------------------------|
+    | no          | n/a           | n/a                                     | None — nothing to compare against            |
+    | yes         | None (n/a)    | n/a                                     | None — insufficient weigh-in data to judge   |
+    | yes         | True or False | True                                    | HOLD intake (build/race-week block; never a deficit push) |
+    | yes         | False         | False (hold/back_off/unknown)          | encourage tightening up (no load conflict)   |
+    | yes         | True          | False (hold/back_off/unknown)          | None — on pace and no conflict; nothing to flag |
+
+    The core invariant: a "build" verdict NEVER produces a deficit-push
+    recommendation, regardless of pace — it always recommends holding intake
+    instead. An unknown verdict (None, e.g. training-load data unavailable)
+    is treated the same as a non-build verdict — there's no known conflict to
+    guard against, so pace alone drives the (possibly absent) advisory.
+    """
+    if not weight or weight.get("target_kg") is None:
+        return None
+
+    on_track = weight.get("on_track")
+    if on_track is None:
+        return None
+
+    if verdict == "build":
+        if on_track:
+            text = (
+                "You're on pace toward your weight target, but you're entering "
+                "a build block — hold intake here rather than pushing the "
+                "deficit further."
+            )
+        else:
+            text = (
+                "You're behind pace on your weight target, but you're entering "
+                "a build block — hold intake here rather than adding a deficit "
+                "on top of rising training load. Tighten up once the block eases."
+            )
+        return {"key": "weight_hold_intake_build", "severity": "info", "text": text}
+
+    if on_track is False:
+        return {
+            "key": "weight_pace_behind_tighten_up",
+            "severity": "warn",
+            "text": (
+                "Pace is behind your weight target and training load isn't "
+                "ramping — tighten up intake this week."
+            ),
+        }
+
+    # on_track is True and verdict isn't load-increasing: things are fine.
+    return None
 
 
 def _assemble_form(user_id: str, for_date: date) -> dict:
@@ -246,8 +350,8 @@ def _build_highlights_md(user_id: str, for_date: date) -> str:
     return build_fallback_narrative(facts)
 
 
-def _assemble_advisories(user_id: str, for_date: date) -> list[dict]:
-    """Map gap-analysis findings + training verdict to advisory objects."""
+def _assemble_advisories(user_id: str, for_date: date, weight: dict) -> list[dict]:
+    """Map gap-analysis findings + training verdict (+ weight status) to advisory objects."""
     import uuid as _uuid
 
     advisories: list[dict] = []
@@ -273,7 +377,10 @@ def _assemble_advisories(user_id: str, for_date: date) -> list[dict]:
     except Exception as exc:
         print(f"WARNING: gap analysis unavailable: {exc}", file=sys.stderr)
 
-    # Append verdict advisory for non-build verdicts
+    # Verdict fetched once here (rather than inside its own try/except only)
+    # so the weight advisory below — which must cross-reference the current
+    # training phase — can share the exact same value. None when unavailable.
+    verdict_str: str | None = None
     try:
         from backend.services.gap_analysis.engine import _gather_training_verdict
 
@@ -287,6 +394,16 @@ def _assemble_advisories(user_id: str, for_date: date) -> list[dict]:
             })
     except Exception as exc:
         print(f"WARNING: training verdict unavailable: {exc}", file=sys.stderr)
+
+    # Weight advisory: rule-computed, cross-referenced against the training
+    # verdict above so it never recommends a deficit push during a build
+    # block (see _compute_weight_advisory's decision table).
+    try:
+        weight_advisory = _compute_weight_advisory(weight, verdict_str)
+        if weight_advisory is not None:
+            advisories.append(weight_advisory)
+    except Exception as exc:
+        print(f"WARNING: weight advisory computation failed: {exc}", file=sys.stderr)
 
     return advisories
 
@@ -336,7 +453,8 @@ def _build_brief(
 
     form = _assemble_form(user_id, for_date)
     recent_wrap = _assemble_recent_wrap(user_id, for_date)
-    advisories = _assemble_advisories(user_id, for_date)
+    weight = _assemble_weight(user_id, for_date, worker_url, username)
+    advisories = _assemble_advisories(user_id, for_date, weight)
 
     generated_at = datetime.now(BANGKOK_TZ).isoformat()
 
@@ -348,6 +466,7 @@ def _build_brief(
         "tomorrow": tomorrow_session,
         "form": form,
         "recent_wrap": recent_wrap,
+        "weight": weight,
         "advisories": advisories,
         "actions": [],
     }

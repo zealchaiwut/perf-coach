@@ -257,8 +257,9 @@ def test_dry_run_does_not_acquire_lock(m, tmp_path):
 # ── AC5: Top-level envelope ───────────────────────────────────────────────────
 
 def test_envelope_schema_version(m):
-    """AC5: schema_version is integer 1."""
-    assert m.SCHEMA_VERSION == 1
+    """AC5: schema_version is integer (bumped to 2 by the weight-block
+    addition to the brief contract; see tests/test_weight_hermes_brief_block.py)."""
+    assert m.SCHEMA_VERSION == 2
 
 
 def test_build_brief_envelope_keys(m):
@@ -282,7 +283,7 @@ def test_build_brief_envelope_keys(m):
             date(2026, 7, 14), "http://localhost:9100", "user-id-1", None
         )
 
-    assert brief["schema_version"] == 1
+    assert brief["schema_version"] == 2
     assert brief["for_date"] == "2026-07-14"
     assert "+07:00" in brief["generated_at"]
     assert "today" in brief
@@ -550,7 +551,12 @@ def test_advisories_severity_mapping(m):
          patch("backend.services.gap_analysis.engine._gather_training_verdict", return_value=None):
 
         mod = _import_module()
-        result = mod._assemble_advisories("00000000-0000-0000-0000-000000000001", date(2026, 7, 14))
+        # _assemble_advisories grew a required 3rd positional "weight" param
+        # (see tests/test_weight_hermes_brief_block.py for the weight-block
+        # coverage); {} here is a no-target weight block, keeping this test
+        # scoped to gap-analysis severity mapping only, unaffected by the
+        # weight advisory branch.
+        result = mod._assemble_advisories("00000000-0000-0000-0000-000000000001", date(2026, 7, 14), {})
 
     severities = {item["key"]: item["severity"] for item in result}
     assert severities.get("a") == "info"
