@@ -158,6 +158,12 @@ information about.
       if (dateIso) _weekStart = _mondayOf(_parseISO(dateIso));
       _pendingOpenId = sessionId;
     },
+    // Plan-guard helpers (issue #1383), exported for the suggestions module
+    // — it is a SEPARATE closure below in this file, so bare references to
+    // _planCheck/_planGuardHtml there throw ReferenceError (which killed
+    // every suggestion "Add" click before the request even fired).
+    planCheck: function (payload, cb) { _planCheck(payload, cb); },
+    planGuardHtml: function (result) { return _planGuardHtml(result); },
     reload: function () {
       _loadWeek(function () {});
     },
@@ -3104,17 +3110,26 @@ information about.
 
     // Run plan-check before adding; show inline warning and require confirm
     // if the session footprint loads an overused or injured group.
+    // _planCheck/_planGuardHtml live in the OTHER closure (the main Plan
+    // module) — reach them via the window.TrainingPlan bridge, and treat a
+    // missing bridge as "no warnings" so Add can never be bricked by the
+    // guard being unavailable.
     if (s._guardConfirmed) {
       _doAdd();
       return;
     }
-    _planCheck({ session_type: s.workout_type, structure: body.structure || null }, function (result) {
-      if (result && result.warnings && result.warnings.length) {
+    var tp = window.TrainingPlan || {};
+    if (typeof tp.planCheck !== 'function') {
+      _doAdd();
+      return;
+    }
+    tp.planCheck({ session_type: s.workout_type, structure: body.structure || null }, function (result) {
+      if (result && result.warnings && result.warnings.length && typeof tp.planGuardHtml === 'function') {
         s._guardConfirmed = true;
         // Show warning inline next to the Add button
         var warnEl = document.createElement('div');
         warnEl.className = 'pl-guard-inline';
-        warnEl.innerHTML = _planGuardHtml(result) +
+        warnEl.innerHTML = tp.planGuardHtml(result) +
           '<button class="pl-btn pl-lime pl-tiny pl-guard-proceed">Add anyway</button>';
         btn.parentNode.insertBefore(warnEl, btn.nextSibling);
         btn.disabled = false;
