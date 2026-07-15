@@ -18,6 +18,8 @@ from collections import Counter
 from datetime import date, timedelta
 from typing import Optional
 
+from backend.services.workout_types import WORKOUT_TYPE_STRENGTH
+
 # Named constant: absolute foot-contact delta (per week) required to call
 # the trend "rising" or "falling". Deltas ≤ this value are "flat".
 FC_TREND_THRESHOLD: int = 15
@@ -149,11 +151,11 @@ def compute_structural_dose(
                 UNION
                 SELECT workout_date AS d
                   FROM workouts
-                 WHERE user_id = :uid AND workout_type = 'strength'
+                 WHERE user_id = :uid AND LOWER(workout_type) = LOWER(:strength_type)
                    AND workout_date >= :ws AND workout_date <= :we
             ) AS combined
         """),
-        {"uid": uid_str, "ws": window_start, "we": window_end},
+        {"uid": uid_str, "ws": window_start, "we": window_end, "strength_type": WORKOUT_TYPE_STRENGTH},
     ).fetchall()
     strength_dates_in_window: set[date] = {row[0] for row in strength_dates_rows}
 
@@ -164,13 +166,13 @@ def compute_structural_dose(
                 SELECT MAX(session_date) AS d FROM strength_sessions WHERE user_id = :uid
                 UNION ALL
                 SELECT MAX(workout_date) AS d FROM workouts
-                 WHERE user_id = :uid AND workout_type = 'strength'
+                 WHERE user_id = :uid AND LOWER(workout_type) = LOWER(:strength_type)
             ) AS combined
             WHERE d IS NOT NULL
             ORDER BY d DESC
             LIMIT 1
         """),
-        {"uid": uid_str},
+        {"uid": uid_str, "strength_type": WORKOUT_TYPE_STRENGTH},
     ).scalar()
 
     # ── Build weekly buckets ──────────────────────────────────────────────────

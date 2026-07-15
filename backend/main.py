@@ -41,6 +41,7 @@ from backend.models import (
 )
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values
+from backend.services.workout_types import WORKOUT_TYPE_RUN, WORKOUT_TYPE_STRENGTH
 from backend.services.tss import compute_running_tss as _compute_running_tss
 from backend.services.tss import compute_strength_tss as _compute_strength_tss
 from backend.services.tss import STRENGTH_TSS_SCALE as _STRENGTH_TSS_SCALE, STRENGTH_TSS_MAX as _STRENGTH_TSS_MAX
@@ -5750,19 +5751,27 @@ def _best_values_dict(w: Workout) -> dict:
 
 
 def _normalize_workout_type(t: str | None) -> str | None:
-    """Canonicalize run type casing on write ('Run'/'Running' → 'run').
+    """Canonicalize run/strength type casing on write.
 
     Runs must be stored as lowercase 'run' so run-scoped queries (scoring,
     guardrail) match. Other types are passed through trimmed, unchanged.
     Run subtypes (interval/longrun/easy/tempo) are a SEPARATE column
     (``run_subtype``) — workout_type stays 'run' so the row keeps the full run
     pipeline (detail layout, decoupling, PRs, run counts).
+
+    Strength must similarly be stored as lowercase 'strength' so
+    strength-scoped queries (structural_dose, gap-analysis strength_lapsed
+    rule) match — see issue #1369 follow-up. The manual-entry API previously
+    passed 'Strength' through verbatim, which silently excluded those rows
+    from case-sensitive `workout_type = 'strength'` queries.
     """
     if t is None:
         return None
     t = t.strip()
     if t.lower() in ("run", "running"):
-        return "run"
+        return WORKOUT_TYPE_RUN
+    if t.lower() == "strength":
+        return WORKOUT_TYPE_STRENGTH
     return t
 
 
