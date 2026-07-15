@@ -158,6 +158,12 @@ information about.
       if (dateIso) _weekStart = _mondayOf(_parseISO(dateIso));
       _pendingOpenId = sessionId;
     },
+    // Plan-guard helpers (issue #1383), exported for the suggestions module
+    // — it is a SEPARATE closure below in this file, so bare references to
+    // _planCheck/_planGuardHtml there throw ReferenceError (which killed
+    // every suggestion "Add" click before the request even fired).
+    planCheck: function (payload, cb) { _planCheck(payload, cb); },
+    planGuardHtml: function (result) { return _planGuardHtml(result); },
     reload: function () {
       _loadWeek(function () {});
     },
@@ -2735,6 +2741,8 @@ information about.
     '.pl-rail-sum b.on{color:#16a34a;}.pl-rail-sum b.under{color:var(--pl-amber);}.pl-rail-sum b.over{color:#b91c1c;}',
     '.pl-fill-all{font-size:11.5px;padding:6px 12px;}',
     '.pl-fill-all:disabled{opacity:0.45;cursor:default;}',
+    '.pl-fill-skiprun{font-size:11px;color:var(--pl-muted);display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none;}',
+    '.pl-fill-skiprun input{cursor:pointer;}',
     '.pl-sched-grid{display:grid;grid-template-columns:repeat(7,minmax(76px,1fr));gap:6px;overflow-x:auto;}',
     '.pl-sched-day{background:#fff;border:1px solid var(--pl-line);border-radius:9px;padding:5px;min-height:74px;display:flex;flex-direction:column;gap:4px;}',
     '.pl-sched-day.is-closed{opacity:0.45;background:var(--pl-tile);}',
@@ -3102,17 +3110,26 @@ information about.
 
     // Run plan-check before adding; show inline warning and require confirm
     // if the session footprint loads an overused or injured group.
+    // _planCheck/_planGuardHtml live in the OTHER closure (the main Plan
+    // module) — reach them via the window.TrainingPlan bridge, and treat a
+    // missing bridge as "no warnings" so Add can never be bricked by the
+    // guard being unavailable.
     if (s._guardConfirmed) {
       _doAdd();
       return;
     }
-    _planCheck({ session_type: s.workout_type, structure: body.structure || null }, function (result) {
-      if (result && result.warnings && result.warnings.length) {
+    var tp = window.TrainingPlan || {};
+    if (typeof tp.planCheck !== 'function') {
+      _doAdd();
+      return;
+    }
+    tp.planCheck({ session_type: s.workout_type, structure: body.structure || null }, function (result) {
+      if (result && result.warnings && result.warnings.length && typeof tp.planGuardHtml === 'function') {
         s._guardConfirmed = true;
         // Show warning inline next to the Add button
         var warnEl = document.createElement('div');
         warnEl.className = 'pl-guard-inline';
-        warnEl.innerHTML = _planGuardHtml(result) +
+        warnEl.innerHTML = tp.planGuardHtml(result) +
           '<button class="pl-btn pl-lime pl-tiny pl-guard-proceed">Add anyway</button>';
         btn.parentNode.insertBefore(warnEl, btn.nextSibling);
         btn.disabled = false;
@@ -3196,11 +3213,13 @@ information about.
       '</div>';
     }
 
-    var anyUnfilled = suggestions.some(function (s) { return s.workout_type !== 'rest' && !s._ai; });
+    var anyUnfilled = _fillableSlots().length > 0;
     host.innerHTML =
       '<div class="pl-rail-head">' +
         '<span class="pl-rail-title">Schedule — drag, resize, then fill</span>' +
         '<span class="pl-rail-sum">' + _slotSumHtml(data) + '</span>' +
+        '<label class="pl-fill-skiprun" title="Exclude run slots from the AI fill — they are usually the most numerous and the first to exhaust the LLM budget">' +
+          '<input type="checkbox" id="pl-skip-run"' + (_skipRunFill ? ' checked' : '') + (_fillAllRunning ? ' disabled' : '') + '/> Skip Run</label>' +
         '<button type="button" class="pl-btn pl-lime pl-fill-all"' + (anyUnfilled && !_fillAllRunning ? '' : ' disabled') + '>' +
           (_fillAllRunning ? '… filling' : '✨ Fill sessions with AI') + '</button>' +
       '</div>' +
@@ -3250,6 +3269,11 @@ information about.
     });
     var fillBtn = host.querySelector('.pl-fill-all');
     if (fillBtn) fillBtn.addEventListener('click', _fillAllSlots);
+    var skipRunChk = host.querySelector('#pl-skip-run');
+    if (skipRunChk) skipRunChk.addEventListener('change', function () {
+      _skipRunFill = skipRunChk.checked;
+      _renderSuggestions(_suggestionsData);
+    });
   }
 
   // ── Rail 2: per-slot content generation ─────────────────────────────────────
@@ -3294,12 +3318,29 @@ information about.
   // provider) and _renderSuggestions leaves the progress overlay alone (any
   // unrelated re-render used to hide it mid-chain).
   var _fillAllRunning = false;
+  // Persists across re-renders within the session (not saved) — lets the
+  // athlete exclude 'run' slots from the AI fill chain, since they're the
+  // most numerous slot type and the first to exhaust a per-minute LLM budget.
+  var _skipRunFill = false;
+  // Extra pause between slots, on TOP of the backend's own 429 sleep-retry —
+  // spaces out the burst pre-emptively instead of reacting to it after the
+  // fact, so a small provider budget (e.g. Cerebras trial tier) is less
+  // likely to be exhausted mid-chain.
+  var _FILL_SLOT_DELAY_MS = 3000;
+
+  function _delay(ms) {
+    return new Promise(function (resolve) { setTimeout(resolve, ms); });
+  }
+
+  function _fillableSlots() {
+    return (_suggestionsData.suggestions || []).filter(function (s) {
+      return s.workout_type !== 'rest' && !s._ai && !(_skipRunFill && s.workout_type === 'run');
+    });
+  }
 
   function _fillAllSlots() {
     if (_fillAllRunning) return;
-    var slots = (_suggestionsData.suggestions || []).filter(function (s) {
-      return s.workout_type !== 'rest' && !s._ai;
-    });
+    var slots = _fillableSlots();
     if (!slots.length) return;
     _fillAllRunning = true;
     _renderSuggestions(_suggestionsData); // repaint with the button disabled
@@ -3308,8 +3349,10 @@ information about.
     if (loading) loading.style.display = '';
     var done = 0, failed = 0;
     var chain = Promise.resolve();
-    slots.forEach(function (s) {
+    slots.forEach(function (s, i) {
       chain = chain.then(function () {
+        return i > 0 ? _delay(_FILL_SLOT_DELAY_MS) : Promise.resolve();
+      }).then(function () {
         if (loading) loading.style.display = ''; // survive interim re-renders
         if (label) {
           label.textContent = 'Filling session ' + (done + failed + 1) + ' of ' + slots.length +
