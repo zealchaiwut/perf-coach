@@ -531,26 +531,22 @@
     var hmax = hValid.length ? Math.max.apply(null, hValid) : 0;
     var hrng = hmax - hmin || 1;
     var n = splits.length;
-    var pts = [];
+    // Point positions as 0-1 FRACTIONS only — the SVG is painted in real
+    // pixel coordinates after mount by _paintHrSvgs(). The old approach
+    // (viewBox 0-100 + preserveAspectRatio="none" + vector-effect:
+    // non-scaling-stroke) relied on WebKit honoring non-scaling-stroke,
+    // which iOS ignores when rasterizing (save-to-image / share sheet):
+    // the round dots stretched into wide ellipses and the min-HR baseline
+    // point smeared along the floor.
+    var frac = [];
     splits.forEach(function (s, i) {
       if (s.avg_hr == null || s.avg_hr <= 0) return;
-      var x = ((i + 0.5) / n) * 100;
-      var y = 100 - (((s.avg_hr - hmin) / hrng) * 80 + 8);
-      pts.push(x.toFixed(2) + "," + y.toFixed(2));
+      var x = (i + 0.5) / n;
+      var y = 1 - (((s.avg_hr - hmin) / hrng) * 0.8 + 0.08);
+      frac.push([+x.toFixed(4), +y.toFixed(4)]);
     });
-    var svg = '<svg class="rv2-hr-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">';
-    if (pts.length >= 2) {
-      svg += '<polyline points="' + pts.join(" ") + '" fill="none" stroke="var(--rv2-hr)" ' +
-        'stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>';
-    }
-    // Round-cap zero-length dots: constant pixel size (non-scaling stroke), so
-    // they stay round instead of stretching with the non-uniform viewBox.
-    pts.forEach(function (p) {
-      var xy = p.split(",");
-      svg += '<path d="M' + xy[0] + " " + xy[1] + 'l0 0" stroke="var(--rv2-hr)" ' +
-        'stroke-width="6" stroke-linecap="round" vector-effect="non-scaling-stroke"/>';
-    });
-    svg += "</svg>";
+    var svg = '<svg class="rv2-hr-svg" aria-hidden="true" data-hr-pts="' +
+      esc(JSON.stringify(frac)) + '"></svg>';
 
     var barLabel = barMetric === "power"
       ? "Power (" + (valid.length ? vmin + "–" + vmax : "—") + " W)"
@@ -925,8 +921,10 @@
         if (lapsEl) lapsEl.innerHTML = renderLapTable(splits, strydPresent);
         // Re-attach toggle listeners after re-render
         attachToggleListeners(splits, strydPresent);
+        _paintHrSvgs();
       });
     });
+    _paintHrSvgs();
   }
 
   function attachToggleListeners(splits, strydPresent) {
@@ -936,9 +934,39 @@
         var lapsEl = document.getElementById("rv-laps");
         if (lapsEl) lapsEl.innerHTML = renderLapTable(splits, strydPresent);
         attachToggleListeners(splits, strydPresent);
+        _paintHrSvgs();
       });
     });
   }
+
+  // Paint the HR line/dots in REAL pixel coordinates (uniform scale) —
+  // circles stay circles in every renderer, including iOS rasterization,
+  // with no vector-effect dependence. Runs after every mount and on resize.
+  function _paintHrSvgs() {
+    document.querySelectorAll(".rv2-hr-svg[data-hr-pts]").forEach(function (svg) {
+      var pts;
+      try { pts = JSON.parse(svg.getAttribute("data-hr-pts")); } catch (e) { return; }
+      var box = svg.parentNode;
+      var w = (box && box.clientWidth) || svg.clientWidth || 0;
+      var h = (box && box.clientHeight) || svg.clientHeight || 0;
+      if (!w || !h || !pts || !pts.length) { svg.innerHTML = ""; return; }
+      svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+      var px = pts.map(function (p) { return [p[0] * w, p[1] * h]; });
+      var out = "";
+      if (px.length >= 2) {
+        out += '<polyline points="' +
+          px.map(function (p) { return p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" ") +
+          '" fill="none" stroke="var(--rv2-hr)" stroke-width="2" ' +
+          'stroke-linejoin="round" stroke-linecap="round"/>';
+      }
+      px.forEach(function (p) {
+        out += '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) +
+          '" r="3" fill="var(--rv2-hr)"/>';
+      });
+      svg.innerHTML = out;
+    });
+  }
+  window.addEventListener("resize", _paintHrSvgs);
 
   // ── Snapshot: enter / exit ────────────────────────────────────────────────
 
