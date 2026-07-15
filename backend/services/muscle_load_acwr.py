@@ -106,6 +106,45 @@ BODY_AREA_TO_GROUP: dict[str, str] = {
 }
 
 
+# ── Classification ordering ───────────────────────────────────────────────────
+
+_CLASSIFICATION_RANK: dict[str, int] = {
+    "overused": 0,
+    "elevated": 1,
+    "balanced": 2,
+    "detraining": 3,
+    "untrained": 4,
+    "inactive": 5,
+}
+
+
+def classification_sort_key(classification: str, injured: bool = False) -> tuple:
+    """Return a (rank, not_injured) sort key for worst-first ordering.
+
+    Lower tuple → worse (sorts first). Within the same classification, injured
+    groups sort before uninjured ones.
+    """
+    rank = _CLASSIFICATION_RANK.get(classification, 99)
+    return (rank, 0 if injured else 1)
+
+
+def sort_groups_worst_first(groups: dict) -> list:
+    """Return a list of group dicts ordered worst-first.
+
+    Each dict is the per-group stats dict from compute() with an added ``group``
+    key holding the canonical group name.
+    """
+    items = []
+    for group, stats in groups.items():
+        item = dict(stats)
+        item["group"] = group
+        items.append(item)
+    items.sort(key=lambda x: classification_sort_key(
+        x.get("classification", "inactive"), bool(x.get("injured", False))
+    ))
+    return items
+
+
 # ── Pure functions (no DB access) ─────────────────────────────────────────────
 
 def compute_acute_chronic(daily_totals: list[float]) -> tuple[float, float]:

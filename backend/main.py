@@ -3120,6 +3120,39 @@ def get_weekly_summary(
     if _verdict_as_of == _date_cls.today():
         _upsert_verdict_history(uid, _verdict_as_of, verdict, readiness_score=_readiness_today)
 
+    # Gap findings (issue #1378): query active findings for the week.
+    # None when the analyzer has never run (key absent from facts → backward compat).
+    # [] when analyzer ran but no active findings remain.
+    from backend.models import GapFinding as _GapFinding
+    with Session(engine) as _gfsess:
+        _any_finding = _gfsess.query(_GapFinding).filter(
+            _GapFinding.user_id == uid,
+            _GapFinding.week_start == week_start,
+        ).first()
+        if _any_finding is not None:
+            _active_findings_orm = (
+                _gfsess.query(_GapFinding)
+                .filter(
+                    _GapFinding.user_id == uid,
+                    _GapFinding.week_start == week_start,
+                    _GapFinding.status == "active",
+                )
+                .order_by(_GapFinding.severity.desc())
+                .all()
+            )
+            _gap_findings_for_facts = [
+                {
+                    "code": gf.code,
+                    "severity": gf.severity,
+                    "recommendation": gf.recommendation,
+                    "evidence": gf.evidence or [],
+                    "target": gf.target,
+                }
+                for gf in _active_findings_orm
+            ]
+        else:
+            _gap_findings_for_facts = None
+
     facts = assemble_facts(
         week_start=week_start,
         current_workouts=curr_workouts,
@@ -3133,6 +3166,7 @@ def get_weekly_summary(
         guardrail=guardrail,
         prs=prs,
         verdict=verdict,
+        gap_findings=_gap_findings_for_facts,
     )
 
     narrative, source = get_narrative(user_id=str(uid), week_start=week_start.isoformat(), facts=facts)
@@ -7172,6 +7206,7 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
         if workout.user_id != user.id:
             raise HTTPException(status_code=403, detail="Forbidden")
         _old_workout_date = workout.workout_date
+        _old_workout_type = workout.workout_type
         if body.name is not None:
             name = body.name.strip()
             if not name:
@@ -7322,7 +7357,7 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             _logging.getLogger(__name__).warning(
                 "autofill recompute failed for user %s: %s", workout.user_id, _af_exc
             )
-        if workout.workout_type == "strength":
+        if "strength" in {_old_workout_type, workout.workout_type}:
             try:
                 from backend.services.muscle_load import recompute_strength_load_for_date as _rsl
                 for _ml_date in {_old_workout_date, workout.workout_date}:
@@ -7653,6 +7688,43 @@ def get_planned_sessions(
                 bucket["unplanned"].append(_ghost_workout_dict(w))
 
         days = [by_day[k] for k in sorted(by_day.keys())]
+
+        # ── Plan-guard warnings per session (issue #1383) ─────────────────────
+        # Compute once; attach plan_warnings to each still-planned session.
+        try:
+            from backend.services.muscle_load_acwr import compute as _cml
+            from backend.services.plan_guard import (
+                check_session as _pg_check,
+                estimate_session_footprint as _pg_fp,
+                extract_strength_exercise_names as _pg_ex_names,
+                fetch_catalog_for_exercises as _pg_catalog,
+            )
+            _today_pg = _date.today()
+            _ml_payload = _cml(uid, _today_pg)
+            _group_stats = _ml_payload.get("groups", {})
+
+            # Batch catalog lookup for all strength sessions in the week
+            _all_strength_names: list[str] = []
+            for _day in days:
+                for _sess in _day["planned"]:
+                    if _sess.get("session_type") == "strength" and _sess.get("structure"):
+                        _all_strength_names.extend(_pg_ex_names(_sess["structure"]))
+            _catalog_batch = _pg_catalog(_all_strength_names) if _all_strength_names else {}
+
+            for _day in days:
+                for _sess in _day["planned"]:
+                    _stype = _sess.get("session_type", "")
+                    _cat = _catalog_batch if _stype == "strength" else None
+                    _fp = _pg_fp(_stype, _sess.get("structure"), catalog=_cat)
+                    _chk = _pg_check(_stype, _fp, _group_stats)
+                    _sess["plan_warnings"] = _chk.get("warnings", [])
+        except Exception:
+            # Never let plan-guard errors break the weekly bundle
+            for _day in days:
+                for _sess in _day["planned"]:
+                    if "plan_warnings" not in _sess:
+                        _sess["plan_warnings"] = []
+
         return JSONResponse({"from": str(start), "to": str(end), "days": days})
 
 
@@ -8827,8 +8899,6 @@ def delete_daily_metric(uid: str, metric_date: str, user: User = Depends(resolve
         if row is None:
             raise HTTPException(status_code=404, detail="Daily metric not found")
         session.delete(row)
-        session.commit()
-    with Session(engine) as session:
         session.execute(
             text("DELETE FROM daily_readiness WHERE user_id = :uid AND date = :d"),
             {"uid": str(uid), "d": str(md)},
@@ -13474,6 +13544,294 @@ def get_structural_dose(
     return JSONResponse(result)
 
 
+# ── Gap analysis endpoint (issue #1370) ───────────────────────────────────────
+
+@app.get("/api/training/gap-analysis")
+def get_gap_analysis(user: User = Depends(resolve_user)):
+    """Compute (or refresh) this week's training gap findings for the session user.
+
+    Runs the rules engine against available inputs (structural dose, etc.),
+    upserts findings into gap_findings preserving status, and returns:
+    {
+      "week_start":    "YYYY-MM-DD",
+      "computed_at":   "ISO datetime",
+      "findings": [
+        {
+          "code":           str,
+          "severity":       1|2|3,
+          "recommendation": str,
+          "evidence":       [{metric, value, threshold, window}],
+          "evidence_text":  str,   // deterministic sentence (issue #1374)
+          "target":         str | null
+        }, ...
+      ],  // ordered severity desc, code asc (issue #1374)
+      "skipped_rules": [str, ...]
+    }
+    """
+    from backend.services.gap_analysis.engine import run_gap_analysis
+    from backend.services.gap_analysis.evidence_text import (
+        render_evidence_text,
+        sort_findings_for_panel,
+    )
+    from backend.services.gap_analysis.phrasing import get_finding_phrasing
+    from backend.utils.time import today_bangkok
+
+    today = today_bangkok()
+    week_start_date = today - _timedelta(days=today.weekday())
+    week_start = week_start_date.isoformat()
+    with Session(engine) as db:
+        result = run_gap_analysis(db, user.id, today)
+
+        # Enrich each finding with evidence text (issue #1374), LLM phrasing (issue #1375),
+        # and add-to-plan template flags (issue #1376).
+        from backend.services.gap_analysis.templates import get_template, is_load_adding as _is_load_adding
+        enriched = []
+        for f in result["findings"]:
+            phrasing_result = get_finding_phrasing(
+                f,
+                user_id=user.id,
+                week_start=week_start,
+                db=db,
+            )
+            code = f["code"]
+            try:
+                tmpl = get_template(code)
+                has_tmpl = tmpl is not None
+            except KeyError:
+                has_tmpl = False
+            enriched.append({
+                **f,
+                "evidence_text": render_evidence_text(code, f["evidence"], f.get("target")),
+                "phrasing": phrasing_result["phrasing"],
+                "phrasing_source": phrasing_result["phrasing_source"],
+                "has_template": has_tmpl,
+                "load_adding": _is_load_adding(code),
+            })
+
+        # Apply suppression filter (issue #1377): partition into visible / muted
+        from backend.services.gap_analysis.suppression import apply_suppression
+        partitioned = apply_suppression(db, user.id, week_start_date, enriched)
+
+    sorted_visible = sort_findings_for_panel(partitioned["findings"])
+    sorted_muted = sort_findings_for_panel(partitioned["muted"])
+
+    return JSONResponse({
+        **result,
+        "findings": sorted_visible,
+        "muted": sorted_muted,
+        "verdict": _gap_get_verdict_for_user(user.id, today),
+    })
+
+
+# ── Finding feedback: accept / dismiss (issue #1377) ─────────────────────────
+
+_GAP_STATUS_VALID = frozenset({"active", "accepted", "dismissed"})
+
+
+class _GapStatusBody(BaseModel):
+    status: str
+
+
+@app.post("/api/training/gap-analysis/{code}/status")
+def gap_update_status(
+    code: str,
+    body: _GapStatusBody,
+    user: User = Depends(resolve_user),
+):
+    """Update the feedback status of this week's gap-finding.
+
+    Path param:
+        code   Gap-analysis rule code (e.g. 'cadence_drift')
+
+    Body:
+        status   "accepted" | "dismissed" | "active" (restores)
+
+    Responses:
+        200  Updated finding dict with new status
+        404  No gap_findings row for this user/week/code
+        422  Invalid status value
+    """
+    from backend.utils.time import today_bangkok
+    from backend.services.gap_analysis.suppression import evidence_hash as _ev_hash
+
+    if body.status not in _GAP_STATUS_VALID:
+        raise HTTPException(
+            status_code=422,
+            detail=f"status must be one of: {sorted(_GAP_STATUS_VALID)}",
+        )
+
+    today = today_bangkok()
+    week_start = (today - _timedelta(days=today.weekday())).isoformat()
+    now_dt = _datetime.now(tz=_timezone.utc)
+
+    with Session(engine) as db:
+        row = db.execute(
+            text("""
+                SELECT id, severity, evidence, status
+                FROM gap_findings
+                WHERE user_id = :uid AND week_start = :ws AND code = :code
+            """),
+            {"uid": str(user.id), "ws": week_start, "code": code},
+        ).fetchone()
+
+        if row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No gap finding for code={code!r} this week",
+            )
+
+        row_id, severity, evidence, current_status = row
+        new_status = body.status
+
+        import json as _json
+        evidence_list = evidence if isinstance(evidence, list) else (_json.loads(evidence) if evidence else [])
+        ev_hash = _ev_hash(evidence_list)
+
+        if new_status == "dismissed":
+            db.execute(
+                text("""
+                    UPDATE gap_findings
+                    SET status = 'dismissed',
+                        dismissed_at = :now,
+                        dismissed_severity = :sev,
+                        accepted_at = NULL,
+                        accepted_evidence_hash = NULL
+                    WHERE id = :rid
+                """),
+                {"now": now_dt, "sev": severity, "rid": str(row_id)},
+            )
+        elif new_status == "accepted":
+            db.execute(
+                text("""
+                    UPDATE gap_findings
+                    SET status = 'accepted',
+                        accepted_at = :now,
+                        accepted_evidence_hash = :evh,
+                        dismissed_at = NULL,
+                        dismissed_severity = NULL
+                    WHERE id = :rid
+                """),
+                {"now": now_dt, "evh": ev_hash, "rid": str(row_id)},
+            )
+        else:  # active — restore
+            db.execute(
+                text("""
+                    UPDATE gap_findings
+                    SET status = 'active',
+                        dismissed_at = NULL,
+                        dismissed_severity = NULL,
+                        accepted_at = NULL,
+                        accepted_evidence_hash = NULL
+                    WHERE id = :rid
+                """),
+                {"rid": str(row_id)},
+            )
+        db.commit()
+
+    return JSONResponse({"code": code, "status": new_status, "week_start": week_start})
+
+
+# ── Add-to-plan helper (issue #1376) ─────────────────────────────────────────
+
+def _gap_get_verdict_for_user(user_id, today) -> Optional[str]:
+    """Return the current training verdict (back_off/hold/build) or None on failure."""
+    try:
+        from backend.services.gap_analysis.engine import _gather_training_verdict
+        return _gather_training_verdict(user_id, today)
+    except Exception:
+        return None
+
+
+class _GapAddToPlanBody(BaseModel):
+    date: str
+
+
+@app.post("/api/training/gap-analysis/{code}/add-to-plan", status_code=201)
+def gap_add_to_plan(
+    code: str,
+    body: _GapAddToPlanBody,
+    user: User = Depends(resolve_user),
+):
+    """Create a planned session from a gap-analysis finding template (issue #1376).
+
+    Path param:
+        code   Gap-analysis rule code (e.g. 'plyo_deficit')
+
+    Body:
+        date   ISO date (YYYY-MM-DD) for the planned session
+
+    Responses:
+        201  Created planned session dict
+        404  No template exists for this code
+        409  Either (a) an identical gap-generated session exists this week,
+             or (b) the current training verdict is back_off and the template
+             adds training load
+        422  Invalid date
+    """
+    from backend.services.gap_analysis.templates import get_template, is_load_adding
+    from backend.utils.time import today_bangkok
+
+    # Resolve template — KeyError → 404, None → 404
+    try:
+        tmpl = get_template(code)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"No template for gap rule: {code!r}")
+    if tmpl is None:
+        raise HTTPException(status_code=404, detail=f"No add-to-plan action for rule: {code!r}")
+
+    # Validate date
+    target_date = _validate_planned_date(body.date)
+
+    # Verdict guard: block load-adding sessions when back_off
+    if is_load_adding(code):
+        today = today_bangkok()
+        verdict = _gap_get_verdict_for_user(user.id, today)
+        if verdict == "back_off":
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "back_off", "message": "Training verdict is back_off — load-adding sessions are disabled."},
+            )
+
+    # 409 if identical gap-generated session already exists this week
+    week_start = target_date - _timedelta(days=target_date.weekday())
+    week_end = week_start + _timedelta(days=6)
+
+    with Session(engine) as db:
+        existing = (
+            db.query(PlannedSession)
+            .filter(
+                PlannedSession.user_id == user.id,
+                PlannedSession.planned_date >= week_start,
+                PlannedSession.planned_date <= week_end,
+                PlannedSession.structure.op("->>")("_gap_code") == code,
+            )
+            .first()
+        )
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "already_planned_this_week", "message": f"A {code!r} session is already planned this week."},
+            )
+
+        # Build structure: embed origin tag alongside template structure
+        structure = dict(tmpl.get("structure") or {})
+        structure["_gap_code"] = code
+
+        row = PlannedSession(
+            user_id=user.id,
+            planned_date=target_date,
+            session_type=_validate_planned_type(tmpl["session_type"]),
+            name=tmpl.get("name"),
+            structure=structure,
+            notes=tmpl.get("notes"),
+            status="planned",
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return JSONResponse(status_code=201, content=_planned_session_dict(row))
+
+
 @app.get("/api/training/muscle-load")
 def get_muscle_load(
     weeks: int = Query(default=8, ge=1, le=52),
@@ -13491,11 +13849,74 @@ def get_muscle_load(
         weekly_series  list of {week_start, week_end, groups} — length = weeks
         unclassified   exercise names used in the window with no catalog entry
     """
-    from backend.services.muscle_load_acwr import compute as _compute_muscle_load
+    from backend.services.muscle_load_acwr import (
+        compute as _compute_muscle_load,
+        sort_groups_worst_first as _sort_groups,
+    )
 
     today = _today_bkk()
     payload = _compute_muscle_load(current_user.id, today, weeks=weeks)
+    payload["sorted_groups"] = _sort_groups(payload["groups"])
     return JSONResponse(payload)
+
+
+# ── Plan-guard check (issue #1383) ────────────────────────────────────────────
+
+class PlanCheckIn(BaseModel):
+    session_type: str
+    structure: Optional[dict] = None
+
+
+@app.post("/api/training/plan-check")
+def post_plan_check(body: PlanCheckIn, current_user: User = Depends(resolve_user)):
+    """Muscle-aware planning guard: check a planned session draft against the
+    user's current muscle-group classifications.
+
+    Request body:
+        session_type  — run | plyo | strength | rest | stretch
+        structure     — optional planned-session structure dict (exercises/blocks)
+
+    Response:
+        warnings     — [{muscle_group, classification, message}]
+                       Fired when a dominant group (share >= threshold) is
+                       overused or injured.
+        suggestions  — [{muscle_group, reason}]
+                       Untrained priority groups the session could target
+                       (strength) or empty for run/plyo.
+
+    Always 200 — warnings are informational, never blocking.
+    """
+    from backend.services.muscle_load_acwr import compute as _compute_muscle_load
+    from backend.services.plan_guard import (
+        check_session as _check,
+        estimate_session_footprint as _footprint,
+        extract_strength_exercise_names as _ex_names,
+        fetch_catalog_for_exercises as _fetch_catalog,
+    )
+
+    stype = (body.session_type or "").strip().lower()
+    if stype not in _PLANNED_SESSION_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "session_type", "error": "must be one of: " + ", ".join(sorted(_PLANNED_SESSION_TYPES))},
+        )
+
+    today = _today_bkk()
+
+    # Fetch current muscle classifications (one DB call covers all groups)
+    muscle_payload = _compute_muscle_load(current_user.id, today)
+    group_stats = muscle_payload.get("groups", {})
+
+    # Build catalog only for strength sessions with named exercises
+    catalog = None
+    if stype == "strength":
+        names = _ex_names(body.structure)
+        if names:
+            catalog = _fetch_catalog(names)
+
+    fp = _footprint(stype, body.structure, catalog=catalog)
+    result = _check(stype, fp, group_stats)
+    return JSONResponse(result)
 
 
 # ── Admin gate ────────────────────────────────────────────────────────────────
@@ -16062,10 +16483,13 @@ def _fetch_perf_block_delta(
         session.query(PerformanceScoreHistory)
         .filter(
             PerformanceScoreHistory.user_id == user_id,
-            PerformanceScoreHistory.score_date == block_start,
+            PerformanceScoreHistory.score_date <= block_start,
             PerformanceScoreHistory.formula_version == current_formula_version,
         )
-        .order_by(PerformanceScoreHistory.created_at.desc())
+        .order_by(
+            PerformanceScoreHistory.score_date.desc(),
+            PerformanceScoreHistory.created_at.desc(),
+        )
         .first()
     )
     if row is None:
@@ -17735,7 +18159,7 @@ def _upsert_verdict_history(user_id, verdict_date, verdict_result, readiness_sco
             db.execute(stmt)
             db.commit()
     except Exception:
-        pass  # verdict_history write is best-effort; never break the caller
+        _log.warning("verdict_history write failed (best-effort); caller unaffected", exc_info=True)
 
 
 def _fetch_readiness_for_verdict(user_id, today, session):

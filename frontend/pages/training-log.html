@@ -4497,6 +4497,7 @@
                 <div class="perf-scorehead">
                   <span class="perf-bigscore perf-bigscore--e"><span class="perf-score-val"></span></span>
                   <span class="perf-delta-pill" hidden></span>
+                  <div class="perf-sparkline-wrap" aria-hidden="true"></div>
                   <span class="perf-window-lab">last 28 days</span>
                 </div>
                 <div class="perf-change" hidden>
@@ -4548,6 +4549,7 @@
                 <div class="perf-scorehead">
                   <span class="perf-bigscore perf-bigscore--s"><span class="perf-score-val"></span></span>
                   <span class="perf-delta-pill" hidden></span>
+                  <div class="perf-sparkline-wrap" aria-hidden="true"></div>
                   <span class="perf-window-lab">last 28 days</span>
                 </div>
                 <div class="perf-change" hidden>
@@ -4591,6 +4593,52 @@
             </div>
           </div>
           <!-- /.perf-scorewrap -->
+
+          <!-- ── What to improve panel (issue #1374) ───────────────────── -->
+          <div class="pm-card" id="gap-panel">
+            <div class="pm-ckhead">
+              <span class="pm-sectitle">What to improve</span>
+              <span class="perf-tag" id="gap-panel-week"></span>
+            </div>
+            <!-- Loading state -->
+            <div id="gap-panel-loading" class="gap-loading">Loading…</div>
+            <!-- Finding cards (up to 3) -->
+            <div id="gap-panel-findings" hidden></div>
+            <!-- Empty state -->
+            <div id="gap-panel-empty" class="gap-empty" hidden>
+              No gaps flagged this week.
+            </div>
+            <!-- Error state -->
+            <div id="gap-panel-error" class="gap-error" hidden>
+              Could not load recommendations.
+            </div>
+            <!-- Skipped-rules footnote -->
+            <div id="gap-panel-skipped" class="gap-skipped" hidden></div>
+            <!-- Muted / suppressed findings (issue #1377) -->
+            <div id="gap-panel-muted" hidden></div>
+          </div>
+
+          <!-- ── Muscle balance card (issue #1382) ─────────────────────── -->
+          <div class="pm-card" id="muscle-balance-card">
+            <div class="pm-ckhead">
+              <span class="pm-sectitle">Muscle balance</span>
+            </div>
+            <div id="muscle-balance-loading" class="mbal-loading">Loading…</div>
+            <div id="muscle-balance-rows" class="mbal-rows" hidden></div>
+            <div id="muscle-balance-show-all" class="mbal-show-all-wrap" hidden>
+              <button class="mbal-show-all-btn" type="button" id="muscle-balance-show-all-btn">
+                Show inactive groups ▾
+              </button>
+              <div id="muscle-balance-inactive-rows" class="mbal-inactive-rows"></div>
+            </div>
+            <div id="muscle-balance-unclassified" class="mbal-unclassified" hidden></div>
+            <div id="muscle-balance-empty" class="mbal-empty" hidden>
+              No muscle load data yet.
+            </div>
+            <div id="muscle-balance-error" class="mbal-error" hidden>
+              Could not load muscle balance data.
+            </div>
+          </div>
 
           <!-- Row: A-race header + calibration status -->
           <div class="pm-row2">
@@ -4815,6 +4863,302 @@
         align-items: stretch;
       }
       .plan-merged .pm-row2 > .pm-card { min-width: 0; }
+
+      /* ── What to improve panel (issue #1374) ──────────────────────────── */
+      .gap-loading {
+        font-size: 13px;
+        color: var(--pm-muted);
+        padding: 8px 0 4px;
+      }
+      .gap-empty {
+        font-size: 13px;
+        color: var(--pm-muted);
+        padding: 8px 0 4px;
+      }
+      .gap-error {
+        font-size: 13px;
+        color: var(--pm-red);
+        padding: 8px 0 4px;
+      }
+      .gap-skipped {
+        font-size: 11px;
+        color: var(--pm-faint);
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px solid var(--pm-line);
+      }
+      #gap-panel-findings {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 10px;
+      }
+      .gap-finding {
+        border-radius: 10px;
+        padding: 12px 14px;
+        border-left: 3px solid var(--gap-accent, var(--pm-line));
+        background: var(--pm-tile);
+      }
+      .gap-finding--sev3 { --gap-accent: var(--pm-red); background: var(--pm-redSoft); }
+      .gap-finding--sev2 { --gap-accent: var(--pm-amber); background: var(--pm-amberSoft); }
+      .gap-finding--sev1 { --gap-accent: var(--pm-line); }
+      .gap-finding-headline {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--pm-ink);
+        margin: 0 0 4px;
+        line-height: 1.35;
+      }
+      .gap-finding--sev1 .gap-finding-headline { color: var(--pm-muted); }
+      .gap-finding-evidence {
+        font-size: 12px;
+        color: var(--pm-muted);
+        margin: 0;
+        line-height: 1.45;
+      }
+      /* Add-to-plan footer (issue #1376) */
+      .gap-finding-footer {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+      .gap-atp-btn {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--pm-ink);
+        background: transparent;
+        border: 1px solid var(--gap-accent, var(--pm-line));
+        border-radius: 6px;
+        padding: 4px 10px;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: background 0.12s, opacity 0.12s;
+      }
+      .gap-atp-btn:hover:not(:disabled) { background: rgba(0,0,0,0.05); }
+      .gap-atp-btn:disabled, .gap-atp-btn--disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .gap-atp-status {
+        font-size: 11px;
+        color: var(--pm-muted);
+      }
+      .gap-atp-picker {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: 4px;
+      }
+      .gap-atp-date {
+        font-size: 11px;
+        border: 1px solid var(--pm-line);
+        border-radius: 6px;
+        padding: 3px 6px;
+        background: var(--pm-tile);
+        color: var(--pm-ink);
+      }
+      .gap-atp-confirm {
+        font-size: 11px;
+        font-weight: 600;
+        background: var(--pm-accent, #3b82f6);
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        padding: 4px 10px;
+        cursor: pointer;
+      }
+      .gap-atp-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
+
+      /* Accept / dismiss feedback controls (issue #1377) */
+      .gap-feedback-controls {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 8px;
+      }
+      .gap-fb-btn {
+        font-size: 11px;
+        font-weight: 500;
+        background: transparent;
+        border: 1px solid var(--pm-line);
+        border-radius: 6px;
+        padding: 3px 9px;
+        cursor: pointer;
+        color: var(--pm-muted);
+        transition: background 0.12s, color 0.12s;
+      }
+      .gap-fb-btn:hover:not(:disabled) { background: rgba(0,0,0,0.05); color: var(--pm-ink); }
+      .gap-fb-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+      .gap-fb-accept { border-color: var(--pm-green, #22c55e); color: var(--pm-green, #22c55e); }
+      .gap-fb-restore { font-size: 10px; }
+      .gap-finding--accepted { opacity: 0.72; }
+      .gap-no-active { font-size: 12px; color: var(--pm-muted); margin: 6px 0 0; }
+      /* Muted section */
+      #gap-panel-muted { margin-top: 10px; border-top: 1px solid var(--pm-line); padding-top: 8px; }
+      .gap-muted-toggle {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--pm-muted);
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        padding: 2px 0;
+      }
+      .gap-muted-toggle:hover { color: var(--pm-ink); }
+      .gap-muted-list { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+      .gap-muted-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 8px;
+        border-radius: 6px;
+        background: var(--pm-tile);
+      }
+      .gap-muted-label {
+        font-size: 12px;
+        color: var(--pm-muted);
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      /* ── Muscle balance card (issue #1382) ──────────────────────────────── */
+      .mbal-loading, .mbal-empty, .mbal-error {
+        font-size: 13px;
+        color: var(--pm-muted);
+        padding: 8px 0 4px;
+      }
+      .mbal-error { color: var(--pm-red); }
+      .mbal-rows { display: flex; flex-direction: column; gap: 0; }
+      .mbal-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 0;
+        border-bottom: 1px solid var(--pm-line);
+        cursor: pointer;
+        border-radius: 0;
+        transition: background 0.1s;
+      }
+      .mbal-row:last-child { border-bottom: none; }
+      .mbal-row:hover { background: var(--pm-tile); margin: 0 -4px; padding-left: 4px; padding-right: 4px; border-radius: 6px; }
+      .mbal-group-name {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--pm-ink);
+        width: 88px;
+        flex-shrink: 0;
+        text-transform: capitalize;
+      }
+      .mbal-bar-wrap {
+        flex: 1;
+        min-width: 0;
+        height: 6px;
+        background: var(--pm-line);
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      .mbal-bar {
+        height: 100%;
+        border-radius: 3px;
+        background: var(--mbal-bar-color, var(--pm-blue));
+        transition: width 0.3s ease;
+      }
+      .mbal-chip {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        padding: 2px 7px;
+        border-radius: 5px;
+        flex-shrink: 0;
+        white-space: nowrap;
+      }
+      .mbal-chip--overused  { background: var(--pm-redSoft);   color: var(--pm-red); }
+      .mbal-chip--elevated  { background: var(--pm-amberSoft); color: var(--pm-amber); }
+      .mbal-chip--balanced  { background: var(--pm-tile);      color: var(--pm-muted); }
+      .mbal-chip--detraining{ background: #e6ebfe;             color: #4f6ef7; }
+      .mbal-chip--untrained { background: #e6ebfe;             color: #4f6ef7; }
+      .mbal-chip--inactive  { background: var(--pm-tile);      color: var(--pm-faint); }
+      .mbal-injured-mark {
+        font-size: 11px;
+        color: var(--pm-red);
+        flex-shrink: 0;
+        font-weight: 700;
+      }
+      /* Expanded detail panel */
+      .mbal-detail {
+        background: var(--pm-tile);
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin: 0 0 6px;
+        display: none;
+      }
+      .mbal-detail.is-open { display: block; }
+      .mbal-detail-head {
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--pm-faint);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 6px;
+      }
+      .mbal-sparkline {
+        width: 100%;
+        height: 44px;
+        display: block;
+        margin-bottom: 8px;
+      }
+      .mbal-source-split {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .mbal-source-pill {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--pm-ink);
+        background: #fff;
+        border: 1px solid var(--pm-line);
+        border-radius: 6px;
+        padding: 2px 8px;
+      }
+      /* Show all toggle */
+      .mbal-show-all-wrap {
+        margin-top: 4px;
+        padding-top: 8px;
+        border-top: 1px solid var(--pm-line);
+      }
+      .mbal-show-all-btn {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--pm-muted);
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        padding: 2px 0;
+        letter-spacing: -0.01em;
+      }
+      .mbal-show-all-btn:hover { color: var(--pm-ink); }
+      .mbal-inactive-rows { display: none; }
+      .mbal-inactive-rows.is-shown { display: block; }
+      /* Unclassified footnote */
+      .mbal-unclassified {
+        margin-top: 10px;
+        padding-top: 8px;
+        border-top: 1px solid var(--pm-line);
+        font-size: 11px;
+        color: var(--pm-faint);
+      }
+      @media (max-width: 520px) {
+        .mbal-group-name { width: 68px; font-size: 12px; }
+        .mbal-chip { font-size: 9px; padding: 2px 5px; }
+      }
+
       /* Race header content floats vertically centered in its stretched card. */
       .plan-merged #plan-race-header {
         display: flex;
@@ -6449,6 +6793,18 @@
       .perf-delta-pill--down { background: #fee2e2; color: var(--perf-loss); }
       .perf-delta-pill--up { background: #dcfce7; color: var(--perf-gain); }
       .perf-delta-pill--flat { background: var(--w-tile, #f1f4fa); color: var(--perf-muted); }
+      .perf-sparkline-wrap {
+        flex: 1 1 auto;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+      }
+      .perf-sparkline {
+        display: block;
+        width: 100%;
+        height: 28px;
+        overflow: visible;
+      }
 
       /* Change strip (variant A): equation + proportion bar + key + reading */
       .perf-change { margin: 12px 0 4px; }

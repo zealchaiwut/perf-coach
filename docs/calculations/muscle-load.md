@@ -208,3 +208,54 @@ today) whose `body_area` maps to a canonical group via `BODY_AREA_TO_GROUP`
 (in `muscle_load_acwr.py`) cause that group's payload entry to carry
 `"injured": true`. The classification is still computed — the tag rides
 alongside so downstream consumers (gap-analyzer rules, planner) can defer.
+
+---
+
+## Planning Guard: Footprint Estimator (issue #1383)
+
+`backend/services/plan_guard.py` provides a **pure** footprint estimator for
+planned sessions and a plan-check function used by `POST /api/training/plan-check`.
+
+### Footprint estimation per session type
+
+The estimator returns per-group **shares** (0–1) that mirror the same profiles
+used by the ledger writers — there is exactly one model.
+
+| Session type | Profile used | Notes |
+|---|---|---|
+| `run` | `RUN_PROFILE` (flat baseline) | No elevation tilt applied (planned sessions carry no elevation data) |
+| `plyo` | `PLYO_PROFILE` | calf 70%, quad 15%, glute 15% |
+| `strength` | `distribute_strength_tss` with notional TSS=100 | Requires catalog lookup; returns empty when no exercises or catalog unavailable |
+| `rest` / `stretch` | — | Returns empty dict (no load) |
+
+### Plan-check logic
+
+`check_session(session_type, footprint, group_stats)` compares the footprint
+against the live classifications from `GET /api/training/muscle-load`.
+
+**Warnings** — for each group whose share ≥ `DOMINANT_SHARE_THRESHOLD` (0.15):
+
+- `classification == "overused"` → warn
+- `injured == True` (any classification) → warn
+- `"elevated"` alone does NOT warn
+
+**Suggestions** — for `strength` sessions only:
+- Untrained priority groups (calf/hamstring/glute/hip) not injured and not
+  already dominantly targeted by the session.
+
+### Endpoint
+
+`POST /api/training/plan-check`
+
+```json
+// request
+{ "session_type": "plyo", "structure": null }
+
+// response
+{
+  "warnings":    [{"muscle_group": "calf", "classification": "overused", "message": "..."}],
+  "suggestions": [{"muscle_group": "hamstring", "reason": "..."}]
+}
+```
+
+Always 200 — warnings are informational, never blocking.

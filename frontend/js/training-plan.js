@@ -901,8 +901,9 @@ information about.
         ? '<div class="pl-addday is-disabled" title="This day has passed — nothing new can be added">+ add</div>'
         : '<div class="pl-addday" data-add-date="' + day.date + '">+ add</div>';
       var dayTotal = _dayTotalTss(day);
+      var dayWarn = _dayHasWarning(day) ? '<span class="pl-day-guard-badge" title="A session this day loads an overused or injured muscle group">⚠</span>' : '';
       return '<div class="pl-dayrow ' + cls + '" data-date="' + day.date + '">' +
-        '<div class="pl-daylabel"><span class="pl-dname">' + day.dow + '</span><span class="pl-dnum">' + _parseISO(day.date).getDate() + '</span></div>' +
+        '<div class="pl-daylabel"><span class="pl-dname">' + day.dow + dayWarn + '</span><span class="pl-dnum">' + _parseISO(day.date).getDate() + '</span></div>' +
         '<div class="pl-daybody">' + cards + ghosts + rest + addDay +
         '</div>' +
         (dayTotal != null ? '<span class="pl-dtotal">' + Math.round(dayTotal) + ' TSS</span>' : '') +
@@ -926,6 +927,16 @@ information about.
     if (!t) return '';
     var label = (t.estimated ? '~' : '') + Math.round(t.value) + ' TSS';
     return '<span class="pl-tss-badge' + (t.estimated ? ' is-estimated' : '') + '">' + label + '</span>';
+  }
+
+  function _planWarnBadge(p) {
+    var w = p.plan_warnings;
+    if (!w || !w.length) return '';
+    return '<span class="pl-guard-badge" title="' + esc(w.map(function (x) { return x.message; }).join(' | ')) + '">⚠</span>';
+  }
+
+  function _dayHasWarning(day) {
+    return (day.planned || []).some(function (p) { return p.plan_warnings && p.plan_warnings.length; });
   }
 
   function _dayTotalTss(day) {
@@ -1045,7 +1056,7 @@ information about.
         (draggable ? ' draggable="true"' : '') +
         ' data-sess="' + p.id + '"' + (clickable ? ' data-click="1"' : '') + '>' +
       handle +
-      '<div class="pl-sesstop"><span class="pl-sesstop-left"><span class="pl-stypetag ' + fam + '">' + fam + '</span>' + _sessionTssBadge(p) + '</span>' + _statusTag(p.status, !!p.actual) + '</div>' +
+      '<div class="pl-sesstop"><span class="pl-sesstop-left"><span class="pl-stypetag ' + fam + '">' + fam + '</span>' + _sessionTssBadge(p) + _planWarnBadge(p) + '</span>' + _statusTag(p.status, !!p.actual) + '</div>' +
       '<div class="pl-sn">' + esc(p.name || '(untitled)') + '</div>' +
       '<div class="pl-sm">' + esc(meta) + '</div>' + body +
     '</div>';
@@ -1412,6 +1423,7 @@ information about.
       '</div>' +
       '<div id="pl-sf-structure"></div>' +
       '<div class="pl-fld" style="margin-top:14px;"><label>Notes from coach</label><textarea id="pl-sf-notes" placeholder="e.g. hold 92% CP even on the 3rd rep">' + esc(ed.notes || '') + '</textarea></div>' +
+      '<div id="pl-sf-guard"></div>' +
       '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-sf-save">' + (_addState.editId ? 'Save changes' : 'Save session') + '</button><button class="pl-btn pl-ghost" id="pl-sf-cancel">Cancel</button></div>';
   }
 
@@ -1719,6 +1731,41 @@ information about.
     return out;
   }
 
+  // ── Plan-guard helpers (issue #1383) ─────────────────────────────────────────
+
+  function _planCheck(payload, cb) {
+    fetch('/api/training/plan-check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (result) { cb(result); })
+      .catch(function () { cb(null); });
+  }
+
+  function _planGuardHtml(result) {
+    if (!result) return '';
+    var warnings = result.warnings || [];
+    var suggestions = result.suggestions || [];
+    if (!warnings.length && !suggestions.length) return '';
+    var html = '<div class="pl-guard-banner">';
+    if (warnings.length) {
+      html += '<div class="pl-guard-title">⚠ Muscle load warning</div>';
+      warnings.forEach(function (w) {
+        html += '<div class="pl-guard-warn">' + esc(w.message) + '</div>';
+      });
+    }
+    if (suggestions.length) {
+      html += '<div class="pl-guard-sug-title">Consider instead</div>';
+      suggestions.forEach(function (s) {
+        html += '<div class="pl-guard-sug">' + esc(s.reason) + '</div>';
+      });
+    }
+    html += '</div>';
+    return html;
+  }
+
   function _wireAddBody() {
     // mode / sub toggles
     var modeEl = document.getElementById('pl-addmode');
@@ -1734,17 +1781,37 @@ information about.
       _renderStructureBuilder();
       document.getElementById('pl-sf-type').addEventListener('change', _renderStructureBuilder);
       document.getElementById('pl-sf-cancel').onclick = _closeAdd;
+      var _guardConfirmed = false;
       document.getElementById('pl-sf-save').onclick = function () {
         var payload = _collectSingleForm();
         if (!payload.planned_date || !payload.session_type) { _toast('Date and type are required', true); return; }
-        // Editing PATCHes the existing session; creating POSTs a new one.
-        var editId = _addState.editId;
-        var req = editId
-          ? _api('PATCH', '/api/planned-sessions/' + editId, payload)
-          : _api('POST', '/api/planned-sessions', payload);
-        req
-          .then(function () { _toast(editId ? 'Session updated' : 'Session saved'); _closeAdd(); _loadWeek(); })
-          .catch(function (e) { _toast(e.message || 'Save failed', true); });
+        var btn = document.getElementById('pl-sf-save');
+
+        function _doSave() {
+          var editId = _addState.editId;
+          var req = editId
+            ? _api('PATCH', '/api/planned-sessions/' + editId, payload)
+            : _api('POST', '/api/planned-sessions', payload);
+          req
+            .then(function () { _toast(editId ? 'Session updated' : 'Session saved'); _guardConfirmed = false; _closeAdd(); _loadWeek(); })
+            .catch(function (e) { _toast(e.message || 'Save failed', true); });
+        }
+
+        // If already confirmed past a warning, go straight to save.
+        if (_guardConfirmed) { _doSave(); return; }
+
+        // First click: run plan-check and show any inline warnings.
+        _planCheck({ session_type: payload.session_type, structure: payload.structure || null }, function (result) {
+          var guardEl = document.getElementById('pl-sf-guard');
+          if (result && result.warnings && result.warnings.length) {
+            if (guardEl) guardEl.innerHTML = _planGuardHtml(result);
+            _guardConfirmed = true;
+            if (btn) btn.textContent = 'Save anyway';
+          } else {
+            if (guardEl) guardEl.innerHTML = '';
+            _doSave();
+          }
+        });
       };
     } else if (_addState.top === 'single' && _addState.sub === 'json') {
       _wireSingleJSON();
@@ -2438,6 +2505,14 @@ information about.
     '.plan-panel .pl-sesstop-left{display:flex;align-items:center;gap:6px;}',
     '.plan-panel .pl-tss-badge{font-size:9.5px;font-weight:700;font-family:var(--pl-mono);color:var(--pl-muted);}',
     '.plan-panel .pl-tss-badge.is-estimated{color:var(--pl-faint);font-style:italic;}',
+    '.plan-panel .pl-guard-badge{font-size:10px;color:#b45309;cursor:help;}',
+    '.plan-panel .pl-day-guard-badge{font-size:9px;color:#b45309;margin-left:2px;cursor:help;}',
+    '.plan-panel .pl-guard-banner{background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;}',
+    '.plan-panel .pl-guard-title{font-weight:700;color:#92400e;margin-bottom:4px;}',
+    '.plan-panel .pl-guard-warn{color:#78350f;margin-bottom:3px;line-height:1.5;}',
+    '.plan-panel .pl-guard-sug-title{font-weight:700;color:#1e40af;margin-top:6px;margin-bottom:2px;}',
+    '.plan-panel .pl-guard-sug{color:#1e3a8a;margin-bottom:2px;line-height:1.5;}',
+    '.plan-panel .pl-guard-inline{margin-top:8px;}',
     '.plan-panel .pl-stat-tag{font-size:7.5px;font-weight:800;letter-spacing:0.03em;padding:1px 5px;border-radius:4px;text-transform:uppercase;}',
     '.plan-panel .pl-stat-tag.missed{background:var(--pl-redSoft);color:var(--pl-red);}',
     '.plan-panel .pl-stat-tag.review{background:var(--pl-amberSoft);color:var(--pl-amber);}',
@@ -3007,24 +3082,47 @@ information about.
       body.structure = { blocks: s.blocks };
     }
 
-    fetch('/api/planned-sessions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-      .then(function () {
-        // Sticky per-slot flag — the row survives re-renders (day drags,
-        // other slots' edits) with a disabled "✓ Added" instead of reverting
-        // to an addable button.
-        s._added = true;
-        _renderSuggestions(_suggestionsData);
-        if (window.TrainingPlan && window.TrainingPlan.reload) window.TrainingPlan.reload();
+    function _doAdd() {
+      fetch('/api/planned-sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
       })
-      .catch(function () {
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+        .then(function () {
+          s._added = true;
+          _renderSuggestions(_suggestionsData);
+          if (window.TrainingPlan && window.TrainingPlan.reload) window.TrainingPlan.reload();
+        })
+        .catch(function () {
+          btn.disabled = false;
+          btn.textContent = 'Retry';
+        });
+    }
+
+    // Run plan-check before adding; show inline warning and require confirm
+    // if the session footprint loads an overused or injured group.
+    if (s._guardConfirmed) {
+      _doAdd();
+      return;
+    }
+    _planCheck({ session_type: s.workout_type, structure: body.structure || null }, function (result) {
+      if (result && result.warnings && result.warnings.length) {
+        s._guardConfirmed = true;
+        // Show warning inline next to the Add button
+        var warnEl = document.createElement('div');
+        warnEl.className = 'pl-guard-inline';
+        warnEl.innerHTML = _planGuardHtml(result) +
+          '<button class="pl-btn pl-lime pl-tiny pl-guard-proceed">Add anyway</button>';
+        btn.parentNode.insertBefore(warnEl, btn.nextSibling);
         btn.disabled = false;
-        btn.textContent = 'Retry';
-      });
+        btn.textContent = 'Cancel';
+        btn.onclick = function () { warnEl.remove(); btn.textContent = 'Add'; btn.onclick = function () { _addSuggestion(s, btn); }; s._guardConfirmed = false; btn.disabled = false; };
+        warnEl.querySelector('.pl-guard-proceed').onclick = function () { warnEl.remove(); _doAdd(); };
+      } else {
+        _doAdd();
+      }
+    });
   }
 
   // ── Rail 1: the schedule the athlete owns (issue #1417) ─────────────────────

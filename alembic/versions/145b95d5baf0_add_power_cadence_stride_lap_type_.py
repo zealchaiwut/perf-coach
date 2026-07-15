@@ -15,6 +15,13 @@ Idempotent: column_exists guards skip ADD COLUMN on DBs where prior
 feature migrations already created the columns; the lap_type NOT NULL
 and check-constraint steps are also guarded.
 
+Downgrade note: downgrade() always reverts lap_type to nullable rather than
+dropping it, regardless of whether this migration originally created the column.
+Dropping would require cross-process state that cannot survive a real `alembic
+downgrade` invocation (each run is a fresh Python process, so a module-level
+flag set during upgrade() is always re-initialised to False when downgrade()
+runs). The safe, deterministic alternative is to always revert to nullable.
+
 Revision ID: 145b95d5baf0
 Revises: 6b72b2735b17
 Create Date: 2026-06-19
@@ -33,11 +40,6 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 _CK_LAP_TYPE = "ck_workout_splits_lap_type_values"
-
-# Set to True by upgrade() when this migration creates lap_type from scratch.
-# downgrade() uses the flag to decide whether to drop the column (it was
-# added here) or revert it to nullable (it pre-existed from an earlier migration).
-_lap_type_was_added: bool = False
 
 
 def _constraint_exists(table: str, name: str) -> bool:
@@ -99,9 +101,7 @@ def upgrade() -> None:
         )
 
     # --- lap_type: NOT NULL, default 'auto', check constraint ---
-    global _lap_type_was_added
     if not column_exists("workout_splits", "lap_type"):
-        _lap_type_was_added = True
         op.add_column(
             "workout_splits",
             sa.Column(
@@ -140,17 +140,14 @@ def downgrade() -> None:
         op.drop_constraint(_CK_LAP_TYPE, "workout_splits", type_="check")
 
     if column_exists("workout_splits", "lap_type"):
-        if _lap_type_was_added:
-            # This migration created the column — remove it entirely on downgrade.
-            op.drop_column("workout_splits", "lap_type")
-        else:
-            # Column pre-existed as nullable; restore that state.
-            op.alter_column(
-                "workout_splits",
-                "lap_type",
-                existing_type=sa.String(10),
-                nullable=True,
-            )
+        # Always revert to nullable — see module docstring for why we do not
+        # attempt to drop the column here.
+        op.alter_column(
+            "workout_splits",
+            "lap_type",
+            existing_type=sa.String(10),
+            nullable=True,
+        )
 
     for col in ("stride_length_m", "cadence_spm", "avg_power"):
         if column_exists("workout_splits", col):

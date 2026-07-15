@@ -495,6 +495,259 @@ def form_metrics_backfill(body: dict):
     return {"started": True}
 
 
+# ── Read API (Hermes) ─────────────────────────────────────────────────────────
+#
+# Read-only endpoints on /api/* for local consumption by Hermes (the Mac Mini
+# voice assistant). No X-Worker-Secret required — the tailnet/localhost binding
+# is the access boundary. No writes happen here; every endpoint is GET-only.
+
+
+def _resolve_read_user(user_param: str | None):
+    """Resolve the target user for a Hermes read-API request.
+
+    Resolution order:
+    1. Explicit ?user=<username> query param
+    2. WORKER_READ_API_USER env var
+    3. Exactly one active user in the DB
+    4. Else → 400
+    """
+    from backend.models import User
+
+    username = user_param or os.getenv("WORKER_READ_API_USER")
+    with Session(engine) as s:
+        if username:
+            user = s.query(User).filter(User.name == username, User.is_active.is_(True)).first()
+            if user is None:
+                raise HTTPException(status_code=400, detail=f"user {username!r} not found or inactive")
+            return user
+        # Fallback: exactly one active user
+        active = s.query(User).filter(User.is_active.is_(True)).all()
+        if len(active) == 1:
+            return active[0]
+        raise HTTPException(status_code=400, detail="?user= required: multiple or zero active users")
+
+
+def _extract_target(structure: dict | None) -> dict:
+    """Extract distance_km, duration_min, intensity from a planned_sessions structure blob.
+
+    Tries top-level keys first, then the first block in structure["blocks"].
+    Returns nulls for any field not found.
+    """
+    out: dict = {"distance_km": None, "duration_min": None, "intensity": None}
+    if not structure or not isinstance(structure, dict):
+        return out
+    for key in out:
+        val = structure.get(key)
+        if val is None:
+            for block in structure.get("blocks", []):
+                if isinstance(block, dict) and block.get(key) is not None:
+                    val = block[key]
+                    break
+        out[key] = val
+    return out
+
+
+def _session_to_dict(row) -> dict:
+    return {
+        "session_type": row.session_type,
+        "name": row.name,
+        "target": _extract_target(row.structure),
+        "note": row.notes,
+        "status": row.status,
+    }
+
+
+@app.get("/api/training/load")
+def training_load(date: str | None = None, user: str | None = None):
+    """Return CTL/ATL/TSB/ACWR + persisted verdict for a date for Hermes.
+
+    Reads from training_load_snapshots (single source of truth) and
+    verdict_history (persisted by _resolve_current_verdict). Does NOT
+    recompute anything.
+    """
+    from backend.models import TrainingLoadSnapshot, VerdictHistory
+    from datetime import date as _date
+
+    resolved_user = _resolve_read_user(user)
+
+    if date is not None:
+        try:
+            target_date = _date.fromisoformat(date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="date must be YYYY-MM-DD")
+    else:
+        target_date = datetime.now(BANGKOK_TZ).date()
+
+    with Session(engine) as s:
+        snap = (
+            s.query(TrainingLoadSnapshot)
+            .filter(
+                TrainingLoadSnapshot.user_id == resolved_user.id,
+                TrainingLoadSnapshot.snapshot_date <= target_date,
+            )
+            .order_by(TrainingLoadSnapshot.snapshot_date.desc())
+            .first()
+        )
+        if snap is None:
+            raise HTTPException(status_code=404, detail="no training load snapshots found for user")
+
+        verdict_row = (
+            s.query(VerdictHistory)
+            .filter(
+                VerdictHistory.user_id == resolved_user.id,
+                VerdictHistory.verdict_date == target_date,
+            )
+            .first()
+        )
+
+    return {
+        "date": target_date.isoformat(),
+        "snapshot_date": snap.snapshot_date.isoformat(),
+        "ctl": snap.ctl,
+        "atl": snap.atl,
+        "tsb": snap.tsb,
+        "acwr": snap.acwr,
+        "verdict": verdict_row.verdict if verdict_row else None,
+        "verdict_date": verdict_row.verdict_date.isoformat() if verdict_row else None,
+    }
+
+
+@app.get("/api/plan/today")
+def plan_today(date: str | None = None, user: str | None = None):
+    """Return today's planned session(s) from planned_sessions for Hermes.
+
+    Always HTTP 200 — planned:false when no row exists so Hermes always gets
+    a narratable answer.
+    """
+    from backend.models import PlannedSession
+
+    resolved_user = _resolve_read_user(user)
+
+    if date is not None:
+        try:
+            from datetime import date as _date
+            plan_date = _date.fromisoformat(date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="date must be YYYY-MM-DD")
+    else:
+        plan_date = datetime.now(BANGKOK_TZ).date()
+
+    with Session(engine) as s:
+        rows = (
+            s.query(PlannedSession)
+            .filter(
+                PlannedSession.user_id == resolved_user.id,
+                PlannedSession.planned_date == plan_date,
+            )
+            .all()
+        )
+
+    planned = len(rows) > 0
+    return {
+        "plan_date": plan_date.isoformat(),
+        "planned": planned,
+        "sessions": [_session_to_dict(r) for r in rows],
+    }
+
+
+# ── Feel-entry write API (Hermes) ─────────────────────────────────────────────
+#
+# POST /feel-entry — guarded by a static bearer token (WORKER_API_TOKEN env
+# var). Lets Hermes log session-feel / RPE data into workout_feel without
+# touching the webapp's own route or auth flow. Same validation rules as the
+# webapp's POST /api/feel; auto-links to the same-day workout when exactly one
+# exists (mirrors feel_link.auto_link_feel_entries).
+
+_FEEL_ENTRY_NOTES_CAP = 10_000
+
+
+def _require_worker_api_token(authorization: str | None = Header(default=None)) -> None:
+    token = os.getenv("WORKER_API_TOKEN")
+    if not token:
+        raise HTTPException(status_code=503, detail="WORKER_API_TOKEN not configured")
+    if (
+        authorization is None
+        or not authorization.startswith("Bearer ")
+        or authorization[7:] != token
+    ):
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+
+@app.post("/feel-entry", status_code=201, dependencies=[Depends(_require_worker_api_token)])
+def post_feel_entry(body: dict, user: str | None = None):
+    """Insert a feel/RPE entry into workout_feel on behalf of Hermes.
+
+    Auth: Authorization: Bearer <WORKER_API_TOKEN>
+    User resolution: same chain as the read API (?user=, env, single-active).
+    """
+    from datetime import date as _date
+    from backend.models import WorkoutFeel
+    from backend.services.feel_link import auto_link_feel_entries
+
+    # Validate feel_date
+    feel_date_raw = body.get("feel_date")
+    if not feel_date_raw:
+        raise HTTPException(status_code=400, detail={"field": "feel_date", "error": "feel_date is required"})
+    try:
+        feel_date = _date.fromisoformat(str(feel_date_raw))
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=400,
+            detail={"field": "feel_date", "error": "feel_date must be a valid YYYY-MM-DD date"},
+        )
+
+    # Validate rpe_1_to_10
+    rpe = body.get("rpe_1_to_10")
+    if rpe is not None:
+        if not isinstance(rpe, int) or not (1 <= rpe <= 10):
+            raise HTTPException(
+                status_code=400,
+                detail={"field": "rpe_1_to_10", "error": "rpe_1_to_10 must be an integer between 1 and 10"},
+            )
+
+    notes = body.get("notes")
+    if notes is not None and len(notes) > _FEEL_ENTRY_NOTES_CAP:
+        raise HTTPException(
+            status_code=400,
+            detail={"field": "notes", "error": f"notes must not exceed {_FEEL_ENTRY_NOTES_CAP:,} characters"},
+        )
+
+    if rpe is None and not notes:
+        raise HTTPException(
+            status_code=400,
+            detail={"field": "rpe_1_to_10", "error": "At least one of rpe_1_to_10 or notes is required"},
+        )
+
+    resolved_user = _resolve_read_user(user)
+
+    with Session(engine) as s:
+        row = WorkoutFeel(
+            user_id=resolved_user.id,
+            feel_date=feel_date,
+            rpe_1_to_10=rpe,
+            notes=notes,
+        )
+        s.add(row)
+        s.commit()
+        s.refresh(row)
+
+        try:
+            auto_link_feel_entries(resolved_user.id, feel_date)
+            s.refresh(row)
+        except Exception as exc:
+            logger.warning("auto_link_feel_entries failed: %s", exc)
+
+        return {
+            "id": str(row.id),
+            "user_id": str(row.user_id),
+            "feel_date": row.feel_date.isoformat(),
+            "workout_id": str(row.workout_id) if row.workout_id else None,
+            "rpe_1_to_10": row.rpe_1_to_10,
+            "notes": row.notes,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+
+
 # ── Scheduler thread ─────────────────────────────────────────────────────────
 
 def _parse_sync_times() -> list[tuple[int, int]]:

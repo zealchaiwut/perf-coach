@@ -378,6 +378,207 @@ mirroring the webapp's plist (same `WorkingDirectory`, `ENVIRONMENT=uat`,
 `.venv/bin/uvicorn backend.worker_app:app --port 9100`) plus `caffeinate -s` to
 keep it polling through sleep.
 
+## Read API (Hermes)
+
+The worker exposes a small HTTP API on port 9100 for local consumption by
+Hermes (the Mac Mini voice assistant). These routes are **not deployed to
+Render** and must never be reachable from the public internet — the tailnet /
+localhost binding is the security boundary.
+
+Most routes are read-only (GET), with one authenticated write route
+(`POST /feel-entry`) for Hermes to log session-feel/RPE data.
+
+### Shared conventions
+
+**User resolution** — every endpoint accepts an optional `?user=<username>`
+query param. Resolution order:
+1. Explicit `?user=<username>` → that user (by username)
+2. `WORKER_READ_API_USER` env var → that user
+3. Exactly one active user exists → use it
+4. Else → **400**
+
+**Date defaults** — `?date=` params default to today in Asia/Bangkok
+(matching the existing worker scheduler timezone). Pass `YYYY-MM-DD`.
+
+**No auth on GET routes** — deliberate contrast with the secret-gated
+`/internal/*` routes (which require `X-Worker-Secret`). The tailnet/localhost
+binding is the access boundary. The write route (`POST /feel-entry`) uses
+its own bearer-token guard; see below.
+
+### `POST /feel-entry`
+
+Insert a feel/RPE entry into `workout_feel`. Guarded by a static bearer token
+so external orchestrators (Hermes) can write feel data without touching the
+webapp's own auth flow.
+
+**Auth:** `Authorization: Bearer <token>` where `<token>` is the value of the
+`WORKER_API_TOKEN` environment variable on the worker. Requests with a missing
+or incorrect token receive **401**.
+
+**User resolution:** same chain as the read API — optional `?user=<username>`
+query param, then `WORKER_READ_API_USER` env var, then single active user.
+
+**Request body (JSON):**
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `feel_date` | string (YYYY-MM-DD) | **yes** | Date of the session feel |
+| `rpe_1_to_10` | integer 1–10 | no | Perceived exertion; out-of-range → 400 |
+| `notes` | string ≤ 10,000 chars | no | Free-text note; exceeding cap → 400 |
+
+At least one of `rpe_1_to_10` or `notes` must be present; omitting both → 400.
+
+**Auto-link:** after insert the handler runs the same `auto_link_feel_entries`
+logic as the webapp — if exactly one workout exists for the user on `feel_date`,
+the new row is linked to it automatically. If no same-day workout exists the
+row is still inserted successfully with `workout_id: null`.
+
+**Responses:**
+- `201` — row inserted; body contains the full record (at minimum `id`)
+- `400` — validation error (`feel_date` missing, RPE out of range, notes too long, neither field supplied)
+- `401` — missing or wrong bearer token
+- `503` — `WORKER_API_TOKEN` env var not configured on the worker
+
+**Example:**
+
+```bash
+curl -X POST http://localhost:9100/feel-entry \
+  -H "Authorization: Bearer $WORKER_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"feel_date": "2026-07-14", "rpe_1_to_10": 7, "notes": "Felt strong on intervals"}'
+```
+
+```json
+{
+  "id": "b1f62c3d-...",
+  "user_id": "a2c9...",
+  "feel_date": "2026-07-14",
+  "workout_id": "d3e8...",
+  "rpe_1_to_10": 7,
+  "notes": "Felt strong on intervals",
+  "created_at": "2026-07-14T11:30:00+00:00"
+}
+```
+
+**Worker env var:**
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `WORKER_API_TOKEN` | _(unset)_ | Static bearer token for `POST /feel-entry`. Requests fail with 503 if unset. |
+
+### `GET /api/training/load`
+
+CTL/ATL/TSB/ACWR + persisted verdict for the day. Reads from
+`training_load_snapshots` and `verdict_history` — no recomputation.
+If no snapshot exists for the requested date, returns the latest row ≤
+that date (with its actual `snapshot_date`); 404 only if the user has no
+snapshots at all. Verdict is `null` if no row exists for the date.
+
+```bash
+curl "http://localhost:9100/api/training/load?date=2026-07-13"
+```
+
+```json
+{
+  "date": "2026-07-13",
+  "snapshot_date": "2026-07-13",
+  "ctl": 54.2,
+  "atl": 61.8,
+  "tsb": -7.6,
+  "acwr": 1.14,
+  "verdict": "hold",
+  "verdict_date": "2026-07-13"
+}
+```
+
+### `GET /api/scores`
+
+Current Endurance and Speed performance scores with a 7-day trend flag.
+Reads from `performance_score_history` (latest row, newest formula_version).
+Trend is `up` / `flat` / `down` comparing against the value ~7 days earlier
+(±0.5 pt dead-band → `flat`; `flat` when no earlier row). 404 if no
+history at all.
+
+```bash
+curl "http://localhost:9100/api/scores"
+```
+
+```json
+{
+  "as_of": "2026-07-13",
+  "endurance": { "value": 62.4, "trend": "up" },
+  "speed": { "value": 58.1, "trend": "flat" },
+  "formula_version": "v2"
+}
+```
+
+### `GET /api/plan/today`
+
+Today's planned session(s) from `planned_sessions`, or an explicit empty
+state. Date defaults to today (Asia/Bangkok). Returns HTTP 200 in all
+cases — `"planned": false` when no row exists so Hermes always gets a
+narratable answer. Multiple sessions on one date are returned as a list
+under `"sessions"`.
+
+```bash
+curl "http://localhost:9100/api/plan/today"
+```
+
+Example — planned run day:
+
+```json
+{
+  "plan_date": "2026-07-13",
+  "planned": true,
+  "sessions": [
+    {
+      "session_type": "run",
+      "name": "Easy aerobic run",
+      "target": { "distance_km": 8.0, "duration_min": 50, "intensity": "easy" },
+      "note": "Keep HR in zone 2",
+      "status": "pending"
+    }
+  ]
+}
+```
+
+Example — no session planned:
+
+```json
+{
+  "plan_date": "2026-07-13",
+  "planned": false,
+  "sessions": []
+}
+```
+
+### `GET /api/weight/recent`
+
+Last N weigh-ins (default 14, clamped 1–90) from `weight_entries`, newest
+first. Includes the latest EWMA value and a trend over the window
+(`up`/`flat`/`down`, ±0.1 kg dead-band). EWMA computed via the shared
+`backend/services/weight_ewma.py` helper — same smoothing as the dashboard
+weight chart. Returns HTTP 200 with `entries: []` when the user has no
+weigh-ins (`last_logged` and `ewma` are null).
+
+```bash
+curl "http://localhost:9100/api/weight/recent?n=7"
+```
+
+```json
+{
+  "entries": [
+    { "date": "2026-07-13", "time": "07:12", "weight_kg": 68.4 },
+    { "date": "2026-07-12", "time": "07:08", "weight_kg": 68.6 },
+    { "date": "2026-07-11", "time": "07:15", "weight_kg": 68.5 }
+  ],
+  "count": 3,
+  "last_logged": "2026-07-13",
+  "ewma": 68.47,
+  "trend": "down"
+}
+```
+
 ## Audit trail
 
 `worker_job_runs` (see `backend/models.py`) is the source of truth for every
