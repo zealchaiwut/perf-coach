@@ -706,47 +706,13 @@
   }
 
   function fmtLoadNum(v) {
+    if (window.LoadReadinessTiles) return LoadReadinessTiles.fmtLoadNum(v);
     if (v === null || v === undefined || isNaN(v)) return "—";
     return String(Math.round(v * 10) / 10);
   }
 
-  // ── Readiness widget (issue #697) ────────────────────────────────────────────
-  // Fetches /api/readiness and renders Fitness/Fatigue/Freshness tiles with a
-  // readiness label. No per-tile sparkline — the Fitness/Fatigue/Form chart
-  // below (issue #528) already shows the same CTL/ATL/TSB series over time,
-  // so these tiles stay number/label/bar/status only, matching ACWR's shape.
+  // ── Readiness widget — shared LoadReadinessTiles (CTL/ATL/TSB/ACWR) ────────
 
-  // Readiness band model: [min,max] for marker placement + status thresholds.
-  // First-pass ranges (tunable): CTL/ATL 0–60, TSB −25..+15.
-  function _lrxReadStatus(metric, v) {
-    if (metric === "ctl") {
-      if (v < 20) return { word: "DETRAINING", color: "var(--lrx-amber)" };
-      if (v < 40) return { word: "STEADY", color: "var(--lrx-lavHi)" };
-      return { word: "STRONG", color: "var(--lrx-green)" };
-    }
-    if (metric === "atl") {
-      if (v < 25) return { word: "LOW", color: "var(--lrx-green)" };
-      if (v < 45) return { word: "MODERATE", color: "var(--lrx-lavHi)" };
-      return { word: "HIGH", color: "var(--lrx-amber)" };
-    }
-    // tsb
-    if (v < -10) return { word: "OVERREACHED", color: "var(--lrx-amber)" };
-    if (v <= 5) return { word: "OPTIMAL", color: "var(--lrx-green)" };
-    return { word: "FRESH", color: "var(--lrx-run)" };
-  }
-
-  function _lrxMarkerPct(metric, v) {
-    var min = metric === "tsb" ? -25 : 0;
-    var max = metric === "tsb" ? 15 : 60;
-    var pct = ((v - min) / (max - min)) * 100;
-    return Math.max(2, Math.min(98, pct));
-  }
-
-  var _LRX_BAND = {
-    ctl: "linear-gradient(90deg,#fbbf24,#60a5fa,#22c55e)",
-    atl: "linear-gradient(90deg,#22c55e,#eab308,#ef4444)",
-    tsb: "linear-gradient(90deg,#f59e0b,#22c55e,#60a5fa)",
-  };
   function renderReadinessWidget(data) {
     var el = document.getElementById("readiness-widget");
     if (!el) return;
@@ -761,117 +727,38 @@
     }
 
     var rlabel = data.form_label || data.readiness_label || "";
-
-    function rcard(metric, val, abbr, label) {
-      var st = _lrxReadStatus(metric, val);
-      var pct = _lrxMarkerPct(metric, val);
-      return (
-        '<div class="lrx-rcard">' +
-        '<div class="rv">' +
-        esc(fmtLoadNum(val)) +
-        "</div>" +
-        '<div class="rl">' +
-        abbr +
-        " · " +
-        label +
-        "</div>" +
-        '<div class="lrx-rband" style="background:' +
-        _LRX_BAND[metric] +
-        '">' +
-        '<div class="mk" style="left:' +
-        pct.toFixed(0) +
-        '%"></div></div>' +
-        '<div class="lrx-rstatus" style="color:' +
-        st.color +
-        '">' +
-        st.word +
-        "</div>" +
-        "</div>"
-      );
-    }
-
+    var LRT = window.LoadReadinessTiles;
     el.innerHTML =
       '<div class="lrx-chead">' +
       '<span class="lrx-sectitle">Readiness</span>' +
       (rlabel ? '<span class="lrx-chip b">' + esc(rlabel) + "</span>" : "") +
       "</div>" +
-      '<div class="lrx-readfull">' +
-      rcard("ctl", data.ctl, "CTL", "Fitness") +
-      rcard("atl", data.atl, "ATL", "Fatigue") +
-      rcard("tsb", data.tsb, "TSB", "Freshness") +
-      _acwrTileHtml() +
-      "</div>";
+      (LRT ? LRT.buildGridHtml(data) : "");
     el.hidden = false;
-    _loadAcwrTile();
+    if (LRT) LRT.loadAcwrTile(el);
   }
 
-  // ── Training load ratio (ACWR) — 4th readiness tile ─────────────────────────
-  // Moved here from the removed Performance tab. Not part of the /api/readiness
-  // payload (that endpoint has no ACWR field), so it's a separate fetch against
-  // /api/athletes/{id}/daily-load, with the same client-side ratio/band math
-  // the Performance tab used (backend/services/acwr.py exists but isn't wired
-  // to a route the frontend calls — this mirrors that pre-existing choice,
-  // not a new decision made during the move).
-  var ACWR_LOWER = 0.8;
-  var ACWR_HIGH = 1.5;
-  var ACWR_MIN_DAYS = 28;
+  // ── Training load ratio (ACWR) — helpers shared with FFF chart ─────────────
+  // Tile UI lives in LoadReadinessTiles; series math for the chart stays here
+  // and reuses the shared ratio helpers.
+  var ACWR_LOWER = (window.LoadReadinessTiles && LoadReadinessTiles.ACWR_LOWER) || 0.8;
+  var ACWR_HIGH = (window.LoadReadinessTiles && LoadReadinessTiles.ACWR_HIGH) || 1.5;
+  var ACWR_MIN_DAYS = (window.LoadReadinessTiles && LoadReadinessTiles.ACWR_MIN_DAYS) || 28;
 
-  var ACWR_STATUS_META = {
-    detraining: { word: "DETRAINING", color: "var(--lrx-amber)" },
-    productive: { word: "PRODUCTIVE", color: "var(--lrx-green)" },
-    high_risk: { word: "HIGH RISK", color: "var(--lrx-red)" },
-    baseline_forming: { word: "BUILDING", color: "var(--lrx-muted)" },
-  };
+  var ACWR_STATUS_META =
+    (window.LoadReadinessTiles && LoadReadinessTiles.ACWR_STATUS_META) || {
+      detraining: { word: "DETRAINING", color: "var(--lrx-amber)" },
+      productive: { word: "PRODUCTIVE", color: "var(--lrx-green)" },
+      high_risk: { word: "HIGH RISK", color: "var(--lrx-red)" },
+      baseline_forming: { word: "BUILDING", color: "var(--lrx-muted)" },
+    };
 
-  // Same rv/rl/lrx-rband/lrx-rstatus shape as the CTL/ATL/TSB tiles (see
-  // rcard() above) — no trend chart (no ACWR time series available) and no
-  // guidance paragraph, so this tile is intentionally shorter than its
-  // siblings rather than padded out to match (see #acwr-tile's
-  // align-self:flex-start in CSS).
-  function _acwrTileHtml() {
-    return (
-      '<div class="lrx-rcard" id="acwr-tile">' +
-      '<div class="rv" id="acwr-ratio">–</div>' +
-      '<div class="rl">ACWR · Load ratio</div>' +
-      '<div class="lrx-rband perf-acwr-rband" id="acwr-band">' +
-      '<div class="mk" id="acwr-marker" style="left:50%"></div>' +
-      "</div>" +
-      '<div class="lrx-rstatus" id="acwr-status">–</div>' +
-      "</div>"
-    );
-  }
-
-  function _perfAthleteIdFor(cb) {
-    var uid = window.getCurrentUserId ? window.getCurrentUserId() : null;
-    if (uid) { cb(uid); return; }
-    window.addEventListener("userReady", function (e) { cb(e.detail.userId); }, { once: true });
-  }
-
-  function _loadAcwrTile() {
-    if (!document.getElementById("acwr-ratio")) return;
-    _perfAthleteIdFor(function (athleteId) {
-      var today = new Date().toLocaleDateString("en-CA");
-      var start = new Date();
-      start.setDate(start.getDate() - 35);
-      var startDate = start.toLocaleDateString("en-CA");
-      fetch("/api/athletes/" + athleteId + "/daily-load?start_date=" + startDate + "&end_date=" + today)
-        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-        .then(function (data) {
-          var series = Array.isArray(data) ? data.map(function (d) { return d.daily_load || 0; }) : [];
-          _renderAcwrTile(_computeAcwr(series));
-        })
-        .catch(function () { _renderAcwrTile({ ratio: null, band: null }); });
-    });
-  }
-
-  // Acute:chronic ratio "as of" series[idx], given a chronological daily-load
-  // array. Shared by the readiness tile (idx = series.length-1, "today") and
-  // the FFF chart's ACWR line (idx = each displayed day's position in a
-  // dense, gap-filled load series — see _computeAcwrSeriesForDates).
   function _acwrRatioAt(series, idx) {
+    if (window.LoadReadinessTiles)
+      return LoadReadinessTiles.acwrRatioAt(series, idx);
     if (idx < ACWR_MIN_DAYS - 1) return null;
     var acute = 0;
-    for (var i = idx - 6; i <= idx; i++) acute += (series[i] || 0);
+    for (var i = idx - 6; i <= idx; i++) acute += series[i] || 0;
     var priorTotals = [];
     [
       [idx - 34, idx - 28],
@@ -879,23 +766,34 @@
       [idx - 20, idx - 14],
       [idx - 13, idx - 7],
     ].forEach(function (w) {
-      var lo = Math.max(0, w[0]), hi = w[1];
+      var lo = Math.max(0, w[0]),
+        hi = w[1];
       if (hi < lo) return;
       var tot = 0;
-      for (var j = lo; j <= hi; j++) tot += (series[j] || 0);
+      for (var j = lo; j <= hi; j++) tot += series[j] || 0;
       priorTotals.push(tot);
     });
     var chronic = priorTotals.length
-      ? priorTotals.reduce(function (a, b) { return a + b; }, 0) / priorTotals.length : 0;
+      ? priorTotals.reduce(function (a, b) {
+          return a + b;
+        }, 0) / priorTotals.length
+      : 0;
     return chronic ? acute / chronic : null;
   }
 
   function _acwrBandFor(ratio) {
-    return ratio < ACWR_LOWER ? "detraining" : (ratio > ACWR_HIGH ? "high_risk" : "productive");
+    if (window.LoadReadinessTiles) return LoadReadinessTiles.acwrBandFor(ratio);
+    return ratio < ACWR_LOWER
+      ? "detraining"
+      : ratio > ACWR_HIGH
+        ? "high_risk"
+        : "productive";
   }
 
   function _computeAcwr(series) {
-    if (series.length < ACWR_MIN_DAYS) return { ratio: null, band: "baseline_forming" };
+    if (window.LoadReadinessTiles) return LoadReadinessTiles.computeAcwr(series);
+    if (series.length < ACWR_MIN_DAYS)
+      return { ratio: null, band: "baseline_forming" };
     var ratio = _acwrRatioAt(series, series.length - 1);
     if (ratio === null) return { ratio: null, band: null };
     return { ratio: ratio, band: _acwrBandFor(ratio) };
@@ -917,36 +815,17 @@
       denseDates.push(d.toLocaleDateString("en-CA"));
       d.setDate(d.getDate() + 1);
     }
-    var denseLoads = denseDates.map(function (ds) { return loadByDate[ds] || 0; });
+    var denseLoads = denseDates.map(function (ds) {
+      return loadByDate[ds] || 0;
+    });
     var indexOf = {};
-    denseDates.forEach(function (ds, i) { indexOf[ds] = i; });
+    denseDates.forEach(function (ds, i) {
+      indexOf[ds] = i;
+    });
     return dates.map(function (ds) {
       var idx = indexOf[ds];
       return idx === undefined ? null : _acwrRatioAt(denseLoads, idx);
     });
-  }
-
-  function _renderAcwrTile(acwr) {
-    var ratioEl = document.getElementById("acwr-ratio");
-    var statusEl = document.getElementById("acwr-status");
-    var markerEl = document.getElementById("acwr-marker");
-    if (!ratioEl) return;
-
-    if (acwr.band === "baseline_forming" || acwr.ratio === null) {
-      ratioEl.textContent = "–";
-      var bf = ACWR_STATUS_META.baseline_forming;
-      if (statusEl) { statusEl.textContent = bf.word; statusEl.style.color = bf.color; }
-      if (markerEl) markerEl.style.visibility = "hidden";
-      return;
-    }
-    ratioEl.textContent = acwr.ratio.toFixed(2);
-    var meta = ACWR_STATUS_META[acwr.band] || { word: "—", color: "var(--lrx-muted)" };
-    if (statusEl) { statusEl.textContent = meta.word; statusEl.style.color = meta.color; }
-    if (markerEl) {
-      markerEl.style.visibility = "";
-      var pct = Math.max(2, Math.min(98, (acwr.ratio / 2.0) * 100));
-      markerEl.style.left = pct.toFixed(1) + "%";
-    }
   }
 
   // ── Fitness · Fatigue · Form chart (CTL/ATL/TSB/ACWR) ───────────────────────
@@ -956,6 +835,21 @@
   // toggle — so the chart gets the full height of its half of the card.
   var _fffChart = null;
   var FFF_RANGE_DAYS_FIXED = 30;
+
+  function _perfAthleteIdFor(cb) {
+    var uid = window.getCurrentUserId ? window.getCurrentUserId() : null;
+    if (uid) {
+      cb(uid);
+      return;
+    }
+    window.addEventListener(
+      "userReady",
+      function (e) {
+        cb(e.detail.userId);
+      },
+      { once: true },
+    );
+  }
 
   function _fffDateStr(daysAgo) {
     var d = new Date();
@@ -2542,7 +2436,7 @@
     });
   }
 
-  /** Run detail: header, Load & intensity, and laps only (skip route, sync, etc.). */
+  /** Fallback clone for non-run detail panels (no rd4 share card). */
   function buildScreenshotClone(contentEl) {
     var stack = contentEl.querySelector(".rd4-stack");
     if (!stack) return contentEl.cloneNode(true);
@@ -2573,75 +2467,425 @@
     return out.childElementCount ? out : contentEl.cloneNode(true);
   }
 
-  // Show a lightweight picker when a run has both km and manual lap types.
-  // Returns a Promise that resolves once the user picks (or immediately if no
-  // choice is needed).  As a side-effect it clicks the appropriate lap toggle
-  // button so the DOM is in the chosen state before the caller clones it.
-  function _promptLapModeIfNeeded(contentEl) {
+  /** Prefer the landscape / simple share card; fall back to the vertical panel clone. */
+  function buildDetailCaptureRoot(contentEl, shotOpts) {
+    shotOpts = shotOpts || {};
+    var RD = window.RunDetailView;
+    if (!RD) return buildScreenshotClone(contentEl);
+
+    if (
+      shotOpts.style === "simple" &&
+      typeof RD.buildSimpleShareCard === "function"
+    ) {
+      var simple = RD.buildSimpleShareCard(contentEl, {
+        workout: cachedDetailWorkout || {},
+        includeGraph: !!shotOpts.includeGraph,
+      });
+      if (simple) return simple;
+    }
+
+    if (typeof RD.buildShareCard === "function") {
+      var share = RD.buildShareCard(contentEl, {
+        workout: cachedDetailWorkout || {},
+      });
+      if (share) return share;
+    }
+    return buildScreenshotClone(contentEl);
+  }
+
+  /**
+   * Single screenshot modal with two sections + live preview:
+   *   Card  — Advanced info | Simple + graph | Simple (no graph)
+   *   Laps  — Manual | 1 km   (when both exist; dimmed if card doesn't need laps)
+   * Resolves { style, includeGraph, lapMode } or null if cancelled.
+   */
+  function _promptScreenshotOptions(contentEl) {
     return new Promise(function (resolve) {
       var toggle = contentEl.querySelector("#rd4-lapmode-toggle");
-      if (!toggle || toggle.querySelectorAll(".rd4-lm-btn").length < 2) {
-        resolve();
-        return;
+      var hasLapChoice =
+        !!(toggle && toggle.querySelectorAll(".rd4-lm-btn").length >= 2);
+
+      var lastCard = "advanced";
+      var lastLap = "manual";
+      try {
+        lastCard = localStorage.getItem("rd4_shot_card") || "advanced";
+        lastLap = localStorage.getItem("rd4_shot_lap") || "manual";
+      } catch (e) {}
+      if (
+        lastCard !== "advanced" &&
+        lastCard !== "simple_graph" &&
+        lastCard !== "simple"
+      ) {
+        try {
+          var oldStyle = localStorage.getItem("rd4_shot_style");
+          var oldGraph = localStorage.getItem("rd4_shot_graph") !== "0";
+          if (oldStyle === "simple")
+            lastCard = oldGraph ? "simple_graph" : "simple";
+          else lastCard = "advanced";
+        } catch (e2) {
+          lastCard = "advanced";
+        }
       }
+
       var activeBtn =
-        toggle.querySelector(".rd4-lm-btn--on") ||
-        toggle.querySelector(".rd4-lm-btn");
-      var activeMode = activeBtn
+        toggle &&
+        (toggle.querySelector(".rd4-lm-btn--on") ||
+          toggle.querySelector(".rd4-lm-btn"));
+      var liveLap = activeBtn
         ? activeBtn.getAttribute("data-lap-mode")
         : "distance";
+      if (lastLap !== "manual" && lastLap !== "distance")
+        lastLap = liveLap || "manual";
+
+      var card = lastCard;
+      var lapMode = lastLap;
 
       var overlay = document.createElement("div");
       overlay.style.cssText =
-        "position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:9999;" +
-        "display:flex;align-items:center;justify-content:center;";
+        "position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:9999;" +
+        "display:flex;align-items:center;justify-content:center;padding:16px;" +
+        "box-sizing:border-box;";
 
       var box = document.createElement("div");
       box.style.cssText =
-        "background:#fff;border-radius:14px;padding:22px 24px;max-width:260px;" +
-        "width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.18);";
-      box.innerHTML =
-        '<p style="margin:0 0 14px;font-size:13px;font-weight:800;letter-spacing:.05em;' +
-        'text-transform:uppercase;color:#9aa3b2;">Screenshot — lap view</p>';
+        "position:relative;background:#fff;border-radius:16px;padding:20px;max-width:760px;" +
+        "width:100%;max-height:min(92vh,900px);overflow:auto;" +
+        "box-shadow:0 12px 40px rgba(0,0,0,0.22);" +
+        "display:grid;grid-template-columns:minmax(220px,260px) minmax(0,1fr);" +
+        "gap:18px;align-items:start;";
 
-      function makeBtn(label, mode) {
+      function closeModal() {
+        if (!overlay.parentNode) return;
+        document.body.removeChild(overlay);
+        document.removeEventListener("keydown", onKey);
+        resolve(null);
+      }
+
+      function onKey(e) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          closeModal();
+        }
+      }
+
+      var closeBtn = document.createElement("button");
+      closeBtn.type = "button";
+      closeBtn.setAttribute("aria-label", "Close");
+      closeBtn.textContent = "✕";
+      closeBtn.style.cssText =
+        "position:absolute;top:10px;right:10px;z-index:2;" +
+        "width:32px;height:32px;border:0;border-radius:8px;" +
+        "background:transparent;color:#6b7280;cursor:pointer;" +
+        "font-size:16px;line-height:1;display:flex;align-items:center;" +
+        "justify-content:center;";
+      closeBtn.addEventListener("mouseenter", function () {
+        closeBtn.style.background = "#f3f4f6";
+        closeBtn.style.color = "#111827";
+      });
+      closeBtn.addEventListener("mouseleave", function () {
+        closeBtn.style.background = "transparent";
+        closeBtn.style.color = "#6b7280";
+      });
+      closeBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        closeModal();
+      });
+      box.appendChild(closeBtn);
+
+      var controls = document.createElement("div");
+      var previewCol = document.createElement("div");
+      previewCol.style.cssText = "min-width:0;";
+
+      function sectionTitle(text) {
+        var p = document.createElement("p");
+        p.textContent = text;
+        p.style.cssText =
+          "margin:0 0 10px;font-size:12px;font-weight:800;letter-spacing:.06em;" +
+          "text-transform:uppercase;color:#9aa3b2;";
+        return p;
+      }
+
+      function choiceBtn(group, label, value, getSel, setSel, onChange) {
         var b = document.createElement("button");
+        b.type = "button";
         b.textContent = label;
-        var isActive = mode === activeMode;
-        b.style.cssText =
-          "display:block;width:100%;padding:11px;margin-bottom:8px;cursor:pointer;" +
-          "border-radius:9px;font-size:14px;font-weight:600;" +
-          "border:1.5px solid " +
-          (isActive ? "#2563eb" : "#e0e4f0") +
-          ";" +
-          "background:" +
-          (isActive ? "#2563eb" : "#fff") +
-          ";" +
-          "color:" +
-          (isActive ? "#fff" : "#374151") +
-          ";";
+        b.setAttribute("data-shot-group", group);
+        b.setAttribute("data-shot-val", value);
+        function paint() {
+          var on = getSel() === value;
+          var disabled = b.disabled;
+          b.style.cssText =
+            "display:block;width:100%;padding:11px;margin-bottom:8px;cursor:" +
+            (disabled ? "default" : "pointer") +
+            ";" +
+            "border-radius:9px;font-size:14px;font-weight:600;" +
+            "border:1.5px solid " +
+            (on ? "#2563eb" : "#e0e4f0") +
+            ";" +
+            "background:" +
+            (on ? "#2563eb" : "#fff") +
+            ";" +
+            "color:" +
+            (on ? "#fff" : "#374151") +
+            ";" +
+            "opacity:" +
+            (disabled ? "0.45" : "1") +
+            ";";
+        }
+        paint();
+        b._paint = paint;
         b.addEventListener("click", function () {
-          document.body.removeChild(overlay);
-          var target = toggle.querySelector(
-            '.rd4-lm-btn[data-lap-mode="' + mode + '"]',
+          if (b.disabled) return;
+          setSel(value);
+          Array.prototype.forEach.call(
+            controls.querySelectorAll('[data-shot-group="' + group + '"]'),
+            function (el) {
+              el._paint && el._paint();
+            },
           );
-          if (target && !target.classList.contains("rd4-lm-btn--on"))
-            target.click();
-          resolve();
+          if (onChange) onChange();
         });
         return b;
       }
 
-      box.appendChild(makeBtn("1 km splits", "distance"));
-      box.appendChild(makeBtn("Manual laps", "manual"));
+      function cardNeedsLaps() {
+        return card === "advanced" || card === "simple_graph";
+      }
+
+      function applyLapModeIfNeeded() {
+        if (!hasLapChoice || !cardNeedsLaps() || !toggle) return;
+        var target = toggle.querySelector(
+          '.rd4-lm-btn[data-lap-mode="' + lapMode + '"]',
+        );
+        if (target && !target.classList.contains("rd4-lm-btn--on"))
+          target.click();
+      }
+
+      var previewLabel = sectionTitle("Preview");
+      var previewStage = document.createElement("div");
+      previewStage.className = "dp-shot-preview-stage";
+      previewStage.style.cssText =
+        "position:relative;border-radius:12px;overflow:hidden;" +
+        "border:1px solid #e5e8ef;min-height:160px;" +
+        "background-color:#f4f6fa;" +
+        "background-image:linear-gradient(45deg,#e8ecf2 25%,transparent 25%)," +
+        "linear-gradient(-45deg,#e8ecf2 25%,transparent 25%)," +
+        "linear-gradient(45deg,transparent 75%,#e8ecf2 75%)," +
+        "linear-gradient(-45deg,transparent 75%,#e8ecf2 75%);" +
+        "background-size:16px 16px;" +
+        "background-position:0 0,0 8px,8px -8px,-8px 0;";
+
+      var previewHint = document.createElement("div");
+      previewHint.style.cssText =
+        "margin-top:8px;font-size:12px;color:#9aa3b2;font-weight:500;";
+      previewHint.textContent = "Checkerboard shows transparency";
+
+      function refreshPreview() {
+        applyLapModeIfNeeded();
+        previewStage.innerHTML =
+          '<div style="padding:24px;text-align:center;color:#9aa3b2;font-size:13px;">Updating…</div>';
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            var opts = {
+              style: card === "advanced" ? "full" : "simple",
+              includeGraph: card === "simple_graph",
+            };
+            var node = buildDetailCaptureRoot(contentEl, opts);
+            previewStage.innerHTML = "";
+            if (!node) {
+              previewStage.innerHTML =
+                '<div style="padding:28px;text-align:center;color:#9aa3b2;font-size:13px;">Nothing to preview</div>';
+              return;
+            }
+
+            var isAdv = node.classList.contains("rd4-share");
+            var isSimple = node.classList.contains("rd4-simple");
+            var naturalW = isAdv ? 1100 : isSimple ? 360 : 200;
+            if (isAdv) node.style.width = "1100px";
+            else node.style.width = "max-content";
+
+            var scaleWrap = document.createElement("div");
+            scaleWrap.style.cssText =
+              "transform-origin:top left;will-change:transform;margin:8px;" +
+              "display:inline-block;";
+            scaleWrap.appendChild(node);
+            previewStage.appendChild(scaleWrap);
+
+            // Measure unscaled, then fit. Simple overlays hug content — no
+            // empty checkerboard strip on the right.
+            var measured =
+              Math.ceil(node.offsetWidth) ||
+              Math.ceil(node.getBoundingClientRect().width) ||
+              naturalW;
+            var measuredH =
+              Math.ceil(node.offsetHeight) ||
+              Math.ceil(node.getBoundingClientRect().height) ||
+              200;
+
+            if (isSimple) {
+              previewStage.style.width = measured + 16 + "px";
+              previewStage.style.maxWidth = "100%";
+              previewStage.style.height = measuredH + 16 + "px";
+              scaleWrap.style.transform = "none";
+              scaleWrap.style.width = measured + "px";
+            } else {
+              previewStage.style.width = "";
+              previewStage.style.maxWidth = "";
+              var stageW = previewStage.clientWidth || 400;
+              var scale = Math.min(1, (stageW - 16) / measured);
+              scaleWrap.style.transform = "scale(" + scale + ")";
+              scaleWrap.style.width = measured + "px";
+              previewStage.style.height =
+                Math.max(120, Math.ceil(measuredH * scale) + 16) + "px";
+            }
+
+            previewHint.style.display =
+              card === "simple" || card === "simple_graph" ? "" : "none";
+          });
+        });
+      }
+
+      function onOptionsChange() {
+        syncLapSection();
+        refreshPreview();
+      }
+
+      controls.appendChild(sectionTitle("Card"));
+      controls.appendChild(
+        choiceBtn(
+          "card",
+          "Advanced info",
+          "advanced",
+          function () {
+            return card;
+          },
+          function (v) {
+            card = v;
+          },
+          onOptionsChange,
+        ),
+      );
+      controls.appendChild(
+        choiceBtn(
+          "card",
+          "Simple + graph",
+          "simple_graph",
+          function () {
+            return card;
+          },
+          function (v) {
+            card = v;
+          },
+          onOptionsChange,
+        ),
+      );
+      controls.appendChild(
+        choiceBtn(
+          "card",
+          "Simple (no graph)",
+          "simple",
+          function () {
+            return card;
+          },
+          function (v) {
+            card = v;
+          },
+          onOptionsChange,
+        ),
+      );
+
+      var lapsWrap = document.createElement("div");
+      lapsWrap.style.cssText = "margin-top:8px;";
+      lapsWrap.appendChild(sectionTitle("Laps"));
+      var lapManual = choiceBtn(
+        "lap",
+        "Manual",
+        "manual",
+        function () {
+          return lapMode;
+        },
+        function (v) {
+          lapMode = v;
+        },
+        refreshPreview,
+      );
+      var lapKm = choiceBtn(
+        "lap",
+        "1 km",
+        "distance",
+        function () {
+          return lapMode;
+        },
+        function (v) {
+          lapMode = v;
+        },
+        refreshPreview,
+      );
+      lapsWrap.appendChild(lapManual);
+      lapsWrap.appendChild(lapKm);
+      controls.appendChild(lapsWrap);
+
+      function syncLapSection() {
+        var show = hasLapChoice;
+        lapsWrap.style.display = show ? "" : "none";
+        var need = cardNeedsLaps();
+        [lapManual, lapKm].forEach(function (b) {
+          b.disabled = !need;
+          b._paint();
+        });
+        lapsWrap.style.opacity = need ? "1" : "0.55";
+      }
+      syncLapSection();
+
+      var go = document.createElement("button");
+      go.type = "button";
+      go.textContent = "Save image";
+      go.style.cssText =
+        "display:block;width:100%;padding:12px;margin-top:14px;cursor:pointer;" +
+        "border-radius:9px;font-size:14px;font-weight:700;border:0;" +
+        "background:#0b1530;color:#fff;";
+      go.addEventListener("click", function () {
+        try {
+          localStorage.setItem("rd4_shot_card", card);
+          localStorage.setItem("rd4_shot_lap", lapMode);
+        } catch (e) {}
+        applyLapModeIfNeeded();
+        document.removeEventListener("keydown", onKey);
+        document.body.removeChild(overlay);
+        resolve({
+          style: card === "advanced" ? "full" : "simple",
+          includeGraph: card === "simple_graph",
+          lapMode: lapMode,
+        });
+      });
+      controls.appendChild(go);
+
+      previewCol.appendChild(previewLabel);
+      previewCol.appendChild(previewStage);
+      previewCol.appendChild(previewHint);
+
+      box.appendChild(controls);
+      box.appendChild(previewCol);
+
+      // Narrow screens: stack controls above preview.
+      var mq = window.matchMedia("(max-width: 640px)");
+      function layoutModal() {
+        if (mq.matches) {
+          box.style.gridTemplateColumns = "1fr";
+        } else {
+          box.style.gridTemplateColumns = "minmax(220px,260px) minmax(0,1fr)";
+        }
+      }
+      layoutModal();
+      if (mq.addEventListener) mq.addEventListener("change", layoutModal);
+
       overlay.appendChild(box);
       overlay.addEventListener("click", function (e) {
-        if (e.target === overlay) {
-          document.body.removeChild(overlay);
-          resolve();
-        }
+        if (e.target === overlay) closeModal();
       });
+      document.addEventListener("keydown", onKey);
       document.body.appendChild(overlay);
+      refreshPreview();
     });
   }
 
@@ -2671,74 +2915,112 @@
     closeOverflowMenu();
     _detailScreenshotBusy = true;
 
-    _promptLapModeIfNeeded(contentEl).then(function () {
-      var shotBtn = document.getElementById("dp-screenshot-btn");
-      if (shotBtn) shotBtn.disabled = true;
-
-      var scrollEl = document.getElementById("dp-scroll");
-      var savedScrollTop = scrollEl ? scrollEl.scrollTop : 0;
-      if (scrollEl) scrollEl.scrollTop = 0;
-
-      // Fixed 540px × scale 2 → 1080px PNG (Instagram post width).
-      var captureWidth = 540;
-
-      var host = document.createElement("div");
-      host.className = "dp-screenshot-capture";
-      host.setAttribute("aria-hidden", "true");
-      host.style.cssText =
-        "position:fixed;left:-10000px;top:0;width:" +
-        captureWidth +
-        "px;background:#fff;padding:0;box-sizing:border-box;pointer-events:none;";
-
-      var clone = buildScreenshotClone(contentEl);
-      host.appendChild(clone);
-      document.body.appendChild(host);
-
-      var overflowPatches = expandScreenshotOverflow(clone);
-
-      window
-        .html2canvas(host, {
-          backgroundColor: "#ffffff",
-          scale: 2,
-          logging: false,
-          useCORS: true,
-          width: captureWidth,
-          windowWidth: captureWidth,
-        })
-        .then(function (canvas) {
-          return new Promise(function (resolve, reject) {
-            canvas.toBlob(function (blob) {
-              if (!blob) {
-                reject(new Error("empty blob"));
-                return;
-              }
-              resolve(blob);
-            }, "image/png");
-          });
-        })
-        .then(function (blob) {
-          var url = URL.createObjectURL(blob);
-          var link = document.createElement("a");
-          link.href = url;
-          link.download = buildDetailScreenshotFilename();
-          document.body.appendChild(link);
-          link.click();
-          link.remove();
-          URL.revokeObjectURL(url);
-          UIStates.showToast("Workout saved as image");
-        })
-        .catch(function (err) {
-          console.error("detail screenshot failed", err);
-          UIStates.showToast("Could not save image. Try again.", true);
-        })
-        .finally(function () {
-          restoreScreenshotOverflow(overflowPatches);
-          if (host.parentNode) host.parentNode.removeChild(host);
-          if (scrollEl) scrollEl.scrollTop = savedScrollTop;
+    _promptScreenshotOptions(contentEl)
+      .then(function (shotOpts) {
+        if (!shotOpts) {
           _detailScreenshotBusy = false;
-          if (shotBtn) shotBtn.disabled = false;
+          return;
+        }
+
+        var shotBtn = document.getElementById("dp-screenshot-btn");
+        if (shotBtn) shotBtn.disabled = true;
+
+        var scrollEl = document.getElementById("dp-scroll");
+        var savedScrollTop = scrollEl ? scrollEl.scrollTop : 0;
+        if (scrollEl) scrollEl.scrollTop = 0;
+
+        // Let lap-mode UI/chart repaint before cloning.
+        var capture = function () {
+          var clone = buildDetailCaptureRoot(contentEl, shotOpts);
+          var isShare = !!(
+            clone &&
+            clone.classList &&
+            clone.classList.contains("rd4-share")
+          );
+          var isSimple = !!(
+            clone &&
+            clone.classList &&
+            clone.classList.contains("rd4-simple")
+          );
+          var captureWidth = isShare ? 1100 : isSimple ? 360 : 540;
+          var bg = isSimple ? null : isShare ? "#f4f6fa" : "#ffffff";
+
+          var host = document.createElement("div");
+          host.className =
+            "dp-screenshot-capture" +
+            (isShare ? " dp-screenshot-capture--share" : "") +
+            (isSimple ? " dp-screenshot-capture--simple" : "");
+          host.setAttribute("aria-hidden", "true");
+          host.style.cssText =
+            "position:fixed;left:-10000px;top:0;width:" +
+            (isSimple ? "max-content" : captureWidth + "px") +
+            ";background:transparent;padding:0;box-sizing:border-box;pointer-events:none;";
+
+          host.appendChild(clone);
+          document.body.appendChild(host);
+
+          // Hug the simple overlay's content so the PNG isn't a wide empty canvas.
+          if (isSimple) {
+            var fitted = Math.ceil(clone.getBoundingClientRect().width);
+            if (fitted > 40) {
+              captureWidth = fitted + 4;
+              host.style.width = captureWidth + "px";
+            }
+          }
+
+          var overflowPatches = expandScreenshotOverflow(clone);
+
+          window
+            .html2canvas(host, {
+              backgroundColor: bg,
+              scale: 2,
+              logging: false,
+              useCORS: true,
+              width: captureWidth,
+              windowWidth: captureWidth,
+            })
+            .then(function (canvas) {
+              return new Promise(function (resolve, reject) {
+                canvas.toBlob(function (blob) {
+                  if (!blob) {
+                    reject(new Error("empty blob"));
+                    return;
+                  }
+                  resolve(blob);
+                }, "image/png");
+              });
+            })
+            .then(function (blob) {
+              var url = URL.createObjectURL(blob);
+              var link = document.createElement("a");
+              link.href = url;
+              link.download = buildDetailScreenshotFilename();
+              document.body.appendChild(link);
+              link.click();
+              link.remove();
+              URL.revokeObjectURL(url);
+              UIStates.showToast("Workout saved as image");
+            })
+            .catch(function (err) {
+              console.error("detail screenshot failed", err);
+              UIStates.showToast("Could not save image. Try again.", true);
+            })
+            .finally(function () {
+              restoreScreenshotOverflow(overflowPatches);
+              if (host.parentNode) host.parentNode.removeChild(host);
+              if (scrollEl) scrollEl.scrollTop = savedScrollTop;
+              _detailScreenshotBusy = false;
+              if (shotBtn) shotBtn.disabled = false;
+            });
+        };
+
+        requestAnimationFrame(function () {
+          requestAnimationFrame(capture);
         });
-    });
+      })
+      .catch(function () {
+        _detailScreenshotBusy = false;
+      });
   }
 
   // ── Fetch and render detail ───────────────────────────────────────────────
@@ -5434,6 +5716,9 @@
   // Measure the two stacked nav bars (global nav + sticky training header) so the
   // detail-drawer overlay starts exactly below them, and the training header
   // sticks right under the global nav — robust across breakpoints/heights.
+  //
+  // Desktop: inset .log-page-header-inner to the content column. Global nav
+  // left/right padding is owned by nav.js (_positionGlobalNav) on every page.
   function _positionNav() {
     var gnav = document.querySelector(".global-nav");
     var hdr = document.querySelector(".log-page-header");
@@ -5469,9 +5754,6 @@
     var contentLeft = Math.max(0, (vw - CONTENT_MAX) / 2) + PAD;
     inner.style.paddingLeft = contentLeft + "px";
     inner.style.paddingRight = contentLeft + "px";
-    // actions is a normal flex-row child pushed right by .log-nav-spacer
-    // (flex:1) — its right edge lands on inner's padding-right automatically,
-    // no separate positioning needed.
   }
   window.addEventListener("load", _positionNav);
   window.addEventListener("resize", _positionNav);

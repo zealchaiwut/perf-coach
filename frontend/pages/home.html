@@ -12,6 +12,7 @@
   <link href="https://cdn.jsdelivr.net/npm/gridstack@10/dist/gridstack-extra.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/gridstack@10/dist/gridstack-all.js"></script>
   <link rel="stylesheet" href="css/weight-current-card.css">
+  <link rel="stylesheet" href="css/load-readiness-tiles.css?v=20260717r">
   <style>
     :root {
       --bg-1: #5a8dee;
@@ -303,7 +304,7 @@
     .perf-empty a { color: #2b4ca8; text-decoration: none; }
 
     /* ---- RECENT WORKOUTS (rendered as .nw-row entries inside
-       #home-recent-workout-section — see NEXT WORKOUT CARD rules below) ---- */
+       #home-recent-workout-section — see RECENT WORKOUT CARD rules below) ---- */
     .workouts-empty {
       font-size: 13.5px; color: var(--text-secondary);
       padding: 16px 4px; line-height: 1.5;
@@ -654,6 +655,25 @@
     }
     .lts-msg strong { font-size: 14px; font-weight: 600; color: #fff; letter-spacing: -0.01em; }
     .lts-msg span   { font-size: 12px; color: rgba(255,255,255,0.70); }
+    .lts-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .lts-niggle-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      border: 1.5px solid rgba(255,255,255,0.35);
+      background: rgba(255,255,255,0.15);
+      color: #fff;
+      font-family: inherit; font-size: 12.5px; font-weight: 600;
+      cursor: pointer; white-space: nowrap; flex-shrink: 0;
+      min-height: 44px; letter-spacing: -0.01em;
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+    }
     .lts-cta-btn {
       display: inline-flex; align-items: center; gap: 6px;
       padding: 10px 18px;
@@ -770,7 +790,9 @@
     @media (max-width: 880px) {
       /* Strip: stack on narrow */
       .lts-inner { flex-wrap: wrap; gap: 10px; }
-      .lts-cta-btn { width: 100%; justify-content: center; }
+      .lts-actions { width: 100%; }
+      .lts-niggle-btn,
+      .lts-cta-btn { flex: 1; justify-content: center; }
 
       .hw-wheel-svg { width: 88px; height: 88px; }
     }
@@ -956,101 +978,25 @@
 
     /* ==== HOME V2 ==== */
 
-    /* ---- READINESS CTL/ATL/TSB TRIO (extends home-top-row-right) ---- */
-    .rd-ctl-row {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 8px;
-      /* auto top/bottom margins on this flex-column child (see
-         #home-top-row-right) split whatever space is left below the header
-         evenly, so the row (with its divider) floats vertically centered
-         instead of sitting pinned right under the header. */
-      margin-top: auto;
-      margin-bottom: auto;
-      padding-top: 14px;
-      border-top: 1px solid rgba(11, 21, 48, 0.08);
-    }
-    .rd-ctl-card {
-      background: rgba(255, 255, 255, 0.72);
-      border: 1px solid #dde3f6;
-      border-radius: 10px;
-      padding: 9px 8px;
-      text-align: center;
-    }
-    .rd-ctl-v {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 17px;
-      font-weight: 800;
-      line-height: 1;
-    }
-    .rd-ctl-l {
-      font-size: 8px;
-      color: var(--text-tertiary);
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.03em;
-      margin-top: 3px;
-    }
-    .rd-ctl-band {
-      height: 4px;
-      border-radius: 3px;
-      margin: 8px 0 4px;
-      position: relative;
-    }
-    .rd-ctl-mk {
-      position: absolute;
-      top: -2px;
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #fff;
-      border: 1.5px solid #475569;
-      transform: translateX(-50%);
-    }
-    .rd-ctl-stat { font-size: 8.5px; font-weight: 800; letter-spacing: 0.03em; }
-    .rd-ctl-spark { width: 100%; height: 24px; margin-top: 5px; display: block; }
-    .rd-ctl-bb {
-      font-size: 12.5px;
-      color: rgba(11, 21, 48, 0.72);
-      margin-top: 14px;
-      padding-top: 14px;
-      border-top: 1px solid rgba(11, 21, 48, 0.08);
-      line-height: 1.5;
-    }
+    /* Load tiles (CTL/ATL/TSB/ACWR) — styles in css/load-readiness-tiles.css */
 
-    /* ---- NEXT WORKOUT CARD (home-next-workout-card) ----
-       home v3 (Task 1): this card now holds two merged sub-sections (Next
-       workout / Recent workout), each with its own sub-head + link row
-       (.nw-worksub/.nw-subhead) and a thin divider (.nw-sep) between them —
-       "nw-" prefix kept for the whole card, not renamed to a shared
-       cross-widget name, since it's still this one card's own scoped
-       vocabulary. */
-    .nw-worksub {
+    /* ---- RECENT WORKOUT CARD (compact, beside Performance) ---- */
+    #home-next-workout-card,
+    #home-performance-card {
       display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 8px;
+      flex-direction: column;
+      box-sizing: border-box;
     }
-    .nw-subhead {
-      font-size: 10px;
-      font-weight: 800;
-      color: var(--text-tertiary);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
+    #home-recent-workout-section {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 auto;
+      justify-content: space-evenly;
+      gap: 9px;
     }
-    .nw-worksub a { font-size: 12px; color: #2b4ca8; text-decoration: none; white-space: nowrap; }
-    .nw-sep {
-      border-top: 1px solid var(--card-divider);
-      margin: 13px 0;
-    }
-    /* Rows are a 3-column grid — [fixed label col][name/meta][arrow] — so the
-       name column starts at the same x on every row (Next and Recent alike),
-       regardless of whether the badge reads RUN or STRENGTH. Recent rows omit
-       the arrow; the auto arrow column collapses to 0 so names still align. */
-    #home-next-workout-section, #home-recent-workout-section { display: flex; flex-direction: column; gap: 9px; }
     .nw-row {
       display: grid;
-      grid-template-columns: 62px 1fr auto;
+      grid-template-columns: 62px 1fr;
       align-items: center;
       gap: 10px;
       text-decoration: none;
@@ -1127,25 +1073,83 @@
     .hperf-msg, .hperf-loading { font-size: 13.5px; color: var(--text-secondary); padding: 4px 0; line-height: 1.5; }
     .hperf-msg a { color: #2b4ca8; text-decoration: none; }
 
-    /* ---- TODAY'S RECOMMENDATION CARD ---- */
-    #home-today-rec-card { padding: 16px; }
-    .rec-loading, .rec-empty { font-size: 13px; color: var(--text-secondary); }
-    .rec-card { display: flex; flex-direction: column; gap: 6px; }
-    .rec-header { display: flex; align-items: center; gap: 8px; }
-    .rec-icon {
-      width: 28px; height: 28px; border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 13px; font-weight: 700;
-      background: var(--green-soft); color: var(--green);
-      flex-shrink: 0;
+    /* ---- TODAY — half-width column beside Week plan ---- */
+    #home-today-rec-card,
+    #home-brief-week-plan-card {
+      display: flex;
+      flex-direction: column;
+      box-sizing: border-box;
     }
-    .rec-card--rest .rec-icon    { background: var(--amber-soft); color: var(--amber); }
-    .rec-card--downgrade .rec-icon { background: var(--blue-soft); color: var(--blue-text); }
-    .rec-label { font-size: 14px; font-weight: 600; color: var(--text-primary); }
-    .rec-session { font-size: 12px; color: var(--text-secondary); margin-left: 36px; }
-    .rec-reason { font-size: 12.5px; color: var(--text-secondary); margin: 0; line-height: 1.45; }
+    #home-today-rec-card { padding: 16px; }
+    #home-today-rec-body { flex: 1 1 auto; }
+    .rec-loading, .rec-empty { font-size: 13px; color: var(--text-secondary); }
+    .rec-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 2px;
+      margin: 0 0 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--card-divider);
+    }
+    .rec-tab {
+      appearance: none;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-tertiary);
+      padding: 4px 8px;
+      border-radius: 6px;
+      line-height: 1.3;
+    }
+    .rec-tab:hover { color: var(--text-secondary); background: rgba(0,0,0,0.04); }
+    .rec-tab[data-tab="all"].is-active {
+      color: var(--blue-text, #2b4ca8);
+      background: var(--blue-soft, rgba(90,141,238,0.14));
+    }
+    .rec-tab[data-tab="session"].is-active {
+      color: #2b4ca8;
+      background: rgba(90, 141, 238, 0.16);
+    }
+    .rec-tab[data-tab="advisories"].is-active {
+      color: #b45309;
+      background: rgba(245, 158, 11, 0.16);
+    }
+    .rec-tab[data-tab="coach"].is-active {
+      color: #047857;
+      background: rgba(16, 185, 129, 0.16);
+    }
+    .rec-msg-list {
+      list-style: disc;
+      margin: 0;
+      padding: 2px 0 0 1.15em;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .rec-msg-item {
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--text-secondary);
+      line-height: 1.45;
+      padding-left: 2px;
+    }
+    .rec-tag {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+    .rec-tag--session { color: #2b4ca8; }
+    .rec-tag--advisories { color: #b45309; }
+    .rec-tag--coach { color: #047857; }
+    .rec-msg-item--warn { color: var(--text-primary); }
+    .rec-msg-item--muted { color: var(--text-tertiary); font-style: italic; }
+    .rec-msg-item--muted .rec-tag { font-style: normal; }
     .rec-apply-btn {
-      margin-top: 4px; align-self: flex-start;
+      display: inline-flex;
+      margin-top: 10px;
       padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer;
       font-size: 12px; font-weight: 600;
       background: var(--blue-soft); color: var(--blue-text);
@@ -1155,23 +1159,13 @@
 
     /* ---- HOME V2: mobile (home.html's own breakpoint is 640px, not 880) ---- */
     @media (max-width: 640px) {
-      .rd-ctl-row  { gap: 6px; }
-      .rd-ctl-card { padding: 7px 5px; }
-      .rd-ctl-v    { font-size: 14px; }
-      .rd-ctl-l    { font-size: 7px; }
-      .rd-ctl-stat { font-size: 8px; }
       .nw-name     { font-size: 12.5px; }
       .nw-meta     { font-size: 10px; }
       .hperf-val   { font-size: 24px; }
     }
 
-    /* Mobile (<=479px, home v3): the daily-signal block (ring/score/hint/
-       4-tile factor row) stays visible — only the CTL/ATL/TSB trio, a denser
-       second data set below it, is dropped to keep the stacked mobile card
-       scannable. */
-    @media (max-width: 479px) {
-      .rd-ctl-row { display: none; }
-    }
+    /* Mobile (<=479px): daily-signal stays; load tiles hide via
+       css/load-readiness-tiles.css (.rd-load-tiles). */
 
     /* ── Daily brief card styles (issue #1499) ────────────────────────────── */
 
@@ -1192,250 +1186,98 @@
       100% { background-position: -200% 0; }
     }
 
-    /* ---- RACE GOAL CARD (issue #1501) ---- */
+    /* ---- RACE GOAL — Performance A-race teaser ---- */
     .goal-card__prompt { display: flex; flex-direction: column; gap: 10px; }
     .goal-card__sub { font-size: 13px; color: var(--text-secondary); }
     .goal-card__cta {
       align-self: flex-start; padding: 8px 18px; border-radius: 999px;
       background: var(--text-primary); color: #fff; font-size: 13px;
-      font-weight: 600; border: none; cursor: pointer; font-family: inherit;
-      letter-spacing: -0.01em;
+      font-weight: 600; text-decoration: none; font-family: inherit;
+      letter-spacing: -0.01em; display: inline-block;
     }
     .goal-card__cta:hover { opacity: 0.85; }
-    .goal-form { display: flex; flex-direction: column; gap: 12px; }
-    .goal-form__field { display: flex; flex-direction: column; gap: 4px; }
-    .goal-form__label {
-      font-size: 11px; font-weight: 600; color: var(--text-secondary);
-      text-transform: uppercase; letter-spacing: 0.05em;
+    .hg-race {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      padding: 4px 0 2px;
     }
-    .goal-form__select,
-    .goal-form__input {
-      border: 1.5px solid rgba(13,30,67,0.12); border-radius: 8px;
-      padding: 8px 10px; font-size: 14px; font-family: inherit;
-      color: var(--text-primary); background: #f7f9fd; outline: none;
+    .hg-race-let {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: #5a8dee; color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 16px; flex-shrink: 0;
     }
-    .goal-form__select:focus,
-    .goal-form__input:focus {
-      border-color: var(--bg-1);
-      box-shadow: 0 0 0 3px rgba(90,141,238,0.15);
+    .hg-race-id { flex: 1; min-width: 120px; }
+    .hg-race-name {
+      font-size: 15px; font-weight: 700; color: var(--text-primary);
+      letter-spacing: -0.02em;
     }
-    .goal-form__err { font-size: 12px; color: var(--red); min-height: 16px; }
-    .goal-form__actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-    .goal-form__submit {
-      padding: 9px 20px; border-radius: 999px; background: var(--text-primary);
-      color: #fff; font-size: 13px; font-weight: 600; border: none;
-      cursor: pointer; font-family: inherit; letter-spacing: -0.01em;
+    .hg-race-meta { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+    .hg-race-goal {
+      text-align: right; margin-left: auto;
     }
-    .goal-form__submit:hover { opacity: 0.85; }
-    .goal-form__submit:disabled { opacity: 0.5; cursor: default; }
-    .goal-form__cancel {
-      padding: 9px 16px; border-radius: 999px; background: transparent;
-      color: var(--text-secondary); font-size: 13px; font-weight: 500;
-      border: 1.5px solid rgba(13,30,67,0.12); cursor: pointer; font-family: inherit;
+    .hg-race-glab {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.05em;
+      text-transform: uppercase; color: var(--text-tertiary);
     }
-    .goal-form__cancel:hover { background: rgba(13,30,67,0.04); }
-    .goal-display { display: flex; align-items: center; gap: 12px; }
-    .goal-display__main { flex: 1; min-width: 0; }
-    .goal-display__title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
-    .goal-display__sub { font-size: 13px; color: var(--text-secondary); margin-top: 3px; }
-    .goal-display__edit {
-      flex-shrink: 0; padding: 6px 13px; border-radius: 999px; background: transparent;
-      color: var(--text-secondary); font-size: 12px; font-weight: 500;
-      border: 1.5px solid rgba(13,30,67,0.12); cursor: pointer; font-family: inherit;
-      display: inline-flex; align-items: center; gap: 4px;
+    .hg-race-gval {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 22px; font-weight: 700; color: var(--text-primary);
+      letter-spacing: -0.03em; line-height: 1.1;
     }
-    .goal-display__edit:hover { background: rgba(13,30,67,0.04); }
+    .hg-race-gsub { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
 
-    /* ---- COACH CARD (home-coach-card) ---- */
-    #home-coach-card { padding: 16px 18px; }
-
-    /* Skeleton loading state */
-    .coach-skeleton { display: flex; flex-direction: column; gap: 9px; padding-top: 4px; }
-    .coach-skel-line {
-      height: 12px; border-radius: 6px;
-      background: linear-gradient(90deg, rgba(13,30,67,0.06) 0%, rgba(13,30,67,0.10) 50%, rgba(13,30,67,0.06) 100%);
-      background-size: 200% 100%;
-      animation: coach-shimmer 1.4s infinite;
-      width: 85%;
-    }
-    .coach-skel-line--wide { width: 100%; }
-    .coach-skel-line--narrow { width: 60%; }
-    .coach-skel-pills { display: flex; gap: 8px; }
-    .coach-skel-pill {
-      height: 22px; width: 140px; border-radius: 999px;
-      background: linear-gradient(90deg, rgba(13,30,67,0.06) 0%, rgba(13,30,67,0.10) 50%, rgba(13,30,67,0.06) 100%);
-      background-size: 200% 100%;
-      animation: coach-shimmer 1.4s infinite;
-    }
-    @keyframes coach-shimmer {
-      0%   { background-position: 200% 0; }
-      100% { background-position: -200% 0; }
-    }
-
-    /* Quiet unavailable state */
     .brief-unavail {
       font-size: 12px;
       color: var(--text-tertiary);
       padding: 4px 0;
     }
 
-    /* ── Form card ─────────────────────────────────────────────────────────── */
-    .bfc-metrics {
-      display: flex;
-      gap: 10px;
-      align-items: flex-end;
-      flex-wrap: wrap;
-      margin-bottom: 10px;
-    }
-    .bfc-tile { display: flex; flex-direction: column; align-items: center; min-width: 40px; }
-    .bfc-val {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 18px;
-      font-weight: 600;
-      color: var(--text-primary);
-      letter-spacing: -0.04em;
-      line-height: 1.1;
-    }
-    .bfc-lbl {
-      font-family: 'Inter Tight', sans-serif;
-      font-size: 10px;
-      font-weight: 500;
-      color: var(--text-tertiary);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      margin-top: 3px;
-    }
-    .bfc-pill {
-      font-family: 'Inter Tight', sans-serif;
-      font-size: 11px;
-      font-weight: 600;
-      padding: 3px 8px;
-      border-radius: 999px;
-      color: var(--text-primary);
-      white-space: nowrap;
-    }
-    .bfc-interp {
-      font-family: 'Inter Tight', sans-serif;
-      font-size: 12px;
-      color: var(--text-secondary);
-      line-height: 1.4;
-    }
-
-    /* ── Week plan card ────────────────────────────────────────────────────── */
-    .bwp-list { display: flex; flex-direction: column; gap: 5px; }
-    .bwp-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-family: 'Inter Tight', sans-serif;
-      font-size: 13px;
-      color: var(--text-primary);
-    }
-    .bwp-row--rest { color: var(--text-tertiary); }
-    .bwp-day {
-      font-weight: 600;
-      width: 30px;
-      flex-shrink: 0;
-    }
-    .bwp-type { flex: 1; }
-    .bwp-type--rest { font-style: italic; }
-    .bwp-dur {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 11px;
-      color: var(--text-tertiary);
-      flex-shrink: 0;
-    }
-
-    /* ── Advisories card ───────────────────────────────────────────────────── */
-    .bac-none {
-      font-family: 'Inter Tight', sans-serif;
-      font-size: 12px;
-      color: var(--text-tertiary);
-      font-style: italic;
-    }
-    .bac-list {
-      list-style: none;
-      margin: 0;
-      padding: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-    .bac-item {
-      font-family: 'Inter Tight', sans-serif;
-      font-size: 12px;
-      color: var(--text-primary);
-      line-height: 1.45;
-      padding-left: 2px;
-    }
-    .bac-warn-glyph {
-      color: var(--amber);
-      margin-right: 3px;
-      font-style: normal;
-    }
-    .bac-item--warn { color: var(--text-primary); }
-    .bac-item--info { color: var(--text-secondary); }
-
-    /* Unavailable (no goal) state */
-    .coach-unavail { padding: 8px 0 4px; }
-    .coach-unavail__msg { font-size: 13px; font-weight: 600; color: var(--text-primary); margin: 0 0 4px; }
-    .coach-unavail__hint { font-size: 12.5px; color: var(--text-secondary); margin: 0; line-height: 1.45; }
-    .coach-unavail__hint a { color: var(--bg-1); text-decoration: none; }
-    .coach-unavail__hint a:hover { text-decoration: underline; }
-
-    /* Goal line */
-    .coach-goal-line {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 16px; font-weight: 600; letter-spacing: -0.02em;
-      color: var(--text-primary); margin: 0 0 6px;
-    }
-
-    /* Projection banner */
-    .coach-projection {
-      font-size: 12px; color: var(--text-secondary);
-      background: var(--shell-1); border-radius: 6px;
-      padding: 6px 10px; margin-bottom: 8px;
-      font-family: 'JetBrains Mono', monospace; letter-spacing: -0.02em;
-    }
-
-    /* Lever pills */
-    .coach-levers { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
-    .coach-lever-pill {
-      font-size: 11.5px; font-weight: 500;
-      padding: 3px 10px; border-radius: 999px;
-      background: var(--green-soft); color: var(--green);
-      white-space: nowrap;
-    }
-    .coach-lever-pill--locked { background: var(--amber-soft); color: var(--amber); }
-
-    /* Directive text (Now sentence) */
-    .coach-directive {
-      font-size: 12.5px; color: var(--text-secondary);
-      line-height: 1.5; margin: 0 0 10px;
-    }
-
-    /* Expand button */
-    .coach-expand-btn {
-      display: inline-flex; align-items: center; gap: 4px;
-      padding: 5px 12px; border-radius: 999px; border: none; cursor: pointer;
-      font-size: 12px; font-weight: 600;
-      background: var(--shell-1); color: var(--bg-2);
-      font-family: inherit;
-    }
-    .coach-expand-btn:hover { background: var(--shell-2); }
-
-    /* Full message panel */
-    .coach-full-msg {
-      margin-top: 10px;
+    /* ── Week plan — half-width teaser (no TSS) ── */
+    .hpl-list { display: flex; flex-direction: column; gap: 0; }
+    .hpl-day {
+      display: flex; gap: 8px; align-items: flex-start;
+      padding: 6px 0;
       border-top: 1px solid var(--card-divider);
-      padding-top: 10px;
     }
-    .coach-full-pre {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 11.5px; color: var(--text-secondary);
-      white-space: pre-wrap; word-break: break-word;
-      margin: 0; line-height: 1.55;
+    .hpl-day:first-child { border-top: 0; padding-top: 2px; }
+    .hpl-day--today { background: rgba(90, 141, 238, 0.06); margin: 0 -6px; padding-left: 6px; padding-right: 6px; border-radius: 8px; }
+    .hpl-label {
+      width: 36px; flex-shrink: 0; text-align: center; padding-top: 2px;
     }
+    .hpl-dow {
+      display: block; font-size: 9px; font-weight: 800;
+      letter-spacing: 0.04em; color: var(--text-tertiary);
+    }
+    .hpl-dnum {
+      display: block; font-family: 'JetBrains Mono', monospace;
+      font-size: 13px; font-weight: 700; color: var(--text-primary); line-height: 1.1;
+    }
+    .hpl-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+    .hpl-rest {
+      font-size: 12px; color: var(--text-tertiary); font-style: italic; padding: 2px 0;
+    }
+    .hpl-sess {
+      background: #f6f7fb; border: 1px solid #eceef4; border-radius: 8px;
+      padding: 6px 8px;
+    }
+    .hpl-sess--run { border-left: 3px solid #4f6ef7; }
+    .hpl-sess--lift { border-left: 3px solid #7c3aed; }
+    .hpl-sess--plyo { border-left: 3px solid #c2410c; }
+    .hpl-sess--stretch { border-left: 3px solid #0d9488; }
+    .hpl-sess-top { display: flex; align-items: center; gap: 6px; margin-bottom: 1px; }
+    .hpl-tag {
+      font-size: 9px; font-weight: 800; letter-spacing: 0.04em;
+      text-transform: uppercase; color: var(--text-tertiary);
+    }
+    .hpl-tag--run { color: #4f6ef7; }
+    .hpl-tag--lift { color: #7c3aed; }
+    .hpl-tag--plyo { color: #c2410c; }
+    .hpl-tag--stretch { color: #0d9488; }
+    .hpl-name {
+      font-size: 12px; font-weight: 600; color: var(--text-primary);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .hpl-meta { font-size: 11px; color: var(--text-secondary); margin-top: 1px; }
   </style>
 </head>
 <body>
@@ -1447,19 +1289,7 @@
     <p id="greeting-date"></p>
   </div>
 
-  <!-- Quick-log injury/illness action -->
-  <div style="padding:0 16px 4px; display:flex; justify-content:flex-end;">
-    <button id="home-injury-log-btn" type="button"
-      style="display:inline-flex; align-items:center; gap:6px; padding:7px 14px;
-             border-radius:999px; border:1.5px solid rgba(255,255,255,0.35);
-             background:rgba(255,255,255,0.15); color:#fff;
-             font-size:12.5px; font-weight:600; cursor:pointer; font-family:inherit;
-             letter-spacing:-.01em; backdrop-filter:blur(4px);">
-      <span aria-hidden="true" style="font-size:15px;">🩹</span> Log niggle / illness
-    </button>
-  </div>
-
-  <!-- Log-today strip (rendered by JS) -->
+  <!-- Log-today strip (rendered by JS; includes Log niggle + Log today) -->
   <div id="home-log-today-strip"></div>
 
   <!-- Active injury/illness/niggle strip -->
@@ -1475,26 +1305,24 @@
        renderers (home.js / home-readiness-training-sleep.js /
        home-strip-habits.js) fill those ids unchanged. gridstack owns width +
        position from home-grid.js's registry (this DOM order = the fixed widget
-       order: Readiness → Next+Recent → Performance → Training → Personal
-       records → Habits → Weight → Sleep) and auto-fits each item's height to
+       order: Readiness → Recent + Performance → Today + Week plan →
+       Training → Personal records → Habits → Weight → Sleep → Goal) and
+       auto-fits each item's height to
        content. gs-w is stamped by home-grid.js per breakpoint before init.
        #home-log-today-strip, #body-modifier-guardrail, #strava-stale-banner,
        and #row-log stay OUTSIDE this grid. -->
   <div id="home-dashboard-grid" class="grid-stack">
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-top-row-right" class="grp-training"></div></div></div>
-    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-today-rec-card" class="card grp-training"></div></div></div>
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-next-workout-card" class="card grp-training"></div></div></div>
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-performance-card" class="card grp-training"></div></div></div>
+    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-today-rec-card" class="card grp-training"></div></div></div>
+    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-brief-week-plan-card" class="card"></div></div></div>
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-training-card" class="card grp-training"></div></div></div>
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-perf-container"></div></div></div>
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-habits-widget" class="card grp-training"></div></div></div>
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-weight-widget"></div></div></div>
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-sleep-card" class="card sleep-card"></div></div></div>
-    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-brief-form-card" class="card"></div></div></div>
-    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-brief-week-plan-card" class="card"></div></div></div>
-    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-brief-advisories-card" class="card"></div></div></div>
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-goal-card" class="card"></div></div></div>
-    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-coach-card" class="card"></div></div></div>
   </div>
 
   <!-- Fast-log form: revealed when Log Today strip CTA is tapped.
@@ -1630,22 +1458,26 @@
 
 <script src="js/lib/sync-poller.js"></script>
 
-<script src="js/nav.js"></script>
+<script src="js/nav.js?v=20260717v"></script>
 <script src="js/ui-states.js"></script>
 <script src="js/wheel-helpers.js"></script>
 <script src="js/home-strip-habits.js"></script>
-<script src="js/home-readiness-training-sleep.js"></script>
+<script src="js/lib/load-readiness-tiles.js?v=20260717r"></script>
+<script src="js/home-readiness-training-sleep.js?v=20260717ac"></script>
 <script src="js/lib/weight-current-card.js"></script>
-<script src="js/home-brief-form-card.js"></script>
-<script src="js/home-brief-week-plan-card.js"></script>
-<script src="js/home-brief-advisories-card.js"></script>
-<script src="js/home-coach-card.js"></script>
-<script src="js/home.js"></script>
-<script src="js/home-grid.js"></script>
+<script src="js/home-brief-week-plan-card.js?v=20260717z"></script>
+<script src="js/home.js?v=20260717s"></script>
+<script src="js/home-grid.js?v=20260717ad"></script>
 
 <script src="js/injury-log.js"></script>
 <script>
-  document.getElementById('home-injury-log-btn').addEventListener('click', () => InjuryLog.openModal());
+  // Button lives inside the JS-rendered strip — delegate so re-renders keep working.
+  var _lts = document.getElementById('home-log-today-strip');
+  if (_lts) {
+    _lts.addEventListener('click', function (e) {
+      if (e.target.closest('#home-injury-log-btn')) InjuryLog.openModal();
+    });
+  }
   InjuryLog.renderActiveStrip('home-injury-strip');
 </script>
 

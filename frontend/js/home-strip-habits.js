@@ -32,6 +32,14 @@
 
   /* ── Log-today strip ── */
 
+  function _niggleBtnHtml() {
+    return (
+      '<button id="home-injury-log-btn" type="button" class="lts-niggle-btn">' +
+        '<span aria-hidden="true">🩹</span> Log niggle / illness' +
+      '</button>'
+    );
+  }
+
   function _renderStrip(readiness) {
     var strip = document.getElementById('home-log-today-strip');
     if (!strip) return;
@@ -46,6 +54,9 @@
             '<strong>&#10003; Metrics logged</strong>' +
             '<span>Great — your readiness score is up to date</span>' +
           '</div>' +
+          '<div class="lts-actions">' +
+            _niggleBtnHtml() +
+          '</div>' +
         '</div>';
     } else {
       strip.innerHTML =
@@ -55,9 +66,12 @@
             '<strong>Log today\'s metrics</strong>' +
             '<span>RHR, HRV, sleep, energy &amp; mood — 30 seconds</span>' +
           '</div>' +
-          '<button id="lts-cta-btn" type="button" class="lts-cta-btn">' +
-            '<i class="ti ti-pencil-plus"></i> Log today' +
-          '</button>' +
+          '<div class="lts-actions">' +
+            _niggleBtnHtml() +
+            '<button id="lts-cta-btn" type="button" class="lts-cta-btn">' +
+              '<i class="ti ti-pencil-plus"></i> Log today' +
+            '</button>' +
+          '</div>' +
         '</div>';
 
       var btn = document.getElementById('lts-cta-btn');
