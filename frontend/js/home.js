@@ -630,6 +630,31 @@
     });
   }
 
+  /* ---- Daily brief widget cards ---- */
+
+  function _initBriefCards() {
+    var formEl = document.getElementById('home-brief-form-card');
+    var weekEl = document.getElementById('home-brief-week-plan-card');
+    var advEl  = document.getElementById('home-brief-advisories-card');
+
+    if (window.HomeBriefFormCard && formEl)        HomeBriefFormCard.renderSkeleton(formEl);
+    if (window.HomeBriefWeekPlanCard && weekEl)    HomeBriefWeekPlanCard.renderSkeleton(weekEl);
+    if (window.HomeBriefAdvisoriesCard && advEl)   HomeBriefAdvisoriesCard.renderSkeleton(advEl);
+
+    fetch('/api/brief/today')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (brief) {
+        if (window.HomeBriefFormCard && formEl)        HomeBriefFormCard.render(formEl, brief);
+        if (window.HomeBriefWeekPlanCard && weekEl)    HomeBriefWeekPlanCard.render(weekEl, brief);
+        if (window.HomeBriefAdvisoriesCard && advEl)   HomeBriefAdvisoriesCard.render(advEl, brief);
+      })
+      .catch(function () {
+        if (window.HomeBriefFormCard && formEl)        HomeBriefFormCard.renderUnavailable(formEl);
+        if (window.HomeBriefWeekPlanCard && weekEl)    HomeBriefWeekPlanCard.renderUnavailable(weekEl);
+        if (window.HomeBriefAdvisoriesCard && advEl)   HomeBriefAdvisoriesCard.renderUnavailable(advEl);
+      });
+  }
+
   /* ---- Init ---- */
 
   async function init() {
@@ -686,6 +711,8 @@
 
       initFastLogForm(userId);
 
+      /* Daily brief — single fetch drives all three brief widget cards */
+      _initBriefCards();
 
     }
   }
