@@ -19,7 +19,7 @@ from backend.services.guardrail import get_guardrail_result
 from backend.services.training_load import current_load, get_snapshot_series
 from backend.services.weight_plan import compute_weight_status
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 BANGKOK_TZ = ZoneInfo("Asia/Bangkok")
 DEFAULT_WINDOW_DAYS = 14
 
@@ -149,6 +149,9 @@ def _assemble_form(user_id, for_date: date) -> dict:
     atl = round(float(load["atl"]), 2)
     tsb = round(float(load["tsb"]), 2)
 
+    acwr_raw = load.get("acwr")
+    acwr = round(float(acwr_raw), 4) if acwr_raw is not None else None
+
     past_date = for_date - timedelta(days=7)
     series = get_snapshot_series(user_id, past_date, for_date)
     if len(series) >= 2:
@@ -167,6 +170,7 @@ def _assemble_form(user_id, for_date: date) -> dict:
         "ctl": ctl,
         "atl": atl,
         "tsb": tsb,
+        "acwr": acwr,
         "ramp": ramp,
         "flags": flags,
         "interpretation": _load_interpretation(ctl, atl, tsb),
@@ -380,6 +384,40 @@ def _assemble_advisories(user_id, for_date: date, weight: dict) -> list[dict]:
     return advisories
 
 
+# ── Week plan ─────────────────────────────────────────────────────────────────
+
+def _assemble_week_plan(user_id, for_date: date) -> list[dict]:
+    """Return remaining days this Bangkok week after tomorrow.
+
+    Covers tomorrow through the Sunday of for_date's week (Monday=0 … Sunday=6).
+    Returns [] when tomorrow falls on a weekend (Sat/Sun) or is past this week's
+    Sunday (i.e. today is Sunday and tomorrow is already next week's Monday).
+    """
+    tomorrow = for_date + timedelta(days=1)
+    days_until_sunday = 6 - for_date.weekday()
+    sunday = for_date + timedelta(days=days_until_sunday)
+
+    if tomorrow.weekday() >= 5 or tomorrow > sunday:
+        return []
+
+    result: list[dict] = []
+    current = tomorrow
+    while current <= sunday:
+        plan = _get_plan_for_date(user_id, current)
+        session = _plan_to_session(plan, current)
+        result.append({
+            "date": current.isoformat(),
+            "day": current.strftime("%a"),
+            "session_type": session["session_type"],
+            "intensity": session["intensity"],
+            "duration_min": session["duration_min"],
+            "planned": bool(session["planned"]),
+        })
+        current += timedelta(days=1)
+
+    return result
+
+
 # ── Core assembly ─────────────────────────────────────────────────────────────
 
 def _build_brief(for_date: date, worker_url=None, user_id=None, username=None) -> dict:
@@ -400,6 +438,7 @@ def _build_brief(for_date: date, worker_url=None, user_id=None, username=None) -
     recent_wrap = _assemble_recent_wrap(user_id, for_date)
     weight = _assemble_weight(user_id, for_date)
     advisories = _assemble_advisories(user_id, for_date, weight)
+    week_plan = _assemble_week_plan(user_id, for_date)
 
     generated_at = datetime.now(BANGKOK_TZ).isoformat()
 
@@ -414,6 +453,7 @@ def _build_brief(for_date: date, worker_url=None, user_id=None, username=None) -
         "weight": weight,
         "advisories": advisories,
         "actions": [],
+        "week_plan": week_plan,
     }
 
 

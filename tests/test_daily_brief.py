@@ -1,14 +1,21 @@
-"""Tests for issue #1496: backend/services/daily_brief.py service module.
+"""Tests for backend/services/daily_brief.py service module.
 
-AC coverage:
-- AC1: build_brief(user_id, for_date) exists and returns SCHEMA_VERSION 2 dict
+AC coverage (issue #1496):
+- AC1: build_brief(user_id, for_date) exists and returns SCHEMA_VERSION dict
 - AC2: Private helpers live in the service (not only in export_brief.py)
 - AC3: Plan data from PlannedSession model directly (no HTTP call)
 - AC4: Weight status via compute_weight_status (no HTTP call)
-- AC6: Regression snapshot — all top-level field names and value types for v2 shape
+- AC6: Regression snapshot — all top-level field names and value types
 - AC7: build_brief happy path
 - AC8: Each _assemble_* function independently testable in isolation
 - AC10: No urllib/httpx/requests imports in the service module
+
+AC coverage (issue #1497 — SCHEMA_VERSION 3 enrichment):
+- SCHEMA_VERSION bumped to 3
+- form.acwr exposed as float or null from current_load()
+- week_plan list covering remaining days this Bangkok week after tomorrow
+- week_plan empty when tomorrow is Saturday, Sunday, or past week's Sunday
+- All v2 fields remain unchanged
 """
 from __future__ import annotations
 
@@ -271,6 +278,7 @@ _FAKE_FORM = {
     "ctl": 42.0, "atl": 38.0, "tsb": 4.0,
     "ramp": 0.5, "flags": {"guardrail_state": "ok"},
     "interpretation": "Neutral",
+    "acwr": 0.95,
 }
 _FAKE_WRAP = {
     "window_days": 14,
@@ -293,7 +301,7 @@ _FAKE_WEIGHT = {
 
 
 def test_build_brief_happy_path(svc):
-    """AC7: build_brief returns complete v2 dict with all top-level fields."""
+    """AC7: build_brief returns complete dict with all top-level fields (v3)."""
     uid = uuid.UUID("00000000-0000-0000-0000-000000000001")
     for_date = date(2026, 7, 17)
 
@@ -304,10 +312,11 @@ def test_build_brief_happy_path(svc):
          patch.object(svc, "_assemble_advisories", return_value=[]):
         result = svc.build_brief(uid, for_date)
 
-    assert result["schema_version"] == 2
+    assert result["schema_version"] == 3
     assert result["for_date"] == "2026-07-17"
     assert "+07:00" in result["generated_at"]
     assert result["actions"] == []
+    assert "week_plan" in result
 
 
 # ── AC6: Regression snapshot — v2 shape ──────────────────────────────────────
@@ -323,10 +332,12 @@ V2_FIELD_TYPES = {
     "weight": dict,
     "advisories": list,
     "actions": list,
+    "week_plan": list,
 }
 
 SESSION_KEYS = {"date", "session_type", "planned", "intensity", "duration_min", "notes"}
-FORM_KEYS = {"ctl", "atl", "tsb", "ramp", "flags", "interpretation"}
+FORM_KEYS = {"ctl", "atl", "tsb", "ramp", "flags", "interpretation", "acwr"}
+WEEK_PLAN_ITEM_KEYS = {"date", "day", "session_type", "intensity", "duration_min", "planned"}
 RECENT_WRAP_KEYS = {"window_days", "sessions_planned", "sessions_completed", "adherence", "load_trend", "highlights_md"}
 WEIGHT_KEYS = {"current_kg", "trend_7d", "trend_28d", "target_kg", "target_date", "pace_kg_per_week", "on_track", "projection_date"}
 
@@ -384,7 +395,7 @@ def test_v2_snapshot_nested_shapes(svc):
 
 
 def test_v2_schema_version_is_2(svc):
-    """AC1: schema_version in build_brief output is exactly 2."""
+    """AC (#1497): schema_version bumped to 3; all v2 fields still present."""
     uid = uuid.UUID("00000000-0000-0000-0000-000000000001")
     for_date = date(2026, 7, 17)
 
@@ -395,8 +406,8 @@ def test_v2_schema_version_is_2(svc):
          patch.object(svc, "_assemble_advisories", return_value=[]):
         result = svc.build_brief(uid, for_date)
 
-    assert result["schema_version"] == 2
-    assert svc.SCHEMA_VERSION == 2
+    assert result["schema_version"] == 3
+    assert svc.SCHEMA_VERSION == 3
 
 
 def test_build_brief_today_tomorrow_dates(svc):
@@ -425,18 +436,11 @@ def test_build_brief_today_tomorrow_dates(svc):
 # ── Snapshot test: service output matches export_brief output shape ─────────
 
 def test_service_and_script_same_v2_shape():
-    """AC6: Both the service and the CLI wrapper produce the same v2 field names/types."""
-    import importlib.util
-    import pathlib
-
+    """AC6/v3: Service produces all v3 top-level field names with correct types."""
     svc_mod = _import_service()
-    script_path = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "export_brief.py"
-    spec = importlib.util.spec_from_file_location("export_brief_compat", script_path)
-    script_mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(script_mod)
 
     uid = uuid.UUID("00000000-0000-0000-0000-000000000001")
-    for_date = date(2026, 7, 17)
+    for_date = date(2026, 7, 17)  # Friday → week_plan = []
 
     with patch.object(svc_mod, "_get_plan_for_date", return_value=_FAKE_PLAN_EMPTY), \
          patch.object(svc_mod, "_assemble_form", return_value=_FAKE_FORM), \
@@ -450,3 +454,152 @@ def test_service_and_script_same_v2_shape():
         assert isinstance(svc_result[field], expected_type), (
             f"Service field {field!r} wrong type"
         )
+
+
+# ── v3: form.acwr ─────────────────────────────────────────────────────────────
+
+def test_form_acwr_present_and_matches_current_load(svc):
+    """AC (#1497): form.acwr is a float sourced from current_load()."""
+    uid = uuid.UUID("00000000-0000-0000-0000-000000000001")
+    for_date = date(2026, 7, 15)  # Wednesday
+
+    fake_load = {"ctl": 42.0, "atl": 38.0, "tsb": 4.0, "acwr": 0.93}
+    fake_guardrail = {"guardrail_state": "ok", "acwr_state": "green", "stressors_ramping": False}
+
+    with patch("backend.services.daily_brief.current_load", return_value=fake_load), \
+         patch("backend.services.daily_brief.get_snapshot_series", return_value=[
+             {"ctl": 40.0}, {"ctl": 42.0}
+         ]), \
+         patch("backend.services.daily_brief.get_guardrail_result", return_value=fake_guardrail):
+        result = svc._assemble_form(uid, for_date)
+
+    assert "acwr" in result
+    assert result["acwr"] == pytest.approx(0.93, abs=1e-4)
+
+
+def test_form_acwr_is_none_when_load_returns_none(svc):
+    """AC (#1497): form.acwr is null when current_load() returns no acwr."""
+    uid = uuid.UUID("00000000-0000-0000-0000-000000000001")
+    for_date = date(2026, 7, 15)
+
+    fake_load = {"ctl": 10.0, "atl": 8.0, "tsb": 2.0, "acwr": None}
+    fake_guardrail = {"guardrail_state": "ok", "acwr_state": "grey", "stressors_ramping": False}
+
+    with patch("backend.services.daily_brief.current_load", return_value=fake_load), \
+         patch("backend.services.daily_brief.get_snapshot_series", return_value=[{"ctl": 10.0}]), \
+         patch("backend.services.daily_brief.get_guardrail_result", return_value=fake_guardrail):
+        result = svc._assemble_form(uid, for_date)
+
+    assert "acwr" in result
+    assert result["acwr"] is None
+
+
+# ── v3: week_plan ─────────────────────────────────────────────────────────────
+
+def test_week_plan_mid_week_wednesday(svc):
+    """AC (#1497): week_plan for Wednesday (today) returns Thu–Sun (4 items)."""
+    uid = uuid.UUID("00000000-0000-0000-0000-000000000001")
+    for_date = date(2026, 7, 15)  # Wednesday
+
+    def fake_plan(user_id, d):
+        return {"planned": False, "sessions": [], "plan_date": d.isoformat()}
+
+    with patch.object(svc, "_get_plan_for_date", side_effect=fake_plan):
+        result = svc._assemble_week_plan(uid, for_date)
+
+    assert len(result) == 4
+    assert [item["date"] for item in result] == [
+        "2026-07-16", "2026-07-17", "2026-07-18", "2026-07-19"
+    ]
+    assert [item["day"] for item in result] == ["Thu", "Fri", "Sat", "Sun"]
+    for item in result:
+        assert WEEK_PLAN_ITEM_KEYS == set(item.keys())
+        assert item["planned"] is False
+        assert item["session_type"] is None
+
+
+def test_week_plan_friday_empty(svc):
+    """AC (#1497): week_plan when today is Friday (tomorrow=Saturday) returns []."""
+    uid = uuid.UUID("00000000-0000-0000-0000-000000000001")
+    for_date = date(2026, 7, 17)  # Friday
+
+    result = svc._assemble_week_plan(uid, for_date)
+    assert result == []
+
+
+def test_week_plan_sunday_empty(svc):
+    """AC (#1497): week_plan when today is Sunday (tomorrow=Monday) returns []."""
+    uid = uuid.UUID("00000000-0000-0000-0000-000000000001")
+    for_date = date(2026, 7, 19)  # Sunday
+
+    result = svc._assemble_week_plan(uid, for_date)
+    assert result == []
+
+
+def test_week_plan_day_with_planned_session(svc):
+    """AC (#1497): days with a PlannedSession appear with planned=True and correct fields."""
+    uid = uuid.UUID("00000000-0000-0000-0000-000000000001")
+    for_date = date(2026, 7, 15)  # Wednesday → Thu is first week_plan day
+
+    def fake_plan(user_id, d):
+        if d == date(2026, 7, 16):  # Thursday
+            return {
+                "planned": True,
+                "sessions": [{
+                    "session_type": "run",
+                    "note": "Tempo",
+                    "status": "planned",
+                    "target": {"intensity": "hard", "duration_min": 45},
+                }],
+                "plan_date": "2026-07-16",
+            }
+        return {"planned": False, "sessions": [], "plan_date": d.isoformat()}
+
+    with patch.object(svc, "_get_plan_for_date", side_effect=fake_plan):
+        result = svc._assemble_week_plan(uid, for_date)
+
+    thu = result[0]
+    assert thu["date"] == "2026-07-16"
+    assert thu["day"] == "Thu"
+    assert thu["planned"] is True
+    assert thu["session_type"] == "run"
+    assert thu["intensity"] == "hard"
+    assert thu["duration_min"] == 45
+
+    fri = result[1]
+    assert fri["planned"] is False
+    assert fri["session_type"] is None
+
+
+def test_week_plan_in_build_brief_output(svc):
+    """AC (#1497): build_brief output includes week_plan as a list."""
+    uid = uuid.UUID("00000000-0000-0000-0000-000000000001")
+    for_date = date(2026, 7, 17)  # Friday → week_plan = []
+
+    with patch.object(svc, "_get_plan_for_date", return_value=_FAKE_PLAN_EMPTY), \
+         patch.object(svc, "_assemble_form", return_value=_FAKE_FORM), \
+         patch.object(svc, "_assemble_recent_wrap", return_value=_FAKE_WRAP), \
+         patch.object(svc, "_assemble_weight", return_value=_FAKE_WEIGHT), \
+         patch.object(svc, "_assemble_advisories", return_value=[]):
+        result = svc.build_brief(uid, for_date)
+
+    assert "week_plan" in result
+    assert isinstance(result["week_plan"], list)
+
+
+def test_v2_fields_remain_in_v3_output(svc):
+    """AC (#1497): all v2 top-level fields are unchanged in v3 output."""
+    uid = uuid.UUID("00000000-0000-0000-0000-000000000001")
+    for_date = date(2026, 7, 17)
+
+    with patch.object(svc, "_get_plan_for_date", return_value=_FAKE_PLAN_EMPTY), \
+         patch.object(svc, "_assemble_form", return_value=_FAKE_FORM), \
+         patch.object(svc, "_assemble_recent_wrap", return_value=_FAKE_WRAP), \
+         patch.object(svc, "_assemble_weight", return_value=_FAKE_WEIGHT), \
+         patch.object(svc, "_assemble_advisories", return_value=[]):
+        result = svc.build_brief(uid, for_date)
+
+    v2_fields = ["for_date", "generated_at", "today", "tomorrow",
+                 "form", "recent_wrap", "weight", "advisories", "actions"]
+    for field in v2_fields:
+        assert field in result, f"v2 field {field!r} missing from v3 output"

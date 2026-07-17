@@ -961,7 +961,8 @@ class TestAssembleWeightErrorHandling:
 
 class TestSchemaVersionBump:
     def test_schema_version_is_now_2(self, eb):
-        assert eb.SCHEMA_VERSION == 2
+        # bumped to 3 by issue #1497 (acwr + week_plan addition)
+        assert eb.SCHEMA_VERSION == 3
 
     def test_build_brief_envelope_has_weight_key(self, eb):
         fake_plan = {"planned": False, "sessions": []}
