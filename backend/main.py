@@ -125,6 +125,7 @@ from services.readiness.calculator import (
     RHR_WINDOW as _RDN_RHR_WINDOW,
 )
 from services.readiness.job import compute_and_store as _readiness_compute_and_store
+from backend.services.daily_brief import build_brief
 
 # Ceiling TSB used when computing expressible scores from historical/projected TSB.
 # 20.0 matches the representative value established in issue #1107.
@@ -19463,3 +19464,42 @@ else:
     _logging.getLogger(__name__).info(
         "Banister refit scheduler disabled (BANISTER_REFIT_ENABLED=0)"
     )
+
+
+# ── Daily brief (issue #1498 / #1499) ────────────────────────────────────────
+
+_BRIEF_DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+
+def _build_week_plan(user_id, for_date: _date) -> dict:
+    from backend.services.daily_brief import _get_plan_for_date, _plan_to_session
+    days = []
+    for i in range(7):
+        d = for_date + _timedelta(days=i)
+        plan = _get_plan_for_date(user_id, d)
+        session = _plan_to_session(plan, d)
+        days.append({
+            "date": d.isoformat(),
+            "day": _BRIEF_DOW[d.weekday()],
+            "planned": session["planned"],
+            "session_type": session["session_type"],
+            "duration_min": session["duration_min"],
+        })
+    return {"days": days}
+
+
+@app.get("/api/brief/today")
+def get_brief_today(user: User = Depends(resolve_user)):
+    """Return today's SCHEMA_VERSION 3 coaching brief for the session user.
+
+    Calls build_brief() directly — no worker process required.
+    for_date is today in Asia/Bangkok timezone.
+    """
+    today = _today_bkk()
+    brief = build_brief(user.id, today)
+    brief["schema_version"] = 3
+    try:
+        brief["week_plan"] = _build_week_plan(user.id, today)
+    except Exception:
+        brief["week_plan"] = {"days": []}
+    return JSONResponse(brief)
