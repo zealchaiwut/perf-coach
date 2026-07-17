@@ -867,76 +867,66 @@ class TestComputeWeightAdvisoryDecisionTable:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# _assemble_weight / _fetch_weight_status — error handling vs _fetch_plan
+# _assemble_weight / _get_plan_for_date — error handling
+#
+# Rewritten for the #1496 refactor (backend/services/daily_brief.py): both
+# functions now query the DB directly (no HTTP worker call), so the
+# "network error" failure mode below no longer exists. _assemble_weight
+# still degrades to _NULL_WEIGHT_BLOCK on ANY exception (its own bare
+# except Exception around compute_weight_status); _get_plan_for_date has no
+# such guard and lets a DB-query exception propagate, same load-bearing
+# vs. non-load-bearing contrast the original tests documented — only the
+# failure-injection point changed (DB query, not urllib).
 # ═════════════════════════════════════════════════════════════════════════════
 
 class TestAssembleWeightErrorHandling:
-    def test_fetch_plan_raises_on_worker_unreachable(self, eb):
-        """Baseline: confirms _fetch_plan's documented behavior (it IS
-        allowed to raise) so the contrast with _fetch_weight_status below is
+    def test_get_plan_for_date_raises_on_db_error(self, eb):
+        """Baseline: confirms _get_plan_for_date's documented behavior (it IS
+        allowed to raise) so the contrast with _assemble_weight below is
         meaningful, not assumed."""
-        import urllib.error
-
-        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("connection refused")):
+        with patch("backend.services.daily_brief.Session", side_effect=RuntimeError("db unreachable")):
             with pytest.raises(RuntimeError):
-                eb._fetch_plan("http://127.0.0.1:9100", "2026-07-15", None)
+                eb._get_plan_for_date(str(uuid.uuid4()), datetime.date(2026, 7, 15))
 
-    def test_fetch_weight_status_degrades_to_null_block_on_network_error(self, eb):
-        import urllib.error
-
-        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("connection refused")):
-            result = eb._fetch_weight_status("http://127.0.0.1:9100", "2026-07-15", None)
+    def test_assemble_weight_degrades_to_null_block_on_db_error(self, eb):
+        with patch("backend.services.daily_brief.compute_weight_status",
+                   side_effect=RuntimeError("db unreachable")):
+            result = eb._assemble_weight(str(uuid.uuid4()), datetime.date(2026, 7, 15))
 
         assert result == eb._NULL_WEIGHT_BLOCK
         assert result is not eb._NULL_WEIGHT_BLOCK, "must return a copy, not the shared module-level dict"
 
-    def test_fetch_weight_status_degrades_to_null_block_on_generic_exception(self, eb):
-        """Any parsing/unexpected exception (not just URLError) must also
-        degrade gracefully — the function's own except clause is bare
-        Exception, not scoped to URLError."""
-        with patch("urllib.request.urlopen", side_effect=ValueError("bad json")):
-            result = eb._fetch_weight_status("http://127.0.0.1:9100", "2026-07-15", None)
+    def test_assemble_weight_degrades_to_null_block_on_generic_exception(self, eb):
+        """Any unexpected exception (not just a DB error) must also degrade
+        gracefully — the function's own except clause is bare Exception,
+        not scoped to a DB-specific error type."""
+        with patch("backend.services.daily_brief.compute_weight_status",
+                   side_effect=ValueError("bad data")):
+            result = eb._assemble_weight(str(uuid.uuid4()), datetime.date(2026, 7, 15))
         assert result == eb._NULL_WEIGHT_BLOCK
 
-    def test_fetch_weight_status_merges_partial_response_over_null_defaults(self, eb):
-        """A worker response missing some keys (e.g. an older worker
-        version) still yields a fully-keyed dict — missing keys fall back
-        to the null defaults rather than a KeyError downstream."""
-        import io
-        import json as _json
+    def test_assemble_weight_degrades_to_null_block_on_non_uuid_user_id(self, eb):
+        """A non-UUID user_id (e.g. a synthetic test id) must degrade
+        gracefully rather than raising — mirrors _get_plan_for_date's own
+        non-UUID handling, but via the bare except in _assemble_weight."""
+        result = eb._assemble_weight("not-a-uuid", datetime.date(2026, 7, 15))
+        assert result == eb._NULL_WEIGHT_BLOCK
 
-        partial = {"current_kg": 70.5, "target_kg": 65.0}
-
-        class _FakeResp:
-            def read(self):
-                return _json.dumps(partial).encode()
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
-                return False
-
-        with patch("urllib.request.urlopen", return_value=_FakeResp()):
-            result = eb._fetch_weight_status("http://127.0.0.1:9100", "2026-07-15", None)
-
-        assert result["current_kg"] == 70.5
-        assert result["target_kg"] == 65.0
-        # Keys absent from the worker response fall back to null.
-        assert result["trend_7d"] is None
-        assert result["on_track"] is None
-
-    def test_assemble_weight_delegates_to_fetch_weight_status(self, eb):
-        with patch.object(eb, "_fetch_weight_status", return_value={"sentinel": True}) as mock_fetch:
-            result = eb._assemble_weight("user-1", datetime.date(2026, 7, 15), "http://w:9100", "alice")
+    def test_assemble_weight_delegates_to_compute_weight_status(self, eb):
+        with patch("backend.services.daily_brief.compute_weight_status",
+                   return_value={"sentinel": True}) as mock_compute:
+            uid = uuid.uuid4()
+            result = eb._assemble_weight(str(uid), datetime.date(2026, 7, 15))
         assert result == {"sentinel": True}
-        mock_fetch.assert_called_once_with("http://w:9100", "2026-07-15", "alice")
+        mock_compute.assert_called_once()
+        called_uid = mock_compute.call_args[0][1]
+        assert called_uid == uid
 
-    def test_export_continues_when_weight_worker_call_fails(self, eb):
+    def test_export_continues_when_weight_assembly_fails(self, eb):
         """End-to-end within _build_brief: a broken weight fetch must not
-        abort the whole brief export (mirrors _fetch_plan's own contrast —
-        that one IS allowed to blow up the whole export since today's/
-        tomorrow's session is load-bearing; weight is not)."""
+        abort the whole brief export (mirrors _get_plan_for_date's own
+        contrast — that one IS allowed to blow up the whole export since
+        today's/tomorrow's session is load-bearing; weight is not)."""
         fake_plan = {"planned": False, "sessions": []}
         fake_form = {"ctl": 1.0, "atl": 1.0, "tsb": 0.0, "ramp": 0.0, "flags": {}, "interpretation": "ok"}
         fake_wrap = {
@@ -946,10 +936,12 @@ class TestAssembleWeightErrorHandling:
         with patch.object(eb, "_fetch_plan", return_value=fake_plan), \
              patch.object(eb, "_assemble_form", return_value=fake_form), \
              patch.object(eb, "_assemble_recent_wrap", return_value=fake_wrap), \
-             patch.object(eb, "_fetch_weight_status", return_value=dict(eb._NULL_WEIGHT_BLOCK)), \
-             patch.object(eb, "_assemble_advisories", return_value=[]):
+             patch.object(eb, "_assemble_weight", return_value=dict(eb._NULL_WEIGHT_BLOCK)), \
+             patch.object(eb, "_assemble_advisories", return_value=[]), \
+             patch.object(eb, "_assemble_week_plan", return_value=[]), \
+             patch.object(eb, "_assemble_coach", return_value=None):
 
-            brief = eb._build_brief(datetime.date(2026, 7, 15), "http://w:9100", "u", None)
+            brief = eb._build_brief(datetime.date(2026, 7, 15), user_id="u")
 
         assert brief["weight"] == eb._NULL_WEIGHT_BLOCK
         assert brief["schema_version"] == 3
@@ -974,10 +966,12 @@ class TestSchemaVersionBump:
         with patch.object(eb, "_fetch_plan", return_value=fake_plan), \
              patch.object(eb, "_assemble_form", return_value=fake_form), \
              patch.object(eb, "_assemble_recent_wrap", return_value=fake_wrap), \
-             patch.object(eb, "_fetch_weight_status", return_value=dict(eb._NULL_WEIGHT_BLOCK)), \
-             patch.object(eb, "_assemble_advisories", return_value=[]):
+             patch.object(eb, "_assemble_weight", return_value=dict(eb._NULL_WEIGHT_BLOCK)), \
+             patch.object(eb, "_assemble_advisories", return_value=[]), \
+             patch.object(eb, "_assemble_week_plan", return_value=[]), \
+             patch.object(eb, "_assemble_coach", return_value=None):
 
-            brief = eb._build_brief(datetime.date(2026, 7, 15), "http://w:9100", "u", None)
+            brief = eb._build_brief(datetime.date(2026, 7, 15), user_id="u")
 
         assert "weight" in brief
         assert set(eb._NULL_WEIGHT_BLOCK.keys()).issubset(brief["weight"].keys())
