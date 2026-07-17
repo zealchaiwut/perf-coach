@@ -237,6 +237,9 @@ def _assemble_coach(user_id: str, for_date: date) -> dict | None:
     Returns a dict with directive (str), projection (str), and levers (list[str])
     when an active goal exists, or None when no active goal is set.
 
+    When weekly narrative facts are available, also includes Focus #1 nudge
+    fields: focus_id, focus_label, next_action, why (Hermes Phase 4).
+
     Never raises — any internal failure degrades to None so the brief export
     continues without the coach block.
     """
@@ -276,13 +279,62 @@ def _assemble_coach(user_id: str, for_date: date) -> dict | None:
 
         levers = _coach_lever_strings((plan_state.get("levers") or {}))
 
-        return {
+        out = {
             "directive": directive,
             "projection": projection,
             "levers": levers,
         }
+
+        # Prefer persisted weekly snapshot nudge; else build_coach_facts live.
+        nudge = _coach_nudge_for_user(user_id, for_date, goal)
+        if nudge:
+            out.update(nudge)
+        return out
     except Exception as exc:
         print(f"WARNING: coach block unavailable: {exc}", file=sys.stderr)
+        return None
+
+
+def _coach_nudge_for_user(user_id: str, for_date: date, goal) -> dict | None:
+    """Focus #1 / next-action fields for Hermes (optional; never raises)."""
+    try:
+        from sqlalchemy.orm import Session
+        from backend.db import engine
+        from backend.services.weekly_coach_message import get_latest_for_user
+
+        with Session(engine) as db:
+            latest = get_latest_for_user(getattr(goal, "user_id", user_id), db)
+        if latest:
+            snap = latest.get("plan_state_snapshot") or {}
+            facts = snap.get("facts") if isinstance(snap, dict) else None
+            nudge = (facts or {}).get("nudge") if isinstance(facts, dict) else None
+            if isinstance(nudge, dict) and (nudge.get("focus_label") or nudge.get("next_action")):
+                return {
+                    "focus_id": nudge.get("focus_id"),
+                    "focus_label": nudge.get("focus_label"),
+                    "next_action": nudge.get("next_action"),
+                    "why": nudge.get("why"),
+                }
+
+        from backend.services.coach_facts import build_coach_facts
+
+        facts = build_coach_facts(
+            getattr(goal, "user_id", user_id),
+            today=for_date,
+        )
+        if not facts:
+            return None
+        nudge = facts.get("nudge") or {}
+        if not (nudge.get("focus_label") or nudge.get("next_action")):
+            return None
+        return {
+            "focus_id": nudge.get("focus_id"),
+            "focus_label": nudge.get("focus_label"),
+            "next_action": nudge.get("next_action"),
+            "why": nudge.get("why"),
+        }
+    except Exception as exc:
+        print(f"WARNING: coach nudge unavailable: {exc}", file=sys.stderr)
         return None
 
 
