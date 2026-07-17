@@ -14,10 +14,12 @@ Test mapping:
 import math
 from datetime import date
 
+import pytest
 
 from backend.services.coach_projection import (
     race_projection,
     WEIGHT_PACE_ADJ_SEC_PER_KM_PER_KG,
+    CTL_PACE_IMPROVEMENT_SLOPE,
 )
 from backend.services.riegel import RIEGEL_EXPONENT, HALF_MARATHON_KM
 
