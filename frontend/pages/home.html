@@ -1172,6 +1172,129 @@
     @media (max-width: 479px) {
       .rd-ctl-row { display: none; }
     }
+
+    /* ── Daily brief card styles (issue #1499) ────────────────────────────── */
+
+    /* Skeleton loader shared across all three brief cards */
+    .brief-skeleton { padding: 4px 0; }
+    .brief-skel-row {
+      height: 14px;
+      border-radius: 6px;
+      background: linear-gradient(90deg, rgba(0,0,0,0.06) 25%, rgba(0,0,0,0.03) 50%, rgba(0,0,0,0.06) 75%);
+      background-size: 200% 100%;
+      animation: brief-shimmer 1.4s ease-in-out infinite;
+      margin-bottom: 10px;
+      width: 80%;
+    }
+    .brief-skel-row--sm { width: 55%; }
+    @keyframes brief-shimmer {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    /* Quiet unavailable state */
+    .brief-unavail {
+      font-size: 12px;
+      color: var(--text-tertiary);
+      padding: 4px 0;
+    }
+
+    /* ── Form card ─────────────────────────────────────────────────────────── */
+    .bfc-metrics {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .bfc-tile { display: flex; flex-direction: column; align-items: center; min-width: 40px; }
+    .bfc-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.04em;
+      line-height: 1.1;
+    }
+    .bfc-lbl {
+      font-family: 'Inter Tight', sans-serif;
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-top: 3px;
+    }
+    .bfc-pill {
+      font-family: 'Inter Tight', sans-serif;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 999px;
+      color: var(--text-primary);
+      white-space: nowrap;
+    }
+    .bfc-interp {
+      font-family: 'Inter Tight', sans-serif;
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.4;
+    }
+
+    /* ── Week plan card ────────────────────────────────────────────────────── */
+    .bwp-list { display: flex; flex-direction: column; gap: 5px; }
+    .bwp-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: 'Inter Tight', sans-serif;
+      font-size: 13px;
+      color: var(--text-primary);
+    }
+    .bwp-row--rest { color: var(--text-tertiary); }
+    .bwp-day {
+      font-weight: 600;
+      width: 30px;
+      flex-shrink: 0;
+    }
+    .bwp-type { flex: 1; }
+    .bwp-type--rest { font-style: italic; }
+    .bwp-dur {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--text-tertiary);
+      flex-shrink: 0;
+    }
+
+    /* ── Advisories card ───────────────────────────────────────────────────── */
+    .bac-none {
+      font-family: 'Inter Tight', sans-serif;
+      font-size: 12px;
+      color: var(--text-tertiary);
+      font-style: italic;
+    }
+    .bac-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .bac-item {
+      font-family: 'Inter Tight', sans-serif;
+      font-size: 12px;
+      color: var(--text-primary);
+      line-height: 1.45;
+      padding-left: 2px;
+    }
+    .bac-warn-glyph {
+      color: var(--amber);
+      margin-right: 3px;
+      font-style: normal;
+    }
+    .bac-item--warn { color: var(--text-primary); }
+    .bac-item--info { color: var(--text-secondary); }
   </style>
 </head>
 <body>
@@ -1226,6 +1349,9 @@
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-habits-widget" class="card grp-training"></div></div></div>
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-weight-widget"></div></div></div>
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-sleep-card" class="card sleep-card"></div></div></div>
+    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-brief-form-card" class="card"></div></div></div>
+    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-brief-week-plan-card" class="card"></div></div></div>
+    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-brief-advisories-card" class="card"></div></div></div>
   </div>
 
   <!-- Fast-log form: revealed when Log Today strip CTA is tapped.
@@ -1367,6 +1493,9 @@
 <script src="js/home-strip-habits.js"></script>
 <script src="js/home-readiness-training-sleep.js"></script>
 <script src="js/lib/weight-current-card.js"></script>
+<script src="js/home-brief-form-card.js"></script>
+<script src="js/home-brief-week-plan-card.js"></script>
+<script src="js/home-brief-advisories-card.js"></script>
 <script src="js/home.js"></script>
 <script src="js/home-grid.js"></script>
 
