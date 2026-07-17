@@ -42,10 +42,13 @@ def test_reflection_uses_recent_wrap_and_focus_benchmarks():
     assert "4/12" in (ref["benchmarks"][0]["detail"] or "")
 
 
-def test_reflection_next_session_cites_focus():
-    focus = [{"id": "hold_load", "label": "Hold load", "tracking": None}]
+def test_reflection_next_session_cites_matching_focus_rank():
+    focus = [
+        {"id": "weight_measurement", "rank": 1, "label": "Weigh-ins", "tracking": None},
+        {"id": "long_run", "rank": 2, "label": "Long run", "tracking": None},
+    ]
     wrap = {"sessions_planned": 2, "sessions_completed": 2, "adherence": 1.0}
-    row = ("ps-1", date(2026, 7, 18), "Easy 8k", "easy")
+    row = ("ps-1", date(2026, 7, 18), "Long run 18k", "long")
     with patch(
         "backend.services.daily_brief._assemble_recent_wrap",
         return_value=wrap,
@@ -56,5 +59,23 @@ def test_reflection_next_session_cites_focus():
         ref = _reflection_block("uid", date(2026, 7, 17), focus)
 
     assert ref["next_session"] is not None
-    assert ref["next_session"]["name"] == "Easy 8k"
+    assert "Focus #2" in (ref["next_session"]["why_focus"] or "")
+    assert "long_run" in (ref["next_session"]["why_focus"] or "")
+
+
+def test_reflection_next_session_cites_focus():
+    focus = [{"id": "hold_load", "rank": 1, "label": "Hold load", "tracking": None}]
+    wrap = {"sessions_planned": 2, "sessions_completed": 2, "adherence": 1.0}
+    row = ("ps-1", date(2026, 7, 18), "Tempo 6k", "tempo")
+    with patch(
+        "backend.services.daily_brief._assemble_recent_wrap",
+        return_value=wrap,
+    ), patch("sqlalchemy.orm.Session") as sess:
+        cm = sess.return_value
+        cm.__enter__.return_value.execute.return_value.fetchone.return_value = row
+        cm.__exit__.return_value = False
+        ref = _reflection_block("uid", date(2026, 7, 17), focus)
+
+    assert ref["next_session"] is not None
+    assert ref["next_session"]["name"] == "Tempo 6k"
     assert "hold_load" in (ref["next_session"]["why_focus"] or "")

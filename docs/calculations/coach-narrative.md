@@ -31,8 +31,19 @@ measurement/deficit phase, gap advisories, and recent volume-mix flags
 
 ## Dream (Phase 3)
 
-Prefers Plan **A-race** + `race_checkpoints`. Scenarios include plan-compliance
-finish, current CTL trend, and an optional weight-cut heuristic:
+## Dream (Phase 3)
+
+## Dream (Phase 3)
+
+Prefers Plan **A-race** + curated **milestones** (1–2 near-term B/C races —
+half-or-longer preferred, not every race on the calendar) +
+`race_checkpoints`. Also surfaces Performance-tab **Endurance / Speed** scores
+from `SummaryCache`. Finish estimates for Dream /
+`projection.current_trend_*` come from the **Performance race-day time_curve
+SoT** (`race_finish_estimate.estimate_race_finish` — same tip as the race card),
+**not** the legacy CTL √-ratio invent in `weekly_coach_message._estimate_current_trend`.
+Scenarios include plan-compliance (A-race goal), that Performance estimate when
+available, and an optional weight-cut heuristic:
 
 - **~0.8% finish-time improvement per kg** lost (conservative; not a guarantee).
 - Only emitted when `gap_kg ≥ 2` and a base finish seconds exist.

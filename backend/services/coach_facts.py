@@ -211,7 +211,25 @@ def rank_focus_levers(
         }
 
     load_state = load.get("state")
-    if load_state == "locked":
+    if load.get("deload_week"):
+        upsert(
+            "respect_deload",
+            95,
+            "Respect this deload week",
+            load.get("deload_rationale")
+            or "This is a planned deload — keep volume easy; do not pile TSS back on.",
+            None,
+        )
+    elif load.get("ramp_caution"):
+        upsert(
+            "ramp_caution",
+            90,
+            "Ramp gently — load ceiling",
+            load.get("ramp_caution_text")
+            or "Respect the moving-average load ceiling; do not spike TSS after a quiet week.",
+            None,
+        )
+    elif load_state == "locked":
         upsert(
             "hold_load",
             100,
@@ -229,19 +247,26 @@ def rank_focus_levers(
             "ramp_load",
             72,
             "Resume load ramp",
-            "ACWR productive — safe to resume a progressive ramp.",
+            "ACWR productive — safe to resume a progressive ramp (5%/week, no heroics).",
             None,
         )
 
     phase = weight.get("phase")
     logged = weight.get("logged_days")
     gap_kg = weight.get("gap_kg")
+    payoff = weight.get("payoff_label")
     if phase == "measurement":
+        rationale = "Build 12/14 weigh-in days before a deficit."
+        if payoff and gap_kg:
+            rationale = (
+                f"Weigh-ins first — then a cut. Rough payoff: −{min(6, float(gap_kg)):.0f} kg "
+                f"→ ~{payoff} on the A-race (heuristic). Measurement unlocks that lever."
+            )
         upsert(
             "weight_measurement",
-            98 if (gap_kg or 0) > 0 else 88,
+            99 if (gap_kg or 0) > 0 else 88,
             "Weight measurement consistency",
-            "Build 12/14 weigh-in days before a deficit.",
+            rationale,
             {"current": logged, "target": 12, "unit": "weigh_ins_14d"},
         )
     elif phase == "deficit" and load_state != "locked":
@@ -266,6 +291,7 @@ def rank_focus_levers(
         "tempo": ("tempo", 65, "Tempo / threshold"),
         "base": ("long_run", 60, "Aerobic base"),
     }
+    already_doing_longs = not volume_mix.get("missing_long", True)
     for g in gaps_top or []:
         code = (g.get("code") or "").lower()
         text = g.get("text") or ""
@@ -277,9 +303,8 @@ def rank_focus_levers(
                 matched = meta
                 break
         if not matched:
-            # keyword fallback on text
             tl = text.lower()
-            if "long run" in tl or "durability" in tl:
+            if "long run" in tl or "durability" in tl or "decoupling" in tl:
                 matched = gap_score["long_run"]
             elif "interval" in tl or "speed" in tl:
                 matched = gap_score["speed"]
@@ -289,11 +314,34 @@ def rank_focus_levers(
                 matched = gap_score["plyo"]
             elif "strength" in tl:
                 matched = gap_score["strength"]
-        if matched:
-            lid, base, label = matched
-            upsert(lid, base + bump, label, text[:180] or label, None)
+        if not matched:
+            continue
+        lid, base, label = matched
+        # Durability gap ≠ missing long run. If longs are already on the books,
+        # reframe as fueling / late-fade quality — never "you need a long run".
+        if lid == "long_run" and already_doing_longs:
+            longs = volume_mix.get("recent_longs") or []
+            evidence = ""
+            if longs:
+                bits = ", ".join(
+                    f"{x.get('mins')} min on {x.get('date')}" for x in longs[:2]
+                )
+                evidence = f" Recent longs: {bits}."
+            upsert(
+                "long_run_fueling",
+                58 + bump,
+                "Long-run fueling (late fade)",
+                (
+                    "You're already doing the long runs — the gap is late-run efficiency "
+                    "(aerobic decoupling), not missing the session. Keep one easy long "
+                    "and practise fueling so November is automatic."
+                    + evidence
+                )[:220],
+                None,
+            )
+            continue
+        upsert(lid, base + bump, label, text[:180] or label, None)
 
-    # Volume mix hints
     if volume_mix.get("missing_long"):
         upsert(
             "long_run",
@@ -303,11 +351,12 @@ def rank_focus_levers(
             None,
         )
     if volume_mix.get("missing_quality"):
+        # Soft: don't nag hard if praise shows recent incline intervals
         upsert(
             "quality_intervals",
-            max(candidates.get("quality_intervals", {}).get("score") or 0, 68),
+            max(candidates.get("quality_intervals", {}).get("score") or 0, 62),
             "Speed / intervals",
-            "Quality / interval stimulus missing recently.",
+            "Quality / interval stimulus thin recently — keep the incline work in the mix.",
             None,
         )
 
@@ -326,7 +375,7 @@ def _volume_mix_hint(user_id, today: date) -> dict:
         from backend.db import engine
         from backend.models import Workout
 
-        start = today - timedelta(days=14)
+        start = today - timedelta(days=21)
         with Session(engine) as db:
             rows = (
                 db.query(Workout)
@@ -335,26 +384,274 @@ def _volume_mix_hint(user_id, today: date) -> dict:
                     Workout.workout_date >= start,
                     Workout.workout_date <= today,
                 )
+                .order_by(Workout.workout_date.desc())
                 .all()
             )
         has_long = False
         has_quality = False
+        recent_longs: list[dict] = []
         for w in rows:
             dist = float(getattr(w, "distance_km", 0) or 0)
+            dur = int(getattr(w, "duration_seconds", 0) or 0)
             name = (getattr(w, "name", None) or "").lower()
             wtype = (getattr(w, "workout_type", None) or "").lower()
-            if dist >= 14 or "long" in name:
+            mins = dur // 60 if dur else 0
+            is_long = dist >= 14 or mins >= 90 or "long" in name
+            if is_long:
                 has_long = True
-            if any(k in name or k in wtype for k in ("interval", "tempo", "threshold", "speed")):
+                recent_longs.append({
+                    "date": _iso(getattr(w, "workout_date", None)),
+                    "mins": mins,
+                    "name": getattr(w, "name", None),
+                })
+            if any(k in name or k in wtype for k in ("interval", "tempo", "threshold", "speed", "incline")):
                 has_quality = True
         return {
             "missing_long": not has_long,
             "missing_quality": not has_quality,
-            "workout_count_14d": len(rows),
+            "workout_count_14d": len([r for r in rows if (getattr(r, "workout_date", today) or today) >= today - timedelta(days=14)]),
+            "recent_longs": recent_longs[:4],
         }
     except Exception as exc:
         _log.warning("volume_mix unavailable: %s", exc)
         return {}
+
+
+def _enrich_load_context(user_id, today: date, load: dict, db) -> dict:
+    """Deload / ACWR history / moving-ceiling caution for consultative Now."""
+    out = dict(load)
+    try:
+        from backend.models import TrainingPlan, TrainingLoadSnapshot, Race
+        from backend.services.training_load import daily_tss_series
+        from backend.services.load_plan import compute_load_plan, ACWR_CEILING_MULT
+        from backend.services.guardrail import get_guardrail_result
+        from backend.services.weekly_coach_message import _TARGET_CTL
+
+        this_week_start = today - timedelta(days=today.weekday())
+        last_week_start = this_week_start - timedelta(days=7)
+        last_week_end = this_week_start - timedelta(days=1)
+        prev_week_start = last_week_start - timedelta(days=7)
+        prev_week_end = last_week_start - timedelta(days=1)
+
+        def _week_tss(a: date, b: date) -> float:
+            series = daily_tss_series(str(user_id), a, b)
+            return float(sum(v for _, v in series))
+
+        tss_this = _week_tss(this_week_start, today)
+        tss_last = _week_tss(last_week_start, last_week_end)
+        tss_prev = _week_tss(prev_week_start, prev_week_end)
+        out["week_tss"] = round(tss_this, 0)
+        out["last_week_tss"] = round(tss_last, 0)
+        out["prior_week_tss"] = round(tss_prev, 0)
+
+        # Recent ACWR peak (was the athlete over the guardrail lately?)
+        peak_acwr = None
+        rows = (
+            db.query(TrainingLoadSnapshot)
+            .filter(
+                TrainingLoadSnapshot.user_id == user_id,
+                TrainingLoadSnapshot.snapshot_date >= today - timedelta(days=21),
+                TrainingLoadSnapshot.snapshot_date <= today,
+            )
+            .all()
+        )
+        for r in rows:
+            v = getattr(r, "acwr", None)
+            if v is None:
+                continue
+            fv = float(v)
+            if peak_acwr is None or fv > peak_acwr:
+                peak_acwr = fv
+        out["acwr_peak_21d"] = round(peak_acwr, 2) if peak_acwr is not None else None
+
+        try:
+            gr = get_guardrail_result(str(user_id), as_of_date=today) or {}
+            out["guardrail_state"] = gr.get("guardrail_state")
+            out["guardrail_message"] = gr.get("guardrail_message") or ""
+            out["acwr_state"] = gr.get("acwr_state")
+        except Exception:
+            pass
+
+        plan = (
+            db.query(TrainingPlan)
+            .filter(TrainingPlan.user_id == user_id)
+            .order_by(TrainingPlan.updated_at.desc().nullslast())
+            .first()
+        )
+        a_race = (
+            db.query(Race)
+            .filter(
+                Race.user_id == user_id,
+                Race.priority == "A",
+                Race.status.in_(("planned", "active")),
+            )
+            .order_by(Race.race_date.asc().nullslast())
+            .first()
+        )
+        deload_planned = False
+        ceiling_tss = None
+        trailing_28d_avg = None
+        if plan is not None and a_race is not None and a_race.race_date:
+            race_week_start = a_race.race_date - timedelta(days=a_race.race_date.weekday())
+            weeks_to_race = ((race_week_start - this_week_start).days // 7) + 1
+            start_28 = today - timedelta(days=27)
+            series_28 = daily_tss_series(str(user_id), start_28, today)
+            total_28d = float(sum(v for _, v in series_28))
+            trailing_28d_avg = round(total_28d / 4.0, 1)
+            out["trailing_28d_weekly_avg"] = trailing_28d_avg
+            ceiling_tss = (
+                round(ACWR_CEILING_MULT * trailing_28d_avg, 0) if trailing_28d_avg else None
+            )
+            out["load_ceiling_tss"] = ceiling_tss
+            ramp_rate = float(plan.ramp_rate) if plan.ramp_rate is not None else 0.05
+            result = compute_load_plan(
+                baseline=tss_last or trailing_28d_avg or 0,
+                ramp_rate=ramp_rate,
+                hold_weeks=int(plan.hold_weeks or 4),
+                taper_weeks=int(round(float(plan.taper_length or 3))),
+                weeks_to_race=max(1, weeks_to_race),
+                trailing_28d_avg=trailing_28d_avg,
+                deload_enabled=bool(plan.deload_enabled),
+                deload_start_week=int(plan.deload_start_week or 4),
+            )
+            week1 = next(
+                (w for w in result.get("weeks") or [] if w.get("week_index") == 1),
+                None,
+            )
+            if week1 and week1.get("deload"):
+                deload_planned = True
+                out["deload_target_tss"] = week1.get("target_tss")
+
+        wow_drop = bool(tss_last > 0 and tss_this < tss_last * 0.75)
+        deload_week = bool(
+            deload_planned or (wow_drop and plan is not None and plan.deload_enabled)
+        )
+        out["deload_week"] = deload_week
+        if deload_week:
+            out["deload_rationale"] = (
+                f"Deload week — load is down "
+                f"({int(tss_this)} TSS so far vs {int(tss_last)} last week). "
+                "That is the point. Do not add TSS to 'catch up'."
+            )
+
+        was_high = peak_acwr is not None and peak_acwr > 1.30
+        if deload_week or was_high or (ceiling_tss and tss_last > ceiling_tss * 0.95):
+            out["ramp_caution"] = True
+            peak_s = (
+                f" ACWR peaked at {peak_acwr:.2f} in the last 3 weeks."
+                if was_high
+                else ""
+            )
+            ceil_s = (
+                f" Moving-average load ceiling is ~{int(ceiling_tss)} TSS/week — "
+                "stay under it when you resume the ramp."
+                if ceiling_tss
+                else ""
+            )
+            out["ramp_caution_text"] = (
+                "Do not dump volume back on after this quiet week."
+                + peak_s
+                + ceil_s
+                + " Stick to ~5%/week — no heroics."
+            ).strip()
+
+        dist_label = "marathon"
+        if a_race is not None and a_race.distance_km is not None:
+            dk = float(a_race.distance_km)
+            if dk >= 40:
+                dist_label = "marathon"
+            elif dk >= 20:
+                dist_label = "half"
+            elif dk >= 9:
+                dist_label = "10k"
+            else:
+                dist_label = "5k"
+        target_ctl = _TARGET_CTL.get(dist_label, 70.0)
+        ctl = out.get("ctl")
+        if ctl is not None and target_ctl:
+            out["ctl_gap_to_target"] = round(max(0.0, float(target_ctl) - float(ctl)), 1)
+            out["target_ctl"] = target_ctl
+    except Exception as exc:
+        _log.warning("load context enrich failed: %s", exc)
+    return out
+
+
+def _praise_highlights(user_id, today: date) -> list[dict]:
+    """Recent quality / strength work worth naming in Reflection."""
+    try:
+        from sqlalchemy.orm import Session
+        from backend.db import engine
+        from backend.models import Workout, PlannedSession
+
+        start = today - timedelta(days=21)
+        praise: list[dict] = []
+        with Session(engine) as db:
+            rows = (
+                db.query(Workout)
+                .filter(
+                    Workout.user_id == user_id,
+                    Workout.workout_date >= start,
+                    Workout.workout_date <= today,
+                )
+                .order_by(Workout.workout_date.desc())
+                .all()
+            )
+            for w in rows:
+                name = getattr(w, "name", None) or ""
+                nl = name.lower()
+                wtype = (getattr(w, "workout_type", None) or "").lower()
+                kind = None
+                if "incline" in nl or ("interval" in nl and "incline" in nl):
+                    kind = "incline_intervals"
+                elif "interval" in nl or "interval" in wtype:
+                    kind = "intervals"
+                elif wtype == "strength" or "strength" in nl or "workout" in nl and wtype != "run":
+                    if wtype == "strength" or "deadlift" in nl or "posterior" in nl:
+                        kind = "strength"
+                elif wtype == "plyo" or "plyo" in nl or "explosive" in nl:
+                    kind = "plyo"
+                if kind:
+                    praise.append({
+                        "date": _iso(w.workout_date),
+                        "name": name,
+                        "kind": kind,
+                        "mins": int((w.duration_seconds or 0) // 60) or None,
+                    })
+            # Upcoming strength on the plan (praise the plan, not just past)
+            upcoming = (
+                db.query(PlannedSession)
+                .filter(
+                    PlannedSession.user_id == user_id,
+                    PlannedSession.planned_date >= today,
+                    PlannedSession.planned_date <= today + timedelta(days=7),
+                    PlannedSession.session_type.in_(("strength", "plyo")),
+                )
+                .order_by(PlannedSession.planned_date.asc())
+                .limit(3)
+                .all()
+            )
+            for p in upcoming:
+                praise.append({
+                    "date": _iso(p.planned_date),
+                    "name": p.name,
+                    "kind": f"planned_{p.session_type}",
+                    "mins": None,
+                })
+        # de-dupe by name+date, keep ≤5
+        seen = set()
+        out = []
+        for p in praise:
+            key = (p.get("date"), p.get("name"))
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(p)
+            if len(out) >= 5:
+                break
+        return out
+    except Exception as exc:
+        _log.warning("praise highlights unavailable: %s", exc)
+        return []
 
 
 def _gaps_top(user_id, today: date, limit: int = 3) -> list[dict]:
@@ -415,10 +712,121 @@ def _habits_summary(user_id, today: date) -> dict | None:
         return None
 
 
+def _pick_dream_milestones(dream: dict, projection: dict) -> list[dict]:
+    """Curate 1–2 near-term checkpoints + A-race estimate (not every race).
+
+    Preference: next half-or-longer B/C race before A-race; else next B; skip
+    short tune-ups when a better distance sits a few weeks later.
+    """
+    out: list[dict] = []
+    a_race = dream.get("a_race") or {}
+    races = list(dream.get("b_races") or [])
+
+    def _is_half_plus(r: dict) -> bool:
+        dk = r.get("distance_km")
+        return dk is not None and float(dk) >= 20.0
+
+    # Prefer first half-or-longer before A-race; else first upcoming
+    pick = next((r for r in races if _is_half_plus(r)), None)
+    if pick is None and races:
+        pick = races[0]
+    if pick:
+        out.append({
+            "kind": "b_race" if pick.get("priority") == "B" else "checkpoint_race",
+            "name": pick.get("name"),
+            "date": pick.get("date"),
+            "distance_km": pick.get("distance_km"),
+            "goal_time_label": pick.get("goal_time_label"),
+            "est_label": pick.get("est_label"),
+            "why": "Near-term progress check toward the A-race.",
+        })
+
+    # Optional second: longest mid-distance C/B between pick and A (e.g. 32k)
+    if pick and a_race.get("date"):
+        later = [
+            r for r in races
+            if r.get("date")
+            and pick.get("date")
+            and r["date"] > pick["date"]
+            and r["date"] < a_race["date"]
+            and (r.get("distance_km") or 0) >= 25
+        ]
+        if later:
+            mid = max(later, key=lambda r: float(r.get("distance_km") or 0))
+            out.append({
+                "kind": "volume_checkpoint",
+                "name": mid.get("name"),
+                "date": mid.get("date"),
+                "distance_km": mid.get("distance_km"),
+                "goal_time_label": mid.get("goal_time_label"),
+                "est_label": mid.get("est_label"),
+                "why": "Longer checkpoint before the marathon.",
+            })
+
+    if a_race.get("name"):
+        out.append({
+            "kind": "a_race",
+            "name": a_race.get("name"),
+            "date": a_race.get("date"),
+            "distance_km": a_race.get("distance_km"),
+            "goal_time_label": a_race.get("goal_time_label"),
+            "est_label": projection.get("current_trend_label")
+            if not projection.get("unavailable")
+            else None,
+            "uncertainty_min": projection.get("uncertainty_min"),
+            "why": "A-race goal.",
+        })
+    return out
+
+
+def _performance_scores(user_id, db) -> dict | None:
+    """Endurance / Speed from Performance-tab SummaryCache (SoT)."""
+    try:
+        from backend.services.race_finish_estimate import _endurance_speed_from_cache
+        from backend.models import SummaryCache
+
+        end_f, spd_f = _endurance_speed_from_cache(db, user_id)
+        if end_f is None and spd_f is None:
+            return None
+        out: dict[str, Any] = {
+            "endurance": round(end_f, 1) if end_f is not None else None,
+            "speed": round(spd_f, 1) if spd_f is not None else None,
+            "source": "performance_cache",
+        }
+        row = (
+            db.query(SummaryCache)
+            .filter(
+                SummaryCache.user_id == user_id,
+                SummaryCache.cache_key == "performance",
+            )
+            .first()
+        )
+        if row and isinstance(row.payload, dict):
+            for key, alias in (("endurance", "endurance_direction"), ("speed", "speed_direction")):
+                block = row.payload.get(key) or {}
+                direction = block.get("direction")
+                if direction:
+                    out[alias] = direction
+            # Light trend hint: last vs ~2 weeks ago if trend list long enough
+            for key, alias in (("endurance", "endurance_delta_hint"), ("speed", "speed_delta_hint")):
+                trend = (row.payload.get(key) or {}).get("trend") or []
+                if isinstance(trend, list) and len(trend) >= 4:
+                    try:
+                        delta = float(trend[-1]) - float(trend[-4])
+                        out[alias] = round(delta, 1)
+                    except (TypeError, ValueError):
+                        pass
+        return out
+    except Exception as exc:
+        _log.warning("performance scores unavailable: %s", exc)
+        return None
+
+
 def _dream_block(user_id, today: date, projection: dict, weight: dict) -> dict:
-    """Phase 3: A-race + checkpoints + optional weight scenario."""
+    """Phase 3: A-race + B-race benchmarks + checkpoints + weight scenario."""
     dream: dict[str, Any] = {
         "a_race": None,
+        "b_races": [],
         "performance_goal": None,
         "checkpoints": [],
         "scenarios": [],
@@ -473,10 +881,50 @@ def _dream_block(user_id, today: date, projection: dict, weight: dict) -> dict:
                         "projected_time_label": None,
                         "met": bool(cp.met or cp.met_override),
                     })
+
+            # Upcoming B/C races — keep the raw list; narrative picks a subset.
+            bc_rows = (
+                db.query(Race)
+                .filter(
+                    Race.user_id == user_id,
+                    Race.priority.in_(("B", "C")),
+                    Race.status.in_(("planned", "active")),
+                    Race.race_date >= today,
+                )
+                .order_by(Race.race_date.asc())
+                .limit(6)
+                .all()
+            )
+            for br in bc_rows:
+                gsec = getattr(br, "goal_time_seconds", None)
+                entry = {
+                    "name": br.name,
+                    "date": _iso(br.race_date),
+                    "distance_km": float(br.distance_km) if br.distance_km is not None else None,
+                    "goal_time_label": _fmt_hms(gsec),
+                    "goal_time_sec": int(gsec) if gsec is not None else None,
+                    "priority": br.priority,
+                    "role": "benchmark_toward_a_race",
+                    "id": str(br.id),
+                }
+                # Attach latest Performance-tab estimate when present
+                try:
+                    from backend.services.race_finish_estimate import (
+                        _latest_shown_prediction,
+                    )
+                    shown = _latest_shown_prediction(db, br.id)
+                    if shown and shown.get("est_sec"):
+                        entry["est_sec"] = shown["est_sec"]
+                        entry["est_label"] = _fmt_hms(shown["est_sec"])
+                        entry["est_band_sec"] = shown.get("band_sec")
+                except Exception:
+                    pass
+                dream["b_races"].append(entry)
     except Exception as exc:
         _log.warning("dream race/checkpoints unavailable: %s", exc)
 
-    # PerformanceGoal summary already in facts["goal"] — mirror for clarity
+    dream["milestones"] = _pick_dream_milestones(dream, projection)
+
     if projection:
         dream["scenarios"].append({
             "id": "plan_compliance",
@@ -486,23 +934,22 @@ def _dream_block(user_id, today: date, projection: dict, weight: dict) -> dict:
             "method": "performance_goal_target",
             "caveat": "Assumes plan compliance; band widens with sparse data.",
         })
-        if projection.get("current_trend_label"):
+        if projection.get("current_trend_label") and not projection.get("unavailable"):
             dream["scenarios"].append({
                 "id": "current_trend",
-                "label": "Current trend",
+                "label": "Performance estimate (race day)",
                 "finish_label": projection.get("current_trend_label"),
-                "method": "ctl_ratio_trend",
-                "caveat": f"±{projection.get('uncertainty_min', 0)} min uncertainty.",
+                "method": projection.get("source") or "performance_time_curve",
+                "caveat": (
+                    f"±{projection.get('uncertainty_min', 0)} min band"
+                    if projection.get("uncertainty_min")
+                    else "Same engine as the Performance tab race card."
+                ),
             })
 
-    # Weight-cut scenario: documented Riegel-ish ~1% per kg heuristic, only if gap known
     gap_kg = weight.get("gap_kg")
     base_sec = None
-    if projection.get("full_compliance_label"):
-        # prefer numeric from goal elsewhere; use trend seconds if passed
-        pass
     try:
-        # Use current trend seconds when available via companion field
         if isinstance(projection.get("full_compliance_sec"), int):
             base_sec = projection["full_compliance_sec"]
         elif isinstance(projection.get("current_trend_sec"), int):
@@ -514,13 +961,15 @@ def _dream_block(user_id, today: date, projection: dict, weight: dict) -> dict:
     if gap_kg is not None and float(gap_kg) > 0:
         cut_kg = min(6.0, float(gap_kg))
     if base_sec and cut_kg and cut_kg >= 2:
-        # ~0.8% finish-time improvement per kg lost (conservative heuristic)
         improved = int(round(base_sec * (1.0 - 0.008 * cut_kg)))
         year_end = date(today.year, 12, 31)
+        payoff_label = _fmt_hms(improved)
+        weight["payoff_label"] = payoff_label
+        weight["payoff_cut_kg"] = cut_kg
         dream["scenarios"].append({
             "id": "weight_cut",
             "label": f"If −{cut_kg:.0f} kg by {year_end.isoformat()}",
-            "finish_label": _fmt_hms(improved),
+            "finish_label": payoff_label,
             "method": "0.8pct_per_kg_riegel_heuristic",
             "caveat": (
                 "Heuristic only (~0.8% / kg); not a guarantee — fitness and "
@@ -528,26 +977,74 @@ def _dream_block(user_id, today: date, projection: dict, weight: dict) -> dict:
             ),
             "cut_kg": cut_kg,
             "by_date": year_end.isoformat(),
+            "sell": (
+                f"Lose ~{cut_kg:.0f} kg and the same fitness projects closer to "
+                f"{payoff_label} — that's why measurement is the gate."
+            ),
         })
 
-    upcoming = next(
-        (c for c in dream["checkpoints"] if not c.get("met") and c.get("date")),
-        None,
-    )
-    if upcoming:
+    # Prefer curated milestones for the Dream sell line
+    milestones = dream.get("milestones") or []
+    near = next((m for m in milestones if m.get("kind") != "a_race"), None)
+    if near:
         dream["sell_line_facts"] = {
-            "next_checkpoint_date": upcoming["date"],
-            "next_checkpoint_label": upcoming["label"],
-            "next_checkpoint_target": upcoming.get("target_time_label"),
+            "next_checkpoint_date": near.get("date"),
+            "next_checkpoint_label": near.get("name"),
+            "next_checkpoint_target": near.get("goal_time_label"),
+            "next_checkpoint_est": near.get("est_label"),
+            "role": "b_race_benchmark",
+            "toward_a_race": (dream.get("a_race") or {}).get("name"),
+            "toward_a_goal": (dream.get("a_race") or {}).get("goal_time_label"),
         }
-    elif dream.get("a_race"):
-        dream["sell_line_facts"] = {
-            "next_checkpoint_date": dream["a_race"].get("date"),
-            "next_checkpoint_label": dream["a_race"].get("name") or "A-race",
-            "next_checkpoint_target": dream["a_race"].get("goal_time_label"),
-        }
+    else:
+        upcoming = next(
+            (c for c in dream["checkpoints"] if not c.get("met") and c.get("date")),
+            None,
+        )
+        if upcoming:
+            dream["sell_line_facts"] = {
+                "next_checkpoint_date": upcoming["date"],
+                "next_checkpoint_label": upcoming["label"],
+                "next_checkpoint_target": upcoming.get("target_time_label"),
+            }
+        elif dream.get("a_race"):
+            dream["sell_line_facts"] = {
+                "next_checkpoint_date": dream["a_race"].get("date"),
+                "next_checkpoint_label": dream["a_race"].get("name") or "A-race",
+                "next_checkpoint_target": dream["a_race"].get("goal_time_label"),
+            }
 
     return dream
+
+
+def _focus_for_session(focus_ranked: list[dict], name: str | None, session_type: str | None) -> tuple[int, str] | None:
+    """Map a planned session to the best matching Focus rank (1-based)."""
+    blob = f"{name or ''} {session_type or ''}".lower()
+    prefer: list[str] = []
+    if any(k in blob for k in ("long", "aerobic", "easy")):
+        prefer.extend(["long_run_fueling", "long_run"])
+    if any(k in blob for k in ("interval", "speed", "track", "reps", "incline")):
+        prefer.append("quality_intervals")
+    if "tempo" in blob or "threshold" in blob:
+        prefer.append("tempo")
+    if "plyo" in blob or "explosive" in blob:
+        prefer.append("plyo")
+    if "strength" in blob or "gym" in blob or "deadlift" in blob:
+        prefer.append("strength")
+    if "weigh" in blob or "weight" in blob:
+        prefer.extend(["weight_measurement", "weight_deficit"])
+    if "deload" in blob or "easy" in blob:
+        prefer.append("respect_deload")
+
+    by_id = {r["id"]: r for r in (focus_ranked or []) if r.get("id")}
+    for pid in prefer:
+        if pid in by_id:
+            r = by_id[pid]
+            return int(r.get("rank") or 1), r.get("id") or pid
+    if focus_ranked:
+        r = focus_ranked[0]
+        return int(r.get("rank") or 1), r.get("id") or "focus"
+    return None
 
 
 def _reflection_block(
@@ -585,7 +1082,6 @@ def _reflection_block(
     except Exception as exc:
         _log.warning("reflection recent_wrap unavailable: %s", exc)
 
-    focus1 = (focus_ranked[0]["id"] if focus_ranked else None)
     # Benchmarks from focus + weigh-ins
     for fr in (focus_ranked or [])[:2]:
         tr = fr.get("tracking") or {}
@@ -622,12 +1118,20 @@ def _reflection_block(
                 {"uid": str(user_id), "d": today},
             ).fetchone()
         if row:
+            name = row[2] or "Session"
+            stype = row[3]
+            matched = _focus_for_session(focus_ranked, name, stype)
+            if matched:
+                rank, fid = matched
+                why = f"Serves Focus #{rank}: {fid}"
+            else:
+                why = "Next planned session"
             reflection["next_session"] = {
                 "id": str(row[0]),
                 "date": _iso(row[1]),
-                "name": row[2] or "Session",
-                "type": row[3],
-                "why_focus": f"Serves Focus #1: {focus1}" if focus1 else "Next planned session",
+                "name": name,
+                "type": stype,
+                "why_focus": why,
             }
     except Exception as exc:
         _log.warning("next_session unavailable: %s", exc)
@@ -639,7 +1143,6 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
     """Return coach_facts dict, or None when no active PerformanceGoal exists."""
     from backend.services.coach_plan import build_plan_state
     from backend.services.weekly_coach_message import (
-        _build_projection_info,
         _load_inputs_for_user,
         _format_hms,
     )
@@ -669,7 +1172,6 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
             log_consistency=log_consistency,
             _today=today,
         )
-        projection_info = _build_projection_info(goal, snapshot, today)
 
         load_raw = (plan_state.get("levers") or {}).get("load") or {}
         weight_raw = (plan_state.get("levers") or {}).get("weight") or {}
@@ -692,6 +1194,7 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
             "unlock_date": _iso(load_raw.get("unlock_date")),
             "reason": reason,
         }
+        load = _enrich_load_context(user_id, today, load, db)
 
         logged = weight_raw.get("logged_days")
         if logged is None and isinstance(log_consistency, dict):
@@ -709,6 +1212,18 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
             "advisory_text": None,
             "recommended_deficit_kcal": weight_raw.get("recommended_deficit_kcal"),
         }
+        # Precompute weight payoff so Focus ranking can sell it
+        try:
+            gap = float(weight.get("gap_kg") or 0)
+            tsec = int(getattr(goal, "target_time", 0) or 0)
+            if gap >= 2 and tsec > 0:
+                cut = min(6.0, gap)
+                weight["payoff_cut_kg"] = cut
+                weight["payoff_label"] = _format_hms(
+                    int(round(tsec * (1.0 - 0.008 * cut)))
+                )
+        except Exception:
+            pass
 
         timeline = []
         for phase in plan_state.get("timeline") or []:
@@ -721,27 +1236,43 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
 
         target_sec = int(getattr(goal, "target_time", 0) or 0)
         race_date = getattr(goal, "race_date", None)
+
+        # Performance-tab SoT finish estimate (never CTL-ratio invent)
+        race_est = _estimate_for_a_race(user_id, today, db)
+        if race_est.get("goal_time_sec"):
+            target_sec = int(race_est["goal_time_sec"])
+            race_date = race_est.get("race_date") or race_date
+            # Refresh payoff off A-race goal if richer
+            try:
+                gap = float(weight.get("gap_kg") or 0)
+                if gap >= 2 and target_sec > 0:
+                    cut = min(6.0, gap)
+                    weight["payoff_cut_kg"] = cut
+                    weight["payoff_label"] = _format_hms(
+                        int(round(target_sec * (1.0 - 0.008 * cut)))
+                    )
+            except Exception:
+                pass
+
+        trend_sec = race_est.get("est_sec")
+        trend_label = race_est.get("est_label")
         projection = {
             "goal_label": _format_hms(target_sec) if target_sec else None,
-            "full_compliance_label": _format_hms(
-                projection_info.get("full_compliance_time_seconds") or target_sec
-            ),
-            "full_compliance_sec": int(
-                projection_info.get("full_compliance_time_seconds") or target_sec or 0
-            ) or None,
-            "current_trend_label": _format_hms(
-                projection_info.get("current_trend_time_seconds") or 0
-            ),
-            "current_trend_sec": int(
-                projection_info.get("current_trend_time_seconds") or 0
-            ) or None,
-            "uncertainty_min": int(projection_info.get("uncertainty_minutes") or 0),
-            "distance_label": projection_info.get("distance_label"),
-            "target_date": _iso(projection_info.get("target_date") or race_date),
+            "full_compliance_label": _format_hms(target_sec) if target_sec else None,
+            "full_compliance_sec": target_sec or None,
+            "current_trend_label": trend_label,
+            "current_trend_sec": trend_sec,
+            "uncertainty_min": race_est.get("uncertainty_min"),
+            "distance_label": race_est.get("distance_label")
+            or getattr(goal, "race_distance", None),
+            "target_date": _iso(race_date),
+            "source": race_est.get("source") or "none",
+            "unavailable": bool(race_est.get("unavailable")),
         }
 
         gaps_top = _gaps_top(user_id, today)
         volume_mix = _volume_mix_hint(user_id, today)
+        praise = _praise_highlights(user_id, today)
         focus_ranked, focus_noise = rank_focus_levers(
             plan_state=plan_state,
             weight=weight,
@@ -756,6 +1287,9 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
         habits = _habits_summary(user_id, today)
         dream = _dream_block(user_id, today, projection, weight)
         reflection = _reflection_block(user_id, today, focus_ranked)
+        if praise:
+            reflection["praise"] = praise
+        performance = _performance_scores(user_id, db)
 
         goal_block = {
             "distance": getattr(goal, "race_distance", None),
@@ -791,6 +1325,8 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
             "focus_ranked": focus_ranked,
             "focus_noise": focus_noise,
             "volume_mix": volume_mix,
+            "praise": praise,
+            "performance": performance,
             "dream": dream,
             "reflection": reflection,
             "plan_state": plan_state,
@@ -812,3 +1348,62 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
     finally:
         if _own:
             db.close()
+
+
+def _estimate_for_a_race(user_id, today: date, db) -> dict:
+    """Load A-race and return Performance SoT estimate fields for projection."""
+    from backend.models import Race
+    from backend.services.race_finish_estimate import estimate_race_finish
+
+    out: dict[str, Any] = {
+        "unavailable": True,
+        "source": "none",
+        "est_sec": None,
+        "est_label": None,
+        "uncertainty_min": None,
+    }
+    try:
+        a_race = (
+            db.query(Race)
+            .filter(
+                Race.user_id == user_id,
+                Race.priority == "A",
+                Race.status.in_(("planned", "active")),
+            )
+            .order_by(Race.race_date.asc().nullslast())
+            .first()
+        )
+        if a_race is None:
+            a_race = (
+                db.query(Race)
+                .filter(Race.user_id == user_id, Race.status.in_(("planned", "active")))
+                .order_by(Race.race_date.asc().nullslast())
+                .first()
+            )
+        if a_race is None:
+            return out
+
+        goal_sec = getattr(a_race, "goal_time_seconds", None)
+        out["goal_time_sec"] = int(goal_sec) if goal_sec else None
+        out["race_date"] = a_race.race_date
+        dist_km = float(a_race.distance_km) if a_race.distance_km is not None else None
+        if dist_km is not None:
+            if dist_km >= 40:
+                out["distance_label"] = "marathon"
+            elif dist_km >= 20:
+                out["distance_label"] = "HM"
+            elif dist_km >= 9:
+                out["distance_label"] = "10k"
+            else:
+                out["distance_label"] = "5k"
+
+        est = estimate_race_finish(user_id, a_race, today=today, db=db)
+        out.update(est)
+        if out.get("unavailable"):
+            out["est_sec"] = None
+            out["est_label"] = None
+            out["uncertainty_min"] = None
+        return out
+    except Exception as exc:
+        _log.warning("A-race estimate unavailable: %s", exc)
+        return out

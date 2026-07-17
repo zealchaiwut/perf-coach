@@ -21,7 +21,7 @@ SECTION_HEADERS = {
     "dream": "## Dream",
     "reflection": "## Reflection",
 }
-MAX_TOTAL_CHARS = 2500
+MAX_TOTAL_CHARS = 2800
 MIN_SECTION_CHARS = 24
 
 _NARRATIVE_SCHEMA = {
@@ -80,152 +80,333 @@ def _fmt_unlock(load: dict) -> str:
         return str(ud)
 
 
+def _fmt_day(iso: str | None) -> str:
+    if not iso:
+        return "soon"
+    try:
+        from datetime import date
+        d = date.fromisoformat(str(iso)[:10])
+        return d.strftime("%-d %B")
+    except Exception:
+        return str(iso)
+
+
 def compose_coach_narrative(facts: dict) -> str:
-    """Deterministic four-section fallback from facts."""
+    """Deterministic fallback — consultative coach tone, facts-only."""
     load = facts.get("load") or {}
     weight = facts.get("weight") or {}
     timeline = facts.get("timeline") or []
-    constraints = facts.get("constraints") or []
     ranking = facts.get("lever_ranking") or {}
     projection = facts.get("projection") or {}
     focus_ranked = facts.get("focus_ranked") or []
     focus_noise = facts.get("focus_noise") or []
     dream = facts.get("dream") or {}
     reflection = facts.get("reflection") or {}
+    goal = facts.get("goal") or {}
+    praise = facts.get("praise") or reflection.get("praise") or []
+    volume_mix = facts.get("volume_mix") or {}
 
     # ── Now ──
     now_bits: list[str] = []
-    if load.get("state") == "locked":
-        hold = load.get("hold_tss")
-        hold_s = f"~{hold} TSS" if hold is not None else "current TSS"
+    if load.get("deload_week"):
         now_bits.append(
-            f"{load.get('reason') or 'ACWR elevated'}. "
+            load.get("deload_rationale")
+            or "This is a deload week — keep it quiet on purpose."
+        )
+        if load.get("ramp_caution_text"):
+            now_bits.append(load["ramp_caution_text"])
+        gap = load.get("ctl_gap_to_target")
+        if gap:
+            now_bits.append(
+                f"Fitness is still the big time lever: you're ~{gap:.0f} CTL short "
+                f"of what a {projection.get('goal_label') or goal.get('target_time_label') or 'goal'} "
+                "needs, and that only closes with consistent weeks after the deload."
+            )
+    elif load.get("state") == "locked":
+        hold = load.get("hold_tss")
+        hold_s = f"~{hold} TSS/week" if hold is not None else "this week's TSS"
+        now_bits.append(
+            f"{load.get('reason') or 'ACWR is elevated'}. "
             f"Hold {hold_s}; do not add volume. "
-            f"ACWR converges ~{_fmt_unlock(load)} — "
-            "CTL rises because you hold, not because you add."
+            f"Unlock ~{_fmt_unlock(load)}."
         )
     elif load.get("state") == "available":
-        now_bits.append(
-            "Load lever available — safe to begin a progressive ramp this week."
-        )
+        acwr = load.get("acwr")
+        acwr_bit = f"ACWR is {acwr} — " if acwr is not None else ""
+        ramp_end = None
+        for ph in timeline:
+            if (ph.get("phase") or "").lower() in ("ramp", "build") or (
+                "ramp" in (ph.get("directive") or "").lower()
+            ):
+                ramp_end = ph.get("end_date") or ph.get("date")
+        line = f"You're clear to resume the ramp. {acwr_bit}"
+        if ramp_end:
+            line += f"Go up ~5% a week through {_fmt_day(ramp_end)}. That's it — no heroics."
+        else:
+            line += "Go up ~5% a week. That's it — no heroics, just don't miss weeks."
+        now_bits.append(line)
+        if load.get("ramp_caution_text"):
+            now_bits.append(load["ramp_caution_text"])
+        gap = load.get("ctl_gap_to_target")
+        if gap:
+            now_bits.append(
+                f"Fitness is where the time is: you're ~{gap:.0f} CTL short of the "
+                f"{projection.get('goal_label') or 'goal'} target, and that only closes "
+                "with consistent weeks."
+            )
     else:
-        now_bits.append("Training load data unavailable — log workouts to enable guidance.")
+        now_bits.append("Training load data is thin — log workouts so guidance can speak.")
 
     if weight.get("phase") == "measurement":
         logged = weight.get("logged_days")
+        win = weight.get("window_days") or 14
         tgt = 12
+        deficit_when = None
+        for ph in timeline:
+            if "deficit" in (ph.get("directive") or "").lower() or (
+                ph.get("phase") or ""
+            ).lower() in ("cut-end", "deficit"):
+                deficit_when = ph.get("date")
+                break
+        payoff = weight.get("payoff_label")
+        cut = weight.get("payoff_cut_kg")
+        payoff_bit = ""
+        if payoff and cut:
+            payoff_bit = (
+                f" If you eventually lose ~{cut:.0f} kg with fitness intact, "
+                f"the same engine projects closer to {payoff} — that's the prize, "
+                "and noisy weigh-ins can't unlock it yet."
+            )
         now_bits.append(
-            f"Weight is available immediately via measurement: "
-            f"{logged if logged is not None else '?'}/{tgt} weigh-ins in 14 days — "
-            "honest logging first, then a modest deficit."
+            "Don't touch your calories yet.\n\n"
+            f"You've logged {logged if logged is not None else '?'} of the last {tgt} "
+            f"weigh-ins ({win}-day window). That's not enough to tell a real trend "
+            f"from water weight.{payoff_bit} Weigh in every morning until you hit "
+            f"{tgt} of {14}."
+            + (
+                f" Then we talk food around {_fmt_day(deficit_when)}."
+                if deficit_when
+                else " Then we talk food."
+            )
         )
     elif weight.get("phase") == "deficit":
         kcal = weight.get("recommended_deficit_kcal")
         now_bits.append(
-            f"Weight logging is consistent — a modest deficit"
+            "Weight logging is consistent — a modest deficit"
             + (f" (~{kcal} kcal)" if kcal is not None else "")
-            + " is available without stacking aggression on a ramp."
+            + " is fair without stacking aggression on the ramp."
         )
-
-    if timeline:
-        steps = []
-        for ph in timeline[:4]:
-            d = ph.get("date") or ""
-            directive = ph.get("directive") or ""
-            steps.append(f"• {d}: {directive}" if d else f"• {directive}")
-        now_bits.append("Sequence:\n" + "\n".join(steps))
-    if constraints:
-        now_bits.append("Constraint: " + constraints[0])
 
     # ── Focus ──
     focus_bits: list[str] = []
     if focus_ranked:
         top = focus_ranked[:2]
-        focus_bits.append(
-            "Priorities this week (order matters): "
-            + "; ".join(
-                f"#{r.get('rank') or i+1} {r.get('label')}"
-                for i, r in enumerate(top)
-            )
-            + "."
-        )
-        for r in top:
+        focus_bits.append("Two things this week:" if len(top) >= 2 else "This week:")
+        for i, r in enumerate(top):
+            rid = r.get("id") or ""
             tr = r.get("tracking") or {}
-            track = ""
-            if tr.get("current") is not None and tr.get("target") is not None:
-                track = f" Tracking {tr['current']}/{tr['target']}."
-            elif tr.get("unlock_date"):
-                track = f" Unlock ~{tr['unlock_date']}."
-            focus_bits.append(f"{r.get('label')}: {r.get('rationale') or ''}{track}".strip())
+            if "weight" in rid:
+                focus_bits.append(
+                    f"{i + 1}. Weigh in daily. Get to "
+                    f"{tr.get('current', '?')}/{tr.get('target', 12)}. "
+                    "That's the gate before we touch food"
+                    + (
+                        f" — and the path to ~{weight.get('payoff_label')} if you "
+                        f"later cut ~{weight.get('payoff_cut_kg'):.0f} kg."
+                        if weight.get("payoff_label") and weight.get("payoff_cut_kg")
+                        else "."
+                    )
+                )
+            elif rid in ("respect_deload", "ramp_caution", "hold_load"):
+                focus_bits.append(
+                    f"{i + 1}. {(r.get('rationale') or r.get('label') or '').rstrip('.')}."
+                )
+            elif rid in ("long_run_fueling", "long_run"):
+                longs = volume_mix.get("recent_longs") or []
+                if longs and rid == "long_run_fueling":
+                    bits = " and ".join(
+                        f"{x.get('mins')} min ({_fmt_day(x.get('date'))})"
+                        for x in longs[:2]
+                    )
+                    focus_bits.append(
+                        f"{i + 1}. Your long runs are happening — {bits}. "
+                        "Keep that; the work now is late-run fueling so efficiency "
+                        "doesn't fade when the marathon punishes it."
+                    )
+                else:
+                    focus_bits.append(
+                        f"{i + 1}. {(r.get('rationale') or r.get('label') or '').rstrip('.')}."
+                    )
+            else:
+                focus_bits.append(
+                    f"{i + 1}. {(r.get('rationale') or r.get('label') or '').rstrip('.')}."
+                )
         if focus_noise:
             focus_bits.append(
-                "Noise until the top levers move: " + ", ".join(focus_noise) + "."
+                ", ".join(str(n).replace("_", " ") for n in focus_noise[:4])
+                + " — fine ideas, none beat these right now."
+            )
+        nxt = reflection.get("next_session")
+        if nxt:
+            why = nxt.get("why_focus") or ""
+            rank_m = re.search(r"Focus #(\d+)", why or "")
+            rank_bit = f" That's Focus #{rank_m.group(1)}." if rank_m else ""
+            focus_bits.append(
+                f"Next up: {nxt.get('name')} on {_fmt_day(nxt.get('date'))}."
+                f"{rank_bit}"
             )
     else:
-        focus_bits.append(ranking.get("rationale") or "Insufficient data to rank levers.")
+        focus_bits.append(
+            ranking.get("rationale") or "Insufficient data to rank levers this week."
+        )
 
     # ── Dream ──
     dream_bits: list[str] = []
-    sell = dream.get("sell_line_facts") or {}
     a_race = dream.get("a_race") or {}
-    if sell.get("next_checkpoint_date"):
+    name = a_race.get("name") or goal.get("name")
+    race_date = a_race.get("date") or goal.get("race_date")
+    goal_label = (
+        a_race.get("goal_time_label")
+        or goal.get("target_time_label")
+        or projection.get("goal_label")
+    )
+    if name and race_date and goal_label:
+        dream_bits.append(f"{name}, {_fmt_day(race_date)}. Goal {goal_label}.")
+
+    perf = facts.get("performance") or {}
+    if perf.get("endurance") is not None or perf.get("speed") is not None:
+        parts = []
+        if perf.get("endurance") is not None:
+            d = perf.get("endurance_direction")
+            parts.append(
+                f"Endurance {perf['endurance']}"
+                + (f" ({d})" if d else "")
+            )
+        if perf.get("speed") is not None:
+            d = perf.get("speed_direction")
+            parts.append(
+                f"Speed {perf['speed']}"
+                + (f" ({d})" if d else "")
+            )
         dream_bits.append(
-            f"Next checkpoint: {sell.get('next_checkpoint_label') or 'milestone'} "
-            f"on {sell['next_checkpoint_date']}"
+            "Performance tab scores: " + ", ".join(parts) + "."
+        )
+
+    milestones = dream.get("milestones") or []
+    for m in milestones:
+        if m.get("kind") == "a_race":
+            continue  # covered above + estimate below
+        line = (
+            f"Checkpoint: {m.get('name')} on {_fmt_day(m.get('date'))}"
+        )
+        if m.get("goal_time_label"):
+            line += f" — goal {m['goal_time_label']}"
+        if m.get("est_label"):
+            line += f", current estimate ~{m['est_label']}"
+        line += ". Progress check toward the A-race — not a separate season."
+        dream_bits.append(line)
+
+    # Fallback if milestones empty but sell_line exists
+    sell = dream.get("sell_line_facts") or {}
+    if not any(m.get("kind") != "a_race" for m in milestones) and sell.get("next_checkpoint_date"):
+        dream_bits.append(
+            f"Near-term benchmark: {sell.get('next_checkpoint_label')} on "
+            f"{_fmt_day(sell['next_checkpoint_date'])}"
             + (
-                f" targeting {sell['next_checkpoint_target']}"
+                f" (target {sell['next_checkpoint_target']})"
                 if sell.get("next_checkpoint_target")
                 else ""
             )
             + "."
         )
-    if a_race.get("goal_time_label") and a_race.get("date"):
+
+    trend = projection.get("current_trend_label")
+    if trend and not projection.get("unavailable"):
+        band = projection.get("uncertainty_min")
         dream_bits.append(
-            f"A-race goal {a_race.get('goal_time_label')} on {a_race.get('date')}."
+            f"A-race race-day estimate ~{trend}"
+            + (f" ±{band} min" if band else "")
+            + " (same engine as the Performance tab)."
         )
-    for sc in (dream.get("scenarios") or [])[:3]:
-        dream_bits.append(
-            f"{sc.get('label')}: ~{sc.get('finish_label')}"
-            + (f" ({sc.get('caveat')})" if sc.get("caveat") else "")
-            + "."
-        )
+
+    for sc in dream.get("scenarios") or []:
+        if sc.get("id") == "weight_cut":
+            dream_bits.append(
+                sc.get("sell")
+                or (
+                    f"Lose ~{sc.get('cut_kg'):.0f} kg and the projection moves toward "
+                    f"{sc.get('finish_label')} — measurement first so we don't guess."
+                )
+            )
+            break
+
     if not dream_bits:
-        if projection.get("full_compliance_label"):
-            dream_bits.append(
-                f"Full compliance trends ~{projection['full_compliance_label']} "
-                f"{projection.get('distance_label') or ''}; "
-                f"current trend ~{projection.get('current_trend_label')} "
-                f"± {projection.get('uncertainty_min', 0)} min."
-            )
-        else:
-            dream_bits.append(
-                "Set an A-race and checkpoints on the Plan tab to unlock the dream ladder."
-            )
+        dream_bits.append(
+            "Set an A-race and a B-race checkpoint on the Plan tab to unlock Dream."
+        )
 
     # ── Reflection ──
     ref_bits: list[str] = []
     planned = reflection.get("sessions_planned")
     completed = reflection.get("sessions_completed")
-    if planned is not None:
+    if load.get("deload_week") or (
+        load.get("last_week_tss") and load.get("week_tss") is not None
+        and load["week_tss"] < (load.get("last_week_tss") or 0) * 0.8
+    ):
+        ref_bits.append(
+            f"This week is light on purpose"
+            + (
+                f" ({int(load.get('week_tss') or 0)} TSS vs "
+                f"{int(load.get('last_week_tss') or 0)} last week)."
+                if load.get("last_week_tss") is not None
+                else "."
+            )
+            + " One quiet week doesn't undo anything; three in a row would."
+        )
+    elif planned is not None:
         pct = reflection.get("adherence_pct")
         ref_bits.append(
-            f"Last window: {completed}/{planned} planned sessions done"
+            f"Last window: {completed}/{planned} planned sessions"
             + (f" (~{pct}% adherence)." if pct is not None else ".")
         )
-    for b in (reflection.get("benchmarks") or [])[:3]:
-        met = b.get("met")
-        flag = "met" if met is True else ("miss" if met is False else "track")
-        ref_bits.append(f"Benchmark [{flag}] {b.get('id')}: {b.get('detail')}")
-    nxt = reflection.get("next_session")
-    if nxt:
-        ref_bits.append(
-            f"Next: {nxt.get('name')} on {nxt.get('date')} — {nxt.get('why_focus')}."
+
+    if praise:
+        named = []
+        for p in praise[:3]:
+            kind = p.get("kind") or ""
+            nm = p.get("name") or "session"
+            if kind == "incline_intervals":
+                named.append(f"the incline intervals ({nm} on {_fmt_day(p.get('date'))})")
+            elif kind == "intervals":
+                named.append(f"intervals on {_fmt_day(p.get('date'))}")
+            elif kind == "strength":
+                named.append(f"strength on {_fmt_day(p.get('date'))}")
+            elif kind.startswith("planned_"):
+                named.append(f"planned {kind.replace('planned_', '')}: {nm} ({_fmt_day(p.get('date'))})")
+        if named:
+            ref_bits.append(
+                "Credit where it's due: " + "; ".join(named) + ". Keep that quality in the mix."
+            )
+    longs = volume_mix.get("recent_longs") or []
+    if longs and not any(
+        (r.get("id") or "") in ("long_run_fueling", "long_run") for r in focus_ranked[:2]
+    ):
+        bits = " and ".join(
+            f"{x.get('mins')} min on {_fmt_day(x.get('date'))}" for x in longs[:2]
         )
+        ref_bits.append(
+            f"Long-run consistency is real — {bits}. Keep practising fueling on them."
+        )
+
     if not ref_bits:
-        ref_bits.append("Log planned sessions to unlock adherence reflection.")
+        ref_bits.append("Nothing alarming — keep the main levers honest.")
+    ref_bits.append(
+        "How's sleep? Resting heart rate? And what do your legs feel like "
+        "when you first stand up in the morning?"
+    )
 
     return sections_to_text({
-        "now": " ".join(now_bits) if len(now_bits) == 1 else "\n\n".join(now_bits),
+        "now": "\n\n".join(now_bits),
         "focus": "\n\n".join(focus_bits),
         "dream": "\n\n".join(dream_bits),
         "reflection": "\n\n".join(ref_bits),
@@ -313,19 +494,36 @@ def build_prompt(facts: dict, feedback: str = "") -> tuple[str, str]:
     # Strip bulky plan_state from prompt payload
     slim = {k: v for k, v in facts.items() if k != "plan_state"}
     system = (
-        "You are a direct, ambitious performance coach writing a weekly Home brief. "
-        "Argue WHY ORDER MATTERS (hold load vs measure weight vs later ramp/deficit). "
-        "Be warm but not fluffy. Never invent TSS, dates, times, or kg values — "
-        "use ONLY numbers present in the facts JSON / required_numerals. "
-        "No medical claims. No inventing workouts. "
-        "IGNORE any repository files, CLAUDE.md, open editors, or prior chat — "
-        "the ONLY source of truth is the facts JSON in the user message. "
-        "Return JSON with keys now, focus, dream, reflection (plain prose, no ## headers)."
+        "You are a consultative performance coach writing a weekly Home brief "
+        "(~one phone screen). Tone: clear, warm, direct — like a sharp human "
+        "consultant, not a dashboard.\n"
+        "VOICE: short paragraphs, one idea per beat. Argue ORDER (why this before that).\n"
+        "FACTS DISCIPLINE — never invent TSS, dates, finish times, kg:\n"
+        "- If load.deload_week is true: say so. Do NOT tell them to ramp hard this week.\n"
+        "- If load.ramp_caution / load_ceiling_tss / acwr_peak_21d: warn not to dump "
+        "TSS back on; respect the moving-average ceiling and ~5%/week only.\n"
+        "- If volume_mix.recent_longs exists: PRAISE those longs. Never claim they "
+        "are missing long runs. Durability = late-run fueling/decoupling, not "
+        "'do a long run'.\n"
+        "- Dream MUST use dream.milestones (curated 1–2 checkpoints + A-race) — "
+        "do NOT list every B-race. Prefer half-or-longer (e.g. Bangkok Airways HM) "
+        "and optionally a longer volume checkpoint; cite goal + est_label when present.\n"
+        "- Mention performance.endurance / performance.speed (Performance tab scores) "
+        "briefly alongside the A-race estimate (projection.current_trend_label). "
+        "One short beat — not a score dump.\n"
+        "- Weight: push measurement, then sell payoff "
+        "(weight.payoff_label / weight_cut scenario) — 'if you lose X you project closer to Y'.\n"
+        "- Reflection: praise items in praise[] (incline intervals, strength, planned "
+        "strength). Light week context from load.week_tss vs last_week_tss. End with "
+        "sleep / RHR / morning legs questions when useful.\n"
+        "- Finish estimates: only projection.current_trend_label when unavailable is "
+        "false. Never invent CTL-ratio times.\n"
+        "Return JSON keys now, focus, dream, reflection (plain prose, no ## headers). "
+        "IGNORE repo files / prior chat — facts JSON only."
     )
     user = (
         f"{feedback}"
-        "FACTS JSON follows. Write the four sections using ONLY these facts "
-        "(do not claim facts are missing if the JSON below is non-empty):\n\n"
+        "FACTS JSON follows. Write the four sections using ONLY these facts:\n\n"
         f"{json.dumps(slim, default=str)[:12000]}"
     )
     return system, user

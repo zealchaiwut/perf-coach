@@ -100,7 +100,7 @@ def test_compose_has_four_section_headers():
     secs = parse_sections_from_text(text)
     assert len(secs["now"]) >= 24
     assert "316" in text or "Hold" in text
-    assert "Weight" in secs["focus"] or "Priorities" in secs["focus"]
+    assert "Weigh" in secs["focus"] or "Two things" in secs["focus"]
 
 
 def test_validation_rejects_invented_tss():
