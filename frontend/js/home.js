@@ -633,38 +633,15 @@
   /* ---- Daily brief widget cards ---- */
 
   function _initBriefCards() {
-    var formEl = document.getElementById('home-brief-form-card');
     var weekEl = document.getElementById('home-brief-week-plan-card');
-    var advEl  = document.getElementById('home-brief-advisories-card');
-
-    if (window.HomeBriefFormCard && formEl)        HomeBriefFormCard.renderSkeleton(formEl);
-    if (window.HomeBriefWeekPlanCard && weekEl)    HomeBriefWeekPlanCard.renderSkeleton(weekEl);
-    if (window.HomeBriefAdvisoriesCard && advEl)   HomeBriefAdvisoriesCard.renderSkeleton(advEl);
-
-    fetch('/api/brief/today')
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (brief) {
-        if (window.HomeBriefFormCard && formEl)        HomeBriefFormCard.render(formEl, brief);
-        if (window.HomeBriefWeekPlanCard && weekEl)    HomeBriefWeekPlanCard.render(weekEl, brief);
-        if (window.HomeBriefAdvisoriesCard && advEl)   HomeBriefAdvisoriesCard.render(advEl, brief);
-      })
-      .catch(function () {
-        if (window.HomeBriefFormCard && formEl)        HomeBriefFormCard.renderUnavailable(formEl);
-        if (window.HomeBriefWeekPlanCard && weekEl)    HomeBriefWeekPlanCard.renderUnavailable(weekEl);
-        if (window.HomeBriefAdvisoriesCard && advEl)   HomeBriefAdvisoriesCard.renderUnavailable(advEl);
-      });
+    if (window.HomeBriefWeekPlanCard && weekEl) HomeBriefWeekPlanCard.render(weekEl);
   }
 
-  /* ---- Race goal card (issue #1501) ---- */
+  /* ---- Race goal — same A-race as Training > Performance (no separate form) ---- */
 
-  var _GOAL_DISTANCE_LABELS = {
-    '5k': '5K',
-    '10k': '10K',
-    'half': 'Half Marathon',
-    'marathon': 'Marathon'
-  };
-
-  function _fmtGoalTime(secs) {
+  function _fmtRaceTime(secs) {
+    if (secs == null || !isFinite(secs)) return '—';
+    secs = Math.round(secs);
     var h = Math.floor(secs / 3600);
     var m = Math.floor((secs % 3600) / 60);
     var s = secs % 60;
@@ -672,172 +649,90 @@
     return m + ':' + String(s).padStart(2, '0');
   }
 
-  function _fmtGoalDate(isoDate) {
-    var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    var parts = isoDate.split('-');
-    return months[parseInt(parts[1], 10) - 1] + ' ' + parts[0];
+  function _fmtRacePace(secPerKm) {
+    if (secPerKm == null || !isFinite(secPerKm) || secPerKm <= 0) return '';
+    var m = Math.floor(secPerKm / 60);
+    var s = Math.round(secPerKm % 60);
+    return m + ':' + String(s).padStart(2, '0') + '/km';
   }
 
-  function _parseGoalTime(timeStr) {
-    var parts = timeStr.trim().split(':');
-    if (parts.length === 3) {
-      var h = parseInt(parts[0], 10);
-      var m = parseInt(parts[1], 10);
-      var s = parseInt(parts[2], 10);
-      if (isNaN(h) || isNaN(m) || isNaN(s)) return null;
-      return h * 3600 + m * 60 + s;
-    }
-    if (parts.length === 2) {
-      var m2 = parseInt(parts[0], 10);
-      var s2 = parseInt(parts[1], 10);
-      if (isNaN(m2) || isNaN(s2)) return null;
-      return m2 * 60 + s2;
-    }
-    return null;
+  function _fmtRaceDate(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso + (iso.length === 10 ? 'T12:00:00' : ''));
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   }
 
-  function _goalCardHead() {
-    return '<div class="card-head"><div class="ttl"><i class="ti ti-flag-2" style="color:#5a8dee;font-size:16px;"></i>Race goal</div></div>';
-  }
-
-  function _showGoalPrompt(card) {
-    card.innerHTML =
-      _goalCardHead() +
-      '<div class="goal-card__prompt">' +
-        '<div class="goal-card__sub">Tell the coach what you\'re training for.</div>' +
-        '<button type="button" class="goal-card__cta" id="goal-cta-btn">Set your goal &#8594;</button>' +
-      '</div>';
-
-    card.querySelector('#goal-cta-btn').addEventListener('click', function () {
-      _showGoalForm(card, null);
-    });
-  }
-
-  function _showGoalForm(card, existingGoal) {
-    var timeVal = existingGoal ? _fmtGoalTime(existingGoal.target_time) : '';
-    var dateVal = existingGoal ? existingGoal.race_date : '';
-    var distVal = existingGoal ? existingGoal.race_distance : '';
-
-    card.innerHTML =
-      _goalCardHead() +
-      '<form id="goal-form" class="goal-form" autocomplete="off">' +
-        '<div class="goal-form__field">' +
-          '<label class="goal-form__label" for="goal-distance">Distance</label>' +
-          '<select id="goal-distance" class="goal-form__select">' +
-            '<option value="">Choose distance…</option>' +
-            '<option value="5k"' + (distVal === '5k' ? ' selected' : '') + '>5K</option>' +
-            '<option value="10k"' + (distVal === '10k' ? ' selected' : '') + '>10K</option>' +
-            '<option value="half"' + (distVal === 'half' ? ' selected' : '') + '>Half Marathon</option>' +
-            '<option value="marathon"' + (distVal === 'marathon' ? ' selected' : '') + '>Marathon</option>' +
-          '</select>' +
-        '</div>' +
-        '<div class="goal-form__field">' +
-          '<label class="goal-form__label" for="goal-time">Target time (H:MM:SS or M:SS)</label>' +
-          '<input id="goal-time" class="goal-form__input" type="text"' +
-            ' placeholder="1:45:00" value="' + esc(timeVal) + '">' +
-        '</div>' +
-        '<div class="goal-form__field">' +
-          '<label class="goal-form__label" for="goal-date">Race date</label>' +
-          '<input id="goal-date" class="goal-form__input" type="date" value="' + esc(dateVal) + '">' +
-        '</div>' +
-        '<div class="goal-form__err" id="goal-form-err"></div>' +
-        '<div class="goal-form__actions">' +
-          '<button type="submit" class="goal-form__submit" id="goal-submit">Save goal</button>' +
-          '<button type="button" class="goal-form__cancel" id="goal-cancel">Cancel</button>' +
-        '</div>' +
-      '</form>';
-
-    var errEl = card.querySelector('#goal-form-err');
-    var submitBtn = card.querySelector('#goal-submit');
-
-    card.querySelector('#goal-cancel').addEventListener('click', function () {
-      if (existingGoal) {
-        _showGoalDisplay(card, existingGoal);
-      } else {
-        _showGoalPrompt(card);
-      }
-    });
-
-    card.querySelector('#goal-form').addEventListener('submit', async function (e) {
-      e.preventDefault();
-      var distance = card.querySelector('#goal-distance').value;
-      var timeStr = (card.querySelector('#goal-time').value || '').trim();
-      var dateStr = card.querySelector('#goal-date').value;
-
-      errEl.textContent = '';
-      if (!distance) { errEl.textContent = 'Please choose a distance.'; return; }
-      var secs = _parseGoalTime(timeStr);
-      if (!secs || secs <= 0) { errEl.textContent = 'Enter target time as H:MM:SS (e.g. 1:45:00).'; return; }
-      if (!dateStr) { errEl.textContent = 'Please enter the race date.'; return; }
-
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Saving…';
-
-      try {
-        var res = await fetch('/api/coach/goal', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ race_distance: distance, target_time: secs, race_date: dateStr })
-        });
-        var body = await res.json();
-        if (res.ok) {
-          _showGoalDisplay(card, body);
-        } else {
-          var detail = body.detail;
-          if (Array.isArray(detail)) {
-            errEl.textContent = detail.map(function (d) { return d.msg || JSON.stringify(d); }).join('; ');
-          } else {
-            errEl.textContent = typeof detail === 'string' ? detail : 'Save failed (' + res.status + ')';
-          }
-          submitBtn.disabled = false;
-          submitBtn.textContent = 'Save goal';
-        }
-      } catch (_) {
-        errEl.textContent = 'Network error — try again';
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Save goal';
-      }
-    });
-  }
-
-  function _showGoalDisplay(card, goal) {
-    var distLabel = _GOAL_DISTANCE_LABELS[goal.race_distance] || goal.race_distance;
-    var timeLabel = _fmtGoalTime(goal.target_time);
-    var dateLabel = _fmtGoalDate(goal.race_date);
-
-    card.innerHTML =
-      _goalCardHead() +
-      '<div class="goal-display">' +
-        '<div class="goal-display__main">' +
-          '<div class="goal-display__title">' + esc(distLabel) + '</div>' +
-          '<div class="goal-display__sub">' + esc(timeLabel) + ' · ' + esc(dateLabel) + '</div>' +
-        '</div>' +
-        '<button type="button" class="goal-display__edit" id="goal-edit-btn" aria-label="Edit race goal">' +
-          '<i class="ti ti-pencil" aria-hidden="true"></i> Edit' +
-        '</button>' +
-      '</div>';
-
-    card.querySelector('#goal-edit-btn').addEventListener('click', function () {
-      _showGoalForm(card, goal);
-    });
-  }
-
-  async function _renderGoalCard() {
+  function _renderGoalCard() {
     var card = document.getElementById('home-goal-card');
     if (!card) return;
     if (window.UIStates) card.innerHTML = UIStates.loadingHTML();
+    else card.innerHTML = '<div class="card-head"><div class="ttl"><i class="ti ti-flag-2"></i>Race goal</div></div>';
 
-    var data = null;
-    try {
-      var r = await fetch('/api/coach/goal');
-      if (r.ok) data = await r.json();
-    } catch (_) {}
+    fetch('/api/plan/computed')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (bundle) {
+        var races = (bundle && Array.isArray(bundle.races)) ? bundle.races : [];
+        var primary =
+          races.find(function (r) {
+            return r.type === 'race' && r.priority === 'A' && r.status !== 'done';
+          }) ||
+          races.find(function (r) {
+            return r.type === 'race' && r.status !== 'done';
+          }) ||
+          null;
 
-    if (!data || data.goal === null) {
-      _showGoalPrompt(card);
-    } else {
-      _showGoalDisplay(card, data.goal);
-    }
+        var head =
+          '<div class="card-head">' +
+            '<div class="ttl"><i class="ti ti-flag-2" style="color:#5a8dee;font-size:16px;"></i>Race goal</div>' +
+            '<a href="/log#performance">Performance &#8594;</a>' +
+          '</div>';
+
+        if (!primary) {
+          card.innerHTML =
+            head +
+            '<div class="goal-card__prompt">' +
+              '<div class="goal-card__sub">No A-priority race set yet.</div>' +
+              '<a class="goal-card__cta" href="/log#performance">Set race on Performance &#8594;</a>' +
+            '</div>';
+          return;
+        }
+
+        var distKm = parseFloat(primary.distance || 0);
+        var goalTime = _fmtRaceTime(primary.goal_time_seconds);
+        var paceSec =
+          primary.goal_time_seconds && distKm
+            ? primary.goal_time_seconds / distKm
+            : null;
+        var pace = _fmtRacePace(paceSec);
+
+        card.innerHTML =
+          head +
+          '<div class="hg-race">' +
+            '<span class="hg-race-let">A</span>' +
+            '<div class="hg-race-id">' +
+              '<div class="hg-race-name">' + esc(primary.name || 'Unnamed') + '</div>' +
+              '<div class="hg-race-meta">' +
+                esc(_fmtRaceDate(primary.date)) +
+                (distKm ? ' · ' + distKm.toFixed(2) + ' km' : '') +
+                ' · A-priority' +
+              '</div>' +
+            '</div>' +
+            '<div class="hg-race-goal">' +
+              '<div class="hg-race-glab">Goal</div>' +
+              '<div class="hg-race-gval">' + esc(goalTime) + '</div>' +
+              (pace ? '<div class="hg-race-gsub">' + esc(pace) + ' · target pace</div>' : '') +
+            '</div>' +
+          '</div>';
+      })
+      .catch(function () {
+        card.innerHTML =
+          '<div class="card-head">' +
+            '<div class="ttl"><i class="ti ti-flag-2"></i>Race goal</div>' +
+            '<a href="/log#performance">Performance &#8594;</a>' +
+          '</div>' +
+          '<div class="brief-unavail">Could not load race</div>';
+      });
   }
 
   /* ---- Init ---- */
@@ -896,16 +791,11 @@
 
       initFastLogForm(userId);
 
-      /* Daily brief — single fetch drives all three brief widget cards */
+      /* Week plan — same PlannedSessions week as Training > Plan */
       _initBriefCards();
 
-      /* Race goal card (issue #1501) */
+      /* Race goal — same A-race as Training > Performance */
       _renderGoalCard();
-
-      /* Coach plan card (issue #1505) */
-      if (window.HomeCoachCard) {
-        HomeCoachCard.render(document.getElementById('home-coach-card'));
-      }
 
     }
   }

@@ -415,7 +415,19 @@
     );
   }
 
-  function renderLapTableRows(lapMeta) {
+  function renderLapTableHead(withDuration) {
+    return (
+      "<th>Lap</th><th>Dist</th>" +
+      (withDuration ? "<th>Dur</th>" : "") +
+      "<th>Pace</th><th>HR</th><th>Pwr</th>" +
+      '<th class="rd4-lap-col-detail">Cad</th>' +
+      '<th class="rd4-lap-col-detail">Len</th>'
+    );
+  }
+
+  function renderLapTableRows(lapMeta, opts) {
+    opts = opts || {};
+    var withDuration = !!opts.withDuration;
     // Are there multiple true sets? Governs "Set N" vs "S1·R3" wording.
     var maxSet = 0;
     lapMeta.forEach(function (m) { if (m.set && m.set > maxSet) maxSet = m.set; });
@@ -462,6 +474,9 @@
           "<td>" +
           (s.distance_km != null ? parseFloat(s.distance_km).toFixed(2) : "—") +
           "</td>" +
+          (withDuration
+            ? "<td>" + fmtDuration(s.duration_seconds) + "</td>"
+            : "") +
           '<td class="' +
           paceCls +
           '">' +
@@ -473,10 +488,10 @@
           "<td>" +
           dash(s.avg_power) +
           "</td>" +
-          "<td>" +
+          '<td class="rd4-lap-col-detail">' +
           dash(s.cadence_spm) +
           "</td>" +
-          "<td>" +
+          '<td class="rd4-lap-col-detail">' +
           (s.stride_length_m != null ? (+s.stride_length_m).toFixed(2) : "—") +
           "</td></tr>"
         );
@@ -818,17 +833,8 @@
       // Quick-tag effort feeling — host div; the Log tab mounts the interactive
       // row (needs listeners + shared patchFeeling) after render.
       (w.id ? '<div class="rd4-feeling" id="rd4-feeling"></div>' : "") +
-      '<div class="rd4-hero-tiles">' +
-      '<div class="rd4-hero-tile"><div class="rd4-hero-val">' +
-      (w.distance_km != null ? parseFloat((+w.distance_km).toFixed(2)) : "—") +
-      '<span class="rd4-hero-unit">km</span></div><div class="rd4-hero-lbl">Distance</div></div>' +
-      '<div class="rd4-hero-tile"><div class="rd4-hero-val">' +
-      fmtPace(paceSec) +
-      '<span class="rd4-hero-unit">/km</span></div><div class="rd4-hero-lbl">Avg pace</div></div>' +
-      "</div>" +
-      '<div class="rd4-duration">Duration <strong>' +
-      fmtDuration(w.duration_seconds) +
-      "</strong></div></section>";
+      buildHeroMetricsHtml(w, "rd4LiveDistGrad") +
+      "</section>";
 
     // ── 2 Load & intensity ──
     var loadGrid =
@@ -1120,9 +1126,11 @@
         z2max +
         ") · grey = break / anomaly</div>" +
         '<div class="rd4-lap-scroll"><table class="rd4-lap-table"><thead><tr>' +
-        "<th>Lap</th><th>Dist</th><th>Pace</th><th>HR</th><th>Pwr</th><th>Cad</th><th>Len</th>" +
+        renderLapTableHead(hasManualLaps && !hasDistanceLaps) +
         '</tr></thead><tbody id="rd4-lap-tbody">' +
-        renderLapTableRows(activeLapMeta) +
+        renderLapTableRows(activeLapMeta, {
+          withDuration: hasManualLaps && !hasDistanceLaps,
+        }) +
         "</tbody></table></div></section>";
     }
 
@@ -1361,8 +1369,11 @@
 
     function refreshLapsUi() {
       var laps = currentLaps();
+      var withDur = lapMode === "manual";
+      var headRow = container.querySelector(".rd4-lap-table thead tr");
+      if (headRow) headRow.innerHTML = renderLapTableHead(withDur);
       var tbody = container.querySelector("#rd4-lap-tbody");
-      if (tbody) tbody.innerHTML = renderLapTableRows(laps);
+      if (tbody) tbody.innerHTML = renderLapTableRows(laps, { withDuration: withDur });
       var title = container.querySelector("#rd4-laps-title");
       if (title) {
         if (lapMode === "manual") {
@@ -1757,9 +1768,446 @@
     }
   }
 
+  // ── Share-card export (landscape screenshot) ─────────────────────────────
+  // Purpose-built DOM for the camera button — not a clone of the live panel.
+  // Left: title + 3 heroes + metric grid. Right: painted lap chart + truncated table.
+
+  var SHARE_FEELINGS = [
+    { key: "hard", icon: "😩" },
+    { key: "ok", icon: "😐" },
+    { key: "easy", icon: "😊" },
+  ];
+
+  function shareHeroTile(valueHtml, label) {
+    return (
+      '<div class="rd4-share-hero-tile"><div class="rd4-share-hero-val">' +
+      valueHtml +
+      '</div><div class="rd4-share-hero-lbl">' +
+      esc(label) +
+      "</div></div>"
+    );
+  }
+
+  /**
+   * Distance ring + Duration + Avg pace — shared by the live detail header
+   * and the advanced share-card export.
+   */
+  function buildHeroMetricsHtml(w, gradId) {
+    gradId = gradId || "rd4DistGrad";
+    var distNum =
+      w.distance_km != null
+        ? String(parseFloat((+w.distance_km).toFixed(2)))
+        : "—";
+    var fill =
+      w.distance_km != null
+        ? Math.max(0.28, Math.min(0.92, (+w.distance_km) / 10))
+        : 0.75;
+    var r = 42;
+    var c = 2 * Math.PI * r;
+    var dash = (fill * c).toFixed(2);
+    var gap = (c - fill * c).toFixed(2);
+
+    var ring =
+      '<div class="rd4-share-dist">' +
+      '<svg class="rd4-share-dist-svg" viewBox="0 0 100 100" aria-hidden="true">' +
+      "<defs>" +
+      '<linearGradient id="' +
+      esc(gradId) +
+      '" x1="0%" y1="0%" x2="100%" y2="100%">' +
+      '<stop offset="0%" stop-color="#c4b5fd"/>' +
+      '<stop offset="55%" stop-color="#8b5cf6"/>' +
+      '<stop offset="100%" stop-color="#6d28d9"/>' +
+      "</linearGradient>" +
+      "</defs>" +
+      '<circle class="rd4-share-dist-track" cx="50" cy="50" r="' +
+      r +
+      '"/>' +
+      '<circle class="rd4-share-dist-arc" cx="50" cy="50" r="' +
+      r +
+      '" stroke="url(#' +
+      esc(gradId) +
+      ')" ' +
+      'stroke-dasharray="' +
+      dash +
+      " " +
+      gap +
+      '" ' +
+      'transform="rotate(-90 50 50)"/>' +
+      "</svg>" +
+      '<div class="rd4-share-dist-inner">' +
+      '<div class="rd4-share-dist-num">' +
+      esc(distNum) +
+      "</div>" +
+      (w.distance_km != null
+        ? '<div class="rd4-share-dist-unit">km</div>'
+        : "") +
+      '<div class="rd4-share-dist-lbl">Distance</div>' +
+      "</div></div>";
+
+    var dur = fmtDuration(w.duration_seconds);
+    var paceSec =
+      w.duration_seconds && w.distance_km
+        ? w.duration_seconds / w.distance_km
+        : null;
+    var pace =
+      fmtPace(paceSec) +
+      (paceSec != null
+        ? '<span class="rd4-share-hero-unit">/km</span>'
+        : "");
+
+    return (
+      '<div class="rd4-share-heroes">' +
+      ring +
+      shareHeroTile(dur, "Duration") +
+      shareHeroTile(pace, "Avg pace") +
+      "</div>"
+    );
+  }
+
+  function buildShareFeeling(feeling) {
+    var row = document.createElement("div");
+    row.className = "feel-row rd4-share-feel";
+    SHARE_FEELINGS.forEach(function (f) {
+      var span = document.createElement("span");
+      span.className = "feel-btn" + (feeling === f.key ? " is-on" : "");
+      span.textContent = f.icon;
+      span.setAttribute("aria-hidden", "true");
+      row.appendChild(span);
+    });
+    return row;
+  }
+
+  function buildShareHeroes(w) {
+    var wrap = document.createElement("div");
+    wrap.innerHTML = buildHeroMetricsHtml(w, "rd4ShareDistGrad");
+    // buildHeroMetricsHtml already wraps in .rd4-share-heroes — unwrap once.
+    var inner = wrap.firstElementChild;
+    return inner || wrap;
+  }
+
+  function findCardByTitle(stack, pattern) {
+    var cards = stack.querySelectorAll(".rd4-card");
+    for (var i = 0; i < cards.length; i++) {
+      var title = cards[i].querySelector(".rd4-sec-title");
+      if (!title) continue;
+      if (pattern.test(title.textContent.replace(/\s+/g, " ").trim())) {
+        return cards[i];
+      }
+    }
+    return null;
+  }
+
+  function findLoadCard(stack) {
+    return findCardByTitle(stack, /^load\s*&\s*intensity$/i);
+  }
+
+  function findPowerZonesCard(stack) {
+    return findCardByTitle(stack, /^time in power zones/i);
+  }
+
+  function stripCloneIds(root) {
+    root.querySelectorAll("[id]").forEach(function (el) {
+      el.removeAttribute("id");
+    });
+  }
+
+  function buildShareMetrics(loadCard) {
+    if (!loadCard) return null;
+    var gridSrc = loadCard.querySelector(".rd4-stat-grid");
+    if (!gridSrc) return null;
+
+    var card = document.createElement("section");
+    card.className = "rd4-card rd4-share-metrics";
+    var grid = gridSrc.cloneNode(true);
+    grid.querySelectorAll(".rd4-tss-chev, .rd4-tss-menu").forEach(function (el) {
+      if (el.parentNode) el.parentNode.removeChild(el);
+    });
+    var tssTile = grid.querySelector(".rd4-stat--tss");
+    if (tssTile) {
+      tssTile.classList.remove("rd4-stat--tss", "rd4-stat--tss-open");
+      tssTile.removeAttribute("id");
+    }
+
+    stripCloneIds(grid);
+    card.appendChild(grid);
+    return card;
+  }
+
+  function buildSharePowerZones(stack) {
+    var src = findPowerZonesCard(stack);
+    if (!src) return null;
+    var card = src.cloneNode(true);
+    card.classList.add("rd4-share-pz");
+
+    var rows = card.querySelectorAll(".rd4-pz-row");
+    var segs = card.querySelectorAll(".rd4-pz-seg");
+    for (var i = 0; i < segs.length; i++) {
+      var pctEl = rows[i] && rows[i].querySelector(".rd4-pz-pct");
+      var pctTxt = pctEl ? pctEl.textContent.trim() : "";
+      var pctNum = parseInt(pctTxt, 10);
+      // Only label segments wide enough to read; tiny slivers stay unlabeled.
+      if (pctTxt && isFinite(pctNum) && pctNum >= 4) {
+        var label = document.createElement("span");
+        label.className = "rd4-pz-seg-pct";
+        label.textContent = pctTxt.indexOf("%") >= 0 ? pctTxt : pctTxt + "%";
+        segs[i].appendChild(label);
+      }
+    }
+
+    var table = card.querySelector(".rd4-pz-table");
+    if (table && table.parentNode) table.parentNode.removeChild(table);
+
+    stripCloneIds(card);
+    return card;
+  }
+
+  /**
+   * html2canvas mishandles .rd4-hr-svg's left:42px + calc(100%-42px) when the
+   * chart is wider than the live panel — dots drift right of the bars. Nest the
+   * SVG inside the bars row so it shares that box at 0/0/100%/100%.
+   */
+  function realignShareHrSvg(lapsCard) {
+    var bars = lapsCard.querySelector(".rd4-chart2-bars");
+    var svg = lapsCard.querySelector(".rd4-hr-svg");
+    if (!bars || !svg) return;
+    bars.appendChild(svg);
+    svg.style.cssText =
+      "position:absolute;inset:0;width:100%;height:100%;z-index:2;" +
+      "overflow:visible;pointer-events:none;";
+  }
+
+  function buildShareLaps(stack) {
+    var lapsSrc = stack.querySelector(".rd4-laps-card");
+    if (!lapsSrc) return null;
+
+    var laps = lapsSrc.cloneNode(true);
+    laps.classList.add("rd4-hide-detail-cols", "rd4-share-laps");
+
+    var controls = laps.querySelector(".rd4-laps-controls");
+    if (controls && controls.parentNode) controls.parentNode.removeChild(controls);
+    var tip = laps.querySelector(".rd4-lap-tip");
+    if (tip && tip.parentNode) tip.parentNode.removeChild(tip);
+
+    var title = laps.querySelector(".rd4-sec-title");
+    if (title) {
+      title.textContent = title.textContent
+        .replace(/\s*·\s*/g, " — ")
+        .replace(/^Laps/i, "LAPS")
+        .toUpperCase();
+    }
+
+    var head = laps.querySelector(".rd4-laps-head");
+    var liveSrc = stack.querySelector(".rd4-srcbadges");
+    if (head && liveSrc) {
+      var stryd = liveSrc.querySelector(".rd4-srcbadge--stryd");
+      var strava = liveSrc.querySelector(".rd4-srcbadge--strava");
+      var badge = stryd || strava;
+      if (badge) {
+        var wrap = document.createElement("div");
+        wrap.className = "rd4-share-laps-src";
+        wrap.appendChild(badge.cloneNode(true));
+        head.appendChild(wrap);
+      }
+    }
+
+    realignShareHrSvg(laps);
+    stripCloneIds(laps);
+    return laps;
+  }
+
+  /**
+   * Build a landscape share card from the live run-detail DOM.
+   * Returns null when the panel is not an rd4 run view (caller falls back).
+   */
+  function buildShareCard(contentEl, opts) {
+    opts = opts || {};
+    if (!contentEl) return null;
+    var stack = contentEl.querySelector(".rd4-stack");
+    if (!stack) return null;
+
+    var w = opts.workout || {};
+    var feeling =
+      opts.feeling != null
+        ? opts.feeling
+        : w.feeling != null
+          ? w.feeling
+          : null;
+
+    var root = document.createElement("div");
+    root.className = "rd4-share";
+
+    var left = document.createElement("div");
+    left.className = "rd4-share-col rd4-share-col--left";
+
+    var headerSrc = stack.querySelector(".rd4-header");
+    if (headerSrc) {
+      var header = document.createElement("section");
+      header.className = "rd4-card rd4-share-header";
+
+      var typebadges = headerSrc.querySelector(".rd4-typebadges");
+      if (typebadges) header.appendChild(typebadges.cloneNode(true));
+
+      var titleEl = headerSrc.querySelector(".rd4-title");
+      if (titleEl) {
+        var h1 = document.createElement("h1");
+        h1.className = "rd4-title";
+        h1.textContent = titleEl.textContent;
+        header.appendChild(h1);
+      }
+
+      var idEl = headerSrc.querySelector(".rd4-id");
+      if (idEl) {
+        var idrow = document.createElement("div");
+        idrow.className = "rd4-idrow";
+        var code = document.createElement("code");
+        code.className = "rd4-id";
+        code.textContent = idEl.textContent;
+        idrow.appendChild(code);
+        header.appendChild(idrow);
+      }
+
+      var dateEl = headerSrc.querySelector(".rd4-date");
+      if (dateEl) {
+        var date = document.createElement("div");
+        date.className = "rd4-date";
+        date.textContent = dateEl.textContent.replace(/\s·\s/g, " - ");
+        header.appendChild(date);
+      }
+
+      header.appendChild(buildShareFeeling(feeling));
+      header.appendChild(buildShareHeroes(w));
+      left.appendChild(header);
+    }
+
+    var metrics = buildShareMetrics(findLoadCard(stack));
+    if (metrics) left.appendChild(metrics);
+
+    var powerZones = buildSharePowerZones(stack);
+    if (powerZones) left.appendChild(powerZones);
+
+    var right = document.createElement("div");
+    right.className = "rd4-share-col rd4-share-col--right";
+    var laps = buildShareLaps(stack);
+    if (laps) right.appendChild(laps);
+
+    root.appendChild(left);
+    if (laps) root.appendChild(right);
+    else root.classList.add("rd4-share--solo");
+
+    return root;
+  }
+
+  // ── Simple overlay share card (transparent, for compositing on photos) ──
+
+  var SIMPLE_ICON_PIN =
+    '<svg class="rd4-simple-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="#f97316" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg>';
+  var SIMPLE_ICON_TIMER =
+    '<svg class="rd4-simple-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="#f97316" d="M15 1H9v2h6V1zm-3 4a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm0 16a7 7 0 1 1 0-14 7 7 0 0 1 0 14zm.5-10.5H11v5l4.2 2.5.8-1.3-3.5-2.1V10.5z"/></svg>';
+  var SIMPLE_ICON_RUN =
+    '<svg class="rd4-simple-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="#f97316" d="M13.5 5.5a2 2 0 1 1 0-4 2 2 0 0 1 0 4zM9.8 8.9 7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3A7.3 7.3 0 0 0 17 12v-2a5.5 5.5 0 0 1-4.3-1.8l-1.3-1.4a2.1 2.1 0 0 0-1.6-.7c-.5 0-.9.1-1.3.4L5 9.3l1.1 1.3 2.7-1.7z"/></svg>';
+
+  function buildSimpleMiniGraph(stack) {
+    var lapsSrc = stack.querySelector(".rd4-laps-card");
+    if (!lapsSrc) return null;
+    var chart = lapsSrc.querySelector(".rd4-chart2");
+    if (!chart) return null;
+
+    var wrap = document.createElement("div");
+    wrap.className = "rd4-simple-graph";
+
+    // Explicit top spacer — padding alone was still flush under html2canvas /
+    // absolute chart overlays; a real block guarantees breathing room.
+    var pad = document.createElement("div");
+    pad.className = "rd4-simple-graph-pad";
+    pad.setAttribute("aria-hidden", "true");
+    wrap.appendChild(pad);
+
+    var chartClone = chart.cloneNode(true);
+    chartClone.classList.add("rd4-simple-chart");
+    var tip = chartClone.querySelector(".rd4-lap-tip");
+    if (tip && tip.parentNode) tip.parentNode.removeChild(tip);
+    // Drop y-axis pace labels — chart only, no text axis on the overlay.
+    chartClone.querySelectorAll(".rd4-gl-lbl").forEach(function (n) {
+      if (n.parentNode) n.parentNode.removeChild(n);
+    });
+    wrap.appendChild(chartClone);
+    // No x-axis (1…N) either — keeps the mini chart clean for photo overlay.
+    realignShareHrSvg(wrap);
+    stripCloneIds(wrap);
+    return wrap;
+  }
+
+  /**
+   * Compact transparent overlay card for dropping onto a photo.
+   * Metrics always stack like the no-graph card; opts.includeGraph adds a
+   * mini lap chart on the RIGHT of that same stack.
+   */
+  function buildSimpleShareCard(contentEl, opts) {
+    opts = opts || {};
+    if (!contentEl) return null;
+    var stack = contentEl.querySelector(".rd4-stack");
+    if (!stack) return null;
+
+    var w = opts.workout || {};
+    var includeGraph = !!opts.includeGraph;
+
+    var dist =
+      w.distance_km != null
+        ? parseFloat((+w.distance_km).toFixed(2)) + " km"
+        : "—";
+    var dur = fmtDuration(w.duration_seconds);
+    var paceSec =
+      w.duration_seconds && w.distance_km
+        ? w.duration_seconds / w.distance_km
+        : null;
+    var pace = paceSec != null ? fmtPace(paceSec) + "/km" : "—";
+    var name = w.name || "Run";
+
+    var root = document.createElement("div");
+    root.className =
+      "rd4-simple" + (includeGraph ? " rd4-simple--graph" : " rd4-simple--compact");
+
+    function metricRow(icon, value) {
+      return (
+        '<div class="rd4-simple-row">' +
+        icon +
+        '<div class="rd4-simple-line">' +
+        esc(value) +
+        "</div></div>"
+      );
+    }
+
+    var metrics = document.createElement("div");
+    metrics.className = "rd4-simple-metrics";
+    metrics.innerHTML =
+      metricRow(SIMPLE_ICON_PIN, dist) +
+      metricRow(SIMPLE_ICON_TIMER, dur) +
+      metricRow(SIMPLE_ICON_RUN, pace) +
+      '<div class="rd4-simple-row rd4-simple-row--name">' +
+      '<div class="rd4-simple-line">' +
+      esc(name) +
+      "</div></div>";
+
+    if (includeGraph) {
+      var g = buildSimpleMiniGraph(stack);
+      if (g) {
+        root.appendChild(metrics);
+        root.appendChild(g);
+        return root;
+      }
+      root.classList.remove("rd4-simple--graph");
+      root.classList.add("rd4-simple--compact");
+    }
+
+    root.appendChild(metrics);
+    return root;
+  }
+
   win.RunDetailView = {
     RUN_DETAIL_ZONE2_HR_MIN: RUN_DETAIL_ZONE2_HR_MIN,
     RUN_DETAIL_ZONE2_HR_MAX: RUN_DETAIL_ZONE2_HR_MAX,
+    buildShareCard: buildShareCard,
+    buildSimpleShareCard: buildSimpleShareCard,
     render: function (contentEl, full, prefs, syncMeta) {
       if (!contentEl) return;
       var out = render(full, prefs, syncMeta);
