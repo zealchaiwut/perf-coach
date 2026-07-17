@@ -34,7 +34,8 @@
     { id: 'home-perf-container',    w: { 8: 4, 6: 3, 4: 4, 1: 1 } }, // Personal records
     { id: 'home-habits-widget',     w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Habits
     { id: 'home-weight-widget',     w: { 8: 4, 6: 3, 4: 4, 1: 1 } }, // Weight
-    { id: 'home-sleep-card',        w: { 8: 4, 6: 2, 4: 2, 1: 1 } }  // Sleep
+    { id: 'home-sleep-card',        w: { 8: 4, 6: 2, 4: 2, 1: 1 } }, // Sleep
+    { id: 'home-goal-card',         w: { 8: 4, 6: 3, 4: 4, 1: 1 } }  // Race goal
   ];
 
   function colFor(width) {

@@ -1892,3 +1892,28 @@ class GapFinding(Base):
         ),
         Index("ix_gap_findings_user_week_start", "user_id", "week_start"),
     )
+
+
+_RACE_DISTANCE_VALUES = ("5k", "10k", "half", "marathon")
+
+
+class PerformanceGoal(Base):
+    """Race goal set by the user — one active goal per user at a time (issue #1501)."""
+
+    __tablename__ = "performance_goals"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    race_distance = Column(String(20), nullable=False)
+    target_time = Column(Integer, nullable=False)
+    race_date = Column(Date, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    active = Column(Boolean, nullable=False, server_default=text("true"))
+
+    __table_args__ = (
+        CheckConstraint(
+            "race_distance IN ('5k', '10k', 'half', 'marathon')",
+            name="ck_performance_goals_race_distance_values",
+        ),
+        Index("ix_performance_goals_user_id", "user_id"),
+    )
