@@ -34,4 +34,8 @@ fi
 
 echo "Compute worker starting (ENVIRONMENT=$ENVIRONMENT, port=${WORKER_PORT:-9100})"
 
+# Role flag: Home Coach narrative (claude -p) runs only on the worker.
+export PERFCOACH_ROLE=worker
+export COACH_LLM="${COACH_LLM:-claude_cli}"
+
 exec .venv/bin/uvicorn backend.worker_app:app --host 0.0.0.0 --port "${WORKER_PORT:-9100}"

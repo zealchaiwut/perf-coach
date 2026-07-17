@@ -1,35 +1,20 @@
-"""Weekly coach message generation service (issue #1504).
+"""Weekly coach message generation service (issue #1504 + Home Coach narrative).
 
-Generates a structured weekly coaching message from engine outputs
-(coach_plan.build_plan_state() + projection) and persists it per ISO week.
+Generates a structured weekly coaching message from specialist facts
+(coach_facts.build_coach_facts) + LangGraph/plain LLM synthesizer, and
+persists it per ISO week.
 
 Public API
 ----------
 compose_deterministic_message(plan_state, projection_info, today) -> str
-    Pure function.  Returns the 5-element text message from engine data.
-    No LLM calls; no DB access.
+    Legacy 5-element text (still used by Hermes export_brief coach block).
 
-_build_message(plan_state, projection_info, today) -> str
-    Tries the LLM narrative layer first; falls back to deterministic silently.
+compose_coach_narrative / generate_narrative — see coach_narrative.py
 
-_call_llm_narrative(deterministic_text, plan_state) -> str | None
-    Calls the LLM to rephrase with warmth.  Returns None on any failure.
-
-persist_weekly_message(user_id, for_week, text, plan_state_snapshot, db) -> WeeklyCoachMessage
-    Upserts a record — replaces the existing row for the same (user, week).
-
-get_latest_for_user(user_id, db) -> dict | None
-    Returns the most-recently-generated message for the user.
-
-get_history_for_user(user_id, limit, db) -> list[dict]
-    Returns up to `limit` messages newest-first.
-
+persist_weekly_message(user_id, for_week, text, plan_state_snapshot, db)
+get_latest_for_user / get_history_for_user
 generate_for_user(user_id, db=None, today=None) -> dict
-    Orchestrates: load data → build_plan_state → project → compose → persist.
-    Returns the persisted message as a dict.
-
-_iso_week(d) -> str
-    Returns 'YYYY-Www' ISO week string for a given date.
+    facts → orch → persist nested snapshot {plan_state, facts, source, sections}.
 """
 
 from __future__ import annotations
@@ -483,10 +468,12 @@ def _build_projection_info(goal: Any, snapshot: Any, today: date) -> dict:
 def generate_for_user(user_id, db=None, today: date | None = None) -> dict | None:
     """Generate and persist the weekly coaching message for user_id.
 
+    Pipeline: build_coach_facts → coach narrative orch (LangGraph / plain) →
+    persist Markdown text. Nested snapshot stores plan_state, facts, source,
+    and sections so Home / Hermes can render without re-parsing.
+
     Returns the persisted message as a dict, or None when no active goal exists.
     """
-    from backend.services.coach_plan import build_plan_state
-
     _own_session = db is None
     if _own_session:
         from sqlalchemy.orm import Session as _Session
@@ -496,36 +483,37 @@ def generate_for_user(user_id, db=None, today: date | None = None) -> dict | Non
     today = today or date.today()
 
     try:
-        goal, snapshot, weight_status, log_consistency = _load_inputs_for_user(
-            user_id, db, today
-        )
-        if goal is None:
-            _log.info("No active goal for user — skipping weekly message", extra={"user_id": str(user_id)})
+        from backend.services.coach_facts import build_coach_facts
+        from backend.services.coach_narrative import generate_narrative
+
+        facts = build_coach_facts(user_id, today=today, db=db)
+        if facts is None:
+            _log.info(
+                "No active goal for user — skipping weekly message",
+                extra={"user_id": str(user_id)},
+            )
             return None
 
-        # Derive acwr_state from snapshot
-        acwr_val = float(getattr(snapshot, "acwr", 0) or 0) if snapshot else 0.0
-        acwr_state = "high_risk" if acwr_val > 1.30 else "productive"
-
-        plan_state = build_plan_state(
-            goal=goal,
-            training_load_snapshot=snapshot,
-            acwr_state=acwr_state,
-            guardrail_state="ok",
-            weight_status=weight_status,
-            log_consistency=log_consistency,
-            _today=today,
-        )
-
-        projection_info = _build_projection_info(goal, snapshot, today)
-        text = _build_message(plan_state, projection_info, today)
+        result = generate_narrative(facts, max_attempts=3)
+        text = result.get("text") or ""
         for_week = _iso_week(today)
+
+        # Nest richer payload inside the free-form JSON snapshot column.
+        plan_state = facts.get("plan_state") or {}
+        snapshot = {
+            "plan_state": plan_state,
+            "facts": {k: v for k, v in facts.items() if k != "plan_state"},
+            "source": result.get("source") or "fallback",
+            "sections": result.get("sections") or {},
+            "orch": result.get("orch"),
+            "attempts": result.get("attempts"),
+        }
 
         record = persist_weekly_message(
             user_id=user_id,
             for_week=for_week,
             text=text,
-            plan_state_snapshot=plan_state,
+            plan_state_snapshot=snapshot,
             db=db,
         )
         db.commit()

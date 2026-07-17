@@ -14,6 +14,10 @@ Exit codes:
 Environment:
     ENVIRONMENT, DATABASE_URL / DATABASE_URL_UAT / DATABASE_URL_PRD must be set.
     Load from .env via `source .env` or set in the environment before running.
+    Weekly narrative provider: on the compute worker, COACH_LLM=claude_cli
+    (default via start_worker.sh / PERFCOACH_ROLE=worker). Prefer triggering
+    via POST /internal/weekly-coach/run on zeal-server in production; this
+    CLI is for local/ops backfill.
 """
 from __future__ import annotations
 
