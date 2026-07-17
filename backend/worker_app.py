@@ -1026,21 +1026,29 @@ def _scheduler_loop() -> None:
                 logger.error("scheduled banister refit failed to enqueue: %s", exc, exc_info=True)
 
         # Weekly Home Coach — once per ISO week on the configured weekday
-        # (default Monday), enqueued at the same wake times as the sync sweep.
-        # Dedupe key is the ISO week so 06:00 + 18:00 only run once.
+        # (default Monday), enqueued at the first wake time that fires on that day.
+        # Later wake times (e.g. 18:00 after a 06:00 run) are skipped when a
+        # `done` row for the same dedupe key already exists — `enqueue()` alone
+        # only dedupes against queued/running rows, not completed ones.
         if weekly_coach_enabled:
             now_bkk = datetime.now(BANGKOK_TZ)
             if now_bkk.weekday() == weekly_coach_dow:
                 iso = now_bkk.isocalendar()
                 week_key = f"{iso[0]}-W{iso[1]:02d}"
+                dedupe_key = f"weekly_coach:{week_key}"
                 try:
-                    job_queue.enqueue(
-                        "weekly_coach",
-                        {"triggered_by": "schedule"},
-                        enqueued_by="schedule",
-                        dedupe_key=f"weekly_coach:{week_key}",
-                    )
-                    logger.info("scheduled weekly_coach enqueued for %s", week_key)
+                    if job_queue.has_done(dedupe_key):
+                        logger.info(
+                            "scheduled weekly_coach skipped: already done for %s", week_key
+                        )
+                    else:
+                        job_queue.enqueue(
+                            "weekly_coach",
+                            {"triggered_by": "schedule"},
+                            enqueued_by="schedule",
+                            dedupe_key=dedupe_key,
+                        )
+                        logger.info("scheduled weekly_coach enqueued for %s", week_key)
                 except Exception as exc:
                     logger.error(
                         "scheduled weekly_coach failed to enqueue: %s", exc, exc_info=True
