@@ -7,17 +7,21 @@ race times, or kg figures — only numerals present in `facts["required_numerals
 ## Pipeline
 
 1. `build_coach_facts(user_id, today)` — specialists only (no LLM imports).
-2. `coach_orch_langgraph.run` / plain retry — default provider is
-   **`claude -p`** (`COACH_LLM=claude_cli`, Claude.ai subscription). Set
-   `COACH_LLM=api` to use `llm.complete_structured` instead.
+2. `coach_orch_langgraph.run` / plain retry — on the **compute worker**,
+   provider is **`claude -p`** (`PERFCOACH_ROLE=worker` → `COACH_LLM=claude_cli`).
+   Webapps default to `off` (deterministic only). Set `COACH_LLM=api` only if
+   you intentionally want HTTP `complete_structured`.
 3. `validation_errors(sections, facts)` — section min length, max total chars,
    numeral allowlist.
 4. On failure / CLI missing → `compose_coach_narrative(facts)`.
 5. Persist `text` + nested `plan_state_snapshot`:
    `{ plan_state, facts, source, sections, orch, attempts }`.
 
-Env: `COACH_LLM=claude_cli|api`, `COACH_ORCH=langgraph|plain`,
-`COACH_CLAUDE_MODEL` (see `docs/llm-coaching.md`).
+**Where it runs:** scheduled `weekly_coach` job on zeal-server (`docs/worker.md`).
+Web Home Coach tab only reads `GET /api/coach/weekly-message`.
+
+Env: `COACH_LLM`, `PERFCOACH_ROLE`, `COACH_ORCH`, `WORKER_WEEKLY_COACH_*`
+(see `docs/llm-coaching.md`).
 
 ## Focus ranking (Phase 2)
 

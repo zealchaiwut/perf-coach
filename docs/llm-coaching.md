@@ -22,25 +22,25 @@ for both services (UAT + PRD). Override in the Render dashboard to enable.
 | Habit insights / nudges | `habit_insights.py`, `habit_nudges.py` | Fast tier |
 | Readiness explanation | `readiness_explanation.py` | Fast tier |
 | Plan session suggest | `plan_suggestions.py` + `plan_orch_langgraph.py` | Deep tier; `PLAN_ORCH` |
-| **Weekly Home Coach** | `coach_facts.py` + `coach_narrative.py` + `coach_orch_langgraph.py` + `coach_claude_cli.py` | Default: `claude -p` (subscription). Opt-in HTTP via `COACH_LLM=api`. |
+| **Weekly Home Coach** | `coach_facts` + `coach_narrative` + `coach_claude_cli` + worker `weekly_coach` job | **Worker only** (`PERFCOACH_ROLE=worker`). Webapp reads DB. |
 
-### Weekly Home Coach (`COACH_LLM` / `COACH_ORCH`)
+### Weekly Home Coach (`COACH_LLM` / worker schedule)
 
-Specialist engines assemble a facts JSON (`build_coach_facts`). A LangGraph
-graph (`coach_orch_langgraph.run`) generates `{now, focus, dream, reflection}`,
-validates section length + numeral allowlist, retries with feedback, then falls
-back to `compose_coach_narrative(facts)`.
+Specialist engines assemble facts; LangGraph (or plain) validates; default
+provider on the **compute worker** is `claude -p`. Render webapps leave
+`COACH_LLM` unset → `off` → no Claude/API calls if generation is ever invoked
+there by mistake.
 
 | Variable | Default | Description |
 |---|---|---|
-| `COACH_LLM` | `claude_cli` | `claude_cli` = `claude -p --json-schema` (Claude.ai subscription; strips `ANTHROPIC_API_KEY`). `api` = HTTP `complete_structured` (requires `LLM_COACH_ENABLED`). |
-| `COACH_ORCH` | `langgraph` | `langgraph` or `plain`. Missing langgraph package → plain/fallback. |
-| `COACH_CLAUDE_MODEL` | `sonnet` | Model alias passed to `claude --model`. |
-| `COACH_CLAUDE_TIMEOUT_SEC` | `180` | Subprocess timeout for the weekly generate. |
+| `PERFCOACH_ROLE` | _(unset on web)_ / `worker` via `start_worker.sh` | When `worker` and `COACH_LLM` unset → `claude_cli`. |
+| `COACH_LLM` | `off` (web) / `claude_cli` (worker) | `claude_cli` \| `api` \| `off`. |
+| `COACH_ORCH` | `langgraph` | `langgraph` or `plain`. |
+| `COACH_CLAUDE_MODEL` | `sonnet` | Passed to `claude --model`. |
+| `WORKER_WEEKLY_COACH_ENABLED` | `1` | Scheduler enqueues Monday batch. |
+| `WORKER_WEEKLY_COACH_DOW` | `0` | Weekday (Mon=0) in Asia/Bangkok. |
 
-Weekly generation is intentionally rare (≈once per ISO week via
-`scripts/run_weekly_coach.py`), so the CLI path avoids z.ai/Groq rate limits.
-Formula-level notes: `docs/calculations/coach-narrative.md`.
+Manual: `POST /internal/weekly-coach/run` on the worker. Details: `docs/worker.md`.
 
 ## Fail-Safe Contract
 

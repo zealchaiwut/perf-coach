@@ -331,15 +331,36 @@ def build_prompt(facts: dict, feedback: str = "") -> tuple[str, str]:
     return system, user
 
 
-def call_llm_sections(facts: dict, feedback: str = "") -> dict[str, str] | None:
-    """Generate sections via Claude CLI (default) or HTTP LLM API.
+def coach_llm_mode() -> str:
+    """Resolve narrative provider.
 
-    Provider selected by ``COACH_LLM``:
-      - ``claude_cli`` / ``claude`` / ``cli`` (default) — ``claude -p`` subscription
+    Explicit ``COACH_LLM`` always wins. Otherwise:
+      - worker (``PERFCOACH_ROLE=worker``) → ``claude_cli``
+      - webapp / everything else → ``off`` (deterministic fallback only)
+
+    This keeps ``claude -p`` off Render webapps; generation belongs on zeal-server.
+    """
+    explicit = (os.environ.get("COACH_LLM") or "").strip().lower()
+    if explicit:
+        return explicit
+    if (os.environ.get("PERFCOACH_ROLE") or "").strip().lower() == "worker":
+        return "claude_cli"
+    return "off"
+
+
+def call_llm_sections(facts: dict, feedback: str = "") -> dict[str, str] | None:
+    """Generate sections via Claude CLI (worker) or HTTP LLM API.
+
+    Provider selected by ``coach_llm_mode()`` / ``COACH_LLM``:
+      - ``claude_cli`` / ``claude`` / ``cli`` — ``claude -p`` subscription (worker)
       - ``api`` — ``llm.complete_structured`` (requires ``LLM_COACH_ENABLED``)
+      - ``off`` / ``fallback`` / ``none`` — skip; orch uses deterministic prose
     """
     system, user = build_prompt(facts, feedback)
-    mode = (os.environ.get("COACH_LLM") or "claude_cli").strip().lower()
+    mode = coach_llm_mode()
+
+    if mode in ("off", "fallback", "none", "disabled"):
+        return None
 
     if mode in ("claude_cli", "claude", "cli"):
         from backend.services.coach_claude_cli import (
@@ -382,7 +403,7 @@ def call_llm_sections(facts: dict, feedback: str = "") -> dict[str, str] | None:
             return None
         return sections
 
-    _log.warning("Unknown COACH_LLM=%r — expected claude_cli|api", mode)
+    _log.warning("Unknown COACH_LLM=%r — expected claude_cli|api|off", mode)
     return None
 
 
@@ -431,7 +452,9 @@ def generate_narrative(facts: dict, max_attempts: int = 3) -> dict:
 
 
 def _source_label() -> str:
-    mode = (os.environ.get("COACH_LLM") or "claude_cli").strip().lower()
+    mode = coach_llm_mode()
     if mode in ("claude_cli", "claude", "cli"):
         return "claude_cli"
-    return "llm"
+    if mode in ("api", "http", "groq", "glm"):
+        return "llm"
+    return "fallback"

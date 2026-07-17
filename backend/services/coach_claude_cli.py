@@ -25,9 +25,10 @@ _DEFAULT_MODEL = "sonnet"
 
 
 def claude_cli_enabled() -> bool:
-    """True when COACH_LLM=claude_cli (default) and `claude` is on PATH."""
-    mode = (os.environ.get("COACH_LLM") or "claude_cli").strip().lower()
-    if mode not in ("claude_cli", "claude", "cli"):
+    """True when coach_llm_mode is claude_cli and `claude` is on PATH."""
+    from backend.services.coach_narrative import coach_llm_mode
+
+    if coach_llm_mode() not in ("claude_cli", "claude", "cli"):
         return False
     return shutil.which(os.environ.get("COACH_CLAUDE_BIN") or "claude") is not None
 
