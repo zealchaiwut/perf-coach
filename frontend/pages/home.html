@@ -1192,6 +1192,86 @@
       100% { background-position: -200% 0; }
     }
 
+    /* ---- RACE GOAL CARD (issue #1501) ---- */
+    .goal-card__prompt { display: flex; flex-direction: column; gap: 10px; }
+    .goal-card__sub { font-size: 13px; color: var(--text-secondary); }
+    .goal-card__cta {
+      align-self: flex-start; padding: 8px 18px; border-radius: 999px;
+      background: var(--text-primary); color: #fff; font-size: 13px;
+      font-weight: 600; border: none; cursor: pointer; font-family: inherit;
+      letter-spacing: -0.01em;
+    }
+    .goal-card__cta:hover { opacity: 0.85; }
+    .goal-form { display: flex; flex-direction: column; gap: 12px; }
+    .goal-form__field { display: flex; flex-direction: column; gap: 4px; }
+    .goal-form__label {
+      font-size: 11px; font-weight: 600; color: var(--text-secondary);
+      text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .goal-form__select,
+    .goal-form__input {
+      border: 1.5px solid rgba(13,30,67,0.12); border-radius: 8px;
+      padding: 8px 10px; font-size: 14px; font-family: inherit;
+      color: var(--text-primary); background: #f7f9fd; outline: none;
+    }
+    .goal-form__select:focus,
+    .goal-form__input:focus {
+      border-color: var(--bg-1);
+      box-shadow: 0 0 0 3px rgba(90,141,238,0.15);
+    }
+    .goal-form__err { font-size: 12px; color: var(--red); min-height: 16px; }
+    .goal-form__actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .goal-form__submit {
+      padding: 9px 20px; border-radius: 999px; background: var(--text-primary);
+      color: #fff; font-size: 13px; font-weight: 600; border: none;
+      cursor: pointer; font-family: inherit; letter-spacing: -0.01em;
+    }
+    .goal-form__submit:hover { opacity: 0.85; }
+    .goal-form__submit:disabled { opacity: 0.5; cursor: default; }
+    .goal-form__cancel {
+      padding: 9px 16px; border-radius: 999px; background: transparent;
+      color: var(--text-secondary); font-size: 13px; font-weight: 500;
+      border: 1.5px solid rgba(13,30,67,0.12); cursor: pointer; font-family: inherit;
+    }
+    .goal-form__cancel:hover { background: rgba(13,30,67,0.04); }
+    .goal-display { display: flex; align-items: center; gap: 12px; }
+    .goal-display__main { flex: 1; min-width: 0; }
+    .goal-display__title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+    .goal-display__sub { font-size: 13px; color: var(--text-secondary); margin-top: 3px; }
+    .goal-display__edit {
+      flex-shrink: 0; padding: 6px 13px; border-radius: 999px; background: transparent;
+      color: var(--text-secondary); font-size: 12px; font-weight: 500;
+      border: 1.5px solid rgba(13,30,67,0.12); cursor: pointer; font-family: inherit;
+      display: inline-flex; align-items: center; gap: 4px;
+    }
+    .goal-display__edit:hover { background: rgba(13,30,67,0.04); }
+
+    /* ---- COACH CARD (home-coach-card) ---- */
+    #home-coach-card { padding: 16px 18px; }
+
+    /* Skeleton loading state */
+    .coach-skeleton { display: flex; flex-direction: column; gap: 9px; padding-top: 4px; }
+    .coach-skel-line {
+      height: 12px; border-radius: 6px;
+      background: linear-gradient(90deg, rgba(13,30,67,0.06) 0%, rgba(13,30,67,0.10) 50%, rgba(13,30,67,0.06) 100%);
+      background-size: 200% 100%;
+      animation: coach-shimmer 1.4s infinite;
+      width: 85%;
+    }
+    .coach-skel-line--wide { width: 100%; }
+    .coach-skel-line--narrow { width: 60%; }
+    .coach-skel-pills { display: flex; gap: 8px; }
+    .coach-skel-pill {
+      height: 22px; width: 140px; border-radius: 999px;
+      background: linear-gradient(90deg, rgba(13,30,67,0.06) 0%, rgba(13,30,67,0.10) 50%, rgba(13,30,67,0.06) 100%);
+      background-size: 200% 100%;
+      animation: coach-shimmer 1.4s infinite;
+    }
+    @keyframes coach-shimmer {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
     /* Quiet unavailable state */
     .brief-unavail {
       font-size: 12px;
@@ -1295,6 +1375,67 @@
     }
     .bac-item--warn { color: var(--text-primary); }
     .bac-item--info { color: var(--text-secondary); }
+
+    /* Unavailable (no goal) state */
+    .coach-unavail { padding: 8px 0 4px; }
+    .coach-unavail__msg { font-size: 13px; font-weight: 600; color: var(--text-primary); margin: 0 0 4px; }
+    .coach-unavail__hint { font-size: 12.5px; color: var(--text-secondary); margin: 0; line-height: 1.45; }
+    .coach-unavail__hint a { color: var(--bg-1); text-decoration: none; }
+    .coach-unavail__hint a:hover { text-decoration: underline; }
+
+    /* Goal line */
+    .coach-goal-line {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 16px; font-weight: 600; letter-spacing: -0.02em;
+      color: var(--text-primary); margin: 0 0 6px;
+    }
+
+    /* Projection banner */
+    .coach-projection {
+      font-size: 12px; color: var(--text-secondary);
+      background: var(--shell-1); border-radius: 6px;
+      padding: 6px 10px; margin-bottom: 8px;
+      font-family: 'JetBrains Mono', monospace; letter-spacing: -0.02em;
+    }
+
+    /* Lever pills */
+    .coach-levers { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .coach-lever-pill {
+      font-size: 11.5px; font-weight: 500;
+      padding: 3px 10px; border-radius: 999px;
+      background: var(--green-soft); color: var(--green);
+      white-space: nowrap;
+    }
+    .coach-lever-pill--locked { background: var(--amber-soft); color: var(--amber); }
+
+    /* Directive text (Now sentence) */
+    .coach-directive {
+      font-size: 12.5px; color: var(--text-secondary);
+      line-height: 1.5; margin: 0 0 10px;
+    }
+
+    /* Expand button */
+    .coach-expand-btn {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 5px 12px; border-radius: 999px; border: none; cursor: pointer;
+      font-size: 12px; font-weight: 600;
+      background: var(--shell-1); color: var(--bg-2);
+      font-family: inherit;
+    }
+    .coach-expand-btn:hover { background: var(--shell-2); }
+
+    /* Full message panel */
+    .coach-full-msg {
+      margin-top: 10px;
+      border-top: 1px solid var(--card-divider);
+      padding-top: 10px;
+    }
+    .coach-full-pre {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px; color: var(--text-secondary);
+      white-space: pre-wrap; word-break: break-word;
+      margin: 0; line-height: 1.55;
+    }
   </style>
 </head>
 <body>
@@ -1352,6 +1493,8 @@
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-brief-form-card" class="card"></div></div></div>
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-brief-week-plan-card" class="card"></div></div></div>
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-brief-advisories-card" class="card"></div></div></div>
+    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-goal-card" class="card"></div></div></div>
+    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-coach-card" class="card"></div></div></div>
   </div>
 
   <!-- Fast-log form: revealed when Log Today strip CTA is tapped.
@@ -1496,6 +1639,7 @@
 <script src="js/home-brief-form-card.js"></script>
 <script src="js/home-brief-week-plan-card.js"></script>
 <script src="js/home-brief-advisories-card.js"></script>
+<script src="js/home-coach-card.js"></script>
 <script src="js/home.js"></script>
 <script src="js/home-grid.js"></script>
 

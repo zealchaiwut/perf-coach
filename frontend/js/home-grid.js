@@ -37,7 +37,9 @@
     { id: 'home-sleep-card',             w: { 8: 4, 6: 2, 4: 2, 1: 1 } }, // Sleep
     { id: 'home-brief-form-card',        w: { 8: 2, 6: 2, 4: 4, 1: 1 } }, // Brief: Form
     { id: 'home-brief-week-plan-card',   w: { 8: 3, 6: 3, 4: 4, 1: 1 } }, // Brief: Week plan
-    { id: 'home-brief-advisories-card',  w: { 8: 3, 6: 3, 4: 4, 1: 1 } }  // Brief: Advisories
+    { id: 'home-brief-advisories-card',  w: { 8: 3, 6: 3, 4: 4, 1: 1 } }, // Brief: Advisories
+    { id: 'home-goal-card',              w: { 8: 4, 6: 3, 4: 4, 1: 1 } }, // Race goal
+    { id: 'home-coach-card',             w: { 8: 4, 6: 4, 4: 4, 1: 1 } }  // Coach plan
   ];
 
   function colFor(width) {

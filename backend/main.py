@@ -112,6 +112,7 @@ from backend.routers.projection import router as _plan_router
 from backend.routers.strength_sessions import router as _strength_sessions_router
 from backend.routers.fuel import router as _fuel_router
 from backend.routers.injury_log import router as _injury_log_router
+from backend.routers.coach import router as _coach_router
 from backend.services.guardrail import get_guardrail_result
 from backend.services.body_modifier import get_body_modifier_guardrail_for_user
 from backend.services.lap_classify import aggregate_intensity_zones as _agg_zones
@@ -146,6 +147,7 @@ app.include_router(_plan_router)
 app.include_router(_strength_sessions_router)
 app.include_router(_fuel_router)
 app.include_router(_injury_log_router)
+app.include_router(_coach_router)
 
 
 def _today_bkk() -> _date:
@@ -3296,6 +3298,7 @@ def _build_habits_block(uid, today_bkk, ws):
             "week_count": week_count,
             "streak": streak,
             "auto_fill_source": h.auto_fill_source,
+            "section": str(h.section) if h.section is not None else "general",
         })
 
     top_habits = daily_habits_data[:_HOME_SUMMARY_TOP_N]
@@ -3837,6 +3840,7 @@ def _habit_dict(h: Habit) -> dict:
         "color": h.color,
         "sort_order": h.sort_order,
         "is_archived": h.is_archived,
+        "section": str(h.section) if h.section is not None else "general",
         "created_at": h.created_at.isoformat() if h.created_at else None,
         "updated_at": h.updated_at.isoformat() if h.updated_at else None,
     }
@@ -3872,6 +3876,7 @@ def _habit_dict_v2(h: Habit) -> dict:
         "icon": h.icon,
         "color": h.color,
         "auto_fill_source": h.auto_fill_source,
+        "section": str(h.section) if h.section is not None else "general",
         "created_at": h.created_at.isoformat() if h.created_at else None,
         "updated_at": h.updated_at.isoformat() if h.updated_at else None,
     }
@@ -3895,6 +3900,9 @@ def _habit_log_dict_v2(log: HabitLog) -> dict:
     }
 
 
+_VALID_SECTION_VALUES = frozenset(("training", "general"))
+
+
 def _validate_habit_business_rules(
     tracking_type: Optional[str],
     weekly_target: Optional[float],
@@ -3902,8 +3910,14 @@ def _validate_habit_business_rules(
     habit_type: Optional[str] = None,
     schedule_type: Optional[str] = None,
     target_value: Optional[float] = None,
+    section: Optional[str] = None,
 ) -> None:
     # v2 enum validations
+    if section is not None and section not in _VALID_SECTION_VALUES:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": f"section must be one of {sorted(_VALID_SECTION_VALUES)}", "details": ""},
+        )
     if habit_type is not None and habit_type not in _habits_repo.HABIT_TYPE_VALUES:
         raise HTTPException(
             status_code=422,
@@ -3951,6 +3965,7 @@ class HabitIn(BaseModel):
     habit_type: Optional[str] = None     # v2
     schedule_type: Optional[str] = None  # v2
     target_value: Optional[float] = None  # v2
+    section: Optional[str] = None        # 'training' | 'general'
     description: Optional[str] = None
     weekly_target: Optional[float] = None
     unit: Optional[str] = None
@@ -3966,6 +3981,7 @@ class HabitPatch(BaseModel):
     target_value: Optional[float] = None  # v2
     active: Optional[bool] = None        # v2
     display_order: Optional[int] = None  # v2
+    section: Optional[str] = None        # 'training' | 'general'
     description: Optional[str] = None
     weekly_target: Optional[float] = None
     unit: Optional[str] = None
@@ -4075,6 +4091,7 @@ def post_habit(body: HabitIn, user: User = Depends(resolve_user)):
         habit_type=body.habit_type,
         schedule_type=body.schedule_type,
         target_value=body.target_value,
+        section=body.section,
     )
     with Session(engine) as session:
         if body.auto_fill_source is not None:
@@ -4119,6 +4136,7 @@ async def patch_habit(habit_id: str, request: Request, user: User = Depends(reso
         habit_type=body.habit_type,
         schedule_type=body.schedule_type,
         target_value=body.target_value,
+        section=body.section,
     )
     try:
         hid = _uuid.UUID(habit_id)
@@ -4696,6 +4714,7 @@ def get_habits_week(
                 "color": habit.color,
                 "sort_order": habit.sort_order,
                 "tracking_type": habit.tracking_type,
+                "section": str(habit.section) if habit.section is not None else "general",
                 "days": days,
                 "total": {"done": done_count, "target": target_val},
             })
@@ -4742,6 +4761,7 @@ def get_habits_week(
                 "color": habit.color,
                 "sort_order": habit.sort_order,
                 "tracking_type": habit.tracking_type,
+                "section": str(habit.section) if habit.section is not None else "general",
                 "unit": habit.unit,
                 "auto_fill_source": habit.auto_fill_source,
                 "target": tgt,

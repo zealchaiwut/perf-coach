@@ -258,7 +258,8 @@ def test_dry_run_does_not_acquire_lock(m, tmp_path):
 
 def test_envelope_schema_version(m):
     """AC5/v3: schema_version is integer (bumped to 3 by issue #1497 — acwr +
-    week_plan addition to the brief contract)."""
+    week_plan addition to the brief contract; the #1505 coach-block addition
+    is additive and does not bump it further)."""
     assert m.SCHEMA_VERSION == 3
 
 
