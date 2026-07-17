@@ -587,6 +587,28 @@ main {
   color: var(--text-tertiary);
 }
 
+/* Section headers within the daily grid card */
+.day-grid-section-hdr {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+  padding: 8px 0 6px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+/* Section headers in the home habits widget */
+.hw-section-hdr {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-tertiary);
+  padding: 6px 0 2px;
+}
+
 .day-grid-table {
   width: 100%;
   min-width: 0;

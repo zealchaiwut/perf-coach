@@ -106,6 +106,17 @@
       <div class="day-grid-hdr">
         <span class="day-grid-title">Daily habits</span>
       </div>
+      <!-- Training section -->
+      <div id="day-grid-training-section" style="display:none">
+        <div class="day-grid-section-hdr">Training</div>
+        <div id="day-grid-training-content"></div>
+      </div>
+      <!-- General section -->
+      <div id="day-grid-general-section" style="display:none">
+        <div class="day-grid-section-hdr">General</div>
+        <div id="day-grid-general-content"></div>
+      </div>
+      <!-- Fallback when no sections exist (empty / loading state) -->
       <div id="day-grid-content">
         <div class="day-grid-empty">Loading…</div>
       </div>
@@ -198,6 +209,14 @@
               <label class="sf-label" for="habit-form-unit">Unit</label>
               <input id="habit-form-unit" class="sf-input" type="text" maxlength="30" placeholder="min, km, reps…">
             </div>
+          </div>
+
+          <div class="sf-field" style="margin-top:4px">
+            <label class="sf-label" for="habit-form-section">Section</label>
+            <select id="habit-form-section" class="sf-select">
+              <option value="general">General</option>
+              <option value="training">Training</option>
+            </select>
           </div>
 
           <div class="sf-field" style="margin-top:4px">

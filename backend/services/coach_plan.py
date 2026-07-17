@@ -393,3 +393,48 @@ def build_plan_state(
         "constraints": constraints,
         "lever_ranking": lever_ranking,
     }
+
+
+# ── Training habit adherence ───────────────────────────────────────────────────
+
+def get_training_habit_adherence(
+    training_habits: list,
+    logs: list,
+    days: int,
+    *,
+    _today: date | None = None,
+) -> float:
+    """Return adherence ratio for training-section habits over the given day window.
+
+    Parameters
+    ----------
+    training_habits:
+        Habit-like objects (duck-typed via ``_attr``); each must have an ``id``.
+    logs:
+        HabitLog-like objects with ``habit_id`` and ``log_date``.
+    days:
+        Length of the window ending today (inclusive).
+
+    Returns
+    -------
+    Completed checkins / expected checkins, clamped to [0.0, 1.0].
+    Returns 0.0 when there are no habits or no expected checkins.
+    """
+    if not training_habits or days <= 0:
+        return 0.0
+
+    today = _today if _today is not None else date.today()
+    window_start = today - timedelta(days=days - 1)
+
+    training_ids = {_attr(h, "id") for h in training_habits}
+
+    # Count distinct (habit_id, log_date) pairs within the window
+    seen: set = set()
+    for log in logs:
+        hid = _attr(log, "habit_id")
+        ld = _attr(log, "log_date")
+        if hid in training_ids and ld is not None and window_start <= ld <= today:
+            seen.add((hid, ld))
+
+    expected = len(training_habits) * days
+    return min(1.0, len(seen) / expected)
