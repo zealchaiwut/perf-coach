@@ -19,7 +19,6 @@ import py_compile
 import pathlib
 from datetime import date
 
-
 from backend.services.coach_projection import (
     race_projection,
     WEIGHT_PACE_ADJ_SEC_PER_KM_PER_KG,
