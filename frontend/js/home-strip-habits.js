@@ -122,45 +122,61 @@
     var fullDays = _WH
       ? (wheel || []).filter(function (w) { return w.state === 'full'; }).length
       : 0;
-    // Show up to 5 (was 3) — the card now sits full-width under Weight and
-    // needs the extra rows to fill that larger footprint. remaining is derived
-    // from what's actually shown so "+N more" stays correct at the new count.
-    var source = (habits.top_habits && habits.top_habits.length > 0)
-                    ? habits.top_habits : habits.daily_habits;
-    var shownHabits = source.slice(0, 5);
-    var totalDaily = (habits.daily_habits || []).length;
-    var remaining = Math.max(0, totalDaily - shownHabits.length);
+
+    var allDaily = habits.daily_habits || [];
+    var trainingHabits = allDaily.filter(function (h) { return h.section === 'training'; });
+    var generalHabits  = allDaily.filter(function (h) { return h.section !== 'training'; });
+
+    /* Build rows for one section, capped at maxCount */
+    function _buildSectionRows(habitsArr, maxCount) {
+      var rows = '';
+      var shown = habitsArr.slice(0, maxCount);
+      shown.forEach(function (h) {
+        var isChecked = !!h.today_checked;
+        var streak    = h.streak != null ? h.streak : 0;
+        var weekCount = h.week_count != null ? h.week_count : 0;
+        var iconChip  = _WH
+          ? _WH.habitIconHTML(h.icon, h.color, 28)
+          : '<span style="background:' + (h.color || '#9ca3af') + ';border-radius:8px;' +
+            'width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;">' +
+            '<i class="ti ' + _esc(h.icon || 'ti-checkbox') + '"></i></span>';
+        var flameBadge = streak >= 3
+          ? '<span class="hw-flame-badge">&#x1F525;' + streak + '</span>'
+          : '';
+        rows +=
+          '<div class="hw-habit-row" data-habit-id="' + _esc(h.id) + '">' +
+            '<div class="hw-habit-icon">' + iconChip + '</div>' +
+            '<div class="hw-habit-info">' +
+              '<span class="hw-habit-name">' + _esc(h.name) + '</span>' +
+              flameBadge +
+            '</div>' +
+            '<span class="hw-week-count">' + weekCount + '/7</span>' +
+            _todayCheckHTML(h, isChecked) +
+          '</div>';
+      });
+      return rows;
+    }
 
     /* Wheel */
     var wheelHTML = _WH ? _WH.buildWheelSvg(wheel, pct, { fullDays: fullDays }) : '';
 
-    /* Habit rows */
-    var rowsHTML = '';
-    shownHabits.forEach(function (h) {
-      var isChecked  = !!h.today_checked;
-      var streak     = h.streak != null ? h.streak : 0;
-      var weekCount  = h.week_count != null ? h.week_count : 0;
-      var iconChip   = _WH
-        ? _WH.habitIconHTML(h.icon, h.color, 28)
-        : '<span style="background:' + (h.color || '#9ca3af') + ';border-radius:8px;' +
-          'width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;">' +
-          '<i class="ti ' + _esc(h.icon || 'ti-checkbox') + '"></i></span>';
+    /* Build section HTML — Training first, General second */
+    var listHTML = '';
+    if (trainingHabits.length > 0) {
+      listHTML +=
+        '<div class="hw-section-hdr">Training</div>' +
+        _buildSectionRows(trainingHabits, 5);
+    }
+    if (generalHabits.length > 0) {
+      if (trainingHabits.length > 0) {
+        listHTML += '<div class="hw-section-hdr">General</div>';
+      }
+      listHTML += _buildSectionRows(generalHabits, 5);
+    }
 
-      var flameBadge = streak >= 3
-        ? '<span class="hw-flame-badge">&#x1F525;' + streak + '</span>'
-        : '';
-
-      rowsHTML +=
-        '<div class="hw-habit-row" data-habit-id="' + _esc(h.id) + '">' +
-          '<div class="hw-habit-icon">' + iconChip + '</div>' +
-          '<div class="hw-habit-info">' +
-            '<span class="hw-habit-name">' + _esc(h.name) + '</span>' +
-            flameBadge +
-          '</div>' +
-          '<span class="hw-week-count">' + weekCount + '/7</span>' +
-          _todayCheckHTML(h, isChecked) +
-        '</div>';
-    });
+    var totalDaily = allDaily.length;
+    var shownCount = Math.min(trainingHabits.length, 5) + Math.min(generalHabits.length, 5);
+    var remaining  = Math.max(0, totalDaily - shownCount);
 
     /* Footer */
     var footerHTML =
@@ -178,7 +194,7 @@
       '</div>' +
       '<div class="hw-body">' +
         '<div class="hw-wheel-wrap">' + wheelHTML + '</div>' +
-        '<div class="hw-habits-list">' + rowsHTML + '</div>' +
+        '<div class="hw-habits-list">' + listHTML + '</div>' +
       '</div>' +
       footerHTML;
 

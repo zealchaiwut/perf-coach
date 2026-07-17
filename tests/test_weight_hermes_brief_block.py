@@ -952,7 +952,7 @@ class TestAssembleWeightErrorHandling:
             brief = eb._build_brief(datetime.date(2026, 7, 15), "http://w:9100", "u", None)
 
         assert brief["weight"] == eb._NULL_WEIGHT_BLOCK
-        assert brief["schema_version"] == 2
+        assert brief["schema_version"] == 3
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -960,7 +960,7 @@ class TestAssembleWeightErrorHandling:
 # ═════════════════════════════════════════════════════════════════════════════
 
 class TestSchemaVersionBump:
-    def test_schema_version_is_now_2(self, eb):
+    def test_schema_version_is_now_3(self, eb):
         # bumped to 3 by issue #1497 (acwr + week_plan addition)
         assert eb.SCHEMA_VERSION == 3
 

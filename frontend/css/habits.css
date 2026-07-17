@@ -71,7 +71,7 @@ main {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
-  font-family: 'Inter Tight', sans-serif;
+  font-family: inherit;
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
@@ -472,7 +472,7 @@ main {
   padding: 0 5px;
   line-height: 1;
   opacity: 0.85;
-  font-family: 'Inter Tight', sans-serif;
+  font-family: inherit;
 }
 .week-nav-btn:hover:not(:disabled) { opacity: 1; }
 .week-nav-btn:disabled { opacity: 0.3; cursor: default; }
@@ -498,7 +498,7 @@ main {
   font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
-  font-family: 'Inter Tight', sans-serif;
+  font-family: inherit;
 }
 .back-current-btn:hover { background: rgba(255,255,255,0.28); }
 
@@ -542,7 +542,7 @@ main {
   border: 1px solid #e8eaf0;
   border-radius: 10px;
   font-size: 13.5px;
-  font-family: 'Inter Tight', sans-serif;
+  font-family: inherit;
   cursor: pointer;
   color: var(--text-primary);
   font-weight: 500;
@@ -585,6 +585,28 @@ main {
 .day-grid-week {
   font-size: 12px;
   color: var(--text-tertiary);
+}
+
+/* Section headers within the daily grid card */
+.day-grid-section-hdr {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+  padding: 8px 0 6px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+/* Section headers in the home habits widget */
+.hw-section-hdr {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-tertiary);
+  padding: 6px 0 2px;
 }
 
 .day-grid-table {
@@ -878,7 +900,7 @@ main {
   cursor: pointer;
   font-size: 13px;
   color: var(--text-primary);
-  font-family: 'Inter Tight', sans-serif;
+  font-family: inherit;
 }
 .day-actions-menu button:hover { background: #f7f9fc; }
 .day-actions-menu button.danger { color: var(--red); }
@@ -1007,7 +1029,7 @@ main {
   border: 1px solid #bef264;
   cursor: pointer;
   white-space: nowrap;
-  font-family: 'Inter Tight', sans-serif;
+  font-family: inherit;
   line-height: 1.6;
   transition: background 0.12s;
 }
@@ -1178,7 +1200,7 @@ main {
   cursor: pointer;
   font-size: 13px;
   color: var(--text-primary);
-  font-family: 'Inter Tight', sans-serif;
+  font-family: inherit;
 }
 .week-actions-menu button:hover { background: #f7f9fc; }
 .week-actions-menu button.danger { color: var(--red); }
@@ -1208,7 +1230,7 @@ main {
   font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
-  font-family: 'Inter Tight', sans-serif;
+  font-family: inherit;
 }
 .weekly-empty-new-btn:hover { background: #162444; }
 
@@ -1266,7 +1288,7 @@ main {
   font-weight: 600;
   cursor: pointer;
   color: var(--text-secondary);
-  font-family: 'Inter Tight', sans-serif;
+  font-family: inherit;
   text-align: center;
 }
 .week-quick-chip:hover { background: #eef0f6; border-color: #d1d9e9; }
@@ -1281,7 +1303,7 @@ main {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  font-family: 'Inter Tight', sans-serif;
+  font-family: inherit;
 }
 .week-popover-submit:hover { background: #162444; }
 .week-popover-submit:disabled { opacity: 0.5; cursor: default; }
@@ -1309,7 +1331,7 @@ main {
   font-weight: 600;
   color: var(--text-tertiary);
   padding: 6px 0;
-  font-family: 'Inter Tight', sans-serif;
+  font-family: inherit;
 }
 .archived-toggle .arrow { transition: transform 0.2s; font-size: 0.75rem; }
 .archived-toggle.open .arrow { transform: rotate(90deg); }
@@ -1340,7 +1362,7 @@ main {
   font-size: 12px;
   cursor: pointer;
   color: var(--text-secondary);
-  font-family: 'Inter Tight', sans-serif;
+  font-family: inherit;
 }
 .archived-btn:hover { background: #eef0f6; }
 .archived-delete-btn {
@@ -1405,7 +1427,7 @@ main {
   font-size: 16px;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
-  font-family: 'Inter Tight', sans-serif;
+  font-family: inherit;
 }
 .habit-slideover-close:hover { background: rgba(255,255,255,0.28); }
 .habit-slideover-body {
@@ -1429,7 +1451,7 @@ main {
   border: 1px solid var(--card-border, rgba(13,30,67,0.12));
   border-radius: 8px;
   font-size: 14px;
-  font-family: 'Inter Tight', sans-serif;
+  font-family: inherit;
   background: var(--surface-2, #f9fafb);
   color: var(--text-primary, #0b1530);
   transition: border-color 0.15s;
@@ -1465,7 +1487,7 @@ main {
   border-radius: 8px;
   font-size: 14px;
   font-weight: 600;
-  font-family: 'Inter Tight', sans-serif;
+  font-family: inherit;
   cursor: pointer;
   transition: background 0.15s;
 }
@@ -1476,7 +1498,7 @@ main {
   border: 1px solid var(--card-border, rgba(13,30,67,0.15));
   border-radius: 8px;
   font-size: 14px;
-  font-family: 'Inter Tight', sans-serif;
+  font-family: inherit;
   color: var(--text-secondary, #5c6886);
   cursor: pointer;
   transition: background 0.15s;
@@ -1488,7 +1510,7 @@ main {
   border: 1px solid rgba(220,38,38,0.3);
   border-radius: 8px;
   font-size: 14px;
-  font-family: 'Inter Tight', sans-serif;
+  font-family: inherit;
   color: #dc2626;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
@@ -1557,7 +1579,7 @@ main {
   border-radius: 6px;
   font-size: 0.9375rem;
   background: #fff;
-  font-family: 'Inter Tight', sans-serif;
+  font-family: inherit;
 }
 .form-field input:focus,
 .form-field select:focus,
@@ -1608,7 +1630,7 @@ main {
   font-size: 0.9375rem;
   cursor: pointer;
   color: #444;
-  font-family: 'Inter Tight', sans-serif;
+  font-family: inherit;
 }
 .btn-cancel:hover { background: #f5f5f5; }
 .btn-primary {
@@ -1619,7 +1641,7 @@ main {
   border-radius: 6px;
   font-size: 0.9375rem;
   cursor: pointer;
-  font-family: 'Inter Tight', sans-serif;
+  font-family: inherit;
 }
 .btn-primary:hover { background: #162444; }
 .modal-error { font-size: 0.8125rem; color: var(--red); min-height: 1.2em; }
@@ -1760,7 +1782,7 @@ main {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: 'Inter Tight', sans-serif;
+  font-family: inherit;
   padding: 0;
   line-height: 1;
 }
@@ -2100,7 +2122,7 @@ main {
   background: var(--card-bg, #fff);
   font-size: 12px;
   font-weight: 500;
-  font-family: 'Inter Tight', sans-serif;
+  font-family: inherit;
   color: var(--text-secondary);
   cursor: pointer;
   white-space: nowrap;
@@ -2304,7 +2326,7 @@ main {
   border-radius: 8px;
   font-size: 13px;
   font-weight: 500;
-  font-family: 'Inter Tight', sans-serif;
+  font-family: inherit;
   cursor: pointer;
   border: 1px solid var(--card-border);
   background: var(--card-bg);
