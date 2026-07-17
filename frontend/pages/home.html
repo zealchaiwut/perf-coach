@@ -1172,6 +1172,60 @@
     @media (max-width: 479px) {
       .rd-ctl-row { display: none; }
     }
+
+    /* ---- RACE GOAL CARD (issue #1501) ---- */
+    .goal-card__prompt { display: flex; flex-direction: column; gap: 10px; }
+    .goal-card__sub { font-size: 13px; color: var(--text-secondary); }
+    .goal-card__cta {
+      align-self: flex-start; padding: 8px 18px; border-radius: 999px;
+      background: var(--text-primary); color: #fff; font-size: 13px;
+      font-weight: 600; border: none; cursor: pointer; font-family: inherit;
+      letter-spacing: -0.01em;
+    }
+    .goal-card__cta:hover { opacity: 0.85; }
+    .goal-form { display: flex; flex-direction: column; gap: 12px; }
+    .goal-form__field { display: flex; flex-direction: column; gap: 4px; }
+    .goal-form__label {
+      font-size: 11px; font-weight: 600; color: var(--text-secondary);
+      text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .goal-form__select,
+    .goal-form__input {
+      border: 1.5px solid rgba(13,30,67,0.12); border-radius: 8px;
+      padding: 8px 10px; font-size: 14px; font-family: inherit;
+      color: var(--text-primary); background: #f7f9fd; outline: none;
+    }
+    .goal-form__select:focus,
+    .goal-form__input:focus {
+      border-color: var(--bg-1);
+      box-shadow: 0 0 0 3px rgba(90,141,238,0.15);
+    }
+    .goal-form__err { font-size: 12px; color: var(--red); min-height: 16px; }
+    .goal-form__actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .goal-form__submit {
+      padding: 9px 20px; border-radius: 999px; background: var(--text-primary);
+      color: #fff; font-size: 13px; font-weight: 600; border: none;
+      cursor: pointer; font-family: inherit; letter-spacing: -0.01em;
+    }
+    .goal-form__submit:hover { opacity: 0.85; }
+    .goal-form__submit:disabled { opacity: 0.5; cursor: default; }
+    .goal-form__cancel {
+      padding: 9px 16px; border-radius: 999px; background: transparent;
+      color: var(--text-secondary); font-size: 13px; font-weight: 500;
+      border: 1.5px solid rgba(13,30,67,0.12); cursor: pointer; font-family: inherit;
+    }
+    .goal-form__cancel:hover { background: rgba(13,30,67,0.04); }
+    .goal-display { display: flex; align-items: center; gap: 12px; }
+    .goal-display__main { flex: 1; min-width: 0; }
+    .goal-display__title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+    .goal-display__sub { font-size: 13px; color: var(--text-secondary); margin-top: 3px; }
+    .goal-display__edit {
+      flex-shrink: 0; padding: 6px 13px; border-radius: 999px; background: transparent;
+      color: var(--text-secondary); font-size: 12px; font-weight: 500;
+      border: 1.5px solid rgba(13,30,67,0.12); cursor: pointer; font-family: inherit;
+      display: inline-flex; align-items: center; gap: 4px;
+    }
+    .goal-display__edit:hover { background: rgba(13,30,67,0.04); }
   </style>
 </head>
 <body>
@@ -1226,6 +1280,7 @@
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-habits-widget" class="card grp-training"></div></div></div>
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-weight-widget"></div></div></div>
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-sleep-card" class="card sleep-card"></div></div></div>
+    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-goal-card" class="card"></div></div></div>
   </div>
 
   <!-- Fast-log form: revealed when Log Today strip CTA is tapped.

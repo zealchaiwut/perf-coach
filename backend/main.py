@@ -112,6 +112,7 @@ from backend.routers.projection import router as _plan_router
 from backend.routers.strength_sessions import router as _strength_sessions_router
 from backend.routers.fuel import router as _fuel_router
 from backend.routers.injury_log import router as _injury_log_router
+from backend.routers.coach import router as _coach_router
 from backend.services.guardrail import get_guardrail_result
 from backend.services.body_modifier import get_body_modifier_guardrail_for_user
 from backend.services.lap_classify import aggregate_intensity_zones as _agg_zones
@@ -145,6 +146,7 @@ app.include_router(_plan_router)
 app.include_router(_strength_sessions_router)
 app.include_router(_fuel_router)
 app.include_router(_injury_log_router)
+app.include_router(_coach_router)
 
 
 def _today_bkk() -> _date:
