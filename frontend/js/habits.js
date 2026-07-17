@@ -844,54 +844,22 @@ function _setCellState(btn, state, logId) {
   }
 }
 
-function renderDailyGrid(logSet) {
-  const container = document.getElementById('day-grid-content');
-  if (!container) return;
+function _buildHabitRow(habit, weekDatesArr, streaksPerHabit, todayStr, logSet) {
+  const iconHTML = habitIconHTML(habit.icon, habit.color, 28);
+  const target = habit.total ? habit.total.target : 7;
+  const done = habit.total ? habit.total.done : 0;
+  const pct = target > 0 ? Math.min(100, Math.round(done / target * 100)) : 0;
+  const barWidth = target > 0 ? Math.min(100, done / target * 100).toFixed(1) : '0.0';
 
-  const dailyHabits = (weekData && weekData.daily_habits) || [];
-  const dayScores = (weekData && weekData.day_scores) || [];
-  const streaksPerHabit = (weekData && weekData.streaks && weekData.streaks.per_habit) || {};
-  const todayStr = bangkokTodayStr();
+  const streak = streaksPerHabit[habit.id] || 0;
+  const streakBadge = streak >= 3
+    ? `<span class="streak-badge">🔥 ${streak}-day streak</span>`
+    : '';
 
-  if (dailyHabits.length === 0) {
-    container.innerHTML = '<div class="day-grid-empty">No daily habits yet.</div>';
-    return;
-  }
+  const metaTarget = _formatTarget(target);
 
-  // Compute day dates from weekData
-  const weekDatesArr = (weekData && weekData.day_scores)
-    ? weekData.day_scores.map(ds => ds.date)
-    : [];
-
-  let html = '<table class="day-grid-table" role="grid">';
-  html += '<thead><tr>';
-  html += '<th class="habit-name-hdr" scope="col">Habit</th>';
-  for (let i = 0; i < 7; i++) {
-    const dateStr = weekDatesArr[i] || '';
-    const isToday = dateStr === todayStr;
-    const todayCls = isToday ? ' day-hdr-today' : '';
-    html += `<th class="${todayCls}" scope="col"><span class="day-hdr-full">${DAY_LABELS_FULL[i]}</span></th>`;
-  }
-  html += '<th class="day-total-hdr" scope="col">Total</th>';
-  html += '<th class="habit-actions-hdr" scope="col"><span class="u-sr-only">Actions</span></th>';
-  html += '</tr></thead><tbody>';
-
-  dailyHabits.forEach(habit => {
-    const iconHTML = habitIconHTML(habit.icon, habit.color, 28);
-    const target = habit.total ? habit.total.target : 7;
-    const done = habit.total ? habit.total.done : 0;
-    const pct = target > 0 ? Math.min(100, Math.round(done / target * 100)) : 0;
-    const barWidth = target > 0 ? Math.min(100, done / target * 100).toFixed(1) : '0.0';
-
-    const streak = streaksPerHabit[habit.id] || 0;
-    const streakBadge = streak >= 3
-      ? `<span class="streak-badge">🔥 ${streak}-day streak</span>`
-      : '';
-
-    const metaTarget = _formatTarget(target);
-
-    html += `<tr class="habit-row" data-habit-id="${esc(String(habit.id))}">`;
-    html += `<td class="habit-name-cell">
+  let row = `<tr class="habit-row" data-habit-id="${esc(String(habit.id))}">`;
+  row += `<td class="habit-name-cell">
       <div class="habit-name-inner">
         ${iconHTML}
         <div>
@@ -904,27 +872,26 @@ function renderDailyGrid(logSet) {
       </div>
     </td>`;
 
-    for (let i = 0; i < 7; i++) {
-      const day = habit.days[i] || { date: weekDatesArr[i] || '', state: 'future' };
-      const dateStr = day.date;
-      // API returns "today_pending" but CSS class uses "today-pending"
-      const stateRaw = day.state;
-      const cssState = stateRaw === 'today_pending' ? 'today-pending' : stateRaw;
-      const logKey = habit.id + '|' + dateStr;
-      const logId = logSet[logKey] || '';
+  for (let i = 0; i < 7; i++) {
+    const day = habit.days[i] || { date: weekDatesArr[i] || '', state: 'future' };
+    const dateStr = day.date;
+    const stateRaw = day.state;
+    const cssState = stateRaw === 'today_pending' ? 'today-pending' : stateRaw;
+    const logKey = habit.id + '|' + dateStr;
+    const logId = logSet[logKey] || '';
 
-      const isInert = cssState === 'future' || !(weekData && weekData.is_current_week);
-      const tIdx = isInert && cssState !== 'done' ? -1 : 0;
+    const isInert = cssState === 'future' || !(weekData && weekData.is_current_week);
+    const tIdx = isInert && cssState !== 'done' ? -1 : 0;
 
-      let cellInner = '';
-      if (cssState === 'done') {
-        cellInner = '<i class="ti ti-check" aria-hidden="true"></i>';
-      } else if (cssState === 'today-pending') {
-        cellInner = '<i class="ti ti-plus" aria-hidden="true"></i>';
-      }
+    let cellInner = '';
+    if (cssState === 'done') {
+      cellInner = '<i class="ti ti-check" aria-hidden="true"></i>';
+    } else if (cssState === 'today-pending') {
+      cellInner = '<i class="ti ti-plus" aria-hidden="true"></i>';
+    }
 
-      const ariaLabel = `${habit.name} ${DAY_LABELS_FULL[i]}: ${stateRaw.replace('_', ' ')}`;
-      html += `<td><button
+    const ariaLabel = `${habit.name} ${DAY_LABELS_FULL[i]}: ${stateRaw.replace('_', ' ')}`;
+    row += `<td><button
         class="day-cell-btn ${esc(cssState)}"
         type="button"
         aria-label="${esc(ariaLabel)}"
@@ -934,34 +901,103 @@ function renderDailyGrid(logSet) {
         data-log-id="${esc(logId)}"
         tabindex="${tIdx}"
       >${cellInner}</button></td>`;
-    }
+  }
 
-    // Total column
-    html += `<td class="day-total-cell" id="total-cell-${esc(String(habit.id))}">
+  row += `<td class="day-total-cell" id="total-cell-${esc(String(habit.id))}">
       <span class="day-total-val">${esc(String(done))}/${esc(_formatTarget(target))}</span>
       <div class="day-total-bar-outer"><div class="day-total-bar-inner" style="width:${barWidth}%"></div></div>
       <span class="day-total-pct">${pct}%</span>
     </td>`;
 
-    // Actions menu column
-    html += `<td class="habit-actions-cell">
+  row += `<td class="habit-actions-cell">
       <div class="habit-day-actions">
         <button type="button" class="day-actions-toggle" aria-label="Habit actions for ${esc(habit.name)}">⋯</button>
         <div class="day-actions-menu" id="day-menu-${esc(String(habit.id))}"></div>
       </div>
     </td>`;
 
-    html += '</tr>';
-  });
+  row += '</tr>';
+  return row;
+}
 
-  // DAY SCORE row (heavier border separator)
+function renderDailyGrid(logSet) {
+  const container = document.getElementById('day-grid-content');
+  if (!container) return;
+
+  const dailyHabits = (weekData && weekData.daily_habits) || [];
+  const dayScores = (weekData && weekData.day_scores) || [];
+  const streaksPerHabit = (weekData && weekData.streaks && weekData.streaks.per_habit) || {};
+  const todayStr = bangkokTodayStr();
+
+  if (dailyHabits.length === 0) {
+    container.innerHTML = '<div class="day-grid-empty">No daily habits yet.</div>';
+    // Hide section containers
+    const ts = document.getElementById('day-grid-training-section');
+    const gs = document.getElementById('day-grid-general-section');
+    if (ts) ts.style.display = 'none';
+    if (gs) gs.style.display = 'none';
+    return;
+  }
+
+  // Compute day dates from weekData
+  const weekDatesArr = (weekData && weekData.day_scores)
+    ? weekData.day_scores.map(ds => ds.date)
+    : [];
+
+  const trainingHabits = dailyHabits.filter(h => h.section === 'training');
+  const generalHabits = dailyHabits.filter(h => h.section !== 'training');
+
+  const theadHTML = (() => {
+    let h = '<thead><tr>';
+    h += '<th class="habit-name-hdr" scope="col">Habit</th>';
+    for (let i = 0; i < 7; i++) {
+      const dateStr = weekDatesArr[i] || '';
+      const isToday = dateStr === todayStr;
+      const todayCls = isToday ? ' day-hdr-today' : '';
+      h += `<th class="${todayCls}" scope="col"><span class="day-hdr-full">${DAY_LABELS_FULL[i]}</span></th>`;
+    }
+    h += '<th class="day-total-hdr" scope="col">Total</th>';
+    h += '<th class="habit-actions-hdr" scope="col"><span class="u-sr-only">Actions</span></th>';
+    h += '</tr></thead>';
+    return h;
+  })();
+
+  function _buildSectionTable(habits) {
+    let h = `<table class="day-grid-table" role="grid">${theadHTML}<tbody>`;
+    habits.forEach(habit => { h += _buildHabitRow(habit, weekDatesArr, streaksPerHabit, todayStr, logSet); });
+    h += '</tbody></table>';
+    return h;
+  }
+
+  // Show or hide section containers
+  const trainingSection = document.getElementById('day-grid-training-section');
+  const generalSection = document.getElementById('day-grid-general-section');
+  const trainingContent = document.getElementById('day-grid-training-content');
+  const generalContent = document.getElementById('day-grid-general-content');
+
+  if (trainingHabits.length > 0) {
+    if (trainingContent) trainingContent.innerHTML = _buildSectionTable(trainingHabits);
+    if (trainingSection) trainingSection.style.display = '';
+  } else {
+    if (trainingSection) trainingSection.style.display = 'none';
+  }
+
+  if (generalHabits.length > 0) {
+    if (generalContent) generalContent.innerHTML = _buildSectionTable(generalHabits);
+    if (generalSection) generalSection.style.display = '';
+  } else {
+    if (generalSection) generalSection.style.display = 'none';
+  }
+
+  // Day Score row in the legacy container
   const totalDone = weekData ? weekData.week_totals.daily_done : 0;
   const totalPossible = weekData ? weekData.week_totals.daily_habits_count * 7 : 0;
   const weekPct = weekData ? Math.round(weekData.week_totals.pct_full_week) : 0;
   const weekBarW = weekData ? Math.min(100, weekData.week_totals.pct_full_week).toFixed(1) : '0.0';
 
-  html += '<tr class="day-score-row" id="day-score-row">';
-  html += '<td class="day-score-label">Day Score</td>';
+  let scoreHTML = `<table class="day-grid-table day-score-only" role="presentation"><tbody>`;
+  scoreHTML += '<tr class="day-score-row" id="day-score-row">';
+  scoreHTML += '<td class="day-score-label">Day Score</td>';
   for (let i = 0; i < 7; i++) {
     const ds = dayScores[i] || { date: '', done: 0, of: 0 };
     const dateStr = ds.date;
@@ -977,22 +1013,20 @@ function renderDailyGrid(logSet) {
       else if (isToday) valCls = 'day-score-today';
       valTxt = `${ds.done}/${ds.of}`;
     }
-    html += `<td class="day-score-cell" data-date="${esc(dateStr)}">
+    scoreHTML += `<td class="day-score-cell" data-date="${esc(dateStr)}">
       <span class="day-score-val ${valCls}">${esc(valTxt)}</span>
     </td>`;
   }
-  html += `<td class="day-total-cell" id="day-score-total-cell">
+  scoreHTML += `<td class="day-total-cell" id="day-score-total-cell">
     <span class="day-total-val">${esc(String(totalDone))}/${esc(String(totalPossible))}</span>
     <div class="day-total-bar-outer"><div class="day-total-bar-inner" style="width:${weekBarW}%"></div></div>
     <span class="day-total-pct">${weekPct}% of week</span>
   </td>`;
-  html += '<td></td>';
-  html += '</tr>';
+  scoreHTML += '<td></td></tr></tbody></table>';
+  container.innerHTML = scoreHTML;
+  container.style.display = '';
 
-  html += '</tbody></table>';
-  container.innerHTML = html;
-
-  // Build action menus and attach handlers
+  // Build action menus and attach handlers for all daily habits
   dailyHabits.forEach(habit => {
     const fullHabit = activeHabits.find(h => String(h.id) === String(habit.id)) || habit;
     const menu = document.getElementById(`day-menu-${habit.id}`);
@@ -1032,8 +1066,9 @@ function renderDailyGrid(logSet) {
     }
   });
 
-  // Attach click and keyboard handlers on actionable cells
-  container.querySelectorAll('.day-cell-btn').forEach(btn => {
+  // Attach click and keyboard handlers on actionable cells across all section containers
+  const gridRoot = document.getElementById('habits-day-grid-card') || container.parentElement;
+  (gridRoot || container).querySelectorAll('.day-cell-btn').forEach(btn => {
     const state = btn.dataset.state;
     const isInert = state === 'future' ||
       !(weekData && weekData.is_current_week) && state !== 'done';
@@ -1883,6 +1918,8 @@ function openHabitForm(habit) {
     document.getElementById('habit-form-unit').value = habit.unit || '';
     document.getElementById('habit-form-schedule-type').value = fields.scheduleType;
     document.getElementById('habit-form-schedule-target').value = fields.scheduleTarget != null ? fields.scheduleTarget : '';
+    const secEl = document.getElementById('habit-form-section');
+    if (secEl) secEl.value = habit.section || 'general';
   } else {
     document.getElementById('habit-form-name').value = '';
     document.getElementById('habit-form-habit-type').value = 'binary';
@@ -1890,6 +1927,8 @@ function openHabitForm(habit) {
     document.getElementById('habit-form-unit').value = '';
     document.getElementById('habit-form-schedule-type').value = 'daily';
     document.getElementById('habit-form-schedule-target').value = '';
+    const secEl = document.getElementById('habit-form-section');
+    if (secEl) secEl.value = 'general';
   }
 
   _sfUpdateVisibility();
@@ -1960,7 +1999,7 @@ function _sfApiToForm(habit) {
   return { habitType, scheduleType, targetValue, scheduleTarget };
 }
 
-function _sfFormToApiPayload(habitType, scheduleType, targetValue, scheduleTarget, name, unit) {
+function _sfFormToApiPayload(habitType, scheduleType, targetValue, scheduleTarget, name, unit, section) {
   let tracking_type;
   let weekly_target = null;
 
@@ -1987,6 +2026,7 @@ function _sfFormToApiPayload(habitType, scheduleType, targetValue, scheduleTarge
     tracking_type,
     weekly_target,
     unit: habitType !== 'binary' ? (unit || null) : null,
+    section: section || 'general',
   };
 }
 
@@ -2090,7 +2130,9 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       const unit = document.getElementById('habit-form-unit').value.trim() || null;
-      const payload = _sfFormToApiPayload(habitType, scheduleType, targetValue, scheduleTarget, name, unit);
+      const sectionEl = document.getElementById('habit-form-section');
+      const section = sectionEl ? sectionEl.value : 'general';
+      const payload = _sfFormToApiPayload(habitType, scheduleType, targetValue, scheduleTarget, name, unit, section);
 
       // tracking_type is immutable after creation — backend rejects it in PATCH
       if (_sfEditingHabitId) delete payload.tracking_type;

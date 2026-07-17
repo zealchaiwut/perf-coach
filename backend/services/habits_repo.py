@@ -13,6 +13,7 @@ from backend.models import Habit, HabitLog
 HABIT_TYPE_VALUES: frozenset[str] = frozenset(("binary", "count", "duration"))
 SCHEDULE_TYPE_VALUES: frozenset[str] = frozenset(
     ("daily", "weekly", "times_per_week"))
+SECTION_VALUES: frozenset[str] = frozenset(("training", "general"))
 
 
 def _week_start(d: date) -> date:
@@ -80,6 +81,9 @@ def create_habit(
     if data.get("auto_fill_source") is not None:
         habit.auto_fill_source = data["auto_fill_source"]
 
+    if data.get("section") is not None:
+        habit.section = data["section"]
+
     # auto-assign sort_order unless caller provided it
     provided_order = data.get("sort_order")
     if provided_order is None:
@@ -142,6 +146,8 @@ def update_habit(
         h.sort_order = data["sort_order"]
     if "is_archived" in data and data["is_archived"] is not None:
         h.is_archived = data["is_archived"]
+    if "section" in data and data["section"] is not None:
+        h.section = data["section"]
 
     h.updated_at = datetime.now(timezone.utc)
     session.commit()
