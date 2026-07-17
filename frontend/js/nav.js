@@ -166,13 +166,13 @@
     "font-family:inherit;}",
     ".global-nav .gn-links{display:flex;gap:4px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none;}",
     ".global-nav .gn-links::-webkit-scrollbar{display:none;}",
-    ".global-nav .gn-link{padding:8px 14px;border-radius:999px;font-size:13.5px;font-weight:500;",
+    ".global-nav .gn-link{padding:8px 14px;border-radius:999px;font-size:16px;font-weight:600;",
     "color:#5c6886;text-decoration:none;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;flex-shrink:0;}",
-    ".global-nav .gn-link i{font-size:15px;line-height:1;}",
+    ".global-nav .gn-link i{font-size:17px;line-height:1;}",
     ".global-nav .gn-link:hover{background:rgba(13,30,67,0.05);color:#0b1530;}",
     ".global-nav .gn-link.active{background:#0b1530;color:#fff;}",
-    ".global-nav .gn-right{display:flex;align-items:center;gap:10px;flex-shrink:0;}",
-    // Profile: avatar button on the LEFT opens a dropdown (Settings + Log out).
+    ".global-nav .gn-right{display:flex;align-items:center;gap:10px;flex-shrink:0;margin-left:auto;}",
+    // Profile: avatar on the FAR RIGHT opens a dropdown (Settings + Log out).
     ".global-nav .gn-profile{position:relative;flex-shrink:0;}",
     ".global-nav .gn-avatar{width:36px;height:36px;border-radius:50%;overflow:hidden;",
     "background:linear-gradient(135deg,#ffb88a,#d97a3a);color:#fff;display:flex;",
@@ -180,7 +180,7 @@
     "border:none;padding:0;cursor:pointer;transition:box-shadow 0.12s ease;}",
     ".global-nav .gn-avatar:hover{box-shadow:0 0 0 2px rgba(13,30,67,0.18);}",
     ".global-nav .gn-avatar.active{box-shadow:0 0 0 2px #0b1530;}",
-    ".global-nav .gn-profile-menu{display:none;position:absolute;top:calc(100% + 8px);left:0;",
+    ".global-nav .gn-profile-menu{display:none;position:absolute;top:calc(100% + 8px);right:0;left:auto;",
     "min-width:180px;background:#fff;border:1px solid rgba(13,30,67,0.1);border-radius:12px;",
     "box-shadow:0 12px 36px rgba(8,18,48,0.16);padding:6px;z-index:200;}",
     ".global-nav .gn-profile-menu.is-open{display:block;}",
@@ -213,7 +213,8 @@
     ".global-nav .gn-brand{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
     ".global-nav .gn-spacer{display:block;flex:1;}",
     ".global-nav .gn-link-disabled{display:none;}",
-    ".global-nav .gn-right{display:none;}",
+    ".global-nav .gn-right{display:flex;}",
+    ".global-nav .gn-env{display:none;}",
     ".global-nav .gn-menu-btn{display:flex;}",
     ".global-nav .gn-links{display:none;position:fixed;left:12px;right:12px;top:56px;",
       "flex-direction:column;gap:4px;background:#fff;border:1px solid rgba(13,30,67,0.1);",
@@ -311,6 +312,16 @@
     nav.className = "global-nav";
     nav.setAttribute("aria-label", "Primary navigation");
     nav.innerHTML =
+      '<span class="gn-brand">perf-coach</span>' +
+      '<span class="gn-spacer" aria-hidden="true"></span>' +
+      '<button type="button" class="gn-menu-btn" id="gn-menu-btn"' +
+      ' aria-label="Open navigation menu" aria-expanded="false" aria-controls="gn-links">' +
+      '<i class="ti ti-menu-2" aria-hidden="true"></i></button>' +
+      '<div class="gn-links" id="gn-links" role="navigation">' +
+      linksHtml +
+      "</div>" +
+      '<div class="gn-right">' +
+      '<span class="gn-env" id="env-label" aria-label="Environment"></span>' +
       '<div class="gn-profile" id="gn-profile">' +
       '<button class="gn-avatar' +
       (path === "/settings" ? " active" : "") +
@@ -322,16 +333,6 @@
       '<i class="ti ti-logout" aria-hidden="true"></i>Log out</button>' +
       "</div>" +
       "</div>" +
-      '<span class="gn-brand">perf-coach</span>' +
-      '<span class="gn-spacer" aria-hidden="true"></span>' +
-      '<button type="button" class="gn-menu-btn" id="gn-menu-btn"' +
-      ' aria-label="Open navigation menu" aria-expanded="false" aria-controls="gn-links">' +
-      '<i class="ti ti-menu-2" aria-hidden="true"></i></button>' +
-      '<div class="gn-links" id="gn-links" role="navigation">' +
-      linksHtml +
-      "</div>" +
-      '<div class="gn-right">' +
-      '<span class="gn-env" id="env-label" aria-label="Environment"></span>' +
       "</div>" +
       '<div class="gn-menu-backdrop" id="gn-menu-backdrop" hidden></div>';
 
@@ -339,6 +340,7 @@
 
     _wireProfileMenu(nav);
     _wireMobileMenu(nav);
+    _positionGlobalNav();
 
     document
       .getElementById("nav-logout")
@@ -353,6 +355,27 @@
             btn.disabled = false;
           });
       });
+  }
+
+  /**
+   * Desktop: inset the sticky global nav to the same column edges Training
+   * uses (1000px content + 24px pad). Applied on every page so Home / Weight /
+   * Habits match Training — not a Training-only JS patch.
+   */
+  function _positionGlobalNav() {
+    var gnav = document.querySelector(".global-nav");
+    if (!gnav) return;
+    if (window.innerWidth < 880) {
+      gnav.style.removeProperty("padding-left");
+      gnav.style.removeProperty("padding-right");
+      return;
+    }
+    var CONTENT_MAX = 1000;
+    var PAD = 24;
+    var vw = document.documentElement.clientWidth;
+    var inset = Math.max(0, (vw - CONTENT_MAX) / 2) + PAD;
+    gnav.style.paddingLeft = inset + "px";
+    gnav.style.paddingRight = inset + "px";
   }
 
   function _wireProfileMenu(nav) {
@@ -644,6 +667,8 @@
     injectStyles();
     buildNav();
     buildSyncBar();
+    window.addEventListener("resize", _positionGlobalNav);
+    window.addEventListener("load", _positionGlobalNav);
     // One initial status check on load (picks up a sync started elsewhere);
     // SyncPoller only continues polling while a job is actually running.
     _syncPollerUnsub = window.SyncPoller.subscribe(_onSyncPollerUpdate);

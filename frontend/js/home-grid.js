@@ -6,7 +6,7 @@
  * registry: one fixed widget ORDER, plus a column-span per breakpoint. gridstack
  * does the packing (float:false → auto-compaction), and `sizeToContent` sizes
  * each item's HEIGHT to its widget's real content — so a tall widget (Readiness
- * with the CTL/ATL/TSB trio) and a short one (Sleep) each get exactly the height
+ * with the CTL/ATL/TSB/ACWR tiles) and a short one (Sleep) each get exactly the height
  * they need, with no hand-tuned row spans and no clipping.
  *
  * The widget CONTENT is still rendered by the existing modules (home.js,
@@ -26,15 +26,17 @@
   // Fixed order (top → bottom / left → right at each breakpoint) with the
   // column span per column-count. Keys are the live widget container ids.
   var REGISTRY = [
-    { id: 'home-top-row-right',     w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Readiness
-    { id: 'home-today-rec-card',    w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Today's recommendation
-    { id: 'home-next-workout-card', w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Next + Recent
-    { id: 'home-performance-card',  w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Performance
-    { id: 'home-training-card',     w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Training
-    { id: 'home-perf-container',    w: { 8: 4, 6: 3, 4: 4, 1: 1 } }, // Personal records
-    { id: 'home-habits-widget',     w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Habits
-    { id: 'home-weight-widget',     w: { 8: 4, 6: 3, 4: 4, 1: 1 } }, // Weight
-    { id: 'home-sleep-card',        w: { 8: 4, 6: 2, 4: 2, 1: 1 } }  // Sleep
+    { id: 'home-top-row-right',          w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Readiness
+    { id: 'home-next-workout-card',      w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Recent workouts
+    { id: 'home-performance-card',       w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Performance
+    { id: 'home-today-rec-card',         w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Today (left)
+    { id: 'home-brief-week-plan-card',   w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Week plan (right)
+    { id: 'home-training-card',          w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Training
+    { id: 'home-perf-container',         w: { 8: 4, 6: 3, 4: 4, 1: 1 } }, // Personal records
+    { id: 'home-habits-widget',          w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Habits
+    { id: 'home-weight-widget',          w: { 8: 4, 6: 3, 4: 4, 1: 1 } }, // Weight
+    { id: 'home-sleep-card',             w: { 8: 4, 6: 2, 4: 2, 1: 1 } }, // Sleep
+    { id: 'home-goal-card',              w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Race goal
   ];
 
   function colFor(width) {
@@ -55,14 +57,69 @@
     return c ? c.closest('.grid-stack-item') : null;
   }
 
+  // Side-by-side pairs that should share a row height.
+  var HEIGHT_PAIRS = [
+    ['home-next-workout-card', 'home-performance-card'],
+    ['home-today-rec-card', 'home-brief-week-plan-card'],
+  ];
+
+  function clearPairStretch() {
+    HEIGHT_PAIRS.forEach(function (pair) {
+      pair.forEach(function (id) {
+        var c = document.getElementById(id);
+        if (c) {
+          c.style.minHeight = '';
+          c.style.height = '';
+        }
+      });
+    });
+  }
+
+  function applyPairStretch() {
+    HEIGHT_PAIRS.forEach(function (pair) {
+      pair.forEach(function (id) {
+        var item = itemEl(id);
+        var card = document.getElementById(id);
+        if (!item || !card) return;
+        var box = item.querySelector('.grid-stack-item-content');
+        if (!box) return;
+        var h = Math.ceil(box.clientHeight);
+        if (h > 0) card.style.minHeight = h + 'px';
+      });
+    });
+  }
+
+  // After sizeToContent, raise the shorter of a same-row pair to the taller.
+  function equalizePair(idA, idB) {
+    var a = itemEl(idA);
+    var b = itemEl(idB);
+    if (!a || !b || !grid) return;
+    var na = a.gridstackNode;
+    var nb = b.gridstackNode;
+    if (!na || !nb) return;
+    // Stacked (different rows) — leave natural heights alone.
+    if (na.y !== nb.y) return;
+    var maxH = Math.max(na.h || 0, nb.h || 0);
+    if (!maxH) return;
+    if ((na.h || 0) < maxH) grid.update(a, { h: maxH });
+    if ((nb.h || 0) < maxH) grid.update(b, { h: maxH });
+  }
+
+  function equalizeAllPairs() {
+    HEIGHT_PAIRS.forEach(function (pair) {
+      equalizePair(pair[0], pair[1]);
+    });
+  }
+
   // Re-measure every item's content height and re-pack. Runs on init, on
   // breakpoint change (content can change too — e.g. Readiness drops the
-  // CTL trio below 480px via CSS), and whenever widget content mutates.
+  // load tiles below 480px via CSS), and whenever widget content mutates.
   // The observer is detached during the pass so gridstack's own DOM writes
   // can't retrigger it.
   function relayout() {
     if (!grid) return;
     if (mo) mo.disconnect();
+    clearPairStretch();
     grid.batchUpdate();
     REGISTRY.forEach(function (r) {
       var el = itemEl(r.id);
@@ -70,6 +127,8 @@
     });
     grid.commit();
     grid.compact('list');
+    equalizeAllPairs();
+    applyPairStretch();
     if (mo && container) {
       mo.observe(container, { childList: true, subtree: true, characterData: true });
     }

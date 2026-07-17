@@ -66,112 +66,17 @@
     );
   }
 
-  /* ── CTL/ATL/TSB training-load trio (home v2) ──────────────────────────────
-     Second section of the Readiness card, below the existing daily-signal
-     block. Ported from training-log.js's private _lrxReadStatus/_lrxMarkerPct/
-     _lrxTrendLine/_LRX_BAND/_LRX_TREND_COLOR (~line 682-711) — DUPLICATED, not
-     imported (that IIFE doesn't export them), at the exact same band
-     thresholds. Status colors are ported as literal hex (the --lrx-* CSS vars
-     they reference don't exist on this page) matching the Log tab's rendered
-     colors exactly. */
-  function _rdCtlStatus(metric, v) {
-    if (metric === 'ctl') {
-      if (v < 20) return { word: 'DETRAINING', color: '#d97706' };
-      if (v < 40) return { word: 'STEADY', color: '#6366f1' };
-      return { word: 'STRONG', color: '#16a34a' };
-    }
-    if (metric === 'atl') {
-      if (v < 25) return { word: 'LOW', color: '#16a34a' };
-      if (v < 45) return { word: 'MODERATE', color: '#6366f1' };
-      return { word: 'HIGH', color: '#d97706' };
-    }
-    // tsb
-    if (v < -10) return { word: 'OVERREACHED', color: '#d97706' };
-    if (v <= 5) return { word: 'OPTIMAL', color: '#16a34a' };
-    return { word: 'FRESH', color: '#4f6ef7' };
-  }
-
-  function _rdCtlMarkerPct(metric, v) {
-    var min = metric === 'tsb' ? -25 : 0;
-    var max = metric === 'tsb' ? 15 : 60;
-    var pct = ((v - min) / (max - min)) * 100;
-    return Math.max(2, Math.min(98, pct));
-  }
-
-  var _RD_CTL_BAND = {
-    ctl: 'linear-gradient(90deg,#fbbf24,#60a5fa,#22c55e)',
-    atl: 'linear-gradient(90deg,#22c55e,#eab308,#ef4444)',
-    tsb: 'linear-gradient(90deg,#f59e0b,#22c55e,#60a5fa)',
-  };
-  var _RD_CTL_TREND_COLOR = { ctl: '#4f6ef7', atl: '#dc2626', tsb: '#16a34a' };
-
-  function _rdCtlFmt(v) {
-    if (v === null || v === undefined || isNaN(v)) return '—';
-    return String(Math.round(v * 10) / 10);
-  }
-
-  /* Small sparkline (~100×24, matching the mock's .ctlspark) — same draw
-     algorithm as _lrxTrendLine, scaled down. */
-  function _rdCtlSpark(svgId, pts, color) {
-    var svg = document.getElementById(svgId);
-    if (!svg || !pts || pts.length < 2) return;
-    while (svg.firstChild) svg.removeChild(svg.firstChild);
-    var W = 100, H = 24;
-    var mn = Math.min.apply(null, pts), mx = Math.max.apply(null, pts);
-    var d = pts
-      .map(function (v, i) {
-        var x = (i / (pts.length - 1)) * W;
-        var y = H - ((v - mn) / (mx - mn + 0.001)) * (H - 4) - 2;
-        return (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
-      })
-      .join(' ');
-    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
-    var NS = 'http://www.w3.org/2000/svg';
-    var path = document.createElementNS(NS, 'path');
-    path.setAttribute('d', d);
-    path.setAttribute('fill', 'none');
-    path.setAttribute('stroke', color);
-    path.setAttribute('stroke-width', '1.6');
-    svg.appendChild(path);
-  }
-
-  function _rdCtlCardHtml(metric, val, abbr, label, sparkId) {
-    var st = _rdCtlStatus(metric, val);
-    var pct = _rdCtlMarkerPct(metric, val);
-    return '<div class="rd-ctl-card">' +
-      '<div class="rd-ctl-v">' + _rdCtlFmt(val) + '</div>' +
-      '<div class="rd-ctl-l">' + abbr + ' ' + label + '</div>' +
-      '<div class="rd-ctl-band" style="background:' + _RD_CTL_BAND[metric] + '">' +
-        '<div class="rd-ctl-mk" style="left:' + pct.toFixed(0) + '%"></div></div>' +
-      '<div class="rd-ctl-stat" style="color:' + st.color + '">' + st.word + '</div>' +
-      '<svg class="rd-ctl-spark" id="' + sparkId + '"></svg>' +
-    '</div>';
-  }
-
-  /* trainingLoad is the raw GET /api/readiness (no query params) response —
-     a SEPARATE fetch from the /api/home/summary that feeds the rest of this
-     tile (wired once in render(), see below). Returns '' when not yet loaded
-     (renderReadinessTile is still called immediately with the summary data,
-     so the daily-signal block isn't blocked on this extra request). */
-  function _rdCtlRowHtml(trainingLoad) {
-    if (!trainingLoad) return '';
-    if (trainingLoad.building_baseline) {
-      return '<div class="rd-ctl-bb">Still building your training-load baseline.</div>';
-    }
-    return '<div class="rd-ctl-row">' +
-      _rdCtlCardHtml('ctl', trainingLoad.ctl, 'CTL', 'Fitness', 'rd-ctl-spark-ctl') +
-      _rdCtlCardHtml('atl', trainingLoad.atl, 'ATL', 'Fatigue', 'rd-ctl-spark-atl') +
-      _rdCtlCardHtml('tsb', trainingLoad.tsb, 'TSB', 'Freshness', 'rd-ctl-spark-tsb') +
-    '</div>';
-  }
-
-  function _rdCtlDrawSparks(trainingLoad) {
-    if (!trainingLoad || trainingLoad.building_baseline) return;
-    var series = Array.isArray(trainingLoad.series) ? trainingLoad.series : [];
-    var last9 = series.slice(-9);
-    _rdCtlSpark('rd-ctl-spark-ctl', last9.map(function (d) { return d.ctl; }), _RD_CTL_TREND_COLOR.ctl);
-    _rdCtlSpark('rd-ctl-spark-atl', last9.map(function (d) { return d.atl; }), _RD_CTL_TREND_COLOR.atl);
-    _rdCtlSpark('rd-ctl-spark-tsb', last9.map(function (d) { return d.tsb; }), _RD_CTL_TREND_COLOR.tsb);
+  /* ── CTL/ATL/TSB/ACWR load tiles (shared with Training Log) ───────────────
+     Uses window.LoadReadinessTiles — same 2×2 design as the Log readiness
+     widget (number / label / band / status + async ACWR). No home-only
+     sparkline fork. */
+  function _rdLoadTilesHtml(trainingLoad) {
+    if (!trainingLoad || !window.LoadReadinessTiles) return '';
+    return (
+      '<div class="rd-load-tiles">' +
+      LoadReadinessTiles.buildGridHtml(trainingLoad) +
+      '</div>'
+    );
   }
 
   function renderReadinessTile(el, readiness, trainingLoad) {
@@ -242,11 +147,12 @@
         explanationHTML;
     }
 
-    // CTL/ATL/TSB trio appended below the daily-signal block, inside the same
-    // card, in every branch above (it's a separate data source — training
-    // load exists whether or not today's wellness metrics were logged).
-    el.innerHTML = header + body + _rdCtlRowHtml(trainingLoad);
-    _rdCtlDrawSparks(trainingLoad);
+    // Load tiles (CTL/ATL/TSB/ACWR) below the daily-signal block — independent
+    // of whether today's wellness metrics were logged.
+    el.innerHTML = header + body + _rdLoadTilesHtml(trainingLoad);
+    if (trainingLoad && window.LoadReadinessTiles) {
+      LoadReadinessTiles.loadAcwrTile(el);
+    }
   }
 
   /* ── Training Card ──────────────────────────────────────────────────────── */
@@ -407,42 +313,7 @@
       '</div>';
   }
 
-  /* ── Next workout (home v2) ─────────────────────────────────────────────── */
-
-  var _NW_DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  var _NW_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-  function _nwAddDaysISO(isoStr, n) {
-    var d = new Date(isoStr + 'T00:00:00');
-    d.setDate(d.getDate() + n);
-    return d.getFullYear() + '-' +
-      String(d.getMonth() + 1).padStart(2, '0') + '-' +
-      String(d.getDate()).padStart(2, '0');
-  }
-
-  function _nwFmtDate(isoStr) {
-    var p = isoStr.split('-');
-    var d = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
-    return _NW_DOW[d.getDay()] + ', ' + _NW_MONTHS[d.getMonth()] + ' ' + d.getDate();
-  }
-
-  // Cheap structure summary — NOT the full Plan-tab structure renderer, just
-  // enough for a one-line meta string (e.g. "100min" / "5 exercises").
-  function _nwStructureSummary(structure) {
-    var s = structure || {};
-    if (Array.isArray(s.blocks) && s.blocks.length) {
-      var tot = 0;
-      s.blocks.forEach(function (b) {
-        var d = Number(b.duration_min) || 0, r = Math.max(1, Number(b.repeat) || 1);
-        tot += d * r + (Number(b.rest_min) || 0) * (r - 1);
-      });
-      return tot ? tot + 'min' : '';
-    }
-    if (Array.isArray(s.exercises) && s.exercises.length) {
-      return s.exercises.length + ' exercise' + (s.exercises.length > 1 ? 's' : '');
-    }
-    return '';
-  }
+  /* ── Recent workout (compact, beside Performance) ───────────────────────── */
 
   function _nwBadgeCls(sessionType) {
     return (sessionType === 'strength' || sessionType === 'plyo') ? 'lift' : 'run';
@@ -453,42 +324,14 @@
     return 'Run';
   }
 
-  // Iterate days[] in order, collecting up to `limit` upcoming non-rest
-  // sessions (one per day — prefer status==='planned' when a day has more
-  // than one, else planned[0]). Rest-only/empty days are skipped (kept
-  // scanning) rather than counted — if nothing non-rest exists anywhere in
-  // the window, the caller falls through to the empty state.
-  function _nwFindUpcoming(bundle, limit) {
-    var days = (bundle && Array.isArray(bundle.days)) ? bundle.days : [];
-    var out = [];
-    for (var i = 0; i < days.length && out.length < limit; i++) {
-      var planned = Array.isArray(days[i].planned) ? days[i].planned : [];
-      var nonRest = planned.filter(function (p) { return p.session_type !== 'rest'; });
-      if (!nonRest.length) continue;
-      var preferred = nonRest.find(function (p) { return p.status === 'planned'; });
-      out.push(preferred || nonRest[0]);
-    }
-    return out;
-  }
+  /* Recent workouts — 3–5 rows, sized to roughly match Performance next door. */
+  var NW_RECENT_MIN = 3;
+  var NW_RECENT_MAX = 5;
 
-  function _nwEmptyHtml() {
-    return '<div class="nw-empty"><a href="/log#plan">No upcoming session — plan your week &#8594;</a></div>';
-  }
-
-  /* Skeleton for the merged Next+Recent card — both sub-headers and two empty
-     section placeholders (#home-next-workout-section /
-     #home-recent-workout-section). Both are filled by _nwFill once the planned
-     fetch resolves, so Next and Recent counts share one capacity budget. */
   function _nwSkeletonHtml() {
     return (
-      '<div class="nw-worksub">' +
-        '<div class="nw-subhead">Next workout</div>' +
-        '<a href="/log#plan">Plan &#8594;</a>' +
-      '</div>' +
-      '<div id="home-next-workout-section" class="nw-loading">Loading…</div>' +
-      '<div class="nw-sep"></div>' +
-      '<div class="nw-worksub">' +
-        '<div class="nw-subhead">Recent workout</div>' +
+      '<div class="card-head">' +
+        '<div class="ttl"><i class="ti ti-history"></i>Recent workouts</div>' +
         '<span style="display:inline-flex;align-items:center;gap:10px;">' +
           '<a href="/training?return=/home">Log workout</a>' +
           '<a href="/log">View all &#8594;</a>' +
@@ -498,9 +341,7 @@
     );
   }
 
-  /* One "Recent workout" row — same grid/markup as a Next row but a plain div
-     (no /plan link, no trailing arrow). recent items come from the home
-     summary block: {name, workout_type, relative_day, summary}. */
+  /* One recent row — badge + name/meta. */
   function _nwRecentRowHtml(w) {
     var cls = _nwBadgeCls(w.workout_type);
     var label = _nwBadgeLabel(w.workout_type);
@@ -515,73 +356,21 @@
       '</div>';
   }
 
-  function _nwNextRowHtml(next) {
-    var cls = _nwBadgeCls(next.session_type);
-    var label = _nwBadgeLabel(next.session_type);
-    var metaParts = [_nwFmtDate(next.planned_date)];
-    var summary = _nwStructureSummary(next.structure);
-    if (summary) metaParts.push(summary);
-    return '<a class="nw-row" href="/log#plan">' +
-        '<span class="nw-badge nw-badge--' + cls + '">' + label + '</span>' +
-        '<span class="nw-info">' +
-          '<span class="nw-name">' + esc(next.name || 'Session') + '</span>' +
-          '<span class="nw-meta">' + esc(metaParts.join(' · ')) + '</span>' +
-        '</span>' +
-        '<span class="nw-arrow">&#8594;</span>' +
-      '</a>';
-  }
-
-  /* Decide how many Next vs Recent rows to show so the card fills its grid
-     track without overflowing. Capacity is measured from the (stretched) card
-     height at render time; Next is capped at half the card so a couple of
-     planned sessions can't crowd out the recent history (the common case is
-     few Next + many Recent). Returns {next, recent} counts. */
-  function _nwFillCounts(el, nextAvail, recentAvail) {
-    var h = el ? el.clientHeight : 0;
-    // Below ~260px the card isn't stretched (mobile flex column, or measured
-    // before layout settled) — fall back to a sensible fixed capacity.
-    var capacity = h < 260 ? 8
-      : Math.max(4, Math.min(12, Math.floor((h - 120) / 40)));
-    var next = Math.min(nextAvail, Math.floor(capacity / 2));
-    var recent = Math.min(recentAvail, capacity - next);
-    // Rule: Next may not exceed 50% of what's shown. When recent is plentiful
-    // this is already satisfied; when recent is scarce, shrink next to match so
-    // it never dominates (unless there's no recent at all to pair against).
-    if (recent > 0) next = Math.min(next, recent);
-    return { next: Math.max(next, nextAvail ? 1 : 0), recent: recent };
-  }
-
   function renderNextWorkoutCard(el, recentWorkouts) {
     if (!el) return;
-
     el.innerHTML = _nwSkeletonHtml();
     var recent = Array.isArray(recentWorkouts) ? recentWorkouts : [];
-
-    var today = _bangkokTodayStr();
-    var to = _nwAddDaysISO(today, 13);
-    fetch('/api/planned-sessions?from=' + today + '&to=' + to)
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (bundle) { _nwFill(el, _nwFindUpcoming(bundle, 6), recent); })
-      .catch(function () { _nwFill(el, [], recent); });
-  }
-
-  function _nwFill(el, upcoming, recent) {
-    var nextSection = document.getElementById('home-next-workout-section');
     var recentSection = document.getElementById('home-recent-workout-section');
-
-    var counts = _nwFillCounts(el, upcoming.length, recent.length);
-
-    if (nextSection) {
-      nextSection.innerHTML = counts.next
-        ? upcoming.slice(0, counts.next).map(_nwNextRowHtml).join('')
-        : _nwEmptyHtml();
+    if (!recentSection) return;
+    if (!recent.length) {
+      recentSection.innerHTML =
+        '<div class="workouts-empty">No workouts yet — ' +
+        '<a href="/training?return=/home">log your first</a>.</div>';
+      return;
     }
-    if (recentSection) {
-      recentSection.innerHTML = counts.recent
-        ? recent.slice(0, counts.recent).map(_nwRecentRowHtml).join('')
-        : '<div class="workouts-empty">No workouts yet — ' +
-          '<a href="/training?return=/home">log your first</a>.</div>';
-    }
+    // Cap at 5; prefer 4 to sit near Performance height (2 score tiles).
+    var n = Math.min(NW_RECENT_MAX, Math.max(NW_RECENT_MIN, 4), recent.length);
+    recentSection.innerHTML = recent.slice(0, n).map(_nwRecentRowHtml).join('');
   }
 
   /* ── Performance (Endurance/Speed) widget (home v2) ─────────────────────── */
@@ -700,90 +489,351 @@
       });
   }
 
-  /* ── Today's recommendation card ────────────────────────────────────────── */
+  /* ── Today card — tabbed: All / Session / Advisories / Coach ──────────── */
 
-  var _REC_ICONS = { keep: '✓', downgrade: '↓', rest: '⊘', no_plan: '—' };
   var _REC_LABELS = { keep: 'Go for it', downgrade: 'Downgrade', rest: 'Rest today', no_plan: 'No session' };
+  var _REC_TAB = 'all'; // remember last tab across re-renders in this page load
 
-  function _recModifierCls(rec) {
-    if (rec === 'rest') return 'rec-card--rest';
-    if (rec === 'downgrade') return 'rec-card--downgrade';
-    return '';
+  function _coachSnap(msg) {
+    /* Nested snapshot (new) or legacy flat plan_state. */
+    var snap = (msg && msg.plan_state_snapshot) || null;
+    if (!snap) return { planState: null, facts: null, sections: null };
+    if (snap.plan_state || snap.facts || snap.sections) {
+      return {
+        planState: snap.plan_state || null,
+        facts: snap.facts || null,
+        sections: snap.sections || null,
+      };
+    }
+    return { planState: snap, facts: null, sections: null };
+  }
+
+  function _coachSections(msg) {
+    /* Prefer structured sections; else split Markdown ## headers; else legacy. */
+    var out = { now: '', focus: '', dream: '', reflection: '', chips: [] };
+    if (!msg) return out;
+    var snap = _coachSnap(msg);
+    var sec = snap.sections;
+    if (sec && (sec.now || sec.focus || sec.dream || sec.reflection)) {
+      out.now = sec.now || '';
+      out.focus = sec.focus || '';
+      out.dream = sec.dream || '';
+      out.reflection = sec.reflection || '';
+    } else if (msg.text) {
+      var text = msg.text;
+      var re = /^##\s+(Now|Focus|Dream|Reflection)\s*$/gim;
+      var matches = [];
+      var m;
+      while ((m = re.exec(text)) !== null) {
+        matches.push({ key: m[1].toLowerCase(), index: m.index, end: re.lastIndex });
+      }
+      if (matches.length) {
+        matches.forEach(function (hit, i) {
+          var start = hit.end;
+          var end = i + 1 < matches.length ? matches[i + 1].index : text.length;
+          out[hit.key] = text.slice(start, end).trim();
+        });
+      } else {
+        /* Legacy 5-block message — show full text under Now. */
+        out.now = text.trim();
+      }
+    }
+    var ranked = (snap.facts && snap.facts.focus_ranked) || [];
+    ranked.slice(0, 2).forEach(function (r) {
+      var tr = r.tracking || {};
+      var chip = null;
+      if (tr.current != null && tr.target != null) {
+        chip = (r.label || r.id) + ' ' + tr.current + '/' + tr.target;
+      } else if (tr.unlock_date) {
+        var ud = new Date(String(tr.unlock_date).slice(0, 10) + 'T00:00:00');
+        var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        chip = 'Unlock ' + ud.getDate() + ' ' + months[ud.getMonth()];
+      }
+      if (chip) out.chips.push(chip);
+    });
+    return out;
+  }
+
+  function _coachSectionHtml(title, body) {
+    if (!body) return '';
+    var paras = String(body).split(/\n\n+/).map(function (p) { return p.trim(); }).filter(Boolean);
+    var bodyHtml = paras.map(function (p) {
+      return '<p class="rec-coach-p">' + esc(p).replace(/\n/g, '<br>') + '</p>';
+    }).join('');
+    return (
+      '<div class="rec-coach-section">' +
+        '<div class="rec-coach-h">' + esc(title) + '</div>' +
+        bodyHtml +
+      '</div>'
+    );
+  }
+
+  function _coachFullHtml(parts) {
+    var chips = '';
+    if (parts.chips && parts.chips.length) {
+      chips =
+        '<div class="rec-coach-chips">' +
+        parts.chips.map(function (c) {
+          return '<span class="rec-coach-chip">' + esc(c) + '</span>';
+        }).join('') +
+        '</div>';
+    }
+    return (
+      '<div class="rec-coach-narrative">' +
+        _coachSectionHtml('Now', parts.now) +
+        _coachSectionHtml('Focus', parts.focus) +
+        chips +
+        _coachSectionHtml('Dream', parts.dream) +
+        _coachSectionHtml('Reflection', parts.reflection) +
+      '</div>'
+    );
+  }
+
+  function _coachParts(msg) {
+    /* Compact bullets for All tab — first lines of each section. */
+    var out = { directive: '', projection: '', levers: [], focusHint: '' };
+    if (!msg) return out;
+    var parts = _coachSections(msg);
+    if (parts.now) {
+      out.directive = parts.now.split(/\n\n+/)[0].replace(/\s+/g, ' ').trim();
+      if (out.directive.length > 220) out.directive = out.directive.slice(0, 217) + '…';
+    }
+    if (parts.focus) {
+      out.focusHint = parts.focus.split(/\n\n+/)[0].replace(/\s+/g, ' ').trim();
+      if (out.focusHint.length > 160) out.focusHint = out.focusHint.slice(0, 157) + '…';
+    }
+    if (parts.dream) {
+      out.projection = parts.dream.split(/\n\n+/)[0].replace(/\s+/g, ' ').trim();
+      if (out.projection.length > 160) out.projection = out.projection.slice(0, 157) + '…';
+    }
+    parts.chips.forEach(function (c) { out.levers.push(c); });
+    return out;
+  }
+
+  function _recBullet(group, text, cls) {
+    var tag =
+      group === 'session' ? 'Session' :
+      group === 'advisories' ? 'Advisories' :
+      group === 'coach' ? 'Coach' : '';
+    var tagHtml = tag
+      ? '<span class="rec-tag rec-tag--' + group + '">[' + tag + ']</span> '
+      : '';
+    return (
+      '<li class="rec-msg-item' + (cls ? ' ' + cls : '') + '">' +
+        tagHtml + esc(text) +
+      '</li>'
+    );
+  }
+
+  function _buildTodayBuckets(recData, briefData, coachMsg) {
+    var session = [];
+    var advisories = [];
+    var coach = [];
+    var coachHtml = '';
+    var applyHtml = '';
+    var msg = coachMsg && coachMsg.message ? coachMsg.message : null;
+    var snap = _coachSnap(msg);
+    var nudge = (snap.facts && snap.facts.nudge) || null;
+    var focusLabel = nudge && nudge.focus_label ? nudge.focus_label : null;
+
+    // Skip empty "No session" / no_plan — only surface a real recommendation.
+    if (recData) {
+      var rec = recData.recommendation || 'no_plan';
+      if (rec !== 'no_plan') {
+        var reason = recData.reason || '';
+        var ps = recData.planned_session;
+        var patch = recData.apply_patch;
+        var label = _REC_LABELS[rec] || rec;
+        var sessionName = ps ? (ps.name || ps.session_type || '') : '';
+        session.push(
+          _recBullet(
+            'session',
+            label + (sessionName ? ' · ' + sessionName : '')
+          )
+        );
+        if (reason) session.push(_recBullet('session', reason));
+        if (focusLabel && nudge && nudge.next_action) {
+          session.push(
+            _recBullet(
+              'session',
+              'Advances Focus #1 (' + focusLabel + '): ' + nudge.next_action
+            )
+          );
+        }
+        if (rec === 'downgrade' && patch && ps && ps.id) {
+          applyHtml =
+            '<button class="rec-apply-btn" data-ps-id="' + esc(ps.id) + '">' +
+              'Apply — convert to easy' +
+            '</button>';
+        }
+      }
+    }
+
+    // Skip empty "No advisories."
+    var advList = (briefData && Array.isArray(briefData.advisories))
+      ? briefData.advisories
+      : [];
+    if (focusLabel) {
+      advisories.push(
+        _recBullet(
+          'advisories',
+          'This week’s Focus #1: ' + focusLabel +
+            (nudge && nudge.why ? ' — ' + nudge.why : '')
+        )
+      );
+    }
+    advList.forEach(function (a) {
+      var text = (a && a.text) || '';
+      if (!text) return;
+      var isWarn = a && a.severity === 'warn';
+      advisories.push(
+        _recBullet(
+          'advisories',
+          (isWarn ? '⚠ ' : '') + text,
+          isWarn ? 'rec-msg-item--warn' : ''
+        )
+      );
+    });
+
+    // Coach tab: full Now/Focus/Dream/Reflection; All tab: compact bullets.
+    var sections = _coachSections(msg);
+    if (sections.now || sections.focus || sections.dream || sections.reflection) {
+      coachHtml = _coachFullHtml(sections);
+      var parts = _coachParts(msg);
+      if (parts.directive) coach.push(_recBullet('coach', parts.directive));
+      if (parts.focusHint) coach.push(_recBullet('coach', parts.focusHint));
+      if (parts.projection) coach.push(_recBullet('coach', parts.projection));
+      parts.levers.forEach(function (L) { coach.push(_recBullet('coach', L)); });
+    }
+
+    return {
+      session: session,
+      advisories: advisories,
+      coach: coach,
+      coachHtml: coachHtml,
+      applyHtml: applyHtml,
+    };
+  }
+
+  function _todayTabBullets(buckets, tab) {
+    if (tab === 'session') return buckets.session;
+    if (tab === 'advisories') return buckets.advisories;
+    if (tab === 'coach') return buckets.coach;
+    return buckets.session.concat(buckets.advisories, buckets.coach);
   }
 
   function renderTodayRecommendationCard(el) {
     if (!el) return;
-    el.innerHTML = '<div class="rec-loading">Loading…</div>';
+    el.innerHTML =
+      '<div class="card-head">' +
+        '<div class="ttl"><i class="ti ti-bolt"></i>Today</div>' +
+        '<a href="/log#plan">Full plan &#8594;</a>' +
+      '</div>' +
+      '<div class="rec-loading">Loading…</div>';
+
+    var recData = null;
+    var briefData = null;
+    var coachMsg = null;
+    var gotRec = false;
+    var gotBrief = false;
+    var gotCoach = false;
+
+    function _tryPaint() {
+      if (!gotRec || !gotBrief || !gotCoach) return;
+
+      var buckets = _buildTodayBuckets(recData, briefData, coachMsg);
+      var active = _REC_TAB || 'all';
+      var tabs = [
+        { id: 'all', label: 'All' },
+        { id: 'session', label: 'Session' },
+        { id: 'advisories', label: 'Advisories' },
+        { id: 'coach', label: 'Coach' },
+      ];
+
+      function paintBody() {
+        var showApply = active === 'all' || active === 'session';
+        var bodyEl = el.querySelector('#home-today-rec-body');
+        if (!bodyEl) return;
+        if (active === 'coach' && buckets.coachHtml) {
+          bodyEl.innerHTML = buckets.coachHtml;
+          return;
+        }
+        var bullets = _todayTabBullets(buckets, active);
+        bodyEl.innerHTML =
+          '<ul class="rec-msg-list">' + bullets.join('') + '</ul>' +
+          (showApply ? buckets.applyHtml : '');
+
+        var btn = bodyEl.querySelector('.rec-apply-btn');
+        if (btn) {
+          btn.addEventListener('click', function () {
+            var psId = btn.getAttribute('data-ps-id');
+            if (!psId) return;
+            if (!confirm('Convert today\'s session to easy? This cannot be undone.')) return;
+            btn.disabled = true;
+            btn.textContent = 'Applying…';
+            fetch('/api/planned-sessions/' + encodeURIComponent(psId), {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(recData.apply_patch),
+            })
+              .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+              .then(function () { renderTodayRecommendationCard(el); })
+              .catch(function () {
+                btn.disabled = false;
+                btn.textContent = 'Apply — convert to easy';
+                alert('Could not apply change. Please try again.');
+              });
+          });
+        }
+      }
+
+      el.innerHTML =
+        '<div class="card-head">' +
+          '<div class="ttl"><i class="ti ti-bolt"></i>Today</div>' +
+          '<a href="/log#plan">Full plan &#8594;</a>' +
+        '</div>' +
+        '<div class="rec-tabs" role="tablist">' +
+          tabs.map(function (t) {
+            return (
+              '<button type="button" class="rec-tab' +
+                (t.id === active ? ' is-active' : '') +
+                '" role="tab" aria-selected="' + (t.id === active ? 'true' : 'false') +
+                '" data-tab="' + t.id + '">' + t.label + '</button>'
+            );
+          }).join('') +
+        '</div>' +
+        '<div id="home-today-rec-body"></div>';
+
+      el.querySelectorAll('.rec-tab').forEach(function (tabBtn) {
+        tabBtn.addEventListener('click', function () {
+          active = tabBtn.getAttribute('data-tab') || 'all';
+          _REC_TAB = active;
+          el.querySelectorAll('.rec-tab').forEach(function (b) {
+            var on = b.getAttribute('data-tab') === active;
+            b.classList.toggle('is-active', on);
+            b.setAttribute('aria-selected', on ? 'true' : 'false');
+          });
+          paintBody();
+        });
+      });
+
+      paintBody();
+    }
 
     fetch('/api/training/today-recommendation')
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (data) {
-        if (!data) {
-          el.innerHTML = '<div class="rec-empty">Recommendation unavailable.</div>';
-          return;
-        }
-        var rec = data.recommendation || 'no_plan';
-        var reason = data.reason || '';
-        var ps = data.planned_session;
-        var patch = data.apply_patch;
+      .then(function (data) { recData = data; gotRec = true; _tryPaint(); })
+      .catch(function () { gotRec = true; _tryPaint(); });
 
-        var modCls = _recModifierCls(rec);
-        var icon = _REC_ICONS[rec] || '—';
-        var label = _REC_LABELS[rec] || rec;
+    fetch('/api/brief/today')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) { briefData = data; gotBrief = true; _tryPaint(); })
+      .catch(function () { gotBrief = true; _tryPaint(); });
 
-        var sessionLine = '';
-        if (ps) {
-          var name = esc(ps.name || ps.session_type || 'Session');
-          sessionLine = '<div class="rec-session">' + name + '</div>';
-        }
-
-        var applyHtml = '';
-        if (rec === 'downgrade' && patch) {
-          applyHtml =
-            '<button class="rec-apply-btn" data-ps-id="' + esc(ps && ps.id ? ps.id : '') + '">' +
-              'Apply — convert to easy' +
-            '</button>';
-        }
-
-        el.innerHTML =
-          '<div class="rec-card ' + modCls + '">' +
-            '<div class="rec-header">' +
-              '<span class="rec-icon">' + icon + '</span>' +
-              '<span class="rec-label">' + esc(label) + '</span>' +
-            '</div>' +
-            sessionLine +
-            '<p class="rec-reason">' + esc(reason) + '</p>' +
-            applyHtml +
-          '</div>';
-
-        if (rec === 'downgrade' && patch) {
-          var btn = el.querySelector('.rec-apply-btn');
-          if (btn) {
-            btn.addEventListener('click', function () {
-              var psId = btn.getAttribute('data-ps-id');
-              if (!psId) return;
-              if (!confirm('Convert today\'s session to easy? This cannot be undone.')) return;
-              btn.disabled = true;
-              btn.textContent = 'Applying…';
-              fetch('/api/planned-sessions/' + encodeURIComponent(psId), {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(patch),
-              })
-                .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-                .then(function () { renderTodayRecommendationCard(el); })
-                .catch(function () {
-                  btn.disabled = false;
-                  btn.textContent = 'Apply — convert to easy';
-                  alert('Could not apply change. Please try again.');
-                });
-            });
-          }
-        }
-      })
-      .catch(function () {
-        el.innerHTML = '<div class="rec-empty">Recommendation unavailable.</div>';
-      });
+    fetch('/api/coach/weekly-message')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) { coachMsg = data; gotCoach = true; _tryPaint(); })
+      .catch(function () { gotCoach = true; _tryPaint(); });
   }
 
   /* ── Render (accepts pre-fetched summary data from home.js) ─────────────── */
@@ -800,8 +850,8 @@
       rdEl.classList.add('card');
       var readinessData = summary && summary.readiness ? summary.readiness : null;
       // Render immediately from the summary data (daily signal), then again
-      // once the separate CTL/ATL/TSB fetch resolves — the trio is a second,
-      // independent data source (GET /api/readiness, no query params), so it
+      // once the separate CTL/ATL/TSB/ACWR fetch resolves — load tiles are a
+      // second, independent data source (GET /api/readiness), so they
       // shouldn't block the rest of this tile.
       renderReadinessTile(rdEl, readinessData, null);
       fetch('/api/readiness')

@@ -1,0 +1,133 @@
+/* Shared CTL / ATL / TSB / ACWR readiness tiles (Training Log + Home) */
+
+:root {
+  --lrx-run: #4f6ef7;
+  --lrx-muted: #6b7280;
+  --lrx-line: #eceef4;
+  --lrx-tile: #f6f7fb;
+  --lrx-green: #16a34a;
+  --lrx-red: #dc2626;
+  --lrx-amber: #d97706;
+  --lrx-lavHi: #6366f1;
+  --lrx-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+.lrx-readfull {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.lrx-rcard {
+  background: var(--lrx-tile);
+  border: 1px solid var(--lrx-line);
+  border-radius: 12px;
+  padding: 15px 16px;
+}
+
+.lrx-rcard .rv {
+  font-size: 36px;
+  font-weight: 700;
+  font-family: var(--lrx-mono);
+  text-align: center;
+  line-height: 1;
+  color: #1b2340;
+}
+
+.lrx-rcard .rl {
+  font-size: 13px;
+  color: var(--lrx-muted);
+  text-align: center;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin-top: 4px;
+  text-transform: uppercase;
+}
+
+.lrx-rband {
+  height: 6px;
+  border-radius: 4px;
+  margin: 14px 0 5px;
+  position: relative;
+}
+
+.lrx-rband .mk {
+  position: absolute;
+  top: -3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid #475569;
+  transform: translateX(-50%);
+}
+
+.lrx-rstatus {
+  font-size: 13px;
+  font-weight: 800;
+  text-align: center;
+  letter-spacing: 0.06em;
+}
+
+/* ACWR band: 0→2.0 scale; stops at 0.8 / 1.3 / 1.5 */
+.perf-acwr-rband {
+  background: linear-gradient(
+    90deg,
+    #f59e0b 0%,
+    #f59e0b 40%,
+    #22c55e 40%,
+    #22c55e 65%,
+    #f59e0b 65%,
+    #f59e0b 75%,
+    #ef4444 75%,
+    #ef4444 100%
+  );
+}
+
+.lrx-load-baseline {
+  font-size: 13px;
+  color: var(--lrx-muted);
+  line-height: 1.45;
+  margin: 0;
+  padding: 4px 0;
+}
+
+/* Home: nest tiles under the daily-signal block */
+.rd-load-tiles {
+  margin-top: auto;
+  margin-bottom: auto;
+  padding-top: 14px;
+  border-top: 1px solid rgba(11, 21, 48, 0.08);
+}
+
+.rd-load-tiles .lrx-rcard .rv {
+  font-size: 28px;
+}
+
+.rd-load-tiles .lrx-rcard .rl {
+  font-size: 11px;
+}
+
+.rd-load-tiles .lrx-rstatus {
+  font-size: 11px;
+}
+
+.rd-load-tiles .lrx-rcard {
+  padding: 12px 10px;
+}
+
+@media (max-width: 640px) {
+  .rd-load-tiles .lrx-rcard .rv {
+    font-size: 22px;
+  }
+  .rd-load-tiles .lrx-rcard .rl {
+    font-size: 10px;
+  }
+}
+
+/* Keep mobile Home scannable — daily signal stays; load tiles hide */
+@media (max-width: 479px) {
+  .rd-load-tiles {
+    display: none;
+  }
+}

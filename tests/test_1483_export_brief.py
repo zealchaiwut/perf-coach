@@ -257,9 +257,10 @@ def test_dry_run_does_not_acquire_lock(m, tmp_path):
 # ── AC5: Top-level envelope ───────────────────────────────────────────────────
 
 def test_envelope_schema_version(m):
-    """AC5: schema_version is integer (bumped to 2 by the weight-block
-    addition to the brief contract; see tests/test_weight_hermes_brief_block.py)."""
-    assert m.SCHEMA_VERSION == 2
+    """AC5/v3: schema_version is integer (bumped to 3 by issue #1497 — acwr +
+    week_plan addition to the brief contract; the #1505 coach-block addition
+    is additive and does not bump it further)."""
+    assert m.SCHEMA_VERSION == 3
 
 
 def test_build_brief_envelope_keys(m):
@@ -283,7 +284,7 @@ def test_build_brief_envelope_keys(m):
             date(2026, 7, 14), "http://localhost:9100", "user-id-1", None
         )
 
-    assert brief["schema_version"] == 2
+    assert brief["schema_version"] == 3
     assert brief["for_date"] == "2026-07-14"
     assert "+07:00" in brief["generated_at"]
     assert "today" in brief
@@ -292,6 +293,7 @@ def test_build_brief_envelope_keys(m):
     assert "recent_wrap" in brief
     assert "advisories" in brief
     assert "actions" in brief
+    assert "week_plan" in brief
 
 
 def test_generated_at_has_bangkok_offset(m):

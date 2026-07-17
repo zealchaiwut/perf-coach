@@ -630,6 +630,111 @@
     });
   }
 
+  /* ---- Daily brief widget cards ---- */
+
+  function _initBriefCards() {
+    var weekEl = document.getElementById('home-brief-week-plan-card');
+    if (window.HomeBriefWeekPlanCard && weekEl) HomeBriefWeekPlanCard.render(weekEl);
+  }
+
+  /* ---- Race goal — same A-race as Training > Performance (no separate form) ---- */
+
+  function _fmtRaceTime(secs) {
+    if (secs == null || !isFinite(secs)) return '—';
+    secs = Math.round(secs);
+    var h = Math.floor(secs / 3600);
+    var m = Math.floor((secs % 3600) / 60);
+    var s = secs % 60;
+    if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+    return m + ':' + String(s).padStart(2, '0');
+  }
+
+  function _fmtRacePace(secPerKm) {
+    if (secPerKm == null || !isFinite(secPerKm) || secPerKm <= 0) return '';
+    var m = Math.floor(secPerKm / 60);
+    var s = Math.round(secPerKm % 60);
+    return m + ':' + String(s).padStart(2, '0') + '/km';
+  }
+
+  function _fmtRaceDate(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso + (iso.length === 10 ? 'T12:00:00' : ''));
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function _renderGoalCard() {
+    var card = document.getElementById('home-goal-card');
+    if (!card) return;
+    if (window.UIStates) card.innerHTML = UIStates.loadingHTML();
+    else card.innerHTML = '<div class="card-head"><div class="ttl"><i class="ti ti-flag-2"></i>Race goal</div></div>';
+
+    fetch('/api/plan/computed')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (bundle) {
+        var races = (bundle && Array.isArray(bundle.races)) ? bundle.races : [];
+        var primary =
+          races.find(function (r) {
+            return r.type === 'race' && r.priority === 'A' && r.status !== 'done';
+          }) ||
+          races.find(function (r) {
+            return r.type === 'race' && r.status !== 'done';
+          }) ||
+          null;
+
+        var head =
+          '<div class="card-head">' +
+            '<div class="ttl"><i class="ti ti-flag-2" style="color:#5a8dee;font-size:16px;"></i>Race goal</div>' +
+            '<a href="/log#performance">Performance &#8594;</a>' +
+          '</div>';
+
+        if (!primary) {
+          card.innerHTML =
+            head +
+            '<div class="goal-card__prompt">' +
+              '<div class="goal-card__sub">No A-priority race set yet.</div>' +
+              '<a class="goal-card__cta" href="/log#performance">Set race on Performance &#8594;</a>' +
+            '</div>';
+          return;
+        }
+
+        var distKm = parseFloat(primary.distance || 0);
+        var goalTime = _fmtRaceTime(primary.goal_time_seconds);
+        var paceSec =
+          primary.goal_time_seconds && distKm
+            ? primary.goal_time_seconds / distKm
+            : null;
+        var pace = _fmtRacePace(paceSec);
+
+        card.innerHTML =
+          head +
+          '<div class="hg-race">' +
+            '<span class="hg-race-let">A</span>' +
+            '<div class="hg-race-id">' +
+              '<div class="hg-race-name">' + esc(primary.name || 'Unnamed') + '</div>' +
+              '<div class="hg-race-meta">' +
+                esc(_fmtRaceDate(primary.date)) +
+                (distKm ? ' · ' + distKm.toFixed(2) + ' km' : '') +
+                ' · A-priority' +
+              '</div>' +
+            '</div>' +
+            '<div class="hg-race-goal">' +
+              '<div class="hg-race-glab">Goal</div>' +
+              '<div class="hg-race-gval">' + esc(goalTime) + '</div>' +
+              (pace ? '<div class="hg-race-gsub">' + esc(pace) + ' · target pace</div>' : '') +
+            '</div>' +
+          '</div>';
+      })
+      .catch(function () {
+        card.innerHTML =
+          '<div class="card-head">' +
+            '<div class="ttl"><i class="ti ti-flag-2"></i>Race goal</div>' +
+            '<a href="/log#performance">Performance &#8594;</a>' +
+          '</div>' +
+          '<div class="brief-unavail">Could not load race</div>';
+      });
+  }
+
   /* ---- Init ---- */
 
   async function init() {
@@ -686,6 +791,11 @@
 
       initFastLogForm(userId);
 
+      /* Week plan — same PlannedSessions week as Training > Plan */
+      _initBriefCards();
+
+      /* Race goal — same A-race as Training > Performance */
+      _renderGoalCard();
 
     }
   }

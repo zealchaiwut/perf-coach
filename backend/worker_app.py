@@ -7,6 +7,9 @@ heavy recomputes (Strava/Stryd sync, performance backfill, Banister refit).
 IMPORTANT: this module must NEVER import backend.main — that module starts
 daemon threads (sleep sync, banister refit) at import time. Only import
 backend.db, backend.models, and backend.services.* here.
+
+Also owns the weekly Home Coach narrative job (`weekly_coach`) — Claude CLI
+(`COACH_LLM=claude_cli`) runs here on zeal-server, never on the Render webapp.
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ import socket
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -292,6 +295,74 @@ def _run_banister_refit_batch() -> None:
         logger.error("job finish: banister_refit status=error: %s", exc, exc_info=True)
 
 
+def _run_weekly_coach_batch(
+    user_id: str | None = None,
+    triggered_by: str = "schedule",
+    today=None,
+) -> None:
+    """Generate weekly Home Coach narratives (Claude CLI on worker).
+
+    Webapps only READ persisted rows — generation belongs here so `claude -p`
+    and long LLM work never run on Render.
+    """
+    from datetime import date as _date
+
+    from backend.models import User
+    from backend.services.weekly_coach_message import generate_for_user
+
+    as_of = today or _date.today()
+    with Session(engine) as s:
+        q = s.query(User.id).filter(User.is_active.is_(True))
+        if user_id:
+            q = q.filter(User.id == user_id)
+        user_ids = [r[0] for r in q.all()]
+
+    recorder = DbRecorder(
+        job_type="weekly_coach",
+        user_id=user_id,
+        triggered_by=triggered_by,
+    )
+    logger.info(
+        "job start: weekly_coach users=%d triggered_by=%s as_of=%s",
+        len(user_ids),
+        triggered_by,
+        as_of,
+    )
+    results: dict[str, str] = {}
+    try:
+        for uid in user_ids:
+            key = str(uid)
+            try:
+                out = generate_for_user(user_id=uid, today=as_of)
+                if out is None:
+                    results[key] = "skip_no_goal"
+                else:
+                    src = ((out.get("plan_state_snapshot") or {}).get("source") or "?")
+                    results[key] = f"ok:{src}"
+            except Exception as exc:
+                results[key] = f"error:{exc}"
+                logger.warning("weekly_coach user=%s failed: %s", key, exc, exc_info=True)
+        ok = sum(1 for v in results.values() if v.startswith("ok"))
+        skip = sum(1 for v in results.values() if v.startswith("skip"))
+        err = sum(1 for v in results.values() if v.startswith("error"))
+        stats = {
+            "ok": ok,
+            "skip": skip,
+            "error": err,
+            "total": len(results),
+            "as_of": as_of.isoformat(),
+            "results": results,
+        }
+        recorder.mark_success(None, stats=stats)
+        logger.info(
+            "job finish: weekly_coach status=success ok=%d skip=%d err=%d/%d",
+            ok, skip, err, len(results),
+        )
+    except Exception as exc:
+        recorder.mark_error(None, str(exc))
+        logger.error("job finish: weekly_coach status=error: %s", exc, exc_info=True)
+
+
 # ── Pull-queue: dispatch + poll loop (Phase 1) ───────────────────────────────
 #
 # Each handler runs the EXISTING execution function (which creates and finalizes
@@ -337,6 +408,19 @@ def _h_banister_refit(p: dict) -> None:
     _run_banister_refit_batch()
 
 
+def _h_weekly_coach(p: dict) -> None:
+    today = None
+    raw = p.get("today") or p.get("as_of")
+    if raw:
+        from datetime import date as _date
+        today = _date.fromisoformat(str(raw)[:10])
+    _run_weekly_coach_batch(
+        user_id=p.get("user_id"),
+        triggered_by=p.get("triggered_by", "queue"),
+        today=today,
+    )
+
+
 def _h_precompute(p: dict) -> None:
     from backend.services import precompute
     precompute.precompute_user(p["user_id"], dates=p.get("dates"))
@@ -359,6 +443,7 @@ _DISPATCH = {
     "backfill": _h_backfill,
     "form_metrics_backfill": _h_form_metrics_backfill,
     "banister_refit": _h_banister_refit,
+    "weekly_coach": _h_weekly_coach,
     "precompute": _h_precompute,
     "garmin_sync": _h_garmin_sync,
 }
@@ -493,6 +578,40 @@ def form_metrics_backfill(body: dict):
 
     _executor.submit(_run_form_metrics_backfill, user_id)
     return {"started": True}
+
+
+@app.post("/internal/weekly-coach/run", dependencies=[Depends(require_worker_secret)])
+def weekly_coach_run(body: dict | None = None):
+    """Enqueue (or run) weekly Home Coach narrative generation on the worker.
+
+    Body (all optional):
+      user_id — limit to one user
+      today   — YYYY-MM-DD override
+      sync    — if true, run inline on the thread pool instead of enqueueing
+    """
+    body = body or {}
+    user_id = body.get("user_id")
+    today = body.get("today") or body.get("as_of")
+    if body.get("sync"):
+        as_of = date.fromisoformat(str(today)[:10]) if today else None
+        _executor.submit(_run_weekly_coach_batch, user_id, "manual", as_of)
+        return {"started": True, "mode": "inline"}
+
+    iso = datetime.now(BANGKOK_TZ).isocalendar()
+    week_key = f"{iso[0]}-W{iso[1]:02d}"
+    dedupe = f"weekly_coach:{week_key}" + (f":{user_id}" if user_id else "")
+    payload = {"triggered_by": "manual"}
+    if user_id:
+        payload["user_id"] = user_id
+    if today:
+        payload["today"] = str(today)[:10]
+    job_id = job_queue.enqueue(
+        "weekly_coach",
+        payload,
+        enqueued_by="manual",
+        dedupe_key=dedupe if not user_id else f"weekly_coach:manual:{user_id}:{week_key}",
+    )
+    return {"started": True, "mode": "queue", "job_id": str(job_id) if job_id else None, "dedupe_key": dedupe}
 
 
 # ── Read API (Hermes) ─────────────────────────────────────────────────────────
@@ -884,6 +1003,9 @@ def _scheduler_loop() -> None:
 
     banister_enabled = os.getenv("WORKER_BANISTER_ENABLED", "1") == "1"
     last_banister_refit = time.monotonic()
+    weekly_coach_enabled = os.getenv("WORKER_WEEKLY_COACH_ENABLED", "1") == "1"
+    # Monday=0 … Sunday=6 (datetime.weekday)
+    weekly_coach_dow = int(os.getenv("WORKER_WEEKLY_COACH_DOW", "0"))
 
     while True:
         sleep_seconds = _seconds_until_next(times) if times else 3600
@@ -902,6 +1024,27 @@ def _scheduler_loop() -> None:
                 job_queue.enqueue("banister_refit", {}, enqueued_by="schedule", dedupe_key="banister_refit")
             except Exception as exc:
                 logger.error("scheduled banister refit failed to enqueue: %s", exc, exc_info=True)
+
+        # Weekly Home Coach — once per ISO week on the configured weekday
+        # (default Monday), enqueued at the same wake times as the sync sweep.
+        # Dedupe key is the ISO week so 06:00 + 18:00 only run once.
+        if weekly_coach_enabled:
+            now_bkk = datetime.now(BANGKOK_TZ)
+            if now_bkk.weekday() == weekly_coach_dow:
+                iso = now_bkk.isocalendar()
+                week_key = f"{iso[0]}-W{iso[1]:02d}"
+                try:
+                    job_queue.enqueue(
+                        "weekly_coach",
+                        {"triggered_by": "schedule"},
+                        enqueued_by="schedule",
+                        dedupe_key=f"weekly_coach:{week_key}",
+                    )
+                    logger.info("scheduled weekly_coach enqueued for %s", week_key)
+                except Exception as exc:
+                    logger.error(
+                        "scheduled weekly_coach failed to enqueue: %s", exc, exc_info=True
+                    )
 
 
 @app.on_event("startup")

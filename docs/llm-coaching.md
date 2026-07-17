@@ -15,6 +15,33 @@ Everything is OFF by default — zero behavior change until explicitly enabled.
 Both `LLM_COACH_ENABLED=false` and `GROQ_API_KEY` absent are set in `render.yaml`
 for both services (UAT + PRD). Override in the Render dashboard to enable.
 
+## Surfaces
+
+| Surface | Module | Notes |
+|---|---|---|
+| Habit insights / nudges | `habit_insights.py`, `habit_nudges.py` | Fast tier |
+| Readiness explanation | `readiness_explanation.py` | Fast tier |
+| Plan session suggest | `plan_suggestions.py` + `plan_orch_langgraph.py` | Deep tier; `PLAN_ORCH` |
+| **Weekly Home Coach** | `coach_facts` + `coach_narrative` + `coach_claude_cli` + worker `weekly_coach` job | **Worker only** (`PERFCOACH_ROLE=worker`). Webapp reads DB. |
+
+### Weekly Home Coach (`COACH_LLM` / worker schedule)
+
+Specialist engines assemble facts; LangGraph (or plain) validates; default
+provider on the **compute worker** is `claude -p`. Render webapps leave
+`COACH_LLM` unset → `off` → no Claude/API calls if generation is ever invoked
+there by mistake.
+
+| Variable | Default | Description |
+|---|---|---|
+| `PERFCOACH_ROLE` | _(unset on web)_ / `worker` via `start_worker.sh` | When `worker` and `COACH_LLM` unset → `claude_cli`. |
+| `COACH_LLM` | `off` (web) / `claude_cli` (worker) | `claude_cli` \| `api` \| `off`. |
+| `COACH_ORCH` | `langgraph` | `langgraph` or `plain`. |
+| `COACH_CLAUDE_MODEL` | `sonnet` | Passed to `claude --model`. |
+| `WORKER_WEEKLY_COACH_ENABLED` | `1` | Scheduler enqueues Monday batch. |
+| `WORKER_WEEKLY_COACH_DOW` | `0` | Weekday (Mon=0) in Asia/Bangkok. |
+
+Manual: `POST /internal/weekly-coach/run` on the worker. Details: `docs/worker.md`.
+
 ## Fail-Safe Contract
 
 `complete_structured()` and `get_or_generate()` **never raise**. Every failure

@@ -493,11 +493,9 @@
 
 .rd4-lap-table td:first-child { text-align: left; font-weight: 700; width: 1px; white-space: nowrap; }
 
-/* Hide Cad (col 6) + Stride/Len (col 7) when detail cols are off */
-.rd4-hide-detail-cols .rd4-lap-table th:nth-child(6),
-.rd4-hide-detail-cols .rd4-lap-table td:nth-child(6),
-.rd4-hide-detail-cols .rd4-lap-table th:nth-child(7),
-.rd4-hide-detail-cols .rd4-lap-table td:nth-child(7) {
+/* Hide Cad + Stride/Len when detail cols are off (class-based so Dur can
+   sit between Dist and Pace without shifting nth-child indices). */
+.rd4-hide-detail-cols .rd4-lap-col-detail {
   display: none;
 }
 
@@ -982,4 +980,351 @@
 
 @media (max-width: 599px) {
   .rd4-signal-lbl { min-width: 68px; }
+}
+
+/* ── Share-card export (landscape screenshot) ── */
+.rd4-share {
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  gap: 14px;
+  padding: 16px;
+  background: #f4f6fa;
+  box-sizing: border-box;
+  font-family: "Inter Tight", system-ui, sans-serif;
+  color: var(--text-primary, #0b1530);
+}
+
+.rd4-share--solo {
+  grid-template-columns: 1fr;
+}
+
+.rd4-share-col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.rd4-share-header .rd4-title {
+  margin-top: 10px;
+}
+
+.rd4-share-heroes {
+  display: grid;
+  grid-template-columns: auto 1fr 1fr;
+  gap: 10px;
+  align-items: center;
+  margin-top: 14px;
+}
+
+@media (max-width: 420px) {
+  .rd4-share-heroes {
+    grid-template-columns: auto 1fr;
+  }
+  .rd4-share-heroes .rd4-share-hero-tile:last-child {
+    grid-column: 1 / -1;
+  }
+  .rd4-share-dist {
+    width: 96px;
+    height: 96px;
+  }
+  .rd4-share-dist-num {
+    font-size: 1.2rem;
+  }
+}
+
+.rd4-share-dist {
+  position: relative;
+  width: 112px;
+  height: 112px;
+  flex-shrink: 0;
+}
+
+.rd4-share-dist-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.rd4-share-dist-track {
+  fill: none;
+  stroke: #ede9fe;
+  stroke-width: 8;
+}
+
+.rd4-share-dist-arc {
+  fill: none;
+  stroke-width: 8;
+  stroke-linecap: round;
+}
+
+.rd4-share-dist-inner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  pointer-events: none;
+  line-height: 1.1;
+}
+
+.rd4-share-dist-num {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: var(--text-primary, #0b1530);
+}
+
+.rd4-share-dist-unit {
+  margin-top: 1px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary, #5c6886);
+}
+
+.rd4-share-dist-lbl {
+  margin-top: 4px;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-tertiary, #9aa3b2);
+}
+
+.rd4-share-hero-tile {
+  background: #fff;
+  border: 1px solid #e8eaf0;
+  border-radius: 12px;
+  padding: 14px 12px;
+  min-height: 72px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.rd4-share-hero-val {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary, #0b1530);
+  line-height: 1.15;
+}
+
+.rd4-share-hero-unit {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary, #5c6886);
+  margin-left: 2px;
+}
+
+.rd4-share-hero-lbl {
+  margin-top: 6px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-tertiary, #9aa3b2);
+}
+
+.rd4-share-feel {
+  margin-top: 10px;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.rd4-share-feel .feel-btn {
+  font-size: 20px;
+  padding: 0 3px;
+  opacity: 0.32;
+  filter: grayscale(0.55);
+}
+
+.rd4-share-feel .feel-btn.is-on {
+  opacity: 1;
+  filter: none;
+  transform: scale(1.12);
+}
+
+.rd4-share-metrics .rd4-stat-grid {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.rd4-share-laps .rd4-laps-head {
+  margin-bottom: 4px;
+}
+
+.rd4-share-laps-src {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+
+.rd4-share-laps .rd4-lap-table {
+  min-width: 0;
+}
+
+.rd4-share-laps .rd4-lap-scroll {
+  overflow: visible;
+}
+
+.rd4-share-more {
+  margin-top: 10px;
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-tertiary, #9aa3b2);
+  letter-spacing: 0.02em;
+}
+
+/* HR line lives inside .rd4-chart2-bars on the share card (see realignShareHrSvg). */
+.rd4-share .rd4-chart2-bars {
+  position: relative;
+}
+
+.rd4-share .rd4-hr-svg {
+  left: 0 !important;
+  width: 100% !important;
+}
+
+.rd4-share-pz .rd4-sec-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rd4-share-pz .rd4-pz-bar {
+  height: 36px;
+  gap: 3px;
+  border-radius: 10px;
+}
+
+.rd4-share-pz .rd4-pz-seg {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 6px;
+}
+
+.rd4-share-pz .rd4-pz-seg-pct {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #0b1530;
+  line-height: 1;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+}
+
+.rd4-share-pz .rd4-pz-table {
+  display: none !important;
+}
+
+/* ── Simple transparent overlay card ── */
+.rd4-simple {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  width: max-content;
+  max-width: 100%;
+  background: transparent !important;
+  color: #0b1530;
+  font-family: "Inter Tight", system-ui, sans-serif;
+  padding: 14px 4px 4px;
+  box-sizing: border-box;
+}
+
+.rd4-simple-metrics {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+  flex: 0 0 auto;
+}
+
+.rd4-simple-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 0;
+  border: none;
+  background: transparent;
+}
+
+.rd4-simple-row--name {
+  justify-content: flex-start;
+  text-align: left;
+  padding-top: 4px;
+}
+
+.rd4-simple-row--name .rd4-simple-line {
+  font-size: 1.0625rem; /* 1.25rem × 85% */
+}
+
+.rd4-simple-ico {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+.rd4-simple-line {
+  font-family: "Inter Tight", system-ui, sans-serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  color: #0b1530;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.55);
+  white-space: nowrap;
+}
+
+.rd4-simple--graph {
+  display: inline-flex;
+  align-items: flex-start;
+  width: max-content;
+  max-width: 520px;
+  padding: 8px 4px 4px;
+  box-sizing: border-box;
+}
+
+.rd4-simple--compact {
+  display: inline-flex;
+  width: max-content;
+}
+
+.rd4-simple-graph {
+  flex: 0 1 280px;
+  min-width: 180px;
+  max-width: 300px;
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.rd4-simple-graph-pad {
+  flex: 0 0 16px;
+  height: 16px;
+  width: 100%;
+  pointer-events: none;
+}
+
+.rd4-simple-chart {
+  height: 88px !important;
+  padding-left: 0 !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.rd4-simple-chart .rd4-gl-lbl,
+.rd4-simple-axis {
+  display: none !important;
+}
+
+.dp-screenshot-capture--simple {
+  background: transparent !important;
+  width: max-content !important;
 }
