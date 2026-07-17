@@ -12,7 +12,7 @@ Acceptance Criteria verified:
 import os
 import pathlib
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import httpx
