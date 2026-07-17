@@ -762,7 +762,20 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
             "target_time_sec": target_sec or None,
             "target_time_label": _format_hms(target_sec) if target_sec else None,
             "race_date": _iso(race_date),
+            "source": "performance_goal",
         }
+        # Bridge: when Plan A-race exists, prefer its date/time labels for goal display
+        a_race = (dream.get("a_race") if isinstance(dream, dict) else None) or {}
+        if a_race.get("date") or a_race.get("goal_time_sec"):
+            if a_race.get("goal_time_sec"):
+                goal_block["target_time_sec"] = a_race["goal_time_sec"]
+                goal_block["target_time_label"] = a_race.get("goal_time_label")
+            if a_race.get("date"):
+                goal_block["race_date"] = a_race["date"]
+            if a_race.get("distance_km") is not None:
+                goal_block["distance_km"] = a_race["distance_km"]
+            goal_block["name"] = a_race.get("name")
+            goal_block["source"] = "a_race"
 
         facts = {
             "as_of": today.isoformat(),
