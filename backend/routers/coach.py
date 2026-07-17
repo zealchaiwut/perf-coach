@@ -1,9 +1,9 @@
-"""coach.py — Routes for /api/coach/* (issue #1501: PerformanceGoal)."""
+"""coach.py — Routes for /api/coach/* (issues #1501, #1504)."""
 from __future__ import annotations
 
 from datetime import date as _date
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, validator
 from sqlalchemy.orm import Session
@@ -96,3 +96,28 @@ async def put_active_goal(body: _GoalBody, request: Request):
         db.commit()
         db.refresh(goal)
     return JSONResponse(_goal_dict(goal))
+
+
+@router.get("/api/coach/weekly-message")
+async def get_weekly_message(request: Request):
+    """Return the latest weekly coaching message for the authenticated user."""
+    user = await resolve_user(request)
+    from backend.services.weekly_coach_message import get_latest_for_user
+    with Session(engine) as db:
+        message = get_latest_for_user(user_id=user.id, db=db)
+    if message is None:
+        return JSONResponse({"message": None})
+    return JSONResponse({"message": message})
+
+
+@router.get("/api/coach/weekly-messages")
+async def get_weekly_messages(
+    request: Request,
+    limit: int = Query(default=10, ge=1, le=52),
+):
+    """Return up to `limit` weekly coaching messages newest-first."""
+    user = await resolve_user(request)
+    from backend.services.weekly_coach_message import get_history_for_user
+    with Session(engine) as db:
+        messages = get_history_for_user(user_id=user.id, limit=limit, db=db)
+    return JSONResponse({"messages": messages})
