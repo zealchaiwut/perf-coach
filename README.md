@@ -230,6 +230,8 @@ tune the run.
 
 ## API
 
+**For Hermes external-agent integration:** See [docs/features/api.md](docs/features/api.md) for the complete reference of endpoints called by the Hermes coaching assistant, including authentication, query parameters, response shapes, and integration examples.
+
 | Endpoint | Description |
 |---|---|
 | `GET /api/environment` | Returns `{"environment": "PRD"\|"UAT", "version": "0.1.0"}` |

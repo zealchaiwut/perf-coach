@@ -26,15 +26,18 @@
   // Fixed order (top → bottom / left → right at each breakpoint) with the
   // column span per column-count. Keys are the live widget container ids.
   var REGISTRY = [
-    { id: 'home-top-row-right',     w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Readiness
-    { id: 'home-today-rec-card',    w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Today's recommendation
-    { id: 'home-next-workout-card', w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Next + Recent
-    { id: 'home-performance-card',  w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Performance
-    { id: 'home-training-card',     w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Training
-    { id: 'home-perf-container',    w: { 8: 4, 6: 3, 4: 4, 1: 1 } }, // Personal records
-    { id: 'home-habits-widget',     w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Habits
-    { id: 'home-weight-widget',     w: { 8: 4, 6: 3, 4: 4, 1: 1 } }, // Weight
-    { id: 'home-sleep-card',        w: { 8: 4, 6: 2, 4: 2, 1: 1 } }  // Sleep
+    { id: 'home-top-row-right',          w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Readiness
+    { id: 'home-today-rec-card',         w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Today's recommendation
+    { id: 'home-next-workout-card',      w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Next + Recent
+    { id: 'home-performance-card',       w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Performance
+    { id: 'home-training-card',          w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Training
+    { id: 'home-perf-container',         w: { 8: 4, 6: 3, 4: 4, 1: 1 } }, // Personal records
+    { id: 'home-habits-widget',          w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Habits
+    { id: 'home-weight-widget',          w: { 8: 4, 6: 3, 4: 4, 1: 1 } }, // Weight
+    { id: 'home-sleep-card',             w: { 8: 4, 6: 2, 4: 2, 1: 1 } }, // Sleep
+    { id: 'home-brief-form-card',        w: { 8: 2, 6: 2, 4: 4, 1: 1 } }, // Brief: Form
+    { id: 'home-brief-week-plan-card',   w: { 8: 3, 6: 3, 4: 4, 1: 1 } }, // Brief: Week plan
+    { id: 'home-brief-advisories-card',  w: { 8: 3, 6: 3, 4: 4, 1: 1 } }  // Brief: Advisories
   ];
 
   function colFor(width) {
