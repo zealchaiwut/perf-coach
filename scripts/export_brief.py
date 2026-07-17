@@ -33,6 +33,7 @@ from backend.services.daily_brief import (  # noqa: F401
     _assemble_weight,
     _assemble_advisories,
     _assemble_recent_wrap,
+    _assemble_week_plan,
     _compute_weight_advisory,
     _load_interpretation,
     _plan_to_session,
@@ -80,6 +81,7 @@ def _build_brief(for_date: date, worker_url=None, user_id=None, username=None) -
     recent_wrap = _assemble_recent_wrap(user_id, for_date)
     weight = _assemble_weight(user_id, for_date)
     advisories = _assemble_advisories(user_id, for_date, weight)
+    week_plan = _assemble_week_plan(user_id, for_date)
 
     generated_at = datetime.now(BANGKOK_TZ).isoformat()
 
@@ -94,6 +96,7 @@ def _build_brief(for_date: date, worker_url=None, user_id=None, username=None) -
         "weight": weight,
         "advisories": advisories,
         "actions": [],
+        "week_plan": week_plan,
     }
 
 
