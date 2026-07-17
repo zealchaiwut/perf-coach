@@ -15,6 +15,30 @@ Everything is OFF by default — zero behavior change until explicitly enabled.
 Both `LLM_COACH_ENABLED=false` and `GROQ_API_KEY` absent are set in `render.yaml`
 for both services (UAT + PRD). Override in the Render dashboard to enable.
 
+## Surfaces
+
+| Surface | Module | Notes |
+|---|---|---|
+| Habit insights / nudges | `habit_insights.py`, `habit_nudges.py` | Fast tier |
+| Readiness explanation | `readiness_explanation.py` | Fast tier |
+| Plan session suggest | `plan_suggestions.py` + `plan_orch_langgraph.py` | Deep tier; `PLAN_ORCH` |
+| **Weekly Home Coach** | `coach_facts.py` + `coach_narrative.py` + `coach_orch_langgraph.py` | Deep tier; `COACH_ORCH` (default `langgraph`) |
+
+### Weekly Home Coach (`COACH_ORCH`)
+
+Specialist engines assemble a facts JSON (`build_coach_facts`). A LangGraph
+graph (`coach_orch_langgraph.run`) calls `complete_structured` to produce
+`{now, focus, dream, reflection}`, validates section length + numeral allowlist,
+retries with feedback, then falls back to `compose_coach_narrative(facts)`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `COACH_ORCH` | `langgraph` | `langgraph` or `plain`. Missing langgraph package → plain/fallback. |
+
+Kill switch remains `LLM_COACH_ENABLED` — when false, generation skips the LLM
+and persists the deterministic four-section Markdown. Formula-level notes:
+`docs/calculations/coach-narrative.md`.
+
 ## Fail-Safe Contract
 
 `complete_structured()` and `get_or_generate()` **never raise**. Every failure

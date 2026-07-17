@@ -494,36 +494,119 @@
   var _REC_LABELS = { keep: 'Go for it', downgrade: 'Downgrade', rest: 'Rest today', no_plan: 'No session' };
   var _REC_TAB = 'all'; // remember last tab across re-renders in this page load
 
-  function _coachParts(msg) {
-    var out = { directive: '', projection: '', levers: [] };
+  function _coachSnap(msg) {
+    /* Nested snapshot (new) or legacy flat plan_state. */
+    var snap = (msg && msg.plan_state_snapshot) || null;
+    if (!snap) return { planState: null, facts: null, sections: null };
+    if (snap.plan_state || snap.facts || snap.sections) {
+      return {
+        planState: snap.plan_state || null,
+        facts: snap.facts || null,
+        sections: snap.sections || null,
+      };
+    }
+    return { planState: snap, facts: null, sections: null };
+  }
+
+  function _coachSections(msg) {
+    /* Prefer structured sections; else split Markdown ## headers; else legacy. */
+    var out = { now: '', focus: '', dream: '', reflection: '', chips: [] };
     if (!msg) return out;
-    if (msg.text) {
-      var paragraphs = msg.text.split(/\n\n+/).map(function (p) { return p.trim(); }).filter(Boolean);
-      out.directive = paragraphs[0] || '';
-      var projPara = paragraphs.filter(function (p) { return p.indexOf('Projection:') === 0; })[0] || '';
-      if (projPara) out.projection = projPara.replace(/^Projection:\s*/, '');
-    }
-    var planState = msg.plan_state_snapshot || null;
-    if (planState) {
-      var loadLever = ((planState.levers || {}).load) || {};
-      var weightLever = ((planState.levers || {}).weight) || {};
-      if (loadLever.state === 'locked') {
-        if (loadLever.unlock_date) {
-          var ud = new Date(loadLever.unlock_date + 'T00:00:00');
-          var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-          out.levers.push('Load locked until ' + ud.getDate() + ' ' + months[ud.getMonth()]);
-        } else {
-          out.levers.push('Load locked');
-        }
-      } else if (loadLever.state === 'available') {
-        out.levers.push('Load available to ramp');
+    var snap = _coachSnap(msg);
+    var sec = snap.sections;
+    if (sec && (sec.now || sec.focus || sec.dream || sec.reflection)) {
+      out.now = sec.now || '';
+      out.focus = sec.focus || '';
+      out.dream = sec.dream || '';
+      out.reflection = sec.reflection || '';
+    } else if (msg.text) {
+      var text = msg.text;
+      var re = /^##\s+(Now|Focus|Dream|Reflection)\s*$/gim;
+      var matches = [];
+      var m;
+      while ((m = re.exec(text)) !== null) {
+        matches.push({ key: m[1].toLowerCase(), index: m.index, end: re.lastIndex });
       }
-      if (typeof weightLever.logged_days === 'number') {
-        out.levers.push(
-          'Weight ' + weightLever.logged_days + '/' + (weightLever.total_days || 14) + ' days logged'
-        );
+      if (matches.length) {
+        matches.forEach(function (hit, i) {
+          var start = hit.end;
+          var end = i + 1 < matches.length ? matches[i + 1].index : text.length;
+          out[hit.key] = text.slice(start, end).trim();
+        });
+      } else {
+        /* Legacy 5-block message — show full text under Now. */
+        out.now = text.trim();
       }
     }
+    var ranked = (snap.facts && snap.facts.focus_ranked) || [];
+    ranked.slice(0, 2).forEach(function (r) {
+      var tr = r.tracking || {};
+      var chip = null;
+      if (tr.current != null && tr.target != null) {
+        chip = (r.label || r.id) + ' ' + tr.current + '/' + tr.target;
+      } else if (tr.unlock_date) {
+        var ud = new Date(String(tr.unlock_date).slice(0, 10) + 'T00:00:00');
+        var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        chip = 'Unlock ' + ud.getDate() + ' ' + months[ud.getMonth()];
+      }
+      if (chip) out.chips.push(chip);
+    });
+    return out;
+  }
+
+  function _coachSectionHtml(title, body) {
+    if (!body) return '';
+    var paras = String(body).split(/\n\n+/).map(function (p) { return p.trim(); }).filter(Boolean);
+    var bodyHtml = paras.map(function (p) {
+      return '<p class="rec-coach-p">' + esc(p).replace(/\n/g, '<br>') + '</p>';
+    }).join('');
+    return (
+      '<div class="rec-coach-section">' +
+        '<div class="rec-coach-h">' + esc(title) + '</div>' +
+        bodyHtml +
+      '</div>'
+    );
+  }
+
+  function _coachFullHtml(parts) {
+    var chips = '';
+    if (parts.chips && parts.chips.length) {
+      chips =
+        '<div class="rec-coach-chips">' +
+        parts.chips.map(function (c) {
+          return '<span class="rec-coach-chip">' + esc(c) + '</span>';
+        }).join('') +
+        '</div>';
+    }
+    return (
+      '<div class="rec-coach-narrative">' +
+        _coachSectionHtml('Now', parts.now) +
+        _coachSectionHtml('Focus', parts.focus) +
+        chips +
+        _coachSectionHtml('Dream', parts.dream) +
+        _coachSectionHtml('Reflection', parts.reflection) +
+      '</div>'
+    );
+  }
+
+  function _coachParts(msg) {
+    /* Compact bullets for All tab — first lines of each section. */
+    var out = { directive: '', projection: '', levers: [], focusHint: '' };
+    if (!msg) return out;
+    var parts = _coachSections(msg);
+    if (parts.now) {
+      out.directive = parts.now.split(/\n\n+/)[0].replace(/\s+/g, ' ').trim();
+      if (out.directive.length > 220) out.directive = out.directive.slice(0, 217) + '…';
+    }
+    if (parts.focus) {
+      out.focusHint = parts.focus.split(/\n\n+/)[0].replace(/\s+/g, ' ').trim();
+      if (out.focusHint.length > 160) out.focusHint = out.focusHint.slice(0, 157) + '…';
+    }
+    if (parts.dream) {
+      out.projection = parts.dream.split(/\n\n+/)[0].replace(/\s+/g, ' ').trim();
+      if (out.projection.length > 160) out.projection = out.projection.slice(0, 157) + '…';
+    }
+    parts.chips.forEach(function (c) { out.levers.push(c); });
     return out;
   }
 
@@ -546,7 +629,12 @@
     var session = [];
     var advisories = [];
     var coach = [];
+    var coachHtml = '';
     var applyHtml = '';
+    var msg = coachMsg && coachMsg.message ? coachMsg.message : null;
+    var snap = _coachSnap(msg);
+    var nudge = (snap.facts && snap.facts.nudge) || null;
+    var focusLabel = nudge && nudge.focus_label ? nudge.focus_label : null;
 
     // Skip empty "No session" / no_plan — only surface a real recommendation.
     if (recData) {
@@ -564,6 +652,14 @@
           )
         );
         if (reason) session.push(_recBullet('session', reason));
+        if (focusLabel && nudge && nudge.next_action) {
+          session.push(
+            _recBullet(
+              'session',
+              'Advances Focus #1 (' + focusLabel + '): ' + nudge.next_action
+            )
+          );
+        }
         if (rec === 'downgrade' && patch && ps && ps.id) {
           applyHtml =
             '<button class="rec-apply-btn" data-ps-id="' + esc(ps.id) + '">' +
@@ -577,6 +673,15 @@
     var advList = (briefData && Array.isArray(briefData.advisories))
       ? briefData.advisories
       : [];
+    if (focusLabel) {
+      advisories.push(
+        _recBullet(
+          'advisories',
+          'This week’s Focus #1: ' + focusLabel +
+            (nudge && nudge.why ? ' — ' + nudge.why : '')
+        )
+      );
+    }
     advList.forEach(function (a) {
       var text = (a && a.text) || '';
       if (!text) return;
@@ -590,13 +695,24 @@
       );
     });
 
-    // Skip empty "No coach message yet."
-    var parts = _coachParts(coachMsg && coachMsg.message ? coachMsg.message : null);
-    if (parts.directive) coach.push(_recBullet('coach', parts.directive));
-    if (parts.projection) coach.push(_recBullet('coach', parts.projection));
-    parts.levers.forEach(function (L) { coach.push(_recBullet('coach', L)); });
+    // Coach tab: full Now/Focus/Dream/Reflection; All tab: compact bullets.
+    var sections = _coachSections(msg);
+    if (sections.now || sections.focus || sections.dream || sections.reflection) {
+      coachHtml = _coachFullHtml(sections);
+      var parts = _coachParts(msg);
+      if (parts.directive) coach.push(_recBullet('coach', parts.directive));
+      if (parts.focusHint) coach.push(_recBullet('coach', parts.focusHint));
+      if (parts.projection) coach.push(_recBullet('coach', parts.projection));
+      parts.levers.forEach(function (L) { coach.push(_recBullet('coach', L)); });
+    }
 
-    return { session: session, advisories: advisories, coach: coach, applyHtml: applyHtml };
+    return {
+      session: session,
+      advisories: advisories,
+      coach: coach,
+      coachHtml: coachHtml,
+      applyHtml: applyHtml,
+    };
   }
 
   function _todayTabBullets(buckets, tab) {
@@ -635,10 +751,14 @@
       ];
 
       function paintBody() {
-        var bullets = _todayTabBullets(buckets, active);
         var showApply = active === 'all' || active === 'session';
         var bodyEl = el.querySelector('#home-today-rec-body');
         if (!bodyEl) return;
+        if (active === 'coach' && buckets.coachHtml) {
+          bodyEl.innerHTML = buckets.coachHtml;
+          return;
+        }
+        var bullets = _todayTabBullets(buckets, active);
         bodyEl.innerHTML =
           '<ul class="rec-msg-list">' + bullets.join('') + '</ul>' +
           (showApply ? buckets.applyHtml : '');

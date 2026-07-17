@@ -1147,6 +1147,44 @@
     .rec-msg-item--warn { color: var(--text-primary); }
     .rec-msg-item--muted { color: var(--text-tertiary); font-style: italic; }
     .rec-msg-item--muted .rec-tag { font-style: normal; }
+    .rec-coach-narrative {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      padding: 4px 0 2px;
+    }
+    .rec-coach-section { min-width: 0; }
+    .rec-coach-h {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #047857;
+      margin-bottom: 4px;
+    }
+    .rec-coach-p {
+      margin: 0 0 6px;
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+    .rec-coach-p:last-child { margin-bottom: 0; }
+    .rec-coach-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: -4px 0 2px;
+    }
+    .rec-coach-chip {
+      font-size: 11px;
+      font-weight: 600;
+      color: #047857;
+      background: rgba(16, 185, 129, 0.12);
+      border-radius: 4px;
+      padding: 3px 8px;
+    }
     .rec-apply-btn {
       display: inline-flex;
       margin-top: 10px;
@@ -1463,7 +1501,7 @@
 <script src="js/wheel-helpers.js"></script>
 <script src="js/home-strip-habits.js"></script>
 <script src="js/lib/load-readiness-tiles.js?v=20260717r"></script>
-<script src="js/home-readiness-training-sleep.js?v=20260717ac"></script>
+<script src="js/home-readiness-training-sleep.js?v=20260717coach1"></script>
 <script src="js/lib/weight-current-card.js"></script>
 <script src="js/home-brief-week-plan-card.js?v=20260717z"></script>
 <script src="js/home.js?v=20260717s"></script>
