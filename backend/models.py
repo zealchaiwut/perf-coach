@@ -158,6 +158,8 @@ class Habit(Base):
     # Three-focus-habit model (issue #924)
     is_focus = Column(Boolean, nullable=True)
     focus_since = Column(DateTime(timezone=True), nullable=True)
+    # Section grouping: 'training' or 'general' (issue #1506)
+    section = Column(Text, nullable=False, server_default=text("'general'"))
 
     __table_args__ = (
         CheckConstraint(
@@ -167,6 +169,10 @@ class Habit(Base):
         CheckConstraint(
             "schedule_type IN ('daily', 'weekly', 'times_per_week')",
             name="ck_habits_schedule_type_values",
+        ),
+        CheckConstraint(
+            "section IN ('training', 'general')",
+            name="ck_habits_section_values",
         ),
     )
 
