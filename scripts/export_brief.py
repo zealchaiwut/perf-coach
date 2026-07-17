@@ -22,7 +22,7 @@ import urllib.request
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 BANGKOK_TZ = ZoneInfo("Asia/Bangkok")
 DEFAULT_WINDOW_DAYS = 14
 WORKER_DEFAULT_URL = "http://127.0.0.1:9100"
@@ -436,6 +436,145 @@ def _resolve_user(username: str | None) -> str:
         )
 
 
+def _load_goal_for_user(user_id: str):
+    """Return the active PerformanceGoal for user_id, or None."""
+    from sqlalchemy.orm import Session
+
+    from backend.db import engine
+    from backend.models import PerformanceGoal
+
+    with Session(engine) as db:
+        return (
+            db.query(PerformanceGoal)
+            .filter(
+                PerformanceGoal.user_id == user_id,
+                PerformanceGoal.active.is_(True),
+            )
+            .first()
+        )
+
+
+def _build_plan_state_for_user(goal, for_date: date) -> tuple:
+    """Build (plan_state, projection_info) from an active goal.
+
+    Returns a 2-tuple: (plan_state dict, projection_info dict).
+    Delegates entirely to the weekly_coach_message service helpers so the
+    brief and the weekly message share the same computation.
+    """
+    from backend.services.weekly_coach_message import (
+        _build_projection_info,
+        _load_inputs_for_user,
+    )
+    from backend.services.coach_plan import build_plan_state
+    from sqlalchemy.orm import Session
+
+    from backend.db import engine
+
+    with Session(engine) as db:
+        _, snapshot, weight_status, log_consistency = _load_inputs_for_user(
+            goal.user_id, db, for_date
+        )
+
+    acwr_val = float(getattr(snapshot, "acwr", 0) or 0) if snapshot else 0.0
+    acwr_state = "high_risk" if acwr_val > 1.30 else "productive"
+
+    plan_state = build_plan_state(
+        goal=goal,
+        training_load_snapshot=snapshot,
+        acwr_state=acwr_state,
+        guardrail_state="ok",
+        weight_status=weight_status or {"current_kg": None, "goal_kg": None, "gap_kg": 0.0},
+        log_consistency=log_consistency or {"logged_days": 0, "total_days": 14},
+        _today=for_date,
+    )
+    projection_info = _build_projection_info(goal, snapshot, for_date)
+    return plan_state, projection_info
+
+
+def _coach_lever_strings(levers: dict) -> list[str]:
+    """Compact pill text for each lever."""
+    result: list[str] = []
+
+    load = levers.get("load") or {}
+    load_state = load.get("state", "unavailable")
+    if load_state == "locked":
+        unlock_date = load.get("unlock_date")
+        if unlock_date and isinstance(unlock_date, date):
+            date_str = unlock_date.strftime("%-d %b")
+        else:
+            date_str = "soon"
+        result.append(f"load: locked until {date_str}")
+    elif load_state == "available":
+        result.append("load: available to ramp")
+    else:
+        result.append("load: unavailable")
+
+    weight = levers.get("weight") or {}
+    logged = weight.get("logged_days")
+    total = weight.get("total_days", 14)
+    if logged is not None:
+        result.append(f"weight: measurement {logged}/{total} days")
+    else:
+        result.append("weight: no data")
+
+    return result
+
+
+def _assemble_coach(user_id: str, for_date: date) -> dict | None:
+    """Assemble the coach block for the daily brief.
+
+    Returns a dict with directive (str), projection (str), and levers (list[str])
+    when an active goal exists, or None when no active goal is set.
+
+    Never raises — any internal failure degrades to None so the brief export
+    continues without the coach block.
+    """
+    try:
+        goal = _load_goal_for_user(user_id)
+        if goal is None:
+            return None
+
+        plan_state, projection_info = _build_plan_state_for_user(goal, for_date)
+
+        from backend.services.weekly_coach_message import compose_deterministic_message
+        full_message = compose_deterministic_message(plan_state, projection_info, for_date)
+
+        # Extract the "Now:" sentence (first paragraph of the message) as directive.
+        paragraphs = [p.strip() for p in full_message.split("\n\n") if p.strip()]
+        directive = paragraphs[0] if paragraphs else full_message
+
+        # Build a compact one-line projection from the last paragraph ("Projection:").
+        projection_para = next(
+            (p for p in paragraphs if p.startswith("Projection:")), None
+        )
+        if projection_para:
+            projection = projection_para[len("Projection:"):].strip()
+        else:
+            from backend.services.weekly_coach_message import (
+                _format_hms,
+            )
+            if projection_info:
+                full_t = _format_hms(projection_info.get("full_compliance_time_seconds", 0))
+                trend_t = _format_hms(projection_info.get("current_trend_time_seconds", 0))
+                label = projection_info.get("distance_label", "race")
+                target_dt = projection_info.get("target_date")
+                month = target_dt.strftime("%b") if target_dt else "race day"
+                projection = f"plan → ~{full_t} {label} by {month} · now ~{trend_t}"
+            else:
+                projection = "No projection available"
+
+        levers = _coach_lever_strings((plan_state.get("levers") or {}))
+
+        return {
+            "directive": directive,
+            "projection": projection,
+            "levers": levers,
+        }
+    except Exception as exc:
+        print(f"WARNING: coach block unavailable: {exc}", file=sys.stderr)
+        return None
+
+
 def _build_brief(
     for_date: date,
     worker_url: str,
@@ -455,10 +594,11 @@ def _build_brief(
     recent_wrap = _assemble_recent_wrap(user_id, for_date)
     weight = _assemble_weight(user_id, for_date, worker_url, username)
     advisories = _assemble_advisories(user_id, for_date, weight)
+    coach = _assemble_coach(user_id, for_date)
 
     generated_at = datetime.now(BANGKOK_TZ).isoformat()
 
-    return {
+    payload: dict = {
         "schema_version": SCHEMA_VERSION,
         "for_date": for_date.isoformat(),
         "generated_at": generated_at,
@@ -470,6 +610,9 @@ def _build_brief(
         "advisories": advisories,
         "actions": [],
     }
+    if coach is not None:
+        payload["coach"] = coach
+    return payload
 
 
 def _write_atomic(path: str, data: dict) -> None:

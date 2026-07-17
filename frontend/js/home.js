@@ -874,6 +874,11 @@
       /* Race goal card (issue #1501) */
       _renderGoalCard();
 
+      /* Coach plan card (issue #1505) */
+      if (window.HomeCoachCard) {
+        HomeCoachCard.render(document.getElementById('home-coach-card'));
+      }
+
     }
   }
 

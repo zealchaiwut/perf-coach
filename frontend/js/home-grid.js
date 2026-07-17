@@ -35,7 +35,8 @@
     { id: 'home-habits-widget',     w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Habits
     { id: 'home-weight-widget',     w: { 8: 4, 6: 3, 4: 4, 1: 1 } }, // Weight
     { id: 'home-sleep-card',        w: { 8: 4, 6: 2, 4: 2, 1: 1 } }, // Sleep
-    { id: 'home-goal-card',         w: { 8: 4, 6: 3, 4: 4, 1: 1 } }  // Race goal
+    { id: 'home-goal-card',         w: { 8: 4, 6: 3, 4: 4, 1: 1 } }, // Race goal
+    { id: 'home-coach-card',        w: { 8: 4, 6: 4, 4: 4, 1: 1 } }  // Coach plan
   ];
 
   function colFor(width) {
