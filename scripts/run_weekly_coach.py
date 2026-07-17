@@ -14,6 +14,8 @@ Exit codes:
 Environment:
     ENVIRONMENT, DATABASE_URL / DATABASE_URL_UAT / DATABASE_URL_PRD must be set.
     Load from .env via `source .env` or set in the environment before running.
+    Weekly narrative provider: COACH_LLM=claude_cli (default, `claude -p`) or
+    COACH_LLM=api (HTTP; needs LLM_COACH_ENABLED).
 """
 from __future__ import annotations
 

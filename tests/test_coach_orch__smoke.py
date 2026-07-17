@@ -34,6 +34,7 @@ def test_generate_fallback_when_llm_off(monkeypatch):
 
 def test_generate_accepts_valid_llm(monkeypatch):
     monkeypatch.setenv("COACH_ORCH", "plain")
+    monkeypatch.setenv("COACH_LLM", "api")
     facts = _facts()
     good = parse_sections_from_text(compose_coach_narrative(facts))
     with patch(
@@ -41,7 +42,7 @@ def test_generate_accepts_valid_llm(monkeypatch):
         return_value=good,
     ) as mock_call:
         result = generate_narrative(facts, max_attempts=3)
-    assert result["source"] == "llm"
+    assert result["source"] in ("llm", "claude_cli")
     assert mock_call.call_count == 1
     assert result["attempts"] == 1
 

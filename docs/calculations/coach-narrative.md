@@ -7,15 +7,17 @@ race times, or kg figures — only numerals present in `facts["required_numerals
 ## Pipeline
 
 1. `build_coach_facts(user_id, today)` — specialists only (no LLM imports).
-2. `coach_orch_langgraph.run` / plain retry — `llm.complete_structured`.
+2. `coach_orch_langgraph.run` / plain retry — default provider is
+   **`claude -p`** (`COACH_LLM=claude_cli`, Claude.ai subscription). Set
+   `COACH_LLM=api` to use `llm.complete_structured` instead.
 3. `validation_errors(sections, facts)` — section min length, max total chars,
    numeral allowlist.
-4. On failure / LLM off → `compose_coach_narrative(facts)`.
+4. On failure / CLI missing → `compose_coach_narrative(facts)`.
 5. Persist `text` + nested `plan_state_snapshot`:
    `{ plan_state, facts, source, sections, orch, attempts }`.
 
-Env: `COACH_ORCH=langgraph|plain`, master kill `LLM_COACH_ENABLED` (see
-`docs/llm-coaching.md`).
+Env: `COACH_LLM=claude_cli|api`, `COACH_ORCH=langgraph|plain`,
+`COACH_CLAUDE_MODEL` (see `docs/llm-coaching.md`).
 
 ## Focus ranking (Phase 2)
 

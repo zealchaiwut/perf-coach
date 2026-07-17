@@ -63,13 +63,13 @@ def _node_fallback(state: CoachOrchState) -> dict:
 
 
 def _node_accept(state: CoachOrchState) -> dict:
-    from backend.services.coach_narrative import sections_to_text
+    from backend.services.coach_narrative import sections_to_text, _source_label
 
     sections = state.get("sections") or {}
     return {
         "text": sections_to_text(sections),
         "sections": sections,
-        "source": "llm",
+        "source": _source_label(),
         "errors": [],
     }
 

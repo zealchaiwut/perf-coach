@@ -318,48 +318,72 @@ def build_prompt(facts: dict, feedback: str = "") -> tuple[str, str]:
         "Be warm but not fluffy. Never invent TSS, dates, times, or kg values — "
         "use ONLY numbers present in the facts JSON / required_numerals. "
         "No medical claims. No inventing workouts. "
+        "IGNORE any repository files, CLAUDE.md, open editors, or prior chat — "
+        "the ONLY source of truth is the facts JSON in the user message. "
         "Return JSON with keys now, focus, dream, reflection (plain prose, no ## headers)."
     )
     user = (
         f"{feedback}"
-        "Write the four sections from these facts:\n\n"
+        "FACTS JSON follows. Write the four sections using ONLY these facts "
+        "(do not claim facts are missing if the JSON below is non-empty):\n\n"
         f"{json.dumps(slim, default=str)[:12000]}"
     )
     return system, user
 
 
 def call_llm_sections(facts: dict, feedback: str = "") -> dict[str, str] | None:
-    """Call llm.complete_structured; return sections dict or None."""
-    from backend.services.llm import llm_enabled, complete_structured
+    """Generate sections via Claude CLI (default) or HTTP LLM API.
 
-    if not llm_enabled():
-        return None
-
+    Provider selected by ``COACH_LLM``:
+      - ``claude_cli`` / ``claude`` / ``cli`` (default) — ``claude -p`` subscription
+      - ``api`` — ``llm.complete_structured`` (requires ``LLM_COACH_ENABLED``)
+    """
     system, user = build_prompt(facts, feedback)
-    # Prefer deep tier for quality (same family as plan suggestions); fall back fast.
-    result = complete_structured(
-        system=system,
-        user=user,
-        schema_name="coach_weekly_narrative",
-        json_schema=_NARRATIVE_SCHEMA,
-        model_tier="deep",
-        max_tokens=1600,
-    )
-    if result is None:
+    mode = (os.environ.get("COACH_LLM") or "claude_cli").strip().lower()
+
+    if mode in ("claude_cli", "claude", "cli"):
+        from backend.services.coach_claude_cli import (
+            call_claude_cli_sections,
+            claude_cli_enabled,
+        )
+
+        if not claude_cli_enabled():
+            _log.warning("COACH_LLM=claude_cli but claude binary missing; no generation")
+            return None
+        return call_claude_cli_sections(system, user)
+
+    if mode in ("api", "http", "groq", "glm"):
+        from backend.services.llm import llm_enabled, complete_structured
+
+        if not llm_enabled():
+            return None
+        # Prefer deep tier for quality; fall back fast.
         result = complete_structured(
             system=system,
             user=user,
             schema_name="coach_weekly_narrative",
             json_schema=_NARRATIVE_SCHEMA,
-            model_tier="fast",
-            max_tokens=1200,
+            model_tier="deep",
+            max_tokens=1600,
         )
-    if not result:
-        return None
-    sections = {k: str(result.get(k) or "").strip() for k in SECTION_ORDER}
-    if not any(sections.values()):
-        return None
-    return sections
+        if result is None:
+            result = complete_structured(
+                system=system,
+                user=user,
+                schema_name="coach_weekly_narrative",
+                json_schema=_NARRATIVE_SCHEMA,
+                model_tier="fast",
+                max_tokens=1200,
+            )
+        if not result:
+            return None
+        sections = {k: str(result.get(k) or "").strip() for k in SECTION_ORDER}
+        if not any(sections.values()):
+            return None
+        return sections
+
+    _log.warning("Unknown COACH_LLM=%r — expected claude_cli|api", mode)
+    return None
 
 
 def coach_orch_mode() -> str:
@@ -392,7 +416,7 @@ def generate_narrative(facts: dict, max_attempts: int = 3) -> dict:
             return {
                 "text": sections_to_text(sections),
                 "sections": sections,
-                "source": "llm",
+                "source": _source_label(),
                 "attempts": attempts,
                 "orch": "plain",
             }
@@ -404,3 +428,10 @@ def generate_narrative(facts: dict, max_attempts: int = 3) -> dict:
         "attempts": attempts,
         "orch": "plain",
     }
+
+
+def _source_label() -> str:
+    mode = (os.environ.get("COACH_LLM") or "claude_cli").strip().lower()
+    if mode in ("claude_cli", "claude", "cli"):
+        return "claude_cli"
+    return "llm"

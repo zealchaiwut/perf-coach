@@ -22,22 +22,25 @@ for both services (UAT + PRD). Override in the Render dashboard to enable.
 | Habit insights / nudges | `habit_insights.py`, `habit_nudges.py` | Fast tier |
 | Readiness explanation | `readiness_explanation.py` | Fast tier |
 | Plan session suggest | `plan_suggestions.py` + `plan_orch_langgraph.py` | Deep tier; `PLAN_ORCH` |
-| **Weekly Home Coach** | `coach_facts.py` + `coach_narrative.py` + `coach_orch_langgraph.py` | Deep tier; `COACH_ORCH` (default `langgraph`) |
+| **Weekly Home Coach** | `coach_facts.py` + `coach_narrative.py` + `coach_orch_langgraph.py` + `coach_claude_cli.py` | Default: `claude -p` (subscription). Opt-in HTTP via `COACH_LLM=api`. |
 
-### Weekly Home Coach (`COACH_ORCH`)
+### Weekly Home Coach (`COACH_LLM` / `COACH_ORCH`)
 
 Specialist engines assemble a facts JSON (`build_coach_facts`). A LangGraph
-graph (`coach_orch_langgraph.run`) calls `complete_structured` to produce
-`{now, focus, dream, reflection}`, validates section length + numeral allowlist,
-retries with feedback, then falls back to `compose_coach_narrative(facts)`.
+graph (`coach_orch_langgraph.run`) generates `{now, focus, dream, reflection}`,
+validates section length + numeral allowlist, retries with feedback, then falls
+back to `compose_coach_narrative(facts)`.
 
 | Variable | Default | Description |
 |---|---|---|
+| `COACH_LLM` | `claude_cli` | `claude_cli` = `claude -p --json-schema` (Claude.ai subscription; strips `ANTHROPIC_API_KEY`). `api` = HTTP `complete_structured` (requires `LLM_COACH_ENABLED`). |
 | `COACH_ORCH` | `langgraph` | `langgraph` or `plain`. Missing langgraph package → plain/fallback. |
+| `COACH_CLAUDE_MODEL` | `sonnet` | Model alias passed to `claude --model`. |
+| `COACH_CLAUDE_TIMEOUT_SEC` | `180` | Subprocess timeout for the weekly generate. |
 
-Kill switch remains `LLM_COACH_ENABLED` — when false, generation skips the LLM
-and persists the deterministic four-section Markdown. Formula-level notes:
-`docs/calculations/coach-narrative.md`.
+Weekly generation is intentionally rare (≈once per ISO week via
+`scripts/run_weekly_coach.py`), so the CLI path avoids z.ai/Groq rate limits.
+Formula-level notes: `docs/calculations/coach-narrative.md`.
 
 ## Fail-Safe Contract
 
