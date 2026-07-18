@@ -149,6 +149,10 @@ information about.
       _wireLoadPlanSettings();
       _loadLoadPlan();
       _loadWeekLoad(_iso(_weekStart));
+      // What to improve panel (moved from Performance → Plan)
+      if (window.TrainingPerformance && window.TrainingPerformance.loadGapPanel) {
+        window.TrainingPerformance.loadGapPanel();
+      }
     },
     // Deep link from outside the Plan tab (e.g. the Log calendar): scope the
     // week to the session's date and flag it to open once init()'s own
@@ -2825,8 +2829,30 @@ information about.
 
   function _adjustSession(s, harder) {
     var factor = harder ? 1.2 : 0.8;
-    s.target_tss = Math.max(0, Math.min(400, Math.round((s.target_tss || 0) * factor)));
-    s.duration_minutes = Math.max(0, Math.round((s.duration_minutes || 0) * factor));
+    var nextTss = Math.max(0, Math.min(400, Math.round((s.target_tss || 0) * factor)));
+    var nextDur = Math.max(0, Math.round((s.duration_minutes || 0) * factor));
+
+    // Clamp to preset constraints when present (from gap / coach rule base)
+    var c = s.preset_constraints || (s.structure && s.structure._preset_constraints) || null;
+    if (!c && s._preset_constraints) c = s._preset_constraints;
+    if (c) {
+      if (c.min_tss != null) nextTss = Math.max(nextTss, Math.round(c.min_tss));
+      if (c.max_tss != null) nextTss = Math.min(nextTss, Math.round(c.max_tss));
+      if (c.min_duration_min != null) nextDur = Math.max(nextDur, Math.round(c.min_duration_min));
+      if (c.max_duration_min != null) nextDur = Math.min(nextDur, Math.round(c.max_duration_min));
+      if (s.load_ceiling_tss != null && c.must_respect_load_ceiling !== false) {
+        nextTss = Math.min(nextTss, Math.round(s.load_ceiling_tss));
+      }
+    }
+
+    // Disable-at-bounds: if no movement possible, leave as-is
+    if (!harder && c && c.min_duration_min != null && (s.duration_minutes || 0) <= c.min_duration_min
+        && c.min_tss != null && (s.target_tss || 0) <= c.min_tss) {
+      return;
+    }
+
+    s.target_tss = nextTss;
+    s.duration_minutes = nextDur;
 
     if (Array.isArray(s.exercises)) {
       s.exercises.forEach(function (ex) {
@@ -2850,6 +2876,21 @@ information about.
           b.repeat = Math.max(1, Math.min(20, b.repeat + (harder ? 1 : -1)));
         }
       });
+      // Re-sum block durations toward clamped duration when preset floor applies
+      if (c && c.min_duration_min != null) {
+        var sum = 0;
+        s.blocks.forEach(function (b) {
+          sum += (b.duration_min || 0) * (b.repeat || 1);
+        });
+        if (sum > 0 && sum < c.min_duration_min) {
+          var scale = c.min_duration_min / sum;
+          s.blocks.forEach(function (b) {
+            if (b.duration_min != null) {
+              b.duration_min = Math.max(1, Math.round(b.duration_min * scale));
+            }
+          });
+        }
+      }
     }
   }
 

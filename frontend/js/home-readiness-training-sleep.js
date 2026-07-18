@@ -489,10 +489,7 @@
       });
   }
 
-  /* ── Today card — tabbed: All / Session / Advisories / Coach ──────────── */
-
-  var _REC_LABELS = { keep: 'Go for it', downgrade: 'Downgrade', rest: 'Rest today', no_plan: 'No session' };
-  var _REC_TAB = 'all'; // remember last tab across re-renders in this page load
+  /* ── Today card — Coach-only (daily narrative + nudge) ───────────────── */
 
   function _coachSnap(msg) {
     /* Nested snapshot (new) or legacy flat plan_state. */
@@ -508,18 +505,20 @@
     return { planState: snap, facts: null, sections: null };
   }
 
-  function _coachSections(msg) {
+  function _coachSections(msg, payload) {
     /* Prefer structured sections; else split Markdown ## headers; else legacy. */
     var out = { now: '', focus: '', dream: '', reflection: '', chips: [] };
-    if (!msg) return out;
-    var snap = _coachSnap(msg);
-    var sec = snap.sections;
+    var sec = (payload && payload.sections) || null;
+    if (!sec && msg) {
+      var snap = _coachSnap(msg);
+      sec = snap.sections;
+    }
     if (sec && (sec.now || sec.focus || sec.dream || sec.reflection)) {
       out.now = sec.now || '';
       out.focus = sec.focus || '';
       out.dream = sec.dream || '';
       out.reflection = sec.reflection || '';
-    } else if (msg.text) {
+    } else if (msg && msg.text) {
       var text = msg.text;
       var re = /^##\s+(Now|Focus|Dream|Reflection)\s*$/gim;
       var matches = [];
@@ -534,11 +533,13 @@
           out[hit.key] = text.slice(start, end).trim();
         });
       } else {
-        /* Legacy 5-block message — show full text under Now. */
         out.now = text.trim();
       }
     }
-    var ranked = (snap.facts && snap.facts.focus_ranked) || [];
+    var facts = (payload && payload.message && _coachSnap(payload.message).facts)
+      || (msg && _coachSnap(msg).facts)
+      || null;
+    var ranked = (facts && facts.focus_ranked) || [];
     ranked.slice(0, 2).forEach(function (r) {
       var tr = r.tracking || {};
       var chip = null;
@@ -568,7 +569,50 @@
     );
   }
 
-  function _coachFullHtml(parts) {
+  function _nudgeHtml(nudge, chosen) {
+    if (!nudge && !chosen) return '';
+    var label = (nudge && (nudge.focus_label || nudge.next_action))
+      || (chosen && (chosen.name || chosen.summary))
+      || '';
+    if (!label) return '';
+    var why = (nudge && nudge.why) || '';
+    var summary = (chosen && chosen.summary) || '';
+    return (
+      '<div class="rec-nudge">' +
+        '<div class="rec-nudge-label">Today</div>' +
+        '<div class="rec-nudge-action">' + esc(label) +
+          (summary ? ' <span class="rec-nudge-meta">· ' + esc(summary) + '</span>' : '') +
+        '</div>' +
+        (why ? '<div class="rec-nudge-why">' + esc(String(why).slice(0, 180)) + '</div>' : '') +
+      '</div>'
+    );
+  }
+
+  function _sessionCheckinHtml(checkin) {
+    if (!checkin || !checkin.length) return '';
+    var upcoming = checkin.filter(function (s) {
+      return (s.status || 'planned') === 'planned';
+    }).slice(0, 3);
+    if (!upcoming.length) return '';
+    var items = upcoming.map(function (s) {
+      var href = s.adjust_url || ('/log#plan?date=' + encodeURIComponent(s.date || ''));
+      return (
+        '<li class="rec-checkin-item">' +
+          '<span>' + esc(s.name || s.session_type || 'Session') +
+            (s.date ? ' · ' + esc(s.date) : '') + '</span>' +
+          ' <a class="rec-checkin-link" href="' + esc(href) + '">Adjust on Plan →</a>' +
+        '</li>'
+      );
+    }).join('');
+    return (
+      '<div class="rec-coach-section rec-checkin">' +
+        '<div class="rec-coach-h">This week — lighter / harder?</div>' +
+        '<ul class="rec-checkin-list">' + items + '</ul>' +
+      '</div>'
+    );
+  }
+
+  function _coachFullHtml(parts, nudge, chosen, checkin) {
     var chips = '';
     if (parts.chips && parts.chips.length) {
       chips =
@@ -580,260 +624,51 @@
     }
     return (
       '<div class="rec-coach-narrative">' +
+        _nudgeHtml(nudge, chosen) +
         _coachSectionHtml('Now', parts.now) +
         _coachSectionHtml('Focus', parts.focus) +
         chips +
         _coachSectionHtml('Dream', parts.dream) +
         _coachSectionHtml('Reflection', parts.reflection) +
+        _sessionCheckinHtml(checkin) +
       '</div>'
     );
   }
 
-  function _coachParts(msg) {
-    /* Compact bullets for All tab — first lines of each section. */
-    var out = { directive: '', projection: '', levers: [], focusHint: '' };
-    if (!msg) return out;
-    var parts = _coachSections(msg);
-    if (parts.now) {
-      out.directive = parts.now.split(/\n\n+/)[0].replace(/\s+/g, ' ').trim();
-      if (out.directive.length > 220) out.directive = out.directive.slice(0, 217) + '…';
+  function loadCoachBrief() {
+    var stripEl = document.getElementById('home-coach-today-strip');
+    var digestEl = document.getElementById('home-today-rec-card');
+    if (stripEl) {
+      stripEl.hidden = false;
+      stripEl.innerHTML = '<div class="hc-today"><div class="hc-today-head"><span class="hc-today-t">TODAY · COACH</span></div><div class="hc-today-body"><div class="rec-loading">Loading…</div></div></div>';
     }
-    if (parts.focus) {
-      out.focusHint = parts.focus.split(/\n\n+/)[0].replace(/\s+/g, ' ').trim();
-      if (out.focusHint.length > 160) out.focusHint = out.focusHint.slice(0, 157) + '…';
+    if (digestEl) {
+      digestEl.innerHTML =
+        '<div class="card-head"><div class="ttl">Coach</div></div>' +
+        '<div class="rec-loading">Loading…</div>';
     }
-    if (parts.dream) {
-      out.projection = parts.dream.split(/\n\n+/)[0].replace(/\s+/g, ' ').trim();
-      if (out.projection.length > 160) out.projection = out.projection.slice(0, 157) + '…';
-    }
-    parts.chips.forEach(function (c) { out.levers.push(c); });
-    return out;
-  }
-
-  function _recBullet(group, text, cls) {
-    var tag =
-      group === 'session' ? 'Session' :
-      group === 'advisories' ? 'Advisories' :
-      group === 'coach' ? 'Coach' : '';
-    var tagHtml = tag
-      ? '<span class="rec-tag rec-tag--' + group + '">[' + tag + ']</span> '
-      : '';
-    return (
-      '<li class="rec-msg-item' + (cls ? ' ' + cls : '') + '">' +
-        tagHtml + esc(text) +
-      '</li>'
-    );
-  }
-
-  function _buildTodayBuckets(recData, briefData, coachMsg) {
-    var session = [];
-    var advisories = [];
-    var coach = [];
-    var coachHtml = '';
-    var applyHtml = '';
-    var msg = coachMsg && coachMsg.message ? coachMsg.message : null;
-    var snap = _coachSnap(msg);
-    var nudge = (snap.facts && snap.facts.nudge) || null;
-    var focusLabel = nudge && nudge.focus_label ? nudge.focus_label : null;
-
-    // Skip empty "No session" / no_plan — only surface a real recommendation.
-    if (recData) {
-      var rec = recData.recommendation || 'no_plan';
-      if (rec !== 'no_plan') {
-        var reason = recData.reason || '';
-        var ps = recData.planned_session;
-        var patch = recData.apply_patch;
-        var label = _REC_LABELS[rec] || rec;
-        var sessionName = ps ? (ps.name || ps.session_type || '') : '';
-        session.push(
-          _recBullet(
-            'session',
-            label + (sessionName ? ' · ' + sessionName : '')
-          )
-        );
-        if (reason) session.push(_recBullet('session', reason));
-        if (focusLabel && nudge && nudge.next_action) {
-          session.push(
-            _recBullet(
-              'session',
-              'Advances Focus #1 (' + focusLabel + '): ' + nudge.next_action
-            )
-          );
+    fetch('/api/coach/brief')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        var brief = data && data.brief;
+        if (window.HomeCoachStrip) {
+          window.HomeCoachStrip.render(stripEl, brief || null);
         }
-        if (rec === 'downgrade' && patch && ps && ps.id) {
-          applyHtml =
-            '<button class="rec-apply-btn" data-ps-id="' + esc(ps.id) + '">' +
-              'Apply — convert to easy' +
-            '</button>';
+        if (window.HomeCoachDigest && digestEl) {
+          window.HomeCoachDigest.render(digestEl, brief || null);
         }
-      }
-    }
-
-    // Skip empty "No advisories."
-    var advList = (briefData && Array.isArray(briefData.advisories))
-      ? briefData.advisories
-      : [];
-    if (focusLabel) {
-      advisories.push(
-        _recBullet(
-          'advisories',
-          'This week’s Focus #1: ' + focusLabel +
-            (nudge && nudge.why ? ' — ' + nudge.why : '')
-        )
-      );
-    }
-    advList.forEach(function (a) {
-      var text = (a && a.text) || '';
-      if (!text) return;
-      var isWarn = a && a.severity === 'warn';
-      advisories.push(
-        _recBullet(
-          'advisories',
-          (isWarn ? '⚠ ' : '') + text,
-          isWarn ? 'rec-msg-item--warn' : ''
-        )
-      );
-    });
-
-    // Coach tab: full Now/Focus/Dream/Reflection; All tab: compact bullets.
-    var sections = _coachSections(msg);
-    if (sections.now || sections.focus || sections.dream || sections.reflection) {
-      coachHtml = _coachFullHtml(sections);
-      var parts = _coachParts(msg);
-      if (parts.directive) coach.push(_recBullet('coach', parts.directive));
-      if (parts.focusHint) coach.push(_recBullet('coach', parts.focusHint));
-      if (parts.projection) coach.push(_recBullet('coach', parts.projection));
-      parts.levers.forEach(function (L) { coach.push(_recBullet('coach', L)); });
-    }
-
-    return {
-      session: session,
-      advisories: advisories,
-      coach: coach,
-      coachHtml: coachHtml,
-      applyHtml: applyHtml,
-    };
-  }
-
-  function _todayTabBullets(buckets, tab) {
-    if (tab === 'session') return buckets.session;
-    if (tab === 'advisories') return buckets.advisories;
-    if (tab === 'coach') return buckets.coach;
-    return buckets.session.concat(buckets.advisories, buckets.coach);
+      })
+      .catch(function () {
+        if (window.HomeCoachStrip) window.HomeCoachStrip.render(stripEl, null);
+        if (window.HomeCoachDigest && digestEl) {
+          window.HomeCoachDigest.render(digestEl, null);
+        }
+      });
   }
 
   function renderTodayRecommendationCard(el) {
+    // Digest filled by loadCoachBrief alongside the Today strip.
     if (!el) return;
-    el.innerHTML =
-      '<div class="card-head">' +
-        '<div class="ttl"><i class="ti ti-bolt"></i>Today</div>' +
-        '<a href="/log#plan">Full plan &#8594;</a>' +
-      '</div>' +
-      '<div class="rec-loading">Loading…</div>';
-
-    var recData = null;
-    var briefData = null;
-    var coachMsg = null;
-    var gotRec = false;
-    var gotBrief = false;
-    var gotCoach = false;
-
-    function _tryPaint() {
-      if (!gotRec || !gotBrief || !gotCoach) return;
-
-      var buckets = _buildTodayBuckets(recData, briefData, coachMsg);
-      var active = _REC_TAB || 'all';
-      var tabs = [
-        { id: 'all', label: 'All' },
-        { id: 'session', label: 'Session' },
-        { id: 'advisories', label: 'Advisories' },
-        { id: 'coach', label: 'Coach' },
-      ];
-
-      function paintBody() {
-        var showApply = active === 'all' || active === 'session';
-        var bodyEl = el.querySelector('#home-today-rec-body');
-        if (!bodyEl) return;
-        if (active === 'coach' && buckets.coachHtml) {
-          bodyEl.innerHTML = buckets.coachHtml;
-          return;
-        }
-        var bullets = _todayTabBullets(buckets, active);
-        bodyEl.innerHTML =
-          '<ul class="rec-msg-list">' + bullets.join('') + '</ul>' +
-          (showApply ? buckets.applyHtml : '');
-
-        var btn = bodyEl.querySelector('.rec-apply-btn');
-        if (btn) {
-          btn.addEventListener('click', function () {
-            var psId = btn.getAttribute('data-ps-id');
-            if (!psId) return;
-            if (!confirm('Convert today\'s session to easy? This cannot be undone.')) return;
-            btn.disabled = true;
-            btn.textContent = 'Applying…';
-            fetch('/api/planned-sessions/' + encodeURIComponent(psId), {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(recData.apply_patch),
-            })
-              .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-              .then(function () { renderTodayRecommendationCard(el); })
-              .catch(function () {
-                btn.disabled = false;
-                btn.textContent = 'Apply — convert to easy';
-                alert('Could not apply change. Please try again.');
-              });
-          });
-        }
-      }
-
-      el.innerHTML =
-        '<div class="card-head">' +
-          '<div class="ttl"><i class="ti ti-bolt"></i>Today</div>' +
-          '<a href="/log#plan">Full plan &#8594;</a>' +
-        '</div>' +
-        '<div class="rec-tabs" role="tablist">' +
-          tabs.map(function (t) {
-            return (
-              '<button type="button" class="rec-tab' +
-                (t.id === active ? ' is-active' : '') +
-                '" role="tab" aria-selected="' + (t.id === active ? 'true' : 'false') +
-                '" data-tab="' + t.id + '">' + t.label + '</button>'
-            );
-          }).join('') +
-        '</div>' +
-        '<div id="home-today-rec-body"></div>';
-
-      el.querySelectorAll('.rec-tab').forEach(function (tabBtn) {
-        tabBtn.addEventListener('click', function () {
-          active = tabBtn.getAttribute('data-tab') || 'all';
-          _REC_TAB = active;
-          el.querySelectorAll('.rec-tab').forEach(function (b) {
-            var on = b.getAttribute('data-tab') === active;
-            b.classList.toggle('is-active', on);
-            b.setAttribute('aria-selected', on ? 'true' : 'false');
-          });
-          paintBody();
-        });
-      });
-
-      paintBody();
-    }
-
-    fetch('/api/training/today-recommendation')
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (data) { recData = data; gotRec = true; _tryPaint(); })
-      .catch(function () { gotRec = true; _tryPaint(); });
-
-    fetch('/api/brief/today')
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (data) { briefData = data; gotBrief = true; _tryPaint(); })
-      .catch(function () { gotBrief = true; _tryPaint(); });
-
-    fetch('/api/coach/weekly-message')
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (data) { coachMsg = data; gotCoach = true; _tryPaint(); })
-      .catch(function () { gotCoach = true; _tryPaint(); });
   }
 
   /* ── Render (accepts pre-fetched summary data from home.js) ─────────────── */
@@ -876,6 +711,7 @@
     if (recEl) {
       renderTodayRecommendationCard(recEl);
     }
+    loadCoachBrief();
   }
 
   /* Expose for home.js to call with pre-fetched summary (+ the session user

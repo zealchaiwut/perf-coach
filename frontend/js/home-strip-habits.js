@@ -42,7 +42,7 @@
 
   function _renderStrip(readiness) {
     var strip = document.getElementById('home-log-today-strip');
-    if (!strip) return;
+    if (!strip || strip.hidden) return;
 
     var logged = readiness && readiness.logged === true;
 

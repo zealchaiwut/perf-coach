@@ -31,10 +31,52 @@ _NARRATIVE_SCHEMA = {
         "focus": {"type": "string"},
         "dream": {"type": "string"},
         "reflection": {"type": "string"},
+        "chosen_preset_code": {"type": "string"},
     },
     "required": ["now", "focus", "dream", "reflection"],
     "additionalProperties": False,
 }
+
+# Brief v4 — LLM returns only prose atoms; placement is deterministic.
+_BRIEF_ATOM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "today_verdict": {"type": "string"},
+        "week_verdict": {"type": "string"},
+        "week_verdict_sub": {"type": "string"},
+        "sections": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "headline": {"type": "string"},
+                    "evidence": {"type": "string"},
+                    "do": {"type": "string"},
+                },
+                "required": ["id", "headline", "evidence", "do"],
+                "additionalProperties": False,
+            },
+        },
+        "chosen_preset_code": {"type": "string"},
+    },
+    "required": ["today_verdict", "week_verdict", "week_verdict_sub", "sections"],
+    "additionalProperties": False,
+}
+
+ATOM_BUDGETS = {
+    "today_verdict": 140,
+    "week_verdict": 90,
+    "week_verdict_sub": 110,
+    "headline": 60,
+    "evidence": 280,
+    "do": 140,
+}
+
+_FOCUS_RANK_RE = re.compile(r"focus\s*#?\d", re.IGNORECASE)
+_MD_HEADER_RE = re.compile(r"^##\s", re.MULTILINE)
+_SENTENCE_RE = re.compile(r"[.!?](?:\s|$)")
+
 
 
 def sections_to_text(sections: dict[str, str]) -> str:
@@ -446,10 +488,9 @@ def _numeral_allowed(tok: str, allow: set[str]) -> bool:
 
 
 def validation_errors(sections: dict[str, str], facts: dict) -> list[str]:
-    """Return list of validation problems; empty means accept."""
+    """Legacy four-section validator (historical messages / old tests)."""
     errors: list[str] = []
     allow = set(facts.get("required_numerals") or [])
-    # Also allow numerals freshly collected
     try:
         from backend.services.coach_facts import collect_required_numerals
         allow.update(collect_required_numerals(facts))
@@ -468,11 +509,111 @@ def validation_errors(sections: dict[str, str], facts: dict) -> list[str]:
 
     joined = " ".join(sections.get(k) or "" for k in SECTION_ORDER)
     for tok in _extract_numerals(joined):
-        # Very common connective numbers always allowed (section ranks, weeks)
         if tok in {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "12", "14"}:
             continue
         if not _numeral_allowed(tok, allow):
             errors.append(f"numeral '{tok}' not in facts allowlist")
+
+    return errors
+
+
+def _numerals_from_obj(obj: Any, bucket: set[str] | None = None) -> set[str]:
+    from backend.services.coach_facts import _add_numeral
+
+    bucket = bucket if bucket is not None else set()
+    if obj is None:
+        return bucket
+    if isinstance(obj, dict):
+        for v in obj.values():
+            _numerals_from_obj(v, bucket)
+    elif isinstance(obj, (list, tuple)):
+        for v in obj:
+            _numerals_from_obj(v, bucket)
+    else:
+        _add_numeral(bucket, obj)
+        for tok in _extract_numerals(str(obj)):
+            bucket.add(tok)
+    return bucket
+
+
+def _count_sentences(text: str) -> int:
+    t = (text or "").strip()
+    if not t:
+        return 0
+    parts = [p for p in _SENTENCE_RE.split(t) if p.strip()]
+    # If no terminator, still one sentence
+    return max(1, len(parts)) if t else 0
+
+
+def validation_errors_brief(atoms: dict, facts: dict, skeleton: dict | None = None) -> list[str]:
+    """Per-atom validators for brief v4."""
+    errors: list[str] = []
+    section_facts = facts.get("section_facts") or {}
+    if not section_facts:
+        try:
+            from backend.services.coach_brief_map import collect_section_facts
+            section_facts = collect_section_facts(facts)
+        except Exception:
+            section_facts = {}
+
+    # Global connective numerals always ok
+    connective = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "12", "14", "5%"}
+
+    def _check_atom(name: str, text: str, budget: int, allow: set[str]):
+        body = (text or "").strip()
+        if len(body) > budget:
+            errors.append(f"atom '{name}' over budget ({len(body)}>{budget})")
+        if _FOCUS_RANK_RE.search(body):
+            errors.append(f"atom '{name}' forbids Focus #N pattern")
+        if _MD_HEADER_RE.search(body):
+            errors.append(f"atom '{name}' forbids Markdown ## headers")
+        if name.endswith(".evidence") or name == "evidence":
+            if _count_sentences(body) > 2:
+                errors.append(f"atom '{name}' exceeds 2 sentences")
+        for tok in _extract_numerals(body):
+            if tok in connective:
+                continue
+            if not _numeral_allowed(tok, allow | connective):
+                errors.append(f"atom '{name}' numeral '{tok}' not in section facts")
+
+    # Top-level atoms: allow global required_numerals
+    global_allow = set(facts.get("required_numerals") or [])
+    try:
+        from backend.services.coach_facts import collect_required_numerals
+        global_allow.update(collect_required_numerals(facts))
+    except Exception:
+        pass
+
+    _check_atom("today_verdict", atoms.get("today_verdict") or "", ATOM_BUDGETS["today_verdict"], global_allow)
+    _check_atom("week_verdict", atoms.get("week_verdict") or "", ATOM_BUDGETS["week_verdict"], global_allow)
+    _check_atom(
+        "week_verdict_sub",
+        atoms.get("week_verdict_sub") or "",
+        ATOM_BUDGETS["week_verdict_sub"],
+        global_allow,
+    )
+
+    skel_ids = {
+        s["id"]
+        for s in ((skeleton or {}).get("sections") or [])
+        if isinstance(s, dict) and s.get("id")
+    }
+    for s in atoms.get("sections") or []:
+        if not isinstance(s, dict):
+            continue
+        sid = s.get("id") or "?"
+        if skel_ids and sid not in skel_ids:
+            errors.append(f"atom section id '{sid}' not in skeleton")
+            continue
+        allow = _numerals_from_obj(section_facts.get(sid) or {})
+        # evidence_strip numerals from skeleton are also allowed
+        if skeleton:
+            for ss in skeleton.get("sections") or []:
+                if ss.get("id") == sid and ss.get("evidence_strip"):
+                    allow.update(_extract_numerals(ss["evidence_strip"]))
+        _check_atom(f"{sid}.headline", s.get("headline") or "", ATOM_BUDGETS["headline"], allow)
+        _check_atom(f"{sid}.evidence", s.get("evidence") or "", ATOM_BUDGETS["evidence"], allow)
+        _check_atom(f"{sid}.do", s.get("do") or "", ATOM_BUDGETS["do"], allow)
 
     return errors
 
@@ -483,42 +624,21 @@ def feedback_block(errors: list[str]) -> str:
     lines = "\n".join(f"- {e}" for e in errors)
     return (
         "Previous draft was rejected. Fix ALL of these without inventing new numbers "
-        f"(only use facts allowlist):\n{lines}\n"
+        f"(only use facts allowlist / per-section facts):\n{lines}\n"
     )
 
 
 def build_prompt(facts: dict, feedback: str = "") -> tuple[str, str]:
-    """Return (system, user) prompts for structured narrative generation."""
+    """Legacy four-section prompt (kept for older callers)."""
     import json
 
-    # Strip bulky plan_state from prompt payload
     slim = {k: v for k, v in facts.items() if k != "plan_state"}
     system = (
         "You are a consultative performance coach writing a weekly Home brief "
         "(~one phone screen). Tone: clear, warm, direct — like a sharp human "
         "consultant, not a dashboard.\n"
-        "VOICE: short paragraphs, one idea per beat. Argue ORDER (why this before that).\n"
-        "FACTS DISCIPLINE — never invent TSS, dates, finish times, kg:\n"
-        "- If load.deload_week is true: say so. Do NOT tell them to ramp hard this week.\n"
-        "- If load.ramp_caution / load_ceiling_tss / acwr_peak_21d: warn not to dump "
-        "TSS back on; respect the moving-average ceiling and ~5%/week only.\n"
-        "- If volume_mix.recent_longs exists: PRAISE those longs. Never claim they "
-        "are missing long runs. Durability = late-run fueling/decoupling, not "
-        "'do a long run'.\n"
-        "- Dream MUST use dream.milestones (curated 1–2 checkpoints + A-race) — "
-        "do NOT list every B-race. Prefer half-or-longer (e.g. Bangkok Airways HM) "
-        "and optionally a longer volume checkpoint; cite goal + est_label when present.\n"
-        "- Mention performance.endurance / performance.speed (Performance tab scores) "
-        "briefly alongside the A-race estimate (projection.current_trend_label). "
-        "One short beat — not a score dump.\n"
-        "- Weight: push measurement, then sell payoff "
-        "(weight.payoff_label / weight_cut scenario) — 'if you lose X you project closer to Y'.\n"
-        "- Reflection: praise items in praise[] (incline intervals, strength, planned "
-        "strength). Light week context from load.week_tss vs last_week_tss. End with "
-        "sleep / RHR / morning legs questions when useful.\n"
-        "- Finish estimates: only projection.current_trend_label when unavailable is "
-        "false. Never invent CTL-ratio times.\n"
-        "Return JSON keys now, focus, dream, reflection (plain prose, no ## headers). "
+        "Return JSON keys now, focus, dream, reflection, and chosen_preset_code "
+        "when presets exist (plain prose, no ## headers). "
         "IGNORE repo files / prior chat — facts JSON only."
     )
     user = (
@@ -527,6 +647,226 @@ def build_prompt(facts: dict, feedback: str = "") -> tuple[str, str]:
         f"{json.dumps(slim, default=str)[:12000]}"
     )
     return system, user
+
+
+def build_brief_prompt(
+    facts: dict,
+    skeleton: dict,
+    feedback: str = "",
+) -> tuple[str, str]:
+    """Prompt for brief v4 atoms only."""
+    import json
+
+    slim_facts = {
+        k: v
+        for k, v in facts.items()
+        if k not in ("plan_state",)
+    }
+    system = (
+        "You are a consultative performance coach writing like a human texting "
+        "an athlete — clear, warm, direct. Fill ONLY the prose atoms for a "
+        "structured brief. Placement is already decided — do not move facts "
+        "between sections.\n"
+        "Return JSON: today_verdict (≤140), week_verdict (≤90), week_verdict_sub (≤110), "
+        "sections[{id,headline≤60,evidence≤280/≤2 sentences,do≤140}], "
+        "optional chosen_preset_code.\n"
+        "RULES:\n"
+        "- evidence_strip is the STATS line (already filled). Do NOT restate those "
+        "same numbers, dates, or kg/TSS counts in evidence. Evidence is coach "
+        "meaning: why it matters and how to feel about it.\n"
+        "- evidence: 1–2 short sentences, spoken coach tone (e.g. 'You're on a "
+        "deload — resting matters more than it feels'). Avoid jargon stacks.\n"
+        "- do: one concrete action for today.\n"
+        "- Never invent numerals; if you must cite a number, it must appear in "
+        "that section's facts / evidence_strip.\n"
+        "- Prefer almost no numerals in evidence when the strip already shows them.\n"
+        "- Never write 'Focus #N' or '## ' Markdown headers.\n"
+        "- Never assert which focus a session serves — that is data (serves_focus_rank).\n"
+        "- If load.deload_week: do not tell them to ramp hard today.\n"
+        "- Cite load.acwr_display / performance scores only when present in facts.\n"
+        "- If active_presets non-empty, set chosen_preset_code to one exact code.\n"
+        "- today_verdict must narrate the same lever as focus_ranked[0] "
+        "(that section's DO) — not a competing story (e.g. do not lead with "
+        "deload when weigh-in is focus #1).\n"
+    )
+    user = (
+        f"{feedback}"
+        "SECTION SKELETON (ids, cadence, evidence_strip — fill headline/evidence/do):\n"
+        f"{json.dumps({'sections': skeleton.get('sections')}, default=str)[:6000]}\n\n"
+        "FACTS JSON:\n"
+        f"{json.dumps(slim_facts, default=str)[:10000]}"
+    )
+    return system, user
+
+
+def call_llm_brief_atoms(
+    facts: dict,
+    skeleton: dict,
+    feedback: str = "",
+) -> dict | None:
+    """LLM call returning brief v4 atoms dict."""
+    system, user = build_brief_prompt(facts, skeleton, feedback)
+    mode = coach_llm_mode()
+
+    if mode in ("off", "fallback", "none", "disabled"):
+        return None
+
+    if mode in ("claude_cli", "claude", "cli"):
+        from backend.services.coach_claude_cli import (
+            call_claude_cli_sections,
+            claude_cli_enabled,
+        )
+
+        if not claude_cli_enabled():
+            return None
+        # CLI returns a dict — may be legacy keys; accept atom shape
+        raw = call_claude_cli_sections(system, user)
+        return raw if isinstance(raw, dict) else None
+
+    if mode in ("api", "http", "groq", "glm"):
+        from backend.services.llm import llm_enabled, complete_structured
+
+        if not llm_enabled():
+            return None
+        result = complete_structured(
+            system=system,
+            user=user,
+            schema_name="coach_brief_atoms_v4",
+            json_schema=_BRIEF_ATOM_SCHEMA,
+            model_tier="deep",
+            max_tokens=1400,
+        )
+        if result is None:
+            result = complete_structured(
+                system=system,
+                user=user,
+                schema_name="coach_brief_atoms_v4",
+                json_schema=_BRIEF_ATOM_SCHEMA,
+                model_tier="fast",
+                max_tokens=1200,
+            )
+        return result if isinstance(result, dict) else None
+
+    return None
+
+
+def atoms_from_brief(brief: dict) -> dict:
+    """Extract atom payload from a full brief (for validation of fallback)."""
+    return {
+        "today_verdict": (brief.get("today") or {}).get("today_verdict") or "",
+        "week_verdict": (brief.get("digest") or {}).get("week_verdict") or "",
+        "week_verdict_sub": (brief.get("digest") or {}).get("week_verdict_sub") or "",
+        "sections": [
+            {
+                "id": s.get("id"),
+                "headline": s.get("headline") or "",
+                "evidence": s.get("evidence") or "",
+                "do": s.get("do") or "",
+            }
+            for s in (brief.get("sections") or [])
+            if isinstance(s, dict)
+        ],
+    }
+
+
+def generate_brief(
+    facts: dict,
+    max_attempts: int = 3,
+    *,
+    db=None,
+    user_id=None,
+    brief_date=None,
+) -> dict:
+    """Build v4 brief via LangGraph/plain atom orch → persist when db given."""
+    from datetime import date as _date
+
+    from backend.services.coach_brief import (
+        build_brief_skeleton,
+        brief_to_text,
+        compose_coach_brief,
+        get_yesterday_brief_payload,
+        merge_llm_atoms,
+        persist_daily_brief,
+    )
+
+    brief_date = brief_date or _date.fromisoformat(
+        str(facts.get("as_of") or _date.today().isoformat())[:10]
+    )
+    yesterday = None
+    if db is not None and user_id is not None:
+        yesterday = get_yesterday_brief_payload(db, user_id, brief_date)
+
+    skeleton = build_brief_skeleton(facts, yesterday)
+    mode = coach_orch_mode()
+    attempts = 0
+    chosen_code = None
+
+    def _fallback() -> dict:
+        b = compose_coach_brief(facts, yesterday)
+        apply_chosen_preset(facts, None)
+        return b
+
+    brief: dict | None = None
+    source = "fallback"
+
+    if mode == "langgraph":
+        try:
+            from backend.services.coach_orch_langgraph import run_brief
+
+            result = run_brief(facts, skeleton, max_attempts=max_attempts)
+            brief = result.get("brief")
+            chosen_code = result.get("chosen_preset_code")
+            attempts = int(result.get("attempts") or 0)
+            source = result.get("source") or (brief or {}).get("source") or "fallback"
+            if brief:
+                brief["source"] = source
+                apply_chosen_preset(facts, chosen_code)
+        except Exception as exc:
+            _log.warning("coach brief langgraph unavailable (%s); plain path", exc)
+            brief = None
+
+    if brief is None:
+        errors: list[str] = []
+        for _ in range(max_attempts):
+            attempts += 1
+            fb = feedback_block(errors)
+            atoms = call_llm_brief_atoms(facts, skeleton, fb)
+            if atoms is None:
+                errors = ["llm unavailable or empty"]
+                continue
+            chosen_code = atoms.pop("chosen_preset_code", None)
+            errors = validation_errors_brief(atoms, facts, skeleton)
+            if not errors:
+                brief = merge_llm_atoms(skeleton, atoms, facts)
+                source = _source_label()
+                brief["source"] = source
+                apply_chosen_preset(facts, chosen_code)
+                break
+        if brief is None:
+            brief = _fallback()
+            source = "fallback"
+
+    if brief is not None:
+        from backend.services.coach_brief import finalize_brief
+        finalize_brief(brief, facts)
+        brief["source"] = source
+
+    text = brief_to_text(brief)
+    if db is not None and user_id is not None:
+        try:
+            persist_daily_brief(db, user_id, brief_date, brief, source)
+        except Exception as exc:
+            _log.warning("persist daily_brief failed: %s", exc)
+
+    return {
+        "brief": brief,
+        "text": text,
+        "sections": parse_sections_from_text(text),
+        "source": source,
+        "attempts": attempts,
+        "orch": mode,
+        "chosen_preset": facts.get("chosen_preset"),
+    }
 
 
 def coach_llm_mode() -> str:
@@ -597,7 +937,9 @@ def call_llm_sections(facts: dict, feedback: str = "") -> dict[str, str] | None:
         if not result:
             return None
         sections = {k: str(result.get(k) or "").strip() for k in SECTION_ORDER}
-        if not any(sections.values()):
+        if result.get("chosen_preset_code"):
+            sections["chosen_preset_code"] = str(result.get("chosen_preset_code")).strip()
+        if not any(sections.get(k) for k in SECTION_ORDER):
             return None
         return sections
 
@@ -609,43 +951,40 @@ def coach_orch_mode() -> str:
     return (os.environ.get("COACH_ORCH") or "langgraph").strip().lower()
 
 
-def generate_narrative(facts: dict, max_attempts: int = 3) -> dict:
-    """Run orch (langgraph or plain) → {text, sections, source, attempts}."""
-    mode = coach_orch_mode()
-    if mode == "langgraph":
-        try:
-            from backend.services.coach_orch_langgraph import run as lg_run
-            return lg_run(facts, max_attempts=max_attempts)
-        except Exception as exc:
-            _log.warning("coach langgraph unavailable (%s); plain fallback path", exc)
+def apply_chosen_preset(facts: dict, chosen_code: str | None) -> dict:
+    """Validate LLM pick against active_presets; update facts nudge/chosen_preset."""
+    from backend.services.gap_analysis.session_presets import pick_preset_by_code
 
-    # Plain retry loop (same contract)
-    errors: list[str] = []
-    attempts = 0
-    sections = None
-    for _ in range(max_attempts):
-        attempts += 1
-        fb = feedback_block(errors)
-        sections = call_llm_sections(facts, fb)
-        if sections is None:
-            errors = ["llm unavailable or empty"]
-            continue
-        errors = validation_errors(sections, facts)
-        if not errors:
-            return {
-                "text": sections_to_text(sections),
-                "sections": sections,
-                "source": _source_label(),
-                "attempts": attempts,
-                "orch": "plain",
-            }
-    fb_text = compose_coach_narrative(facts)
+    presets = facts.get("active_presets") or []
+    if not presets:
+        return facts
+    picked = pick_preset_by_code(presets, chosen_code) if chosen_code else None
+    if picked is None:
+        picked = presets[0]
+    facts["chosen_preset"] = picked
+    facts["nudge"] = {
+        "focus_id": picked.get("code"),
+        "focus_label": picked.get("name") or picked.get("kind"),
+        "next_action": (
+            f"{picked.get('name') or picked.get('kind')} ({picked.get('summary')})"
+        ),
+        "why": picked.get("notes"),
+        "preset_code": picked.get("code"),
+    }
+    return facts
+
+
+def generate_narrative(facts: dict, max_attempts: int = 3) -> dict:
+    """Compat wrapper — builds v4 brief then renders legacy Markdown text."""
+    result = generate_brief(facts, max_attempts=max_attempts)
     return {
-        "text": fb_text,
-        "sections": parse_sections_from_text(fb_text),
-        "source": "fallback",
-        "attempts": attempts,
-        "orch": "plain",
+        "text": result.get("text") or "",
+        "sections": result.get("sections") or {},
+        "source": result.get("source") or "fallback",
+        "attempts": result.get("attempts") or 0,
+        "orch": result.get("orch") or "plain",
+        "chosen_preset": result.get("chosen_preset") or facts.get("chosen_preset"),
+        "brief": result.get("brief"),
     }
 
 

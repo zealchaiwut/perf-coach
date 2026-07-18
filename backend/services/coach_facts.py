@@ -117,6 +117,50 @@ def _weight_phase(weight_lever: dict) -> str:
     return "none"
 
 
+def _enrich_weight_plan_position(user_id, today: date, weight: dict, db) -> None:
+    """Attach current vs plan-today + next milestone onto weight facts (in place)."""
+    try:
+        from backend.models import WeightTarget
+        from backend.services.weight_plan import compute_gap, generate_milestones
+
+        target = (
+            db.query(WeightTarget)
+            .filter(WeightTarget.user_id == user_id, WeightTarget.status == "active")
+            .first()
+        )
+        if target is None:
+            return
+        gap = compute_gap(target, db, today)
+        if gap.get("current_basis_kg") is not None:
+            weight["current_kg"] = gap["current_basis_kg"]
+        if gap.get("plan_today_kg") is not None:
+            weight["plan_today_kg"] = gap["plan_today_kg"]
+        if gap.get("gap_kg") is not None:
+            weight["gap_to_plan_kg"] = gap["gap_kg"]
+        if gap.get("gap_direction"):
+            weight["gap_direction"] = gap["gap_direction"]
+        weight["goal_kg"] = float(target.target_weight_kg)
+        weight["goal_date"] = _iso(getattr(target, "target_date", None))
+        stones = generate_milestones(target, today) or []
+        today_s = today.isoformat()
+        nxt = next(
+            (
+                m
+                for m in stones
+                if m.get("kind") not in ("today",)
+                and str(m.get("date") or "") > today_s
+            ),
+            None,
+        )
+        if nxt is None:
+            nxt = next((m for m in stones if m.get("kind") == "goal"), None)
+        if nxt:
+            weight["next_milestone_date"] = str(nxt.get("date") or "")[:10]
+            weight["next_milestone_kg"] = nxt.get("plan_kg")
+    except Exception as exc:
+        _log.warning("weight plan position unavailable: %s", exc)
+
+
 def _thin_focus_from_ranking(plan_state: dict, weight: dict, load: dict) -> list[dict]:
     """Phase-1 stub ranker from lever_ranking only (Phase 2 replaces)."""
     ranking = plan_state.get("lever_ranking") or {}
@@ -402,12 +446,23 @@ def _volume_mix_hint(user_id, today: date) -> dict:
                 recent_longs.append({
                     "date": _iso(getattr(w, "workout_date", None)),
                     "mins": mins,
+                    "duration_min": mins,
+                    "distance_km": dist if dist else None,
                     "name": getattr(w, "name", None),
+                    "decoupling_percent": (
+                        float(w.decoupling_percent)
+                        if getattr(w, "decoupling_percent", None) is not None
+                        else None
+                    ),
                 })
             if any(k in name or k in wtype for k in ("interval", "tempo", "threshold", "speed", "incline")):
                 has_quality = True
+        latest = recent_longs[0] if recent_longs else None
         return {
             "missing_long": not has_long,
+            "long_volume_ok": has_long,
+            "latest_long_mins": (latest or {}).get("mins"),
+            "latest_long_date": (latest or {}).get("date"),
             "missing_quality": not has_quality,
             "workout_count_14d": len([r for r in rows if (getattr(r, "workout_date", today) or today) >= today - timedelta(days=14)]),
             "recent_longs": recent_longs[:4],
@@ -463,6 +518,19 @@ def _enrich_load_context(user_id, today: date, load: dict, db) -> dict:
             if peak_acwr is None or fv > peak_acwr:
                 peak_acwr = fv
         out["acwr_peak_21d"] = round(peak_acwr, 2) if peak_acwr is not None else None
+
+        # Display ACWR = current_load() (Banister series), same family as the
+        # readiness API. Home tile may still show "—" when the *client* TSS
+        # series is <28d; brief may only cite acwr_display when non-null.
+        try:
+            from backend.services.training_load import current_load
+
+            cl = current_load(str(user_id), as_of=today) or {}
+            if cl.get("acwr") is not None:
+                out["acwr_display"] = round(float(cl["acwr"]), 2)
+                out["acwr"] = out["acwr_display"]
+        except Exception as exc:
+            _log.warning("acwr_display via current_load failed: %s", exc)
 
         try:
             gr = get_guardrail_result(str(user_id), as_of_date=today) or {}
@@ -673,6 +741,77 @@ def _gaps_top(user_id, today: date, limit: int = 3) -> list[dict]:
         return []
 
 
+def _active_gap_findings(user_id, today: date, db, limit: int = 8) -> list[dict]:
+    """Active GapFinding rows for this ISO week (for session presets)."""
+    try:
+        from backend.models import GapFinding
+
+        week_start = today - timedelta(days=today.weekday())
+        rows = (
+            db.query(GapFinding)
+            .filter(
+                GapFinding.user_id == user_id,
+                GapFinding.week_start == week_start,
+                GapFinding.status == "active",
+            )
+            .order_by(GapFinding.severity.desc(), GapFinding.computed_at.desc())
+            .limit(limit)
+            .all()
+        )
+        return [
+            {
+                "code": r.code,
+                "severity": r.severity,
+                "status": r.status,
+                "recommendation": r.recommendation,
+                "target": r.target,
+            }
+            for r in rows
+        ]
+    except Exception as exc:
+        _log.warning("active gap findings unavailable: %s", exc)
+        return []
+
+
+def _session_checkin(user_id, today: date, db) -> list[dict]:
+    """This week's planned + completed sessions for Coach check-in."""
+    try:
+        from backend.models import PlannedSession
+
+        week_start = today - timedelta(days=today.weekday())
+        week_end = week_start + timedelta(days=6)
+        rows = (
+            db.query(PlannedSession)
+            .filter(
+                PlannedSession.user_id == user_id,
+                PlannedSession.planned_date >= week_start,
+                PlannedSession.planned_date <= week_end,
+            )
+            .order_by(PlannedSession.planned_date.asc())
+            .all()
+        )
+        out = []
+        for r in rows:
+            if (r.session_type or "") == "rest":
+                continue
+            structure = r.structure if isinstance(r.structure, dict) else {}
+            out.append({
+                "id": str(r.id),
+                "date": _iso(r.planned_date),
+                "name": r.name,
+                "session_type": r.session_type,
+                "status": r.status or "planned",
+                "preset_code": structure.get("_preset_code") or structure.get("_gap_code"),
+                "target_tss": structure.get("target_tss"),
+                "duration_min": structure.get("duration_min"),
+                "adjust_url": f"/log#plan?date={_iso(r.planned_date)}&session={r.id}",
+            })
+        return out
+    except Exception as exc:
+        _log.warning("session_checkin unavailable: %s", exc)
+        return []
+
+
 def _habits_summary(user_id, today: date) -> dict | None:
     try:
         from sqlalchemy.orm import Session
@@ -779,6 +918,34 @@ def _pick_dream_milestones(dream: dict, projection: dict) -> list[dict]:
     return out
 
 
+def _block_delta_28d(trend: list, trend_dates: list) -> int | None:
+    """Mirror frontend _hpfBlockDelta / Performance card ~28d block delta."""
+    if not isinstance(trend, list) or len(trend) < 2:
+        return None
+    try:
+        last = float(trend[-1])
+    except (TypeError, ValueError):
+        return None
+    base = None
+    if isinstance(trend_dates, list) and len(trend_dates) == len(trend):
+        try:
+            last_d = date.fromisoformat(str(trend_dates[-1])[:10])
+            cutoff = last_d - timedelta(days=28)
+            for i in range(len(trend) - 1, -1, -1):
+                d = date.fromisoformat(str(trend_dates[i])[:10])
+                if d <= cutoff:
+                    base = float(trend[i])
+                    break
+        except (TypeError, ValueError):
+            base = None
+    if base is None:
+        try:
+            base = float(trend[0])
+        except (TypeError, ValueError):
+            return None
+    return int(round(last - base))
+
+
 def _performance_scores(user_id, db) -> dict | None:
     """Endurance / Speed from Performance-tab SummaryCache (SoT)."""
     try:
@@ -802,18 +969,36 @@ def _performance_scores(user_id, db) -> dict | None:
             .first()
         )
         if row and isinstance(row.payload, dict):
-            for key, alias in (("endurance", "endurance_direction"), ("speed", "speed_direction")):
+            # Canonical direction = ~28d block delta (same as Performance card
+            # pill via block_delta / _hpfBlockDelta). Cache "direction" can be a
+            # shorter window and contradicted the card ("declining" vs ↑ +5).
+            for key, dir_alias, delta_alias in (
+                ("endurance", "endurance_direction", "endurance_block_delta"),
+                ("speed", "speed_direction", "speed_block_delta"),
+            ):
                 block = row.payload.get(key) or {}
-                direction = block.get("direction")
-                if direction:
-                    out[alias] = direction
-            # Light trend hint: last vs ~2 weeks ago if trend list long enough
-            for key, alias in (("endurance", "endurance_delta_hint"), ("speed", "speed_delta_hint")):
-                trend = (row.payload.get(key) or {}).get("trend") or []
+                delta = block.get("block_delta")
+                if delta is None:
+                    trend = block.get("trend") or []
+                    dates = block.get("trend_dates") or []
+                    delta = _block_delta_28d(trend, dates)
+                if delta is not None:
+                    try:
+                        d_i = int(round(float(delta)))
+                        out[delta_alias] = d_i
+                        out[dir_alias] = (
+                            "improving" if d_i > 0 else ("declining" if d_i < 0 else "flat")
+                        )
+                    except (TypeError, ValueError):
+                        pass
+                elif block.get("direction"):
+                    out[dir_alias] = block.get("direction")
+                # Short hint kept for diagnostics only
+                trend = block.get("trend") or []
                 if isinstance(trend, list) and len(trend) >= 4:
                     try:
-                        delta = float(trend[-1]) - float(trend[-4])
-                        out[alias] = round(delta, 1)
+                        hint = float(trend[-1]) - float(trend[-4])
+                        out[f"{key}_delta_hint"] = round(hint, 1)
                     except (TypeError, ValueError):
                         pass
         return out
@@ -1041,9 +1226,8 @@ def _focus_for_session(focus_ranked: list[dict], name: str | None, session_type:
         if pid in by_id:
             r = by_id[pid]
             return int(r.get("rank") or 1), r.get("id") or pid
-    if focus_ranked:
-        r = focus_ranked[0]
-        return int(r.get("rank") or 1), r.get("id") or "focus"
+    # No match → None. Do NOT fall through to Focus #1 (that caused
+    # "long run serves weight measurement" when prefer missed).
     return None
 
 
@@ -1121,9 +1305,11 @@ def _reflection_block(
             name = row[2] or "Session"
             stype = row[3]
             matched = _focus_for_session(focus_ranked, name, stype)
+            serves_rank = None
+            serves_id = None
             if matched:
-                rank, fid = matched
-                why = f"Serves Focus #{rank}: {fid}"
+                serves_rank, serves_id = matched
+                why = f"Serves focus rank {serves_rank} ({serves_id})"
             else:
                 why = "Next planned session"
             reflection["next_session"] = {
@@ -1132,6 +1318,8 @@ def _reflection_block(
                 "name": name,
                 "type": stype,
                 "why_focus": why,
+                "serves_focus_rank": serves_rank,
+                "serves_focus_id": serves_id,
             }
     except Exception as exc:
         _log.warning("next_session unavailable: %s", exc)
@@ -1140,7 +1328,7 @@ def _reflection_block(
 
 
 def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | None:
-    """Return coach_facts dict, or None when no active PerformanceGoal exists."""
+    """Return coach_facts dict, or None when no A-race / PerformanceGoal exists."""
     from backend.services.coach_plan import build_plan_state
     from backend.services.weekly_coach_message import (
         _load_inputs_for_user,
@@ -1209,9 +1397,12 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
             ) if isinstance(log_consistency, dict) or weight_raw.get("threshold") else 14,
             "gap_kg": float((weight_status or {}).get("gap_kg") or 0)
             if weight_status else None,
+            "current_kg": (weight_status or {}).get("current_kg"),
+            "goal_kg": (weight_status or {}).get("goal_kg"),
             "advisory_text": None,
             "recommended_deficit_kcal": weight_raw.get("recommended_deficit_kcal"),
         }
+        _enrich_weight_plan_position(user_id, today, weight, db)
         # Precompute weight payoff so Focus ranking can sell it
         try:
             gap = float(weight.get("gap_kg") or 0)
@@ -1291,13 +1482,25 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
             reflection["praise"] = praise
         performance = _performance_scores(user_id, db)
 
+        gap_findings = _active_gap_findings(user_id, today, db)
+        from backend.services.gap_analysis.session_presets import (
+            presets_from_findings,
+        )
+        active_presets = presets_from_findings(gap_findings)
+        session_checkin = _session_checkin(user_id, today, db)
+        reflection["session_checkin"] = session_checkin
+
         goal_block = {
             "distance": getattr(goal, "race_distance", None),
             "target_time_sec": target_sec or None,
             "target_time_label": _format_hms(target_sec) if target_sec else None,
             "race_date": _iso(race_date),
-            "source": "performance_goal",
+            "source": getattr(goal, "source", None) or "performance_goal",
         }
+        if getattr(goal, "name", None):
+            goal_block["name"] = goal.name
+        if getattr(goal, "distance_km", None) is not None:
+            goal_block["distance_km"] = float(goal.distance_km)
         # Bridge: when Plan A-race exists, prefer its date/time labels for goal display
         a_race = (dream.get("a_race") if isinstance(dream, dict) else None) or {}
         if a_race.get("date") or a_race.get("goal_time_sec"):
@@ -1311,6 +1514,9 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
             goal_block["name"] = a_race.get("name")
             goal_block["source"] = "a_race"
 
+        # Default chosen preset = highest-priority active preset (Claude may override)
+        chosen_preset = active_presets[0] if active_presets else None
+
         facts = {
             "as_of": today.isoformat(),
             "goal": goal_block,
@@ -1321,6 +1527,9 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
             "lever_ranking": plan_state.get("lever_ranking") or {},
             "projection": projection,
             "gaps_top": gaps_top,
+            "gap_findings": gap_findings,
+            "active_presets": active_presets,
+            "chosen_preset": chosen_preset,
             "habits": habits,
             "focus_ranked": focus_ranked,
             "focus_noise": focus_noise,
@@ -1332,18 +1541,40 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
             "plan_state": plan_state,
         }
         facts["required_numerals"] = collect_required_numerals(facts)
-        # Hermes / actions nudge payload
+        # Per-section fact subsets + today chips (brief v4)
+        from backend.services.coach_brief_map import collect_section_facts
+        from backend.services.coach_brief import derive_today_chips
+
+        facts["section_facts"] = collect_section_facts(facts)
+        facts["today_chips"] = derive_today_chips(facts)
+        # Hermes / actions nudge payload — prefer chosen preset
         focus1 = focus_ranked[0] if focus_ranked else None
         next_s = (reflection or {}).get("next_session")
-        facts["nudge"] = {
-            "focus_id": focus1.get("id") if focus1 else None,
-            "focus_label": focus1.get("label") if focus1 else None,
-            "next_action": (
-                f"{next_s.get('name')} on {next_s.get('date')}"
-                if next_s else (focus1.get("label") if focus1 else None)
-            ),
-            "why": next_s.get("why_focus") if next_s else None,
-        }
+        if chosen_preset:
+            next_action = (
+                f"{chosen_preset.get('name') or chosen_preset.get('kind')} "
+                f"({chosen_preset.get('summary')})"
+            )
+            why = chosen_preset.get("notes") or (
+                focus1.get("label") if focus1 else None
+            )
+            facts["nudge"] = {
+                "focus_id": chosen_preset.get("code"),
+                "focus_label": chosen_preset.get("name") or chosen_preset.get("kind"),
+                "next_action": next_action,
+                "why": why,
+                "preset_code": chosen_preset.get("code"),
+            }
+        else:
+            facts["nudge"] = {
+                "focus_id": focus1.get("id") if focus1 else None,
+                "focus_label": focus1.get("label") if focus1 else None,
+                "next_action": (
+                    f"{next_s.get('name')} on {next_s.get('date')}"
+                    if next_s else (focus1.get("label") if focus1 else None)
+                ),
+                "why": next_s.get("why_focus") if next_s else None,
+            }
         return facts
     finally:
         if _own:
