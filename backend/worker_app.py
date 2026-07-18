@@ -1060,17 +1060,24 @@ def _scheduler_loop() -> None:
 
         # Daily Home Coach — once per calendar day (Asia/Bangkok), enqueued at
         # the same wake times as the sync sweep. Dedupe key is the date so
-        # 06:00 + 18:00 only run once.
+        # 06:00 + 18:00 only run once. Also skip when a done row already exists
+        # (enqueue() alone only dedupes queued/running).
         if daily_coach_enabled:
             day_key = datetime.now(BANGKOK_TZ).date().isoformat()
+            dedupe_key = f"daily_coach:{day_key}"
             try:
-                job_queue.enqueue(
-                    "daily_coach",
-                    {"triggered_by": "schedule", "today": day_key},
-                    enqueued_by="schedule",
-                    dedupe_key=f"daily_coach:{day_key}",
-                )
-                logger.info("scheduled daily_coach enqueued for %s", day_key)
+                if job_queue.has_done(dedupe_key):
+                    logger.info(
+                        "scheduled daily_coach skipped: already done for %s", day_key
+                    )
+                else:
+                    job_queue.enqueue(
+                        "daily_coach",
+                        {"triggered_by": "schedule", "today": day_key},
+                        enqueued_by="schedule",
+                        dedupe_key=dedupe_key,
+                    )
+                    logger.info("scheduled daily_coach enqueued for %s", day_key)
             except Exception as exc:
                 logger.error(
                     "scheduled daily_coach failed to enqueue: %s", exc, exc_info=True

@@ -1,4 +1,4 @@
-# Code State — sprint-113.1
+# Code State — sprint-114
 
 _Deterministic snapshot generated at sprint finish. Do not hand-edit — regenerated each sprint._
 
@@ -10,44 +10,42 @@ _Deterministic snapshot generated at sprint finish. Do not hand-edit — regener
 - **`docs/`** — Project documentation
 - **`alembic/`** — Database migration scripts
 
-## Recent Deltas (sprint-113.1)
+## Recent Deltas (sprint-114)
 
-Files changed: **30**
+Files changed: **9**
 
-- `frontend/` — 8 file(s)
-- `backend/` — 7 file(s)
-- `tests/` — 7 file(s)
-- `(root)/` — 3 file(s)
-- `alembic/` — 3 file(s)
-- `scripts/` — 2 file(s)
+- `backend/` — 5 file(s)
+- `tests/` — 2 file(s)
+- `(root)/` — 1 file(s)
+- `scripts/` — 1 file(s)
 
 ## Hot Files (last 90 days)
 
 | File | Commits |
 |------|---------|
-| `backend/main.py` | 456 |
-| `frontend/pages/training-log.html` | 216 |
-| `backend/models.py` | 133 |
-| `frontend/js/training-log.js` | 133 |
-| `CHANGELOG.md` | 98 |
-| `README.md` | 80 |
+| `backend/main.py` | 457 |
+| `frontend/pages/training-log.html` | 217 |
+| `frontend/js/training-log.js` | 134 |
+| `backend/models.py` | 131 |
+| `CHANGELOG.md` | 100 |
+| `README.md` | 81 |
 | `frontend/js/training-plan.js` | 80 |
 | `frontend/pages/weight.html` | 61 |
-| `frontend/pages/home.html` | 57 |
-| `frontend/js/home.js` | 46 |
+| `frontend/pages/home.html` | 59 |
+| `frontend/js/home.js` | 47 |
 | `frontend/js/weight.js` | 44 |
 | `frontend/js/training-performance.js` | 43 |
 | `SCHEMA.md` | 39 |
 | `frontend/pages/habits.html` | 37 |
 | `frontend/pages/settings.html` | 34 |
-| `frontend/js/nav.js` | 30 |
+| `frontend/js/nav.js` | 31 |
+| `frontend/css/run-detail-v4.css` | 30 |
 | `frontend/js/training.js` | 30 |
 | `js/training-log.js` | 30 |
-| `frontend/js/habits.js` | 29 |
-| `frontend/pages/training.html` | 29 |
+| `frontend/js/lib/run-detail-view.js` | 29 |
 
 ## Generated
 
-Sprint: `sprint-113.1`  
-Timestamp: `2026-07-17T09:22:42Z`  
+Sprint: `sprint-114`  
+Timestamp: `2026-07-17T17:55:44Z`  
 _Generated deterministically — no LLM required._

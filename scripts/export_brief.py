@@ -151,10 +151,10 @@ def _load_goal_for_user(user_id: str):
     """Return coach goal for user_id — A-race first, else active PerformanceGoal."""
     from sqlalchemy.orm import Session
     import uuid as _uuid
+    from datetime import date as _date
 
     from backend.db import engine
     from backend.services.weekly_coach_message import _goal_from_a_race, _load_inputs_for_user
-    from datetime import date as _date
 
     try:
         uid = _uuid.UUID(str(user_id))

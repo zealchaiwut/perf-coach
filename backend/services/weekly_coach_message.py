@@ -581,7 +581,7 @@ def _load_inputs_for_user(user_id, db, today: date) -> tuple[Any, Any, Any, Any]
 
     from sqlalchemy import desc
 
-    from backend.models import PerformanceGoal, TrainingLoadSnapshot, WeightEntry
+    from backend.models import TrainingLoadSnapshot, WeightEntry, PerformanceGoal
 
     goal = _goal_from_a_race(user_id, db)
     if goal is None:

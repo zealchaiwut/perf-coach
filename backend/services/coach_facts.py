@@ -472,11 +472,35 @@ def _volume_mix_hint(user_id, today: date) -> dict:
         return {}
 
 
-def _enrich_load_context(user_id, today: date, load: dict, db) -> dict:
+def _resolve_next_race(user_id, db):
+    """Resolve next race: A-priority first, then any planned/active."""
+    from backend.models import Race
+
+    race = (
+        db.query(Race)
+        .filter(
+            Race.user_id == user_id,
+            Race.priority == "A",
+            Race.status.in_(("planned", "active")),
+        )
+        .order_by(Race.race_date.asc().nullslast())
+        .first()
+    )
+    if race is None:
+        race = (
+            db.query(Race)
+            .filter(Race.user_id == user_id, Race.status.in_(("planned", "active")))
+            .order_by(Race.race_date.asc().nullslast())
+            .first()
+        )
+    return race
+
+
+def _enrich_load_context(user_id, today: date, load: dict, db, race=None) -> dict:
     """Deload / ACWR history / moving-ceiling caution for consultative Now."""
     out = dict(load)
     try:
-        from backend.models import TrainingPlan, TrainingLoadSnapshot, Race
+        from backend.models import TrainingPlan, TrainingLoadSnapshot
         from backend.services.training_load import daily_tss_series
         from backend.services.load_plan import compute_load_plan, ACWR_CEILING_MULT
         from backend.services.guardrail import get_guardrail_result
@@ -546,21 +570,11 @@ def _enrich_load_context(user_id, today: date, load: dict, db) -> dict:
             .order_by(TrainingPlan.updated_at.desc().nullslast())
             .first()
         )
-        a_race = (
-            db.query(Race)
-            .filter(
-                Race.user_id == user_id,
-                Race.priority == "A",
-                Race.status.in_(("planned", "active")),
-            )
-            .order_by(Race.race_date.asc().nullslast())
-            .first()
-        )
         deload_planned = False
         ceiling_tss = None
         trailing_28d_avg = None
-        if plan is not None and a_race is not None and a_race.race_date:
-            race_week_start = a_race.race_date - timedelta(days=a_race.race_date.weekday())
+        if plan is not None and race is not None and race.race_date:
+            race_week_start = race.race_date - timedelta(days=race.race_date.weekday())
             weeks_to_race = ((race_week_start - this_week_start).days // 7) + 1
             start_28 = today - timedelta(days=27)
             series_28 = daily_tss_series(str(user_id), start_28, today)
@@ -624,8 +638,8 @@ def _enrich_load_context(user_id, today: date, load: dict, db) -> dict:
             ).strip()
 
         dist_label = "marathon"
-        if a_race is not None and a_race.distance_km is not None:
-            dk = float(a_race.distance_km)
+        if race is not None and race.distance_km is not None:
+            dk = float(race.distance_km)
             if dk >= 40:
                 dist_label = "marathon"
             elif dk >= 20:
@@ -1007,7 +1021,7 @@ def _performance_scores(user_id, db) -> dict | None:
         return None
 
 
-def _dream_block(user_id, today: date, projection: dict, weight: dict) -> dict:
+def _dream_block(user_id, today: date, projection: dict, weight: dict, race=None) -> dict:
     """Phase 3: A-race + B-race benchmarks + checkpoints + weight scenario."""
     dream: dict[str, Any] = {
         "a_race": None,
@@ -1023,23 +1037,7 @@ def _dream_block(user_id, today: date, projection: dict, weight: dict) -> dict:
         from backend.models import Race, RaceCheckpoint
 
         with Session(engine) as db:
-            a_race = (
-                db.query(Race)
-                .filter(
-                    Race.user_id == user_id,
-                    Race.priority == "A",
-                    Race.status.in_(("planned", "active")),
-                )
-                .order_by(Race.race_date.asc().nullslast())
-                .first()
-            )
-            if a_race is None:
-                a_race = (
-                    db.query(Race)
-                    .filter(Race.user_id == user_id, Race.status.in_(("planned", "active")))
-                    .order_by(Race.race_date.asc().nullslast())
-                    .first()
-                )
+            a_race = race
             if a_race is not None:
                 goal_sec = getattr(a_race, "goal_time_seconds", None)
                 dream["a_race"] = {
@@ -1382,7 +1380,8 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
             "unlock_date": _iso(load_raw.get("unlock_date")),
             "reason": reason,
         }
-        load = _enrich_load_context(user_id, today, load, db)
+        next_race = _resolve_next_race(user_id, db)
+        load = _enrich_load_context(user_id, today, load, db, race=next_race)
 
         logged = weight_raw.get("logged_days")
         if logged is None and isinstance(log_consistency, dict):
@@ -1429,7 +1428,7 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
         race_date = getattr(goal, "race_date", None)
 
         # Performance-tab SoT finish estimate (never CTL-ratio invent)
-        race_est = _estimate_for_a_race(user_id, today, db)
+        race_est = _estimate_for_a_race(user_id, today, db, race=next_race)
         if race_est.get("goal_time_sec"):
             target_sec = int(race_est["goal_time_sec"])
             race_date = race_est.get("race_date") or race_date
@@ -1476,7 +1475,7 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
             focus_noise = []
 
         habits = _habits_summary(user_id, today)
-        dream = _dream_block(user_id, today, projection, weight)
+        dream = _dream_block(user_id, today, projection, weight, race=next_race)
         reflection = _reflection_block(user_id, today, focus_ranked)
         if praise:
             reflection["praise"] = praise
@@ -1581,9 +1580,8 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
             db.close()
 
 
-def _estimate_for_a_race(user_id, today: date, db) -> dict:
-    """Load A-race and return Performance SoT estimate fields for projection."""
-    from backend.models import Race
+def _estimate_for_a_race(user_id, today: date, db, race=None) -> dict:
+    """Return Performance SoT estimate fields for the pre-resolved race."""
     from backend.services.race_finish_estimate import estimate_race_finish
 
     out: dict[str, Any] = {
@@ -1594,23 +1592,7 @@ def _estimate_for_a_race(user_id, today: date, db) -> dict:
         "uncertainty_min": None,
     }
     try:
-        a_race = (
-            db.query(Race)
-            .filter(
-                Race.user_id == user_id,
-                Race.priority == "A",
-                Race.status.in_(("planned", "active")),
-            )
-            .order_by(Race.race_date.asc().nullslast())
-            .first()
-        )
-        if a_race is None:
-            a_race = (
-                db.query(Race)
-                .filter(Race.user_id == user_id, Race.status.in_(("planned", "active")))
-                .order_by(Race.race_date.asc().nullslast())
-                .first()
-            )
+        a_race = race
         if a_race is None:
             return out
 
