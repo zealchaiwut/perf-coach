@@ -148,21 +148,14 @@ def _resolve_user(username: str | None) -> str:
 
 
 def _load_goal_for_user(user_id: str):
-    """Return the active PerformanceGoal for user_id, or None."""
+    """Return the active PerformanceGoal or Race adapter for user_id, or None."""
     from sqlalchemy.orm import Session
 
     from backend.db import engine
-    from backend.models import PerformanceGoal
+    from backend.services.goal_resolution import resolve_active_goal
 
     with Session(engine) as db:
-        return (
-            db.query(PerformanceGoal)
-            .filter(
-                PerformanceGoal.user_id == user_id,
-                PerformanceGoal.active.is_(True),
-            )
-            .first()
-        )
+        return resolve_active_goal(user_id, db)
 
 
 def _build_plan_state_for_user(goal, for_date: date) -> tuple:
