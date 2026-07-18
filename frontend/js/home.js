@@ -372,7 +372,7 @@
 
   function _showStravaStaleBanner(hoursAgo) {
     var container = document.getElementById('strava-stale-banner');
-    if (!container) return;
+    if (!container || container.hidden) return;
     var h = Math.round(hoursAgo);
     container.innerHTML =
       '<div class="strava-stale-banner" id="strava-stale-banner-inner">' +

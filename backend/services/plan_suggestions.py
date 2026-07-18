@@ -1595,7 +1595,9 @@ def build_single_session_prompt(
         budget_rule = (
             "6. The athlete fixed this session's budget on their schedule: "
             + " and ".join(parts)
-            + " — size the exercises/blocks to fill exactly that, do not resize the slot.\n"
+            + " — size the exercises/blocks to fill exactly that, do not resize the slot. "
+            "If the note mentions a gap preset / min duration / min TSS, treat those as "
+            "hard floors (never go below them).\n"
         )
 
     subtype_rule = ""

@@ -4450,6 +4450,25 @@
           <p class="lp-empty" id="wl-empty" hidden>Set a goal race to generate a weekly target.</p>
         </div>
       </div>
+      <!-- What to improve — above the week schedule -->
+      <div class="plan-merged">
+        <div class="pm-card" id="gap-panel">
+          <div class="pm-ckhead">
+            <span class="pm-sectitle">What to improve</span>
+            <span class="perf-tag" id="gap-panel-week"></span>
+          </div>
+          <div id="gap-panel-loading" class="gap-loading">Loading…</div>
+          <div id="gap-panel-findings" hidden></div>
+          <div id="gap-panel-empty" class="gap-empty" hidden>
+            No gaps flagged this week.
+          </div>
+          <div id="gap-panel-error" class="gap-error" hidden>
+            Could not load recommendations.
+          </div>
+          <div id="gap-panel-skipped" class="gap-skipped" hidden></div>
+          <div id="gap-panel-muted" hidden></div>
+        </div>
+      </div>
       <div id="plan-week-section"></div>
       <div id="plan-add-section"></div>
       <div id="plan-detail-section"></div>
@@ -4600,30 +4619,6 @@
             </div>
           </div>
           <!-- /.perf-scorewrap -->
-
-          <!-- ── What to improve panel (issue #1374) ───────────────────── -->
-          <div class="pm-card" id="gap-panel">
-            <div class="pm-ckhead">
-              <span class="pm-sectitle">What to improve</span>
-              <span class="perf-tag" id="gap-panel-week"></span>
-            </div>
-            <!-- Loading state -->
-            <div id="gap-panel-loading" class="gap-loading">Loading…</div>
-            <!-- Finding cards (up to 3) -->
-            <div id="gap-panel-findings" hidden></div>
-            <!-- Empty state -->
-            <div id="gap-panel-empty" class="gap-empty" hidden>
-              No gaps flagged this week.
-            </div>
-            <!-- Error state -->
-            <div id="gap-panel-error" class="gap-error" hidden>
-              Could not load recommendations.
-            </div>
-            <!-- Skipped-rules footnote -->
-            <div id="gap-panel-skipped" class="gap-skipped" hidden></div>
-            <!-- Muted / suppressed findings (issue #1377) -->
-            <div id="gap-panel-muted" hidden></div>
-          </div>
 
           <!-- ── Muscle balance card (issue #1382) ─────────────────────── -->
           <div class="pm-card" id="muscle-balance-card">
@@ -4922,6 +4917,12 @@
         color: var(--pm-muted);
         margin: 0;
         line-height: 1.45;
+      }
+      .gap-finding-preset {
+        font-size: 11px;
+        font-weight: 600;
+        color: #047857;
+        margin: 4px 0 0;
       }
       /* Add-to-plan footer (issue #1376) */
       .gap-finding-footer {
@@ -8458,18 +8459,8 @@
 
         <div class="section-divider"></div>
 
-        <!-- Section 3: Weekly coach report (issue #1314). Shown once its
-             data loads. -->
-        <div id="wsc-section" hidden>
-          <div class="lrx-chead">
-            <span class="lrx-sectitle">Weekly coach report</span>
-            <span id="wsc-week-label" class="lrx-scope"></span>
-          </div>
-          <div id="wsc-body">
-            <div id="wsc-narrative" class="wsc-narrative"></div>
-            <p id="wsc-empty" class="wsc-empty" hidden>No training logged this week.</p>
-          </div>
-        </div>
+        <!-- Section 3: Weekly coach report — retired; Home Coach is SoT. -->
+        <div id="wsc-section" hidden aria-hidden="true"></div>
       </div>
 
       <!-- Legacy load-widget (kept for load_context path; hidden by default). -->
@@ -9378,7 +9369,7 @@
     </div>
 
     <script src="js/lib/sync-poller.js"></script>
-    <script src="js/nav.js?v=20260717v"></script>
+    <script src="js/nav.js?v=20260718nav1"></script>
     <script src="js/lib/html2canvas.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
     <script src="js/ui-states.js"></script>
@@ -9387,8 +9378,8 @@
     <script src="js/lib/run-detail-view.js?v=20260717y"></script>
     <script src="js/training.js"></script>
     <script src="js/training-log.js?v=20260717ae"></script>
-    <script src="js/training-performance.js"></script>
-    <script src="js/training-plan.js"></script>
+    <script src="js/training-performance.js?v=20260718wtiplan1"></script>
+    <script src="js/training-plan.js?v=20260718wtiplan1"></script>
     <script src="js/user.js"></script>
     <script src="js/env.js"></script>
     <script>
@@ -9405,7 +9396,9 @@
 
         function getActiveTab() {
           var hash = window.location.hash.replace("#", "");
-          return TABS.indexOf(hash) !== -1 ? hash : "log";
+          // Allow #plan?date=… style deep links — tab is the token before '?'
+          var tab = hash.split("?")[0];
+          return TABS.indexOf(tab) !== -1 ? tab : "log";
         }
 
         function activateTab(tab) {

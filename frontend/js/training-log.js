@@ -6975,37 +6975,10 @@
   }
 
   function loadWeeklySummary() {
-    // The coach report is its own card, after Readiness + the FFF chart.
+    // Weekly coach report removed — Home Coach daily message is the SoT.
     var card = document.getElementById("wsc-section");
-    if (!card) return;
-
-    var weekStart = _isoWeekStart(new Date());
-    var label = document.getElementById("wsc-week-label");
-    if (label) label.textContent = _fmtWeekLabel(weekStart);
-
-    fetch("/api/weekly-summary?week=" + weekStart)
-      .then(function (r) {
-        if (!r.ok) throw new Error("status " + r.status);
-        return r.json();
-      })
-      .then(function (data) {
-        var narrativeEl = document.getElementById("wsc-narrative");
-        var emptyEl = document.getElementById("wsc-empty");
-        var facts = data.facts || {};
-
-        if (narrativeEl) narrativeEl.innerHTML = _renderNarrative(data.narrative || "");
-
-        if (facts.workout_count === 0) {
-          if (narrativeEl) narrativeEl.hidden = false;
-          if (emptyEl) emptyEl.hidden = true;
-        }
-
-        card.hidden = false;
-      })
-      .catch(function () {
-        // Silently hide on error — don't break the page
-      });
+    if (card) card.hidden = true;
   }
 
-  document.addEventListener("DOMContentLoaded", loadWeeklySummary);
+  // Intentionally not auto-loading WSC (hidden). Keep function for any leftover callers.
 })();

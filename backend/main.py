@@ -13615,6 +13615,7 @@ def get_gap_analysis(user: User = Depends(resolve_user)):
         # Enrich each finding with evidence text (issue #1374), LLM phrasing (issue #1375),
         # and add-to-plan template flags (issue #1376).
         from backend.services.gap_analysis.templates import get_template, is_load_adding as _is_load_adding
+        from backend.services.gap_analysis.session_presets import get_preset_for_code
         enriched = []
         for f in result["findings"]:
             phrasing_result = get_finding_phrasing(
@@ -13629,6 +13630,7 @@ def get_gap_analysis(user: User = Depends(resolve_user)):
                 has_tmpl = tmpl is not None
             except KeyError:
                 has_tmpl = False
+            preset = get_preset_for_code(code, priority=f.get("severity"))
             enriched.append({
                 **f,
                 "evidence_text": render_evidence_text(code, f["evidence"], f.get("target")),
@@ -13636,6 +13638,7 @@ def get_gap_analysis(user: User = Depends(resolve_user)):
                 "phrasing_source": phrasing_result["phrasing_source"],
                 "has_template": has_tmpl,
                 "load_adding": _is_load_adding(code),
+                "preset": preset,
             })
 
         # Apply suppression filter (issue #1377): partition into visible / muted
@@ -13782,7 +13785,7 @@ def gap_add_to_plan(
     body: _GapAddToPlanBody,
     user: User = Depends(resolve_user),
 ):
-    """Create a planned session from a gap-analysis finding template (issue #1376).
+    """Create a planned session from a gap-analysis session preset.
 
     Path param:
         code   Gap-analysis rule code (e.g. 'plyo_deficit')
@@ -13790,29 +13793,22 @@ def gap_add_to_plan(
     Body:
         date   ISO date (YYYY-MM-DD) for the planned session
 
-    Responses:
-        201  Created planned session dict
-        404  No template exists for this code
-        409  Either (a) an identical gap-generated session exists this week,
-             or (b) the current training verdict is back_off and the template
-             adds training load
-        422  Invalid date
+    On success the finding is auto-marked ``accepted`` (added).
     """
-    from backend.services.gap_analysis.templates import get_template, is_load_adding
+    from backend.models import GapFinding
+    from backend.services.gap_analysis.session_presets import (
+        get_preset_for_code,
+        materialize_planned_fields,
+    )
+    from backend.services.gap_analysis.templates import is_load_adding
     from backend.utils.time import today_bangkok
 
-    # Resolve template — KeyError → 404, None → 404
-    try:
-        tmpl = get_template(code)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"No template for gap rule: {code!r}")
-    if tmpl is None:
+    preset = get_preset_for_code(code)
+    if preset is None:
         raise HTTPException(status_code=404, detail=f"No add-to-plan action for rule: {code!r}")
 
-    # Validate date
     target_date = _validate_planned_date(body.date)
 
-    # Verdict guard: block load-adding sessions when back_off
     if is_load_adding(code):
         today = today_bangkok()
         verdict = _gap_get_verdict_for_user(user.id, today)
@@ -13822,9 +13818,33 @@ def gap_add_to_plan(
                 detail={"code": "back_off", "message": "Training verdict is back_off — load-adding sessions are disabled."},
             )
 
-    # 409 if identical gap-generated session already exists this week
     week_start = target_date - _timedelta(days=target_date.weekday())
     week_end = week_start + _timedelta(days=6)
+
+    # Optional load ceiling for materialize clamp
+    load_ceiling = None
+    try:
+        from backend.services.load_plan import ACWR_CEILING_MULT
+        from backend.models import TrainingLoadSnapshot
+        with Session(engine) as _db:
+            snap = (
+                _db.query(TrainingLoadSnapshot)
+                .filter(
+                    TrainingLoadSnapshot.user_id == user.id,
+                    TrainingLoadSnapshot.snapshot_date <= target_date,
+                )
+                .order_by(TrainingLoadSnapshot.snapshot_date.desc())
+                .first()
+            )
+            if snap is not None:
+                # Approximate week ceiling from CTL*7 * mult when available
+                ctl = float(getattr(snap, "ctl", 0) or 0)
+                if ctl > 0:
+                    load_ceiling = round(ctl * 7 * float(ACWR_CEILING_MULT), 1)
+    except Exception:
+        load_ceiling = None
+
+    fields = materialize_planned_fields(preset, load_ceiling_tss=load_ceiling)
 
     with Session(engine) as db:
         existing = (
@@ -13843,23 +13863,42 @@ def gap_add_to_plan(
                 detail={"code": "already_planned_this_week", "message": f"A {code!r} session is already planned this week."},
             )
 
-        # Build structure: embed origin tag alongside template structure
-        structure = dict(tmpl.get("structure") or {})
-        structure["_gap_code"] = code
-
         row = PlannedSession(
             user_id=user.id,
             planned_date=target_date,
-            session_type=_validate_planned_type(tmpl["session_type"]),
-            name=tmpl.get("name"),
-            structure=structure,
-            notes=tmpl.get("notes"),
+            session_type=_validate_planned_type(fields["session_type"]),
+            name=fields.get("name"),
+            structure=fields.get("structure") or {},
+            notes=fields.get("notes"),
             status="planned",
         )
         db.add(row)
+
+        # Auto-mark finding accepted/added
+        finding = (
+            db.query(GapFinding)
+            .filter(
+                GapFinding.user_id == user.id,
+                GapFinding.week_start == week_start,
+                GapFinding.code == code,
+            )
+            .first()
+        )
+        if finding is not None and finding.status == "active":
+            from datetime import datetime, timezone as _tz
+            finding.status = "accepted"
+            finding.accepted_at = datetime.now(tz=_tz.utc)
+
         db.commit()
         db.refresh(row)
-        return JSONResponse(status_code=201, content=_planned_session_dict(row))
+        out = _planned_session_dict(row)
+        out["preset"] = {
+            "code": code,
+            "summary": preset.get("summary"),
+            "constraints": preset.get("constraints"),
+        }
+        out["marked_accepted"] = finding is not None
+        return JSONResponse(status_code=201, content=out)
 
 
 @app.get("/api/training/muscle-load")

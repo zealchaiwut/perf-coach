@@ -289,15 +289,18 @@ Timed schedules:
   `backend/main.py`'s `_banister_refit_scheduler_loop`, but the worker owns
   it going forward — set `BANISTER_REFIT_ENABLED=0` on the webapp (Render)
   once the worker's refit is confirmed running, to avoid double-running it.
-- **Weekly Home Coach**: if `WORKER_WEEKLY_COACH_ENABLED=1` (default), on
-  `WORKER_WEEKLY_COACH_DOW` (default `0` = Monday Asia/Bangkok) the scheduler
-  enqueues a `weekly_coach` job (dedupe key `weekly_coach:YYYY-Www`) at the
-  same wake times as the sync sweep. The handler runs
+- **Daily Home Coach**: if `WORKER_DAILY_COACH_ENABLED=1` (default; falls
+  back to legacy `WORKER_WEEKLY_COACH_ENABLED`), the scheduler enqueues a
+  `daily_coach` job (dedupe key `daily_coach:YYYY-MM-DD`) at the same wake
+  times as the sync sweep. The handler runs
   `weekly_coach_message.generate_for_user` for every active user — using
-  `claude -p` when `COACH_LLM=claude_cli` (set by `start_worker.sh`). Render
-  webapps only **read** `GET /api/coach/weekly-message`; they default
-  `COACH_LLM=off` and never invoke Claude. Manual trigger:
-  `POST /internal/weekly-coach/run` with `X-Worker-Secret`.
+  `claude -p` when `COACH_LLM=claude_cli` (set by `start_worker.sh`). After
+  each per-user Strava/Stryd sync the worker also enqueues
+  `daily_coach` for that user (dedupe per day+user). Render webapps only
+  **read** `GET /api/coach/daily-message` (weekly-message is a compat
+  alias); they default `COACH_LLM=off` and never invoke Claude. Manual:
+  `POST /internal/daily-coach/run` with `X-Worker-Secret`
+  (`/internal/weekly-coach/run` remains an alias).
 
 ## Deploy on zeal-server
 

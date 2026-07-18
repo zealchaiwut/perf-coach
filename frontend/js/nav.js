@@ -358,9 +358,9 @@
   }
 
   /**
-   * Desktop: inset the sticky global nav to the same column edges Training
-   * uses (1000px content + 24px pad). Applied on every page so Home / Weight /
-   * Habits match Training — not a Training-only JS patch.
+   * Desktop: inset sticky global nav to the page content column edges.
+   * Prefer measuring ``.page`` (Home = 1320/28) so Home / Training / etc.
+   * match their own column; fall back to Training's 1000 + 24 geometry.
    */
   function _positionGlobalNav() {
     var gnav = document.querySelector(".global-nav");
@@ -370,6 +370,20 @@
       gnav.style.removeProperty("padding-right");
       return;
     }
+
+    var page = document.querySelector("main.page, .page");
+    if (page) {
+      var rect = page.getBoundingClientRect();
+      var cs = window.getComputedStyle(page);
+      var pl = parseFloat(cs.paddingLeft) || 0;
+      var pr = parseFloat(cs.paddingRight) || 0;
+      var left = Math.max(0, rect.left + pl);
+      var right = Math.max(0, document.documentElement.clientWidth - (rect.right - pr));
+      gnav.style.paddingLeft = left + "px";
+      gnav.style.paddingRight = right + "px";
+      return;
+    }
+
     var CONTENT_MAX = 1000;
     var PAD = 24;
     var vw = document.documentElement.clientWidth;

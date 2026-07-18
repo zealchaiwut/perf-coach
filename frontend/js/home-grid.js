@@ -29,8 +29,8 @@
     { id: 'home-top-row-right',          w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Readiness
     { id: 'home-next-workout-card',      w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Recent workouts
     { id: 'home-performance-card',       w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Performance
-    { id: 'home-today-rec-card',         w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Today (left)
-    { id: 'home-brief-week-plan-card',   w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Week plan (right)
+    { id: 'home-today-rec-card',         w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Coach digest
+    { id: 'home-brief-week-plan-card',   w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Week plan
     { id: 'home-training-card',          w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Training
     { id: 'home-perf-container',         w: { 8: 4, 6: 3, 4: 4, 1: 1 } }, // Personal records
     { id: 'home-habits-widget',          w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Habits
