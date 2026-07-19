@@ -16,9 +16,7 @@ Acceptance criteria derived from the issue:
 """
 from __future__ import annotations
 
-import importlib
 import sys
-import types
 from datetime import date
 from unittest.mock import MagicMock, patch
 

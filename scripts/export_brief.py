@@ -17,7 +17,6 @@ import os
 import sys
 import tempfile
 from datetime import date, datetime, timedelta
-from zoneinfo import ZoneInfo
 
 # All assembly logic lives in the service.  Helper names are re-imported into
 # this module's namespace so that existing test patches such as
