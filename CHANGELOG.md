@@ -1,5 +1,10 @@
 # Changelog
 
+## Sprint 119 — Follow-up fixes: stale workout NP on resync & P2W sparkline NaN coords
+
+- #618: `workout.np` is now cleared when an activity is re-synced without a power stream — in `reconcile.py::_ingest_streams`, the branch that handles an activity with no power samples now sets `workout.np = None` (previously it left the previously-computed normalized power in place), so a workout whose power data disappears on a later sync no longer keeps a stale NP value
+- #1426: Power-to-weight sparkline no longer produces `NaN` path coordinates for days with a null `w_per_kg` — `frontend/js/weight.js::_p2wDrawSparkline` rebuilds the SVG path with a reducer that skips null points and starts a fresh subpath (`M` instead of `L`) after a gap, instead of mapping every index (including nulls) into the `d` string
+
 ## Sprint 114 — Race-based goal fallback & weekly-coach scheduler fixes
 
 - #1541: Race-based fallback for active-goal resolution — new shared resolver `backend/services/goal_resolution.py::resolve_active_goal(user_id, db)` returns the active `PerformanceGoal` unchanged when one exists, otherwise falls back to the nearest qualifying A-priority Race (`status ∈ {planned, active}`, non-null `goal_time_seconds`, ordered by `race_date` asc nulls-last) wrapped in a duck-typed `_RaceGoalAdapter` exposing `user_id`/`race_date`/`race_distance`/`target_time`; `race_distance` is derived by nearest-bucket mapping (5 km→`5k`, 10 km→`10k`, 21.0975 km→`half`, 42.195 km→`marathon`). This lets users who set their goal via an A-race in the Plan tab receive coach output (weekly message, Hermes daily-brief coach block) without a `PerformanceGoal` record. `weekly_coach_message.py::_load_inputs_for_user` and `scripts/export_brief.py::_load_goal_for_user` now call the shared resolver instead of querying `PerformanceGoal` directly; `backend/routers/coach.py` and the `performance_goals` table are untouched
