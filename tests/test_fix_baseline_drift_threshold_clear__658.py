@@ -32,7 +32,6 @@ marked manual-skip — these cannot be tested via HTTP.
 Server: http://127.0.0.1:9001
 """
 import uuid
-import re
 
 import httpx
 import pytest
