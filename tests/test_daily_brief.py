@@ -331,6 +331,7 @@ V2_FIELD_TYPES = {
     "recent_wrap": dict,
     "weight": dict,
     "advisories": list,
+    "advisories_degraded": bool,
     "actions": list,
     "week_plan": list,
 }
