@@ -7472,7 +7472,10 @@ def delete_workout(workout_id: str, user: User = Depends(resolve_user)):
 # Link-only: matched_workout_id → workouts.id; Log tab unchanged.
 
 _PLANNED_SESSION_TYPES = {"run", "strength", "plyo", "stretch", "rest"}
-_PLANNED_STATUSES = {"planned", "missed", "needs_review", "done_auto", "done_manual"}
+_PLANNED_STATUSES = {
+    "planned", "missed", "missed_auto", "missed_manual",
+    "needs_review", "done_auto", "done_manual",
+}
 
 
 class PlannedSessionIn(BaseModel):
@@ -7874,7 +7877,8 @@ def miss_planned_session(ps_id: str, user: User = Depends(resolve_user)):
     with Session(engine) as session:
         row = _get_planned_session_or_404(session, ps_id, user)
         row.matched_workout_id = None
-        row.status = "missed"
+        # missed_manual is excluded from future matching sweeps (part 3).
+        row.status = "missed_manual"
         row.updated_at = _datetime.now(_timezone.utc)
         session.commit()
         session.refresh(row)

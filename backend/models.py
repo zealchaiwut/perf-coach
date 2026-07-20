@@ -1610,7 +1610,7 @@ class PlannedSession(Base):
     # blocks[] for runs / exercises[] for strength·plyo; null for rest
     structure = Column(JSONB, nullable=True)
     notes = Column(Text, nullable=True)
-    # planned | missed | needs_review | done_auto | done_manual
+    # planned | missed | missed_auto | missed_manual | needs_review | done_auto | done_manual
     status = Column(String(20), nullable=False, server_default=text("'planned'"))
     matched_workout_id = Column(
         UUID(as_uuid=True),

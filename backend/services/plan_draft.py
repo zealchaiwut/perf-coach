@@ -275,13 +275,24 @@ def generate_draft_payload(
     ordered_contents = [contents[i] or {"intent": "Rest", "source": "template"} for i in range(7)]
     assembled = assemble_week(sk["slots"], ordered_contents, facts=facts)
 
+    from backend.services.plan_skeleton_ops import ensure_slot_ids, sync_slots_from_sessions
+
+    sessions = ensure_slot_ids(assembled["sessions"])
+    # Carry slot_ids onto skeleton slots by day
+    by_day = {int(s["day_offset"]): s for s in sessions}
+    for slot in sk["slots"]:
+        sid = by_day.get(int(slot["day_offset"]), {}).get("slot_id")
+        if sid:
+            slot["slot_id"] = sid
+
     return {
         "week_start": week_start.isoformat(),
         "budget": sk["budget"],
-        "slots": sk["slots"],
-        "sessions": assembled["sessions"],
+        "slots": sync_slots_from_sessions(sessions) if sessions else sk["slots"],
+        "sessions": sessions,
         "sanity_errors": assembled.get("sanity_errors") or [],
         "facts_signature": facts_signature_for_draft(facts),
+        "version": 1,
     }
 
 
@@ -329,6 +340,7 @@ def get_draft(db: Session, user_id, week_start: date) -> dict | None:
         "status": row.status,
         "facts_signature": row.facts_signature,
         "payload": row.payload,
+        "draft_version": draft_version_token(row),
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
@@ -343,17 +355,31 @@ def draft_has_user_edits(payload: dict | None) -> bool:
     return False
 
 
-def enqueue_plan_draft(user_id, week_start: date | None = None, *, enqueued_by: str = "web") -> str | None:
-    """Debounced enqueue: skip if pending plan_draft for user exists."""
+def enqueue_plan_draft(
+    user_id,
+    week_start: date | None = None,
+    *,
+    enqueued_by: str = "web",
+    slot_ids: list[str] | None = None,
+) -> str | None:
+    """Debounced enqueue: skip if pending plan_draft for user exists.
+
+    When ``slot_ids`` is set, the worker regenerates ONLY those slots (partial).
+    """
     from backend.services import job_queue as jq
     from backend.utils.time import today_bangkok
 
     today = today_bangkok()
     ws = week_start or (today - timedelta(days=today.weekday()))
-    dedupe = f"plan_draft:{user_id}:{ws.isoformat()}"
+    dedupe_suffix = ",".join(sorted(slot_ids)) if slot_ids else "full"
+    dedupe = f"plan_draft:{user_id}:{ws.isoformat()}:{dedupe_suffix}"
+    payload: dict[str, Any] = {"user_id": str(user_id), "week_start": ws.isoformat()}
+    if slot_ids:
+        payload["slot_ids"] = list(slot_ids)
+        payload["mode"] = "partial"
     return jq.enqueue(
         "plan_draft",
-        {"user_id": str(user_id), "week_start": ws.isoformat()},
+        payload,
         priority=5,
         enqueued_by=enqueued_by,
         dedupe_key=dedupe,
@@ -361,15 +387,22 @@ def enqueue_plan_draft(user_id, week_start: date | None = None, *, enqueued_by: 
 
 
 def run_plan_draft_job(payload: dict) -> dict:
-    """Worker entry: recompute signature; no-op if cached draft matches."""
+    """Worker entry: full regen or partial slot_ids regen."""
     from backend.db import engine
     from backend.models import PlanDraft
     from uuid import UUID
 
     user_id = UUID(str(payload["user_id"]))
     week_start = date.fromisoformat(payload["week_start"])
+    slot_ids = payload.get("slot_ids") or None
+    mode = (payload.get("mode") or "").lower()
 
     with Session(engine) as db:
+        if mode == "partial" and slot_ids:
+            result = regenerate_partial_slots(db, user_id, week_start, list(slot_ids))
+            db.commit()
+            return result
+
         prefs = get_plan_prefs(db, user_id)
         facts = assemble_facts(
             str(user_id), db, week_start=week_start,
@@ -686,4 +719,444 @@ def hermes_draft_notify(
         "message": msg,
         "deeplink": f"/log?tab=plan&week={row.week_start.isoformat()}",
         "combine_with_prefs_reconfirm": today.weekday() == 6,  # Sunday
+    }
+
+def draft_version_token(row) -> str:
+    """Client sends this back; reject ops if mismatched (stale draft)."""
+    if row is None:
+        return ""
+    ts = row.updated_at.isoformat() if row.updated_at else ""
+    ver = (row.payload or {}).get("version") or 0
+    return f"{ver}:{ts}:{row.facts_signature[:12]}"
+
+
+def rewrite_slot_cache_key(db: Session, user_id, *, old_pins: dict, new_pins: dict, week_ctx: dict) -> bool:
+    """Move cache entry under new pin key without regenerating. Returns True if rewritten."""
+    from backend.models import LlmGeneration
+    from backend.services.plan_slot_cache import SURFACE, content_ctx_from_week, slot_cache_key
+
+    ctx = content_ctx_from_week(week_ctx)
+    old_key = slot_cache_key(pins=old_pins, content_ctx=ctx)
+    new_key = slot_cache_key(pins=new_pins, content_ctx=ctx)
+    if old_key == new_key:
+        return False
+    row = (
+        db.query(LlmGeneration)
+        .filter_by(user_id=user_id, surface=SURFACE, input_signature=old_key)
+        .first()
+    )
+    if row is None:
+        return False
+    # Avoid unique collision
+    existing_new = (
+        db.query(LlmGeneration)
+        .filter_by(user_id=user_id, surface=SURFACE, input_signature=new_key)
+        .first()
+    )
+    if existing_new is not None:
+        db.delete(row)
+    else:
+        row.input_signature = new_key
+    db.flush()
+    return True
+
+
+def regenerate_partial_slots(db: Session, user_id, week_start: date, slot_ids: list[str]) -> dict:
+    """Regenerate ONLY listed slot_ids; clear pending flags."""
+    from backend.models import PlanDraft
+    from backend.services.plan_skeleton_ops import ensure_slot_ids, sync_slots_from_sessions
+    from backend.services.plan_slot import stamp_session
+
+    row = (
+        db.query(PlanDraft)
+        .filter(PlanDraft.user_id == user_id, PlanDraft.week_start == week_start)
+        .first()
+    )
+    if row is None:
+        return {"status": "error", "reason": "no_draft"}
+
+    payload = dict(row.payload or {})
+    sessions = ensure_slot_ids(list(payload.get("sessions") or []))
+    want = set(slot_ids)
+    prefs = get_plan_prefs(db, user_id)
+    facts = assemble_facts(
+        str(user_id), db, week_start=week_start,
+        preferred_rest_days=prefs["preferred_rest_days"],
+        strength_emphasis=prefs["strength_emphasis"],
+        notes=prefs["notes"],
+    )
+    slots_for_ctx = [
+        {
+            "day_offset": s["day_offset"],
+            "workout_type": s.get("workout_type"),
+            "target_tss": s.get("target_tss"),
+            "duration_minutes": s.get("duration_minutes"),
+            "subtype": s.get("subtype"),
+            "structure_hints": s.get("structure_hints") or {},
+            "locked": bool(s.get("locked")),
+        }
+        for s in sessions
+    ]
+    week_ctx = build_week_ctx(
+        facts=facts,
+        skeleton_slots=slots_for_ctx,
+        strength_emphasis=prefs["strength_emphasis"],
+        notes=prefs["notes"],
+    )
+    llm_call = _llm_call_for_transport()
+    regenerated = 0
+
+    def _one(sess):
+        pins = {
+            "day_offset": sess["day_offset"],
+            "workout_type": sess.get("workout_type"),
+            "target_tss": sess.get("target_tss"),
+            "duration_minutes": sess.get("duration_minutes"),
+            "subtype": sess.get("subtype"),
+            "structure_hints": sess.get("structure_hints") or {},
+        }
+        if sess.get("source") == "user":
+            return sess  # never overwrite user pins content
+        content = _cached_or_generate(db, user_id, week_ctx, pins, llm_call, None)
+        stamped = stamp_session(pins, content)
+        stamped["slot_id"] = sess["slot_id"]
+        stamped["pending"] = False
+        stamped["source"] = stamped.get("source") or content.get("source") or "llm"
+        return stamped
+
+    to_run = [s for s in sessions if s.get("slot_id") in want]
+    results: dict[str, dict] = {}
+    with ThreadPoolExecutor(max_workers=_MAX_CONCURRENT_SLOTS) as pool:
+        futs = {pool.submit(_one, s): s["slot_id"] for s in to_run}
+        for fut in as_completed(futs):
+            sid = futs[fut]
+            results[sid] = fut.result()
+            regenerated += 1
+
+    new_sessions = []
+    for s in sessions:
+        sid = s.get("slot_id")
+        if sid in results:
+            new_sessions.append(results[sid])
+        else:
+            new_sessions.append(s)
+
+    payload["sessions"] = new_sessions
+    payload["slots"] = sync_slots_from_sessions(new_sessions)
+    payload["version"] = int(payload.get("version") or 1) + 1
+    row.payload = payload
+    row.updated_at = datetime.now(timezone.utc)
+    if row.status == "outdated":
+        row.status = "fresh"
+    db.flush()
+    return {"status": "ok", "regenerated": regenerated, "slot_ids": list(want)}
+
+
+def _dispatch_after_op(
+    db: Session,
+    user_id,
+    week_start: date,
+    affected: list[str],
+    *,
+    inline: bool,
+    background: bool,
+) -> dict:
+    """0 → done; 1+inline → webapp Groq; ≥2 or background → enqueue partial."""
+    n = len(affected)
+    if n == 0:
+        return {"dispatch": "none"}
+    if n == 1 and inline and not background:
+        result = regenerate_partial_slots(db, user_id, week_start, affected)
+        return {"dispatch": "inline", "result": result}
+    # Mark pending, enqueue
+    from backend.models import PlanDraft
+
+    row = (
+        db.query(PlanDraft)
+        .filter(PlanDraft.user_id == user_id, PlanDraft.week_start == week_start)
+        .first()
+    )
+    if row and row.payload:
+        payload = dict(row.payload)
+        sessions = list(payload.get("sessions") or [])
+        for s in sessions:
+            if s.get("slot_id") in affected:
+                s["pending"] = True
+        payload["sessions"] = sessions
+        row.payload = payload
+        row.updated_at = datetime.now(timezone.utc)
+        db.flush()
+    job_id = enqueue_plan_draft(user_id, week_start, slot_ids=affected, enqueued_by="web")
+    return {"dispatch": "background", "job_id": job_id, "slot_ids": affected}
+
+
+def apply_structure_op(
+    db: Session,
+    user_id,
+    week_start: date,
+    *,
+    op: str,
+    draft_version: str | None = None,
+    confirm_warnings: bool = False,
+    inline: bool = True,
+    background: bool = False,
+    **kwargs,
+) -> dict:
+    """Run a skeleton op against the live draft; version-guard; dispatch regen."""
+    from backend.models import PlanDraft
+    from backend.services import plan_skeleton_ops as ops
+    from backend.utils.time import today_bangkok
+
+    row = (
+        db.query(PlanDraft)
+        .filter(PlanDraft.user_id == user_id, PlanDraft.week_start == week_start)
+        .first()
+    )
+    if row is None:
+        return {"ok": False, "error": "no_draft", "status_code": 404}
+
+    token = draft_version_token(row)
+    if draft_version is not None and draft_version != token:
+        return {"ok": False, "error": "stale_draft", "status_code": 409, "draft_version": token}
+
+    payload = dict(row.payload or {})
+    sessions = ops.ensure_slot_ids(list(payload.get("sessions") or []))
+    prefs = get_plan_prefs(db, user_id)
+    today = today_bangkok()
+    today_offset = None
+    if week_start <= today <= week_start + timedelta(days=6):
+        today_offset = (today - week_start).days
+
+    budget = payload.get("budget") or {}
+    ceiling = budget.get("acwr_ceiling")
+    common = dict(
+        preferred_rest_days=prefs.get("preferred_rest_days") or [],
+        today_offset=today_offset,
+        confirm_warnings=confirm_warnings,
+    )
+
+    if op == "move":
+        result = ops.move(
+            sessions,
+            slot_id=kwargs["slot_id"],
+            to_day=int(kwargs["to_day"]),
+            **common,
+        )
+    elif op == "swap":
+        result = ops.swap(
+            sessions,
+            day_a=int(kwargs["day_a"]),
+            day_b=int(kwargs["day_b"]),
+            **common,
+        )
+    elif op == "remove":
+        result = ops.remove(
+            sessions,
+            slot_id=kwargs["slot_id"],
+            mode=kwargs.get("mode") or "drop",
+            acwr_ceiling=ceiling,
+            weekly_target=budget.get("weekly_target"),
+        )
+    elif op == "add":
+        result = ops.add(
+            sessions,
+            day=int(kwargs["day"]),
+            kind=kwargs.get("kind") or "easy_run",
+            acwr_ceiling=ceiling,
+            custom=kwargs.get("custom"),
+            **common,
+        )
+    elif op == "preview_move":
+        return {
+            "ok": True,
+            "preview": ops.preview_move_target(
+                sessions,
+                slot_id=kwargs["slot_id"],
+                to_day=int(kwargs["to_day"]),
+                preferred_rest_days=prefs.get("preferred_rest_days") or [],
+                today_offset=today_offset,
+            ),
+            "draft_version": token,
+        }
+    else:
+        return {"ok": False, "error": f"unknown op {op}", "status_code": 422}
+
+    if result.get("blocked"):
+        return {
+            "ok": False,
+            "blocked": True,
+            "block_reason": result.get("block_reason"),
+            "warnings": result.get("warnings") or [],
+            "status_code": 422,
+            "draft_version": token,
+        }
+    if result.get("needs_confirm") and not confirm_warnings:
+        return {
+            "ok": False,
+            "needs_confirm": True,
+            "warnings": result.get("warnings") or [],
+            "swap_with": result.get("swap_with"),
+            "status_code": 409,
+            "draft_version": token,
+        }
+
+    new_sessions = result["slots"]
+    # Cache rewrite for moves (no LLM)
+    week_ctx = None
+    if result.get("moved_cache_rewrite"):
+        facts = assemble_facts(
+            str(user_id), db, week_start=week_start,
+            preferred_rest_days=prefs["preferred_rest_days"],
+            strength_emphasis=prefs["strength_emphasis"],
+            notes=prefs["notes"],
+        )
+        week_ctx = build_week_ctx(
+            facts=facts,
+            skeleton_slots=ops.sync_slots_from_sessions(new_sessions),
+            strength_emphasis=prefs["strength_emphasis"],
+            notes=prefs["notes"],
+        )
+        for mv in result["moved_cache_rewrite"]:
+            sess = next((s for s in new_sessions if s.get("slot_id") == mv["slot_id"]), None)
+            if not sess:
+                continue
+            old_pins = {
+                "day_offset": mv["from_day"],
+                "workout_type": sess.get("workout_type"),
+                "target_tss": sess.get("target_tss"),
+                "duration_minutes": sess.get("duration_minutes"),
+                "subtype": sess.get("subtype"),
+                "structure_hints": sess.get("structure_hints") or {},
+            }
+            new_pins = {**old_pins, "day_offset": mv["to_day"]}
+            rewrite_slot_cache_key(db, user_id, old_pins=old_pins, new_pins=new_pins, week_ctx=week_ctx)
+
+    payload["sessions"] = new_sessions
+    payload["slots"] = ops.sync_slots_from_sessions(new_sessions)
+    payload["version"] = int(payload.get("version") or 1) + 1
+    if result.get("redistribute") is not None:
+        payload["last_redistribute"] = result["redistribute"]
+    row.payload = payload
+    row.updated_at = datetime.now(timezone.utc)
+    db.flush()
+
+    affected = list(result.get("affected_slot_ids") or [])
+    dispatch = _dispatch_after_op(
+        db, user_id, week_start, affected, inline=inline, background=background,
+    )
+    fresh = get_draft(db, user_id, week_start)
+    return {
+        "ok": True,
+        "draft": fresh,
+        "draft_version": draft_version_token(row),
+        "warnings": result.get("warnings") or [],
+        "affected_slot_ids": affected,
+        "redistribute": result.get("redistribute"),
+        "dispatch": dispatch,
+    }
+
+
+def replan_remaining_budget(
+    db: Session,
+    user_id,
+    week_start: date,
+    *,
+    today: date | None = None,
+) -> dict:
+    """Budget for open days = weekly − Σ matched ACTUAL TSS; partial skeleton."""
+    from backend.models import PlannedSession, Workout
+    from backend.services.plan_skeleton import weekly_budget, build_skeleton
+    from backend.utils.time import today_bangkok
+
+    today = today or today_bangkok()
+    prefs = get_plan_prefs(db, user_id)
+    facts = assemble_facts(
+        str(user_id), db, week_start=week_start,
+        preferred_rest_days=prefs["preferred_rest_days"],
+        strength_emphasis=prefs["strength_emphasis"],
+        notes=prefs["notes"],
+    )
+
+    # Matched actual TSS for done sessions this week
+    rows = (
+        db.query(PlannedSession)
+        .filter(
+            PlannedSession.user_id == user_id,
+            PlannedSession.planned_date >= week_start,
+            PlannedSession.planned_date <= week_start + timedelta(days=6),
+        )
+        .all()
+    )
+    matched_actual = 0.0
+    occupied: set[int] = set()
+    for p in rows:
+        offset = (p.planned_date - week_start).days
+        if p.status in ("done_auto", "done_manual") and p.matched_workout_id:
+            w = db.get(Workout, p.matched_workout_id)
+            if w and w.tss is not None:
+                matched_actual += float(w.tss)
+            occupied.add(offset)
+        elif p.status in ("done_auto", "done_manual", "needs_review"):
+            # Fall back to planned estimate only for done-but-unmatched review
+            occupied.add(offset)
+        elif p.status in ("missed_manual", "missed_auto", "missed"):
+            occupied.add(offset)  # closed — no redistribute
+        elif p.planned_date < today:
+            occupied.add(offset)
+        else:
+            # Open planned — will be replaced; still occupy until apply
+            occupied.add(offset)
+
+    # Open = future days without a matched/done/missed lock — for replan we
+    # treat "still planned & today-or-future" as regenerable.
+    open_offsets = []
+    for p in rows:
+        offset = (p.planned_date - week_start).days
+        if p.status == "planned" and p.planned_date >= today and not p.matched_workout_id:
+            open_offsets.append(offset)
+
+    # Also include empty future days
+    for d in range(7):
+        day = week_start + timedelta(days=d)
+        if day < today:
+            continue
+        if d not in { (p.planned_date - week_start).days for p in rows }:
+            open_offsets.append(d)
+    open_offsets = sorted(set(open_offsets))
+
+    load_plan_week = None
+    if facts.get("target_tss") is not None:
+        load_plan_week = {
+            "target_tss": facts["target_tss"],
+            "phase": facts.get("phase"),
+            "ceiling": facts.get("acwr_ceiling"),
+        }
+    budget = weekly_budget(
+        trailing_28d_weekly_avg_tss=float(facts.get("trailing_28d_weekly_avg_tss") or 0),
+        logged_tss_so_far=matched_actual,
+        open_slot_count=max(1, len(open_offsets)),
+        load_plan_week=load_plan_week,
+        race_anchored_target=facts.get("target_tss"),
+    )
+
+    # Existing occupied for skeleton = everything NOT in open_offsets
+    existing_occupied = set(range(7)) - set(open_offsets)
+    history = _load_history_rows(str(user_id), week_start, db=db)
+    sk = build_skeleton(
+        week_start=week_start,
+        history=history,
+        preferred_rest_days=prefs["preferred_rest_days"],
+        strength_emphasis=prefs["strength_emphasis"],
+        trailing_28d_weekly_avg_tss=float(facts.get("trailing_28d_weekly_avg_tss") or 0),
+        logged_tss_so_far=matched_actual,
+        allowed_offsets=open_offsets,
+        load_plan_week=load_plan_week,
+        race_anchored_target=facts.get("target_tss"),
+        existing_occupied=existing_occupied,
+    )
+    return {
+        "budget": budget,
+        "matched_actual_tss": matched_actual,
+        "open_offsets": open_offsets,
+        "skeleton": sk,
     }

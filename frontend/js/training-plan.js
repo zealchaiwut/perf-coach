@@ -358,31 +358,146 @@ information about.
     var tss = s.target_tss != null ? Math.round(s.target_tss) + ' TSS' : '';
     var dur = s.duration_minutes ? s.duration_minutes + ' min' : '';
     var meta = [tss, dur].filter(Boolean).join(' · ');
-    return '<div class="pl-draft ' + fam + '" data-draft-offset="' + s.day_offset + '">' +
+    var pending = !!s.pending;
+    var sid = s.slot_id || ('d' + s.day_offset);
+    var moveOpts = '';
+    for (var d = 0; d < 7; d++) {
+      if (d === s.day_offset) continue;
+      moveOpts += '<option value="' + d + '">' + DOW[d] + '</option>';
+    }
+    return '<div class="pl-draft ' + fam + (pending ? ' is-pending' : '') + '" draggable="' + (pending ? 'false' : 'true') + '"' +
+      ' data-draft-offset="' + s.day_offset + '" data-slot-id="' + esc(sid) + '" data-orig-idx="' + s.day_offset + '">' +
       '<div class="pl-sesstop"><span class="pl-sesstop-left">' +
         '<span class="pl-stypetag ' + fam + '">' + fam + '</span>' +
         _sourceChip(s.source) +
+        (pending ? '<span class="pl-src-chip pl-src-pending">GENERATING<span class="pl-spin">…</span></span>' : '') +
       '</span><span class="pl-draft-tag">DRAFT</span></div>' +
       '<div class="pl-sn">' + esc(s.intent || s.workout_type || 'Session') + '</div>' +
       (meta ? '<div class="pl-sm">' + esc(meta) + '</div>' : '') +
       '<div class="pl-draft-actions">' +
-        '<button type="button" class="pl-btn pl-ghost pl-tiny" data-draft-rm="' + s.day_offset + '">Remove</button>' +
+        '<label class="pl-draft-move">Move to <select data-draft-move="' + esc(sid) + '"' + (pending ? ' disabled' : '') + '>' +
+          '<option value="">▾</option>' + moveOpts + '</select></label>' +
+        '<button type="button" class="pl-btn pl-ghost pl-tiny" data-draft-rm="' + esc(sid) + '"' + (pending ? ' disabled' : '') + '>✕</button>' +
       '</div>' +
     '</div>';
+  }
+
+  function _draftOp(op, body) {
+    body = body || {};
+    body.week_start = _iso(_weekStart);
+    if (_draft && _draft.draft_version) body.draft_version = _draft.draft_version;
+    return fetch('/api/plan/draft/ops/' + op, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(function (r) {
+      return r.json().then(function (res) {
+        if (r.status === 409 && res && res.detail && res.detail.needs_confirm) {
+          return Promise.reject({
+            needs_confirm: true,
+            warnings: res.detail.warnings || [],
+            body: body,
+            op: op,
+          });
+        }
+        if (!r.ok) {
+          var d = res && res.detail;
+          return Promise.reject({ detail: typeof d === 'object' ? d : { error: d || ('HTTP ' + r.status) } });
+        }
+        // Some paths return the result object directly (ok:true)
+        var payload = res.detail && res.detail.ok !== undefined ? res.detail : res;
+        if (payload && payload.draft) {
+          _draft = payload.draft;
+          if (payload.draft_version) _draft.draft_version = payload.draft_version;
+          _renderDraftChrome();
+          _renderWeekList();
+        }
+        return payload;
+      });
+    });
+  }
+
+  function _confirmWarnings(warnings, onYes) {
+    var msg = (warnings || []).join('\n') + '\n\nProceed anyway?';
+    if (window.confirm(msg)) onYes(true);
+  }
+
+  function _removeDraftSlot(slotId) {
+    var mode = window.confirm('Redistribute this session\'s TSS to other open slots?\n\nOK = redistribute · Cancel = drop only')
+      ? 'redistribute' : 'drop';
+    _draftOp('remove', { slot_id: slotId, mode: mode, confirm_warnings: true })
+      .then(function (res) {
+        if (res && res.redistribute) {
+          var m = res.redistribute;
+          _toast('Replaced ' + Math.round(m.replaced_tss || 0) + ' TSS · dropped ' + Math.round(m.dropped_tss || 0));
+        }
+      })
+      .catch(function (err) {
+        if (err && err.needs_confirm) {
+          _confirmWarnings(err.warnings, function () {
+            err.body.confirm_warnings = true;
+            _draftOp(err.op, err.body).catch(function () { _toast('Remove failed', true); });
+          });
+          return;
+        }
+        _toast((err && err.detail && err.detail.block_reason) || 'Could not remove', true);
+      });
+  }
+
+  function _moveDraftSlot(slotId, toDay, confirmed) {
+    _draftOp('move', { slot_id: slotId, to_day: toDay, confirm_warnings: !!confirmed })
+      .catch(function (err) {
+        if (err && err.needs_confirm) {
+          _confirmWarnings(err.warnings, function () {
+            _moveDraftSlot(slotId, toDay, true);
+          });
+          return;
+        }
+        var detail = err && err.detail;
+        _toast((detail && (detail.block_reason || detail.error)) || 'Move blocked', true);
+      });
+  }
+
+  function _addDraftKind(day, kind) {
+    _draftOp('add', { day: day, kind: kind, confirm_warnings: false })
+      .catch(function (err) {
+        if (err && err.needs_confirm) {
+          _confirmWarnings(err.warnings, function () {
+            _draftOp('add', { day: day, kind: kind, confirm_warnings: true })
+              .catch(function () { _toast('Add failed', true); });
+          });
+          return;
+        }
+        var detail = err && err.detail;
+        _toast((detail && detail.block_reason) || 'Could not add', true);
+      });
   }
 
   function _renderDraftChrome() {
     var banner = document.getElementById('pl-draft-banner');
     var applyBtn = document.getElementById('pl-apply-draft');
     var refreshBtn = document.getElementById('pl-refresh-draft');
+    var pendingBar = document.getElementById('pl-draft-pending');
     if (!_draftVisible || !_draft || _draft.status === 'applied') {
       if (banner) banner.hidden = true;
       if (applyBtn) applyBtn.hidden = true;
       if (refreshBtn) refreshBtn.hidden = true;
+      if (pendingBar) pendingBar.hidden = true;
       return;
     }
     if (applyBtn) applyBtn.hidden = false;
     if (refreshBtn) refreshBtn.hidden = false;
+    var sessions = (_draft.payload && _draft.payload.sessions) || [];
+    var pendingN = sessions.filter(function (s) { return s && s.pending; }).length;
+    if (pendingBar) {
+      if (pendingN > 0) {
+        pendingBar.hidden = false;
+        pendingBar.textContent = pendingN + ' session' + (pendingN === 1 ? '' : 's') + ' regenerating on zeal-server…';
+      } else {
+        pendingBar.hidden = true;
+      }
+    }
     if (banner) {
       if (_draft.status === 'outdated') {
         banner.hidden = false;
@@ -419,18 +534,6 @@ information about.
         if (btn) btn.disabled = false;
         _toast('Could not apply draft', true);
       });
-  }
-
-  function _removeDraftSlot(offset) {
-    _api('PATCH', '/api/plan/draft/slot', {
-      week_start: _iso(_weekStart),
-      day_offset: offset,
-      remove: true,
-    }).then(function (d) {
-      _draft = d;
-      _renderDraftChrome();
-      _renderWeekList();
-    }).catch(function () { _toast('Could not remove draft slot', true); });
   }
 
   // ── Load / reload the week ──────────────────────────────────────────────────
@@ -1004,6 +1107,7 @@ information about.
         '<div class="pl-btnrow">' +
           '<button class="pl-btn pl-lime" id="pl-apply-draft" hidden title="Create planned sessions from this draft">Apply week</button>' +
           '<button class="pl-btn pl-ghost" id="pl-refresh-draft" hidden title="Regenerate untouched draft slots">Refresh draft</button>' +
+          '<button class="pl-btn pl-ghost" id="pl-replan-remaining" title="Replan open days from remaining budget">Replan remaining</button>' +
           /* Repurposed to open the AI next-week suggestions panel (issue #1315).
              It proxies a click to the suggestions module's own (hidden) trigger
              button, which lives in a separate closure. Label includes the
@@ -1013,6 +1117,7 @@ information about.
           '<button class="pl-btn pl-dark" id="pl-add">+ Add</button>' +
         '</div></div>' +
         '<div class="pl-draft-banner" id="pl-draft-banner" hidden></div>' +
+        '<div class="pl-draft-pending" id="pl-draft-pending" hidden></div>' +
         '<div class="pl-infobanner" id="pl-infobanner" style="margin-bottom:12px;">Sessions are generated to hit your weekly target, respecting the ramp rule and your rest days.</div>' +
         '<div class="pl-weeklist" id="plan-week-list"></div>' +
         '<div class="pl-legend">' +
@@ -1034,6 +1139,16 @@ information about.
     if (applyBtn) applyBtn.onclick = _applyDraftWeek;
     var refreshBtn = document.getElementById('pl-refresh-draft');
     if (refreshBtn) refreshBtn.onclick = _refreshDraft;
+    var replanBtn = document.getElementById('pl-replan-remaining');
+    if (replanBtn) replanBtn.onclick = function () {
+      _api('POST', '/api/plan/draft/replan-remaining', { week_start: _iso(_weekStart) })
+        .then(function () {
+          _toast('Replan queued');
+          _draftVisible = true;
+          setTimeout(function () { _loadDraft(); }, 2000);
+        })
+        .catch(function () { _toast('Replan failed', true); });
+    };
     var sugBtn = document.getElementById('pl-suggest');
     if (sugBtn) sugBtn.onclick = function () {
       var t = document.getElementById('plan-suggestions-trigger');
@@ -1099,7 +1214,15 @@ information about.
       if (draftSess && (draftSess.workout_type || '') !== 'rest' && !(day.planned || []).length) {
         draftHtml = _draftCardHtml(draftSess, day);
       }
-      var hasContent = (day.planned || []).length || ghosts || draftHtml;
+      var addDraft = '';
+      if (_draftVisible && _draft && _draft.status !== 'applied' && !isPast && !(day.planned || []).length && !draftHtml) {
+        addDraft = '<div class="pl-draft-add">' +
+          '<button type="button" class="pl-btn pl-ghost pl-tiny" data-draft-add="' + di + '" data-kind="easy_run">+ Easy</button>' +
+          '<button type="button" class="pl-btn pl-ghost pl-tiny" data-draft-add="' + di + '" data-kind="light_strength">+ Strength</button>' +
+          '<button type="button" class="pl-btn pl-ghost pl-tiny" data-draft-add="' + di + '" data-kind="stretch">+ Stretch</button>' +
+        '</div>';
+      }
+      var hasContent = (day.planned || []).length || ghosts || draftHtml || addDraft;
       var rest = !hasContent ? '<div class="pl-restday">Rest day</div>' : '';
       // A past day is done — no NEW session should be added to it. Existing
       // cards keep every action (match/change match/mark missed/delete); only
@@ -1109,9 +1232,9 @@ information about.
         : '<div class="pl-addday" data-add-date="' + day.date + '">+ add</div>';
       var dayTotal = _dayTotalTss(day);
       var dayWarn = _dayHasWarning(day) ? '<span class="pl-day-guard-badge" title="A session this day loads an overused or injured muscle group">⚠</span>' : '';
-      return '<div class="pl-dayrow ' + cls + '" data-date="' + day.date + '">' +
+      return '<div class="pl-dayrow ' + cls + '" data-date="' + day.date + '" data-day-offset="' + di + '">' +
         '<div class="pl-daylabel"><span class="pl-dname">' + day.dow + dayWarn + '</span><span class="pl-dnum">' + _parseISO(day.date).getDate() + '</span></div>' +
-        '<div class="pl-daybody">' + cards + draftHtml + ghosts + rest + addDay +
+        '<div class="pl-daybody">' + cards + draftHtml + addDraft + ghosts + rest + addDay +
         '</div>' +
         (dayTotal != null ? '<span class="pl-dtotal">' + Math.round(dayTotal) + ' TSS</span>' : '') +
       '</div>';
@@ -1156,7 +1279,9 @@ information about.
   }
 
   function _statusTag(status, hasActual) {
-    if (status === 'missed') return '<span class="pl-stat-tag missed">MISSED</span>';
+    if (status === 'missed' || status === 'missed_auto' || status === 'missed_manual') {
+      return '<span class="pl-stat-tag missed">' + (status === 'missed_manual' ? 'MISSED' : 'MISSED') + '</span>';
+    }
     if (status === 'needs_review') return '<span class="pl-stat-tag review">NEEDS REVIEW</span>';
     if (status === 'done_auto') return '<span class="pl-stat-tag done">AUTO-MATCHED</span>';
     if (status === 'done_manual') return hasActual
@@ -1225,11 +1350,15 @@ information about.
 
   function _plannedCardHtml(p, day) {
     var fam = _famClass(p.session_type);
-    var draggable = (p.status === 'planned' || p.status === 'missed');
+    var draggable = (p.status === 'planned' || p.status === 'missed' || p.status === 'missed_auto' || p.status === 'missed_manual');
     var clickable = (p.status !== 'needs_review');
     var handle = draggable ? '<span class="pl-dhandle">⠿⠿</span>' : '';
     var meta = p.actual && (p.status === 'done_auto' || p.status === 'done_manual')
       ? _plannedMeta(p) : _plannedMeta(p);
+    var dayLate = '';
+    if ((p.status === 'done_auto' || p.status === 'done_manual') && p.actual && p.actual.date && p.planned_date && p.actual.date !== p.planned_date) {
+      dayLate = '<div class="pl-diffline">done · a day late</div>';
+    }
     var body = '';
     if (p.status === 'done_auto' || p.status === 'done_manual') {
       var actMeta = p.actual ? p.actual.meta : '';
@@ -1265,7 +1394,7 @@ information about.
       handle +
       '<div class="pl-sesstop"><span class="pl-sesstop-left"><span class="pl-stypetag ' + fam + '">' + fam + '</span>' + _sessionTssBadge(p) + _planWarnBadge(p) + '</span>' + _statusTag(p.status, !!p.actual) + '</div>' +
       '<div class="pl-sn">' + esc(p.name || '(untitled)') + '</div>' +
-      '<div class="pl-sm">' + esc(meta) + '</div>' + body +
+      '<div class="pl-sm">' + esc(meta) + '</div>' + dayLate + body +
     '</div>';
   }
 
@@ -1316,7 +1445,75 @@ information about.
     host.querySelectorAll('[data-draft-rm]').forEach(function (b) {
       b.addEventListener('click', function (e) {
         e.stopPropagation();
-        _removeDraftSlot(parseInt(b.getAttribute('data-draft-rm'), 10));
+        _removeDraftSlot(b.getAttribute('data-draft-rm'));
+      });
+    });
+    host.querySelectorAll('[data-draft-move]').forEach(function (sel) {
+      sel.addEventListener('change', function () {
+        var to = parseInt(sel.value, 10);
+        if (isNaN(to)) return;
+        _moveDraftSlot(sel.getAttribute('data-draft-move'), to);
+        sel.value = '';
+      });
+    });
+    host.querySelectorAll('[data-draft-add]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        _addDraftKind(+b.getAttribute('data-draft-add'), b.getAttribute('data-kind'));
+      });
+    });
+
+    // Draft chip drag — keyed by slot_id (stable across re-renders).
+    var _draftDragId = null;
+    host.querySelectorAll('.pl-draft[draggable="true"]').forEach(function (el) {
+      el.addEventListener('dragstart', function (e) {
+        _draftDragId = el.getAttribute('data-slot-id');
+        el.classList.add('dragging');
+        try { e.dataTransfer.setData('text/plain', 'draft:' + _draftDragId); } catch (_) {}
+        host.querySelectorAll('.pl-dayrow').forEach(function (row) {
+          var off = +row.getAttribute('data-day-offset');
+          row.classList.remove('drop-ok', 'drop-warn', 'drop-blocked');
+          if (!_draft || !_draft.draft_version) return;
+          // Preview via sync heuristics: past = blocked
+          var todayStr = _todayISO();
+          if (row.getAttribute('data-date') < todayStr) {
+            row.classList.add('drop-blocked');
+            row.setAttribute('data-drop-hint', '⛔ past');
+          } else {
+            row.classList.add('drop-ok');
+            row.setAttribute('data-drop-hint', '✓');
+          }
+        });
+      });
+      el.addEventListener('dragend', function () {
+        el.classList.remove('dragging');
+        _draftDragId = null;
+        host.querySelectorAll('.pl-dayrow').forEach(function (row) {
+          row.classList.remove('drop-ok', 'drop-warn', 'drop-blocked', 'dragover');
+          row.removeAttribute('data-drop-hint');
+        });
+      });
+    });
+    host.querySelectorAll('.pl-dayrow').forEach(function (row) {
+      row.addEventListener('dragover', function (e) {
+        if (!_draftDragId) return;
+        e.preventDefault();
+        row.classList.add('dragover');
+      });
+      row.addEventListener('dragleave', function () { row.classList.remove('dragover'); });
+      row.addEventListener('drop', function (e) {
+        if (!_draftDragId) return;
+        e.preventDefault();
+        row.classList.remove('dragover');
+        if (row.classList.contains('drop-blocked')) {
+          _toast('Cannot drop on a past day', true);
+          return;
+        }
+        var to = +row.getAttribute('data-day-offset');
+        var sid = _draftDragId;
+        _draftDragId = null;
+        // Amber confirm path: if preferred rest, confirm via API needs_confirm
+        _moveDraftSlot(sid, to);
       });
     });
 
@@ -2778,6 +2975,16 @@ information about.
     '.plan-panel .pl-src-template{background:#f1f5f9;color:#475569;}',
     '.plan-panel .pl-src-llm{background:#eef2ff;color:#4338ca;}',
     '.plan-panel .pl-draft-actions{margin-top:6px;display:flex;gap:6px;}',
+    '.plan-panel .pl-draft.is-pending{opacity:0.55;pointer-events:none;}',
+    '.plan-panel .pl-src-pending{background:#eef2ff;color:#4338ca;}',
+    '.plan-panel .pl-draft-pending{background:#eef2ff;border:1px solid #c7d2fe;border-radius:11px;padding:8px 14px;font-size:12px;color:#3730a3;margin-bottom:10px;}',
+    '.plan-panel .pl-draft-add{display:flex;flex-wrap:wrap;gap:4px;align-items:center;}',
+    '.plan-panel .pl-draft-move{font-size:10px;color:var(--pl-muted);display:inline-flex;align-items:center;gap:4px;}',
+    '.plan-panel .pl-draft-move select{font-size:10px;border:1px solid var(--pl-line);border-radius:4px;padding:2px;}',
+    '.plan-panel .pl-dayrow.drop-ok{outline:2px solid #86efac;outline-offset:-2px;}',
+    '.plan-panel .pl-dayrow.drop-warn{outline:2px solid #fbbf24;outline-offset:-2px;}',
+    '.plan-panel .pl-dayrow.drop-blocked{outline:2px solid #cbd5e1;outline-offset:-2px;opacity:0.7;}',
+    '.plan-panel .pl-draft.dragging{opacity:0.4;}',
     '.plan-panel .pl-draft-banner{background:#fffbeb;border:1px solid #fcd34d;border-radius:11px;padding:10px 14px;font-size:12px;color:#92400e;margin-bottom:10px;}',
     '.plan-panel .pl-draft-link{background:none;border:none;padding:0;font:inherit;font-weight:700;color:#1e40af;text-decoration:underline;cursor:pointer;}',
     '.plan-panel .pl-legend-draft{font-style:italic;color:var(--pl-faint);}',
