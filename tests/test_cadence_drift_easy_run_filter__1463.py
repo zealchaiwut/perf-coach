@@ -9,7 +9,6 @@ from backend.services.gap_analysis.rules.cadence_drift import (
     cadence_drift,
     CADENCE_EASY_POWER_BAND_WIDTH_W,
     CADENCE_DRIFT_THRESHOLD_PCT,
-    MIN_RUNS_PER_WINDOW,
 )
 
 
