@@ -22,7 +22,7 @@ from __future__ import annotations
 import importlib
 import uuid
 from datetime import date
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, call
 
 import pytest
 
@@ -331,7 +331,6 @@ V2_FIELD_TYPES = {
     "recent_wrap": dict,
     "weight": dict,
     "advisories": list,
-    "advisories_degraded": bool,
     "actions": list,
     "week_plan": list,
 }
