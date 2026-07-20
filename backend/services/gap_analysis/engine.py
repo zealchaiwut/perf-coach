@@ -21,7 +21,12 @@ _log = logging.getLogger(__name__)
 
 _REGISTRY = RuleRegistry()
 
-__all__ = ["GapAnalysisFinding", "run_gap_analysis", "_REGISTRY"]
+# Canonical run-matching predicate used by every gather query in this module.
+# Using lower(workout_type) LIKE '%run%' instead of exact match so that subtypes
+# ('trail_run', 'long_run') and mixed-case variants ('Run') are all counted.
+_RUN_FILTER = "lower(workout_type) LIKE '%run%'"
+
+__all__ = ["GapAnalysisFinding", "run_gap_analysis", "_REGISTRY", "_RUN_FILTER"]
 
 
 # ── Input gathering ───────────────────────────────────────────────────────────
@@ -463,7 +468,7 @@ def _gather_training_load(db, user_id: uuid.UUID, today: datetime.date) -> dict:
                 SUM(COALESCE(tss, 0)) AS running_tss
             FROM workouts
             WHERE user_id = :uid
-              AND workout_type = 'run'
+              AND lower(workout_type) LIKE '%run%'
               AND workout_date >= :cutoff
             GROUP BY DATE_TRUNC('week', workout_date)::date
             ORDER BY week_start
