@@ -7,7 +7,7 @@ exceptions propagate, avoiding silent swallowing of real bugs.
 import logging
 import pytest
 from datetime import date, timedelta
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 from backend.services.fuel import _resolve_week_phase_from_db
 
