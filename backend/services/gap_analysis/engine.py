@@ -671,21 +671,58 @@ def run_gap_analysis(db, user_id: uuid.UUID, today: datetime.date) -> dict:
             )
     except Exception:
         _log.error("Failed to deactivate stale gap findings for user %s", user_id, exc_info=True)
+    findings_dicts = [
+        {
+            "code": f.code,
+            "severity": f.severity,
+            "recommendation": f.recommendation,
+            "evidence": f.evidence,
+            "target": f.target,
+        }
+        for f in findings
+    ]
+
+    # Preference proposals from persistent gaps (never LLM-authored).
+    try:
+        from backend.services.gap_analysis.pref_proposals import (
+            maybe_create_proposals_from_findings,
+            run_reviews,
+            check_safety_rollback,
+        )
+        maybe_create_proposals_from_findings(db, user_id, findings_dicts, week_start)
+        run_reviews(db, user_id, findings_dicts, week_start)
+        # Safety rollback when ACWR high or active niggle/illness
+        try:
+            from backend.services.acwr import compute_acwr
+            from backend.services.training_load import daily_tss_series
+            from backend.models import InjuryLog
+            series = daily_tss_series(
+                str(user_id), today - datetime.timedelta(days=27), today
+            )
+            acwr_r = compute_acwr([v for _, v in series])
+            acwr_val = acwr_r.get("ratio") if isinstance(acwr_r, dict) else None
+            niggle = (
+                db.query(InjuryLog)
+                .filter(
+                    InjuryLog.user_id == user_id,
+                    InjuryLog.ended_on.is_(None),
+                    InjuryLog.kind.in_(("niggle", "illness", "injury")),
+                )
+                .first()
+                is not None
+            )
+            check_safety_rollback(db, user_id, acwr=acwr_val, has_niggle=niggle)
+        except Exception:
+            _log.debug("safety rollback check skipped", exc_info=True)
+    except Exception:
+        _log.error("pref proposal pass failed for user %s", user_id, exc_info=True)
+
     db.commit()
 
     return {
         "week_start": week_start.isoformat(),
         "computed_at": now.isoformat(),
-        "findings": [
-            {
-                "code": f.code,
-                "severity": f.severity,
-                "recommendation": f.recommendation,
-                "evidence": f.evidence,
-                "target": f.target,
-            }
-            for f in findings
-        ],
+        "findings": findings_dicts,
         "skipped_rules": skipped_rules,
     }
 

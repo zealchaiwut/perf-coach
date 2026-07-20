@@ -1991,3 +1991,91 @@ class PlanDraft(Base):
         ),
         Index("ix_plan_drafts_user_week", "user_id", "week_start"),
     )
+
+
+class TrainingPreference(Base):
+    """Versioned training-preferences payload (plan prefs). Latest version = active."""
+
+    __tablename__ = "training_preferences"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    version = Column(Integer, nullable=False)
+    effective_from = Column(Date, nullable=False)
+    payload = Column(JSONB, nullable=False)
+    source = Column(String(32), nullable=False)
+    origin_gap_code = Column(String(80), nullable=True)
+    origin_proposal_id = Column(UUID(as_uuid=True), nullable=True)
+    confirmed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "version", name="uq_training_preferences_user_version"),
+        CheckConstraint(
+            "source IN ('user', 'user_import', 'coach_proposal', 'carried_forward')",
+            name="ck_training_preferences_source",
+        ),
+        Index("ix_training_preferences_user_version", "user_id", "version"),
+    )
+
+
+class PreferenceProposal(Base):
+    """Coach-proposed preference delta driven by gap findings (never LLM-authored)."""
+
+    __tablename__ = "preference_proposals"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    gap_code = Column(String(80), nullable=False)
+    finding_ref = Column(String(128), nullable=True)
+    delta = Column(JSONB, nullable=False)
+    status = Column(String(20), nullable=False, server_default=text("'proposed'"))
+    proposed_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    decided_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    review_at = Column(DateTime(timezone=True), nullable=True)
+    review_outcome = Column(String(32), nullable=True)
+    dismissed_severity = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('proposed', 'accepted', 'declined', 'expired', 'reverted')",
+            name="ck_preference_proposals_status",
+        ),
+        CheckConstraint(
+            "review_outcome IS NULL OR review_outcome IN "
+            "('gap_closed', 'gap_persists', 'reverted')",
+            name="ck_preference_proposals_review_outcome",
+        ),
+        Index("ix_preference_proposals_user_status", "user_id", "status"),
+    )
+
+
+class UserCustomPreset(Base):
+    """User-imported session presets (codes must be user:*)."""
+
+    __tablename__ = "user_custom_presets"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    code = Column(String(80), nullable=False)
+    payload = Column(JSONB, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "code", name="uq_user_custom_presets_user_code"),
+    )
+
+
+class PreferenceImportAudit(Base):
+    """Raw JSON audit for preference imports."""
+
+    __tablename__ = "preference_import_audits"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    raw_json = Column(JSONB, nullable=False)
+    prefs_version = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
