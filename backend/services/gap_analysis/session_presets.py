@@ -175,8 +175,84 @@ def _lookup_defaults(code: str) -> Optional[dict[str, Any]]:
     return None
 
 
-def get_preset_for_code(code: str, *, priority: int | None = None) -> Optional[dict[str, Any]]:
+def get_presets(user_id=None, db=None) -> dict[str, dict[str, Any]]:
+    """Built-in defaults merged with user:* custom presets (import MVP).
+
+    Replaces direct `_PRESET_DEFAULTS` reads for materialization paths that
+    must honour user-authored presets. Unknown user codes are ignored.
+    """
+    out = {k: copy.deepcopy(v) for k, v in _PRESET_DEFAULTS.items()}
+    if user_id is None:
+        return out
+    own = db is None
+    if own:
+        try:
+            from sqlalchemy.orm import Session
+            from backend.db import engine
+            from backend.models import UserCustomPreset
+            db = Session(engine)
+        except Exception:
+            return out
+    else:
+        try:
+            from backend.models import UserCustomPreset
+        except Exception:
+            return out
+    try:
+        rows = (
+            db.query(UserCustomPreset)
+            .filter(UserCustomPreset.user_id == user_id)
+            .all()
+        )
+        for r in rows:
+            code = r.code
+            if not isinstance(code, str) or not code.startswith("user:"):
+                continue
+            payload = copy.deepcopy(r.payload) if isinstance(r.payload, dict) else {}
+            constraints = dict(payload.get("constraints") or {})
+            constraints["must_respect_load_ceiling"] = True
+            payload["constraints"] = constraints
+            out[code] = payload
+    except Exception:
+        pass
+    finally:
+        if own and db is not None:
+            try:
+                db.close()
+            except Exception:
+                pass
+    return out
+
+
+def get_preset_for_code(
+    code: str,
+    *,
+    priority: int | None = None,
+    user_id=None,
+    db=None,
+) -> Optional[dict[str, Any]]:
     """Return a session preset dict for a gap code, or None if no add-to-plan action."""
+    # user:* custom presets — no template registry entry required
+    if isinstance(code, str) and code.startswith("user:"):
+        presets = get_presets(user_id, db=db)
+        raw = presets.get(code)
+        if not raw:
+            return None
+        constraints = dict(raw.get("constraints") or {})
+        constraints["must_respect_load_ceiling"] = True
+        return {
+            "code": code,
+            "session_type": raw.get("session_type") or "run",
+            "kind": raw.get("kind") or "session",
+            "name": raw.get("name") or code,
+            "notes": raw.get("notes"),
+            "structure": copy.deepcopy(raw.get("structure") or {}),
+            "constraints": constraints,
+            "structure_hints": raw.get("structure_hints") or {},
+            "priority": int(priority) if priority is not None else 2,
+            "summary": _preset_summary(raw.get("kind"), constraints),
+        }
+
     from backend.services.gap_analysis.templates import get_template
 
     try:

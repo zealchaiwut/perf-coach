@@ -1516,6 +1516,13 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
         # Default chosen preset = highest-priority active preset (Claude may override)
         chosen_preset = active_presets[0] if active_presets else None
 
+        preference_proposals = []
+        try:
+            from backend.services.gap_analysis.pref_proposals import open_proposals_for_brief
+            preference_proposals = open_proposals_for_brief(db, user_id)
+        except Exception:
+            preference_proposals = []
+
         facts = {
             "as_of": today.isoformat(),
             "goal": goal_block,
@@ -1529,6 +1536,7 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
             "gap_findings": gap_findings,
             "active_presets": active_presets,
             "chosen_preset": chosen_preset,
+            "preference_proposals": preference_proposals,
             "habits": habits,
             "focus_ranked": focus_ranked,
             "focus_noise": focus_noise,
