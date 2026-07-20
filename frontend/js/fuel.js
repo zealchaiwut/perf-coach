@@ -71,7 +71,7 @@ function _fuelRenderToday(d) {
   }
 
   const phaseChip = document.getElementById('fuel-phase-chip');
-  if (phaseChip && d.week_phase) {
+  if (phaseChip && d.week_phase && d.week_phase !== 'base') {
     phaseChip.textContent = d.week_phase_reason || d.week_phase;
     phaseChip.className = `fuel-phase-chip phase-${d.week_phase}`;
     phaseChip.title = `Effective deficit: ${d.effective_deficit_kcal} kcal`;
