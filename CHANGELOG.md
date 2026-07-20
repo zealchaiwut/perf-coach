@@ -1,5 +1,9 @@
 # Changelog
 
+## Sprint 120 — PR-endpoint duration-curve rebuild fix
+
+- #993: Run-PR endpoint now checks `curve_data` non-emptiness, not just row existence — `get_athlete_run_personal_records` computed `curve_populated` as `session.get(_AthleteDurationCurve, uid) is not None`, so an athlete whose earlier rebuild found no power data (leaving a row with `curve_data={}`) skipped the rebuild and logged `duration_curve_populated=True` despite having no usable curve. It now gates on `bool(curve_row and curve_row.curve_data)` both before and after `_rebuild_athlete_duration_curve`, so a row with empty `curve_data` is retried when the athlete has run history and the pre-detection log reflects the true populated state. Thresholds still come from `_DEFAULT_DURATION_LADDER` via `fetch_and_compute_curves` — no values hardcoded
+
 ## Sprint 114 — Race-based goal fallback & weekly-coach scheduler fixes
 
 - #1541: Race-based fallback for active-goal resolution — new shared resolver `backend/services/goal_resolution.py::resolve_active_goal(user_id, db)` returns the active `PerformanceGoal` unchanged when one exists, otherwise falls back to the nearest qualifying A-priority Race (`status ∈ {planned, active}`, non-null `goal_time_seconds`, ordered by `race_date` asc nulls-last) wrapped in a duck-typed `_RaceGoalAdapter` exposing `user_id`/`race_date`/`race_distance`/`target_time`; `race_distance` is derived by nearest-bucket mapping (5 km→`5k`, 10 km→`10k`, 21.0975 km→`half`, 42.195 km→`marathon`). This lets users who set their goal via an A-race in the Plan tab receive coach output (weekly message, Hermes daily-brief coach block) without a `PerformanceGoal` record. `weekly_coach_message.py::_load_inputs_for_user` and `scripts/export_brief.py::_load_goal_for_user` now call the shared resolver instead of querying `PerformanceGoal` directly; `backend/routers/coach.py` and the `performance_goals` table are untouched
