@@ -1142,6 +1142,7 @@ def assemble_facts(
             from backend.models import TrainingPlan
             from backend.services.load_plan import compute_load_plan
             from backend.services.load_plan import ACWR_CEILING_MULT as _acwr_ceiling_mult
+            from backend.services.load_plan import resolve_baseline_weeks_ago as _resolve_baseline_weeks_ago
             from backend.services.training_load import get_weekly_volume as _get_weekly_volume
 
             acwr_ceiling = (
@@ -1175,9 +1176,13 @@ def assemble_facts(
                     int(plan_row.deload_start_week) if plan_row and plan_row.deload_start_week is not None else 4
                 )
 
-                last_week_start = current_week_start - timedelta(days=7)
-                last_week_end = current_week_start - timedelta(days=1)
-                baseline_tss = _get_weekly_volume(str(user_id), last_week_start, last_week_end)["total_tss"]
+                baseline_weeks_ago = _resolve_baseline_weeks_ago(
+                    deload_enabled=plan_deload_enabled,
+                    deload_start_week=plan_deload_start_week,
+                )
+                baseline_week_start = current_week_start - timedelta(weeks=baseline_weeks_ago)
+                baseline_week_end = baseline_week_start + timedelta(days=6)
+                baseline_tss = _get_weekly_volume(str(user_id), baseline_week_start, baseline_week_end)["total_tss"]
 
                 race_week_start = next_race.race_date - timedelta(days=next_race.race_date.weekday())
                 weeks_to_race = ((race_week_start - current_week_start).days // 7) + 1

@@ -23,6 +23,7 @@
   var _draft = null;              // GET /api/plan/draft payload (pipeline v2)
   var _pipeline = null;           // GET /api/plan/pipeline
   var _draftVisible = false;      // shadow mode requires ?draft=1
+  var _generatingIds = {};        // planned_session id → true while Ask-AI fills details
 
   var DOW = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
   var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -156,6 +157,15 @@ information about.
       // What to improve panel (moved from Performance → Plan)
       if (window.TrainingPerformance && window.TrainingPerformance.loadGapPanel) {
         window.TrainingPerformance.loadGapPanel();
+      }
+      if (!window.__plSmEscWired) {
+        window.__plSmEscWired = true;
+        document.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape' && _panel.open === 'detail') {
+            e.preventDefault();
+            _smTryClose();
+          }
+        });
       }
     },
     // Deep link from outside the Plan tab (e.g. the Log calendar): scope the
@@ -346,39 +356,62 @@ information about.
   }
 
   function _sourceChip(src) {
+    // Mock plan-draft-review.html: AI = green pill, user = dark, template = amber.
     var label = 'AI';
-    if (src === 'template') label = 'TEMPLATE';
-    else if (src === 'user') label = 'EDITED';
-    else if (src === 'llm') label = 'AI';
-    return '<span class="pl-src-chip pl-src-' + (src || 'llm') + '">' + label + '</span>';
+    var cls = 'ai';
+    if (src === 'template') { label = 'TEMPLATE'; cls = 'tmpl'; }
+    else if (src === 'user') { label = 'EDITED'; cls = 'user'; }
+    else if (src === 'llm' || !src) { label = 'AI'; cls = 'ai'; }
+    return '<span class="pl-src-chip pl-src-' + cls + '">' + label + '</span>';
+  }
+
+  // CSS border spinner — same as plan-draft-review.html STATE 4 (.spin / .src.gen i).
+  function _genSpinHtml(cls) {
+    return '<i class="' + (cls || 'pl-gen-spin') + '" aria-hidden="true"></i>';
+  }
+  function _generatingChipHtml() {
+    return '<span class="pl-src-chip pl-src-gen" title="Content regenerating">' +
+      _genSpinHtml() + 'GENERATING</span>';
   }
 
   function _draftCardHtml(s, day) {
     var fam = _famClass(s.workout_type);
-    var tss = s.target_tss != null ? Math.round(s.target_tss) + ' TSS' : '';
-    var dur = s.duration_minutes ? s.duration_minutes + ' min' : '';
-    var meta = [tss, dur].filter(Boolean).join(' · ');
+    var typeLabel = fam === 'lift' ? 'LIFT' : fam.toUpperCase();
+    var tss = s.target_tss != null ? Math.round(s.target_tss) : null;
     var pending = !!s.pending;
     var sid = s.slot_id || ('d' + s.day_offset);
+    var title = s.intent || s.workout_type || 'Session';
+    // Mock: title carries the slot budget ("Easy aerobic run → 70 TSS").
+    if (pending && tss != null && title.indexOf(String(tss)) < 0) {
+      title = title + (/\s*(→|->)\s*/.test(title) ? '' : ' → ' + tss + ' TSS');
+    }
     var moveOpts = '';
     for (var d = 0; d < 7; d++) {
       if (d === s.day_offset) continue;
       moveOpts += '<option value="' + d + '">' + DOW[d] + '</option>';
     }
+    var metaHtml = pending
+      ? '<div class="pl-sm pl-sm-generating">content updating for the new budget…</div>'
+      : (function () {
+          var bits = [];
+          if (s.duration_minutes) bits.push(s.duration_minutes + ' min');
+          if (s.notes) bits.push(String(s.notes).slice(0, 48));
+          else if (!s.duration_minutes && tss != null) bits.push(tss + ' TSS');
+          return bits.length ? '<div class="pl-sm">' + esc(bits.join(' · ')) + '</div>' : '';
+        })();
+    // Horizontal row matching mock .sess.draft: TAG | title+meta | chips | acts
+    var rightHtml = pending
+      ? _generatingChipHtml()
+      : (_sourceChip(s.source) +
+          (tss != null ? '<span class="pl-draft-tss">' + tss + ' TSS</span>' : '') +
+          '<label class="pl-draft-move"><select data-draft-move="' + esc(sid) + '" title="Move to…">' +
+            '<option value="">Move to ▾</option>' + moveOpts + '</select></label>' +
+          '<button type="button" class="pl-draft-rm" data-draft-rm="' + esc(sid) + '" title="Remove">Remove ✕</button>');
     return '<div class="pl-draft ' + fam + (pending ? ' is-pending' : '') + '" draggable="' + (pending ? 'false' : 'true') + '"' +
       ' data-draft-offset="' + s.day_offset + '" data-slot-id="' + esc(sid) + '" data-orig-idx="' + s.day_offset + '">' +
-      '<div class="pl-sesstop"><span class="pl-sesstop-left">' +
-        '<span class="pl-stypetag ' + fam + '">' + fam + '</span>' +
-        _sourceChip(s.source) +
-        (pending ? '<span class="pl-src-chip pl-src-pending">GENERATING<span class="pl-spin">…</span></span>' : '') +
-      '</span><span class="pl-draft-tag">DRAFT</span></div>' +
-      '<div class="pl-sn">' + esc(s.intent || s.workout_type || 'Session') + '</div>' +
-      (meta ? '<div class="pl-sm">' + esc(meta) + '</div>' : '') +
-      '<div class="pl-draft-actions">' +
-        '<label class="pl-draft-move">Move to <select data-draft-move="' + esc(sid) + '"' + (pending ? ' disabled' : '') + '>' +
-          '<option value="">▾</option>' + moveOpts + '</select></label>' +
-        '<button type="button" class="pl-btn pl-ghost pl-tiny" data-draft-rm="' + esc(sid) + '"' + (pending ? ' disabled' : '') + '>✕</button>' +
-      '</div>' +
+      '<span class="pl-stypetag ' + fam + '">' + typeLabel + '</span>' +
+      '<div class="pl-draft-main"><div class="pl-sn">' + esc(title) + '</div>' + metaHtml + '</div>' +
+      '<div class="pl-draft-right">' + rightHtml + '</div>' +
     '</div>';
   }
 
@@ -493,9 +526,13 @@ information about.
     if (pendingBar) {
       if (pendingN > 0) {
         pendingBar.hidden = false;
-        pendingBar.textContent = pendingN + ' session' + (pendingN === 1 ? '' : 's') + ' regenerating on zeal-server…';
+        pendingBar.innerHTML =
+          '<span class="pl-gen-spin pl-gen-spin-lg" aria-hidden="true"></span>' +
+          '<span>Regenerating ' + pendingN + ' session' + (pendingN === 1 ? '' : 's') +
+          ' on zeal-server — you can keep editing. We\'ll nudge you when it\'s done.</span>';
       } else {
         pendingBar.hidden = true;
+        pendingBar.innerHTML = '';
       }
     }
     if (banner) {
@@ -553,8 +590,23 @@ information about.
           (_bundle.days || []).forEach(function (d) {
             (d.planned || []).forEach(function (p) { if (p.id === _detail.id) updated = p; });
           });
-          _detail = updated;
-          _renderDetailSection();
+          if (!updated) {
+            _closeDetail();
+          } else if (_sm.dirty) {
+            // Keep in-progress edits; only refresh server-owned status fields.
+            _detail.status = updated.status;
+            _detail.matched_workout_id = updated.matched_workout_id;
+            _detail.actual = updated.actual;
+            _renderDetailSection();
+          } else {
+            _detail = updated;
+            _smSeedBuilders(updated);
+            _sm.suppressDomSync = true;
+            _renderDetailSection();
+            _sm.baseline = _smReadDraftFromDom(updated);
+            _sm.dirty = false;
+            _smMarkDirty();
+          }
         }
         // Every planned-session mutation funnels through _loadWeek — refresh
         // the Session-load card's planned/projected numbers in the same
@@ -716,8 +768,12 @@ information about.
 
     prior.forEach(function (p) {
       var h = Math.max(6, (p.actual_tss / maxVal) * 100);
-      barsHtml += '<div class="lp-bar-col"><div class="lp-bar actual" style="height:' + h + '%">' +
-        '<span class="lp-bar-value">' + Math.round(p.actual_tss) + '</span></div></div>';
+      var cls = 'lp-bar actual' + (p.deload ? ' is-deload' : '');
+      barsHtml += '<div class="lp-bar-col"><div class="' + cls + '" style="height:' + h + '%"' +
+        (p.deload ? ' title="Deload week"' : '') + '>' +
+        '<span class="lp-bar-value">' + Math.round(p.actual_tss) +
+        (p.deload ? '<span class="lp-deload-mark">▼</span>' : '') +
+        '</span></div></div>';
       axisHtml += axisCol(p.week_start);
     });
 
@@ -1114,7 +1170,6 @@ information about.
              Session Load Plan's weekly target once _wlData loads — see
              _updateWeekTargetUI(). */
           '<button class="pl-btn pl-ghost" id="pl-suggest" title="AI-suggested sessions for this week">✨ Suggest sessions</button>' +
-          '<button class="pl-btn pl-dark" id="pl-add">+ Add</button>' +
         '</div></div>' +
         '<div class="pl-draft-banner" id="pl-draft-banner" hidden></div>' +
         '<div class="pl-draft-pending" id="pl-draft-pending" hidden></div>' +
@@ -1134,7 +1189,8 @@ information about.
     document.getElementById('pl-next').onclick = function () {
       _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(function () { if (_draftVisible) _loadDraft(); }); _loadWeekLoad(_iso(_weekStart));
     };
-    document.getElementById('pl-add').onclick = function () { _openAdd('single'); };
+    // Header "+ Add" removed — use Suggest sessions or each day's "+ add"
+    // (bulk JSON / Ask AI still live in the Add panel opened from a day).
     var applyBtn = document.getElementById('pl-apply-draft');
     if (applyBtn) applyBtn.onclick = _applyDraftWeek;
     var refreshBtn = document.getElementById('pl-refresh-draft');
@@ -1350,7 +1406,8 @@ information about.
 
   function _plannedCardHtml(p, day) {
     var fam = _famClass(p.session_type);
-    var draggable = (p.status === 'planned' || p.status === 'missed' || p.status === 'missed_auto' || p.status === 'missed_manual');
+    var generating = !!(p.id && _generatingIds[p.id]);
+    var draggable = !generating && (p.status === 'planned' || p.status === 'missed' || p.status === 'missed_auto' || p.status === 'missed_manual');
     var clickable = (p.status !== 'needs_review');
     var handle = draggable ? '<span class="pl-dhandle">⠿⠿</span>' : '';
     var meta = p.actual && (p.status === 'done_auto' || p.status === 'done_manual')
@@ -1388,13 +1445,19 @@ information about.
           '<button class="pl-btn pl-ghost pl-tiny" data-missed="' + p.id + '">None → missed</button>' +
         '</div></div>';
     }
-    return '<div class="pl-sess ' + fam + ' status-' + p.status + '"' +
-        (draggable ? ' draggable="true"' : '') +
+    return '<div class="pl-sess ' + fam + ' status-' + p.status + (generating ? ' is-generating' : '') + '"' +
+        (draggable && !generating ? ' draggable="true"' : '') +
         ' data-sess="' + p.id + '"' + (clickable ? ' data-click="1"' : '') + '>' +
       handle +
-      '<div class="pl-sesstop"><span class="pl-sesstop-left"><span class="pl-stypetag ' + fam + '">' + fam + '</span>' + _sessionTssBadge(p) + _planWarnBadge(p) + '</span>' + _statusTag(p.status, !!p.actual) + '</div>' +
+      '<div class="pl-sesstop"><span class="pl-sesstop-left"><span class="pl-stypetag ' + fam + '">' + fam + '</span>' +
+        (generating ? '' : _sessionTssBadge(p) + _planWarnBadge(p)) +
+      '</span>' +
+        (generating ? _generatingChipHtml() : _statusTag(p.status, !!p.actual)) +
+      '</div>' +
       '<div class="pl-sn">' + esc(p.name || '(untitled)') + '</div>' +
-      '<div class="pl-sm">' + esc(meta) + '</div>' + dayLate + body +
+      '<div class="pl-sm' + (generating ? ' pl-sm-generating' : '') + '">' +
+        (generating ? 'content updating for the new budget…' : esc(meta)) +
+      '</div>' + dayLate + (generating ? '' : body) +
     '</div>';
   }
 
@@ -1750,30 +1813,9 @@ information about.
   // flow uses, seeded from the session and saved via PATCH. (The Edit button
   // used to open the CREATE flow with demo template data and POST a duplicate.)
   function _openEdit(p) {
-    _panel.open = 'add';
-    _addState.top = 'single'; _addState.sub = 'form';
-    _addState.editId = p.id;
-    _addState.edit = { name: p.name || '', notes: p.notes || '', type: p.session_type };
-    _addState.presetDate = p.planned_date;
-    var s = p.structure || {};
-    if (p.session_type === 'run') {
-      _sfBlocks = (Array.isArray(s.blocks) ? s.blocks : []).map(function (b) {
-        return Object.assign({}, b);
-      });
-      if (!_sfBlocks.length) _sfBlocks = [{ phase: 'main', duration_min: 10 }];
-    } else if (p.session_type === 'strength' || p.session_type === 'plyo') {
-      if (Array.isArray(s.exercises) && s.exercises.length) {
-        _sfStrengthMode = 'detailed';
-        _sfExercises = s.exercises.map(function (x) { return Object.assign({}, x); });
-      } else {
-        _sfStrengthMode = 'simple';
-        _sfFocus = s.focus || '';
-        _sfExercises = [];
-      }
-    }
-    _renderAddSection(); _renderDetailSection();
-    var el = document.getElementById('plan-add-section');
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // Unified modal: editing IS the session surface (no separate Edit panel).
+    // Matched workouts can still open the Log detail via status/attach flows.
+    if (p && p.id) _openDetailById(p.id);
   }
 
   function _closeAdd() { _panel.open = null; _addState.editId = null; _addState.edit = null; _renderAddSection(); }
@@ -2069,14 +2111,23 @@ information about.
           var f = inp.getAttribute('data-f'), v = inp.value;
           if (f === 'duration_min' || f === 'repeat') v = v === '' ? undefined : Number(v);
           if (v === undefined) delete _sfBlocks[i][f]; else _sfBlocks[i][f] = v;
+          if (_panel.open === 'detail') _smMarkDirty();
         });
       });
     });
     list.querySelectorAll('[data-rm-block]').forEach(function (b) {
-      b.addEventListener('click', function () { _sfBlocks.splice(+b.getAttribute('data-rm-block'), 1); _renderStructureBuilder(); });
+      b.addEventListener('click', function () {
+        _sfBlocks.splice(+b.getAttribute('data-rm-block'), 1);
+        if (_panel.open === 'detail') { _renderDetailSection(); }
+        else { _renderStructureBuilder(); }
+      });
     });
     var add = document.getElementById('pl-addblock');
-    if (add) add.onclick = function () { _sfBlocks.push({ phase: 'main', duration_min: 10 }); _renderStructureBuilder(); };
+    if (add) add.onclick = function () {
+      _sfBlocks.push({ phase: 'main', duration_min: 10 });
+      if (_panel.open === 'detail') { _renderDetailSection(); }
+      else { _renderStructureBuilder(); }
+    };
   }
   function _wireStrengthBuilder() {
     document.querySelectorAll('#pl-strmode button').forEach(function (b) {
@@ -2571,7 +2622,494 @@ information about.
     reader.readAsText(f);
   }
 
-  // ══ DETAIL PANEL ══════════════════════════════════════════════════════════════
+  // ══ UNIFIED SESSION MODAL (view = edit = AI) ════════════════════════════════
+  // Merges Session Detail + Edit + Generate details into one surface.
+  // Create-new still uses the Add panel (`_openAdd`); edit opens this modal.
+
+  var _sm = {
+    baseline: null,
+    dirty: false,
+    strydOpen: false,
+    aiForcedOpen: false,
+    aiBusy: false,
+    aiError: '',
+    structTab: 'simple', // simple | detailed | json
+    suppressDomSync: false,
+  };
+
+  var _H = function () { return window.PlanSessionHelpers || {}; };
+
+  function _smHasStructure(p) {
+    var type = ((p && p.session_type) || 'run').toLowerCase();
+    if (type === 'run') return _sfBlocks.length > 0;
+    if (_sfExercises.length) return true;
+    if (_sfFocus && String(_sfFocus).trim()) return true;
+    return !!(_H().hasStructure && _H().hasStructure(p && p.structure));
+  }
+
+  function _smAiDormant(p) {
+    if (_sm.aiForcedOpen) return false;
+    return !!(_H().aiBarDormant && _H().aiBarDormant(p));
+  }
+
+  function _smSeedBuilders(p) {
+    var s = (p && p.structure) || {};
+    if ((p.session_type || '') === 'run') {
+      _sfBlocks = (Array.isArray(s.blocks) ? s.blocks : []).map(function (b) {
+        return Object.assign({}, b);
+      });
+      _sfExercises = [];
+      _sfFocus = '';
+      _sm.structTab = 'simple';
+    } else {
+      _sfBlocks = [];
+      if (Array.isArray(s.exercises) && s.exercises.length) {
+        _sfStrengthMode = 'detailed';
+        _sm.structTab = 'detailed';
+        _sfExercises = s.exercises.map(function (x) { return Object.assign({}, x); });
+        _sfFocus = s.focus || '';
+      } else {
+        _sfStrengthMode = 'simple';
+        _sm.structTab = 'simple';
+        _sfFocus = s.focus || '';
+        _sfExercises = [];
+      }
+    }
+  }
+
+  function _smCollectStructure(type) {
+    type = (type || 'run').toLowerCase();
+    if (type === 'rest') return null;
+    var prev = (_detail && _detail.structure) || {};
+    var out;
+    if (type === 'run') {
+      out = { blocks: _sfBlocks.map(function (b) { return Object.assign({}, b); }) };
+    } else if (_sm.structTab === 'simple' || _sfStrengthMode === 'simple') {
+      out = { focus: _sfFocus || '' };
+      if (_sfExercises.length) {
+        out.exercises = _sfExercises.map(function (x) { return Object.assign({}, x); });
+      }
+    } else {
+      out = { exercises: _sfExercises.map(function (x) { return Object.assign({}, x); }) };
+      if (_sfFocus) out.focus = _sfFocus;
+    }
+    if (!out) return null;
+    ['target_tss', 'duration_minutes', 'distance_km', 'source'].forEach(function (k) {
+      if (prev[k] != null && out[k] == null) out[k] = prev[k];
+    });
+    return out;
+  }
+
+  function _smReadDraftFromDom(p) {
+    var nameEl = document.getElementById('pl-sm-name');
+    var notesEl = document.getElementById('pl-sm-notes');
+    var dateEl = document.getElementById('pl-sm-date');
+    var typeEl = document.getElementById('pl-sm-type');
+    var type = typeEl ? typeEl.value : (p.session_type || 'run');
+    return {
+      name: nameEl ? nameEl.value.trim() : (p.name || ''),
+      notes: notesEl ? notesEl.value : (p.notes || ''),
+      planned_date: dateEl ? dateEl.value : (p.planned_date || ''),
+      session_type: type,
+      structure: _smCollectStructure(type),
+    };
+  }
+
+  function _smMarkDirty() {
+    if (!_detail || !_sm.baseline) return;
+    var cur = _smReadDraftFromDom(_detail);
+    _sm.dirty = !(_H().snapshotsEqual && _H().snapshotsEqual(_sm.baseline, cur));
+    var dirtyEl = document.getElementById('pl-sm-dirty');
+    var discardBtn = document.getElementById('pl-sm-discard');
+    var saveBtn = document.getElementById('pl-sm-save');
+    var closeBtn = document.getElementById('pl-sm-close-foot');
+    if (dirtyEl) dirtyEl.textContent = _sm.dirty ? 'unsaved changes' : '';
+    if (discardBtn) discardBtn.hidden = !_sm.dirty;
+    if (saveBtn) saveBtn.hidden = !_sm.dirty;
+    if (closeBtn) closeBtn.hidden = !!_sm.dirty;
+  }
+
+  function _smTypeLabel(t) {
+    t = (t || '').toLowerCase();
+    if (t === 'strength' || t === 'plyo') return 'LIFT';
+    if (t === 'stretch') return 'STRETCH';
+    if (t === 'rest') return 'REST';
+    return 'RUN';
+  }
+
+  function _smMatchedLine(p) {
+    if (!p.actual || !p.actual.id) return '';
+    var bits = [p.actual.name || 'Matched workout'];
+    if (p.actual.meta) bits.push(p.actual.meta);
+    return '<span class="pl-sm-matched">✓ matched · ' + esc(bits.join(' ')) + '</span>';
+  }
+
+  function _smTilesHtml(p) {
+    var H = _H();
+    var live = _smCollectStructure(p.session_type) || p.structure || {};
+    var tiles = H.deriveTiles
+      ? H.deriveTiles(live, {
+          duration_minutes: live.duration_minutes,
+          target_tss: live.target_tss,
+          distance_km: live.distance_km,
+        })
+      : { duration_min: null, target_tss: null, distance_km: null };
+    function cell(lab, val, empty) {
+      return '<div class="pl-sm-tile"><div class="pl-sm-tl">' + lab + '</div>' +
+        '<div class="pl-sm-tv' + (empty ? ' empty' : '') + '">' + esc(val) + '</div></div>';
+    }
+    return '<div class="pl-sm-tiles">' +
+      cell('Duration', tiles.duration_min != null ? tiles.duration_min + ' min' : '—', tiles.duration_min == null) +
+      cell('TSS', tiles.target_tss != null ? String(Math.round(tiles.target_tss)) : '—', tiles.target_tss == null) +
+      cell('Distance', tiles.distance_km != null ? tiles.distance_km + ' km' : '—', tiles.distance_km == null) +
+    '</div>';
+  }
+
+  function _smAiBarHtml(p) {
+    if ((p.session_type || '') === 'rest') return '';
+    var dormant = _smAiDormant(p);
+    if (dormant) {
+      return '<div class="pl-sm-ai pl-sm-ai-dormant" id="pl-sm-ai">' +
+        '<div class="pl-sm-ai-h"><b>Session completed — nothing left to plan</b>' +
+        '<button type="button" class="pl-sm-ai-expand" id="pl-sm-ai-expand">add structure anyway</button></div>' +
+      '</div>';
+    }
+    var has = _smHasStructure(p);
+    var s = p.structure || {};
+    var pins = [];
+    if (s.target_tss != null) pins.push(Math.round(s.target_tss) + ' TSS');
+    if (s.duration_minutes != null) pins.push(s.duration_minutes + ' min');
+    else {
+      var dm = _H().durationMinutesFromBlocks && _H().durationMinutesFromBlocks(s.blocks);
+      if (dm) pins.push(dm + ' min');
+    }
+    var pinNote = has && pins.length
+      ? 'keeps day · type · ' + pins.join(' · ') + ' pinned — content only'
+      : (has ? 'refines content · day & type stay pinned' : 'no structure yet — builds from focus + coach note');
+    var title = has ? '✨ Refine with AI' : '✨ Generate with AI';
+    var goLab = has ? 'Refine' : 'Generate';
+    var chips = has
+      ? '<div class="pl-sm-chips" id="pl-sm-chips">' +
+          '<button type="button" class="pl-sm-chip" data-steer="make it easier / lighter volume">Easier</button>' +
+          '<button type="button" class="pl-sm-chip" data-steer="make it harder / more stimulus">Harder</button>' +
+          '<button type="button" class="pl-sm-chip" data-steer="shorten the session while keeping the intent">Shorten</button>' +
+          '<button type="button" class="pl-sm-chip" data-steer="swap to a different subtype / focus">Swap subtype</button>' +
+        '</div>'
+      : '';
+    var err = _sm.aiError
+      ? '<div class="pl-sm-ai-err" id="pl-sm-ai-err">' + esc(_sm.aiError) + '</div>'
+      : '<div class="pl-sm-ai-err" id="pl-sm-ai-err" hidden></div>';
+    return '<div class="pl-sm-ai" id="pl-sm-ai">' +
+      '<div class="pl-sm-ai-h"><b>' + title + '</b><span>' + esc(pinNote) + '</span></div>' +
+      chips +
+      '<div class="pl-sm-free">' +
+        '<input type="text" id="pl-sm-ai-note" placeholder="' +
+          (has ? 'or describe the change… e.g. add 4 × 20s strides at the end'
+               : 'optional steer… e.g. lower / posterior chain, dumbbells only, 45 min') + '"/>' +
+        '<button type="button" class="pl-sm-go" id="pl-sm-ai-go"' + (_sm.aiBusy ? ' disabled' : '') + '>' +
+          (_sm.aiBusy ? '…' : goLab) + '</button>' +
+      '</div>' +
+      err +
+      '<div class="pl-sm-ai-n">' +
+        (has
+          ? 'manual edits below mark this session EDITED — drafts will never overwrite it'
+          : 'uses the same engine as week drafts · house structure · validated before it lands') +
+      '</div>' +
+    '</div>';
+  }
+
+  function _smStructureBodyHtml(p) {
+    var type = (p.session_type || 'run').toLowerCase();
+    if (type === 'rest') {
+      return '<div class="pl-sm-empty-s">Rest day — no structure.</div>';
+    }
+    if (type === 'run') {
+      if (!_sfBlocks.length && !_smHasStructure(p)) {
+        return '<div class="pl-sm-empty-s">No structure yet — Generate above, or add blocks in Detailed.</div>';
+      }
+      // Simple view: phase rows; Detailed reuses block builder
+      if (_sm.structTab === 'json') {
+        return '<textarea class="pl-jsonta" id="pl-sm-json" spellcheck="false">' +
+          esc(JSON.stringify({ blocks: _sfBlocks }, null, 2)) + '</textarea>';
+      }
+      if (_sm.structTab === 'detailed') {
+        return '<div id="pl-sm-struct-host"></div>';
+      }
+      // simple rows
+      var rows = _sfBlocks.map(function (b) {
+        var dur = b.duration_min != null ? b.duration_min + ' min' : '';
+        var rep = (b.repeat && b.repeat > 1) ? (' ×' + b.repeat) : '';
+        var tgt = b.target || '';
+        var lab = b.phase === 'warmup' ? 'Warmup' : (b.phase === 'cooldown' ? 'Cooldown' : 'Main');
+        return '<div class="pl-sm-brow"><span class="pl-sm-ph">' + lab + '</span>' +
+          '<span class="pl-sm-bt">' + esc(tgt || lab) + '</span>' +
+          '<span class="pl-sm-bm">' + esc(dur + rep) + '</span></div>';
+      }).join('');
+      return '<div class="pl-sm-blocks">' + (rows || '<div class="pl-sm-empty-s">No blocks yet.</div>') + '</div>';
+    }
+    // strength / plyo / stretch
+    if (_sm.structTab === 'json') {
+      return '<textarea class="pl-jsonta" id="pl-sm-json" spellcheck="false">' +
+        esc(JSON.stringify({ exercises: _sfExercises, focus: _sfFocus }, null, 2)) + '</textarea>';
+    }
+    if (_sm.structTab === 'simple') {
+      if (!_sfFocus && !_sfExercises.length) {
+        return '<div class="pl-sm-empty-s">No structure yet — Generate above, or switch to Detailed to build it by hand.</div>' +
+          '<div class="pl-fld" style="margin-top:10px;"><label>Focus</label>' +
+          '<input type="text" id="pl-sm-focus" value="' + esc(_sfFocus) + '" placeholder="e.g. posterior chain"/></div>';
+      }
+      return '<div class="pl-fld"><label>Focus</label>' +
+        '<input type="text" id="pl-sm-focus" value="' + esc(_sfFocus) + '"/></div>';
+    }
+    // detailed
+    return '<div id="pl-sm-struct-host"></div>';
+  }
+
+  function _smUnifiedHtml(p) {
+    var type = (p.session_type || 'run').toLowerCase();
+    var fam = _famClass(type);
+    var tagCls = (type === 'strength' || type === 'plyo') ? 'lift' : '';
+    var statusRow = _detailStatusActionsHtml(p);
+    var tabs = type === 'run'
+      ? [['simple', 'Simple'], ['detailed', 'Detailed'], ['json', 'JSON']]
+      : [['simple', 'Simple'], ['detailed', 'Detailed'], ['json', 'JSON']];
+    var tabHtml = tabs.map(function (t) {
+      return '<button type="button" class="pl-sm-tab' + (_sm.structTab === t[0] ? ' on' : '') + '" data-stab="' + t[0] + '">' + t[1] + '</button>';
+    }).join('');
+
+    var stryd = '';
+    if (type === 'run') {
+      stryd = '<div class="pl-sm-stryd" id="pl-sm-stryd-toggle">▸ <b>Copy for Stryd Workout Builder</b> — power/pace targets, import-safe</div>' +
+        '<div class="pl-exportbox" id="pl-sm-stryd-panel"' + (_sm.strydOpen ? '' : ' hidden') + '>' +
+          '<div class="pl-eh"><span class="pl-et">Stryd paste</span><button class="pl-copybtn" id="pl-det-copy">Copy</button></div>' +
+          '<div class="pl-ewarn">Paste into PowerCenter’s Workout Builder. Power-or-pace targets only.</div>' +
+          '<pre id="pl-stryd-pre">' + esc(_strydText(p)) + '</pre>' +
+        '</div>';
+    }
+
+    return '<div class="pl-sm-pad">' +
+      '<div class="pl-sm-top"><span class="pl-sm-lbl">Session</span>' +
+        '<button type="button" class="pl-sm-x" id="pl-detclose" aria-label="Close">✕</button></div>' +
+      '<div class="pl-sm-meta">' +
+        '<span class="pl-sm-tag ' + tagCls + '">' + _smTypeLabel(type) + '</span>' +
+        '<select id="pl-sm-type">' +
+          ['run', 'strength', 'plyo', 'stretch', 'rest'].map(function (t) {
+            return '<option value="' + t + '"' + (type === t ? ' selected' : '') + '>' +
+              (t.charAt(0).toUpperCase() + t.slice(1)) + '</option>';
+          }).join('') +
+        '</select>' +
+        '<input class="pl-sm-datef" type="date" id="pl-sm-date" value="' + esc(p.planned_date || '') + '"/>' +
+        _smMatchedLine(p) +
+      '</div>' +
+      '<input class="pl-sm-name" id="pl-sm-name" value="' + esc(p.name || '') + '" placeholder="Session name"/>' +
+      _detailIdRowHtml(p) +
+      statusRow +
+      _smAiBarHtml(p) +
+      '<div class="pl-sm-sech"><span class="pl-sm-lbl">Structure</span>' +
+        '<div class="pl-sm-tabs">' + tabHtml + '</div></div>' +
+      _smTilesHtml(p) +
+      '<div id="pl-sm-struct-body">' + _smStructureBodyHtml(p) + '</div>' +
+      '<div class="pl-sm-notes"><span class="pl-sm-lbl">Coach notes</span>' +
+        '<textarea id="pl-sm-notes" rows="3">' + esc(p.notes || '') + '</textarea></div>' +
+      stryd +
+    '</div>' +
+    '<div class="pl-sm-foot">' +
+      '<button type="button" class="pl-sm-del" id="pl-det-delete">Delete</button>' +
+      '<span class="pl-sm-sp"></span>' +
+      '<span class="pl-sm-dirty" id="pl-sm-dirty"></span>' +
+      '<button type="button" class="pl-sm-ghost" id="pl-sm-discard" hidden>Discard</button>' +
+      '<button type="button" class="pl-sm-ghost" id="pl-sm-close-foot">Close</button>' +
+      '<button type="button" class="pl-sm-save" id="pl-sm-save" hidden>Save changes</button>' +
+    '</div>';
+  }
+
+  function _smApplyTypeChange(newType, oldType) {
+    if (newType === oldType) return;
+    var has = _sfBlocks.length || _sfExercises.length || (_sfFocus && _sfFocus.trim());
+    if (has) {
+      var clear = window.confirm(
+        'Structure is shaped for ' + oldType + ' — keep it or clear it?\n\n' +
+        'OK = clear structure · Cancel = keep existing structure'
+      );
+      if (clear) {
+        _sfBlocks = newType === 'run' ? [{ phase: 'main', duration_min: 30 }] : [];
+        _sfExercises = [];
+        _sfFocus = '';
+        _sm.structTab = 'simple';
+      }
+    } else if (newType === 'run' && !_sfBlocks.length) {
+      _sfBlocks = [{ phase: 'main', duration_min: 30 }];
+    }
+    if (_detail) _detail.session_type = newType;
+    _smMarkDirty();
+    _renderDetailSection();
+  }
+
+  function _smRunAi(steer) {
+    var p = _detail;
+    if (!p || _sm.aiBusy) return;
+    var H = _H();
+    var draft = _smReadDraftFromDom(p);
+    var note = (steer || '').trim();
+    var noteEl = document.getElementById('pl-sm-ai-note');
+    if (!note && noteEl) note = noteEl.value.trim();
+    if (!note) {
+      note = _smHasStructure(p)
+        ? 'Regenerate fuller session details while keeping the same intent.'
+        : 'Fill in full session details matching the existing title and coach notes.';
+    }
+    var current = {
+      day_offset: 0,
+      workout_type: draft.session_type,
+      intent: draft.name,
+      notes: draft.notes,
+      exercises: (draft.structure && draft.structure.exercises) || null,
+      blocks: (draft.structure && draft.structure.blocks) || null,
+      target_tss: (p.structure && p.structure.target_tss) || 0,
+      duration_minutes: (p.structure && p.structure.duration_minutes) ||
+        (H.durationMinutesFromBlocks && H.durationMinutesFromBlocks((p.structure || {}).blocks)) || 0,
+    };
+    var body = {
+      date: draft.planned_date || p.planned_date,
+      workout_type: draft.session_type,
+      note: note,
+      current_session: _smHasStructure(p) ? current : null,
+    };
+    if (current.target_tss > 0) body.target_tss = current.target_tss;
+    if (current.duration_minutes > 0) body.duration_minutes = current.duration_minutes;
+
+    _sm.aiBusy = true;
+    _sm.aiError = '';
+    _generatingIds[p.id] = true;
+    _renderWeekList();
+    _renderDetailSection();
+
+    _api('POST', '/api/plan/suggestions/session', body)
+      .then(function (data) {
+        var s = data.session || {};
+        var structure = null;
+        if (Array.isArray(s.exercises) && s.exercises.length) {
+          structure = { exercises: s.exercises };
+        } else if (Array.isArray(s.blocks) && s.blocks.length) {
+          structure = { blocks: s.blocks };
+        } else {
+          throw new Error('AI returned no exercises or run structure — try a more specific note.');
+        }
+        if (s.target_tss != null) structure.target_tss = s.target_tss;
+        else if (p.structure && p.structure.target_tss != null) structure.target_tss = p.structure.target_tss;
+        if (s.duration_minutes != null) structure.duration_minutes = s.duration_minutes;
+        else if (structure.blocks && H.durationMinutesFromBlocks) {
+          var dmin = H.durationMinutesFromBlocks(structure.blocks);
+          if (dmin) structure.duration_minutes = dmin;
+        }
+        if (H.stampSourceUser) structure = H.stampSourceUser(structure);
+
+        // Land in modal for review — mark dirty, do NOT autosave.
+        p.name = s.intent ? String(s.intent).substring(0, 80) : (draft.name || p.name);
+        p.notes = s.notes != null ? s.notes : draft.notes;
+        p.structure = structure;
+        _smSeedBuilders(p);
+        _sm.aiBusy = false;
+        delete _generatingIds[p.id];
+        _renderWeekList();
+        _sm.suppressDomSync = true;
+        _renderDetailSection();
+        // Force dirty vs baseline
+        _sm.dirty = true;
+        _smMarkDirty();
+        var dirtyEl = document.getElementById('pl-sm-dirty');
+        if (dirtyEl) dirtyEl.textContent = 'unsaved changes';
+        var discardBtn = document.getElementById('pl-sm-discard');
+        var saveBtn = document.getElementById('pl-sm-save');
+        var closeBtn = document.getElementById('pl-sm-close-foot');
+        if (discardBtn) discardBtn.hidden = false;
+        if (saveBtn) saveBtn.hidden = false;
+        if (closeBtn) closeBtn.hidden = true;
+      })
+      .catch(function (err) {
+        _sm.aiBusy = false;
+        _sm.aiError = (err && err.message) || 'Could not generate — try again.';
+        delete _generatingIds[p.id];
+        _renderWeekList();
+        _sm.suppressDomSync = true;
+        _renderDetailSection();
+      });
+  }
+
+  function _smSave() {
+    var p = _detail;
+    if (!p || !_sm.baseline) return;
+    var draft = _smReadDraftFromDom(p);
+    var H = _H();
+    var b = _sm.baseline;
+    var patch = {};
+    if (draft.name !== b.name) patch.name = draft.name || null;
+    if ((draft.notes || '') !== (b.notes || '')) patch.notes = (draft.notes || '').trim() || null;
+    if (draft.planned_date !== b.planned_date) patch.planned_date = draft.planned_date;
+    if (draft.session_type !== b.session_type) patch.session_type = draft.session_type;
+    var structChanged = !(H.snapshotsEqual && H.snapshotsEqual(draft.structure, b.structure));
+    if (structChanged) {
+      var structure = draft.structure;
+      if (structure && H.stampSourceUser) structure = H.stampSourceUser(structure);
+      patch.structure = structure;
+    }
+    if (!Object.keys(patch).length) {
+      _sm.dirty = false;
+      _smMarkDirty();
+      return;
+    }
+    var saveBtn = document.getElementById('pl-sm-save');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+    _api('PATCH', '/api/planned-sessions/' + p.id, patch)
+      .then(function (updated) {
+        _detail = updated;
+        _sm.dirty = false;
+        _smSeedBuilders(updated);
+        _toast('Session saved');
+        _loadWeek(function () {
+          if (_detail && _detail.id) {
+            (_bundle.days || []).forEach(function (d) {
+              (d.planned || []).forEach(function (row) {
+                if (row.id === _detail.id) _detail = row;
+              });
+            });
+          }
+          _smSeedBuilders(_detail);
+          _renderDetailSection();
+          _sm.baseline = _smReadDraftFromDom(_detail);
+          _sm.dirty = false;
+          _smMarkDirty();
+        });
+      })
+      .catch(function (err) {
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save changes'; }
+        _toast((err && err.message) || 'Save failed', true);
+      });
+  }
+
+  function _smDiscard() {
+    if (!_detail || !_sm.baseline) return;
+    _detail.name = _sm.baseline.name;
+    _detail.notes = _sm.baseline.notes;
+    _detail.planned_date = _sm.baseline.planned_date;
+    _detail.session_type = _sm.baseline.session_type;
+    _detail.structure = _sm.baseline.structure
+      ? JSON.parse(JSON.stringify(_sm.baseline.structure)) : null;
+    _smSeedBuilders(_detail);
+    _sm.dirty = false;
+    _sm.aiError = '';
+    _sm.suppressDomSync = true;
+    _renderDetailSection();
+  }
+
+  function _smTryClose() {
+    if (_sm.dirty) {
+      if (!window.confirm('Discard unsaved changes?')) return;
+      _smDiscard();
+    }
+    _closeDetail();
+  }
+
   function _openDetailById(id) {
     var found = null;
     (_bundle.days || []).forEach(function (d) {
@@ -2580,37 +3118,57 @@ information about.
     if (!found) return;
     _detail = found;
     _panel.open = 'detail';
+    _sm.strydOpen = false;
+    _sm.aiForcedOpen = false;
+    _sm.aiBusy = false;
+    _sm.aiError = '';
+    _sm.dirty = false;
+    _smSeedBuilders(found);
+    _sm.suppressDomSync = true;
     _renderDetailSection(); _renderAddSection();
+    // Baseline must match DOM/builder shape (not raw server structure) or the
+    // footer lights "unsaved" on every open.
+    _sm.baseline = _smReadDraftFromDom(found);
+    _sm.dirty = false;
+    _smMarkDirty();
     var el = document.getElementById('plan-detail-section');
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
-  function _closeDetail() { _panel.open = null; _detail = null; _renderDetailSection(); }
+
+  function _closeDetail() {
+    _panel.open = null;
+    _detail = null;
+    _sm.baseline = null;
+    _sm.dirty = false;
+    _renderDetailSection();
+  }
 
   function _renderDetailSection() {
     var host = document.getElementById('plan-detail-section');
     if (!host) return;
     if (_panel.open !== 'detail' || !_detail) { host.innerHTML = ''; return; }
     var p = _detail;
-    var isRun = p.session_type === 'run';
-    host.innerHTML = '<div class="pl-card pl-panelcard">' +
-      '<div class="pl-panelhead" style="margin-bottom:2px;"><span class="pl-sectitle">Session detail</span><button class="pl-closepanel" id="pl-detclose">✕</button></div>' +
-      (isRun ? _runDetailHtml(p) : _liftDetailHtml(p)) +
-    '</div>';
-    document.getElementById('pl-detclose').onclick = _closeDetail;
-    var editBtn = document.getElementById('pl-det-edit');
-    if (editBtn) editBtn.onclick = function () {
-      // Once matched, the planned template is history — what's actually
-      // editable is the real logged workout. Redirect to it instead of
-      // opening the (now-stale) plan structure editor, so Plan/Log/Detail
-      // stay one source of truth rather than two that can drift apart.
-      if (p.actual && p.actual.id) {
-        document.dispatchEvent(new CustomEvent('plan:view-workout', {
-          detail: { workoutId: p.actual.id }
-        }));
-        return;
-      }
-      _openEdit(p);
-    };
+    // Preserve live edits across re-renders (tab switch, add/remove block).
+    // Skipped after AI apply / discard — those already wrote `_detail` + builders.
+    if (!_sm.suppressDomSync && document.getElementById('pl-sm-name')) {
+      var live = _smReadDraftFromDom(p);
+      p.name = live.name;
+      p.notes = live.notes;
+      p.planned_date = live.planned_date;
+      p.session_type = live.session_type;
+      if (live.structure) p.structure = live.structure;
+    }
+    _sm.suppressDomSync = false;
+    host.innerHTML = '<div class="pl-card pl-panelcard pl-sm-modal">' + _smUnifiedHtml(p) + '</div>';
+
+    document.getElementById('pl-detclose').onclick = _smTryClose;
+    var footClose = document.getElementById('pl-sm-close-foot');
+    if (footClose) footClose.onclick = _smTryClose;
+    var discardBtn = document.getElementById('pl-sm-discard');
+    if (discardBtn) discardBtn.onclick = function () { _smDiscard(); };
+    var saveBtn = document.getElementById('pl-sm-save');
+    if (saveBtn) saveBtn.onclick = _smSave;
+
     var delBtn = document.getElementById('pl-det-delete');
     if (delBtn) delBtn.onclick = function () {
       if (!window.confirm('Delete this planned session? This can’t be undone.')) return;
@@ -2618,16 +3176,8 @@ information about.
         .then(function () { _toast('Planned session deleted'); _closeDetail(); _loadWeek(); })
         .catch(function (err) { _toast(err.message || 'Delete failed', true); });
     };
-    var copyBtn = document.getElementById('pl-det-copy');
-    if (copyBtn) copyBtn.onclick = function () {
-      var pre = document.getElementById('pl-stryd-pre');
-      var text = pre ? pre.textContent : '';
-      _copyText(text, copyBtn);
-    };
+
     var idCopyBtn = document.getElementById('pl-detid-copy');
-    // Icon-only button — _copyText() swaps textContent for feedback, which
-    // would blow away the SVG. Toggle a class + title instead (same pattern
-    // as the Log tab's dp-id-copy).
     if (idCopyBtn) idCopyBtn.onclick = function () {
       function flash() {
         idCopyBtn.classList.add('pl-detid-copy--done');
@@ -2641,43 +3191,117 @@ information about.
         navigator.clipboard.writeText(p.id).then(flash).catch(function () { _fallbackCopy(p.id); flash(); });
       } else { _fallbackCopy(p.id); flash(); }
     };
-    _wireDetailEvents(host);
-  }
 
-  function _fmtDur(min) { return min != null ? (min + ' min') : '—'; }
-
-  function _runTiles(p) {
-    var s = p.structure || {}, blocks = Array.isArray(s.blocks) ? s.blocks : [];
-    var tot = 0;
-    blocks.forEach(function (b) {
-      var d = Number(b.duration_min) || 0, r = Math.max(1, Number(b.repeat) || 1);
-      tot += d * r + (Number(b.rest_min) || 0) * (r - 1);
+    ['pl-sm-name', 'pl-sm-notes', 'pl-sm-date', 'pl-sm-focus'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('input', function () {
+        if (id === 'pl-sm-focus') _sfFocus = el.value;
+        _smMarkDirty();
+      });
+      el.addEventListener('change', function () {
+        if (id === 'pl-sm-focus') _sfFocus = el.value;
+        _smMarkDirty();
+      });
     });
-    var tss = tot ? Math.round(tot * 1.2) : null;   // rough planned-TSS heuristic
-    var distKm = tot ? (tot / 6).toFixed(1) : null; // ~6 min/km placeholder
-    return '<div class="pl-dettiles">' +
-      '<div class="pl-dettile"><div class="l">Planned duration</div><div class="v">' + _fmtDur(tot || null) + '</div></div>' +
-      '<div class="pl-dettile"><div class="l">Planned TSS</div><div class="v">' + (tss != null ? '~' + tss : '—') + '</div></div>' +
-      '<div class="pl-dettile"><div class="l">Planned distance</div><div class="v">' + (distKm != null ? '~' + distKm + ' km' : '—') + '</div></div>' +
-    '</div>';
+
+    var typeEl = document.getElementById('pl-sm-type');
+    if (typeEl) {
+      typeEl.addEventListener('change', function () {
+        var old = p.session_type;
+        _smApplyTypeChange(typeEl.value, old);
+      });
+    }
+
+    host.querySelectorAll('.pl-sm-tab').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        _sm.structTab = btn.getAttribute('data-stab');
+        if (_sm.structTab === 'detailed') _sfStrengthMode = 'detailed';
+        if (_sm.structTab === 'simple') _sfStrengthMode = 'simple';
+        // sync JSON textarea → builders if leaving json
+        _renderDetailSection();
+      });
+    });
+
+    var jsonTa = document.getElementById('pl-sm-json');
+    if (jsonTa) {
+      jsonTa.addEventListener('change', function () {
+        try {
+          var parsed = JSON.parse(jsonTa.value);
+          if (Array.isArray(parsed.blocks)) _sfBlocks = parsed.blocks;
+          if (Array.isArray(parsed.exercises)) _sfExercises = parsed.exercises;
+          if (parsed.focus != null) _sfFocus = parsed.focus;
+          _smMarkDirty();
+        } catch (e) {
+          _toast('Invalid JSON', true);
+        }
+      });
+    }
+
+    // Detailed structure host — reuse Add-panel builders inside the modal
+    var structHost = document.getElementById('pl-sm-struct-host');
+    if (structHost) {
+      var typeNow = (p.session_type || 'run').toLowerCase();
+      structHost.innerHTML =
+        '<select id="pl-sf-type" hidden aria-hidden="true">' +
+          '<option value="' + typeNow + '" selected>' + typeNow + '</option></select>' +
+        '<div id="pl-sf-structure"></div>';
+      if (typeNow === 'run') {
+        _sfStrengthMode = 'detailed';
+      } else {
+        _sfStrengthMode = 'detailed';
+      }
+      _renderStructureBuilder();
+      // Mode toggles inside the add builder are redundant with the modal's
+      // Simple/Detailed/JSON tabs — hide them when embedded here.
+      var modeToggle = document.getElementById('pl-strmode');
+      if (modeToggle) modeToggle.hidden = true;
+      structHost.querySelectorAll('input,select,textarea').forEach(function (inp) {
+        inp.addEventListener('change', function () { _smMarkDirty(); });
+        inp.addEventListener('input', function () { _smMarkDirty(); });
+      });
+    }
+
+    var aiExpand = document.getElementById('pl-sm-ai-expand');
+    if (aiExpand) aiExpand.onclick = function () {
+      _sm.aiForcedOpen = true;
+      _renderDetailSection();
+    };
+    var aiGo = document.getElementById('pl-sm-ai-go');
+    if (aiGo) aiGo.onclick = function () { _smRunAi(null); };
+    host.querySelectorAll('.pl-sm-chip').forEach(function (chip) {
+      chip.addEventListener('click', function () {
+        _smRunAi(chip.getAttribute('data-steer') || chip.textContent);
+      });
+    });
+
+    var strydToggle = document.getElementById('pl-sm-stryd-toggle');
+    if (strydToggle) strydToggle.onclick = function () {
+      _sm.strydOpen = !_sm.strydOpen;
+      var panel = document.getElementById('pl-sm-stryd-panel');
+      if (panel) panel.hidden = !_sm.strydOpen;
+      strydToggle.textContent = (_sm.strydOpen ? '▾' : '▸') +
+        ' Copy for Stryd Workout Builder — power/pace targets, import-safe';
+    };
+    var copyBtn = document.getElementById('pl-det-copy');
+    if (copyBtn) copyBtn.onclick = function () {
+      var pre = document.getElementById('pl-stryd-pre');
+      _copyText(pre ? pre.textContent : '', copyBtn);
+    };
+
+    _wireDetailEvents(host);
+    _smMarkDirty();
   }
 
-  // Attach/mark-complete/mark-missed actions, shown in the detail panel for
-  // unresolved sessions (planned/missed). Wired by _wireDetailEvents.
   function _detailStatusActionsHtml(p) {
-    if (p.status !== 'planned' && p.status !== 'missed') return '';
-    // Short labels so all three fit one row on a 390px phone (grid, equal
-    // thirds; text may wrap to two lines inside a button).
-    return '<div class="pl-detactions">' +
-        '<button class="pl-btn pl-ghost pl-tiny" data-pick="' + p.id + '" data-pick-mode="attach">🔗 Attach workout</button>' +
-        '<button class="pl-btn pl-lime pl-tiny" data-markdone="' + p.id + '">✓ Completed</button>' +
-        (p.status === 'planned' ? '<button class="pl-btn pl-ghost pl-tiny" data-missed="' + p.id + '">Missed</button>' : '') +
-      '</div>' +
-      '<div class="pl-picker" data-pickerfor="' + p.id + '" hidden></div>';
+    var done = p.status === 'done_auto' || p.status === 'done_manual';
+    var missed = p.status === 'missed' || p.status === 'missed_auto' || p.status === 'missed_manual';
+    return '<div class="pl-sm-stat">' +
+      '<button type="button" class="pl-sm-sbtn" data-pick="' + p.id + '" data-pick-mode="attach">⚲ Attach workout</button>' +
+      '<button type="button" class="pl-sm-sbtn' + (done ? ' on' : '') + '" data-markdone="' + p.id + '">✓ Completed</button>' +
+      '<button type="button" class="pl-sm-sbtn' + (missed ? ' on' : '') + '" data-missed="' + p.id + '">Missed</button>' +
+    '</div><div class="pl-picker" data-pickerfor="' + p.id + '" hidden></div>';
   }
-
-  function _phaseLabel(ph) { return ph === 'warmup' ? 'Warmup' : (ph === 'cooldown' ? 'Cooldown' : (ph === 'main' ? 'Main set' : (ph || 'Block'))); }
-  function _phaseCls(ph) { return ph === 'warmup' ? 'warm' : (ph === 'cooldown' ? 'cool' : 'main'); }
 
   function _detailIdRowHtml(p) {
     if (!p.id) return '';
@@ -2687,35 +3311,6 @@ information about.
       '</button></div>';
   }
 
-  function _runDetailHtml(p) {
-    var s = p.structure || {}, blocks = Array.isArray(s.blocks) ? s.blocks : [];
-    var segs = blocks.map(function (b) {
-      var dur = b.duration_min != null ? b.duration_min + ' min' : '';
-      var rep = (b.repeat && b.repeat > 1) ? ('<span class="pl-repeatlbl">×' + b.repeat + '</span>') : '';
-      var main = (b.repeat && b.repeat > 1) ? (b.repeat + ' × ' + dur) : dur;
-      var tgt = (b.target || '') + (b.rest_min ? ' · ' + b.rest_min + 'min rest between' : '');
-      return '<div class="pl-segblk"><span class="pl-sbtag ' + _phaseCls(b.phase) + '">' + _phaseLabel(b.phase) + '</span>' +
-        '<span class="pl-sbmain">' + esc(main) + rep + '</span><span class="pl-sbtgt">' + esc(tgt) + '</span></div>';
-    }).join('') || '<div class="pl-segblk"><span class="pl-sbmain" style="color:var(--pl-faint)">No structure yet.</span></div>';
-
-    return '<div class="pl-dethead"><span class="pl-dettag run">Run</span>' +
-        '<span style="font-size:11px;color:var(--pl-faint);font-family:var(--pl-mono)">' + esc(_fmtDayDate(p.planned_date)) + '</span>' +
-        '<span style="flex:1"></span><button class="pl-btn pl-ghost pl-danger" id="pl-det-delete" title="Delete this planned session">Delete</button>' +
-        '<button class="pl-btn pl-ghost" id="pl-det-edit" title="' + (p.actual && p.actual.id ? 'Edit the logged workout' : 'Edit the plan') + '">' + (p.actual && p.actual.id ? 'Edit workout' : 'Edit') + '</button></div>' +
-      '<div class="pl-dettitle">' + esc(p.name || '(untitled)') + '</div>' +
-      _detailIdRowHtml(p) +
-      _detailStatusActionsHtml(p) +
-      (p.notes ? '' : '') +
-      _runTiles(p) +
-      '<div class="pl-segwrap"><div class="pl-sectitle" style="margin-bottom:8px;">Structure</div><div class="pl-seg2">' + segs + '</div></div>' +
-      (p.notes ? '<div class="pl-fld" style="margin-top:16px;"><label>Coach notes</label><div class="pl-notebox">' + esc(p.notes) + '</div></div>' : '') +
-      '<div class="pl-exportbox"><div class="pl-eh"><span class="pl-et">Copy for Stryd Workout Builder</span><button class="pl-copybtn" id="pl-det-copy">Copy</button></div>' +
-        '<div class="pl-ewarn">Stryd doesn’t accept structured workouts pushed from third-party apps — only synced from TrainingPeaks/Final Surge. Paste this into PowerCenter’s own Workout Builder to rebuild it. Power-or-pace targets only, no nested repeats, no ramps — matches Stryd’s import rules.</div>' +
-        '<pre id="pl-stryd-pre">' + esc(_strydText(p)) + '</pre>' +
-      '</div>';
-  }
-
-  // Build the flat Stryd paste block from the run structure (no nested repeats/ramps).
   function _strydText(p) {
     var s = p.structure || {}, blocks = Array.isArray(s.blocks) ? s.blocks : [];
     var out = [];
@@ -2736,95 +3331,6 @@ information about.
     return out.join('\n') || '(no structure)';
   }
 
-  function _liftDetailHtml(p) {
-    var s = p.structure || {}, plannedExs = Array.isArray(s.exercises) ? s.exercises : [];
-    var focus = s.focus || '';
-    var typeLabel = p.session_type === 'plyo' ? 'Plyo' : 'Strength';
-    // A matched session shows what ACTUALLY happened (real sets/reps/weight/
-    // RPE, live off the matched Workout — see _workout_actual_summary), not
-    // the plan. It's always fetched fresh on load, so editing the workout's
-    // exercises on the Log tab shows up here next time this panel opens —
-    // no separate "sync back" step needed.
-    var actual = p.actual;
-    var actualExs = actual && Array.isArray(actual.exercises) ? actual.exercises : [];
-    var usingActual = actualExs.length > 0;
-    // Real logged exercises have no block field of their own — but the plan
-    // they were matched against usually named the same exercises under a
-    // block, so borrow that grouping by name (case/whitespace-insensitive)
-    // rather than always falling back to one flat list once matched.
-    if (usingActual) {
-      var blockByName = {};
-      plannedExs.forEach(function (x) {
-        if (x && x.name && x.block) blockByName[String(x.name).toLowerCase().trim()] = x.block;
-      });
-      actualExs = actualExs.map(function (x) {
-        var b = blockByName[String(x.name || '').toLowerCase().trim()];
-        return b ? Object.assign({}, x, { block: b }) : x;
-      });
-    }
-    var exs = usingActual ? actualExs : plannedExs;
-
-    // One row template for both planned and actual exercises — same columns
-    // (name / sets×reps / load-or-weight / RPE), same plain styling. Actual
-    // rows use the real weight_kg + logged RPE (blank shows as a faint "—",
-    // not a colored badge); planned rows use the free-text load + optional
-    // target RPE. Kept as one function, not two, so matched vs. unmatched
-    // sessions render one visual design instead of two.
-    function _exRow(x) {
-      var sr = (x.sets != null && x.reps != null) ? (x.sets + ' × ' + x.reps) : (x.sets != null ? x.sets + ' sets' : '');
-      var loadTxt = usingActual ? (x.weight_kg != null ? x.weight_kg + 'kg' : '') : (x.load || '');
-      var rpeVal = x.rpe != null && x.rpe !== '' ? x.rpe : null;
-      var rpeHtml = rpeVal != null
-        ? '<span class="pl-es">' + (usingActual ? 'RPE ' : 'Target RPE ') + esc(rpeVal) + '</span>'
-        : (usingActual ? '<span class="pl-es" style="color:var(--pl-faint)">RPE —</span>' : '');
-      return '<div class="pl-exd"><span class="pl-en">' + esc(x.name || 'Exercise') + '</span>' +
-        '<span class="pl-sr">' + esc(sr) + '</span>' +
-        '<span class="pl-es" style="color:var(--pl-faint)">' + esc(loadTxt) + '</span>' +
-        rpeHtml + '</div>';
-    }
-    var exHtml;
-    if (!exs.length) {
-      exHtml = focus ? '' : '<div class="pl-exd"><span class="pl-en" style="color:var(--pl-faint)">No exercises listed.</span></div>';
-    } else if (exs.some(function (x) { return x && x.block; })) {
-      // Group by the pasted-back `block` label (Warm-up / Heavy compound /
-      // Superset 1 / … / Accessories), preserving order of first appearance.
-      // Real logged exercises never carry a block, so matched sessions just
-      // fall through to the flat list below.
-      var order = [];
-      exs.forEach(function (x) {
-        var b = (x && x.block) ? x.block : 'Other';
-        if (order.indexOf(b) === -1) order.push(b);
-      });
-      exHtml = order.map(function (b) {
-        var rows = exs.filter(function (x) { return ((x && x.block) ? x.block : 'Other') === b; }).map(_exRow).join('');
-        return '<div class="pl-exblock"><div class="pl-exblock-h">' + esc(b) + '</div>' + rows + '</div>';
-      }).join('');
-    } else {
-      exHtml = exs.map(_exRow).join('');
-    }
-
-    return '<div class="pl-dethead"><span class="pl-dettag lift">' + typeLabel + '</span>' +
-        '<span style="font-size:11px;color:var(--pl-faint);font-family:var(--pl-mono)">' + esc(_fmtDayDate(p.planned_date)) + '</span>' +
-        '<span style="flex:1"></span><button class="pl-btn pl-ghost pl-danger" id="pl-det-delete" title="Delete this planned session">Delete</button>' +
-        '<button class="pl-btn pl-ghost" id="pl-det-edit" title="' + (p.actual && p.actual.id ? 'Edit the logged workout' : 'Edit the plan') + '">' + (p.actual && p.actual.id ? 'Edit workout' : 'Edit') + '</button></div>' +
-      '<div class="pl-dettitle">' + esc(p.name || '(untitled)') + '</div>' +
-      _detailIdRowHtml(p) +
-      _detailStatusActionsHtml(p) +
-      (actual && actual.needs_rpe
-        ? '<div class="pl-infobanner" style="margin:8px 0;">Some exercises are missing RPE.' +
-            (actual.id ? ' <button type="button" class="pl-rpe-fixlink" data-viewfull="' + esc(actual.id) + '">Add it on the logged workout →</button>' : '') +
-          '</div>'
-        : '') +
-      // No Type tile — the STRENGTH/PLYO tag at the top of the panel already
-      // says it; a whole tile repeating one word was dead weight on mobile.
-      (focus && !usingActual
-        ? '<div class="pl-dettiles"><div class="pl-dettile"><div class="l">Focus</div><div class="v" style="font-size:14px;">' + esc(focus) + '</div></div></div>'
-        : '') +
-      (exs.length ? '<div class="pl-segwrap"><div class="pl-sectitle" style="margin-bottom:8px;">Exercises</div>' + exHtml + '</div>' : '') +
-      (p.notes ? '<div class="pl-fld" style="margin-top:16px;"><label>Coach notes</label><div class="pl-notebox">' + esc(p.notes) + '</div></div>' : '') +
-      '<div class="pl-infobanner" style="margin-top:16px;">No Stryd export here — power-based workout export only applies to runs. This session logs into the Economy model once completed.</div>';
-  }
-
   function _copyText(text, btn) {
     function done() { if (btn) { var o = btn.textContent; btn.textContent = 'Copied ✓'; setTimeout(function () { btn.textContent = o; }, 1400); } }
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -2840,9 +3346,15 @@ information about.
 
   // ── Scoped styles (injected once) ───────────────────────────────────────────
   function _injectStyles() {
-    if (document.getElementById('plan-tab-styles')) return;
+    var VER = '20260720sm1';
+    var existing = document.getElementById('plan-tab-styles');
+    if (existing) {
+      if (existing.getAttribute('data-ver') === VER) return;
+      existing.remove();
+    }
     var css = document.createElement('style');
     css.id = 'plan-tab-styles';
+    css.setAttribute('data-ver', VER);
     css.textContent = PLAN_CSS;
     document.head.appendChild(css);
   }
@@ -2872,6 +3384,12 @@ information about.
     '.plan-panel .pl-detactions{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;}',
     '.plan-panel .pl-detactions .pl-btn{white-space:normal;line-height:1.25;padding:8px 6px;text-align:center;font-size:11.5px;}',
     '}',
+    '.plan-panel .pl-det-ai{margin:10px 0 6px;padding:10px 12px;border:1px dashed #c7d2fe;border-radius:11px;background:#f8f9ff;}',
+    '.plan-panel .pl-det-ai-head{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}',
+    '.plan-panel .pl-det-ai-panel{margin-top:8px;}',
+    '.plan-panel .pl-det-ai-input{width:100%;box-sizing:border-box;font:inherit;font-size:12.5px;padding:8px 10px;border:1px solid var(--pl-line);border-radius:8px;background:#fff;}',
+    '.plan-panel .pl-det-ai-status{font-size:11.5px;color:var(--pl-muted);margin-top:6px;min-height:1em;}',
+    '.plan-panel .pl-det-ai-hint{font-size:11.5px;color:#3f4a7a;margin-top:8px;line-height:1.35;}',
     // Labeled input wrappers in the detailed exercise editor: invisible on
     // desktop (display:contents — the column header row names the fields),
     // visible inline labels on mobile where wrapping breaks column alignment.
@@ -2966,21 +3484,40 @@ information about.
     '.plan-panel .pl-candrow .pl-cn{font-weight:600;}.plan-panel .pl-candrow .pl-cm{color:var(--pl-faint);font-family:var(--pl-mono);margin-left:auto;}',
     '.plan-panel .pl-candbtns{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;}',
     '.plan-panel .pl-ghost{border:1.5px dashed #d7dcec;border-radius:8px;padding:8px 9px;background:#fbfcff;}',
-    '.plan-panel .pl-draft{border:1.5px dashed #a5b4fc;border-radius:8px;padding:7px 9px;background:#f8f9ff;position:relative;flex:1 1 250px;max-width:360px;}',
-    '.plan-panel .pl-draft.run{border-left:3px dashed var(--pl-run);}.plan-panel .pl-draft.lift{border-left:3px dashed var(--pl-lift);}',
-    '.plan-panel .pl-draft.plyo{border-left:3px dashed var(--pl-amber);}.plan-panel .pl-draft.stretch{border-left:3px dashed #0f766e;}',
+    // Draft cards — plan-draft-review.html .sess.draft layout (horizontal row).
+    '.plan-panel .pl-draft{display:flex;align-items:center;gap:11px;flex-wrap:wrap;border:1.5px dashed #4f6ef7;border-radius:11px;padding:10px 13px;background:#f4f6fe;position:relative;flex:1 1 250px;max-width:100%;}',
+    '.plan-panel .pl-draft .pl-stypetag{flex-shrink:0;}',
+    '.plan-panel .pl-draft-main{flex:1;min-width:140px;}',
+    '.plan-panel .pl-draft .pl-sn{font-size:13px;font-weight:650;line-height:1.3;}',
+    '.plan-panel .pl-draft .pl-sm{font-family:var(--pl-mono);font-size:10px;color:var(--pl-muted);margin-top:2px;}',
+    '.plan-panel .pl-draft-right{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto;}',
+    '.plan-panel .pl-draft-tss{font-family:var(--pl-mono);font-size:11px;font-weight:700;color:var(--pl-muted);}',
+    '.plan-panel .pl-draft-rm{font-family:var(--pl-mono);font-size:10px;font-weight:700;color:#dc2626;background:none;border:none;cursor:pointer;padding:0;white-space:nowrap;}',
+    '.plan-panel .pl-draft-rm:hover{text-decoration:underline;}',
+    '.plan-panel .pl-stypetag{font-family:var(--pl-mono);font-size:9px;font-weight:700;letter-spacing:0.04em;padding:2px 7px;border-radius:5px;background:#e4e8fd;color:#3b4bb8;text-transform:uppercase;}',
+    '.plan-panel .pl-stypetag.lift{background:#efe9fd;color:#6d3fd1;}',
+    '.plan-panel .pl-stypetag.plyo{background:#fef3c7;color:#92400e;}',
+    '.plan-panel .pl-stypetag.stretch{background:#e6f7ef;color:#0f7a46;}',
+    '.plan-panel .pl-stypetag.run{background:#e4e8fd;color:#3b4bb8;}',
     '.plan-panel .pl-draft-tag{font-size:7.5px;font-weight:800;letter-spacing:0.04em;color:#6366f1;background:#eef2ff;padding:1px 5px;border-radius:4px;}',
-    '.plan-panel .pl-src-chip{font-size:7.5px;font-weight:800;letter-spacing:0.03em;padding:1px 5px;border-radius:4px;text-transform:uppercase;background:#f1f5f9;color:#64748b;}',
-    '.plan-panel .pl-src-user{background:#fef3c7;color:#92400e;}',
-    '.plan-panel .pl-src-template{background:#f1f5f9;color:#475569;}',
-    '.plan-panel .pl-src-llm{background:#eef2ff;color:#4338ca;}',
-    '.plan-panel .pl-draft-actions{margin-top:6px;display:flex;gap:6px;}',
-    '.plan-panel .pl-draft.is-pending{opacity:0.55;pointer-events:none;}',
-    '.plan-panel .pl-src-pending{background:#eef2ff;color:#4338ca;}',
-    '.plan-panel .pl-draft-pending{background:#eef2ff;border:1px solid #c7d2fe;border-radius:11px;padding:8px 14px;font-size:12px;color:#3730a3;margin-bottom:10px;}',
+    '.plan-panel .pl-src-chip{font-family:var(--pl-mono);font-size:9px;font-weight:700;padding:2px 7px;border-radius:99px;text-transform:uppercase;background:#f1f5f9;color:#64748b;display:inline-flex;align-items:center;gap:5px;}',
+    '.plan-panel .pl-src-user{background:var(--pl-ink);color:#fff;}',
+    '.plan-panel .pl-src-tmpl{background:#fef3c7;color:#92400e;}',
+    '.plan-panel .pl-src-ai{background:#dcfce7;color:#15803d;}',
+    '.plan-panel .pl-src-gen{background:#e4e8fd;color:#3b4bb8;}',
+    // CSS border spinner (mock .spin / .src.gen i) — not an SVG.
+    '.plan-panel .pl-gen-spin{width:8px;height:8px;border-radius:99px;border:1.5px solid currentColor;border-right-color:transparent;display:inline-block;animation:pl-gen-spin 0.9s linear infinite;flex-shrink:0;}',
+    '.plan-panel .pl-gen-spin-lg{width:12px;height:12px;border-width:2px;}',
+    '@keyframes pl-gen-spin{to{transform:rotate(360deg);}}',
+    '.plan-panel .pl-draft.is-pending{opacity:0.75;pointer-events:none;}',
+    '.plan-panel .pl-sess.is-generating{border:1.5px dashed #4f6ef7;border-left:1.5px dashed #4f6ef7;background:#f4f6fe;box-shadow:none;cursor:default;opacity:0.75;}',
+    '.plan-panel .pl-sm-generating{color:var(--pl-muted);font-style:normal;}',
+    // Mock .genbar
+    '.plan-panel .pl-draft-pending{display:flex;align-items:center;gap:10px;background:#eef1fe;border:1px solid #dfe5fd;border-radius:11px;padding:10px 14px;font-size:12.5px;color:#3b4bb8;margin-bottom:10px;line-height:1.4;flex-wrap:wrap;}',
+    '.plan-panel .pl-det-ai-genline{display:inline-flex;align-items:center;gap:6px;color:var(--pl-muted);}',
     '.plan-panel .pl-draft-add{display:flex;flex-wrap:wrap;gap:4px;align-items:center;}',
-    '.plan-panel .pl-draft-move{font-size:10px;color:var(--pl-muted);display:inline-flex;align-items:center;gap:4px;}',
-    '.plan-panel .pl-draft-move select{font-size:10px;border:1px solid var(--pl-line);border-radius:4px;padding:2px;}',
+    '.plan-panel .pl-draft-move{font-family:var(--pl-mono);font-size:10px;font-weight:700;color:var(--pl-blue);display:inline-flex;align-items:center;gap:4px;cursor:pointer;}',
+    '.plan-panel .pl-draft-move select{font-family:var(--pl-mono);font-size:10px;font-weight:700;color:var(--pl-blue);border:none;background:transparent;cursor:pointer;padding:0;-webkit-appearance:none;appearance:none;}',
     '.plan-panel .pl-dayrow.drop-ok{outline:2px solid #86efac;outline-offset:-2px;}',
     '.plan-panel .pl-dayrow.drop-warn{outline:2px solid #fbbf24;outline-offset:-2px;}',
     '.plan-panel .pl-dayrow.drop-blocked{outline:2px solid #cbd5e1;outline-offset:-2px;opacity:0.7;}',
@@ -3199,7 +3736,64 @@ information about.
     '.pl-sug-intent-empty{color:var(--pl-faint);font-style:italic;}',
     '.pl-rail-note{font-size:11.5px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:6px 10px;margin-bottom:8px;}',
     '.pl-sug-type-select.stretch{background:#ccfbf1;color:#0f766e;}',
-    '.pl-sug-subtype-select{font-size:10px;font-weight:700;color:var(--pl-muted);border:1px solid var(--pl-line);border-radius:6px;padding:3px 4px;background:#fff;cursor:pointer;flex-shrink:0;}'
+    '.pl-sug-subtype-select{font-size:10px;font-weight:700;color:var(--pl-muted);border:1px solid var(--pl-line);border-radius:6px;padding:3px 4px;background:#fff;cursor:pointer;flex-shrink:0;}',
+    /* ── Unified session modal (view = edit = AI) ── */
+    '.plan-panel .pl-sm-modal{padding:0;overflow:hidden;}',
+    '.plan-panel .pl-sm-pad{padding:18px 22px;}',
+    '.plan-panel .pl-sm-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}',
+    '.plan-panel .pl-sm-lbl{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--pl-faint);}',
+    '.plan-panel .pl-sm-x{margin-left:auto;width:30px;height:30px;border-radius:8px;border:none;background:var(--pl-tile);color:var(--pl-muted);font-size:15px;cursor:pointer;}',
+    '.plan-panel .pl-sm-meta{display:flex;align-items:center;gap:9px;margin-top:12px;flex-wrap:wrap;}',
+    '.plan-panel .pl-sm-tag{font-family:var(--pl-mono);font-size:9px;font-weight:700;letter-spacing:.04em;padding:3px 8px;border-radius:5px;background:#e4e8fd;color:#3b4bb8;}',
+    '.plan-panel .pl-sm-tag.lift{background:#efe9fd;color:#6d3fd1;}',
+    '.plan-panel .pl-sm-meta select,.plan-panel .pl-sm-datef{border:1px solid var(--pl-line);border-radius:8px;padding:6px 9px;font-family:var(--pl-mono);font-size:11px;color:var(--pl-ink);background:#fff;}',
+    '.plan-panel .pl-sm-matched{font-family:var(--pl-mono);font-size:10px;color:var(--pl-green);}',
+    '.plan-panel .pl-sm-name{font-size:21px;font-weight:700;border:none;outline:none;width:100%;margin-top:10px;border-bottom:1.5px dashed transparent;font-family:inherit;color:var(--pl-ink);background:transparent;padding:0;}',
+    '.plan-panel .pl-sm-name:hover,.plan-panel .pl-sm-name:focus{border-bottom-color:var(--pl-line);}',
+    '.plan-panel .pl-sm-stat{display:flex;gap:8px;margin-top:13px;flex-wrap:wrap;}',
+    '.plan-panel .pl-sm-sbtn{padding:7px 13px;border-radius:9px;border:1px solid var(--pl-line);background:#fff;font-size:12.5px;font-weight:650;color:var(--pl-muted);cursor:pointer;font-family:inherit;}',
+    '.plan-panel .pl-sm-sbtn.on{background:var(--pl-lime);border-color:var(--pl-lime);color:var(--pl-ink);}',
+    '.plan-panel .pl-sm-ai{margin-top:15px;border:1.5px dashed #c9d2fb;background:#f7f8fe;border-radius:13px;padding:13px 15px;}',
+    '.plan-panel .pl-sm-ai-h{display:flex;align-items:center;gap:8px;margin-bottom:9px;flex-wrap:wrap;}',
+    '.plan-panel .pl-sm-ai-h b{font-size:13px;font-weight:700;}',
+    '.plan-panel .pl-sm-ai-h span{font-family:var(--pl-mono);font-size:9.5px;color:var(--pl-faint);}',
+    '.plan-panel .pl-sm-ai-dormant .pl-sm-ai-h{margin-bottom:0;}',
+    '.plan-panel .pl-sm-ai-expand{margin-left:auto;background:none;border:none;font:inherit;font-size:12px;font-weight:650;color:var(--pl-blue);cursor:pointer;text-decoration:underline;}',
+    '.plan-panel .pl-sm-chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:9px;}',
+    '.plan-panel .pl-sm-chip{font-size:12px;font-weight:600;padding:6px 12px;border-radius:99px;border:1px solid var(--pl-line);background:#fff;cursor:pointer;font-family:inherit;}',
+    '.plan-panel .pl-sm-chip:hover{border-color:var(--pl-blue);color:var(--pl-blue);}',
+    '.plan-panel .pl-sm-free{display:flex;gap:8px;}',
+    '.plan-panel .pl-sm-free input{flex:1;border:1px solid var(--pl-line);border-radius:9px;padding:9px 12px;font-family:inherit;font-size:12.5px;}',
+    '.plan-panel .pl-sm-go{padding:9px 16px;border-radius:9px;border:none;background:var(--pl-lime);color:var(--pl-ink);font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:inherit;}',
+    '.plan-panel .pl-sm-go:disabled{opacity:.5;cursor:default;}',
+    '.plan-panel .pl-sm-ai-n{font-family:var(--pl-mono);font-size:9.5px;color:var(--pl-faint);margin-top:8px;}',
+    '.plan-panel .pl-sm-ai-err{font-size:12px;color:var(--pl-red);margin-top:8px;line-height:1.35;}',
+    '.plan-panel .pl-sm-sech{display:flex;align-items:center;gap:10px;margin-top:17px;margin-bottom:9px;}',
+    '.plan-panel .pl-sm-tabs{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap;}',
+    '.plan-panel .pl-sm-tab{font-size:11.5px;font-weight:650;padding:5px 11px;border-radius:8px;border:1px solid var(--pl-line);background:#fff;color:var(--pl-muted);cursor:pointer;font-family:inherit;}',
+    '.plan-panel .pl-sm-tab.on{background:var(--pl-ink);border-color:var(--pl-ink);color:#fff;}',
+    '.plan-panel .pl-sm-tiles{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;}',
+    '.plan-panel .pl-sm-tile{background:var(--pl-tile);border-radius:11px;padding:10px 13px;}',
+    '.plan-panel .pl-sm-tl{font-family:var(--pl-mono);font-size:8.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--pl-faint);}',
+    '.plan-panel .pl-sm-tv{font-family:var(--pl-mono);font-size:17px;font-weight:700;margin-top:4px;}',
+    '.plan-panel .pl-sm-tv.empty{color:var(--pl-faint);}',
+    '.plan-panel .pl-sm-blocks{border:1px solid var(--pl-line);border-radius:12px;overflow:hidden;}',
+    '.plan-panel .pl-sm-brow{display:flex;gap:12px;padding:9px 14px;border-bottom:1px solid var(--pl-line);align-items:center;}',
+    '.plan-panel .pl-sm-brow:last-child{border-bottom:none;}',
+    '.plan-panel .pl-sm-ph{font-family:var(--pl-mono);font-size:9.5px;font-weight:700;color:var(--pl-faint);min-width:66px;text-transform:uppercase;}',
+    '.plan-panel .pl-sm-bt{flex:1;font-size:12.5px;}',
+    '.plan-panel .pl-sm-bm{font-family:var(--pl-mono);font-size:10.5px;color:var(--pl-muted);}',
+    '.plan-panel .pl-sm-empty-s{border:1.5px dashed var(--pl-line);border-radius:12px;padding:16px;text-align:center;color:var(--pl-faint);font-size:12.5px;font-style:italic;}',
+    '.plan-panel .pl-sm-notes{margin-top:15px;}',
+    '.plan-panel .pl-sm-notes textarea{width:100%;border:1px solid var(--pl-line);border-radius:11px;padding:11px 13px;font-family:inherit;font-size:12.5px;color:var(--pl-ink);background:var(--pl-tile);resize:vertical;min-height:52px;box-sizing:border-box;}',
+    '.plan-panel .pl-sm-stryd{margin-top:13px;font-family:var(--pl-mono);font-size:10.5px;color:var(--pl-muted);cursor:pointer;}',
+    '.plan-panel .pl-sm-stryd b{color:var(--pl-ink);}',
+    '.plan-panel .pl-sm-foot{display:flex;gap:9px;align-items:center;padding:13px 22px;border-top:1px solid var(--pl-line);background:var(--pl-tile);}',
+    '.plan-panel .pl-sm-del{color:var(--pl-red);border:1px solid #f6caca;background:#fff;padding:8px 14px;border-radius:9px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;}',
+    '.plan-panel .pl-sm-sp{flex:1;}',
+    '.plan-panel .pl-sm-dirty{font-family:var(--pl-mono);font-size:9.5px;color:var(--pl-amber);}',
+    '.plan-panel .pl-sm-save{background:var(--pl-lime);border:none;color:var(--pl-ink);padding:9px 17px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}',
+    '.plan-panel .pl-sm-ghost{background:#fff;border:1px solid var(--pl-line);color:var(--pl-muted);padding:8px 14px;border-radius:9px;font-size:12.5px;font-weight:650;cursor:pointer;font-family:inherit;}'
   ].join('');
 
 }());
