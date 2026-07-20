@@ -13,6 +13,41 @@ import json
 SUPPRESSION_DAYS = 28
 
 
+def in_cooldown_window(
+    *,
+    decided_at: datetime.datetime | None,
+    dismissed_severity: int | None,
+    current_severity: int,
+    now: datetime.datetime | None = None,
+    window_days: int = SUPPRESSION_DAYS,
+) -> dict:
+    """Shared 28-day quiet window with severity-rise override.
+
+    Used by gap-finding dismissal AND preference-proposal decline so both
+    share one implementation (issue: training-preferences proposals).
+
+    Returns:
+      quiet: True when still suppressed (within window AND severity did not rise)
+      severity_rose: True when current_severity > dismissed_severity
+      age_days: float | None
+    """
+    if decided_at is None:
+        return {"quiet": False, "severity_rose": False, "age_days": None}
+    now = now or datetime.datetime.now(tz=datetime.timezone.utc)
+    if decided_at.tzinfo is None:
+        decided_at = decided_at.replace(tzinfo=datetime.timezone.utc)
+    age_days = (now - decided_at).total_seconds() / 86400
+    severity_rose = (
+        dismissed_severity is not None and current_severity > int(dismissed_severity)
+    )
+    within = age_days < window_days
+    return {
+        "quiet": within and not severity_rose,
+        "severity_rose": severity_rose,
+        "age_days": age_days,
+    }
+
+
 def evidence_hash(evidence: list) -> str:
     """Stable SHA-256 hash of an evidence list (sorted by metric for determinism)."""
     canonical = json.dumps(
@@ -57,16 +92,13 @@ def classify_finding(
 
     # ── Dismissal check ───────────────────────────────────────────────────────
     if recent_dismissed:
-        dismissed_at = recent_dismissed["dismissed_at"]
-        dismissed_severity = recent_dismissed["dismissed_severity"]
-        # Ensure timezone-aware comparison
-        if dismissed_at.tzinfo is None:
-            dismissed_at = dismissed_at.replace(tzinfo=datetime.timezone.utc)
-        age_days = (now - dismissed_at).total_seconds() / 86400
-        within_window = age_days < SUPPRESSION_DAYS
-        severity_rose = current_severity > dismissed_severity
-
-        if within_window and not severity_rose:
+        cd = in_cooldown_window(
+            decided_at=recent_dismissed["dismissed_at"],
+            dismissed_severity=recent_dismissed["dismissed_severity"],
+            current_severity=current_severity,
+            now=now,
+        )
+        if cd["quiet"]:
             return {
                 "suppressed": True,
                 "status": "dismissed",
@@ -77,7 +109,7 @@ def classify_finding(
         return {
             "suppressed": False,
             "status": "active",
-            "severity_rose": severity_rose,
+            "severity_rose": cd["severity_rose"],
             "reactivated": False,
             "reason": None,
         }

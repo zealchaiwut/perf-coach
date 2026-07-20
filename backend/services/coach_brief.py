@@ -695,6 +695,16 @@ def compose_coach_brief(facts: dict, yesterday_payload: dict | None = None) -> d
         }
 
     for s in skel.get("sections") or []:
+        if s.get("type") == "proposal" or str(s.get("id") or "").startswith("proposal_"):
+            # Deterministic why fallback — LLM may replace with ≤140 char sentence
+            delta = (s.get("proposal") or {}).get("delta") or {}
+            field = delta.get("field") or "preference"
+            s["evidence"] = (
+                f"This gap has persisted long enough that a small step in "
+                f"{field.replace('_', ' ').replace('.', ' ')} is worth trying."
+            )[:140]
+            s["do"] = ""
+            continue
         t = templates.get(s["id"]) or {}
         s["headline"] = t.get("headline", s["id"].replace("_", " ").title())[:60]
         s["evidence"] = t.get("evidence", "")[:280]

@@ -376,6 +376,27 @@ def validation_errors(suggestions: list[dict], facts: dict) -> list[str]:
             )
             break
 
+    # Zone-2 weekly floor (prefs catalog, reads: validation) — only when
+    # target-aware mode is on and the athlete set a positive target.
+    z2_min = int(facts.get("zone2_weekly_min") or 0)
+    if z2_min > 0 and facts.get("target_tss") is not None:
+        # Approximate Z2 minutes from easy/run sessions where intent looks aerobic
+        z2_mins = 0
+        for s in suggestions:
+            wt = str(s.get("workout_type", "")).lower()
+            intent = str(s.get("intent") or "").lower()
+            dur = int(s.get("duration_minutes") or 0)
+            if wt == "run" and any(k in intent for k in ("easy", "aerobic", "z2", "zone 2", "zone2", "base")):
+                z2_mins += dur
+            elif wt == "run":
+                # Count half of unmarked run duration as potential Z2 (conservative)
+                z2_mins += dur // 2
+        if z2_mins < z2_min:
+            errs.append(
+                f"Estimated zone-2 minutes {z2_mins} fall short of preference "
+                f"zone2_weekly_min={z2_min}."
+            )
+
     return errs
 
 
@@ -715,6 +736,27 @@ def build_prompt(facts: dict) -> tuple[str, str]:
         user += "The athlete wants MORE strength training than usual this week.\n"
     elif emphasis == "less":
         user += "The athlete wants LESS strength training than usual this week.\n"
+    # Training prefs (catalog) — flow into the prompt; deep generation enforcement
+    # of plyo supersets / MP segments is a later ticket.
+    prefs_bits = []
+    if facts.get("prefs_version"):
+        prefs_bits.append(f"prefs_version={facts['prefs_version']}")
+    if facts.get("plyo_mode") and facts.get("plyo_mode") != "off":
+        prefs_bits.append(f"plyo_mode={facts['plyo_mode']}")
+    if int(facts.get("plyo_sessions_per_week") or 0) > 0:
+        prefs_bits.append(f"plyo_sessions_per_week={facts['plyo_sessions_per_week']}")
+    if int(facts.get("long_run_mp_segment_min") or 0) > 0:
+        prefs_bits.append(f"long_run.mp_segment_min={facts['long_run_mp_segment_min']}")
+    if int(facts.get("stretch_daily_min") or 0) > 0:
+        prefs_bits.append(f"stretch_daily_min={facts['stretch_daily_min']}")
+    if int(facts.get("zone2_weekly_min") or 0) > 0:
+        prefs_bits.append(f"zone2_weekly_min={facts['zone2_weekly_min']}")
+    if prefs_bits:
+        user += (
+            "Active training preferences (honour; safety rules still win): "
+            + ", ".join(prefs_bits)
+            + ".\n"
+        )
     if notes:
         # Anchor day-name language ("Tue", "Sat") in the notes to concrete
         # day_offsets. today_offset covers "today"/"tomorrow" but is None for
@@ -1042,6 +1084,7 @@ def assemble_facts(
     _own_session = db is None
     if _own_session:
         db = Session(engine)
+    _prefs_stored = None
     try:
         readiness_rows = (
             db.query(DailyReadiness)
@@ -1248,15 +1291,53 @@ def assemble_facts(
                 _seen_names.add(n)
                 recent_exercise_names.append(n)
         recent_exercise_names = recent_exercise_names[:20]
+
+        # Stored training prefs (versioned) — while session still open.
+        try:
+            from backend.services.training_prefs import prefs_for_assemble_facts
+            _prefs_stored = prefs_for_assemble_facts(db, user_id)
+            if _own_session:
+                db.commit()
+        except Exception:
+            _prefs_stored = None
+            if _own_session:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
     finally:
         if _own_session:
             db.close()
 
-    rest_days = sorted({int(d) for d in (preferred_rest_days or []) if int(d) in allowed_offsets})
-    emphasis = (strength_emphasis or "same").strip().lower()
+    rest_days_in = preferred_rest_days
+    emphasis_in = strength_emphasis
+    notes_in = notes
+    prefs_version = 0
+    plyo_mode = "off"
+    plyo_sessions_per_week = 0
+    long_run_mp_segment_min = 0
+    stretch_daily_min = 0
+    zone2_weekly_min = 0
+
+    if _prefs_stored:
+        prefs_version = int(_prefs_stored.get("prefs_version") or 0)
+        if rest_days_in is None:
+            rest_days_in = _prefs_stored.get("preferred_rest_days")
+        if emphasis_in is None:
+            emphasis_in = _prefs_stored.get("strength_emphasis")
+        if notes_in is None:
+            notes_in = _prefs_stored.get("notes")
+        plyo_mode = _prefs_stored.get("plyo_mode") or "off"
+        plyo_sessions_per_week = int(_prefs_stored.get("plyo_sessions_per_week") or 0)
+        long_run_mp_segment_min = int(_prefs_stored.get("long_run_mp_segment_min") or 0)
+        stretch_daily_min = int(_prefs_stored.get("stretch_daily_min") or 0)
+        zone2_weekly_min = int(_prefs_stored.get("zone2_weekly_min") or 0)
+
+    rest_days = sorted({int(d) for d in (rest_days_in or []) if int(d) in allowed_offsets})
+    emphasis = (emphasis_in or "same").strip().lower()
     if emphasis not in _VALID_STRENGTH_EMPHASIS:
         emphasis = "same"
-    notes_clean = (notes or "").strip()[:300]
+    notes_clean = (notes_in or "").strip()[:300]
 
     facts: dict[str, Any] = {
         "ctl": round(ctl, 2),
@@ -1277,6 +1358,12 @@ def assemble_facts(
         "strength_emphasis": emphasis,
         "notes": notes_clean,
         "recent_exercise_names": recent_exercise_names,
+        "prefs_version": prefs_version,
+        "plyo_mode": plyo_mode,
+        "plyo_sessions_per_week": plyo_sessions_per_week,
+        "long_run_mp_segment_min": long_run_mp_segment_min,
+        "stretch_daily_min": stretch_daily_min,
+        "zone2_weekly_min": zone2_weekly_min,
     }
 
     if next_race is not None:
