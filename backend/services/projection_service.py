@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from backend.db import engine
 from backend.models import Race, RaceCheckpoint, compute_goal_pace as _compute_goal_pace
+from backend.services.riegel import riegel_half_equivalent as _riegel_half_equivalent
 
 
 # ── Serialisers ───────────────────────────────────────────────────────────────
@@ -34,6 +35,10 @@ def race_to_dict(race: Race) -> dict:
         # both races and checkpoints so the card can render pace identically.
         "goal_pace_seconds_per_km": race.goal_pace_seconds_per_km,
         "actual_time_seconds": race.actual_time_seconds,
+        "half_marathon_equivalent_seconds": _riegel_half_equivalent(
+            race.actual_time_seconds,
+            float(race.distance_km) if race.distance_km is not None else None,
+        ),
         "status": race.status,
         "name": race.name,
         "created_at": race.created_at.isoformat() if race.created_at else None,
