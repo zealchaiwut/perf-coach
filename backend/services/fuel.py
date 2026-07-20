@@ -20,8 +20,11 @@ not to make the estimate look more authoritative than it is.
 """
 from __future__ import annotations
 
+import logging as _logging
 from datetime import date as _date, timedelta
 from typing import Optional
+
+_log = _logging.getLogger(__name__)
 
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
@@ -705,8 +708,8 @@ def _resolve_week_phase_from_db(
                     )
                     if lp["weeks"]:
                         current_week_target_tss = lp["weeks"][0]["target_tss"]
-        except Exception:
-            pass  # training data missing → defaults to base phase
+        except ValueError as exc:
+            _log.debug("ramp computation skipped: %s", exc)
 
     phase, reason = resolve_week_phase(
         race_within_7d=race_within_7d,
