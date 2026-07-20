@@ -24,8 +24,6 @@ import logging as _logging
 from datetime import date as _date, timedelta
 from typing import Optional
 
-_log = _logging.getLogger(__name__)
-
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
 
@@ -39,6 +37,8 @@ from backend.services.training_load import (
     daily_tss_series,
 )
 from backend.services.fuel_periodize import resolve_week_phase, effective_deficit_for_phase
+
+_log = _logging.getLogger(__name__)
 
 # ── Food coefficients — per gram, COOKED weight (except eggs: per egg; oil:
 # per tsp). Approximations (±10-15% error), deliberately chosen over a food
