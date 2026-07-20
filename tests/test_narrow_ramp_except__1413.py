@@ -11,10 +11,9 @@ are handled gracefully.
 """
 from __future__ import annotations
 
-import logging
 import uuid
 from datetime import date, timedelta
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -126,7 +125,6 @@ def test_value_error_from_get_weekly_volume_caught():
     uid = uuid.uuid4()
 
     # Reconfigure the session mock to return a TrainingPlan on the plan query
-    from unittest.mock import MagicMock
     plan_mock = MagicMock()
     plan_mock.taper_length = 3
     plan_mock.ramp_rate = 0.05
@@ -215,7 +213,7 @@ def test_debug_log_emitted_on_value_error():
 
     # Capture logging output at debug level
     with patch("backend.services.fuel.daily_tss_series", side_effect=ValueError("missing data")):
-        with patch("logging.Logger.debug") as mock_debug:
+        with patch("logging.Logger.debug") as _:
             _resolve_week_phase_from_db(uid, today, session)
 
     # The debug log should have been called somewhere in the exception handler
