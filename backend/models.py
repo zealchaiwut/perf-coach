@@ -1610,7 +1610,7 @@ class PlannedSession(Base):
     # blocks[] for runs / exercises[] for strength·plyo; null for rest
     structure = Column(JSONB, nullable=True)
     notes = Column(Text, nullable=True)
-    # planned | missed | needs_review | done_auto | done_manual
+    # planned | missed | missed_auto | missed_manual | needs_review | done_auto | done_manual
     status = Column(String(20), nullable=False, server_default=text("'planned'"))
     matched_workout_id = Column(
         UUID(as_uuid=True),
@@ -1966,6 +1966,30 @@ class DailyBrief(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "brief_date", name="uq_daily_briefs_user_date"),
         Index("ix_daily_briefs_user_date", "user_id", "brief_date"),
+    )
+
+
+class PlanDraft(Base):
+    """Worker-generated week draft for Plan pipeline v2 (athlete reviews before apply)."""
+
+    __tablename__ = "plan_drafts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    week_start = Column(Date, nullable=False)
+    payload = Column(JSONB, nullable=False)
+    facts_signature = Column(String(64), nullable=False)
+    status = Column(String(20), nullable=False, server_default=text("'fresh'"))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "week_start", name="uq_plan_drafts_user_week"),
+        CheckConstraint(
+            "status IN ('fresh', 'outdated', 'applied', 'expired')",
+            name="ck_plan_drafts_status",
+        ),
+        Index("ix_plan_drafts_user_week", "user_id", "week_start"),
     )
 
 
