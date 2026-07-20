@@ -12,7 +12,6 @@ from datetime import date, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from backend.services.fuel import compute_effective_deficit
 
