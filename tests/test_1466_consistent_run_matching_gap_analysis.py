@@ -11,14 +11,10 @@ AC coverage:
 """
 from __future__ import annotations
 
-import ast
 import datetime
-import os
 import pathlib
 import re
-import textwrap
 
-import pytest
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 _ENGINE_FILE = _ROOT / "backend" / "services" / "gap_analysis" / "engine.py"
