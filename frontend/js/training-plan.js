@@ -20,6 +20,9 @@
   var _addState = { top: 'single', sub: 'form', delim: 'pipe' };
   var _detail = null;             // the planned session dict being viewed
   var _dismissedGhosts = {};      // client-side Ignore
+  var _draft = null;              // GET /api/plan/draft payload (pipeline v2)
+  var _pipeline = null;           // GET /api/plan/pipeline
+  var _draftVisible = false;      // shadow mode requires ?draft=1
 
   var DOW = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
   var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -137,9 +140,10 @@ information about.
     init: function () {
       _injectStyles();
       if (!_weekStart) _weekStart = _mondayOf(new Date());
+      _applyUrlWeekParam();
       // Idempotent: always re-render the shell + reload the current week.
       _renderAll();
-      _loadWeek(function () {
+      _loadPipelineThenWeek(function () {
         if (_pendingOpenId) {
           var id = _pendingOpenId;
           _pendingOpenId = null;
@@ -169,7 +173,7 @@ information about.
     planCheck: function (payload, cb) { _planCheck(payload, cb); },
     planGuardHtml: function (result) { return _planGuardHtml(result); },
     reload: function () {
-      _loadWeek(function () {});
+      _loadWeek(function () { _loadDraft(); });
     },
     // Exposed for the Plan Suggestions module (a separate closure below) so it
     // scopes suggestions to whichever week is actually on screen, instead of
@@ -251,6 +255,182 @@ information about.
 
   function _toast(msg, isErr) {
     if (window.UIStates && window.UIStates.showToast) window.UIStates.showToast(msg, !!isErr);
+  }
+
+  // ── Pipeline v2 draft overlay ───────────────────────────────────────────────
+  function _urlFlag(name) {
+    try {
+      return new URLSearchParams(window.location.search).get(name);
+    } catch (e) { return null; }
+  }
+
+  function _applyUrlWeekParam() {
+    var w = _urlFlag('week');
+    if (w) {
+      try { _weekStart = _mondayOf(_parseISO(w)); } catch (e) { /* ignore */ }
+    }
+  }
+
+  function _shouldShowDraftUi() {
+    if (!_pipeline) return false;
+    if (_pipeline.ui_default) return true;
+    if (_pipeline.shadow && (_urlFlag('draft') === '1' || _urlFlag('draft') === 'true')) return true;
+    return false;
+  }
+
+  function _loadPipelineThenWeek(onDone) {
+    _api('GET', '/api/plan/pipeline')
+      .then(function (p) {
+        _pipeline = p || { mode: 'legacy', enabled: false, shadow: false, ui_default: false };
+        _draftVisible = _shouldShowDraftUi();
+        _loadWeek(function () {
+          if (_draftVisible) _loadDraft(onDone);
+          else if (onDone) onDone();
+        });
+      })
+      .catch(function () {
+        _pipeline = { mode: 'legacy', enabled: false, shadow: false, ui_default: false };
+        _draftVisible = false;
+        _loadWeek(onDone);
+      });
+  }
+
+  function _loadDraft(onDone) {
+    if (!_draftVisible) {
+      _draft = null;
+      if (onDone) onDone();
+      return;
+    }
+    var ws = _iso(_weekStart);
+    _api('GET', '/api/plan/draft?week_start=' + encodeURIComponent(ws))
+      .then(function (d) {
+        _draft = d;
+        _renderDraftChrome();
+        _renderWeekList();
+        _updatePlanTabBadge(true);
+        if (onDone) onDone();
+      })
+      .catch(function () {
+        _draft = null;
+        _renderDraftChrome();
+        _renderWeekList();
+        if (onDone) onDone();
+      });
+  }
+
+  function _updatePlanTabBadge(ready) {
+    var tab = document.getElementById('log-tab-plan');
+    if (!tab) return;
+    var badge = tab.querySelector('.pl-draft-badge');
+    if (ready && _draft && (_draft.status === 'fresh' || _draft.status === 'outdated')) {
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'pl-draft-badge';
+        badge.title = 'Week draft ready';
+        badge.textContent = '•';
+        tab.appendChild(badge);
+      }
+      badge.hidden = false;
+    } else if (badge) {
+      badge.hidden = true;
+    }
+  }
+
+  function _draftSessionsByOffset() {
+    var map = {};
+    if (!_draft || !_draft.payload) return map;
+    (_draft.payload.sessions || []).forEach(function (s) {
+      if (s && s.day_offset != null) map[s.day_offset] = s;
+    });
+    return map;
+  }
+
+  function _sourceChip(src) {
+    var label = 'AI';
+    if (src === 'template') label = 'TEMPLATE';
+    else if (src === 'user') label = 'EDITED';
+    else if (src === 'llm') label = 'AI';
+    return '<span class="pl-src-chip pl-src-' + (src || 'llm') + '">' + label + '</span>';
+  }
+
+  function _draftCardHtml(s, day) {
+    var fam = _famClass(s.workout_type);
+    var tss = s.target_tss != null ? Math.round(s.target_tss) + ' TSS' : '';
+    var dur = s.duration_minutes ? s.duration_minutes + ' min' : '';
+    var meta = [tss, dur].filter(Boolean).join(' · ');
+    return '<div class="pl-draft ' + fam + '" data-draft-offset="' + s.day_offset + '">' +
+      '<div class="pl-sesstop"><span class="pl-sesstop-left">' +
+        '<span class="pl-stypetag ' + fam + '">' + fam + '</span>' +
+        _sourceChip(s.source) +
+      '</span><span class="pl-draft-tag">DRAFT</span></div>' +
+      '<div class="pl-sn">' + esc(s.intent || s.workout_type || 'Session') + '</div>' +
+      (meta ? '<div class="pl-sm">' + esc(meta) + '</div>' : '') +
+      '<div class="pl-draft-actions">' +
+        '<button type="button" class="pl-btn pl-ghost pl-tiny" data-draft-rm="' + s.day_offset + '">Remove</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function _renderDraftChrome() {
+    var banner = document.getElementById('pl-draft-banner');
+    var applyBtn = document.getElementById('pl-apply-draft');
+    var refreshBtn = document.getElementById('pl-refresh-draft');
+    if (!_draftVisible || !_draft || _draft.status === 'applied') {
+      if (banner) banner.hidden = true;
+      if (applyBtn) applyBtn.hidden = true;
+      if (refreshBtn) refreshBtn.hidden = true;
+      return;
+    }
+    if (applyBtn) applyBtn.hidden = false;
+    if (refreshBtn) refreshBtn.hidden = false;
+    if (banner) {
+      if (_draft.status === 'outdated') {
+        banner.hidden = false;
+        banner.innerHTML = 'Plan inputs changed — <button type="button" class="pl-draft-link" id="pl-draft-banner-refresh">refresh draft?</button> Untouched slots only.';
+        var br = document.getElementById('pl-draft-banner-refresh');
+        if (br) br.onclick = _refreshDraft;
+      } else {
+        banner.hidden = true;
+      }
+    }
+  }
+
+  function _refreshDraft() {
+    _api('POST', '/api/plan/draft/refresh', { week_start: _iso(_weekStart) })
+      .then(function () {
+        _toast('Draft refresh queued');
+        setTimeout(function () { _loadDraft(); }, 2500);
+      })
+      .catch(function () { _toast('Could not refresh draft', true); });
+  }
+
+  function _applyDraftWeek() {
+    var btn = document.getElementById('pl-apply-draft');
+    if (btn) btn.disabled = true;
+    _api('POST', '/api/plan/draft/apply', { week_start: _iso(_weekStart) })
+      .then(function (res) {
+        var n = (res && res.created) ? res.created.length : 0;
+        _toast(n ? ('Applied ' + n + ' session' + (n === 1 ? '' : 's')) : 'Draft applied');
+        _draft = null;
+        _loadWeek(function () { _loadDraft(); });
+        _updatePlanTabBadge(false);
+      })
+      .catch(function () {
+        if (btn) btn.disabled = false;
+        _toast('Could not apply draft', true);
+      });
+  }
+
+  function _removeDraftSlot(offset) {
+    _api('PATCH', '/api/plan/draft/slot', {
+      week_start: _iso(_weekStart),
+      day_offset: offset,
+      remove: true,
+    }).then(function (d) {
+      _draft = d;
+      _renderDraftChrome();
+      _renderWeekList();
+    }).catch(function () { _toast('Could not remove draft slot', true); });
   }
 
   // ── Load / reload the week ──────────────────────────────────────────────────
@@ -822,6 +1002,8 @@ information about.
           '<span class="pl-weektotal" id="pl-weektotal" hidden></span>' +
         '</div>' +
         '<div class="pl-btnrow">' +
+          '<button class="pl-btn pl-lime" id="pl-apply-draft" hidden title="Create planned sessions from this draft">Apply week</button>' +
+          '<button class="pl-btn pl-ghost" id="pl-refresh-draft" hidden title="Regenerate untouched draft slots">Refresh draft</button>' +
           /* Repurposed to open the AI next-week suggestions panel (issue #1315).
              It proxies a click to the suggestions module's own (hidden) trigger
              button, which lives in a separate closure. Label includes the
@@ -830,21 +1012,28 @@ information about.
           '<button class="pl-btn pl-ghost" id="pl-suggest" title="AI-suggested sessions for this week">✨ Suggest sessions</button>' +
           '<button class="pl-btn pl-dark" id="pl-add">+ Add</button>' +
         '</div></div>' +
+        '<div class="pl-draft-banner" id="pl-draft-banner" hidden></div>' +
         '<div class="pl-infobanner" id="pl-infobanner" style="margin-bottom:12px;">Sessions are generated to hit your weekly target, respecting the ramp rule and your rest days.</div>' +
         '<div class="pl-weeklist" id="plan-week-list"></div>' +
         '<div class="pl-legend">' +
           '<span><b style="background:var(--pl-run)"></b>Run</span><span><b style="background:var(--pl-lift)"></b>Strength</span><span><b style="background:var(--pl-amber)"></b>Plyo</span>' +
           '<span style="color:var(--pl-faint);margin:0 2px;">·</span>' +
           '<span><b style="background:var(--pl-green)"></b>Done</span><span><b style="background:var(--pl-amber)"></b>Needs review</span><span><b style="background:var(--pl-red)"></b>Missed</span>' +
+          '<span style="color:var(--pl-faint);margin:0 2px;">·</span>' +
+          '<span class="pl-legend-draft">Dashed = draft</span>' +
         '</div>' +
       '</div>';
     document.getElementById('pl-prev').onclick = function () {
-      _weekStart = _addDays(_weekStart, -7); _renderWeekSection(); _loadWeek(); _loadWeekLoad(_iso(_weekStart));
+      _weekStart = _addDays(_weekStart, -7); _renderWeekSection(); _loadWeek(function () { if (_draftVisible) _loadDraft(); }); _loadWeekLoad(_iso(_weekStart));
     };
     document.getElementById('pl-next').onclick = function () {
-      _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(); _loadWeekLoad(_iso(_weekStart));
+      _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(function () { if (_draftVisible) _loadDraft(); }); _loadWeekLoad(_iso(_weekStart));
     };
     document.getElementById('pl-add').onclick = function () { _openAdd('single'); };
+    var applyBtn = document.getElementById('pl-apply-draft');
+    if (applyBtn) applyBtn.onclick = _applyDraftWeek;
+    var refreshBtn = document.getElementById('pl-refresh-draft');
+    if (refreshBtn) refreshBtn.onclick = _refreshDraft;
     var sugBtn = document.getElementById('pl-suggest');
     if (sugBtn) sugBtn.onclick = function () {
       var t = document.getElementById('plan-suggestions-trigger');
@@ -857,6 +1046,7 @@ information about.
       }, 50);
     };
     _updateWeekTargetUI();
+    _renderDraftChrome();
     if (_bundle) _renderWeekList();
   }
 
@@ -896,13 +1086,20 @@ information about.
     var host = document.getElementById('plan-week-list');
     if (!host || !_bundle) return;
     var todayStr = _todayISO();
-    host.innerHTML = (_bundle.days || []).map(function (day) {
+    var drafts = (_draftVisible && _draft && _draft.status !== 'applied')
+      ? _draftSessionsByOffset() : {};
+    host.innerHTML = (_bundle.days || []).map(function (day, di) {
       var isPast = day.date < todayStr;
       var cls = day.date === todayStr ? 'today' : (isPast ? 'past' : '');
       var cards = (day.planned || []).map(function (p) { return _plannedCardHtml(p, day); }).join('');
       var ghosts = (day.unplanned || []).filter(function (u) { return !_dismissedGhosts[u.id]; })
         .map(function (u) { return _ghostCardHtml(u, day); }).join('');
-      var hasContent = (day.planned || []).length || ghosts;
+      var draftSess = drafts[di];
+      var draftHtml = '';
+      if (draftSess && (draftSess.workout_type || '') !== 'rest' && !(day.planned || []).length) {
+        draftHtml = _draftCardHtml(draftSess, day);
+      }
+      var hasContent = (day.planned || []).length || ghosts || draftHtml;
       var rest = !hasContent ? '<div class="pl-restday">Rest day</div>' : '';
       // A past day is done — no NEW session should be added to it. Existing
       // cards keep every action (match/change match/mark missed/delete); only
@@ -914,7 +1111,7 @@ information about.
       var dayWarn = _dayHasWarning(day) ? '<span class="pl-day-guard-badge" title="A session this day loads an overused or injured muscle group">⚠</span>' : '';
       return '<div class="pl-dayrow ' + cls + '" data-date="' + day.date + '">' +
         '<div class="pl-daylabel"><span class="pl-dname">' + day.dow + dayWarn + '</span><span class="pl-dnum">' + _parseISO(day.date).getDate() + '</span></div>' +
-        '<div class="pl-daybody">' + cards + ghosts + rest + addDay +
+        '<div class="pl-daybody">' + cards + draftHtml + ghosts + rest + addDay +
         '</div>' +
         (dayTotal != null ? '<span class="pl-dtotal">' + Math.round(dayTotal) + ' TSS</span>' : '') +
       '</div>';
@@ -1115,6 +1312,13 @@ information about.
   function _wireWeekEvents() {
     var host = document.getElementById('plan-week-list');
     if (!host) return;
+
+    host.querySelectorAll('[data-draft-rm]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        _removeDraftSlot(parseInt(b.getAttribute('data-draft-rm'), 10));
+      });
+    });
 
     host.querySelectorAll('.pl-sess[data-click="1"]').forEach(function (el) {
       el.addEventListener('click', function () { _openDetailById(el.getAttribute('data-sess')); });
@@ -2565,6 +2769,20 @@ information about.
     '.plan-panel .pl-candrow .pl-cn{font-weight:600;}.plan-panel .pl-candrow .pl-cm{color:var(--pl-faint);font-family:var(--pl-mono);margin-left:auto;}',
     '.plan-panel .pl-candbtns{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;}',
     '.plan-panel .pl-ghost{border:1.5px dashed #d7dcec;border-radius:8px;padding:8px 9px;background:#fbfcff;}',
+    '.plan-panel .pl-draft{border:1.5px dashed #a5b4fc;border-radius:8px;padding:7px 9px;background:#f8f9ff;position:relative;flex:1 1 250px;max-width:360px;}',
+    '.plan-panel .pl-draft.run{border-left:3px dashed var(--pl-run);}.plan-panel .pl-draft.lift{border-left:3px dashed var(--pl-lift);}',
+    '.plan-panel .pl-draft.plyo{border-left:3px dashed var(--pl-amber);}.plan-panel .pl-draft.stretch{border-left:3px dashed #0f766e;}',
+    '.plan-panel .pl-draft-tag{font-size:7.5px;font-weight:800;letter-spacing:0.04em;color:#6366f1;background:#eef2ff;padding:1px 5px;border-radius:4px;}',
+    '.plan-panel .pl-src-chip{font-size:7.5px;font-weight:800;letter-spacing:0.03em;padding:1px 5px;border-radius:4px;text-transform:uppercase;background:#f1f5f9;color:#64748b;}',
+    '.plan-panel .pl-src-user{background:#fef3c7;color:#92400e;}',
+    '.plan-panel .pl-src-template{background:#f1f5f9;color:#475569;}',
+    '.plan-panel .pl-src-llm{background:#eef2ff;color:#4338ca;}',
+    '.plan-panel .pl-draft-actions{margin-top:6px;display:flex;gap:6px;}',
+    '.plan-panel .pl-draft-banner{background:#fffbeb;border:1px solid #fcd34d;border-radius:11px;padding:10px 14px;font-size:12px;color:#92400e;margin-bottom:10px;}',
+    '.plan-panel .pl-draft-link{background:none;border:none;padding:0;font:inherit;font-weight:700;color:#1e40af;text-decoration:underline;cursor:pointer;}',
+    '.plan-panel .pl-legend-draft{font-style:italic;color:var(--pl-faint);}',
+    '#log-tab-plan{position:relative;}',
+    '#log-tab-plan .pl-draft-badge{position:absolute;top:4px;right:6px;width:8px;height:8px;border-radius:50%;background:#6366f1;color:transparent;font-size:0;line-height:0;}',
     '.plan-panel .pl-gtop{margin-bottom:3px;}',
     '.plan-panel .pl-gtag{font-size:8px;font-weight:800;letter-spacing:0.03em;color:var(--pl-faint);background:var(--pl-tile);padding:1px 5px;border-radius:4px;}',
     '.plan-panel .pl-ghostsel{width:100%;font-size:10.5px;border:1px solid var(--pl-line);border-radius:6px;padding:4px 6px;margin-top:6px;background:#fff;}',

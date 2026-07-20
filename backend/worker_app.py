@@ -458,6 +458,14 @@ def _h_garmin_sync(p: dict) -> None:
     _enqueue_precompute_after_sync(p.get("user_id"))
 
 
+def _h_plan_draft(p: dict) -> None:
+    from backend.services.plan_draft import run_plan_draft_job
+    # Generation is gated inside callers via PLAN_PIPELINE; job itself always runs
+    # when claimed so shadow/v2 modes work without re-checking here.
+    result = run_plan_draft_job(p)
+    logger.info("plan_draft done: %s", result)
+
+
 _DISPATCH = {
     "strava_sync": _h_strava_sync,
     "stryd_sync": _h_stryd_sync,
@@ -468,6 +476,7 @@ _DISPATCH = {
     "weekly_coach": _h_weekly_coach,  # compat alias
     "precompute": _h_precompute,
     "garmin_sync": _h_garmin_sync,
+    "plan_draft": _h_plan_draft,
 }
 
 
@@ -798,6 +807,26 @@ def plan_today(date: str | None = None, user: str | None = None):
         "planned": planned,
         "sessions": [_session_to_dict(r) for r in rows],
     }
+
+
+@app.get("/api/plan/draft-notify")
+def plan_draft_notify(user: str | None = None, ack: bool = False):
+    """Hermes morning-window draft nudge (never fires at job completion).
+
+    ``deliver_now`` is true only in BKK 07:00–09:00 while a notify is pending.
+    Pass ``ack=true`` after Discord delivery so the same draft is not re-sent.
+    """
+    from backend.services.plan_draft import hermes_draft_notify, pipeline_enabled
+
+    if not pipeline_enabled():
+        return {"ready": False, "deliver_now": False, "pipeline_off": True}
+
+    resolved_user = _resolve_read_user(user)
+    with Session(engine) as s:
+        out = hermes_draft_notify(s, resolved_user.id, ack=ack)
+        if ack:
+            s.commit()
+        return out
 
 
 @app.get("/api/weight/recent")

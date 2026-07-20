@@ -9395,6 +9395,9 @@
         var logNewBtn = document.getElementById("log-new-btn");
 
         function getActiveTab() {
+          var params = new URLSearchParams(window.location.search || "");
+          var qTab = params.get("tab");
+          if (TABS.indexOf(qTab) !== -1) return qTab;
           var hash = window.location.hash.replace("#", "");
           // Allow #plan?date=… style deep links — tab is the token before '?'
           var tab = hash.split("?")[0];

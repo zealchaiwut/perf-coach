@@ -40,12 +40,8 @@ FALLBACK_MIN_WEEKLY_TSS: float = 80.0
 _MAX_SESSION_TSS: int = 400
 _MIN_SESSION_TSS: int = 0
 
-# Race taper window in days.
-_TAPER_WINDOW_DAYS: int = 14
-# Fraction of normal weekly TSS during taper.
-_TAPER_FACTOR: float = 0.60
-
-# Conservative ramp factor for fallback (10% increase, well below HIGH_BOUND).
+# Conservative ramp factor for fallback when no race-anchored target exists.
+# Taper is owned solely by load_plan.TAPER_CURVE — do NOT re-derive here.
 _FALLBACK_RAMP_FACTOR: float = 1.10
 
 # Suggestions must sum to within this fraction of the week's remaining TSS
@@ -397,26 +393,22 @@ def fallback_suggestions(facts: dict) -> list[dict]:
     """Build a deterministic template week from trailing load + ramp cap.
 
     Pure function — no DB access, no network calls.
-    Respects ACWR ramp cap and tapers if race is within _TAPER_WINDOW_DAYS.
-
-    Only emits sessions for facts["allowed_offsets"] (default: the whole week,
-    so callers/tests that never set this key get the original 7-day template
-    unchanged). Honours facts["preferred_rest_days"] by forcing those offsets
-    to rest, and facts["strength_emphasis"] ("less"|"same"|"more") by nudging
-    one run<->strength swap — the template's weekly-TSS math (ramp/taper/ACWR)
-    is unchanged; only which offsets/types appear shifts.
+    Respects ACWR ramp cap. When facts carry a race-anchored `target_tss`
+    (from load_plan via assemble_facts), that number is the weekly target —
+    including any taper already applied by load_plan.TAPER_CURVE. This module
+    never multiplies by its own taper factor.
     """
     trailing_avg = float(facts.get("trailing_28d_weekly_avg_tss") or 0.0)
-    base = max(trailing_avg, FALLBACK_MIN_WEEKLY_TSS)
-    target_weekly = base * _FALLBACK_RAMP_FACTOR
+    if facts.get("target_tss") is not None:
+        target_weekly = float(facts["target_tss"])
+    else:
+        base = max(trailing_avg, FALLBACK_MIN_WEEKLY_TSS)
+        target_weekly = base * _FALLBACK_RAMP_FACTOR
 
-    # Race taper: reduce if race is within 14 days.
-    days_to_race = facts.get("days_to_next_race")
-    if days_to_race is not None and 0 <= int(days_to_race) <= _TAPER_WINDOW_DAYS:
-        target_weekly *= _TAPER_FACTOR
-
-    # Clamp to ACWR safe ceiling.
+    # Clamp to ACWR safe ceiling (always last).
     max_weekly = max(trailing_avg, FALLBACK_MIN_WEEKLY_TSS) * ACWR_HIGH_BOUND
+    if facts.get("acwr_ceiling") is not None:
+        max_weekly = min(max_weekly, float(facts["acwr_ceiling"]))
     target_weekly = min(target_weekly, max_weekly)
 
     allowed = set(_allowed_offsets(facts))
@@ -516,11 +508,11 @@ def build_prompt(facts: dict) -> tuple[str, str]:
     recent_exercise_names = facts.get("recent_exercise_names") or []
 
     taper_note = ""
-    if days_to_race is not None and 0 <= int(days_to_race) <= _TAPER_WINDOW_DAYS:
+    # Taper language comes from load_plan phase only — no ad-hoc day-window factor.
+    if facts.get("phase") == "taper":
         taper_note = (
-            f" The athlete has a race in {days_to_race} days — "
-            "apply a taper: reduce weekly TSS to approximately 60% of normal "
-            "and favour easy sessions."
+            " The athlete is in a TAPER week (load_plan phase) — "
+            "honour the reduced weekly target and favour easy sessions."
         )
 
     allowed_str = ", ".join(f"{o} ({_DAY_NAMES[o]})" for o in sorted(allowed)) or "none — the week is fully covered already"
@@ -1683,21 +1675,97 @@ def generate_single_session(
     subtype: str | None = None,
     db=None,
 ) -> dict | None:
-    """Generate or refine ONE session. Returns the session dict, or None on
-    failure (LLM unavailable or couldn't produce a valid session in 2 tries —
-    callers should keep the athlete's current session and show an error,
-    there is no deterministic-template fallback for a single session).
-    target_tss/duration_minutes pin the slot budget (two-rail flow) — see
-    build_single_session_prompt."""
+    """Generate or refine ONE session.
+
+    When the schedule rail has pinned the slot (target_tss / duration_minutes),
+    content is produced via plan_slot.generate_slot_content — LLM never emits
+    pins; Python stamps them; exhausted retries fall back to day templates.
+    Without pins, keeps the legacy whole-session schema path for older callers.
+    """
+    from backend.services.plan_prefs_accessor import get_plan_prefs
+
+    prefs = get_plan_prefs(
+        db, user_id,
+        preferred_rest_days=preferred_rest_days,
+        strength_emphasis=strength_emphasis,
+        notes=notes,
+    )
     facts = assemble_facts(
         user_id, db=db, week_start=week_start,
-        preferred_rest_days=preferred_rest_days,
-        strength_emphasis=strength_emphasis, notes=notes,
+        preferred_rest_days=prefs["preferred_rest_days"],
+        strength_emphasis=prefs["strength_emphasis"],
+        notes=prefs["notes"],
     )
-    # validation_errors() rejects any day_offset outside allowed_offsets — but
-    # this day is legitimately already-suggested/in-progress, not a fresh open
-    # slot, so scope the check to just this one day instead of reusing facts
-    # (whole-week "which days are still open") as-is.
+
+    # Two-rail / pipeline v2: pins present → content-only path
+    if target_tss is not None or duration_minutes is not None:
+        from backend.services.plan_slot import (
+            build_week_ctx,
+            generate_slot_content,
+            stamp_session,
+        )
+
+        slot = {
+            "day_offset": day_offset,
+            "workout_type": (workout_type or "run").lower(),
+            "target_tss": round(float(target_tss)) if target_tss is not None else 0,
+            "duration_minutes": int(duration_minutes) if duration_minutes is not None else 0,
+            "subtype": subtype or (
+                "easy_run" if (workout_type or "").lower() == "run" else
+                "strength_lower" if (workout_type or "").lower() == "strength" else
+                (workout_type or "run")
+            ),
+            "structure_hints": {},
+            "locked": False,
+        }
+        week_ctx = build_week_ctx(
+            facts=facts,
+            skeleton_slots=[slot],
+            strength_emphasis=prefs["strength_emphasis"],
+            notes=prefs["notes"],
+        )
+
+        def _llm(system: str, user: str) -> dict | None:
+            return llm_svc.complete_structured(
+                system=system,
+                user=user,
+                schema_name="plan_slot_content",
+                json_schema={
+                    "type": "object",
+                    "properties": {
+                        "intent": {"type": "string", "maxLength": 140},
+                        "notes": {"type": ["string", "null"]},
+                        "blocks": {"type": ["array", "null"]},
+                        "exercises": {"type": ["array", "null"]},
+                    },
+                    "required": ["intent"],
+                    "additionalProperties": True,
+                },
+                model_tier="deep",
+                max_tokens=(
+                    _RUN_SESSION_MAX_COMPLETION_TOKENS if workout_type == "run"
+                    else _SINGLE_SESSION_MAX_COMPLETION_TOKENS
+                ),
+            )
+
+        current = None
+        if current_session and isinstance(current_session, dict):
+            current = {
+                "intent": current_session.get("intent"),
+                "notes": current_session.get("notes"),
+                "blocks": current_session.get("blocks"),
+                "exercises": current_session.get("exercises"),
+                "source": current_session.get("source"),
+            }
+        content = generate_slot_content(
+            week_ctx, slot,
+            instruction=note or None,
+            current=current,
+            llm_call=_llm,
+        )
+        return stamp_session(slot, content)
+
+    # Legacy path (no pins) — keep prior behaviour
     validation_facts = {**facts, "allowed_offsets": [day_offset]}
 
     feedback = ""
@@ -1713,9 +1781,6 @@ def generate_single_session(
             schema_name="single_session",
             json_schema=_LLM_SINGLE_SESSION_SCHEMA,
             model_tier="deep",
-            # Runs are a 3-block estimation with a deliberately small cap so
-            # the call fits Groq's per-minute token budget in one go — see
-            # the constants above.
             max_tokens=(
                 _RUN_SESSION_MAX_COMPLETION_TOKENS if workout_type == "run"
                 else _SINGLE_SESSION_MAX_COMPLETION_TOKENS
@@ -1727,17 +1792,10 @@ def generate_single_session(
         if not isinstance(session, dict):
             continue
         errs = validation_errors([session], validation_facts)
-        # The slot budget is a CONTRACT, not a hint — the prompt says "MUST
-        # be X (±10%)" but schema validation alone can't enforce it, so a
-        # non-compliant generation used to silently overwrite the athlete's
-        # fixed numbers. Out-of-tolerance → retry with feedback; if the
-        # retry still misses, clamp the numbers back to the slot's values
-        # (the athlete owns the schedule; the LLM only fills content).
         errs.extend(_budget_errors(session, target_tss, duration_minutes))
         if not errs:
             return session
         if _attempt == 1 and not validation_errors([session], validation_facts):
-            # Final attempt, only the budget is off — force compliance.
             if target_tss is not None:
                 session["target_tss"] = round(float(target_tss))
             if duration_minutes is not None:
