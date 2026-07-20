@@ -21,7 +21,14 @@ _log = logging.getLogger(__name__)
 
 _REGISTRY = RuleRegistry()
 
-__all__ = ["GapAnalysisFinding", "run_gap_analysis", "_REGISTRY"]
+# Canonical run-matching predicate for single-table queries in this module.
+# Using lower(workout_type) LIKE '%run%' instead of exact match so that subtypes
+# ('trail_run', 'long_run') and mixed-case variants ('Run') are all counted.
+# JOIN queries that alias the workouts table must use the alias-qualified form
+# (e.g. lower(w.workout_type) LIKE '%run%') directly.
+_RUN_FILTER = "lower(workout_type) LIKE '%run%'"
+
+__all__ = ["GapAnalysisFinding", "run_gap_analysis", "_REGISTRY", "_RUN_FILTER"]
 
 
 # ── Input gathering ───────────────────────────────────────────────────────────
@@ -144,13 +151,13 @@ def _gather_long_run_decoupling_4w(db, user_id: uuid.UUID, today: datetime.date)
     from_date = today - datetime.timedelta(days=28)
 
     rows = db.execute(
-        text("""
+        text(f"""
             SELECT decoupling_percent
             FROM workouts
             WHERE user_id = :uid
               AND workout_date >= :from_date
               AND workout_date <= :today
-              AND lower(workout_type) LIKE '%run%'
+              AND {_RUN_FILTER}
               AND duration_seconds > :min_secs
               AND decoupling_percent IS NOT NULL
         """),
@@ -229,13 +236,13 @@ def _gather_quality_sessions_3w(db, user_id: uuid.UUID, today: datetime.date) ->
     from_date = today - datetime.timedelta(days=21)
 
     count = db.execute(
-        text("""
+        text(f"""
             SELECT COUNT(*)
             FROM workouts
             WHERE user_id = :uid
               AND workout_date >= :from_date
               AND workout_date <= :today
-              AND lower(workout_type) LIKE '%run%'
+              AND {_RUN_FILTER}
               AND speed_signal IS NOT NULL
         """),
         {
@@ -312,13 +319,13 @@ def _gather_easy_runs_3w(db, user_id: uuid.UUID, today: datetime.date) -> dict:
     from_date = today - datetime.timedelta(days=21)
 
     count = db.execute(
-        text("""
+        text(f"""
             SELECT COUNT(*)
             FROM workouts
             WHERE user_id = :uid
               AND workout_date >= :from_date
               AND workout_date <= :today
-              AND lower(workout_type) LIKE '%run%'
+              AND {_RUN_FILTER}
               AND speed_signal IS NULL
         """),
         {
@@ -457,13 +464,13 @@ def _gather_training_load(db, user_id: uuid.UUID, today: datetime.date) -> dict:
     """Query weekly running TSS for the last 8 weeks from workouts table."""
     cutoff = today - datetime.timedelta(weeks=8)
     rows = db.execute(
-        text("""
+        text(f"""
             SELECT
                 DATE_TRUNC('week', workout_date)::date AS week_start,
                 SUM(COALESCE(tss, 0)) AS running_tss
             FROM workouts
             WHERE user_id = :uid
-              AND workout_type = 'run'
+              AND {_RUN_FILTER}
               AND workout_date >= :cutoff
             GROUP BY DATE_TRUNC('week', workout_date)::date
             ORDER BY week_start
