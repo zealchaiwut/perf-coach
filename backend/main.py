@@ -9859,6 +9859,9 @@ def get_readiness_current(user: User = Depends(resolve_user)):
     if building_baseline:
         return JSONResponse({"building_baseline": True})
 
+    if not load_curves:
+        return JSONResponse({"building_baseline": True})
+
     last_row = load_curves[-1]
     ctl = round(last_row["ctl"], 1)
     atl = round(last_row["atl"], 1)
