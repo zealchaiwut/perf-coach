@@ -322,7 +322,7 @@
      visible × glyph doesn't get bigger. */
   var _THRESHOLD_BANNER_CSS = [
     '#threshold-banner{display:flex;align-items:center;gap:8px;padding:9px 24px;',
-      "background:var(--amber-soft,#fff0c4);border-bottom:1px solid var(--gold,#b8893c);font-size:13px;font-weight:500;",
+      "background:var(--amber-soft,#fff0c4);border-bottom:1px solid var(--gold,#a67a2e);font-size:13px;font-weight:500;",
       "font-family:'Inter Tight',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;}",
     '#threshold-banner .tbanner-msg{flex:1;}',
     '#threshold-banner a{color:var(--amber,#6b4408);font-weight:600;text-decoration:underline;}',

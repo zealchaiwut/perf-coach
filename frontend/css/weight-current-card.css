@@ -23,12 +23,16 @@
   font-weight: 600;
   letter-spacing: 0.07em;
   text-transform: uppercase;
-  color: var(--text-tertiary, #69748c);
+  /* --text-tertiary (#69748c) fails AA (4.02:1) against home.html's
+     .grp-weight gradient's darker stop (#fdecc8) — re-audit #12.
+     --text-secondary (#5c6886) clears 4.77:1 there and still passes on
+     weight.html's plain white card background. */
+  color: var(--text-secondary, #5c6886);
 }
 
 .hca-date-sub {
   font-size: 12px;
-  color: var(--text-tertiary, #69748c);
+  color: var(--text-secondary, #5c6886);
   white-space: nowrap;
 }
 

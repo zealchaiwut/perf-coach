@@ -38,7 +38,11 @@
       --sleep-2: #4d3a8c;
       --chip-bg: #f1f4fa;
       --card-divider: rgba(13, 30, 67, 0.05);
-      --gold: #b8893c;
+      /* Darkened from #b8893c (re-audit #12): the original failed the
+         3:1 non-text contrast minimum as a border on --amber-soft
+         (2.77:1). This variant clears 3.4:1 there and reads as the
+         same gold/bronze everywhere else it's used (trophy icon). */
+      --gold: #a67a2e;
       --blue-text: #1e3a8a;
       --blue-soft: #dde6f8;
       --purple-text: #4f3c8c;
@@ -365,7 +369,10 @@
     }
     .strava-stale-banner--syncing { color: #3a4361; font-style: italic; }
     .strava-stale-msg { flex: 1; }
-    .strava-stale-banner a { color: #FC4C02; font-weight: 600; text-decoration: none; }
+    /* Darkened from Strava's literal brand orange #FC4C02 (3.40:1 on
+       white, fails AA) — re-audit #12. #c93d02 keeps the same hue,
+       clears 5.0:1. */
+    .strava-stale-banner a { color: #c93d02; font-weight: 600; text-decoration: none; }
     .strava-stale-banner a:hover { text-decoration: underline; }
 
     /* ---- BODY-MODIFIER GUARDRAIL WARNING (issue #1161) ----
