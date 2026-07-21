@@ -2196,15 +2196,14 @@
           })
           .then(function (saved) {
             var defs = _tDefaults;
-            // Three AC-required fields keep null when cleared (AC3/AC4 — issue #1022)
             _tBaseline = {
               ftp_w: saved.ftp_w,
               threshold_hr: saved.threshold_hr,
-              max_hr: saved.max_hr != null ? saved.max_hr : defs.max_hr,
+              max_hr: saved.max_hr,
               threshold_pace_seconds_per_km: saved.threshold_pace_seconds_per_km,
-              zone2_hr_min: saved.zone2_hr_min != null ? saved.zone2_hr_min : defs.zone2_hr_min,
-              zone2_hr_max: saved.zone2_hr_max != null ? saved.zone2_hr_max : defs.zone2_hr_max,
-              weekly_zone2_target_min: saved.weekly_zone2_target_min != null ? saved.weekly_zone2_target_min : defs.weekly_zone2_target_min,
+              zone2_hr_min: saved.zone2_hr_min,
+              zone2_hr_max: saved.zone2_hr_max,
+              weekly_zone2_target_min: saved.weekly_zone2_target_min,
             };
             // Update pace display as numeric seconds (input is type=number — issue #1022)
             var paceEl = document.getElementById('thresholds-pace');

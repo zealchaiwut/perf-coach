@@ -17,7 +17,6 @@ import os
 import sys
 import tempfile
 from datetime import date, datetime, timedelta
-from zoneinfo import ZoneInfo
 
 # All assembly logic lives in the service.  Helper names are re-imported into
 # this module's namespace so that existing test patches such as
@@ -83,6 +82,7 @@ def _build_brief(for_date: date, worker_url=None, user_id=None, username=None) -
     advisories = _assemble_advisories(user_id, for_date, weight)
     week_plan = _assemble_week_plan(user_id, for_date)
     coach = _assemble_coach(user_id, for_date)
+    advisories_degraded = any(a.get("severity") == "error" for a in advisories)
 
     generated_at = datetime.now(BANGKOK_TZ).isoformat()
 
@@ -96,6 +96,7 @@ def _build_brief(for_date: date, worker_url=None, user_id=None, username=None) -
         "recent_wrap": recent_wrap,
         "weight": weight,
         "advisories": advisories,
+        "advisories_degraded": advisories_degraded,
         "actions": [],
         "week_plan": week_plan,
     }
