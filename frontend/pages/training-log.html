@@ -6030,10 +6030,15 @@
         border-top: 3px solid var(--pm-amber) !important;
       }
       /* Deload week ("cut 30% every 4th week"): a dashed outline so it reads
-         as an intentional down week, not a data gap or a clamp. */
+         as an intentional down week, not a data gap or a clamp. Applies to
+         both future target bars and prior actual bars on the same cycle. */
       .plan-merged .lp-bar.is-deload {
         outline: 2px dashed var(--pm-muted);
         outline-offset: -2px;
+      }
+      .plan-merged .lp-bar.actual.is-deload .lp-deload-mark {
+        color: #fff;
+        opacity: 0.9;
       }
       .plan-merged .lp-deload-mark {
         margin-left: 2px;
@@ -9379,7 +9384,8 @@
     <script src="js/training.js"></script>
     <script src="js/training-log.js?v=20260717ae"></script>
     <script src="js/training-performance.js?v=20260718wtiplan1"></script>
-    <script src="js/training-plan.js?v=20260718wtiplan1"></script>
+    <script src="js/lib/plan-session-helpers.js?v=20260720sm1"></script>
+    <script src="js/training-plan.js?v=20260720sm1"></script>
     <script src="js/user.js"></script>
     <script src="js/env.js"></script>
     <script>
@@ -9395,6 +9401,9 @@
         var logNewBtn = document.getElementById("log-new-btn");
 
         function getActiveTab() {
+          var params = new URLSearchParams(window.location.search || "");
+          var qTab = params.get("tab");
+          if (TABS.indexOf(qTab) !== -1) return qTab;
           var hash = window.location.hash.replace("#", "");
           // Allow #plan?date=… style deep links — tab is the token before '?'
           var tab = hash.split("?")[0];

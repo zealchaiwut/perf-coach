@@ -1,9 +1,15 @@
-"""Rule: cadence_drift (issue #1371).
+"""Rule: cadence_drift (issue #1371, fixed #1463).
 
 Fires when:
   - Easy-run cadence 28-day mean has dropped more than CADENCE_DRIFT_THRESHOLD_PCT
     below the user's long-baseline mean (last CADENCE_BASELINE_WINDOW_DAYS days,
     excluding the most-recent 28d)
+
+Both windows are filtered to easy-run intensity (power within ±half of
+CADENCE_EASY_POWER_BAND_WIDTH_W around the lower of the two windows' mean power),
+anchoring the band to whichever window has the lighter effort mix. Runs without
+power_w are excluded; the long baseline falls back to all-cadence runs when it
+has no power data (e.g. Garmin-only imports).
 
 Severity 1 (note). Returns None on insufficient data.
 Thresholds documented in docs/calculations/gap-analysis.md.
@@ -22,9 +28,14 @@ CADENCE_DRIFT_THRESHOLD_PCT: float = 2.0
 CADENCE_BASELINE_WINDOW_DAYS: int = 180
 """Length of the long baseline window (days) used to compute the reference cadence."""
 
+CADENCE_EASY_POWER_BAND_WIDTH_W: float = 50.0
+"""Width of the easy-run intensity control band (Watts). Only runs within ±half of
+this around the recent window's mean power are included in both windows. Matches
+the band width used in gct_lengthening."""
+
 MIN_RUNS_PER_WINDOW: int = 3
-"""Minimum runs with valid cadence data required in EACH window (recent 28d and
-long baseline) before the rule will fire. Fewer → return None."""
+"""Minimum runs required in EACH window after easy-run filtering before the rule
+will fire. Fewer → return None."""
 
 
 def _mean(values: list[float]) -> float:
@@ -34,10 +45,15 @@ def _mean(values: list[float]) -> float:
 def cadence_drift(inputs: dict) -> Optional[GapAnalysisFinding]:
     """Return severity-1 finding when easy-run cadence has drifted below the long baseline.
 
+    The recent window is filtered to easy-run efforts via a power band anchored to
+    the lower-effort window.  Runs without power_w are excluded from any window that
+    has powered runs; when the long baseline has no power data at all, it falls back
+    to all cadence-valid runs (graceful degradation for imports without power).
+
     Returns None when:
     - form_metrics key is absent
-    - Recent 28d window has < MIN_RUNS_PER_WINDOW runs with valid cadence
-    - Long baseline window has < MIN_RUNS_PER_WINDOW runs with valid cadence
+    - Recent window has < MIN_RUNS_PER_WINDOW runs with valid cadence + power
+    - After easy-run filtering, recent or baseline has < MIN_RUNS_PER_WINDOW runs
     - Cadence drop is at or below CADENCE_DRIFT_THRESHOLD_PCT
     """
     fm = inputs.get("form_metrics")
@@ -47,18 +63,48 @@ def cadence_drift(inputs: dict) -> Optional[GapAnalysisFinding]:
     recent_runs = fm.get("recent_runs", [])
     long_baseline_runs = fm.get("long_baseline_runs", [])
 
-    recent_cad = [
-        float(r["cadence_spm"])
-        for r in recent_runs
-        if r.get("cadence_spm") is not None
-    ]
-    baseline_cad = [
-        float(r["cadence_spm"])
-        for r in long_baseline_runs
-        if r.get("cadence_spm") is not None
-    ]
+    def _powered(runs):
+        return [
+            (float(r["cadence_spm"]), float(r["power_w"]))
+            for r in runs
+            if r.get("cadence_spm") is not None and r.get("power_w") is not None
+        ]
 
-    if len(recent_cad) < MIN_RUNS_PER_WINDOW or len(baseline_cad) < MIN_RUNS_PER_WINDOW:
+    recent_powered = _powered(recent_runs)
+    baseline_powered = _powered(long_baseline_runs)
+
+    # Recent MUST have powered runs to anchor the intensity band.
+    if len(recent_powered) < MIN_RUNS_PER_WINDOW:
+        return None
+
+    # Band centre: anchor on the lighter-effort window so that an interval block
+    # in either window cannot drag the band into hard-effort territory.
+    recent_power_mean = _mean([pw for _, pw in recent_powered])
+    if baseline_powered:
+        baseline_power_mean = _mean([pw for _, pw in baseline_powered])
+        band_center = min(recent_power_mean, baseline_power_mean)
+    else:
+        band_center = recent_power_mean
+
+    half_band = CADENCE_EASY_POWER_BAND_WIDTH_W / 2.0
+    lo = band_center - half_band
+    hi = band_center + half_band
+
+    recent_cad = [cad for cad, pw in recent_powered if lo <= pw <= hi]
+    if len(recent_cad) < MIN_RUNS_PER_WINDOW:
+        return None
+
+    if baseline_powered:
+        baseline_cad = [cad for cad, pw in baseline_powered if lo <= pw <= hi]
+    else:
+        # Fallback: no power data in baseline — include all cadence-valid runs.
+        baseline_cad = [
+            float(r["cadence_spm"])
+            for r in long_baseline_runs
+            if r.get("cadence_spm") is not None
+        ]
+
+    if len(baseline_cad) < MIN_RUNS_PER_WINDOW:
         return None
 
     recent_mean = _mean(recent_cad)

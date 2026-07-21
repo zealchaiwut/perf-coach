@@ -77,7 +77,13 @@ from backend.services.training_load import (
 )
 from backend.services.specificity_progress import specificity_progress as _specificity_progress
 from backend.services.daily_load import daily_load_series as _daily_load_series
-from backend.services.load_plan import compute_load_plan, ACWR_CEILING_MULT, DELOAD_CUT_FRACTION
+from backend.services.load_plan import (
+    compute_load_plan,
+    ACWR_CEILING_MULT,
+    DELOAD_CUT_FRACTION,
+    is_deload_cycle_week,
+    resolve_baseline_weeks_ago,
+)
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
 from backend.services.weight_ewma import compute_ewma as _compute_ewma, DEFAULT_SPAN as _EWMA_DEFAULT_SPAN
@@ -113,6 +119,7 @@ from backend.routers.strength_sessions import router as _strength_sessions_route
 from backend.routers.fuel import router as _fuel_router
 from backend.routers.injury_log import router as _injury_log_router
 from backend.routers.coach import router as _coach_router
+from backend.routers.preferences import router as _preferences_router
 from backend.services.guardrail import get_guardrail_result
 from backend.services.body_modifier import get_body_modifier_guardrail_for_user
 from backend.services.lap_classify import aggregate_intensity_zones as _agg_zones
@@ -148,6 +155,7 @@ app.include_router(_strength_sessions_router)
 app.include_router(_fuel_router)
 app.include_router(_injury_log_router)
 app.include_router(_coach_router)
+app.include_router(_preferences_router)
 
 
 def _today_bkk() -> _date:
@@ -5443,6 +5451,7 @@ _PAGES = {
     "training": "training.html",
     "trends": "trends.html",
     "settings": "settings.html",
+    "preferences": "preferences.html",
     "run-view": "run-view.html",
     "run-builder": "run-builder.html",
     "strength-view": "strength-view.html",
@@ -7472,7 +7481,10 @@ def delete_workout(workout_id: str, user: User = Depends(resolve_user)):
 # Link-only: matched_workout_id → workouts.id; Log tab unchanged.
 
 _PLANNED_SESSION_TYPES = {"run", "strength", "plyo", "stretch", "rest"}
-_PLANNED_STATUSES = {"planned", "missed", "needs_review", "done_auto", "done_manual"}
+_PLANNED_STATUSES = {
+    "planned", "missed", "missed_auto", "missed_manual",
+    "needs_review", "done_auto", "done_manual",
+}
 
 
 class PlannedSessionIn(BaseModel):
@@ -7874,7 +7886,8 @@ def miss_planned_session(ps_id: str, user: User = Depends(resolve_user)):
     with Session(engine) as session:
         row = _get_planned_session_or_404(session, ps_id, user)
         row.matched_workout_id = None
-        row.status = "missed"
+        # missed_manual is excluded from future matching sweeps (part 3).
+        row.status = "missed_manual"
         row.updated_at = _datetime.now(_timezone.utc)
         session.commit()
         session.refresh(row)
@@ -8753,7 +8766,10 @@ def create_daily_metric(body: DailyMetricIn, user: User = Depends(resolve_user))
             )
         session.refresh(row)
         result_dict = _daily_metric_dict(row)
-    _readiness_compute_and_store(str(user.id), md)
+    try:
+        _readiness_compute_and_store(str(user.id), md)
+    except Exception:
+        _log.warning("readiness recompute failed after metric write (best-effort); caller unaffected", exc_info=True)
     return JSONResponse(status_code=201, content=result_dict)
 
 
@@ -8807,7 +8823,10 @@ def patch_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user: 
         session.commit()
         session.refresh(row)
         result_dict = _daily_metric_dict(row)
-    _readiness_compute_and_store(str(uid), md)
+    try:
+        _readiness_compute_and_store(str(uid), md)
+    except Exception:
+        _log.warning("readiness recompute failed after metric write (best-effort); caller unaffected", exc_info=True)
     return JSONResponse(result_dict)
 
 
@@ -8866,7 +8885,10 @@ def upsert_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user:
         session.commit()
         session.refresh(row)
         result_dict = _daily_metric_dict(row)
-    _readiness_compute_and_store(str(uid), md)
+    try:
+        _readiness_compute_and_store(str(uid), md)
+    except Exception:
+        _log.warning("readiness recompute failed after metric write (best-effort); caller unaffected", exc_info=True)
     return JSONResponse(result_dict)
 
 
@@ -17793,16 +17815,18 @@ def get_athlete_run_personal_records(athlete_id: str, user: User = Depends(resol
             .filter(Workout.user_id == uid, Workout.workout_type.ilike("%run%"))
             .count()
         )
-        curve_populated = session.get(_AthleteDurationCurve, uid) is not None
+        curve_row = session.get(_AthleteDurationCurve, uid)
+        curve_populated = bool(curve_row and curve_row.curve_data)
 
-        # If no curve row exists yet the athlete has runs, build it now so that
-        # fetch_and_detect_records can read it.  This is a one-time cost: once the
-        # row exists (even with empty curve_data for non-power athletes) we skip it.
-        # Thresholds are driven by _DEFAULT_DURATION_LADDER from duration_curve.py
-        # via fetch_and_compute_curves — no values are hardcoded here.
+        # Rebuild if the row is missing or its curve_data is empty — a previous
+        # rebuild that found no power data leaves a row with curve_data={}, which
+        # is not useful for PR detection and should be retried when the athlete
+        # has run history.  Thresholds come from _DEFAULT_DURATION_LADDER via
+        # fetch_and_compute_curves — no values are hardcoded here.
         if not curve_populated:
             _rebuild_athlete_duration_curve(uid, session)
-            curve_populated = session.get(_AthleteDurationCurve, uid) is not None
+            curve_row = session.get(_AthleteDurationCurve, uid)
+            curve_populated = bool(curve_row and curve_row.curve_data)
 
         _run_pr_log.info(
             "pr_detection_input",
@@ -18404,9 +18428,15 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
         race_week_start = race.race_date - _timedelta(days=race.race_date.weekday())
         weeks_to_race = ((race_week_start - this_week_start).days // 7) + 1
 
-        last_week_start = this_week_start - _timedelta(days=7)
-        last_week_end = this_week_start - _timedelta(days=1)
-        baseline_volume = _get_weekly_volume(str(user.id), last_week_start, last_week_end)
+        # Skip a just-finished deload-cycle week so the ramp seeds from the
+        # last real build week (see load_plan.resolve_baseline_weeks_ago).
+        baseline_weeks_ago = resolve_baseline_weeks_ago(
+            deload_enabled=rules["deload_enabled"],
+            deload_start_week=rules["deload_start_week"],
+        )
+        baseline_week_start = this_week_start - _timedelta(weeks=baseline_weeks_ago)
+        baseline_week_end = baseline_week_start + _timedelta(days=6)
+        baseline_volume = _get_weekly_volume(str(user.id), baseline_week_start, baseline_week_end)
         baseline = baseline_volume["total_tss"]
 
         start_28 = today - _timedelta(days=27)
@@ -18439,7 +18469,19 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
             ws = this_week_start - _timedelta(weeks=i)
             we = ws + _timedelta(days=6)
             vol = _get_weekly_volume(str(user.id), ws, we)
-            prior_weeks.append({"week_start": ws.isoformat(), "actual_tss": vol["total_tss"]})
+            # Project the same 4-week deload cycle onto prior bars (week_index
+            # 0 = last week, −1 = two weeks ago, …) so past deloads get the
+            # dashed outline + ▼ like future target deloads.
+            week_index = 1 - i
+            prior_weeks.append({
+                "week_start": ws.isoformat(),
+                "actual_tss": vol["total_tss"],
+                "deload": is_deload_cycle_week(
+                    week_index,
+                    deload_enabled=rules["deload_enabled"],
+                    deload_start_week=rules["deload_start_week"],
+                ),
+            })
 
         return JSONResponse({
             "race": {
@@ -18583,9 +18625,13 @@ def get_plan_week_load(
         race_week_start = race.race_date - _timedelta(days=race.race_date.weekday())
         weeks_to_race = ((race_week_start - this_week_start).days // 7) + 1
 
-        last_week_start = this_week_start - _timedelta(days=7)
-        last_week_end = this_week_start - _timedelta(days=1)
-        baseline_tss = _get_weekly_volume(str(user.id), last_week_start, last_week_end)["total_tss"]
+        baseline_weeks_ago = resolve_baseline_weeks_ago(
+            deload_enabled=rules["deload_enabled"],
+            deload_start_week=rules["deload_start_week"],
+        )
+        baseline_week_start = this_week_start - _timedelta(weeks=baseline_weeks_ago)
+        baseline_week_end = baseline_week_start + _timedelta(days=6)
+        baseline_tss = _get_weekly_volume(str(user.id), baseline_week_start, baseline_week_end)["total_tss"]
 
         start_28 = today - _timedelta(days=27)
         series_28 = daily_tss_series(str(user.id), start_28, today)
@@ -18623,12 +18669,12 @@ def get_plan_week_load(
 
         estimate_baseline = _est_baseline(str(user.id), db)
 
-        # baseline_planned_tss: what was PLANNED for the same last-completed
-        # week baseline_tss covers — showing "planned 340 · logged 316"
+        # baseline_planned_tss: what was PLANNED for the same completed week
+        # baseline_tss covers — showing "planned 340 · logged 316"
         # alongside the actual is the argument for ramping off actuals, not
         # optimistic plans (see docs/calculations/load-plan.md).
         baseline_planned_tss = _week_planned_tss(
-            db, user.id, last_week_start, last_week_end, estimate_baseline, today,
+            db, user.id, baseline_week_start, baseline_week_end, estimate_baseline, today,
             require_still_achievable=False,
         )
 
@@ -18653,7 +18699,15 @@ def get_plan_week_load(
             ws = this_week_start - _timedelta(weeks=i)
             we = ws + _timedelta(days=6)
             vol = _get_weekly_volume(str(user.id), ws, we)
-            prior_weeks.append({"week_start": ws.isoformat(), "actual_tss": vol["total_tss"]})
+            prior_weeks.append({
+                "week_start": ws.isoformat(),
+                "actual_tss": vol["total_tss"],
+                "deload": is_deload_cycle_week(
+                    1 - i,
+                    deload_enabled=rules["deload_enabled"],
+                    deload_start_week=rules["deload_start_week"],
+                ),
+            })
 
         return JSONResponse({
             "week_start": query_week_start.isoformat(),

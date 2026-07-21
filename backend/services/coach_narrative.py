@@ -607,10 +607,32 @@ def validation_errors_brief(atoms: dict, facts: dict, skeleton: dict | None = No
             continue
         allow = _numerals_from_obj(section_facts.get(sid) or {})
         # evidence_strip numerals from skeleton are also allowed
+        prop_meta = None
         if skeleton:
             for ss in skeleton.get("sections") or []:
-                if ss.get("id") == sid and ss.get("evidence_strip"):
-                    allow.update(_extract_numerals(ss["evidence_strip"]))
+                if ss.get("id") == sid:
+                    if ss.get("evidence_strip"):
+                        allow.update(_extract_numerals(ss["evidence_strip"]))
+                    if ss.get("type") == "proposal" or str(sid).startswith("proposal_"):
+                        prop_meta = ss.get("proposal") or {}
+                        allow.update(_numerals_from_obj(prop_meta.get("delta") or {}))
+                        # finding evidence if present on proposal
+                        allow.update(_extract_numerals(str(prop_meta.get("finding_ref") or "")))
+                    break
+        # Proposal why-sentence: ≤140 chars, numerals only from delta/evidence
+        if prop_meta is not None or str(sid).startswith("proposal_"):
+            why = s.get("evidence") or s.get("why") or ""
+            if len(why.strip()) > 140:
+                errors.append(f"atom '{sid}.evidence' over budget ({len(why.strip())}>140)")
+            for tok in _extract_numerals(why):
+                if tok in connective:
+                    continue
+                if not _numeral_allowed(tok, allow | connective):
+                    errors.append(
+                        f"atom '{sid}' numeral '{tok}' not in proposal delta/evidence allowlist"
+                    )
+            # headline/do optional for proposals; skip standard budgets
+            continue
         _check_atom(f"{sid}.headline", s.get("headline") or "", ATOM_BUDGETS["headline"], allow)
         _check_atom(f"{sid}.evidence", s.get("evidence") or "", ATOM_BUDGETS["evidence"], allow)
         _check_atom(f"{sid}.do", s.get("do") or "", ATOM_BUDGETS["do"], allow)

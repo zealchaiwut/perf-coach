@@ -4,6 +4,7 @@ Exposes:
   llm_enabled()              — True iff GROQ_API_KEY set AND LLM_COACH_ENABLED=true
   complete_structured(...)   — call Groq, return parsed dict or None (never raises)
   get_or_generate(...)       — cache-aware wrapper over complete_structured
+  llm_transport()            — claude_cli | groq_api (plan pipeline v2)
 
 Everything is OFF by default: when LLM_COACH_ENABLED is unset/false this module
 is a no-op and zero behavior changes anywhere. Later surfaces import and call
@@ -38,6 +39,20 @@ _DEFAULT_GLM_MODEL = "glm-4.7-flash"
 _DEFAULT_CEREBRAS_MODEL = "gpt-oss-120b"
 
 _startup_logged = False
+
+
+def llm_transport() -> str:
+    """Wire for plan-slot / coach calls: claude_cli | groq_api.
+
+    Worker env typically sets LLM_TRANSPORT=claude_cli; webapp uses groq_api.
+    Facts/prompts/validation stay identical across transports.
+    """
+    t = os.getenv("LLM_TRANSPORT", "").strip().lower()
+    if t in ("claude_cli", "claude", "cli"):
+        return "claude_cli"
+    if t in ("groq_api", "groq", "http"):
+        return "groq_api"
+    return "groq_api"
 
 
 def _provider() -> str:

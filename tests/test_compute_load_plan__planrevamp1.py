@@ -333,6 +333,29 @@ def test_deload_start_week_clamped_to_cycle_bounds():
     assert {w["week_index"] for w in high["weeks"] if w["deload"]} == {4, 8, 12}
 
 
+# ── Baseline resolution: skip just-finished deload-cycle weeks ─────────────
+
+def test_is_deload_cycle_week_projects_backward_onto_prior_weeks():
+    from backend.services.load_plan import is_deload_cycle_week
+
+    # deload_start_week=4 → cycle residues 0: …, −4, 0, 4, 8, …
+    assert is_deload_cycle_week(0, deload_enabled=True, deload_start_week=4) is True
+    assert is_deload_cycle_week(-1, deload_enabled=True, deload_start_week=4) is False
+    assert is_deload_cycle_week(4, deload_enabled=True, deload_start_week=4) is True
+    assert is_deload_cycle_week(0, deload_enabled=False, deload_start_week=4) is False
+
+
+def test_resolve_baseline_weeks_ago_skips_last_week_when_it_is_deload():
+    from backend.services.load_plan import resolve_baseline_weeks_ago
+
+    # Last week = week_index 0 is a deload when start=4 → walk back to week −1
+    # (two weeks ago).
+    assert resolve_baseline_weeks_ago(deload_enabled=True, deload_start_week=4) == 2
+    assert resolve_baseline_weeks_ago(deload_enabled=False, deload_start_week=4) == 1
+    # start=1 → week_index 1, 5, … are deload; last week (0) is fine.
+    assert resolve_baseline_weeks_ago(deload_enabled=True, deload_start_week=1) == 1
+
+
 # ── AC5: hold + taper >= weeks_to_race clamps and warns ─────────────────────
 
 def test_hold_plus_taper_exceeds_weeks_to_race_clamps_and_warns():
