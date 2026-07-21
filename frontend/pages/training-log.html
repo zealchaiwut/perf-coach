@@ -364,9 +364,9 @@
       }
       /* Dim the whole page behind the sync panel; clicking it closes the
          panel (wired in _initSyncWidget, which portals both to <body> so
-         .log-page-header's backdrop-filter can't trap the fixed positioning).
-         Above the sticky nav (100) and header (60); one layer under the
-         panel. */
+         no ancestor stacking/containing-block context can trap the fixed
+         positioning). Above the sticky nav (100) and header (60); one layer
+         under the panel. */
       .sync-backdrop {
         position: fixed;
         inset: 0;
@@ -489,11 +489,12 @@
         cursor: not-allowed;
       }
 
-      /* ── Sub-tab bar (glass pill on gradient, matches weight/home gradient tokens) ── */
+      /* ── Sub-tab bar (solid instrument-navy pill on the header; no blur/translucent
+         fills — see .log-page-header below for the shared redesign rationale) ── */
       .training-sub-tabs {
         display: inline-flex;
-        background: rgba(255, 255, 255, 0.14);
-        border: 1px solid rgba(255, 255, 255, 0.2);
+        background: #1c2456;
+        border: 1px solid #2a3468;
         border-radius: 999px;
         padding: 3px;
         margin: 0;
@@ -521,7 +522,8 @@
       }
 
       .training-sub-tab:hover:not(.active) {
-        background: rgba(255, 255, 255, 0.12);
+        background: #2a3468;
+        color: #fff;
       }
 
       /* ── Placeholder panels (Plan / Performance) ──
@@ -2238,40 +2240,6 @@
         padding: 10px 11px;
       }
 
-      /* ── Run hero metrics (distance + pace lead) ── */
-      .dp-hero-metrics {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 8px;
-        margin-bottom: 10px;
-      }
-      .dp-hm {
-        background: var(--tile);
-        border-radius: 10px;
-        padding: 13px 14px;
-      }
-      .dp-hm-val {
-        font-family: var(--mono);
-        font-size: 1.65rem;
-        font-weight: 600;
-        color: var(--ink);
-        line-height: 1.05;
-        letter-spacing: -0.02em;
-      }
-      .dp-hm-unit {
-        font-size: 0.8125rem;
-        color: var(--text-sub);
-        font-weight: 500;
-        margin-left: 3px;
-      }
-      .dp-hm-label {
-        font-size: 0.625rem;
-        font-weight: 600;
-        color: var(--text-sub);
-        text-transform: uppercase;
-        letter-spacing: 0.07em;
-        margin-top: 5px;
-      }
       .dp-stat-strip {
         display: flex;
         flex-wrap: wrap;
@@ -4665,7 +4633,7 @@
 
           <!-- 2. Calibration status -->
           <div class="pm-card">
-            <h2 class="pm-sectitle">Calibration status</h2>
+            <h2 class="pm-sectitle pm-sectitle--plain">Calibration status</h2>
             <div class="pm-calgrid">
               <div class="pm-caltile">
                 <div class="pm-lab"><span class="pm-lab-full">Last recalibrated</span><span class="pm-lab-short">Recalibrated</span></div>
@@ -4701,7 +4669,7 @@
                number the athlete cares about is visible without scrolling -->
           <div id="perf-proj" class="pm-card perf-proj-card">
             <div class="pm-ckhead">
-              <h2 class="pm-sectitle">Projected at next checkpoint</h2>
+              <h2 class="pm-sectitle pm-sectitle--plain">Projected at next checkpoint</h2>
               <span class="perf-tag">New</span>
             </div>
             <div id="perf-proj-body" hidden>
@@ -4725,7 +4693,7 @@
           <!-- 3. Races & projections (HERO) -->
           <div class="pm-card">
             <div class="pm-ckhead">
-              <h2 class="pm-sectitle">Races &amp; projections</h2>
+              <h2 class="pm-sectitle pm-sectitle--plain">Races &amp; projections</h2>
               <div class="pm-ckbtns">
                 <button id="plan-recalc-btn" class="pm-ckbtn" type="button">
                   ↻ Recalculate
@@ -4782,7 +4750,7 @@
           <div class="pm-row2">
           <!-- 4. Form curve (TSB) -->
           <div class="pm-card">
-            <h2 class="pm-sectitle">Form curve (TSB)</h2>
+            <h2 class="pm-sectitle pm-sectitle--plain">Form curve (TSB)</h2>
             <div class="pm-csub">
               Fresh above the green line, overreached below the red. Built from
               your logged load — the projection extends this forward.
@@ -4812,7 +4780,7 @@
           <!-- 5. Race-readiness specificity (Plan settings moved to the Plan
                tab — see #plan-settings-section there) -->
           <div class="pm-card" id="plan-spec-section">
-            <h2 class="pm-sectitle">Race-readiness specificity</h2>
+            <h2 class="pm-sectitle pm-sectitle--plain">Race-readiness specificity</h2>
             <div class="pm-csub" id="plan-spec-sub">
               How closely recent training matches the demands of your A race.
             </div>
@@ -4915,7 +4883,6 @@
       .gap-finding {
         border-radius: 10px;
         padding: 12px 14px;
-        border-left: 3px solid var(--gap-accent, var(--pm-line));
         background: var(--pm-tile);
       }
       .gap-finding--sev3 { --gap-accent: var(--pm-red); background: var(--pm-redSoft); }
@@ -4927,6 +4894,19 @@
         color: var(--pm-ink);
         margin: 0 0 4px;
         line-height: 1.35;
+      }
+      /* Severity indicator: a small dot ahead of the headline instead of a
+         border-left stripe on the whole card. */
+      .gap-finding-headline::before {
+        content: "";
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        margin-right: 7px;
+        margin-top: -2px;
+        border-radius: 50%;
+        background: var(--gap-accent, var(--pm-line));
+        vertical-align: middle;
       }
       .gap-finding--sev1 .gap-finding-headline { color: var(--pm-muted); }
       .gap-finding-evidence {
@@ -5190,7 +5170,7 @@
         flex-direction: column;
         justify-content: center;
       }
-      @media (max-width: 860px) {
+      @media (max-width: 1024px) {
         .plan-merged .pm-row2 { grid-template-columns: 1fr; }
       }
       .plan-merged .pm-sectitle {
@@ -5202,6 +5182,19 @@
         letter-spacing: 0.07em;
         color: var(--pm-faint);
         text-transform: uppercase;
+      }
+      /* Plain-heading variant (issue: perf-tab eyebrow cluster) — used on
+         cards whose title is already the whole story (a status summary, a
+         headline number, the primary races panel, a chart) so the Performance
+         panel doesn't read as one uniform stamped kicker on every card. Kept
+         the uppercase kicker only on cards that group several sub-metrics
+         (Endurance/Speed score cards, Muscle balance, Personal records). */
+      .plan-merged .pm-sectitle.pm-sectitle--plain {
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: -0.005em;
+        color: var(--pm-ink);
+        text-transform: none;
       }
       .plan-merged .pm-ckhead {
         display: flex;
@@ -6788,9 +6781,10 @@
         min-width: 0;
       }
       /* Note: collapse to 1fr happens in the shared ".perf-scorewrap,
-         .perf-row2" rule under the 900px "Responsive collapse" media query
-         below — a duplicate 700px rule here was fully shadowed by it and
-         has been removed. */
+         .perf-row2" rule under the 1024px "Responsive collapse" media query
+         below (consolidated to the documented tablet/desktop split — was a
+         one-off 900px value; a duplicate 700px rule here was fully shadowed
+         by it and has already been removed). */
       .perf-bigscore {
         display: flex;
         align-items: baseline;
@@ -7104,15 +7098,14 @@
       }
       .perf-projgrid {
         display: flex;
-        gap: 10px;
+        flex-direction: column;
         margin: 12px 0 10px;
       }
+      /* Flattened (was its own bordered/tinted tile) — a row divider between
+         siblings reads as one continuous panel instead of nested cards. */
       .perf-projtile {
-        flex: 1;
-        background: var(--perf-tile);
-        border: 1px solid var(--perf-line);
-        border-radius: 11px;
-        padding: 12px 14px;
+        padding: 10px 0;
+        border-top: 1px solid var(--perf-line);
       }
       .perf-projtile-l {
         font-size: 9px;
@@ -7258,18 +7251,17 @@
         );
       }
 
-      /* Personal records grid */
+      /* Personal records list (was an auto-fill grid of bordered/tinted
+         tiles) — flattened to a single-column list with row dividers, same
+         treatment as .perf-projtile above. */
       .perf-prgrid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-        gap: 12px;
-        margin-top: 12px;
+        display: flex;
+        flex-direction: column;
+        margin-top: 6px;
       }
       .perf-prtile {
-        background: var(--perf-tile);
-        border: 1px solid var(--perf-line);
-        border-radius: 12px;
-        padding: 13px 15px;
+        padding: 12px 0;
+        border-top: 1px solid var(--perf-line);
       }
       .perf-prtile .perf-pr-name {
         font-size: 9px;
@@ -7324,8 +7316,8 @@
         margin-top: 2px;
       }
 
-      /* ── Responsive collapse ────────────────────────────────────────────── */
-      @media (max-width: 900px) {
+      /* ── Responsive collapse (1024px tablet/desktop split, per DESIGN.md) ── */
+      @media (max-width: 1024px) {
         .perf-scorewrap,
         .perf-row2 {
           grid-template-columns: 1fr;
@@ -7644,9 +7636,10 @@
          the content column's left edge for the 1000px shell). */
       width: 100vw;
       margin-left: calc(50% - 50vw);
-      background: rgba(38, 48, 110, 0.82);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
+      /* Solid instrument-navy, not translucent-glass-on-gradient: matches this
+         page's legacy/instrument palette (--ink) rather than Home's gradient
+         aesthetic, and reads as a distinct toolbar without blur. */
+      background: var(--ink);
       border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     }
     .log-page-header-inner {
@@ -7684,7 +7677,8 @@
     .log-page-header .training-sub-tabs {
       display: flex;
       gap: 4px;
-      background: rgba(255, 255, 255, 0.1);
+      background: #1c2456;
+      border: 1px solid #2a3468;
       padding: 5px;
       border-radius: 12px;
     }
@@ -7704,6 +7698,10 @@
     .log-page-header .training-sub-tab .tab-label-short {
       display: none;
     }
+      .log-page-header .training-sub-tab:hover:not(.active) {
+        background: #2a3468;
+        color: #fff;
+      }
       .log-page-header .training-sub-tab.active {
         background: #fff;
         color: var(--lrx-ink);
