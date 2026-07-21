@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import pytest
 
-from backend.services.muscle_load import distribute_strength_tss
 
 
 class TestUATStep1And2MultiWorkoutDistribution:

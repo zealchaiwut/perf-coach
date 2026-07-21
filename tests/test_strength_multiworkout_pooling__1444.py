@@ -12,8 +12,6 @@ AC5 — The comment at line 355 describes per-workout loop (manual inspection)
 """
 from __future__ import annotations
 
-import uuid
-from datetime import date
 
 import pytest
 
