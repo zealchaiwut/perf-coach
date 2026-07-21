@@ -30,70 +30,6 @@
     setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 3500);
   }
 
-  /* ── Log-today strip ── */
-
-  function _niggleBtnHtml() {
-    return (
-      '<button id="home-injury-log-btn" type="button" class="lts-niggle-btn">' +
-        '<span aria-hidden="true">🩹</span> Log niggle / illness' +
-      '</button>'
-    );
-  }
-
-  function _renderStrip(readiness) {
-    var strip = document.getElementById('home-log-today-strip');
-    if (!strip || strip.hidden) return;
-
-    var logged = readiness && readiness.logged === true;
-
-    if (logged) {
-      strip.innerHTML =
-        '<div class="lts-inner lts-inner--done">' +
-          '<div class="lts-icon"><i class="ti ti-circle-check"></i></div>' +
-          '<div class="lts-msg">' +
-            '<strong>&#10003; Metrics logged</strong>' +
-            '<span>Great — your readiness score is up to date</span>' +
-          '</div>' +
-          '<div class="lts-actions">' +
-            _niggleBtnHtml() +
-          '</div>' +
-        '</div>';
-    } else {
-      strip.innerHTML =
-        '<div class="lts-inner">' +
-          '<div class="lts-icon"><i class="ti ti-chart-line"></i></div>' +
-          '<div class="lts-msg">' +
-            '<strong>Log today\'s metrics</strong>' +
-            '<span>RHR, HRV, sleep, energy &amp; mood — 30 seconds</span>' +
-          '</div>' +
-          '<div class="lts-actions">' +
-            _niggleBtnHtml() +
-            '<button id="lts-cta-btn" type="button" class="lts-cta-btn">' +
-              '<i class="ti ti-pencil-plus"></i> Log today' +
-            '</button>' +
-          '</div>' +
-        '</div>';
-
-      var btn = document.getElementById('lts-cta-btn');
-      if (btn) {
-        btn.addEventListener('click', function () {
-          // Reveal the fast-log row (hidden by default; idempotent — if it's
-          // already visible from a previous tap, this is a no-op and the
-          // scroll/focus below still just re-scrolls/re-focuses, not a toggle).
-          var rowLog = document.getElementById('row-log');
-          if (rowLog && rowLog.hidden) rowLog.hidden = false;
-
-          var target = document.getElementById('fast-log-section');
-          if (target) {
-            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            var firstInput = target.querySelector('input, button.fm-pill');
-            if (firstInput) firstInput.focus();
-          }
-        });
-      }
-    }
-  }
-
   /* ── Today-check circle ── */
 
   function _todayCheckHTML(habit, isChecked) {
@@ -320,7 +256,6 @@
 
   function render(summary) {
     _habitsBlock = (summary && summary.habits) ? summary.habits : null;
-    _renderStrip(summary ? summary.readiness : null);
     _renderHabits(_habitsBlock);
   }
 

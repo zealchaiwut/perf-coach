@@ -46,15 +46,37 @@
     return 1;
   }
 
+  var REGISTRY_IDS = {};
+  REGISTRY.forEach(function (r) { REGISTRY_IDS[r.id] = true; });
+
   var container = null;
   var grid = null;
   var curCol = null;
   var mo = null;
   var relayoutTimer = null;
 
+  // Widget ids whose content has mutated since the last relayout() pass —
+  // populated by the MutationObserver callback, consumed (and cleared) by
+  // relayout() so it can resizeToContent only those widgets instead of all
+  // 11. dirtyAll forces a full pass (init, breakpoint change, or a mutation
+  // we couldn't trace back to a known widget container).
+  var dirtyIds = {};
+  var dirtyAll = false;
+
   function itemEl(id) {
     var c = document.getElementById(id);
     return c ? c.closest('.grid-stack-item') : null;
+  }
+
+  // Walk a mutation's target up to the nearest ancestor that is one of the
+  // REGISTRY widget containers (or the container itself, if untraceable).
+  function widgetIdFor(node) {
+    var el = node && node.nodeType === 1 ? node : (node && node.parentNode);
+    while (el && el !== container) {
+      if (el.id && REGISTRY_IDS[el.id]) return el.id;
+      el = el.parentNode;
+    }
+    return null;
   }
 
   // Side-by-side pairs that should share a row height.
@@ -111,18 +133,47 @@
     });
   }
 
-  // Re-measure every item's content height and re-pack. Runs on init, on
+  // Re-measure item content height(s) and re-pack. Runs on init, on
   // breakpoint change (content can change too — e.g. Readiness drops the
   // load tiles below 480px via CSS), and whenever widget content mutates.
   // The observer is detached during the pass so gridstack's own DOM writes
   // can't retrigger it.
+  //
+  // resizeToContent is the expensive part (forces a layout read per widget),
+  // so it's scoped to only the widget(s) that actually mutated + their
+  // equalizePair partner (equalizePair compares both sides' heights, so the
+  // partner needs an up-to-date read too) — everything else keeps its
+  // last-known-correct height. compact('list')/equalizeAllPairs()/
+  // applyPairStretch() still run over the full registry every time: they're
+  // cheap (a handful of items, no forced reflow beyond what applyPairStretch
+  // already did) and re-packing/re-stretching is a whole-grid concern, not a
+  // per-widget one. dirtyAll (or an empty dirty set, e.g. init/breakpoint
+  // change) falls back to resizing everything, same as before.
   function relayout() {
     if (!grid) return;
     if (mo) mo.disconnect();
+
+    var idsToResize;
+    if (dirtyAll || Object.keys(dirtyIds).length === 0) {
+      idsToResize = REGISTRY.map(function (r) { return r.id; });
+    } else {
+      var scoped = {};
+      Object.keys(dirtyIds).forEach(function (id) { scoped[id] = true; });
+      HEIGHT_PAIRS.forEach(function (pair) {
+        if (scoped[pair[0]] || scoped[pair[1]]) {
+          scoped[pair[0]] = true;
+          scoped[pair[1]] = true;
+        }
+      });
+      idsToResize = Object.keys(scoped);
+    }
+    dirtyIds = {};
+    dirtyAll = false;
+
     clearPairStretch();
     grid.batchUpdate();
-    REGISTRY.forEach(function (r) {
-      var el = itemEl(r.id);
+    idsToResize.forEach(function (id) {
+      var el = itemEl(id);
       if (el) grid.resizeToContent(el);
     });
     grid.commit();
@@ -143,6 +194,10 @@
     });
     grid.commit();
     curCol = col;
+    // Column width changed for every widget — all of them may need a fresh
+    // content measurement (wrapping/line-count can change), not just
+    // whichever happened to be flagged dirty by a stray mutation.
+    dirtyAll = true;
     relayout();
   }
 
@@ -155,6 +210,21 @@
   function scheduleRelayout() {
     clearTimeout(relayoutTimer);
     relayoutTimer = setTimeout(relayout, 120);
+  }
+
+  // MutationObserver callback: record which widget(s) the mutations belong
+  // to (falling back to dirtyAll if a mutation can't be traced to a known
+  // widget container), then debounce as before.
+  function onMutate(records) {
+    for (var i = 0; i < records.length; i++) {
+      var id = widgetIdFor(records[i].target);
+      if (id) {
+        dirtyIds[id] = true;
+      } else {
+        dirtyAll = true;
+      }
+    }
+    scheduleRelayout();
   }
 
   function init() {
@@ -185,7 +255,7 @@
       sizeToContent: true
     }, container);
 
-    mo = new MutationObserver(scheduleRelayout);
+    mo = new MutationObserver(onMutate);
     mo.observe(container, { childList: true, subtree: true, characterData: true });
 
     if (window.ResizeObserver) {

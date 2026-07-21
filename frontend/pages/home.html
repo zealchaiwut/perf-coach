@@ -24,9 +24,10 @@
       --text-secondary: #5c6886;
       /* #8b95ad (the previous value) failed WCAG AA at 3.0:1 on white —
          DESIGN.md documents this exact failure and its retirement to
-         #6b7280 (4.9:1) for the instrument palette; applying the same fix
-         here since --text-tertiary carries 50+ small labels site-wide. */
-      --text-tertiary: #6b7280;
+         #69748c (canonical value, matches frontend/css/styles.css) for the
+         instrument palette; applying the same fix here since --text-tertiary
+         carries 50+ small labels site-wide. */
+      --text-tertiary: #69748c;
       --accent: #e4ff52;
       --accent-text: #1a2400;
       --hero-1: #b6c5ff;
@@ -120,8 +121,8 @@
        home-grid.js — no hand-placed grid-column/grid-row and no per-breakpoint
        @media grid rules here anymore. These rules only strip gridstack's own
        chrome so each widget's existing .card styling shows through unchanged.
-       #home-log-today-strip, #body-modifier-guardrail, #strava-stale-banner,
-       and #row-log stay OUTSIDE this grid. */
+       #body-modifier-guardrail, #strava-stale-banner, and #row-log stay
+       OUTSIDE this grid. */
     #home-dashboard-grid.grid-stack { margin-bottom: 16px; }
     #home-dashboard-grid .grid-stack-item-content {
       background: transparent;
@@ -624,69 +625,6 @@
     }
   </style>
   <style>
-    /* ---- LOG-TODAY STRIP ---- */
-    #home-log-today-strip {
-      margin-bottom: 16px;
-      border-radius: 18px;
-      background: linear-gradient(100deg, rgba(11,21,48,0.82) 0%, rgba(31,59,138,0.88) 100%);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-      border: 1px solid rgba(255,255,255,0.08);
-      padding: 0;
-      overflow: hidden;
-    }
-    .lts-inner {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      padding: 14px 20px;
-    }
-    .lts-inner--done { opacity: 0.72; }
-    .lts-icon {
-      width: 40px; height: 40px;
-      border-radius: 12px;
-      background: rgba(255,255,255,0.12);
-      display: flex; align-items: center; justify-content: center;
-      font-size: 20px; color: #fff; flex-shrink: 0;
-    }
-    .lts-msg {
-      flex: 1;
-      display: flex; flex-direction: column; gap: 2px;
-    }
-    .lts-msg strong { font-size: 14px; font-weight: 600; color: #fff; letter-spacing: -0.01em; }
-    .lts-msg span   { font-size: 12px; color: rgba(255,255,255,0.70); }
-    .lts-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-shrink: 0;
-    }
-    .lts-niggle-btn {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 10px 14px;
-      border-radius: 999px;
-      border: 1.5px solid rgba(255,255,255,0.35);
-      background: rgba(255,255,255,0.15);
-      color: #fff;
-      font-family: inherit; font-size: 12.5px; font-weight: 600;
-      cursor: pointer; white-space: nowrap; flex-shrink: 0;
-      min-height: 44px; letter-spacing: -0.01em;
-      backdrop-filter: blur(4px);
-      -webkit-backdrop-filter: blur(4px);
-    }
-    .lts-cta-btn {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 10px 18px;
-      background: var(--accent);
-      color: var(--accent-text);
-      border: 0; border-radius: 999px;
-      font-family: inherit; font-size: 13px; font-weight: 700;
-      cursor: pointer; white-space: nowrap; flex-shrink: 0;
-      min-height: 44px; letter-spacing: -0.01em;
-    }
-    .lts-cta-btn i { font-size: 15px; }
-
-
     /* ---- HABITS WIDGET (home-habits-widget) ---- */
     #home-habits-widget {
       background: #fff;
@@ -788,12 +726,6 @@
     }
 
     @media (max-width: 880px) {
-      /* Strip: stack on narrow */
-      .lts-inner { flex-wrap: wrap; gap: 10px; }
-      .lts-actions { width: 100%; }
-      .lts-niggle-btn,
-      .lts-cta-btn { flex: 1; justify-content: center; }
-
       .hw-wheel-svg { width: 88px; height: 88px; }
     }
   </style>
@@ -1135,9 +1067,13 @@
     }
     .hc-q { font-size: 14px; line-height: 1.45; font-weight: 700; }
     .hc-a {
-      appearance: none; border: none; background: none; padding: 0;
+      /* 44px min hit area via padding, pulled back in with an equal negative
+         margin so the glyph/text stays the same visual size and position —
+         only the invisible click area grows. */
+      appearance: none; border: none; background: none;
       font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--text-tertiary);
-      margin-top: 2px; cursor: pointer; display: block; align-self: flex-start;
+      cursor: pointer; display: inline-flex; align-items: center; align-self: flex-start;
+      padding: 15px 8px; margin: -13px -8px -15px -8px;
     }
     .hc-a:hover { color: var(--blue-text, #2b4ca8); }
     .hc-today-cta { display: flex; flex-direction: column; gap: 8px; min-width: 160px; }
@@ -1165,8 +1101,13 @@
       color: var(--text-tertiary);
     }
     .hc-link {
-      appearance: none; border: none; background: none; padding: 0;
+      /* 44px min hit area via padding, pulled back in with an equal negative
+         margin so the glyph/text stays the same visual size and position —
+         only the invisible click area grows. */
+      appearance: none; border: none; background: none;
       color: var(--blue-text, #2b4ca8); font-weight: 600; cursor: pointer; font-size: 12px;
+      display: inline-flex; align-items: center;
+      padding: 16px 8px; margin: -16px -8px;
     }
     .hc-dg-verdict { font-size: 15px; font-weight: 700; line-height: 1.45; margin-bottom: 4px; }
     .hc-dg-sub { font-size: 12.5px; color: var(--text-secondary); line-height: 1.55; }
@@ -1208,9 +1149,13 @@
       flex-shrink: 0;
     }
     .hc-brief-close {
-      position: absolute; top: 16px; right: 16px; z-index: 2;
+      /* 44x44 hit area (WCAG 2.5.5) — top/right shifted in from 16px to 12px
+         so the enlarged box stays centered on the same visual spot as the
+         previous 36x36 button instead of crowding the panel's rounded corner. */
+      position: absolute; top: 12px; right: 12px; z-index: 2;
       appearance: none; border: none; background: var(--chip-bg); border-radius: 8px;
-      width: 36px; height: 36px; font-size: 22px; cursor: pointer; line-height: 1;
+      width: 44px; height: 44px; font-size: 22px; cursor: pointer; line-height: 1;
+      display: flex; align-items: center; justify-content: center;
     }
     .hc-brief { overflow: visible; border-radius: 16px; }
     .hc-brief-head {
@@ -1243,13 +1188,13 @@
     .hc-bsec-badge--wk { background: #e4e8fd; color: #3b4bb8; }
     .hc-bsec-badge--proposal { background: #fef3c7; color: #92400e; }
     .hc-bsec--proposal .hc-prop-life {
-      font-size: 12px; color: var(--text-sub); margin: 8px 0 4px;
+      font-size: 12px; color: var(--text-tertiary); margin: 8px 0 4px;
     }
     .hc-prop-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
     .hc-prop-btn {
       font: inherit; font-size: 13px; font-weight: 600; padding: 7px 12px;
-      border-radius: 8px; border: 1px solid var(--border); background: var(--surface);
-      cursor: pointer; color: var(--text);
+      border-radius: 8px; border: 1px solid var(--card-border); background: #fff;
+      cursor: pointer; color: var(--text-primary);
     }
     .hc-prop-accept { background: #0b1530; color: #fff; border-color: #0b1530; }
     .hc-prop-btn:hover { filter: brightness(0.97); }
@@ -1586,9 +1531,6 @@
     <p id="greeting-date"></p>
   </div>
 
-  <!-- Log-today strip — hidden; CTAs live on Today · Coach strip -->
-  <div id="home-log-today-strip" hidden></div>
-
   <!-- Coach Today strip (brief v4) — above the grid -->
   <div id="home-coach-today-strip" class="hc-strip-wrap"></div>
 
@@ -1609,8 +1551,8 @@
        Training → Personal records → Habits → Weight → Sleep → Goal) and
        auto-fits each item's height to
        content. gs-w is stamped by home-grid.js per breakpoint before init.
-       #home-log-today-strip, #body-modifier-guardrail, #strava-stale-banner,
-       and #row-log stay OUTSIDE this grid. -->
+       #body-modifier-guardrail, #strava-stale-banner, and #row-log stay
+       OUTSIDE this grid. -->
   <div id="home-dashboard-grid" class="grid-stack">
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-top-row-right" class="grp-training"></div></div></div>
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-next-workout-card" class="card grp-training"></div></div></div>
@@ -1625,10 +1567,9 @@
     <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-goal-card" class="card"></div></div></div>
   </div>
 
-  <!-- Fast-log form: revealed when Log Today strip CTA is tapped.
-       hidden by default (frontend/js/home-strip-habits.js's lts-cta-btn click
-       handler removes the attribute) — the "revealed when tapped" comment
-       above was previously aspirational: nothing actually hid this before. -->
+  <!-- Fast-log form: hidden by default, revealed by the Today · Coach strip's
+       "Log metrics" CTA (frontend/js/home-coach-strip.js's data-hc-log-metrics
+       click handler removes the attribute). -->
   <div id="row-log" style="margin-top:16px;" hidden>
     <section id="fast-log-section" class="card fast-log">
       <div class="card-head">
@@ -1774,13 +1715,6 @@
 
 <script src="js/injury-log.js"></script>
 <script>
-  // Button lives inside the JS-rendered strip — delegate so re-renders keep working.
-  var _lts = document.getElementById('home-log-today-strip');
-  if (_lts) {
-    _lts.addEventListener('click', function (e) {
-      if (e.target.closest('#home-injury-log-btn')) InjuryLog.openModal();
-    });
-  }
   InjuryLog.renderActiveStrip('home-injury-strip');
 </script>
 
