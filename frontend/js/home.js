@@ -88,7 +88,7 @@
 
     var header =
       '<div class="card-head">' +
-        '<div class="ttl"><a href="/log#performance" style="color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:7px;"><i class="ti ti-trophy" style="color:var(--gold);"></i>Personal records</a></div>' +
+        '<h2 class="ttl"><a href="/log#performance" style="color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:7px;"><i class="ti ti-trophy" style="color:var(--gold);"></i>Personal records</a></h2>' +
         '<a href="/log#performance">All PRs &#8594;</a>' +
       '</div>';
     card.innerHTML = header + UIStates.loadingHTML();
@@ -204,7 +204,7 @@
     } catch (_) {
       if (feedback) {
         feedback.className = 'fm-feedback fm-feedback--err';
-        feedback.textContent = 'Network error — try again';
+        feedback.textContent = 'Network error. Try again.';
       }
     }
 
@@ -220,7 +220,9 @@
 
   function _fmSelectPill(groupEl, val) {
     groupEl.querySelectorAll('.fm-pill').forEach(function (pill) {
-      pill.classList.toggle('active', pill.dataset.val === String(val));
+      var isSelected = pill.dataset.val === String(val);
+      pill.classList.toggle('active', isSelected);
+      pill.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
     });
   }
 
@@ -310,17 +312,24 @@
     }
   }
 
-  /* ---- Threshold banner ---- */
-
+  /* ---- Threshold banner ----
+     Was its own raw-hex amber family (#fffbeb/#fcd34d/#b45309/#92400e/
+     #78350f) — consolidated onto home.html's own --amber/--amber-soft
+     tokens (re-audit #8), with --gold (the existing trophy-icon token)
+     reused for the border so a third amber family doesn't get invented.
+     tbanner-dismiss grows to a 44px hit area via padding + an equal
+     negative margin (re-audit #9), same trick as .hc-brief-close, so the
+     visible × glyph doesn't get bigger. */
   var _THRESHOLD_BANNER_CSS = [
     '#threshold-banner{display:flex;align-items:center;gap:8px;padding:9px 24px;',
-      "background:#fffbeb;border-bottom:1px solid #fcd34d;font-size:13px;font-weight:500;",
+      "background:var(--amber-soft,#fff0c4);border-bottom:1px solid var(--gold,#b8893c);font-size:13px;font-weight:500;",
       "font-family:'Inter Tight',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;}",
     '#threshold-banner .tbanner-msg{flex:1;}',
-    '#threshold-banner a{color:#b45309;font-weight:600;text-decoration:underline;}',
+    '#threshold-banner a{color:var(--amber,#6b4408);font-weight:600;text-decoration:underline;}',
     '#threshold-banner .tbanner-dismiss{margin-left:auto;background:none;border:none;',
-      'cursor:pointer;font-size:16px;color:#92400e;padding:0 4px;line-height:1;flex-shrink:0;}',
-    '#threshold-banner .tbanner-dismiss:hover{color:#78350f;}',
+      'cursor:pointer;font-size:16px;color:var(--amber,#6b4408);line-height:1;flex-shrink:0;',
+      'padding:14px 8px;margin:-14px -4px;}',
+    '#threshold-banner .tbanner-dismiss:hover{filter:brightness(0.75);}',
     '@media(max-width:880px){#threshold-banner{padding:9px 14px;}}'
   ].join('');
 
@@ -376,8 +385,8 @@
     var h = Math.round(hoursAgo);
     container.innerHTML =
       '<div class="strava-stale-banner" id="strava-stale-banner-inner">' +
-        '<span class="strava-stale-msg">Last Strava sync was ' + h + ' hours ago — ' +
-          '<a href="#" id="strava-stale-refresh">refresh?</a>' +
+        '<span class="strava-stale-msg">Last Strava sync was ' + h + ' hours ago. ' +
+          '<a href="#" id="strava-stale-refresh">Refresh?</a>' +
         '</span>' +
       '</div>';
     var link = document.getElementById('strava-stale-refresh');
@@ -430,12 +439,12 @@
       stepperArea.innerHTML =
         '<div class="hww-stepper-label">Log today</div>' +
         '<div class="hww-step-row">' +
-          '<button type="button" class="hww-step-btn" id="hww-minus">−</button>' +
+          '<button type="button" class="hww-step-btn" id="hww-minus" aria-label="Decrease weight">−</button>' +
           '<input id="hww-input" class="hww-step-input" type="number"' +
             ' inputmode="decimal" step="0.1" min="20" max="300"' +
             ' value="' + (currentVal != null ? currentVal : '') + '"' +
             ' placeholder="—">' +
-          '<button type="button" class="hww-step-btn" id="hww-plus">+</button>' +
+          '<button type="button" class="hww-step-btn" id="hww-plus" aria-label="Increase weight">+</button>' +
         '</div>' +
         '<button type="button" class="hww-log-btn" id="hww-log-btn">' +
           'Log ' + (currentVal != null ? currentVal + ' kg' : '—') +
@@ -543,7 +552,7 @@
         el.innerHTML = '';
         return;
       }
-      var msg = data.guardrail_message || 'You are in the penalty region — this is a performance and health risk.';
+      var msg = data.guardrail_message || 'You are in the penalty region. This is a performance and health risk.';
       el.innerHTML =
         '<div class="bm-guardrail">' +
           '<span class="bm-guardrail-icon" aria-hidden="true">&#9888;</span>' +
@@ -599,7 +608,7 @@
     // js/lib/weight-current-card.js). Right: home's own quick-log stepper.
     var header =
       '<div class="card-head">' +
-        '<div class="ttl"><i class="ti ti-scale" style="color:var(--blue-text);font-size:16px;"></i>Weight</div>' +
+        '<h2 class="ttl"><i class="ti ti-scale" style="color:var(--blue-text);font-size:16px;"></i>Weight</h2>' +
         '<a href="/weight">Open →</a>' +
       '</div>';
     card.innerHTML = header +
@@ -667,7 +676,7 @@
     var card = document.getElementById('home-goal-card');
     if (!card) return;
     if (window.UIStates) card.innerHTML = UIStates.loadingHTML();
-    else card.innerHTML = '<div class="card-head"><div class="ttl"><i class="ti ti-flag-2"></i>Race goal</div></div>';
+    else card.innerHTML = '<div class="card-head"><h2 class="ttl"><i class="ti ti-flag-2"></i>Race goal</h2></div>';
 
     fetch('/api/plan/computed')
       .then(function (r) { return r.ok ? r.json() : null; })
@@ -684,7 +693,7 @@
 
         var head =
           '<div class="card-head">' +
-            '<div class="ttl"><i class="ti ti-flag-2" style="color:#5a8dee;font-size:16px;"></i>Race goal</div>' +
+            '<h2 class="ttl"><i class="ti ti-flag-2" style="color:#5a8dee;font-size:16px;"></i>Race goal</h2>' +
             '<a href="/log#performance">Performance &#8594;</a>' +
           '</div>';
 
@@ -728,7 +737,7 @@
       .catch(function () {
         card.innerHTML =
           '<div class="card-head">' +
-            '<div class="ttl"><i class="ti ti-flag-2"></i>Race goal</div>' +
+            '<h2 class="ttl"><i class="ti ti-flag-2"></i>Race goal</h2>' +
             '<a href="/log#performance">Performance &#8594;</a>' +
           '</div>' +
           '<div class="brief-unavail">Could not load race</div>';

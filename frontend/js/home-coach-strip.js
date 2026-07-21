@@ -42,7 +42,7 @@
     if (done && done.name) {
       var typeTag = (done.type || 'run').toString().toUpperCase();
       var stats = done.stats_line || '';
-      var praise = done.praise || 'Good work — session logged.';
+      var praise = done.praise || 'Good work. Session logged.';
       return (
         '<div class="hc-sess hc-sess--done">' +
           '<div class="hc-sess-label"><span class="hc-tag hc-tag--done">TODAY\'S WORKOUT</span></div>' +
@@ -61,7 +61,7 @@
           '<div class="hc-sess-label"><span class="hc-tag hc-tag--rest">REST DAY</span></div>' +
           '<div class="hc-sess-t">' + esc(plan.name || 'Rest') + '</div>' +
           '<div class="hc-sess-praise hc-sess-praise--rest">' +
-            esc(plan.nudge || 'Rest day — recover well. No training needed.') +
+            esc(plan.nudge || 'Rest day. Recover well. No training needed.') +
           '</div>' +
         '</div>'
       );
@@ -77,7 +77,7 @@
             ' <span class="hc-tag">' + esc(pType) + '</span></div>' +
           (pMeta ? '<div class="hc-sess-m">' + esc(pMeta) + '</div>' : '') +
           '<div class="hc-sess-nudge">' +
-            esc(plan.nudge || 'Still on the plan for today — get this one done.') +
+            esc(plan.nudge || 'Still on the plan for today. Get this one done.') +
           '</div>' +
         '</div>'
       );

@@ -60,10 +60,10 @@
     if (!habits || !habits.daily_habits || habits.daily_habits.length === 0) {
       widget.innerHTML =
         '<div class="card-head">' +
-          '<div class="ttl"><i class="ti ti-checkbox"></i>This week\'s habits</div>' +
+          '<h2 class="ttl"><i class="ti ti-checkbox"></i>This week\'s habits</h2>' +
           '<a href="/habits" class="hw-all-link">All habits &#8594;</a>' +
         '</div>' +
-        '<div class="hw-empty">Add habits to track your week — <a href="/habits">Add habits</a></div>';
+        '<div class="hw-empty">Add habits to track your week. <a href="/habits">Add habits</a></div>';
       return;
     }
 
@@ -139,7 +139,7 @@
 
     widget.innerHTML =
       '<div class="card-head">' +
-        '<div class="ttl"><i class="ti ti-checkbox"></i>This week\'s habits</div>' +
+        '<h2 class="ttl"><i class="ti ti-checkbox"></i>This week\'s habits</h2>' +
         '<a href="/habits" class="hw-all-link">All habits &#8594;</a>' +
       '</div>' +
       '<div class="hw-body">' +
@@ -246,7 +246,7 @@
             el.innerHTML = '+';
             el.setAttribute('aria-pressed', 'false');
           }
-          _showToast('Could not save — try again', true);
+          _showToast('Could not save. Try again.', true);
         }
       });
     });

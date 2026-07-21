@@ -26,8 +26,8 @@
     if (!el) return;
     if (!brief) {
       el.innerHTML =
-        '<div class="card-head"><div class="ttl">Coach</div></div>' +
-        '<div class="rec-empty">No coach brief yet — set an A-race on Plan.</div>';
+        '<div class="card-head"><h2 class="ttl">Coach</h2></div>' +
+        '<div class="rec-empty">No coach brief yet. Set an A-race on Plan.</div>';
       return;
     }
     var dig = brief.digest || {};
@@ -36,7 +36,7 @@
     el.innerHTML =
       '<div class="hc-digest">' +
         '<div class="hc-dg-head">' +
-          '<span class="hc-lbl">Coach · this week</span>' +
+          '<h2 class="hc-lbl">Coach · this week</h2>' +
           '<button type="button" class="hc-link" data-hc-open-brief>Full brief →</button>' +
         '</div>' +
         '<div class="hc-dg-verdict">' + esc(dig.week_verdict || '') + '</div>' +

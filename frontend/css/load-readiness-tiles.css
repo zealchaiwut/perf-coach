@@ -18,11 +18,24 @@
   gap: 10px;
 }
 
+/* Flatten (re-audit #5) — was its own bordered/tinted tile nested inside
+   the Readiness widget's own card (Home) or the Training Log's readiness
+   card; the outer card already establishes containment. Now a thin
+   divider between the 2×2 CTL/ATL/TSB/ACWR tiles instead of a boxed chip
+   (same row/column-divider treatment as .pr-tile/.hperf-tile elsewhere).
+   Token-based (--lrx-line), not a Home-only hack, so both pages that load
+   this file still look correct. buildGridHtml() (js/lib/load-readiness-
+   tiles.js) always emits exactly 4 tiles in a 2-column grid in the fixed
+   order CTL, ATL, TSB, ACWR, so nth-child(even)/nth-child(n+3) reliably
+   mean "right column" / "second row" on both pages. */
 .lrx-rcard {
-  background: var(--lrx-tile);
-  border: 1px solid var(--lrx-line);
-  border-radius: 12px;
   padding: 15px 16px;
+}
+.lrx-rcard:nth-child(even) {
+  border-left: 1px solid var(--lrx-line);
+}
+.lrx-rcard:nth-child(n+3) {
+  border-top: 1px solid var(--lrx-line);
 }
 
 .lrx-rcard .rv {
