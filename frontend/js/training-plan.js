@@ -1194,7 +1194,7 @@ information about.
              _updateWeekTargetUI(). */
           '<button class="pl-btn pl-ghost" id="pl-suggest" title="AI-suggested sessions for this week">✨ Suggest sessions</button>' +
         '</div></div>' +
-        '<div class="pl-draft-banner" id="pl-draft-banner" hidden></div>' +
+        '<div class="pl-draft-banner" id="pl-draft-banner" aria-live="polite" hidden></div>' +
         '<div class="pl-draft-pending" id="pl-draft-pending" hidden></div>' +
         '<div class="pl-infobanner" id="pl-infobanner" style="margin-bottom:12px;">Sessions are generated to hit your weekly target, respecting the ramp rule and your rest days.</div>' +
         '<div class="pl-weeklist" id="plan-week-list"></div>' +
@@ -1308,7 +1308,7 @@ information about.
       // the "+ add" trigger for a fresh session is disabled.
       var addDay = isPast
         ? '<div class="pl-addday is-disabled" title="This day has passed — nothing new can be added">+ add</div>'
-        : '<div class="pl-addday" data-add-date="' + day.date + '">+ add</div>';
+        : '<button type="button" class="pl-addday" data-add-date="' + day.date + '" aria-label="Add a session on ' + esc(day.date) + '">+ add</button>';
       var dayTotal = _dayTotalTss(day);
       var dayWarn = _dayHasWarning(day) ? '<span class="pl-day-guard-badge" title="A session this day loads an overused or injured muscle group">⚠</span>' : '';
       return '<div class="pl-dayrow ' + cls + '" data-date="' + day.date + '" data-day-offset="' + di + '">' +
@@ -1937,18 +1937,18 @@ information about.
     var ed = _addState.edit || {};
     function sel(t) { return ed.type === t ? ' selected' : ''; }
     return '<div class="pl-frow">' +
-        '<div class="pl-fld"><label>Date</label><input type="date" id="pl-sf-date" value="' + esc(_addState.presetDate) + '"/></div>' +
-        '<div class="pl-fld"><label>Type</label><select id="pl-sf-type">' +
+        '<div class="pl-fld"><label>Date</label><input type="date" id="pl-sf-date" aria-label="Session date" value="' + esc(_addState.presetDate) + '"/></div>' +
+        '<div class="pl-fld"><label>Type</label><select id="pl-sf-type" aria-label="Session type">' +
           '<option value="run"' + sel('run') + '>Run</option>' +
           '<option value="strength"' + sel('strength') + '>Strength</option>' +
           '<option value="plyo"' + sel('plyo') + '>Plyo</option>' +
           '<option value="rest"' + sel('rest') + '>Rest</option>' +
         '</select></div>' +
-        '<div class="pl-fld"><label>Session name</label><input id="pl-sf-name" placeholder="Sustained Tempo" value="' + esc(ed.name || '') + '"/></div>' +
+        '<div class="pl-fld"><label>Session name</label><input id="pl-sf-name" aria-label="Session name" placeholder="Sustained Tempo" value="' + esc(ed.name || '') + '"/></div>' +
       '</div>' +
       '<div id="pl-sf-structure"></div>' +
-      '<div class="pl-fld" style="margin-top:14px;"><label>Notes from coach</label><textarea id="pl-sf-notes" placeholder="e.g. hold 92% CP even on the 3rd rep">' + esc(ed.notes || '') + '</textarea></div>' +
-      '<div id="pl-sf-guard"></div>' +
+      '<div class="pl-fld" style="margin-top:14px;"><label>Notes from coach</label><textarea id="pl-sf-notes" aria-label="Notes from coach" placeholder="e.g. hold 92% CP even on the 3rd rep">' + esc(ed.notes || '') + '</textarea></div>' +
+      '<div id="pl-sf-guard" aria-live="assertive"></div>' +
       '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-sf-save">' + (_addState.editId ? 'Save changes' : 'Save session') + '</button><button class="pl-btn pl-ghost" id="pl-sf-cancel">Cancel</button></div>';
   }
 
@@ -1985,11 +1985,11 @@ information about.
           '<button class="' + (_sfStrengthMode === 'json' ? 'on' : '') + '" data-str="json">JSON</button>' +
         '</div>' +
         (_sfStrengthMode === 'simple'
-          ? '<div class="pl-fld"><label>Focus</label><input id="pl-str-focus" placeholder="Lower / posterior chain" value="' + esc(_sfFocus || '') + '"/></div>'
+          ? '<div class="pl-fld"><label>Focus</label><input id="pl-str-focus" aria-label="Strength training focus" placeholder="Lower / posterior chain" value="' + esc(_sfFocus || '') + '"/></div>'
           : _sfStrengthMode === 'json'
           ? '<div class="pl-fld" style="margin-bottom:6px;"><label>Exercises (JSON)</label></div>' +
-            '<textarea class="pl-jsonta" id="pl-exjson-ta" style="min-height:160px;">' + esc(JSON.stringify(_sfExercises, null, 2)) + '</textarea>' +
-            '<div id="pl-exjson-err"></div>'
+            '<textarea class="pl-jsonta" id="pl-exjson-ta" aria-label="Exercises JSON" style="min-height:160px;">' + esc(JSON.stringify(_sfExercises, null, 2)) + '</textarea>' +
+            '<div id="pl-exjson-err" aria-live="polite"></div>'
           : '<div class="pl-fld" style="margin-bottom:6px;"><label>Exercises</label></div>' +
             // RPE here is a blank-by-default TARGET the coach can optionally
             // set going in — distinct from the real logged RPE, which is
@@ -2006,9 +2006,9 @@ information about.
     var cls = b.phase === 'warmup' ? 'warm' : (b.phase === 'main' ? 'main' : 'cool');
     var label = b.phase === 'warmup' ? 'Warmup' : (b.phase === 'main' ? 'Main set' : (b.phase === 'cooldown' ? 'Cooldown' : b.phase));
     return '<div class="pl-block" data-bi="' + i + '"><span class="pl-btag ' + cls + '">' + label + '</span>' +
-      '<input class="pl-bdur" data-f="duration_min" value="' + esc(b.duration_min != null ? b.duration_min : '') + '" placeholder="min"/>' +
-      '<input class="pl-btgt" data-f="repeat" value="' + esc(b.repeat != null ? b.repeat : '') + '" placeholder="×reps"/>' +
-      '<input class="pl-btgt" data-f="target" value="' + esc(b.target || '') + '" placeholder="target"/>' +
+      '<input class="pl-bdur" data-f="duration_min" aria-label="' + label + ' duration in minutes" value="' + esc(b.duration_min != null ? b.duration_min : '') + '" placeholder="min"/>' +
+      '<input class="pl-btgt" data-f="repeat" aria-label="' + label + ' repeat count" value="' + esc(b.repeat != null ? b.repeat : '') + '" placeholder="×reps"/>' +
+      '<input class="pl-btgt" data-f="target" aria-label="' + label + ' target" value="' + esc(b.target || '') + '" placeholder="target"/>' +
       '<button class="pl-rm" data-rm-block="' + i + '">✕</button></div>';
   }
   // Group containers derived from contiguous `block` runs in the flat
@@ -2045,7 +2045,7 @@ information about.
         '<div class="pl-exgroup-h">' +
           '<span class="pl-gdrag" role="button" tabindex="0" title="Drag to reorder this group" aria-label="Reorder group ' + esc(g.block || '(untitled)') + ' — use the up/down buttons for keyboard" data-gdrag="' + gi + '">⠿</span>' +
           '<span class="pl-gmovebtns">' + moveUp + moveDown + '</span>' +
-          '<input class="pl-gname" data-gname="' + gi + '" value="' + esc(g.block) + '" placeholder="Group name"/>' +
+          '<input class="pl-gname" data-gname="' + gi + '" aria-label="Group name" value="' + esc(g.block) + '" placeholder="Group name"/>' +
           '<button type="button" class="pl-rm" data-rm-group="' + gi + '" title="Remove group and its exercises">✕</button>' +
         '</div>' +
         g.idxs.map(function (i) { return _exRowHtml(_sfExercises[i], i); }).join('') +
@@ -2206,7 +2206,7 @@ information about.
       return '<label class="pl-exfld"><span class="pl-exfld-l">' + label + '</span>' + inputHtml + '</label>';
     }
     return '<div class="pl-block" data-xi="' + i + '">' +
-      '<input class="pl-exname" data-f="name" value="' + esc(x.name || '') + '" placeholder="Exercise"/>' +
+      '<input class="pl-exname" data-f="name" aria-label="Exercise name" value="' + esc(x.name || '') + '" placeholder="Exercise"/>' +
       fld('Sets', '<input class="pl-bdur" data-f="sets" value="' + esc(x.sets != null ? x.sets : '') + '" placeholder="sets"/>') +
       fld('Reps', '<input class="pl-bdur" data-f="reps" value="' + esc(x.reps != null ? x.reps : '') + '" placeholder="reps"/>') +
       fld('Load', '<input class="pl-btgt" data-f="load" value="' + esc(x.load || '') + '" placeholder="load"/>') +
@@ -2455,9 +2455,9 @@ information about.
         '<label class="pl-uploadlbl">Upload .json<input type="file" accept=".json" id="pl-sj-up" style="display:none"/></label>' +
       '</div>' +
       '<div class="pl-infobanner" style="margin-bottom:10px;">Paste a session as JSON — same shape as the template.</div>' +
-      '<textarea class="pl-jsonta" id="pl-sj-ta">' + esc(JSON.stringify(tplSingleRun, null, 2)) + '</textarea>' +
+      '<textarea class="pl-jsonta" id="pl-sj-ta" aria-label="Session JSON">' + esc(JSON.stringify(tplSingleRun, null, 2)) + '</textarea>' +
       '<div class="pl-btnrow" style="margin-top:10px;"><button class="pl-btn pl-ghost" id="pl-sj-val">Validate &amp; preview</button></div>' +
-      '<div id="pl-sj-prev"></div>' +
+      '<div id="pl-sj-prev" aria-live="polite"></div>' +
       '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-sj-save">Save session</button><button class="pl-btn pl-ghost" id="pl-sj-cancel">Cancel</button></div>';
   }
   function _wireSingleJSON() {
@@ -2495,16 +2495,16 @@ information about.
   function _singleAIHtml() {
     _aiSessionResult = null;
     return '<div class="pl-frow">' +
-        '<div class="pl-fld"><label>Date</label><input type="date" id="pl-ai-date" value="' + esc(_addState.presetDate) + '"/></div>' +
-        '<div class="pl-fld"><label>Type</label><select id="pl-ai-type">' +
+        '<div class="pl-fld"><label>Date</label><input type="date" id="pl-ai-date" aria-label="Session date" value="' + esc(_addState.presetDate) + '"/></div>' +
+        '<div class="pl-fld"><label>Type</label><select id="pl-ai-type" aria-label="Session type">' +
           '<option value="run">Run</option><option value="strength">Strength</option>' +
           '<option value="plyo">Plyo</option><option value="rest">Rest</option>' +
         '</select></div>' +
       '</div>' +
       '<div class="pl-fld" style="margin-top:10px;"><label>Note to the coach (optional)</label>' +
-        '<textarea id="pl-ai-note" placeholder="e.g. focus on hip mobility, keep it under 30 minutes"></textarea></div>' +
+        '<textarea id="pl-ai-note" aria-label="Note to the coach" placeholder="e.g. focus on hip mobility, keep it under 30 minutes"></textarea></div>' +
       '<div class="pl-btnrow" style="margin-top:10px;"><button class="pl-btn pl-ghost" id="pl-ai-gen">✨ Generate</button></div>' +
-      '<div id="pl-ai-prev"></div>' +
+      '<div id="pl-ai-prev" aria-live="assertive"></div>' +
       '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-ai-save" disabled>Save session</button><button class="pl-btn pl-ghost" id="pl-ai-cancel">Cancel</button></div>';
   }
 
@@ -2596,9 +2596,9 @@ information about.
   function _bulkFormHtml() {
     var rows = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'].map(function (d, i) {
       return '<tr data-bulk-i="' + i + '"><td class="pl-bd">' + d + '</td>' +
-        '<td><select data-bf="type"><option value="rest">Rest</option><option value="run">Run</option><option value="strength">Strength</option><option value="plyo">Plyo</option></select></td>' +
-        '<td><input data-bf="name" placeholder="session name"/></td>' +
-        '<td><input data-bf="duration" placeholder="—"/></td></tr>';
+        '<td><select data-bf="type" aria-label="' + d + ' session type"><option value="rest">Rest</option><option value="run">Run</option><option value="strength">Strength</option><option value="plyo">Plyo</option></select></td>' +
+        '<td><input data-bf="name" aria-label="' + d + ' session name" placeholder="session name"/></td>' +
+        '<td><input data-bf="duration" aria-label="' + d + ' duration" placeholder="—"/></td></tr>';
     }).join('');
     return '<div class="pl-infobanner" style="margin-bottom:14px;">Quickly stub out the whole week. Open any session afterward to add block/exercise detail.</div>' +
       '<table class="pl-bulktbl"><thead><tr><th></th><th>Type</th><th>Session name</th><th>Duration</th></tr></thead><tbody>' + rows + '</tbody></table>' +
@@ -2632,9 +2632,9 @@ information about.
         '<label class="pl-uploadlbl">Upload .json<input type="file" accept=".json" id="pl-bj-up" style="display:none"/></label>' +
       '</div>' +
       '<div class="pl-infobanner" style="margin-bottom:10px;">Paste an array of sessions — one file for the whole week, full block/exercise detail.</div>' +
-      '<textarea class="pl-jsonta" id="pl-bj-ta">' + esc(JSON.stringify(tplBulkWeek, null, 2)) + '</textarea>' +
+      '<textarea class="pl-jsonta" id="pl-bj-ta" aria-label="Week JSON">' + esc(JSON.stringify(tplBulkWeek, null, 2)) + '</textarea>' +
       '<div class="pl-btnrow" style="margin-top:10px;"><button class="pl-btn pl-ghost" id="pl-bj-val">Validate &amp; preview</button></div>' +
-      '<div id="pl-bj-prev"></div>' +
+      '<div id="pl-bj-prev" aria-live="polite"></div>' +
       '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-bj-save">Save week</button><button class="pl-btn pl-ghost" id="pl-bj-cancel">Cancel</button></div>';
   }
   function _wireBulkJSON() {
@@ -2685,7 +2685,7 @@ information about.
     var code = _addState.delim, dc = _delimChar(code);
     return '<div class="pl-jsontools">' +
         '<span style="font-size:11px;font-weight:700;color:var(--text-sub);">Delimiter:</span>' +
-        '<select class="pl-delimsel" id="pl-delim">' +
+        '<select class="pl-delimsel" id="pl-delim" aria-label="Delimiter">' +
           '<option value="pipe"' + (code === 'pipe' ? ' selected' : '') + '>Pipe  |</option>' +
           '<option value="comma"' + (code === 'comma' ? ' selected' : '') + '>Comma  ,</option>' +
           '<option value="tab"' + (code === 'tab' ? ' selected' : '') + '>Tab</option>' +
@@ -2693,9 +2693,9 @@ information about.
         '<button class="pl-btn pl-ghost" id="pl-sep-dl">⬇ Download template</button>' +
       '</div>' +
       '<div class="pl-infobanner" style="margin-bottom:10px;">One session per line: <b>date' + dc + 'type' + dc + 'name' + dc + 'duration' + dc + 'notes</b>. Simple fields only; open a session afterward for block/exercise detail.</div>' +
-      '<textarea class="pl-jsonta" id="pl-sep-ta">' + esc(_sepTemplate(code)) + '</textarea>' +
+      '<textarea class="pl-jsonta" id="pl-sep-ta" aria-label="Week sessions as delimited text">' + esc(_sepTemplate(code)) + '</textarea>' +
       '<div class="pl-btnrow" style="margin-top:10px;"><button class="pl-btn pl-ghost" id="pl-sep-val">Parse &amp; preview</button></div>' +
-      '<div id="pl-sep-prev"></div>' +
+      '<div id="pl-sep-prev" aria-live="polite"></div>' +
       '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-sep-save">Save week</button><button class="pl-btn pl-ghost" id="pl-sep-cancel">Cancel</button></div>';
   }
   function _parseSep() {
@@ -2913,13 +2913,13 @@ information about.
         '</div>'
       : '';
     var err = _sm.aiError
-      ? '<div class="pl-sm-ai-err" id="pl-sm-ai-err">' + esc(_sm.aiError) + '</div>'
-      : '<div class="pl-sm-ai-err" id="pl-sm-ai-err" hidden></div>';
+      ? '<div class="pl-sm-ai-err" id="pl-sm-ai-err" aria-live="assertive" role="alert">' + esc(_sm.aiError) + '</div>'
+      : '<div class="pl-sm-ai-err" id="pl-sm-ai-err" aria-live="assertive" hidden></div>';
     return '<div class="pl-sm-ai" id="pl-sm-ai">' +
       '<div class="pl-sm-ai-h"><b>' + title + '</b><span>' + esc(pinNote) + '</span></div>' +
       chips +
       '<div class="pl-sm-free">' +
-        '<input type="text" id="pl-sm-ai-note" placeholder="' +
+        '<input type="text" id="pl-sm-ai-note" aria-label="AI steering note" placeholder="' +
           (has ? 'or describe the change… e.g. add 4 × 20s strides at the end'
                : 'optional steer… e.g. lower / posterior chain, dumbbells only, 45 min') + '"/>' +
         '<button type="button" class="pl-sm-go" id="pl-sm-ai-go"' + (_sm.aiBusy ? ' disabled' : '') + '>' +
@@ -2945,7 +2945,7 @@ information about.
       }
       // Simple view: phase rows; Detailed reuses block builder
       if (_sm.structTab === 'json') {
-        return '<textarea class="pl-jsonta" id="pl-sm-json" spellcheck="false">' +
+        return '<textarea class="pl-jsonta" id="pl-sm-json" aria-label="Structure JSON" spellcheck="false">' +
           esc(JSON.stringify({ blocks: _sfBlocks }, null, 2)) + '</textarea>';
       }
       if (_sm.structTab === 'detailed') {
@@ -2965,17 +2965,17 @@ information about.
     }
     // strength / plyo / stretch
     if (_sm.structTab === 'json') {
-      return '<textarea class="pl-jsonta" id="pl-sm-json" spellcheck="false">' +
+      return '<textarea class="pl-jsonta" id="pl-sm-json" aria-label="Structure JSON" spellcheck="false">' +
         esc(JSON.stringify({ exercises: _sfExercises, focus: _sfFocus }, null, 2)) + '</textarea>';
     }
     if (_sm.structTab === 'simple') {
       if (!_sfFocus && !_sfExercises.length) {
         return '<div class="pl-sm-empty-s">No structure yet — Generate above, or switch to Detailed to build it by hand.</div>' +
           '<div class="pl-fld" style="margin-top:10px;"><label>Focus</label>' +
-          '<input type="text" id="pl-sm-focus" value="' + esc(_sfFocus) + '" placeholder="e.g. posterior chain"/></div>';
+          '<input type="text" id="pl-sm-focus" aria-label="Focus" value="' + esc(_sfFocus) + '" placeholder="e.g. posterior chain"/></div>';
       }
       return '<div class="pl-fld"><label>Focus</label>' +
-        '<input type="text" id="pl-sm-focus" value="' + esc(_sfFocus) + '"/></div>';
+        '<input type="text" id="pl-sm-focus" aria-label="Focus" value="' + esc(_sfFocus) + '"/></div>';
     }
     // detailed
     return '<div id="pl-sm-struct-host"></div>';
@@ -3008,16 +3008,16 @@ information about.
         '<button type="button" class="pl-sm-x" id="pl-detclose" aria-label="Close">✕</button></div>' +
       '<div class="pl-sm-meta">' +
         '<span class="pl-sm-tag ' + tagCls + '">' + _smTypeLabel(type) + '</span>' +
-        '<select id="pl-sm-type">' +
+        '<select id="pl-sm-type" aria-label="Session type">' +
           ['run', 'strength', 'plyo', 'stretch', 'rest'].map(function (t) {
             return '<option value="' + t + '"' + (type === t ? ' selected' : '') + '>' +
               (t.charAt(0).toUpperCase() + t.slice(1)) + '</option>';
           }).join('') +
         '</select>' +
-        '<input class="pl-sm-datef" type="date" id="pl-sm-date" value="' + esc(p.planned_date || '') + '"/>' +
+        '<input class="pl-sm-datef" type="date" id="pl-sm-date" aria-label="Session date" value="' + esc(p.planned_date || '') + '"/>' +
         _smMatchedLine(p) +
       '</div>' +
-      '<input class="pl-sm-name" id="pl-sm-name" value="' + esc(p.name || '') + '" placeholder="Session name"/>' +
+      '<input class="pl-sm-name" id="pl-sm-name" aria-label="Session name" value="' + esc(p.name || '') + '" placeholder="Session name"/>' +
       _detailIdRowHtml(p) +
       statusRow +
       _smAiBarHtml(p) +
@@ -3026,13 +3026,13 @@ information about.
       _smTilesHtml(p) +
       '<div id="pl-sm-struct-body">' + _smStructureBodyHtml(p) + '</div>' +
       '<div class="pl-sm-notes"><span class="pl-sm-lbl">Coach notes</span>' +
-        '<textarea id="pl-sm-notes" rows="3">' + esc(p.notes || '') + '</textarea></div>' +
+        '<textarea id="pl-sm-notes" rows="3" aria-label="Coach notes">' + esc(p.notes || '') + '</textarea></div>' +
       stryd +
     '</div>' +
     '<div class="pl-sm-foot">' +
       '<button type="button" class="pl-sm-del" id="pl-det-delete">Delete</button>' +
       '<span class="pl-sm-sp"></span>' +
-      '<span class="pl-sm-dirty" id="pl-sm-dirty"></span>' +
+      '<span class="pl-sm-dirty" id="pl-sm-dirty" aria-live="polite"></span>' +
       '<button type="button" class="pl-sm-ghost" id="pl-sm-discard" hidden>Discard</button>' +
       '<button type="button" class="pl-sm-ghost" id="pl-sm-close-foot">Close</button>' +
       '<button type="button" class="pl-sm-save" id="pl-sm-save" hidden>Save changes</button>' +
@@ -3629,7 +3629,7 @@ information about.
     '.plan-panel .pl-stypetag.plyo{background:#fef3c7;color:#92400e;}',
     '.plan-panel .pl-stypetag.stretch{background:#e6f7ef;color:#0f7a46;}',
     '.plan-panel .pl-stypetag.run{background:#e4e8fd;color:#3b4bb8;}',
-    '.plan-panel .pl-draft-tag{font-size:10px;font-weight:800;letter-spacing:0.04em;color:#6366f1;background:#eef2ff;padding:1px 5px;border-radius:4px;}',
+    '.plan-panel .pl-draft-tag{font-size:10px;font-weight:800;letter-spacing:0.04em;color:var(--info-dark);background:#eef2ff;padding:1px 5px;border-radius:4px;}',
     '.plan-panel .pl-src-chip{font-family:var(--mono);font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;text-transform:uppercase;background:#f1f5f9;color:#64748b;display:inline-flex;align-items:center;gap:5px;}',
     '.plan-panel .pl-src-user{background:var(--ink);color:#fff;}',
     '.plan-panel .pl-src-tmpl{background:#fef3c7;color:#92400e;}',
@@ -3647,7 +3647,9 @@ information about.
     '.plan-panel .pl-det-ai-genline{display:inline-flex;align-items:center;gap:6px;color:var(--text-sub);}',
     '.plan-panel .pl-draft-add{display:flex;flex-wrap:wrap;gap:4px;align-items:center;}',
     '.plan-panel .pl-draft-move{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--primary);display:inline-flex;align-items:center;gap:4px;cursor:pointer;}',
-    '.plan-panel .pl-draft-move select{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--primary);border:none;background:transparent;cursor:pointer;padding:0;-webkit-appearance:none;appearance:none;}',
+    '.plan-panel .pl-draft-move select{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--primary);border:none;background:transparent;cursor:pointer;padding:0;}',
+    '.plan-panel .pl-draft-move select:hover{text-decoration:underline;}',
+    '.plan-panel .pl-draft-move select:focus-visible{outline:2px solid var(--primary);outline-offset:2px;border-radius:3px;}',
     '.plan-panel .pl-dayrow.drop-ok{outline:2px solid #86efac;outline-offset:-2px;}',
     '.plan-panel .pl-dayrow.drop-warn{outline:2px solid #fbbf24;outline-offset:-2px;}',
     '.plan-panel .pl-dayrow.drop-blocked{outline:2px solid #cbd5e1;outline-offset:-2px;opacity:0.7;}',
@@ -3660,7 +3662,8 @@ information about.
     '.plan-panel .pl-gtop{margin-bottom:3px;}',
     '.plan-panel .pl-gtag{font-size:10px;font-weight:800;letter-spacing:0.03em;color:var(--text-sub);background:var(--tile);padding:1px 5px;border-radius:4px;}',
     '.plan-panel .pl-ghostsel{width:100%;font-size:10.5px;border:1px solid var(--border);border-radius:6px;padding:4px 6px;margin-top:6px;background:#fff;}',
-    '.plan-panel .pl-daybody .pl-addday{border:1.5px dashed #d7dcec;border-radius:8px;flex:0 0 76px;min-height:34px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:10.5px;color:var(--text-sub);cursor:pointer;}',
+    '.plan-panel .pl-daybody .pl-addday{border:1.5px dashed #d7dcec;border-radius:8px;flex:0 0 76px;min-height:34px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:10.5px;font-family:inherit;color:var(--text-sub);background:none;padding:0;cursor:pointer;}',
+    '.plan-panel .pl-daybody .pl-addday:focus-visible{outline:2px solid var(--info);outline-offset:1px;}',
     '.plan-panel .pl-addday:hover{color:var(--info-dark);border-color:#c7d2fe;}',
     '.plan-panel .pl-addday.is-disabled{cursor:not-allowed;opacity:0.5;border-style:solid;}',
     '.plan-panel .pl-addday.is-disabled:hover{color:var(--text-sub);border-color:#d7dcec;}',
@@ -3720,8 +3723,17 @@ information about.
     '.plan-panel .pl-gmove{cursor:pointer;color:var(--text-sub);background:none;border:1px solid var(--border);border-radius:3px;font-size:8px;line-height:1;padding:1px 3px;min-width:24px;min-height:24px;display:inline-flex;align-items:center;justify-content:center;}',
     '.plan-panel .pl-gmove:hover:not(:disabled){background:var(--tile);color:var(--ink);}',
     '.plan-panel .pl-gmove:disabled{opacity:0.35;cursor:not-allowed;}',
-    '.plan-panel .pl-gname{flex:0 0 220px;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-sub);border:1px solid transparent;border-radius:6px;padding:4px 6px;background:transparent;}',
+    '.plan-panel .pl-gname{flex:0 0 220px;min-width:0;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-sub);border:1px solid transparent;border-radius:6px;padding:4px 6px;background:transparent;text-overflow:ellipsis;}',
     '.plan-panel .pl-gname:hover,.plan-panel .pl-gname:focus{border-color:var(--border);background:#fff;}',
+    // Below ~640px the drag handle + move buttons + fixed-width name + remove
+    // button no longer fit on one row (min combined width comfortably exceeds
+    // a 320-375px phone) — let the row wrap and let the name field shrink
+    // instead of forcing horizontal overflow/scroll.
+    '@media(max-width:640px){',
+    '.plan-panel .pl-exgroup-h{flex-wrap:wrap;row-gap:6px;}',
+    '.plan-panel .pl-gname{flex:1 1 120px;}',
+    '.plan-panel .pl-rm{margin-left:auto;}',
+    '}',
     '.plan-panel .pl-addex-in{margin-top:0;font-size:10.5px;padding:4px 0;}',
     '.plan-panel .pl-block.drop-hover{outline:2px dashed var(--info);outline-offset:-2px;}',
     // Run block-builder header — columns mirror _blockRowHtml: 74px phase
@@ -3803,7 +3815,9 @@ information about.
     '.pl-sug-ex-load{color:var(--text-sub);font-size:11.5px;}',
     '.pl-sug-rep{font-size:10.5px;font-weight:800;color:var(--primary);background:var(--primary-soft);border-radius:5px;padding:1px 5px;}',
     '.pl-sug-day{font-size:10px;font-weight:800;color:var(--text-sub);text-transform:uppercase;width:36px;flex-shrink:0;}',
-    '.pl-sug-type-select{font-size:10px;font-weight:800;padding:3px 6px;border-radius:6px;text-transform:uppercase;flex-shrink:0;border:1px solid transparent;cursor:pointer;-webkit-appearance:none;appearance:none;}',
+    '.pl-sug-type-select{font-size:10px;font-weight:800;padding:3px 6px;border-radius:6px;text-transform:uppercase;flex-shrink:0;border:1px solid transparent;cursor:pointer;}',
+    '.pl-sug-type-select:hover{border-color:currentColor;}',
+    '.pl-sug-type-select:focus-visible{outline:2px solid var(--primary);outline-offset:1px;}',
     '.pl-sug-type-select.run{background:var(--primary-soft);color:var(--primary);}.pl-sug-type-select.strength{background:var(--workout-lift-soft);color:#7c3aed;}.pl-sug-type-select.plyo{background:var(--warning-soft);color:var(--warning);}.pl-sug-type-select.rest{background:#f1f5f9;color:#64748b;}',
     '.pl-sug-meta{font-size:12px;font-family:var(--mono);color:var(--text-sub);flex-shrink:0;}',
     '.pl-sug-intent{flex:1;font-size:12px;color:var(--ink);min-width:100px;}',
@@ -3878,6 +3892,11 @@ information about.
     '.plan-panel .pl-sm-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}',
     '.plan-panel .pl-sm-lbl{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--text-sub);}',
     '.plan-panel .pl-sm-x{margin-left:auto;width:30px;height:30px;border-radius:8px;border:none;background:var(--tile);color:var(--text-sub);font-size:15px;cursor:pointer;}',
+    // Bump to the file's established 44px touch target under a coarse
+    // (touch) pointer — matches .pl-closepanel/.pl-arw/.pl-detid-copy, which
+    // are 44px outright; this one stays compact for mouse users and only
+    // grows where precision is limited.
+    '@media(pointer:coarse){.plan-panel .pl-sm-x{width:44px;height:44px;}}',
     '.plan-panel .pl-sm-meta{display:flex;align-items:center;gap:9px;margin-top:12px;flex-wrap:wrap;}',
     '.plan-panel .pl-sm-tag{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.04em;padding:3px 8px;border-radius:5px;background:#e4e8fd;color:#3b4bb8;}',
     '.plan-panel .pl-sm-tag.lift{background:#efe9fd;color:#6d3fd1;}',
@@ -4333,6 +4352,8 @@ information about.
         // Show warning inline next to the Add button
         var warnEl = document.createElement('div');
         warnEl.className = 'pl-guard-inline';
+        warnEl.setAttribute('aria-live', 'assertive');
+        warnEl.setAttribute('role', 'alert');
         warnEl.innerHTML = tp.planGuardHtml(result) +
           '<button class="pl-btn pl-lime pl-tiny pl-guard-proceed">Add anyway</button>';
         btn.parentNode.insertBefore(warnEl, btn.nextSibling);
