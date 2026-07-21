@@ -460,7 +460,7 @@
       var pct = data && typeof data.correction_pct === "number" ? data.correction_pct : null;
       var n = (data && data.n_calibrations) || 0;
       // Full sentence on desktop, compact form on phones where this tile is
-      // a quarter of the row (.pm-lab-full/.pm-lab-short flip at 720px).
+      // a quarter of the row (.pm-lab-full/.pm-lab-short flip at 1024px).
       function dual(full, short) {
         corrEl.innerHTML =
           '<span class="pm-lab-full">' + full + "</span>" +

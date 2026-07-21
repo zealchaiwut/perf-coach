@@ -451,31 +451,54 @@ information about.
     });
   }
 
+  // Styled-dialog reuse: training-log.js loads before this file on
+  // training-log.html and exposes its shared .modal-overlay/.modal-box
+  // confirm dialog on window.TrainingLog._confirmDialog. Fall back to the
+  // native confirm() only if that's somehow unavailable.
+  function _plConfirm(msg, onConfirm, opts) {
+    if (window.TrainingLog && window.TrainingLog._confirmDialog) {
+      window.TrainingLog._confirmDialog(msg, onConfirm, opts);
+      return;
+    }
+    opts = opts || {};
+    if (window.confirm(msg)) onConfirm();
+    else if (opts.onCancel) opts.onCancel();
+  }
+
   function _confirmWarnings(warnings, onYes) {
     var msg = (warnings || []).join('\n') + '\n\nProceed anyway?';
-    if (window.confirm(msg)) onYes(true);
+    _plConfirm(msg, function () { onYes(true); });
   }
 
   function _removeDraftSlot(slotId) {
-    var mode = window.confirm('Redistribute this session\'s TSS to other open slots?\n\nOK = redistribute · Cancel = drop only')
-      ? 'redistribute' : 'drop';
-    _draftOp('remove', { slot_id: slotId, mode: mode, confirm_warnings: true })
-      .then(function (res) {
-        if (res && res.redistribute) {
-          var m = res.redistribute;
-          _toast('Replaced ' + Math.round(m.replaced_tss || 0) + ' TSS · dropped ' + Math.round(m.dropped_tss || 0));
-        }
-      })
-      .catch(function (err) {
-        if (err && err.needs_confirm) {
-          _confirmWarnings(err.warnings, function () {
-            err.body.confirm_warnings = true;
-            _draftOp(err.op, err.body).catch(function () { _toast('Remove failed', true); });
-          });
-          return;
-        }
-        _toast((err && err.detail && err.detail.block_reason) || 'Could not remove', true);
-      });
+    function proceed(mode) {
+      _draftOp('remove', { slot_id: slotId, mode: mode, confirm_warnings: true })
+        .then(function (res) {
+          if (res && res.redistribute) {
+            var m = res.redistribute;
+            _toast('Replaced ' + Math.round(m.replaced_tss || 0) + ' TSS · dropped ' + Math.round(m.dropped_tss || 0));
+          }
+        })
+        .catch(function (err) {
+          if (err && err.needs_confirm) {
+            _confirmWarnings(err.warnings, function () {
+              err.body.confirm_warnings = true;
+              _draftOp(err.op, err.body).catch(function () { _toast('Remove failed', true); });
+            });
+            return;
+          }
+          _toast((err && err.detail && err.detail.block_reason) || 'Could not remove', true);
+        });
+    }
+    _plConfirm(
+      "Redistribute this session's TSS to other open slots, or drop it without redistributing?",
+      function () { proceed('redistribute'); },
+      {
+        okLabel: 'Redistribute',
+        cancelLabel: 'Drop only',
+        onCancel: function () { proceed('drop'); },
+      },
+    );
   }
 
   function _moveDraftSlot(slotId, toDay, confirmed) {
@@ -3019,23 +3042,33 @@ information about.
   function _smApplyTypeChange(newType, oldType) {
     if (newType === oldType) return;
     var has = _sfBlocks.length || _sfExercises.length || (_sfFocus && _sfFocus.trim());
+    function finish() {
+      if (_detail) _detail.session_type = newType;
+      _smMarkDirty();
+      _renderDetailSection();
+    }
     if (has) {
-      var clear = window.confirm(
-        'Structure is shaped for ' + oldType + ' — keep it or clear it?\n\n' +
-        'OK = clear structure · Cancel = keep existing structure'
+      _plConfirm(
+        'Structure is shaped for ' + oldType + ' — keep it or clear it?',
+        function () {
+          _sfBlocks = newType === 'run' ? [{ phase: 'main', duration_min: 30 }] : [];
+          _sfExercises = [];
+          _sfFocus = '';
+          _sm.structTab = 'simple';
+          finish();
+        },
+        {
+          okLabel: 'Clear structure',
+          cancelLabel: 'Keep structure',
+          onCancel: finish,
+        },
       );
-      if (clear) {
-        _sfBlocks = newType === 'run' ? [{ phase: 'main', duration_min: 30 }] : [];
-        _sfExercises = [];
-        _sfFocus = '';
-        _sm.structTab = 'simple';
-      }
-    } else if (newType === 'run' && !_sfBlocks.length) {
+      return;
+    }
+    if (newType === 'run' && !_sfBlocks.length) {
       _sfBlocks = [{ phase: 'main', duration_min: 30 }];
     }
-    if (_detail) _detail.session_type = newType;
-    _smMarkDirty();
-    _renderDetailSection();
+    finish();
   }
 
   function _smRunAi(steer) {
@@ -3197,8 +3230,11 @@ information about.
 
   function _smTryClose() {
     if (_sm.dirty) {
-      if (!window.confirm('Discard unsaved changes?')) return;
-      _smDiscard();
+      _plConfirm('Discard unsaved changes?', function () {
+        _smDiscard();
+        _closeDetail();
+      });
+      return;
     }
     _closeDetail();
   }
@@ -3264,10 +3300,15 @@ information about.
 
     var delBtn = document.getElementById('pl-det-delete');
     if (delBtn) delBtn.onclick = function () {
-      if (!window.confirm('Delete this planned session? This can’t be undone.')) return;
-      _api('DELETE', '/api/planned-sessions/' + p.id)
-        .then(function () { _toast('Planned session deleted'); _closeDetail(); _loadWeek(); })
-        .catch(function (err) { _toast(err.message || 'Delete failed', true); });
+      _plConfirm(
+        'Delete this planned session? This can’t be undone.',
+        function () {
+          _api('DELETE', '/api/planned-sessions/' + p.id)
+            .then(function () { _toast('Planned session deleted'); _closeDetail(); _loadWeek(); })
+            .catch(function (err) { _toast(err.message || 'Delete failed', true); });
+        },
+        { okLabel: 'Delete' },
+      );
     };
 
     var idCopyBtn = document.getElementById('pl-detid-copy');
@@ -3489,7 +3530,7 @@ information about.
     '.plan-panel .pl-btnrow{display:flex;gap:8px;flex-wrap:wrap;}',
     '.plan-panel .pl-loading{font-size:12.5px;color:var(--text-sub);padding:14px 0;}',
     '.plan-panel .pl-infobanner{background:#f2f5ff;border:1px solid #e0e7ff;border-radius:11px;padding:10px 14px;font-size:12px;color:#3f4a7a;}',
-    '.plan-panel .pl-infobanner b{color:var(--info);}',
+    '.plan-panel .pl-infobanner b{color:var(--info-dark);}',
     '.plan-panel .pl-panelcard{animation:plPanelIn .18s ease;}',
     '@keyframes plPanelIn{from{opacity:0;transform:translateY(-6px);}to{opacity:1;transform:translateY(0);}}',
     '.plan-panel .pl-panelhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;}',
@@ -3620,7 +3661,7 @@ information about.
     '.plan-panel .pl-gtag{font-size:10px;font-weight:800;letter-spacing:0.03em;color:var(--text-sub);background:var(--tile);padding:1px 5px;border-radius:4px;}',
     '.plan-panel .pl-ghostsel{width:100%;font-size:10.5px;border:1px solid var(--border);border-radius:6px;padding:4px 6px;margin-top:6px;background:#fff;}',
     '.plan-panel .pl-daybody .pl-addday{border:1.5px dashed #d7dcec;border-radius:8px;flex:0 0 76px;min-height:34px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:10.5px;color:var(--text-sub);cursor:pointer;}',
-    '.plan-panel .pl-addday:hover{color:var(--info);border-color:#c7d2fe;}',
+    '.plan-panel .pl-addday:hover{color:var(--info-dark);border-color:#c7d2fe;}',
     '.plan-panel .pl-addday.is-disabled{cursor:not-allowed;opacity:0.5;border-style:solid;}',
     '.plan-panel .pl-addday.is-disabled:hover{color:var(--text-sub);border-color:#d7dcec;}',
     '.plan-panel .pl-restday{font-size:11px;color:var(--text-sub);font-style:italic;align-self:center;padding:6px 4px;}',
@@ -3676,7 +3717,7 @@ information about.
     '.plan-panel .pl-gdrag:focus-visible{outline:2px solid var(--primary);outline-offset:1px;border-radius:4px;}',
     // Keyboard-operable up/down alternative to the drag handle above.
     '.plan-panel .pl-gmovebtns{display:flex;flex-direction:column;gap:1px;}',
-    '.plan-panel .pl-gmove{cursor:pointer;color:var(--text-sub);background:none;border:1px solid var(--border);border-radius:3px;font-size:8px;line-height:1;padding:1px 3px;}',
+    '.plan-panel .pl-gmove{cursor:pointer;color:var(--text-sub);background:none;border:1px solid var(--border);border-radius:3px;font-size:8px;line-height:1;padding:1px 3px;min-width:24px;min-height:24px;display:inline-flex;align-items:center;justify-content:center;}',
     '.plan-panel .pl-gmove:hover:not(:disabled){background:var(--tile);color:var(--ink);}',
     '.plan-panel .pl-gmove:disabled{opacity:0.35;cursor:not-allowed;}',
     '.plan-panel .pl-gname{flex:0 0 220px;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-sub);border:1px solid transparent;border-radius:6px;padding:4px 6px;background:transparent;}',
@@ -3686,7 +3727,7 @@ information about.
     // Run block-builder header — columns mirror _blockRowHtml: 74px phase
     // tag, 70px min, 96px repeats, 96px target, remove button.
     '.plan-panel .pl-blockhead span:nth-child(1){flex:none;width:74px;min-width:0;}.plan-panel .pl-blockhead span:nth-child(2){width:70px;}.plan-panel .pl-blockhead span:nth-child(3){width:96px;}.plan-panel .pl-blockhead span:nth-child(4){width:96px;}.plan-panel .pl-blockhead span:nth-child(5){width:20px;}',
-    '.plan-panel .pl-addblock{font-size:11.5px;font-weight:700;color:var(--info);background:none;border:1px dashed #c7d2fe;border-radius:8px;padding:7px;cursor:pointer;text-align:center;margin-top:8px;width:100%;}',
+    '.plan-panel .pl-addblock{font-size:11.5px;font-weight:700;color:var(--info-dark);background:none;border:1px dashed #c7d2fe;border-radius:8px;padding:7px;cursor:pointer;text-align:center;margin-top:8px;width:100%;}',
     '.plan-panel .pl-bulktbl{width:100%;border-collapse:separate;border-spacing:0 8px;}',
     '.plan-panel .pl-bulktbl th{font-size:10px;font-weight:800;color:var(--text-sub);text-transform:uppercase;letter-spacing:0.04em;text-align:left;padding:0 8px 4px;}',
     '.plan-panel .pl-bulktbl td{background:var(--tile);border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:8px;}',
@@ -3714,7 +3755,7 @@ information about.
     '.plan-panel .pl-segblk .pl-sbtag.warm{background:#e0f2fe;color:#0369a1;}.plan-panel .pl-segblk .pl-sbtag.main{background:var(--warning-soft);color:var(--warning);}.plan-panel .pl-segblk .pl-sbtag.cool{background:var(--success-soft);color:var(--success);}',
     '.plan-panel .pl-segblk .pl-sbmain{flex:1;font-size:13px;font-weight:600;}',
     '.plan-panel .pl-segblk .pl-sbtgt{font-size:12px;color:var(--text-sub);font-family:var(--mono);}',
-    '.plan-panel .pl-repeatlbl{font-size:10.5px;color:var(--info);font-weight:700;background:var(--primary-soft);padding:2px 8px;border-radius:6px;margin-left:6px;}',
+    '.plan-panel .pl-repeatlbl{font-size:10.5px;color:var(--info-dark);font-weight:700;background:var(--primary-soft);padding:2px 8px;border-radius:6px;margin-left:6px;}',
     '.plan-panel .pl-exportbox{background:#0f1330;color:#e3e6ff;border-radius:12px;padding:15px 17px;margin-top:18px;}',
     '.plan-panel .pl-exportbox .pl-eh{display:flex;justify-content:space-between;align-items:center;gap:10px;}',
     '.plan-panel .pl-exportbox .pl-et{font-size:12px;font-weight:800;color:#fff;}.plan-panel .pl-exportbox .pl-ewarn{font-size:10.5px;color:#a5abe0;margin-top:5px;line-height:1.5;}',
@@ -3773,13 +3814,13 @@ information about.
     '.pl-sug-add{font-size:11px;font-weight:700;background:var(--accent);color:#1b2340;border:none;border-radius:7px;padding:5px 11px;cursor:pointer;flex-shrink:0;}',
     '.pl-sug-add:disabled{opacity:0.5;cursor:default;}',
     '.pl-sug-add.added{background:#d1fae5;color:#065f46;}',
-    '.pl-sug-refine-toggle{font-size:10.5px;font-weight:600;background:none;border:1px solid var(--border);border-radius:6px;padding:4px 7px;cursor:pointer;color:var(--info);}',
+    '.pl-sug-refine-toggle{font-size:10.5px;font-weight:600;background:none;border:1px solid var(--border);border-radius:6px;padding:4px 7px;cursor:pointer;color:var(--info-dark);}',
     '.pl-sug-refine-toggle:hover{background:var(--tile);}',
     '.pl-sug-refine-panel{display:flex;align-items:center;gap:6px;margin:4px 0 6px 46px;flex-wrap:wrap;}',
     '.pl-sug-refine-input{flex:1;min-width:180px;font-size:11.5px;border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-family:inherit;}',
     '.pl-sug-refine-status{font-size:10.5px;color:var(--text-sub);}',
     '.pl-sug-trigger-row{margin:10px 0 4px;display:flex;justify-content:flex-start;}',
-    '.pl-sug-trigger-btn{font-size:12px;font-weight:700;color:var(--info);background:none;border:1px dashed #c7d2fe;border-radius:8px;padding:7px 13px;cursor:pointer;}',
+    '.pl-sug-trigger-btn{font-size:12px;font-weight:700;color:var(--info-dark);background:none;border:1px dashed #c7d2fe;border-radius:8px;padding:7px 13px;cursor:pointer;}',
     // ── Pre-generation preferences form ─────────────────────────────────────
     '.pl-sug-prefs{display:flex;flex-direction:column;gap:12px;}',
     '.pl-sug-prefs-row{display:flex;flex-direction:column;gap:6px;}',
@@ -3824,7 +3865,7 @@ information about.
     '.pl-sug-day-select{font-size:10px;font-weight:800;color:var(--text-sub);text-transform:uppercase;border:1px solid var(--border);border-radius:6px;padding:3px 4px;background:#fff;cursor:pointer;flex-shrink:0;}',
     '.pl-sug-meta-edit{display:inline-flex;align-items:center;gap:3px;}',
     '.pl-sug-tss-input,.pl-sug-dur-input{width:52px;font-size:11.5px;font-family:var(--mono);border:1px solid var(--border);border-radius:6px;padding:3px 5px;color:var(--ink);}',
-    '.pl-sug-gen{font-size:10.5px;font-weight:700;background:none;border:1px solid #c7d2fe;border-radius:6px;padding:4px 8px;cursor:pointer;color:var(--info);}',
+    '.pl-sug-gen{font-size:10.5px;font-weight:700;background:none;border:1px solid #c7d2fe;border-radius:6px;padding:4px 8px;cursor:pointer;color:var(--info-dark);}',
     '.pl-sug-gen:hover{background:var(--primary-soft);}',
     '.pl-sug-gen:disabled{opacity:0.6;cursor:default;}',
     '.pl-sug-intent-empty{color:var(--text-sub);font-style:italic;}',

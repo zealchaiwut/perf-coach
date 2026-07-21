@@ -4651,22 +4651,38 @@
   // browser dialog. Async: pass the code that used to run after
   // `if (!confirm(msg)) return;` as the callback instead.
   var _tlConfirmCallback = null;
+  var _tlConfirmCancelCallback = null;
   var _tlConfirmReturnFocus = null;
 
-  function _confirmDialog(msg, onConfirm) {
+  // `opts` (all optional) lets callers outside this file (e.g. training-plan.js
+  // via window.TrainingLog._confirmDialog, see below) reuse this same styled
+  // dialog for non-destructive "either way, do something" confirms — not just
+  // the "proceed or do nothing" shape the plain 2-arg call implies:
+  //   title, okLabel, cancelLabel — override the default heading/button text
+  //   onCancel — fired when Cancel is clicked (default: no-op, matches the
+  //              original "if (!confirm(msg)) return;" behavior)
+  function _confirmDialog(msg, onConfirm, opts) {
+    opts = opts || {};
     var overlay = document.getElementById("tl-confirm-overlay");
     var msgEl = document.getElementById("tl-confirm-msg");
+    var titleEl = document.getElementById("tl-confirm-title");
+    var okBtn = document.getElementById("tl-confirm-ok");
+    var cancelBtn = document.getElementById("tl-confirm-cancel");
     if (!overlay) {
       // Modal markup missing for some reason — fail safe to the native
       // dialog rather than silently dropping the action.
       if (confirm(msg)) onConfirm();
+      else if (opts.onCancel) opts.onCancel();
       return;
     }
     _tlConfirmReturnFocus = document.activeElement;
     _tlConfirmCallback = onConfirm;
+    _tlConfirmCancelCallback = opts.onCancel || null;
     if (msgEl) msgEl.textContent = msg;
+    if (titleEl) titleEl.textContent = opts.title || "Are you sure?";
+    if (okBtn) okBtn.textContent = opts.okLabel || "Confirm";
+    if (cancelBtn) cancelBtn.textContent = opts.cancelLabel || "Cancel";
     overlay.classList.add("is-open");
-    var okBtn = document.getElementById("tl-confirm-ok");
     if (okBtn) okBtn.focus();
   }
 
@@ -4674,10 +4690,17 @@
     var overlay = document.getElementById("tl-confirm-overlay");
     if (overlay) overlay.classList.remove("is-open");
     _tlConfirmCallback = null;
+    _tlConfirmCancelCallback = null;
     var el = _tlConfirmReturnFocus;
     _tlConfirmReturnFocus = null;
     if (el && typeof el.focus === "function" && document.contains(el)) el.focus();
   }
+
+  // Exposed so training-plan.js (also loaded on this page, after this script)
+  // can reuse this one styled dialog instead of building its own — see the
+  // 5 confirm() call sites converted there.
+  window.TrainingLog = window.TrainingLog || {};
+  window.TrainingLog._confirmDialog = _confirmDialog;
 
   // ── Delete workout ────────────────────────────────────────────────────────
   function deleteWorkout(workoutId, isSynced) {
@@ -4708,16 +4731,24 @@
   }
 
   // ── Removed workouts modal (restore tombstoned synced activities) ─────────
+  var _removedModalReturnFocus = null;
+
   function openRemovedModal() {
     var modal = document.getElementById("removed-modal");
     if (!modal) return;
+    _removedModalReturnFocus = document.activeElement;
     modal.hidden = false;
     loadRemovedList();
+    var closeBtn = document.getElementById("removed-modal-close");
+    if (closeBtn) closeBtn.focus();
   }
 
   function closeRemovedModal() {
     var modal = document.getElementById("removed-modal");
     if (modal) modal.hidden = true;
+    var el = _removedModalReturnFocus;
+    _removedModalReturnFocus = null;
+    if (el && typeof el.focus === "function" && document.contains(el)) el.focus();
   }
 
   function loadRemovedList() {
@@ -4806,6 +4837,10 @@
     if (closeBtn) closeBtn.addEventListener("click", closeRemovedModal);
     var backdrop = document.getElementById("removed-modal-backdrop");
     if (backdrop) backdrop.addEventListener("click", closeRemovedModal);
+    document.addEventListener("keydown", function (e) {
+      var modal = document.getElementById("removed-modal");
+      if (e.key === "Escape" && modal && !modal.hidden) closeRemovedModal();
+    });
   }
 
   // ── Swipe gesture support (mobile) ───────────────────────────────────────
@@ -5130,7 +5165,7 @@
     // backdrop-filter makes it the containing block for fixed descendants,
     // so a fixed backdrop only dims the header bar and the panel's fixed
     // coordinates resolve against the header instead of the viewport (and
-    // ≤599px the actions cluster is an overflow-x scroller that clips
+    // ≤640px the actions cluster is an overflow-x scroller that clips
     // absolute children on top of that). Portal both to <body> and anchor
     // the panel to the button with viewport-fixed coordinates.
     document.body.appendChild(panel);
@@ -5511,7 +5546,11 @@
         if (cb) cb();
       });
     if (tlConfirmCancel)
-      tlConfirmCancel.addEventListener("click", _closeConfirmDialog);
+      tlConfirmCancel.addEventListener("click", function () {
+        var cancelCb = _tlConfirmCancelCallback;
+        _closeConfirmDialog();
+        if (cancelCb) cancelCb();
+      });
     if (tlConfirmOverlay)
       tlConfirmOverlay.addEventListener("click", function (e) {
         if (e.target === tlConfirmOverlay) _closeConfirmDialog();

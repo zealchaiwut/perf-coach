@@ -2822,6 +2822,13 @@
           width: 44px;
           height: 44px;
         }
+        .plan-panel .pl-gmove {
+          min-width: 44px;
+          min-height: 44px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
       }
 
       /* Full-screen detail panel on phones clears the home indicator */
@@ -4324,7 +4331,7 @@
               <label for="lp-ramp-slider">Ramp rate</label>
               <input id="lp-ramp-slider" type="range" min="0" max="10" step="0.5" value="5" />
               <span class="lp-settings-num">
-                <input id="lp-ramp-input" type="number" min="0" max="10" step="0.5" value="5" />
+                <input id="lp-ramp-input" type="number" min="0" max="10" step="0.5" value="5" aria-label="Ramp rate percent per week" />
                 <span class="pm-unit">% / wk</span>
               </span>
             </div>
@@ -5253,7 +5260,7 @@
         text-transform: uppercase;
       }
       /* Dual-length labels: full text on desktop, short on phones (the
-         720px media block flips these). */
+         1024px media block flips these). */
       .plan-merged .pm-lab-short { display: none; }
       .plan-merged .pm-italic {
         font-style: italic;
@@ -5580,7 +5587,7 @@
         padding: 2px 7px;
         border-radius: 5px;
         background: var(--primary-soft);
-        color: var(--info);
+        color: var(--info-dark);
       }
       /* Actions are always pushed to the far right of the card header,
          regardless of which tags (recalibrates/target) are present. */
@@ -7113,7 +7120,7 @@
       .perf-plink {
         font-size: 12px;
         font-weight: 700;
-        color: var(--info);
+        color: var(--info-dark);
         text-decoration: none;
       }
       .perf-proj-empty {
@@ -7271,7 +7278,7 @@
       .perf-prtile .perf-pr-link {
         font-size: 11px;
         font-weight: 700;
-        color: var(--info);
+        color: var(--info-dark);
         margin-top: 5px;
         display: inline-block;
         text-decoration: none;
@@ -7795,7 +7802,7 @@
     .lrx-scope {
       font-size: 14px;
       font-weight: 600;
-      color: var(--info);
+      color: var(--info-dark);
       background: var(--primary-soft);
       padding: 4px 10px;
       border-radius: 7px;
@@ -7855,7 +7862,7 @@
     .lrx-chip { font-size: 13px; font-weight: 700; padding: 4px 9px; border-radius: 6px; }
     .lrx-chip.g { background: var(--success-soft); color: var(--success); }
     .lrx-chip.r { background: var(--danger-soft); color: var(--danger); }
-    .lrx-chip.b { background: var(--primary-soft); color: var(--info); }
+    .lrx-chip.b { background: var(--primary-soft); color: var(--info-dark); }
 
     /* ── Readiness full cards ────────────────────────────────────────────── */
     /* 2x2 (was a 1x4 row) — the readiness half is now half the card's width
@@ -7883,7 +7890,7 @@
     .lrx-calnav { display: flex; align-items: center; gap: 10px; }
     .lrx-calnav .mtitle { font-size: 16px; font-weight: 800; color: var(--ink); cursor: pointer; padding: 4px 10px; border-radius: 8px; }
     .lrx-calnav .mtitle:hover { background: var(--tile); }
-    .lrx-calnav .mtitle.scoped { background: var(--primary-soft); color: var(--info); }
+    .lrx-calnav .mtitle.scoped { background: var(--primary-soft); color: var(--info-dark); }
     .lrx-arw { width: 32px; height: 32px; border: 1px solid var(--border); background: var(--tile); border-radius: 8px; cursor: pointer; font-size: 16px; color: var(--text-sub); }
     .lrx-today { font-size: 13px; font-weight: 600; color: var(--text-sub); background: var(--tile); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
     /* table-layout:auto (the default) sizes each COLUMN to its own widest
@@ -8001,12 +8008,24 @@
       row-gap: 3px;
       align-items: start;
       padding: 11px 12px;
-      border: 1px solid var(--border); border-left-width: 3px; border-left-color: transparent;
+      border: 1px solid var(--border);
       border-radius: 11px; margin-bottom: 8px; background: #fff; cursor: pointer; transition: background 0.12s;
     }
     .lrx-logrow:hover { background: #f9faff; }
-    .lrx-logrow.run { border-left-color: var(--primary); }
-    .lrx-logrow.lift { border-left-color: var(--workout-lift); }
+    /* Workout family (run vs. lift) reads from a small leading dot ahead of
+       the type tags, not a directional accent border (banned side-stripe
+       pattern — see redesign notes). */
+    .lrx-logrow .ltags::before {
+      content: "";
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--border);
+      flex-shrink: 0;
+    }
+    .lrx-logrow.run .ltags::before { background: var(--primary); }
+    .lrx-logrow.lift .ltags::before { background: var(--workout-lift); }
     .lrx-logrow .lday {
       grid-column: 1;
       grid-row: 1 / span 3;
@@ -8667,6 +8686,7 @@
                     placeholder="Type name…"
                     style="display: none"
                     maxlength="50"
+                    aria-label="Custom workout type name"
                   />
                 </div>
                 <div class="meta-field full-width">
@@ -8792,6 +8812,7 @@
                         min="0"
                         max="59"
                         placeholder="0"
+                        aria-label="Duration minutes"
                       />
                       <span class="dur-sep">m</span>
                       <input
@@ -8802,6 +8823,7 @@
                         min="0"
                         max="59"
                         placeholder="0"
+                        aria-label="Duration seconds"
                       />
                       <span class="dur-sep">s</span>
                     </div>
