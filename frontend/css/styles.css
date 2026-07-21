@@ -36,6 +36,32 @@
   --intensity-intervals: #fca5a5;
   --intensity-rest:      #e2e8f0;
   --intensity-cooldown:  #a5f3fc;
+
+  /* ── Training-log color consolidation ──────────────────────────────────
+     These replace 4 parallel per-page namespaces (--pm-*/--lrx-*/--perf-*/
+     --pl-*) that each redeclared the same handful of colors independently
+     (some drifted to different hex values for the same concept). Soft
+     tints pair with the base tone as a chip/pill background. */
+  --primary-soft: #e6ebfe;   /* soft chip bg paired with --primary */
+  --success-soft: #dcfce7;   /* soft chip bg paired with --success */
+  --warning-soft: #fdf3da;   /* soft chip bg paired with --warning */
+
+  --info: #6366f1;           /* indigo highlight accent (info banners, drag targets) */
+  --info-dark: #4338ca;      /* AA-safe darkened --info for small/light text (~6.7:1) */
+
+  /* Workout-type accent colors (calendar dots, list swatches, chart lines).
+     "run" reuses --primary rather than a separate token — it was already
+     the same brand blue duplicated under 4 different names. */
+  --workout-lift: #8b5cf6;
+  --workout-lift-soft: #ede9fe;
+  --workout-wod: #f97316;        /* decorative fill (dots, swatches) */
+  --workout-wod-dark: #c2410c;   /* AA-safe on white / as text — #f97316 is ~3.56:1, fails AA */
+  --workout-bike: #14b8a6;
+
+  /* Race-priority marker colors (A/B/C). B and C already equalled the
+     existing --warning / --text-sub tokens in most call sites (one call
+     site had drifted to a different blue for B — unified back to --warning). */
+  --priority-a: #1b2340;
 }
 
 * { box-sizing: border-box; }

@@ -70,7 +70,7 @@
     if (!el) return;
     el.innerHTML =
       '<div class="card-head">' +
-        '<div class="ttl"><i class="ti ti-calendar-week"></i>Week plan</div>' +
+        '<h2 class="ttl"><i class="ti ti-calendar-week"></i>Week plan</h2>' +
         '<a href="/log#plan">Full plan &#8594;</a>' +
       '</div>' +
       '<div class="brief-skeleton brief-skeleton--week">' +
@@ -84,7 +84,7 @@
     if (!el) return;
     el.innerHTML =
       '<div class="card-head">' +
-        '<div class="ttl"><i class="ti ti-calendar-week"></i>Week plan</div>' +
+        '<h2 class="ttl"><i class="ti ti-calendar-week"></i>Week plan</h2>' +
         '<a href="/log#plan">Full plan &#8594;</a>' +
       '</div>' +
       '<div class="brief-unavail">' + esc(msg || 'Could not load week plan') + '</div>';
@@ -143,7 +143,7 @@
         var days = (data && data.days) || [];
         el.innerHTML =
           '<div class="card-head">' +
-            '<div class="ttl"><i class="ti ti-calendar-week"></i>Week plan</div>' +
+            '<h2 class="ttl"><i class="ti ti-calendar-week"></i>Week plan</h2>' +
             '<a href="/log#plan">Full plan &#8594;</a>' +
           '</div>' +
           '<div class="hpl-list">' +

@@ -1791,6 +1791,12 @@
   /**
    * Distance ring + Duration + Avg pace — shared by the live detail header
    * and the advanced share-card export.
+   *
+   * Note: .rd4-share-heroes / .rd4-share-hero-tile (run-detail-v4.css)
+   * intentionally restate the hero-metric typography independently from
+   * .rd4-stat--hero rather than sharing a base class, because this markup
+   * also gets captured by html2canvas for the share image — see the CSS
+   * comment above .rd4-share-heroes before consolidating the two.
    */
   function buildHeroMetricsHtml(w, gradId) {
     gradId = gradId || "rd4DistGrad";

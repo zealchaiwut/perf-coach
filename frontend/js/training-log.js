@@ -16,6 +16,10 @@
   var activeRowEl = null;
   var panelMode = "view"; // 'view' | 'edit' | 'create'
   var cachedDetailWorkout = null;
+  // issue: perf — fetchAndRender() defaults to a trailing window rather than
+  // full history (see the fetchAndRender comment below); this flags whether
+  // the "Load older workouts" affordance has been used to pull everything.
+  var _logFullHistoryLoaded = false;
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function pad(n) {
@@ -32,6 +36,17 @@
   function addDays(iso, n) {
     var d = new Date(iso + "T00:00:00");
     d.setDate(d.getDate() + n);
+    return (
+      d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate())
+    );
+  }
+
+  // issue: perf — trailing window for the default training-log fetch (was:
+  // unconditionally "from 2010-01-01", see fetchAndRender). N months back
+  // from today, ISO date.
+  function isoMonthsAgo(n) {
+    var d = new Date();
+    d.setMonth(d.getMonth() - n);
     return (
       d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate())
     );
@@ -632,9 +647,21 @@
   }
 
   // ── Fetch & render ────────────────────────────────────────────────────────
-  // issue #637: load full history (from 2010-01-01 to today); filtering is
-  // client-side via applyClientFilter() so no type/search params are sent.
-  function fetchAndRender() {
+  // issue #637: type/search filtering is client-side via applyClientFilter(),
+  // so those params are never sent — only the date window varies.
+  //
+  // issue: perf — this used to unconditionally request from=2010-01-01 ("load
+  // full history") on every call, including the two-tap "mark feeling" and
+  // subtype edits below. For a multi-year single-user log that payload only
+  // grows over time. Default to a trailing LOG_WINDOW_MONTHS window instead;
+  // pass loadFullHistory=true (wired to the "Load older workouts" sentinel in
+  // renderNextBatch) to fall back to the old from=2010-01-01 behavior when the
+  // user actually needs older history. Trade-off: client-side search/type
+  // filtering (issue #637) and prev/next navigation only cover whatever
+  // window is currently loaded, not the full account history, unless/until
+  // "Load older workouts" has been used — same as any other paginated list.
+  var LOG_WINDOW_MONTHS = 24;
+  function fetchAndRender(loadFullHistory) {
     var loadingEl = document.getElementById("log-loading-indicator");
     if (loadingEl) loadingEl.hidden = false;
 
@@ -644,12 +671,16 @@
     var today = todayISO();
     var params = new URLSearchParams();
 
-    params.set("from", "2010-01-01");
+    params.set(
+      "from",
+      loadFullHistory ? "2010-01-01" : isoMonthsAgo(LOG_WINDOW_MONTHS),
+    );
     params.set("to", today);
     params.set("include_rest", "false");
     // issue #528: pull CTL/ATL/TSB on the SAME request as the list so the
     // readiness widget is fed from one computation (no duplicate load_context).
     params.set("include_load_context", "true");
+    _logFullHistoryLoaded = !!loadFullHistory;
 
     fetch("/api/training-log?" + params.toString())
       .then(function (res) {
@@ -747,10 +778,10 @@
 
   var ACWR_STATUS_META =
     (window.LoadReadinessTiles && LoadReadinessTiles.ACWR_STATUS_META) || {
-      detraining: { word: "DETRAINING", color: "var(--lrx-amber)" },
-      productive: { word: "PRODUCTIVE", color: "var(--lrx-green)" },
-      high_risk: { word: "HIGH RISK", color: "var(--lrx-red)" },
-      baseline_forming: { word: "BUILDING", color: "var(--lrx-muted)" },
+      detraining: { word: "DETRAINING", color: "var(--warning)" },
+      productive: { word: "PRODUCTIVE", color: "var(--success)" },
+      high_risk: { word: "HIGH RISK", color: "var(--danger)" },
+      baseline_forming: { word: "BUILDING", color: "var(--text-sub)" },
     };
 
   function _acwrRatioAt(series, idx) {
@@ -911,12 +942,14 @@
       data: {
         labels: data.dates || [],
         datasets: [
-          { label: "CTL (Fitness)", data: data.ctl, borderColor: "#1b2340", backgroundColor: "transparent", borderWidth: 2, pointRadius: 0, tension: 0.3 },
-          { label: "ATL (Fatigue)", data: data.atl, borderColor: "#f59e0b", backgroundColor: "transparent", borderWidth: 2, pointRadius: 0, tension: 0.3 },
-          { label: "TSB (Form)", data: data.tsb, borderColor: "#10b981", backgroundColor: "transparent", borderWidth: 2, pointRadius: 0, tension: 0.3 },
+          // Chart.js convention (DESIGN.md): tension 0.3, points hidden at rest
+          // (pointRadius: 0) and only shown on hover (pointHoverRadius: 3).
+          { label: "CTL (Fitness)", data: data.ctl, borderColor: "#1b2340", backgroundColor: "transparent", borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.3 },
+          { label: "ATL (Fatigue)", data: data.atl, borderColor: "#f59e0b", backgroundColor: "transparent", borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.3 },
+          { label: "TSB (Form)", data: data.tsb, borderColor: "#10b981", backgroundColor: "transparent", borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.3 },
           {
             label: "ACWR", data: acwrSeries || [], borderColor: "#a855f7", backgroundColor: "transparent",
-            borderWidth: 2, borderDash: [5, 3], pointRadius: 0, tension: 0.3, yAxisID: "y1", spanGaps: true,
+            borderWidth: 2, borderDash: [5, 3], pointRadius: 0, pointHoverRadius: 3, tension: 0.3, yAxisID: "y1", spanGaps: true,
           },
         ],
       },
@@ -930,6 +963,13 @@
             labels: { font: { size: 11, family: "Inter Tight, system-ui, sans-serif" }, color: "#6b7280", boxWidth: 12, padding: 10 },
           },
           tooltip: {
+            // Chart.js convention (DESIGN.md): dark tooltip, white text, 12px body,
+            // 4px corner radius — set explicitly rather than relying on defaults.
+            backgroundColor: "#1f2937",
+            titleColor: "#fff",
+            bodyColor: "#fff",
+            cornerRadius: 4,
+            bodyFont: { size: 12 },
             callbacks: {
               title: function (items) {
                 var iso = items && items[0] ? items[0].label : null;
@@ -946,7 +986,12 @@
         scales: {
           x: {
             ticks: {
-              maxTicksLimit: 8, font: { size: 10 }, color: "#9aa3b8",
+              maxTicksLimit: 8, font: { size: 10 },
+              // #6b7280 mirrors the CSS --text-sub token (JS chart config
+              // can't reference CSS custom properties directly). The retired
+              // #8b95ad and #9aa3b8 both fail AA contrast (~2.5:1) — do not
+              // reintroduce them.
+              color: "#6b7280",
               callback: function (value) {
                 var iso = this.getLabelForValue(value);
                 return iso ? fmtShortDate(iso) : iso;
@@ -954,10 +999,13 @@
             },
             grid: { display: false },
           },
-          y: { ticks: { font: { size: 10 }, color: "#9aa3b8" }, grid: { color: "rgba(13,30,67,0.05)" } },
+          y: {
+            ticks: { font: { size: 10 }, color: "#6b7280" }, // mirrors --text-sub; see x-axis comment above
+            grid: { color: "rgba(0,0,0,0.06)" },
+          },
           y1: {
             position: "right", min: 0, max: 2.5,
-            ticks: { font: { size: 10 }, color: "#a855f7", stepSize: 0.5 },
+            ticks: { font: { size: 10 }, color: "#9333ea", stepSize: 0.5 }, // darkened from #a855f7 (~3.96:1) to clear AA text contrast (~5.4:1), still purple
             grid: { drawOnChartArea: false },
           },
         },
@@ -1529,11 +1577,35 @@
     } else {
       st.sentinel = null;
       if (st.observer) st.observer.disconnect();
-      // End-of-log marker (mock: "— end of log —").
-      var endEl = document.createElement("div");
-      endEl.className = "lrx-sentinel";
-      endEl.textContent = "— end of log —";
-      st.container.appendChild(endEl);
+      if (!_logFullHistoryLoaded) {
+        // issue: perf — the default fetch is windowed (see fetchAndRender);
+        // once every day in that window has been rendered, offer to pull
+        // full history rather than always paying for it up front.
+        var loadOlderEl = document.createElement("div");
+        loadOlderEl.className = "log-load-more lrx-sentinel";
+        loadOlderEl.textContent = "Load older workouts";
+        loadOlderEl.setAttribute("role", "button");
+        loadOlderEl.tabIndex = 0;
+        var triggerLoadOlder = function () {
+          loadOlderEl.removeEventListener("click", triggerLoadOlder);
+          loadOlderEl.textContent = "Loading…";
+          fetchAndRender(true);
+        };
+        loadOlderEl.addEventListener("click", triggerLoadOlder);
+        loadOlderEl.addEventListener("keydown", function (e) {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            triggerLoadOlder();
+          }
+        });
+        st.container.appendChild(loadOlderEl);
+      } else {
+        // End-of-log marker (mock: "— end of log —").
+        var endEl = document.createElement("div");
+        endEl.className = "lrx-sentinel";
+        endEl.textContent = "— end of log —";
+        st.container.appendChild(endEl);
+      }
     }
   }
 
@@ -1660,9 +1732,12 @@
     row.dataset.workoutType = typeKey;
     row.dataset.workoutTitle = (w.title || "").toLowerCase();
 
+    // issue: a11y — the row itself stays a plain, non-interactive container.
+    // Only the title/date/summary surface (built below as `openTarget`) gets
+    // role="button"/tabindex, so it never contains the feeling <button>s as
+    // focusable descendants (invalid ARIA nesting: no interactive-in-interactive).
+    var openAriaLabel = null;
     if (w.id) {
-      row.setAttribute("tabindex", "0");
-      row.setAttribute("role", "button");
       var ariaBits = [];
       ariaBits.push(TYPE_LABELS[typeKey] || w.type || "Workout");
       ariaBits.push(w.title || "Workout");
@@ -1671,18 +1746,8 @@
         ariaBits.push((+w.distance_km).toFixed(1) + " kilometers");
       else if (w.duration_seconds)
         ariaBits.push(Math.round(w.duration_seconds / 60) + " minutes");
-      row.setAttribute("aria-label", ariaBits.join(", ") + ". Open details");
+      openAriaLabel = ariaBits.join(", ") + ". Open details";
       row.dataset.workoutId = w.id;
-      var rowRef = row;
-      row.addEventListener("click", function () {
-        openDetailPanel(w.id, rowRef);
-      });
-      row.addEventListener("keydown", function (e) {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          openDetailPanel(w.id, rowRef);
-        }
-      });
     }
 
     // Day block (number + month abbr).
@@ -1735,8 +1800,33 @@
       lname.appendChild(metaEl);
     }
 
-    row.appendChild(lday);
-    row.appendChild(lname);
+    // Wrap the day block + name/meta (but NOT the feeling buttons) in a
+    // display:contents container so it participates in .lrx-logrow's CSS grid
+    // exactly like the old flat lday/lname children did (both already carry
+    // explicit grid-column/grid-row rules keyed off .lrx-logrow), while being
+    // the single focusable "open details" hit target. Set inline (not in the
+    // stylesheet) since this file doesn't own training-log.html's CSS.
+    var openTarget = document.createElement("div");
+    openTarget.className = "lrx-open-target";
+    openTarget.style.display = "contents";
+    openTarget.appendChild(lday);
+    openTarget.appendChild(lname);
+    if (w.id) {
+      openTarget.setAttribute("tabindex", "0");
+      openTarget.setAttribute("role", "button");
+      if (openAriaLabel) openTarget.setAttribute("aria-label", openAriaLabel);
+      var rowRef = row;
+      openTarget.addEventListener("click", function () {
+        openDetailPanel(w.id, rowRef);
+      });
+      openTarget.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openDetailPanel(w.id, rowRef);
+        }
+      });
+    }
+    row.appendChild(openTarget);
     if (w.id) {
       row.appendChild(buildFeelingRow(w.id, w.feeling, "lrx-feel"));
     }
@@ -1824,7 +1914,11 @@
   }
 
   function isDesktop() {
-    return window.innerWidth >= 880;
+    // Matches the CSS tablet/desktop split (frontend/pages/training-log.html
+    // "#layout-wrapper.has-panel" / ".detail-panel" @media (min-width:1024px))
+    // — the documented desktop breakpoint (DESIGN.md), not the old 880px
+    // one-off. Below this, the detail panel is a full-screen drawer.
+    return window.innerWidth >= 1024;
   }
 
   function lockPageScroll() {
@@ -1966,17 +2060,58 @@
   // the row keeps the full run pipeline (detail layout, decoupling, PRs, run
   // counts); run_subtype just labels it and feeds the Performance Speed card.
   // Persists via the existing PATCH endpoint (window.fetch auto-attaches
-  // X-CSRF-Token) and refreshes the drawer + list.
+  // X-CSRF-Token) and patches the drawer + list in place.
   var _RUN_SUBTYPE_TOAST = {
     interval: "Marked as interval",
     longrun: "Marked as long run",
     easy: "Marked as easy run",
     tempo: "Marked as tempo",
   };
+
+  // issue: perf — the subtype tag is baked into the static HTML string that
+  // RunDetailView.render()/renderDetailContent() produce (unlike the feeling
+  // row, which is a separately-mounted component patchFeeling can just
+  // re-render), so a straight re-render would need the full union payload
+  // again. Instead, poke the two known container elements those renderers
+  // leave behind (.rd4-typebadges for the run view in run-detail-view.js,
+  // .dp-hero-typebadge for the legacy/bike detail view) directly.
+  function _patchDetailSubtypeBadge(subtype) {
+    var label = SUBTYPE_LABELS[(subtype || "").toLowerCase()] || null;
+    var rd4Group = document.querySelector(".rd4-typebadges");
+    if (rd4Group) {
+      var rd4Badge = rd4Group.querySelector(".rd4-subtypebadge");
+      if (label) {
+        if (!rd4Badge) {
+          rd4Badge = document.createElement("span");
+          rd4Badge.className = "rd4-typebadge rd4-subtypebadge";
+          rd4Group.appendChild(rd4Badge);
+        }
+        rd4Badge.textContent = label;
+      } else if (rd4Badge) {
+        rd4Badge.remove();
+      }
+    }
+    var heroGroup = document.querySelector(".dp-hero-typebadge");
+    if (heroGroup) {
+      var heroBadge = heroGroup.querySelector(".dp-subtype-pill");
+      if (label) {
+        if (!heroBadge) {
+          heroBadge = document.createElement("span");
+          heroBadge.className = "dp-type-pill dp-subtype-pill";
+          heroGroup.appendChild(heroBadge);
+        }
+        heroBadge.textContent = label;
+      } else if (heroBadge) {
+        heroBadge.remove();
+      }
+    }
+  }
+
   function setRunSubtype(subtype) {
     if (!activeDetailWorkoutId) return;
+    var workoutId = activeDetailWorkoutId;
     // subtype === null clears it.
-    fetch("/api/workouts/" + activeDetailWorkoutId, {
+    fetch("/api/workouts/" + workoutId, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ run_subtype: subtype }),
@@ -1985,16 +2120,29 @@
         if (!res.ok) throw new Error("HTTP " + res.status);
         return res.json();
       })
-      .then(function () {
+      .then(function (updated) {
         UIStates.showToast(
           subtype
             ? _RUN_SUBTYPE_TOAST[subtype] || "Subtype set"
             : "Subtype cleared",
         );
-        // Re-fetch the detail (updates cachedDetailWorkout + menu state) and
-        // refresh the list so the row badge updates.
-        fetchAndRenderDetail(activeDetailWorkoutId);
-        fetchAndRender();
+        // issue: perf — patch cachedDetailWorkout/menu/list in place (mirrors
+        // patchFeeling) instead of a full fetchAndRenderDetail() +
+        // fetchAndRender() just to relabel one workout's subtype tag.
+        var newSubtype =
+          updated && updated.run_subtype != null
+            ? updated.run_subtype
+            : subtype;
+        if (cachedDetailWorkout && cachedDetailWorkout.id === workoutId) {
+          cachedDetailWorkout.run_subtype = newSubtype;
+        }
+        updateOverflowMenu(cachedDetailWorkout);
+        _patchDetailSubtypeBadge(newSubtype);
+        if (updated && patchWorkoutInPlace(updated)) {
+          rerenderListInPlace();
+        } else {
+          fetchAndRender();
+        }
       })
       .catch(function () {
         UIStates.showToast("Could not update workout. Try again.", true);
@@ -2368,15 +2516,22 @@
     menu.removeAttribute("hidden");
     menu.classList.add("is-open");
     if (btn) btn.setAttribute("aria-expanded", "true");
+    var firstItem = menu.querySelector("button, a[href]");
+    if (firstItem) firstItem.focus();
   }
 
   function closeOverflowMenu() {
     var menu = document.getElementById("dp-overflow-menu");
     var btn = document.getElementById("dp-overflow-btn");
     if (!menu) return;
+    var wasOpen = menu.classList.contains("is-open");
     menu.classList.remove("is-open");
     menu.setAttribute("hidden", "");
     if (btn) btn.setAttribute("aria-expanded", "false");
+    // Return focus to the trigger — call sites that immediately open
+    // something else (duplicate modal, confirm dialog) re-focus their own
+    // control right after, harmlessly overriding this.
+    if (wasOpen && btn) btn.focus();
   }
 
   function toggleOverflowMenu() {
@@ -2540,6 +2695,17 @@
       var card = lastCard;
       var lapMode = lastLap;
 
+      // Focus save/restore, matching the established modal pattern in this
+      // file (_confirmDialog's _tlConfirmReturnFocus / openRemovedModal's
+      // _removedModalReturnFocus / openDuplicateModal's _dupModalReturnFocus).
+      var _shotModalReturnFocus = document.activeElement;
+      function _restoreShotFocus() {
+        var el = _shotModalReturnFocus;
+        _shotModalReturnFocus = null;
+        if (el && typeof el.focus === "function" && document.contains(el))
+          el.focus();
+      }
+
       var overlay = document.createElement("div");
       overlay.style.cssText =
         "position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:9999;" +
@@ -2547,8 +2713,11 @@
         "box-sizing:border-box;";
 
       var box = document.createElement("div");
+      box.setAttribute("role", "dialog");
+      box.setAttribute("aria-modal", "true");
+      box.setAttribute("aria-label", "Screenshot options");
       box.style.cssText =
-        "position:relative;background:#fff;border-radius:16px;padding:20px;max-width:760px;" +
+        "position:relative;background:var(--surface);border-radius:16px;padding:20px;max-width:760px;" +
         "width:100%;max-height:min(92vh,900px);overflow:auto;" +
         "box-shadow:0 12px 40px rgba(0,0,0,0.22);" +
         "display:grid;grid-template-columns:minmax(220px,260px) minmax(0,1fr);" +
@@ -2558,6 +2727,7 @@
         if (!overlay.parentNode) return;
         document.body.removeChild(overlay);
         document.removeEventListener("keydown", onKey);
+        _restoreShotFocus();
         resolve(null);
       }
 
@@ -2575,16 +2745,16 @@
       closeBtn.style.cssText =
         "position:absolute;top:10px;right:10px;z-index:2;" +
         "width:32px;height:32px;border:0;border-radius:8px;" +
-        "background:transparent;color:#6b7280;cursor:pointer;" +
+        "background:transparent;color:var(--text-sub);cursor:pointer;" +
         "font-size:16px;line-height:1;display:flex;align-items:center;" +
         "justify-content:center;";
       closeBtn.addEventListener("mouseenter", function () {
-        closeBtn.style.background = "#f3f4f6";
-        closeBtn.style.color = "#111827";
+        closeBtn.style.background = "var(--surface-2)";
+        closeBtn.style.color = "var(--text)";
       });
       closeBtn.addEventListener("mouseleave", function () {
         closeBtn.style.background = "transparent";
-        closeBtn.style.color = "#6b7280";
+        closeBtn.style.color = "var(--text-sub)";
       });
       closeBtn.addEventListener("click", function (e) {
         e.stopPropagation();
@@ -2601,7 +2771,7 @@
         p.textContent = text;
         p.style.cssText =
           "margin:0 0 10px;font-size:12px;font-weight:800;letter-spacing:.06em;" +
-          "text-transform:uppercase;color:#9aa3b2;";
+          "text-transform:uppercase;color:var(--text-sub);";
         return p;
       }
 
@@ -2620,13 +2790,13 @@
             ";" +
             "border-radius:9px;font-size:14px;font-weight:600;" +
             "border:1.5px solid " +
-            (on ? "#2563eb" : "#e0e4f0") +
+            (on ? "var(--primary-dark)" : "var(--border)") +
             ";" +
             "background:" +
-            (on ? "#2563eb" : "#fff") +
+            (on ? "var(--primary-dark)" : "var(--surface)") +
             ";" +
             "color:" +
-            (on ? "#fff" : "#374151") +
+            (on ? "var(--surface)" : "var(--text)") +
             ";" +
             "opacity:" +
             (disabled ? "0.45" : "1") +
@@ -2677,13 +2847,13 @@
 
       var previewHint = document.createElement("div");
       previewHint.style.cssText =
-        "margin-top:8px;font-size:12px;color:#9aa3b2;font-weight:500;";
+        "margin-top:8px;font-size:12px;color:var(--text-sub);font-weight:500;";
       previewHint.textContent = "Checkerboard shows transparency";
 
       function refreshPreview() {
         applyLapModeIfNeeded();
         previewStage.innerHTML =
-          '<div style="padding:24px;text-align:center;color:#9aa3b2;font-size:13px;">Updating…</div>';
+          '<div style="padding:24px;text-align:center;color:var(--text-sub);font-size:13px;">Updating…</div>';
         requestAnimationFrame(function () {
           requestAnimationFrame(function () {
             var opts = {
@@ -2694,7 +2864,7 @@
             previewStage.innerHTML = "";
             if (!node) {
               previewStage.innerHTML =
-                '<div style="padding:28px;text-align:center;color:#9aa3b2;font-size:13px;">Nothing to preview</div>';
+                '<div style="padding:28px;text-align:center;color:var(--text-sub);font-size:13px;">Nothing to preview</div>';
               return;
             }
 
@@ -2843,7 +3013,7 @@
       go.style.cssText =
         "display:block;width:100%;padding:12px;margin-top:14px;cursor:pointer;" +
         "border-radius:9px;font-size:14px;font-weight:700;border:0;" +
-        "background:#0b1530;color:#fff;";
+        "background:var(--ink);color:var(--surface);";
       go.addEventListener("click", function () {
         try {
           localStorage.setItem("rd4_shot_card", card);
@@ -2852,6 +3022,7 @@
         applyLapModeIfNeeded();
         document.removeEventListener("keydown", onKey);
         document.body.removeChild(overlay);
+        _restoreShotFocus();
         resolve({
           style: card === "advanced" ? "full" : "simple",
           includeGraph: card === "simple_graph",
@@ -2885,6 +3056,7 @@
       });
       document.addEventListener("keydown", onKey);
       document.body.appendChild(overlay);
+      closeBtn.focus();
       refreshPreview();
     });
   }
@@ -3337,10 +3509,10 @@
       '<div class="dp-profile-axis-x"><span>Start</span><span>Finish</span></div>' +
       "</div>" +
       '<div class="dp-profile-legend">' +
-      '<span class="dp-leg"><span class="dp-leg-dot" style="background:#16a34a"></span>Easy</span>' +
-      '<span class="dp-leg"><span class="dp-leg-dot" style="background:#d97706"></span>Tempo</span>' +
-      '<span class="dp-leg"><span class="dp-leg-dot" style="background:#ea580c"></span>Hard</span>' +
-      '<span class="dp-leg"><span class="dp-leg-dot" style="background:#64748b"></span>Recovery</span>' +
+      '<span class="dp-leg"><span class="dp-leg-dot" style="background:var(--rl-easy)"></span>Easy</span>' +
+      '<span class="dp-leg"><span class="dp-leg-dot" style="background:var(--rl-tempo)"></span>Tempo</span>' +
+      '<span class="dp-leg"><span class="dp-leg-dot" style="background:var(--rl-hard)"></span>Hard</span>' +
+      '<span class="dp-leg"><span class="dp-leg-dot" style="background:var(--rl-recovery)"></span>Recovery</span>' +
       "</div>" +
       "</div>"
     );
@@ -3400,10 +3572,10 @@
       '<div class="dp-profile-axis-x"><span>Start</span><span>Finish</span></div>' +
       "</div>" +
       '<div class="dp-profile-legend">' +
-      '<span class="dp-leg"><span class="dp-leg-dot" style="background:#16a34a"></span>RPE \u22645</span>' +
-      '<span class="dp-leg"><span class="dp-leg-dot" style="background:#eab308"></span>6\u20137</span>' +
-      '<span class="dp-leg"><span class="dp-leg-dot" style="background:#ea580c"></span>8\u20139</span>' +
-      '<span class="dp-leg"><span class="dp-leg-dot" style="background:#dc2626"></span>10</span>' +
+      '<span class="dp-leg"><span class="dp-leg-dot" style="background:var(--success)"></span>RPE \u22645</span>' +
+      '<span class="dp-leg"><span class="dp-leg-dot" style="background:var(--warning)"></span>6\u20137</span>' +
+      '<span class="dp-leg"><span class="dp-leg-dot" style="background:var(--rl-hard)"></span>8\u20139</span>' +
+      '<span class="dp-leg"><span class="dp-leg-dot" style="background:var(--danger)"></span>10</span>' +
       "</div>" +
       "</div>"
     );
@@ -4496,13 +4668,75 @@
     render();
   }
 
+  // ── Generic confirm dialog (styled replacement for native confirm()) ──────
+  // Uses the shared .modal-overlay/.modal-box/.modal-actions vocabulary
+  // (frontend/css/styles.css) via #tl-confirm-overlay in training-log.html,
+  // so destructive actions get the app's own modal instead of a native
+  // browser dialog. Async: pass the code that used to run after
+  // `if (!confirm(msg)) return;` as the callback instead.
+  var _tlConfirmCallback = null;
+  var _tlConfirmCancelCallback = null;
+  var _tlConfirmReturnFocus = null;
+
+  // `opts` (all optional) lets callers outside this file (e.g. training-plan.js
+  // via window.TrainingLog._confirmDialog, see below) reuse this same styled
+  // dialog for non-destructive "either way, do something" confirms — not just
+  // the "proceed or do nothing" shape the plain 2-arg call implies:
+  //   title, okLabel, cancelLabel — override the default heading/button text
+  //   onCancel — fired when Cancel is clicked (default: no-op, matches the
+  //              original "if (!confirm(msg)) return;" behavior)
+  function _confirmDialog(msg, onConfirm, opts) {
+    opts = opts || {};
+    var overlay = document.getElementById("tl-confirm-overlay");
+    var msgEl = document.getElementById("tl-confirm-msg");
+    var titleEl = document.getElementById("tl-confirm-title");
+    var okBtn = document.getElementById("tl-confirm-ok");
+    var cancelBtn = document.getElementById("tl-confirm-cancel");
+    if (!overlay) {
+      // Modal markup missing for some reason — fail safe to the native
+      // dialog rather than silently dropping the action.
+      if (confirm(msg)) onConfirm();
+      else if (opts.onCancel) opts.onCancel();
+      return;
+    }
+    _tlConfirmReturnFocus = document.activeElement;
+    _tlConfirmCallback = onConfirm;
+    _tlConfirmCancelCallback = opts.onCancel || null;
+    if (msgEl) msgEl.textContent = msg;
+    if (titleEl) titleEl.textContent = opts.title || "Are you sure?";
+    if (okBtn) okBtn.textContent = opts.okLabel || "Confirm";
+    if (cancelBtn) cancelBtn.textContent = opts.cancelLabel || "Cancel";
+    overlay.classList.add("is-open");
+    if (okBtn) okBtn.focus();
+  }
+
+  function _closeConfirmDialog() {
+    var overlay = document.getElementById("tl-confirm-overlay");
+    if (overlay) overlay.classList.remove("is-open");
+    _tlConfirmCallback = null;
+    _tlConfirmCancelCallback = null;
+    var el = _tlConfirmReturnFocus;
+    _tlConfirmReturnFocus = null;
+    if (el && typeof el.focus === "function" && document.contains(el)) el.focus();
+  }
+
+  // Exposed so training-plan.js (also loaded on this page, after this script)
+  // can reuse this one styled dialog instead of building its own — see the
+  // 5 confirm() call sites converted there.
+  window.TrainingLog = window.TrainingLog || {};
+  window.TrainingLog._confirmDialog = _confirmDialog;
+
   // ── Delete workout ────────────────────────────────────────────────────────
   function deleteWorkout(workoutId, isSynced) {
     var msg = isSynced
       ? "Remove this workout from your log? It won't be re-synced from Strava/Stryd. You can restore it later from Removed workouts."
       : "Delete this workout? This cannot be undone.";
-    if (!confirm(msg)) return;
+    _confirmDialog(msg, function () {
+      _deleteWorkoutConfirmed(workoutId, isSynced);
+    });
+  }
 
+  function _deleteWorkoutConfirmed(workoutId, isSynced) {
     fetch("/api/workouts/" + workoutId, { method: "DELETE" })
       .then(function (res) {
         if (!res.ok && res.status !== 204)
@@ -4521,16 +4755,24 @@
   }
 
   // ── Removed workouts modal (restore tombstoned synced activities) ─────────
+  var _removedModalReturnFocus = null;
+
   function openRemovedModal() {
     var modal = document.getElementById("removed-modal");
     if (!modal) return;
+    _removedModalReturnFocus = document.activeElement;
     modal.hidden = false;
     loadRemovedList();
+    var closeBtn = document.getElementById("removed-modal-close");
+    if (closeBtn) closeBtn.focus();
   }
 
   function closeRemovedModal() {
     var modal = document.getElementById("removed-modal");
     if (modal) modal.hidden = true;
+    var el = _removedModalReturnFocus;
+    _removedModalReturnFocus = null;
+    if (el && typeof el.focus === "function" && document.contains(el)) el.focus();
   }
 
   function loadRemovedList() {
@@ -4619,6 +4861,10 @@
     if (closeBtn) closeBtn.addEventListener("click", closeRemovedModal);
     var backdrop = document.getElementById("removed-modal-backdrop");
     if (backdrop) backdrop.addEventListener("click", closeRemovedModal);
+    document.addEventListener("keydown", function (e) {
+      var modal = document.getElementById("removed-modal");
+      if (e.key === "Escape" && modal && !modal.hidden) closeRemovedModal();
+    });
   }
 
   // ── Swipe gesture support (mobile) ───────────────────────────────────────
@@ -4943,7 +5189,7 @@
     // backdrop-filter makes it the containing block for fixed descendants,
     // so a fixed backdrop only dims the header bar and the panel's fixed
     // coordinates resolve against the header instead of the viewport (and
-    // ≤599px the actions cluster is an overflow-x scroller that clips
+    // ≤640px the actions cluster is an overflow-x scroller that clips
     // absolute children on top of that). Portal both to <body> and anchor
     // the panel to the button with viewport-fixed coordinates.
     document.body.appendChild(panel);
@@ -4968,12 +5214,16 @@
       _positionSyncPanel();
       if (backdrop) backdrop.hidden = false;
       toggleBtn.setAttribute("aria-expanded", "true");
+      var firstItem = panel.querySelector("button:not(:disabled), a[href]");
+      if (firstItem) firstItem.focus();
     }
 
     function _closeSyncPanel() {
+      var wasOpen = !panel.hidden;
       panel.hidden = true;
       if (backdrop) backdrop.hidden = true;
       toggleBtn.setAttribute("aria-expanded", "false");
+      if (wasOpen) toggleBtn.focus();
     }
 
     toggleBtn.addEventListener("click", function (e) {
@@ -4987,17 +5237,21 @@
     }
 
     // Keep the fixed panel glued to the button while the page (or the
-    // actions cluster itself) scrolls or the viewport resizes.
-    window.addEventListener("resize", function () {
-      if (!panel.hidden) _positionSyncPanel();
-    });
-    window.addEventListener(
-      "scroll",
-      function () {
+    // actions cluster itself) scrolls or the viewport resizes. rAF-throttled
+    // — both handlers do a read-then-write layout pass (getBoundingClientRect
+    // + offsetWidth, then style writes), and scroll fires on the capture
+    // phase for every ancestor scroller, so left unthrottled this ran the
+    // full read/write cycle multiple times per frame.
+    var _syncPanelRAF = null;
+    function _schedulePositionSyncPanel() {
+      if (panel.hidden || _syncPanelRAF) return;
+      _syncPanelRAF = requestAnimationFrame(function () {
+        _syncPanelRAF = null;
         if (!panel.hidden) _positionSyncPanel();
-      },
-      true,
-    );
+      });
+    }
+    window.addEventListener("resize", _schedulePositionSyncPanel);
+    window.addEventListener("scroll", _schedulePositionSyncPanel, true);
 
     // The backdrop catches most outside clicks; this handles anything above
     // it in the stacking order (e.g. the header itself).
@@ -5186,6 +5440,15 @@
         return;
       closeOverflowMenu();
     });
+
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape") return;
+      var menu = document.getElementById("dp-overflow-menu");
+      if (menu && menu.classList.contains("is-open")) {
+        e.preventDefault();
+        closeOverflowMenu();
+      }
+    });
   }
 
   // ── Repeat last workout (issue #524) ──────────────────────────────────────
@@ -5220,6 +5483,8 @@
   }
 
   // ── Duplicate to date (issue #524) ────────────────────────────────────────
+  var _dupModalReturnFocus = null;
+
   function openDuplicateModal() {
     if (!activeDetailWorkoutId) return;
     var modal = document.getElementById("dup-modal");
@@ -5230,6 +5495,7 @@
       input.max = todayISO(); // no future dates (mirrors the backend rule)
       input.value = todayISO();
     }
+    _dupModalReturnFocus = document.activeElement;
     if (modal) {
       modal.classList.add("is-open");
       modal.setAttribute("aria-hidden", "false");
@@ -5242,6 +5508,9 @@
     if (!modal) return;
     modal.classList.remove("is-open");
     modal.setAttribute("aria-hidden", "true");
+    var el = _dupModalReturnFocus;
+    _dupModalReturnFocus = null;
+    if (el && typeof el.focus === "function" && document.contains(el)) el.focus();
   }
 
   function dupModalIsOpen() {
@@ -5309,6 +5578,33 @@
       repeatBtn.addEventListener("click", function () {
         if (!repeatBtn.disabled) repeatLastEntryPoint();
       });
+
+    var tlConfirmOverlay = document.getElementById("tl-confirm-overlay");
+    var tlConfirmOk = document.getElementById("tl-confirm-ok");
+    var tlConfirmCancel = document.getElementById("tl-confirm-cancel");
+    if (tlConfirmOk)
+      tlConfirmOk.addEventListener("click", function () {
+        var cb = _tlConfirmCallback;
+        _closeConfirmDialog();
+        if (cb) cb();
+      });
+    if (tlConfirmCancel)
+      tlConfirmCancel.addEventListener("click", function () {
+        var cancelCb = _tlConfirmCancelCallback;
+        _closeConfirmDialog();
+        if (cancelCb) cancelCb();
+      });
+    if (tlConfirmOverlay)
+      tlConfirmOverlay.addEventListener("click", function (e) {
+        if (e.target === tlConfirmOverlay) _closeConfirmDialog();
+      });
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape") return;
+      if (tlConfirmOverlay && tlConfirmOverlay.classList.contains("is-open")) {
+        e.preventDefault();
+        _closeConfirmDialog();
+      }
+    });
 
     var dupCloseBtn = document.getElementById("dup-close-btn");
     if (dupCloseBtn) dupCloseBtn.addEventListener("click", closeDuplicateModal);
@@ -5384,10 +5680,10 @@
   var DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
   var TYPE_COLORS = {
-    run: "#3b82f6",
-    lift: "#8b5cf6",
-    wod: "#f97316",
-    bike: "#14b8a6",
+    run: "var(--primary)",
+    lift: "var(--workout-lift)",
+    wod: "var(--workout-wod)",
+    bike: "var(--workout-bike)",
   };
 
   var TYPE_ORDER = ["run", "lift", "wod", "bike"];
@@ -5761,7 +6057,10 @@
 
   // ── Month Calendar (issue #638) ───────────────────────────────────────────
   // Desktop-only (CSS hides #log-calendar below 1024 px). Reads from lastWeeks
-  // already in memory — no additional API calls.
+  // already in memory — no additional API calls. Note: since fetchAndRender()
+  // windows its default fetch (see that function's comment), navigating to a
+  // month older than the loaded window shows no data until "Load older
+  // workouts" (in renderNextBatch) has been used.
 
   var calCurrentMonth = null; // Date at the 1st of displayed month
   var calSelectedDate = null; // ISO date string of the highlighted cell
@@ -6104,10 +6403,11 @@
         } else {
           var dStr = year + "-" + pad(month + 1) + "-" + pad(dayNum);
           var todayCls = (dStr === todayStr) ? " is-today" : "";
+          var dayLabel = CAL_MONTH_NAMES[month] + " " + dayNum + (dStr === todayStr ? " (today)" : "");
           html +=
             '<td class="cal-day' + todayCls + '" data-date="' +
             dStr +
-            '"><span class="dnum">' +
+            '" tabindex="0" role="button" aria-label="' + esc(dayLabel) + '"><span class="dnum">' +
             dayNum +
             "</span>" +
             _calMarkersHtml(dStr) +
@@ -6119,8 +6419,9 @@
       var totalKm = wa.km + wa.estKm;
       var actualPct = totalTss > 0 ? (wa.tss / maxWk) * 100 : 0;
       var estPct = totalTss > 0 ? (wa.estTss / maxWk) * 100 : 0;
+      var wkLabel = "Week of " + _calWkLabel(wa.startDate, wa.endDate);
       html +=
-        '<td class="lrx-wkcell">' +
+        '<td class="lrx-wkcell" tabindex="0" role="button" aria-label="' + esc(wkLabel) + '">' +
         '<div class="wt">' +
         (wa.estTss > 0
           ? Math.round(wa.tss) + " / " + Math.round(totalTss) + " TSS"
@@ -6141,9 +6442,9 @@
     html +=
       "</tbody></table>" +
       '<div class="lrx-callegend">' +
-      '<span><b style="background:var(--lrx-run)"></b>Run</span>' +
-      '<span><b style="background:var(--lrx-lift)"></b>Strength</span>' +
-      '<span><b style="background:var(--lrx-plyo)"></b>Plyo</span>' +
+      '<span><b style="background:var(--primary)"></b>Run</span>' +
+      '<span><b style="background:var(--workout-lift)"></b>Strength</span>' +
+      '<span><b style="background:var(--workout-wod-dark)"></b>Plyo</span>' +
       '<span><span class="cal-mk plan run" style="width:20px;height:16px;flex:none;font-size:0;">&nbsp;</span>Outline = planned, not yet done</span>' +
       '<span><span class="lrx-wkbar-est" style="display:inline-block;width:14px;height:8px;border-radius:2px;vertical-align:middle;"></span> Estimated TSS from plan</span>' +
       "</div>";
@@ -6245,6 +6546,18 @@
         }
         // Also highlight + scroll to that week's groups in the log list below.
         _highlightLogWeek(ws, we);
+      });
+      // Keyboard access (P0): day cells and the week-total cell are now
+      // focusable (tabindex="0" role="button" above) — Enter/Space triggers
+      // the identical scoping behavior by replaying it as a real click, so
+      // this stays in lockstep with the mouse handler above instead of
+      // duplicating its logic.
+      tbody.addEventListener("keydown", function (e) {
+        if (e.key !== "Enter" && e.key !== " " && e.key !== "Spacebar") return;
+        var target = e.target.closest('td[data-date], .lrx-wkcell');
+        if (!target) return;
+        e.preventDefault();
+        target.click();
       });
     }
   }
@@ -6686,7 +6999,7 @@
   function _renderError() {
     var body = document.getElementById("sd-body");
     if (!body) return;
-    body.innerHTML = '<div class="sd-error">Could not load summary.</div>';
+    body.innerHTML = '<div class="sd-error" role="alert">Could not load summary.</div>';
   }
 
   function _applyData(period, data) {
