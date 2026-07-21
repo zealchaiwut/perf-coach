@@ -3556,9 +3556,11 @@ information about.
     '.plan-panel .pl-sess.dragging{opacity:0.4;}',
     '.plan-panel .pl-sess[draggable="true"]{cursor:grab;}',
     '.plan-panel .pl-sess .pl-sn{font-weight:700;font-size:11.5px;}.plan-panel .pl-sess .pl-sm{color:var(--text-sub);font-family:var(--mono);font-size:10px;margin-top:2px;}',
-    '.plan-panel .pl-stypetag{font-size:10px;font-weight:800;letter-spacing:0.03em;padding:1px 5px;border-radius:4px;text-transform:uppercase;display:inline-block;}',
-    '.plan-panel .pl-stypetag.run{background:var(--primary-soft);color:var(--primary);}.plan-panel .pl-stypetag.lift{background:var(--workout-lift-soft);color:#7c3aed;}',
-    '.plan-panel .pl-stypetag.plyo{background:var(--warning-soft);color:var(--warning);}.plan-panel .pl-stypetag.stretch{background:#ccfbf1;color:#0f766e;}',
+    // .pl-stypetag base + variant colors were fully re-declared further down
+    // (re-audit #14) and that later, un-tokenized block always won the
+    // cascade — this tokenized version was dead. Removed rather than kept,
+    // to avoid a visual change without browser verification; see the note
+    // by the surviving definition.
     '.plan-panel .pl-dhandle{position:absolute;top:7px;right:8px;font-size:10px;color:var(--text-sub);letter-spacing:-1px;}',
     '.plan-panel .pl-sesstop{display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:2px;}',
     '.plan-panel .pl-sesstop-left{display:flex;align-items:center;gap:6px;}',
@@ -3624,6 +3626,11 @@ information about.
     '.plan-panel .pl-draft-tss{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--text-sub);}',
     '.plan-panel .pl-draft-rm{font-family:var(--mono);font-size:10px;font-weight:700;color:#dc2626;background:none;border:none;cursor:pointer;padding:0;white-space:nowrap;}',
     '.plan-panel .pl-draft-rm:hover{text-decoration:underline;}',
+    // Raw-hex, un-tokenized — this is the block that actually wins the
+    // cascade (a dead, tokenized duplicate was removed above, re-audit
+    // #14). Left as-is rather than swapped for tokens: doing so changes
+    // the on-screen color of every .pl-stypetag site-wide, which needs a
+    // real browser check before shipping, not a blind swap.
     '.plan-panel .pl-stypetag{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:0.04em;padding:2px 7px;border-radius:5px;background:#e4e8fd;color:#3b4bb8;text-transform:uppercase;}',
     '.plan-panel .pl-stypetag.lift{background:#efe9fd;color:#6d3fd1;}',
     '.plan-panel .pl-stypetag.plyo{background:#fef3c7;color:#92400e;}',
@@ -3658,7 +3665,7 @@ information about.
     '.plan-panel .pl-draft-link{background:none;border:none;padding:0;font:inherit;font-weight:700;color:#1e40af;text-decoration:underline;cursor:pointer;}',
     '.plan-panel .pl-legend-draft{font-style:italic;color:var(--text-sub);}',
     '#log-tab-plan{position:relative;}',
-    '#log-tab-plan .pl-draft-badge{position:absolute;top:4px;right:6px;width:8px;height:8px;border-radius:50%;background:#6366f1;color:transparent;font-size:0;line-height:0;}',
+    '#log-tab-plan .pl-draft-badge{position:absolute;top:4px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--info);color:transparent;font-size:0;line-height:0;}',
     '.plan-panel .pl-gtop{margin-bottom:3px;}',
     '.plan-panel .pl-gtag{font-size:10px;font-weight:800;letter-spacing:0.03em;color:var(--text-sub);background:var(--tile);padding:1px 5px;border-radius:4px;}',
     '.plan-panel .pl-ghostsel{width:100%;font-size:10.5px;border:1px solid var(--border);border-radius:6px;padding:4px 6px;margin-top:6px;background:#fff;}',
@@ -3875,6 +3882,7 @@ information about.
     '.pl-slot-x:hover{opacity:1;}',
     '.pl-slot-addsel{margin-top:auto;background:none;border:1px dashed var(--border);border-radius:6px;color:var(--text-sub);font-size:11px;font-weight:700;line-height:1;padding:3px 2px;cursor:pointer;text-align:center;-webkit-appearance:none;appearance:none;width:100%;}',
     '.pl-slot-addsel:hover{color:var(--ink);border-color:var(--text-sub);}',
+    '.pl-slot-addsel:focus-visible{outline:2px solid var(--primary);outline-offset:1px;}',
     // Rail 2 row additions: day select + editable TSS/duration + fill button.
     '.pl-sug-day-select{font-size:10px;font-weight:800;color:var(--text-sub);text-transform:uppercase;border:1px solid var(--border);border-radius:6px;padding:3px 4px;background:#fff;cursor:pointer;flex-shrink:0;}',
     '.pl-sug-meta-edit{display:inline-flex;align-items:center;gap:3px;}',
