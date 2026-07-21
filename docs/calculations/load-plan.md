@@ -10,9 +10,11 @@ Single pure function, `compute_load_plan(baseline, ramp_rate, hold_weeks,
 taper_weeks, weeks_to_race, trailing_28d_avg, deload_enabled=False,
 deload_start_week=4)`. No SQL,
 no dates — the calling endpoint resolves the A race, `weeks_to_race`,
-`baseline` (last completed week's **actual** TSS, never planned — a missed
-week must lower future targets, not silently inflate them — capped against
-chronic load, see "Baseline cap" below), and `trailing_28d_avg`.
+`baseline` (actual TSS of the week chosen by `resolve_baseline_weeks_ago` —
+the most recent completed ISO week that is **not** on the athlete's deload
+cycle when `deload_enabled`; never planned TSS — a missed week must lower
+future targets, not silently inflate them — capped against chronic load,
+see "Baseline cap" below), and `trailing_28d_avg`.
 
 ```
 build_weeks = weeks_to_race - taper_weeks
@@ -104,7 +106,7 @@ correct — it's real load history, even if intentionally reduced.)
 
 ### Baseline cap (2026-07-10 fix)
 
-`baseline` (last completed week's actual TSS) is wrong when that week was
+`baseline` (the resolved completed week's actual TSS) is wrong when that week was
 itself a spike — the ramp would then compound an overshoot that already
 exists before the plan even starts. Example from a real report: CTL ≈ 32
 implies chronic load ≈ 224 TSS/week, but the seeding week ran 316 TSS —
@@ -150,11 +152,17 @@ race and the Projection/Performance tab's "primary race" can theoretically
 diverge (e.g. a past A race still shown as primary elsewhere). No A race ⇒
 `204` and the UI shows "Set a goal race to generate weekly targets."
 
-`baseline` comes from `get_weekly_volume` (training_load.py) for the most
-recently **completed** ISO week (Bangkok time, matching
-`plan_suggestions`'s `today_bangkok()` convention). `trailing_28d_avg` is
-the mean of the last 4 weekly TSS totals from the same daily-load series
-`compute_acwr`/`plan_suggestions` already build — not a new computation.
+`baseline` comes from `get_weekly_volume` (training_load.py) for the week
+picked by `resolve_baseline_weeks_ago`: normally the most recently
+**completed** ISO week (Bangkok time, matching `plan_suggestions`'s
+`today_bangkok()` convention). When `deload_enabled`, that helper skips
+weeks whose projected plan `week_index` (1 = this week, 0 = last week, …)
+lands on the same 4-week deload cycle as future target bars, so a
+just-finished deload does not seed the next ramp. Prior bars on
+`GET /api/plan/load-plan` carry `deload: true` under the same rule.
+`trailing_28d_avg` is the mean of the last 4 weekly TSS totals from the
+same daily-load series `compute_acwr`/`plan_suggestions` already build —
+not a new computation.
 
 `PUT /api/plan/rules` updates `ramp_rate`, `hold_weeks`, `taper_length`,
 `deload_enabled`, `deload_start_week` on the athlete's existing `TrainingPlan` row

@@ -64,6 +64,10 @@ SECTION_ORDER = (
     "week_review",
 )
 
+# Dynamic proposal sections use id prefix "proposal_" and are appended in
+# build_sections when facts carry preference_proposals.
+PROPOSAL_SECTION_PREFIX = "proposal_"
+
 # focus_ranked[].id → brief section — digest titles sync from that section's headline
 FOCUS_ID_TO_SECTION: dict[str, str] = {
     "respect_deload": "load_deload",
@@ -259,6 +263,57 @@ def build_sections(facts: dict) -> list[dict]:
             "card_link": meta["card_link"],
             "do": "",
             "changed_since_yesterday": True,
+            "fact_hash": "",
+        })
+
+    # Preference proposals — deterministic delta strip; LLM only fills why.
+    # Declined proposals never appear in the brief.
+    for prop in facts.get("preference_proposals") or []:
+        if not isinstance(prop, dict):
+            continue
+        status = prop.get("status")
+        if status == "declined":
+            continue
+        if status not in ("proposed", "accepted"):
+            continue
+        pid = prop.get("id") or "x"
+        delta = prop.get("delta") or {}
+        try:
+            from backend.services.gap_analysis.pref_proposals import (
+                delta_strip,
+                title_for_proposal,
+            )
+            strip = delta_strip(delta)
+            title = title_for_proposal(delta)
+        except Exception:
+            strip = str(delta)
+            title = "PROPOSAL"
+        lifecycle = ""
+        if status == "proposed":
+            exp = (prop.get("expires_at") or "")[:10]
+            prop_at = (prop.get("proposed_at") or "")[:10]
+            lifecycle = f"proposed {prop_at} — expires {exp} if ignored"
+        elif status == "accepted":
+            since = (prop.get("decided_at") or "")[:10]
+            rev = (prop.get("review_at") or "")[:10]
+            outcome = prop.get("review_outcome")
+            if outcome:
+                lifecycle = f"reviewed — {outcome.replace('_', ' ')}"
+            else:
+                lifecycle = f"active since {since} — review {rev}"
+        out.append({
+            "id": f"{PROPOSAL_SECTION_PREFIX}{pid}",
+            "type": "proposal",
+            "cadence": "weekly",
+            "headline": title[:60],
+            "evidence": "",
+            "evidence_strip": strip[:90],
+            "lifecycle": lifecycle,
+            "proposal": prop,
+            "card_link": "preferences",
+            "do": "",
+            "changed_since_yesterday": status == "proposed",
+            "open_by_default": status == "proposed",
             "fact_hash": "",
         })
     return out

@@ -136,6 +136,33 @@
       return '<span class="' + _chipClass(c.tone) + '">' + esc(c.text) + '</span>';
     }).join('');
 
+    // Pipeline v2: append WEEK DRAFT READY chip when a reviewable draft exists.
+    // Fetched async; first paint may omit it, then we patch the chips row.
+    function _appendDraftChip() {
+      fetch('/api/plan/draft-status', { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (st) {
+          if (!st || !st.ready) return;
+          var row = el.querySelector('.hc-today-chips');
+          if (!row) {
+            row = document.createElement('div');
+            row.className = 'hc-today-chips';
+            var todayCard = el.querySelector('.hc-today');
+            if (todayCard) todayCard.appendChild(row);
+          }
+          if (row.querySelector('[data-hc-draft-chip]')) return;
+          var a = document.createElement('a');
+          a.className = 'hc-chip hc-chip--info';
+          a.setAttribute('data-hc-draft-chip', '1');
+          a.href = st.deeplink || '/log?tab=plan';
+          a.textContent = 'WEEK DRAFT READY';
+          a.style.textDecoration = 'none';
+          row.appendChild(a);
+        })
+        .catch(function () { /* ignore */ });
+    }
+    _appendDraftChip();
+
     var focusHtml;
     if (rows.length) {
       focusHtml = rows.map(function (r) {

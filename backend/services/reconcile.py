@@ -198,6 +198,8 @@ def _ingest_streams(session, all_acts, existing_workouts) -> None:
                 np_val, _ = compute_normalized_power(power_samples, sample_interval)
                 if np_val is not None:
                     workout.np = np_val
+            else:
+                workout.np = None
 
         except Exception as exc:
             _log.warning(

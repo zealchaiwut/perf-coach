@@ -514,10 +514,13 @@ prescribes loading an actively injured area.
 
 File: `backend/services/gap_analysis/templates.py`
 
-Every gap-analysis finding with a template gains an "Add to plan" button in the
-improvement panel. Tapping it creates a `planned_session` row pre-filled with the
-prescription text. The session is tagged by storing `{"_gap_code": "<code>"}` in
-the `planned_sessions.structure` JSONB column — no migration needed.
+Templates still define what a finding *means* as a session (type, name, notes,
+load_adding) and power `POST /api/training/gap-analysis/{code}/add-to-plan` for
+pipeline / Suggest flows. The **What to improve** Plan-tab panel is a
+**reviewer** surface only (Mute / Done) — it no longer shows "+ Add to plan" or
+"Ask AI"; week materialization happens via Suggest sessions / the draft
+pipeline, which tags `planned_sessions.structure` with `{"_gap_code": "<code>"}`
+when using this endpoint.
 
 **Session template registry** (`get_template(code)` in `templates.py`):
 
@@ -540,7 +543,7 @@ the `planned_sessions.structure` JSONB column — no migration needed.
 
 **Verdict guard**: when `training_verdict == "back_off"`, add-to-plan for any
 `load_adding=True` template is rejected by the server (HTTP 409 with
-`code: "back_off"`) and disabled in the UI with a tooltip.
+`code: "back_off"`).
 
 **Duplicate guard**: a second add-to-plan for the same `code` within the same
 calendar week returns HTTP 409 (`code: "already_planned_this_week"`).
