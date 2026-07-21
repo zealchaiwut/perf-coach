@@ -87,6 +87,7 @@ Returns the daily coaching brief for today, including form (CTL/ATL/TSB), weight
       "text": "Consider more easy mileage."
     }
   ],
+  "advisories_degraded": false,
   "actions": [],
   "week_plan": {
     "planned_sessions": 5,
@@ -108,7 +109,8 @@ Returns the daily coaching brief for today, including form (CTL/ATL/TSB), weight
 | `form` | object | Current training form metrics (CTL, ATL, TSB, interpretation) |
 | `recent_wrap` | object | 14-day summary of sessions and adherence |
 | `weight` | object | Current weight status and target progress |
-| `advisories` | array | List of coaching advisories (low volume, etc.) |
+| `advisories` | array | List of coaching advisories (low volume, etc.). Each has `key`, `severity` (`info`/`warn`/`error`), and `text`. A source that fails to compute appends an `error`-severity advisory (e.g. `gap_analysis_error`, `training_verdict_error`) instead of being silently dropped. |
+| `advisories_degraded` | boolean | True if any advisory has `severity == "error"` — i.e. the brief was assembled from at least one partially-failed source and should not be read as a clean all-clear. |
 | `actions` | array | Actionable recommendations (currently empty, reserved) |
 | `week_plan` | object | Summary of the current week's plan and completion |
 
@@ -120,6 +122,7 @@ Returns the daily coaching brief for today, including form (CTL/ATL/TSB), weight
 - Dates are in Asia/Bangkok timezone (UTC+7).
 - Schema version 3 adds the `week_plan` field for weekly adherence tracking.
 - The `form` field contains guardrail state and interpretation suitable for AI coaching.
+- When `advisories_degraded` is `true`, one or more advisory sources failed; treat the brief as incomplete rather than all-clear and surface the `error`-severity advisory text.
 
 ---
 
