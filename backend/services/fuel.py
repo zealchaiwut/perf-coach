@@ -20,6 +20,7 @@ not to make the estimate look more authoritative than it is.
 """
 from __future__ import annotations
 
+import logging as _logging
 from datetime import date as _date, timedelta
 from typing import Optional
 
@@ -36,6 +37,8 @@ from backend.services.training_load import (
     daily_tss_series,
 )
 from backend.services.fuel_periodize import resolve_week_phase, effective_deficit_for_phase
+
+_log = _logging.getLogger(__name__)
 
 # ── Food coefficients — per gram, COOKED weight (except eggs: per egg; oil:
 # per tsp). Approximations (±10-15% error), deliberately chosen over a food
@@ -705,8 +708,8 @@ def _resolve_week_phase_from_db(
                     )
                     if lp["weeks"]:
                         current_week_target_tss = lp["weeks"][0]["target_tss"]
-        except Exception:
-            pass  # training data missing → defaults to base phase
+        except ValueError as exc:
+            _log.debug("ramp computation skipped: %s", exc)
 
     phase, reason = resolve_week_phase(
         race_within_7d=race_within_7d,
