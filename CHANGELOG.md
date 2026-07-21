@@ -1,5 +1,10 @@
 # Changelog
 
+## Sprint 119.2 — Follow-up fixes: multi-workout strength pooling & unconstrained Drive-scan guard
+
+- #1444: Strength muscle-load no longer pools multiple strength workouts on the same day into one TSS distribution — `backend/services/muscle_load.py::recompute_strength_load_for_date` previously summed every workout's TSS into a single `total_workout_tss` and distributed it across the concatenated exercise list in one `distribute_strength_tss` call, so a day with two strength workouts spread each session's load over the other's exercises. It now keeps a per-workout `(wo_tss, exercises)` batch, distributes each workout's TSS independently, and sums the resulting group loads. The dead pre-allocated `_tss` per-exercise field and its misleading "already broken out above" comment are removed
+- #1064: Guard against an unconstrained Google Drive scan when the health-sync folder ID is unset — `backend/services/drive_sleep_sync.py::list_drive_sleep_files` previously fell back to querying **all** CSV files in the account when `HEALTH_SYNC_DRIVE_FOLDER_ID` was empty. It now `.strip()`s the env var and, when it is unset/blank, logs a warning and returns `[]` (skipping the scan) instead of enumerating every CSV in the user's Drive; the `'<folder_id>' in parents` clause is now always part of the query
+
 ## Sprint 119 — Follow-up fixes: TSS/threshold refresh, baseline drift, empty-curve guard, degraded-brief signal, stale NP & P2W sparkline
 
 - #627: `persist_running_tss` now refreshes a previously-computed TSS when the threshold changes — the write guard in `backend/services/tss.py::persist_running_tss` was `workout.tss is None`, so a run whose TSS had already been auto-computed kept its stale value after the user changed their threshold pace/HR. The guard is now `workout.tss is None or workout.tss_source == "calculated"`, so a recompute overwrites a prior `calculated` value while still never touching manually-entered or externally-sourced TSS
