@@ -2,7 +2,6 @@
 import os
 from unittest import mock
 
-import pytest
 
 from backend.services.drive_sleep_sync import list_drive_sleep_files
 
