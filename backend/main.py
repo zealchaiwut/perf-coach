@@ -8753,7 +8753,10 @@ def create_daily_metric(body: DailyMetricIn, user: User = Depends(resolve_user))
             )
         session.refresh(row)
         result_dict = _daily_metric_dict(row)
-    _readiness_compute_and_store(str(user.id), md)
+    try:
+        _readiness_compute_and_store(str(user.id), md)
+    except Exception:
+        _log.warning("readiness recompute failed after metric write (best-effort); caller unaffected", exc_info=True)
     return JSONResponse(status_code=201, content=result_dict)
 
 
@@ -8807,7 +8810,10 @@ def patch_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user: 
         session.commit()
         session.refresh(row)
         result_dict = _daily_metric_dict(row)
-    _readiness_compute_and_store(str(uid), md)
+    try:
+        _readiness_compute_and_store(str(uid), md)
+    except Exception:
+        _log.warning("readiness recompute failed after metric write (best-effort); caller unaffected", exc_info=True)
     return JSONResponse(result_dict)
 
 
@@ -8866,7 +8872,10 @@ def upsert_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user:
         session.commit()
         session.refresh(row)
         result_dict = _daily_metric_dict(row)
-    _readiness_compute_and_store(str(uid), md)
+    try:
+        _readiness_compute_and_store(str(uid), md)
+    except Exception:
+        _log.warning("readiness recompute failed after metric write (best-effort); caller unaffected", exc_info=True)
     return JSONResponse(result_dict)
 
 
