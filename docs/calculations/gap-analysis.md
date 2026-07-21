@@ -250,14 +250,23 @@ File: `backend/services/gap_analysis/rules/cadence_drift.py`
 Fires when the recent 28-day mean cadence has dropped more than `CADENCE_DRIFT_THRESHOLD_PCT`
 below the long baseline (days 57–180).
 
-Returns `None` when either window has fewer than `MIN_RUNS_PER_WINDOW` (3) runs with valid
-cadence data.
+Both windows are first filtered to easy-run intensity (issue #1463): only runs whose `power_w`
+falls within ±`CADENCE_EASY_POWER_BAND_WIDTH_W`/2 (±25 W) of a band centre are kept. The band
+centre is anchored to the lower of the two windows' mean power, so an interval block in either
+window cannot drag the band into hard-effort territory. Runs without `power_w` are excluded; the
+recent window must have ≥ `MIN_RUNS_PER_WINDOW` powered runs to anchor the band. When the long
+baseline has no power data at all (e.g. Garmin-only imports), it falls back to all cadence-valid
+runs (graceful degradation).
+
+Returns `None` when either window has fewer than `MIN_RUNS_PER_WINDOW` (3) runs after easy-run
+filtering, or when the recent window lacks that many powered runs.
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
 | `CADENCE_DRIFT_THRESHOLD_PCT` | 2.0 | Drop (%) required to fire |
 | `CADENCE_BASELINE_WINDOW_DAYS` | 180 | Length of the long baseline window (days) |
-| `MIN_RUNS_PER_WINDOW` | 3 | Minimum valid-cadence runs required per window |
+| `CADENCE_EASY_POWER_BAND_WIDTH_W` | 50.0 | Width (W) of the easy-run intensity band; runs within ±half are kept |
+| `MIN_RUNS_PER_WINDOW` | 3 | Minimum valid runs required per window after easy-run filtering |
 
 - `code`: `cadence_drift`
 - `severity`: 1 (note)
