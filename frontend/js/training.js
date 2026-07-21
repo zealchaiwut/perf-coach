@@ -325,7 +325,7 @@
         '<input type="number" class="set-in set-dur" inputmode="numeric" min="0" placeholder="s" aria-label="Set duration in seconds" value="' + v(sd.duration_seconds) + '"><span class="set-dur-unit u">s</span>' +
       '</div>' +
       '<div class="set-cell rpe-cell"><input type="number" class="set-in set-rpe" inputmode="decimal" min="1" max="10" step="0.5" placeholder="—" aria-label="Set RPE" value="' + v(sd.rpe) + '"></div>' +
-      '<button type="button" class="set-x" title="Remove set">✕</button>';
+      '<button type="button" class="set-x" title="Remove set" aria-label="Remove set">✕</button>';
     row.querySelector('.set-badge').addEventListener('click', function () {
       var idx = SET_TYPE_ORDER.indexOf(row.dataset.setType);
       row.dataset.setType = SET_TYPE_ORDER[(idx + 1) % SET_TYPE_ORDER.length];
@@ -393,7 +393,7 @@
         '<span class="ex-rpe-bullet" aria-hidden="true" title="Highest RPE tier"></span>' +
         '<div class="ex-name-wrap"><input type="text" class="ex-input ex-name" placeholder="Exercise name" list="exercise-name-suggestions" value="' + (data && data.name ? escapeAttr(data.name) : '') + '"></div>' +
         '<div class="ex-vol">volume<strong>—</strong></div>' +
-        '<button type="button" class="remove-row-btn" title="Remove exercise">✕</button>' +
+        '<button type="button" class="remove-row-btn" title="Remove exercise" aria-label="Remove exercise">✕</button>' +
       '</div>' +
       '<div class="ex-compact-row">' +
         '<input type="number" class="ec-in ec-sets" min="1" max="50" step="1" inputmode="numeric" placeholder="1" aria-label="Number of sets" value="' + vn(cd.sets) + '">' +
@@ -744,7 +744,7 @@
       '<span class="seg-handle" title="Drag to reorder">⠿</span>' +
       '<span class="seg-type">' + cfg.label + '</span>' +
       '<span class="seg-inputs">' + inputs + '</span>' +
-      '<button type="button" class="remove-row-btn" title="Remove segment">✕</button>';
+      '<button type="button" class="remove-row-btn" title="Remove segment" aria-label="Remove segment">✕</button>';
 
     row.querySelector('.remove-row-btn').addEventListener('click', function () {
       row.remove();
@@ -1749,6 +1749,7 @@
         del.type = 'button';
         del.className = 'remove-row-btn';
         del.title = 'Delete template';
+        del.setAttribute('aria-label', 'Delete template "' + t.name + '"');
         del.textContent = '✕';
         del.addEventListener('click', async function () {
           if (!confirm('Delete template "' + t.name + '"?')) return;

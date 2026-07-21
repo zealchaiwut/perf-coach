@@ -28,6 +28,20 @@
       rel="stylesheet"
     />
     <style>
+      /* ── Page-scoped "selected" accent (distinct from --primary) ─────────
+         Deliberately a different hue from --primary/--primary-dark: several
+         calendar/list states (today ring vs. deep-linked-day ring vs.
+         focus-visible ring) need to stay visually distinguishable from each
+         other on the SAME element, so this can't just alias to --primary.
+         Scoped here (not styles.css) since it's specific to this page. */
+      :root {
+        --selected: #3563d4;
+        --selected-dark: #2b4ca8;
+        --selected-soft: #f0f5ff;
+        --selected-soft-2: #dbe4ff;
+        --selected-soft-3: #c7d2fe;
+      }
+
       /* ── Page shell (gradient + cards, matches weight/home) ─────────────── */
       html,
       body {
@@ -719,7 +733,7 @@
         height: 34px;
         border-radius: 8px;
         border: 1px solid var(--card-border);
-        background: #f7f9fd;
+        background: var(--tile);
         padding: 0 12px;
         display: flex;
         align-items: center;
@@ -748,8 +762,8 @@
       }
 
       .fb-search:focus-within {
-        border-color: #2b4ca8;
-        box-shadow: 0 0 0 2px rgba(43, 76, 168, 0.15);
+        border-color: var(--selected-dark);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--selected-dark) 15%, transparent);
         background: #fff;
       }
 
@@ -782,7 +796,7 @@
       }
 
       .type-chip.active {
-        background: #0b1530;
+        background: var(--ink);
         color: #fff;
       }
 
@@ -1398,12 +1412,10 @@
         background: #fafbfd;
       }
 
-      /* Selected row */
+      /* Selected row — full ring (not a directional stripe) + tint. */
       .entry-row.is-active {
-        background: #f0f5ff;
-        border-color: #2b4ca8;
-        box-shadow: inset 2px 0 0 #2b4ca8, 0 0 0 1px #2b4ca8;
-        padding-left: 1px;
+        background: var(--selected-soft);
+        box-shadow: 0 0 0 1.5px var(--selected-dark);
       }
 
       /* Keyboard focus ring on the (button-role) rows */
@@ -1958,7 +1970,7 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        color: #0b1530;
+        color: var(--ink);
         font-size: 1.125rem;
         flex-shrink: 0;
         transition:
@@ -1974,7 +1986,7 @@
 
       .dp-icon-btn:hover {
         background: #f1f4fa;
-        color: #0b1530;
+        color: var(--ink);
       }
 
       .dp-position-group {
@@ -2744,7 +2756,7 @@
       }
 
       .dp-action-btn--delete:hover {
-        background: #fee2e2;
+        background: var(--danger-soft);
       }
 
       /* ── Skeleton loading in panel ── */
@@ -2828,6 +2840,10 @@
           display: inline-flex;
           align-items: center;
           justify-content: center;
+        }
+        .lrx-arw {
+          width: 44px;
+          height: 44px;
         }
       }
 
@@ -2939,7 +2955,7 @@
         color: #b91c1c;
       }
       .dp-overflow-menu .dp-menu-danger:hover {
-        background: #fee2e2;
+        background: var(--danger-soft);
       }
 
       /* Run-subtype group (Interval / Long run / Easy / Tempo / None) */
@@ -3200,8 +3216,8 @@
       }
 
       .cal-cell--today {
-        background: #f0f5ff;
-        border-color: #2b4ca8;
+        background: var(--selected-soft);
+        border-color: var(--selected-dark);
       }
 
       .cal-cell.is-selected {
@@ -3305,8 +3321,8 @@
         cursor: pointer;
       }
       .plan-add-btn:hover {
-        border-color: #3563d4;
-        color: #3563d4;
+        border-color: var(--selected);
+        color: var(--selected);
       }
       .plan-add-btn--secondary {
         background: transparent;
@@ -3534,12 +3550,12 @@
         cursor: pointer;
       }
       .plan-row-action-btn:hover {
-        border-color: #3563d4;
-        color: #3563d4;
+        border-color: var(--selected);
+        color: var(--selected);
       }
       .plan-row-action-btn--delete:hover {
-        border-color: var(--red, #b91c1c);
-        color: var(--red, #b91c1c);
+        border-color: var(--red, #7a1a1a);
+        color: var(--red, #7a1a1a);
       }
       .plan-race-type-badge {
         font-size: 9.5px;
@@ -3600,7 +3616,7 @@
       .plan-spec-bar-fill {
         height: 100%;
         border-radius: 4px;
-        background: #3563d4;
+        background: var(--selected);
         width: 100%;
         transform: scaleX(0);
         transform-origin: left;
@@ -3709,7 +3725,7 @@
       }
       .plan-modal-input:focus {
         outline: none;
-        border-color: #3563d4;
+        border-color: var(--selected);
         background: #fff;
       }
       /* Segmented controls (type tabs + priority) */
@@ -3777,7 +3793,7 @@
         font-size: 13px;
         font-weight: 600;
         font-family: inherit;
-        color: #3563d4;
+        color: var(--selected);
         cursor: pointer;
         text-align: center;
       }
@@ -3838,7 +3854,7 @@
         flex-wrap: wrap;
         padding: 10px 14px;
         border-radius: 10px;
-        background: #dcfce7;
+        background: var(--success-soft);
         border: 1px solid #bbf7d0;
       }
       .plan-modal-actual-lab {
@@ -3932,7 +3948,7 @@
         padding: 9px 22px;
         border-radius: 9px;
         border: none;
-        background: #3563d4;
+        background: var(--selected);
         color: #fff;
         font-family: inherit;
         font-size: 13px;
@@ -3940,7 +3956,7 @@
         cursor: pointer;
       }
       .plan-modal-save:hover {
-        background: #2b4ca8;
+        background: var(--selected-dark);
       }
       .plan-confirm-overlay {
         position: fixed;
@@ -4029,7 +4045,7 @@
       .plan-settings-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-tertiary); }
       .plan-settings-input-row { display: flex; align-items: center; gap: 8px; }
       .plan-settings-input { width: 90px; border: 1.5px solid var(--card-border); border-radius: 9px; padding: 8px 10px; font-size: 14px; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--text-primary); background: #f8fafd; box-sizing: border-box; }
-      .plan-settings-input:focus { outline: none; border-color: #3563d4; background: #fff; }
+      .plan-settings-input:focus { outline: none; border-color: var(--selected); background: #fff; }
       .plan-settings-input.is-invalid { border-color: var(--red); }
       .plan-settings-unit { font-size: 11.5px; color: var(--text-tertiary); font-weight: 600; white-space: nowrap; }
       .plan-settings-error { font-size: 11px; color: var(--red); min-height: 14px; }
@@ -4643,7 +4659,7 @@
             <div id="muscle-balance-loading" class="mbal-loading">Loading…</div>
             <div id="muscle-balance-rows" class="mbal-rows" hidden></div>
             <div id="muscle-balance-show-all" class="mbal-show-all-wrap" hidden>
-              <button class="mbal-show-all-btn" type="button" id="muscle-balance-show-all-btn">
+              <button class="mbal-show-all-btn" type="button" id="muscle-balance-show-all-btn" aria-expanded="false" aria-controls="muscle-balance-inactive-rows">
                 Show inactive groups ▾
               </button>
               <div id="muscle-balance-inactive-rows" class="mbal-inactive-rows"></div>
@@ -5081,9 +5097,11 @@
       }
       .mbal-bar {
         height: 100%;
+        width: 100%;
         border-radius: 3px;
         background: var(--mbal-bar-color, var(--primary));
-        transition: width 0.3s ease;
+        transform-origin: left;
+        transition: transform 0.3s ease;
       }
       .mbal-chip {
         font-size: 10px;
@@ -5504,7 +5522,7 @@
         margin-bottom: 10px;
       }
       .plan-merged .pm-rc.target {
-        border-color: #c7d2fe;
+        border-color: var(--selected-soft-3);
         background: linear-gradient(180deg, #eef1fe, #f6f7fb 55%);
       }
       .plan-merged .pm-rchd {
@@ -6273,7 +6291,7 @@
         color: var(--warning);
       }
       .plan-merged .wl-proj-pill.wl-proj-danger {
-        background: #fee2e2;
+        background: var(--danger-soft);
         color: var(--danger);
       }
       .plan-merged .wl-verdict-row {
@@ -6728,7 +6746,7 @@
       }
       .perf-sectitle--strong {
         font-size: 13px;
-        color: var(--text-primary, #1b2340);
+        color: var(--text-primary, #0b1530);
         letter-spacing: 0;
         text-transform: none;
         font-weight: 800;
@@ -6809,8 +6827,8 @@
         border-radius: 999px;
         padding: 3px 10px;
       }
-      .perf-delta-pill--down { background: #fee2e2; color: var(--danger-dark); }
-      .perf-delta-pill--up { background: #dcfce7; color: var(--success); }
+      .perf-delta-pill--down { background: var(--danger-soft); color: var(--danger-dark); }
+      .perf-delta-pill--up { background: var(--success-soft); color: var(--success); }
       .perf-delta-pill--flat { background: var(--w-tile, #f1f4fa); color: var(--text-sub); }
       .perf-sparkline-wrap {
         flex: 1 1 auto;
@@ -6832,7 +6850,7 @@
         justify-content: space-between;
         font-size: 11px;
         font-weight: 800;
-        color: var(--text-primary, #1b2340);
+        color: var(--text-primary, #0b1530);
         margin-bottom: 5px;
       }
       .perf-change-head span:last-child {
@@ -6843,7 +6861,7 @@
       .perf-eq {
         font-family: var(--mono);
         font-size: 12.5px;
-        color: var(--text-primary, #1b2340);
+        color: var(--text-primary, #0b1530);
         margin-bottom: 6px;
         white-space: nowrap;
         overflow-x: auto;
@@ -6880,7 +6898,7 @@
         font-family: var(--mono);
         font-size: 11px;
         font-weight: 700;
-        color: var(--text-primary, #1b2340);
+        color: var(--text-primary, #0b1530);
         background: var(--w-tile, #f1f4fa);
         border-radius: 6px;
         padding: 3px 8px;
@@ -6892,7 +6910,7 @@
       .perf-anchor-foot {
         font-family: var(--mono);
         font-size: 12.5px;
-        color: var(--text-primary, #1b2340);
+        color: var(--text-primary, #0b1530);
         padding: 7px 4px 2px;
         white-space: nowrap;
         overflow-x: auto;
@@ -7043,8 +7061,8 @@
         background: var(--success-soft);
       }
       .perf-dchip--down {
-        color: var(--red, #dc2626);
-        background: var(--redSoft, #fee2e2);
+        color: var(--red, #7a1a1a);
+        background: var(--red-soft, #ffd9d9);
       }
       .perf-dchip--flat {
         color: var(--text-sub);
@@ -7262,7 +7280,7 @@
         font-family: var(--mono);
         margin-top: 7px;
         line-height: 1;
-        color: var(--text-primary, #1b2340);
+        color: var(--text-primary, #0b1530);
       }
       .perf-prtile .perf-pr-val small {
         font-size: 11px;
@@ -7909,6 +7927,9 @@
        caps at 3 blocks + a "+N" chip, so unlike the old dot/tag stack this
        genuinely never needs more room. */
     .lrx-calrow td { border-top: 1px solid var(--border); min-height: 62px; vertical-align: top; text-align: center; padding: 7px 5px 8px; }
+    /* Keyboard focus (day cells + week-total cell are role=button tabindex=0). */
+    .lrx-calrow td[data-date]:focus-visible,
+    .lrx-calrow .lrx-wkcell:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; border-radius: 8px; }
     .lrx-calrow .dnum { font-size: 12px; font-family: var(--mono); color: var(--ink); display: block; margin-bottom: 6px; }
     .lrx-calrow td.out .dnum { color: #cbd2e0; }
     /* Today marker: a ring inside the day cell (inset shadow avoids disturbing
@@ -7918,7 +7939,7 @@
     /* Deep-linked workout's day (#5): a darker ring in the same accent as the
        .entry-row.is-active list row, so the one workout reads as flagged in
        both views. Wins over the today ring when they coincide (later rule). */
-    .lrx-calrow td.cal-day.deep-linked { box-shadow: inset 0 0 0 2px #2b4ca8; border-radius: 10px; }
+    .lrx-calrow td.cal-day.deep-linked { box-shadow: inset 0 0 0 2px var(--selected-dark); border-radius: 10px; }
 
     /* ── Calendar day markers — one row per day, one block per session ──────
        Solid filled = logged, outlined = planned (same hue, no fill). Hue =
@@ -7960,11 +7981,12 @@
     /* Selected week: a border ring around the whole row (top+bottom on every
        cell, plus the outer edges) so the scoped week reads as a bordered band,
        mirrored by .day-group.lrx-week-hl in the log list below. */
-    .lrx-calrow.sel td { background: #dbe4ff; box-shadow: inset 0 2px 0 var(--primary), inset 0 -2px 0 var(--primary); }
-    .lrx-calrow.sel td:first-child { box-shadow: inset 0 2px 0 var(--primary), inset 0 -2px 0 var(--primary), inset 2px 0 0 var(--primary); }
-    .lrx-calrow.sel td:last-child { box-shadow: inset 0 2px 0 var(--primary), inset 0 -2px 0 var(--primary), inset -2px 0 0 var(--primary); }
-    .lrx-calrow.sel .lrx-wkcell { background: #c7d2fe; }
-    .lrx-calrow:hover td { background: #f6f8ff; }
+    /* Selected week: top/bottom band across every cell (not a directional
+       side-stripe — applies evenly, same as .is-today's ring) + a tint,
+       coordinated with the .entry-row.is-active / deep-linked accent above. */
+    .lrx-calrow.sel td { background: var(--selected-soft-2); box-shadow: inset 0 2px 0 var(--selected), inset 0 -2px 0 var(--selected); }
+    .lrx-calrow.sel .lrx-wkcell { background: var(--selected-soft-3); }
+    .lrx-calrow:hover td { background: var(--selected-soft); }
     .lrx-callegend { display: flex; gap: 14px; margin-top: 12px; font-size: 13px; color: var(--text-sub); flex-wrap: wrap; }
     .lrx-callegend b { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
 
@@ -8656,7 +8678,7 @@
                     list="workout-name-suggestions"
                   />
                   <datalist id="workout-name-suggestions"></datalist>
-                  <p id="name-error" class="field-error"></p>
+                  <p id="name-error" class="field-error" aria-live="polite"></p>
                 </div>
                 <div class="meta-field">
                   <label for="workout-date">Date</label>
@@ -8665,7 +8687,7 @@
                 <div class="meta-field">
                   <label for="workout-tss"
                     >TSS
-                    <span style="font-weight: 400; color: #999"
+                    <span style="font-weight: 400; color: var(--text-sub)"
                       >(optional)</span
                     ></label
                   >
@@ -8885,7 +8907,7 @@
                     </div>
                   </div>
                 </div>
-                <p id="run-error" class="field-error"></p>
+                <p id="run-error" class="field-error" aria-live="polite"></p>
               </div>
 
               <div class="exercises-section rl-card">
@@ -8907,7 +8929,7 @@
                 </div>
                 <div id="exercises-tbody" class="exercise-list"></div>
                 <datalist id="exercise-name-suggestions"></datalist>
-                <p id="exercises-error" class="error-msg"></p>
+                <p id="exercises-error" class="error-msg" aria-live="polite"></p>
                 <div class="ex-add-row">
                   <button id="add-exercise-btn" type="button" class="add-ex">
                     <span aria-hidden="true">+</span> Add exercise
@@ -9299,6 +9321,7 @@
         </div>
         <div
           id="plan-modal-error"
+          role="alert"
           style="color: var(--red, #7a1a1a); font-size: 12px; min-height: 1.2em"
         ></div>
         <div class="plan-modal-actions">

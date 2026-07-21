@@ -924,7 +924,7 @@
       rightTag +
       '<span class="pm-rcactions">' +
       '<button class="pm-rcact" data-act="edit" type="button">Edit</button>' +
-      '<button class="pm-rcact" data-act="del" type="button">✕</button>' +
+      '<button class="pm-rcact" data-act="del" type="button" aria-label="Remove ' + esc(r.name || "race") + '">✕</button>' +
       "</span>" +
       "</div>";
 
@@ -995,7 +995,7 @@
       demoTags +
       '<span class="pm-rcactions">' +
       '<button class="pm-rcact" data-act="edit" type="button">Edit</button>' +
-      '<button class="pm-rcact" data-act="del" type="button">✕</button>' +
+      '<button class="pm-rcact" data-act="del" type="button" aria-label="Remove ' + esc(r.name || "race") + '">✕</button>' +
       "</span>" +
       "</div>" +
       '<div class="pm-rcmeta pm-rcmeta--done">' + esc(_metaText(r, distKm)) + "</div>";
@@ -2340,7 +2340,9 @@
     barWrap.className = "mbal-bar-wrap";
     var bar = document.createElement("div");
     bar.className = "mbal-bar";
-    bar.style.width = barPct.toFixed(1) + "%";
+    // transform: scaleX() (not width) so the fill-in animates a compositor-
+    // only property instead of triggering layout on every frame.
+    bar.style.transform = "scaleX(" + (barPct / 100).toFixed(4) + ")";
     bar.style.setProperty("--mbal-bar-color", _mbalBarColor(cls));
     bar.style.background = _mbalBarColor(cls);
     barWrap.appendChild(bar);
@@ -2486,6 +2488,7 @@
               elShowAllBtn.textContent = shown
                 ? "Hide inactive ▴"
                 : "Show inactive groups ▾";
+              elShowAllBtn.setAttribute("aria-expanded", shown ? "true" : "false");
             });
           }
         }
@@ -2581,11 +2584,15 @@
         if (elMuted && muted.length > 0) {
           elMuted.innerHTML = "";
           var toggle = document.createElement("button");
+          toggle.type = "button";
           toggle.className = "gap-muted-toggle";
           toggle.textContent = "Muted (" + muted.length + ")";
+          toggle.setAttribute("aria-expanded", "false");
           var muteList = document.createElement("div");
           muteList.className = "gap-muted-list";
+          muteList.id = "gap-muted-list";
           muteList.hidden = true;
+          toggle.setAttribute("aria-controls", "gap-muted-list");
 
           muted.forEach(function (f) {
             var row = document.createElement("div");
@@ -2612,6 +2619,7 @@
           toggle.addEventListener("click", function () {
             muteList.hidden = !muteList.hidden;
             toggle.textContent = (muteList.hidden ? "Muted" : "Muted ▾") + " (" + muted.length + ")";
+            toggle.setAttribute("aria-expanded", muteList.hidden ? "false" : "true");
           });
 
           elMuted.appendChild(toggle);

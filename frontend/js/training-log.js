@@ -1005,7 +1005,7 @@
           },
           y1: {
             position: "right", min: 0, max: 2.5,
-            ticks: { font: { size: 10 }, color: "#a855f7", stepSize: 0.5 },
+            ticks: { font: { size: 10 }, color: "#9333ea", stepSize: 0.5 }, // darkened from #a855f7 (~3.96:1) to clear AA text contrast (~5.4:1), still purple
             grid: { drawOnChartArea: false },
           },
         },
@@ -2516,15 +2516,22 @@
     menu.removeAttribute("hidden");
     menu.classList.add("is-open");
     if (btn) btn.setAttribute("aria-expanded", "true");
+    var firstItem = menu.querySelector("button, a[href]");
+    if (firstItem) firstItem.focus();
   }
 
   function closeOverflowMenu() {
     var menu = document.getElementById("dp-overflow-menu");
     var btn = document.getElementById("dp-overflow-btn");
     if (!menu) return;
+    var wasOpen = menu.classList.contains("is-open");
     menu.classList.remove("is-open");
     menu.setAttribute("hidden", "");
     if (btn) btn.setAttribute("aria-expanded", "false");
+    // Return focus to the trigger — call sites that immediately open
+    // something else (duplicate modal, confirm dialog) re-focus their own
+    // control right after, harmlessly overriding this.
+    if (wasOpen && btn) btn.focus();
   }
 
   function toggleOverflowMenu() {
@@ -2688,6 +2695,17 @@
       var card = lastCard;
       var lapMode = lastLap;
 
+      // Focus save/restore, matching the established modal pattern in this
+      // file (_confirmDialog's _tlConfirmReturnFocus / openRemovedModal's
+      // _removedModalReturnFocus / openDuplicateModal's _dupModalReturnFocus).
+      var _shotModalReturnFocus = document.activeElement;
+      function _restoreShotFocus() {
+        var el = _shotModalReturnFocus;
+        _shotModalReturnFocus = null;
+        if (el && typeof el.focus === "function" && document.contains(el))
+          el.focus();
+      }
+
       var overlay = document.createElement("div");
       overlay.style.cssText =
         "position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:9999;" +
@@ -2695,6 +2713,9 @@
         "box-sizing:border-box;";
 
       var box = document.createElement("div");
+      box.setAttribute("role", "dialog");
+      box.setAttribute("aria-modal", "true");
+      box.setAttribute("aria-label", "Screenshot options");
       box.style.cssText =
         "position:relative;background:var(--surface);border-radius:16px;padding:20px;max-width:760px;" +
         "width:100%;max-height:min(92vh,900px);overflow:auto;" +
@@ -2706,6 +2727,7 @@
         if (!overlay.parentNode) return;
         document.body.removeChild(overlay);
         document.removeEventListener("keydown", onKey);
+        _restoreShotFocus();
         resolve(null);
       }
 
@@ -3000,6 +3022,7 @@
         applyLapModeIfNeeded();
         document.removeEventListener("keydown", onKey);
         document.body.removeChild(overlay);
+        _restoreShotFocus();
         resolve({
           style: card === "advanced" ? "full" : "simple",
           includeGraph: card === "simple_graph",
@@ -3033,6 +3056,7 @@
       });
       document.addEventListener("keydown", onKey);
       document.body.appendChild(overlay);
+      closeBtn.focus();
       refreshPreview();
     });
   }
@@ -5190,12 +5214,16 @@
       _positionSyncPanel();
       if (backdrop) backdrop.hidden = false;
       toggleBtn.setAttribute("aria-expanded", "true");
+      var firstItem = panel.querySelector("button:not(:disabled), a[href]");
+      if (firstItem) firstItem.focus();
     }
 
     function _closeSyncPanel() {
+      var wasOpen = !panel.hidden;
       panel.hidden = true;
       if (backdrop) backdrop.hidden = true;
       toggleBtn.setAttribute("aria-expanded", "false");
+      if (wasOpen) toggleBtn.focus();
     }
 
     toggleBtn.addEventListener("click", function (e) {
@@ -5412,6 +5440,15 @@
         return;
       closeOverflowMenu();
     });
+
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape") return;
+      var menu = document.getElementById("dp-overflow-menu");
+      if (menu && menu.classList.contains("is-open")) {
+        e.preventDefault();
+        closeOverflowMenu();
+      }
+    });
   }
 
   // ── Repeat last workout (issue #524) ──────────────────────────────────────
@@ -5446,6 +5483,8 @@
   }
 
   // ── Duplicate to date (issue #524) ────────────────────────────────────────
+  var _dupModalReturnFocus = null;
+
   function openDuplicateModal() {
     if (!activeDetailWorkoutId) return;
     var modal = document.getElementById("dup-modal");
@@ -5456,6 +5495,7 @@
       input.max = todayISO(); // no future dates (mirrors the backend rule)
       input.value = todayISO();
     }
+    _dupModalReturnFocus = document.activeElement;
     if (modal) {
       modal.classList.add("is-open");
       modal.setAttribute("aria-hidden", "false");
@@ -5468,6 +5508,9 @@
     if (!modal) return;
     modal.classList.remove("is-open");
     modal.setAttribute("aria-hidden", "true");
+    var el = _dupModalReturnFocus;
+    _dupModalReturnFocus = null;
+    if (el && typeof el.focus === "function" && document.contains(el)) el.focus();
   }
 
   function dupModalIsOpen() {
@@ -6360,10 +6403,11 @@
         } else {
           var dStr = year + "-" + pad(month + 1) + "-" + pad(dayNum);
           var todayCls = (dStr === todayStr) ? " is-today" : "";
+          var dayLabel = CAL_MONTH_NAMES[month] + " " + dayNum + (dStr === todayStr ? " (today)" : "");
           html +=
             '<td class="cal-day' + todayCls + '" data-date="' +
             dStr +
-            '"><span class="dnum">' +
+            '" tabindex="0" role="button" aria-label="' + esc(dayLabel) + '"><span class="dnum">' +
             dayNum +
             "</span>" +
             _calMarkersHtml(dStr) +
@@ -6375,8 +6419,9 @@
       var totalKm = wa.km + wa.estKm;
       var actualPct = totalTss > 0 ? (wa.tss / maxWk) * 100 : 0;
       var estPct = totalTss > 0 ? (wa.estTss / maxWk) * 100 : 0;
+      var wkLabel = "Week of " + _calWkLabel(wa.startDate, wa.endDate);
       html +=
-        '<td class="lrx-wkcell">' +
+        '<td class="lrx-wkcell" tabindex="0" role="button" aria-label="' + esc(wkLabel) + '">' +
         '<div class="wt">' +
         (wa.estTss > 0
           ? Math.round(wa.tss) + " / " + Math.round(totalTss) + " TSS"
@@ -6501,6 +6546,18 @@
         }
         // Also highlight + scroll to that week's groups in the log list below.
         _highlightLogWeek(ws, we);
+      });
+      // Keyboard access (P0): day cells and the week-total cell are now
+      // focusable (tabindex="0" role="button" above) — Enter/Space triggers
+      // the identical scoping behavior by replaying it as a real click, so
+      // this stays in lockstep with the mouse handler above instead of
+      // duplicating its logic.
+      tbody.addEventListener("keydown", function (e) {
+        if (e.key !== "Enter" && e.key !== " " && e.key !== "Spacebar") return;
+        var target = e.target.closest('td[data-date], .lrx-wkcell');
+        if (!target) return;
+        e.preventDefault();
+        target.click();
       });
     }
   }
@@ -6942,7 +6999,7 @@
   function _renderError() {
     var body = document.getElementById("sd-body");
     if (!body) return;
-    body.innerHTML = '<div class="sd-error">Could not load summary.</div>';
+    body.innerHTML = '<div class="sd-error" role="alert">Could not load summary.</div>';
   }
 
   function _applyData(period, data) {
