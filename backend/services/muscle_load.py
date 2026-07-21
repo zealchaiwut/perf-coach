@@ -340,8 +340,8 @@ def recompute_strength_load_for_date(
             .all()
         )
 
-        all_exercises: list[dict] = []
-        total_workout_tss: float = 0.0
+        # Each entry: (wo_tss, [exercise_dicts]) — kept per-workout for independent distribution
+        workout_batches: list[tuple[float, list[dict]]] = []
 
         for wo in workouts:
             wo_tss = float(wo.tss) if wo.tss is not None else 0.0
@@ -355,15 +355,16 @@ def recompute_strength_load_for_date(
             )
             if not exs:
                 continue
-            for ex in exs:
-                all_exercises.append({
+            exercises = [
+                {
                     "name": (ex.name or "").strip().lower(),
                     "sets": ex.sets,
                     "reps": ex.reps,
                     "weight_kg": float(ex.weight_kg) if ex.weight_kg is not None else None,
-                    "_tss": wo_tss / len(exs),  # pre-allocated per exercise
-                })
-            total_workout_tss += wo_tss
+                }
+                for ex in exs
+            ]
+            workout_batches.append((wo_tss, exercises))
 
         # ── Collect strength sessions ──────────────────────────────────────────
         session_rows = (
@@ -389,22 +390,18 @@ def recompute_strength_load_for_date(
                 })
 
         # ── Build combined catalog lookup ──────────────────────────────────────
+        all_workout_exercises = [ex for _, exs in workout_batches for ex in exs]
         all_names = list({
-            ex["name"] for ex in (all_exercises + session_exercises) if ex["name"]
+            ex["name"] for ex in (all_workout_exercises + session_exercises) if ex["name"]
         })
         catalog = _lookup_catalog(all_names, db)
 
-        # ── Distribute TSS for workout exercises ───────────────────────────────
+        # ── Distribute each workout's TSS independently, then sum ─────────────
         combined_loads: dict[str, float] = {}
         all_unclassified: list[str] = []
 
-        if all_exercises and total_workout_tss > 0:
-            # Distribute each workout's TSS independently then sum
-            # (already broken out above via _tss per exercise)
-            # Re-distribute using the correct per-workout TSS share
-            wo_group_loads, wo_unclass = distribute_strength_tss(
-                total_workout_tss, all_exercises, catalog
-            )
+        for wo_tss, exercises in workout_batches:
+            wo_group_loads, wo_unclass = distribute_strength_tss(wo_tss, exercises, catalog)
             for g, v in wo_group_loads.items():
                 combined_loads[g] = combined_loads.get(g, 0.0) + v
             all_unclassified.extend(wo_unclass)
