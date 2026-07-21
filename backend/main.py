@@ -8766,7 +8766,10 @@ def create_daily_metric(body: DailyMetricIn, user: User = Depends(resolve_user))
             )
         session.refresh(row)
         result_dict = _daily_metric_dict(row)
-    _readiness_compute_and_store(str(user.id), md)
+    try:
+        _readiness_compute_and_store(str(user.id), md)
+    except Exception:
+        _log.warning("readiness recompute failed after metric write (best-effort); caller unaffected", exc_info=True)
     return JSONResponse(status_code=201, content=result_dict)
 
 
@@ -8820,7 +8823,10 @@ def patch_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user: 
         session.commit()
         session.refresh(row)
         result_dict = _daily_metric_dict(row)
-    _readiness_compute_and_store(str(uid), md)
+    try:
+        _readiness_compute_and_store(str(uid), md)
+    except Exception:
+        _log.warning("readiness recompute failed after metric write (best-effort); caller unaffected", exc_info=True)
     return JSONResponse(result_dict)
 
 
@@ -8879,7 +8885,10 @@ def upsert_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user:
         session.commit()
         session.refresh(row)
         result_dict = _daily_metric_dict(row)
-    _readiness_compute_and_store(str(uid), md)
+    try:
+        _readiness_compute_and_store(str(uid), md)
+    except Exception:
+        _log.warning("readiness recompute failed after metric write (best-effort); caller unaffected", exc_info=True)
     return JSONResponse(result_dict)
 
 
@@ -17803,16 +17812,18 @@ def get_athlete_run_personal_records(athlete_id: str, user: User = Depends(resol
             .filter(Workout.user_id == uid, Workout.workout_type.ilike("%run%"))
             .count()
         )
-        curve_populated = session.get(_AthleteDurationCurve, uid) is not None
+        curve_row = session.get(_AthleteDurationCurve, uid)
+        curve_populated = bool(curve_row and curve_row.curve_data)
 
-        # If no curve row exists yet the athlete has runs, build it now so that
-        # fetch_and_detect_records can read it.  This is a one-time cost: once the
-        # row exists (even with empty curve_data for non-power athletes) we skip it.
-        # Thresholds are driven by _DEFAULT_DURATION_LADDER from duration_curve.py
-        # via fetch_and_compute_curves — no values are hardcoded here.
+        # Rebuild if the row is missing or its curve_data is empty — a previous
+        # rebuild that found no power data leaves a row with curve_data={}, which
+        # is not useful for PR detection and should be retried when the athlete
+        # has run history.  Thresholds come from _DEFAULT_DURATION_LADDER via
+        # fetch_and_compute_curves — no values are hardcoded here.
         if not curve_populated:
             _rebuild_athlete_duration_curve(uid, session)
-            curve_populated = session.get(_AthleteDurationCurve, uid) is not None
+            curve_row = session.get(_AthleteDurationCurve, uid)
+            curve_populated = bool(curve_row and curve_row.curve_data)
 
         _run_pr_log.info(
             "pr_detection_input",

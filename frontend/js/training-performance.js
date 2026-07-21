@@ -887,12 +887,21 @@
         '<div class="pm-colp">' + esc(estPace) + esc(bandTxt) + "</div></div>";
     }
 
+    var halfSec = r.half_marathon_equivalent_seconds || null;
+    var halfCol = halfSec
+      ? '<div class="pm-col">' +
+        '<div class="pm-coll">Half Equivalent</div>' +
+        '<div class="pm-colt">' + esc(fmtTime(halfSec)) + "</div>" +
+        '<div class="pm-colp">21.1 km equiv.</div></div>'
+      : "";
+
     var grid =
       '<div class="pm-rcgrid">' +
       '<div class="pm-col"><div class="pm-coll">Goal</div>' +
       '<div class="pm-colt">' + esc(goalSec ? fmtTime(goalSec) : "—") + "</div>" +
       '<div class="pm-colp">' + esc(goalPace || "—") + "</div></div>" +
       secondCol +
+      halfCol +
       "</div>";
 
     // Per-race REQUIRED End/Spd scores for this race's goal, plus delta vs
@@ -949,6 +958,14 @@
         ? ' <span class="pm-delta ' + deltaCls + '">' + esc(delta) + "</span>"
         : "");
 
+    var halfSecDone = r.half_marathon_equivalent_seconds || null;
+    var halfColDone = halfSecDone
+      ? '<div class="pm-col">' +
+        '<div class="pm-coll">Half Equivalent</div>' +
+        '<div class="pm-colt">' + esc(fmtTime(halfSecDone)) + "</div>" +
+        '<div class="pm-colp">21.1 km equiv.</div></div>'
+      : "";
+
     var grid =
       '<div class="pm-rcgrid">' +
       '<div class="pm-col"><div class="pm-coll">Goal</div>' +
@@ -957,6 +974,7 @@
       '<div class="pm-col est"><div class="pm-coll">' + actualLabel + "</div>" +
       '<div class="pm-colt">' + esc(actualSec != null ? fmtTime(actualSec) : "—") + "</div>" +
       '<div class="pm-colp">' + esc(actualPace || "—") + "</div></div>" +
+      halfColDone +
       "</div>";
 
     card.innerHTML = head + grid;
