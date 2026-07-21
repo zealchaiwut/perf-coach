@@ -2973,7 +2973,7 @@
         font-weight: 700;
         letter-spacing: 0.05em;
         text-transform: uppercase;
-        color: var(--text-tertiary, #9aa3b8);
+        color: var(--text-tertiary, #69748c);
         padding: 6px 14px 2px;
       }
       .dp-subtype-group button.is-selected {
@@ -4082,6 +4082,10 @@
       <!-- Page header: title, stats subtitle, action buttons -->
       <header class="log-page-header">
         <div class="log-page-header-inner">
+        <div class="log-page-header-info">
+          <h1 class="log-page-title">Training</h1>
+          <p id="log-subtitle" class="log-subtitle"></p>
+        </div>
         <nav
           class="training-sub-tabs"
           id="training-sub-tabs"
@@ -4118,6 +4122,7 @@
             role="tab"
             aria-selected="false"
             aria-controls="training-panel-performance"
+            aria-label="Performance"
           >
             <span class="tab-label-long">Performance</span
             ><span class="tab-label-short" aria-hidden="true">Perf</span>
@@ -4196,6 +4201,15 @@
             </div>
           </div>
           <button
+            id="log-export-btn"
+            class="btn-secondary"
+            type="button"
+            title="Export the visible training log as CSV"
+          >
+            <i class="ti ti-download" aria-hidden="true"></i>
+            <span class="btn-label">Export CSV</span>
+          </button>
+          <button
             id="log-removed-btn"
             class="btn-secondary"
             type="button"
@@ -4269,7 +4283,7 @@
         <div class="pm-card lp-card" id="load-plan-section">
           <div class="lp-head">
             <div>
-              <div class="pm-sectitle">Session load plan</div>
+              <h2 class="pm-sectitle">Session load plan</h2>
               <div class="lp-subtitle" id="lp-subtitle">&nbsp;</div>
             </div>
             <button
@@ -4393,7 +4407,7 @@
              sparkline + baseline number. ─────────────────────────────────── -->
         <div class="pm-card wl-card" id="week-load-section">
           <div class="pm-ckhead">
-            <span class="pm-sectitle">Session load &middot; this week</span>
+            <h2 class="pm-sectitle">Session load &middot; this week</h2>
           </div>
           <p class="pm-csub">Where the target comes from, and how your sessions add up to it.</p>
 
@@ -4454,7 +4468,7 @@
       <div class="plan-merged">
         <div class="pm-card" id="gap-panel">
           <div class="pm-ckhead">
-            <span class="pm-sectitle">What to improve</span>
+            <h2 class="pm-sectitle">What to improve</h2>
             <span class="perf-tag" id="gap-panel-week"></span>
           </div>
           <div id="gap-panel-loading" class="gap-loading">Loading…</div>
@@ -4623,7 +4637,7 @@
           <!-- ── Muscle balance card (issue #1382) ─────────────────────── -->
           <div class="pm-card" id="muscle-balance-card">
             <div class="pm-ckhead">
-              <span class="pm-sectitle">Muscle balance</span>
+              <h2 class="pm-sectitle">Muscle balance</h2>
             </div>
             <div id="muscle-balance-loading" class="mbal-loading">Loading…</div>
             <div id="muscle-balance-rows" class="mbal-rows" hidden></div>
@@ -4651,7 +4665,7 @@
 
           <!-- 2. Calibration status -->
           <div class="pm-card">
-            <span class="pm-sectitle">Calibration status</span>
+            <h2 class="pm-sectitle">Calibration status</h2>
             <div class="pm-calgrid">
               <div class="pm-caltile">
                 <div class="pm-lab"><span class="pm-lab-full">Last recalibrated</span><span class="pm-lab-short">Recalibrated</span></div>
@@ -4687,7 +4701,7 @@
                number the athlete cares about is visible without scrolling -->
           <div id="perf-proj" class="pm-card perf-proj-card">
             <div class="pm-ckhead">
-              <span class="pm-sectitle">Projected at next checkpoint</span>
+              <h2 class="pm-sectitle">Projected at next checkpoint</h2>
               <span class="perf-tag">New</span>
             </div>
             <div id="perf-proj-body" hidden>
@@ -4711,7 +4725,7 @@
           <!-- 3. Races & projections (HERO) -->
           <div class="pm-card">
             <div class="pm-ckhead">
-              <span class="pm-sectitle">Races &amp; projections</span>
+              <h2 class="pm-sectitle">Races &amp; projections</h2>
               <div class="pm-ckbtns">
                 <button id="plan-recalc-btn" class="pm-ckbtn" type="button">
                   ↻ Recalculate
@@ -4768,7 +4782,7 @@
           <div class="pm-row2">
           <!-- 4. Form curve (TSB) -->
           <div class="pm-card">
-            <span class="pm-sectitle">Form curve (TSB)</span>
+            <h2 class="pm-sectitle">Form curve (TSB)</h2>
             <div class="pm-csub">
               Fresh above the green line, overreached below the red. Built from
               your logged load — the projection extends this forward.
@@ -4798,7 +4812,7 @@
           <!-- 5. Race-readiness specificity (Plan settings moved to the Plan
                tab — see #plan-settings-section there) -->
           <div class="pm-card" id="plan-spec-section">
-            <span class="pm-sectitle">Race-readiness specificity</span>
+            <h2 class="pm-sectitle">Race-readiness specificity</h2>
             <div class="pm-csub" id="plan-spec-sub">
               How closely recent training matches the demands of your A race.
             </div>
@@ -4813,7 +4827,7 @@
           <!-- ── Personal records — moved here from the removed Performance
                tab ─────────────────────────────────────────────────────── -->
           <div class="pm-card perf-pr-card">
-            <span class="pm-sectitle">Personal records</span>
+            <h2 class="pm-sectitle">Personal records</h2>
             <div id="perf-pr-strip" class="perf-prgrid">
               <p class="perf-pr-loading">Loading…</p>
             </div>
@@ -4827,23 +4841,26 @@
       /* ── Merged Plan panel styles (scoped under .plan-merged) ────────────── */
       .plan-merged {
         --pm-card: #fff;
-        --pm-ink: #1b2340;
-        --pm-muted: #6b7280;
-        --pm-faint: var(--text-tertiary, #69748c);
+        /* Aliased to canonical tokens (frontend/css/styles.css) — was a
+           drifted local hex namespace (and previously leaked the gradient-
+           system --text-tertiary as a fallback); see DESIGN.md "Instrument set". */
+        --pm-ink: var(--ink);
+        --pm-muted: var(--text-sub);
+        --pm-faint: var(--text-sub);
         --pm-line: #eceef4;
-        --pm-tile: #f6f7fb;
+        --pm-tile: var(--tile);
         --pm-blue: #4f6ef7;
         --pm-blueSoft: #e6ebfe;
         --pm-lavHi: #6366f1;
-        --pm-green: #16a34a;
+        --pm-green: var(--success);
         --pm-greenSoft: #dcfce7;
         --pm-endur: #16a34a;
         --pm-speed: #ea580c;
-        --pm-amber: #d97706;
+        --pm-amber: var(--warning);
         --pm-amberSoft: #fdf3da;
-        --pm-red: #dc2626;
-        --pm-redSoft: #fee2e2;
-        --pm-mono: "JetBrains Mono", ui-monospace, monospace;
+        --pm-red: var(--danger);
+        --pm-redSoft: var(--danger-soft);
+        --pm-mono: var(--mono);
         display: flex;
         flex-direction: column;
         gap: 16px;
@@ -5177,6 +5194,9 @@
         .plan-merged .pm-row2 { grid-template-columns: 1fr; }
       }
       .plan-merged .pm-sectitle {
+        /* Now an <h2> (was <span>/<div>) for heading-hierarchy a11y — reset
+           the UA default heading margin so nothing shifts visually. */
+        margin: 0;
         font-size: 11px;
         font-weight: 800;
         letter-spacing: 0.07em;
@@ -6697,17 +6717,21 @@
         --perf-endur: #16a34a;
         /* #ea580c fails 4.5:1 AA against white — darkened per spec. */
         --perf-speed: #c2410c;
-        --perf-loss: #b91c1c;
-        --perf-gain: #16a34a;
-        --perf-faint: #9aa3b8;
-        --perf-muted: #6b7280;
+        /* Aliased to canonical tokens (frontend/css/styles.css) — was a
+           drifted local hex namespace; see DESIGN.md "Instrument set". */
+        --perf-loss: var(--danger-dark);
+        --perf-gain: var(--success);
+        --perf-faint: var(--text-sub);
+        --perf-muted: var(--text-sub);
         --perf-line: #eceef4;
-        --perf-tile: #f6f7fb;
-        --perf-green: #16a34a;
+        --perf-tile: var(--tile);
+        --perf-green: var(--success);
         --perf-greenSoft: #dcfce7;
         --perf-lavHi: #6366f1;
         --perf-blueSoft: #e6ebfe;
-        --perf-strava: #ea580c;
+        /* #ea580c (Strava orange) fails 4.5:1 AA for white text — darkened
+           to the same orange-700 used elsewhere on this page (--lrx-plyo). */
+        --perf-strava: #c2410c;
         --perf-stryd: #1b2340;
       }
       .perf-card {
@@ -6742,7 +6766,10 @@
         font-size: 9px;
         font-weight: 800;
         letter-spacing: 0.05em;
-        color: var(--perf-lavHi);
+        /* #6366f1 on --perf-blueSoft is ~3.76:1, fails AA — darkened to
+           indigo-700 (~6.7:1) without touching the shared --perf-lavHi
+           token (still used at 4.5:1-passing sizes/weights elsewhere). */
+        color: #4338ca;
         background: var(--perf-blueSoft);
         padding: 3px 8px;
         border-radius: 6px;
@@ -6760,11 +6787,10 @@
       .perf-scorewrap > .perf-card {
         min-width: 0;
       }
-      @media (max-width: 700px) {
-        .perf-scorewrap {
-          grid-template-columns: 1fr;
-        }
-      }
+      /* Note: collapse to 1fr happens in the shared ".perf-scorewrap,
+         .perf-row2" rule under the 900px "Responsive collapse" media query
+         below — a duplicate 700px rule here was fully shadowed by it and
+         has been removed. */
       .perf-bigscore {
         display: flex;
         align-items: baseline;
@@ -7128,16 +7154,20 @@
       .perf-card-body {
         display: block;
       }
+      /* These rules previously referenced gradient-system tokens (--shell-1,
+         --text-secondary, --text-tertiary, --bg-1, --red, --red-soft) which
+         DESIGN.md scopes to Home/Weight only. Swapped to this page's
+         legacy/instrument equivalents. */
       .perf-building-baseline {
         display: flex;
         align-items: flex-start;
         gap: 8px;
         padding: 10px 12px;
-        background: var(--shell-1);
+        background: var(--surface-2);
         border-radius: 10px;
         margin-top: 10px;
         font-size: 12px;
-        color: var(--text-secondary);
+        color: var(--text-sub);
       }
       .perf-bb-text {
         font-weight: 600;
@@ -7145,28 +7175,28 @@
       .perf-bb-sub {
         margin: 4px 0 0;
         font-size: 11px;
-        color: var(--text-tertiary);
+        color: var(--text-sub);
       }
       .perf-threshold-hint {
         margin-top: 8px;
         font-size: 11.5px;
-        color: var(--text-secondary);
-        background: var(--shell-1);
+        color: var(--text-sub);
+        background: var(--surface-2);
         border-radius: 8px;
         padding: 10px 12px;
         line-height: 1.5;
       }
       .perf-threshold-hint a {
-        color: var(--bg-1);
+        color: var(--primary);
         font-weight: 600;
       }
       .perf-error {
         margin-top: 8px;
         padding: 10px 12px;
-        background: var(--red-soft);
+        background: var(--danger-soft);
         border-radius: 8px;
         font-size: 11.5px;
-        color: var(--red);
+        color: var(--danger);
         display: flex;
         align-items: center;
         gap: 10px;
@@ -7174,9 +7204,9 @@
       .perf-retry-btn {
         flex-shrink: 0;
         background: none;
-        border: 1px solid var(--red);
+        border: 1px solid var(--danger);
         border-radius: 6px;
-        color: var(--red);
+        color: var(--danger);
         font-size: 11px;
         font-weight: 600;
         cursor: pointer;
@@ -7188,7 +7218,7 @@
       .perf-bb-reason {
         margin: 0;
         font-size: 11.5px;
-        color: var(--text-secondary);
+        color: var(--text-sub);
         line-height: 1.45;
       }
 
@@ -7201,7 +7231,7 @@
       .perf-chart-baseline {
         padding: 20px;
         text-align: center;
-        color: var(--text-secondary);
+        color: var(--text-sub);
         font-size: 12.5px;
         display: flex;
         align-items: center;
@@ -7572,20 +7602,22 @@
       /* orange-700, not the lighter --speed orange — that fails 4.5:1 white-text contrast */
       --lrx-plyo: #c2410c;
       --lrx-lime: #cff245;
-      --lrx-ink: #1b2340;
-      --lrx-muted: #6b7280;
-      --lrx-faint: #9aa3b8;
+      /* Aliased to canonical tokens (frontend/css/styles.css) — was a drifted
+         local hex namespace; see DESIGN.md "Instrument set". */
+      --lrx-ink: var(--ink);
+      --lrx-muted: var(--text-sub);
+      --lrx-faint: var(--text-sub);
       --lrx-line: #eceef4;
-      --lrx-tile: #f6f7fb;
-      --lrx-green: #16a34a;
+      --lrx-tile: var(--tile);
+      --lrx-green: var(--success);
       --lrx-greenSoft: #dcfce7;
-      --lrx-red: #dc2626;
-      --lrx-redSoft: #fee2e2;
-      --lrx-amber: #d97706;
+      --lrx-red: var(--danger);
+      --lrx-redSoft: var(--danger-soft);
+      --lrx-amber: var(--warning);
       --lrx-amberSoft: #fdf3da;
       --lrx-lavHi: #6366f1;
       --lrx-blueSoft: #e6ebfe;
-      --lrx-mono: "JetBrains Mono", ui-monospace, monospace;
+      --lrx-mono: var(--mono);
     }
 
     /* ── Sticky enlarged-tab nav ─────────────────────────────────────────── */

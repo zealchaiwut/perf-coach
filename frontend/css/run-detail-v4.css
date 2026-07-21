@@ -694,7 +694,7 @@
 .rd4-hl-title { font-size: 16px; font-weight: 700; color: #0b1530; }
 .rd4-hl-sub { font-size: 12px; color: #5c6886; margin-top: 1px; }
 .rd4-hl-num { font-family: var(--mono, "JetBrains Mono", monospace); font-size: 26px; font-weight: 700; text-align: right; line-height: 1; color: #0b1530; }
-.rd4-hl-num span { display: block; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #8b95ad; margin-top: 3px; }
+.rd4-hl-num span { display: block; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-sub); margin-top: 3px; }
 .rd4-dev-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .rd4-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 600; padding: 5px 11px; border-radius: 999px; border: 1.5px solid #e5e7eb; background: #fff; color: #5c6886; }
 .rd4-chip-ar { font-weight: 800; }
@@ -953,7 +953,7 @@
 .rd4-signal-sub {
   margin: 2px 0 10px;
   font-size: 0.75rem;
-  color: var(--text-tertiary, #9aa3b8);
+  color: var(--text-tertiary, #9aa3b2);
   font-weight: 500;
 }
 

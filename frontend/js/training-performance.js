@@ -37,6 +37,22 @@
 
   var NS = "http://www.w3.org/2000/svg";
 
+  // Shared palette for the hand-rolled SVG charts below (JS can't read CSS
+  // custom properties, so these are the JS-side mirrors of the app's chart
+  // tokens — keep in sync with frontend/css/styles.css by hand).
+  var PERF_COLORS = {
+    // Axis/tick/date-label text and the neutral-priority marker fallback —
+    // both use the app's canonical muted-gray (--text-sub, ~4.9:1 contrast).
+    textMuted: "#6b7280",
+    gridLine: "#eef1f7",          // horizontal chart gridlines
+    dataLine: "#4f6ef7",          // primary brand-blue series line/stroke
+    dataLineFill: "rgba(79,110,247,0.12)", // translucent fill under a brand-blue sparkline
+    goalGreen: "#16a34a",         // goal-pace marker/label + "balanced" load status
+    amber: "#d97706",             // priority-B race marker + "elevated" load status
+    markerA: "#1b2340",           // priority-A race marker (dark navy)
+    inactiveGray: "#d1d5db",      // inactive/disabled muscle-group bar fill
+  };
+
   // ── Helpers ───────────────────────────────────────────────────────────────
   function pad(n) {
     return String(n).padStart(2, "0");
@@ -529,6 +545,26 @@
       _hideProjNow();
     }
 
+    // Accessible name for the chart: this SVG is drawn point-by-point with no
+    // text alternative, so give it a concise, real-data summary rather than a
+    // generic label (screen readers get this instead of the drawing itself).
+    if (estInfo && estInfo.est != null) {
+      var ariaBits = ["Finish time projection: currently trending toward " + fmtTime(estInfo.est)];
+      var histFirst = null;
+      for (var _hi = 0; _hi < history.length; _hi++) {
+        if (history[_hi].estimated_finish_seconds != null) { histFirst = history[_hi]; break; }
+      }
+      if (histFirst) {
+        var deltaSec = histFirst.estimated_finish_seconds - estInfo.est;
+        if (deltaSec > 15) ariaBits.push("improved from " + fmtTime(histFirst.estimated_finish_seconds));
+        else if (deltaSec < -15) ariaBits.push("slowed from " + fmtTime(histFirst.estimated_finish_seconds));
+      }
+      if (goalSec != null) ariaBits.push("goal " + fmtTime(goalSec));
+      svg.setAttribute("aria-label", ariaBits.join(", ") + ".");
+    } else {
+      svg.setAttribute("aria-label", "Finish time projection chart");
+    }
+
     // Responsive sizing: build the coordinate space to the measured render
     // width so 1 unit ≈ 1px on any viewport (fixes the ~3× mobile downscale).
     var W = measureChartW(svg);
@@ -617,10 +653,10 @@
     // edge, just above their gridline (no left gutter).
     var ticks = [vmin + (vmax - vmin) * 0.2, (vmin + vmax) / 2, vmax - (vmax - vmin) * 0.2];
     ticks.forEach(function (v) {
-      svg.appendChild(E("line", { x1: p.l, x2: W - p.r, y1: y(v), y2: y(v), stroke: "#eef1f7" }));
+      svg.appendChild(E("line", { x1: p.l, x2: W - p.r, y1: y(v), y2: y(v), stroke: PERF_COLORS.gridLine }));
       var lab = E("text", {
         x: W - p.r - 4, y: y(v) - 4, "font-size": FS(10),
-        "font-family": "JetBrains Mono", fill: "#9aa3b8", "text-anchor": "end",
+        "font-family": "JetBrains Mono", fill: PERF_COLORS.textMuted, "text-anchor": "end",
       });
       lab.textContent = fmtTime(Math.round(v));
       svg.appendChild(lab);
@@ -635,7 +671,7 @@
     if (top.length && bot.length) {
       svg.appendChild(E("path", {
         d: Path(top.concat(bot.reverse()), true),
-        fill: "#4f6ef7", "fill-opacity": 0.12,
+        fill: PERF_COLORS.dataLine, "fill-opacity": 0.12,
       }));
     }
 
@@ -645,7 +681,7 @@
       .map(function (e, i) { return [xHist(i), y(e.estimated_finish_seconds)]; });
     if (histPts.length)
       svg.appendChild(E("path", {
-        d: Path(histPts), fill: "none", stroke: "#4f6ef7", "stroke-width": LWmain,
+        d: Path(histPts), fill: "none", stroke: PERF_COLORS.dataLine, "stroke-width": LWmain,
       }));
 
     // projection center (dashed)
@@ -658,7 +694,7 @@
       .filter(Boolean);
     if (projPts.length)
       svg.appendChild(E("path", {
-        d: Path(projPts), fill: "none", stroke: "#4f6ef7",
+        d: Path(projPts), fill: "none", stroke: PERF_COLORS.dataLine,
         "stroke-width": LWmain, "stroke-dasharray": "5 4",
       }));
 
@@ -666,11 +702,11 @@
     if (goalSec != null) {
       svg.appendChild(E("line", {
         x1: p.l, x2: W - p.r, y1: y(goalSec), y2: y(goalSec),
-        stroke: "#16a34a", "stroke-width": 1.5, "stroke-dasharray": "7 5",
+        stroke: PERF_COLORS.goalGreen, "stroke-width": 1.5, "stroke-dasharray": "7 5",
       }));
       var gl = E("text", {
         x: p.l + 4, y: y(goalSec) - 5, "font-size": FS(9),
-        "font-family": "Inter Tight", fill: "#16a34a", "font-weight": 700,
+        "font-family": "Inter Tight", fill: PERF_COLORS.goalGreen, "font-weight": 700,
       });
       gl.textContent = "A goal " + fmtTime(goalSec);
       svg.appendChild(gl);
@@ -683,14 +719,14 @@
     }));
     var nt = E("text", {
       x: nowX + 3, y: p.t + 8, "font-size": FS(8), "font-family": "JetBrains Mono",
-      fill: "#9aa3b8", "text-anchor": "start", "font-weight": 700,
+      fill: PERF_COLORS.textMuted, "text-anchor": "start", "font-weight": 700,
     });
     nt.textContent = "NOW";
     svg.appendChild(nt);
 
     // race markers along the projection window
     var markers = (_projection && _projection.race_markers) || [];
-    var COL = { A: "#1b2340", B: "#d97706", C: "#6b7280" };
+    var COL = { A: PERF_COLORS.markerA, B: PERF_COLORS.amber, C: PERF_COLORS.textMuted };
     var todayStr = todayISO();
     markers.forEach(function (m) {
       if (m.date < todayStr) return;
@@ -698,7 +734,7 @@
       var maxW = weeksUntil(_primaryRace && _primaryRace.date) || 1;
       var u = maxW > 0 ? 1 - Math.min(1, w / maxW) : 1;
       var mx = p.l + (nowT + u * (1 - nowT)) * (W - p.l - p.r);
-      var c = COL[m.priority] || "#6b7280";
+      var c = COL[m.priority] || PERF_COLORS.textMuted;
       svg.appendChild(E("line", {
         x1: mx, x2: mx, y1: p.t, y2: H - p.b, stroke: c,
         "stroke-width": m.priority === "A" ? 1.5 : 1,
@@ -707,7 +743,7 @@
       }));
       var t = E("text", {
         x: mx, y: H - 7, "font-size": FS(9), "font-family": "JetBrains Mono",
-        fill: "#9aa3b8", "text-anchor": "middle", "font-weight": 700,
+        fill: PERF_COLORS.textMuted, "text-anchor": "middle", "font-weight": 700,
       });
       t.textContent = m.priority || "•";
       svg.appendChild(t);
@@ -1072,6 +1108,22 @@
     if (emptyEl) emptyEl.style.display = "none";
     svg.style.display = "";
 
+    // Accessible name: concise real-data summary (form = TSB-style freshness
+    // score) rather than a generic label, since the drawing itself conveys
+    // nothing to screen readers.
+    (function () {
+      var firstForm = formCurve[0].form;
+      var lastForm = formCurve[formCurve.length - 1].form;
+      var delta = lastForm - firstForm;
+      var trend = delta > 0.5
+        ? "up from " + Math.round(firstForm)
+        : delta < -0.5
+          ? "down from " + Math.round(firstForm)
+          : "steady near " + Math.round(firstForm);
+      svg.setAttribute("aria-label",
+        "Training form trend: currently " + Math.round(lastForm) + ", " + trend + ".");
+    })();
+
     // Responsive sizing: match the measured render width (1 unit ≈ 1px). This
     // card sits in a 2-col row on desktop (~half width) and full width on mobile,
     // so a hardcoded 1140 mis-scaled it on BOTH — measuring fixes both.
@@ -1112,11 +1164,11 @@
 
     [vmax, 0, -10, vmin].forEach(function (v) {
       svg.appendChild(E("line", {
-        x1: p.l, x2: W - p.r, y1: y(v), y2: y(v), stroke: "#eef1f7",
+        x1: p.l, x2: W - p.r, y1: y(v), y2: y(v), stroke: PERF_COLORS.gridLine,
       }));
       var lab = E("text", {
         x: p.l - 8, y: y(v) + 3, "font-size": FS(10), "font-family": "JetBrains Mono",
-        fill: "#9aa3b8", "text-anchor": "end",
+        fill: PERF_COLORS.textMuted, "text-anchor": "end",
       });
       lab.textContent = Math.round(v);
       svg.appendChild(lab);
@@ -1127,7 +1179,7 @@
       return [x(i, N), y(pt.form)];
     });
     svg.appendChild(E("path", {
-      d: Path(pts), fill: "none", stroke: "#4f6ef7", "stroke-width": mobile ? 2.4 : 1.8,
+      d: Path(pts), fill: "none", stroke: PERF_COLORS.dataLine, "stroke-width": mobile ? 2.4 : 1.8,
       "stroke-linejoin": "round",
     }));
 
@@ -1137,7 +1189,7 @@
       var xx = x(i, N);
       var t = E("text", {
         x: xx, y: H - 8, "font-size": FS(10), "font-family": "JetBrains Mono",
-        fill: "#9aa3b8",
+        fill: PERF_COLORS.textMuted,
         "text-anchor": k === 0 ? "start" : k === idxs.length - 1 ? "end" : "middle",
       });
       var d = new Date(formCurve[i].date + "T00:00:00");
@@ -2151,13 +2203,13 @@
   function _mbalBarColor(cls) {
     var map = {
       overused: "#dc2626",
-      elevated: "#d97706",
-      balanced: "#16a34a",
-      detraining: "#4f6ef7",
-      untrained: "#4f6ef7",
-      inactive: "#d1d5db",
+      elevated: PERF_COLORS.amber,
+      balanced: PERF_COLORS.goalGreen,
+      detraining: PERF_COLORS.dataLine,
+      untrained: PERF_COLORS.dataLine,
+      inactive: PERF_COLORS.inactiveGray,
     };
-    return map[cls] || "#d1d5db";
+    return map[cls] || PERF_COLORS.inactiveGray;
   }
 
   function _mbalSparklineSvg(groupName, weeklySeries) {
@@ -2173,7 +2225,15 @@
     svg.setAttribute("viewBox", "0 0 " + W + " " + H);
     svg.setAttribute("preserveAspectRatio", "none");
     svg.classList.add("mbal-sparkline");
-    svg.setAttribute("aria-hidden", "true");
+    // Unlike the score sparklines, no adjacent element renders this trend's
+    // values as text, so expose a real-data summary instead of hiding the
+    // chart from assistive tech entirely.
+    svg.setAttribute("role", "img");
+    var _mbalFirst = vals[0], _mbalLast = vals[vals.length - 1];
+    var _mbalTrend = _mbalLast > _mbalFirst ? "up from " : _mbalLast < _mbalFirst ? "down from " : "flat at ";
+    svg.setAttribute("aria-label",
+      groupName + " 8-week load trend: currently " + _mbalLast.toFixed(1) +
+      ", " + _mbalTrend + _mbalFirst.toFixed(1) + ".");
 
     var pts = vals.map(function (v, i) {
       var x = pad + (i / (n - 1)) * (W - pad * 2);
@@ -2188,7 +2248,7 @@
     var line = document.createElementNS("http://www.w3.org/2000/svg", "path");
     line.setAttribute("d", pathD);
     line.setAttribute("fill", "none");
-    line.setAttribute("stroke", "#4f6ef7");
+    line.setAttribute("stroke", PERF_COLORS.dataLine);
     line.setAttribute("stroke-width", "1.5");
     line.setAttribute("stroke-linecap", "round");
     line.setAttribute("stroke-linejoin", "round");
@@ -2198,7 +2258,7 @@
     var fillD = pathD + " L" + pts[pts.length - 1][0].toFixed(1) + "," + H + " L" + pts[0][0].toFixed(1) + "," + H + " Z";
     var fill = document.createElementNS("http://www.w3.org/2000/svg", "path");
     fill.setAttribute("d", fillD);
-    fill.setAttribute("fill", "rgba(79,110,247,0.12)");
+    fill.setAttribute("fill", PERF_COLORS.dataLineFill);
     svg.insertBefore(fill, line);
 
     return svg;
@@ -2634,13 +2694,13 @@
 
     var fill = document.createElementNS("http://www.w3.org/2000/svg", "path");
     fill.setAttribute("d", fillD);
-    fill.setAttribute("fill", "rgba(79,110,247,0.12)");
+    fill.setAttribute("fill", PERF_COLORS.dataLineFill);
     svg.appendChild(fill);
 
     var line = document.createElementNS("http://www.w3.org/2000/svg", "path");
     line.setAttribute("d", pathD);
     line.setAttribute("fill", "none");
-    line.setAttribute("stroke", "#4f6ef7");
+    line.setAttribute("stroke", PERF_COLORS.dataLine);
     line.setAttribute("stroke-width", "1.5");
     line.setAttribute("stroke-linecap", "round");
     line.setAttribute("stroke-linejoin", "round");
