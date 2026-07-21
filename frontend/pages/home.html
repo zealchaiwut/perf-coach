@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" rel="stylesheet">
   <!-- gridstack.js: Home dashboard layout engine (see js/home-grid.js). extra
-       css is required for column counts other than 12 (we use 8/6/4/1). -->
+       css is required for column counts other than 12 (we use 8/6/1). -->
   <link href="https://cdn.jsdelivr.net/npm/gridstack@10/dist/gridstack.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/gridstack@10/dist/gridstack-extra.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/gridstack@10/dist/gridstack-all.js"></script>
@@ -51,6 +51,22 @@
       --orange-soft: #ffe1d4;
       --teal-text: #1e6438;
       --teal-soft: #d4f0e2;
+      /* Redesign (issue: Home anti-pattern audit, Task 4) — link-blue was a
+         bare literal (#2b4ca8) repeated ~24 times across this file with no
+         token; promoted here. No --link-hover: none of the existing hover
+         states on this page actually change this color (they swap
+         background or add an underline instead), so there's nothing to
+         capture. */
+      --link: #2b4ca8;
+      /* Coach brief v4 / Week plan reinvented an "info" indigo and a "rest"
+         sky-blue as raw hex in several places (tags, badges, chips) instead
+         of reusing this file's own token vocabulary — promoted the two
+         repeated ones (2+ raw uses each) to tokens, same text/soft pairing
+         convention as blue/purple/orange/teal above. */
+      --indigo-text: #3b4bb8;
+      --indigo-soft: #e4e8fd;
+      --sky-text: #0369a1;
+      --sky-soft: #e0f2fe;
       /* Home v3 color grouping (Task 4) — paired tint stops following the
          existing --bg-1/--bg-2, --hero-1/--hero-2, --sleep-1/--sleep-2
          naming convention. Blue tint reuses the existing --shell-1/--shell-2
@@ -82,7 +98,7 @@
     input:focus-visible,
     textarea:focus-visible,
     [tabindex]:focus-visible {
-      outline: 2px solid #2b4ca8;
+      outline: 2px solid var(--link);
       outline-offset: 2px;
       border-radius: 4px;
     }
@@ -143,7 +159,13 @@
       height: auto;
     }
 
-    @media (max-width: 759px) {
+    /* Breakpoint consolidation (redesign pass): was 759px, one of three
+       uncoordinated systems on this page (CSS @media at 430/640/759/880 vs.
+       home-grid.js's colFor() at 480/760/1000) — none matching the
+       project's documented mobile<640 / tablet 640-1024 / desktop>=1024
+       scale. Renumbered to 1024 (tablet-and-below gets the tighter
+       padding; only true desktop keeps the roomier 28/22px). */
+    @media (max-width: 1024px) {
       .page { padding: 14px; }
       .card { padding: 12px; }
       /* card-head's default 14px margin-bottom is the next-biggest whitespace
@@ -273,19 +295,23 @@
     }
     .card-head .ttl { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; min-width: 0; }
     .card-head .ttl i { font-size: 17px; color: var(--text-tertiary); }
-    .card-head a { font-size: 12px; color: #2b4ca8; text-decoration: none; white-space: nowrap; }
+    .card-head a { font-size: 12px; color: var(--link); text-decoration: none; white-space: nowrap; }
     .card-head .meta { font-size: 12px; color: var(--text-tertiary); }
 
     /* ---- PERSONAL RECORDS CARD (home v3, Task 6 — 10K/Half/Marathon tiles
        from /api/athletes/{id}/run-personal-records, see loadPerformanceCard) ---- */
     .pr-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    /* Flatten (Task 2): was its own bordered/tinted tile nested inside
+       #perf-card.card — the outer card border already contains it, so this
+       is now a thin vertical divider between the 3 side-by-side stats
+       (the row-divider treatment, rotated for a horizontal layout) instead
+       of a boxed chip. */
     .pr-tile {
-      background: var(--chip-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 10px;
-      padding: 10px 9px;
+      padding: 4px 9px;
       text-align: center;
+      border-left: 1px solid var(--card-border);
     }
+    .pr-tile:first-child { border-left: 0; }
     .pr-lbl {
       font-size: 8px; font-weight: 800; color: var(--text-tertiary);
       text-transform: uppercase; letter-spacing: 0.03em;
@@ -302,7 +328,7 @@
       color: var(--text-secondary);
       line-height: 1.5;
     }
-    .perf-empty a { color: #2b4ca8; text-decoration: none; }
+    .perf-empty a { color: var(--link); text-decoration: none; }
 
     /* ---- RECENT WORKOUTS (rendered as .nw-row entries inside
        #home-recent-workout-section — see RECENT WORKOUT CARD rules below) ---- */
@@ -371,9 +397,9 @@
       height: 4px; border-radius: 2px;
       background: var(--chip-bg); overflow: hidden;
     }
-    .hww-progress-fill { height: 100%; border-radius: 2px; background: #2b4ca8; }
+    .hww-progress-fill { height: 100%; border-radius: 2px; background: var(--link); }
     .hww-goal-line { font-size: 11.5px; color: var(--text-secondary); margin-top: 6px; line-height: 1.5; }
-    .hww-goal-line a { color: #2b4ca8; text-decoration: none; }
+    .hww-goal-line a { color: var(--link); text-decoration: none; }
     .hww-no-data { font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin-top: 8px; }
     /* Stepper section */
     .hww-stepper { display: flex; flex-direction: column; gap: 12px; }
@@ -381,14 +407,19 @@
       font-size: 11px; font-weight: 600; color: var(--text-tertiary);
       text-transform: uppercase; letter-spacing: 0.07em;
     }
+    /* Flatten (Task 2): the stepper used to be one bordered/tinted box
+       nested inside the weight widget's own card — a redundant containment
+       cue one level down. Now it's plain spacing between three
+       independently-styled controls: the two buttons keep their own chip
+       background (they're buttons — they should look pressable), and the
+       input gets its own light border/radius so it still reads as an
+       editable field without a wrapper box around the whole group. */
     .hww-step-row {
-      display: flex; align-items: center; gap: 0;
-      border: 1.5px solid var(--card-border); border-radius: 12px;
-      overflow: hidden; background: #f7f9fd;
+      display: flex; align-items: center; gap: 6px;
     }
     .hww-step-btn {
       width: 48px; min-height: 48px; background: var(--chip-bg);
-      color: var(--text-primary); border: 0; font-size: 22px;
+      color: var(--text-primary); border: 0; border-radius: 10px; font-size: 22px;
       font-family: inherit; cursor: pointer;
       display: flex; align-items: center; justify-content: center;
       flex-shrink: 0; transition: background 0.12s;
@@ -397,7 +428,8 @@
     .hww-step-btn:hover { background: #dde6f8; }
     .hww-step-btn:active { background: #c8d6f4; }
     .hww-step-input {
-      flex: 1; min-width: 0; border: 0; background: transparent;
+      flex: 1; min-width: 0; border: 1.5px solid var(--card-border); border-radius: 10px;
+      background: #f7f9fd;
       text-align: center; font-family: 'JetBrains Mono', monospace;
       font-size: 20px; font-weight: 600; letter-spacing: -0.02em;
       color: var(--text-primary); padding: 10px 4px;
@@ -405,7 +437,7 @@
     }
     .hww-step-input::-webkit-outer-spin-button,
     .hww-step-input::-webkit-inner-spin-button { -webkit-appearance: none; }
-    .hww-step-input:focus { outline: none; box-shadow: inset 0 0 0 2px #2b4ca8; border-radius: 6px; }
+    .hww-step-input:focus { outline: none; border-color: var(--link); box-shadow: inset 0 0 0 1.5px var(--link); }
     .hww-log-btn {
       width: 100%; padding: 14px 20px; background: var(--accent);
       color: var(--accent-text); border: 0; border-radius: 12px;
@@ -421,10 +453,14 @@
     }
     .hww-compact-edit {
       margin-left: auto; font-size: 12px; font-weight: 600;
-      color: #2b4ca8; cursor: pointer; text-decoration: none; background: none;
+      color: var(--link); cursor: pointer; text-decoration: none; background: none;
       border: 0; font-family: inherit; padding: 0;
     }
-    @media (max-width: 880px) {
+    /* Was 880px — consolidated onto 1024 (see Breakpoint consolidation note
+       above). The weight card runs at roughly half the grid width at both
+       the old "6" and "8" column tiers, so it only needs to stack below
+       the tablet/desktop split, not at some mid-tablet number. */
+    @media (max-width: 1024px) {
       .hww-layout { grid-template-columns: 1fr; gap: 20px; }
       .hww-current { font-size: 32px; }
     }
@@ -433,10 +469,16 @@
        strip's CTA — see FAST LOG FORM rules below and home-strip-habits.js). */
     #row-log { margin-bottom: 16px; }
 
-    /* ---- FAST LOG FORM ---- */
+    /* ---- FAST LOG FORM ----
+       Was a bare 3px left stripe in --bg-1 (decorative accent with no real
+       edge) — replaced with a full border + a fading tint of the same blue
+       family (--blue-soft) so the "this is the active/highlighted form"
+       signal reads as a real surface, not a hairline. Fades to white by
+       ~160px so the long field list underneath stays plain and legible. */
     .fast-log {
       padding: 20px 22px 22px;
-      border-left: 3px solid var(--bg-1);
+      border: 1px solid var(--blue-soft);
+      background: linear-gradient(180deg, var(--blue-soft) 0%, #fff 160px);
     }
     .fast-log .card-head { margin-bottom: 16px; }
 
@@ -521,7 +563,7 @@
     }
     .fm-input::-webkit-outer-spin-button,
     .fm-input::-webkit-inner-spin-button { -webkit-appearance: none; }
-    .fm-input:focus { outline: none; box-shadow: inset 0 0 0 2px #2b4ca8; border-radius: 6px; }
+    .fm-input:focus { outline: none; box-shadow: inset 0 0 0 2px var(--link); border-radius: 6px; }
 
     /* Segmented pill groups */
     .fm-pills {
@@ -545,7 +587,7 @@
       transition: background 0.1s, border-color 0.1s, color 0.1s;
       -webkit-tap-highlight-color: transparent;
     }
-    .fm-pill:hover { background: #dde6f8; border-color: #2b4ca8; color: #2b4ca8; }
+    .fm-pill:hover { background: #dde6f8; border-color: var(--link); color: var(--link); }
     .fm-pill.active {
       background: #0b1530;
       border-color: #0b1530;
@@ -565,7 +607,7 @@
       resize: vertical;
       min-height: 80px;
     }
-    .fm-textarea:focus { outline: none; border-color: #2b4ca8; background: #fff; }
+    .fm-textarea:focus { outline: none; border-color: var(--link); background: #fff; }
 
     /* Save row */
     .fm-actions {
@@ -595,8 +637,9 @@
     }
     .fm-feedback--err { color: #dc2626; }
 
-    @media (max-width: 880px) {
-      /* Fast log: already single-column, just widen stepper */
+    /* Was 880px — consolidated onto 1024 (see Breakpoint consolidation
+       note above). Fast log: already single-column, just widen stepper. */
+    @media (max-width: 1024px) {
       .fm-stepper { border-radius: 10px; }
       .fm-step-btn { width: 52px; }
     }
@@ -681,7 +724,7 @@
       -webkit-tap-highlight-color: transparent;
     }
     .hw-check-circle:focus-visible {
-      outline: 2px solid #2b4ca8;
+      outline: 2px solid var(--link);
       outline-offset: 2px;
     }
     .hw-check-circle--empty {
@@ -709,15 +752,15 @@
       font-size: 11.5px;
       color: var(--text-tertiary);
     }
-    .hw-footer a { color: #2b4ca8; text-decoration: none; }
+    .hw-footer a { color: var(--link); text-decoration: none; }
     .hw-footer a:hover { text-decoration: underline; }
-    .hw-all-link { font-size: 12px; color: #2b4ca8; text-decoration: none; }
+    .hw-all-link { font-size: 12px; color: var(--link); text-decoration: none; }
     .hw-all-link:hover { text-decoration: underline; }
     .hw-empty {
       font-size: 13.5px; color: var(--text-secondary);
       padding: 12px 0; line-height: 1.5;
     }
-    .hw-empty a { color: #2b4ca8; text-decoration: none; }
+    .hw-empty a { color: var(--link); text-decoration: none; }
 
     /* Habit icon chip */
     .habit-icon-chip {
@@ -725,7 +768,9 @@
       border-radius: 8px; color: #fff; flex-shrink: 0;
     }
 
-    @media (max-width: 880px) {
+    /* Was 880px — consolidated onto 1024 (see Breakpoint consolidation
+       note in the first <style> block above). */
+    @media (max-width: 1024px) {
       .hw-wheel-svg { width: 88px; height: 88px; }
     }
   </style>
@@ -903,10 +948,12 @@
       min-height: 160px;
     }
 
-    /* ---- RESPONSIVE ---- */
-    @media (max-width: 880px) {
-      #row-training-sleep { grid-template-columns: 1fr; }
-    }
+    /* ---- RESPONSIVE ----
+       (Orphaned #row-training-sleep rule removed here — that id doesn't
+       exist anywhere in this page's markup or its JS; it's a leftover from
+       before the hand-placed grid was replaced by gridstack.js, and its
+       removal was folded into this breakpoint-consolidation pass since it
+       lived in the exact media query being renumbered.) */
 
     /* ==== HOME V2 ==== */
 
@@ -955,15 +1002,15 @@
       font-size: 11px; color: var(--text-secondary); font-family: 'JetBrains Mono', monospace;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .nw-arrow { font-size: 14px; color: #2b4ca8; font-weight: 700; flex-shrink: 0; }
+    .nw-arrow { font-size: 14px; color: var(--link); font-weight: 700; flex-shrink: 0; }
     .nw-empty, .nw-loading { font-size: 13.5px; color: var(--text-secondary); padding: 4px 0; }
-    .nw-empty a { color: #2b4ca8; text-decoration: none; }
+    .nw-empty a { color: var(--link); text-decoration: none; }
 
     /* ---- TRAINING CARD: 8-week trend link-out ---- */
     .tw-trendlink {
       font-size: 11px;
       font-weight: 700;
-      color: #2b4ca8;
+      color: var(--link);
       margin-top: 9px;
       display: inline-block;
       text-decoration: none;
@@ -976,17 +1023,20 @@
     /* Stacked (1 column, "2 lines") instead of side-by-side — frees up width
        so each tile can run full-card-width, letting the score number itself
        be sized up instead of being squeezed into a half-width tile. */
-    .hperf-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+    .hperf-grid { display: grid; grid-template-columns: 1fr; gap: 0; }
     /* Card now stretches to match its neighbor's height (align-items:stretch
        on the grid) — center the tiles in whatever extra height that leaves,
        instead of leaving dead space pinned below them. */
     #home-performance-card .hperf-grid { flex: 1; align-content: center; }
+    /* Flatten (Task 2): was its own bordered/tinted tile nested inside
+       #home-performance-card.card — replaced with a plain row divider
+       between the stacked tiles (none on the first) instead of a boxed
+       chip; the outer card already establishes containment. */
     .hperf-tile {
-      background: var(--chip-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 11px;
-      padding: 16px 18px;
+      padding: 14px 2px;
+      border-top: 1px solid var(--card-border);
     }
+    .hperf-tile:first-child { border-top: 0; padding-top: 0; }
     .hperf-lbl {
       font-size: 9.5px; font-weight: 800; color: var(--text-tertiary);
       text-transform: uppercase; letter-spacing: 0.04em;
@@ -1003,7 +1053,7 @@
     .hperf-delta--down { color: var(--red); }
     .hperf-delta--flat { color: var(--text-tertiary); }
     .hperf-msg, .hperf-loading { font-size: 13.5px; color: var(--text-secondary); padding: 4px 0; line-height: 1.5; }
-    .hperf-msg a { color: #2b4ca8; text-decoration: none; }
+    .hperf-msg a { color: var(--link); text-decoration: none; }
 
     /* ---- Coach brief v4: Today strip · digest · accordion ---- */
     .hc-strip-wrap { padding: 0 0 12px; max-width: 100%; }
@@ -1018,7 +1068,7 @@
     }
     .hc-today-t {
       font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700;
-      letter-spacing: .08em; color: #15803d;
+      letter-spacing: .08em; color: var(--green);
     }
     .hc-today-d { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #4d9c68; }
     .hc-today-body {
@@ -1030,16 +1080,19 @@
     .hc-tag {
       font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 700;
       letter-spacing: .05em; padding: 3px 8px; border-radius: 5px;
-      background: #e4e8fd; color: #3b4bb8;
+      background: var(--indigo-soft); color: var(--indigo-text);
     }
+    /* Was its own one-off indigo shade (#eef2ff/#3730a3) — same "info" tag
+       family as the base .hc-tag above, so it now shares the token instead
+       of reinventing a near-identical indigo. */
     .hc-tag--next {
-      background: #eef2ff; color: #3730a3; letter-spacing: .08em;
+      background: var(--indigo-soft); color: var(--indigo-text); letter-spacing: .08em;
     }
     .hc-tag--done {
-      background: #dcfce7; color: #15803d; letter-spacing: .08em;
+      background: var(--green-soft); color: var(--green); letter-spacing: .08em;
     }
     .hc-tag--rest {
-      background: #e0f2fe; color: #0369a1; letter-spacing: .08em;
+      background: var(--sky-soft); color: var(--sky-text); letter-spacing: .08em;
     }
     .hc-sess-m { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-secondary); margin-top: 5px; }
     .hc-sess-stats {
@@ -1047,15 +1100,24 @@
       color: var(--text-primary, #1b2340); margin-top: 8px; letter-spacing: .01em;
     }
     .hc-sess-praise {
-      margin-top: 8px; font-size: 14px; font-weight: 700; color: #15803d; line-height: 1.35;
+      margin-top: 8px; font-size: 14px; font-weight: 700; color: var(--green); line-height: 1.35;
     }
-    .hc-sess-praise--rest { color: #0369a1; }
+    .hc-sess-praise--rest { color: var(--sky-text); }
     .hc-sess-nudge {
       margin-top: 8px; font-size: 13.5px; font-weight: 600; color: #1b2340; line-height: 1.4;
     }
+    /* Was a 3px left stripe in raw #16a34a — replaced with a small leading
+       label+dot (::before, no markup change needed) using the shared
+       success green token, echoing the dot vocabulary already used by
+       .hc-bsec-dot elsewhere on this page. */
     .hc-coach-line {
-      flex: 1.4; min-width: 220px; border-left: 3px solid #16a34a; padding: 2px 0 2px 14px;
+      flex: 1.4; min-width: 220px; padding: 2px 0;
       display: flex; flex-direction: column; gap: 10px;
+    }
+    .hc-coach-line::before {
+      content: '\25CF COACH';
+      font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700;
+      letter-spacing: .08em; color: var(--green);
     }
     .hc-focus-item {
       display: flex; align-items: flex-start; gap: 10px;
@@ -1075,7 +1137,7 @@
       cursor: pointer; display: inline-flex; align-items: center; align-self: flex-start;
       padding: 15px 8px; margin: -13px -8px -15px -8px;
     }
-    .hc-a:hover { color: var(--blue-text, #2b4ca8); }
+    .hc-a:hover { color: var(--link); }
     .hc-today-cta { display: flex; flex-direction: column; gap: 8px; min-width: 160px; }
     .hc-cta {
       padding: 10px 16px; border-radius: 9px; border: none; font-size: 13px; font-weight: 700; cursor: pointer;
@@ -1090,8 +1152,8 @@
       font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700;
       padding: 4px 10px; border-radius: 99px;
     }
-    .hc-chip--ok { background: #dcfce7; color: #15803d; }
-    .hc-chip--warn { background: #fef3c7; color: #92400e; }
+    .hc-chip--ok { background: var(--green-soft); color: var(--green); }
+    .hc-chip--warn { background: var(--amber-soft); color: var(--amber); }
     .hc-chip--info { background: var(--chip-bg, #f1f3f8); color: var(--text-secondary); }
 
     .hc-digest { padding: 2px 0; }
@@ -1105,17 +1167,21 @@
          margin so the glyph/text stays the same visual size and position —
          only the invisible click area grows. */
       appearance: none; border: none; background: none;
-      color: var(--blue-text, #2b4ca8); font-weight: 600; cursor: pointer; font-size: 12px;
+      color: var(--link); font-weight: 600; cursor: pointer; font-size: 12px;
       display: inline-flex; align-items: center;
       padding: 16px 8px; margin: -16px -8px;
     }
     .hc-dg-verdict { font-size: 15px; font-weight: 700; line-height: 1.45; margin-bottom: 4px; }
     .hc-dg-sub { font-size: 12.5px; color: var(--text-secondary); line-height: 1.55; }
-    .hc-focus { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+    .hc-focus { margin-top: 14px; display: flex; flex-direction: column; }
+    /* Flatten (Task 2): was its own tinted/rounded tile nested inside the
+       digest card (#home-today-rec-card.card) — replaced with a plain row
+       divider between the stacked focus items (none on the first). */
     .hc-f-row {
-      display: flex; align-items: center; gap: 11px; padding: 10px 12px;
-      border-radius: 10px; background: var(--chip-bg, #f8f9fb);
+      display: flex; align-items: center; gap: 11px; padding: 10px 2px;
+      border-top: 1px solid var(--card-border);
     }
+    .hc-f-row:first-child { border-top: 0; }
     .hc-f-n {
       width: 20px; height: 20px; border-radius: 6px; background: var(--text-primary, #1b2340);
       color: #fff; display: grid; place-items: center;
@@ -1126,8 +1192,8 @@
       display: block; font-family: 'JetBrains Mono', monospace; font-size: 10px;
       color: var(--text-tertiary); font-weight: 500; margin-top: 2px;
     }
-    .hc-f-p { font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; color: #d97706; }
-    .hc-f-p--ok { color: #16a34a; }
+    .hc-f-p { font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; color: var(--amber); }
+    .hc-f-p--ok { color: var(--green); }
     .hc-dg-foot {
       display: flex; align-items: center; justify-content: space-between; margin-top: 14px;
       padding-top: 12px; border-top: 1px solid var(--card-border, #e5e7eb);
@@ -1166,7 +1232,7 @@
     .hc-brief-meta { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--text-tertiary); margin-top: 4px; }
     .hc-diffchip {
       font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700;
-      padding: 4px 10px; border-radius: 99px; background: #e4e8fd; color: #3b4bb8;
+      padding: 4px 10px; border-radius: 99px; background: var(--indigo-soft); color: var(--indigo-text);
       margin-right: 8px;
     }
     .hc-bsec { border-bottom: 1px solid var(--card-border); }
@@ -1177,16 +1243,16 @@
     }
     .hc-bsec-h:hover { background: var(--chip-bg, #f8f9fb); }
     .hc-bsec-dot { width: 8px; height: 8px; border-radius: 99px; flex-shrink: 0; background: var(--text-tertiary); }
-    .hc-bsec-dot.new { background: #16a34a; box-shadow: 0 0 0 3px #dcfce7; }
+    .hc-bsec-dot.new { background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
     .hc-bsec-t { flex: 1; font-size: 14px; font-weight: 700; min-width: 160px; }
     .hc-bsec-badge {
       font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 700;
       padding: 2px 8px; border-radius: 99px; background: var(--chip-bg); color: var(--text-tertiary);
       letter-spacing: .05em;
     }
-    .hc-bsec-badge--daily { background: #dcfce7; color: #15803d; }
-    .hc-bsec-badge--wk { background: #e4e8fd; color: #3b4bb8; }
-    .hc-bsec-badge--proposal { background: #fef3c7; color: #92400e; }
+    .hc-bsec-badge--daily { background: var(--green-soft); color: var(--green); }
+    .hc-bsec-badge--wk { background: var(--indigo-soft); color: var(--indigo-text); }
+    .hc-bsec-badge--proposal { background: var(--amber-soft); color: var(--amber); }
     .hc-bsec--proposal .hc-prop-life {
       font-size: 12px; color: var(--text-tertiary); margin: 8px 0 4px;
     }
@@ -1196,7 +1262,7 @@
       border-radius: 8px; border: 1px solid var(--card-border); background: #fff;
       cursor: pointer; color: var(--text-primary);
     }
-    .hc-prop-accept { background: #0b1530; color: #fff; border-color: #0b1530; }
+    .hc-prop-accept { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
     .hc-prop-btn:hover { filter: brightness(0.97); }
     .hc-caret {
       font-family: 'JetBrains Mono', monospace; color: var(--text-tertiary);
@@ -1209,24 +1275,24 @@
     .hc-num {
       font-weight: 700;
       font-variant-numeric: tabular-nums;
-      color: #0b1530;
+      color: var(--text-primary);
     }
-    .hc-ev .hc-num { color: #1e3a8a; }
-    .hc-do .hc-num { color: #1e3a8a; }
+    .hc-ev .hc-num { color: var(--blue-text); }
+    .hc-do .hc-num { color: var(--blue-text); }
     .hc-ev {
       font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-secondary);
       background: var(--chip-bg); border: 1px solid var(--card-border); border-radius: 8px;
       padding: 8px 11px; margin: 4px 0 10px; max-width: 640px;
     }
-    .hc-ev a { color: var(--blue-text, #2b4ca8); text-decoration: underline; }
+    .hc-ev a { color: var(--link); text-decoration: underline; }
     .hc-do {
-      display: flex; gap: 9px; align-items: flex-start; background: #f4f5fe;
-      border: 1px solid #dfe3fb; border-radius: 9px; padding: 9px 12px;
-      font-size: 12.5px; color: #3b4bb8; max-width: 640px; line-height: 1.5;
+      display: flex; gap: 9px; align-items: flex-start; background: var(--indigo-soft);
+      border: 1px solid var(--card-border); border-radius: 9px; padding: 9px 12px;
+      font-size: 12.5px; color: var(--indigo-text); max-width: 640px; line-height: 1.5;
     }
     .hc-k {
       font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 700;
-      background: #3b4bb8; color: #fff; padding: 2px 7px; border-radius: 5px;
+      background: var(--indigo-text); color: #fff; padding: 2px 7px; border-radius: 5px;
       margin-top: 2px; flex-shrink: 0;
     }
     .hc-unchanged {
@@ -1242,7 +1308,7 @@
       .hc-brief-head { padding: 20px 48px 16px 18px; }
       .hc-brief-foot { padding: 16px 18px 20px; }
       .hc-today-body { flex-direction: column; align-items: stretch; }
-      .hc-coach-line { border-left: none; border-top: 3px solid #16a34a; padding: 12px 0 0; }
+      .hc-coach-line { padding-top: 12px; border-top: 1px solid var(--card-border); }
       .hc-today-cta { width: 100%; }
     }
 
@@ -1278,11 +1344,11 @@
     }
     .rec-tab:hover { color: var(--text-secondary); background: rgba(0,0,0,0.04); }
     .rec-tab[data-tab="all"].is-active {
-      color: var(--blue-text, #2b4ca8);
+      color: var(--link);
       background: var(--blue-soft, rgba(90,141,238,0.14));
     }
     .rec-tab[data-tab="session"].is-active {
-      color: #2b4ca8;
+      color: var(--link);
       background: rgba(90, 141, 238, 0.16);
     }
     .rec-tab[data-tab="advisories"].is-active {
@@ -1314,7 +1380,7 @@
       letter-spacing: 0.02em;
       white-space: nowrap;
     }
-    .rec-tag--session { color: #2b4ca8; }
+    .rec-tag--session { color: var(--link); }
     .rec-tag--advisories { color: #b45309; }
     .rec-tag--coach { color: #047857; }
     .rec-msg-item--warn { color: var(--text-primary); }
@@ -1399,7 +1465,7 @@
     .rec-apply-btn:hover { opacity: 0.85; }
     .rec-apply-btn:disabled { opacity: 0.5; cursor: default; }
 
-    /* ---- HOME V2: mobile (home.html's own breakpoint is 640px, not 880) ---- */
+    /* ---- HOME V2: mobile (640px — the project's mobile/tablet split) ---- */
     @media (max-width: 640px) {
       .nw-name     { font-size: 12.5px; }
       .nw-meta     { font-size: 10px; }
@@ -1498,23 +1564,28 @@
     .hpl-rest {
       font-size: 12px; color: var(--text-tertiary); font-style: italic; padding: 2px 0;
     }
+    /* .hpl-sess used to be its own bordered/tinted tile (flatten — Task 2)
+       nested inside .hpl-day, which is itself inside the week-plan card;
+       the outer card border already establishes containment, so this is
+       just spacing now (multiple sessions on one day separate via
+       .hpl-body's own gap). The per-type color, previously a 3px
+       border-left stripe (Task 1), now lives entirely on .hpl-tag below as
+       a small chip — same chip vocabulary as .nw-badge/.hc-chip elsewhere
+       in this file, and reusing THIS file's own run/lift color pair
+       (.nw-badge--run/--lift) rather than one-off hex. */
     .hpl-sess {
-      background: #f6f7fb; border: 1px solid #eceef4; border-radius: 8px;
-      padding: 6px 8px;
+      padding: 2px 0;
     }
-    .hpl-sess--run { border-left: 3px solid #4f6ef7; }
-    .hpl-sess--lift { border-left: 3px solid #7c3aed; }
-    .hpl-sess--plyo { border-left: 3px solid #c2410c; }
-    .hpl-sess--stretch { border-left: 3px solid #0d9488; }
-    .hpl-sess-top { display: flex; align-items: center; gap: 6px; margin-bottom: 1px; }
+    .hpl-sess-top { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
     .hpl-tag {
       font-size: 9px; font-weight: 800; letter-spacing: 0.04em;
       text-transform: uppercase; color: var(--text-tertiary);
+      padding: 2px 7px; border-radius: 5px;
     }
-    .hpl-tag--run { color: #4f6ef7; }
-    .hpl-tag--lift { color: #7c3aed; }
-    .hpl-tag--plyo { color: #c2410c; }
-    .hpl-tag--stretch { color: #0d9488; }
+    .hpl-tag--run { background: var(--blue-soft); color: var(--blue-text); }
+    .hpl-tag--lift { background: var(--purple-soft); color: var(--purple-text); }
+    .hpl-tag--plyo { background: var(--orange-soft); color: var(--orange-text); }
+    .hpl-tag--stretch { background: var(--teal-soft); color: var(--teal-text); }
     .hpl-name {
       font-size: 12px; font-weight: 600; color: var(--text-primary);
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;

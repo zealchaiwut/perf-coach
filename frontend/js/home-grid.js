@@ -25,24 +25,37 @@
 
   // Fixed order (top → bottom / left → right at each breakpoint) with the
   // column span per column-count. Keys are the live widget container ids.
+  //
+  // Breakpoint consolidation (redesign pass): this used to key off FOUR
+  // column counts (8/6/4/1) driven by thresholds at 1000/760/480, which
+  // didn't line up with the project's documented mobile<640 / tablet
+  // 640-1024 / desktop>=1024 scale (nor with this page's own CSS, which had
+  // yet another set at 430/640/759/880). Comparing the old "4" (480-759) and
+  // "6" (760-999) tiers below shows they were already near-duplicates of
+  // each other (identical spans except perf-container and weight, which
+  // only differed by one column) — so they collapse cleanly into a single
+  // tablet tier at col=6, and the old "4" tier's lower half (480-640) folds
+  // into the mobile col=1 tier, where most widgets were already effectively
+  // full-width anyway.
   var REGISTRY = [
-    { id: 'home-top-row-right',          w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Readiness
-    { id: 'home-next-workout-card',      w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Recent workouts
-    { id: 'home-performance-card',       w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Performance
-    { id: 'home-today-rec-card',         w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Coach digest
-    { id: 'home-brief-week-plan-card',   w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Week plan
-    { id: 'home-training-card',          w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Training
-    { id: 'home-perf-container',         w: { 8: 4, 6: 3, 4: 4, 1: 1 } }, // Personal records
-    { id: 'home-habits-widget',          w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Habits
-    { id: 'home-weight-widget',          w: { 8: 4, 6: 3, 4: 4, 1: 1 } }, // Weight
-    { id: 'home-sleep-card',             w: { 8: 4, 6: 2, 4: 2, 1: 1 } }, // Sleep
-    { id: 'home-goal-card',              w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Race goal
+    { id: 'home-top-row-right',          w: { 8: 4, 6: 4, 1: 1 } }, // Readiness
+    { id: 'home-next-workout-card',      w: { 8: 2, 6: 2, 1: 1 } }, // Recent workouts
+    { id: 'home-performance-card',       w: { 8: 2, 6: 2, 1: 1 } }, // Performance
+    { id: 'home-today-rec-card',         w: { 8: 2, 6: 2, 1: 1 } }, // Coach digest
+    { id: 'home-brief-week-plan-card',   w: { 8: 2, 6: 2, 1: 1 } }, // Week plan
+    { id: 'home-training-card',          w: { 8: 4, 6: 4, 1: 1 } }, // Training
+    { id: 'home-perf-container',         w: { 8: 4, 6: 3, 1: 1 } }, // Personal records
+    { id: 'home-habits-widget',          w: { 8: 4, 6: 4, 1: 1 } }, // Habits
+    { id: 'home-weight-widget',          w: { 8: 4, 6: 3, 1: 1 } }, // Weight
+    { id: 'home-sleep-card',             w: { 8: 4, 6: 2, 1: 1 } }, // Sleep
+    { id: 'home-goal-card',              w: { 8: 4, 6: 4, 1: 1 } }, // Race goal
   ];
 
+  // 640/1024 — the project's documented tablet/desktop split (see
+  // home.html's own @media rules, consolidated onto the same two numbers).
   function colFor(width) {
-    if (width >= 1000) return 8;
-    if (width >= 760) return 6;
-    if (width >= 480) return 4;
+    if (width >= 1024) return 8;
+    if (width >= 640) return 6;
     return 1;
   }
 
