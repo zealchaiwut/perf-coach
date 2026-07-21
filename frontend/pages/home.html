@@ -648,7 +648,7 @@
       font-weight: 500;
       color: var(--green);
     }
-    .fm-feedback--err { color: #dc2626; }
+    .fm-feedback--err { color: var(--danger); }
 
     /* Was 880px — consolidated onto 1024 (see Breakpoint consolidation
        note above). Fast log: already single-column, just widen stepper. */
@@ -746,9 +746,9 @@
       background: transparent;
     }
     .hw-check-circle--done {
-      background: #16a34a;
+      background: var(--success);
       color: #fff;
-      border: 2px solid #16a34a;
+      border: 2px solid var(--success);
     }
     /* Auto-fill progress marker (non-interactive) */
     .hw-autofill-marker {
@@ -1082,9 +1082,13 @@
       padding: 10px 20px; background: linear-gradient(90deg,#eafaf0,#f2fbf5);
       border-bottom: 1px solid #d6f0df;
     }
+    /* Now an <h2> (polish round 3 — was a bare <span>, the one widget title
+       on the page the prior .ttl/.slp-lbl/.hc-lbl heading pass didn't
+       reach). margin:0 replaces the span's implicit zero margin so the
+       flex header row layout is unchanged. */
     .hc-today-t {
       font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700;
-      letter-spacing: .08em; color: var(--green);
+      letter-spacing: .08em; color: var(--green); margin: 0;
     }
     /* Was #4d9c68 — ~3.1:1 on the .hc-today-head green gradient, failing
        WCAG AA. Darkened onto this page's own --green family (already used

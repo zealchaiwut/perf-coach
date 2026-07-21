@@ -37,11 +37,23 @@
     },
   };
 
-  /* Returns the stroke/fill color for a given readiness score band. */
+  /* Returns the stroke/fill color for a given readiness score band.
+     AA-safe darkened variants for use on .grp-training's tinted gradient
+     background (linear-gradient(150deg, --shell-1 #eaf0fb, --shell-2
+     #d8e3f5)) — the raw --readiness-high/-mid/-low values from styles.css
+     (#16a34a/#d97706/#dc2626) all fail 4.5:1 against that tint (2.55-4.22:1
+     measured against the darker #d8e3f5 end, the harder of the two stops).
+     Darkened the same way --text-tertiary was (#8b95ad → #69748c): same
+     hue family, luminance lowered until AA passes on the darker gradient
+     stop. Measured contrast ratios (WCAG relative-luminance formula)
+     against #d8e3f5 / #eaf0fb:
+       green #0c6e30 → 4.93:1 / 5.58:1
+       amber #8a4a06 → 5.30:1 / 5.99:1
+       red   #b91c1c → 5.00:1 / 5.66:1  (matches styles.css --danger-dark) */
   function _rdRingColor(score) {
-    if (score >= 70) return '#16a34a';   /* readiness-high */
-    if (score >= 40) return '#d97706';   /* readiness-mid */
-    return '#dc2626';                     /* readiness-low */
+    if (score >= 70) return '#0c6e30';   /* readiness-high, AA-safe on .grp-training */
+    if (score >= 40) return '#8a4a06';   /* readiness-mid, AA-safe on .grp-training */
+    return '#b91c1c';                     /* readiness-low, AA-safe on .grp-training (== --danger-dark) */
   }
 
   /* Builds a compact SVG score ring (60×60). */
@@ -496,7 +508,7 @@
     var digestEl = document.getElementById('home-today-rec-card');
     if (stripEl) {
       stripEl.hidden = false;
-      stripEl.innerHTML = '<div class="hc-today"><div class="hc-today-head"><span class="hc-today-t">TODAY · COACH</span></div><div class="hc-today-body"><div class="rec-loading">Loading…</div></div></div>';
+      stripEl.innerHTML = '<div class="hc-today"><div class="hc-today-head"><h2 class="hc-today-t">TODAY · COACH</h2></div><div class="hc-today-body"><div class="rec-loading">Loading…</div></div></div>';
     }
     if (digestEl) {
       digestEl.innerHTML =

@@ -693,7 +693,7 @@
 
         var head =
           '<div class="card-head">' +
-            '<h2 class="ttl"><i class="ti ti-flag-2" style="color:#5a8dee;font-size:16px;"></i>Race goal</h2>' +
+            '<h2 class="ttl"><i class="ti ti-flag-2" style="color:var(--bg-1);font-size:16px;"></i>Race goal</h2>' +
             '<a href="/log#performance">Performance &#8594;</a>' +
           '</div>';
 

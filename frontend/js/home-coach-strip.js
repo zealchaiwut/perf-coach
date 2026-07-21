@@ -183,7 +183,7 @@
     el.innerHTML =
       '<div class="hc-today">' +
         '<div class="hc-today-head">' +
-          '<span class="hc-today-t">TODAY · COACH</span>' +
+          '<h2 class="hc-today-t">TODAY · COACH</h2>' +
           (updated ? '<span class="hc-today-d">' + esc(updated) + '</span>' : '') +
         '</div>' +
         '<div class="hc-today-body">' +

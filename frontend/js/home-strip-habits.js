@@ -23,7 +23,7 @@
     }
     var el = document.createElement('div');
     el.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);' +
-      'background:' + (isErr ? '#dc2626' : '#0b1530') +
+      'background:' + (isErr ? 'var(--danger)' : '#0b1530') +
       ';color:#fff;padding:10px 20px;border-radius:10px;font-size:13px;z-index:9999;';
     el.textContent = msg;
     document.body.appendChild(el);

@@ -3,8 +3,11 @@
    and the home page (home.html). Single source of truth so the two widgets
    never drift. Rendered by frontend/js/lib/weight-current-card.js.
 
-   Self-contained: every var() has a literal fallback so the card looks
-   identical on pages that don't load css/styles.css (e.g. home.html).
+   Self-contained: every var() has a literal fallback so the card still
+   renders correctly on any page that doesn't load css/styles.css. (As of
+   polish round 2, home.html DOES load styles.css — the fallbacks are now
+   belt-and-suspenders for weight.html or any future consumer, not load-
+   bearing for home.html specifically.)
    ========================================================================== */
 
 /* ── Top row: label + relative date ──────────────────────────────────────── */
