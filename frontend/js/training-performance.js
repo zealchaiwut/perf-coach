@@ -37,20 +37,23 @@
 
   var NS = "http://www.w3.org/2000/svg";
 
-  // Shared palette for the hand-rolled SVG charts below (JS can't read CSS
-  // custom properties, so these are the JS-side mirrors of the app's chart
-  // tokens — keep in sync with frontend/css/styles.css by hand).
+  // Shared palette for the hand-rolled SVG charts below. These are set as
+  // SVG presentation attributes (stroke/fill) or inline style properties via
+  // the DOM, both of which resolve CSS var() through the normal cascade —
+  // so, unlike a plain JS color computation, these CAN reference the app's
+  // real custom properties (frontend/css/styles.css) directly instead of
+  // carrying independent raw-hex duplicates that can drift out of sync.
   var PERF_COLORS = {
     // Axis/tick/date-label text and the neutral-priority marker fallback —
     // both use the app's canonical muted-gray (--text-sub, ~4.9:1 contrast).
-    textMuted: "#6b7280",
-    gridLine: "#eef1f7",          // horizontal chart gridlines
-    dataLine: "#4f6ef7",          // primary brand-blue series line/stroke
-    dataLineFill: "rgba(79,110,247,0.12)", // translucent fill under a brand-blue sparkline
-    goalGreen: "#16a34a",         // goal-pace marker/label + "balanced" load status
-    amber: "#d97706",             // priority-B race marker + "elevated" load status
-    markerA: "#1b2340",           // priority-A race marker (dark navy)
-    inactiveGray: "#d1d5db",      // inactive/disabled muscle-group bar fill
+    textMuted: "var(--text-sub)",
+    gridLine: "#eef1f7",          // horizontal chart gridlines (chart-local tint, no canonical equivalent)
+    dataLine: "var(--primary)",   // primary brand-blue series line/stroke
+    dataLineFill: "rgba(59,130,246,0.12)", // translucent fill under the brand-blue sparkline (--primary's rgb)
+    goalGreen: "var(--success)",  // goal-pace marker/label + "balanced" load status
+    amber: "var(--warning)",      // priority-B race marker + "elevated" load status
+    markerA: "var(--priority-a)", // priority-A race marker (dark navy)
+    inactiveGray: "var(--border-input)", // inactive/disabled muscle-group bar fill
   };
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -323,7 +326,7 @@
     var letter = r.priority || "A";
     return (
       '<div class="plan-picker-row' + (isCurrent ? " is-current" : "") + '" data-race-id="' + r.id + '">' +
-        '<span class="plan-picker-letter" style="background:' + (_LET_BG[letter] || "#6b7280") + '">' + esc(letter) + "</span>" +
+        '<span class="plan-picker-letter" style="background:' + (_LET_BG[letter] || "var(--text-sub)") + '">' + esc(letter) + "</span>" +
         '<div class="plan-picker-info">' +
           '<div class="plan-picker-name">' + esc(r.name || "Unnamed") + "</div>" +
           '<div class="plan-picker-meta">' + esc(formatDate(r.date)) + (distKm ? " · " + distKm.toFixed(2) + " km" : "") + "</div>" +
@@ -338,10 +341,17 @@
     );
   }
 
+  // Focus restore for the three plan modals below: remember whatever had
+  // focus right before each modal opened, so closing it (via Escape, the
+  // close/cancel button, or a backdrop click) puts focus back there instead
+  // of dropping it to <body>.
+  var _modalReturnFocus = null;
+
   function openRacePicker() {
     var overlay = document.getElementById("plan-race-picker-modal");
     var list = document.getElementById("plan-race-picker-list");
     if (!overlay || !list) return;
+    _modalReturnFocus = document.activeElement;
 
     var candidates = _races.filter(function (r) {
       return r.type === "race" && r.status !== "done";
@@ -374,6 +384,13 @@
   function closeRacePicker() {
     var overlay = document.getElementById("plan-race-picker-modal");
     if (overlay) overlay.style.display = "none";
+    _restoreModalFocus();
+  }
+
+  function _restoreModalFocus() {
+    var el = _modalReturnFocus;
+    _modalReturnFocus = null;
+    if (el && typeof el.focus === "function" && document.contains(el)) el.focus();
   }
 
   // Promote raceId to A-priority, demoting whatever was previously A (if any
@@ -568,7 +585,7 @@
     // Responsive sizing: build the coordinate space to the measured render
     // width so 1 unit ≈ 1px on any viewport (fixes the ~3× mobile downscale).
     var W = measureChartW(svg);
-    var mobile = W < 480;
+    var mobile = W < 640; // matches the documented 640px mobile ceiling (DESIGN.md)
     var H = mobile ? 240 : 200;
     // Y labels live INSIDE the plot (right edge) — no left gutter needed,
     // the full card width goes to data.
@@ -751,7 +768,11 @@
   }
 
   // ── 3b. Race/checkpoint cards ─────────────────────────────────────────────
-  var _LET_BG = { A: "#1b2340", B: "#3b4ba8", C: "#6b7280" };
+  // Race-priority letter badge backgrounds. B previously drifted to an
+  // independent blue (#3b4ba8) here while PERF_COLORS.amber documented the
+  // same "priority-B" concept as --warning elsewhere in this file — unified
+  // back to the one canonical color per priority letter.
+  var _LET_BG = { A: "var(--priority-a)", B: "var(--warning)", C: "var(--text-sub)" };
 
   // Extract the current projected finish (seconds), band (seconds), and status
   // from a readiness response's time_curve + on_track blocks. Returns null when
@@ -868,7 +889,7 @@
       return '<span class="pm-rclet pm-rclet--cp">CP</span>';
     }
     return '<span class="pm-rclet" style="background:' +
-      (_LET_BG[priority] || "#6b7280") + '">' + esc(priority) + "</span>";
+      (_LET_BG[priority] || "var(--text-sub)") + '">' + esc(priority) + "</span>";
   }
 
   // Build a full-width UPCOMING card (Goal + Estimated columns).
@@ -1128,7 +1149,7 @@
     // card sits in a 2-col row on desktop (~half width) and full width on mobile,
     // so a hardcoded 1140 mis-scaled it on BOTH — measuring fixes both.
     var W = measureChartW(svg);
-    var mobile = W < 480;
+    var mobile = W < 640; // matches the documented 640px mobile ceiling (DESIGN.md)
     var H = mobile ? 260 : 300;
     var p = mobile
       ? { l: 36, r: 14, t: 12, b: 30 }
@@ -1716,6 +1737,7 @@
     var errEl = document.getElementById("plan-modal-error");
 
     if (!modal) return;
+    _modalReturnFocus = document.activeElement;
 
     var type = race ? race.type || "race" : raceType || "race";
     if (deleteBtn) deleteBtn.style.display = race ? "" : "none";
@@ -1756,6 +1778,7 @@
     var modal = document.getElementById("plan-race-modal");
     if (modal) modal.style.display = "none";
     _resetPicker();
+    _restoreModalFocus();
   }
 
   function saveModal() {
@@ -1874,16 +1897,20 @@
     var titleEl = document.getElementById("plan-confirm-title");
     var msgEl = document.getElementById("plan-confirm-msg");
     if (!overlay) return;
+    _modalReturnFocus = document.activeElement;
     _confirmCallback = onConfirm;
     if (titleEl) titleEl.textContent = title;
     if (msgEl) msgEl.textContent = msg;
     overlay.style.display = "";
+    var cancelBtn = document.getElementById("plan-confirm-cancel");
+    if (cancelBtn) cancelBtn.focus();
   }
 
   function closeConfirm() {
     var overlay = document.getElementById("plan-confirm-modal");
     if (overlay) overlay.style.display = "none";
     _confirmCallback = null;
+    _restoreModalFocus();
   }
 
   function deleteEditing() {
@@ -2055,6 +2082,28 @@
       confirmModal.addEventListener("click", function (e) {
         if (e.target === confirmModal) closeConfirm();
       });
+
+    // Escape closes whichever of the three plan modals is currently open —
+    // none of them had a keyboard-close path before (mouse/touch only).
+    // Checked in "most recently opened wins" order: the confirm dialog can
+    // stack on top of the race modal (deleteEditing closes the race modal
+    // first, though, so in practice at most one is ever visible at once).
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape") return;
+      var confirmModal2 = document.getElementById("plan-confirm-modal");
+      var raceModal = document.getElementById("plan-race-modal");
+      var pickerModal = document.getElementById("plan-race-picker-modal");
+      if (confirmModal2 && confirmModal2.style.display !== "none") {
+        e.preventDefault();
+        closeConfirm();
+      } else if (raceModal && raceModal.style.display !== "none") {
+        e.preventDefault();
+        closeModal();
+      } else if (pickerModal && pickerModal.style.display !== "none") {
+        e.preventDefault();
+        closeRacePicker();
+      }
+    });
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -2202,7 +2251,7 @@
 
   function _mbalBarColor(cls) {
     var map = {
-      overused: "#dc2626",
+      overused: "var(--danger)",
       elevated: PERF_COLORS.amber,
       balanced: PERF_COLORS.goalGreen,
       detraining: PERF_COLORS.dataLine,
@@ -2348,7 +2397,7 @@
           detail.appendChild(srcWrap);
         } else {
           var noSrc = document.createElement("span");
-          noSrc.style.cssText = "font-size:11px;color:var(--pm-faint)";
+          noSrc.style.cssText = "font-size:11px;color:var(--text-sub)";
           noSrc.textContent = "No source data";
           detail.appendChild(noSrc);
         }

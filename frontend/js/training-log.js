@@ -778,10 +778,10 @@
 
   var ACWR_STATUS_META =
     (window.LoadReadinessTiles && LoadReadinessTiles.ACWR_STATUS_META) || {
-      detraining: { word: "DETRAINING", color: "var(--lrx-amber)" },
-      productive: { word: "PRODUCTIVE", color: "var(--lrx-green)" },
-      high_risk: { word: "HIGH RISK", color: "var(--lrx-red)" },
-      baseline_forming: { word: "BUILDING", color: "var(--lrx-muted)" },
+      detraining: { word: "DETRAINING", color: "var(--warning)" },
+      productive: { word: "PRODUCTIVE", color: "var(--success)" },
+      high_risk: { word: "HIGH RISK", color: "var(--danger)" },
+      baseline_forming: { word: "BUILDING", color: "var(--text-sub)" },
     };
 
   function _acwrRatioAt(series, idx) {
@@ -1914,7 +1914,11 @@
   }
 
   function isDesktop() {
-    return window.innerWidth >= 880;
+    // Matches the CSS tablet/desktop split (frontend/pages/training-log.html
+    // "#layout-wrapper.has-panel" / ".detail-panel" @media (min-width:1024px))
+    // — the documented desktop breakpoint (DESIGN.md), not the old 880px
+    // one-off. Below this, the detail panel is a full-screen drawer.
+    return window.innerWidth >= 1024;
   }
 
   function lockPageScroll() {
@@ -2692,7 +2696,7 @@
 
       var box = document.createElement("div");
       box.style.cssText =
-        "position:relative;background:#fff;border-radius:16px;padding:20px;max-width:760px;" +
+        "position:relative;background:var(--surface);border-radius:16px;padding:20px;max-width:760px;" +
         "width:100%;max-height:min(92vh,900px);overflow:auto;" +
         "box-shadow:0 12px 40px rgba(0,0,0,0.22);" +
         "display:grid;grid-template-columns:minmax(220px,260px) minmax(0,1fr);" +
@@ -2719,16 +2723,16 @@
       closeBtn.style.cssText =
         "position:absolute;top:10px;right:10px;z-index:2;" +
         "width:32px;height:32px;border:0;border-radius:8px;" +
-        "background:transparent;color:#6b7280;cursor:pointer;" +
+        "background:transparent;color:var(--text-sub);cursor:pointer;" +
         "font-size:16px;line-height:1;display:flex;align-items:center;" +
         "justify-content:center;";
       closeBtn.addEventListener("mouseenter", function () {
-        closeBtn.style.background = "#f3f4f6";
-        closeBtn.style.color = "#111827";
+        closeBtn.style.background = "var(--surface-2)";
+        closeBtn.style.color = "var(--text)";
       });
       closeBtn.addEventListener("mouseleave", function () {
         closeBtn.style.background = "transparent";
-        closeBtn.style.color = "#6b7280";
+        closeBtn.style.color = "var(--text-sub)";
       });
       closeBtn.addEventListener("click", function (e) {
         e.stopPropagation();
@@ -2745,7 +2749,7 @@
         p.textContent = text;
         p.style.cssText =
           "margin:0 0 10px;font-size:12px;font-weight:800;letter-spacing:.06em;" +
-          "text-transform:uppercase;color:#9aa3b2;";
+          "text-transform:uppercase;color:var(--text-sub);";
         return p;
       }
 
@@ -2764,13 +2768,13 @@
             ";" +
             "border-radius:9px;font-size:14px;font-weight:600;" +
             "border:1.5px solid " +
-            (on ? "#2563eb" : "#e0e4f0") +
+            (on ? "var(--primary-dark)" : "var(--border)") +
             ";" +
             "background:" +
-            (on ? "#2563eb" : "#fff") +
+            (on ? "var(--primary-dark)" : "var(--surface)") +
             ";" +
             "color:" +
-            (on ? "#fff" : "#374151") +
+            (on ? "var(--surface)" : "var(--text)") +
             ";" +
             "opacity:" +
             (disabled ? "0.45" : "1") +
@@ -2821,13 +2825,13 @@
 
       var previewHint = document.createElement("div");
       previewHint.style.cssText =
-        "margin-top:8px;font-size:12px;color:#9aa3b2;font-weight:500;";
+        "margin-top:8px;font-size:12px;color:var(--text-sub);font-weight:500;";
       previewHint.textContent = "Checkerboard shows transparency";
 
       function refreshPreview() {
         applyLapModeIfNeeded();
         previewStage.innerHTML =
-          '<div style="padding:24px;text-align:center;color:#9aa3b2;font-size:13px;">Updating…</div>';
+          '<div style="padding:24px;text-align:center;color:var(--text-sub);font-size:13px;">Updating…</div>';
         requestAnimationFrame(function () {
           requestAnimationFrame(function () {
             var opts = {
@@ -2838,7 +2842,7 @@
             previewStage.innerHTML = "";
             if (!node) {
               previewStage.innerHTML =
-                '<div style="padding:28px;text-align:center;color:#9aa3b2;font-size:13px;">Nothing to preview</div>';
+                '<div style="padding:28px;text-align:center;color:var(--text-sub);font-size:13px;">Nothing to preview</div>';
               return;
             }
 
@@ -2987,7 +2991,7 @@
       go.style.cssText =
         "display:block;width:100%;padding:12px;margin-top:14px;cursor:pointer;" +
         "border-radius:9px;font-size:14px;font-weight:700;border:0;" +
-        "background:#0b1530;color:#fff;";
+        "background:var(--ink);color:var(--surface);";
       go.addEventListener("click", function () {
         try {
           localStorage.setItem("rd4_shot_card", card);
@@ -3481,10 +3485,10 @@
       '<div class="dp-profile-axis-x"><span>Start</span><span>Finish</span></div>' +
       "</div>" +
       '<div class="dp-profile-legend">' +
-      '<span class="dp-leg"><span class="dp-leg-dot" style="background:#16a34a"></span>Easy</span>' +
-      '<span class="dp-leg"><span class="dp-leg-dot" style="background:#d97706"></span>Tempo</span>' +
-      '<span class="dp-leg"><span class="dp-leg-dot" style="background:#ea580c"></span>Hard</span>' +
-      '<span class="dp-leg"><span class="dp-leg-dot" style="background:#64748b"></span>Recovery</span>' +
+      '<span class="dp-leg"><span class="dp-leg-dot" style="background:var(--rl-easy)"></span>Easy</span>' +
+      '<span class="dp-leg"><span class="dp-leg-dot" style="background:var(--rl-tempo)"></span>Tempo</span>' +
+      '<span class="dp-leg"><span class="dp-leg-dot" style="background:var(--rl-hard)"></span>Hard</span>' +
+      '<span class="dp-leg"><span class="dp-leg-dot" style="background:var(--rl-recovery)"></span>Recovery</span>' +
       "</div>" +
       "</div>"
     );
@@ -3544,10 +3548,10 @@
       '<div class="dp-profile-axis-x"><span>Start</span><span>Finish</span></div>' +
       "</div>" +
       '<div class="dp-profile-legend">' +
-      '<span class="dp-leg"><span class="dp-leg-dot" style="background:#16a34a"></span>RPE \u22645</span>' +
-      '<span class="dp-leg"><span class="dp-leg-dot" style="background:#eab308"></span>6\u20137</span>' +
-      '<span class="dp-leg"><span class="dp-leg-dot" style="background:#ea580c"></span>8\u20139</span>' +
-      '<span class="dp-leg"><span class="dp-leg-dot" style="background:#dc2626"></span>10</span>' +
+      '<span class="dp-leg"><span class="dp-leg-dot" style="background:var(--success)"></span>RPE \u22645</span>' +
+      '<span class="dp-leg"><span class="dp-leg-dot" style="background:var(--warning)"></span>6\u20137</span>' +
+      '<span class="dp-leg"><span class="dp-leg-dot" style="background:var(--rl-hard)"></span>8\u20139</span>' +
+      '<span class="dp-leg"><span class="dp-leg-dot" style="background:var(--danger)"></span>10</span>' +
       "</div>" +
       "</div>"
     );
@@ -4640,13 +4644,52 @@
     render();
   }
 
+  // ── Generic confirm dialog (styled replacement for native confirm()) ──────
+  // Uses the shared .modal-overlay/.modal-box/.modal-actions vocabulary
+  // (frontend/css/styles.css) via #tl-confirm-overlay in training-log.html,
+  // so destructive actions get the app's own modal instead of a native
+  // browser dialog. Async: pass the code that used to run after
+  // `if (!confirm(msg)) return;` as the callback instead.
+  var _tlConfirmCallback = null;
+  var _tlConfirmReturnFocus = null;
+
+  function _confirmDialog(msg, onConfirm) {
+    var overlay = document.getElementById("tl-confirm-overlay");
+    var msgEl = document.getElementById("tl-confirm-msg");
+    if (!overlay) {
+      // Modal markup missing for some reason — fail safe to the native
+      // dialog rather than silently dropping the action.
+      if (confirm(msg)) onConfirm();
+      return;
+    }
+    _tlConfirmReturnFocus = document.activeElement;
+    _tlConfirmCallback = onConfirm;
+    if (msgEl) msgEl.textContent = msg;
+    overlay.classList.add("is-open");
+    var okBtn = document.getElementById("tl-confirm-ok");
+    if (okBtn) okBtn.focus();
+  }
+
+  function _closeConfirmDialog() {
+    var overlay = document.getElementById("tl-confirm-overlay");
+    if (overlay) overlay.classList.remove("is-open");
+    _tlConfirmCallback = null;
+    var el = _tlConfirmReturnFocus;
+    _tlConfirmReturnFocus = null;
+    if (el && typeof el.focus === "function" && document.contains(el)) el.focus();
+  }
+
   // ── Delete workout ────────────────────────────────────────────────────────
   function deleteWorkout(workoutId, isSynced) {
     var msg = isSynced
       ? "Remove this workout from your log? It won't be re-synced from Strava/Stryd. You can restore it later from Removed workouts."
       : "Delete this workout? This cannot be undone.";
-    if (!confirm(msg)) return;
+    _confirmDialog(msg, function () {
+      _deleteWorkoutConfirmed(workoutId, isSynced);
+    });
+  }
 
+  function _deleteWorkoutConfirmed(workoutId, isSynced) {
     fetch("/api/workouts/" + workoutId, { method: "DELETE" })
       .then(function (res) {
         if (!res.ok && res.status !== 204)
@@ -5131,17 +5174,21 @@
     }
 
     // Keep the fixed panel glued to the button while the page (or the
-    // actions cluster itself) scrolls or the viewport resizes.
-    window.addEventListener("resize", function () {
-      if (!panel.hidden) _positionSyncPanel();
-    });
-    window.addEventListener(
-      "scroll",
-      function () {
+    // actions cluster itself) scrolls or the viewport resizes. rAF-throttled
+    // — both handlers do a read-then-write layout pass (getBoundingClientRect
+    // + offsetWidth, then style writes), and scroll fires on the capture
+    // phase for every ancestor scroller, so left unthrottled this ran the
+    // full read/write cycle multiple times per frame.
+    var _syncPanelRAF = null;
+    function _schedulePositionSyncPanel() {
+      if (panel.hidden || _syncPanelRAF) return;
+      _syncPanelRAF = requestAnimationFrame(function () {
+        _syncPanelRAF = null;
         if (!panel.hidden) _positionSyncPanel();
-      },
-      true,
-    );
+      });
+    }
+    window.addEventListener("resize", _schedulePositionSyncPanel);
+    window.addEventListener("scroll", _schedulePositionSyncPanel, true);
 
     // The backdrop catches most outside clicks; this handles anything above
     // it in the stacking order (e.g. the header itself).
@@ -5454,6 +5501,29 @@
         if (!repeatBtn.disabled) repeatLastEntryPoint();
       });
 
+    var tlConfirmOverlay = document.getElementById("tl-confirm-overlay");
+    var tlConfirmOk = document.getElementById("tl-confirm-ok");
+    var tlConfirmCancel = document.getElementById("tl-confirm-cancel");
+    if (tlConfirmOk)
+      tlConfirmOk.addEventListener("click", function () {
+        var cb = _tlConfirmCallback;
+        _closeConfirmDialog();
+        if (cb) cb();
+      });
+    if (tlConfirmCancel)
+      tlConfirmCancel.addEventListener("click", _closeConfirmDialog);
+    if (tlConfirmOverlay)
+      tlConfirmOverlay.addEventListener("click", function (e) {
+        if (e.target === tlConfirmOverlay) _closeConfirmDialog();
+      });
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape") return;
+      if (tlConfirmOverlay && tlConfirmOverlay.classList.contains("is-open")) {
+        e.preventDefault();
+        _closeConfirmDialog();
+      }
+    });
+
     var dupCloseBtn = document.getElementById("dup-close-btn");
     if (dupCloseBtn) dupCloseBtn.addEventListener("click", closeDuplicateModal);
     var dupCancelBtn = document.getElementById("dup-cancel-btn");
@@ -5528,10 +5598,10 @@
   var DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
   var TYPE_COLORS = {
-    run: "#3b82f6",
-    lift: "#8b5cf6",
-    wod: "#f97316",
-    bike: "#14b8a6",
+    run: "var(--primary)",
+    lift: "var(--workout-lift)",
+    wod: "var(--workout-wod)",
+    bike: "var(--workout-bike)",
   };
 
   var TYPE_ORDER = ["run", "lift", "wod", "bike"];
@@ -6288,9 +6358,9 @@
     html +=
       "</tbody></table>" +
       '<div class="lrx-callegend">' +
-      '<span><b style="background:var(--lrx-run)"></b>Run</span>' +
-      '<span><b style="background:var(--lrx-lift)"></b>Strength</span>' +
-      '<span><b style="background:var(--lrx-plyo)"></b>Plyo</span>' +
+      '<span><b style="background:var(--primary)"></b>Run</span>' +
+      '<span><b style="background:var(--workout-lift)"></b>Strength</span>' +
+      '<span><b style="background:var(--workout-wod-dark)"></b>Plyo</span>' +
       '<span><span class="cal-mk plan run" style="width:20px;height:16px;flex:none;font-size:0;">&nbsp;</span>Outline = planned, not yet done</span>' +
       '<span><span class="lrx-wkbar-est" style="display:inline-block;width:14px;height:8px;border-radius:2px;vertical-align:middle;"></span> Estimated TSS from plan</span>' +
       "</div>";

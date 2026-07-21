@@ -319,12 +319,12 @@
     row.dataset.rest = (sd.rest != null && sd.rest !== '') ? sd.rest : '';
     row.innerHTML =
       '<button type="button" class="set-badge" title="Cycle set type"></button>' +
-      '<div class="set-cell"><input type="number" class="set-in set-weight" inputmode="decimal" step="0.5" min="0" placeholder="—" value="' + v(sd.weight) + '"></div>' +
+      '<div class="set-cell"><input type="number" class="set-in set-weight" inputmode="decimal" step="0.5" min="0" placeholder="—" aria-label="Set weight" value="' + v(sd.weight) + '"></div>' +
       '<div class="set-cell">' +
-        '<input type="number" class="set-in set-reps" inputmode="numeric" min="0" placeholder="—" value="' + v(sd.reps) + '">' +
-        '<input type="number" class="set-in set-dur" inputmode="numeric" min="0" placeholder="s" value="' + v(sd.duration_seconds) + '"><span class="set-dur-unit u">s</span>' +
+        '<input type="number" class="set-in set-reps" inputmode="numeric" min="0" placeholder="—" aria-label="Set reps" value="' + v(sd.reps) + '">' +
+        '<input type="number" class="set-in set-dur" inputmode="numeric" min="0" placeholder="s" aria-label="Set duration in seconds" value="' + v(sd.duration_seconds) + '"><span class="set-dur-unit u">s</span>' +
       '</div>' +
-      '<div class="set-cell rpe-cell"><input type="number" class="set-in set-rpe" inputmode="decimal" min="1" max="10" step="0.5" placeholder="—" value="' + v(sd.rpe) + '"></div>' +
+      '<div class="set-cell rpe-cell"><input type="number" class="set-in set-rpe" inputmode="decimal" min="1" max="10" step="0.5" placeholder="—" aria-label="Set RPE" value="' + v(sd.rpe) + '"></div>' +
       '<button type="button" class="set-x" title="Remove set">✕</button>';
     row.querySelector('.set-badge').addEventListener('click', function () {
       var idx = SET_TYPE_ORDER.indexOf(row.dataset.setType);
@@ -396,17 +396,17 @@
         '<button type="button" class="remove-row-btn" title="Remove exercise">✕</button>' +
       '</div>' +
       '<div class="ex-compact-row">' +
-        '<input type="number" class="ec-in ec-sets" min="1" max="50" step="1" inputmode="numeric" placeholder="1" value="' + vn(cd.sets) + '">' +
+        '<input type="number" class="ec-in ec-sets" min="1" max="50" step="1" inputmode="numeric" placeholder="1" aria-label="Number of sets" value="' + vn(cd.sets) + '">' +
         '<span class="ec-sep">×</span>' +
-        '<input type="number" class="ec-in ec-reps" min="0" inputmode="numeric" placeholder="reps" value="' + vn(cd.reps) + '">' +
-        '<input type="number" class="ec-in ec-dur" min="0" inputmode="numeric" placeholder="s" value="' + vn(cd.dur) + '">' +
+        '<input type="number" class="ec-in ec-reps" min="0" inputmode="numeric" placeholder="reps" aria-label="Reps per set" value="' + vn(cd.reps) + '">' +
+        '<input type="number" class="ec-in ec-dur" min="0" inputmode="numeric" placeholder="s" aria-label="Duration per set in seconds" value="' + vn(cd.dur) + '">' +
         '<button type="button" class="ec-mode-btn" title="Toggle reps / duration">reps</button>' +
         '<span class="ec-unit ec-sep">@</span>' +
-        '<input type="number" class="ec-in ec-weight" step="0.5" min="0" inputmode="decimal" placeholder="kg" value="' + vn(cd.weight) + '">' +
+        '<input type="number" class="ec-in ec-weight" step="0.5" min="0" inputmode="decimal" placeholder="kg" aria-label="Weight in kg" value="' + vn(cd.weight) + '">' +
         '<span class="ec-unit">kg</span>' +
         '<span class="ec-sep">·</span>' +
         '<span class="ec-label">RPE</span>' +
-        '<input type="number" class="ec-in ec-rpe" min="1" max="10" step="0.5" inputmode="decimal" placeholder="—" value="' + vn(cd.rpe) + '">' +
+        '<input type="number" class="ec-in ec-rpe" min="1" max="10" step="0.5" inputmode="decimal" placeholder="—" aria-label="RPE" value="' + vn(cd.rpe) + '">' +
         /* Rest input removed — too much to key in per exercise; stored rest
            values round-trip via each set-row's dataset. */
         '<button type="button" class="ec-expand-btn" title="Edit individual sets">Sets ▾</button>' +
@@ -728,17 +728,17 @@
     var inputs = '';
     if (cfg.mode === 'block') {
       inputs +=
-        '<input type="number" class="seg-sets" inputmode="numeric" min="1" placeholder="4" value="' + (data.sets != null ? data.sets : '') + '"> ×';
+        '<input type="number" class="seg-sets" inputmode="numeric" min="1" placeholder="4" aria-label="Repeat count" value="' + (data.sets != null ? data.sets : '') + '"> ×';
     }
     inputs +=
-      '<input type="number" class="seg-val" inputmode="decimal" min="0" step="' + (unit === 'min' ? '1' : '0.1') + '" placeholder="—" value="' + (data.value != null ? data.value : '') + '">' +
+      '<input type="number" class="seg-val" inputmode="decimal" min="0" step="' + (unit === 'min' ? '1' : '0.1') + '" placeholder="—" aria-label="Segment distance or time" value="' + (data.value != null ? data.value : '') + '">' +
       '<span class="seg-unit-toggle" role="group" aria-label="Unit">' +
         '<button type="button" class="seg-unit' + (unit === 'km' ? ' active' : '') + '" data-unit="km" aria-pressed="' + (unit === 'km') + '">km</button>' +
         '<button type="button" class="seg-unit' + (unit === 'min' ? ' active' : '') + '" data-unit="min" aria-pressed="' + (unit === 'min') + '">min</button>' +
       '</span>' +
-      '<input type="text" class="seg-pace" inputmode="numeric" placeholder="pace" title="Pace min/km, e.g. 5:30" value="' + (data.paceSec != null ? fmtPaceSec(data.paceSec) : '') + '">' +
+      '<input type="text" class="seg-pace" inputmode="numeric" placeholder="pace" title="Pace min/km, e.g. 5:30" aria-label="Segment pace, minutes per km" value="' + (data.paceSec != null ? fmtPaceSec(data.paceSec) : '') + '">' +
       '<span class="seg-suffix">/km</span>' +
-      '<input type="number" class="seg-hr" inputmode="numeric" min="20" max="250" placeholder="HR" title="Avg heart rate" value="' + (data.hr != null ? data.hr : '') + '">';
+      '<input type="number" class="seg-hr" inputmode="numeric" min="20" max="250" placeholder="HR" title="Avg heart rate" aria-label="Average heart rate" value="' + (data.hr != null ? data.hr : '') + '">';
 
     row.innerHTML =
       '<span class="seg-handle" title="Drag to reorder">⠿</span>' +
@@ -918,10 +918,10 @@
       '<div class="rl-profile-bars">' + bars + '</div>' +
       '<div class="rl-profile-axis-x"><span>Start</span><span>Finish</span></div>' +
       '<div class="rl-profile-legend">' +
-        '<span class="rl-zlg"><span class="d" style="background:#16a34a"></span>RPE ≤5</span>' +
-        '<span class="rl-zlg"><span class="d" style="background:#eab308"></span>6–7</span>' +
-        '<span class="rl-zlg"><span class="d" style="background:#ea580c"></span>8–9</span>' +
-        '<span class="rl-zlg"><span class="d" style="background:#dc2626"></span>10</span>' +
+        '<span class="rl-zlg"><span class="d" style="background:var(--success)"></span>RPE ≤5</span>' +
+        '<span class="rl-zlg"><span class="d" style="background:var(--warning)"></span>6–7</span>' +
+        '<span class="rl-zlg"><span class="d" style="background:var(--rl-hard)"></span>8–9</span>' +
+        '<span class="rl-zlg"><span class="d" style="background:var(--danger)"></span>10</span>' +
       '</div>';
   }
 
