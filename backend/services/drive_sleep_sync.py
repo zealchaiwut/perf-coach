@@ -54,11 +54,16 @@ def list_drive_sleep_files(access_token: str, modified_after: Optional[datetime]
     """
     import os
 
-    folder_id = os.getenv(_DRIVE_HEALTH_SYNC_FOLDER_ENV, "")
+    folder_id = os.getenv(_DRIVE_HEALTH_SYNC_FOLDER_ENV, "").strip()
+    if not folder_id:
+        _log.warning(
+            "list_drive_sleep_files: %s not configured — skipping Drive scan to avoid"
+            " unbounded enumeration of all CSV files",
+            _DRIVE_HEALTH_SYNC_FOLDER_ENV,
+        )
+        return []
 
-    q = _DRIVE_QUERY_BASE
-    if folder_id:
-        q += f" and '{folder_id}' in parents"
+    q = _DRIVE_QUERY_BASE + f" and '{folder_id}' in parents"
     if modified_after is not None:
         # RFC 3339 format required by Drive API
         ts = modified_after.strftime("%Y-%m-%dT%H:%M:%SZ")
