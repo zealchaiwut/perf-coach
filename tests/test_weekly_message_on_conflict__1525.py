@@ -49,7 +49,10 @@ def uat_db():
     Base.metadata.create_all(_UAT_ENGINE, tables=[WeeklyCoachMessage.__table__])
     with Session(_UAT_ENGINE) as db:
         yield db
-        db.rollback()
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
 
 # ── AC1: source-level guarantee that ON CONFLICT is used ──────────────────────
