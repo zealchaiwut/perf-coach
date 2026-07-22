@@ -13888,6 +13888,11 @@ def gap_add_to_plan(
                 status_code=409,
                 detail={"code": "back_off", "message": "Training verdict is back_off — load-adding sessions are disabled."},
             )
+        if verdict is None:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "verdict_unavailable", "message": "Training verdict could not be computed — load-adding sessions are disabled until load data is available."},
+            )
 
     week_start = target_date - _timedelta(days=target_date.weekday())
     week_end = week_start + _timedelta(days=6)
