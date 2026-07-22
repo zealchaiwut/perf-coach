@@ -11,8 +11,8 @@ from typing import Any, Callable
 
 from backend.services.plan_suggestions import (
     _EASY_RUN_BLOCKS,
-    _HARD_INTENT_KEYWORDS,
     _LOWER_BODY_STRENGTH_EXERCISES,
+    _TEMPO_RUN_BLOCKS,
     _UPPER_BODY_STRENGTH_EXERCISES,
     _is_hard_intent,
 )
@@ -20,7 +20,7 @@ from backend.utils.log import get_logger
 
 _log = get_logger(__name__)
 
-SLOT_PROMPT_VERSION = "2026-07-20.1"
+SLOT_PROMPT_VERSION = "2026-07-20.2"
 
 _STRENGTH_BLOCKS = frozenset({
     "Warm-up", "Heavy compound", "Superset 1", "Superset 2", "Standalone", "Accessories",
@@ -31,6 +31,45 @@ _PIN_FIELDS = frozenset({
 })
 
 _MAX_SLOT_TRIES = 2
+
+# UI Suggest subtypes (easy/long/intervals/…) ↔ skeleton subtypes (easy_run/…).
+_SUBTYPE_ALIASES: dict[str, str] = {
+    "easy": "easy_run",
+    "long": "long_run",
+    "intervals": "intervals",
+    "tempo": "tempo",
+    "upper": "strength_upper",
+    "lower": "strength_lower",
+    "full": "strength_full",
+    "light": "strength_light",
+    # already-canonical
+    "easy_run": "easy_run",
+    "long_run": "long_run",
+    "strength_upper": "strength_upper",
+    "strength_lower": "strength_lower",
+    "strength_full": "strength_full",
+    "strength_light": "strength_light",
+    "rest": "rest",
+}
+
+_INTERVAL_RUN_BLOCKS: list[dict] = [
+    {"phase": "warmup", "duration_min": 12, "repeat": None, "rest_min": None, "target": "easy"},
+    {"phase": "main", "duration_min": 3, "repeat": 6, "rest_min": 2, "target": "hard — interval effort"},
+    {"phase": "cooldown", "duration_min": 8, "repeat": None, "rest_min": None, "target": "easy"},
+]
+
+
+def normalize_slot_subtype(workout_type: str | None, subtype: str | None) -> str | None:
+    """Map Suggest-UI labels onto skeleton subtype vocabulary."""
+    raw = (subtype or "").strip().lower()
+    if not raw:
+        wt = (workout_type or "").strip().lower()
+        if wt == "run":
+            return "easy_run"
+        if wt == "strength":
+            return "strength_lower"
+        return wt or None
+    return _SUBTYPE_ALIASES.get(raw, raw)
 
 
 def strip_volunteered_pins(content: dict) -> dict:
@@ -86,7 +125,7 @@ def validate_slot(content: dict, slot: dict, week_ctx: dict | None = None) -> li
     week_ctx = week_ctx or {}
     clean = strip_volunteered_pins(content or {})
     wt = str(slot.get("workout_type") or "").lower()
-    subtype = str(slot.get("subtype") or "")
+    subtype = normalize_slot_subtype(wt, slot.get("subtype")) or ""
     pinned_dur = float(slot.get("duration_minutes") or 0)
     intent = str(clean.get("intent") or "")
 
@@ -117,7 +156,7 @@ def validate_slot(content: dict, slot: dict, week_ctx: dict | None = None) -> li
                     f"pinned {pinned_dur:.0f}"
                 )
             # easy_run / pre-long-run day: no hard keywords
-            is_easy = subtype in ("easy_run",) or bool(slot.get("pre_long_run"))
+            is_easy = subtype in ("easy_run", "easy") or bool(slot.get("pre_long_run"))
             if is_easy:
                 hard_hit = _is_hard_intent(intent)
                 for b in blocks:
@@ -125,6 +164,21 @@ def validate_slot(content: dict, slot: dict, week_ctx: dict | None = None) -> li
                         hard_hit = True
                 if hard_hit:
                     errs.append("easy/pre-long-run day must not use hard-intent keywords")
+
+            # intervals / tempo: must actually be quality work (not easy continuous)
+            if subtype in ("intervals", "tempo"):
+                quality = _is_hard_intent(intent)
+                for b in blocks:
+                    if not isinstance(b, dict):
+                        continue
+                    if _is_hard_intent(str(b.get("target") or "")):
+                        quality = True
+                    if int(b.get("repeat") or 0) >= 2:
+                        quality = True
+                if not quality:
+                    errs.append(
+                        f"{subtype} slot requires hard/interval language or repeated main blocks"
+                    )
 
         if subtype == "long_run" and pinned_dur >= 90:
             hints = slot.get("structure_hints") or {}
@@ -165,7 +219,7 @@ def validate_slot(content: dict, slot: dict, week_ctx: dict | None = None) -> li
 def template_content_for_slot(slot: dict) -> dict:
     """Day template scaled to pins — used when LLM retries are exhausted."""
     wt = str(slot.get("workout_type") or "").lower()
-    subtype = str(slot.get("subtype") or "")
+    subtype = normalize_slot_subtype(wt, slot.get("subtype")) or ""
     pinned_dur = int(slot.get("duration_minutes") or 0)
 
     if wt == "rest":
@@ -178,25 +232,29 @@ def template_content_for_slot(slot: dict) -> dict:
         }
 
     if wt == "run":
-        blocks = [dict(b) for b in _EASY_RUN_BLOCKS]
-        # Scale durations to pinned
+        if subtype == "intervals":
+            blocks = [dict(b) for b in _INTERVAL_RUN_BLOCKS]
+            intent = "Interval session"
+        elif subtype == "tempo":
+            blocks = [dict(b) for b in _TEMPO_RUN_BLOCKS]
+            intent = "Tempo / quality run"
+        else:
+            blocks = [dict(b) for b in _EASY_RUN_BLOCKS]
+            intent = "Easy aerobic run"
+        # Scale durations to pinned (repeat sets keep relative structure)
         base = _blocks_duration_sum(blocks) or 1
         scale = (pinned_dur / base) if pinned_dur else 1.0
         for b in blocks:
             b["duration_min"] = max(1, int(round(float(b["duration_min"]) * scale)))
         if subtype == "long_run" and pinned_dur >= 90:
             intent = "Aerobic long run — fuel mid-run"
-            # Ensure main is long enough
             for b in blocks:
                 if b.get("phase") == "main":
                     b["target"] = "easy Z2 — gel/drink from minute 40"
         elif subtype == "tempo":
-            intent = "Tempo / quality run"
             for b in blocks:
                 if b.get("phase") == "main":
-                    b["target"] = "tempo"
-        else:
-            intent = "Easy aerobic run"
+                    b["target"] = "tempo — comfortably hard"
         return {
             "intent": intent[:140],
             "notes": None,
@@ -260,11 +318,16 @@ def build_slot_prompt(
         "those are fixed by the schedule and stamped in Python.\n"
         "RULES:\n"
         "- run: blocks with warmup + main + cooldown; durations sum to the pinned duration (±10%).\n"
-        "- easy_run / pre-long day: easy effort only — no interval/tempo/threshold language.\n"
-        "- long_run ≥90 min: include a fueling cue.\n"
+        "- subtype is BINDING — match it exactly:\n"
+        "  · easy / easy_run: conversational easy only — no interval/tempo/threshold language.\n"
+        "  · intervals: repeated hard efforts with jog recoveries (use main.repeat + rest_min;\n"
+        "    put the prescription in main.target, e.g. \"6×3min hard, 2min jog\").\n"
+        "  · tempo: sustained comfortably-hard / threshold blocks (not easy continuous).\n"
+        "  · long / long_run: steady aerobic; if ≥90 min include a fueling cue.\n"
         "- strength/plyo: 4–10 named exercises; strength blocks ⊆ "
         "{Warm-up, Heavy compound, Superset 1, Superset 2, Standalone, Accessories}.\n"
-        "- intent ≤ 140 characters.\n"
+        "- intent ≤ 140 characters; title should reflect the subtype "
+        "(e.g. \"6x3min intervals\", not \"Easy aerobic run\" for an intervals slot).\n"
     )
     user = {
         "load": week_ctx.get("load"),
@@ -303,6 +366,8 @@ def generate_slot_content(
     `llm_call(system, user) -> dict | None` — None / unparseable burns a try.
     Slots are independent: week_ctx never includes other slots' generated content.
     """
+    slot = dict(slot)
+    slot["subtype"] = normalize_slot_subtype(slot.get("workout_type"), slot.get("subtype"))
     wt = str(slot.get("workout_type") or "").lower()
     if wt == "rest" or slot.get("locked"):
         out = template_content_for_slot(slot)

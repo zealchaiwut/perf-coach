@@ -40,23 +40,8 @@ PREF_FIELDS: dict[str, dict[str, Any]] = {
         "reads": ["content"],
         "default": 0,
     },
-    "stretch_daily_min": {
-        "type": "int",
-        "min": 0,
-        "max": 10,
-        "step": 10,
-        "persist_weeks": 2,
-        "load_adding": False,
-        "reads": ["skeleton"],
-        "default": 0,
-    },
-    "zone2_weekly_min": {
-        "type": "int",
-        "min": 0,
-        "max": 400,
-        "reads": ["validation"],
-        "default": 0,
-    },
+    # stretch_daily_min + zone2_weekly_min live on Habits (coach_habit_targets),
+    # not in this catalog — coach/plan read them via habit_targets_for_coach.
     "notes": {
         "type": "str",
         "max_len": 200,
@@ -141,7 +126,6 @@ def validate_payload(
         if enforce_step_from is not None and field in (
             "plyo_sessions_per_week",
             "long_run.mp_segment_min",
-            "stretch_daily_min",
         ):
             step = meta.get("step")
             if step is not None and val is not None:
@@ -158,13 +142,23 @@ def validate_payload(
                         f"({prev} → {val})"
                     )
 
-    # Reject unknown top-level keys (except nested containers we own)
-    known_top = {k.split(".")[0] for k in PREF_FIELDS}
+    # Reject unknown top-level keys (except nested containers we own).
+    # stretch/zone2 were migrated to Habits — tolerate legacy payloads.
+    _migrated = {"stretch_daily_min", "zone2_weekly_min"}
+    known_top = {k.split(".")[0] for k in PREF_FIELDS} | _migrated
     for k in payload.keys():
         if k not in known_top:
             errors[k] = "unknown preference field"
 
     return errors
+
+
+def strip_migrated_habit_fields(payload: dict) -> dict:
+    """Drop stretch/zone2 keys that now live on Habits."""
+    out = dict(payload or {})
+    out.pop("stretch_daily_min", None)
+    out.pop("zone2_weekly_min", None)
+    return out
 
 
 def _validate_one(field: str, meta: dict, val: Any) -> str | None:
@@ -212,10 +206,11 @@ def normalize_payload(payload: dict | None) -> dict:
     base = default_payload()
     if not payload:
         return base
+    raw = strip_migrated_habit_fields(payload)
     out = deepcopy(base)
     for field in PREF_FIELDS:
-        if get_field(payload, field) is not None:
-            set_field(out, field, get_field(payload, field))
+        if get_field(raw, field) is not None:
+            set_field(out, field, get_field(raw, field))
     # Coerce rest_days
     days = get_field(out, "rest_days") or []
     set_field(out, "rest_days", sorted({int(d) for d in days if 0 <= int(d) <= 6}))

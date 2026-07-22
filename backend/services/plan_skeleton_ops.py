@@ -15,32 +15,35 @@ from backend.services.plan_suggestions import (
     _is_hard_intent,
 )
 from backend.services.plan_skeleton import _clamp_tss, _structure_hints_for
+from backend.services.plan_slot import normalize_slot_subtype
 
 # Per-slot TSS clamp when redistributing (absolute).
 _PER_SLOT_TSS_CAP = 180
 _PER_SLOT_TSS_FLOOR = 15
 
+# Quick-add kinds are always template-stamped (no sync LLM). Optional
+# "Generate details" regenerates content later via an explicit async path.
 _ADD_KINDS = {
     "light_strength": {
         "workout_type": "strength",
         "subtype": "strength_lower",
         "duration_minutes": 30,
         "target_tss": 25,
-        "needs_content": True,
+        "needs_content": False,
     },
     "stretch": {
         "workout_type": "stretch",
         "subtype": "stretch",
         "duration_minutes": 10,
         "target_tss": 0,
-        "needs_content": False,  # template instantly, never LLM
+        "needs_content": False,
     },
     "easy_run": {
         "workout_type": "run",
         "subtype": "easy_run",
         "duration_minutes": 30,
         "target_tss": 30,
-        "needs_content": True,
+        "needs_content": False,
     },
 }
 
@@ -434,10 +437,11 @@ def add(
             }
         spec = {
             "workout_type": wt,
-            "subtype": custom.get("subtype") or wt,
+            "subtype": normalize_slot_subtype(wt, custom.get("subtype")) or wt,
             "duration_minutes": int(custom.get("duration_minutes") or 30),
             "target_tss": _clamp_tss(float(custom.get("target_tss") or 0)),
-            "needs_content": wt != "stretch",
+            # Custom adds are skeleton/template too — Generate details is opt-in.
+            "needs_content": False,
         }
     else:
         if kind not in _ADD_KINDS:
@@ -486,24 +490,57 @@ def add(
         "subtype": spec["subtype"],
         "target_tss": int(spec["target_tss"]),
         "duration_minutes": int(spec["duration_minutes"]),
-        "intent": "",
-        "notes": None,
+        "intent": (custom or {}).get("intent") or "",
+        "notes": (custom or {}).get("notes"),
         "blocks": None,
         "exercises": None,
-        "source": "template" if not spec["needs_content"] else "pending",
+        "source": "template",
         "structure_hints": _structure_hints_for(spec["subtype"]),
         "locked": False,
-        "pending": bool(spec["needs_content"]),
+        "pending": False,
     }
+    # Unpack structure so apply_draft / apply-slot (which read blocks|exercises)
+    # keep AI / manual content — not only a nested `structure` blob.
+    user_blocks = None
+    user_exercises = None
+    if custom and isinstance(custom.get("structure"), dict):
+        st = custom["structure"]
+        new_sess["structure"] = st
+        if isinstance(st.get("blocks"), list) and st["blocks"]:
+            user_blocks = st["blocks"]
+            new_sess["blocks"] = user_blocks
+        if isinstance(st.get("exercises"), list) and st["exercises"]:
+            user_exercises = st["exercises"]
+            new_sess["exercises"] = user_exercises
+        if st.get("focus") and not new_sess.get("intent"):
+            new_sess["intent"] = str(st["focus"])[:140]
+    if custom and custom.get("_gap_code"):
+        new_sess["_gap_code"] = custom["_gap_code"]
 
-    # Stretch: materialize template content immediately
-    if kind == "stretch" or (kind == "custom" and spec["workout_type"] == "stretch"):
-        from backend.services.plan_slot import template_content_for_slot, stamp_session
-        content = template_content_for_slot(new_sess)
-        stamped = stamp_session(new_sess, content)
-        stamped["slot_id"] = new_sess["slot_id"]
-        stamped["pending"] = False
-        new_sess = stamped
+    # Always stamp template content immediately (no sync LLM on add).
+    from backend.services.plan_slot import template_content_for_slot, stamp_session
+    content = template_content_for_slot(new_sess)
+    stamped = stamp_session(new_sess, content)
+    stamped["slot_id"] = new_sess["slot_id"]
+    stamped["pending"] = False
+    stamped["source"] = "template"
+    if new_sess.get("structure"):
+        stamped["structure"] = new_sess["structure"]
+    if new_sess.get("_gap_code"):
+        stamped["_gap_code"] = new_sess["_gap_code"]
+    if new_sess.get("intent"):
+        stamped["intent"] = new_sess["intent"]
+    if new_sess.get("notes"):
+        stamped["notes"] = new_sess["notes"]
+    # Prefer explicit user/AI structure over the template stamp.
+    if user_blocks is not None:
+        stamped["blocks"] = user_blocks
+        stamped["exercises"] = None
+    if user_exercises is not None:
+        stamped["exercises"] = user_exercises
+        if user_blocks is None:
+            stamped["blocks"] = None
+    new_sess = stamped
 
     sim = {d: s for d, s in by_day.items() if d != day}
     sim[day] = new_sess
@@ -524,13 +561,12 @@ def add(
     # Replace rest on that day or append
     sessions = [s for s in sessions if int(s.get("day_offset", -1)) != day]
     sessions.append(new_sess)
-    affected = [new_sess["slot_id"]] if new_sess.get("pending") else []
 
     return {
         "slots": sessions,
         "warnings": warnings,
         "blocked": False,
-        "affected_slot_ids": affected,
+        "affected_slot_ids": [],  # never trigger sync LLM on add
         "added_slot_id": new_sess["slot_id"],
     }
 

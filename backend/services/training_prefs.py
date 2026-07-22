@@ -16,6 +16,7 @@ from backend.services.pref_catalog import (
     get_field,
     normalize_payload,
     set_field,
+    strip_migrated_habit_fields,
     validate_payload,
 )
 from backend.utils.log import get_logger
@@ -75,6 +76,7 @@ def write_version(
 ) -> Any:
     from backend.models import TrainingPreference
 
+    payload = strip_migrated_habit_fields(payload)
     errs = validate_payload(payload)
     if errs:
         raise ValueError(errs)
@@ -187,7 +189,7 @@ def validate_import_bundle(raw: dict) -> dict[str, str]:
     elif not isinstance(prefs, dict):
         errors["preferences"] = "must be an object"
     else:
-        errors.update(validate_payload(prefs))
+        errors.update(validate_payload(strip_migrated_habit_fields(prefs)))
 
     presets = raw.get("presets")
     if presets is None:
@@ -316,14 +318,23 @@ def prefs_for_assemble_facts(db: Session, user_id) -> dict:
     maybe_carry_forward(db, user_id)
     info = active_dict(db, user_id)
     p = info["payload"]
-    return {
+    out = {
         "prefs_version": info["version"],
         "preferred_rest_days": list(get_field(p, "rest_days") or []),
         "strength_emphasis": get_field(p, "strength_emphasis") or "same",
         "plyo_mode": get_field(p, "plyo_mode") or "off",
         "plyo_sessions_per_week": int(get_field(p, "plyo_sessions_per_week") or 0),
         "long_run_mp_segment_min": int(get_field(p, "long_run.mp_segment_min") or 0),
-        "stretch_daily_min": int(get_field(p, "stretch_daily_min") or 0),
-        "zone2_weekly_min": int(get_field(p, "zone2_weekly_min") or 0),
+        "stretch_daily_min": 0,
+        "zone2_weekly_min": 0,
         "notes": get_field(p, "notes") or "",
     }
+    try:
+        from backend.services.coach_habit_targets import habit_targets_for_coach
+
+        ht = habit_targets_for_coach(db, user_id, ensure=True)
+        out["stretch_daily_min"] = int(ht.get("stretch_daily_min") or 0)
+        out["zone2_weekly_min"] = int(ht.get("zone2_weekly_min") or 0)
+    except Exception:
+        pass
+    return out

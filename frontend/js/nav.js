@@ -329,7 +329,7 @@
       ' title="Profile" aria-label="Profile menu">U</button>' +
       '<div class="gn-profile-menu" id="gn-profile-menu" role="menu">' +
       '<a class="gn-settings" href="/settings" role="menuitem"><i class="ti ti-settings" aria-hidden="true"></i>Settings</a>' +
-      '<a class="gn-settings" href="/preferences" role="menuitem"><i class="ti ti-sliders" aria-hidden="true"></i>Preferences</a>' +
+      '<a class="gn-settings" href="/training-log?tab=plan#prefs" role="menuitem"><i class="ti ti-sliders" aria-hidden="true"></i>Preferences</a>' +
       '<button type="button" class="gn-logout" id="nav-logout" role="menuitem">' +
       '<i class="ti ti-logout" aria-hidden="true"></i>Log out</button>' +
       "</div>" +

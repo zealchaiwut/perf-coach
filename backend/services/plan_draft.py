@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable
@@ -550,6 +551,218 @@ def apply_draft(db: Session, user_id, week_start: date, *, today: date | None = 
     }
 
 
+def ensure_draft_shell(db: Session, user_id, week_start: date) -> dict:
+    """Ensure a mutable draft row exists for the week (empty sessions ok).
+
+    If the draft was already applied, reopen it as fresh with remaining
+    (non-applied) payload so single-slot adds can continue.
+    """
+    from backend.models import PlanDraft
+
+    row = (
+        db.query(PlanDraft)
+        .filter(PlanDraft.user_id == user_id, PlanDraft.week_start == week_start)
+        .first()
+    )
+    if row is None:
+        payload = {
+            "sessions": [],
+            "slots": [],
+            "budget": {},
+            "version": 1,
+            "facts_signature": "",
+        }
+        row = upsert_draft(db, user_id, week_start, payload, status="fresh")
+    elif row.status == "applied":
+        payload = dict(row.payload or {})
+        payload.setdefault("sessions", [])
+        payload.setdefault("slots", [])
+        payload["version"] = int(payload.get("version") or 1) + 1
+        row = upsert_draft(db, user_id, week_start, payload, status="fresh")
+    return get_draft(db, user_id, week_start) or {}
+
+
+def apply_draft_slot(
+    db: Session,
+    user_id,
+    week_start: date,
+    *,
+    slot_id: str | None = None,
+    day_offset: int | None = None,
+    today: date | None = None,
+) -> dict:
+    """Apply one draft session → PlannedSession; leave the rest of the draft open."""
+    from backend.models import PlanDraft, PlannedSession
+    from backend.services import plan_skeleton_ops as ops
+
+    today = today or date.today()
+    row = (
+        db.query(PlanDraft)
+        .filter(PlanDraft.user_id == user_id, PlanDraft.week_start == week_start)
+        .first()
+    )
+    if row is None:
+        return {"ok": False, "error": "no_draft", "status_code": 404}
+
+    payload = dict(row.payload or {})
+    sessions = list(payload.get("sessions") or [])
+    sess = None
+    for s in sessions:
+        if not isinstance(s, dict):
+            continue
+        if slot_id and s.get("slot_id") == slot_id:
+            sess = s
+            break
+        if day_offset is not None and int(s.get("day_offset", -1)) == int(day_offset):
+            sess = s
+            break
+    if sess is None:
+        return {"ok": False, "error": "slot_not_found", "status_code": 404}
+
+    body = _session_to_planned_body(week_start, sess)
+    if body is None:
+        return {"ok": False, "error": "not_applicable", "status_code": 422}
+
+    pdate = date.fromisoformat(body["planned_date"])
+    if pdate < today:
+        return {"ok": False, "error": "past_day", "status_code": 409}
+
+    existing = (
+        db.query(PlannedSession)
+        .filter(
+            PlannedSession.user_id == user_id,
+            PlannedSession.planned_date == pdate,
+        )
+        .first()
+    )
+    if existing is not None:
+        return {
+            "ok": False,
+            "error": "day_already_planned",
+            "status_code": 409,
+            "planned_session_id": str(existing.id),
+        }
+
+    # Preserve gap origin tag if present
+    structure = body.get("structure") or {}
+    if sess.get("_gap_code"):
+        structure = dict(structure)
+        structure["_gap_code"] = sess["_gap_code"]
+    if sess.get("structure") and isinstance(sess["structure"], dict):
+        merged = dict(sess["structure"])
+        merged.update(structure)
+        structure = merged
+
+    ps = PlannedSession(
+        user_id=user_id,
+        planned_date=pdate,
+        session_type=body["session_type"],
+        name=body["name"],
+        structure=structure or None,
+        notes=body["notes"],
+        status="planned",
+    )
+    db.add(ps)
+    db.flush()
+
+    sid = sess.get("slot_id")
+    day = int(sess.get("day_offset", -1))
+    sessions = [s for s in sessions if not (
+        isinstance(s, dict) and (
+            (sid and s.get("slot_id") == sid) or
+            (day >= 0 and int(s.get("day_offset", -1)) == day)
+        )
+    )]
+    # Leave an empty rest placeholder so the day stays in the draft grid
+    rest_slot = {
+        "slot_id": str(uuid.uuid4()),
+        "day_offset": day,
+        "workout_type": "rest",
+        "subtype": "rest",
+        "target_tss": 0,
+        "duration_minutes": 0,
+        "intent": "Rest",
+        "notes": None,
+        "blocks": None,
+        "exercises": None,
+        "source": "template",
+        "structure_hints": {},
+        "locked": False,
+        "pending": False,
+    }
+    if day >= 0:
+        sessions.append(rest_slot)
+
+    payload["sessions"] = sessions
+    payload["slots"] = ops.sync_slots_from_sessions(sessions)
+    payload["version"] = int(payload.get("version") or 1) + 1
+    row.payload = payload
+    if row.status == "applied":
+        row.status = "fresh"
+    row.updated_at = datetime.now(timezone.utc)
+    db.flush()
+
+    return {
+        "ok": True,
+        "created_id": str(ps.id),
+        "draft": get_draft(db, user_id, week_start),
+        "day_offset": day,
+        "slot_id": sid,
+    }
+
+
+def request_slot_regen(
+    db: Session,
+    user_id,
+    week_start: date,
+    *,
+    slot_id: str,
+    draft_version: str | None = None,
+) -> dict:
+    """Mark one slot pending and enqueue background content generation."""
+    from backend.models import PlanDraft
+
+    row = (
+        db.query(PlanDraft)
+        .filter(PlanDraft.user_id == user_id, PlanDraft.week_start == week_start)
+        .first()
+    )
+    if row is None:
+        return {"ok": False, "error": "no_draft", "status_code": 404}
+
+    token = draft_version_token(row)
+    if draft_version is not None and draft_version != token:
+        return {"ok": False, "error": "stale_draft", "status_code": 409, "draft_version": token}
+
+    payload = dict(row.payload or {})
+    sessions = list(payload.get("sessions") or [])
+    found = False
+    for s in sessions:
+        if isinstance(s, dict) and s.get("slot_id") == slot_id:
+            s["pending"] = True
+            s["source"] = "pending"
+            found = True
+            break
+    if not found:
+        return {"ok": False, "error": "slot_not_found", "status_code": 404}
+
+    payload["sessions"] = sessions
+    payload["version"] = int(payload.get("version") or 1) + 1
+    row.payload = payload
+    row.updated_at = datetime.now(timezone.utc)
+    db.flush()
+
+    job_id = enqueue_plan_draft(user_id, week_start, slot_ids=[slot_id], enqueued_by="web")
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "slot_id": slot_id,
+        "draft": get_draft(db, user_id, week_start),
+        "draft_version": draft_version_token(row),
+        "dispatch": {"dispatch": "background", "job_id": job_id, "slot_ids": [slot_id]},
+    }
+
+
 def update_draft_slot(
     db: Session,
     user_id,
@@ -1041,11 +1254,15 @@ def apply_structure_op(
     db.flush()
 
     affected = list(result.get("affected_slot_ids") or [])
+    # Never sync-LLM on structure add — Generate details is an explicit async path.
+    if op == "add":
+        inline = False
+        affected = []
     dispatch = _dispatch_after_op(
         db, user_id, week_start, affected, inline=inline, background=background,
     )
     fresh = get_draft(db, user_id, week_start)
-    return {
+    out = {
         "ok": True,
         "draft": fresh,
         "draft_version": draft_version_token(row),
@@ -1054,6 +1271,9 @@ def apply_structure_op(
         "redistribute": result.get("redistribute"),
         "dispatch": dispatch,
     }
+    if result.get("added_slot_id"):
+        out["added_slot_id"] = result["added_slot_id"]
+    return out
 
 
 def replan_remaining_budget(

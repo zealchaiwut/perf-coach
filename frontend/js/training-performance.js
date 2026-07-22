@@ -2173,9 +2173,9 @@
     }
   }
 
-  // ── What-to-improve gap panel (issue #1374, #1377) ───────────────────────────
-  // Reviewer surface: Mute / Done only. Sessions land on the week plan via
-  // Suggest / draft pipeline — not one-tap Add / Ask AI on these cards.
+  // ── What-to-improve gap panel (issue #1374, #1376, #1377) ───────────────────
+  // Mute / Done for review; + Add to plan materializes a template session on
+  // the week grid (POST …/add-to-plan) and auto-marks the finding accepted.
 
   function _gapPostStatus(code, status, onDone) {
     fetch("/api/training/gap-analysis/" + encodeURIComponent(code) + "/status", {
@@ -2190,6 +2190,118 @@
       })
       .then(function () { if (onDone) onDone(); })
       .catch(function (err) { console.warn("gap status update failed:", err); });
+  }
+
+  function _gapDefaultDate(weekStart) {
+    // Prefer first open (non-past, empty) day on the currently viewed plan week.
+    if (window.TrainingPlan && window.TrainingPlan.getOpenDayInfo) {
+      var open = window.TrainingPlan.getOpenDayInfo().filter(function (d) {
+        return d.open;
+      });
+      if (open.length) return open[0].date;
+      var future = window.TrainingPlan.getOpenDayInfo().filter(function (d) {
+        return !d.past;
+      });
+      if (future.length) return future[0].date;
+    }
+    if (!weekStart) return "";
+    var today = new Date();
+    var tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    var ws = new Date(weekStart + "T00:00:00");
+    var sun = new Date(ws);
+    sun.setDate(ws.getDate() + 6);
+    var target = tomorrow > sun ? sun : (tomorrow < ws ? ws : tomorrow);
+    var m = String(target.getMonth() + 1).padStart(2, "0");
+    var d = String(target.getDate()).padStart(2, "0");
+    return target.getFullYear() + "-" + m + "-" + d;
+  }
+
+  function _gapAddToPlan(code, defaultDate, btn, statusEl, reloadFn) {
+    var picker = btn.parentNode.querySelector(".gap-atp-picker");
+    if (picker) { picker.remove(); return; }
+
+    var wrap = document.createElement("span");
+    wrap.className = "gap-atp-picker";
+
+    var input = document.createElement("input");
+    input.type = "date";
+    input.className = "gap-atp-date";
+    input.value = defaultDate || "";
+
+    var confirm = document.createElement("button");
+    confirm.className = "gap-atp-confirm";
+    confirm.textContent = "Add";
+
+    wrap.appendChild(input);
+    wrap.appendChild(confirm);
+    btn.parentNode.appendChild(wrap);
+
+    confirm.addEventListener("click", function () {
+      var date = input.value;
+      if (!date) return;
+      confirm.disabled = true;
+      confirm.textContent = "…";
+
+      fetch("/api/training/gap-analysis/" + encodeURIComponent(code) + "/add-to-plan", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: date }),
+      })
+        .then(function (r) {
+          if (r.status === 409) {
+            return r.json().then(function (d) {
+              var detail = (d && d.detail) || {};
+              if (typeof detail === "object" && detail.code === "back_off") {
+                throw new Error("Training verdict is back off — rest first.");
+              }
+              if (typeof detail === "object" && detail.code === "already_planned_this_week") {
+                var when = detail.planned_date ? (" (" + detail.planned_date + ")") : "";
+                throw new Error("Already on plan" + when + ".");
+              }
+              throw new Error((typeof detail === "string" ? detail : detail.message) || "Conflict");
+            });
+          }
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          return r.json();
+        })
+        .then(function (data) {
+          wrap.remove();
+          if (statusEl) {
+            statusEl.textContent = (data && data.draft)
+              ? "Added to week draft ✓"
+              : ((data && data.upgraded) ? "Upgraded on plan ✓" : "Added to plan ✓");
+            statusEl.hidden = false;
+          }
+          btn.disabled = true;
+          btn.title = "On week draft — Apply week on Plan to commit";
+          if (window.TrainingPlan) {
+            if (window.TrainingPlan.markDraftPending) window.TrainingPlan.markDraftPending();
+            if (window.TrainingPlan.reloadDraft) window.TrainingPlan.reloadDraft();
+            else if (window.TrainingPlan.reload) window.TrainingPlan.reload();
+          }
+          if (reloadFn) reloadFn();
+        })
+        .catch(function (err) {
+          confirm.disabled = false;
+          confirm.textContent = "Add";
+          if (statusEl) {
+            statusEl.textContent = err.message || "Error";
+            statusEl.hidden = false;
+          }
+        });
+    });
+
+    var _closeOnOutside = function (e) {
+      if (!wrap.contains(e.target) && e.target !== btn) {
+        wrap.remove();
+        document.removeEventListener("click", _closeOnOutside);
+      }
+    };
+    setTimeout(function () {
+      document.addEventListener("click", _closeOnOutside);
+    }, 0);
   }
 
   function _buildGapFeedbackControls(f, reloadFn) {
@@ -2243,9 +2355,51 @@
       card.appendChild(presetEl);
     }
 
-    // Accept/dismiss only — plan materialization is owned by Suggest / draft.
     if (!isAccepted) {
-      card.appendChild(_buildGapFeedbackControls(f, reloadFn));
+      var footer = document.createElement("div");
+      footer.className = "gap-finding-footer";
+
+      if (f.has_template) {
+        var atpBtn = document.createElement("button");
+        atpBtn.className = "gap-atp-btn";
+        var onPlan = f.on_plan || null;
+        var incompleteOnPlan = !!(onPlan && onPlan.incomplete);
+        var completeOnPlan = !!(onPlan && !onPlan.incomplete);
+
+        atpBtn.textContent = incompleteOnPlan ? "Upgrade on plan" : "+ Add to plan";
+
+        var isBackOff = verdict === "back_off" && f.load_adding;
+        if (isBackOff) {
+          atpBtn.disabled = true;
+          atpBtn.title = "Training verdict is back off — rest this week before adding load.";
+          atpBtn.className += " gap-atp-btn--disabled";
+          footer.appendChild(atpBtn);
+        } else if (completeOnPlan) {
+          atpBtn.disabled = true;
+          atpBtn.className += " gap-atp-btn--disabled";
+          atpBtn.title = "Already on plan" + (onPlan.planned_date ? (" (" + onPlan.planned_date + ")") : "");
+          var statusElDone = document.createElement("span");
+          statusElDone.className = "gap-atp-status";
+          statusElDone.textContent = "On plan" + (onPlan.planned_date ? (" · " + onPlan.planned_date) : "");
+          footer.appendChild(atpBtn);
+          footer.appendChild(statusElDone);
+        } else {
+          var statusEl = document.createElement("span");
+          statusEl.className = "gap-atp-status";
+          statusEl.hidden = true;
+          var defaultDate = (incompleteOnPlan && onPlan.planned_date)
+            ? onPlan.planned_date
+            : _gapDefaultDate(weekStart);
+          atpBtn.addEventListener("click", function () {
+            _gapAddToPlan(f.code, defaultDate, atpBtn, statusEl, reloadFn);
+          });
+          footer.appendChild(atpBtn);
+          footer.appendChild(statusEl);
+        }
+      }
+
+      footer.appendChild(_buildGapFeedbackControls(f, reloadFn));
+      card.appendChild(footer);
     }
 
     return card;

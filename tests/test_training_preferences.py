@@ -55,7 +55,7 @@ def test_apply_step_one_catalog_step():
 def test_load_adding_persist_weeks_is_3():
     assert persist_weeks_for("plyo_sessions_per_week") == 3
     assert persist_weeks_for("long_run.mp_segment_min") == 3
-    assert persist_weeks_for("stretch_daily_min") == 2
+    assert persist_weeks_for("notes") == 2
 
 
 def test_signature_changes_when_prefs_version_changes():
@@ -213,6 +213,7 @@ def test_version_bumps_and_latest_wins(db_session, test_user):
 
 def test_carried_forward_byte_identical(db_session, test_user):
     from backend.services import training_prefs as tp
+    from backend.services.pref_catalog import strip_migrated_habit_fields
 
     uid = test_user.id
     base = tp.ensure_active(db_session, uid)
@@ -224,7 +225,8 @@ def test_carried_forward_byte_identical(db_session, test_user):
     db_session.flush()
     assert row.source == "carried_forward" or row.effective_from >= (date.today() - timedelta(days=date.today().weekday()))
     if row.source == "carried_forward":
-        assert row.payload == payload
+        # stretch/zone2 may exist on legacy rows but are stripped on write (Habits SoT).
+        assert row.payload == normalize_payload(strip_migrated_habit_fields(payload))
         assert row.confirmed_at is None
 
 

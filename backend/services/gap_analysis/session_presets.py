@@ -419,6 +419,46 @@ def scale_structure_to_duration(structure: dict | None, target_min: float | None
     return structure
 
 
+def is_incomplete_gap_session(
+    structure: dict | None,
+    preset: dict | None = None,
+) -> bool:
+    """True when a gap-tagged planned session is a hollow stub or below preset floors.
+
+    Early add-to-plan wrote ``structure={_gap_code}`` when templates had
+    ``structure: None``. Those rows still trip the weekly duplicate guard and
+    block a real add — treat them as upgradeable.
+    """
+    structure = structure if isinstance(structure, dict) else {}
+    blocks = structure.get("blocks")
+    exercises = structure.get("exercises")
+    has_blocks = isinstance(blocks, list) and len(blocks) > 0
+    has_exercises = isinstance(exercises, list) and len(exercises) > 0
+    if not has_blocks and not has_exercises:
+        return True
+
+    constraints = (preset or {}).get("constraints") or {}
+    min_d = constraints.get("min_duration_min")
+    min_t = constraints.get("min_tss")
+
+    if has_blocks and min_d is not None:
+        dur = structure.get("duration_min")
+        if dur is None:
+            dur = _template_duration_min({"structure": structure})
+        if dur is None or float(dur) < float(min_d) - 0.5:
+            return True
+
+    if min_t is not None:
+        tss = structure.get("target_tss")
+        if tss is None:
+            # Run-like sessions with blocks need a TSS floor when the preset sets one.
+            if has_blocks:
+                return True
+        elif float(tss) < float(min_t) - 0.5:
+            return True
+    return False
+
+
 def materialize_planned_fields(
     preset: dict,
     *,

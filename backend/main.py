@@ -3831,6 +3831,7 @@ _VALID_TRACKING_TYPES = frozenset({
 _VALID_AUTO_FILL_SOURCES = frozenset({
     "workout.zone2_minutes", "workout.run_count", "workout.lift_count",
     "workout.total_duration_minutes", "workout.distance_km",
+    "coach.stretch_daily",
 })
 
 
@@ -4074,6 +4075,10 @@ def get_habits(
     user: User = Depends(resolve_user),
 ):
     with Session(engine) as session:
+        from backend.services.coach_habit_targets import ensure_coach_tracked_habits
+
+        ensure_coach_tracked_habits(session, user.id)
+        session.commit()
         q = session.query(Habit).filter(Habit.user_id == user.id)
         if active is not None:
             # v2: filter by active field
@@ -13640,7 +13645,39 @@ def get_gap_analysis(user: User = Depends(resolve_user)):
         # Enrich each finding with evidence text (issue #1374), LLM phrasing (issue #1375),
         # and add-to-plan template flags (issue #1376).
         from backend.services.gap_analysis.templates import get_template, is_load_adding as _is_load_adding
-        from backend.services.gap_analysis.session_presets import get_preset_for_code
+        from backend.services.gap_analysis.session_presets import (
+            get_preset_for_code,
+            is_incomplete_gap_session,
+        )
+
+        week_end_date = week_start_date + _timedelta(days=6)
+        on_plan_by_code: dict = {}
+        try:
+            plan_rows = (
+                db.query(PlannedSession)
+                .filter(
+                    PlannedSession.user_id == user.id,
+                    PlannedSession.planned_date >= week_start_date,
+                    PlannedSession.planned_date <= week_end_date,
+                    PlannedSession.structure.op("->>")("_gap_code").isnot(None),
+                )
+                .all()
+            )
+            for ps in plan_rows:
+                struct = ps.structure if isinstance(ps.structure, dict) else {}
+                gcode = struct.get("_gap_code")
+                if not gcode or gcode in on_plan_by_code:
+                    continue
+                on_plan_by_code[gcode] = {
+                    "planned_date": ps.planned_date.isoformat() if ps.planned_date else None,
+                    "session_id": str(ps.id),
+                    "incomplete": is_incomplete_gap_session(
+                        struct, get_preset_for_code(gcode, priority=2)
+                    ),
+                }
+        except Exception:
+            on_plan_by_code = {}
+
         enriched = []
         for f in result["findings"]:
             phrasing_result = get_finding_phrasing(
@@ -13656,7 +13693,7 @@ def get_gap_analysis(user: User = Depends(resolve_user)):
             except KeyError:
                 has_tmpl = False
             preset = get_preset_for_code(code, priority=f.get("severity"))
-            enriched.append({
+            item = {
                 **f,
                 "evidence_text": render_evidence_text(code, f["evidence"], f.get("target")),
                 "phrasing": phrasing_result["phrasing"],
@@ -13664,7 +13701,10 @@ def get_gap_analysis(user: User = Depends(resolve_user)):
                 "has_template": has_tmpl,
                 "load_adding": _is_load_adding(code),
                 "preset": preset,
-            })
+            }
+            if code in on_plan_by_code:
+                item["on_plan"] = on_plan_by_code[code]
+            enriched.append(item)
 
         # Apply suppression filter (issue #1377): partition into visible / muted
         from backend.services.gap_analysis.suppression import apply_suppression
@@ -13810,22 +13850,28 @@ def gap_add_to_plan(
     body: _GapAddToPlanBody,
     user: User = Depends(resolve_user),
 ):
-    """Create a planned session from a gap-analysis session preset.
+    """Add a gap-analysis session preset into the week *draft* (not planned yet).
 
     Path param:
         code   Gap-analysis rule code (e.g. 'plyo_deficit')
 
     Body:
-        date   ISO date (YYYY-MM-DD) for the planned session
+        date   ISO date (YYYY-MM-DD) for the draft slot
 
-    On success the finding is auto-marked ``accepted`` (added).
+    On success the finding is auto-marked ``accepted`` (added). Apply week
+    (or apply-slot) commits the draft to planned_sessions.
     """
-    from backend.models import GapFinding
+    from backend.models import GapFinding, PlanDraft
     from backend.services.gap_analysis.session_presets import (
         get_preset_for_code,
         materialize_planned_fields,
     )
     from backend.services.gap_analysis.templates import is_load_adding
+    from backend.services.plan_draft import (
+        apply_structure_op,
+        ensure_draft_shell,
+        get_draft,
+    )
     from backend.utils.time import today_bangkok
 
     preset = get_preset_for_code(code)
@@ -13845,6 +13891,7 @@ def gap_add_to_plan(
 
     week_start = target_date - _timedelta(days=target_date.weekday())
     week_end = week_start + _timedelta(days=6)
+    day_offset = (target_date - week_start).days
 
     # Optional load ceiling for materialize clamp
     load_ceiling = None
@@ -13862,7 +13909,6 @@ def gap_add_to_plan(
                 .first()
             )
             if snap is not None:
-                # Approximate week ceiling from CTL*7 * mult when available
                 ctl = float(getattr(snap, "ctl", 0) or 0)
                 if ctl > 0:
                     load_ceiling = round(ctl * 7 * float(ACWR_CEILING_MULT), 1)
@@ -13870,9 +13916,14 @@ def gap_add_to_plan(
         load_ceiling = None
 
     fields = materialize_planned_fields(preset, load_ceiling_tss=load_ceiling)
+    session_type = _validate_planned_type(fields["session_type"])
+    structure = dict(fields.get("structure") or {})
+    structure["_gap_code"] = code
+    structure["_preset_code"] = code
 
     with Session(engine) as db:
-        existing = (
+        # Duplicate: already planned this week with this gap code
+        existing_planned = (
             db.query(PlannedSession)
             .filter(
                 PlannedSession.user_id == user.id,
@@ -13882,22 +13933,92 @@ def gap_add_to_plan(
             )
             .first()
         )
-        if existing:
+        if existing_planned is not None:
             raise HTTPException(
                 status_code=409,
-                detail={"code": "already_planned_this_week", "message": f"A {code!r} session is already planned this week."},
+                detail={
+                    "code": "already_planned_this_week",
+                    "message": f"A {code!r} session is already planned this week.",
+                    "planned_date": existing_planned.planned_date.isoformat()
+                    if existing_planned.planned_date
+                    else None,
+                    "session_id": str(existing_planned.id),
+                },
             )
 
-        row = PlannedSession(
-            user_id=user.id,
-            planned_date=target_date,
-            session_type=_validate_planned_type(fields["session_type"]),
-            name=fields.get("name"),
-            structure=fields.get("structure") or {},
-            notes=fields.get("notes"),
-            status="planned",
+        ensure_draft_shell(db, user.id, week_start)
+        draft = get_draft(db, user.id, week_start) or {}
+        sessions = list((draft.get("payload") or {}).get("sessions") or [])
+
+        # Duplicate: already in this week's draft with this gap code
+        existing_draft = next(
+            (
+                s for s in sessions
+                if isinstance(s, dict) and (
+                    s.get("_gap_code") == code
+                    or (isinstance(s.get("structure"), dict) and s["structure"].get("_gap_code") == code)
+                )
+            ),
+            None,
         )
-        db.add(row)
+        if existing_draft is not None:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "already_planned_this_week",
+                    "message": f"A {code!r} session is already on this week's draft.",
+                    "planned_date": (
+                        week_start + _timedelta(days=int(existing_draft.get("day_offset") or 0))
+                    ).isoformat(),
+                    "slot_id": existing_draft.get("slot_id"),
+                    "draft": True,
+                },
+            )
+
+        result = apply_structure_op(
+            db, user.id, week_start,
+            op="add",
+            confirm_warnings=True,
+            inline=False,
+            day=day_offset,
+            kind="custom",
+            custom={
+                "workout_type": session_type,
+                "subtype": session_type,
+                "duration_minutes": int(fields.get("duration_min") or 30),
+                "target_tss": float(fields.get("target_tss") or 0),
+                "intent": fields.get("name") or "",
+                "notes": fields.get("notes"),
+                "structure": structure,
+                "_gap_code": code,
+            },
+        )
+        if not result.get("ok"):
+            code_http = result.get("status_code") or 400
+            detail = result.get("block_reason") or result.get("error") or result
+            if result.get("needs_confirm"):
+                raise HTTPException(status_code=409, detail=result)
+            raise HTTPException(status_code=code_http if code_http >= 400 else 400, detail=detail)
+
+        draft_out = result.get("draft") or get_draft(db, user.id, week_start) or {}
+        added_id = None
+        for s in ((draft_out.get("payload") or {}).get("sessions") or []):
+            if isinstance(s, dict) and int(s.get("day_offset", -1)) == day_offset:
+                added_id = s.get("slot_id")
+                s["_gap_code"] = code
+                if structure:
+                    s["structure"] = structure
+                break
+        if added_id:
+            row = db.query(PlanDraft).filter(
+                PlanDraft.user_id == user.id, PlanDraft.week_start == week_start
+            ).first()
+            if row and draft_out.get("payload"):
+                row.payload = draft_out["payload"]
+                db.flush()
+        slot_id = added_id
+        out_day = day_offset
+        upgraded = False
 
         # Auto-mark finding accepted/added
         finding = (
@@ -13915,14 +14036,33 @@ def gap_add_to_plan(
             finding.accepted_at = datetime.now(tz=_tz.utc)
 
         db.commit()
-        db.refresh(row)
-        out = _planned_session_dict(row)
-        out["preset"] = {
-            "code": code,
-            "summary": preset.get("summary"),
-            "constraints": preset.get("constraints"),
+        fresh = get_draft(db, user.id, week_start) or {}
+        sess = None
+        for s in ((fresh.get("payload") or {}).get("sessions") or []):
+            if isinstance(s, dict) and (
+                (slot_id and s.get("slot_id") == slot_id)
+                or int(s.get("day_offset", -1)) == out_day
+            ):
+                sess = s
+                break
+
+        out = {
+            "draft": True,
+            "week_start": week_start.isoformat(),
+            "day_offset": out_day,
+            "slot_id": slot_id or (sess or {}).get("slot_id"),
+            "planned_date": target_date.isoformat(),
+            "session_type": session_type,
+            "session": sess,
+            "structure": (sess or {}).get("structure") or structure,
+            "preset": {
+                "code": code,
+                "summary": preset.get("summary"),
+                "constraints": preset.get("constraints"),
+            },
+            "marked_accepted": finding is not None,
+            "upgraded": upgraded,
         }
-        out["marked_accepted"] = finding is not None
         return JSONResponse(status_code=201, content=out)
 
 

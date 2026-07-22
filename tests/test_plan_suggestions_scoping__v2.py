@@ -352,6 +352,29 @@ def test_assemble_facts_invalid_emphasis_normalizes_to_same(scoped_user):
     assert facts["strength_emphasis"] == "same"
 
 
+def test_assemble_facts_with_a_race_does_not_detach(scoped_user):
+    """Regression: prefs commit + session close must not leave Race detached
+    when reading days_to_next_race (was DetachedInstanceError → 500 on Suggest)."""
+    from backend.models import Race
+    race_day = date.today() + timedelta(days=90)
+    with Session(engine) as s:
+        s.add(Race(
+            user_id=scoped_user,
+            name="Regression A",
+            race_date=race_day,
+            distance_km=42.2,
+            goal_time_seconds=15300,
+            priority="A",
+            status="planned",
+        ))
+        s.commit()
+
+    facts = ps.assemble_facts(str(scoped_user))
+    assert facts["days_to_next_race"] == (race_day - date.today()).days
+    assert facts["next_race_distance_km"] == 42.2
+    assert facts["next_race_goal_time_seconds"] == 15300
+
+
 def test_get_suggestions_passes_scoping_into_facts(scoped_user):
     next_monday = date.today() - timedelta(days=date.today().weekday()) + timedelta(days=7)
     result = ps.get_suggestions(str(scoped_user), week_start=next_monday,

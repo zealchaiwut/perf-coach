@@ -52,12 +52,21 @@ def get_preferences(user: User = Depends(resolve_user)):
     db = _db()
     try:
         _prefs.maybe_carry_forward(db, user.id)
+        # Ensure coach-tracked habits exist so Plan/Habits share one Z2 + stretch source.
+        from backend.services.coach_habit_targets import (
+            ensure_coach_tracked_habits,
+            habit_targets_for_coach,
+        )
+
+        ensure_coach_tracked_habits(db, user.id)
         active = _prefs.active_dict(db, user.id)
         proposals = _props.list_proposals(db, user.id, include_settled=True)
+        habit_targets = habit_targets_for_coach(db, user.id, ensure=False)
         db.commit()
         return JSONResponse({
             "active": active,
             "proposals": proposals,
+            "habit_targets": habit_targets,
             "catalog": {k: {"type": v.get("type"), "min": v.get("min"), "max": v.get("max"),
                             "step": v.get("step"), "reads": v.get("reads")}
                         for k, v in PREF_FIELDS.items()},
@@ -70,10 +79,14 @@ def get_preferences(user: User = Depends(resolve_user)):
 def put_preferences(body: _PrefsBody, user: User = Depends(resolve_user)):
     db = _db()
     try:
-        errs = validate_payload(body.payload)
+        payload = dict(body.payload or {})
+        # Migrated to Habits — ignore if older clients still POST them.
+        payload.pop("stretch_daily_min", None)
+        payload.pop("zone2_weekly_min", None)
+        errs = validate_payload(payload)
         if errs:
             raise HTTPException(status_code=422, detail=errs)
-        row = _prefs.update_from_user(db, user.id, body.payload)
+        row = _prefs.update_from_user(db, user.id, payload)
         # Decline open proposals whose field the user overrode
         from backend.models import PreferenceProposal
         from datetime import datetime, timezone

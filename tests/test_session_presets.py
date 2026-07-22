@@ -4,6 +4,7 @@ from __future__ import annotations
 from backend.services.gap_analysis.session_presets import (
     clamp_duration_tss,
     get_preset_for_code,
+    is_incomplete_gap_session,
     materialize_planned_fields,
     presets_from_findings,
 )
@@ -14,6 +15,29 @@ def test_long_run_preset_min_110():
     assert p is not None
     assert p["constraints"]["min_duration_min"] == 110
     assert p["constraints"]["must_respect_load_ceiling"] is True
+
+
+def test_hollow_gap_session_is_incomplete():
+    preset = get_preset_for_code("aerobic_durability_gap")
+    assert is_incomplete_gap_session({"_gap_code": "aerobic_durability_gap"}, preset)
+    assert is_incomplete_gap_session({}, preset)
+
+
+def test_materialized_gap_session_is_complete():
+    preset = get_preset_for_code("aerobic_durability_gap")
+    fields = materialize_planned_fields(preset)
+    assert not is_incomplete_gap_session(fields["structure"], preset)
+
+
+def test_below_floor_run_is_incomplete():
+    preset = get_preset_for_code("aerobic_durability_gap")
+    stub = {
+        "_gap_code": "aerobic_durability_gap",
+        "blocks": [{"phase": "main", "duration_min": 70, "target": "Z1-Z2"}],
+        "duration_min": 70,
+        "target_tss": 50,
+    }
+    assert is_incomplete_gap_session(stub, preset)
 
 
 def test_intervals_preset_min_50():
