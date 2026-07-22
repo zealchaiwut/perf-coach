@@ -95,7 +95,7 @@ async def put_active_goal(body: _GoalBody, request: Request):
         db.add(goal)
         db.commit()
         db.refresh(goal)
-    return JSONResponse(_goal_dict(goal))
+    return JSONResponse({"goal": _goal_dict(goal)})
 
 
 @router.get("/api/coach/brief")
