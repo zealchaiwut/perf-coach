@@ -20,7 +20,10 @@ from __future__ import annotations
 
 import math
 from datetime import date, datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from backend.models import WeeklyCoachMessage
 
 from backend.utils.log import get_logger
 
@@ -277,7 +280,6 @@ def _build_message(
 
 def _serialize_plan_state(plan_state: dict) -> dict:
     """Convert date objects in plan_state to ISO strings for JSONB storage."""
-
     def _convert(obj: Any) -> Any:
         if isinstance(obj, date):
             return obj.isoformat()
