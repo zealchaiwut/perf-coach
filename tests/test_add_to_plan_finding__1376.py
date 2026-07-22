@@ -1,21 +1,75 @@
-"""Tests for issue #1376: One-tap add-to-plan (runs against UAT)"""
+"""Tests for issue #1376: One-tap add-to-plan (in-process, UAT database).
+
+Session auth: each test gets its own throwaway user, logged in via
+POST /api/auth/login, with the CSRF token attached to every POST
+(same pattern as tests/test_1376_gap_add_to_plan.py).
+"""
 import os
-import pytest
-import httpx
+import pathlib
+import uuid
 from datetime import datetime, timedelta
 
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session as _OrmSess
 
-BASE_URL = os.environ.get("UAT_BASE_URL") or "http://localhost:" + os.environ.get("UAT_PORT", "9001")
-if not BASE_URL.startswith("http"):
-    raise RuntimeError(
-        "UAT_BASE_URL / UAT_PORT not set. Run the tester skill's Step 0 to resolve UAT before pytest."
-    )
+from backend.auth import hash_password as _hash_pw
+from backend.models import User as _UserModel
+
+_TEST_PW = "test1376pw!"
+
+_root = pathlib.Path(__file__).resolve().parents[1]
+_env_file = _root / ".env"
+if _env_file.exists():
+    from dotenv import dotenv_values
+    _uat_url = dotenv_values(_env_file).get("DATABASE_URL_UAT")
+else:
+    _uat_url = os.environ.get("DATABASE_URL_UAT")
+_engine = create_engine(_uat_url, pool_pre_ping=True) if _uat_url else None
+
+
+def _delete_user(user_id: str) -> None:
+    if _engine is None:
+        return
+    with _OrmSess(_engine) as sess:
+        u = sess.get(_UserModel, uuid.UUID(user_id))
+        if u:
+            sess.delete(u)
+            sess.commit()
+
+
+def _create_and_login(tc):
+    """Create a test user, log in, and return (user_id, csrf_token)."""
+    if _engine is None:
+        pytest.skip("DATABASE_URL_UAT not set")
+    user_name = f"addplan1376_{uuid.uuid4().hex[:8]}"
+    r = tc.post("/api/users", json={"name": user_name})
+    assert r.status_code == 201, f"create user failed: {r.text}"
+    user_id = r.json()["id"]
+    with _OrmSess(_engine) as db:
+        u = db.get(_UserModel, uuid.UUID(user_id))
+        u.password_hash = _hash_pw(_TEST_PW)
+        db.commit()
+    r = tc.post("/api/auth/login", json={"username": user_name, "password": _TEST_PW})
+    assert r.status_code == 200, f"login failed: {r.text}"
+    return user_id, r.cookies.get("csrf-token", "")
 
 
 @pytest.fixture
 def client():
-    with httpx.Client(base_url=BASE_URL, timeout=10.0) as c:
-        yield c
+    from fastapi.testclient import TestClient
+    from backend.main import app
+
+    with TestClient(app) as tc:
+        user_id, csrf = _create_and_login(tc)
+        orig_post = tc.post
+        tc.post = lambda url, **kw: orig_post(
+            url, headers={"X-CSRF-Token": csrf, **kw.pop("headers", {})}, **kw
+        )
+        try:
+            yield tc
+        finally:
+            _delete_user(user_id)
 
 
 # --- Acceptance Criteria ---
