@@ -10,12 +10,10 @@ AC:
 import logging
 import unittest.mock as mock
 
-import pytest
 
 
 def test_snapshot_failure_is_logged_at_warning(monkeypatch, caplog):
     """When _write_snap raises, a WARNING with exc_info must be emitted."""
-    import backend.routers.projection as proj_mod
 
     # Patch the lazy imports inside the try block by pre-injecting them into
     # the module's namespace so we can control their behaviour.
