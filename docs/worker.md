@@ -76,6 +76,7 @@ Set these env vars on the Render webapp service (not the worker):
 | `WORKER_TRIGGER_MODE` | `queue` | `queue` = enqueue a `job_queue` row (default, NAT-friendly). `http` = POST to the worker (needs `WORKER_BASE_URL`). |
 | `WORKER_BASE_URL` | _(unset)_ | Worker base URL for `http` mode, e.g. `http://zeal-server:9100`. Not needed in `queue` mode. |
 | `WORKER_SHARED_SECRET` | _(unset)_ | Same secret as the worker's `WORKER_SHARED_SECRET` (`http` mode only). |
+| `WORKER_TIMEOUT_SECONDS` | `10` | HTTP timeout (seconds) for worker calls in `http` mode. Raise on slow home-server links to avoid spurious 503s on long backfill / sync-delegation calls. Non-integer values fall back to `10`. |
 | `ROUTE_FULL_SYNC_FALLBACK_TO_INPROCESS` | `0` | Set `1` to allow in-process fallback when the worker is down (`http` mode). **Off by default** — an unreachable worker returns 503. In `queue` mode there is nothing to fall back from: enqueue always succeeds. |
 | `ROUTE_BACKFILL_FALLBACK_TO_INPROCESS` | `0` | Same for backfill. |
 | `LEGACY_SYNC_STRAVA_ENABLED` | `0` | Set `1` to re-enable the deprecated `POST /api/sync/strava` BackgroundTasks endpoint. Disabled (410) by default. |

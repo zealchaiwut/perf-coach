@@ -2204,6 +2204,7 @@ function computeDayStatus(dateStr, habits, logsByDate) {
 
   const applicable = (habits || []).filter(h => {
     if (h.is_archived) return false;
+    if (h.tracking_type !== 'daily_checkmark') return false;
     if (!h.created_at) return true;
     return h.created_at.slice(0, 10) <= dateStr;
   });
@@ -2231,6 +2232,7 @@ function computeAllHabitsDaySummary(dateStr, habits, logsByDate) {
 
   const applicable = (habits || []).filter(h => {
     if (h.is_archived) return false;
+    if (h.tracking_type !== 'daily_checkmark') return false;
     if (!h.created_at) return true;
     return h.created_at.slice(0, 10) <= dateStr;
   });
@@ -2245,13 +2247,17 @@ function computeAllHabitsDaySummary(dateStr, habits, logsByDate) {
 
 // Compute status for a single habit on a given day (issue #830, AC4, AC8).
 // Returns 'no-data' when the habit was created after dateStr (AC8).
+// Weekly habits (weekly_count / weekly_minutes) are not expected to be logged
+// every day, so a missing log returns 'no-data' rather than 'not-met' (issue #849).
 function computeSingleHabitDayStatus(dateStr, habit, logsByDate) {
   const todayStr = bangkokTodayStr();
   if (dateStr > todayStr) return 'no-data';
   if (habit.is_archived) return 'no-data';
   if (habit.created_at && habit.created_at.slice(0, 10) > dateStr) return 'no-data';
   const logsOnDate = logsByDate[dateStr] || new Set();
-  return logsOnDate.has(habit.id) ? 'met' : 'not-met';
+  if (logsOnDate.has(habit.id)) return 'met';
+  if (habit.tracking_type !== 'daily_checkmark') return 'no-data';
+  return 'not-met';
 }
 
 // Render the filter control for the history calendar (issue #830, AC1/AC2/AC9/AC10).
