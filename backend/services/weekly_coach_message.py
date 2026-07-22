@@ -277,7 +277,6 @@ def _build_message(
 
 def _serialize_plan_state(plan_state: dict) -> dict:
     """Convert date objects in plan_state to ISO strings for JSONB storage."""
-    import json
 
     def _convert(obj: Any) -> Any:
         if isinstance(obj, date):
