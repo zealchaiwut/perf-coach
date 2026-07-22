@@ -525,6 +525,76 @@ def apply_plan_draft(
         db.close()
 
 
+class PlanDraftApplySlotRequest(BaseModel):
+    week_start: Optional[str] = None
+    slot_id: Optional[str] = None
+    day_offset: Optional[int] = None
+
+
+@router.post("/plan/draft/apply-slot")
+def apply_plan_draft_slot(
+    body: PlanDraftApplySlotRequest,
+    user: User = Depends(resolve_user),
+):
+    """Apply one draft slot → planned_session; leave the rest of the draft open."""
+    from backend.services.plan_draft import apply_draft_slot
+    from backend.utils.time import today_bangkok
+
+    if not body.slot_id and body.day_offset is None:
+        raise HTTPException(status_code=422, detail="slot_id or day_offset required")
+    ws = _parse_week_start(body.week_start)
+    db = _Session(_engine)
+    try:
+        result = apply_draft_slot(
+            db, user.id, ws,
+            slot_id=body.slot_id,
+            day_offset=body.day_offset,
+            today=today_bangkok(),
+        )
+        code = result.get("status_code") or 200
+        if not result.get("ok"):
+            db.rollback()
+            raise HTTPException(status_code=code, detail=result)
+        db.commit()
+        return JSONResponse(result)
+    finally:
+        db.close()
+
+
+class PlanDraftRegenRequest(BaseModel):
+    week_start: Optional[str] = None
+    slot_id: str
+    draft_version: Optional[str] = None
+
+
+@router.post("/plan/draft/ops/regen")
+def draft_op_regen(
+    body: PlanDraftRegenRequest,
+    user: User = Depends(resolve_user),
+):
+    """Enqueue async content generation for one draft slot (Generate details)."""
+    from backend.services.plan_draft import request_slot_regen
+
+    if not body.slot_id:
+        raise HTTPException(status_code=422, detail="slot_id required")
+    ws = _parse_week_start(body.week_start)
+    db = _Session(_engine)
+    try:
+        result = request_slot_regen(
+            db, user.id, ws,
+            slot_id=body.slot_id,
+            draft_version=body.draft_version,
+        )
+        code = result.get("status_code") or 202
+        if not result.get("ok"):
+            db.rollback()
+            raise HTTPException(status_code=code if code >= 400 else 400, detail=result)
+        db.commit()
+        return JSONResponse(result, status_code=202)
+    finally:
+        db.close()
+
+
 @router.patch("/plan/draft/slot")
 def patch_plan_draft_slot(
     body: PlanDraftSlotPatch,
@@ -602,7 +672,7 @@ def _parse_week_start(raw: Optional[str]):
 
 
 def _run_draft_op(op: str, body: PlanDraftOpBody, user: User):
-    from backend.services.plan_draft import apply_structure_op
+    from backend.services.plan_draft import apply_structure_op, ensure_draft_shell
 
     ws = _parse_week_start(body.week_start if body else None)
     kwargs = {}
@@ -625,12 +695,16 @@ def _run_draft_op(op: str, body: PlanDraftOpBody, user: User):
 
     db = _Session(_engine)
     try:
+        if op == "add":
+            ensure_draft_shell(db, user.id, ws)
+        # Structure adds never sync-LLM; Generate details uses /ops/regen.
+        use_inline = False if op == "add" else (body.inline is not False)
         result = apply_structure_op(
             db, user.id, ws,
             op=op,
             draft_version=body.draft_version,
             confirm_warnings=bool(body.confirm_warnings),
-            inline=body.inline is not False,
+            inline=use_inline,
             background=bool(body.background),
             **kwargs,
         )
@@ -850,14 +924,19 @@ def generate_plan_session(
     if body.duration_minutes is not None and not (0 <= body.duration_minutes <= 600):
         raise HTTPException(status_code=422, detail="duration_minutes must be between 0 and 600")
     if body.subtype is not None:
-        from backend.services.plan_suggestions import SESSION_SUBTYPES as _SUBTYPES
+        from backend.services.plan_suggestions import (
+            SESSION_SUBTYPES as _SUBTYPES,
+            coerce_ui_subtype,
+        )
+        ui_sub = coerce_ui_subtype(body.workout_type, body.subtype)
         valid = _SUBTYPES.get(body.workout_type or "", {})
-        if body.subtype not in valid:
+        if ui_sub is None or ui_sub not in valid:
             raise HTTPException(
                 status_code=422,
                 detail="subtype must be one of: " + ", ".join(sorted(valid)) if valid
                 else f"workout_type {body.workout_type!r} has no subtypes",
             )
+        body.subtype = ui_sub
 
     session = _generate_single_session(
         str(user.id),

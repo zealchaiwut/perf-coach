@@ -1,7 +1,7 @@
 """Tests for target-aware Suggest sessions (Plan tab revamp, Part 3).
 
 Covers spec 3.3:
-  - Suggestions sum to within ±5% of remaining_tss
+  - Suggestions sum to within ±15% of remaining_tss
   - Never exceed the ACWR ceiling
   - Never land on a rest day or a past day
   - A taper-phase week yields lower volume than the equivalent hold-phase week
@@ -55,28 +55,34 @@ class TestValidationTargetAware:
             **extra,
         }
 
-    def test_within_5pct_band_passes(self):
+    def test_within_15pct_band_passes(self):
         # target 332, logged 57 -> remaining 275; one session at 275 lands exactly on target.
         facts = self._facts(target_tss=332.0, logged_tss_so_far=57.0)
         suggestions = [_run(3, tss=275)]
         assert ps.validation_errors(suggestions, facts) == []
 
-    def test_over_5pct_band_fails(self):
+    def test_over_15pct_band_fails(self):
         facts = self._facts(target_tss=332.0, logged_tss_so_far=57.0)
-        # logged 57 + suggested 400 = 457, well above 332*1.05=348.6
+        # logged 57 + suggested 400 = 457, well above 332*1.15≈381.8
         suggestions = [_run(3, tss=400)]
         errs = ps.validation_errors(suggestions, facts)
         assert any("exceeds the 332" in e or "TSS target" in e for e in errs)
 
-    def test_under_5pct_band_fails(self):
+    def test_under_15pct_band_fails(self):
         facts = self._facts(target_tss=332.0, logged_tss_so_far=57.0)
-        # logged 57 + suggested 50 = 107, well below 332*0.95=315.4
+        # logged 57 + suggested 50 = 107, well below 332*0.85≈282.2
         suggestions = [_run(3, tss=50)]
         errs = ps.validation_errors(suggestions, facts)
         assert any("falls short of" in e for e in errs)
 
+    def test_modest_overshoot_within_15pct_passes(self):
+        # ±15% guide: 332 * 1.10 = 365.2 — still under band, should pass.
+        facts = self._facts(target_tss=332.0, logged_tss_so_far=57.0, acwr_ceiling=500.0)
+        suggestions = [_run(3, tss=300)]  # combined 357
+        assert ps.validation_errors(suggestions, facts) == []
+
     def test_acwr_ceiling_exceeded_fails_even_if_engineered_within_band(self):
-        # target 300, logged 0, ceiling artificially set BELOW target*1.05 so a
+        # target 300, logged 0, ceiling artificially set BELOW target*1.15 so a
         # suggestion that satisfies the band still trips the ceiling check.
         facts = self._facts(target_tss=300.0, logged_tss_so_far=0.0, acwr_ceiling=290.0)
         suggestions = [_run(3, tss=300)]
@@ -133,8 +139,9 @@ class TestBuildPromptTargetAware:
         facts = self._facts()
         system, _ = ps.build_prompt(facts)
         assert "275" in system  # remaining_tss
-        assert "sum to approximately 275" in system
-        assert "NOT the target itself" in system
+        assert "sum near 275" in system
+        assert "guide, not a hard fill" in system
+        assert "do not double-count" in system
 
     def test_taper_phase_instructs_volume_drop_intensity_retained(self):
         facts = self._facts(phase="taper")
@@ -156,12 +163,12 @@ class TestBuildPromptTargetAware:
             assert "Normal mix" in system
 
     def test_omits_target_rule_when_target_tss_absent(self):
-        # Old-style facts (pre-Part-3) — rule 7 must still be the notes rule,
-        # not a target rule, and no target language should appear.
+        # Old-style facts (pre-Part-3) — no weekly target language should appear.
         facts = {"trailing_28d_weekly_avg_tss": 300.0, "allowed_offsets": [0, 1, 2, 3, 4, 5, 6]}
         system, _ = ps.build_prompt(facts)
         assert "hard weekly TSS target" not in system
-        assert "7. `notes` = the coach's RATIONALE" in system
+        assert "weekly TSS target of" not in system
+        assert "`notes` = the coach's RATIONALE" in system
 
 
 # ── Orchestrator: retry-once-then-fallback on a target violation (pure, no DB) ──

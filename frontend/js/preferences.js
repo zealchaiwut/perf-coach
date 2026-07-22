@@ -125,8 +125,6 @@
 
     intRow('plyo_sessions_per_week', 'Plyo sessions / week');
     intRow('long_run.mp_segment_min', 'Long-run MP segment (min)');
-    intRow('stretch_daily_min', 'Daily stretch (min)');
-    intRow('zone2_weekly_min', 'Zone-2 weekly target (min)');
 
     var notes = _getNested(p, 'notes') || '';
     html +=
@@ -149,8 +147,6 @@
     payload.plyo_mode = document.getElementById('field-plyo_mode').value;
     payload.plyo_sessions_per_week = Number(document.getElementById('field-plyo_sessions_per_week').value);
     _setNested(payload, 'long_run.mp_segment_min', Number(document.getElementById('field-long_run_mp_segment_min').value));
-    payload.stretch_daily_min = Number(document.getElementById('field-stretch_daily_min').value);
-    payload.zone2_weekly_min = Number(document.getElementById('field-zone2_weekly_min').value);
     payload.notes = document.getElementById('field-notes').value || '';
     return payload;
   }

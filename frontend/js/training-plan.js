@@ -18,11 +18,14 @@
   var _bundle = null;             // last GET bundle
   var _panel = { open: null };    // null | 'add' | 'detail'
   var _addState = { top: 'single', sub: 'form', delim: 'pipe' };
+  // Create-mode draft-first: optional AI/manual content before Save draft.
+  var _addDraftExtras = { ai: null, manualOpen: false };
   var _detail = null;             // the planned session dict being viewed
   var _dismissedGhosts = {};      // client-side Ignore
   var _draft = null;              // GET /api/plan/draft payload (pipeline v2)
   var _pipeline = null;           // GET /api/plan/pipeline
   var _draftVisible = false;      // shadow mode requires ?draft=1
+  var _detailDraft = null;        // draft slot dict open in the detail panel
   var _generatingIds = {};        // planned_session id → true while Ask-AI fills details
 
   var DOW = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
@@ -158,6 +161,14 @@ information about.
       if (window.TrainingPerformance && window.TrainingPerformance.loadGapPanel) {
         window.TrainingPerformance.loadGapPanel();
       }
+      if (window.location.hash === '#prefs') {
+        setTimeout(function () {
+          var t = document.getElementById('plan-suggestions-trigger');
+          if (t) t.click();
+          var panel = document.getElementById('plan-suggestions-panel');
+          if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 80);
+      }
       if (!window.__plSmEscWired) {
         window.__plSmEscWired = true;
         document.addEventListener('keydown', function (e) {
@@ -191,6 +202,15 @@ information about.
     getWeekStartISO: function () {
       return _iso(_weekStart || _mondayOf(new Date()));
     },
+    // Suggestions module (separate closure) calls this after queueing a
+    // plan_draft so the week strip picks up the new draft when it lands.
+    markDraftPending: function () {
+      _draftVisible = true;
+    },
+    reloadDraft: function () {
+      _draftVisible = true;
+      _loadDraft();
+    },
     // day_offset/date/open (no logged workout, no existing planned session,
     // not before today) for each day of the currently-viewed week — lets the
     // suggestions prefs form show accurate checkboxes without a second
@@ -207,10 +227,15 @@ information about.
         var day = days[i] || {};
         var hasPlanned = (day.planned || []).length > 0;
         var hasUnplanned = (day.unplanned || []).some(function (u) { return !_dismissedGhosts[u.id]; });
+        var past = i < offsetOfToday;
+        var hasSession = hasPlanned || hasUnplanned;
         out.push({
           day_offset: i,
           date: day.date || _iso(_addDays(_weekStart, i)),
-          open: i >= offsetOfToday && !hasPlanned && !hasUnplanned
+          past: past,
+          hasSession: hasSession,
+          // Suggestable open day: not past and no existing session/ghost
+          open: !past && !hasSession,
         });
       }
       return out;
@@ -470,35 +495,76 @@ information about.
     _plConfirm(msg, function () { onYes(true); });
   }
 
-  function _removeDraftSlot(slotId) {
-    function proceed(mode) {
+  function _removeDraftSlot(slotId, sessionLabel) {
+    var existing = document.getElementById('pl-draft-rm-overlay');
+    if (existing) existing.remove();
+    var label = sessionLabel || 'this draft session';
+    var overlay = document.createElement('div');
+    overlay.id = 'pl-draft-rm-overlay';
+    overlay.className = 'pl-draft-q-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.innerHTML =
+      '<div class="pl-draft-q-card">' +
+        '<h3>Remove draft session?</h3>' +
+        '<p>Remove <b>' + esc(label) + '</b> from the week draft.</p>' +
+        '<p class="pl-draft-rm-hint">Default is drop only — other sessions keep their TSS and won’t regenerate.</p>' +
+        '<div class="pl-del-confirm-actions" style="flex-direction:column;align-items:stretch;gap:8px;">' +
+          '<button type="button" class="pl-btn pl-danger" data-rm-drop>Remove</button>' +
+          '<button type="button" class="pl-btn pl-ghost" data-rm-redistribute>' +
+            'Remove &amp; redistribute TSS' +
+          '</button>' +
+          '<button type="button" class="pl-btn" data-rm-cancel>Cancel</button>' +
+        '</div>' +
+        '<p class="pl-draft-rm-hint" style="margin-top:10px;">Redistribute spreads this session’s TSS onto other non-long draft slots and regenerates their content.</p>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    function close() { overlay.remove(); }
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+    overlay.querySelector('[data-rm-cancel]').addEventListener('click', close);
+
+    function run(mode, btn) {
+      btn.disabled = true;
+      var other = overlay.querySelectorAll('[data-rm-drop], [data-rm-redistribute], [data-rm-cancel]');
+      other.forEach(function (b) { b.disabled = true; });
+      btn.textContent = mode === 'redistribute' ? 'Redistributing…' : 'Removing…';
       _draftOp('remove', { slot_id: slotId, mode: mode, confirm_warnings: true })
         .then(function (res) {
-          if (res && res.redistribute) {
+          close();
+          if (mode === 'redistribute' && res && res.redistribute) {
             var m = res.redistribute;
-            _toast('Replaced ' + Math.round(m.replaced_tss || 0) + ' TSS · dropped ' + Math.round(m.dropped_tss || 0));
+            _toast(
+              'Removed · redistributed ' + Math.round(m.replaced_tss || 0) +
+              ' TSS' + (m.dropped_tss ? (' · ' + Math.round(m.dropped_tss) + ' unused') : '')
+            );
+          } else {
+            _toast('Draft session removed');
           }
+          if (_detailDraft && _detailDraft.slot_id === slotId) _closeDraftDetail();
         })
         .catch(function (err) {
+          other.forEach(function (b) { b.disabled = false; });
+          btn.disabled = false;
+          btn.textContent = mode === 'redistribute' ? 'Remove & redistribute TSS' : 'Remove';
           if (err && err.needs_confirm) {
             _confirmWarnings(err.warnings, function () {
               err.body.confirm_warnings = true;
-              _draftOp(err.op, err.body).catch(function () { _toast('Remove failed', true); });
+              _draftOp(err.op, err.body)
+                .then(function () { close(); _toast('Draft session removed'); })
+                .catch(function () { _toast('Remove failed', true); });
             });
             return;
           }
           _toast((err && err.detail && err.detail.block_reason) || 'Could not remove', true);
         });
     }
-    _plConfirm(
-      "Redistribute this session's TSS to other open slots, or drop it without redistributing?",
-      function () { proceed('redistribute'); },
-      {
-        okLabel: 'Redistribute',
-        cancelLabel: 'Drop only',
-        onCancel: function () { proceed('drop'); },
-      },
-    );
+
+    overlay.querySelector('[data-rm-drop]').addEventListener('click', function (e) {
+      run('drop', e.currentTarget);
+    });
+    overlay.querySelector('[data-rm-redistribute]').addEventListener('click', function (e) {
+      run('redistribute', e.currentTarget);
+    });
   }
 
   function _moveDraftSlot(slotId, toDay, confirmed) {
@@ -515,19 +581,300 @@ information about.
       });
   }
 
-  function _addDraftKind(day, kind) {
+  function _addDraftKind(day, kind, btnEl) {
+    if (btnEl) {
+      btnEl.disabled = true;
+      btnEl.dataset.label = btnEl.textContent;
+      btnEl.innerHTML = '<i class="pl-gen-spin" aria-hidden="true"></i> Adding…';
+    }
+    var dayRow = document.querySelector('.pl-dayrow[data-day-offset="' + day + '"]');
+    if (dayRow) dayRow.classList.add('is-draft-adding');
+    function _restore() {
+      if (dayRow) dayRow.classList.remove('is-draft-adding');
+      if (btnEl && btnEl.dataset.label) {
+        btnEl.disabled = false;
+        btnEl.textContent = btnEl.dataset.label;
+      }
+    }
     _draftOp('add', { day: day, kind: kind, confirm_warnings: false })
+      .then(function () { _restore(); })
       .catch(function (err) {
         if (err && err.needs_confirm) {
           _confirmWarnings(err.warnings, function () {
             _draftOp('add', { day: day, kind: kind, confirm_warnings: true })
-              .catch(function () { _toast('Add failed', true); });
+              .then(_restore)
+              .catch(function () { _restore(); _toast('Add failed', true); });
           });
           return;
         }
+        _restore();
         var detail = err && err.detail;
         _toast((detail && detail.block_reason) || 'Could not add', true);
       });
+  }
+
+  function _addDraftCustom(day, custom, opts) {
+    opts = opts || {};
+    return _draftOp('add', {
+      day: day,
+      kind: 'custom',
+      custom: custom,
+      confirm_warnings: !!opts.confirm,
+    }).then(function (payload) {
+      var slotId = payload && payload.added_slot_id;
+      if (!slotId) {
+        // Fallback: newest non-rest session on that day after draft refresh.
+        var sessions = ((_draft && _draft.payload) || {}).sessions || [];
+        sessions.forEach(function (s) {
+          if (s && parseInt(s.day_offset, 10) === parseInt(day, 10) && (s.workout_type || '') !== 'rest') {
+            slotId = s.slot_id;
+          }
+        });
+      }
+      if (opts.apply && slotId) return _applyDraftSlot(slotId);
+      if (opts.apply && !slotId) {
+        return Promise.reject({ detail: { error: 'Draft saved but apply target missing' } });
+      }
+      return payload;
+    }).catch(function (err) {
+      if (err && err.needs_confirm && !opts.confirm) {
+        return new Promise(function (resolve, reject) {
+          _confirmWarnings(err.warnings, function () {
+            _addDraftCustom(day, custom, Object.assign({}, opts, { confirm: true }))
+              .then(resolve).catch(reject);
+          });
+        });
+      }
+      throw err;
+    });
+  }
+
+  function _applyDraftSlot(slotId) {
+    return _api('POST', '/api/plan/draft/apply-slot', {
+      week_start: _iso(_weekStart),
+      slot_id: slotId,
+    }).then(function (res) {
+      _toast('Session applied to plan');
+      if (res && res.draft) {
+        _draft = res.draft;
+        _renderDraftChrome();
+      }
+      _closeDraftDetail();
+      _loadWeek(function () { if (_draftVisible) _loadDraft(); });
+      return res;
+    });
+  }
+
+  function _regenDraftSlot(slotId) {
+    return fetch('/api/plan/draft/ops/regen', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        week_start: _iso(_weekStart),
+        slot_id: slotId,
+        draft_version: _draft && _draft.draft_version,
+      }),
+    }).then(function (r) {
+      return r.json().then(function (d) {
+        if (!r.ok) throw new Error((d && d.detail && (d.detail.error || d.detail)) || ('HTTP ' + r.status));
+        if (d.draft) {
+          _draft = d.draft;
+          if (d.draft_version) _draft.draft_version = d.draft_version;
+          _renderDraftChrome();
+          _renderWeekList();
+        }
+        _toast('Generating details…');
+        _pollDraftPending(slotId);
+        return d;
+      });
+    });
+  }
+
+  var _draftPendingTimer = null;
+  function _pollDraftPending(slotId) {
+    if (_draftPendingTimer) clearInterval(_draftPendingTimer);
+    var tries = 0;
+    _draftPendingTimer = setInterval(function () {
+      tries++;
+      _loadDraft(function () {
+        var sess = null;
+        (((_draft || {}).payload || {}).sessions || []).forEach(function (s) {
+          if (s && s.slot_id === slotId) sess = s;
+        });
+        if (!sess || !sess.pending || tries > 40) {
+          clearInterval(_draftPendingTimer);
+          _draftPendingTimer = null;
+          if (sess && !sess.pending) {
+            _toast('Details ready');
+            if (_detailDraft && _detailDraft.slot_id === slotId) {
+              _detailDraft = sess;
+              _renderDraftDetailSection();
+            }
+          }
+        }
+      });
+    }, 3000);
+  }
+
+  function _dayOffsetForDate(isoDate) {
+    if (!_weekStart) return 0;
+    var d = _parseISO(isoDate);
+    return Math.round((d - _weekStart) / 86400000);
+  }
+
+  function _openDraftAddPicker(isoDate) {
+    var existing = document.getElementById('pl-draft-add-picker');
+    if (existing) existing.remove();
+    var day = _dayOffsetForDate(isoDate);
+    var overlay = document.createElement('div');
+    overlay.id = 'pl-draft-add-picker';
+    overlay.className = 'pl-draft-q-overlay';
+    overlay.innerHTML =
+      '<div class="pl-draft-q-card" role="dialog" aria-modal="true">' +
+        '<h3>Add draft session</h3>' +
+        '<p>' + esc(isoDate) + ' — stays in the week draft until you apply.</p>' +
+        '<label class="pl-dap-field">Type' +
+          '<select id="pl-dap-type">' +
+            '<option value="run">Run</option>' +
+            '<option value="strength">Strength</option>' +
+            '<option value="plyo">Plyo</option>' +
+            '<option value="stretch">Stretch</option>' +
+          '</select></label>' +
+        '<div class="pl-dap-row">' +
+          '<label class="pl-dap-field">TSS<input id="pl-dap-tss" type="number" min="0" max="400" value="30"/></label>' +
+          '<label class="pl-dap-field">Minutes<input id="pl-dap-dur" type="number" min="0" max="600" value="30"/></label>' +
+        '</div>' +
+        '<label class="pl-dap-field">Name / intent<input id="pl-dap-intent" type="text" placeholder="Optional"/></label>' +
+        '<div class="pl-draft-q-actions">' +
+          '<button type="button" class="pl-btn pl-lime" id="pl-dap-draft">Create draft</button>' +
+          '<button type="button" class="pl-btn" id="pl-dap-apply">Create draft &amp; apply</button>' +
+        '</div>' +
+        '<button type="button" class="pl-btn pl-ghost" id="pl-dap-cancel" style="margin-top:8px;width:100%">Cancel</button>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    function close() { overlay.remove(); }
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+    document.getElementById('pl-dap-cancel').onclick = close;
+    function readCustom() {
+      var wt = document.getElementById('pl-dap-type').value;
+      return {
+        workout_type: wt,
+        subtype: wt,
+        target_tss: parseFloat(document.getElementById('pl-dap-tss').value) || 0,
+        duration_minutes: parseInt(document.getElementById('pl-dap-dur').value, 10) || 30,
+        intent: (document.getElementById('pl-dap-intent').value || '').trim(),
+      };
+    }
+    function run(apply) {
+      var btn = document.getElementById(apply ? 'pl-dap-apply' : 'pl-dap-draft');
+      btn.disabled = true;
+      btn.textContent = apply ? 'Applying…' : 'Adding…';
+      _addDraftCustom(day, readCustom(), { apply: !!apply })
+        .then(function () { close(); _toast(apply ? 'Draft applied' : 'Draft added'); })
+        .catch(function (err) {
+          btn.disabled = false;
+          btn.textContent = apply ? 'Create draft & apply' : 'Create draft';
+          var detail = err && err.detail;
+          _toast((detail && (detail.block_reason || detail.error)) || (err && err.message) || 'Failed', true);
+        });
+    }
+    document.getElementById('pl-dap-draft').onclick = function () { run(false); };
+    document.getElementById('pl-dap-apply').onclick = function () { run(true); };
+  }
+
+  function _openDraftDetail(slotId) {
+    var found = null;
+    (((_draft || {}).payload || {}).sessions || []).forEach(function (s) {
+      if (s && s.slot_id === slotId) found = s;
+    });
+    if (!found || (found.workout_type || '') === 'rest') return;
+    _detail = null;
+    _detailDraft = Object.assign({}, found);
+    _panel.open = 'detail';
+    _renderDraftDetailSection();
+    var el = document.getElementById('plan-detail-section');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function _closeDraftDetail() {
+    _detailDraft = null;
+    if (!_detail) {
+      _panel.open = null;
+      var host = document.getElementById('plan-detail-section');
+      if (host) host.innerHTML = '';
+    }
+  }
+
+  function _renderDraftDetailSection() {
+    var host = document.getElementById('plan-detail-section');
+    if (!host || !_detailDraft) return;
+    var s = _detailDraft;
+    var pending = !!s.pending;
+    host.innerHTML =
+      '<div class="pl-card pl-panelcard">' +
+        '<div class="pl-chead"><span class="pl-sectitle">Draft session</span>' +
+          '<button type="button" class="pl-btn pl-ghost" id="pl-dd-close">Close</button></div>' +
+        '<div class="pl-dd-grid">' +
+          '<label>Type<select id="pl-dd-type">' +
+            ['run','strength','plyo','stretch'].map(function (t) {
+              return '<option value="' + t + '"' + (s.workout_type === t ? ' selected' : '') + '>' + t + '</option>';
+            }).join('') +
+          '</select></label>' +
+          '<label>TSS<input id="pl-dd-tss" type="number" min="0" max="400" value="' + (s.target_tss != null ? s.target_tss : '') + '"/></label>' +
+          '<label>Minutes<input id="pl-dd-dur" type="number" min="0" max="600" value="' + (s.duration_minutes != null ? s.duration_minutes : '') + '"/></label>' +
+        '</div>' +
+        '<label class="pl-dd-block">Intent / name<input id="pl-dd-intent" type="text" value="' + esc(s.intent || '') + '"/></label>' +
+        '<label class="pl-dd-block">Notes<textarea id="pl-dd-notes" rows="3">' + esc(s.notes || '') + '</textarea></label>' +
+        (pending
+          ? '<div class="pl-draft-pending" style="display:flex">' + _genSpinHtml('pl-gen-spin pl-gen-spin-lg') + ' Generating details…</div>'
+          : '') +
+        '<div class="pl-dd-actions">' +
+          '<button type="button" class="pl-btn pl-lime" id="pl-dd-save">Save draft</button>' +
+          '<button type="button" class="pl-btn" id="pl-dd-gen"' + (pending ? ' disabled' : '') + '>Generate details</button>' +
+          '<button type="button" class="pl-btn pl-dark" id="pl-dd-apply">Apply this session</button>' +
+        '</div>' +
+      '</div>';
+
+    document.getElementById('pl-dd-close').onclick = function () {
+      _closeDraftDetail();
+      _renderDetailSection();
+    };
+    document.getElementById('pl-dd-save').onclick = function () {
+      var patch = {
+        week_start: _iso(_weekStart),
+        day_offset: s.day_offset,
+        workout_type: document.getElementById('pl-dd-type').value,
+        target_tss: parseFloat(document.getElementById('pl-dd-tss').value) || 0,
+        duration_minutes: parseInt(document.getElementById('pl-dd-dur').value, 10) || 0,
+        intent: document.getElementById('pl-dd-intent').value,
+        notes: document.getElementById('pl-dd-notes').value || null,
+      };
+      _api('PATCH', '/api/plan/draft/slot', patch)
+        .then(function (d) {
+          _draft = d;
+          _toast('Draft saved');
+          var refreshed = null;
+          (((_draft || {}).payload || {}).sessions || []).forEach(function (x) {
+            if (x && x.slot_id === s.slot_id) refreshed = x;
+          });
+          if (refreshed) _detailDraft = refreshed;
+          _renderWeekList();
+          _renderDraftDetailSection();
+        })
+        .catch(function (err) { _toast(err.message || 'Save failed', true); });
+    };
+    document.getElementById('pl-dd-gen').onclick = function () {
+      _regenDraftSlot(s.slot_id).catch(function (err) {
+        _toast(err.message || 'Could not queue generation', true);
+      });
+    };
+    document.getElementById('pl-dd-apply').onclick = function () {
+      _applyDraftSlot(s.slot_id).catch(function (err) {
+        var d = err && err.message;
+        _toast(d || 'Apply failed', true);
+      });
+    };
   }
 
   function _renderDraftChrome() {
@@ -1187,11 +1534,7 @@ information about.
           '<button class="pl-btn pl-lime" id="pl-apply-draft" hidden title="Create planned sessions from this draft">Apply week</button>' +
           '<button class="pl-btn pl-ghost" id="pl-refresh-draft" hidden title="Regenerate untouched draft slots">Refresh draft</button>' +
           '<button class="pl-btn pl-ghost" id="pl-replan-remaining" title="Replan open days from remaining budget">Replan remaining</button>' +
-          /* Repurposed to open the AI next-week suggestions panel (issue #1315).
-             It proxies a click to the suggestions module's own (hidden) trigger
-             button, which lives in a separate closure. Label includes the
-             Session Load Plan's weekly target once _wlData loads — see
-             _updateWeekTargetUI(). */
+          /* Opens the suggestions panel (prefs + build schedule live there). */
           '<button class="pl-btn pl-ghost" id="pl-suggest" title="AI-suggested sessions for this week">✨ Suggest sessions</button>' +
         '</div></div>' +
         '<div class="pl-draft-banner" id="pl-draft-banner" aria-live="polite" hidden></div>' +
@@ -1232,8 +1575,6 @@ information about.
     if (sugBtn) sugBtn.onclick = function () {
       var t = document.getElementById('plan-suggestions-trigger');
       if (t) t.click();
-      // After the panel unhides and the prefs form renders — 'start', not
-      // 'nearest': the panel sits below the fold and 'nearest' barely moves.
       setTimeout(function () {
         var panel = document.getElementById('plan-suggestions-panel');
         if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1294,11 +1635,12 @@ information about.
         draftHtml = _draftCardHtml(draftSess, day);
       }
       var addDraft = '';
-      if (_draftVisible && _draft && _draft.status !== 'applied' && !isPast && !(day.planned || []).length && !draftHtml) {
+      var draftActive = _draftVisible && (!_draft || _draft.status !== 'applied');
+      if (draftActive && !isPast && !(day.planned || []).length && !draftHtml) {
         addDraft = '<div class="pl-draft-add">' +
-          '<button type="button" class="pl-btn pl-ghost pl-tiny" data-draft-add="' + di + '" data-kind="easy_run">+ Easy</button>' +
-          '<button type="button" class="pl-btn pl-ghost pl-tiny" data-draft-add="' + di + '" data-kind="light_strength">+ Strength</button>' +
-          '<button type="button" class="pl-btn pl-ghost pl-tiny" data-draft-add="' + di + '" data-kind="stretch">+ Stretch</button>' +
+          '<button type="button" class="pl-btn pl-ghost pl-tiny" data-draft-add="' + di + '" data-kind="easy_run">Quick easy</button>' +
+          '<button type="button" class="pl-btn pl-ghost pl-tiny" data-draft-add="' + di + '" data-kind="light_strength">Quick strength</button>' +
+          '<button type="button" class="pl-btn pl-ghost pl-tiny" data-draft-add="' + di + '" data-kind="stretch">Quick stretch</button>' +
         '</div>';
       }
       var hasContent = (day.planned || []).length || ghosts || draftHtml || addDraft;
@@ -1432,7 +1774,11 @@ information about.
     var generating = !!(p.id && _generatingIds[p.id]);
     var draggable = !generating && (p.status === 'planned' || p.status === 'missed' || p.status === 'missed_auto' || p.status === 'missed_manual');
     var clickable = (p.status !== 'needs_review');
-    var handle = draggable ? '<span class="pl-dhandle">⠿⠿</span>' : '';
+    var acts = '<div class="pl-sess-acts">' +
+      (generating ? '' :
+        '<button type="button" class="pl-sess-del" data-sess-del="' + p.id + '" title="Delete session" aria-label="Delete session">🗑</button>') +
+      (draggable ? '<span class="pl-dhandle" title="Drag to move">⠿⠿</span>' : '') +
+      '</div>';
     var meta = p.actual && (p.status === 'done_auto' || p.status === 'done_manual')
       ? _plannedMeta(p) : _plannedMeta(p);
     var dayLate = '';
@@ -1496,7 +1842,7 @@ information about.
     return '<div class="pl-sess ' + fam + ' status-' + p.status + (generating ? ' is-generating' : '') + '"' +
         (draggable && !generating ? ' draggable="true"' : '') +
         ' data-sess="' + p.id + '"' + (clickable ? ' data-click="1"' : '') + a11yAttrs + '>' +
-      handle +
+      acts +
       '<div class="pl-sesstop"><span class="pl-sesstop-left"><span class="pl-stypetag ' + fam + '">' + fam + '</span>' +
         (generating ? '' : _sessionTssBadge(p) + _planWarnBadge(p)) +
       '</span>' +
@@ -1507,6 +1853,46 @@ information about.
         (generating ? 'content updating for the new budget…' : esc(meta)) +
       '</div>' + dayLate + (generating ? '' : body) + (generating ? '' : moveHtml) +
     '</div>';
+  }
+
+  function _confirmDeleteSession(id, name) {
+    var existing = document.getElementById('pl-del-confirm-overlay');
+    if (existing) existing.remove();
+    var overlay = document.createElement('div');
+    overlay.id = 'pl-del-confirm-overlay';
+    overlay.className = 'pl-draft-q-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.innerHTML =
+      '<div class="pl-draft-q-card">' +
+        '<h3>Delete session?</h3>' +
+        '<p>Remove <b>' + esc(name) + '</b> from this week’s plan. This can’t be undone.</p>' +
+        '<div class="pl-del-confirm-actions">' +
+          '<button type="button" class="pl-btn pl-danger" data-del-yes>Delete</button>' +
+          '<button type="button" class="pl-btn" data-del-no>Cancel</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    function close() { overlay.remove(); }
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+    overlay.querySelector('[data-del-no]').addEventListener('click', close);
+    overlay.querySelector('[data-del-yes]').addEventListener('click', function () {
+      var btn = overlay.querySelector('[data-del-yes]');
+      btn.disabled = true;
+      btn.textContent = 'Deleting…';
+      _api('DELETE', '/api/planned-sessions/' + id)
+        .then(function () {
+          close();
+          _toast('Session deleted');
+          if (_detail && _detail.id === id) _closeDetail();
+          _loadWeek(function () { if (_draftVisible) _loadDraft(); });
+        })
+        .catch(function (err) {
+          btn.disabled = false;
+          btn.textContent = 'Delete';
+          _toast((err && err.message) || 'Delete failed', true);
+        });
+    });
   }
 
   // Candidate list for a needs_review card. Prefer the server-attached
@@ -1556,7 +1942,10 @@ information about.
     host.querySelectorAll('[data-draft-rm]').forEach(function (b) {
       b.addEventListener('click', function (e) {
         e.stopPropagation();
-        _removeDraftSlot(b.getAttribute('data-draft-rm'));
+        var sid = b.getAttribute('data-draft-rm');
+        var card = b.closest('.pl-draft');
+        var titleEl = card && card.querySelector('.pl-sn');
+        _removeDraftSlot(sid, titleEl ? titleEl.textContent.trim() : null);
       });
     });
     host.querySelectorAll('[data-draft-move]').forEach(function (sel) {
@@ -1570,7 +1959,15 @@ information about.
     host.querySelectorAll('[data-draft-add]').forEach(function (b) {
       b.addEventListener('click', function (e) {
         e.stopPropagation();
-        _addDraftKind(+b.getAttribute('data-draft-add'), b.getAttribute('data-kind'));
+        _addDraftKind(+b.getAttribute('data-draft-add'), b.getAttribute('data-kind'), b);
+      });
+    });
+
+    host.querySelectorAll('.pl-draft').forEach(function (el) {
+      el.addEventListener('click', function (e) {
+        if (e.target.closest('[data-draft-rm], [data-draft-move], .pl-draft-move, select, button')) return;
+        var sid = el.getAttribute('data-slot-id');
+        _openDraftDetail(sid);
       });
     });
 
@@ -1655,6 +2052,16 @@ information about.
         sel.value = '';
       });
     });
+    host.querySelectorAll('[data-sess-del]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var id = b.getAttribute('data-sess-del');
+        var card = b.closest('.pl-sess');
+        var name = card ? ((card.querySelector('.pl-sn') || {}).textContent || 'this session') : 'this session';
+        _confirmDeleteSession(id, name);
+      });
+    });
     host.querySelectorAll('[data-unlink]').forEach(function (b) {
       b.addEventListener('click', function (e) { e.stopPropagation(); _mutate('POST', '/api/planned-sessions/' + b.getAttribute('data-unlink') + '/unmatch'); });
     });
@@ -1716,7 +2123,9 @@ information about.
       });
     });
     host.querySelectorAll('.pl-addday[data-add-date]').forEach(function (el) {
-      el.addEventListener('click', function () { _openAdd('single', el.getAttribute('data-add-date')); });
+      el.addEventListener('click', function () {
+        _openAdd('single', el.getAttribute('data-add-date'));
+      });
     });
 
     // Drag & drop reschedule (planned/missed only).
@@ -1864,6 +2273,7 @@ information about.
     _addState.top = topMode; _addState.sub = 'form';
     _addState.editId = null; _addState.edit = null;
     _addState.presetDate = presetDate || _iso(_weekStart);
+    _addDraftExtras = { ai: null, manualOpen: false };
     // Fresh create: reset the builders to the demo templates so leftovers from
     // a previous edit don't leak into a new session.
     _sfBlocks = [
@@ -1910,17 +2320,22 @@ information about.
 
   function _renderAddBody() {
     var editing = !!_addState.editId;
-    var subs = _addState.top === 'single' ? [['form', 'Form'], ['json', 'JSON'], ['ai', 'Ask AI']]
-      : [['form', 'Form'], ['json', 'JSON'], ['sep', 'Separator']];
-    // Editing pins the structured Form — the JSON/Ask-AI sub-tabs are CREATE
-    // affordances (paste or generate a fresh plan) and would duplicate
-    // instead of update.
+    // Create single-session: Form (draft-first) | JSON. Ask AI lives on the form.
+    // Edit / bulk keep prior subtabs.
+    var subs;
+    if (editing) {
+      subs = [];
+    } else if (_addState.top === 'single') {
+      subs = [['form', 'Form'], ['json', 'JSON']];
+    } else {
+      subs = [['form', 'Form'], ['json', 'JSON'], ['sep', 'Separator']];
+    }
     var subHtml = editing ? '' : '<div class="pl-subtoggle" id="pl-addsub">' + subs.map(function (x) {
       return '<button class="' + (x[0] === _addState.sub ? 'on' : '') + '" data-sm="' + x[0] + '">' + x[1] + '</button>';
     }).join('') + '</div>';
     var content;
     if (_addState.top === 'single') {
-      content = _addState.sub === 'form' ? _singleFormHtml() : (_addState.sub === 'json' ? _singleJSONHtml() : _singleAIHtml());
+      content = _addState.sub === 'form' ? _singleFormHtml() : _singleJSONHtml();
     } else {
       content = _addState.sub === 'form' ? _bulkFormHtml() : (_addState.sub === 'json' ? _bulkJSONHtml() : _bulkSepHtml());
     }
@@ -1932,24 +2347,101 @@ information about.
     _wireAddBody();
   }
 
+  var _ADD_SUBTYPES = {
+    run: [
+      { v: 'easy', l: 'Easy' },
+      { v: 'long', l: 'Long' },
+      { v: 'intervals', l: 'Intervals' },
+      { v: 'tempo', l: 'Tempo' },
+    ],
+    strength: [
+      { v: 'upper', l: 'Upper' },
+      { v: 'lower', l: 'Lower' },
+      { v: 'full', l: 'Full body' },
+      { v: 'light', l: 'Light' },
+    ],
+    plyo: [{ v: 'plyo', l: 'Plyo' }],
+    stretch: [{ v: 'stretch', l: 'Stretch' }],
+  };
+
+  function _addSubtypeOptions(type, selected) {
+    var list = _ADD_SUBTYPES[type] || [];
+    if (!list.length) return '<option value="">—</option>';
+    return list.map(function (o) {
+      return '<option value="' + o.v + '"' + (o.v === selected ? ' selected' : '') + '>' + o.l + '</option>';
+    }).join('');
+  }
+
   // ── Single Form (adaptive: run block builder vs strength exercise rows) ─────
   function _singleFormHtml() {
     var ed = _addState.edit || {};
     function sel(t) { return ed.type === t ? ' selected' : ''; }
-    return '<div class="pl-frow">' +
-        '<div class="pl-fld"><label>Date</label><input type="date" id="pl-sf-date" aria-label="Session date" value="' + esc(_addState.presetDate) + '"/></div>' +
-        '<div class="pl-fld"><label>Type</label><select id="pl-sf-type" aria-label="Session type">' +
-          '<option value="run"' + sel('run') + '>Run</option>' +
-          '<option value="strength"' + sel('strength') + '>Strength</option>' +
-          '<option value="plyo"' + sel('plyo') + '>Plyo</option>' +
-          '<option value="rest"' + sel('rest') + '>Rest</option>' +
-        '</select></div>' +
-        '<div class="pl-fld"><label>Session name</label><input id="pl-sf-name" aria-label="Session name" placeholder="Sustained Tempo" value="' + esc(ed.name || '') + '"/></div>' +
+
+    // Edit existing planned session — keep full structure editor + Save changes.
+    if (_addState.editId) {
+      return '<div class="pl-frow">' +
+          '<div class="pl-fld"><label>Date</label><input type="date" id="pl-sf-date" aria-label="Session date" value="' + esc(_addState.presetDate) + '"/></div>' +
+          '<div class="pl-fld"><label>Type</label><select id="pl-sf-type" aria-label="Session type">' +
+            '<option value="run"' + sel('run') + '>Run</option>' +
+            '<option value="strength"' + sel('strength') + '>Strength</option>' +
+            '<option value="plyo"' + sel('plyo') + '>Plyo</option>' +
+            '<option value="rest"' + sel('rest') + '>Rest</option>' +
+          '</select></div>' +
+          '<div class="pl-fld"><label>Session name</label><input id="pl-sf-name" aria-label="Session name" placeholder="Sustained Tempo" value="' + esc(ed.name || '') + '"/></div>' +
+        '</div>' +
+        '<div id="pl-sf-structure"></div>' +
+        '<div class="pl-fld" style="margin-top:14px;"><label>Notes from coach</label><textarea id="pl-sf-notes" aria-label="Notes from coach" placeholder="e.g. hold 92% CP even on the 3rd rep">' + esc(ed.notes || '') + '</textarea></div>' +
+        '<div id="pl-sf-guard" aria-live="assertive"></div>' +
+        '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-sf-save">Save changes</button><button class="pl-btn pl-ghost" id="pl-sf-cancel">Cancel</button></div>';
+    }
+
+    // Create — draft-first: pins first, then AI / manual / skeleton, then save.
+    var draftMode = !!_draftVisible;
+    var defaultType = 'run';
+    return '<div class="pl-infobanner" style="margin-bottom:12px;">' +
+        (draftMode
+          ? 'Adds to the <b>week draft</b> first. Apply later (or use Save draft &amp; apply to commit this session now).'
+          : 'Pipeline draft is off — Save writes a planned session directly.') +
       '</div>' +
-      '<div id="pl-sf-structure"></div>' +
-      '<div class="pl-fld" style="margin-top:14px;"><label>Notes from coach</label><textarea id="pl-sf-notes" aria-label="Notes from coach" placeholder="e.g. hold 92% CP even on the 3rd rep">' + esc(ed.notes || '') + '</textarea></div>' +
+      '<div class="pl-frow">' +
+        '<div class="pl-fld"><label>Date</label><input type="date" id="pl-sf-date" value="' + esc(_addState.presetDate) + '"/></div>' +
+        '<div class="pl-fld"><label>Type</label><select id="pl-sf-type">' +
+          '<option value="run" selected>Run</option>' +
+          '<option value="strength">Strength</option>' +
+          '<option value="plyo">Plyo</option>' +
+          '<option value="stretch">Stretch</option>' +
+        '</select></div>' +
+        '<div class="pl-fld"><label>Subtype</label><select id="pl-sf-subtype">' +
+          _addSubtypeOptions(defaultType, 'easy') +
+        '</select></div>' +
+      '</div>' +
+      '<div class="pl-frow">' +
+        '<div class="pl-fld"><label>Expected TSS</label><input type="number" id="pl-sf-tss" min="0" max="400" value="40"/></div>' +
+        '<div class="pl-fld"><label>Duration (min)</label><input type="number" id="pl-sf-dur" min="0" max="600" value="45"/></div>' +
+        '<div class="pl-fld"><label>Name / intent</label><input id="pl-sf-name" placeholder="Optional — AI can fill"/></div>' +
+      '</div>' +
+      '<div class="pl-fld" style="margin-top:10px;"><label>Note to coach (optional)</label>' +
+        '<textarea id="pl-sf-note" placeholder="e.g. keep it under 45 min, focus on hip mobility"></textarea></div>' +
+      '<div class="pl-btnrow pl-sf-draft-tools" style="margin-top:12px;gap:8px;flex-wrap:wrap;">' +
+        '<button type="button" class="pl-btn pl-ghost" id="pl-sf-askai">✨ Ask AI to generate</button>' +
+        '<button type="button" class="pl-btn pl-ghost" id="pl-sf-manual-tog">' +
+          (_addDraftExtras.manualOpen ? 'Hide manual structure' : 'Fill structure manually') +
+        '</button>' +
+      '</div>' +
+      '<div id="pl-sf-ai-prev" style="margin-top:10px;"></div>' +
+      '<div id="pl-sf-structure" style="' + (_addDraftExtras.manualOpen ? '' : 'display:none;') + 'margin-top:12px;"></div>' +
+      '<div class="pl-fld" style="margin-top:12px;"><label>Notes</label><textarea id="pl-sf-notes" placeholder="Optional notes saved on the draft"></textarea></div>' +
       '<div id="pl-sf-guard" aria-live="assertive"></div>' +
-      '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-sf-save">' + (_addState.editId ? 'Save changes' : 'Save session') + '</button><button class="pl-btn pl-ghost" id="pl-sf-cancel">Cancel</button></div>';
+      '<div class="pl-btnrow" style="margin-top:14px;gap:8px;flex-wrap:wrap;">' +
+        (draftMode
+          ? '<button class="pl-btn pl-lime" id="pl-sf-draft">Save draft</button>' +
+            '<button class="pl-btn pl-dark" id="pl-sf-draft-apply">Save draft &amp; apply</button>'
+          : '<button class="pl-btn pl-lime" id="pl-sf-save">Save session</button>') +
+        '<button class="pl-btn pl-ghost" id="pl-sf-cancel">Cancel</button>' +
+      '</div>' +
+      (draftMode
+        ? '<p class="pl-sf-hint">Leave structure empty to keep a skeleton — content can fill later via Generate details or a worker week draft.</p>'
+        : '');
   }
 
   // Run block builder rows
@@ -2356,45 +2848,218 @@ information about.
     });
 
     if (_addState.top === 'single' && _addState.sub === 'form') {
-      _renderStructureBuilder();
-      document.getElementById('pl-sf-type').addEventListener('change', _renderStructureBuilder);
       document.getElementById('pl-sf-cancel').onclick = _closeAdd;
-      var _guardConfirmed = false;
-      document.getElementById('pl-sf-save').onclick = function () {
-        var payload = _collectSingleForm();
-        if (!payload.planned_date || !payload.session_type) { _toast('Date and type are required', true); return; }
-        var btn = document.getElementById('pl-sf-save');
 
-        function _doSave() {
-          var editId = _addState.editId;
-          var req = editId
-            ? _api('PATCH', '/api/planned-sessions/' + editId, payload)
-            : _api('POST', '/api/planned-sessions', payload);
-          req
-            .then(function () { _toast(editId ? 'Session updated' : 'Session saved'); _guardConfirmed = false; _closeAdd(); _loadWeek(); })
-            .catch(function (e) { _toast(e.message || 'Save failed', true); });
-        }
-
-        // If already confirmed past a warning, go straight to save.
-        if (_guardConfirmed) { _doSave(); return; }
-
-        // First click: run plan-check and show any inline warnings.
-        _planCheck({ session_type: payload.session_type, structure: payload.structure || null }, function (result) {
-          var guardEl = document.getElementById('pl-sf-guard');
-          if (result && result.warnings && result.warnings.length) {
-            if (guardEl) guardEl.innerHTML = _planGuardHtml(result);
-            _guardConfirmed = true;
-            if (btn) btn.textContent = 'Save anyway';
-          } else {
-            if (guardEl) guardEl.innerHTML = '';
-            _doSave();
+      if (_addState.editId) {
+        _renderStructureBuilder();
+        document.getElementById('pl-sf-type').addEventListener('change', _renderStructureBuilder);
+        var _guardConfirmed = false;
+        document.getElementById('pl-sf-save').onclick = function () {
+          var payload = _collectSingleForm();
+          if (!payload.planned_date || !payload.session_type) { _toast('Date and type are required', true); return; }
+          var btn = document.getElementById('pl-sf-save');
+          function _doSave() {
+            var editId = _addState.editId;
+            _api('PATCH', '/api/planned-sessions/' + editId, payload)
+              .then(function () { _toast('Session updated'); _guardConfirmed = false; _closeAdd(); _loadWeek(); })
+              .catch(function (e) { _toast(e.message || 'Save failed', true); });
           }
-        });
+          if (_guardConfirmed) { _doSave(); return; }
+          _planCheck({ session_type: payload.session_type, structure: payload.structure || null }, function (result) {
+            var guardEl = document.getElementById('pl-sf-guard');
+            if (result && result.warnings && result.warnings.length) {
+              if (guardEl) guardEl.innerHTML = _planGuardHtml(result);
+              _guardConfirmed = true;
+              if (btn) btn.textContent = 'Save anyway';
+            } else {
+              if (guardEl) guardEl.innerHTML = '';
+              _doSave();
+            }
+          });
+        };
+        return;
+      }
+
+      // ── Create: draft-first ───────────────────────────────────────────────
+      var typeEl = document.getElementById('pl-sf-type');
+      var subEl = document.getElementById('pl-sf-subtype');
+      function _syncSubtype() {
+        var t = typeEl.value;
+        var cur = subEl.value;
+        var opts = _ADD_SUBTYPES[t] || [];
+        var keep = opts.some(function (o) { return o.v === cur; });
+        subEl.innerHTML = _addSubtypeOptions(t, keep ? cur : (opts[0] && opts[0].v));
+        var defaults = { run: [40, 45], strength: [30, 40], plyo: [25, 25], stretch: [0, 15] };
+        var d = defaults[t] || [30, 30];
+        var tssEl = document.getElementById('pl-sf-tss');
+        var durEl = document.getElementById('pl-sf-dur');
+        if (tssEl && !tssEl.dataset.touched) tssEl.value = d[0];
+        if (durEl && !durEl.dataset.touched) durEl.value = d[1];
+      }
+      typeEl.addEventListener('change', function () {
+        _syncSubtype();
+        if (_addDraftExtras.manualOpen) _renderStructureBuilder();
+        _addDraftExtras.ai = null;
+        var prev = document.getElementById('pl-sf-ai-prev');
+        if (prev) prev.innerHTML = '';
+      });
+      ['pl-sf-tss', 'pl-sf-dur'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.addEventListener('input', function () { el.dataset.touched = '1'; });
+      });
+
+      var manualTog = document.getElementById('pl-sf-manual-tog');
+      if (manualTog) manualTog.onclick = function () {
+        _addDraftExtras.manualOpen = !_addDraftExtras.manualOpen;
+        manualTog.textContent = _addDraftExtras.manualOpen ? 'Hide manual structure' : 'Fill structure manually';
+        var host = document.getElementById('pl-sf-structure');
+        if (!host) return;
+        if (_addDraftExtras.manualOpen) {
+          host.style.display = '';
+          _renderStructureBuilder();
+        } else {
+          host.style.display = 'none';
+          host.innerHTML = '';
+        }
       };
+      if (_addDraftExtras.manualOpen) _renderStructureBuilder();
+
+      if (_addDraftExtras.ai) {
+        var prev0 = document.getElementById('pl-sf-ai-prev');
+        if (prev0) prev0.innerHTML = _aiSessionPreviewHtml(_addDraftExtras.ai);
+      }
+
+      var askBtn = document.getElementById('pl-sf-askai');
+      if (askBtn) askBtn.onclick = function () {
+        var dateEl = document.getElementById('pl-sf-date');
+        if (!dateEl.value) { _toast('Pick a date first', true); return; }
+        askBtn.disabled = true;
+        askBtn.textContent = 'Generating…';
+        _api('POST', '/api/plan/suggestions/session', {
+          date: dateEl.value,
+          workout_type: typeEl.value,
+          subtype: (subEl.value || null),
+          note: (document.getElementById('pl-sf-note').value || null),
+          target_tss: parseFloat(document.getElementById('pl-sf-tss').value) || null,
+          duration_minutes: parseInt(document.getElementById('pl-sf-dur').value, 10) || null,
+        })
+          .then(function (data) {
+            var s = data.session || {};
+            _addDraftExtras.ai = s;
+            if (s.intent) document.getElementById('pl-sf-name').value = s.intent;
+            if (s.notes) document.getElementById('pl-sf-notes').value = s.notes;
+            if (s.target_tss != null) {
+              var tssEl = document.getElementById('pl-sf-tss');
+              tssEl.value = s.target_tss;
+              tssEl.dataset.touched = '1';
+            }
+            if (s.duration_minutes != null) {
+              var durEl = document.getElementById('pl-sf-dur');
+              durEl.value = s.duration_minutes;
+              durEl.dataset.touched = '1';
+            }
+            if (Array.isArray(s.blocks) && s.blocks.length) {
+              _sfBlocks = s.blocks.slice();
+              _addDraftExtras.manualOpen = true;
+              manualTog.textContent = 'Hide manual structure';
+              var host = document.getElementById('pl-sf-structure');
+              host.style.display = '';
+              _renderStructureBuilder();
+            } else if (Array.isArray(s.exercises) && s.exercises.length) {
+              _sfExercises = s.exercises.slice();
+              _addDraftExtras.manualOpen = true;
+              manualTog.textContent = 'Hide manual structure';
+              var host2 = document.getElementById('pl-sf-structure');
+              host2.style.display = '';
+              _renderStructureBuilder();
+            }
+            document.getElementById('pl-sf-ai-prev').innerHTML = _aiSessionPreviewHtml(s);
+          })
+          .catch(function (e) {
+            document.getElementById('pl-sf-ai-prev').innerHTML =
+              '<div class="pl-previewbox err">' + esc(e.message || 'Could not generate') + '</div>';
+          })
+          .then(function () {
+            askBtn.disabled = false;
+            askBtn.textContent = '✨ Ask AI to generate';
+          });
+      };
+
+      function _readCreateCustom() {
+        var wt = typeEl.value;
+        var custom = {
+          workout_type: wt,
+          subtype: subEl.value || wt,
+          target_tss: parseFloat(document.getElementById('pl-sf-tss').value) || 0,
+          duration_minutes: parseInt(document.getElementById('pl-sf-dur').value, 10) || 0,
+          intent: (document.getElementById('pl-sf-name').value || '').trim(),
+          notes: (document.getElementById('pl-sf-notes').value || '').trim() || null,
+        };
+        var structure = null;
+        if (_addDraftExtras.manualOpen) {
+          var payload = _collectSingleForm();
+          if (payload && payload.structure) structure = payload.structure;
+        } else if (_addDraftExtras.ai) {
+          var ai = _addDraftExtras.ai;
+          if (Array.isArray(ai.exercises) && ai.exercises.length) structure = { exercises: ai.exercises };
+          else if (Array.isArray(ai.blocks) && ai.blocks.length) structure = { blocks: ai.blocks };
+          if (!custom.intent && ai.intent) custom.intent = ai.intent;
+          if (!custom.notes && ai.notes) custom.notes = ai.notes;
+        }
+        if (structure) custom.structure = structure;
+        return custom;
+      }
+
+      function _saveCreateDraft(apply) {
+        var dateEl = document.getElementById('pl-sf-date');
+        if (!dateEl.value) { _toast('Pick a date first', true); return; }
+        var day = _dayOffsetForDate(dateEl.value);
+        if (day < 0 || day > 6) {
+          _toast('Date must be in the visible week', true);
+          return;
+        }
+        var btn = document.getElementById(apply ? 'pl-sf-draft-apply' : 'pl-sf-draft');
+        if (btn) { btn.disabled = true; btn.textContent = apply ? 'Applying…' : 'Saving…'; }
+        _addDraftCustom(day, _readCreateCustom(), { apply: !!apply })
+          .then(function () {
+            _toast(apply ? 'Draft applied to plan' : 'Saved to week draft');
+            _closeAdd();
+            _loadWeek(function () { if (_draftVisible) _loadDraft(); });
+          })
+          .catch(function (err) {
+            if (btn) {
+              btn.disabled = false;
+              btn.textContent = apply ? 'Save draft & apply' : 'Save draft';
+            }
+            var detail = err && err.detail;
+            _toast((detail && (detail.block_reason || detail.error)) || (err && err.message) || 'Failed', true);
+          });
+      }
+
+      var draftBtn = document.getElementById('pl-sf-draft');
+      var applyBtn = document.getElementById('pl-sf-draft-apply');
+      var legacySave = document.getElementById('pl-sf-save');
+      if (draftBtn) draftBtn.onclick = function () { _saveCreateDraft(false); };
+      if (applyBtn) applyBtn.onclick = function () { _saveCreateDraft(true); };
+      if (legacySave) {
+        // Draft pipeline off — keep direct planned_sessions create
+        legacySave.onclick = function () {
+          var payload = {
+            planned_date: document.getElementById('pl-sf-date').value,
+            session_type: typeEl.value,
+            name: document.getElementById('pl-sf-name').value || null,
+            notes: document.getElementById('pl-sf-notes').value || null,
+            structure: null,
+          };
+          var custom = _readCreateCustom();
+          if (custom.structure) payload.structure = custom.structure;
+          _api('POST', '/api/planned-sessions', payload)
+            .then(function () { _toast('Session saved'); _closeAdd(); _loadWeek(); })
+            .catch(function (e) { _toast(e.message || 'Save failed', true); });
+        };
+      }
     } else if (_addState.top === 'single' && _addState.sub === 'json') {
       _wireSingleJSON();
-    } else if (_addState.top === 'single' && _addState.sub === 'ai') {
-      _wireSingleAI();
     } else if (_addState.top === 'bulk' && _addState.sub === 'form') {
       _wireBulkForm();
     } else if (_addState.top === 'bulk' && _addState.sub === 'json') {
@@ -3245,6 +3910,7 @@ information about.
       (d.planned || []).forEach(function (p) { if (p.id === id) found = p; });
     });
     if (!found) return;
+    _detailDraft = null;
     _detail = found;
     _panel.open = 'detail';
     _sm.strydOpen = false;
@@ -3267,6 +3933,7 @@ information about.
   function _closeDetail() {
     _panel.open = null;
     _detail = null;
+    _detailDraft = null;
     _sm.baseline = null;
     _sm.dirty = false;
     _renderDetailSection();
@@ -3275,6 +3942,10 @@ information about.
   function _renderDetailSection() {
     var host = document.getElementById('plan-detail-section');
     if (!host) return;
+    if (_detailDraft) {
+      _renderDraftDetailSection();
+      return;
+    }
     if (_panel.open !== 'detail' || !_detail) { host.innerHTML = ''; return; }
     var p = _detail;
     // Preserve live edits across re-renders (tab switch, add/remove block).
@@ -3480,7 +4151,7 @@ information about.
 
   // ── Scoped styles (injected once) ───────────────────────────────────────────
   function _injectStyles() {
-    var VER = '20260721sm1';
+    var VER = '20260722draft7';
     var existing = document.getElementById('plan-tab-styles');
     if (existing) {
       if (existing.getAttribute('data-ver') === VER) return;
@@ -3561,8 +4232,15 @@ information about.
     // cascade — this tokenized version was dead. Removed rather than kept,
     // to avoid a visual change without browser verification; see the note
     // by the surviving definition.
-    '.plan-panel .pl-dhandle{position:absolute;top:7px;right:8px;font-size:10px;color:var(--text-sub);letter-spacing:-1px;}',
-    '.plan-panel .pl-sesstop{display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:2px;}',
+    '.plan-panel .pl-dhandle{font-size:9px;color:var(--text-sub);letter-spacing:-1px;line-height:1;padding:2px 0;}',
+    '.plan-panel .pl-sess-acts{position:absolute;top:5px;right:6px;display:flex;align-items:center;gap:4px;z-index:2;}',
+    '.plan-panel .pl-sess-del{background:none;border:none;padding:2px 3px;font-size:13px;line-height:1;cursor:pointer;opacity:0.35;border-radius:5px;}',
+    '.plan-panel .pl-sess-del:hover{opacity:1;background:var(--danger-soft);}',
+    '.pl-del-confirm-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;}',
+    '.pl-del-confirm-actions .pl-btn{flex:1;min-width:110px;text-align:center;font-size:12.5px;font-weight:700;padding:9px 12px;border-radius:9px;cursor:pointer;border:1px solid var(--border);background:#fff;color:var(--ink);}',
+    '.pl-del-confirm-actions .pl-btn.pl-danger{background:#fee2e2;border-color:#fecaca;color:#b91c1c;}',
+    '.pl-draft-rm-hint{font-size:11.5px;color:var(--text-sub);line-height:1.4;margin:8px 0 0;}',
+    '.plan-panel .pl-sesstop{display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:2px;padding-right:44px;}',
     '.plan-panel .pl-sesstop-left{display:flex;align-items:center;gap:6px;}',
     '.plan-panel .pl-tss-badge{font-size:10.5px;font-weight:700;font-family:var(--mono);color:var(--text-sub);}',
     '.plan-panel .pl-tss-badge.is-estimated{color:var(--text-sub);font-style:italic;}',
@@ -3645,6 +4323,8 @@ information about.
     // CSS border spinner (mock .spin / .src.gen i) — not an SVG.
     '.plan-panel .pl-gen-spin{width:8px;height:8px;border-radius:99px;border:1.5px solid currentColor;border-right-color:transparent;display:inline-block;animation:pl-gen-spin 0.9s linear infinite;flex-shrink:0;}',
     '.plan-panel .pl-gen-spin-lg{width:12px;height:12px;border-width:2px;}',
+    '.pl-gen-spin{width:8px;height:8px;border-radius:99px;border:1.5px solid currentColor;border-right-color:transparent;display:inline-block;animation:pl-gen-spin 0.9s linear infinite;flex-shrink:0;}',
+    '.pl-gen-spin-lg{width:12px;height:12px;border-width:2px;}',
     '@keyframes pl-gen-spin{to{transform:rotate(360deg);}}',
     '.plan-panel .pl-draft.is-pending{opacity:0.75;pointer-events:none;}',
     '.plan-panel .pl-sess.is-generating{border:1.5px dashed #4f6ef7;border-left:1.5px dashed #4f6ef7;background:#f4f6fe;box-shadow:none;cursor:default;opacity:0.75;}',
@@ -3850,6 +4530,15 @@ information about.
     '.pl-sug-daychk{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:var(--ink);background:#fff;border:1px solid var(--border);border-radius:8px;padding:5px 10px;cursor:pointer;}',
     '.pl-sug-daychk input{margin:0;}',
     '.pl-sug-daychk.is-closed{opacity:0.4;cursor:not-allowed;}',
+    '.pl-sug-daychk.is-past{opacity:0.45;cursor:not-allowed;background:var(--tile);}',
+    '.pl-sug-daychk.has-session{border-color:#c7d2fe;background:#eef2ff;}',
+    '.pl-sug-daychk .pl-sug-sess-tag{font-size:9.5px;font-weight:800;letter-spacing:0.03em;text-transform:uppercase;color:var(--primary);background:var(--primary-soft);border-radius:4px;padding:1px 5px;}',
+    '.pl-sug-prefs-extra{margin-top:4px;padding-top:10px;border-top:1px dashed var(--border);}',
+    '.pl-sug-prefs-row select,.pl-sug-prefs-row input[type=number]{font:inherit;font-size:12.5px;padding:5px 8px;border-radius:7px;border:1px solid var(--border);background:#fff;min-width:100px;}',
+    '.pl-sug-prefs-notes{width:100%;min-height:48px;font:inherit;font-size:12.5px;padding:7px 9px;border-radius:8px;border:1px solid var(--border);box-sizing:border-box;}',
+    '.pl-sug-habits{font-size:11.5px;color:var(--text-sub);margin-top:8px;line-height:1.4;}',
+    '.pl-sug-habits a{color:var(--primary);font-weight:600;}',
+    '.pl-sug-prefs-err{color:#b91c1c;font-size:12px;margin-top:8px;white-space:pre-wrap;}',
     '.pl-sug-select{font-size:13px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--ink);width:auto;align-self:flex-start;}',
     '.pl-sug-notes{font-size:13px;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:#fff;color:var(--ink);min-height:52px;resize:vertical;font-family:inherit;}',
     '.pl-sug-count-wrap{display:flex;align-items:center;gap:8px;}',
@@ -3863,7 +4552,53 @@ information about.
     '.pl-rail-sum b.on{color:#16a34a;}.pl-rail-sum b.under{color:var(--warning);}.pl-rail-sum b.over{color:#b91c1c;}',
     '.pl-fill-all{font-size:11.5px;padding:6px 12px;}',
     '.pl-fill-all:disabled{opacity:0.45;cursor:default;}',
+    '.pl-fill-group{display:inline-flex;align-items:stretch;position:relative;}',
+    '.pl-fill-group .pl-fill-all{border-radius:7px 0 0 7px;}',
+    '.pl-fill-menu-btn{font-size:11.5px;padding:6px 8px;border-radius:0 7px 7px 0;border-left:1px solid rgba(0,0,0,0.12);background:var(--accent);color:#1b2340;border-top:none;border-right:none;border-bottom:none;cursor:pointer;font-weight:800;}',
+    '.pl-fill-menu-btn:disabled{opacity:0.45;cursor:default;}',
+    '.pl-fill-menu{position:absolute;right:0;top:calc(100% + 4px);min-width:240px;background:#fff;border:1px solid var(--border);border-radius:9px;box-shadow:0 8px 24px rgba(15,23,42,0.12);z-index:80;padding:4px;display:none;}',
+    '.pl-fill-menu.is-open{display:block;}',
+    '.pl-fill-menu button{display:block;width:100%;text-align:left;background:none;border:none;border-radius:7px;padding:8px 10px;font-size:12px;font-weight:600;color:var(--ink);cursor:pointer;}',
+    '.pl-fill-menu button:hover{background:var(--tile);}',
+    '.pl-fill-menu button:disabled{opacity:0.45;cursor:default;}',
+    '.pl-fill-menu .pl-fill-menu-hint{display:block;font-size:10.5px;font-weight:500;color:var(--text-sub);margin-top:2px;}',
     '.pl-fill-skiprun{font-size:11px;color:var(--text-sub);display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none;}',
+    /* Worker-draft queue UX */
+    '.pl-suggestions-panel.is-draft-queued{position:relative;}',
+    '.pl-suggestions-panel.is-draft-queued .pl-draft-lock-banner{display:flex;}',
+    '.pl-draft-lock-banner{display:none;align-items:center;gap:10px;margin:0 0 10px;padding:10px 12px;border-radius:10px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;font-size:12.5px;font-weight:600;}',
+    '.pl-draft-lock-banner .pl-draft-lock-msg{flex:1;line-height:1.35;}',
+    '.pl-draft-lock-banner .pl-draft-lock-open{font-size:11px;font-weight:700;background:#fff;border:1px solid #93c5fd;border-radius:7px;padding:5px 9px;cursor:pointer;color:#1d4ed8;}',
+    '.pl-suggestions-panel.is-draft-queued button:not(.pl-draft-lock-open):not(#plan-suggestions-dismiss),' +
+      '.pl-suggestions-panel.is-draft-queued select,' +
+      '.pl-suggestions-panel.is-draft-queued input,' +
+      '.pl-suggestions-panel.is-draft-queued .pl-fill-menu-btn,' +
+      '.pl-suggestions-panel.is-draft-queued .pl-slot-chip{pointer-events:none;opacity:0.5;}',
+    '.pl-draft-q-overlay{position:fixed;inset:0;background:rgba(15,23,42,0.45);z-index:1200;display:flex;align-items:center;justify-content:center;padding:20px;animation:pl-draft-q-fade 0.18s ease-out;}',
+    '@keyframes pl-draft-q-fade{from{opacity:0}to{opacity:1}}',
+    '.pl-draft-q-card{background:#fff;border-radius:16px;padding:22px 24px;max-width:380px;width:100%;box-shadow:0 20px 50px rgba(15,23,42,0.25);animation:pl-draft-q-pop 0.22s ease-out;}',
+    '@keyframes pl-draft-q-pop{from{transform:translateY(8px) scale(0.98);opacity:0}to{transform:none;opacity:1}}',
+    '.pl-draft-q-card h3{margin:0 0 6px;font-size:17px;font-weight:800;color:var(--ink);}',
+    '.pl-draft-q-card p{margin:0 0 14px;font-size:13px;line-height:1.45;color:var(--text-sub);}',
+    '.pl-draft-q-spin-wrap{display:flex;align-items:center;gap:10px;margin-bottom:14px;font-size:12.5px;font-weight:600;color:var(--primary);}',
+    '.pl-draft-q-actions{display:flex;gap:8px;flex-wrap:wrap;}',
+    '.pl-draft-q-actions .pl-btn{flex:1;min-width:120px;text-align:center;text-decoration:none;font-size:12.5px;font-weight:700;padding:9px 12px;border-radius:9px;cursor:pointer;border:1px solid var(--border);background:#fff;color:var(--ink);}',
+    '.pl-draft-q-actions .pl-btn.pl-lime{background:var(--accent);border-color:transparent;color:#1b2340;}',
+    '.pl-draft-q-jid{font-family:var(--mono);font-size:10.5px;color:var(--text-sub);margin-top:10px;word-break:break-all;}',
+    '.pl-dayrow.is-draft-adding{opacity:0.72;}',
+    '.pl-draft-add .pl-gen-spin{width:8px;height:8px;border-width:1.5px;margin-right:4px;vertical-align:middle;}',
+    '.pl-draft{cursor:pointer;}',
+    '.pl-dap-field{display:block;font-size:12px;font-weight:600;color:var(--text-sub);margin:8px 0;}',
+    '.pl-dap-field select,.pl-dap-field input{display:block;width:100%;margin-top:4px;font-size:13px;padding:7px 9px;border:1px solid var(--border);border-radius:8px;font-family:inherit;}',
+    '.pl-dap-row{display:flex;gap:10px;}',
+    '.pl-dap-row .pl-dap-field{flex:1;}',
+    '.pl-dd-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:10px 0;}',
+    '.pl-dd-grid label,.pl-dd-block{font-size:12px;font-weight:600;color:var(--text-sub);}',
+    '.pl-dd-grid select,.pl-dd-grid input,.pl-dd-block input,.pl-dd-block textarea{display:block;width:100%;margin-top:4px;font-size:13px;padding:7px 9px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-weight:500;color:var(--ink);}',
+    '.pl-dd-block{display:block;margin:8px 0;}',
+    '.pl-dd-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;}',
+    '.pl-sf-hint{font-size:11.5px;color:var(--text-sub);margin:10px 0 0;line-height:1.4;}',
+    '.pl-sf-draft-tools{display:flex;}',
     '.pl-fill-skiprun input{cursor:pointer;}',
     '.pl-sched-grid{display:grid;grid-template-columns:repeat(7,minmax(76px,1fr));gap:6px;overflow-x:auto;}',
     '.pl-sched-day{background:#fff;border:1px solid var(--border);border-radius:9px;padding:5px;min-height:74px;display:flex;flex-direction:column;gap:4px;}',
@@ -3978,7 +4713,22 @@ information about.
   // Rest days + optional exact strength-session count ('' = auto from the
   // athlete's own last-3-weeks history). No free-text — the schedule rail is
   // rule-based (zero LLM); per-slot Refine carries any free-form asks.
-  var _lastPrefs = { restDays: [], strengthSessions: '' };
+  var _lastPrefs = {
+    restDays: [],
+    strengthSessions: '',
+    strengthEmphasis: 'same',
+    plyoMode: 'off',
+    plyoSessions: 0,
+    mpSegmentMin: 0,
+    notes: '',
+  };
+  var _habitTargets = null;
+
+  // Worker-draft queue state — MUST live in THIS closure (suggestions is a
+  // separate IIFE from the main Plan module; bare refs to its locals throw).
+  var _draftQueueBusy = false;
+  var _draftQueueJobId = null;
+  var _draftQueuePollTimer = null;
 
   var _DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   var _DAY_NAMES_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -4401,7 +5151,7 @@ information about.
     (data.suggestions || []).forEach(function (s) { sum += s.workout_type !== 'rest' ? (s.target_tss || 0) : 0; });
     var target = data.facts && data.facts.target_tss ? Math.round(data.facts.target_tss) : null;
     if (target == null) return 'Σ ' + Math.round(sum) + ' TSS';
-    var cls = sum > target * 1.05 ? 'over' : (sum < target * 0.95 ? 'under' : 'on');
+    var cls = sum > target * 1.15 ? 'over' : (sum < target * 0.85 ? 'under' : 'on');
     return 'Σ <b class="' + cls + '">' + Math.round(sum) + '</b> / ' + target + ' TSS target';
   }
 
@@ -4447,14 +5197,30 @@ information about.
     }
 
     var anyUnfilled = _fillableSlots().length > 0;
+    var fillDisabled = !anyUnfilled || _fillAllRunning || _draftQueueBusy;
     host.innerHTML =
       '<div class="pl-rail-head">' +
         '<span class="pl-rail-title">Schedule — drag, resize, then fill</span>' +
         '<span class="pl-rail-sum">' + _slotSumHtml(data) + '</span>' +
         '<label class="pl-fill-skiprun" title="Exclude run slots from the AI fill — they are usually the most numerous and the first to exhaust the LLM budget">' +
           '<input type="checkbox" id="pl-skip-run"' + (_skipRunFill ? ' checked' : '') + (_fillAllRunning ? ' disabled' : '') + '/> Skip Run</label>' +
-        '<button type="button" class="pl-btn pl-lime pl-fill-all"' + (anyUnfilled && !_fillAllRunning ? '' : ' disabled') + '>' +
-          (_fillAllRunning ? '… filling' : '✨ Fill sessions with AI') + '</button>' +
+        '<div class="pl-fill-group">' +
+          '<button type="button" class="pl-btn pl-lime pl-fill-all"' + (fillDisabled ? ' disabled' : '') + '>' +
+            (_fillAllRunning ? '… filling' : '✨ Fill sessions with AI') + '</button>' +
+          '<button type="button" class="pl-fill-menu-btn" aria-haspopup="true" aria-expanded="false" title="More fill options"' +
+            (_fillAllRunning ? ' disabled' : '') + '>▾</button>' +
+          '<div class="pl-fill-menu" role="menu">' +
+            '<button type="button" data-fill-action="web"' + (fillDisabled ? ' disabled' : '') + '>' +
+              'Fill here (webapp AI)' +
+              '<span class="pl-fill-menu-hint">Sequential Groq fills — stays in this panel</span>' +
+            '</button>' +
+            '<button type="button" data-fill-action="worker-draft"' +
+              (_draftQueueBusy ? ' disabled' : '') + '>' +
+              'Queue week draft on worker' +
+              '<span class="pl-fill-menu-hint">plan_draft job on zeal-server — review &amp; apply later</span>' +
+            '</button>' +
+          '</div>' +
+        '</div>' +
       '</div>' +
       (data._fillNote ? '<div class="pl-rail-note">' + esc(data._fillNote) + '</div>' : '') +
       '<div class="pl-sched-grid">' + cols + '</div>';
@@ -4501,12 +5267,306 @@ information about.
       });
     });
     var fillBtn = host.querySelector('.pl-fill-all');
-    if (fillBtn) fillBtn.addEventListener('click', _fillAllSlots);
+    if (fillBtn) {
+      if (fillDisabled && !_fillAllRunning) {
+        // Disabled primary swallows clicks — make it open the ▾ menu so
+        // "Queue week draft" stays reachable when slots are already filled.
+        fillBtn.removeAttribute('disabled');
+        fillBtn.title = 'Open fill options (queue a worker draft from the menu)';
+        fillBtn.addEventListener('click', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          var menuBtn = host.querySelector('.pl-fill-menu-btn');
+          if (menuBtn) menuBtn.click();
+        });
+      } else {
+        fillBtn.addEventListener('click', _fillAllSlots);
+      }
+    }
     var skipRunChk = host.querySelector('#pl-skip-run');
     if (skipRunChk) skipRunChk.addEventListener('change', function () {
       _skipRunFill = skipRunChk.checked;
       _renderSuggestions(_suggestionsData);
     });
+    _wireFillMenu(host);
+  }
+
+  function _wireFillMenu(host) {
+    var menuBtn = host.querySelector('.pl-fill-menu-btn');
+    var menu = host.querySelector('.pl-fill-menu');
+    if (!menuBtn || !menu) return;
+
+    function _close() {
+      menu.classList.remove('is-open');
+      menuBtn.setAttribute('aria-expanded', 'false');
+    }
+
+    menuBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      var open = !menu.classList.contains('is-open');
+      menu.classList.toggle('is-open', open);
+      menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+
+    menu.querySelectorAll('[data-fill-action]').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (btn.disabled) return;
+        var action = btn.getAttribute('data-fill-action');
+        _close();
+        if (action === 'web') _fillAllSlots();
+        else if (action === 'worker-draft') _queueWorkerDraft();
+      });
+    });
+
+    if (!host._fillMenuDocBound) {
+      host._fillMenuDocBound = true;
+      document.addEventListener('click', function (e) {
+        if (!host.contains(e.target)) _close();
+      });
+    }
+  }
+
+  function _queueWorkerDraft() {
+    // Always show feedback first — never fail silently.
+    try {
+      _showDraftQueueModal({ queuing: true });
+    } catch (e1) {
+      try { window.alert('Queuing week draft on the worker…'); } catch (e2) { /* ignore */ }
+    }
+
+    if (_draftQueueBusy) {
+      _showDraftQueueModal({
+        error: false,
+        jobId: _draftQueueJobId,
+        already: true,
+      });
+      return;
+    }
+
+    _draftQueueBusy = true;
+    try {
+      _setDraftQueueLock(true, 'Queuing week draft on the worker…');
+    } catch (e3) {
+      console.warn('[plan] lock banner failed', e3);
+    }
+
+    var ws = _weekStartISO();
+
+    fetch('/api/plan/draft/refresh', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ week_start: ws }),
+    })
+      .then(function (r) {
+        return r.json().then(function (d) {
+          if (!r.ok) {
+            var detail = d && d.detail;
+            throw new Error(
+              (detail && (detail.error || detail.message || detail)) || ('HTTP ' + r.status)
+            );
+          }
+          return d;
+        });
+      })
+      .then(function (res) {
+        var jid = (res && res.job_id) ? String(res.job_id) : null;
+        _draftQueueJobId = jid;
+        if (window.TrainingPlan && window.TrainingPlan.markDraftPending) {
+          window.TrainingPlan.markDraftPending();
+        }
+        _showDraftQueueModal({
+          jobId: jid,
+          weekStart: res && res.week_start,
+        });
+      })
+      .catch(function (err) {
+        _draftQueueBusy = false;
+        try { _setDraftQueueLock(false); } catch (e5) { /* ignore */ }
+        _showDraftQueueModal({
+          error: true,
+          title: 'Could not queue draft',
+          body: (err && err.message) ? String(err.message) : 'The worker queue request failed.',
+        });
+      });
+  }
+
+  function _ensureDraftLockBanner() {
+    var panel = _el('plan-suggestions-panel');
+    if (!panel) return null;
+    var ban = panel.querySelector('.pl-draft-lock-banner');
+    if (ban) return ban;
+    ban = document.createElement('div');
+    ban.className = 'pl-draft-lock-banner';
+    ban.innerHTML =
+      '<i class="pl-gen-spin pl-gen-spin-lg" aria-hidden="true"></i>' +
+      '<span class="pl-draft-lock-msg"></span>' +
+      '<button type="button" class="pl-draft-lock-open">Open queue</button>';
+    var header = panel.querySelector('.pl-sug-header');
+    if (header && header.nextSibling) panel.insertBefore(ban, header.nextSibling);
+    else panel.insertBefore(ban, panel.firstChild);
+    ban.querySelector('.pl-draft-lock-open').addEventListener('click', function () {
+      window.location.href = '/settings#queue';
+    });
+    return ban;
+  }
+
+  function _setDraftQueueLock(locked, message) {
+    var panel = _el('plan-suggestions-panel');
+    if (!panel) return;
+    panel.classList.toggle('is-draft-queued', !!locked);
+    var ban = _ensureDraftLockBanner();
+    if (!ban) return;
+    var msg = ban.querySelector('.pl-draft-lock-msg');
+    if (msg) msg.textContent = message || 'Worker is building this week draft…';
+    var spin = ban.querySelector('.pl-gen-spin');
+    if (spin) spin.style.display = locked ? '' : 'none';
+  }
+
+  function _closeDraftQueueModal() {
+    var el = document.getElementById('pl-draft-q-overlay');
+    if (el) el.remove();
+  }
+
+  function _showDraftQueueModal(opts) {
+    opts = opts || {};
+    _closeDraftQueueModal();
+    var overlay = document.createElement('div');
+    overlay.id = 'pl-draft-q-overlay';
+    overlay.className = 'pl-draft-q-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+
+    var card = document.createElement('div');
+    card.className = 'pl-draft-q-card';
+
+    if (opts.queuing) {
+      card.innerHTML =
+        '<div class="pl-draft-q-spin-wrap">' +
+          '<i class="pl-gen-spin pl-gen-spin-lg" aria-hidden="true"></i>' +
+          '<span>Adding plan_draft to the worker queue…</span>' +
+        '</div>' +
+        '<h3>Queuing…</h3>' +
+        '<p>Hang on a moment — this is a quick database enqueue, not the full generation.</p>';
+      overlay.appendChild(card);
+      document.body.appendChild(overlay);
+      return;
+    }
+
+    if (opts.error) {
+      card.innerHTML =
+        '<h3>' + esc(opts.title || 'Something went wrong') + '</h3>' +
+        '<p>' + esc(opts.body || '') + '</p>' +
+        '<div class="pl-draft-q-actions">' +
+          '<button type="button" class="pl-btn" data-dq="dismiss">OK</button>' +
+        '</div>';
+      overlay.appendChild(card);
+      document.body.appendChild(overlay);
+      card.querySelector('[data-dq="dismiss"]').addEventListener('click', _closeDraftQueueModal);
+      overlay.addEventListener('click', function (e) {
+        if (e.target === overlay) _closeDraftQueueModal();
+      });
+      return;
+    }
+
+    var jid = opts.jobId || null;
+    var title = opts.already ? 'Draft already queued' : 'Week draft is in the queue';
+    var body = opts.already
+      ? 'A plan_draft job is already in flight for this week. Open the queue to watch it, or stay here.'
+      : 'The worker will build the full week draft in the background. Open the queue to watch it, or stay here — this panel will lock until the job finishes.';
+    card.innerHTML =
+      '<div class="pl-draft-q-spin-wrap">' +
+        '<i class="pl-gen-spin pl-gen-spin-lg" aria-hidden="true"></i>' +
+        '<span>Queued on zeal-server</span>' +
+      '</div>' +
+      '<h3>' + esc(title) + '</h3>' +
+      '<p>' + esc(body) + '</p>' +
+      '<div class="pl-draft-q-actions">' +
+        '<a class="pl-btn pl-lime" href="/settings#queue">Open queue</a>' +
+        '<button type="button" class="pl-btn" data-dq="stay">Stay here</button>' +
+      '</div>' +
+      (jid ? '<div class="pl-draft-q-jid">job ' + esc(jid) + '</div>' : '');
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    card.querySelector('[data-dq="stay"]').addEventListener('click', function () {
+      _closeDraftQueueModal();
+      _setDraftQueueLock(true, 'Worker is building this week draft — buttons paused');
+      _startDraftQueuePoll(jid);
+    });
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay) {
+        card.querySelector('[data-dq="stay"]').click();
+      }
+    });
+  }
+
+  function _stopDraftQueuePoll() {
+    if (_draftQueuePollTimer) {
+      clearInterval(_draftQueuePollTimer);
+      _draftQueuePollTimer = null;
+    }
+  }
+
+  function _startDraftQueuePoll(jobId) {
+    _stopDraftQueuePoll();
+    var tries = 0;
+    function tick() {
+      tries++;
+      fetch('/api/queue?limit=40', { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : { jobs: [] }; })
+        .then(function (data) {
+          var jobs = data.jobs || [];
+          var job = null;
+          if (jobId) {
+            job = jobs.filter(function (j) { return String(j.id) === String(jobId); })[0];
+          }
+          if (!job) {
+            job = jobs.filter(function (j) { return j.job_type === 'plan_draft'; })[0];
+          }
+          if (!job) {
+            if (tries > 40) {
+              _finishDraftQueueWait('timed out — check Settings → Queue');
+            }
+            return;
+          }
+          var st = (job.status || '').toLowerCase();
+          if (st === 'queued') {
+            _setDraftQueueLock(true, 'Queued — waiting for the worker to claim the job…');
+          } else if (st === 'running') {
+            _setDraftQueueLock(true, 'Worker is generating the week draft…');
+          } else if (st === 'done') {
+            _finishDraftQueueWait('Draft ready — refresh Plan or open the draft strip to review');
+            if (window.TrainingPlan && window.TrainingPlan.reloadDraft) {
+              window.TrainingPlan.reloadDraft();
+            }
+          } else if (st === 'failed') {
+            _finishDraftQueueWait('Draft job failed' + (job.error ? (': ' + job.error) : ''), true);
+          }
+        })
+        .catch(function () { /* keep polling */ });
+    }
+    tick();
+    _draftQueuePollTimer = setInterval(tick, 3000);
+  }
+
+  function _finishDraftQueueWait(message, isErr) {
+    _stopDraftQueuePoll();
+    _draftQueueBusy = false;
+    _setDraftQueueLock(false);
+    var panel = _el('plan-suggestions-panel');
+    if (panel) panel.classList.remove('is-draft-queued');
+    if (window.UIStates && window.UIStates.showToast) {
+      window.UIStates.showToast(message || 'Done', !!isErr);
+    }
+    if (_suggestionsData) {
+      _suggestionsData._fillNote = message || '';
+      _renderSuggestions(_suggestionsData);
+    }
   }
 
   // ── Rail 2: per-slot content generation ─────────────────────────────────────
@@ -4660,13 +5720,77 @@ information about.
   function _titleForOpenDays(openDays) {
     var titleEl = _el('plan-suggestions-title');
     if (!titleEl) return;
-    var open = openDays.filter(function (d) { return d.open; });
-    if (!open.length) { titleEl.textContent = 'Suggested sessions'; return; }
-    var first = _DAY_NAMES_FULL[open[0].day_offset];
-    var last = _DAY_NAMES_FULL[open[open.length - 1].day_offset];
-    titleEl.textContent = open.length === 7
-      ? 'Next week’s suggestions'
+    var future = openDays.filter(function (d) { return !d.past; });
+    if (!future.length) { titleEl.textContent = 'Suggested sessions'; return; }
+    var first = _DAY_NAMES_FULL[future[0].day_offset];
+    var last = _DAY_NAMES_FULL[future[future.length - 1].day_offset];
+    titleEl.textContent = future.length === 7
+      ? 'Suggestions for this week'
       : 'Suggestions for ' + (first === last ? first : first + '–' + last);
+  }
+
+  function _nestedGet(obj, field) {
+    if (!obj) return null;
+    if (field.indexOf('.') < 0) return obj[field];
+    var parts = field.split('.');
+    var cur = obj;
+    for (var i = 0; i < parts.length; i++) {
+      if (!cur || typeof cur !== 'object') return null;
+      cur = cur[parts[i]];
+    }
+    return cur;
+  }
+
+  function _applyPrefsFromApi(data) {
+    var p = (data && data.active && data.active.payload) || {};
+    var days = _nestedGet(p, 'rest_days') || [];
+    _lastPrefs.restDays = days.map(Number).filter(function (d) { return d >= 0 && d <= 6; });
+    _lastPrefs.strengthEmphasis = _nestedGet(p, 'strength_emphasis') || 'same';
+    _lastPrefs.plyoMode = _nestedGet(p, 'plyo_mode') || 'off';
+    _lastPrefs.plyoSessions = Number(_nestedGet(p, 'plyo_sessions_per_week') || 0);
+    _lastPrefs.mpSegmentMin = Number(_nestedGet(p, 'long_run.mp_segment_min') || 0);
+    _lastPrefs.notes = _nestedGet(p, 'notes') || '';
+    _habitTargets = data.habit_targets || null;
+  }
+
+  function _collectTrainingPrefsPayload() {
+    return {
+      rest_days: _lastPrefs.restDays.slice().sort(function (a, b) { return a - b; }),
+      strength_emphasis: _lastPrefs.strengthEmphasis || 'same',
+      plyo_mode: _lastPrefs.plyoMode || 'off',
+      plyo_sessions_per_week: Number(_lastPrefs.plyoSessions) || 0,
+      long_run: { mp_segment_min: Number(_lastPrefs.mpSegmentMin) || 0 },
+      notes: _lastPrefs.notes || '',
+    };
+  }
+
+  function _readPrefsFormIntoState() {
+    var countEl = _el('pl-sug-strength-count');
+    if (countEl) _lastPrefs.strengthSessions = countEl.value.trim();
+    var se = _el('pl-sug-strength-emphasis');
+    if (se) _lastPrefs.strengthEmphasis = se.value;
+    var pm = _el('pl-sug-plyo-mode');
+    if (pm) _lastPrefs.plyoMode = pm.value;
+    var ps = _el('pl-sug-plyo-sessions');
+    if (ps) _lastPrefs.plyoSessions = Number(ps.value) || 0;
+    var mp = _el('pl-sug-mp-segment');
+    if (mp) _lastPrefs.mpSegmentMin = Number(mp.value) || 0;
+    var notes = _el('pl-sug-notes');
+    if (notes) _lastPrefs.notes = notes.value || '';
+  }
+
+  function _saveTrainingPrefs() {
+    return fetch('/api/preferences', {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payload: _collectTrainingPrefsPayload() }),
+    }).then(function (r) {
+      return r.json().then(function (body) {
+        if (!r.ok) return Promise.reject(body);
+        return body;
+      });
+    });
   }
 
   function _renderPrefsForm() {
@@ -4674,13 +5798,27 @@ information about.
     if (!host) return;
     var list = _el('plan-suggestions-list');
     if (list) list.innerHTML = '';
-    // Clear the schedule rail too — leaving the previous generation's grid
-    // rendered (and interactive) above a fresh prefs form let a stale chip
-    // drag re-render the old suggestions and wipe the prefs being entered.
     var sched = _el('plan-suggestions-sched');
     if (sched) sched.innerHTML = '';
     var loading = _el('plan-suggestions-loading');
     if (loading) loading.style.display = 'none';
+
+    host.innerHTML = '<div class="pl-sug-prefs"><span style="font-size:12px;color:var(--text-sub);">Loading preferences…</span></div>';
+
+    fetch('/api/preferences', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (data) {
+        _applyPrefsFromApi(data);
+        _paintPrefsForm();
+      })
+      .catch(function () {
+        _paintPrefsForm();
+      });
+  }
+
+  function _paintPrefsForm() {
+    var host = _el('plan-suggestions-prefs');
+    if (!host) return;
 
     var openDays = (window.TrainingPlan && window.TrainingPlan.getOpenDayInfo)
       ? window.TrainingPlan.getOpenDayInfo() : [];
@@ -4688,18 +5826,33 @@ information about.
 
     var dayChecks = openDays.map(function (d) {
       var checked = _lastPrefs.restDays.indexOf(d.day_offset) !== -1;
-      return '<label class="pl-sug-daychk' + (d.open ? '' : ' is-closed') + '" title="' +
-        (d.open ? 'Ask for this day off' : 'Already scheduled or in the past') + '">' +
+      var past = !!d.past;
+      var hasSession = !!d.hasSession;
+      var cls = 'pl-sug-daychk' + (past ? ' is-past' : '') + (hasSession && !past ? ' has-session' : '');
+      var title = past
+        ? 'Past day — cannot change'
+        : (hasSession ? 'Has a session — you can still mark it as a preferred rest day' : 'Ask for this day off');
+      return '<label class="' + cls + '" title="' + title + '">' +
         '<input type="checkbox" data-restday="' + d.day_offset + '"' +
-        (checked ? ' checked' : '') + (d.open ? '' : ' disabled') + '/>' +
-        '<span>' + _DAY_NAMES[d.day_offset] + '</span></label>';
+        (checked ? ' checked' : '') + (past ? ' disabled' : '') + '/>' +
+        '<span>' + _DAY_NAMES[d.day_offset] + '</span>' +
+        (hasSession && !past ? '<span class="pl-sug-sess-tag">session</span>' : '') +
+        (past ? '<span class="pl-sug-sess-tag" style="background:#f1f5f9;color:#64748b;">past</span>' : '') +
+        '</label>';
     }).join('');
 
-    var anyOpen = openDays.some(function (d) { return d.open; });
+    var anyFuture = openDays.some(function (d) { return !d.past; });
+    var ht = _habitTargets || {};
+    var habitsLine =
+      'Zone&nbsp;2 / stretch targets live on <a href="/habits">Habits</a>' +
+      (ht.zone2_weekly_min != null
+        ? (' · Z2 <b>' + esc(ht.zone2_weekly_min) + ' min/wk</b> · stretch <b>' +
+          esc(ht.stretch_daily_min != null ? ht.stretch_daily_min : '—') + ' min/day</b>')
+        : '');
 
     host.innerHTML =
       '<div class="pl-sug-prefs">' +
-        (anyOpen ? (
+        (anyFuture ? (
           '<div class="pl-sug-prefs-row">' +
             '<label class="pl-sug-prefs-label">Rest days</label>' +
             '<div class="pl-sug-daychks">' + dayChecks + '</div>' +
@@ -4709,10 +5862,45 @@ information about.
             '<span class="pl-sug-count-wrap"><input id="pl-sug-strength-count" class="pl-sug-count" type="number" min="0" max="7" step="1" placeholder="auto" value="' + esc(_lastPrefs.strengthSessions) + '"/>' +
             '<span class="pl-sug-count-hint">blank = match your recent weeks</span></span>' +
           '</div>' +
-          '<div class="pl-btnrow"><button type="button" class="pl-btn pl-lime" id="pl-sug-generate">Build schedule</button>' +
-          '<button type="button" class="pl-btn pl-ghost" id="pl-sug-cancel">Cancel</button></div>'
+          '<div class="pl-sug-prefs-extra">' +
+            '<div class="pl-sug-prefs-row">' +
+              '<label class="pl-sug-prefs-label" for="pl-sug-strength-emphasis">Strength emphasis</label>' +
+              '<select id="pl-sug-strength-emphasis">' +
+                ['less', 'same', 'more'].map(function (v) {
+                  return '<option value="' + v + '"' + (_lastPrefs.strengthEmphasis === v ? ' selected' : '') + '>' + v + '</option>';
+                }).join('') +
+              '</select>' +
+            '</div>' +
+            '<div class="pl-sug-prefs-row">' +
+              '<label class="pl-sug-prefs-label" for="pl-sug-plyo-mode">Plyo mode</label>' +
+              '<select id="pl-sug-plyo-mode">' +
+                ['standalone', 'superset', 'off'].map(function (v) {
+                  return '<option value="' + v + '"' + (_lastPrefs.plyoMode === v ? ' selected' : '') + '>' + v + '</option>';
+                }).join('') +
+              '</select>' +
+            '</div>' +
+            '<div class="pl-sug-prefs-row">' +
+              '<label class="pl-sug-prefs-label" for="pl-sug-plyo-sessions">Plyo sessions / week</label>' +
+              '<input id="pl-sug-plyo-sessions" type="number" min="0" max="2" step="1" value="' + esc(_lastPrefs.plyoSessions) + '"/>' +
+            '</div>' +
+            '<div class="pl-sug-prefs-row">' +
+              '<label class="pl-sug-prefs-label" for="pl-sug-mp-segment">Long-run MP segment (min)</label>' +
+              '<input id="pl-sug-mp-segment" type="number" min="0" max="30" step="10" value="' + esc(_lastPrefs.mpSegmentMin) + '"/>' +
+            '</div>' +
+            '<div class="pl-sug-prefs-row" style="align-items:start;">' +
+              '<label class="pl-sug-prefs-label" for="pl-sug-notes">Notes</label>' +
+              '<textarea id="pl-sug-notes" class="pl-sug-prefs-notes" maxlength="200">' + esc(_lastPrefs.notes) + '</textarea>' +
+            '</div>' +
+          '</div>' +
+          '<div class="pl-sug-habits">' + habitsLine + '</div>' +
+          '<div class="pl-sug-prefs-err" id="pl-sug-prefs-err" hidden></div>' +
+          '<div class="pl-btnrow" style="margin-top:12px;">' +
+            '<button type="button" class="pl-btn pl-lime" id="pl-sug-generate">Build schedule</button>' +
+            '<button type="button" class="pl-btn pl-ghost" id="pl-sug-save-prefs">Save preferences</button>' +
+            '<button type="button" class="pl-btn pl-ghost" id="pl-sug-cancel">Cancel</button>' +
+          '</div>'
         ) : (
-          '<div class="pl-infobanner">The rest of this week is already fully scheduled or logged — nothing left to suggest here. Use the week arrows to look at next week instead.</div>' +
+          '<div class="pl-infobanner">This week is entirely in the past — use the week arrows to look at the current or next week.</div>' +
           '<div class="pl-btnrow"><button type="button" class="pl-btn pl-ghost" id="pl-sug-cancel">Close</button></div>'
         )) +
       '</div>';
@@ -4727,9 +5915,28 @@ information about.
     });
     var genBtn = _el('pl-sug-generate');
     if (genBtn) genBtn.addEventListener('click', function () {
-      var countEl = _el('pl-sug-strength-count');
-      if (countEl) _lastPrefs.strengthSessions = countEl.value.trim();
+      _readPrefsFormIntoState();
       _loadSuggestions();
+    });
+    var savePrefsBtn = _el('pl-sug-save-prefs');
+    if (savePrefsBtn) savePrefsBtn.addEventListener('click', function () {
+      _readPrefsFormIntoState();
+      var errEl = _el('pl-sug-prefs-err');
+      if (errEl) { errEl.hidden = true; errEl.textContent = ''; }
+      savePrefsBtn.disabled = true;
+      _saveTrainingPrefs()
+        .then(function () {
+          savePrefsBtn.textContent = 'Saved';
+          setTimeout(function () { savePrefsBtn.textContent = 'Save preferences'; }, 1200);
+        })
+        .catch(function (body) {
+          var msg = 'Save failed';
+          if (body && body.detail) {
+            msg = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail, null, 2);
+          }
+          if (errEl) { errEl.hidden = false; errEl.textContent = msg; }
+        })
+        .finally(function () { savePrefsBtn.disabled = false; });
     });
     var cancelBtn = _el('pl-sug-cancel');
     if (cancelBtn) cancelBtn.addEventListener('click', _dismissPanel);
@@ -4745,37 +5952,48 @@ information about.
     var panel = _el('plan-suggestions-panel');
     var loading = _el('plan-suggestions-loading');
     var list = _el('plan-suggestions-list');
+    var errEl = _el('pl-sug-prefs-err');
     if (!panel) return;
     panel.style.display = '';
-    // Show the overlay ON TOP of whatever's already there (the prefs form, or
-    // last time's suggestion list) — don't clear it first, so the panel never
-    // goes blank while the call is in flight.
+    if (errEl) { errEl.hidden = true; errEl.textContent = ''; }
     if (loading) {
       loading.style.display = '';
       var lbl = loading.querySelector('span');
-      if (lbl) lbl.textContent = 'Building schedule…';
+      if (lbl) lbl.textContent = 'Saving preferences…';
     }
 
-    // Two-rail flow (issue #1417): fetch the rule-based schedule skeleton
-    // (instant, no LLM) — habits from the athlete's own last 3 weeks, with
-    // an optional exact strength-session count. The athlete rearranges the
-    // slots on the schedule rail, then fills content per slot (✨ buttons)
-    // — the LLM never chooses which day gets which session type again.
     var strengthCount = parseInt(_lastPrefs.strengthSessions, 10);
-    fetch('/api/plan/suggestions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        week_start: _weekStartISO(),
-        rest_days: _lastPrefs.restDays,
-        skeleton: true,
-        strength_sessions: isNaN(strengthCount) ? null : strengthCount,
-      }),
-    })
+    _saveTrainingPrefs()
+      .catch(function (body) {
+        if (loading) loading.style.display = 'none';
+        var msg = 'Could not save preferences';
+        if (body && body.detail) {
+          msg = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail, null, 2);
+        }
+        if (errEl) { errEl.hidden = false; errEl.textContent = msg; }
+        return Promise.reject(body);
+      })
+      .then(function () {
+        if (loading) {
+          var lbl2 = loading.querySelector('span');
+          if (lbl2) lbl2.textContent = 'Building schedule…';
+        }
+        return fetch('/api/plan/suggestions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            week_start: _weekStartISO(),
+            rest_days: _lastPrefs.restDays,
+            skeleton: true,
+            strength_sessions: isNaN(strengthCount) ? null : strengthCount,
+          }),
+        });
+      })
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
       .then(_renderSuggestions)
-      .catch(function () {
+      .catch(function (err) {
         if (loading) loading.style.display = 'none';
+        if (err && err.detail) return; // prefs error already shown
         if (list) list.innerHTML = '<span style="font-size:12px;color:var(--text-sub);">Could not load suggestions.</span>';
       });
   }

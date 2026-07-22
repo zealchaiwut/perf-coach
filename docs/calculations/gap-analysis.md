@@ -530,7 +530,7 @@ when using this endpoint.
 | `no_recent_plyo` | plyo | Plyo re-entry session | 2×[10 pogo, 10 low box jumps] | yes |
 | `gct_lengthening` | strength | Calf capacity strength block | Eccentric calf raises 3×12 each side, 3 s lowering | yes |
 | `cadence_drift` | run | Cadence-focus easy run | Z1-Z2, target ≥170 spm | yes |
-| `aerobic_durability_gap` | run | Aerobic long run | 70–90 min Z1-Z2, monitor decoupling | yes |
+| `aerobic_durability_gap` | run | Aerobic long run | ≥110 min Z1-Z2, monitor decoupling / fuel | yes |
 | `speed_neglected` | run | Speed interval session | 6×400 m at 5 km effort, 90 s recovery | yes |
 | `base_neglected` | run | Easy aerobic run | 30–60 min easy pace (Z1-Z2), conversational effort | yes |
 | `strength_lapsed` | strength | General strength session | Full-body, 3×8–10, moderate load after break | yes |
@@ -546,8 +546,12 @@ when using this endpoint.
 `code: "back_off"`).
 
 **Duplicate guard**: a second add-to-plan for the same `code` within the same
-calendar week returns HTTP 409 (`code: "already_planned_this_week"`).
+calendar week returns HTTP 409 (`code: "already_planned_this_week"`, with
+`planned_date` / `session_id`) when the existing session already meets the
+preset floors. If the existing row is a hollow stub (old templates with
+`structure: null`, or below duration/TSS floors), the endpoint **upgrades it
+in place** on the requested date (HTTP 200, `upgraded: true`) instead of 409.
 
 **Endpoint**: `POST /api/training/gap-analysis/{code}/add-to-plan`
 - Body: `{"date": "YYYY-MM-DD"}`
-- Response: 201 with the created `planned_session` dict
+- Response: 201 with the created `planned_session` dict (or 200 when upgrading)

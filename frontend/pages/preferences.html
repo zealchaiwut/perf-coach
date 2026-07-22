@@ -4,73 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Preferences – perf-coach</title>
-  <link rel="stylesheet" href="/css/styles.css">
-  <style>
-    .prefs-page { max-width: 720px; margin: 0 auto; padding: 28px 20px 80px; }
-    .prefs-head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; margin-bottom: 22px; }
-    .prefs-head h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; margin: 0; flex: 1; }
-    .prefs-stale {
-      font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
-      padding: 4px 8px; border-radius: 999px; background: #fef3c7; color: #92400e;
-    }
-    .prefs-confirm {
-      font: inherit; font-size: 13px; font-weight: 600; padding: 8px 14px; border-radius: 8px;
-      border: 1px solid var(--border); background: var(--surface); cursor: pointer;
-    }
-    .prefs-confirm:hover { background: var(--surface-2); }
-    .prefs-meta { font-size: 13px; color: var(--text-sub); margin-bottom: 18px; }
-    .prefs-row {
-      display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; align-items: center;
-      padding: 14px 0; border-bottom: 1px solid var(--border);
-    }
-    .prefs-row label { font-size: 14px; font-weight: 600; }
-    .prefs-prov { font-size: 12px; color: var(--text-sub); grid-column: 1 / -1; }
-    .prefs-row select, .prefs-row input[type="number"], .prefs-row input[type="text"] {
-      font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 8px;
-      border: 1px solid var(--border); background: var(--surface); min-width: 120px;
-    }
-    .prefs-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
-    .prefs-actions button, .prefs-actions label.file-btn {
-      font: inherit; font-size: 13px; font-weight: 600; padding: 8px 14px; border-radius: 8px;
-      border: 1px solid var(--border); background: var(--surface); cursor: pointer;
-    }
-    .prefs-actions .primary { background: #0b1530; color: #fff; border-color: #0b1530; }
-    .prefs-flight { margin-top: 36px; }
-    .prefs-flight h2 { font-size: 15px; font-weight: 700; margin: 0 0 12px; }
-    .prefs-flight-item {
-      font-size: 13px; padding: 10px 0; border-bottom: 1px solid var(--border);
-      color: var(--text-sub);
-    }
-    .prefs-flight-item strong { color: var(--text); font-weight: 600; }
-    .prefs-err { color: #c92a2a; font-size: 13px; margin-top: 10px; white-space: pre-wrap; }
-    .prefs-notes { width: 100%; min-height: 64px; font: inherit; font-size: 14px;
-      padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); }
-    .prefs-rest { display: flex; flex-wrap: wrap; gap: 8px; }
-    .prefs-rest label { font-weight: 500; font-size: 13px; display: flex; align-items: center; gap: 4px; }
-  </style>
+  <meta http-equiv="refresh" content="0;url=/training-log?tab=plan#prefs">
+  <script>location.replace('/training-log?tab=plan#prefs');</script>
 </head>
 <body>
-  <script src="/js/nav.js"></script>
-  <main class="prefs-page" id="prefs-root">
-    <div class="prefs-head">
-      <h1>Training preferences</h1>
-      <span class="prefs-stale" id="prefs-stale" hidden>Stale</span>
-      <button type="button" class="prefs-confirm" id="prefs-confirm">Same as last week ✓</button>
-    </div>
-    <p class="prefs-meta" id="prefs-meta">Loading…</p>
-    <div id="prefs-fields"></div>
-    <div class="prefs-actions">
-      <button type="button" class="primary" id="prefs-save">Save</button>
-      <button type="button" id="prefs-export">Export JSON</button>
-      <label class="file-btn">Import JSON<input type="file" id="prefs-import" accept="application/json,.json" hidden></label>
-      <button type="button" id="prefs-ai-template">Copy template for AI</button>
-    </div>
-    <div class="prefs-err" id="prefs-err" hidden></div>
-    <section class="prefs-flight">
-      <h2>In flight</h2>
-      <div id="prefs-inflight"></div>
-    </section>
-  </main>
-  <script src="/js/preferences.js"></script>
+  <p>Preferences moved to Training → Plan. <a href="/training-log?tab=plan#prefs">Open preferences</a>.</p>
 </body>
 </html>

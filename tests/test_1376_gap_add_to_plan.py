@@ -207,7 +207,7 @@ def test_ac2_endpoint_404_for_no_template_code():
 
 
 def test_ac2_create_planned_session():
-    """AC2: Valid request creates a planned session and returns it (201)."""
+    """AC2: Valid request adds a draft slot and returns it (201)."""
     if _engine is None:
         pytest.skip("DATABASE_URL_UAT not set")
     from fastapi.testclient import TestClient
@@ -224,13 +224,14 @@ def test_ac2_create_planned_session():
             data = r.json()
             assert data["planned_date"] == target_date
             assert data["session_type"] == "plyo"
-            assert "id" in data
+            assert data.get("draft") is True
+            assert data.get("slot_id")
         finally:
             _delete_user(user_id)
 
 
 def test_ac3_created_session_tagged_with_origin():
-    """AC3: Created session has _gap_code set in structure (origin tag)."""
+    """AC3: Draft session has _gap_code set in structure (origin tag)."""
     if _engine is None:
         pytest.skip("DATABASE_URL_UAT not set")
     from fastapi.testclient import TestClient
@@ -245,16 +246,16 @@ def test_ac3_created_session_tagged_with_origin():
                            {"date": target_date}, csrf)
             assert r.status_code == 201, r.text
             data = r.json()
-            structure = data.get("structure") or {}
-            assert structure.get("_gap_code") == "plyo_deficit", (
-                f"Expected structure._gap_code='plyo_deficit', got structure={structure!r}"
+            structure = data.get("structure") or (data.get("session") or {}).get("structure") or {}
+            assert structure.get("_gap_code") == "plyo_deficit" or data.get("session", {}).get("_gap_code") == "plyo_deficit", (
+                f"Expected _gap_code='plyo_deficit', got data={data!r}"
             )
         finally:
             _delete_user(user_id)
 
 
 def test_ac2_409_duplicate_same_week():
-    """AC2: Creating the same gap session twice in the same week returns 409."""
+    """AC2: Adding the same gap session twice in the same week returns 409."""
     if _engine is None:
         pytest.skip("DATABASE_URL_UAT not set")
     from fastapi.testclient import TestClient
@@ -273,6 +274,47 @@ def test_ac2_409_duplicate_same_week():
             r2 = _csrf_post(tc, "/api/training/gap-analysis/plyo_deficit/add-to-plan",
                             {"date": "2026-07-18"}, csrf)  # same week as 2026-07-17 (Mon)
             assert r2.status_code == 409, r2.text
+            detail = r2.json().get("detail") or {}
+            assert detail.get("code") == "already_planned_this_week"
+        finally:
+            _delete_user(user_id)
+
+
+def test_upgrade_hollow_stub_same_week():
+    """Existing planned gap session still blocks (draft path does not upgrade stubs)."""
+    if _engine is None:
+        pytest.skip("DATABASE_URL_UAT not set")
+    import uuid as _uuid
+    from datetime import date as _date
+    from fastapi.testclient import TestClient
+    from backend.main import app
+    from backend.models import PlannedSession as _PS
+
+    with TestClient(app) as tc:
+        user_id, csrf = _tc_create_and_login(tc)
+        try:
+            with _OrmSess(_engine) as db:
+                row = _PS(
+                    user_id=_uuid.UUID(user_id),
+                    planned_date=_date(2026, 7, 21),
+                    session_type="run",
+                    name="Aerobic long run",
+                    notes="stub",
+                    structure={"_gap_code": "aerobic_durability_gap"},
+                    status="planned",
+                )
+                db.add(row)
+                db.commit()
+
+            r = _csrf_post(
+                tc,
+                "/api/training/gap-analysis/aerobic_durability_gap/add-to-plan",
+                {"date": "2026-07-23"},
+                csrf,
+            )
+            assert r.status_code == 409, r.text
+            detail = r.json().get("detail") or {}
+            assert detail.get("code") == "already_planned_this_week"
         finally:
             _delete_user(user_id)
 

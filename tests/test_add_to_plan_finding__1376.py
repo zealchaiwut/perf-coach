@@ -63,7 +63,8 @@ def test_add_to_plan_finding__session_template_registry_completeness(client):
                 # Template exists; verify response structure
                 if r_create.status_code == 201:
                     session_data = r_create.json()
-                    assert "id" in session_data, "Missing session id in response"
+                    assert session_data.get("draft") is True or session_data.get("slot_id"), \
+                        "Missing draft slot in response"
                     assert "session_type" in session_data, "Missing session_type"
                     assert "planned_date" in session_data, "Missing planned_date"
                 break
@@ -73,11 +74,7 @@ def test_add_to_plan_finding__session_template_registry_completeness(client):
 
 
 def test_add_to_plan_finding__create_session_endpoint_201(client):
-    """AC: POST /api/training/gap-analysis/{code}/add-to-plan creates planned session.
-
-    Creates a planned session from a gap-analysis finding template on the given date,
-    and returns the created session in the response.
-    """
+    """AC: POST …/add-to-plan adds a week draft slot (201)."""
     r = client.get("/api/training/gap-analysis")
     assert r.status_code == 200, f"gap-analysis fetch failed: {r.text}"
 
@@ -117,9 +114,9 @@ def test_add_to_plan_finding__create_session_endpoint_201(client):
 
     assert r.status_code == 201, f"Expected 201, got {r.status_code}: {r.text}"
 
-    # Response should include the created session dict
     session_data = r.json()
-    assert "id" in session_data, "Response missing session 'id'"
+    assert session_data.get("draft") is True, "Expected draft:true"
+    assert session_data.get("slot_id"), "Response missing draft slot_id"
     assert session_data.get("planned_date") == str(target_date), \
         f"Planned date mismatch: expected {target_date}, got {session_data.get('planned_date')}"
 
