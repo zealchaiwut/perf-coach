@@ -17958,15 +17958,16 @@ def get_athlete_run_personal_records(athlete_id: str, user: User = Depends(resol
         curve_row = session.get(_AthleteDurationCurve, uid)
         curve_populated = bool(curve_row and curve_row.curve_data)
 
-        # Rebuild if the row is missing or its curve_data is empty — a previous
-        # rebuild that found no power data leaves a row with curve_data={}, which
-        # is not useful for PR detection and should be retried when the athlete
-        # has run history.  Thresholds come from _DEFAULT_DURATION_LADDER via
-        # fetch_and_compute_curves — no values are hardcoded here.
-        if not curve_populated:
-            _rebuild_athlete_duration_curve(uid, session)
-            curve_row = session.get(_AthleteDurationCurve, uid)
-            curve_populated = bool(curve_row and curve_row.curve_data)
+        # An empty curve is retried when the athlete has run history — but via
+        # the worker backfill queue, never inline: the rebuild loads every
+        # run's ActivityStream and OOM'd the 512MB web dyno when run per
+        # request (PRD incident 2026-07-22). runs_considered guards the
+        # no-power-data athlete whose rebuild legitimately yields an empty
+        # curve: without it, every page view re-enqueued a full rebuild.
+        if not curve_populated and run_count > 0:
+            _last_considered = getattr(curve_row, "runs_considered", None) if curve_row else None
+            if _last_considered is None or int(_last_considered) != int(run_count):
+                _trigger_performance_backfill_background(uid)
 
         _run_pr_log.info(
             "pr_detection_input",

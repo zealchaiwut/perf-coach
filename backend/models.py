@@ -1316,6 +1316,10 @@ class AthleteDurationCurve(Base):
         nullable=False,
     )
     curve_data = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    # Number of run workouts the last rebuild considered. Lets the PR endpoint
+    # skip re-enqueueing a rebuild for an athlete whose runs legitimately
+    # produce an empty curve (no power data) until a new run appears.
+    runs_considered = Column(Integer, nullable=True)
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"), onupdate=text("now()"))
 
     user = relationship("User", foreign_keys=[user_id])
