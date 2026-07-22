@@ -1087,7 +1087,6 @@ async def get_plan_projection(
             ctl_series=payload.get("ctl", []),
             start_date=start_date,
             races_meta=races,
-            formula_version="1",
         )
         _write_snap(user.id, today, snap_payload)
     except Exception:
