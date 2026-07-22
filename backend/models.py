@@ -1726,7 +1726,7 @@ class VerdictHistory(Base):
 
     __table_args__ = (
         UniqueConstraint("user_id", "verdict_date", name="uq_verdict_history_user_date"),
-        Index("ix_verdict_history_user_date", "user_id", "verdict_date"),
+        Index("ix_verdict_history_user_date", "user_id", text("verdict_date DESC")),
     )
 
 
