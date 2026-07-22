@@ -37,6 +37,25 @@
 
   var NS = "http://www.w3.org/2000/svg";
 
+  // Shared palette for the hand-rolled SVG charts below. These are set as
+  // SVG presentation attributes (stroke/fill) or inline style properties via
+  // the DOM, both of which resolve CSS var() through the normal cascade —
+  // so, unlike a plain JS color computation, these CAN reference the app's
+  // real custom properties (frontend/css/styles.css) directly instead of
+  // carrying independent raw-hex duplicates that can drift out of sync.
+  var PERF_COLORS = {
+    // Axis/tick/date-label text and the neutral-priority marker fallback —
+    // both use the app's canonical muted-gray (--text-sub, ~4.9:1 contrast).
+    textMuted: "var(--text-sub)",
+    gridLine: "#eef1f7",          // horizontal chart gridlines (chart-local tint, no canonical equivalent)
+    dataLine: "var(--primary)",   // primary brand-blue series line/stroke
+    dataLineFill: "rgba(59,130,246,0.12)", // translucent fill under the brand-blue sparkline (--primary's rgb)
+    goalGreen: "var(--success)",  // goal-pace marker/label + "balanced" load status
+    amber: "var(--warning)",      // priority-B race marker + "elevated" load status
+    markerA: "var(--priority-a)", // priority-A race marker (dark navy)
+    inactiveGray: "var(--border-input)", // inactive/disabled muscle-group bar fill
+  };
+
   // ── Helpers ───────────────────────────────────────────────────────────────
   function pad(n) {
     return String(n).padStart(2, "0");
@@ -307,7 +326,7 @@
     var letter = r.priority || "A";
     return (
       '<div class="plan-picker-row' + (isCurrent ? " is-current" : "") + '" data-race-id="' + r.id + '">' +
-        '<span class="plan-picker-letter" style="background:' + (_LET_BG[letter] || "#6b7280") + '">' + esc(letter) + "</span>" +
+        '<span class="plan-picker-letter" style="background:' + (_LET_BG[letter] || "var(--text-sub)") + '">' + esc(letter) + "</span>" +
         '<div class="plan-picker-info">' +
           '<div class="plan-picker-name">' + esc(r.name || "Unnamed") + "</div>" +
           '<div class="plan-picker-meta">' + esc(formatDate(r.date)) + (distKm ? " · " + distKm.toFixed(2) + " km" : "") + "</div>" +
@@ -322,10 +341,17 @@
     );
   }
 
+  // Focus restore for the three plan modals below: remember whatever had
+  // focus right before each modal opened, so closing it (via Escape, the
+  // close/cancel button, or a backdrop click) puts focus back there instead
+  // of dropping it to <body>.
+  var _modalReturnFocus = null;
+
   function openRacePicker() {
     var overlay = document.getElementById("plan-race-picker-modal");
     var list = document.getElementById("plan-race-picker-list");
     if (!overlay || !list) return;
+    _modalReturnFocus = document.activeElement;
 
     var candidates = _races.filter(function (r) {
       return r.type === "race" && r.status !== "done";
@@ -358,6 +384,13 @@
   function closeRacePicker() {
     var overlay = document.getElementById("plan-race-picker-modal");
     if (overlay) overlay.style.display = "none";
+    _restoreModalFocus();
+  }
+
+  function _restoreModalFocus() {
+    var el = _modalReturnFocus;
+    _modalReturnFocus = null;
+    if (el && typeof el.focus === "function" && document.contains(el)) el.focus();
   }
 
   // Promote raceId to A-priority, demoting whatever was previously A (if any
@@ -427,7 +460,7 @@
       var pct = data && typeof data.correction_pct === "number" ? data.correction_pct : null;
       var n = (data && data.n_calibrations) || 0;
       // Full sentence on desktop, compact form on phones where this tile is
-      // a quarter of the row (.pm-lab-full/.pm-lab-short flip at 720px).
+      // a quarter of the row (.pm-lab-full/.pm-lab-short flip at 1024px).
       function dual(full, short) {
         corrEl.innerHTML =
           '<span class="pm-lab-full">' + full + "</span>" +
@@ -529,10 +562,30 @@
       _hideProjNow();
     }
 
+    // Accessible name for the chart: this SVG is drawn point-by-point with no
+    // text alternative, so give it a concise, real-data summary rather than a
+    // generic label (screen readers get this instead of the drawing itself).
+    if (estInfo && estInfo.est != null) {
+      var ariaBits = ["Finish time projection: currently trending toward " + fmtTime(estInfo.est)];
+      var histFirst = null;
+      for (var _hi = 0; _hi < history.length; _hi++) {
+        if (history[_hi].estimated_finish_seconds != null) { histFirst = history[_hi]; break; }
+      }
+      if (histFirst) {
+        var deltaSec = histFirst.estimated_finish_seconds - estInfo.est;
+        if (deltaSec > 15) ariaBits.push("improved from " + fmtTime(histFirst.estimated_finish_seconds));
+        else if (deltaSec < -15) ariaBits.push("slowed from " + fmtTime(histFirst.estimated_finish_seconds));
+      }
+      if (goalSec != null) ariaBits.push("goal " + fmtTime(goalSec));
+      svg.setAttribute("aria-label", ariaBits.join(", ") + ".");
+    } else {
+      svg.setAttribute("aria-label", "Finish time projection chart");
+    }
+
     // Responsive sizing: build the coordinate space to the measured render
     // width so 1 unit ≈ 1px on any viewport (fixes the ~3× mobile downscale).
     var W = measureChartW(svg);
-    var mobile = W < 480;
+    var mobile = W < 640; // matches the documented 640px mobile ceiling (DESIGN.md)
     var H = mobile ? 240 : 200;
     // Y labels live INSIDE the plot (right edge) — no left gutter needed,
     // the full card width goes to data.
@@ -617,10 +670,10 @@
     // edge, just above their gridline (no left gutter).
     var ticks = [vmin + (vmax - vmin) * 0.2, (vmin + vmax) / 2, vmax - (vmax - vmin) * 0.2];
     ticks.forEach(function (v) {
-      svg.appendChild(E("line", { x1: p.l, x2: W - p.r, y1: y(v), y2: y(v), stroke: "#eef1f7" }));
+      svg.appendChild(E("line", { x1: p.l, x2: W - p.r, y1: y(v), y2: y(v), stroke: PERF_COLORS.gridLine }));
       var lab = E("text", {
         x: W - p.r - 4, y: y(v) - 4, "font-size": FS(10),
-        "font-family": "JetBrains Mono", fill: "#9aa3b8", "text-anchor": "end",
+        "font-family": "JetBrains Mono", fill: PERF_COLORS.textMuted, "text-anchor": "end",
       });
       lab.textContent = fmtTime(Math.round(v));
       svg.appendChild(lab);
@@ -635,7 +688,7 @@
     if (top.length && bot.length) {
       svg.appendChild(E("path", {
         d: Path(top.concat(bot.reverse()), true),
-        fill: "#4f6ef7", "fill-opacity": 0.12,
+        fill: PERF_COLORS.dataLine, "fill-opacity": 0.12,
       }));
     }
 
@@ -645,7 +698,7 @@
       .map(function (e, i) { return [xHist(i), y(e.estimated_finish_seconds)]; });
     if (histPts.length)
       svg.appendChild(E("path", {
-        d: Path(histPts), fill: "none", stroke: "#4f6ef7", "stroke-width": LWmain,
+        d: Path(histPts), fill: "none", stroke: PERF_COLORS.dataLine, "stroke-width": LWmain,
       }));
 
     // projection center (dashed)
@@ -658,7 +711,7 @@
       .filter(Boolean);
     if (projPts.length)
       svg.appendChild(E("path", {
-        d: Path(projPts), fill: "none", stroke: "#4f6ef7",
+        d: Path(projPts), fill: "none", stroke: PERF_COLORS.dataLine,
         "stroke-width": LWmain, "stroke-dasharray": "5 4",
       }));
 
@@ -666,11 +719,11 @@
     if (goalSec != null) {
       svg.appendChild(E("line", {
         x1: p.l, x2: W - p.r, y1: y(goalSec), y2: y(goalSec),
-        stroke: "#16a34a", "stroke-width": 1.5, "stroke-dasharray": "7 5",
+        stroke: PERF_COLORS.goalGreen, "stroke-width": 1.5, "stroke-dasharray": "7 5",
       }));
       var gl = E("text", {
         x: p.l + 4, y: y(goalSec) - 5, "font-size": FS(9),
-        "font-family": "Inter Tight", fill: "#16a34a", "font-weight": 700,
+        "font-family": "Inter Tight", fill: PERF_COLORS.goalGreen, "font-weight": 700,
       });
       gl.textContent = "A goal " + fmtTime(goalSec);
       svg.appendChild(gl);
@@ -683,14 +736,14 @@
     }));
     var nt = E("text", {
       x: nowX + 3, y: p.t + 8, "font-size": FS(8), "font-family": "JetBrains Mono",
-      fill: "#9aa3b8", "text-anchor": "start", "font-weight": 700,
+      fill: PERF_COLORS.textMuted, "text-anchor": "start", "font-weight": 700,
     });
     nt.textContent = "NOW";
     svg.appendChild(nt);
 
     // race markers along the projection window
     var markers = (_projection && _projection.race_markers) || [];
-    var COL = { A: "#1b2340", B: "#d97706", C: "#6b7280" };
+    var COL = { A: PERF_COLORS.markerA, B: PERF_COLORS.amber, C: PERF_COLORS.textMuted };
     var todayStr = todayISO();
     markers.forEach(function (m) {
       if (m.date < todayStr) return;
@@ -698,7 +751,7 @@
       var maxW = weeksUntil(_primaryRace && _primaryRace.date) || 1;
       var u = maxW > 0 ? 1 - Math.min(1, w / maxW) : 1;
       var mx = p.l + (nowT + u * (1 - nowT)) * (W - p.l - p.r);
-      var c = COL[m.priority] || "#6b7280";
+      var c = COL[m.priority] || PERF_COLORS.textMuted;
       svg.appendChild(E("line", {
         x1: mx, x2: mx, y1: p.t, y2: H - p.b, stroke: c,
         "stroke-width": m.priority === "A" ? 1.5 : 1,
@@ -707,7 +760,7 @@
       }));
       var t = E("text", {
         x: mx, y: H - 7, "font-size": FS(9), "font-family": "JetBrains Mono",
-        fill: "#9aa3b8", "text-anchor": "middle", "font-weight": 700,
+        fill: PERF_COLORS.textMuted, "text-anchor": "middle", "font-weight": 700,
       });
       t.textContent = m.priority || "•";
       svg.appendChild(t);
@@ -715,7 +768,11 @@
   }
 
   // ── 3b. Race/checkpoint cards ─────────────────────────────────────────────
-  var _LET_BG = { A: "#1b2340", B: "#3b4ba8", C: "#6b7280" };
+  // Race-priority letter badge backgrounds. B previously drifted to an
+  // independent blue (#3b4ba8) here while PERF_COLORS.amber documented the
+  // same "priority-B" concept as --warning elsewhere in this file — unified
+  // back to the one canonical color per priority letter.
+  var _LET_BG = { A: "var(--priority-a)", B: "var(--warning)", C: "var(--text-sub)" };
 
   // Extract the current projected finish (seconds), band (seconds), and status
   // from a readiness response's time_curve + on_track blocks. Returns null when
@@ -832,7 +889,7 @@
       return '<span class="pm-rclet pm-rclet--cp">CP</span>';
     }
     return '<span class="pm-rclet" style="background:' +
-      (_LET_BG[priority] || "#6b7280") + '">' + esc(priority) + "</span>";
+      (_LET_BG[priority] || "var(--text-sub)") + '">' + esc(priority) + "</span>";
   }
 
   // Build a full-width UPCOMING card (Goal + Estimated columns).
@@ -867,7 +924,7 @@
       rightTag +
       '<span class="pm-rcactions">' +
       '<button class="pm-rcact" data-act="edit" type="button">Edit</button>' +
-      '<button class="pm-rcact" data-act="del" type="button">✕</button>' +
+      '<button class="pm-rcact" data-act="del" type="button" aria-label="Remove ' + esc(r.name || "race") + '">✕</button>' +
       "</span>" +
       "</div>";
 
@@ -887,12 +944,21 @@
         '<div class="pm-colp">' + esc(estPace) + esc(bandTxt) + "</div></div>";
     }
 
+    var halfSec = r.half_marathon_equivalent_seconds || null;
+    var halfCol = halfSec
+      ? '<div class="pm-col">' +
+        '<div class="pm-coll">Half Equivalent</div>' +
+        '<div class="pm-colt">' + esc(fmtTime(halfSec)) + "</div>" +
+        '<div class="pm-colp">21.1 km equiv.</div></div>'
+      : "";
+
     var grid =
       '<div class="pm-rcgrid">' +
       '<div class="pm-col"><div class="pm-coll">Goal</div>' +
       '<div class="pm-colt">' + esc(goalSec ? fmtTime(goalSec) : "—") + "</div>" +
       '<div class="pm-colp">' + esc(goalPace || "—") + "</div></div>" +
       secondCol +
+      halfCol +
       "</div>";
 
     // Per-race REQUIRED End/Spd scores for this race's goal, plus delta vs
@@ -938,7 +1004,7 @@
       demoTags +
       '<span class="pm-rcactions">' +
       '<button class="pm-rcact" data-act="edit" type="button">Edit</button>' +
-      '<button class="pm-rcact" data-act="del" type="button">✕</button>' +
+      '<button class="pm-rcact" data-act="del" type="button" aria-label="Remove ' + esc(r.name || "race") + '">✕</button>' +
       "</span>" +
       "</div>" +
       '<div class="pm-rcmeta pm-rcmeta--done">' + esc(_metaText(r, distKm)) + "</div>";
@@ -949,6 +1015,14 @@
         ? ' <span class="pm-delta ' + deltaCls + '">' + esc(delta) + "</span>"
         : "");
 
+    var halfSecDone = r.half_marathon_equivalent_seconds || null;
+    var halfColDone = halfSecDone
+      ? '<div class="pm-col">' +
+        '<div class="pm-coll">Half Equivalent</div>' +
+        '<div class="pm-colt">' + esc(fmtTime(halfSecDone)) + "</div>" +
+        '<div class="pm-colp">21.1 km equiv.</div></div>'
+      : "";
+
     var grid =
       '<div class="pm-rcgrid">' +
       '<div class="pm-col"><div class="pm-coll">Goal</div>' +
@@ -957,6 +1031,7 @@
       '<div class="pm-col est"><div class="pm-coll">' + actualLabel + "</div>" +
       '<div class="pm-colt">' + esc(actualSec != null ? fmtTime(actualSec) : "—") + "</div>" +
       '<div class="pm-colp">' + esc(actualPace || "—") + "</div></div>" +
+      halfColDone +
       "</div>";
 
     card.innerHTML = head + grid;
@@ -1072,11 +1147,27 @@
     if (emptyEl) emptyEl.style.display = "none";
     svg.style.display = "";
 
+    // Accessible name: concise real-data summary (form = TSB-style freshness
+    // score) rather than a generic label, since the drawing itself conveys
+    // nothing to screen readers.
+    (function () {
+      var firstForm = formCurve[0].form;
+      var lastForm = formCurve[formCurve.length - 1].form;
+      var delta = lastForm - firstForm;
+      var trend = delta > 0.5
+        ? "up from " + Math.round(firstForm)
+        : delta < -0.5
+          ? "down from " + Math.round(firstForm)
+          : "steady near " + Math.round(firstForm);
+      svg.setAttribute("aria-label",
+        "Training form trend: currently " + Math.round(lastForm) + ", " + trend + ".");
+    })();
+
     // Responsive sizing: match the measured render width (1 unit ≈ 1px). This
     // card sits in a 2-col row on desktop (~half width) and full width on mobile,
     // so a hardcoded 1140 mis-scaled it on BOTH — measuring fixes both.
     var W = measureChartW(svg);
-    var mobile = W < 480;
+    var mobile = W < 640; // matches the documented 640px mobile ceiling (DESIGN.md)
     var H = mobile ? 260 : 300;
     var p = mobile
       ? { l: 36, r: 14, t: 12, b: 30 }
@@ -1112,11 +1203,11 @@
 
     [vmax, 0, -10, vmin].forEach(function (v) {
       svg.appendChild(E("line", {
-        x1: p.l, x2: W - p.r, y1: y(v), y2: y(v), stroke: "#eef1f7",
+        x1: p.l, x2: W - p.r, y1: y(v), y2: y(v), stroke: PERF_COLORS.gridLine,
       }));
       var lab = E("text", {
         x: p.l - 8, y: y(v) + 3, "font-size": FS(10), "font-family": "JetBrains Mono",
-        fill: "#9aa3b8", "text-anchor": "end",
+        fill: PERF_COLORS.textMuted, "text-anchor": "end",
       });
       lab.textContent = Math.round(v);
       svg.appendChild(lab);
@@ -1127,7 +1218,7 @@
       return [x(i, N), y(pt.form)];
     });
     svg.appendChild(E("path", {
-      d: Path(pts), fill: "none", stroke: "#4f6ef7", "stroke-width": mobile ? 2.4 : 1.8,
+      d: Path(pts), fill: "none", stroke: PERF_COLORS.dataLine, "stroke-width": mobile ? 2.4 : 1.8,
       "stroke-linejoin": "round",
     }));
 
@@ -1137,7 +1228,7 @@
       var xx = x(i, N);
       var t = E("text", {
         x: xx, y: H - 8, "font-size": FS(10), "font-family": "JetBrains Mono",
-        fill: "#9aa3b8",
+        fill: PERF_COLORS.textMuted,
         "text-anchor": k === 0 ? "start" : k === idxs.length - 1 ? "end" : "middle",
       });
       var d = new Date(formCurve[i].date + "T00:00:00");
@@ -1664,6 +1755,7 @@
     var errEl = document.getElementById("plan-modal-error");
 
     if (!modal) return;
+    _modalReturnFocus = document.activeElement;
 
     var type = race ? race.type || "race" : raceType || "race";
     if (deleteBtn) deleteBtn.style.display = race ? "" : "none";
@@ -1704,6 +1796,7 @@
     var modal = document.getElementById("plan-race-modal");
     if (modal) modal.style.display = "none";
     _resetPicker();
+    _restoreModalFocus();
   }
 
   function saveModal() {
@@ -1822,16 +1915,20 @@
     var titleEl = document.getElementById("plan-confirm-title");
     var msgEl = document.getElementById("plan-confirm-msg");
     if (!overlay) return;
+    _modalReturnFocus = document.activeElement;
     _confirmCallback = onConfirm;
     if (titleEl) titleEl.textContent = title;
     if (msgEl) msgEl.textContent = msg;
     overlay.style.display = "";
+    var cancelBtn = document.getElementById("plan-confirm-cancel");
+    if (cancelBtn) cancelBtn.focus();
   }
 
   function closeConfirm() {
     var overlay = document.getElementById("plan-confirm-modal");
     if (overlay) overlay.style.display = "none";
     _confirmCallback = null;
+    _restoreModalFocus();
   }
 
   function deleteEditing() {
@@ -2003,6 +2100,28 @@
       confirmModal.addEventListener("click", function (e) {
         if (e.target === confirmModal) closeConfirm();
       });
+
+    // Escape closes whichever of the three plan modals is currently open —
+    // none of them had a keyboard-close path before (mouse/touch only).
+    // Checked in "most recently opened wins" order: the confirm dialog can
+    // stack on top of the race modal (deleteEditing closes the race modal
+    // first, though, so in practice at most one is ever visible at once).
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape") return;
+      var confirmModal2 = document.getElementById("plan-confirm-modal");
+      var raceModal = document.getElementById("plan-race-modal");
+      var pickerModal = document.getElementById("plan-race-picker-modal");
+      if (confirmModal2 && confirmModal2.style.display !== "none") {
+        e.preventDefault();
+        closeConfirm();
+      } else if (raceModal && raceModal.style.display !== "none") {
+        e.preventDefault();
+        closeModal();
+      } else if (pickerModal && pickerModal.style.display !== "none") {
+        e.preventDefault();
+        closeRacePicker();
+      }
+    });
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -2042,7 +2161,6 @@
           _loadPerfFeeds();
           _loadPerfPR();
           _renderPerfProjection();
-          _loadGapPanel();
           _loadMuscleBalance();
         });
     }
@@ -2055,27 +2173,53 @@
     }
   }
 
-  // ── What-to-improve gap panel (issue #1374, #1376) ───────────────────────────
+  // ── What-to-improve gap panel (issue #1374, #1376, #1377) ───────────────────
+  // Mute / Done for review; + Add to plan materializes a template session on
+  // the week grid (POST …/add-to-plan) and auto-marks the finding accepted.
 
-  function _gapNextFreeDay(weekStart) {
-    // Default date for the date picker: next day from today, within the current Mon-Sun week.
+  function _gapPostStatus(code, status, onDone) {
+    fetch("/api/training/gap-analysis/" + encodeURIComponent(code) + "/status", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: status }),
+    })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function () { if (onDone) onDone(); })
+      .catch(function (err) { console.warn("gap status update failed:", err); });
+  }
+
+  function _gapDefaultDate(weekStart) {
+    // Prefer first open (non-past, empty) day on the currently viewed plan week.
+    if (window.TrainingPlan && window.TrainingPlan.getOpenDayInfo) {
+      var open = window.TrainingPlan.getOpenDayInfo().filter(function (d) {
+        return d.open;
+      });
+      if (open.length) return open[0].date;
+      var future = window.TrainingPlan.getOpenDayInfo().filter(function (d) {
+        return !d.past;
+      });
+      if (future.length) return future[0].date;
+    }
+    if (!weekStart) return "";
     var today = new Date();
     var tomorrow = new Date(today);
     tomorrow.setDate(today.getDate() + 1);
-    // Clamp to Sunday of the current week
     var ws = new Date(weekStart + "T00:00:00");
-    var sun = new Date(ws); sun.setDate(ws.getDate() + 6);
-    var target = tomorrow > sun ? sun : tomorrow;
-    // Format as YYYY-MM-DD
+    var sun = new Date(ws);
+    sun.setDate(ws.getDate() + 6);
+    var target = tomorrow > sun ? sun : (tomorrow < ws ? ws : tomorrow);
     var m = String(target.getMonth() + 1).padStart(2, "0");
     var d = String(target.getDate()).padStart(2, "0");
     return target.getFullYear() + "-" + m + "-" + d;
   }
 
-  function _gapAddToplan(code, defaultDate, btn, statusEl) {
-    // Build inline date picker + confirm button
+  function _gapAddToPlan(code, defaultDate, btn, statusEl, reloadFn) {
     var picker = btn.parentNode.querySelector(".gap-atp-picker");
-    if (picker) { picker.remove(); return; }  // toggle off if open
+    if (picker) { picker.remove(); return; }
 
     var wrap = document.createElement("span");
     wrap.className = "gap-atp-picker";
@@ -2083,7 +2227,7 @@
     var input = document.createElement("input");
     input.type = "date";
     input.className = "gap-atp-date";
-    input.value = defaultDate;
+    input.value = defaultDate || "";
 
     var confirm = document.createElement("button");
     confirm.className = "gap-atp-confirm";
@@ -2112,20 +2256,32 @@
               if (typeof detail === "object" && detail.code === "back_off") {
                 throw new Error("Training verdict is back off — rest first.");
               }
-              throw new Error("Already planned this week.");
+              if (typeof detail === "object" && detail.code === "already_planned_this_week") {
+                var when = detail.planned_date ? (" (" + detail.planned_date + ")") : "";
+                throw new Error("Already on plan" + when + ".");
+              }
+              throw new Error((typeof detail === "string" ? detail : detail.message) || "Conflict");
             });
           }
           if (!r.ok) throw new Error("HTTP " + r.status);
           return r.json();
         })
-        .then(function () {
+        .then(function (data) {
           wrap.remove();
           if (statusEl) {
-            statusEl.textContent = "Added to plan ✓";
+            statusEl.textContent = (data && data.draft)
+              ? "Added to week draft ✓"
+              : ((data && data.upgraded) ? "Upgraded on plan ✓" : "Added to plan ✓");
             statusEl.hidden = false;
           }
           btn.disabled = true;
-          btn.title = "Session added to plan";
+          btn.title = "On week draft — Apply week on Plan to commit";
+          if (window.TrainingPlan) {
+            if (window.TrainingPlan.markDraftPending) window.TrainingPlan.markDraftPending();
+            if (window.TrainingPlan.reloadDraft) window.TrainingPlan.reloadDraft();
+            else if (window.TrainingPlan.reload) window.TrainingPlan.reload();
+          }
+          if (reloadFn) reloadFn();
         })
         .catch(function (err) {
           confirm.disabled = false;
@@ -2137,32 +2293,15 @@
         });
     });
 
-    // Close picker on outside click
     var _closeOnOutside = function (e) {
       if (!wrap.contains(e.target) && e.target !== btn) {
         wrap.remove();
         document.removeEventListener("click", _closeOnOutside);
       }
     };
-    // Defer so the current click doesn't immediately close it
     setTimeout(function () {
       document.addEventListener("click", _closeOnOutside);
     }, 0);
-  }
-
-  function _gapPostStatus(code, status, onDone) {
-    fetch("/api/training/gap-analysis/" + encodeURIComponent(code) + "/status", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: status }),
-    })
-      .then(function (r) {
-        if (!r.ok) throw new Error("HTTP " + r.status);
-        return r.json();
-      })
-      .then(function () { if (onDone) onDone(); })
-      .catch(function (err) { console.warn("gap status update failed:", err); });
   }
 
   function _buildGapFeedbackControls(f, reloadFn) {
@@ -2209,38 +2348,58 @@
     card.appendChild(headline);
     card.appendChild(evidence);
 
-    // Add-to-plan button (issue #1376)
-    if (f.has_template && !isAccepted) {
+    if (f.preset && f.preset.summary) {
+      var presetEl = document.createElement("p");
+      presetEl.className = "gap-finding-preset";
+      presetEl.textContent = f.preset.summary;
+      card.appendChild(presetEl);
+    }
+
+    if (!isAccepted) {
       var footer = document.createElement("div");
       footer.className = "gap-finding-footer";
 
-      var atpBtn = document.createElement("button");
-      atpBtn.className = "gap-atp-btn";
-      atpBtn.textContent = "+ Add to plan";
+      if (f.has_template) {
+        var atpBtn = document.createElement("button");
+        atpBtn.className = "gap-atp-btn";
+        var onPlan = f.on_plan || null;
+        var incompleteOnPlan = !!(onPlan && onPlan.incomplete);
+        var completeOnPlan = !!(onPlan && !onPlan.incomplete);
 
-      var isBackOff = verdict === "back_off" && f.load_adding;
-      if (isBackOff) {
-        atpBtn.disabled = true;
-        atpBtn.title = "Training verdict is back off — rest this week before adding load.";
-        atpBtn.className += " gap-atp-btn--disabled";
-      } else {
-        var statusEl = document.createElement("span");
-        statusEl.className = "gap-atp-status";
-        statusEl.hidden = true;
-        var defaultDate = weekStart ? _gapNextFreeDay(weekStart) : "";
-        atpBtn.addEventListener("click", function () {
-          _gapAddToplan(f.code, defaultDate, atpBtn, statusEl);
-        });
-        footer.appendChild(statusEl);
+        atpBtn.textContent = incompleteOnPlan ? "Upgrade on plan" : "+ Add to plan";
+
+        var isBackOff = verdict === "back_off" && f.load_adding;
+        if (isBackOff) {
+          atpBtn.disabled = true;
+          atpBtn.title = "Training verdict is back off — rest this week before adding load.";
+          atpBtn.className += " gap-atp-btn--disabled";
+          footer.appendChild(atpBtn);
+        } else if (completeOnPlan) {
+          atpBtn.disabled = true;
+          atpBtn.className += " gap-atp-btn--disabled";
+          atpBtn.title = "Already on plan" + (onPlan.planned_date ? (" (" + onPlan.planned_date + ")") : "");
+          var statusElDone = document.createElement("span");
+          statusElDone.className = "gap-atp-status";
+          statusElDone.textContent = "On plan" + (onPlan.planned_date ? (" · " + onPlan.planned_date) : "");
+          footer.appendChild(atpBtn);
+          footer.appendChild(statusElDone);
+        } else {
+          var statusEl = document.createElement("span");
+          statusEl.className = "gap-atp-status";
+          statusEl.hidden = true;
+          var defaultDate = (incompleteOnPlan && onPlan.planned_date)
+            ? onPlan.planned_date
+            : _gapDefaultDate(weekStart);
+          atpBtn.addEventListener("click", function () {
+            _gapAddToPlan(f.code, defaultDate, atpBtn, statusEl, reloadFn);
+          });
+          footer.appendChild(atpBtn);
+          footer.appendChild(statusEl);
+        }
       }
 
-      footer.appendChild(atpBtn);
+      footer.appendChild(_buildGapFeedbackControls(f, reloadFn));
       card.appendChild(footer);
-    }
-
-    // Accept/dismiss controls (issue #1377) — not shown on already-accepted findings
-    if (!isAccepted) {
-      card.appendChild(_buildGapFeedbackControls(f, reloadFn));
     }
 
     return card;
@@ -2264,14 +2423,14 @@
 
   function _mbalBarColor(cls) {
     var map = {
-      overused: "#dc2626",
-      elevated: "#d97706",
-      balanced: "#16a34a",
-      detraining: "#4f6ef7",
-      untrained: "#4f6ef7",
-      inactive: "#d1d5db",
+      overused: "var(--danger)",
+      elevated: PERF_COLORS.amber,
+      balanced: PERF_COLORS.goalGreen,
+      detraining: PERF_COLORS.dataLine,
+      untrained: PERF_COLORS.dataLine,
+      inactive: PERF_COLORS.inactiveGray,
     };
-    return map[cls] || "#d1d5db";
+    return map[cls] || PERF_COLORS.inactiveGray;
   }
 
   function _mbalSparklineSvg(groupName, weeklySeries) {
@@ -2287,7 +2446,15 @@
     svg.setAttribute("viewBox", "0 0 " + W + " " + H);
     svg.setAttribute("preserveAspectRatio", "none");
     svg.classList.add("mbal-sparkline");
-    svg.setAttribute("aria-hidden", "true");
+    // Unlike the score sparklines, no adjacent element renders this trend's
+    // values as text, so expose a real-data summary instead of hiding the
+    // chart from assistive tech entirely.
+    svg.setAttribute("role", "img");
+    var _mbalFirst = vals[0], _mbalLast = vals[vals.length - 1];
+    var _mbalTrend = _mbalLast > _mbalFirst ? "up from " : _mbalLast < _mbalFirst ? "down from " : "flat at ";
+    svg.setAttribute("aria-label",
+      groupName + " 8-week load trend: currently " + _mbalLast.toFixed(1) +
+      ", " + _mbalTrend + _mbalFirst.toFixed(1) + ".");
 
     var pts = vals.map(function (v, i) {
       var x = pad + (i / (n - 1)) * (W - pad * 2);
@@ -2302,7 +2469,7 @@
     var line = document.createElementNS("http://www.w3.org/2000/svg", "path");
     line.setAttribute("d", pathD);
     line.setAttribute("fill", "none");
-    line.setAttribute("stroke", "#4f6ef7");
+    line.setAttribute("stroke", PERF_COLORS.dataLine);
     line.setAttribute("stroke-width", "1.5");
     line.setAttribute("stroke-linecap", "round");
     line.setAttribute("stroke-linejoin", "round");
@@ -2312,7 +2479,7 @@
     var fillD = pathD + " L" + pts[pts.length - 1][0].toFixed(1) + "," + H + " L" + pts[0][0].toFixed(1) + "," + H + " Z";
     var fill = document.createElementNS("http://www.w3.org/2000/svg", "path");
     fill.setAttribute("d", fillD);
-    fill.setAttribute("fill", "rgba(79,110,247,0.12)");
+    fill.setAttribute("fill", PERF_COLORS.dataLineFill);
     svg.insertBefore(fill, line);
 
     return svg;
@@ -2345,7 +2512,9 @@
     barWrap.className = "mbal-bar-wrap";
     var bar = document.createElement("div");
     bar.className = "mbal-bar";
-    bar.style.width = barPct.toFixed(1) + "%";
+    // transform: scaleX() (not width) so the fill-in animates a compositor-
+    // only property instead of triggering layout on every frame.
+    bar.style.transform = "scaleX(" + (barPct / 100).toFixed(4) + ")";
     bar.style.setProperty("--mbal-bar-color", _mbalBarColor(cls));
     bar.style.background = _mbalBarColor(cls);
     barWrap.appendChild(bar);
@@ -2402,7 +2571,7 @@
           detail.appendChild(srcWrap);
         } else {
           var noSrc = document.createElement("span");
-          noSrc.style.cssText = "font-size:11px;color:var(--pm-faint)";
+          noSrc.style.cssText = "font-size:11px;color:var(--text-sub)";
           noSrc.textContent = "No source data";
           detail.appendChild(noSrc);
         }
@@ -2491,6 +2660,7 @@
               elShowAllBtn.textContent = shown
                 ? "Hide inactive ▴"
                 : "Show inactive groups ▾";
+              elShowAllBtn.setAttribute("aria-expanded", shown ? "true" : "false");
             });
           }
         }
@@ -2586,11 +2756,15 @@
         if (elMuted && muted.length > 0) {
           elMuted.innerHTML = "";
           var toggle = document.createElement("button");
+          toggle.type = "button";
           toggle.className = "gap-muted-toggle";
           toggle.textContent = "Muted (" + muted.length + ")";
+          toggle.setAttribute("aria-expanded", "false");
           var muteList = document.createElement("div");
           muteList.className = "gap-muted-list";
+          muteList.id = "gap-muted-list";
           muteList.hidden = true;
+          toggle.setAttribute("aria-controls", "gap-muted-list");
 
           muted.forEach(function (f) {
             var row = document.createElement("div");
@@ -2617,6 +2791,7 @@
           toggle.addEventListener("click", function () {
             muteList.hidden = !muteList.hidden;
             toggle.textContent = (muteList.hidden ? "Muted" : "Muted ▾") + " (" + muted.length + ")";
+            toggle.setAttribute("aria-expanded", muteList.hidden ? "false" : "true");
           });
 
           elMuted.appendChild(toggle);
@@ -2748,13 +2923,13 @@
 
     var fill = document.createElementNS("http://www.w3.org/2000/svg", "path");
     fill.setAttribute("d", fillD);
-    fill.setAttribute("fill", "rgba(79,110,247,0.12)");
+    fill.setAttribute("fill", PERF_COLORS.dataLineFill);
     svg.appendChild(fill);
 
     var line = document.createElementNS("http://www.w3.org/2000/svg", "path");
     line.setAttribute("d", pathD);
     line.setAttribute("fill", "none");
-    line.setAttribute("stroke", "#4f6ef7");
+    line.setAttribute("stroke", PERF_COLORS.dataLine);
     line.setAttribute("stroke-width", "1.5");
     line.setAttribute("stroke-linecap", "round");
     line.setAttribute("stroke-linejoin", "round");
@@ -3150,5 +3325,8 @@
     }, 150);
   });
 
-  window.TrainingPerformance = { init: init };
+  window.TrainingPerformance = {
+    init: init,
+    loadGapPanel: _loadGapPanel,
+  };
 })();

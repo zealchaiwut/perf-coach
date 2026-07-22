@@ -28,6 +28,20 @@
       rel="stylesheet"
     />
     <style>
+      /* ── Page-scoped "selected" accent (distinct from --primary) ─────────
+         Deliberately a different hue from --primary/--primary-dark: several
+         calendar/list states (today ring vs. deep-linked-day ring vs.
+         focus-visible ring) need to stay visually distinguishable from each
+         other on the SAME element, so this can't just alias to --primary.
+         Scoped here (not styles.css) since it's specific to this page. */
+      :root {
+        --selected: #3563d4;
+        --selected-dark: #2b4ca8;
+        --selected-soft: #f0f5ff;
+        --selected-soft-2: #dbe4ff;
+        --selected-soft-3: #c7d2fe;
+      }
+
       /* ── Page shell (gradient + cards, matches weight/home) ─────────────── */
       html,
       body {
@@ -144,7 +158,6 @@
         color: #fff;
         font-family: inherit;
         cursor: pointer;
-        backdrop-filter: blur(8px);
         display: inline-flex;
         align-items: center;
         gap: 6px;
@@ -182,7 +195,7 @@
       }
 
       /* ── Mobile: keep the action buttons on the title row (icon-only). ── */
-      @media (max-width: 599px) {
+      @media (max-width: 640px) {
         .log-page-header {
           flex-wrap: nowrap;
           align-items: center;
@@ -211,7 +224,7 @@
           display: none;
         }
         /* Labels stay visible — the sub-tab nav wraps to its own row below
-           these buttons (see the 879px query), so there's no space pressure
+           these buttons (see the 1023px query), so there's no space pressure
            forcing icon-only buttons here. */
         .log-page-header .btn-secondary,
         .log-page-header .btn-accent {
@@ -337,7 +350,6 @@
         background: rgba(255, 255, 255, 0.1);
         border: 1px solid rgba(255, 255, 255, 0.18);
         border-radius: 20px;
-        backdrop-filter: blur(8px);
         font-size: 11.5px;
         font-weight: 600;
         color: rgba(255, 255, 255, 0.9);
@@ -364,9 +376,9 @@
       }
       /* Dim the whole page behind the sync panel; clicking it closes the
          panel (wired in _initSyncWidget, which portals both to <body> so
-         .log-page-header's backdrop-filter can't trap the fixed positioning).
-         Above the sticky nav (100) and header (60); one layer under the
-         panel. */
+         no ancestor stacking/containing-block context can trap the fixed
+         positioning). Above the sticky nav (100) and header (60); one layer
+         under the panel. */
       .sync-backdrop {
         position: fixed;
         inset: 0;
@@ -489,11 +501,12 @@
         cursor: not-allowed;
       }
 
-      /* ── Sub-tab bar (glass pill on gradient, matches weight/home gradient tokens) ── */
+      /* ── Sub-tab bar (solid instrument-navy pill on the header; no blur/translucent
+         fills — see .log-page-header below for the shared redesign rationale) ── */
       .training-sub-tabs {
         display: inline-flex;
-        background: rgba(255, 255, 255, 0.14);
-        border: 1px solid rgba(255, 255, 255, 0.2);
+        background: #1c2456;
+        border: 1px solid #2a3468;
         border-radius: 999px;
         padding: 3px;
         margin: 0;
@@ -521,7 +534,8 @@
       }
 
       .training-sub-tab:hover:not(.active) {
-        background: rgba(255, 255, 255, 0.12);
+        background: #2a3468;
+        color: #fff;
       }
 
       /* ── Placeholder panels (Plan / Performance) ──
@@ -719,7 +733,7 @@
         height: 34px;
         border-radius: 8px;
         border: 1px solid var(--card-border);
-        background: #f7f9fd;
+        background: var(--tile);
         padding: 0 12px;
         display: flex;
         align-items: center;
@@ -748,8 +762,8 @@
       }
 
       .fb-search:focus-within {
-        border-color: #2b4ca8;
-        box-shadow: 0 0 0 2px rgba(43, 76, 168, 0.15);
+        border-color: var(--selected-dark);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--selected-dark) 15%, transparent);
         background: #fff;
       }
 
@@ -782,7 +796,7 @@
       }
 
       .type-chip.active {
-        background: #0b1530;
+        background: var(--ink);
         color: #fff;
       }
 
@@ -1032,7 +1046,7 @@
         padding: 0.5rem 0;
       }
 
-      @media (max-width: 480px) {
+      @media (max-width: 640px) {
         .rw-tiles {
           gap: 0.375rem;
         }
@@ -1398,12 +1412,10 @@
         background: #fafbfd;
       }
 
-      /* Selected row */
+      /* Selected row — full ring (not a directional stripe) + tint. */
       .entry-row.is-active {
-        background: #f0f5ff;
-        border-color: #2b4ca8;
-        box-shadow: inset 2px 0 0 #2b4ca8, 0 0 0 1px #2b4ca8;
-        padding-left: 1px;
+        background: var(--selected-soft);
+        box-shadow: 0 0 0 1.5px var(--selected-dark);
       }
 
       /* Keyboard focus ring on the (button-role) rows */
@@ -1728,8 +1740,8 @@
         margin: 0 0 1.25rem;
       }
 
-      /* ── Responsive: list ≤ 880px ── */
-      @media (max-width: 880px) {
+      /* ── Responsive: list ≤ 1023px (tablet/desktop boundary) ── */
+      @media (max-width: 1023px) {
         /* Keep the action buttons on the title row, pushed to the right. */
         .log-page-header {
           flex-direction: row;
@@ -1762,7 +1774,7 @@
         }
       }
 
-      @media (max-width: 599px) {
+      @media (max-width: 640px) {
         main.log-page {
           padding: 16px 16px 24px;
         }
@@ -1849,7 +1861,7 @@
         gap: 12px;
       }
 
-      @media (min-width: 880px) {
+      @media (min-width: 1024px) {
         #layout-wrapper.has-panel {
           display: grid;
           grid-template-columns: minmax(0, 1fr) 520px;
@@ -1887,7 +1899,7 @@
         pointer-events: auto;
       }
 
-      @media (min-width: 880px) {
+      @media (min-width: 1024px) {
         .detail-panel-overlay {
           display: none;
         }
@@ -1915,7 +1927,7 @@
         transform: translateX(0);
       }
 
-      @media (min-width: 880px) {
+      @media (min-width: 1024px) {
         .detail-panel {
           position: sticky;
           top: 52px;
@@ -1958,7 +1970,7 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        color: #0b1530;
+        color: var(--ink);
         font-size: 1.125rem;
         flex-shrink: 0;
         transition:
@@ -1974,7 +1986,7 @@
 
       .dp-icon-btn:hover {
         background: #f1f4fa;
-        color: #0b1530;
+        color: var(--ink);
       }
 
       .dp-position-group {
@@ -2137,7 +2149,10 @@
       .dp-id {
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
         font-size: 0.6875rem;
-        color: #9aa3b2;
+        /* var(--text-sub), 4.9:1 — #9aa3b2 (~2.54:1) is a near-identical
+           reappearance of the retired failing gray (#8b95ad/#9aa3b8, see
+           DESIGN.md "Instrument set"); don't reuse it. */
+        color: var(--text-sub);
         letter-spacing: 0;
         word-break: break-all;
       }
@@ -2151,8 +2166,8 @@
         padding: 0;
         border: 1px solid var(--border);
         border-radius: 5px;
-        background: #fff;
-        color: #9aa3b2;
+        background: var(--surface);
+        color: var(--text-sub);
         cursor: pointer;
         transition:
           color 0.15s,
@@ -2238,40 +2253,6 @@
         padding: 10px 11px;
       }
 
-      /* ── Run hero metrics (distance + pace lead) ── */
-      .dp-hero-metrics {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 8px;
-        margin-bottom: 10px;
-      }
-      .dp-hm {
-        background: var(--tile);
-        border-radius: 10px;
-        padding: 13px 14px;
-      }
-      .dp-hm-val {
-        font-family: var(--mono);
-        font-size: 1.65rem;
-        font-weight: 600;
-        color: var(--ink);
-        line-height: 1.05;
-        letter-spacing: -0.02em;
-      }
-      .dp-hm-unit {
-        font-size: 0.8125rem;
-        color: var(--text-sub);
-        font-weight: 500;
-        margin-left: 3px;
-      }
-      .dp-hm-label {
-        font-size: 0.625rem;
-        font-weight: 600;
-        color: var(--text-sub);
-        text-transform: uppercase;
-        letter-spacing: 0.07em;
-        margin-top: 5px;
-      }
       .dp-stat-strip {
         display: flex;
         flex-wrap: wrap;
@@ -2775,7 +2756,7 @@
       }
 
       .dp-action-btn--delete:hover {
-        background: #fee2e2;
+        background: var(--danger-soft);
       }
 
       /* ── Skeleton loading in panel ── */
@@ -2849,10 +2830,25 @@
           width: 44px;
           height: 44px;
         }
+        .dp-id-copy {
+          width: 44px;
+          height: 44px;
+        }
+        .plan-panel .pl-gmove {
+          min-width: 44px;
+          min-height: 44px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .lrx-arw {
+          width: 44px;
+          height: 44px;
+        }
       }
 
       /* Full-screen detail panel on phones clears the home indicator */
-      @media (max-width: 879px) {
+      @media (max-width: 1023px) {
         .dp-actions-bar {
           padding-bottom: max(10px, env(safe-area-inset-bottom));
         }
@@ -2959,7 +2955,7 @@
         color: #b91c1c;
       }
       .dp-overflow-menu .dp-menu-danger:hover {
-        background: #fee2e2;
+        background: var(--danger-soft);
       }
 
       /* Run-subtype group (Interval / Long run / Easy / Tempo / None) */
@@ -2973,7 +2969,7 @@
         font-weight: 700;
         letter-spacing: 0.05em;
         text-transform: uppercase;
-        color: var(--text-tertiary, #9aa3b8);
+        color: var(--text-tertiary, #69748c);
         padding: 6px 14px 2px;
       }
       .dp-subtype-group button.is-selected {
@@ -3220,8 +3216,8 @@
       }
 
       .cal-cell--today {
-        background: #f0f5ff;
-        border-color: #2b4ca8;
+        background: var(--selected-soft);
+        border-color: var(--selected-dark);
       }
 
       .cal-cell.is-selected {
@@ -3325,8 +3321,8 @@
         cursor: pointer;
       }
       .plan-add-btn:hover {
-        border-color: #3563d4;
-        color: #3563d4;
+        border-color: var(--selected);
+        color: var(--selected);
       }
       .plan-add-btn--secondary {
         background: transparent;
@@ -3554,12 +3550,12 @@
         cursor: pointer;
       }
       .plan-row-action-btn:hover {
-        border-color: #3563d4;
-        color: #3563d4;
+        border-color: var(--selected);
+        color: var(--selected);
       }
       .plan-row-action-btn--delete:hover {
-        border-color: var(--red, #b91c1c);
-        color: var(--red, #b91c1c);
+        border-color: var(--red, #7a1a1a);
+        color: var(--red, #7a1a1a);
       }
       .plan-race-type-badge {
         font-size: 9.5px;
@@ -3620,7 +3616,7 @@
       .plan-spec-bar-fill {
         height: 100%;
         border-radius: 4px;
-        background: #3563d4;
+        background: var(--selected);
         width: 100%;
         transform: scaleX(0);
         transform-origin: left;
@@ -3660,7 +3656,7 @@
         align-items: flex-end;
         justify-content: center;
       }
-      @media (min-width: 540px) {
+      @media (min-width: 640px) {
         .plan-modal-overlay {
           align-items: center;
         }
@@ -3675,7 +3671,7 @@
         max-height: 90vh;
         overflow-y: auto;
       }
-      @media (min-width: 540px) {
+      @media (min-width: 640px) {
         .plan-modal-sheet {
           border-radius: 18px;
         }
@@ -3729,7 +3725,7 @@
       }
       .plan-modal-input:focus {
         outline: none;
-        border-color: #3563d4;
+        border-color: var(--selected);
         background: #fff;
       }
       /* Segmented controls (type tabs + priority) */
@@ -3797,7 +3793,7 @@
         font-size: 13px;
         font-weight: 600;
         font-family: inherit;
-        color: #3563d4;
+        color: var(--selected);
         cursor: pointer;
         text-align: center;
       }
@@ -3858,7 +3854,7 @@
         flex-wrap: wrap;
         padding: 10px 14px;
         border-radius: 10px;
-        background: #dcfce7;
+        background: var(--success-soft);
         border: 1px solid #bbf7d0;
       }
       .plan-modal-actual-lab {
@@ -3952,7 +3948,7 @@
         padding: 9px 22px;
         border-radius: 9px;
         border: none;
-        background: #3563d4;
+        background: var(--selected);
         color: #fff;
         font-family: inherit;
         font-size: 13px;
@@ -3960,7 +3956,7 @@
         cursor: pointer;
       }
       .plan-modal-save:hover {
-        background: #2b4ca8;
+        background: var(--selected-dark);
       }
       .plan-confirm-overlay {
         position: fixed;
@@ -4049,7 +4045,7 @@
       .plan-settings-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-tertiary); }
       .plan-settings-input-row { display: flex; align-items: center; gap: 8px; }
       .plan-settings-input { width: 90px; border: 1.5px solid var(--card-border); border-radius: 9px; padding: 8px 10px; font-size: 14px; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--text-primary); background: #f8fafd; box-sizing: border-box; }
-      .plan-settings-input:focus { outline: none; border-color: #3563d4; background: #fff; }
+      .plan-settings-input:focus { outline: none; border-color: var(--selected); background: #fff; }
       .plan-settings-input.is-invalid { border-color: var(--red); }
       .plan-settings-unit { font-size: 11.5px; color: var(--text-tertiary); font-weight: 600; white-space: nowrap; }
       .plan-settings-error { font-size: 11px; color: var(--red); min-height: 14px; }
@@ -4057,7 +4053,7 @@
       #plan-schedule-preview { margin-top: 4px; }
 
       /* Responsive */
-      @media (max-width: 600px) {
+      @media (max-width: 640px) {
         #plan-tab-panel {
           padding: 12px;
           gap: 12px;
@@ -4082,6 +4078,10 @@
       <!-- Page header: title, stats subtitle, action buttons -->
       <header class="log-page-header">
         <div class="log-page-header-inner">
+        <div class="log-page-header-info">
+          <h1 class="log-page-title">Training</h1>
+          <p id="log-subtitle" class="log-subtitle"></p>
+        </div>
         <nav
           class="training-sub-tabs"
           id="training-sub-tabs"
@@ -4118,6 +4118,7 @@
             role="tab"
             aria-selected="false"
             aria-controls="training-panel-performance"
+            aria-label="Performance"
           >
             <span class="tab-label-long">Performance</span
             ><span class="tab-label-short" aria-hidden="true">Perf</span>
@@ -4196,6 +4197,15 @@
             </div>
           </div>
           <button
+            id="log-export-btn"
+            class="btn-secondary"
+            type="button"
+            title="Export the visible training log as CSV"
+          >
+            <i class="ti ti-download" aria-hidden="true"></i>
+            <span class="btn-label">Export CSV</span>
+          </button>
+          <button
             id="log-removed-btn"
             class="btn-secondary"
             type="button"
@@ -4240,6 +4250,27 @@
         </div>
       </div>
 
+      <!-- Generic confirm dialog (delete workout, etc) — reuses the shared
+           .modal-overlay/.modal-box/.modal-actions vocabulary from
+           frontend/css/styles.css instead of native confirm(). -->
+      <div
+        id="tl-confirm-overlay"
+        class="modal-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="tl-confirm-title"
+      >
+        <div class="modal-box">
+          <h2 id="tl-confirm-title" style="margin: 0 0 8px; font-size: 1.05rem">
+            Are you sure?
+          </h2>
+          <p id="tl-confirm-msg" style="margin: 0; color: var(--text-sub); font-size: 0.9rem"></p>
+          <div class="modal-actions">
+            <button type="button" id="tl-confirm-cancel" class="btn-secondary">Cancel</button>
+            <button type="button" id="tl-confirm-ok" class="btn-danger">Confirm</button>
+          </div>
+        </div>
+      </div>
 
       <!-- Week strip (JS renders into this) — Log tab content -->
       <div class="log-card log-card--week">
@@ -4269,7 +4300,7 @@
         <div class="pm-card lp-card" id="load-plan-section">
           <div class="lp-head">
             <div>
-              <div class="pm-sectitle">Session load plan</div>
+              <h2 class="pm-sectitle">Session load plan</h2>
               <div class="lp-subtitle" id="lp-subtitle">&nbsp;</div>
             </div>
             <button
@@ -4316,7 +4347,7 @@
               <label for="lp-ramp-slider">Ramp rate</label>
               <input id="lp-ramp-slider" type="range" min="0" max="10" step="0.5" value="5" />
               <span class="lp-settings-num">
-                <input id="lp-ramp-input" type="number" min="0" max="10" step="0.5" value="5" />
+                <input id="lp-ramp-input" type="number" min="0" max="10" step="0.5" value="5" aria-label="Ramp rate percent per week" />
                 <span class="pm-unit">% / wk</span>
               </span>
             </div>
@@ -4393,7 +4424,7 @@
              sparkline + baseline number. ─────────────────────────────────── -->
         <div class="pm-card wl-card" id="week-load-section">
           <div class="pm-ckhead">
-            <span class="pm-sectitle">Session load &middot; this week</span>
+            <h2 class="pm-sectitle">Session load &middot; this week</h2>
           </div>
           <p class="pm-csub">Where the target comes from, and how your sessions add up to it.</p>
 
@@ -4448,6 +4479,25 @@
           </div>
 
           <p class="lp-empty" id="wl-empty" hidden>Set a goal race to generate a weekly target.</p>
+        </div>
+      </div>
+      <!-- What to improve — above the week schedule -->
+      <div class="plan-merged">
+        <div class="pm-card" id="gap-panel">
+          <div class="pm-ckhead">
+            <h2 class="pm-sectitle">What to improve</h2>
+            <span class="perf-tag" id="gap-panel-week"></span>
+          </div>
+          <div id="gap-panel-loading" class="gap-loading">Loading…</div>
+          <div id="gap-panel-findings" hidden></div>
+          <div id="gap-panel-empty" class="gap-empty" hidden>
+            No gaps flagged this week.
+          </div>
+          <div id="gap-panel-error" class="gap-error" hidden>
+            Could not load recommendations.
+          </div>
+          <div id="gap-panel-skipped" class="gap-skipped" hidden></div>
+          <div id="gap-panel-muted" hidden></div>
         </div>
       </div>
       <div id="plan-week-section"></div>
@@ -4601,39 +4651,15 @@
           </div>
           <!-- /.perf-scorewrap -->
 
-          <!-- ── What to improve panel (issue #1374) ───────────────────── -->
-          <div class="pm-card" id="gap-panel">
-            <div class="pm-ckhead">
-              <span class="pm-sectitle">What to improve</span>
-              <span class="perf-tag" id="gap-panel-week"></span>
-            </div>
-            <!-- Loading state -->
-            <div id="gap-panel-loading" class="gap-loading">Loading…</div>
-            <!-- Finding cards (up to 3) -->
-            <div id="gap-panel-findings" hidden></div>
-            <!-- Empty state -->
-            <div id="gap-panel-empty" class="gap-empty" hidden>
-              No gaps flagged this week.
-            </div>
-            <!-- Error state -->
-            <div id="gap-panel-error" class="gap-error" hidden>
-              Could not load recommendations.
-            </div>
-            <!-- Skipped-rules footnote -->
-            <div id="gap-panel-skipped" class="gap-skipped" hidden></div>
-            <!-- Muted / suppressed findings (issue #1377) -->
-            <div id="gap-panel-muted" hidden></div>
-          </div>
-
           <!-- ── Muscle balance card (issue #1382) ─────────────────────── -->
           <div class="pm-card" id="muscle-balance-card">
             <div class="pm-ckhead">
-              <span class="pm-sectitle">Muscle balance</span>
+              <h2 class="pm-sectitle">Muscle balance</h2>
             </div>
             <div id="muscle-balance-loading" class="mbal-loading">Loading…</div>
             <div id="muscle-balance-rows" class="mbal-rows" hidden></div>
             <div id="muscle-balance-show-all" class="mbal-show-all-wrap" hidden>
-              <button class="mbal-show-all-btn" type="button" id="muscle-balance-show-all-btn">
+              <button class="mbal-show-all-btn" type="button" id="muscle-balance-show-all-btn" aria-expanded="false" aria-controls="muscle-balance-inactive-rows">
                 Show inactive groups ▾
               </button>
               <div id="muscle-balance-inactive-rows" class="mbal-inactive-rows"></div>
@@ -4656,7 +4682,7 @@
 
           <!-- 2. Calibration status -->
           <div class="pm-card">
-            <span class="pm-sectitle">Calibration status</span>
+            <h2 class="pm-sectitle pm-sectitle--plain">Calibration status</h2>
             <div class="pm-calgrid">
               <div class="pm-caltile">
                 <div class="pm-lab"><span class="pm-lab-full">Last recalibrated</span><span class="pm-lab-short">Recalibrated</span></div>
@@ -4692,7 +4718,7 @@
                number the athlete cares about is visible without scrolling -->
           <div id="perf-proj" class="pm-card perf-proj-card">
             <div class="pm-ckhead">
-              <span class="pm-sectitle">Projected at next checkpoint</span>
+              <h2 class="pm-sectitle pm-sectitle--plain">Projected at next checkpoint</h2>
               <span class="perf-tag">New</span>
             </div>
             <div id="perf-proj-body" hidden>
@@ -4716,7 +4742,7 @@
           <!-- 3. Races & projections (HERO) -->
           <div class="pm-card">
             <div class="pm-ckhead">
-              <span class="pm-sectitle">Races &amp; projections</span>
+              <h2 class="pm-sectitle pm-sectitle--plain">Races &amp; projections</h2>
               <div class="pm-ckbtns">
                 <button id="plan-recalc-btn" class="pm-ckbtn" type="button">
                   ↻ Recalculate
@@ -4773,7 +4799,7 @@
           <div class="pm-row2">
           <!-- 4. Form curve (TSB) -->
           <div class="pm-card">
-            <span class="pm-sectitle">Form curve (TSB)</span>
+            <h2 class="pm-sectitle pm-sectitle--plain">Form curve (TSB)</h2>
             <div class="pm-csub">
               Fresh above the green line, overreached below the red. Built from
               your logged load — the projection extends this forward.
@@ -4803,7 +4829,7 @@
           <!-- 5. Race-readiness specificity (Plan settings moved to the Plan
                tab — see #plan-settings-section there) -->
           <div class="pm-card" id="plan-spec-section">
-            <span class="pm-sectitle">Race-readiness specificity</span>
+            <h2 class="pm-sectitle pm-sectitle--plain">Race-readiness specificity</h2>
             <div class="pm-csub" id="plan-spec-sub">
               How closely recent training matches the demands of your A race.
             </div>
@@ -4818,7 +4844,7 @@
           <!-- ── Personal records — moved here from the removed Performance
                tab ─────────────────────────────────────────────────────── -->
           <div class="pm-card perf-pr-card">
-            <span class="pm-sectitle">Personal records</span>
+            <h2 class="pm-sectitle">Personal records</h2>
             <div id="perf-pr-strip" class="perf-prgrid">
               <p class="perf-pr-loading">Loading…</p>
             </div>
@@ -4831,36 +4857,18 @@
     <style>
       /* ── Merged Plan panel styles (scoped under .plan-merged) ────────────── */
       .plan-merged {
-        --pm-card: #fff;
-        --pm-ink: #1b2340;
-        --pm-muted: #6b7280;
-        --pm-faint: var(--text-tertiary, #69748c);
-        --pm-line: #eceef4;
-        --pm-tile: #f6f7fb;
-        --pm-blue: #4f6ef7;
-        --pm-blueSoft: #e6ebfe;
-        --pm-lavHi: #6366f1;
-        --pm-green: #16a34a;
-        --pm-greenSoft: #dcfce7;
-        --pm-endur: #16a34a;
-        --pm-speed: #ea580c;
-        --pm-amber: #d97706;
-        --pm-amberSoft: #fdf3da;
-        --pm-red: #dc2626;
-        --pm-redSoft: #fee2e2;
-        --pm-mono: "JetBrains Mono", ui-monospace, monospace;
         display: flex;
         flex-direction: column;
         gap: 16px;
-        color: var(--pm-ink);
+        color: var(--ink);
         letter-spacing: -0.01em;
       }
       .plan-merged .pm-card {
-        background: var(--pm-card);
+        background: var(--surface);
         border-radius: 16px;
         padding: 20px 22px;
         box-shadow: 0 8px 24px rgba(20, 28, 70, 0.1);
-        border: 1px solid var(--pm-line);
+        border: 1px solid var(--border);
       }
       /* Two cards side-by-side in one row (header+calibration, formcurve+settings). */
       .plan-merged .pm-row2 {
@@ -4874,25 +4882,25 @@
       /* ── What to improve panel (issue #1374) ──────────────────────────── */
       .gap-loading {
         font-size: 13px;
-        color: var(--pm-muted);
+        color: var(--text-sub);
         padding: 8px 0 4px;
       }
       .gap-empty {
         font-size: 13px;
-        color: var(--pm-muted);
+        color: var(--text-sub);
         padding: 8px 0 4px;
       }
       .gap-error {
         font-size: 13px;
-        color: var(--pm-red);
+        color: var(--danger);
         padding: 8px 0 4px;
       }
       .gap-skipped {
         font-size: 11px;
-        color: var(--pm-faint);
+        color: var(--text-sub);
         margin-top: 12px;
         padding-top: 10px;
-        border-top: 1px solid var(--pm-line);
+        border-top: 1px solid var(--border);
       }
       #gap-panel-findings {
         display: flex;
@@ -4903,25 +4911,43 @@
       .gap-finding {
         border-radius: 10px;
         padding: 12px 14px;
-        border-left: 3px solid var(--gap-accent, var(--pm-line));
-        background: var(--pm-tile);
+        background: var(--tile);
       }
-      .gap-finding--sev3 { --gap-accent: var(--pm-red); background: var(--pm-redSoft); }
-      .gap-finding--sev2 { --gap-accent: var(--pm-amber); background: var(--pm-amberSoft); }
-      .gap-finding--sev1 { --gap-accent: var(--pm-line); }
+      .gap-finding--sev3 { --gap-accent: var(--danger); background: var(--danger-soft); }
+      .gap-finding--sev2 { --gap-accent: var(--warning); background: var(--warning-soft); }
+      .gap-finding--sev1 { --gap-accent: var(--border); }
       .gap-finding-headline {
         font-size: 13px;
         font-weight: 600;
-        color: var(--pm-ink);
+        color: var(--ink);
         margin: 0 0 4px;
         line-height: 1.35;
       }
-      .gap-finding--sev1 .gap-finding-headline { color: var(--pm-muted); }
+      /* Severity indicator: a small dot ahead of the headline instead of a
+         border-left stripe on the whole card. */
+      .gap-finding-headline::before {
+        content: "";
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        margin-right: 7px;
+        margin-top: -2px;
+        border-radius: 50%;
+        background: var(--gap-accent, var(--border));
+        vertical-align: middle;
+      }
+      .gap-finding--sev1 .gap-finding-headline { color: var(--text-sub); }
       .gap-finding-evidence {
         font-size: 12px;
-        color: var(--pm-muted);
+        color: var(--text-sub);
         margin: 0;
         line-height: 1.45;
+      }
+      .gap-finding-preset {
+        font-size: 11px;
+        font-weight: 600;
+        color: #047857;
+        margin: 4px 0 0;
       }
       /* Add-to-plan footer (issue #1376) */
       .gap-finding-footer {
@@ -4931,12 +4957,16 @@
         flex-wrap: wrap;
         margin-top: 8px;
       }
+      .gap-finding-footer .gap-feedback-controls {
+        margin-top: 0;
+        margin-left: auto;
+      }
       .gap-atp-btn {
         font-size: 11px;
         font-weight: 600;
-        color: var(--pm-ink);
+        color: var(--ink);
         background: transparent;
-        border: 1px solid var(--gap-accent, var(--pm-line));
+        border: 1px solid var(--gap-accent, var(--border));
         border-radius: 6px;
         padding: 4px 10px;
         cursor: pointer;
@@ -4950,7 +4980,7 @@
       }
       .gap-atp-status {
         font-size: 11px;
-        color: var(--pm-muted);
+        color: var(--text-sub);
       }
       .gap-atp-picker {
         display: inline-flex;
@@ -4960,16 +4990,16 @@
       }
       .gap-atp-date {
         font-size: 11px;
-        border: 1px solid var(--pm-line);
+        border: 1px solid var(--border);
         border-radius: 6px;
         padding: 3px 6px;
-        background: var(--pm-tile);
-        color: var(--pm-ink);
+        background: var(--tile);
+        color: var(--ink);
       }
       .gap-atp-confirm {
         font-size: 11px;
         font-weight: 600;
-        background: var(--pm-accent, #3b82f6);
+        background: var(--primary);
         color: #fff;
         border: none;
         border-radius: 6px;
@@ -4989,31 +5019,31 @@
         font-size: 11px;
         font-weight: 500;
         background: transparent;
-        border: 1px solid var(--pm-line);
+        border: 1px solid var(--border);
         border-radius: 6px;
         padding: 3px 9px;
         cursor: pointer;
-        color: var(--pm-muted);
+        color: var(--text-sub);
         transition: background 0.12s, color 0.12s;
       }
-      .gap-fb-btn:hover:not(:disabled) { background: rgba(0,0,0,0.05); color: var(--pm-ink); }
+      .gap-fb-btn:hover:not(:disabled) { background: rgba(0,0,0,0.05); color: var(--ink); }
       .gap-fb-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-      .gap-fb-accept { border-color: var(--pm-green, #22c55e); color: var(--pm-green, #22c55e); }
+      .gap-fb-accept { border-color: var(--success); color: var(--success); }
       .gap-fb-restore { font-size: 10px; }
       .gap-finding--accepted { opacity: 0.72; }
-      .gap-no-active { font-size: 12px; color: var(--pm-muted); margin: 6px 0 0; }
+      .gap-no-active { font-size: 12px; color: var(--text-sub); margin: 6px 0 0; }
       /* Muted section */
-      #gap-panel-muted { margin-top: 10px; border-top: 1px solid var(--pm-line); padding-top: 8px; }
+      #gap-panel-muted { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
       .gap-muted-toggle {
         font-size: 11px;
         font-weight: 600;
-        color: var(--pm-muted);
+        color: var(--text-sub);
         background: transparent;
         border: none;
         cursor: pointer;
         padding: 2px 0;
       }
-      .gap-muted-toggle:hover { color: var(--pm-ink); }
+      .gap-muted-toggle:hover { color: var(--ink); }
       .gap-muted-list { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
       .gap-muted-row {
         display: flex;
@@ -5021,11 +5051,11 @@
         gap: 8px;
         padding: 5px 8px;
         border-radius: 6px;
-        background: var(--pm-tile);
+        background: var(--tile);
       }
       .gap-muted-label {
         font-size: 12px;
-        color: var(--pm-muted);
+        color: var(--text-sub);
         flex: 1;
         min-width: 0;
         overflow: hidden;
@@ -5036,27 +5066,27 @@
       /* ── Muscle balance card (issue #1382) ──────────────────────────────── */
       .mbal-loading, .mbal-empty, .mbal-error {
         font-size: 13px;
-        color: var(--pm-muted);
+        color: var(--text-sub);
         padding: 8px 0 4px;
       }
-      .mbal-error { color: var(--pm-red); }
+      .mbal-error { color: var(--danger); }
       .mbal-rows { display: flex; flex-direction: column; gap: 0; }
       .mbal-row {
         display: flex;
         align-items: center;
         gap: 10px;
         padding: 9px 0;
-        border-bottom: 1px solid var(--pm-line);
+        border-bottom: 1px solid var(--border);
         cursor: pointer;
         border-radius: 0;
         transition: background 0.1s;
       }
       .mbal-row:last-child { border-bottom: none; }
-      .mbal-row:hover { background: var(--pm-tile); margin: 0 -4px; padding-left: 4px; padding-right: 4px; border-radius: 6px; }
+      .mbal-row:hover { background: var(--tile); margin: 0 -4px; padding-left: 4px; padding-right: 4px; border-radius: 6px; }
       .mbal-group-name {
         font-size: 13px;
         font-weight: 600;
-        color: var(--pm-ink);
+        color: var(--ink);
         width: 88px;
         flex-shrink: 0;
         text-transform: capitalize;
@@ -5065,15 +5095,17 @@
         flex: 1;
         min-width: 0;
         height: 6px;
-        background: var(--pm-line);
+        background: var(--border);
         border-radius: 3px;
         overflow: hidden;
       }
       .mbal-bar {
         height: 100%;
+        width: 100%;
         border-radius: 3px;
-        background: var(--mbal-bar-color, var(--pm-blue));
-        transition: width 0.3s ease;
+        background: var(--mbal-bar-color, var(--primary));
+        transform-origin: left;
+        transition: transform 0.3s ease;
       }
       .mbal-chip {
         font-size: 10px;
@@ -5085,21 +5117,21 @@
         flex-shrink: 0;
         white-space: nowrap;
       }
-      .mbal-chip--overused  { background: var(--pm-redSoft);   color: var(--pm-red); }
-      .mbal-chip--elevated  { background: var(--pm-amberSoft); color: var(--pm-amber); }
-      .mbal-chip--balanced  { background: var(--pm-tile);      color: var(--pm-muted); }
+      .mbal-chip--overused  { background: var(--danger-soft);   color: var(--danger); }
+      .mbal-chip--elevated  { background: var(--warning-soft); color: var(--warning); }
+      .mbal-chip--balanced  { background: var(--tile);      color: var(--text-sub); }
       .mbal-chip--detraining{ background: #e6ebfe;             color: #4f6ef7; }
       .mbal-chip--untrained { background: #e6ebfe;             color: #4f6ef7; }
-      .mbal-chip--inactive  { background: var(--pm-tile);      color: var(--pm-faint); }
+      .mbal-chip--inactive  { background: var(--tile);      color: var(--text-sub); }
       .mbal-injured-mark {
         font-size: 11px;
-        color: var(--pm-red);
+        color: var(--danger);
         flex-shrink: 0;
         font-weight: 700;
       }
       /* Expanded detail panel */
       .mbal-detail {
-        background: var(--pm-tile);
+        background: var(--tile);
         border-radius: 8px;
         padding: 10px 12px;
         margin: 0 0 6px;
@@ -5109,7 +5141,7 @@
       .mbal-detail-head {
         font-size: 11px;
         font-weight: 700;
-        color: var(--pm-faint);
+        color: var(--text-sub);
         text-transform: uppercase;
         letter-spacing: 0.05em;
         margin-bottom: 6px;
@@ -5128,9 +5160,9 @@
       .mbal-source-pill {
         font-size: 11px;
         font-weight: 600;
-        color: var(--pm-ink);
+        color: var(--ink);
         background: #fff;
-        border: 1px solid var(--pm-line);
+        border: 1px solid var(--border);
         border-radius: 6px;
         padding: 2px 8px;
       }
@@ -5138,30 +5170,30 @@
       .mbal-show-all-wrap {
         margin-top: 4px;
         padding-top: 8px;
-        border-top: 1px solid var(--pm-line);
+        border-top: 1px solid var(--border);
       }
       .mbal-show-all-btn {
         font-size: 12px;
         font-weight: 600;
-        color: var(--pm-muted);
+        color: var(--text-sub);
         background: transparent;
         border: none;
         cursor: pointer;
         padding: 2px 0;
         letter-spacing: -0.01em;
       }
-      .mbal-show-all-btn:hover { color: var(--pm-ink); }
+      .mbal-show-all-btn:hover { color: var(--ink); }
       .mbal-inactive-rows { display: none; }
       .mbal-inactive-rows.is-shown { display: block; }
       /* Unclassified footnote */
       .mbal-unclassified {
         margin-top: 10px;
         padding-top: 8px;
-        border-top: 1px solid var(--pm-line);
+        border-top: 1px solid var(--border);
         font-size: 11px;
-        color: var(--pm-faint);
+        color: var(--text-sub);
       }
-      @media (max-width: 520px) {
+      @media (max-width: 640px) {
         .mbal-group-name { width: 68px; font-size: 12px; }
         .mbal-chip { font-size: 9px; padding: 2px 5px; }
       }
@@ -5172,15 +5204,31 @@
         flex-direction: column;
         justify-content: center;
       }
-      @media (max-width: 860px) {
+      @media (max-width: 1024px) {
         .plan-merged .pm-row2 { grid-template-columns: 1fr; }
       }
       .plan-merged .pm-sectitle {
+        /* Now an <h2> (was <span>/<div>) for heading-hierarchy a11y — reset
+           the UA default heading margin so nothing shifts visually. */
+        margin: 0;
         font-size: 11px;
         font-weight: 800;
         letter-spacing: 0.07em;
-        color: var(--pm-faint);
+        color: var(--text-sub);
         text-transform: uppercase;
+      }
+      /* Plain-heading variant (issue: perf-tab eyebrow cluster) — used on
+         cards whose title is already the whole story (a status summary, a
+         headline number, the primary races panel, a chart) so the Performance
+         panel doesn't read as one uniform stamped kicker on every card. Kept
+         the uppercase kicker only on cards that group several sub-metrics
+         (Endurance/Speed score cards, Muscle balance, Personal records). */
+      .plan-merged .pm-sectitle.pm-sectitle--plain {
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: -0.005em;
+        color: var(--ink);
+        text-transform: none;
       }
       .plan-merged .pm-ckhead {
         display: flex;
@@ -5197,9 +5245,9 @@
       .plan-merged .pm-ckbtn {
         font-size: 12px;
         font-weight: 600;
-        color: var(--pm-ink);
-        background: var(--pm-tile);
-        border: 1px solid var(--pm-line);
+        color: var(--ink);
+        background: var(--tile);
+        border: 1px solid var(--border);
         border-radius: 8px;
         padding: 7px 12px;
         cursor: pointer;
@@ -5209,9 +5257,9 @@
         background: #eef2fb;
       }
       .plan-merged .pm-ckbtn.dark {
-        background: var(--pm-ink);
+        background: var(--ink);
         color: #fff;
-        border-color: var(--pm-ink);
+        border-color: var(--ink);
       }
       .plan-merged .pm-ckbtn:disabled {
         opacity: 0.6;
@@ -5223,28 +5271,28 @@
       }
       .plan-merged .pm-csub {
         font-size: 12px;
-        color: var(--pm-muted);
+        color: var(--text-sub);
         margin: 6px 0 12px;
       }
       .plan-merged .pm-lab {
         font-size: 10px;
         font-weight: 800;
         letter-spacing: 0.06em;
-        color: var(--pm-faint);
+        color: var(--text-sub);
         text-transform: uppercase;
       }
       /* Dual-length labels: full text on desktop, short on phones (the
-         720px media block flips these). */
+         1024px media block flips these). */
       .plan-merged .pm-lab-short { display: none; }
       .plan-merged .pm-italic {
         font-style: italic;
-        color: var(--pm-muted);
+        color: var(--text-sub);
         font-weight: 500;
       }
       .plan-merged .pm-empty {
         text-align: center;
         padding: 26px 16px;
-        color: var(--pm-muted);
+        color: var(--text-sub);
       }
       .plan-merged .pm-empty-msg {
         margin: 0 0 6px;
@@ -5254,12 +5302,12 @@
       .plan-merged .pm-empty-sub {
         margin: 0;
         font-size: 12px;
-        color: var(--pm-faint);
+        color: var(--text-sub);
       }
       .plan-merged .pm-loading {
         padding: 18px 4px;
         font-size: 12.5px;
-        color: var(--pm-muted);
+        color: var(--text-sub);
       }
       .plan-merged .pm-projnow {
         display: flex;
@@ -5282,22 +5330,22 @@
       .plan-merged .pm-projnow-val {
         font-size: 22px;
         font-weight: 700;
-        font-family: var(--pm-mono);
-        color: var(--pm-ink);
+        font-family: var(--mono);
+        color: var(--ink);
         line-height: 1;
       }
       .plan-merged .pm-projnow-meta {
         font-size: 11.5px;
-        color: var(--pm-muted);
-        font-family: var(--pm-mono);
+        color: var(--text-sub);
+        font-family: var(--mono);
       }
       /* How the estimate was formed from the athlete's own scores —
          "End 36 → 6:37 /km · Spd 49 → 5:44 /km → blended 6:09 /km". */
       .plan-merged .pm-projnow-basis {
         flex-basis: 100%;
         font-size: 11px;
-        color: var(--pm-faint);
-        font-family: var(--pm-mono);
+        color: var(--text-sub);
+        font-family: var(--mono);
         margin-top: 2px;
       }
       .plan-merged .pm-bb {
@@ -5306,7 +5354,7 @@
         gap: 8px;
         padding: 12px 14px;
         border-radius: 10px;
-        background: var(--pm-blueSoft);
+        background: var(--primary-soft);
         color: #3f4a7a;
         font-size: 12.5px;
       }
@@ -5320,7 +5368,7 @@
         width: 34px;
         height: 34px;
         border-radius: 9px;
-        background: var(--pm-ink);
+        background: var(--ink);
         color: #fff;
         font-size: 14px;
         font-weight: 800;
@@ -5339,14 +5387,14 @@
       }
       .plan-merged .pm-hdrmeta {
         font-size: 12px;
-        color: var(--pm-muted);
-        font-family: var(--pm-mono);
+        color: var(--text-sub);
+        font-family: var(--mono);
         margin-top: 2px;
       }
       .plan-merged .pm-hdrdiv {
         width: 1px;
         height: 42px;
-        background: var(--pm-line);
+        background: var(--border);
       }
       .plan-merged .pm-hdrgoalbox {
         text-align: right;
@@ -5355,21 +5403,21 @@
         font-size: 10px;
         font-weight: 800;
         letter-spacing: 0.08em;
-        color: var(--pm-faint);
+        color: var(--text-sub);
         text-transform: uppercase;
       }
       .plan-merged .pm-hdrgoalbox .pm-gval {
         font-size: 28px;
         font-weight: 700;
-        font-family: var(--pm-mono);
-        color: var(--pm-ink);
+        font-family: var(--mono);
+        color: var(--ink);
         line-height: 1;
         margin-top: 4px;
       }
       .plan-merged .pm-hdrgoalbox .pm-gsub {
         font-size: 11.5px;
-        color: var(--pm-muted);
-        font-family: var(--pm-mono);
+        color: var(--text-sub);
+        font-family: var(--mono);
         margin-top: 5px;
       }
       .plan-merged .pm-no-race {
@@ -5378,7 +5426,7 @@
         gap: 14px;
         flex-wrap: wrap;
         font-size: 13.5px;
-        color: var(--pm-muted);
+        color: var(--text-sub);
       }
       /* Completed / Upcoming section headers */
       .plan-merged .pm-races-hdr {
@@ -5386,7 +5434,7 @@
         font-weight: 800;
         letter-spacing: 0.09em;
         text-transform: uppercase;
-        color: var(--pm-faint);
+        color: var(--text-sub);
         margin: 4px 0 8px;
       }
       .plan-merged .pm-races-hdr + .pm-completed-grid,
@@ -5458,27 +5506,27 @@
       .plan-merged .pm-delta {
         font-size: 8px;
         font-weight: 800;
-        font-family: var(--pm-mono);
+        font-family: var(--mono);
         padding: 1px 5px;
         border-radius: 4px;
       }
       .plan-merged .pm-delta.over {
-        background: var(--pm-redSoft);
-        color: var(--pm-red);
+        background: var(--danger-soft);
+        color: var(--danger);
       }
       .plan-merged .pm-delta.under {
-        background: var(--pm-greenSoft);
-        color: var(--pm-green);
+        background: var(--success-soft);
+        color: var(--success);
       }
       .plan-merged .pm-rc {
-        background: var(--pm-tile);
-        border: 1px solid var(--pm-line);
+        background: var(--tile);
+        border: 1px solid var(--border);
         border-radius: 12px;
         padding: 14px 16px;
         margin-bottom: 10px;
       }
       .plan-merged .pm-rc.target {
-        border-color: #c7d2fe;
+        border-color: var(--selected-soft-3);
         background: linear-gradient(180deg, #eef1fe, #f6f7fb 55%);
       }
       .plan-merged .pm-rchd {
@@ -5525,8 +5573,8 @@
       }
       .plan-merged .pm-rcmeta {
         font-size: 11.5px;
-        color: var(--pm-muted);
-        font-family: var(--pm-mono);
+        color: var(--text-sub);
+        font-family: var(--mono);
       }
       .plan-merged .pm-upc {
         font-size: 9px;
@@ -5534,16 +5582,16 @@
         letter-spacing: 0.04em;
         padding: 2px 7px;
         border-radius: 5px;
-        background: var(--pm-greenSoft);
-        color: var(--pm-green);
+        background: var(--success-soft);
+        color: var(--success);
       }
       .plan-merged .pm-past {
         background: #eef0f4;
-        color: var(--pm-muted);
+        color: var(--text-sub);
       }
       .plan-merged .pm-done {
-        background: var(--pm-greenSoft);
-        color: var(--pm-green);
+        background: var(--success-soft);
+        color: var(--success);
       }
       .plan-merged .pm-recal {
         font-size: 9px;
@@ -5551,8 +5599,8 @@
         letter-spacing: 0.04em;
         padding: 2px 7px;
         border-radius: 5px;
-        background: var(--pm-amberSoft);
-        color: var(--pm-amber);
+        background: var(--warning-soft);
+        color: var(--warning);
       }
       .plan-merged .pm-tgt {
         font-size: 9px;
@@ -5560,8 +5608,8 @@
         letter-spacing: 0.04em;
         padding: 2px 7px;
         border-radius: 5px;
-        background: var(--pm-blueSoft);
-        color: var(--pm-lavHi);
+        background: var(--primary-soft);
+        color: var(--info-dark);
       }
       /* Actions are always pushed to the far right of the card header,
          regardless of which tags (recalibrates/target) are present. */
@@ -5571,7 +5619,7 @@
         margin-left: auto;
       }
       .plan-merged .pm-rcact {
-        border: 1px solid var(--pm-line);
+        border: 1px solid var(--border);
         background: #fff;
         border-radius: 7px;
         font-size: 11px;
@@ -5579,11 +5627,11 @@
         cursor: pointer;
         padding: 4px 9px;
         font-family: inherit;
-        color: var(--pm-muted);
+        color: var(--text-sub);
       }
       .plan-merged .pm-rcact:hover {
         background: #eef2fb;
-        color: var(--pm-ink);
+        color: var(--ink);
       }
       .plan-merged .pm-rcgrid {
         display: flex;
@@ -5602,7 +5650,7 @@
         font-size: 9px;
         font-weight: 800;
         letter-spacing: 0.05em;
-        color: var(--pm-faint);
+        color: var(--text-sub);
         text-transform: uppercase;
         margin-bottom: 5px;
         display: flex;
@@ -5612,13 +5660,13 @@
       .plan-merged .pm-colt {
         font-size: 21px;
         font-weight: 700;
-        font-family: var(--pm-mono);
+        font-family: var(--mono);
         line-height: 1;
       }
       .plan-merged .pm-colp {
         font-size: 12px;
-        color: var(--pm-muted);
-        font-family: var(--pm-mono);
+        color: var(--text-sub);
+        font-family: var(--mono);
         margin-top: 4px;
       }
       .plan-merged .pm-stat {
@@ -5628,12 +5676,12 @@
         border-radius: 4px;
       }
       .plan-merged .pm-stat.ok {
-        background: var(--pm-greenSoft);
-        color: var(--pm-green);
+        background: var(--success-soft);
+        color: var(--success);
       }
       .plan-merged .pm-stat.watch {
-        background: var(--pm-amberSoft);
-        color: var(--pm-amber);
+        background: var(--warning-soft);
+        color: var(--warning);
       }
       .plan-merged .pm-rcfoot {
         display: flex;
@@ -5650,24 +5698,24 @@
       .plan-merged .pm-sc {
         font-size: 11px;
         font-weight: 700;
-        font-family: var(--pm-mono);
+        font-family: var(--mono);
         padding: 3px 9px;
         border-radius: 6px;
       }
       .plan-merged .pm-sc.e {
-        background: var(--pm-greenSoft);
-        color: var(--pm-endur);
+        background: var(--success-soft);
+        color: var(--success);
       }
       .plan-merged .pm-sc.s {
         background: #fdeee5;
-        color: var(--pm-speed);
+        color: var(--workout-wod-dark);
       }
       /* Required-score tag with a positive (improvement-needed) delta: tint the
          End/Spd tag amber so a needed gain reads as work-to-do vs an already
          green (within-current-ability) tag. */
       .plan-merged .pm-sc.req {
-        background: var(--pm-amberSoft);
-        color: var(--pm-amber);
+        background: var(--warning-soft);
+        color: var(--warning);
       }
       /* Demonstrated End/Spd tags on the compact completed cards. */
       .plan-merged .pm-rc--done .pm-sc {
@@ -5677,10 +5725,10 @@
       .plan-merged .pm-equiv {
         font-size: 11.5px;
         color: #4b5563;
-        font-family: var(--pm-mono);
+        font-family: var(--mono);
       }
       .plan-merged .pm-equiv b {
-        color: var(--pm-ink);
+        color: var(--ink);
         font-weight: 700;
       }
       .plan-merged .pm-calgrid {
@@ -5690,8 +5738,8 @@
       }
       .plan-merged .pm-caltile {
         flex: 1;
-        background: var(--pm-tile);
-        border: 1px solid var(--pm-line);
+        background: var(--tile);
+        border: 1px solid var(--border);
         border-radius: 12px;
         padding: 14px 16px;
       }
@@ -5710,31 +5758,31 @@
         display: inline-block;
       }
       .plan-merged .pm-badge.good {
-        background: var(--pm-greenSoft);
-        color: var(--pm-green);
+        background: var(--success-soft);
+        color: var(--success);
       }
       .plan-merged .pm-badge.med {
-        background: var(--pm-amberSoft);
-        color: var(--pm-amber);
+        background: var(--warning-soft);
+        color: var(--warning);
       }
       .plan-merged .pm-badge.low {
-        background: var(--pm-redSoft);
-        color: var(--pm-red);
+        background: var(--danger-soft);
+        color: var(--danger);
       }
       .plan-merged .pm-unit {
         font-size: 12px;
-        color: var(--pm-muted);
+        color: var(--text-sub);
       }
       .plan-merged .pm-fielderr {
         display: block;
         font-size: 11px;
-        color: var(--pm-red);
+        color: var(--danger);
         margin-top: 5px;
         min-height: 0.9em;
       }
       .plan-merged .pm-saved {
         font-size: 12px;
-        color: var(--pm-green);
+        color: var(--success);
         font-weight: 700;
         margin: -6px 0 14px;
       }
@@ -5753,7 +5801,7 @@
       .plan-merged .lp-subtitle {
         font-size: 13px;
         font-weight: 700;
-        color: var(--pm-ink);
+        color: var(--ink);
         margin-top: 2px;
       }
       .plan-merged .lp-cog-btn {
@@ -5761,9 +5809,9 @@
         width: 34px;
         height: 34px;
         border-radius: 10px;
-        border: 1px solid var(--pm-line);
-        background: var(--pm-tile);
-        color: var(--pm-muted);
+        border: 1px solid var(--border);
+        background: var(--tile);
+        color: var(--text-sub);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -5772,7 +5820,7 @@
       .plan-merged .lp-cog-btn:hover,
       .plan-merged .lp-cog-btn.is-active {
         background: #fff;
-        color: var(--pm-ink);
+        color: var(--ink);
         box-shadow: var(--card-shadow, 0 2px 6px rgba(20, 28, 70, 0.12));
       }
 
@@ -5783,8 +5831,8 @@
         margin: 14px 0 4px;
       }
       .plan-merged .lp-rule {
-        background: var(--pm-tile);
-        border: 1px solid var(--pm-line);
+        background: var(--tile);
+        border: 1px solid var(--border);
         border-radius: 10px;
         padding: 9px 11px;
         min-width: 0;
@@ -5794,7 +5842,7 @@
         font-weight: 800;
         letter-spacing: 0.05em;
         text-transform: uppercase;
-        color: var(--pm-faint);
+        color: var(--text-sub);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -5802,7 +5850,7 @@
       .plan-merged .lp-rule-val {
         font-size: 13.5px;
         font-weight: 700;
-        color: var(--pm-ink);
+        color: var(--ink);
         margin-top: 3px;
         white-space: nowrap;
         overflow: hidden;
@@ -5812,8 +5860,8 @@
       .plan-merged .lp-settings-panel {
         margin: 14px 0 4px;
         padding: 14px 16px;
-        background: var(--pm-tile);
-        border: 1px solid var(--pm-line);
+        background: var(--tile);
+        border: 1px solid var(--border);
         border-radius: 12px;
       }
       .plan-merged .lp-settings-row {
@@ -5827,7 +5875,7 @@
         flex-shrink: 0;
         font-size: 12.5px;
         font-weight: 600;
-        color: var(--pm-ink);
+        color: var(--ink);
         display: flex;
         align-items: center;
         gap: 5px;
@@ -5835,7 +5883,7 @@
       .plan-merged .lp-settings-row input[type="range"] {
         flex: 1;
         min-width: 0;
-        accent-color: var(--pm-blue);
+        accent-color: var(--primary);
       }
       .plan-merged .lp-settings-num {
         display: flex;
@@ -5845,21 +5893,21 @@
       }
       .plan-merged .lp-settings-num input {
         width: 64px;
-        font-family: var(--pm-mono);
+        font-family: var(--mono);
         font-size: 13px;
         font-weight: 600;
-        color: var(--pm-ink);
-        border: 1px solid var(--pm-line);
+        color: var(--ink);
+        border: 1px solid var(--border);
         background: #fff;
         border-radius: 7px;
         padding: 6px 8px;
       }
       .plan-merged .lp-settings-num select {
-        font-family: var(--pm-mono);
+        font-family: var(--mono);
         font-size: 13px;
         font-weight: 600;
-        color: var(--pm-ink);
-        border: 1px solid var(--pm-line);
+        color: var(--ink);
+        border: 1px solid var(--border);
         background: #fff;
         border-radius: 7px;
         padding: 6px 8px;
@@ -5871,15 +5919,15 @@
         width: 15px;
         height: 15px;
         border-radius: 50%;
-        background: var(--pm-line);
-        color: var(--pm-muted);
+        background: var(--border);
+        color: var(--text-sub);
         font-size: 10px;
         font-weight: 800;
         cursor: help;
       }
       .plan-merged .lp-hint-text {
         font-size: 11px;
-        color: var(--pm-faint);
+        color: var(--text-sub);
         font-style: italic;
       }
       .plan-merged .lp-settings-row--toggle label {
@@ -5893,25 +5941,25 @@
         height: 8px;
         border-radius: 5px;
         overflow: hidden;
-        background: var(--pm-line);
+        background: var(--border);
       }
       .plan-merged .lp-week-budget-bar > span {
         height: 100%;
       }
       .plan-merged .lp-week-budget-bar .ramp {
-        background: var(--pm-blue);
+        background: var(--primary);
       }
       .plan-merged .lp-week-budget-bar .hold {
         background: #6d87f8;
       }
       .plan-merged .lp-week-budget-bar .taper {
-        background: var(--pm-amber);
+        background: var(--warning);
       }
       .plan-merged .lp-week-budget-line {
         font-size: 11px;
-        color: var(--pm-muted);
+        color: var(--text-sub);
         margin-top: 6px;
-        font-family: var(--pm-mono);
+        font-family: var(--mono);
       }
       .plan-merged .lp-settings-actions {
         display: flex;
@@ -5931,9 +5979,9 @@
         position: absolute;
         top: 0;
         height: 14px;
-        border-top: 1.5px solid var(--pm-blue);
-        border-left: 1.5px solid var(--pm-blue);
-        border-right: 1.5px solid var(--pm-blue);
+        border-top: 1.5px solid var(--primary);
+        border-left: 1.5px solid var(--primary);
+        border-right: 1.5px solid var(--primary);
         border-radius: 3px 3px 0 0;
       }
       .plan-merged .lp-bracket-lab {
@@ -5944,7 +5992,7 @@
         font-size: 9.5px;
         font-weight: 800;
         letter-spacing: 0.04em;
-        color: var(--pm-blue);
+        color: var(--primary);
         white-space: nowrap;
       }
       .plan-merged .lp-bars {
@@ -5952,7 +6000,7 @@
         align-items: flex-end;
         gap: 3px;
         height: 170px;
-        border-bottom: 1px solid var(--pm-line);
+        border-bottom: 1px solid var(--border);
       }
       .plan-merged .lp-bar-col {
         flex: 1;
@@ -5975,22 +6023,22 @@
       .plan-merged .lp-bar-value {
         font-size: 9px;
         font-weight: 700;
-        font-family: var(--pm-mono);
+        font-family: var(--mono);
       }
       /* Solid = actual (logged) */
       .plan-merged .lp-bar.actual {
-        background: var(--pm-blue);
+        background: var(--primary);
       }
       .plan-merged .lp-bar.actual .lp-bar-value {
         color: #fff;
       }
       /* Outlined = target, per phase */
       .plan-merged .lp-bar.target {
-        border: 1.5px solid var(--pm-blue);
-        background: var(--pm-blueSoft);
+        border: 1.5px solid var(--primary);
+        background: var(--primary-soft);
       }
       .plan-merged .lp-bar.target .lp-bar-value {
-        color: var(--pm-blue);
+        color: var(--primary);
       }
       .plan-merged .lp-bar.target.phase-hold {
         border-color: #6d87f8;
@@ -6000,39 +6048,44 @@
         color: #4257c9;
       }
       .plan-merged .lp-bar.target.phase-taper {
-        border-color: var(--pm-amber);
-        background: var(--pm-amberSoft);
+        border-color: var(--warning);
+        background: var(--warning-soft);
       }
       .plan-merged .lp-bar.target.phase-taper .lp-bar-value {
-        color: var(--pm-amber);
+        color: var(--warning);
       }
       .plan-merged .lp-bar.target.phase-race {
-        border-color: var(--pm-red);
-        background: var(--pm-redSoft);
+        border-color: var(--danger);
+        background: var(--danger-soft);
       }
       .plan-merged .lp-bar.target.phase-race .lp-bar-value {
-        color: var(--pm-red);
+        color: var(--danger);
       }
       /* Consolidation block (training_verdict "hold"/"back_off") — a flat
          grey band, deliberately unlike the ramp/hold/taper colors, so a
          verdict-driven pause reads as distinct from a normal plan phase. */
       .plan-merged .lp-bar.target.phase-consolidation {
-        border-color: var(--pm-muted);
-        background: var(--pm-tile);
+        border-color: var(--text-sub);
+        background: var(--tile);
       }
       .plan-merged .lp-bar.target.phase-consolidation .lp-bar-value {
-        color: var(--pm-muted);
+        color: var(--text-sub);
       }
       /* ACWR-clamped week: visibly pinned via an amber top edge, regardless
          of phase color, so "why isn't my ramp doing anything" is legible. */
       .plan-merged .lp-bar.is-clamped {
-        border-top: 3px solid var(--pm-amber) !important;
+        border-top: 3px solid var(--warning) !important;
       }
       /* Deload week ("cut 30% every 4th week"): a dashed outline so it reads
-         as an intentional down week, not a data gap or a clamp. */
+         as an intentional down week, not a data gap or a clamp. Applies to
+         both future target bars and prior actual bars on the same cycle. */
       .plan-merged .lp-bar.is-deload {
-        outline: 2px dashed var(--pm-muted);
+        outline: 2px dashed var(--text-sub);
         outline-offset: -2px;
+      }
+      .plan-merged .lp-bar.actual.is-deload .lp-deload-mark {
+        color: #fff;
+        opacity: 0.9;
       }
       .plan-merged .lp-deload-mark {
         margin-left: 2px;
@@ -6040,7 +6093,7 @@
         opacity: 0.75;
       }
       .plan-merged .lp-bar-col.is-this-week .lp-bar {
-        box-shadow: 0 0 0 2px var(--pm-ink);
+        box-shadow: 0 0 0 2px var(--ink);
       }
 
       .plan-merged .lp-axis {
@@ -6053,14 +6106,14 @@
         min-width: 0;
         text-align: center;
         font-size: 8.5px;
-        font-family: var(--pm-mono);
-        color: var(--pm-faint);
+        font-family: var(--mono);
+        color: var(--text-sub);
         line-height: 1.4;
       }
       .plan-merged .lp-axis-col .mon {
         display: block;
         font-weight: 700;
-        color: var(--pm-muted);
+        color: var(--text-sub);
       }
 
       /* Dedicated flag row below the axis — this week + race day pointer —
@@ -6077,7 +6130,7 @@
         font-size: 9px;
         font-weight: 800;
         letter-spacing: 0.04em;
-        color: var(--pm-ink);
+        color: var(--ink);
         white-space: nowrap;
       }
       .plan-merged .lp-flag-race {
@@ -6088,12 +6141,12 @@
       }
       .plan-merged .lp-flag-race .caret {
         font-size: 12px;
-        color: var(--pm-red);
+        color: var(--danger);
         line-height: 1;
       }
       .plan-merged .lp-flag-race .lp-flag-race-badge {
         margin-top: 2px;
-        background: var(--pm-red);
+        background: var(--danger);
         color: #fff;
         border-radius: 6px;
         padding: 4px 7px;
@@ -6114,13 +6167,13 @@
       }
       .plan-merged .lp-flag-marker .caret {
         font-size: 10px;
-        color: var(--pm-blue, #3b4ba8);
+        color: var(--primary);
         line-height: 1;
       }
       .plan-merged .lp-flag-marker .lp-flag-marker-badge {
         margin-top: 1px;
-        background: var(--pm-blueSoft, #e6ebfe);
-        color: var(--pm-blue, #3b4ba8);
+        background: var(--primary-soft);
+        color: var(--primary);
         border-radius: 5px;
         padding: 2px 5px;
         font-size: 8.5px;
@@ -6140,7 +6193,7 @@
         gap: 14px;
         margin-top: 14px;
         font-size: 11.5px;
-        color: var(--pm-muted);
+        color: var(--text-sub);
       }
       .plan-merged .lp-legend-item {
         display: flex;
@@ -6156,18 +6209,18 @@
       .plan-merged .lp-footnote {
         margin-top: 8px;
         font-size: 10.5px;
-        color: var(--pm-faint);
+        color: var(--text-sub);
         text-align: right;
       }
       .plan-merged .lp-empty {
         font-size: 13px;
-        color: var(--pm-muted);
+        color: var(--text-sub);
         margin: 14px 0 0;
       }
       .plan-merged .lp-warning {
         font-size: 12px;
-        color: var(--pm-amber);
-        background: var(--pm-amberSoft);
+        color: var(--warning);
+        background: var(--warning-soft);
         border-radius: 8px;
         padding: 8px 11px;
         margin: 12px 0 0;
@@ -6194,14 +6247,14 @@
       .plan-merged .wl-target-big {
         font-size: 34px;
         font-weight: 700;
-        font-family: var(--pm-mono);
-        color: var(--pm-ink);
+        font-family: var(--mono);
+        color: var(--ink);
         line-height: 1;
       }
       .plan-merged .wl-target-unit {
         font-size: 13px;
         font-weight: 600;
-        color: var(--pm-muted);
+        color: var(--text-sub);
         font-family: initial;
         margin-left: 4px;
       }
@@ -6210,13 +6263,13 @@
          week target, red over the ACWR guardrail — with a matching label
          pill in front ("on target" / "over target" / "warning"). */
       .plan-merged .wl-target-projected.wl-proj-on {
-        color: var(--pm-blue, #4f6ef7);
+        color: var(--primary);
       }
       .plan-merged .wl-target-projected.wl-proj-over {
-        color: var(--pm-amber);
+        color: var(--warning);
       }
       .plan-merged .wl-target-projected.wl-proj-danger {
-        color: var(--pm-red);
+        color: var(--danger);
       }
       .plan-merged .wl-target-projected:empty {
         display: none;
@@ -6235,15 +6288,15 @@
       }
       .plan-merged .wl-proj-pill.wl-proj-on {
         background: #e8edff;
-        color: var(--pm-blue, #4f6ef7);
+        color: var(--primary);
       }
       .plan-merged .wl-proj-pill.wl-proj-over {
         background: #fdf3da;
-        color: var(--pm-amber);
+        color: var(--warning);
       }
       .plan-merged .wl-proj-pill.wl-proj-danger {
-        background: #fee2e2;
-        color: var(--pm-red);
+        background: var(--danger-soft);
+        color: var(--danger);
       }
       .plan-merged .wl-verdict-row {
         display: flex;
@@ -6259,24 +6312,24 @@
         padding: 4px 10px;
         border-radius: 999px;
         flex-shrink: 0;
-        background: var(--pm-tile);
-        color: var(--pm-muted);
+        background: var(--tile);
+        color: var(--text-sub);
       }
       .plan-merged .wl-verdict-pill.hold {
-        background: var(--pm-amberSoft);
-        color: var(--pm-amber);
+        background: var(--warning-soft);
+        color: var(--warning);
       }
       .plan-merged .wl-verdict-pill.back_off {
-        background: var(--pm-redSoft);
-        color: var(--pm-red);
+        background: var(--danger-soft);
+        color: var(--danger);
       }
       .plan-merged .wl-verdict-pill.build {
-        background: var(--pm-greenSoft);
-        color: var(--pm-green);
+        background: var(--success-soft);
+        color: var(--success);
       }
       .plan-merged .wl-verdict-reason {
         font-size: 12px;
-        color: var(--pm-muted);
+        color: var(--text-sub);
       }
 
       .plan-merged .wl-chain {
@@ -6289,8 +6342,8 @@
       .plan-merged .wl-chain-cell {
         flex: 1 1 130px;
         min-width: 120px;
-        background: var(--pm-tile);
-        border: 1px solid var(--pm-line);
+        background: var(--tile);
+        border: 1px solid var(--border);
         border-radius: 10px;
         padding: 10px 12px;
       }
@@ -6310,8 +6363,8 @@
         margin-top: 2px;
       }
       .plan-merged .wl-chain-cell.wl-target-cell {
-        background: var(--pm-blueSoft);
-        border-color: var(--pm-blue);
+        background: var(--primary-soft);
+        border-color: var(--primary);
       }
       .plan-merged .wl-chain-cell.wl-guardrail-cell {
         flex-basis: 160px;
@@ -6320,7 +6373,7 @@
         align-self: center;
         font-size: 20px;
         font-weight: 700;
-        color: var(--pm-faint);
+        color: var(--text-sub);
         flex: 0 0 auto;
       }
       .plan-merged .wl-chain-lab {
@@ -6328,22 +6381,22 @@
         font-weight: 800;
         letter-spacing: 0.05em;
         text-transform: uppercase;
-        color: var(--pm-faint);
+        color: var(--text-sub);
       }
       .plan-merged .wl-chain-val {
         font-size: 18px;
         font-weight: 700;
-        font-family: var(--pm-mono);
-        color: var(--pm-ink);
+        font-family: var(--mono);
+        color: var(--ink);
         margin-top: 4px;
       }
       .plan-merged .wl-target-cell .wl-chain-val {
-        color: var(--pm-blue);
+        color: var(--primary);
       }
       .plan-merged .wl-baseline-capped {
         font-size: 11px;
         font-weight: 600;
-        color: var(--pm-amber);
+        color: var(--warning);
         cursor: help;
         margin-left: 2px;
       }
@@ -6357,30 +6410,30 @@
       .plan-merged .wl-sparkline > span {
         flex: 1;
         min-width: 0;
-        background: var(--pm-line);
+        background: var(--border);
         border-radius: 2px 2px 0 0;
         min-height: 2px;
       }
       .plan-merged .wl-baseline-compare {
         font-size: 10.5px;
-        color: var(--pm-faint);
+        color: var(--text-sub);
         margin-top: 5px;
-        font-family: var(--pm-mono);
+        font-family: var(--mono);
       }
       .plan-merged .wl-guardrail-ceiling,
       .plan-merged .wl-chain-cell.wl-guardrail-cell .wl-chain-val {
-        color: var(--pm-amber);
+        color: var(--warning);
       }
       .plan-merged .wl-guardrail-sub {
         font-size: 10px;
-        color: var(--pm-faint);
+        color: var(--text-sub);
         margin-top: -2px;
       }
       .plan-merged .wl-guardrail-detail {
         font-size: 10.5px;
-        color: var(--pm-muted);
+        color: var(--text-sub);
         margin-top: 6px;
-        font-family: var(--pm-mono);
+        font-family: var(--mono);
         line-height: 1.5;
       }
 
@@ -6391,7 +6444,7 @@
         position: relative;
         height: 16px;
         border-radius: 8px;
-        background: var(--pm-tile);
+        background: var(--tile);
         overflow: visible;
       }
       .plan-merged .wl-gauge-logged,
@@ -6402,13 +6455,13 @@
         height: 100%;
       }
       .plan-merged .wl-gauge-logged {
-        background: var(--pm-blue);
+        background: var(--primary);
         border-radius: 8px 0 0 8px;
         z-index: 1;
       }
       .plan-merged .wl-gauge-planned {
         background-image: repeating-linear-gradient(
-          45deg, var(--pm-blueSoft) 0 4px, transparent 4px 8px
+          45deg, var(--primary-soft) 0 4px, transparent 4px 8px
         );
         background-color: rgba(79, 110, 247, 0.18);
       }
@@ -6417,11 +6470,11 @@
         top: -3px;
         bottom: -3px;
         width: 2px;
-        background: var(--pm-ink);
+        background: var(--ink);
         z-index: 2;
       }
       .plan-merged .wl-gauge-tick--ceiling {
-        background: var(--pm-amber);
+        background: var(--warning);
       }
       .plan-merged .wl-gauge-legend {
         display: flex;
@@ -6429,7 +6482,7 @@
         gap: 14px;
         margin-top: 10px;
         font-size: 11px;
-        color: var(--pm-muted);
+        color: var(--text-sub);
       }
       .plan-merged .wl-gauge-legend span.sw {
         display: inline-block;
@@ -6494,13 +6547,13 @@
          instead of discarding it. */
       .plan-merged .pm-specsub {
         font-size: 10.5px;
-        color: var(--pm-faint);
+        color: var(--text-sub);
         line-height: 1.4;
       }
       .plan-merged .pm-specsub .pm-specval {
-        font-family: var(--pm-mono);
+        font-family: var(--mono);
         font-weight: 700;
-        color: var(--pm-muted);
+        color: var(--text-sub);
       }
       .plan-merged .pm-specrow {
         display: flex;
@@ -6512,28 +6565,28 @@
         width: 150px;
         font-size: 12px;
         font-weight: 600;
-        color: var(--pm-ink);
+        color: var(--ink);
         flex-shrink: 0;
       }
       .plan-merged .pm-spectrack {
         flex: 1;
         height: 9px;
-        background: var(--pm-tile);
+        background: var(--tile);
         border-radius: 5px;
         overflow: hidden;
       }
       .plan-merged .pm-specfill {
         height: 100%;
         border-radius: 5px;
-        background: linear-gradient(90deg, #6366f1, #4f6ef7);
+        background: linear-gradient(90deg, var(--info), var(--primary));
       }
       .plan-merged .pm-specpct {
         width: 42px;
         text-align: right;
         font-size: 11.5px;
         font-weight: 700;
-        font-family: var(--pm-mono);
-        color: var(--pm-muted);
+        font-family: var(--mono);
+        color: var(--text-sub);
       }
       .plan-merged svg {
         display: block;
@@ -6633,7 +6686,7 @@
         margin-bottom: 8px;
       }
 
-      @media (max-width: 720px) {
+      @media (max-width: 1024px) {
         /* Goal/Estimated (races) and the four calibration tiles STAY on one
            row — compact tiles instead of a tall stack of full-width rows. */
         .plan-merged .pm-rcgrid {
@@ -6672,7 +6725,7 @@
           width: 110px;
         }
       }
-      @media (max-width: 560px) {
+      @media (max-width: 640px) {
         .plan-merged .pm-hdrdiv {
           display: none;
         }
@@ -6682,28 +6735,6 @@
         }
       }
 
-      /* ── "Performance" styles (former standalone sub-tab, dissolved — its
-         cards are now hosted inside the Performance tab (renamed from
-         Projection)/.plan-merged and the Log page, so these --perf-* vars
-         and .perf-card live at :root/unscoped instead of under a
-         since-removed .perf-panel ancestor). ─────────────────────────────── */
-      :root {
-        --perf-endur: #16a34a;
-        /* #ea580c fails 4.5:1 AA against white — darkened per spec. */
-        --perf-speed: #c2410c;
-        --perf-loss: #b91c1c;
-        --perf-gain: #16a34a;
-        --perf-faint: #9aa3b8;
-        --perf-muted: #6b7280;
-        --perf-line: #eceef4;
-        --perf-tile: #f6f7fb;
-        --perf-green: #16a34a;
-        --perf-greenSoft: #dcfce7;
-        --perf-lavHi: #6366f1;
-        --perf-blueSoft: #e6ebfe;
-        --perf-strava: #ea580c;
-        --perf-stryd: #1b2340;
-      }
       .perf-card {
         background: #fff;
         border-radius: 16px;
@@ -6714,12 +6745,12 @@
         font-size: 11px;
         font-weight: 800;
         letter-spacing: 0.07em;
-        color: var(--perf-faint);
+        color: var(--text-sub);
         text-transform: uppercase;
       }
       .perf-sectitle--strong {
         font-size: 13px;
-        color: var(--text-primary, #1b2340);
+        color: var(--text-primary, #0b1530);
         letter-spacing: 0;
         text-transform: none;
         font-weight: 800;
@@ -6736,8 +6767,11 @@
         font-size: 9px;
         font-weight: 800;
         letter-spacing: 0.05em;
-        color: var(--perf-lavHi);
-        background: var(--perf-blueSoft);
+        /* --info on --primary-soft is ~3.76:1, fails AA at this small size —
+           use --info-dark (~6.7:1) instead of --info here; --info itself is
+           still fine at 4.5:1-passing sizes/weights elsewhere. */
+        color: var(--info-dark);
+        background: var(--primary-soft);
         padding: 3px 8px;
         border-radius: 6px;
         text-transform: uppercase;
@@ -6754,11 +6788,11 @@
       .perf-scorewrap > .perf-card {
         min-width: 0;
       }
-      @media (max-width: 700px) {
-        .perf-scorewrap {
-          grid-template-columns: 1fr;
-        }
-      }
+      /* Note: collapse to 1fr happens in the shared ".perf-scorewrap,
+         .perf-row2" rule under the 1024px "Responsive collapse" media query
+         below (consolidated to the documented tablet/desktop split — was a
+         one-off 900px value; a duplicate 700px rule here was fully shadowed
+         by it and has already been removed). */
       .perf-bigscore {
         display: flex;
         align-items: baseline;
@@ -6772,10 +6806,10 @@
         line-height: 1;
       }
       .perf-bigscore--e .perf-score-val {
-        color: var(--perf-endur);
+        color: var(--success);
       }
       .perf-bigscore--s .perf-score-val {
-        color: var(--perf-speed);
+        color: var(--workout-wod-dark);
       }
       /* Score header: big score + delta pill + window label */
       .perf-scorehead {
@@ -6787,7 +6821,7 @@
       .perf-scorehead .perf-window-lab {
         margin-left: auto;
         font-size: 11px;
-        color: var(--perf-faint);
+        color: var(--text-sub);
         font-family: var(--mono);
       }
       .perf-delta-pill {
@@ -6797,9 +6831,9 @@
         border-radius: 999px;
         padding: 3px 10px;
       }
-      .perf-delta-pill--down { background: #fee2e2; color: var(--perf-loss); }
-      .perf-delta-pill--up { background: #dcfce7; color: var(--perf-gain); }
-      .perf-delta-pill--flat { background: var(--w-tile, #f1f4fa); color: var(--perf-muted); }
+      .perf-delta-pill--down { background: var(--danger-soft); color: var(--danger-dark); }
+      .perf-delta-pill--up { background: var(--success-soft); color: var(--success); }
+      .perf-delta-pill--flat { background: var(--w-tile, #f1f4fa); color: var(--text-sub); }
       .perf-sparkline-wrap {
         flex: 1 1 auto;
         min-width: 0;
@@ -6820,24 +6854,24 @@
         justify-content: space-between;
         font-size: 11px;
         font-weight: 800;
-        color: var(--text-primary, #1b2340);
+        color: var(--text-primary, #0b1530);
         margin-bottom: 5px;
       }
       .perf-change-head span:last-child {
-        color: var(--perf-faint);
+        color: var(--text-sub);
         font-weight: 600;
         font-family: var(--mono);
       }
       .perf-eq {
         font-family: var(--mono);
         font-size: 12.5px;
-        color: var(--text-primary, #1b2340);
+        color: var(--text-primary, #0b1530);
         margin-bottom: 6px;
         white-space: nowrap;
         overflow-x: auto;
       }
       /* Mobile: wrap the equation instead of side-scrolling it. */
-      @media (max-width: 560px) {
+      @media (max-width: 640px) {
         .perf-eq {
           white-space: normal;
           overflow-x: visible;
@@ -6845,9 +6879,9 @@
           line-height: 1.5;
         }
       }
-      .perf-eq .lbl, .perf-anchor-foot .lbl { color: var(--perf-faint); font-size: 11px; font-weight: 400; }
-      .perf-eq .loss, .perf-anchor-foot .loss { color: var(--perf-loss); font-weight: 700; }
-      .perf-eq .gain, .perf-anchor-foot .gain { color: var(--perf-gain); font-weight: 700; }
+      .perf-eq .lbl, .perf-anchor-foot .lbl { color: var(--text-sub); font-size: 11px; font-weight: 400; }
+      .perf-eq .loss, .perf-anchor-foot .loss { color: var(--danger-dark); font-weight: 700; }
+      .perf-eq .gain, .perf-anchor-foot .gain { color: var(--success); font-weight: 700; }
       .perf-eq b, .perf-anchor-foot b { font-weight: 800; }
       .perf-propbar {
         display: flex;
@@ -6863,24 +6897,24 @@
 
       /* Anchor list — same row design as the non-anchor list. */
       .perf-anchors { margin-top: 12px; }
-      .perf-anchor-table .a-age { color: var(--perf-loss); font-weight: 700; }
+      .perf-anchor-table .a-age { color: var(--danger-dark); font-weight: 700; }
       .perf-nowchip {
         font-family: var(--mono);
         font-size: 11px;
         font-weight: 700;
-        color: var(--text-primary, #1b2340);
+        color: var(--text-primary, #0b1530);
         background: var(--w-tile, #f1f4fa);
         border-radius: 6px;
         padding: 3px 8px;
         flex-shrink: 0;
         white-space: nowrap;
       }
-      .perf-nowchip .loss { color: var(--perf-loss); font-weight: 600; }
+      .perf-nowchip .loss { color: var(--danger-dark); font-weight: 600; }
       /* Same visual grammar as the change-strip equation above. */
       .perf-anchor-foot {
         font-family: var(--mono);
         font-size: 12.5px;
-        color: var(--text-primary, #1b2340);
+        color: var(--text-primary, #0b1530);
         padding: 7px 4px 2px;
         white-space: nowrap;
         overflow-x: auto;
@@ -6894,7 +6928,7 @@
         font-weight: 800;
         letter-spacing: 0.05em;
         text-transform: uppercase;
-        color: var(--perf-faint);
+        color: var(--text-sub);
         padding: 6px 0;
         list-style: none;
         user-select: none;
@@ -6910,12 +6944,12 @@
 
       /* Non-anchor list */
       .perf-nonanchors { margin-top: 12px; }
-      .perf-nonanchor-lab .gaplab { color: var(--perf-faint); font-weight: 600; text-transform: none; letter-spacing: 0; }
+      .perf-nonanchor-lab .gaplab { color: var(--text-sub); font-weight: 600; text-transform: none; letter-spacing: 0; }
       .perf-gapchip {
         font-family: var(--mono);
         font-size: 11px;
         font-weight: 700;
-        color: var(--perf-loss);
+        color: var(--danger-dark);
         background: #fef2f2;
         border-radius: 6px;
         padding: 3px 8px;
@@ -6955,7 +6989,7 @@
         font-size: 10px;
         font-weight: 800;
         letter-spacing: 0.05em;
-        color: var(--perf-faint);
+        color: var(--text-sub);
         text-transform: uppercase;
         margin: 14px 0 2px;
       }
@@ -6964,7 +6998,7 @@
         align-items: center;
         gap: 11px;
         padding: 9px 0;
-        border-top: 1px solid var(--perf-line);
+        border-top: 1px solid var(--border);
         text-decoration: none;
         color: inherit;
       }
@@ -6974,7 +7008,7 @@
       .perf-frow .perf-fdate {
         width: 48px;
         font-size: 11px;
-        color: var(--perf-faint);
+        color: var(--text-sub);
         font-family: var(--mono);
         flex-shrink: 0;
       }
@@ -6993,7 +7027,7 @@
       .perf-frow .perf-fm {
         display: block;
         font-size: 11px;
-        color: var(--perf-muted);
+        color: var(--text-sub);
         font-family: var(--mono);
         margin-top: 1px;
       }
@@ -7008,45 +7042,45 @@
         flex-shrink: 0;
       }
       .perf-src--s {
-        background: var(--perf-strava);
+        background: var(--workout-wod-dark);
         color: #fff;
       }
       .perf-src--st {
-        background: var(--perf-stryd);
+        background: var(--priority-a);
         color: #fff;
       }
       .perf-dchip {
         font-size: 11px;
         font-weight: 700;
         font-family: var(--mono);
-        color: var(--perf-muted);
-        background: var(--perf-tile);
+        color: var(--text-sub);
+        background: var(--tile);
         padding: 2px 8px;
         border-radius: 6px;
         flex-shrink: 0;
       }
       /* Signed contribution chips (this session's delta to the score). */
       .perf-dchip--up {
-        color: var(--perf-green, #16a34a);
-        background: var(--perf-greenSoft, #dcfce7);
+        color: var(--success);
+        background: var(--success-soft);
       }
       .perf-dchip--down {
-        color: var(--red, #dc2626);
-        background: var(--redSoft, #fee2e2);
+        color: var(--red, #7a1a1a);
+        background: var(--red-soft, #ffd9d9);
       }
       .perf-dchip--flat {
-        color: var(--perf-muted, #6b7280);
-        background: var(--perf-tile, #f6f7fb);
+        color: var(--text-sub);
+        background: var(--tile);
       }
       .perf-farr {
-        color: var(--perf-faint);
+        color: var(--text-sub);
         font-size: 12px;
         flex-shrink: 0;
       }
       .perf-feed-loading,
       .perf-feed-empty {
         font-size: 12px;
-        color: var(--perf-faint);
+        color: var(--text-sub);
         padding: 10px 0 2px;
       }
 
@@ -7066,26 +7100,25 @@
       /* Projected checkpoint */
       .perf-proj-meta {
         font-size: 12px;
-        color: var(--perf-muted);
+        color: var(--text-sub);
         font-family: var(--mono);
         margin: 2px 0 4px;
       }
       .perf-projgrid {
         display: flex;
-        gap: 10px;
+        flex-direction: column;
         margin: 12px 0 10px;
       }
+      /* Flattened (was its own bordered/tinted tile) — a row divider between
+         siblings reads as one continuous panel instead of nested cards. */
       .perf-projtile {
-        flex: 1;
-        background: var(--perf-tile);
-        border: 1px solid var(--perf-line);
-        border-radius: 11px;
-        padding: 12px 14px;
+        padding: 10px 0;
+        border-top: 1px solid var(--border);
       }
       .perf-projtile-l {
         font-size: 9px;
         font-weight: 800;
-        color: var(--perf-faint);
+        color: var(--text-sub);
         letter-spacing: 0.05em;
         text-transform: uppercase;
       }
@@ -7096,25 +7129,25 @@
         margin-top: 6px;
       }
       .perf-projtile--e .perf-projtile-v {
-        color: var(--perf-endur);
+        color: var(--success);
       }
       .perf-projtile--s .perf-projtile-v {
-        color: var(--perf-speed);
+        color: var(--workout-wod-dark);
       }
       .perf-projtile-v small {
         font-size: 11px;
-        color: var(--perf-muted);
+        color: var(--text-sub);
         font-weight: 600;
       }
       .perf-plink {
         font-size: 12px;
         font-weight: 700;
-        color: var(--perf-lavHi);
+        color: var(--info-dark);
         text-decoration: none;
       }
       .perf-proj-empty {
         font-size: 12.5px;
-        color: var(--perf-muted);
+        color: var(--text-sub);
       }
 
       /* Score-card body is a single vertical column (matches the mock) —
@@ -7122,16 +7155,20 @@
       .perf-card-body {
         display: block;
       }
+      /* These rules previously referenced gradient-system tokens (--shell-1,
+         --text-secondary, --text-tertiary, --bg-1, --red, --red-soft) which
+         DESIGN.md scopes to Home/Weight only. Swapped to this page's
+         legacy/instrument equivalents. */
       .perf-building-baseline {
         display: flex;
         align-items: flex-start;
         gap: 8px;
         padding: 10px 12px;
-        background: var(--shell-1);
+        background: var(--surface-2);
         border-radius: 10px;
         margin-top: 10px;
         font-size: 12px;
-        color: var(--text-secondary);
+        color: var(--text-sub);
       }
       .perf-bb-text {
         font-weight: 600;
@@ -7139,28 +7176,28 @@
       .perf-bb-sub {
         margin: 4px 0 0;
         font-size: 11px;
-        color: var(--text-tertiary);
+        color: var(--text-sub);
       }
       .perf-threshold-hint {
         margin-top: 8px;
         font-size: 11.5px;
-        color: var(--text-secondary);
-        background: var(--shell-1);
+        color: var(--text-sub);
+        background: var(--surface-2);
         border-radius: 8px;
         padding: 10px 12px;
         line-height: 1.5;
       }
       .perf-threshold-hint a {
-        color: var(--bg-1);
+        color: var(--primary);
         font-weight: 600;
       }
       .perf-error {
         margin-top: 8px;
         padding: 10px 12px;
-        background: var(--red-soft);
+        background: var(--danger-soft);
         border-radius: 8px;
         font-size: 11.5px;
-        color: var(--red);
+        color: var(--danger);
         display: flex;
         align-items: center;
         gap: 10px;
@@ -7168,9 +7205,9 @@
       .perf-retry-btn {
         flex-shrink: 0;
         background: none;
-        border: 1px solid var(--red);
+        border: 1px solid var(--danger);
         border-radius: 6px;
-        color: var(--red);
+        color: var(--danger);
         font-size: 11px;
         font-weight: 600;
         cursor: pointer;
@@ -7182,7 +7219,7 @@
       .perf-bb-reason {
         margin: 0;
         font-size: 11.5px;
-        color: var(--text-secondary);
+        color: var(--text-sub);
         line-height: 1.45;
       }
 
@@ -7195,7 +7232,7 @@
       .perf-chart-baseline {
         padding: 20px;
         text-align: center;
-        color: var(--text-secondary);
+        color: var(--text-sub);
         font-size: 12.5px;
         display: flex;
         align-items: center;
@@ -7222,23 +7259,22 @@
         );
       }
 
-      /* Personal records grid */
+      /* Personal records list (was an auto-fill grid of bordered/tinted
+         tiles) — flattened to a single-column list with row dividers, same
+         treatment as .perf-projtile above. */
       .perf-prgrid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-        gap: 12px;
-        margin-top: 12px;
+        display: flex;
+        flex-direction: column;
+        margin-top: 6px;
       }
       .perf-prtile {
-        background: var(--perf-tile);
-        border: 1px solid var(--perf-line);
-        border-radius: 12px;
-        padding: 13px 15px;
+        padding: 12px 0;
+        border-top: 1px solid var(--border);
       }
       .perf-prtile .perf-pr-name {
         font-size: 9px;
         font-weight: 800;
-        color: var(--perf-faint);
+        color: var(--text-sub);
         letter-spacing: 0.04em;
         text-transform: uppercase;
       }
@@ -7248,23 +7284,23 @@
         font-family: var(--mono);
         margin-top: 7px;
         line-height: 1;
-        color: var(--text-primary, #1b2340);
+        color: var(--text-primary, #0b1530);
       }
       .perf-prtile .perf-pr-val small {
         font-size: 11px;
-        color: var(--perf-muted);
+        color: var(--text-sub);
         font-weight: 600;
       }
       .perf-prtile .perf-pr-date {
         font-size: 11px;
-        color: var(--perf-muted);
+        color: var(--text-sub);
         font-family: var(--mono);
         margin-top: 6px;
       }
       .perf-prtile .perf-pr-link {
         font-size: 11px;
         font-weight: 700;
-        color: var(--perf-lavHi);
+        color: var(--info-dark);
         margin-top: 5px;
         display: inline-block;
         text-decoration: none;
@@ -7275,7 +7311,7 @@
       .perf-pr-empty,
       .perf-pr-loading {
         font-size: 12.5px;
-        color: var(--perf-faint);
+        color: var(--text-sub);
         margin: 0;
       }
       .perf-prtile--unavailable {
@@ -7283,13 +7319,13 @@
       }
       .perf-pr-reason {
         font-size: 10px;
-        color: var(--perf-faint);
+        color: var(--text-sub);
         line-height: 1.35;
         margin-top: 2px;
       }
 
-      /* ── Responsive collapse ────────────────────────────────────────────── */
-      @media (max-width: 900px) {
+      /* ── Responsive collapse (1024px tablet/desktop split, per DESIGN.md) ── */
+      @media (max-width: 1024px) {
         .perf-scorewrap,
         .perf-row2 {
           grid-template-columns: 1fr;
@@ -7548,7 +7584,7 @@
       line-height: 1.45;
     }
 
-    @media (max-width: 480px) {
+    @media (max-width: 640px) {
       .sd-tiles { gap: 5px; }
       .sd-tile { padding: 7px 6px; }
       .sd-tile-val { font-size: 1rem; }
@@ -7558,29 +7594,6 @@
        LOG-TAB REWORK (feature/log-tab-rework) — ported from log-rework mock.
        Scoped tokens on the page; layout/nav overrides for the Log tab only.
        ══════════════════════════════════════════════════════════════════════ */
-    :root {
-      --lrx-run: #4f6ef7;
-      --lrx-runSoft: #e6ebfe;
-      --lrx-lift: #8b5cf6;
-      --lrx-liftSoft: #ede9fe;
-      /* orange-700, not the lighter --speed orange — that fails 4.5:1 white-text contrast */
-      --lrx-plyo: #c2410c;
-      --lrx-lime: #cff245;
-      --lrx-ink: #1b2340;
-      --lrx-muted: #6b7280;
-      --lrx-faint: #9aa3b8;
-      --lrx-line: #eceef4;
-      --lrx-tile: #f6f7fb;
-      --lrx-green: #16a34a;
-      --lrx-greenSoft: #dcfce7;
-      --lrx-red: #dc2626;
-      --lrx-redSoft: #fee2e2;
-      --lrx-amber: #d97706;
-      --lrx-amberSoft: #fdf3da;
-      --lrx-lavHi: #6366f1;
-      --lrx-blueSoft: #e6ebfe;
-      --lrx-mono: "JetBrains Mono", ui-monospace, monospace;
-    }
 
     /* ── Sticky enlarged-tab nav ─────────────────────────────────────────── */
     /* <main> now holds ONLY the sticky header — the tab content lives in the
@@ -7606,9 +7619,10 @@
          the content column's left edge for the 1000px shell). */
       width: 100vw;
       margin-left: calc(50% - 50vw);
-      background: rgba(38, 48, 110, 0.82);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
+      /* Solid instrument-navy, not translucent-glass-on-gradient: matches this
+         page's legacy/instrument palette (--ink) rather than Home's gradient
+         aesthetic, and reads as a distinct toolbar without blur. */
+      background: var(--ink);
       border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     }
     .log-page-header-inner {
@@ -7640,13 +7654,14 @@
     .log-page-header-info .log-subtitle {
       font-size: 11px;
       color: rgba(255, 255, 255, 0.6);
-      font-family: var(--lrx-mono);
+      font-family: var(--mono);
       margin: 0;
     }
     .log-page-header .training-sub-tabs {
       display: flex;
       gap: 4px;
-      background: rgba(255, 255, 255, 0.1);
+      background: #1c2456;
+      border: 1px solid #2a3468;
       padding: 5px;
       border-radius: 12px;
     }
@@ -7666,9 +7681,13 @@
     .log-page-header .training-sub-tab .tab-label-short {
       display: none;
     }
+      .log-page-header .training-sub-tab:hover:not(.active) {
+        background: #2a3468;
+        color: #fff;
+      }
       .log-page-header .training-sub-tab.active {
         background: #fff;
-        color: var(--lrx-ink);
+        color: var(--ink);
       }
       .log-nav-spacer { flex: 1; }
     /* Recolor the action buttons to the mock's translucent + lime primary */
@@ -7684,9 +7703,9 @@
       background: rgba(255, 255, 255, 0.2);
     }
     .log-page-header .btn-accent {
-      background: var(--lrx-lime);
-      color: var(--lrx-ink);
-      border: 1px solid var(--lrx-lime);
+      background: var(--accent);
+      color: var(--ink);
+      border: 1px solid var(--accent);
       font-weight: 800;
       border-radius: 9px;
     }
@@ -7703,7 +7722,7 @@
       padding: 20px 24px 60px;
     }
     /* Kill the reserved 2-column grid — the drawer is now a fixed overlay. */
-    @media (min-width: 880px) {
+    @media (min-width: 1024px) {
       #layout-wrapper.has-panel {
         display: block;
         max-width: 1000px;
@@ -7757,7 +7776,7 @@
       background: var(--card-border, #e5e7eb);
       flex-shrink: 0;
     }
-    @media (max-width: 680px) {
+    @media (max-width: 640px) {
       .rf-merged {
         flex-direction: column;
       }
@@ -7778,7 +7797,7 @@
       font-size: 13px;
       font-weight: 800;
       letter-spacing: 0.07em;
-      color: var(--lrx-faint);
+      color: var(--text-sub);
       text-transform: uppercase;
     }
     .lrx-chead {
@@ -7791,30 +7810,30 @@
     }
 
     /* ── Weekly coach report ───────────────────────────────────────────────── */
-    .wsc-narrative { color: var(--lrx-ink); }
+    .wsc-narrative { color: var(--ink); }
     /* One sentence group per line. Numbers use the mono highlight font (the same
        JetBrains Mono the Summary tiles use) so key figures pop out. */
     .wsc-line { font-size: 14px; line-height: 1.55; }
     .wsc-line + .wsc-line { margin-top: 4px; }
-    .wsc-num { font-family: var(--lrx-mono); font-weight: 700; color: var(--lrx-run); }
+    .wsc-num { font-family: var(--mono); font-weight: 700; color: var(--primary); }
     .wsc-up { color: #16a34a; font-weight: 700; }
     .wsc-down { color: #dc2626; font-weight: 700; }
-    .wsc-empty { font-size: 14px; color: var(--lrx-muted); margin: 0; }
+    .wsc-empty { font-size: 14px; color: var(--text-sub); margin: 0; }
 
     /* ── Summary ─────────────────────────────────────────────────────────── */
     .lrx-scope {
       font-size: 14px;
       font-weight: 600;
-      color: var(--lrx-lavHi);
-      background: var(--lrx-blueSoft);
+      color: var(--info-dark);
+      background: var(--primary-soft);
       padding: 4px 10px;
       border-radius: 7px;
-      font-family: var(--lrx-mono);
+      font-family: var(--mono);
     }
     .lrx-seg {
       display: flex;
-      background: var(--lrx-tile);
-      border: 1px solid var(--lrx-line);
+      background: var(--tile);
+      border: 1px solid var(--border);
       border-radius: 9px;
       padding: 3px;
       gap: 2px;
@@ -7822,7 +7841,7 @@
     .lrx-seg button {
       font-size: 14px;
       font-weight: 600;
-      color: var(--lrx-muted);
+      color: var(--text-sub);
       background: none;
       border: none;
       padding: 6px 12px;
@@ -7831,14 +7850,14 @@
     }
     .lrx-seg button.on {
       background: #fff;
-      color: var(--lrx-ink);
+      color: var(--ink);
       box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
     }
     .lrx-sumgrid { display: flex; gap: 12px; }
     .lrx-sumtile {
       flex: 1;
-      background: var(--lrx-tile);
-      border: 1px solid var(--lrx-line);
+      background: var(--tile);
+      border: 1px solid var(--border);
       border-radius: 12px;
       padding: 13px 15px;
     }
@@ -7846,26 +7865,26 @@
       font-size: 12px;
       font-weight: 800;
       letter-spacing: 0.06em;
-      color: var(--lrx-faint);
+      color: var(--text-sub);
       text-transform: uppercase;
     }
     .lrx-sumtile .val {
       font-size: 31px;
       font-weight: 700;
-      font-family: var(--lrx-mono);
+      font-family: var(--mono);
       line-height: 1;
       margin-top: 7px;
     }
-    .lrx-sumtile .val small { font-size: 14px; color: var(--lrx-muted); font-weight: 600; }
-    .lrx-delta { font-size: 13px; font-family: var(--lrx-mono); margin-top: 7px; font-weight: 600; min-height: 1em; }
-    .lrx-delta.up { color: var(--lrx-green); }
-    .lrx-delta.down { color: var(--lrx-red); }
-    .lrx-delta.flat { color: var(--lrx-faint); }
+    .lrx-sumtile .val small { font-size: 14px; color: var(--text-sub); font-weight: 600; }
+    .lrx-delta { font-size: 13px; font-family: var(--mono); margin-top: 7px; font-weight: 600; min-height: 1em; }
+    .lrx-delta.up { color: var(--success); }
+    .lrx-delta.down { color: var(--danger); }
+    .lrx-delta.flat { color: var(--text-sub); }
     .lrx-chips { display: flex; gap: 7px; margin-top: 12px; flex-wrap: wrap; }
     .lrx-chip { font-size: 13px; font-weight: 700; padding: 4px 9px; border-radius: 6px; }
-    .lrx-chip.g { background: var(--lrx-greenSoft); color: var(--lrx-green); }
-    .lrx-chip.r { background: var(--lrx-redSoft); color: var(--lrx-red); }
-    .lrx-chip.b { background: var(--lrx-blueSoft); color: var(--lrx-lavHi); }
+    .lrx-chip.g { background: var(--success-soft); color: var(--success); }
+    .lrx-chip.r { background: var(--danger-soft); color: var(--danger); }
+    .lrx-chip.b { background: var(--primary-soft); color: var(--info-dark); }
 
     /* ── Readiness full cards ────────────────────────────────────────────── */
     /* 2x2 (was a 1x4 row) — the readiness half is now half the card's width
@@ -7873,13 +7892,13 @@
     .lrx-readfull { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .lrx-rcard {
       flex: 1;
-      background: var(--lrx-tile);
-      border: 1px solid var(--lrx-line);
+      background: var(--tile);
+      border: 1px solid var(--border);
       border-radius: 12px;
       padding: 15px 16px;
     }
-    .lrx-rcard .rv { font-size: 36px; font-weight: 700; font-family: var(--lrx-mono); text-align: center; line-height: 1; }
-    .lrx-rcard .rl { font-size: 13px; color: var(--lrx-muted); text-align: center; font-weight: 700; letter-spacing: 0.04em; margin-top: 4px; text-transform: uppercase; }
+    .lrx-rcard .rv { font-size: 36px; font-weight: 700; font-family: var(--mono); text-align: center; line-height: 1; }
+    .lrx-rcard .rl { font-size: 13px; color: var(--text-sub); text-align: center; font-weight: 700; letter-spacing: 0.04em; margin-top: 4px; text-transform: uppercase; }
     .lrx-rband { height: 6px; border-radius: 4px; margin: 14px 0 5px; position: relative; }
     .lrx-rband .mk { position: absolute; top: -3px; width: 12px; height: 12px; border-radius: 50%; background: #fff; border: 2px solid #475569; transform: translateX(-50%); }
     .lrx-rstatus { font-size: 13px; font-weight: 800; text-align: center; letter-spacing: 0.06em; }
@@ -7891,11 +7910,11 @@
     .cal-month-stats .month-stat-val { font-size: 16px; }
     .cal-month-stats .month-stat-lbl { font-size: 10.5px; }
     .lrx-calnav { display: flex; align-items: center; gap: 10px; }
-    .lrx-calnav .mtitle { font-size: 16px; font-weight: 800; color: var(--lrx-ink); cursor: pointer; padding: 4px 10px; border-radius: 8px; }
-    .lrx-calnav .mtitle:hover { background: var(--lrx-tile); }
-    .lrx-calnav .mtitle.scoped { background: var(--lrx-blueSoft); color: var(--lrx-lavHi); }
-    .lrx-arw { width: 32px; height: 32px; border: 1px solid var(--lrx-line); background: var(--lrx-tile); border-radius: 8px; cursor: pointer; font-size: 16px; color: var(--lrx-muted); }
-    .lrx-today { font-size: 13px; font-weight: 600; color: var(--lrx-muted); background: var(--lrx-tile); border: 1px solid var(--lrx-line); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+    .lrx-calnav .mtitle { font-size: 16px; font-weight: 800; color: var(--ink); cursor: pointer; padding: 4px 10px; border-radius: 8px; }
+    .lrx-calnav .mtitle:hover { background: var(--tile); }
+    .lrx-calnav .mtitle.scoped { background: var(--primary-soft); color: var(--info-dark); }
+    .lrx-arw { width: 32px; height: 32px; border: 1px solid var(--border); background: var(--tile); border-radius: 8px; cursor: pointer; font-size: 16px; color: var(--text-sub); }
+    .lrx-today { font-size: 13px; font-weight: 600; color: var(--text-sub); background: var(--tile); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
     /* table-layout:auto (the default) sizes each COLUMN to its own widest
        cell across every row — a column that happens to show "[Strength]"
        (wider than "[Run]" or a bare dot) anywhere in the month ends up
@@ -7904,24 +7923,27 @@
        column's own width is set, so Mon–Sun always line up evenly
        regardless of which day happens to carry the widest tag. */
     table.lrx-cal { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; }
-    table.lrx-cal th { font-size: 11px; font-weight: 800; letter-spacing: 0.06em; color: var(--lrx-faint); text-transform: uppercase; padding: 0 0 8px; text-align: center; }
+    table.lrx-cal th { font-size: 11px; font-weight: 800; letter-spacing: 0.06em; color: var(--text-sub); text-transform: uppercase; padding: 0 0 8px; text-align: center; }
     table.lrx-cal th.wk { text-align: right; padding-right: 2px; width: 128px; }
     .lrx-calrow { cursor: pointer; }
     /* Fixed 62px keeps EVERY week row the same height regardless of how many
        sessions a day has — the marker row below is itself fixed-height and
        caps at 3 blocks + a "+N" chip, so unlike the old dot/tag stack this
        genuinely never needs more room. */
-    .lrx-calrow td { border-top: 1px solid var(--lrx-line); min-height: 62px; vertical-align: top; text-align: center; padding: 7px 5px 8px; }
-    .lrx-calrow .dnum { font-size: 12px; font-family: var(--lrx-mono); color: var(--lrx-ink); display: block; margin-bottom: 6px; }
+    .lrx-calrow td { border-top: 1px solid var(--border); min-height: 62px; vertical-align: top; text-align: center; padding: 7px 5px 8px; }
+    /* Keyboard focus (day cells + week-total cell are role=button tabindex=0). */
+    .lrx-calrow td[data-date]:focus-visible,
+    .lrx-calrow .lrx-wkcell:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; border-radius: 8px; }
+    .lrx-calrow .dnum { font-size: 12px; font-family: var(--mono); color: var(--ink); display: block; margin-bottom: 6px; }
     .lrx-calrow td.out .dnum { color: #cbd2e0; }
     /* Today marker: a ring inside the day cell (inset shadow avoids disturbing
        the table's border-collapse layout) plus a bolded accent day number. */
-    .lrx-calrow td.is-today { box-shadow: inset 0 0 0 2px var(--lrx-run); border-radius: 10px; }
-    .lrx-calrow td.is-today .dnum { color: var(--lrx-run); font-weight: 700; }
+    .lrx-calrow td.is-today { box-shadow: inset 0 0 0 2px var(--primary); border-radius: 10px; }
+    .lrx-calrow td.is-today .dnum { color: var(--primary); font-weight: 700; }
     /* Deep-linked workout's day (#5): a darker ring in the same accent as the
        .entry-row.is-active list row, so the one workout reads as flagged in
        both views. Wins over the today ring when they coincide (later rule). */
-    .lrx-calrow td.cal-day.deep-linked { box-shadow: inset 0 0 0 2px #2b4ca8; border-radius: 10px; }
+    .lrx-calrow td.cal-day.deep-linked { box-shadow: inset 0 0 0 2px var(--selected-dark); border-radius: 10px; }
 
     /* ── Calendar day markers — one row per day, one block per session ──────
        Solid filled = logged, outlined = planned (same hue, no fill). Hue =
@@ -7933,42 +7955,43 @@
       display: flex; align-items: center; justify-content: center;
       height: 24px; border-radius: 6px;
       border: 1.5px solid transparent;
-      font-family: var(--lrx-mono); font-size: 11px; font-weight: 700;
+      font-family: var(--mono); font-size: 11px; font-weight: 700;
       letter-spacing: -0.02em; line-height: 1; cursor: default;
     }
     .cal-mk.logged { color: #fff; }
-    .cal-mk.logged.run { background: var(--lrx-run); border-color: var(--lrx-run); }
-    .cal-mk.logged.strength { background: var(--lrx-lift); border-color: var(--lrx-lift); }
-    .cal-mk.logged.plyo { background: var(--lrx-plyo); border-color: var(--lrx-plyo); }
+    .cal-mk.logged.run { background: var(--primary); border-color: var(--primary); }
+    .cal-mk.logged.strength { background: var(--workout-lift); border-color: var(--workout-lift); }
+    .cal-mk.logged.plyo { background: var(--workout-wod-dark); border-color: var(--workout-wod-dark); }
     .cal-mk.plan { background: transparent; font-weight: 600; cursor: pointer; }
-    .cal-mk.plan.run { border-color: var(--lrx-run); color: var(--lrx-run); }
-    .cal-mk.plan.strength { border-color: var(--lrx-lift); color: var(--lrx-lift); }
-    .cal-mk.plan.plyo { border-color: var(--lrx-plyo); color: var(--lrx-plyo); }
+    .cal-mk.plan.run { border-color: var(--primary); color: var(--primary); }
+    .cal-mk.plan.strength { border-color: var(--workout-lift); color: var(--workout-lift); }
+    .cal-mk.plan.plyo { border-color: var(--workout-wod-dark); color: var(--workout-wod-dark); }
     .cal-mk.plan:hover { filter: brightness(0.94); }
-    .cal-mk.more { flex: 0 0 auto; min-width: 22px; padding: 0 4px; background: var(--lrx-tile); color: var(--lrx-muted); border-color: transparent; }
+    .cal-mk.more { flex: 0 0 auto; min-width: 22px; padding: 0 4px; background: var(--tile); color: var(--text-sub); border-color: transparent; }
     .lrx-callegend .cal-mk { margin: 0 5px 0 0; }
     .lrx-wkcell { text-align: right; padding: 7px 2px 0 8px; width: 128px; }
-    .lrx-wkcell .wt { font-size: 14px; font-weight: 700; font-family: var(--lrx-mono); }
-    .lrx-wkcell .wkkm { font-size: 12px; color: var(--lrx-muted); font-family: var(--lrx-mono); }
-    .lrx-wkbar { display: flex; height: 5px; background: var(--lrx-tile); border-radius: 3px; margin-top: 5px; overflow: hidden; }
-    .lrx-wkbar-actual { display: block; height: 100%; background: linear-gradient(90deg, #6366f1, #4f6ef7); flex-shrink: 0; }
+    .lrx-wkcell .wt { font-size: 14px; font-weight: 700; font-family: var(--mono); }
+    .lrx-wkcell .wkkm { font-size: 12px; color: var(--text-sub); font-family: var(--mono); }
+    .lrx-wkbar { display: flex; height: 5px; background: var(--tile); border-radius: 3px; margin-top: 5px; overflow: hidden; }
+    .lrx-wkbar-actual { display: block; height: 100%; background: linear-gradient(90deg, var(--info), var(--primary)); flex-shrink: 0; }
     /* Estimated (not-yet-logged) portion — same hue, lower opacity + a
        diagonal hatch so it visually reads as "projected", not real. */
     .lrx-wkbar-est {
       display: block; height: 100%; flex-shrink: 0; opacity: 0.45;
-      background-color: #6366f1;
+      background-color: var(--info);
       background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.5) 0 2px, transparent 2px 5px);
     }
-    .wkest { font-size: 10px; color: var(--lrx-faint); }
+    .wkest { font-size: 10px; color: var(--text-sub); }
     /* Selected week: a border ring around the whole row (top+bottom on every
        cell, plus the outer edges) so the scoped week reads as a bordered band,
        mirrored by .day-group.lrx-week-hl in the log list below. */
-    .lrx-calrow.sel td { background: #dbe4ff; box-shadow: inset 0 2px 0 var(--lrx-run), inset 0 -2px 0 var(--lrx-run); }
-    .lrx-calrow.sel td:first-child { box-shadow: inset 0 2px 0 var(--lrx-run), inset 0 -2px 0 var(--lrx-run), inset 2px 0 0 var(--lrx-run); }
-    .lrx-calrow.sel td:last-child { box-shadow: inset 0 2px 0 var(--lrx-run), inset 0 -2px 0 var(--lrx-run), inset -2px 0 0 var(--lrx-run); }
-    .lrx-calrow.sel .lrx-wkcell { background: #c7d2fe; }
-    .lrx-calrow:hover td { background: #f6f8ff; }
-    .lrx-callegend { display: flex; gap: 14px; margin-top: 12px; font-size: 13px; color: var(--lrx-muted); flex-wrap: wrap; }
+    /* Selected week: top/bottom band across every cell (not a directional
+       side-stripe — applies evenly, same as .is-today's ring) + a tint,
+       coordinated with the .entry-row.is-active / deep-linked accent above. */
+    .lrx-calrow.sel td { background: var(--selected-soft-2); box-shadow: inset 0 2px 0 var(--selected), inset 0 -2px 0 var(--selected); }
+    .lrx-calrow.sel .lrx-wkcell { background: var(--selected-soft-3); }
+    .lrx-calrow:hover td { background: var(--selected-soft); }
+    .lrx-callegend { display: flex; gap: 14px; margin-top: 12px; font-size: 13px; color: var(--text-sub); flex-wrap: wrap; }
     .lrx-callegend b { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
 
     /* ── Log list (week-grouped, typed rows) ─────────────────────────────── */
@@ -7979,7 +8002,7 @@
       gap: 8px;
       margin: 16px 0 8px;
       padding: 10px 10px 9px;
-      background: var(--lrx-blueSoft);
+      background: var(--primary-soft);
       border-radius: 8px;
       border-bottom: none;
       font-family: inherit;
@@ -8011,12 +8034,24 @@
       row-gap: 3px;
       align-items: start;
       padding: 11px 12px;
-      border: 1px solid var(--lrx-line); border-left-width: 3px; border-left-color: transparent;
+      border: 1px solid var(--border);
       border-radius: 11px; margin-bottom: 8px; background: #fff; cursor: pointer; transition: background 0.12s;
     }
     .lrx-logrow:hover { background: #f9faff; }
-    .lrx-logrow.run { border-left-color: var(--lrx-run); }
-    .lrx-logrow.lift { border-left-color: var(--lrx-lift); }
+    /* Workout family (run vs. lift) reads from a small leading dot ahead of
+       the type tags, not a directional accent border (banned side-stripe
+       pattern — see redesign notes). */
+    .lrx-logrow .ltags::before {
+      content: "";
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--border);
+      flex-shrink: 0;
+    }
+    .lrx-logrow.run .ltags::before { background: var(--primary); }
+    .lrx-logrow.lift .ltags::before { background: var(--workout-lift); }
     .lrx-logrow .lday {
       grid-column: 1;
       grid-row: 1 / span 3;
@@ -8025,8 +8060,8 @@
       flex-shrink: 0;
       align-self: start;
     }
-    .lrx-logrow .lday .d { font-size: 19px; font-weight: 700; font-family: var(--lrx-mono); line-height: 1; }
-    .lrx-logrow .lday .m { font-size: 11px; color: var(--lrx-faint); text-transform: uppercase; font-weight: 700; }
+    .lrx-logrow .lday .d { font-size: 19px; font-weight: 700; font-family: var(--mono); line-height: 1; }
+    .lrx-logrow .lday .m { font-size: 11px; color: var(--text-sub); text-transform: uppercase; font-weight: 700; }
     .lrx-logrow .lname { display: contents; }
     .lrx-logrow .ltags {
       grid-column: 2;
@@ -8057,8 +8092,8 @@
       grid-column: 2;
       grid-row: 3;
       font-size: 12px;
-      color: var(--lrx-muted);
-      font-family: var(--lrx-mono);
+      color: var(--text-sub);
+      font-family: var(--mono);
       line-height: 1.35;
       white-space: nowrap;
       overflow: hidden;
@@ -8083,13 +8118,13 @@
     .dp-feel { margin-top: 8px; gap: 6px; }
     .dp-feel .feel-btn { font-size: 20px; padding: 0 3px; }
     .lrx-tbadge { font-size: 11px; font-weight: 800; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; }
-    .lrx-tbadge.run { background: var(--lrx-runSoft); color: var(--lrx-run); }
-    .lrx-tbadge.lift { background: var(--lrx-liftSoft); color: #7c3aed; }
+    .lrx-tbadge.run { background: var(--primary-soft); color: var(--primary); }
+    .lrx-tbadge.lift { background: var(--workout-lift-soft); color: #7c3aed; }
     /* Run subtype tag — separate, outlined/lighter chip next to the run badge:
        [run] [interval]. Still run-family (blue) but visually secondary. */
-    .lrx-subtag { font-size: 11px; font-weight: 800; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 5px; text-transform: uppercase; margin-left: 0; background: transparent; color: var(--lrx-run); border: 1px solid var(--lrx-run); }
-    .lrx-sentinel { display: flex; align-items: center; justify-content: center; gap: 9px; padding: 16px; color: var(--lrx-muted); font-size: 14px; }
-    .lrx-spin { width: 15px; height: 15px; border: 2px solid var(--lrx-line); border-top-color: var(--lrx-run); border-radius: 50%; animation: lrxsp 0.7s linear infinite; }
+    .lrx-subtag { font-size: 11px; font-weight: 800; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 5px; text-transform: uppercase; margin-left: 0; background: transparent; color: var(--primary); border: 1px solid var(--primary); }
+    .lrx-sentinel { display: flex; align-items: center; justify-content: center; gap: 9px; padding: 16px; color: var(--text-sub); font-size: 14px; }
+    .lrx-spin { width: 15px; height: 15px; border: 2px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: lrxsp 0.7s linear infinite; }
     @keyframes lrxsp { to { transform: rotate(360deg); } }
 
     /* ── Detail drawer as overlay ────────────────────────────────────────── */
@@ -8129,14 +8164,14 @@
     .day-group.lrx-week-hl {
       background: #eef2ff;
       border-radius: 12px;
-      border: 2px solid var(--lrx-run, #4f6ef7);
+      border: 2px solid var(--primary);
       padding: 6px 8px;
     }
     /* Today's day-group in the log list — same accent ring the calendar's
        today cell uses, so "today" reads consistently in both places (#4). */
     .day-group.is-today-group {
       border-radius: 12px;
-      box-shadow: inset 0 0 0 2px var(--lrx-run, #4f6ef7);
+      box-shadow: inset 0 0 0 2px var(--primary);
       padding: 6px 8px;
     }
     .detail-panel-overlay {
@@ -8149,10 +8184,10 @@
       transition: opacity 0.2s;
       z-index: 70;              /* below the drawer (z-index 80), above content */
     }
-    /* Un-hide the scrim on desktop (an earlier mobile-only rule hid it ≥880px)
+    /* Un-hide the scrim on desktop (an earlier mobile-only rule hid it ≥1024px)
        and show it whenever the drawer is open. Clicking it closes the detail
        (wired in training-log.js). */
-    @media (min-width: 880px) {
+    @media (min-width: 1024px) {
       .detail-panel-overlay { display: block; }
     }
     #layout-wrapper.has-panel .detail-panel-overlay,
@@ -8167,7 +8202,7 @@
     }
 
     /* Mobile: stack the sticky training header; don't use desktop drawer alignment */
-    @media (max-width: 879px) {
+    @media (max-width: 1023px) {
       .log-page-header {
         width: 100%;
         margin-left: 0;
@@ -8458,18 +8493,8 @@
 
         <div class="section-divider"></div>
 
-        <!-- Section 3: Weekly coach report (issue #1314). Shown once its
-             data loads. -->
-        <div id="wsc-section" hidden>
-          <div class="lrx-chead">
-            <span class="lrx-sectitle">Weekly coach report</span>
-            <span id="wsc-week-label" class="lrx-scope"></span>
-          </div>
-          <div id="wsc-body">
-            <div id="wsc-narrative" class="wsc-narrative"></div>
-            <p id="wsc-empty" class="wsc-empty" hidden>No training logged this week.</p>
-          </div>
-        </div>
+        <!-- Section 3: Weekly coach report — retired; Home Coach is SoT. -->
+        <div id="wsc-section" hidden aria-hidden="true"></div>
       </div>
 
       <!-- Legacy load-widget (kept for load_context path; hidden by default). -->
@@ -8657,7 +8682,7 @@
                     list="workout-name-suggestions"
                   />
                   <datalist id="workout-name-suggestions"></datalist>
-                  <p id="name-error" class="field-error"></p>
+                  <p id="name-error" class="field-error" aria-live="polite"></p>
                 </div>
                 <div class="meta-field">
                   <label for="workout-date">Date</label>
@@ -8666,7 +8691,7 @@
                 <div class="meta-field">
                   <label for="workout-tss"
                     >TSS
-                    <span style="font-weight: 400; color: #999"
+                    <span style="font-weight: 400; color: var(--text-sub)"
                       >(optional)</span
                     ></label
                   >
@@ -8687,6 +8712,7 @@
                     placeholder="Type name…"
                     style="display: none"
                     maxlength="50"
+                    aria-label="Custom workout type name"
                   />
                 </div>
                 <div class="meta-field full-width">
@@ -8812,6 +8838,7 @@
                         min="0"
                         max="59"
                         placeholder="0"
+                        aria-label="Duration minutes"
                       />
                       <span class="dur-sep">m</span>
                       <input
@@ -8822,6 +8849,7 @@
                         min="0"
                         max="59"
                         placeholder="0"
+                        aria-label="Duration seconds"
                       />
                       <span class="dur-sep">s</span>
                     </div>
@@ -8883,7 +8911,7 @@
                     </div>
                   </div>
                 </div>
-                <p id="run-error" class="field-error"></p>
+                <p id="run-error" class="field-error" aria-live="polite"></p>
               </div>
 
               <div class="exercises-section rl-card">
@@ -8905,7 +8933,7 @@
                 </div>
                 <div id="exercises-tbody" class="exercise-list"></div>
                 <datalist id="exercise-name-suggestions"></datalist>
-                <p id="exercises-error" class="error-msg"></p>
+                <p id="exercises-error" class="error-msg" aria-live="polite"></p>
                 <div class="ex-add-row">
                   <button id="add-exercise-btn" type="button" class="add-ex">
                     <span aria-hidden="true">+</span> Add exercise
@@ -9297,6 +9325,7 @@
         </div>
         <div
           id="plan-modal-error"
+          role="alert"
           style="color: var(--red, #7a1a1a); font-size: 12px; min-height: 1.2em"
         ></div>
         <div class="plan-modal-actions">
@@ -9378,7 +9407,7 @@
     </div>
 
     <script src="js/lib/sync-poller.js"></script>
-    <script src="js/nav.js?v=20260717v"></script>
+    <script src="js/nav.js?v=20260718nav1"></script>
     <script src="js/lib/html2canvas.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
     <script src="js/ui-states.js"></script>
@@ -9387,8 +9416,9 @@
     <script src="js/lib/run-detail-view.js?v=20260717y"></script>
     <script src="js/training.js"></script>
     <script src="js/training-log.js?v=20260717ae"></script>
-    <script src="js/training-performance.js"></script>
-    <script src="js/training-plan.js"></script>
+    <script src="js/training-performance.js?v=20260720draft1"></script>
+    <script src="js/lib/plan-session-helpers.js?v=20260720sm1"></script>
+    <script src="js/training-plan.js?v=20260720draft6"></script>
     <script src="js/user.js"></script>
     <script src="js/env.js"></script>
     <script>
@@ -9404,8 +9434,13 @@
         var logNewBtn = document.getElementById("log-new-btn");
 
         function getActiveTab() {
+          var params = new URLSearchParams(window.location.search || "");
+          var qTab = params.get("tab");
+          if (TABS.indexOf(qTab) !== -1) return qTab;
           var hash = window.location.hash.replace("#", "");
-          return TABS.indexOf(hash) !== -1 ? hash : "log";
+          // Allow #plan?date=… style deep links — tab is the token before '?'
+          var tab = hash.split("?")[0];
+          return TABS.indexOf(tab) !== -1 ? tab : "log";
         }
 
         function activateTab(tab) {

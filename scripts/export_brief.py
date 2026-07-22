@@ -17,7 +17,6 @@ import os
 import sys
 import tempfile
 from datetime import date, datetime, timedelta
-from zoneinfo import ZoneInfo
 
 # All assembly logic lives in the service.  Helper names are re-imported into
 # this module's namespace so that existing test patches such as
@@ -83,6 +82,7 @@ def _build_brief(for_date: date, worker_url=None, user_id=None, username=None) -
     advisories = _assemble_advisories(user_id, for_date, weight)
     week_plan = _assemble_week_plan(user_id, for_date)
     coach = _assemble_coach(user_id, for_date)
+    advisories_degraded = any(a.get("severity") == "error" for a in advisories)
 
     generated_at = datetime.now(BANGKOK_TZ).isoformat()
 
@@ -96,6 +96,7 @@ def _build_brief(for_date: date, worker_url=None, user_id=None, username=None) -
         "recent_wrap": recent_wrap,
         "weight": weight,
         "advisories": advisories,
+        "advisories_degraded": advisories_degraded,
         "actions": [],
         "week_plan": week_plan,
     }
@@ -148,21 +149,32 @@ def _resolve_user(username: str | None) -> str:
 
 
 def _load_goal_for_user(user_id: str):
-    """Return the active PerformanceGoal for user_id, or None."""
+    """Return coach goal for user_id — A-race first, else active PerformanceGoal."""
     from sqlalchemy.orm import Session
+    import uuid as _uuid
+    from datetime import date as _date
 
     from backend.db import engine
-    from backend.models import PerformanceGoal
+    from backend.services.weekly_coach_message import _goal_from_a_race, _load_inputs_for_user
+
+    try:
+        uid = _uuid.UUID(str(user_id))
+    except (ValueError, TypeError):
+        # username — resolve via inputs helper after user lookup
+        from backend.models import User
+        with Session(engine) as db:
+            u = db.query(User).filter(User.name == user_id, User.is_active.is_(True)).first()
+            if u is None:
+                return None
+            goal, _, _, _ = _load_inputs_for_user(u.id, db, _date.today())
+            return goal
 
     with Session(engine) as db:
-        return (
-            db.query(PerformanceGoal)
-            .filter(
-                PerformanceGoal.user_id == user_id,
-                PerformanceGoal.active.is_(True),
-            )
-            .first()
-        )
+        goal = _goal_from_a_race(uid, db)
+        if goal is not None:
+            return goal
+        goal, _, _, _ = _load_inputs_for_user(uid, db, _date.today())
+        return goal
 
 
 def _build_plan_state_for_user(goal, for_date: date) -> tuple:
@@ -232,109 +244,57 @@ def _coach_lever_strings(levers: dict) -> list[str]:
 
 
 def _assemble_coach(user_id: str, for_date: date) -> dict | None:
-    """Assemble the coach block for the daily brief.
+    """Assemble the coach block for the daily brief (same SoT as Home).
 
-    Returns a dict with directive (str), projection (str), and levers (list[str])
-    when an active goal exists, or None when no active goal is set.
-
-    When weekly narrative facts are available, also includes Focus #1 nudge
-    fields: focus_id, focus_label, next_action, why (Hermes Phase 4).
-
-    Never raises — any internal failure degrades to None so the brief export
-    continues without the coach block.
+    Uses get_coach_payload_for_user — never the legacy compose_deterministic_message.
     """
-    try:
-        goal = _load_goal_for_user(user_id)
-        if goal is None:
-            return None
-
-        plan_state, projection_info = _build_plan_state_for_user(goal, for_date)
-
-        from backend.services.weekly_coach_message import compose_deterministic_message
-        full_message = compose_deterministic_message(plan_state, projection_info, for_date)
-
-        # Extract the "Now:" sentence (first paragraph of the message) as directive.
-        paragraphs = [p.strip() for p in full_message.split("\n\n") if p.strip()]
-        directive = paragraphs[0] if paragraphs else full_message
-
-        # Build a compact one-line projection from the last paragraph ("Projection:").
-        projection_para = next(
-            (p for p in paragraphs if p.startswith("Projection:")), None
-        )
-        if projection_para:
-            projection = projection_para[len("Projection:"):].strip()
-        else:
-            from backend.services.weekly_coach_message import (
-                _format_hms,
-            )
-            if projection_info:
-                full_t = _format_hms(projection_info.get("full_compliance_time_seconds", 0))
-                trend_t = _format_hms(projection_info.get("current_trend_time_seconds", 0))
-                label = projection_info.get("distance_label", "race")
-                target_dt = projection_info.get("target_date")
-                month = target_dt.strftime("%b") if target_dt else "race day"
-                projection = f"plan → ~{full_t} {label} by {month} · now ~{trend_t}"
-            else:
-                projection = "No projection available"
-
-        levers = _coach_lever_strings((plan_state.get("levers") or {}))
-
-        out = {
-            "directive": directive,
-            "projection": projection,
-            "levers": levers,
-        }
-
-        # Prefer persisted weekly snapshot nudge; else build_coach_facts live.
-        nudge = _coach_nudge_for_user(user_id, for_date, goal)
-        if nudge:
-            out.update(nudge)
-        return out
-    except Exception as exc:
-        print(f"WARNING: coach block unavailable: {exc}", file=sys.stderr)
-        return None
-
-
-def _coach_nudge_for_user(user_id: str, for_date: date, goal) -> dict | None:
-    """Focus #1 / next-action fields for Hermes (optional; never raises)."""
     try:
         from sqlalchemy.orm import Session
         from backend.db import engine
-        from backend.services.weekly_coach_message import get_latest_for_user
+        from backend.services.weekly_coach_message import get_coach_payload_for_user
+
+        uid = user_id
+        # Resolve UUID if username was passed
+        try:
+            import uuid as _uuid
+            _uuid.UUID(str(user_id))
+        except (ValueError, TypeError):
+            goal = _load_goal_for_user(user_id)
+            if goal is None:
+                return None
+            uid = getattr(goal, "user_id", user_id)
 
         with Session(engine) as db:
-            latest = get_latest_for_user(getattr(goal, "user_id", user_id), db)
-        if latest:
-            snap = latest.get("plan_state_snapshot") or {}
-            facts = snap.get("facts") if isinstance(snap, dict) else None
-            nudge = (facts or {}).get("nudge") if isinstance(facts, dict) else None
-            if isinstance(nudge, dict) and (nudge.get("focus_label") or nudge.get("next_action")):
-                return {
-                    "focus_id": nudge.get("focus_id"),
-                    "focus_label": nudge.get("focus_label"),
-                    "next_action": nudge.get("next_action"),
-                    "why": nudge.get("why"),
-                }
-
-        from backend.services.coach_facts import build_coach_facts
-
-        facts = build_coach_facts(
-            getattr(goal, "user_id", user_id),
-            today=for_date,
-        )
-        if not facts:
+            payload = get_coach_payload_for_user(uid, today=for_date, db=db)
+        if not payload:
             return None
-        nudge = facts.get("nudge") or {}
-        if not (nudge.get("focus_label") or nudge.get("next_action")):
-            return None
-        return {
-            "focus_id": nudge.get("focus_id"),
-            "focus_label": nudge.get("focus_label"),
-            "next_action": nudge.get("next_action"),
-            "why": nudge.get("why"),
+
+        sections = payload.get("sections") or {}
+        nudge = payload.get("nudge") or {}
+        chosen = payload.get("chosen_preset")
+
+        out = {
+            "as_of": payload.get("as_of"),
+            "source": payload.get("source"),
+            "sections": sections,
+            "text": payload.get("text") or "",
+            # Compact Hermes fields derived from shared sections
+            "directive": (sections.get("now") or "").split("\n\n")[0][:400],
+            "projection": (sections.get("dream") or "").split("\n\n")[0][:400],
+            "levers": [],
         }
+        if isinstance(nudge, dict) and (nudge.get("focus_label") or nudge.get("next_action")):
+            out.update({
+                "focus_id": nudge.get("focus_id"),
+                "focus_label": nudge.get("focus_label"),
+                "next_action": nudge.get("next_action"),
+                "why": nudge.get("why"),
+            })
+        if chosen:
+            out["chosen_preset"] = chosen
+        return out
     except Exception as exc:
-        print(f"WARNING: coach nudge unavailable: {exc}", file=sys.stderr)
+        print(f"WARNING: coach block unavailable: {exc}", file=sys.stderr)
         return None
 
 

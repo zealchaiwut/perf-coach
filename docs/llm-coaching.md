@@ -22,14 +22,15 @@ for both services (UAT + PRD). Override in the Render dashboard to enable.
 | Habit insights / nudges | `habit_insights.py`, `habit_nudges.py` | Fast tier |
 | Readiness explanation | `readiness_explanation.py` | Fast tier |
 | Plan session suggest | `plan_suggestions.py` + `plan_orch_langgraph.py` | Deep tier; `PLAN_ORCH` |
-| **Weekly Home Coach** | `coach_facts` + `coach_narrative` + `coach_claude_cli` + worker `weekly_coach` job | **Worker only** (`PERFCOACH_ROLE=worker`). Webapp reads DB. |
+| **Daily Home Coach** | `coach_facts` + `coach_narrative` + `coach_claude_cli` + worker `daily_coach` job | **Worker only** (`PERFCOACH_ROLE=worker`). Webapp reads DB. `weekly_coach` is a dispatch alias. |
 
-### Weekly Home Coach (`COACH_LLM` / worker schedule)
+### Daily Home Coach (`COACH_LLM` / worker schedule)
 
-Specialist engines assemble facts; LangGraph (or plain) validates; default
-provider on the **compute worker** is `claude -p`. Render webapps leave
-`COACH_LLM` unset → `off` → no Claude/API calls if generation is ever invoked
-there by mistake.
+Specialist engines assemble facts (including `active_presets` from gap findings);
+LangGraph (or plain) validates; Claude picks `chosen_preset_code` from the
+allowlist and writes Now/Focus/Dream/Reflection. Default provider on the
+**compute worker** is `claude -p`. Render webapps leave `COACH_LLM` unset →
+`off` → no Claude/API calls if generation is ever invoked there by mistake.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -37,10 +38,9 @@ there by mistake.
 | `COACH_LLM` | `off` (web) / `claude_cli` (worker) | `claude_cli` \| `api` \| `off`. |
 | `COACH_ORCH` | `langgraph` | `langgraph` or `plain`. |
 | `COACH_CLAUDE_MODEL` | `sonnet` | Passed to `claude --model`. |
-| `WORKER_WEEKLY_COACH_ENABLED` | `1` | Scheduler enqueues Monday batch. |
-| `WORKER_WEEKLY_COACH_DOW` | `0` | Weekday (Mon=0) in Asia/Bangkok. |
+| `WORKER_DAILY_COACH_ENABLED` | `1` | Scheduler enqueues once per calendar day (Bangkok). Falls back to `WORKER_WEEKLY_COACH_ENABLED` if unset. |
 
-Manual: `POST /internal/weekly-coach/run` on the worker. Details: `docs/worker.md`.
+Manual: `POST /internal/daily-coach/run` on the worker (`/internal/weekly-coach/run` alias). Details: `docs/worker.md`.
 
 ## Fail-Safe Contract
 

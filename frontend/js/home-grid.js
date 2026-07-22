@@ -25,26 +25,42 @@
 
   // Fixed order (top → bottom / left → right at each breakpoint) with the
   // column span per column-count. Keys are the live widget container ids.
+  //
+  // Breakpoint consolidation (redesign pass): this used to key off FOUR
+  // column counts (8/6/4/1) driven by thresholds at 1000/760/480, which
+  // didn't line up with the project's documented mobile<640 / tablet
+  // 640-1024 / desktop>=1024 scale (nor with this page's own CSS, which had
+  // yet another set at 430/640/759/880). Comparing the old "4" (480-759) and
+  // "6" (760-999) tiers below shows they were already near-duplicates of
+  // each other (identical spans except perf-container and weight, which
+  // only differed by one column) — so they collapse cleanly into a single
+  // tablet tier at col=6, and the old "4" tier's lower half (480-640) folds
+  // into the mobile col=1 tier, where most widgets were already effectively
+  // full-width anyway.
   var REGISTRY = [
-    { id: 'home-top-row-right',          w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Readiness
-    { id: 'home-next-workout-card',      w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Recent workouts
-    { id: 'home-performance-card',       w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Performance
-    { id: 'home-today-rec-card',         w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Today (left)
-    { id: 'home-brief-week-plan-card',   w: { 8: 2, 6: 2, 4: 2, 1: 1 } }, // Week plan (right)
-    { id: 'home-training-card',          w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Training
-    { id: 'home-perf-container',         w: { 8: 4, 6: 3, 4: 4, 1: 1 } }, // Personal records
-    { id: 'home-habits-widget',          w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Habits
-    { id: 'home-weight-widget',          w: { 8: 4, 6: 3, 4: 4, 1: 1 } }, // Weight
-    { id: 'home-sleep-card',             w: { 8: 4, 6: 2, 4: 2, 1: 1 } }, // Sleep
-    { id: 'home-goal-card',              w: { 8: 4, 6: 4, 4: 4, 1: 1 } }, // Race goal
+    { id: 'home-top-row-right',          w: { 8: 4, 6: 4, 1: 1 } }, // Readiness
+    { id: 'home-next-workout-card',      w: { 8: 2, 6: 2, 1: 1 } }, // Recent workouts
+    { id: 'home-performance-card',       w: { 8: 2, 6: 2, 1: 1 } }, // Performance
+    { id: 'home-today-rec-card',         w: { 8: 2, 6: 2, 1: 1 } }, // Coach digest
+    { id: 'home-brief-week-plan-card',   w: { 8: 2, 6: 2, 1: 1 } }, // Week plan
+    { id: 'home-training-card',          w: { 8: 4, 6: 4, 1: 1 } }, // Training
+    { id: 'home-perf-container',         w: { 8: 4, 6: 3, 1: 1 } }, // Personal records
+    { id: 'home-habits-widget',          w: { 8: 4, 6: 4, 1: 1 } }, // Habits
+    { id: 'home-weight-widget',          w: { 8: 4, 6: 3, 1: 1 } }, // Weight
+    { id: 'home-sleep-card',             w: { 8: 4, 6: 2, 1: 1 } }, // Sleep
+    { id: 'home-goal-card',              w: { 8: 4, 6: 4, 1: 1 } }, // Race goal
   ];
 
+  // 640/1024 — the project's documented tablet/desktop split (see
+  // home.html's own @media rules, consolidated onto the same two numbers).
   function colFor(width) {
-    if (width >= 1000) return 8;
-    if (width >= 760) return 6;
-    if (width >= 480) return 4;
+    if (width >= 1024) return 8;
+    if (width >= 640) return 6;
     return 1;
   }
+
+  var REGISTRY_IDS = {};
+  REGISTRY.forEach(function (r) { REGISTRY_IDS[r.id] = true; });
 
   var container = null;
   var grid = null;
@@ -52,9 +68,28 @@
   var mo = null;
   var relayoutTimer = null;
 
+  // Widget ids whose content has mutated since the last relayout() pass —
+  // populated by the MutationObserver callback, consumed (and cleared) by
+  // relayout() so it can resizeToContent only those widgets instead of all
+  // 11. dirtyAll forces a full pass (init, breakpoint change, or a mutation
+  // we couldn't trace back to a known widget container).
+  var dirtyIds = {};
+  var dirtyAll = false;
+
   function itemEl(id) {
     var c = document.getElementById(id);
     return c ? c.closest('.grid-stack-item') : null;
+  }
+
+  // Walk a mutation's target up to the nearest ancestor that is one of the
+  // REGISTRY widget containers (or the container itself, if untraceable).
+  function widgetIdFor(node) {
+    var el = node && node.nodeType === 1 ? node : (node && node.parentNode);
+    while (el && el !== container) {
+      if (el.id && REGISTRY_IDS[el.id]) return el.id;
+      el = el.parentNode;
+    }
+    return null;
   }
 
   // Side-by-side pairs that should share a row height.
@@ -111,18 +146,47 @@
     });
   }
 
-  // Re-measure every item's content height and re-pack. Runs on init, on
+  // Re-measure item content height(s) and re-pack. Runs on init, on
   // breakpoint change (content can change too — e.g. Readiness drops the
   // load tiles below 480px via CSS), and whenever widget content mutates.
   // The observer is detached during the pass so gridstack's own DOM writes
   // can't retrigger it.
+  //
+  // resizeToContent is the expensive part (forces a layout read per widget),
+  // so it's scoped to only the widget(s) that actually mutated + their
+  // equalizePair partner (equalizePair compares both sides' heights, so the
+  // partner needs an up-to-date read too) — everything else keeps its
+  // last-known-correct height. compact('list')/equalizeAllPairs()/
+  // applyPairStretch() still run over the full registry every time: they're
+  // cheap (a handful of items, no forced reflow beyond what applyPairStretch
+  // already did) and re-packing/re-stretching is a whole-grid concern, not a
+  // per-widget one. dirtyAll (or an empty dirty set, e.g. init/breakpoint
+  // change) falls back to resizing everything, same as before.
   function relayout() {
     if (!grid) return;
     if (mo) mo.disconnect();
+
+    var idsToResize;
+    if (dirtyAll || Object.keys(dirtyIds).length === 0) {
+      idsToResize = REGISTRY.map(function (r) { return r.id; });
+    } else {
+      var scoped = {};
+      Object.keys(dirtyIds).forEach(function (id) { scoped[id] = true; });
+      HEIGHT_PAIRS.forEach(function (pair) {
+        if (scoped[pair[0]] || scoped[pair[1]]) {
+          scoped[pair[0]] = true;
+          scoped[pair[1]] = true;
+        }
+      });
+      idsToResize = Object.keys(scoped);
+    }
+    dirtyIds = {};
+    dirtyAll = false;
+
     clearPairStretch();
     grid.batchUpdate();
-    REGISTRY.forEach(function (r) {
-      var el = itemEl(r.id);
+    idsToResize.forEach(function (id) {
+      var el = itemEl(id);
       if (el) grid.resizeToContent(el);
     });
     grid.commit();
@@ -143,6 +207,10 @@
     });
     grid.commit();
     curCol = col;
+    // Column width changed for every widget — all of them may need a fresh
+    // content measurement (wrapping/line-count can change), not just
+    // whichever happened to be flagged dirty by a stray mutation.
+    dirtyAll = true;
     relayout();
   }
 
@@ -155,6 +223,21 @@
   function scheduleRelayout() {
     clearTimeout(relayoutTimer);
     relayoutTimer = setTimeout(relayout, 120);
+  }
+
+  // MutationObserver callback: record which widget(s) the mutations belong
+  // to (falling back to dirtyAll if a mutation can't be traced to a known
+  // widget container), then debounce as before.
+  function onMutate(records) {
+    for (var i = 0; i < records.length; i++) {
+      var id = widgetIdFor(records[i].target);
+      if (id) {
+        dirtyIds[id] = true;
+      } else {
+        dirtyAll = true;
+      }
+    }
+    scheduleRelayout();
   }
 
   function init() {
@@ -185,7 +268,7 @@
       sizeToContent: true
     }, container);
 
-    mo = new MutationObserver(scheduleRelayout);
+    mo = new MutationObserver(onMutate);
     mo.observe(container, { childList: true, subtree: true, characterData: true });
 
     if (window.ResizeObserver) {

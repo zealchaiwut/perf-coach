@@ -3,8 +3,11 @@
    and the home page (home.html). Single source of truth so the two widgets
    never drift. Rendered by frontend/js/lib/weight-current-card.js.
 
-   Self-contained: every var() has a literal fallback so the card looks
-   identical on pages that don't load css/styles.css (e.g. home.html).
+   Self-contained: every var() has a literal fallback so the card still
+   renders correctly on any page that doesn't load css/styles.css. (As of
+   polish round 2, home.html DOES load styles.css — the fallbacks are now
+   belt-and-suspenders for weight.html or any future consumer, not load-
+   bearing for home.html specifically.)
    ========================================================================== */
 
 /* ── Top row: label + relative date ──────────────────────────────────────── */
@@ -20,12 +23,16 @@
   font-weight: 600;
   letter-spacing: 0.07em;
   text-transform: uppercase;
-  color: var(--text-tertiary, #69748c);
+  /* --text-tertiary (#69748c) fails AA (4.02:1) against home.html's
+     .grp-weight gradient's darker stop (#fdecc8) — re-audit #12.
+     --text-secondary (#5c6886) clears 4.77:1 there and still passes on
+     weight.html's plain white card background. */
+  color: var(--text-secondary, #5c6886);
 }
 
 .hca-date-sub {
   font-size: 12px;
-  color: var(--text-tertiary, #69748c);
+  color: var(--text-secondary, #5c6886);
   white-space: nowrap;
 }
 
@@ -120,13 +127,17 @@
 }
 
 /* ── Coach strip ─────────────────────────────────────────────────────────── */
+/* backdrop-filter: blur(6px) removed (re-audit #4) — it was a live default
+   (not hover-only) glassmorphism instance the prior Redesign pass believed
+   it had removed from home.html, missed here because this file is a
+   shared dependency. Each state below already carries a solid tinted
+   background, so the blur added nothing. */
 .coach-strip {
   padding: 11px 16px;
   border-radius: 10px;
   font-size: 13.5px;
   font-weight: 500;
   line-height: 1.4;
-  backdrop-filter: blur(6px);
 }
 .coach-strip.coach-grey  { background: rgba(13, 30, 67, 0.06);  color: var(--text-secondary, #5c6886); border: 1px solid rgba(13, 30, 67, 0.10); }
 .coach-strip.coach-amber { background: var(--amber-soft, #fff0c4); color: var(--amber, #6b4408); border: 1px solid rgba(107,68,8,0.12); }

@@ -140,24 +140,14 @@ def test_597__html_zone2_hr_error_div_present(settings_html):
         "Error div (id=thresholds-zone2-hr-error) missing"
 
 
-# ── AC3: Weekly Zone 2 Target input ─────────────────────────────────────────
+# ── AC3: Weekly Zone 2 Target moved to Habits (no Settings UI) ───────────────
 
-def test_597__html_weekly_zone2_target_input_present(settings_html):
-    # AC3: Weekly Zone 2 Target input (id=thresholds-weekly-zone2-target)
-    assert 'id="thresholds-weekly-zone2-target"' in settings_html, \
-        "Weekly Zone 2 Target input (id=thresholds-weekly-zone2-target) missing"
+def test_597__html_weekly_zone2_target_input_removed(settings_html):
+    assert 'id="thresholds-weekly-zone2-target"' not in settings_html
 
 
-def test_597__html_weekly_zone2_target_unit_min(settings_html):
-    # AC3: "min" unit label present near the weekly target input
-    assert "min" in settings_html, \
-        "'min' unit label missing from settings.html (Weekly Zone 2 Target)"
-
-
-def test_597__html_weekly_zone2_target_error_div_present(settings_html):
-    # AC7: error div for weekly target
-    assert 'id="thresholds-weekly-zone2-target-error"' in settings_html, \
-        "Error div (id=thresholds-weekly-zone2-target-error) missing"
+def test_597__html_weekly_zone2_target_error_div_removed(settings_html):
+    assert 'id="thresholds-weekly-zone2-target-error"' not in settings_html
 
 
 # ── AC4: API returns all three fields ────────────────────────────────────────

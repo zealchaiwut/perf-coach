@@ -259,5 +259,19 @@ def link_audit_row(job_id: str, worker_job_run_id: Any) -> None:
         s.commit()
 
 
+def has_done(dedupe_key: str) -> bool:
+    """Return True if a `done` row with this dedupe_key exists.
+
+    Used by the scheduler to skip re-enqueueing weekly_coach when the first
+    wake-time run already completed successfully for this ISO week.
+    """
+    with Session(engine) as s:
+        result = s.execute(
+            text("SELECT 1 FROM job_queue WHERE dedupe_key = :k AND status = 'done' LIMIT 1"),
+            {"k": dedupe_key},
+        ).scalar_one_or_none()
+        return result is not None
+
+
 def _db_now(s: Session):
     return s.execute(text("SELECT now()")).scalar_one()

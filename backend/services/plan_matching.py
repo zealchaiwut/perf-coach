@@ -145,8 +145,13 @@ def reconcile_user(session: _Session, user_id) -> dict:
     """Run the matcher for one user against their reconciled workouts.
 
     Idempotent: never overwrites a ``done_manual`` link or an existing
-    ``done_auto`` link; only fills ``planned`` / ``missed`` / ``needs_review``
-    slots. A user unmatch/miss is respected until the underlying data changes.
+    ``done_auto`` link; only fills ``planned`` / ``missed_auto`` /
+    ``needs_review`` slots. ``missed_manual`` is excluded from sweeps.
+    A user unmatch/miss is respected until the underlying data changes.
+
+    Missed is derived first: when ``planned_date + 1 day`` has passed with no
+    candidate in the ±1 window → ``missed_auto``. A workout matched a day off
+    still resolves to done_auto/review (never missed).
 
     Returns ``{"updated": n, "statuses": {status: count}}``.
     """
@@ -194,7 +199,11 @@ def reconcile_user(session: _Session, user_id) -> dict:
         if st == "rest":
             continue
         # Respect resolved/locked links — idempotent re-run.
-        if p.status in ("done_auto", "done_manual"):
+        if p.status in ("done_auto", "done_manual", "missed_manual"):
+            continue
+        # Legacy "missed" treated as locked (manual-era) unless we re-open it —
+        # keep skipping so we don't flip athlete-confirmed misses.
+        if p.status == "missed":
             continue
 
         planned_secs = _planned_duration_seconds(p.structure)
@@ -225,15 +234,23 @@ def reconcile_user(session: _Session, user_id) -> dict:
                 new_status, new_match = "done_auto", w.id
             else:
                 new_status, new_match = "needs_review", None
+        elif len(off_day) == 1 and not same_day:
+            # Single ±1-day candidate with tight duration → done_auto (a day late).
+            w, ratio = off_day[0]
+            if ratio is None or ratio <= DURATION_AUTO:
+                new_status, new_match = "done_auto", w.id
+            else:
+                new_status, new_match = "needs_review", None
         elif same_day or off_day:
-            # 2+ same-day, a single day±1, or a same-day outside ±20% (≤ ±40%)
+            # 2+ candidates or mixed same/off → athlete reviews
             new_status, new_match = "needs_review", None
         else:
-            # No candidate at all.
-            if p.planned_date < today:
-                new_status = "missed"
+            # No candidate at all. Missed only after planned_date + 1 day passed
+            # (gives the ±1 window a chance to resolve next-day matches).
+            if p.planned_date is not None and today > p.planned_date + _timedelta(days=DAY_WINDOW):
+                new_status = "missed_auto"
             else:
-                new_status = None  # future/today with nothing yet → leave planned
+                new_status = None  # future/today/grace → leave planned
 
         # Apply only when it changes something meaningful.
         target_status = new_status if new_status is not None else "planned"
@@ -245,7 +262,7 @@ def reconcile_user(session: _Session, user_id) -> dict:
                 claimed.add(new_match)
                 changed = True
         else:
-            # needs_review / missed / planned: clear any stale (non-manual) link.
+            # needs_review / missed_auto / planned: clear any stale (non-manual) link.
             if p.matched_workout_id is not None:
                 p.matched_workout_id = None
                 changed = True

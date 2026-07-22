@@ -102,43 +102,6 @@
    log page's inline styles). */
 .rd4-feeling { margin-top: 8px; }
 
-.rd4-hero-tiles {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-top: 16px;
-}
-
-.rd4-hero-tile {
-  background: #f6f8fc;
-  border-radius: 12px;
-  padding: 14px 16px;
-}
-
-.rd4-hero-val {
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 1.75rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  line-height: 1.1;
-}
-
-.rd4-hero-unit {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-left: 2px;
-}
-
-.rd4-hero-lbl {
-  margin-top: 6px;
-  font-size: 0.625rem;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--text-tertiary);
-}
-
 .rd4-duration {
   margin-top: 12px;
   font-size: 0.8125rem;
@@ -657,7 +620,6 @@
   .rd4-stat-val { font-size: 1rem; }
   .rd4-stat--hero .rd4-stat-val { font-size: 1.125rem; }
   .rd4-eff-grid { grid-template-columns: 1fr; }
-  .rd4-hero-tiles { grid-template-columns: 1fr 1fr; }
   .rd4-dec-head { flex-direction: column; }
   .rd4-lap-table { min-width: 0; font-size: 0.6875rem; }
   .rd4-lap-table th, .rd4-lap-table td { padding: 5px 4px; }
@@ -694,7 +656,7 @@
 .rd4-hl-title { font-size: 16px; font-weight: 700; color: #0b1530; }
 .rd4-hl-sub { font-size: 12px; color: #5c6886; margin-top: 1px; }
 .rd4-hl-num { font-family: var(--mono, "JetBrains Mono", monospace); font-size: 26px; font-weight: 700; text-align: right; line-height: 1; color: #0b1530; }
-.rd4-hl-num span { display: block; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #8b95ad; margin-top: 3px; }
+.rd4-hl-num span { display: block; font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-sub); margin-top: 3px; }
 .rd4-dev-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .rd4-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 600; padding: 5px 11px; border-radius: 999px; border: 1.5px solid #e5e7eb; background: #fff; color: #5c6886; }
 .rd4-chip-ar { font-weight: 800; }
@@ -953,7 +915,7 @@
 .rd4-signal-sub {
   margin: 2px 0 10px;
   font-size: 0.75rem;
-  color: var(--text-tertiary, #9aa3b8);
+  color: var(--text-tertiary, #9aa3b2);
   font-weight: 500;
 }
 
@@ -1009,6 +971,23 @@
   margin-top: 10px;
 }
 
+/* .rd4-share-heroes / .rd4-share-hero-tile: distance ring + duration + avg
+   pace. This is NOT a copy-paste clone of .rd4-stat--hero (the highlighted
+   TSS cell in .rd4-stat-grid) — it's the hero row rendered by
+   buildHeroMetricsHtml() in run-detail-view.js and reused verbatim in two
+   places: the live in-app run header AND the shareable image built for the
+   camera/export button (rendered off-DOM into html2canvas — see the
+   html2canvas notes near realignShareHrSvg()/buildShareCard() in
+   run-detail-view.js). The value/unit/label styling here deliberately
+   restates the mono-number hero look instead of sharing a base class with
+   .rd4-stat--hero, and colors are pinned with explicit hex fallbacks
+   (var(--text-primary, #0b1530), etc.) rather than relying only on the
+   custom-property cascade, so the snapshot renders correctly even if
+   html2canvas captures this subtree outside the normal theming context.
+   Keep this block self-contained — don't "fix" it into a shared base class
+   with .rd4-stat--hero, and don't drop the literal color fallbacks; either
+   change risks silently breaking the exported share image without breaking
+   the in-app view (which would still pick up CSS vars fine). */
 .rd4-share-heroes {
   display: grid;
   grid-template-columns: auto 1fr 1fr;

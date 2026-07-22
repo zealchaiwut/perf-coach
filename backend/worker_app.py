@@ -8,8 +8,9 @@ IMPORTANT: this module must NEVER import backend.main — that module starts
 daemon threads (sleep sync, banister refit) at import time. Only import
 backend.db, backend.models, and backend.services.* here.
 
-Also owns the weekly Home Coach narrative job (`weekly_coach`) — Claude CLI
+Also owns the daily Home Coach narrative job (`daily_coach`) — Claude CLI
 (`COACH_LLM=claude_cli`) runs here on zeal-server, never on the Render webapp.
+The legacy job name `weekly_coach` remains as a dispatch alias.
 """
 
 from __future__ import annotations
@@ -295,12 +296,12 @@ def _run_banister_refit_batch() -> None:
         logger.error("job finish: banister_refit status=error: %s", exc, exc_info=True)
 
 
-def _run_weekly_coach_batch(
+def _run_daily_coach_batch(
     user_id: str | None = None,
     triggered_by: str = "schedule",
     today=None,
 ) -> None:
-    """Generate weekly Home Coach narratives (Claude CLI on worker).
+    """Generate daily Home Coach narratives (Claude CLI on worker).
 
     Webapps only READ persisted rows — generation belongs here so `claude -p`
     and long LLM work never run on Render.
@@ -318,12 +319,12 @@ def _run_weekly_coach_batch(
         user_ids = [r[0] for r in q.all()]
 
     recorder = DbRecorder(
-        job_type="weekly_coach",
+        job_type="daily_coach",
         user_id=user_id,
         triggered_by=triggered_by,
     )
     logger.info(
-        "job start: weekly_coach users=%d triggered_by=%s as_of=%s",
+        "job start: daily_coach users=%d triggered_by=%s as_of=%s",
         len(user_ids),
         triggered_by,
         as_of,
@@ -341,7 +342,7 @@ def _run_weekly_coach_batch(
                     results[key] = f"ok:{src}"
             except Exception as exc:
                 results[key] = f"error:{exc}"
-                logger.warning("weekly_coach user=%s failed: %s", key, exc, exc_info=True)
+                logger.warning("daily_coach user=%s failed: %s", key, exc, exc_info=True)
         ok = sum(1 for v in results.values() if v.startswith("ok"))
         skip = sum(1 for v in results.values() if v.startswith("skip"))
         err = sum(1 for v in results.values() if v.startswith("error"))
@@ -355,20 +356,17 @@ def _run_weekly_coach_batch(
         }
         recorder.mark_success(None, stats=stats)
         logger.info(
-            "job finish: weekly_coach status=success ok=%d skip=%d err=%d/%d",
+            "job finish: daily_coach status=success ok=%d skip=%d err=%d/%d",
             ok, skip, err, len(results),
         )
     except Exception as exc:
         recorder.mark_error(None, str(exc))
-        logger.error("job finish: weekly_coach status=error: %s", exc, exc_info=True)
+        logger.error("job finish: daily_coach status=error: %s", exc, exc_info=True)
 
 
-# ── Pull-queue: dispatch + poll loop (Phase 1) ───────────────────────────────
-#
-# Each handler runs the EXISTING execution function (which creates and finalizes
-# its own worker_job_runs audit row via DbRecorder — we do NOT create a second
-# one), then the wrapper marks the queue row done/failed. Job types map 1:1 to
-# the handlers below.
+# Compat alias for older callers / tests
+_run_weekly_coach_batch = _run_daily_coach_batch
+
 
 def _enqueue_precompute_after_sync(user_id) -> None:
     """After a per-user sync, warm that user's load snapshot on the worker so the
@@ -386,14 +384,34 @@ def _enqueue_precompute_after_sync(user_id) -> None:
         logger.warning("post-sync precompute enqueue failed for %s", user_id, exc_info=True)
 
 
+def _enqueue_daily_coach_after_sync(user_id) -> None:
+    """After sync, refresh that user's daily coach narrative (dedupe per day)."""
+    if user_id is None:
+        return
+    if os.getenv("WORKER_DAILY_COACH_ENABLED", os.getenv("WORKER_WEEKLY_COACH_ENABLED", "1")) != "1":
+        return
+    day_key = datetime.now(BANGKOK_TZ).date().isoformat()
+    try:
+        job_queue.enqueue(
+            "daily_coach",
+            {"user_id": str(user_id), "triggered_by": "post_sync", "today": day_key},
+            enqueued_by="worker",
+            dedupe_key=f"daily_coach:{day_key}:{user_id}",
+        )
+    except Exception:
+        logger.warning("post-sync daily_coach enqueue failed for %s", user_id, exc_info=True)
+
+
 def _h_strava_sync(p: dict) -> None:
     _run_one_sync(p["user_id"], "strava", bool(p.get("full")), p.get("triggered_by", "queue"))
     _enqueue_precompute_after_sync(p.get("user_id"))
+    _enqueue_daily_coach_after_sync(p.get("user_id"))
 
 
 def _h_stryd_sync(p: dict) -> None:
     _run_one_sync(p["user_id"], "stryd", bool(p.get("full")), p.get("triggered_by", "queue"))
     _enqueue_precompute_after_sync(p.get("user_id"))
+    _enqueue_daily_coach_after_sync(p.get("user_id"))
 
 
 def _h_backfill(p: dict) -> None:
@@ -408,17 +426,20 @@ def _h_banister_refit(p: dict) -> None:
     _run_banister_refit_batch()
 
 
-def _h_weekly_coach(p: dict) -> None:
+def _h_daily_coach(p: dict) -> None:
     today = None
     raw = p.get("today") or p.get("as_of")
     if raw:
         from datetime import date as _date
         today = _date.fromisoformat(str(raw)[:10])
-    _run_weekly_coach_batch(
+    _run_daily_coach_batch(
         user_id=p.get("user_id"),
         triggered_by=p.get("triggered_by", "queue"),
         today=today,
     )
+
+
+_h_weekly_coach = _h_daily_coach
 
 
 def _h_precompute(p: dict) -> None:
@@ -437,15 +458,25 @@ def _h_garmin_sync(p: dict) -> None:
     _enqueue_precompute_after_sync(p.get("user_id"))
 
 
+def _h_plan_draft(p: dict) -> None:
+    from backend.services.plan_draft import run_plan_draft_job
+    # Generation is gated inside callers via PLAN_PIPELINE; job itself always runs
+    # when claimed so shadow/v2 modes work without re-checking here.
+    result = run_plan_draft_job(p)
+    logger.info("plan_draft done: %s", result)
+
+
 _DISPATCH = {
     "strava_sync": _h_strava_sync,
     "stryd_sync": _h_stryd_sync,
     "backfill": _h_backfill,
     "form_metrics_backfill": _h_form_metrics_backfill,
     "banister_refit": _h_banister_refit,
-    "weekly_coach": _h_weekly_coach,
+    "daily_coach": _h_daily_coach,
+    "weekly_coach": _h_weekly_coach,  # compat alias
     "precompute": _h_precompute,
     "garmin_sync": _h_garmin_sync,
+    "plan_draft": _h_plan_draft,
 }
 
 
@@ -580,9 +611,9 @@ def form_metrics_backfill(body: dict):
     return {"started": True}
 
 
-@app.post("/internal/weekly-coach/run", dependencies=[Depends(require_worker_secret)])
-def weekly_coach_run(body: dict | None = None):
-    """Enqueue (or run) weekly Home Coach narrative generation on the worker.
+@app.post("/internal/daily-coach/run", dependencies=[Depends(require_worker_secret)])
+def daily_coach_run(body: dict | None = None):
+    """Enqueue (or run) daily Home Coach narrative generation on the worker.
 
     Body (all optional):
       user_id — limit to one user
@@ -594,24 +625,33 @@ def weekly_coach_run(body: dict | None = None):
     today = body.get("today") or body.get("as_of")
     if body.get("sync"):
         as_of = date.fromisoformat(str(today)[:10]) if today else None
-        _executor.submit(_run_weekly_coach_batch, user_id, "manual", as_of)
+        _executor.submit(_run_daily_coach_batch, user_id, "manual", as_of)
         return {"started": True, "mode": "inline"}
 
-    iso = datetime.now(BANGKOK_TZ).isocalendar()
-    week_key = f"{iso[0]}-W{iso[1]:02d}"
-    dedupe = f"weekly_coach:{week_key}" + (f":{user_id}" if user_id else "")
+    day_key = (
+        str(today)[:10]
+        if today
+        else datetime.now(BANGKOK_TZ).date().isoformat()
+    )
+    dedupe = f"daily_coach:{day_key}" + (f":{user_id}" if user_id else "")
     payload = {"triggered_by": "manual"}
     if user_id:
         payload["user_id"] = user_id
     if today:
         payload["today"] = str(today)[:10]
     job_id = job_queue.enqueue(
-        "weekly_coach",
+        "daily_coach",
         payload,
         enqueued_by="manual",
-        dedupe_key=dedupe if not user_id else f"weekly_coach:manual:{user_id}:{week_key}",
+        dedupe_key=dedupe if not user_id else f"daily_coach:manual:{user_id}:{day_key}",
     )
     return {"started": True, "mode": "queue", "job_id": str(job_id) if job_id else None, "dedupe_key": dedupe}
+
+
+@app.post("/internal/weekly-coach/run", dependencies=[Depends(require_worker_secret)])
+def weekly_coach_run(body: dict | None = None):
+    """Compat alias for /internal/daily-coach/run."""
+    return daily_coach_run(body)
 
 
 # ── Read API (Hermes) ─────────────────────────────────────────────────────────
@@ -767,6 +807,26 @@ def plan_today(date: str | None = None, user: str | None = None):
         "planned": planned,
         "sessions": [_session_to_dict(r) for r in rows],
     }
+
+
+@app.get("/api/plan/draft-notify")
+def plan_draft_notify(user: str | None = None, ack: bool = False):
+    """Hermes morning-window draft nudge (never fires at job completion).
+
+    ``deliver_now`` is true only in BKK 07:00–09:00 while a notify is pending.
+    Pass ``ack=true`` after Discord delivery so the same draft is not re-sent.
+    """
+    from backend.services.plan_draft import hermes_draft_notify, pipeline_enabled
+
+    if not pipeline_enabled():
+        return {"ready": False, "deliver_now": False, "pipeline_off": True}
+
+    resolved_user = _resolve_read_user(user)
+    with Session(engine) as s:
+        out = hermes_draft_notify(s, resolved_user.id, ack=ack)
+        if ack:
+            s.commit()
+        return out
 
 
 @app.get("/api/weight/recent")
@@ -1003,9 +1063,11 @@ def _scheduler_loop() -> None:
 
     banister_enabled = os.getenv("WORKER_BANISTER_ENABLED", "1") == "1"
     last_banister_refit = time.monotonic()
-    weekly_coach_enabled = os.getenv("WORKER_WEEKLY_COACH_ENABLED", "1") == "1"
-    # Monday=0 … Sunday=6 (datetime.weekday)
-    weekly_coach_dow = int(os.getenv("WORKER_WEEKLY_COACH_DOW", "0"))
+    # Daily coach: prefer WORKER_DAILY_COACH_ENABLED; fall back to legacy weekly flag.
+    daily_coach_enabled = (
+        os.getenv("WORKER_DAILY_COACH_ENABLED", os.getenv("WORKER_WEEKLY_COACH_ENABLED", "1"))
+        == "1"
+    )
 
     while True:
         sleep_seconds = _seconds_until_next(times) if times else 3600
@@ -1025,26 +1087,30 @@ def _scheduler_loop() -> None:
             except Exception as exc:
                 logger.error("scheduled banister refit failed to enqueue: %s", exc, exc_info=True)
 
-        # Weekly Home Coach — once per ISO week on the configured weekday
-        # (default Monday), enqueued at the same wake times as the sync sweep.
-        # Dedupe key is the ISO week so 06:00 + 18:00 only run once.
-        if weekly_coach_enabled:
-            now_bkk = datetime.now(BANGKOK_TZ)
-            if now_bkk.weekday() == weekly_coach_dow:
-                iso = now_bkk.isocalendar()
-                week_key = f"{iso[0]}-W{iso[1]:02d}"
-                try:
+        # Daily Home Coach — once per calendar day (Asia/Bangkok), enqueued at
+        # the same wake times as the sync sweep. Dedupe key is the date so
+        # 06:00 + 18:00 only run once. Also skip when a done row already exists
+        # (enqueue() alone only dedupes queued/running).
+        if daily_coach_enabled:
+            day_key = datetime.now(BANGKOK_TZ).date().isoformat()
+            dedupe_key = f"daily_coach:{day_key}"
+            try:
+                if job_queue.has_done(dedupe_key):
+                    logger.info(
+                        "scheduled daily_coach skipped: already done for %s", day_key
+                    )
+                else:
                     job_queue.enqueue(
-                        "weekly_coach",
-                        {"triggered_by": "schedule"},
+                        "daily_coach",
+                        {"triggered_by": "schedule", "today": day_key},
                         enqueued_by="schedule",
-                        dedupe_key=f"weekly_coach:{week_key}",
+                        dedupe_key=dedupe_key,
                     )
-                    logger.info("scheduled weekly_coach enqueued for %s", week_key)
-                except Exception as exc:
-                    logger.error(
-                        "scheduled weekly_coach failed to enqueue: %s", exc, exc_info=True
-                    )
+                    logger.info("scheduled daily_coach enqueued for %s", day_key)
+            except Exception as exc:
+                logger.error(
+                    "scheduled daily_coach failed to enqueue: %s", exc, exc_info=True
+                )
 
 
 @app.on_event("startup")

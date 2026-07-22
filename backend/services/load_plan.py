@@ -78,9 +78,19 @@ to a snapshot of today's chronic load. A deload week's cut value still enters
 the window, so it legitimately (and correctly) pulls the following weeks'
 ceiling down a little — a real down week does lower rolling chronic load.
 
+Baseline week (skip deload)
+---------------------------
+``baseline`` is the most recent *completed* week's actual TSS that is **not**
+on the athlete's 4-week deload cycle. Plan ``week_index`` 1 is this week;
+last week is index 0, two weeks ago is −1, etc. The same
+``is_deload_cycle_week`` rule used for future ramp cuts flags those prior
+weeks, so a just-finished deload (e.g. week 0 when ``deload_start_week=4``)
+does not seed the next ramp — callers walk back via
+``resolve_baseline_weeks_ago`` and pass that week's logged TSS here.
+
 Baseline cap
 ------------
-``baseline`` (last completed week's actual TSS) is wrong when that week was
+``baseline`` (that resolved week's actual TSS) is wrong when that week was
 itself a spike. A single hard week can run 30-40% above chronic load without
 being a real change in fitness — ramping 5%/week off a spike compounds an
 overshoot that already exists before the plan even starts.
@@ -199,6 +209,54 @@ BASELINE_CAP_MULT: float = 1.15
 # consolidation" section) — the back_off target as a fraction of baseline.
 BACK_OFF_TARGET_MULT: float = 0.9
 
+# How far back resolve_baseline_weeks_ago may walk when skipping deload-cycle
+# weeks. At most 1-in-4 weeks is a deload, so 8 is plenty of headroom.
+_BASELINE_LOOKBACK_WEEKS: int = 8
+
+
+def is_deload_cycle_week(
+    week_index: int,
+    *,
+    deload_enabled: bool = False,
+    deload_start_week: int = 4,
+) -> bool:
+    """True when ``week_index`` lands on the athlete's 4-week deload cycle.
+
+    Uses the same numbering as ``compute_load_plan``: 1 = this week, 0 = last
+    completed week, −1 = two weeks ago, …. Works for any integer so prior
+    calendar weeks can be flagged the same way future target bars are.
+    Peak-hold / taper cuts are a separate concern inside ``compute_load_plan``;
+    this helper only answers the cycle question.
+    """
+    if not deload_enabled:
+        return False
+    start = min(max(1, int(deload_start_week)), _DELOAD_EVERY_N_WEEKS)
+    return int(week_index) % _DELOAD_EVERY_N_WEEKS == start % _DELOAD_EVERY_N_WEEKS
+
+
+def resolve_baseline_weeks_ago(
+    *,
+    deload_enabled: bool = False,
+    deload_start_week: int = 4,
+    max_lookback_weeks: int = _BASELINE_LOOKBACK_WEEKS,
+) -> int:
+    """Return how many weeks ago to take the ramp baseline from.
+
+    1 = last completed week (plan ``week_index`` 0). When deload is enabled,
+    skips weeks on the deload cycle so the ramp resumes from the last real
+    build week (e.g. after a week-0 deload, return 2 → two weeks ago).
+    """
+    lookback = max(1, int(max_lookback_weeks))
+    for weeks_ago in range(1, lookback + 1):
+        week_index = 1 - weeks_ago
+        if not is_deload_cycle_week(
+            week_index,
+            deload_enabled=deload_enabled,
+            deload_start_week=deload_start_week,
+        ):
+            return weeks_ago
+    return 1
+
 
 class WeekTarget(TypedDict):
     week_index: int  # 1-based, 1..weeks_to_race
@@ -266,11 +324,14 @@ def compute_load_plan(
     """Compute the per-week target-TSS series from now to an A race.
 
     Args:
-        baseline: last completed week's ACTUAL TSS (never planned TSS — a
-            missed week must lower future targets, not silently inflate them).
-            Capped against chronic load before use — see the module
-            docstring's "Baseline cap" section; the raw/capped/chronic
-            values are all returned so callers can surface the cap.
+        baseline: ACTUAL TSS of the resolved baseline week (never planned
+            TSS — a missed week must lower future targets, not silently
+            inflate them). Callers should pass the week chosen by
+            ``resolve_baseline_weeks_ago`` so a just-finished deload does
+            not seed the ramp. Capped against chronic load before use —
+            see the module docstring's "Baseline cap" section; the
+            raw/capped/chronic values are all returned so callers can
+            surface the cap.
         ramp_rate: fractional weekly increase, e.g. 0.05 for 5%/week.
         hold_weeks: length of the peak-hold plateau, in weeks.
         taper_weeks: length of the taper, in weeks.

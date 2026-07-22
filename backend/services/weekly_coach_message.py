@@ -1,18 +1,17 @@
-"""Weekly coach message generation service (issue #1504 + Home Coach narrative).
+"""Daily coach message generation service (issue #1504 + daily SoT).
 
-Generates a structured weekly coaching message from specialist facts
+Generates a structured coaching message from specialist facts
 (coach_facts.build_coach_facts) + LangGraph/plain LLM synthesizer, and
-persists it per ISO week.
+persists it per calendar date (``for_date``). ``for_week`` is denormalized.
 
 Public API
 ----------
 compose_deterministic_message(plan_state, projection_info, today) -> str
-    Legacy 5-element text (still used by Hermes export_brief coach block).
+    Legacy 5-element text (kept for tests / fallback; Hermes uses get_coach_payload).
 
-compose_coach_narrative / generate_narrative — see coach_narrative.py
-
-persist_weekly_message(user_id, for_week, text, plan_state_snapshot, db)
-get_latest_for_user / get_history_for_user
+persist_daily_message / persist_weekly_message (alias)
+get_latest_for_user / get_history_for_user / get_for_date
+get_coach_payload_for_user — shared Home + Hermes shape
 generate_for_user(user_id, db=None, today=None) -> dict
     facts → orch → persist nested snapshot {plan_state, facts, source, sections}.
 """
@@ -292,30 +291,29 @@ def _serialize_plan_state(plan_state: dict) -> dict:
     return _convert(plan_state)
 
 
-def persist_weekly_message(
+def persist_daily_message(
     user_id,
-    for_week: str,
+    for_date: date,
     text: str,
     plan_state_snapshot: dict | None,
     db,
+    for_week: str | None = None,
 ) -> "WeeklyCoachMessage":
-    """Upsert a weekly message record.
-
-    If a record already exists for (user_id, for_week) it is updated in place
-    (generated_at refreshed, text replaced) — enforcing idempotency per ISO week.
-    """
+    """Upsert a daily message record on (user_id, for_date)."""
     from backend.models import WeeklyCoachMessage
 
+    week = for_week or _iso_week(for_date)
     snapshot = _serialize_plan_state(plan_state_snapshot) if plan_state_snapshot else None
     now = datetime.now(tz=timezone.utc)
 
     existing = (
         db.query(WeeklyCoachMessage)
-        .filter_by(user_id=user_id, for_week=for_week)
+        .filter_by(user_id=user_id, for_date=for_date)
         .first()
     )
     if existing is not None:
         existing.text = text
+        existing.for_week = week
         existing.generated_at = now
         existing.plan_state_snapshot = snapshot
         db.flush()
@@ -323,7 +321,8 @@ def persist_weekly_message(
 
     record = WeeklyCoachMessage(
         user_id=user_id,
-        for_week=for_week,
+        for_week=week,
+        for_date=for_date,
         text=text,
         generated_at=now,
         plan_state_snapshot=snapshot,
@@ -333,26 +332,67 @@ def persist_weekly_message(
     return record
 
 
+def persist_weekly_message(
+    user_id,
+    for_week: str,
+    text: str,
+    plan_state_snapshot: dict | None,
+    db,
+    for_date: date | None = None,
+) -> "WeeklyCoachMessage":
+    """Compat wrapper — prefers for_date when provided, else derives from week Monday."""
+    if for_date is None:
+        # ISO week → Monday of that week (synthetic keys fall back to a stable date)
+        year_s, week_s = for_week.split("-W")
+        try:
+            for_date = date.fromisocalendar(int(year_s), int(week_s), 1)
+        except ValueError:
+            from datetime import timedelta
+            for_date = date(int(year_s), 1, 1) + timedelta(days=max(0, int(week_s) - 1) * 7)
+    return persist_daily_message(
+        user_id=user_id,
+        for_date=for_date,
+        text=text,
+        plan_state_snapshot=plan_state_snapshot,
+        db=db,
+        for_week=for_week,
+    )
+
+
 def _message_to_dict(record: "WeeklyCoachMessage") -> dict:
+    for_date = getattr(record, "for_date", None)
     return {
         "id": str(record.id) if record.id else None,
         "for_week": record.for_week,
+        "for_date": for_date.isoformat() if for_date else None,
         "generated_at": record.generated_at.isoformat() if record.generated_at else None,
         "text": record.text,
         "plan_state_snapshot": record.plan_state_snapshot,
     }
 
 
-def get_latest_for_user(user_id, db) -> dict | None:
-    """Return the most recently generated message for user_id, or None."""
+def get_for_date(user_id, for_date: date, db) -> dict | None:
+    """Return the message for a specific date, or None."""
     from backend.models import WeeklyCoachMessage
 
     record = (
         db.query(WeeklyCoachMessage)
-        .filter_by(user_id=user_id)
-        .order_by(WeeklyCoachMessage.generated_at.desc())
+        .filter_by(user_id=user_id, for_date=for_date)
         .first()
     )
+    return _message_to_dict(record) if record is not None else None
+
+
+def get_latest_for_user(user_id, db, as_of: date | None = None) -> dict | None:
+    """Return the newest message with for_date ≤ as_of (default: any latest)."""
+    from backend.models import WeeklyCoachMessage
+
+    q = db.query(WeeklyCoachMessage).filter_by(user_id=user_id)
+    if as_of is not None:
+        q = q.filter(WeeklyCoachMessage.for_date <= as_of)
+        record = q.order_by(WeeklyCoachMessage.for_date.desc()).first()
+    else:
+        record = q.order_by(WeeklyCoachMessage.generated_at.desc()).first()
     return _message_to_dict(record) if record is not None else None
 
 
@@ -363,31 +403,193 @@ def get_history_for_user(user_id, limit: int, db) -> list[dict]:
     rows = (
         db.query(WeeklyCoachMessage)
         .filter_by(user_id=user_id)
-        .order_by(WeeklyCoachMessage.generated_at.desc())
+        .order_by(WeeklyCoachMessage.for_date.desc(), WeeklyCoachMessage.generated_at.desc())
         .limit(limit)
         .all()
     )
     return [_message_to_dict(r) for r in rows]
 
 
+def get_coach_payload_for_user(
+    user_id,
+    today: date | None = None,
+    db=None,
+) -> dict | None:
+    """Shared Home + Hermes coach payload (sections + nudge + text).
+
+    Prefer the persisted daily row for ``today`` (or latest ≤ today). If missing,
+    build facts + deterministic narrative offline — never the legacy
+    compose_deterministic_message Hermes path.
+    """
+    _own_session = db is None
+    if _own_session:
+        from sqlalchemy.orm import Session as _Session
+        from backend.db import engine
+        db = _Session(engine)
+
+    today = today or date.today()
+    try:
+        msg = get_latest_for_user(user_id, db, as_of=today)
+        if msg:
+            snap = msg.get("plan_state_snapshot") or {}
+            sections = (snap.get("sections") or {}) if isinstance(snap, dict) else {}
+            facts = (snap.get("facts") or {}) if isinstance(snap, dict) else {}
+            nudge = facts.get("nudge") if isinstance(facts, dict) else None
+            chosen = facts.get("chosen_preset") if isinstance(facts, dict) else None
+            if not isinstance(nudge, dict):
+                nudge = None
+            if sections or msg.get("text"):
+                brief = snap.get("brief") if isinstance(snap, dict) else None
+                if not brief:
+                    try:
+                        from backend.models import DailyBrief
+                        from datetime import date as _date
+
+                        bd = msg.get("for_date")
+                        if isinstance(bd, str):
+                            bd = _date.fromisoformat(bd[:10])
+                        row = (
+                            db.query(DailyBrief)
+                            .filter(
+                                DailyBrief.user_id == user_id,
+                                DailyBrief.brief_date == (bd or today),
+                            )
+                            .first()
+                        )
+                        if row and isinstance(row.payload, dict):
+                            brief = row.payload
+                    except Exception:
+                        brief = None
+                return {
+                    "as_of": msg.get("for_date") or today.isoformat(),
+                    "source": (snap.get("source") if isinstance(snap, dict) else None) or "persisted",
+                    "sections": {
+                        "now": sections.get("now") or "",
+                        "focus": sections.get("focus") or "",
+                        "dream": sections.get("dream") or "",
+                        "reflection": sections.get("reflection") or "",
+                    },
+                    "nudge": nudge,
+                    "chosen_preset": chosen,
+                    "text": msg.get("text") or "",
+                    "brief": brief,
+                    "message": msg,
+                }
+
+        # Offline fallback: facts + brief v4 → legacy Markdown for Hermes
+        from backend.services.coach_facts import build_coach_facts
+        from backend.services.coach_brief import compose_coach_brief, brief_to_text, get_or_build_brief
+        from backend.services.coach_narrative import parse_sections_from_text
+
+        # Prefer stored v4 brief when present
+        stored = get_or_build_brief(db, user_id, today, force=False)
+        if stored:
+            text = brief_to_text(stored)
+            try:
+                sections = parse_sections_from_text(text)
+            except Exception:
+                sections = {"now": text, "focus": "", "dream": "", "reflection": ""}
+            facts = build_coach_facts(user_id, today=today, db=db) or {}
+            return {
+                "as_of": today.isoformat(),
+                "source": stored.get("source") or "fallback",
+                "sections": sections,
+                "nudge": facts.get("nudge"),
+                "chosen_preset": facts.get("chosen_preset"),
+                "text": text,
+                "brief": stored,
+                "message": None,
+            }
+
+        facts = build_coach_facts(user_id, today=today, db=db)
+        if facts is None:
+            return None
+        brief = compose_coach_brief(facts)
+        text = brief_to_text(brief)
+        try:
+            sections = parse_sections_from_text(text)
+        except Exception:
+            sections = {"now": text, "focus": "", "dream": "", "reflection": ""}
+        return {
+            "as_of": today.isoformat(),
+            "source": "fallback",
+            "sections": sections,
+            "nudge": facts.get("nudge"),
+            "chosen_preset": facts.get("chosen_preset"),
+            "text": text,
+            "brief": brief,
+            "message": None,
+        }
+    finally:
+        if _own_session:
+            db.close()
+
+
 # ── Orchestration ──────────────────────────────────────────────────────────────
+
+def _distance_label_from_km(km: float | None) -> str:
+    if km is None:
+        return "half"
+    if km >= 40:
+        return "marathon"
+    if km >= 20:
+        return "half"
+    if km >= 9:
+        return "10k"
+    return "5k"
+
+
+def _goal_from_a_race(user_id, db) -> Any | None:
+    """Build a PerformanceGoal-shaped object from the user's A-race (Plan SoT)."""
+    from types import SimpleNamespace
+
+    from backend.models import Race
+
+    a_race = (
+        db.query(Race)
+        .filter(
+            Race.user_id == user_id,
+            Race.priority == "A",
+            Race.status.in_(("planned", "active")),
+        )
+        .order_by(Race.race_date.asc().nullslast())
+        .first()
+    )
+    if a_race is None:
+        return None
+    dist_km = float(a_race.distance_km) if a_race.distance_km is not None else None
+    target = int(a_race.goal_time_seconds) if a_race.goal_time_seconds else 0
+    return SimpleNamespace(
+        race_distance=_distance_label_from_km(dist_km),
+        target_time=target,
+        race_date=a_race.race_date,
+        name=a_race.name,
+        distance_km=dist_km,
+        source="a_race",
+        id=getattr(a_race, "id", None),
+    )
+
 
 def _load_inputs_for_user(user_id, db, today: date) -> tuple[Any, Any, Any, Any]:
     """Load (goal, snapshot, weight_status, log_consistency) from DB.
 
-    Returns (None, None, None, None) when no active goal exists.
+    Goal source of truth for coach: **A-race** on the Plan tab. Falls back to
+    an active ``PerformanceGoal`` only when no A-race is set.
+    Returns (None, None, None, None) when neither exists.
     """
     from datetime import timedelta
 
     from sqlalchemy import desc
 
-    from backend.models import PerformanceGoal, TrainingLoadSnapshot, WeightEntry
+    from backend.models import TrainingLoadSnapshot, WeightEntry, PerformanceGoal
 
-    goal = (
-        db.query(PerformanceGoal)
-        .filter_by(user_id=user_id, active=True)
-        .first()
-    )
+    goal = _goal_from_a_race(user_id, db)
+    if goal is None:
+        goal = (
+            db.query(PerformanceGoal)
+            .filter_by(user_id=user_id, active=True)
+            .first()
+        )
     if goal is None:
         return None, None, None, None
 
@@ -466,7 +668,7 @@ def _build_projection_info(goal: Any, snapshot: Any, today: date) -> dict:
 
 
 def generate_for_user(user_id, db=None, today: date | None = None) -> dict | None:
-    """Generate and persist the weekly coaching message for user_id.
+    """Generate and persist the daily coaching message for user_id.
 
     Pipeline: build_coach_facts → coach narrative orch (LangGraph / plain) →
     persist Markdown text. Nested snapshot stores plan_state, facts, source,
@@ -484,17 +686,23 @@ def generate_for_user(user_id, db=None, today: date | None = None) -> dict | Non
 
     try:
         from backend.services.coach_facts import build_coach_facts
-        from backend.services.coach_narrative import generate_narrative
+        from backend.services.coach_narrative import generate_brief
 
         facts = build_coach_facts(user_id, today=today, db=db)
         if facts is None:
             _log.info(
-                "No active goal for user — skipping weekly message",
+                "No active goal for user — skipping daily coach message",
                 extra={"user_id": str(user_id)},
             )
             return None
 
-        result = generate_narrative(facts, max_attempts=3)
+        result = generate_brief(
+            facts,
+            max_attempts=3,
+            db=db,
+            user_id=user_id,
+            brief_date=today,
+        )
         text = result.get("text") or ""
         for_week = _iso_week(today)
 
@@ -505,12 +713,14 @@ def generate_for_user(user_id, db=None, today: date | None = None) -> dict | Non
             "facts": {k: v for k, v in facts.items() if k != "plan_state"},
             "source": result.get("source") or "fallback",
             "sections": result.get("sections") or {},
+            "brief": result.get("brief"),
             "orch": result.get("orch"),
             "attempts": result.get("attempts"),
         }
 
-        record = persist_weekly_message(
+        record = persist_daily_message(
             user_id=user_id,
+            for_date=today,
             for_week=for_week,
             text=text,
             plan_state_snapshot=snapshot,
@@ -521,7 +731,7 @@ def generate_for_user(user_id, db=None, today: date | None = None) -> dict | Non
         return _message_to_dict(record)
 
     except Exception as exc:
-        _log.error("Failed to generate weekly message", extra={"user_id": str(user_id), "error": str(exc)})
+        _log.error("Failed to generate daily coach message", extra={"user_id": str(user_id), "error": str(exc)})
         if _own_session:
             try:
                 db.rollback()

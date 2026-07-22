@@ -107,65 +107,40 @@ def _make_habit(
 # AC1 — Button present in settings.html (Performance Thresholds section)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def test_599__html_provision_zone2_button_present():
-    """AC1: The provision button must be in settings.html."""
+def test_599__html_provision_zone2_button_removed():
+    """Provision button removed — Zone 2 habit is auto-seeded via coach_habit_targets."""
     src = _html()
-    assert 'id="thresholds-provision-zone2-btn"' in src, (
-        "settings.html must contain a button with id='thresholds-provision-zone2-btn'"
-    )
+    assert 'id="thresholds-provision-zone2-btn"' not in src
 
 
+def test_599__html_provision_zone2_card_removed():
+    src = _html()
+    assert 'id="provision-zone2-card"' not in src
+    assert "Zone 2 weekly minutes are tracked as a habit" in src
+
+
+@pytest.mark.skip(reason="Provision UI removed; habit auto-seeded on GET /api/habits")
 def test_599__html_provision_zone2_button_in_thresholds_section():
-    """AC1: Button must appear inside section-thresholds div (before the next section)."""
-    src = _html()
-    thresholds_start = src.find('id="section-thresholds"')
-    assert thresholds_start != -1, "section-thresholds div not found"
-    # The next section begins at id="section-personal-records"
-    next_section = src.find('id="section-personal-records"', thresholds_start + 1)
-    if next_section == -1:
-        # Fallback: find any id="section-" that is not the thresholds section
-        import re
-        for m in re.finditer(r'id="section-(?!thresholds")', src[thresholds_start + 1:]):
-            next_section = thresholds_start + 1 + m.start()
-            break
-    if next_section == -1:
-        next_section = len(src)
-    thresholds_block = src[thresholds_start:next_section]
-    assert 'id="thresholds-provision-zone2-btn"' in thresholds_block, (
-        "provision button must be inside the section-thresholds div"
-    )
+    pass
 
 
+@pytest.mark.skip(reason="Provision UI removed; habit auto-seeded on GET /api/habits")
 def test_599__html_provision_zone2_button_label():
-    """AC1: Button label must mention 'Zone 2' and 'habit'."""
-    src = _html()
-    btn_idx = src.find('id="thresholds-provision-zone2-btn"')
-    assert btn_idx != -1
-    btn_context = src[max(0, btn_idx - 100):btn_idx + 200]
-    lowered = btn_context.lower()
-    assert "zone 2" in lowered or "zone2" in lowered, (
-        "Provision button must mention Zone 2 in its label or context"
-    )
-    assert "habit" in lowered, (
-        "Provision button must mention 'habit' in its label or context"
-    )
+    pass
+
+
+@pytest.mark.skip(reason="Provision UI removed; habit auto-seeded on GET /api/habits")
+def test_599__html_provision_zone2_button_present():
+    pass
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # AC2 — JS fetches /api/user-preferences before creating habit
 # ═══════════════════════════════════════════════════════════════════════════════
 
+@pytest.mark.skip(reason="Provision UI removed; habit auto-seeded on GET /api/habits")
 def test_599__js_fetches_user_preferences():
-    """AC2: Settings JS (inline or settings.js) must reference /api/user-preferences
-    in the provisioning flow."""
-    html_src = _html()
-    has_prefs = "/api/user-preferences" in html_src
-    if not has_prefs and _SETTINGS_JS.exists():
-        has_prefs = "/api/user-preferences" in _js()
-    assert has_prefs, (
-        "The provisioning flow must call GET /api/user-preferences to get the "
-        "weekly Zone 2 target before creating the habit"
-    )
+    pass
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -221,31 +196,14 @@ def test_599__api_create_zone2_habit_correct_fields():
 # AC4 — Success message and link to /habits in settings.html
 # ═══════════════════════════════════════════════════════════════════════════════
 
+@pytest.mark.skip(reason="Provision UI removed; habit auto-seeded on GET /api/habits")
 def test_599__html_success_message_element_present():
-    """AC4: A success message element must exist in settings.html for JS to populate."""
-    src = _html()
-    assert 'id="provision-zone2-success"' in src or 'id="thresholds-provision-zone2-status"' in src, (
-        "settings.html must contain a success/status element for the Zone 2 provision button "
-        "(id='provision-zone2-success' or id='thresholds-provision-zone2-status')"
-    )
+    pass
 
 
+@pytest.mark.skip(reason="Provision UI removed; habit auto-seeded on GET /api/habits")
 def test_599__html_habits_link_target_present():
-    """AC4: A link to /habits must exist (or be dynamically inserted) in the thresholds section
-    for post-provisioning navigation."""
-    src = _html()
-    thresholds_start = src.find('id="section-thresholds"')
-    assert thresholds_start != -1
-    next_section = src.find('id="section-personal-records"', thresholds_start + 1)
-    if next_section == -1:
-        next_section = len(src)
-    thresholds_block = src[thresholds_start:next_section]
-
-    has_link_in_html = 'href="/habits"' in thresholds_block
-    has_link_in_js = '/habits' in src[thresholds_start:] or '/habits' in _js()
-    assert has_link_in_html or has_link_in_js, (
-        "A link to /habits must be present in the thresholds section or generated by JS"
-    )
+    pass
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -361,53 +319,26 @@ def test_599__api_patch_habit_weekly_target_independent():
 # AC8 — Existing-habit message element present in settings.html
 # ═══════════════════════════════════════════════════════════════════════════════
 
+@pytest.mark.skip(reason="Provision UI removed; habit auto-seeded on GET /api/habits")
 def test_599__html_existing_habit_message_element_present():
-    """AC8: settings.html must contain a message element for the 'already exists' state."""
-    src = _html()
-    has_existing_msg = (
-        'id="provision-zone2-existing"' in src
-        or 'id="thresholds-provision-zone2-existing"' in src
-        or 'provision-zone2' in src
-    )
-    assert has_existing_msg, (
-        "settings.html must contain an element for the 'Zone 2 habit already exists' message "
-        "so JS can toggle it (e.g. id='provision-zone2-existing')"
-    )
+    pass
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # AC9 — JS checks for existing habit on page load
 # ═══════════════════════════════════════════════════════════════════════════════
 
+@pytest.mark.skip(reason="Provision UI removed; habit auto-seeded on GET /api/habits")
 def test_599__js_checks_habits_on_load():
-    """AC9: The settings JS must call GET /api/habits to check for an existing
-    Zone 2 habit on page load (to hide/disable the button if it already exists)."""
-    src = _html()
-    js_src = _js() if _SETTINGS_JS.exists() else ""
-    combined = src + js_src
-    assert "/api/habits" in combined, (
-        "settings.html / settings.js must call GET /api/habits on thresholds section load "
-        "to check for an existing Zone 2 habit and hide/disable the provision button"
-    )
+    pass
 
 
+@pytest.mark.skip(reason="Provision UI removed; habit auto-seeded on GET /api/habits")
 def test_599__js_references_provision_zone2_btn():
-    """AC9: The JS must reference 'thresholds-provision-zone2-btn' to show/hide it."""
-    src = _html()
-    js_src = _js() if _SETTINGS_JS.exists() else ""
-    combined = src + js_src
-    assert "provision-zone2-btn" in combined, (
-        "The JS must reference the provision button by id to control its visibility"
-    )
+    pass
 
 
+@pytest.mark.skip(reason="Provision UI removed; habit auto-seeded on GET /api/habits")
 def test_599__js_checks_auto_fill_source_on_load():
-    """AC9: The JS must check auto_fill_source == 'workout.zone2_minutes' when
-    determining whether a Zone 2 habit already exists."""
-    src = _html()
-    js_src = _js() if _SETTINGS_JS.exists() else ""
-    combined = src + js_src
-    assert "workout.zone2_minutes" in combined, (
-        "The JS must check for auto_fill_source === 'workout.zone2_minutes' to detect "
-        "an existing Zone 2 habit and disable the provision button"
-    )
+    pass
+

@@ -23,75 +23,11 @@
     }
     var el = document.createElement('div');
     el.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);' +
-      'background:' + (isErr ? '#dc2626' : '#0b1530') +
+      'background:' + (isErr ? 'var(--danger)' : '#0b1530') +
       ';color:#fff;padding:10px 20px;border-radius:10px;font-size:13px;z-index:9999;';
     el.textContent = msg;
     document.body.appendChild(el);
     setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 3500);
-  }
-
-  /* ── Log-today strip ── */
-
-  function _niggleBtnHtml() {
-    return (
-      '<button id="home-injury-log-btn" type="button" class="lts-niggle-btn">' +
-        '<span aria-hidden="true">🩹</span> Log niggle / illness' +
-      '</button>'
-    );
-  }
-
-  function _renderStrip(readiness) {
-    var strip = document.getElementById('home-log-today-strip');
-    if (!strip) return;
-
-    var logged = readiness && readiness.logged === true;
-
-    if (logged) {
-      strip.innerHTML =
-        '<div class="lts-inner lts-inner--done">' +
-          '<div class="lts-icon"><i class="ti ti-circle-check"></i></div>' +
-          '<div class="lts-msg">' +
-            '<strong>&#10003; Metrics logged</strong>' +
-            '<span>Great — your readiness score is up to date</span>' +
-          '</div>' +
-          '<div class="lts-actions">' +
-            _niggleBtnHtml() +
-          '</div>' +
-        '</div>';
-    } else {
-      strip.innerHTML =
-        '<div class="lts-inner">' +
-          '<div class="lts-icon"><i class="ti ti-chart-line"></i></div>' +
-          '<div class="lts-msg">' +
-            '<strong>Log today\'s metrics</strong>' +
-            '<span>RHR, HRV, sleep, energy &amp; mood — 30 seconds</span>' +
-          '</div>' +
-          '<div class="lts-actions">' +
-            _niggleBtnHtml() +
-            '<button id="lts-cta-btn" type="button" class="lts-cta-btn">' +
-              '<i class="ti ti-pencil-plus"></i> Log today' +
-            '</button>' +
-          '</div>' +
-        '</div>';
-
-      var btn = document.getElementById('lts-cta-btn');
-      if (btn) {
-        btn.addEventListener('click', function () {
-          // Reveal the fast-log row (hidden by default; idempotent — if it's
-          // already visible from a previous tap, this is a no-op and the
-          // scroll/focus below still just re-scrolls/re-focuses, not a toggle).
-          var rowLog = document.getElementById('row-log');
-          if (rowLog && rowLog.hidden) rowLog.hidden = false;
-
-          var target = document.getElementById('fast-log-section');
-          if (target) {
-            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            var firstInput = target.querySelector('input, button.fm-pill');
-            if (firstInput) firstInput.focus();
-          }
-        });
-      }
-    }
   }
 
   /* ── Today-check circle ── */
@@ -124,10 +60,10 @@
     if (!habits || !habits.daily_habits || habits.daily_habits.length === 0) {
       widget.innerHTML =
         '<div class="card-head">' +
-          '<div class="ttl"><i class="ti ti-checkbox"></i>This week\'s habits</div>' +
+          '<h2 class="ttl"><i class="ti ti-checkbox"></i>This week\'s habits</h2>' +
           '<a href="/habits" class="hw-all-link">All habits &#8594;</a>' +
         '</div>' +
-        '<div class="hw-empty">Add habits to track your week — <a href="/habits">Add habits</a></div>';
+        '<div class="hw-empty">Add habits to track your week. <a href="/habits">Add habits</a></div>';
       return;
     }
 
@@ -203,7 +139,7 @@
 
     widget.innerHTML =
       '<div class="card-head">' +
-        '<div class="ttl"><i class="ti ti-checkbox"></i>This week\'s habits</div>' +
+        '<h2 class="ttl"><i class="ti ti-checkbox"></i>This week\'s habits</h2>' +
         '<a href="/habits" class="hw-all-link">All habits &#8594;</a>' +
       '</div>' +
       '<div class="hw-body">' +
@@ -310,7 +246,7 @@
             el.innerHTML = '+';
             el.setAttribute('aria-pressed', 'false');
           }
-          _showToast('Could not save — try again', true);
+          _showToast('Could not save. Try again.', true);
         }
       });
     });
@@ -320,7 +256,6 @@
 
   function render(summary) {
     _habitsBlock = (summary && summary.habits) ? summary.habits : null;
-    _renderStrip(summary ? summary.readiness : null);
     _renderHabits(_habitsBlock);
   }
 

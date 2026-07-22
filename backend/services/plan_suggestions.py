@@ -40,18 +40,14 @@ FALLBACK_MIN_WEEKLY_TSS: float = 80.0
 _MAX_SESSION_TSS: int = 400
 _MIN_SESSION_TSS: int = 0
 
-# Race taper window in days.
-_TAPER_WINDOW_DAYS: int = 14
-# Fraction of normal weekly TSS during taper.
-_TAPER_FACTOR: float = 0.60
-
-# Conservative ramp factor for fallback (10% increase, well below HIGH_BOUND).
+# Conservative ramp factor for fallback when no race-anchored target exists.
+# Taper is owned solely by load_plan.TAPER_CURVE — do NOT re-derive here.
 _FALLBACK_RAMP_FACTOR: float = 1.10
 
-# Suggestions must sum to within this fraction of the week's remaining TSS
-# target — see validation_errors' target-band check and build_prompt's
-# target_rule. Only enforced when PLAN_TARGET_AWARE_ENABLED is on.
-_TARGET_BAND_FRACTION: float = 0.05
+# Suggestions should aim near the week's remaining TSS target, but ACWR /
+# ceiling is the hard guardrail — don't reject plans that miss the target by
+# a modest amount (athletes often already have sessions on the week).
+_TARGET_BAND_FRACTION: float = 0.15
 
 _SURFACE = "plan_suggestion"
 
@@ -309,8 +305,9 @@ def validation_errors(suggestions: list[dict], facts: dict) -> list[str]:
             direction = "exceeds" if combined > target_tss else "falls short of"
             errs.append(
                 f"Weekly TSS {combined:.0f} (logged {logged_so_far:.0f} + suggested {total_tss:.0f}) "
-                f"{direction} the {target_tss:.0f} TSS target by {pct}% — must land within "
-                f"±{round(_TARGET_BAND_FRACTION * 100)}% ({lower:.0f}-{upper:.0f})."
+                f"{direction} the {target_tss:.0f} TSS target by {pct}% — aim within "
+                f"±{round(_TARGET_BAND_FRACTION * 100)}% ({lower:.0f}-{upper:.0f}); "
+                "ACWR ceiling is the hard limit."
             )
 
         acwr_ceiling = facts.get("acwr_ceiling")
@@ -376,6 +373,27 @@ def validation_errors(suggestions: list[dict], facts: dict) -> list[str]:
             )
             break
 
+    # Zone-2 weekly floor (prefs catalog, reads: validation) — only when
+    # target-aware mode is on and the athlete set a positive target.
+    z2_min = int(facts.get("zone2_weekly_min") or 0)
+    if z2_min > 0 and facts.get("target_tss") is not None:
+        # Approximate Z2 minutes from easy/run sessions where intent looks aerobic
+        z2_mins = 0
+        for s in suggestions:
+            wt = str(s.get("workout_type", "")).lower()
+            intent = str(s.get("intent") or "").lower()
+            dur = int(s.get("duration_minutes") or 0)
+            if wt == "run" and any(k in intent for k in ("easy", "aerobic", "z2", "zone 2", "zone2", "base")):
+                z2_mins += dur
+            elif wt == "run":
+                # Count half of unmarked run duration as potential Z2 (conservative)
+                z2_mins += dur // 2
+        if z2_mins < z2_min:
+            errs.append(
+                f"Estimated zone-2 minutes {z2_mins} fall short of preference "
+                f"zone2_weekly_min={z2_min}."
+            )
+
     return errs
 
 
@@ -397,26 +415,22 @@ def fallback_suggestions(facts: dict) -> list[dict]:
     """Build a deterministic template week from trailing load + ramp cap.
 
     Pure function — no DB access, no network calls.
-    Respects ACWR ramp cap and tapers if race is within _TAPER_WINDOW_DAYS.
-
-    Only emits sessions for facts["allowed_offsets"] (default: the whole week,
-    so callers/tests that never set this key get the original 7-day template
-    unchanged). Honours facts["preferred_rest_days"] by forcing those offsets
-    to rest, and facts["strength_emphasis"] ("less"|"same"|"more") by nudging
-    one run<->strength swap — the template's weekly-TSS math (ramp/taper/ACWR)
-    is unchanged; only which offsets/types appear shifts.
+    Respects ACWR ramp cap. When facts carry a race-anchored `target_tss`
+    (from load_plan via assemble_facts), that number is the weekly target —
+    including any taper already applied by load_plan.TAPER_CURVE. This module
+    never multiplies by its own taper factor.
     """
     trailing_avg = float(facts.get("trailing_28d_weekly_avg_tss") or 0.0)
-    base = max(trailing_avg, FALLBACK_MIN_WEEKLY_TSS)
-    target_weekly = base * _FALLBACK_RAMP_FACTOR
+    if facts.get("target_tss") is not None:
+        target_weekly = float(facts["target_tss"])
+    else:
+        base = max(trailing_avg, FALLBACK_MIN_WEEKLY_TSS)
+        target_weekly = base * _FALLBACK_RAMP_FACTOR
 
-    # Race taper: reduce if race is within 14 days.
-    days_to_race = facts.get("days_to_next_race")
-    if days_to_race is not None and 0 <= int(days_to_race) <= _TAPER_WINDOW_DAYS:
-        target_weekly *= _TAPER_FACTOR
-
-    # Clamp to ACWR safe ceiling.
+    # Clamp to ACWR safe ceiling (always last).
     max_weekly = max(trailing_avg, FALLBACK_MIN_WEEKLY_TSS) * ACWR_HIGH_BOUND
+    if facts.get("acwr_ceiling") is not None:
+        max_weekly = min(max_weekly, float(facts["acwr_ceiling"]))
     target_weekly = min(target_weekly, max_weekly)
 
     allowed = set(_allowed_offsets(facts))
@@ -516,11 +530,11 @@ def build_prompt(facts: dict) -> tuple[str, str]:
     recent_exercise_names = facts.get("recent_exercise_names") or []
 
     taper_note = ""
-    if days_to_race is not None and 0 <= int(days_to_race) <= _TAPER_WINDOW_DAYS:
+    # Taper language comes from load_plan phase only — no ad-hoc day-window factor.
+    if facts.get("phase") == "taper":
         taper_note = (
-            f" The athlete has a race in {days_to_race} days — "
-            "apply a taper: reduce weekly TSS to approximately 60% of normal "
-            "and favour easy sessions."
+            " The athlete is in a TAPER week (load_plan phase) — "
+            "honour the reduced weekly target and favour easy sessions."
         )
 
     allowed_str = ", ".join(f"{o} ({_DAY_NAMES[o]})" for o in sorted(allowed)) or "none — the week is fully covered already"
@@ -609,15 +623,16 @@ def build_prompt(facts: dict) -> tuple[str, str]:
         }.get(phase, "Normal mix: one long run, one quality/hard session, supporting easy "
                      "runs and strength.")
         target_rule = (
-            f"{target_rule_n}. This week has a hard weekly TSS target of {round(float(facts.get('target_tss') or 0))} "
+            f"{target_rule_n}. This week has a weekly TSS target of {round(float(facts.get('target_tss') or 0))} "
             f"({phase} phase"
             + (f", {days_left} day(s) left" if days_left is not None else "")
             + f"). The athlete has already logged {round(float(logged_so_far))} TSS. "
-            f"Your proposed sessions' target_tss values together must sum to approximately "
-            f"{round(float(remaining or 0))} TSS (within ±5%) — that is what REMAINS to reach the "
-            "week's target, NOT the target itself; do not double-count what's already logged.\n"
-            + (f"Total week TSS (logged + proposed) must also stay within the ACWR ceiling of "
-               f"{round(float(ceiling))}.\n" if ceiling is not None else "")
+            f"Aim for proposed sessions to sum near {round(float(remaining or 0))} TSS remaining "
+            f"(within ±{round(_TARGET_BAND_FRACTION * 100)}% is fine — the target is a guide, not a "
+            "hard fill). Prefer staying under the ACWR ceiling over hitting the number exactly; "
+            "do not double-count what's already logged.\n"
+            + (f"Hard ceiling: total week TSS (logged + proposed) must stay within the ACWR "
+               f"limit of {round(float(ceiling))}.\n" if ceiling is not None else "")
             + phase_note + "\n"
         )
 
@@ -715,6 +730,27 @@ def build_prompt(facts: dict) -> tuple[str, str]:
         user += "The athlete wants MORE strength training than usual this week.\n"
     elif emphasis == "less":
         user += "The athlete wants LESS strength training than usual this week.\n"
+    # Training prefs (catalog) — flow into the prompt; deep generation enforcement
+    # of plyo supersets / MP segments is a later ticket.
+    prefs_bits = []
+    if facts.get("prefs_version"):
+        prefs_bits.append(f"prefs_version={facts['prefs_version']}")
+    if facts.get("plyo_mode") and facts.get("plyo_mode") != "off":
+        prefs_bits.append(f"plyo_mode={facts['plyo_mode']}")
+    if int(facts.get("plyo_sessions_per_week") or 0) > 0:
+        prefs_bits.append(f"plyo_sessions_per_week={facts['plyo_sessions_per_week']}")
+    if int(facts.get("long_run_mp_segment_min") or 0) > 0:
+        prefs_bits.append(f"long_run.mp_segment_min={facts['long_run_mp_segment_min']}")
+    if int(facts.get("stretch_daily_min") or 0) > 0:
+        prefs_bits.append(f"stretch_daily_min={facts['stretch_daily_min']}")
+    if int(facts.get("zone2_weekly_min") or 0) > 0:
+        prefs_bits.append(f"zone2_weekly_min={facts['zone2_weekly_min']}")
+    if prefs_bits:
+        user += (
+            "Active training preferences (honour; safety rules still win): "
+            + ", ".join(prefs_bits)
+            + ".\n"
+        )
     if notes:
         # Anchor day-name language ("Tue", "Sat") in the notes to concrete
         # day_offsets. today_offset covers "today"/"tomorrow" but is None for
@@ -1042,6 +1078,11 @@ def assemble_facts(
     _own_session = db is None
     if _own_session:
         db = Session(engine)
+    _prefs_stored = None
+    next_race = None
+    next_race_date = None
+    next_race_km = None
+    next_race_goal = None
     try:
         readiness_rows = (
             db.query(DailyReadiness)
@@ -1055,7 +1096,8 @@ def assemble_facts(
         )
         readiness_trend = [float(r.score) for r in readiness_rows if r.score is not None]
 
-        # Next upcoming A-priority race
+        # Next upcoming A-priority race — snapshot scalars before the session
+        # closes / commit expires ORM state (DetachedInstanceError otherwise).
         next_race = (
             db.query(Race)
             .filter(
@@ -1067,6 +1109,13 @@ def assemble_facts(
             .order_by(Race.race_date)
             .first()
         )
+        next_race_date = next_race.race_date if next_race is not None else None
+        next_race_km = (
+            float(next_race.distance_km)
+            if next_race is not None and next_race.distance_km is not None
+            else None
+        )
+        next_race_goal = next_race.goal_time_seconds if next_race is not None else None
 
         # ── Target-week scoping: which day_offsets are still open ───────────
         target_week_start = week_start if week_start is not None else current_week_start
@@ -1150,6 +1199,7 @@ def assemble_facts(
             from backend.models import TrainingPlan
             from backend.services.load_plan import compute_load_plan
             from backend.services.load_plan import ACWR_CEILING_MULT as _acwr_ceiling_mult
+            from backend.services.load_plan import resolve_baseline_weeks_ago as _resolve_baseline_weeks_ago
             from backend.services.training_load import get_weekly_volume as _get_weekly_volume
 
             acwr_ceiling = (
@@ -1166,7 +1216,7 @@ def assemble_facts(
                 str(user_id), target_week_start, target_week_start + timedelta(days=6)
             )["total_tss"]
 
-            if next_race is not None:
+            if next_race_date is not None:
                 plan_row = (
                     db.query(TrainingPlan)
                     .filter(TrainingPlan.user_id == user_id)
@@ -1183,11 +1233,15 @@ def assemble_facts(
                     int(plan_row.deload_start_week) if plan_row and plan_row.deload_start_week is not None else 4
                 )
 
-                last_week_start = current_week_start - timedelta(days=7)
-                last_week_end = current_week_start - timedelta(days=1)
-                baseline_tss = _get_weekly_volume(str(user_id), last_week_start, last_week_end)["total_tss"]
+                baseline_weeks_ago = _resolve_baseline_weeks_ago(
+                    deload_enabled=plan_deload_enabled,
+                    deload_start_week=plan_deload_start_week,
+                )
+                baseline_week_start = current_week_start - timedelta(weeks=baseline_weeks_ago)
+                baseline_week_end = baseline_week_start + timedelta(days=6)
+                baseline_tss = _get_weekly_volume(str(user_id), baseline_week_start, baseline_week_end)["total_tss"]
 
-                race_week_start = next_race.race_date - timedelta(days=next_race.race_date.weekday())
+                race_week_start = next_race_date - timedelta(days=next_race_date.weekday())
                 weeks_to_race = ((race_week_start - current_week_start).days // 7) + 1
 
                 from backend.services.training_load import current_load as _current_load
@@ -1248,15 +1302,55 @@ def assemble_facts(
                 _seen_names.add(n)
                 recent_exercise_names.append(n)
         recent_exercise_names = recent_exercise_names[:20]
+
+        # Stored training prefs (versioned) — while session still open.
+        try:
+            from backend.services.training_prefs import prefs_for_assemble_facts
+            _prefs_stored = prefs_for_assemble_facts(db, user_id)
+            if _own_session:
+                db.commit()
+        except Exception:
+            _prefs_stored = None
+            # Roll back even on a caller-supplied session: the prefs fetch can
+            # write (carry-forward), and a failed write otherwise leaves the
+            # shared session's transaction aborted for the rest of the request.
+            try:
+                db.rollback()
+            except Exception:
+                pass
     finally:
         if _own_session:
             db.close()
 
-    rest_days = sorted({int(d) for d in (preferred_rest_days or []) if int(d) in allowed_offsets})
-    emphasis = (strength_emphasis or "same").strip().lower()
+    rest_days_in = preferred_rest_days
+    emphasis_in = strength_emphasis
+    notes_in = notes
+    prefs_version = 0
+    plyo_mode = "off"
+    plyo_sessions_per_week = 0
+    long_run_mp_segment_min = 0
+    stretch_daily_min = 0
+    zone2_weekly_min = 0
+
+    if _prefs_stored:
+        prefs_version = int(_prefs_stored.get("prefs_version") or 0)
+        if rest_days_in is None:
+            rest_days_in = _prefs_stored.get("preferred_rest_days")
+        if emphasis_in is None:
+            emphasis_in = _prefs_stored.get("strength_emphasis")
+        if notes_in is None:
+            notes_in = _prefs_stored.get("notes")
+        plyo_mode = _prefs_stored.get("plyo_mode") or "off"
+        plyo_sessions_per_week = int(_prefs_stored.get("plyo_sessions_per_week") or 0)
+        long_run_mp_segment_min = int(_prefs_stored.get("long_run_mp_segment_min") or 0)
+        stretch_daily_min = int(_prefs_stored.get("stretch_daily_min") or 0)
+        zone2_weekly_min = int(_prefs_stored.get("zone2_weekly_min") or 0)
+
+    rest_days = sorted({int(d) for d in (rest_days_in or []) if int(d) in allowed_offsets})
+    emphasis = (emphasis_in or "same").strip().lower()
     if emphasis not in _VALID_STRENGTH_EMPHASIS:
         emphasis = "same"
-    notes_clean = (notes or "").strip()[:300]
+    notes_clean = (notes_in or "").strip()[:300]
 
     facts: dict[str, Any] = {
         "ctl": round(ctl, 2),
@@ -1277,12 +1371,18 @@ def assemble_facts(
         "strength_emphasis": emphasis,
         "notes": notes_clean,
         "recent_exercise_names": recent_exercise_names,
+        "prefs_version": prefs_version,
+        "plyo_mode": plyo_mode,
+        "plyo_sessions_per_week": plyo_sessions_per_week,
+        "long_run_mp_segment_min": long_run_mp_segment_min,
+        "stretch_daily_min": stretch_daily_min,
+        "zone2_weekly_min": zone2_weekly_min,
     }
 
-    if next_race is not None:
-        facts["days_to_next_race"] = (next_race.race_date - today).days
-        facts["next_race_distance_km"] = float(next_race.distance_km) if next_race.distance_km else None
-        facts["next_race_goal_time_seconds"] = next_race.goal_time_seconds
+    if next_race_date is not None:
+        facts["days_to_next_race"] = (next_race_date - today).days
+        facts["next_race_distance_km"] = next_race_km
+        facts["next_race_goal_time_seconds"] = next_race_goal
 
     # Only added when PLAN_TARGET_AWARE_ENABLED — an unset flag must produce a
     # facts dict byte-identical to pre-Part-3 behaviour (same keys, same
@@ -1563,6 +1663,37 @@ SESSION_SUBTYPES: dict[str, dict[str, str]] = {
     },
 }
 
+# Skeleton / draft subtypes (easy_run, …) → Suggest-UI labels (easy, …).
+_SKELETON_SUBTYPE_TO_UI: dict[str, str] = {
+    "easy_run": "easy",
+    "long_run": "long",
+    "intervals": "intervals",
+    "tempo": "tempo",
+    "strength_upper": "upper",
+    "strength_lower": "lower",
+    "strength_full": "full",
+    "strength_light": "light",
+    "plyo": "plyo",
+    "stretch": "stretch",
+}
+
+
+def coerce_ui_subtype(workout_type: str | None, subtype: str | None) -> str | None:
+    """Accept UI (`easy`) or skeleton (`easy_run`) labels; return UI key or None."""
+    raw = (subtype or "").strip().lower()
+    if not raw:
+        return None
+    wt = (workout_type or "").strip().lower()
+    valid = SESSION_SUBTYPES.get(wt, {})
+    if raw in valid:
+        return raw
+    from backend.services.plan_slot import normalize_slot_subtype
+    canon = normalize_slot_subtype(wt, raw)
+    ui = _SKELETON_SUBTYPE_TO_UI.get(canon or "", canon)
+    if ui in valid:
+        return ui
+    return None
+
 
 def build_single_session_prompt(
     facts: dict,
@@ -1595,15 +1726,18 @@ def build_single_session_prompt(
         budget_rule = (
             "6. The athlete fixed this session's budget on their schedule: "
             + " and ".join(parts)
-            + " — size the exercises/blocks to fill exactly that, do not resize the slot.\n"
+            + " — size the exercises/blocks to fill exactly that, do not resize the slot. "
+            "If the note mentions a gap preset / min duration / min TSS, treat those as "
+            "hard floors (never go below them).\n"
         )
 
     subtype_rule = ""
-    subtype_desc = SESSION_SUBTYPES.get(workout_type or "", {}).get(subtype or "")
+    ui_subtype = coerce_ui_subtype(workout_type, subtype) if subtype else None
+    subtype_desc = SESSION_SUBTYPES.get(workout_type or "", {}).get(ui_subtype or "")
     if subtype_desc:
         n = 7 if budget_rule else 6
         subtype_rule = (
-            f"{n}. The athlete tagged this session \"{subtype}\": build {subtype_desc}. "
+            f"{n}. The athlete tagged this session \"{ui_subtype}\": build {subtype_desc}. "
             "The tag is binding — do not build a different kind of session.\n"
         )
 
@@ -1681,21 +1815,94 @@ def generate_single_session(
     subtype: str | None = None,
     db=None,
 ) -> dict | None:
-    """Generate or refine ONE session. Returns the session dict, or None on
-    failure (LLM unavailable or couldn't produce a valid session in 2 tries —
-    callers should keep the athlete's current session and show an error,
-    there is no deterministic-template fallback for a single session).
-    target_tss/duration_minutes pin the slot budget (two-rail flow) — see
-    build_single_session_prompt."""
+    """Generate or refine ONE session.
+
+    When the schedule rail has pinned the slot (target_tss / duration_minutes),
+    content is produced via plan_slot.generate_slot_content — LLM never emits
+    pins; Python stamps them; exhausted retries fall back to day templates.
+    Without pins, keeps the legacy whole-session schema path for older callers.
+    """
+    from backend.services.plan_prefs_accessor import get_plan_prefs
+
+    prefs = get_plan_prefs(
+        db, user_id,
+        preferred_rest_days=preferred_rest_days,
+        strength_emphasis=strength_emphasis,
+        notes=notes,
+    )
     facts = assemble_facts(
         user_id, db=db, week_start=week_start,
-        preferred_rest_days=preferred_rest_days,
-        strength_emphasis=strength_emphasis, notes=notes,
+        preferred_rest_days=prefs["preferred_rest_days"],
+        strength_emphasis=prefs["strength_emphasis"],
+        notes=prefs["notes"],
     )
-    # validation_errors() rejects any day_offset outside allowed_offsets — but
-    # this day is legitimately already-suggested/in-progress, not a fresh open
-    # slot, so scope the check to just this one day instead of reusing facts
-    # (whole-week "which days are still open") as-is.
+
+    # Two-rail / pipeline v2: pins present → content-only path
+    if target_tss is not None or duration_minutes is not None:
+        from backend.services.plan_slot import (
+            build_week_ctx,
+            generate_slot_content,
+            normalize_slot_subtype,
+            stamp_session,
+        )
+
+        slot = {
+            "day_offset": day_offset,
+            "workout_type": (workout_type or "run").lower(),
+            "target_tss": round(float(target_tss)) if target_tss is not None else 0,
+            "duration_minutes": int(duration_minutes) if duration_minutes is not None else 0,
+            "subtype": normalize_slot_subtype(workout_type, subtype),
+            "structure_hints": {},
+            "locked": False,
+        }
+        week_ctx = build_week_ctx(
+            facts=facts,
+            skeleton_slots=[slot],
+            strength_emphasis=prefs["strength_emphasis"],
+            notes=prefs["notes"],
+        )
+
+        def _llm(system: str, user: str) -> dict | None:
+            return llm_svc.complete_structured(
+                system=system,
+                user=user,
+                schema_name="plan_slot_content",
+                json_schema={
+                    "type": "object",
+                    "properties": {
+                        "intent": {"type": "string", "maxLength": 140},
+                        "notes": {"type": ["string", "null"]},
+                        "blocks": {"type": ["array", "null"]},
+                        "exercises": {"type": ["array", "null"]},
+                    },
+                    "required": ["intent"],
+                    "additionalProperties": True,
+                },
+                model_tier="deep",
+                max_tokens=(
+                    _RUN_SESSION_MAX_COMPLETION_TOKENS if workout_type == "run"
+                    else _SINGLE_SESSION_MAX_COMPLETION_TOKENS
+                ),
+            )
+
+        current = None
+        if current_session and isinstance(current_session, dict):
+            current = {
+                "intent": current_session.get("intent"),
+                "notes": current_session.get("notes"),
+                "blocks": current_session.get("blocks"),
+                "exercises": current_session.get("exercises"),
+                "source": current_session.get("source"),
+            }
+        content = generate_slot_content(
+            week_ctx, slot,
+            instruction=note or None,
+            current=current,
+            llm_call=_llm,
+        )
+        return stamp_session(slot, content)
+
+    # Legacy path (no pins) — keep prior behaviour
     validation_facts = {**facts, "allowed_offsets": [day_offset]}
 
     feedback = ""
@@ -1711,9 +1918,6 @@ def generate_single_session(
             schema_name="single_session",
             json_schema=_LLM_SINGLE_SESSION_SCHEMA,
             model_tier="deep",
-            # Runs are a 3-block estimation with a deliberately small cap so
-            # the call fits Groq's per-minute token budget in one go — see
-            # the constants above.
             max_tokens=(
                 _RUN_SESSION_MAX_COMPLETION_TOKENS if workout_type == "run"
                 else _SINGLE_SESSION_MAX_COMPLETION_TOKENS
@@ -1725,17 +1929,10 @@ def generate_single_session(
         if not isinstance(session, dict):
             continue
         errs = validation_errors([session], validation_facts)
-        # The slot budget is a CONTRACT, not a hint — the prompt says "MUST
-        # be X (±10%)" but schema validation alone can't enforce it, so a
-        # non-compliant generation used to silently overwrite the athlete's
-        # fixed numbers. Out-of-tolerance → retry with feedback; if the
-        # retry still misses, clamp the numbers back to the slot's values
-        # (the athlete owns the schedule; the LLM only fills content).
         errs.extend(_budget_errors(session, target_tss, duration_minutes))
         if not errs:
             return session
         if _attempt == 1 and not validation_errors([session], validation_facts):
-            # Final attempt, only the budget is off — force compliance.
             if target_tss is not None:
                 session["target_tss"] = round(float(target_tss))
             if duration_minutes is not None:

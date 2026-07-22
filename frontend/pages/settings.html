@@ -1348,18 +1348,6 @@
           <div class="profile-field-error" id="thresholds-zone2-hr-error" aria-live="polite"></div>
         </div>
 
-        <!-- Weekly Zone 2 Target -->
-        <div class="profile-form-group">
-          <label class="profile-label" for="thresholds-weekly-zone2-target">Weekly Zone 2 Target</label>
-          <div class="thresholds-input-row">
-            <input type="number" id="thresholds-weekly-zone2-target" class="profile-input thresholds-input"
-              min="0" max="2000" placeholder="(e.g. 150)">
-            <span class="thresholds-unit-label">min</span>
-          </div>
-          <p class="thresholds-desc">Target Zone 2 training minutes per week. Shown on the home dashboard as a weekly goal.</p>
-          <div class="profile-field-error" id="thresholds-weekly-zone2-target-error" aria-live="polite"></div>
-        </div>
-
         <div class="profile-actions-row">
           <button type="button" id="thresholds-save-btn" class="settings-save-btn">Save</button>
           <span id="thresholds-feedback" class="settings-feedback" aria-live="polite"></span>
@@ -1367,15 +1355,7 @@
 
         <div class="thresholds-info-card">
           Changing these will recompute TSS for new workouts only. Past workouts keep their original TSS values (no retro recompute in this sprint).
-        </div>
-
-        <!-- Track Zone 2 habit opt-in -->
-        <div id="provision-zone2-card" class="settings-inline-card">
-          <p class="settings-inline-card__title">Track Zone 2 in habits</p>
-          <p class="settings-inline-card__copy">Provision a pre-configured Zone 2 habit seeded from your weekly target above. The habit tracks weekly Zone 2 minutes auto-filled from workout data.</p>
-          <div id="provision-zone2-existing" class="u-muted-13 settings-inline-card__link" style="display:none;margin-bottom:10px;" aria-live="polite"></div>
-          <div id="provision-zone2-success" class="u-muted-13 settings-inline-card__success" style="display:none;margin-bottom:10px;" aria-live="polite"></div>
-          <button type="button" id="thresholds-provision-zone2-btn" class="settings-save-btn">Track Zone 2 in habits</button>
+          Zone 2 weekly minutes are tracked as a habit — edit the target on Habits.
         </div>
       </div>
 
@@ -1935,8 +1915,8 @@
       // Performance Thresholds section
       // Baseline holds the displayed value for each field (row[field] ?? defaults[field]).
       // PATCH sends only fields that differ from the baseline so unchanged values are omitted.
-      var _tBaseline = { ftp_w: null, threshold_hr: null, max_hr: null, threshold_pace_seconds_per_km: null, zone2_hr_min: null, zone2_hr_max: null, weekly_zone2_target_min: null };
-      var _tDefaults = { ftp_w: 280, threshold_hr: 170, max_hr: 190, threshold_pace_seconds_per_km: 270, zone2_hr_min: 130, zone2_hr_max: 155, weekly_zone2_target_min: 150 };
+      var _tBaseline = { ftp_w: null, threshold_hr: null, max_hr: null, threshold_pace_seconds_per_km: null, zone2_hr_min: null, zone2_hr_max: null };
+      var _tDefaults = { ftp_w: 280, threshold_hr: 170, max_hr: 190, threshold_pace_seconds_per_km: 270, zone2_hr_min: 130, zone2_hr_max: 155 };
       var _tFieldToErrorId = {
         'ftp_w': 'thresholds-ftp-error',
         'threshold_hr': 'thresholds-hr-error',
@@ -1944,7 +1924,6 @@
         'threshold_pace_seconds_per_km': 'thresholds-pace-error',
         'zone2_hr_min': 'thresholds-zone2-hr-error',
         'zone2_hr_max': 'thresholds-zone2-hr-error',
-        'weekly_zone2_target_min': 'thresholds-weekly-zone2-target-error',
       };
 
       function _secsToMMSS(secs) {
@@ -1968,8 +1947,7 @@
       }
 
       function _tClearErrors() {
-        ['thresholds-ftp-error', 'thresholds-hr-error', 'thresholds-max-hr-error', 'thresholds-pace-error',
-          'thresholds-weekly-zone2-target-error']
+        ['thresholds-ftp-error', 'thresholds-hr-error', 'thresholds-max-hr-error', 'thresholds-pace-error']
           .forEach(window._settingsClearFieldError);
         window._settingsSetFieldError('thresholds-zone2-hr-error', '');
         ['thresholds-zone2-hr-min', 'thresholds-zone2-hr-max'].forEach(function (id) {
@@ -2002,7 +1980,6 @@
               ? row.threshold_pace_seconds_per_km : null;
             var displayZ2Min = row.zone2_hr_min != null ? row.zone2_hr_min : (defs.zone2_hr_min != null ? defs.zone2_hr_min : _tDefaults.zone2_hr_min);
             var displayZ2Max = row.zone2_hr_max != null ? row.zone2_hr_max : (defs.zone2_hr_max != null ? defs.zone2_hr_max : _tDefaults.zone2_hr_max);
-            var displayWeeklyZ2 = row.weekly_zone2_target_min != null ? row.weekly_zone2_target_min : (defs.weekly_zone2_target_min != null ? defs.weekly_zone2_target_min : _tDefaults.weekly_zone2_target_min);
 
             _tBaseline = {
               ftp_w: displayFtp,
@@ -2011,7 +1988,6 @@
               threshold_pace_seconds_per_km: displayPace,
               zone2_hr_min: displayZ2Min,
               zone2_hr_max: displayZ2Max,
-              weekly_zone2_target_min: displayWeeklyZ2,
             };
 
             var ftpEl = document.getElementById('thresholds-ftp');
@@ -2031,9 +2007,6 @@
 
             var z2MaxEl = document.getElementById('thresholds-zone2-hr-max');
             if (z2MaxEl) z2MaxEl.value = String(displayZ2Max);
-
-            var weeklyZ2El = document.getElementById('thresholds-weekly-zone2-target');
-            if (weeklyZ2El) weeklyZ2El.value = String(displayWeeklyZ2);
 
             // Populate "last set" timestamps (AC2)
             _tSetLastSet('thresholds-ftp-last-set', row.ftp_w_updated_at);
@@ -2150,21 +2123,6 @@
           }
         }
 
-        // Weekly Zone 2 Target
-        var weeklyZ2El = document.getElementById('thresholds-weekly-zone2-target');
-        var weeklyZ2Val = weeklyZ2El ? weeklyZ2El.value.trim() : '';
-        if (weeklyZ2Val === '') {
-          if (_tBaseline.weekly_zone2_target_min !== null) patch.weekly_zone2_target_min = null;
-        } else {
-          var weeklyZ2Num = parseInt(weeklyZ2Val, 10);
-          if (isNaN(weeklyZ2Num) || weeklyZ2Num < 0 || weeklyZ2Num > 2000) {
-            window._settingsSetFieldError('thresholds-weekly-zone2-target-error', 'Weekly target must be between 0 and 2000 min');
-            hasError = true;
-          } else if (weeklyZ2Num !== _tBaseline.weekly_zone2_target_min) {
-            patch.weekly_zone2_target_min = weeklyZ2Num;
-          }
-        }
-
         return hasError ? null : patch;
       }
 
@@ -2196,15 +2154,14 @@
           })
           .then(function (saved) {
             var defs = _tDefaults;
-            // Three AC-required fields keep null when cleared (AC3/AC4 — issue #1022)
             _tBaseline = {
               ftp_w: saved.ftp_w,
               threshold_hr: saved.threshold_hr,
-              max_hr: saved.max_hr != null ? saved.max_hr : defs.max_hr,
+              max_hr: saved.max_hr,
               threshold_pace_seconds_per_km: saved.threshold_pace_seconds_per_km,
               zone2_hr_min: saved.zone2_hr_min != null ? saved.zone2_hr_min : defs.zone2_hr_min,
               zone2_hr_max: saved.zone2_hr_max != null ? saved.zone2_hr_max : defs.zone2_hr_max,
-              weekly_zone2_target_min: saved.weekly_zone2_target_min != null ? saved.weekly_zone2_target_min : defs.weekly_zone2_target_min,
+              weekly_zone2_target_min: saved.weekly_zone2_target_min,
             };
             // Update pace display as numeric seconds (input is type=number — issue #1022)
             var paceEl = document.getElementById('thresholds-pace');
@@ -2356,115 +2313,11 @@
         banner.classList.add('visible');
       }
 
-      // ── Zone 2 habit opt-in provision button ──────────────────────────────
-      function _updateProvisionZone2UI(existingHabit) {
-        var btn = document.getElementById('thresholds-provision-zone2-btn');
-        var existingEl = document.getElementById('provision-zone2-existing');
-        var successEl = document.getElementById('provision-zone2-success');
-        if (!btn) return;
-        if (existingHabit) {
-          btn.disabled = true;
-          btn.style.opacity = '0.45';
-          if (existingEl) {
-            existingEl.style.display = '';
-            existingEl.innerHTML = 'A Zone 2 habit already exists. <a href="/habits" style="color:inherit;font-weight:600;">View in habits &rarr;</a>';
-          }
-        } else {
-          btn.disabled = false;
-          btn.style.opacity = '';
-          if (existingEl) {
-            existingEl.style.display = 'none';
-            existingEl.innerHTML = '';
-          }
-          if (successEl) successEl.style.display = 'none';
-        }
-      }
-
-      function _checkZone2HabitExists(callback) {
-        fetch('/api/habits')
-          .then(function (r) { return r.ok ? r.json() : []; })
-          .then(function (habits) {
-            var found = habits.find(function (h) {
-              return h.auto_fill_source === 'workout.zone2_minutes';
-            });
-            callback(found || null);
-          })
-          .catch(function () { callback(null); });
-      }
-
-      function _handleProvisionZone2Click() {
-        var btn = document.getElementById('thresholds-provision-zone2-btn');
-        var successEl = document.getElementById('provision-zone2-success');
-        if (btn) btn.disabled = true;
-
-        fetch('/api/user-preferences')
-          .then(function (r) { return r.json(); })
-          .then(function (data) {
-            var row = (data && data.row) || {};
-            var defs = (data && data.defaults) || {};
-            var target = row.weekly_zone2_target_min != null
-              ? row.weekly_zone2_target_min
-              : (defs.weekly_zone2_target_min != null ? defs.weekly_zone2_target_min : 150);
-
-            var csrf = '';
-            var metaEl = document.querySelector('meta[name="csrf-token"]');
-            if (metaEl) csrf = metaEl.getAttribute('content');
-            if (!csrf) {
-              document.cookie.split(';').forEach(function (c) {
-                var pair = c.trim();
-                if (pair.startsWith('csrf-token=')) csrf = pair.slice('csrf-token='.length);
-              });
-            }
-
-            return fetch('/api/habits', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
-              body: JSON.stringify({
-                name: 'Zone 2',
-                tracking_type: 'weekly_minutes',
-                auto_fill_source: 'workout.zone2_minutes',
-                unit: 'min',
-                weekly_target: target,
-              }),
-            });
-          })
-          .then(function (r) {
-            if (r.status === 409) {
-              // Already exists — refresh UI state
-              _checkZone2HabitExists(_updateProvisionZone2UI);
-              return null;
-            }
-            if (!r.ok) return r.json().then(function (d) { return Promise.reject(d); });
-            return r.json();
-          })
-          .then(function (habit) {
-            if (!habit) return;
-            if (successEl) {
-              successEl.style.display = '';
-              successEl.innerHTML = 'Zone 2 habit created! <a href="/habits" style="color:inherit;font-weight:600;">View in habits &rarr;</a>';
-            }
-            _updateProvisionZone2UI(habit);
-          })
-          .catch(function () {
-            if (btn) {
-              btn.disabled = false;
-              btn.style.opacity = '';
-            }
-            var existingEl = document.getElementById('provision-zone2-existing');
-            if (existingEl) {
-              existingEl.style.display = '';
-              existingEl.textContent = 'Failed to create habit. Please try again.';
-            }
-          });
-      }
-
-      var provBtn = document.getElementById('thresholds-provision-zone2-btn');
-      if (provBtn) provBtn.addEventListener('click', _handleProvisionZone2Click);
+      // Zone 2 habit is auto-seeded via coach_habit_targets (Habits page).
 
       window.addEventListener('userReady', function () {
         _tLoadPrefs();
         _loadThresholdSuggestions();
-        _checkZone2HabitExists(_updateProvisionZone2UI);
         _loadDeviceZones();
       });
 

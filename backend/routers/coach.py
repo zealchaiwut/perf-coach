@@ -98,16 +98,50 @@ async def put_active_goal(body: _GoalBody, request: Request):
     return JSONResponse(_goal_dict(goal))
 
 
+@router.get("/api/coach/brief")
+async def get_coach_brief(
+    request: Request,
+    date: str | None = Query(default=None, alias="date"),
+):
+    """Return stored coach brief v4 JSON; build on demand if today's is missing."""
+    user = await resolve_user(request)
+    from datetime import date as _date
+    from backend.services.coach_brief import get_or_build_brief
+
+    brief_date = None
+    if date:
+        try:
+            brief_date = _date.fromisoformat(date)
+        except ValueError:
+            return JSONResponse(
+                {"detail": {"date": "must be YYYY-MM-DD"}},
+                status_code=422,
+            )
+    with Session(engine) as db:
+        brief = get_or_build_brief(db, user.id, brief_date)
+        if brief is not None:
+            db.commit()
+    if brief is None:
+        return JSONResponse({"brief": None})
+    return JSONResponse({"brief": brief})
+
+
+@router.get("/api/coach/daily-message")
+async def get_daily_message(request: Request):
+    """Return the shared daily coach payload (sections + nudge) for Home / Hermes SoT."""
+    user = await resolve_user(request)
+    from backend.services.weekly_coach_message import get_coach_payload_for_user
+    with Session(engine) as db:
+        payload = get_coach_payload_for_user(user_id=user.id, db=db)
+    if payload is None:
+        return JSONResponse({"message": None, "payload": None})
+    return JSONResponse({"message": payload.get("message"), "payload": payload})
+
+
 @router.get("/api/coach/weekly-message")
 async def get_weekly_message(request: Request):
-    """Return the latest weekly coaching message for the authenticated user."""
-    user = await resolve_user(request)
-    from backend.services.weekly_coach_message import get_latest_for_user
-    with Session(engine) as db:
-        message = get_latest_for_user(user_id=user.id, db=db)
-    if message is None:
-        return JSONResponse({"message": None})
-    return JSONResponse({"message": message})
+    """Compat alias — same as daily-message (legacy clients)."""
+    return await get_daily_message(request)
 
 
 @router.get("/api/coach/weekly-messages")
@@ -115,9 +149,18 @@ async def get_weekly_messages(
     request: Request,
     limit: int = Query(default=10, ge=1, le=52),
 ):
-    """Return up to `limit` weekly coaching messages newest-first."""
+    """Return up to `limit` coaching messages newest-first."""
     user = await resolve_user(request)
     from backend.services.weekly_coach_message import get_history_for_user
     with Session(engine) as db:
         messages = get_history_for_user(user_id=user.id, limit=limit, db=db)
     return JSONResponse({"messages": messages})
+
+
+@router.get("/api/coach/daily-messages")
+async def get_daily_messages(
+    request: Request,
+    limit: int = Query(default=10, ge=1, le=52),
+):
+    """Alias of weekly-messages history."""
+    return await get_weekly_messages(request, limit=limit)

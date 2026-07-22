@@ -1,15 +1,39 @@
 /* Shared CTL / ATL / TSB / ACWR readiness tiles (Training Log + Home) */
 
 :root {
+  /* --lrx-green/-red/-amber/-muted (polish round 3) — these were byte-
+     identical duplicates of styles.css's --success/--danger/--warning/
+     --text-sub under a private prefix, the exact "invented parallel
+     namespace" pattern this audit loop exists to eliminate. Both pages
+     that load this file (Home, Training Log) also load styles.css, so
+     alias instead of redeclaring the hex. Kept the --lrx-* names (not a
+     find/replace to --success etc. at every call site) so
+     js/lib/load-readiness-tiles.js and this file's own selectors don't
+     need touching — only the values move. */
+  --lrx-green: var(--success);
+  --lrx-red: var(--danger);
+  --lrx-amber: var(--warning);
+  --lrx-muted: var(--text-sub);
+  /* --lrx-run is a genuine 4th blue — matches none of --primary (#3b82f6),
+     --link (#2b4ca8), or --bg-1 (#5a8dee). Used only for the ACWR "FRESH"
+     status word (js/lib/load-readiness-tiles.js) as a distinct "positive
+     but not the same as PRODUCTIVE-green" signal, so kept as its own
+     token rather than aliased. */
   --lrx-run: #4f6ef7;
-  --lrx-muted: #6b7280;
   --lrx-line: #eceef4;
   --lrx-tile: #f6f7fb;
-  --lrx-green: #16a34a;
-  --lrx-red: #dc2626;
-  --lrx-amber: #d97706;
   --lrx-lavHi: #6366f1;
   --lrx-mono: "JetBrains Mono", ui-monospace, monospace;
+  /* ACWR band gradient stops (polish round 3) — brighter/more saturated
+     than --warning/--success/--danger on purpose: this is a decorative
+     3-stop background gradient (a visual scale), not text, so it doesn't
+     carry the same AA text-contrast constraint the status-word tokens
+     above do. Tokenized so no raw hex remains in this shared file; not
+     aliased to the muted status tokens because merging them would flatten
+     the gradient's visual contrast between bands. */
+  --lrx-band-amber: #f59e0b;
+  --lrx-band-green: #22c55e;
+  --lrx-band-red: #ef4444;
 }
 
 .lrx-readfull {
@@ -18,11 +42,24 @@
   gap: 10px;
 }
 
+/* Flatten (re-audit #5) — was its own bordered/tinted tile nested inside
+   the Readiness widget's own card (Home) or the Training Log's readiness
+   card; the outer card already establishes containment. Now a thin
+   divider between the 2×2 CTL/ATL/TSB/ACWR tiles instead of a boxed chip
+   (same row/column-divider treatment as .pr-tile/.hperf-tile elsewhere).
+   Token-based (--lrx-line), not a Home-only hack, so both pages that load
+   this file still look correct. buildGridHtml() (js/lib/load-readiness-
+   tiles.js) always emits exactly 4 tiles in a 2-column grid in the fixed
+   order CTL, ATL, TSB, ACWR, so nth-child(even)/nth-child(n+3) reliably
+   mean "right column" / "second row" on both pages. */
 .lrx-rcard {
-  background: var(--lrx-tile);
-  border: 1px solid var(--lrx-line);
-  border-radius: 12px;
   padding: 15px 16px;
+}
+.lrx-rcard:nth-child(even) {
+  border-left: 1px solid var(--lrx-line);
+}
+.lrx-rcard:nth-child(n+3) {
+  border-top: 1px solid var(--lrx-line);
 }
 
 .lrx-rcard .rv {
@@ -73,14 +110,14 @@
 .perf-acwr-rband {
   background: linear-gradient(
     90deg,
-    #f59e0b 0%,
-    #f59e0b 40%,
-    #22c55e 40%,
-    #22c55e 65%,
-    #f59e0b 65%,
-    #f59e0b 75%,
-    #ef4444 75%,
-    #ef4444 100%
+    var(--lrx-band-amber) 0%,
+    var(--lrx-band-amber) 40%,
+    var(--lrx-band-green) 40%,
+    var(--lrx-band-green) 65%,
+    var(--lrx-band-amber) 65%,
+    var(--lrx-band-amber) 75%,
+    var(--lrx-band-red) 75%,
+    var(--lrx-band-red) 100%
   );
 }
 

@@ -403,6 +403,417 @@ class PlanSuggestionsRequest(BaseModel):
     strength_sessions: Optional[int] = None
 
 
+@router.get("/plan/draft")
+def get_plan_draft(
+    week_start: Optional[str] = _Query(None, alias="week_start"),
+    user: User = Depends(resolve_user),
+):
+    """Serve the worker-generated plan draft for a week (pipeline v2)."""
+    from backend.services.plan_draft import get_draft, pipeline_status
+    from backend.utils.time import today_bangkok
+
+    if week_start:
+        try:
+            ws = _date.fromisoformat(week_start)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
+    else:
+        today = today_bangkok()
+        ws = today - _timedelta(days=today.weekday())
+
+    db = _Session(_engine)
+    try:
+        draft = get_draft(db, user.id, ws)
+        if draft is None:
+            raise HTTPException(status_code=404, detail="no draft for this week")
+        out = dict(draft)
+        out["pipeline"] = pipeline_status()
+        return JSONResponse(out)
+    finally:
+        db.close()
+
+
+@router.get("/plan/pipeline")
+def get_plan_pipeline(user: User = Depends(resolve_user)):
+    """Rollout flag for plan pipeline v2 (legacy | skeleton_v2 | shadow)."""
+    from backend.services.plan_draft import pipeline_status
+
+    return JSONResponse(pipeline_status())
+
+
+@router.get("/plan/draft-status")
+def get_plan_draft_status(user: User = Depends(resolve_user)):
+    """Badge/chip: whether a reviewable draft exists."""
+    from backend.services.plan_draft import draft_status_for_badge, pipeline_enabled
+    from backend.utils.time import today_bangkok
+
+    if not pipeline_enabled():
+        return JSONResponse({"ready": False, "pipeline_off": True})
+    db = _Session(_engine)
+    try:
+        return JSONResponse(draft_status_for_badge(db, user.id, today=today_bangkok()))
+    finally:
+        db.close()
+
+
+@router.post("/plan/draft/refresh")
+def refresh_plan_draft(
+    body: PlanSuggestionsRequest = Body(default=None),
+    user: User = Depends(resolve_user),
+):
+    """Enqueue a plan_draft job (debounced). Does not wait for generation."""
+    from backend.services.plan_draft import enqueue_plan_draft
+    from backend.utils.time import today_bangkok
+
+    ws = None
+    if body is not None and body.week_start:
+        try:
+            ws = _date.fromisoformat(body.week_start)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
+    if ws is None:
+        today = today_bangkok()
+        ws = today - _timedelta(days=today.weekday())
+    job_id = enqueue_plan_draft(user.id, ws, enqueued_by="web")
+    return JSONResponse({"job_id": job_id, "week_start": ws.isoformat()}, status_code=202)
+
+
+class PlanDraftApplyRequest(BaseModel):
+    week_start: Optional[str] = None
+
+
+class PlanDraftSlotPatch(BaseModel):
+    week_start: Optional[str] = None
+    day_offset: int
+    workout_type: Optional[str] = None
+    target_tss: Optional[float] = None
+    duration_minutes: Optional[int] = None
+    intent: Optional[str] = None
+    notes: Optional[str] = None
+    blocks: Optional[list] = None
+    exercises: Optional[list] = None
+    remove: Optional[bool] = None
+
+
+@router.post("/plan/draft/apply")
+def apply_plan_draft(
+    body: Optional[PlanDraftApplyRequest] = Body(default=None),
+    user: User = Depends(resolve_user),
+):
+    """Apply draft → planned_sessions for open/future days; mark draft applied."""
+    from backend.services.plan_draft import apply_draft
+    from backend.utils.time import today_bangkok
+
+    ws = None
+    if body is not None and body.week_start:
+        try:
+            ws = _date.fromisoformat(body.week_start)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
+    if ws is None:
+        today = today_bangkok()
+        ws = today - _timedelta(days=today.weekday())
+
+    db = _Session(_engine)
+    try:
+        result = apply_draft(db, user.id, ws, today=today_bangkok())
+        if not result.get("ok") and result.get("error") == "no_draft":
+            raise HTTPException(status_code=404, detail="no draft for this week")
+        db.commit()
+        return JSONResponse(result)
+    finally:
+        db.close()
+
+
+class PlanDraftApplySlotRequest(BaseModel):
+    week_start: Optional[str] = None
+    slot_id: Optional[str] = None
+    day_offset: Optional[int] = None
+
+
+@router.post("/plan/draft/apply-slot")
+def apply_plan_draft_slot(
+    body: PlanDraftApplySlotRequest,
+    user: User = Depends(resolve_user),
+):
+    """Apply one draft slot → planned_session; leave the rest of the draft open."""
+    from backend.services.plan_draft import apply_draft_slot
+    from backend.utils.time import today_bangkok
+
+    if not body.slot_id and body.day_offset is None:
+        raise HTTPException(status_code=422, detail="slot_id or day_offset required")
+    ws = _parse_week_start(body.week_start)
+    db = _Session(_engine)
+    try:
+        result = apply_draft_slot(
+            db, user.id, ws,
+            slot_id=body.slot_id,
+            day_offset=body.day_offset,
+            today=today_bangkok(),
+        )
+        code = result.get("status_code") or 200
+        if not result.get("ok"):
+            db.rollback()
+            raise HTTPException(status_code=code, detail=result)
+        db.commit()
+        return JSONResponse(result)
+    finally:
+        db.close()
+
+
+class PlanDraftRegenRequest(BaseModel):
+    week_start: Optional[str] = None
+    slot_id: str
+    draft_version: Optional[str] = None
+
+
+@router.post("/plan/draft/ops/regen")
+def draft_op_regen(
+    body: PlanDraftRegenRequest,
+    user: User = Depends(resolve_user),
+):
+    """Enqueue async content generation for one draft slot (Generate details)."""
+    from backend.services.plan_draft import request_slot_regen
+
+    if not body.slot_id:
+        raise HTTPException(status_code=422, detail="slot_id required")
+    ws = _parse_week_start(body.week_start)
+    db = _Session(_engine)
+    try:
+        result = request_slot_regen(
+            db, user.id, ws,
+            slot_id=body.slot_id,
+            draft_version=body.draft_version,
+        )
+        code = result.get("status_code") or 202
+        if not result.get("ok"):
+            db.rollback()
+            raise HTTPException(status_code=code if code >= 400 else 400, detail=result)
+        db.commit()
+        return JSONResponse(result, status_code=202)
+    finally:
+        db.close()
+
+
+@router.patch("/plan/draft/slot")
+def patch_plan_draft_slot(
+    body: PlanDraftSlotPatch,
+    user: User = Depends(resolve_user),
+):
+    """Edit or remove one draft slot (stamps source=user)."""
+    from backend.services.plan_draft import update_draft_slot
+    from backend.utils.time import today_bangkok
+
+    if body.day_offset < 0 or body.day_offset > 6:
+        raise HTTPException(status_code=422, detail="day_offset must be 0..6")
+    ws = None
+    if body.week_start:
+        try:
+            ws = _date.fromisoformat(body.week_start)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
+    if ws is None:
+        today = today_bangkok()
+        ws = today - _timedelta(days=today.weekday())
+
+    patch = None if body.remove else {
+        "workout_type": body.workout_type,
+        "target_tss": body.target_tss,
+        "duration_minutes": body.duration_minutes,
+        "intent": body.intent,
+        "notes": body.notes,
+        "blocks": body.blocks,
+        "exercises": body.exercises,
+    }
+    db = _Session(_engine)
+    try:
+        draft = update_draft_slot(
+            db, user.id, ws, body.day_offset,
+            patch=patch, remove=bool(body.remove),
+        )
+        if draft is None:
+            raise HTTPException(status_code=404, detail="no draft for this week")
+        db.commit()
+        return JSONResponse(draft)
+    finally:
+        db.close()
+
+
+class PlanDraftOpBody(BaseModel):
+    week_start: Optional[str] = None
+    draft_version: Optional[str] = None
+    confirm_warnings: Optional[bool] = False
+    inline: Optional[bool] = True
+    background: Optional[bool] = False
+    # move
+    slot_id: Optional[str] = None
+    to_day: Optional[int] = None
+    # swap
+    day_a: Optional[int] = None
+    day_b: Optional[int] = None
+    # remove
+    mode: Optional[str] = None  # drop | redistribute
+    # add
+    day: Optional[int] = None
+    kind: Optional[str] = None
+    custom: Optional[dict] = None
+
+
+def _parse_week_start(raw: Optional[str]):
+    from backend.utils.time import today_bangkok
+
+    if raw:
+        try:
+            return _date.fromisoformat(raw)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
+    today = today_bangkok()
+    return today - _timedelta(days=today.weekday())
+
+
+def _run_draft_op(op: str, body: PlanDraftOpBody, user: User):
+    from backend.services.plan_draft import apply_structure_op, ensure_draft_shell
+
+    ws = _parse_week_start(body.week_start if body else None)
+    kwargs = {}
+    if op == "move" or op == "preview_move":
+        if not body.slot_id or body.to_day is None:
+            raise HTTPException(status_code=422, detail="slot_id and to_day required")
+        kwargs = {"slot_id": body.slot_id, "to_day": body.to_day}
+    elif op == "swap":
+        if body.day_a is None or body.day_b is None:
+            raise HTTPException(status_code=422, detail="day_a and day_b required")
+        kwargs = {"day_a": body.day_a, "day_b": body.day_b}
+    elif op == "remove":
+        if not body.slot_id:
+            raise HTTPException(status_code=422, detail="slot_id required")
+        kwargs = {"slot_id": body.slot_id, "mode": body.mode or "drop"}
+    elif op == "add":
+        if body.day is None:
+            raise HTTPException(status_code=422, detail="day required")
+        kwargs = {"day": body.day, "kind": body.kind or "easy_run", "custom": body.custom}
+
+    db = _Session(_engine)
+    try:
+        if op == "add":
+            ensure_draft_shell(db, user.id, ws)
+        # Structure adds never sync-LLM; Generate details uses /ops/regen.
+        use_inline = False if op == "add" else (body.inline is not False)
+        result = apply_structure_op(
+            db, user.id, ws,
+            op=op,
+            draft_version=body.draft_version,
+            confirm_warnings=bool(body.confirm_warnings),
+            inline=use_inline,
+            background=bool(body.background),
+            **kwargs,
+        )
+        code = result.get("status_code") or 200
+        if not result.get("ok") and code >= 400:
+            db.rollback()
+            raise HTTPException(status_code=code, detail=result)
+        db.commit()
+        return JSONResponse(result, status_code=200 if result.get("ok") else code)
+    finally:
+        db.close()
+
+
+@router.post("/plan/draft/ops/move")
+def draft_op_move(body: PlanDraftOpBody, user: User = Depends(resolve_user)):
+    return _run_draft_op("move", body, user)
+
+
+@router.post("/plan/draft/ops/swap")
+def draft_op_swap(body: PlanDraftOpBody, user: User = Depends(resolve_user)):
+    return _run_draft_op("swap", body, user)
+
+
+@router.post("/plan/draft/ops/remove")
+def draft_op_remove(body: PlanDraftOpBody, user: User = Depends(resolve_user)):
+    return _run_draft_op("remove", body, user)
+
+
+@router.post("/plan/draft/ops/add")
+def draft_op_add(body: PlanDraftOpBody, user: User = Depends(resolve_user)):
+    return _run_draft_op("add", body, user)
+
+
+@router.post("/plan/draft/ops/preview-move")
+def draft_op_preview_move(body: PlanDraftOpBody, user: User = Depends(resolve_user)):
+    return _run_draft_op("preview_move", body, user)
+
+
+@router.post("/plan/draft/replan-remaining")
+def draft_replan_remaining(
+    body: PlanDraftApplyRequest = Body(default=None),
+    user: User = Depends(resolve_user),
+):
+    """Compute replan budget from matched actual TSS + partial skeleton for open days."""
+    from backend.services.plan_draft import replan_remaining_budget, upsert_draft, enqueue_plan_draft
+    from backend.services.plan_skeleton_ops import ensure_slot_ids, sync_slots_from_sessions
+    from backend.services.plan_slot import template_content_for_slot, stamp_session
+
+    ws = _parse_week_start(body.week_start if body else None)
+    db = _Session(_engine)
+    try:
+        plan = replan_remaining_budget(db, user.id, ws)
+        sk = plan["skeleton"]
+        sessions = []
+        for slot in sk["slots"]:
+            if slot.get("locked"):
+                continue
+            if (slot.get("workout_type") or "") == "rest":
+                content = {"intent": "Rest", "source": "template"}
+            else:
+                content = template_content_for_slot(slot)
+            sess = stamp_session(slot, content)
+            sessions.append(sess)
+        sessions = ensure_slot_ids(sessions)
+        payload = {
+            "week_start": ws.isoformat(),
+            "budget": plan["budget"],
+            "slots": sync_slots_from_sessions(sessions),
+            "sessions": sessions,
+            "sanity_errors": [],
+            "facts_signature": "",
+            "replan": True,
+            "matched_actual_tss": plan["matched_actual_tss"],
+            "open_offsets": plan["open_offsets"],
+            "version": 1,
+            "notify_pending": True,
+        }
+        # Fill facts_signature properly
+        from backend.services.plan_draft import facts_signature_for_draft
+        from backend.services.plan_prefs_accessor import get_plan_prefs as _gpp
+        from backend.services.plan_suggestions import assemble_facts
+        prefs = _gpp(db, user.id)
+        facts = assemble_facts(
+            str(user.id), db, week_start=ws,
+            preferred_rest_days=prefs["preferred_rest_days"],
+            strength_emphasis=prefs["strength_emphasis"],
+            notes=prefs["notes"],
+        )
+        payload["facts_signature"] = facts_signature_for_draft(facts)
+        upsert_draft(db, user.id, ws, payload, status="fresh")
+        # Enqueue content fill for non-rest / non-stretch
+        need = [
+            s["slot_id"] for s in sessions
+            if s.get("workout_type") not in ("rest", "stretch") and s.get("source") != "user"
+        ]
+        job_id = enqueue_plan_draft(user.id, ws, slot_ids=need, enqueued_by="web") if need else None
+        db.commit()
+        return JSONResponse({
+            "ok": True,
+            "budget": plan["budget"],
+            "matched_actual_tss": plan["matched_actual_tss"],
+            "open_offsets": plan["open_offsets"],
+            "job_id": job_id,
+            "week_start": ws.isoformat(),
+        }, status_code=202)
+    finally:
+        db.close()
+
+
 @router.post("/plan/suggestions")
 def get_plan_suggestions(
     body: PlanSuggestionsRequest = Body(default=None),
@@ -513,14 +924,19 @@ def generate_plan_session(
     if body.duration_minutes is not None and not (0 <= body.duration_minutes <= 600):
         raise HTTPException(status_code=422, detail="duration_minutes must be between 0 and 600")
     if body.subtype is not None:
-        from backend.services.plan_suggestions import SESSION_SUBTYPES as _SUBTYPES
+        from backend.services.plan_suggestions import (
+            SESSION_SUBTYPES as _SUBTYPES,
+            coerce_ui_subtype,
+        )
+        ui_sub = coerce_ui_subtype(body.workout_type, body.subtype)
         valid = _SUBTYPES.get(body.workout_type or "", {})
-        if body.subtype not in valid:
+        if ui_sub is None or ui_sub not in valid:
             raise HTTPException(
                 status_code=422,
                 detail="subtype must be one of: " + ", ".join(sorted(valid)) if valid
                 else f"workout_type {body.workout_type!r} has no subtypes",
             )
+        body.subtype = ui_sub
 
     session = _generate_single_session(
         str(user.id),

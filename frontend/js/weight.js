@@ -1687,13 +1687,13 @@ function _p2wDrawSparkline(svgId, pts) {
   var mn = Math.min.apply(null, valid);
   var mx = Math.max.apply(null, valid);
   var range = mx - mn || 0.001;
-  var d = pts
-    .map(function (v, i) {
-      var x = (i / (pts.length - 1)) * W;
-      var y = H - ((v - mn) / range) * (H - 6) - 3;
-      return (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
-    })
-    .join(' ');
+  var d = pts.reduce(function (acc, v, i) {
+    if (v == null) return acc;
+    var x = (i / (pts.length - 1)) * W;
+    var y = H - ((v - mn) / range) * (H - 6) - 3;
+    var cmd = (acc === '' || pts[i - 1] == null) ? 'M' : 'L';
+    return (acc ? acc + ' ' : '') + cmd + x.toFixed(1) + ' ' + y.toFixed(1);
+  }, '');
   svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
   var NS = 'http://www.w3.org/2000/svg';
   var path = document.createElementNS(NS, 'path');

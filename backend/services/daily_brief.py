@@ -358,6 +358,11 @@ def _assemble_advisories(user_id, for_date: date, weight: dict) -> list[dict]:
             })
     except Exception as exc:
         print(f"WARNING: gap analysis unavailable: {exc}", file=sys.stderr)
+        advisories.append({
+            "key": "gap_analysis_error",
+            "severity": "error",
+            "text": f"Gap analysis unavailable: {exc}",
+        })
 
     verdict_str: str | None = None
     try:
@@ -373,6 +378,11 @@ def _assemble_advisories(user_id, for_date: date, weight: dict) -> list[dict]:
             })
     except Exception as exc:
         print(f"WARNING: training verdict unavailable: {exc}", file=sys.stderr)
+        advisories.append({
+            "key": "training_verdict_error",
+            "severity": "error",
+            "text": f"Training verdict unavailable: {exc}",
+        })
 
     try:
         weight_advisory = _compute_weight_advisory(weight, verdict_str)
@@ -439,6 +449,7 @@ def _build_brief(for_date: date, worker_url=None, user_id=None, username=None) -
     weight = _assemble_weight(user_id, for_date)
     advisories = _assemble_advisories(user_id, for_date, weight)
     week_plan = _assemble_week_plan(user_id, for_date)
+    advisories_degraded = any(a.get("severity") == "error" for a in advisories)
 
     generated_at = datetime.now(BANGKOK_TZ).isoformat()
 
@@ -452,6 +463,7 @@ def _build_brief(for_date: date, worker_url=None, user_id=None, username=None) -
         "recent_wrap": recent_wrap,
         "weight": weight,
         "advisories": advisories,
+        "advisories_degraded": advisories_degraded,
         "actions": [],
         "week_plan": week_plan,
     }

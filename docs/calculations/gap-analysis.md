@@ -250,14 +250,23 @@ File: `backend/services/gap_analysis/rules/cadence_drift.py`
 Fires when the recent 28-day mean cadence has dropped more than `CADENCE_DRIFT_THRESHOLD_PCT`
 below the long baseline (days 57–180).
 
-Returns `None` when either window has fewer than `MIN_RUNS_PER_WINDOW` (3) runs with valid
-cadence data.
+Both windows are first filtered to easy-run intensity (issue #1463): only runs whose `power_w`
+falls within ±`CADENCE_EASY_POWER_BAND_WIDTH_W`/2 (±25 W) of a band centre are kept. The band
+centre is anchored to the lower of the two windows' mean power, so an interval block in either
+window cannot drag the band into hard-effort territory. Runs without `power_w` are excluded; the
+recent window must have ≥ `MIN_RUNS_PER_WINDOW` powered runs to anchor the band. When the long
+baseline has no power data at all (e.g. Garmin-only imports), it falls back to all cadence-valid
+runs (graceful degradation).
+
+Returns `None` when either window has fewer than `MIN_RUNS_PER_WINDOW` (3) runs after easy-run
+filtering, or when the recent window lacks that many powered runs.
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
 | `CADENCE_DRIFT_THRESHOLD_PCT` | 2.0 | Drop (%) required to fire |
 | `CADENCE_BASELINE_WINDOW_DAYS` | 180 | Length of the long baseline window (days) |
-| `MIN_RUNS_PER_WINDOW` | 3 | Minimum valid-cadence runs required per window |
+| `CADENCE_EASY_POWER_BAND_WIDTH_W` | 50.0 | Width (W) of the easy-run intensity band; runs within ±half are kept |
+| `MIN_RUNS_PER_WINDOW` | 3 | Minimum valid runs required per window after easy-run filtering |
 
 - `code`: `cadence_drift`
 - `severity`: 1 (note)
@@ -505,10 +514,13 @@ prescribes loading an actively injured area.
 
 File: `backend/services/gap_analysis/templates.py`
 
-Every gap-analysis finding with a template gains an "Add to plan" button in the
-improvement panel. Tapping it creates a `planned_session` row pre-filled with the
-prescription text. The session is tagged by storing `{"_gap_code": "<code>"}` in
-the `planned_sessions.structure` JSONB column — no migration needed.
+Templates still define what a finding *means* as a session (type, name, notes,
+load_adding) and power `POST /api/training/gap-analysis/{code}/add-to-plan` for
+pipeline / Suggest flows. The **What to improve** Plan-tab panel is a
+**reviewer** surface only (Mute / Done) — it no longer shows "+ Add to plan" or
+"Ask AI"; week materialization happens via Suggest sessions / the draft
+pipeline, which tags `planned_sessions.structure` with `{"_gap_code": "<code>"}`
+when using this endpoint.
 
 **Session template registry** (`get_template(code)` in `templates.py`):
 
@@ -518,7 +530,7 @@ the `planned_sessions.structure` JSONB column — no migration needed.
 | `no_recent_plyo` | plyo | Plyo re-entry session | 2×[10 pogo, 10 low box jumps] | yes |
 | `gct_lengthening` | strength | Calf capacity strength block | Eccentric calf raises 3×12 each side, 3 s lowering | yes |
 | `cadence_drift` | run | Cadence-focus easy run | Z1-Z2, target ≥170 spm | yes |
-| `aerobic_durability_gap` | run | Aerobic long run | 70–90 min Z1-Z2, monitor decoupling | yes |
+| `aerobic_durability_gap` | run | Aerobic long run | ≥110 min Z1-Z2, monitor decoupling / fuel | yes |
 | `speed_neglected` | run | Speed interval session | 6×400 m at 5 km effort, 90 s recovery | yes |
 | `base_neglected` | run | Easy aerobic run | 30–60 min easy pace (Z1-Z2), conversational effort | yes |
 | `strength_lapsed` | strength | General strength session | Full-body, 3×8–10, moderate load after break | yes |
@@ -531,11 +543,15 @@ the `planned_sessions.structure` JSONB column — no migration needed.
 
 **Verdict guard**: when `training_verdict == "back_off"`, add-to-plan for any
 `load_adding=True` template is rejected by the server (HTTP 409 with
-`code: "back_off"`) and disabled in the UI with a tooltip.
+`code: "back_off"`).
 
 **Duplicate guard**: a second add-to-plan for the same `code` within the same
-calendar week returns HTTP 409 (`code: "already_planned_this_week"`).
+calendar week returns HTTP 409 (`code: "already_planned_this_week"`, with
+`planned_date` / `session_id`) when the existing session already meets the
+preset floors. If the existing row is a hollow stub (old templates with
+`structure: null`, or below duration/TSS floors), the endpoint **upgrades it
+in place** on the requested date (HTTP 200, `upgraded: true`) instead of 409.
 
 **Endpoint**: `POST /api/training/gap-analysis/{code}/add-to-plan`
 - Body: `{"date": "YYYY-MM-DD"}`
-- Response: 201 with the created `planned_session` dict
+- Response: 201 with the created `planned_session` dict (or 200 when upgrading)

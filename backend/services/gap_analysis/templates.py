@@ -34,10 +34,38 @@ from typing import Optional
 
 _EXACT: dict[str, Optional[dict]] = {
     # ── Plyo deficit (severity 2) ─────────────────────────────────────────────
+    "aerobic_durability_gap": {
+        "session_type": "run",
+        "name": "Aerobic long run",
+        "notes": "Easy aerobic long run, ≥110 min, Z1-Z2 effort. Monitor aerobic "
+                 "decoupling: if HR drifts >5 % in the back half, shorten next week. Fuel.",
+        "structure": {
+            "blocks": [
+                {"phase": "main", "duration_min": 110, "target": "Z1-Z2"},
+            ]
+        },
+        "load_adding": True,
+    },
+    # ── Speed neglected → interval session (severity 2) ──────────────────────
+    "speed_neglected": {
+        "session_type": "run",
+        "name": "Speed interval session",
+        "notes": "Speed intervals (≥50 min total): 6×400 m at 5 km effort (or equivalent "
+                 "Stryd power), 90 s easy jog recovery. Warm up 15 min, cool down 10 min.",
+        "structure": {
+            "blocks": [
+                {"phase": "warmup", "duration_min": 15},
+                {"phase": "main", "duration_min": 2, "repeat": 6, "rest_min": 1.5, "target": "5K effort (400m reps)"},
+                {"phase": "cooldown", "duration_min": 10},
+            ]
+        },
+        "load_adding": True,
+    },
+    # ── Plyo deficit (severity 2) ─────────────────────────────────────────────
     "plyo_deficit": {
         "session_type": "plyo",
         "name": "Plyometric intro session",
-        "notes": "Plyo intro: 2×[10 pogo jumps, 10 low box jumps]. Focus on minimal "
+        "notes": "Plyo session (~30 min): 2×[10 pogo jumps, 10 low box jumps]. Focus on minimal "
                  "ground contact and reactive stiffness. Rest 60 s between sets.",
         "structure": {
             "exercises": [
@@ -51,7 +79,7 @@ _EXACT: dict[str, Optional[dict]] = {
     "no_recent_plyo": {
         "session_type": "plyo",
         "name": "Plyo re-entry session",
-        "notes": "Gentle plyo re-entry: 2×[10 pogo jumps, 10 low box jumps]. "
+        "notes": "Gentle plyo re-entry (~30 min): 2×[10 pogo jumps, 10 low box jumps]. "
                  "Keep volume low after the break.",
         "structure": {
             "exercises": [
@@ -84,34 +112,6 @@ _EXACT: dict[str, Optional[dict]] = {
         "structure": {
             "blocks": [
                 {"phase": "main", "duration_min": 30, "target": "Z1-Z2, cadence ≥170 spm"},
-            ]
-        },
-        "load_adding": True,
-    },
-    # ── Aerobic durability gap → long run (severity 2) ───────────────────────
-    "aerobic_durability_gap": {
-        "session_type": "run",
-        "name": "Aerobic long run",
-        "notes": "Easy aerobic long run, 70–90 min, Z1-Z2 effort. Monitor aerobic "
-                 "decoupling: if HR drifts >5 % in the back half, shorten next week.",
-        "structure": {
-            "blocks": [
-                {"phase": "main", "duration_min": 80, "target": "Z1-Z2"},
-            ]
-        },
-        "load_adding": True,
-    },
-    # ── Speed neglected → interval session (severity 2) ──────────────────────
-    "speed_neglected": {
-        "session_type": "run",
-        "name": "Speed interval session",
-        "notes": "Speed intervals: 6×400 m at 5 km effort (or equivalent Stryd power), "
-                 "90 s easy jog recovery. Warm up 10 min, cool down 10 min.",
-        "structure": {
-            "blocks": [
-                {"phase": "warmup", "duration_min": 10},
-                {"phase": "main", "duration_min": 2, "repeat": 6, "rest_min": 1.5, "target": "5K effort (400m reps)"},
-                {"phase": "cooldown", "duration_min": 10},
             ]
         },
         "load_adding": True,

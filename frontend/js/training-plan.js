@@ -18,8 +18,15 @@
   var _bundle = null;             // last GET bundle
   var _panel = { open: null };    // null | 'add' | 'detail'
   var _addState = { top: 'single', sub: 'form', delim: 'pipe' };
+  // Create-mode draft-first: optional AI/manual content before Save draft.
+  var _addDraftExtras = { ai: null, manualOpen: false };
   var _detail = null;             // the planned session dict being viewed
   var _dismissedGhosts = {};      // client-side Ignore
+  var _draft = null;              // GET /api/plan/draft payload (pipeline v2)
+  var _pipeline = null;           // GET /api/plan/pipeline
+  var _draftVisible = false;      // shadow mode requires ?draft=1
+  var _detailDraft = null;        // draft slot dict open in the detail panel
+  var _generatingIds = {};        // planned_session id → true while Ask-AI fills details
 
   var DOW = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
   var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -137,9 +144,10 @@ information about.
     init: function () {
       _injectStyles();
       if (!_weekStart) _weekStart = _mondayOf(new Date());
+      _applyUrlWeekParam();
       // Idempotent: always re-render the shell + reload the current week.
       _renderAll();
-      _loadWeek(function () {
+      _loadPipelineThenWeek(function () {
         if (_pendingOpenId) {
           var id = _pendingOpenId;
           _pendingOpenId = null;
@@ -149,6 +157,27 @@ information about.
       _wireLoadPlanSettings();
       _loadLoadPlan();
       _loadWeekLoad(_iso(_weekStart));
+      // What to improve panel (moved from Performance → Plan)
+      if (window.TrainingPerformance && window.TrainingPerformance.loadGapPanel) {
+        window.TrainingPerformance.loadGapPanel();
+      }
+      if (window.location.hash === '#prefs') {
+        setTimeout(function () {
+          var t = document.getElementById('plan-suggestions-trigger');
+          if (t) t.click();
+          var panel = document.getElementById('plan-suggestions-panel');
+          if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 80);
+      }
+      if (!window.__plSmEscWired) {
+        window.__plSmEscWired = true;
+        document.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape' && _panel.open === 'detail') {
+            e.preventDefault();
+            _smTryClose();
+          }
+        });
+      }
     },
     // Deep link from outside the Plan tab (e.g. the Log calendar): scope the
     // week to the session's date and flag it to open once init()'s own
@@ -165,13 +194,22 @@ information about.
     planCheck: function (payload, cb) { _planCheck(payload, cb); },
     planGuardHtml: function (result) { return _planGuardHtml(result); },
     reload: function () {
-      _loadWeek(function () {});
+      _loadWeek(function () { _loadDraft(); });
     },
     // Exposed for the Plan Suggestions module (a separate closure below) so it
     // scopes suggestions to whichever week is actually on screen, instead of
     // assuming "next Monday" regardless of what the athlete is looking at.
     getWeekStartISO: function () {
       return _iso(_weekStart || _mondayOf(new Date()));
+    },
+    // Suggestions module (separate closure) calls this after queueing a
+    // plan_draft so the week strip picks up the new draft when it lands.
+    markDraftPending: function () {
+      _draftVisible = true;
+    },
+    reloadDraft: function () {
+      _draftVisible = true;
+      _loadDraft();
     },
     // day_offset/date/open (no logged workout, no existing planned session,
     // not before today) for each day of the currently-viewed week — lets the
@@ -189,10 +227,15 @@ information about.
         var day = days[i] || {};
         var hasPlanned = (day.planned || []).length > 0;
         var hasUnplanned = (day.unplanned || []).some(function (u) { return !_dismissedGhosts[u.id]; });
+        var past = i < offsetOfToday;
+        var hasSession = hasPlanned || hasUnplanned;
         out.push({
           day_offset: i,
           date: day.date || _iso(_addDays(_weekStart, i)),
-          open: i >= offsetOfToday && !hasPlanned && !hasUnplanned
+          past: past,
+          hasSession: hasSession,
+          // Suggestable open day: not past and no existing session/ghost
+          open: !past && !hasSession,
         });
       }
       return out;
@@ -249,6 +292,657 @@ information about.
     if (window.UIStates && window.UIStates.showToast) window.UIStates.showToast(msg, !!isErr);
   }
 
+  // ── Pipeline v2 draft overlay ───────────────────────────────────────────────
+  function _urlFlag(name) {
+    try {
+      return new URLSearchParams(window.location.search).get(name);
+    } catch (e) { return null; }
+  }
+
+  function _applyUrlWeekParam() {
+    var w = _urlFlag('week');
+    if (w) {
+      try { _weekStart = _mondayOf(_parseISO(w)); } catch (e) { /* ignore */ }
+    }
+  }
+
+  function _shouldShowDraftUi() {
+    if (!_pipeline) return false;
+    if (_pipeline.ui_default) return true;
+    if (_pipeline.shadow && (_urlFlag('draft') === '1' || _urlFlag('draft') === 'true')) return true;
+    return false;
+  }
+
+  function _loadPipelineThenWeek(onDone) {
+    _api('GET', '/api/plan/pipeline')
+      .then(function (p) {
+        _pipeline = p || { mode: 'legacy', enabled: false, shadow: false, ui_default: false };
+        _draftVisible = _shouldShowDraftUi();
+        _loadWeek(function () {
+          if (_draftVisible) _loadDraft(onDone);
+          else if (onDone) onDone();
+        });
+      })
+      .catch(function () {
+        _pipeline = { mode: 'legacy', enabled: false, shadow: false, ui_default: false };
+        _draftVisible = false;
+        _loadWeek(onDone);
+      });
+  }
+
+  function _loadDraft(onDone) {
+    if (!_draftVisible) {
+      _draft = null;
+      if (onDone) onDone();
+      return;
+    }
+    var ws = _iso(_weekStart);
+    _api('GET', '/api/plan/draft?week_start=' + encodeURIComponent(ws))
+      .then(function (d) {
+        _draft = d;
+        _renderDraftChrome();
+        _renderWeekList();
+        _updatePlanTabBadge(true);
+        if (onDone) onDone();
+      })
+      .catch(function () {
+        _draft = null;
+        _renderDraftChrome();
+        _renderWeekList();
+        if (onDone) onDone();
+      });
+  }
+
+  function _updatePlanTabBadge(ready) {
+    var tab = document.getElementById('log-tab-plan');
+    if (!tab) return;
+    var badge = tab.querySelector('.pl-draft-badge');
+    if (ready && _draft && (_draft.status === 'fresh' || _draft.status === 'outdated')) {
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'pl-draft-badge';
+        badge.title = 'Week draft ready';
+        badge.textContent = '•';
+        tab.appendChild(badge);
+      }
+      badge.hidden = false;
+    } else if (badge) {
+      badge.hidden = true;
+    }
+  }
+
+  function _draftSessionsByOffset() {
+    var map = {};
+    if (!_draft || !_draft.payload) return map;
+    (_draft.payload.sessions || []).forEach(function (s) {
+      if (s && s.day_offset != null) map[s.day_offset] = s;
+    });
+    return map;
+  }
+
+  function _sourceChip(src) {
+    // Mock plan-draft-review.html: AI = green pill, user = dark, template = amber.
+    var label = 'AI';
+    var cls = 'ai';
+    if (src === 'template') { label = 'TEMPLATE'; cls = 'tmpl'; }
+    else if (src === 'user') { label = 'EDITED'; cls = 'user'; }
+    else if (src === 'llm' || !src) { label = 'AI'; cls = 'ai'; }
+    return '<span class="pl-src-chip pl-src-' + cls + '">' + label + '</span>';
+  }
+
+  // CSS border spinner — same as plan-draft-review.html STATE 4 (.spin / .src.gen i).
+  function _genSpinHtml(cls) {
+    return '<i class="' + (cls || 'pl-gen-spin') + '" aria-hidden="true"></i>';
+  }
+  function _generatingChipHtml() {
+    return '<span class="pl-src-chip pl-src-gen" title="Content regenerating">' +
+      _genSpinHtml() + 'GENERATING</span>';
+  }
+
+  function _draftCardHtml(s, day) {
+    var fam = _famClass(s.workout_type);
+    var typeLabel = fam === 'lift' ? 'LIFT' : fam.toUpperCase();
+    var tss = s.target_tss != null ? Math.round(s.target_tss) : null;
+    var pending = !!s.pending;
+    var sid = s.slot_id || ('d' + s.day_offset);
+    var title = s.intent || s.workout_type || 'Session';
+    // Mock: title carries the slot budget ("Easy aerobic run → 70 TSS").
+    if (pending && tss != null && title.indexOf(String(tss)) < 0) {
+      title = title + (/\s*(→|->)\s*/.test(title) ? '' : ' → ' + tss + ' TSS');
+    }
+    var moveOpts = '';
+    for (var d = 0; d < 7; d++) {
+      if (d === s.day_offset) continue;
+      moveOpts += '<option value="' + d + '">' + DOW[d] + '</option>';
+    }
+    var metaHtml = pending
+      ? '<div class="pl-sm pl-sm-generating">content updating for the new budget…</div>'
+      : (function () {
+          var bits = [];
+          if (s.duration_minutes) bits.push(s.duration_minutes + ' min');
+          if (s.notes) bits.push(String(s.notes).slice(0, 48));
+          else if (!s.duration_minutes && tss != null) bits.push(tss + ' TSS');
+          return bits.length ? '<div class="pl-sm">' + esc(bits.join(' · ')) + '</div>' : '';
+        })();
+    // Horizontal row matching mock .sess.draft: TAG | title+meta | chips | acts
+    var rightHtml = pending
+      ? _generatingChipHtml()
+      : (_sourceChip(s.source) +
+          (tss != null ? '<span class="pl-draft-tss">' + tss + ' TSS</span>' : '') +
+          '<label class="pl-draft-move"><select data-draft-move="' + esc(sid) + '" title="Move to…">' +
+            '<option value="">Move to ▾</option>' + moveOpts + '</select></label>' +
+          '<button type="button" class="pl-draft-rm" data-draft-rm="' + esc(sid) + '" title="Remove">Remove ✕</button>');
+    return '<div class="pl-draft ' + fam + (pending ? ' is-pending' : '') + '" draggable="' + (pending ? 'false' : 'true') + '"' +
+      ' data-draft-offset="' + s.day_offset + '" data-slot-id="' + esc(sid) + '" data-orig-idx="' + s.day_offset + '">' +
+      '<span class="pl-stypetag ' + fam + '">' + typeLabel + '</span>' +
+      '<div class="pl-draft-main"><div class="pl-sn">' + esc(title) + '</div>' + metaHtml + '</div>' +
+      '<div class="pl-draft-right">' + rightHtml + '</div>' +
+    '</div>';
+  }
+
+  function _draftOp(op, body) {
+    body = body || {};
+    body.week_start = _iso(_weekStart);
+    if (_draft && _draft.draft_version) body.draft_version = _draft.draft_version;
+    return fetch('/api/plan/draft/ops/' + op, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(function (r) {
+      return r.json().then(function (res) {
+        if (r.status === 409 && res && res.detail && res.detail.needs_confirm) {
+          return Promise.reject({
+            needs_confirm: true,
+            warnings: res.detail.warnings || [],
+            body: body,
+            op: op,
+          });
+        }
+        if (!r.ok) {
+          var d = res && res.detail;
+          return Promise.reject({ detail: typeof d === 'object' ? d : { error: d || ('HTTP ' + r.status) } });
+        }
+        // Some paths return the result object directly (ok:true)
+        var payload = res.detail && res.detail.ok !== undefined ? res.detail : res;
+        if (payload && payload.draft) {
+          _draft = payload.draft;
+          if (payload.draft_version) _draft.draft_version = payload.draft_version;
+          _renderDraftChrome();
+          _renderWeekList();
+        }
+        return payload;
+      });
+    });
+  }
+
+  // Styled-dialog reuse: training-log.js loads before this file on
+  // training-log.html and exposes its shared .modal-overlay/.modal-box
+  // confirm dialog on window.TrainingLog._confirmDialog. Fall back to the
+  // native confirm() only if that's somehow unavailable.
+  function _plConfirm(msg, onConfirm, opts) {
+    if (window.TrainingLog && window.TrainingLog._confirmDialog) {
+      window.TrainingLog._confirmDialog(msg, onConfirm, opts);
+      return;
+    }
+    opts = opts || {};
+    if (window.confirm(msg)) onConfirm();
+    else if (opts.onCancel) opts.onCancel();
+  }
+
+  function _confirmWarnings(warnings, onYes) {
+    var msg = (warnings || []).join('\n') + '\n\nProceed anyway?';
+    _plConfirm(msg, function () { onYes(true); });
+  }
+
+  function _removeDraftSlot(slotId, sessionLabel) {
+    var existing = document.getElementById('pl-draft-rm-overlay');
+    if (existing) existing.remove();
+    var label = sessionLabel || 'this draft session';
+    var overlay = document.createElement('div');
+    overlay.id = 'pl-draft-rm-overlay';
+    overlay.className = 'pl-draft-q-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.innerHTML =
+      '<div class="pl-draft-q-card">' +
+        '<h3>Remove draft session?</h3>' +
+        '<p>Remove <b>' + esc(label) + '</b> from the week draft.</p>' +
+        '<p class="pl-draft-rm-hint">Default is drop only — other sessions keep their TSS and won’t regenerate.</p>' +
+        '<div class="pl-del-confirm-actions" style="flex-direction:column;align-items:stretch;gap:8px;">' +
+          '<button type="button" class="pl-btn pl-danger" data-rm-drop>Remove</button>' +
+          '<button type="button" class="pl-btn pl-ghost" data-rm-redistribute>' +
+            'Remove &amp; redistribute TSS' +
+          '</button>' +
+          '<button type="button" class="pl-btn" data-rm-cancel>Cancel</button>' +
+        '</div>' +
+        '<p class="pl-draft-rm-hint" style="margin-top:10px;">Redistribute spreads this session’s TSS onto other non-long draft slots and regenerates their content.</p>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    function close() { overlay.remove(); }
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+    overlay.querySelector('[data-rm-cancel]').addEventListener('click', close);
+
+    function run(mode, btn) {
+      btn.disabled = true;
+      var other = overlay.querySelectorAll('[data-rm-drop], [data-rm-redistribute], [data-rm-cancel]');
+      other.forEach(function (b) { b.disabled = true; });
+      btn.textContent = mode === 'redistribute' ? 'Redistributing…' : 'Removing…';
+      _draftOp('remove', { slot_id: slotId, mode: mode, confirm_warnings: true })
+        .then(function (res) {
+          close();
+          if (mode === 'redistribute' && res && res.redistribute) {
+            var m = res.redistribute;
+            _toast(
+              'Removed · redistributed ' + Math.round(m.replaced_tss || 0) +
+              ' TSS' + (m.dropped_tss ? (' · ' + Math.round(m.dropped_tss) + ' unused') : '')
+            );
+          } else {
+            _toast('Draft session removed');
+          }
+          if (_detailDraft && _detailDraft.slot_id === slotId) _closeDraftDetail();
+        })
+        .catch(function (err) {
+          other.forEach(function (b) { b.disabled = false; });
+          btn.disabled = false;
+          btn.textContent = mode === 'redistribute' ? 'Remove & redistribute TSS' : 'Remove';
+          if (err && err.needs_confirm) {
+            _confirmWarnings(err.warnings, function () {
+              err.body.confirm_warnings = true;
+              _draftOp(err.op, err.body)
+                .then(function () { close(); _toast('Draft session removed'); })
+                .catch(function () { _toast('Remove failed', true); });
+            });
+            return;
+          }
+          _toast((err && err.detail && err.detail.block_reason) || 'Could not remove', true);
+        });
+    }
+
+    overlay.querySelector('[data-rm-drop]').addEventListener('click', function (e) {
+      run('drop', e.currentTarget);
+    });
+    overlay.querySelector('[data-rm-redistribute]').addEventListener('click', function (e) {
+      run('redistribute', e.currentTarget);
+    });
+  }
+
+  function _moveDraftSlot(slotId, toDay, confirmed) {
+    _draftOp('move', { slot_id: slotId, to_day: toDay, confirm_warnings: !!confirmed })
+      .catch(function (err) {
+        if (err && err.needs_confirm) {
+          _confirmWarnings(err.warnings, function () {
+            _moveDraftSlot(slotId, toDay, true);
+          });
+          return;
+        }
+        var detail = err && err.detail;
+        _toast((detail && (detail.block_reason || detail.error)) || 'Move blocked', true);
+      });
+  }
+
+  function _addDraftKind(day, kind, btnEl) {
+    if (btnEl) {
+      btnEl.disabled = true;
+      btnEl.dataset.label = btnEl.textContent;
+      btnEl.innerHTML = '<i class="pl-gen-spin" aria-hidden="true"></i> Adding…';
+    }
+    var dayRow = document.querySelector('.pl-dayrow[data-day-offset="' + day + '"]');
+    if (dayRow) dayRow.classList.add('is-draft-adding');
+    function _restore() {
+      if (dayRow) dayRow.classList.remove('is-draft-adding');
+      if (btnEl && btnEl.dataset.label) {
+        btnEl.disabled = false;
+        btnEl.textContent = btnEl.dataset.label;
+      }
+    }
+    _draftOp('add', { day: day, kind: kind, confirm_warnings: false })
+      .then(function () { _restore(); })
+      .catch(function (err) {
+        if (err && err.needs_confirm) {
+          _confirmWarnings(err.warnings, function () {
+            _draftOp('add', { day: day, kind: kind, confirm_warnings: true })
+              .then(_restore)
+              .catch(function () { _restore(); _toast('Add failed', true); });
+          });
+          return;
+        }
+        _restore();
+        var detail = err && err.detail;
+        _toast((detail && detail.block_reason) || 'Could not add', true);
+      });
+  }
+
+  function _addDraftCustom(day, custom, opts) {
+    opts = opts || {};
+    return _draftOp('add', {
+      day: day,
+      kind: 'custom',
+      custom: custom,
+      confirm_warnings: !!opts.confirm,
+    }).then(function (payload) {
+      var slotId = payload && payload.added_slot_id;
+      if (!slotId) {
+        // Fallback: newest non-rest session on that day after draft refresh.
+        var sessions = ((_draft && _draft.payload) || {}).sessions || [];
+        sessions.forEach(function (s) {
+          if (s && parseInt(s.day_offset, 10) === parseInt(day, 10) && (s.workout_type || '') !== 'rest') {
+            slotId = s.slot_id;
+          }
+        });
+      }
+      if (opts.apply && slotId) return _applyDraftSlot(slotId);
+      if (opts.apply && !slotId) {
+        return Promise.reject({ detail: { error: 'Draft saved but apply target missing' } });
+      }
+      return payload;
+    }).catch(function (err) {
+      if (err && err.needs_confirm && !opts.confirm) {
+        return new Promise(function (resolve, reject) {
+          _confirmWarnings(err.warnings, function () {
+            _addDraftCustom(day, custom, Object.assign({}, opts, { confirm: true }))
+              .then(resolve).catch(reject);
+          });
+        });
+      }
+      throw err;
+    });
+  }
+
+  function _applyDraftSlot(slotId) {
+    return _api('POST', '/api/plan/draft/apply-slot', {
+      week_start: _iso(_weekStart),
+      slot_id: slotId,
+    }).then(function (res) {
+      _toast('Session applied to plan');
+      if (res && res.draft) {
+        _draft = res.draft;
+        _renderDraftChrome();
+      }
+      _closeDraftDetail();
+      _loadWeek(function () { if (_draftVisible) _loadDraft(); });
+      return res;
+    });
+  }
+
+  function _regenDraftSlot(slotId) {
+    return fetch('/api/plan/draft/ops/regen', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        week_start: _iso(_weekStart),
+        slot_id: slotId,
+        draft_version: _draft && _draft.draft_version,
+      }),
+    }).then(function (r) {
+      return r.json().then(function (d) {
+        if (!r.ok) throw new Error((d && d.detail && (d.detail.error || d.detail)) || ('HTTP ' + r.status));
+        if (d.draft) {
+          _draft = d.draft;
+          if (d.draft_version) _draft.draft_version = d.draft_version;
+          _renderDraftChrome();
+          _renderWeekList();
+        }
+        _toast('Generating details…');
+        _pollDraftPending(slotId);
+        return d;
+      });
+    });
+  }
+
+  var _draftPendingTimer = null;
+  function _pollDraftPending(slotId) {
+    if (_draftPendingTimer) clearInterval(_draftPendingTimer);
+    var tries = 0;
+    _draftPendingTimer = setInterval(function () {
+      tries++;
+      _loadDraft(function () {
+        var sess = null;
+        (((_draft || {}).payload || {}).sessions || []).forEach(function (s) {
+          if (s && s.slot_id === slotId) sess = s;
+        });
+        if (!sess || !sess.pending || tries > 40) {
+          clearInterval(_draftPendingTimer);
+          _draftPendingTimer = null;
+          if (sess && !sess.pending) {
+            _toast('Details ready');
+            if (_detailDraft && _detailDraft.slot_id === slotId) {
+              _detailDraft = sess;
+              _renderDraftDetailSection();
+            }
+          }
+        }
+      });
+    }, 3000);
+  }
+
+  function _dayOffsetForDate(isoDate) {
+    if (!_weekStart) return 0;
+    var d = _parseISO(isoDate);
+    return Math.round((d - _weekStart) / 86400000);
+  }
+
+  function _openDraftAddPicker(isoDate) {
+    var existing = document.getElementById('pl-draft-add-picker');
+    if (existing) existing.remove();
+    var day = _dayOffsetForDate(isoDate);
+    var overlay = document.createElement('div');
+    overlay.id = 'pl-draft-add-picker';
+    overlay.className = 'pl-draft-q-overlay';
+    overlay.innerHTML =
+      '<div class="pl-draft-q-card" role="dialog" aria-modal="true">' +
+        '<h3>Add draft session</h3>' +
+        '<p>' + esc(isoDate) + ' — stays in the week draft until you apply.</p>' +
+        '<label class="pl-dap-field">Type' +
+          '<select id="pl-dap-type">' +
+            '<option value="run">Run</option>' +
+            '<option value="strength">Strength</option>' +
+            '<option value="plyo">Plyo</option>' +
+            '<option value="stretch">Stretch</option>' +
+          '</select></label>' +
+        '<div class="pl-dap-row">' +
+          '<label class="pl-dap-field">TSS<input id="pl-dap-tss" type="number" min="0" max="400" value="30"/></label>' +
+          '<label class="pl-dap-field">Minutes<input id="pl-dap-dur" type="number" min="0" max="600" value="30"/></label>' +
+        '</div>' +
+        '<label class="pl-dap-field">Name / intent<input id="pl-dap-intent" type="text" placeholder="Optional"/></label>' +
+        '<div class="pl-draft-q-actions">' +
+          '<button type="button" class="pl-btn pl-lime" id="pl-dap-draft">Create draft</button>' +
+          '<button type="button" class="pl-btn" id="pl-dap-apply">Create draft &amp; apply</button>' +
+        '</div>' +
+        '<button type="button" class="pl-btn pl-ghost" id="pl-dap-cancel" style="margin-top:8px;width:100%">Cancel</button>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    function close() { overlay.remove(); }
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+    document.getElementById('pl-dap-cancel').onclick = close;
+    function readCustom() {
+      var wt = document.getElementById('pl-dap-type').value;
+      return {
+        workout_type: wt,
+        subtype: wt,
+        target_tss: parseFloat(document.getElementById('pl-dap-tss').value) || 0,
+        duration_minutes: parseInt(document.getElementById('pl-dap-dur').value, 10) || 30,
+        intent: (document.getElementById('pl-dap-intent').value || '').trim(),
+      };
+    }
+    function run(apply) {
+      var btn = document.getElementById(apply ? 'pl-dap-apply' : 'pl-dap-draft');
+      btn.disabled = true;
+      btn.textContent = apply ? 'Applying…' : 'Adding…';
+      _addDraftCustom(day, readCustom(), { apply: !!apply })
+        .then(function () { close(); _toast(apply ? 'Draft applied' : 'Draft added'); })
+        .catch(function (err) {
+          btn.disabled = false;
+          btn.textContent = apply ? 'Create draft & apply' : 'Create draft';
+          var detail = err && err.detail;
+          _toast((detail && (detail.block_reason || detail.error)) || (err && err.message) || 'Failed', true);
+        });
+    }
+    document.getElementById('pl-dap-draft').onclick = function () { run(false); };
+    document.getElementById('pl-dap-apply').onclick = function () { run(true); };
+  }
+
+  function _openDraftDetail(slotId) {
+    var found = null;
+    (((_draft || {}).payload || {}).sessions || []).forEach(function (s) {
+      if (s && s.slot_id === slotId) found = s;
+    });
+    if (!found || (found.workout_type || '') === 'rest') return;
+    _detail = null;
+    _detailDraft = Object.assign({}, found);
+    _panel.open = 'detail';
+    _renderDraftDetailSection();
+    var el = document.getElementById('plan-detail-section');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function _closeDraftDetail() {
+    _detailDraft = null;
+    if (!_detail) {
+      _panel.open = null;
+      var host = document.getElementById('plan-detail-section');
+      if (host) host.innerHTML = '';
+    }
+  }
+
+  function _renderDraftDetailSection() {
+    var host = document.getElementById('plan-detail-section');
+    if (!host || !_detailDraft) return;
+    var s = _detailDraft;
+    var pending = !!s.pending;
+    host.innerHTML =
+      '<div class="pl-card pl-panelcard">' +
+        '<div class="pl-chead"><span class="pl-sectitle">Draft session</span>' +
+          '<button type="button" class="pl-btn pl-ghost" id="pl-dd-close">Close</button></div>' +
+        '<div class="pl-dd-grid">' +
+          '<label>Type<select id="pl-dd-type">' +
+            ['run','strength','plyo','stretch'].map(function (t) {
+              return '<option value="' + t + '"' + (s.workout_type === t ? ' selected' : '') + '>' + t + '</option>';
+            }).join('') +
+          '</select></label>' +
+          '<label>TSS<input id="pl-dd-tss" type="number" min="0" max="400" value="' + (s.target_tss != null ? s.target_tss : '') + '"/></label>' +
+          '<label>Minutes<input id="pl-dd-dur" type="number" min="0" max="600" value="' + (s.duration_minutes != null ? s.duration_minutes : '') + '"/></label>' +
+        '</div>' +
+        '<label class="pl-dd-block">Intent / name<input id="pl-dd-intent" type="text" value="' + esc(s.intent || '') + '"/></label>' +
+        '<label class="pl-dd-block">Notes<textarea id="pl-dd-notes" rows="3">' + esc(s.notes || '') + '</textarea></label>' +
+        (pending
+          ? '<div class="pl-draft-pending" style="display:flex">' + _genSpinHtml('pl-gen-spin pl-gen-spin-lg') + ' Generating details…</div>'
+          : '') +
+        '<div class="pl-dd-actions">' +
+          '<button type="button" class="pl-btn pl-lime" id="pl-dd-save">Save draft</button>' +
+          '<button type="button" class="pl-btn" id="pl-dd-gen"' + (pending ? ' disabled' : '') + '>Generate details</button>' +
+          '<button type="button" class="pl-btn pl-dark" id="pl-dd-apply">Apply this session</button>' +
+        '</div>' +
+      '</div>';
+
+    document.getElementById('pl-dd-close').onclick = function () {
+      _closeDraftDetail();
+      _renderDetailSection();
+    };
+    document.getElementById('pl-dd-save').onclick = function () {
+      var patch = {
+        week_start: _iso(_weekStart),
+        day_offset: s.day_offset,
+        workout_type: document.getElementById('pl-dd-type').value,
+        target_tss: parseFloat(document.getElementById('pl-dd-tss').value) || 0,
+        duration_minutes: parseInt(document.getElementById('pl-dd-dur').value, 10) || 0,
+        intent: document.getElementById('pl-dd-intent').value,
+        notes: document.getElementById('pl-dd-notes').value || null,
+      };
+      _api('PATCH', '/api/plan/draft/slot', patch)
+        .then(function (d) {
+          _draft = d;
+          _toast('Draft saved');
+          var refreshed = null;
+          (((_draft || {}).payload || {}).sessions || []).forEach(function (x) {
+            if (x && x.slot_id === s.slot_id) refreshed = x;
+          });
+          if (refreshed) _detailDraft = refreshed;
+          _renderWeekList();
+          _renderDraftDetailSection();
+        })
+        .catch(function (err) { _toast(err.message || 'Save failed', true); });
+    };
+    document.getElementById('pl-dd-gen').onclick = function () {
+      _regenDraftSlot(s.slot_id).catch(function (err) {
+        _toast(err.message || 'Could not queue generation', true);
+      });
+    };
+    document.getElementById('pl-dd-apply').onclick = function () {
+      _applyDraftSlot(s.slot_id).catch(function (err) {
+        var d = err && err.message;
+        _toast(d || 'Apply failed', true);
+      });
+    };
+  }
+
+  function _renderDraftChrome() {
+    var banner = document.getElementById('pl-draft-banner');
+    var applyBtn = document.getElementById('pl-apply-draft');
+    var refreshBtn = document.getElementById('pl-refresh-draft');
+    var pendingBar = document.getElementById('pl-draft-pending');
+    if (!_draftVisible || !_draft || _draft.status === 'applied') {
+      if (banner) banner.hidden = true;
+      if (applyBtn) applyBtn.hidden = true;
+      if (refreshBtn) refreshBtn.hidden = true;
+      if (pendingBar) pendingBar.hidden = true;
+      return;
+    }
+    if (applyBtn) applyBtn.hidden = false;
+    if (refreshBtn) refreshBtn.hidden = false;
+    var sessions = (_draft.payload && _draft.payload.sessions) || [];
+    var pendingN = sessions.filter(function (s) { return s && s.pending; }).length;
+    if (pendingBar) {
+      if (pendingN > 0) {
+        pendingBar.hidden = false;
+        pendingBar.innerHTML =
+          '<span class="pl-gen-spin pl-gen-spin-lg" aria-hidden="true"></span>' +
+          '<span>Regenerating ' + pendingN + ' session' + (pendingN === 1 ? '' : 's') +
+          ' on zeal-server — you can keep editing. We\'ll nudge you when it\'s done.</span>';
+      } else {
+        pendingBar.hidden = true;
+        pendingBar.innerHTML = '';
+      }
+    }
+    if (banner) {
+      if (_draft.status === 'outdated') {
+        banner.hidden = false;
+        banner.innerHTML = 'Plan inputs changed — <button type="button" class="pl-draft-link" id="pl-draft-banner-refresh">refresh draft?</button> Untouched slots only.';
+        var br = document.getElementById('pl-draft-banner-refresh');
+        if (br) br.onclick = _refreshDraft;
+      } else {
+        banner.hidden = true;
+      }
+    }
+  }
+
+  function _refreshDraft() {
+    _api('POST', '/api/plan/draft/refresh', { week_start: _iso(_weekStart) })
+      .then(function () {
+        _toast('Draft refresh queued');
+        setTimeout(function () { _loadDraft(); }, 2500);
+      })
+      .catch(function () { _toast('Could not refresh draft', true); });
+  }
+
+  function _applyDraftWeek() {
+    var btn = document.getElementById('pl-apply-draft');
+    if (btn) btn.disabled = true;
+    _api('POST', '/api/plan/draft/apply', { week_start: _iso(_weekStart) })
+      .then(function (res) {
+        var n = (res && res.created) ? res.created.length : 0;
+        _toast(n ? ('Applied ' + n + ' session' + (n === 1 ? '' : 's')) : 'Draft applied');
+        _draft = null;
+        _loadWeek(function () { _loadDraft(); });
+        _updatePlanTabBadge(false);
+      })
+      .catch(function () {
+        if (btn) btn.disabled = false;
+        _toast('Could not apply draft', true);
+      });
+  }
+
   // ── Load / reload the week ──────────────────────────────────────────────────
   function _loadWeek(onDone) {
     var from = _iso(_weekStart), to = _iso(_addDays(_weekStart, 6));
@@ -266,8 +960,23 @@ information about.
           (_bundle.days || []).forEach(function (d) {
             (d.planned || []).forEach(function (p) { if (p.id === _detail.id) updated = p; });
           });
-          _detail = updated;
-          _renderDetailSection();
+          if (!updated) {
+            _closeDetail();
+          } else if (_sm.dirty) {
+            // Keep in-progress edits; only refresh server-owned status fields.
+            _detail.status = updated.status;
+            _detail.matched_workout_id = updated.matched_workout_id;
+            _detail.actual = updated.actual;
+            _renderDetailSection();
+          } else {
+            _detail = updated;
+            _smSeedBuilders(updated);
+            _sm.suppressDomSync = true;
+            _renderDetailSection();
+            _sm.baseline = _smReadDraftFromDom(updated);
+            _sm.dirty = false;
+            _smMarkDirty();
+          }
         }
         // Every planned-session mutation funnels through _loadWeek — refresh
         // the Session-load card's planned/projected numbers in the same
@@ -429,8 +1138,12 @@ information about.
 
     prior.forEach(function (p) {
       var h = Math.max(6, (p.actual_tss / maxVal) * 100);
-      barsHtml += '<div class="lp-bar-col"><div class="lp-bar actual" style="height:' + h + '%">' +
-        '<span class="lp-bar-value">' + Math.round(p.actual_tss) + '</span></div></div>';
+      var cls = 'lp-bar actual' + (p.deload ? ' is-deload' : '');
+      barsHtml += '<div class="lp-bar-col"><div class="' + cls + '" style="height:' + h + '%"' +
+        (p.deload ? ' title="Deload week"' : '') + '>' +
+        '<span class="lp-bar-value">' + Math.round(p.actual_tss) +
+        (p.deload ? '<span class="lp-deload-mark">▼</span>' : '') +
+        '</span></div></div>';
       axisHtml += axisCol(p.week_start);
     });
 
@@ -792,10 +1505,10 @@ information about.
     var legend = document.getElementById('wl-gauge-legend');
     if (legend) {
       legend.innerHTML =
-        '<span><span class="sw" style="background:var(--pm-blue)"></span>Logged ' + Math.round(d.logged_tss) + '</span>' +
-        '<span><span class="sw" style="background:repeating-linear-gradient(45deg,var(--pm-blueSoft) 0 3px,transparent 3px 6px),rgba(79,110,247,0.18)"></span>Planned ' + Math.round(d.planned_tss) + '</span>' +
+        '<span><span class="sw" style="background:var(--primary)"></span>Logged ' + Math.round(d.logged_tss) + '</span>' +
+        '<span><span class="sw" style="background:repeating-linear-gradient(45deg,var(--primary-soft) 0 3px,transparent 3px 6px),rgba(79,110,247,0.18)"></span>Planned ' + Math.round(d.planned_tss) + '</span>' +
         '<span>Projected ' + Math.round(d.projected_tss) + ' / ' + Math.round(d.target_tss) + ' TSS' +
-          (d.clamped ? ' &middot; <span style="color:var(--pm-amber);font-weight:700;">clamped</span>' : '') + '</span>';
+          (d.clamped ? ' &middot; <span style="color:var(--warning);font-weight:700;">clamped</span>' : '') + '</span>';
     }
   }
 
@@ -818,41 +1531,57 @@ information about.
           '<span class="pl-weektotal" id="pl-weektotal" hidden></span>' +
         '</div>' +
         '<div class="pl-btnrow">' +
-          /* Repurposed to open the AI next-week suggestions panel (issue #1315).
-             It proxies a click to the suggestions module's own (hidden) trigger
-             button, which lives in a separate closure. Label includes the
-             Session Load Plan's weekly target once _wlData loads — see
-             _updateWeekTargetUI(). */
+          '<button class="pl-btn pl-lime" id="pl-apply-draft" hidden title="Create planned sessions from this draft">Apply week</button>' +
+          '<button class="pl-btn pl-ghost" id="pl-refresh-draft" hidden title="Regenerate untouched draft slots">Refresh draft</button>' +
+          '<button class="pl-btn pl-ghost" id="pl-replan-remaining" title="Replan open days from remaining budget">Replan remaining</button>' +
+          /* Opens the suggestions panel (prefs + build schedule live there). */
           '<button class="pl-btn pl-ghost" id="pl-suggest" title="AI-suggested sessions for this week">✨ Suggest sessions</button>' +
-          '<button class="pl-btn pl-dark" id="pl-add">+ Add</button>' +
         '</div></div>' +
+        '<div class="pl-draft-banner" id="pl-draft-banner" aria-live="polite" hidden></div>' +
+        '<div class="pl-draft-pending" id="pl-draft-pending" hidden></div>' +
         '<div class="pl-infobanner" id="pl-infobanner" style="margin-bottom:12px;">Sessions are generated to hit your weekly target, respecting the ramp rule and your rest days.</div>' +
         '<div class="pl-weeklist" id="plan-week-list"></div>' +
         '<div class="pl-legend">' +
-          '<span><b style="background:var(--pl-run)"></b>Run</span><span><b style="background:var(--pl-lift)"></b>Strength</span><span><b style="background:var(--pl-amber)"></b>Plyo</span>' +
-          '<span style="color:var(--pl-faint);margin:0 2px;">·</span>' +
-          '<span><b style="background:var(--pl-green)"></b>Done</span><span><b style="background:var(--pl-amber)"></b>Needs review</span><span><b style="background:var(--pl-red)"></b>Missed</span>' +
+          '<span><b style="background:var(--primary)"></b>Run</span><span><b style="background:var(--workout-lift)"></b>Strength</span><span><b style="background:var(--warning)"></b>Plyo</span>' +
+          '<span style="color:var(--text-sub);margin:0 2px;">·</span>' +
+          '<span><b style="background:var(--success)"></b>Done</span><span><b style="background:var(--warning)"></b>Needs review</span><span><b style="background:var(--danger)"></b>Missed</span>' +
+          '<span style="color:var(--text-sub);margin:0 2px;">·</span>' +
+          '<span class="pl-legend-draft">Dashed = draft</span>' +
         '</div>' +
       '</div>';
     document.getElementById('pl-prev').onclick = function () {
-      _weekStart = _addDays(_weekStart, -7); _renderWeekSection(); _loadWeek(); _loadWeekLoad(_iso(_weekStart));
+      _weekStart = _addDays(_weekStart, -7); _renderWeekSection(); _loadWeek(function () { if (_draftVisible) _loadDraft(); }); _loadWeekLoad(_iso(_weekStart));
     };
     document.getElementById('pl-next').onclick = function () {
-      _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(); _loadWeekLoad(_iso(_weekStart));
+      _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(function () { if (_draftVisible) _loadDraft(); }); _loadWeekLoad(_iso(_weekStart));
     };
-    document.getElementById('pl-add').onclick = function () { _openAdd('single'); };
+    // Header "+ Add" removed — use Suggest sessions or each day's "+ add"
+    // (bulk JSON / Ask AI still live in the Add panel opened from a day).
+    var applyBtn = document.getElementById('pl-apply-draft');
+    if (applyBtn) applyBtn.onclick = _applyDraftWeek;
+    var refreshBtn = document.getElementById('pl-refresh-draft');
+    if (refreshBtn) refreshBtn.onclick = _refreshDraft;
+    var replanBtn = document.getElementById('pl-replan-remaining');
+    if (replanBtn) replanBtn.onclick = function () {
+      _api('POST', '/api/plan/draft/replan-remaining', { week_start: _iso(_weekStart) })
+        .then(function () {
+          _toast('Replan queued');
+          _draftVisible = true;
+          setTimeout(function () { _loadDraft(); }, 2000);
+        })
+        .catch(function () { _toast('Replan failed', true); });
+    };
     var sugBtn = document.getElementById('pl-suggest');
     if (sugBtn) sugBtn.onclick = function () {
       var t = document.getElementById('plan-suggestions-trigger');
       if (t) t.click();
-      // After the panel unhides and the prefs form renders — 'start', not
-      // 'nearest': the panel sits below the fold and 'nearest' barely moves.
       setTimeout(function () {
         var panel = document.getElementById('plan-suggestions-panel');
         if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 50);
     };
     _updateWeekTargetUI();
+    _renderDraftChrome();
     if (_bundle) _renderWeekList();
   }
 
@@ -892,25 +1621,41 @@ information about.
     var host = document.getElementById('plan-week-list');
     if (!host || !_bundle) return;
     var todayStr = _todayISO();
-    host.innerHTML = (_bundle.days || []).map(function (day) {
+    var drafts = (_draftVisible && _draft && _draft.status !== 'applied')
+      ? _draftSessionsByOffset() : {};
+    host.innerHTML = (_bundle.days || []).map(function (day, di) {
       var isPast = day.date < todayStr;
       var cls = day.date === todayStr ? 'today' : (isPast ? 'past' : '');
       var cards = (day.planned || []).map(function (p) { return _plannedCardHtml(p, day); }).join('');
       var ghosts = (day.unplanned || []).filter(function (u) { return !_dismissedGhosts[u.id]; })
         .map(function (u) { return _ghostCardHtml(u, day); }).join('');
-      var hasContent = (day.planned || []).length || ghosts;
+      var draftSess = drafts[di];
+      var draftHtml = '';
+      if (draftSess && (draftSess.workout_type || '') !== 'rest' && !(day.planned || []).length) {
+        draftHtml = _draftCardHtml(draftSess, day);
+      }
+      var addDraft = '';
+      var draftActive = _draftVisible && (!_draft || _draft.status !== 'applied');
+      if (draftActive && !isPast && !(day.planned || []).length && !draftHtml) {
+        addDraft = '<div class="pl-draft-add">' +
+          '<button type="button" class="pl-btn pl-ghost pl-tiny" data-draft-add="' + di + '" data-kind="easy_run">Quick easy</button>' +
+          '<button type="button" class="pl-btn pl-ghost pl-tiny" data-draft-add="' + di + '" data-kind="light_strength">Quick strength</button>' +
+          '<button type="button" class="pl-btn pl-ghost pl-tiny" data-draft-add="' + di + '" data-kind="stretch">Quick stretch</button>' +
+        '</div>';
+      }
+      var hasContent = (day.planned || []).length || ghosts || draftHtml || addDraft;
       var rest = !hasContent ? '<div class="pl-restday">Rest day</div>' : '';
       // A past day is done — no NEW session should be added to it. Existing
       // cards keep every action (match/change match/mark missed/delete); only
       // the "+ add" trigger for a fresh session is disabled.
       var addDay = isPast
         ? '<div class="pl-addday is-disabled" title="This day has passed — nothing new can be added">+ add</div>'
-        : '<div class="pl-addday" data-add-date="' + day.date + '">+ add</div>';
+        : '<button type="button" class="pl-addday" data-add-date="' + day.date + '" aria-label="Add a session on ' + esc(day.date) + '">+ add</button>';
       var dayTotal = _dayTotalTss(day);
       var dayWarn = _dayHasWarning(day) ? '<span class="pl-day-guard-badge" title="A session this day loads an overused or injured muscle group">⚠</span>' : '';
-      return '<div class="pl-dayrow ' + cls + '" data-date="' + day.date + '">' +
+      return '<div class="pl-dayrow ' + cls + '" data-date="' + day.date + '" data-day-offset="' + di + '">' +
         '<div class="pl-daylabel"><span class="pl-dname">' + day.dow + dayWarn + '</span><span class="pl-dnum">' + _parseISO(day.date).getDate() + '</span></div>' +
-        '<div class="pl-daybody">' + cards + ghosts + rest + addDay +
+        '<div class="pl-daybody">' + cards + draftHtml + addDraft + ghosts + rest + addDay +
         '</div>' +
         (dayTotal != null ? '<span class="pl-dtotal">' + Math.round(dayTotal) + ' TSS</span>' : '') +
       '</div>';
@@ -955,7 +1700,9 @@ information about.
   }
 
   function _statusTag(status, hasActual) {
-    if (status === 'missed') return '<span class="pl-stat-tag missed">MISSED</span>';
+    if (status === 'missed' || status === 'missed_auto' || status === 'missed_manual') {
+      return '<span class="pl-stat-tag missed">' + (status === 'missed_manual' ? 'MISSED' : 'MISSED') + '</span>';
+    }
     if (status === 'needs_review') return '<span class="pl-stat-tag review">NEEDS REVIEW</span>';
     if (status === 'done_auto') return '<span class="pl-stat-tag done">AUTO-MATCHED</span>';
     if (status === 'done_manual') return hasActual
@@ -1024,11 +1771,20 @@ information about.
 
   function _plannedCardHtml(p, day) {
     var fam = _famClass(p.session_type);
-    var draggable = (p.status === 'planned' || p.status === 'missed');
+    var generating = !!(p.id && _generatingIds[p.id]);
+    var draggable = !generating && (p.status === 'planned' || p.status === 'missed' || p.status === 'missed_auto' || p.status === 'missed_manual');
     var clickable = (p.status !== 'needs_review');
-    var handle = draggable ? '<span class="pl-dhandle">⠿⠿</span>' : '';
+    var acts = '<div class="pl-sess-acts">' +
+      (generating ? '' :
+        '<button type="button" class="pl-sess-del" data-sess-del="' + p.id + '" title="Delete session" aria-label="Delete session">🗑</button>') +
+      (draggable ? '<span class="pl-dhandle" title="Drag to move">⠿⠿</span>' : '') +
+      '</div>';
     var meta = p.actual && (p.status === 'done_auto' || p.status === 'done_manual')
       ? _plannedMeta(p) : _plannedMeta(p);
+    var dayLate = '';
+    if ((p.status === 'done_auto' || p.status === 'done_manual') && p.actual && p.actual.date && p.planned_date && p.actual.date !== p.planned_date) {
+      dayLate = '<div class="pl-diffline">done · a day late</div>';
+    }
     var body = '';
     if (p.status === 'done_auto' || p.status === 'done_manual') {
       var actMeta = p.actual ? p.actual.meta : '';
@@ -1058,14 +1814,85 @@ information about.
           '<button class="pl-btn pl-ghost pl-tiny" data-missed="' + p.id + '">None → missed</button>' +
         '</div></div>';
     }
-    return '<div class="pl-sess ' + fam + ' status-' + p.status + '"' +
-        (draggable ? ' draggable="true"' : '') +
-        ' data-sess="' + p.id + '"' + (clickable ? ' data-click="1"' : '') + '>' +
-      handle +
-      '<div class="pl-sesstop"><span class="pl-sesstop-left"><span class="pl-stypetag ' + fam + '">' + fam + '</span>' + _sessionTssBadge(p) + _planWarnBadge(p) + '</span>' + _statusTag(p.status, !!p.actual) + '</div>' +
+    // Keyboard/screen-reader access: the card is the only way to open the
+    // detail panel (no separate "open" control), so when it's clickable it
+    // needs a real button role + tabindex + a descriptive label — not just
+    // "button" with no context.
+    var typeLabel = fam === 'lift' ? 'Strength' : (fam.charAt(0).toUpperCase() + fam.slice(1));
+    var statusLabel = (p.status === 'needs_review') ? 'needs review'
+      : (p.status === 'missed' || p.status === 'missed_auto' || p.status === 'missed_manual') ? 'missed'
+      : (p.status === 'done_auto' || p.status === 'done_manual') ? 'completed'
+      : 'planned';
+    var ariaLabel = typeLabel + ' session, ' + (p.name || '(untitled)') + ', ' +
+      day.dow + ' ' + _parseISO(day.date).getDate() + ', ' + statusLabel;
+    var a11yAttrs = clickable
+      ? ' role="button" tabindex="0" aria-label="' + esc(ariaLabel) + '"'
+      : '';
+    // Keyboard-operable alternative to the drag-and-drop reschedule (drag has
+    // no keyboard path at all) — only offered where drag itself is offered.
+    var moveHtml = '';
+    if (draggable && !generating) {
+      var moveOpts = ((_bundle && _bundle.days) || []).filter(function (d) {
+        return d.date !== day.date;
+      }).map(function (d) {
+        return '<option value="' + d.date + '">' + d.dow + ' ' + _parseISO(d.date).getDate() + '</option>';
+      }).join('');
+      moveHtml = '<div class="pl-sess-move"><select data-sess-move="' + p.id + '" title="Move to…" aria-label="Move this session to a different day"><option value="">Move to ▾</option>' + moveOpts + '</select></div>';
+    }
+    return '<div class="pl-sess ' + fam + ' status-' + p.status + (generating ? ' is-generating' : '') + '"' +
+        (draggable && !generating ? ' draggable="true"' : '') +
+        ' data-sess="' + p.id + '"' + (clickable ? ' data-click="1"' : '') + a11yAttrs + '>' +
+      acts +
+      '<div class="pl-sesstop"><span class="pl-sesstop-left"><span class="pl-stypetag ' + fam + '">' + fam + '</span>' +
+        (generating ? '' : _sessionTssBadge(p) + _planWarnBadge(p)) +
+      '</span>' +
+        (generating ? _generatingChipHtml() : _statusTag(p.status, !!p.actual)) +
+      '</div>' +
       '<div class="pl-sn">' + esc(p.name || '(untitled)') + '</div>' +
-      '<div class="pl-sm">' + esc(meta) + '</div>' + body +
+      '<div class="pl-sm' + (generating ? ' pl-sm-generating' : '') + '">' +
+        (generating ? 'content updating for the new budget…' : esc(meta)) +
+      '</div>' + dayLate + (generating ? '' : body) + (generating ? '' : moveHtml) +
     '</div>';
+  }
+
+  function _confirmDeleteSession(id, name) {
+    var existing = document.getElementById('pl-del-confirm-overlay');
+    if (existing) existing.remove();
+    var overlay = document.createElement('div');
+    overlay.id = 'pl-del-confirm-overlay';
+    overlay.className = 'pl-draft-q-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.innerHTML =
+      '<div class="pl-draft-q-card">' +
+        '<h3>Delete session?</h3>' +
+        '<p>Remove <b>' + esc(name) + '</b> from this week’s plan. This can’t be undone.</p>' +
+        '<div class="pl-del-confirm-actions">' +
+          '<button type="button" class="pl-btn pl-danger" data-del-yes>Delete</button>' +
+          '<button type="button" class="pl-btn" data-del-no>Cancel</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    function close() { overlay.remove(); }
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+    overlay.querySelector('[data-del-no]').addEventListener('click', close);
+    overlay.querySelector('[data-del-yes]').addEventListener('click', function () {
+      var btn = overlay.querySelector('[data-del-yes]');
+      btn.disabled = true;
+      btn.textContent = 'Deleting…';
+      _api('DELETE', '/api/planned-sessions/' + id)
+        .then(function () {
+          close();
+          _toast('Session deleted');
+          if (_detail && _detail.id === id) _closeDetail();
+          _loadWeek(function () { if (_draftVisible) _loadDraft(); });
+        })
+        .catch(function (err) {
+          btn.disabled = false;
+          btn.textContent = 'Delete';
+          _toast((err && err.message) || 'Delete failed', true);
+        });
+    });
   }
 
   // Candidate list for a needs_review card. Prefer the server-attached
@@ -1112,8 +1939,128 @@ information about.
     var host = document.getElementById('plan-week-list');
     if (!host) return;
 
+    host.querySelectorAll('[data-draft-rm]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var sid = b.getAttribute('data-draft-rm');
+        var card = b.closest('.pl-draft');
+        var titleEl = card && card.querySelector('.pl-sn');
+        _removeDraftSlot(sid, titleEl ? titleEl.textContent.trim() : null);
+      });
+    });
+    host.querySelectorAll('[data-draft-move]').forEach(function (sel) {
+      sel.addEventListener('change', function () {
+        var to = parseInt(sel.value, 10);
+        if (isNaN(to)) return;
+        _moveDraftSlot(sel.getAttribute('data-draft-move'), to);
+        sel.value = '';
+      });
+    });
+    host.querySelectorAll('[data-draft-add]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        _addDraftKind(+b.getAttribute('data-draft-add'), b.getAttribute('data-kind'), b);
+      });
+    });
+
+    host.querySelectorAll('.pl-draft').forEach(function (el) {
+      el.addEventListener('click', function (e) {
+        if (e.target.closest('[data-draft-rm], [data-draft-move], .pl-draft-move, select, button')) return;
+        var sid = el.getAttribute('data-slot-id');
+        _openDraftDetail(sid);
+      });
+    });
+
+    // Draft chip drag — keyed by slot_id (stable across re-renders).
+    var _draftDragId = null;
+    host.querySelectorAll('.pl-draft[draggable="true"]').forEach(function (el) {
+      el.addEventListener('dragstart', function (e) {
+        _draftDragId = el.getAttribute('data-slot-id');
+        el.classList.add('dragging');
+        try { e.dataTransfer.setData('text/plain', 'draft:' + _draftDragId); } catch (_) {}
+        host.querySelectorAll('.pl-dayrow').forEach(function (row) {
+          var off = +row.getAttribute('data-day-offset');
+          row.classList.remove('drop-ok', 'drop-warn', 'drop-blocked');
+          if (!_draft || !_draft.draft_version) return;
+          // Preview via sync heuristics: past = blocked
+          var todayStr = _todayISO();
+          if (row.getAttribute('data-date') < todayStr) {
+            row.classList.add('drop-blocked');
+            row.setAttribute('data-drop-hint', '⛔ past');
+          } else {
+            row.classList.add('drop-ok');
+            row.setAttribute('data-drop-hint', '✓');
+          }
+        });
+      });
+      el.addEventListener('dragend', function () {
+        el.classList.remove('dragging');
+        _draftDragId = null;
+        host.querySelectorAll('.pl-dayrow').forEach(function (row) {
+          row.classList.remove('drop-ok', 'drop-warn', 'drop-blocked', 'dragover');
+          row.removeAttribute('data-drop-hint');
+        });
+      });
+    });
+    host.querySelectorAll('.pl-dayrow').forEach(function (row) {
+      row.addEventListener('dragover', function (e) {
+        if (!_draftDragId) return;
+        e.preventDefault();
+        row.classList.add('dragover');
+      });
+      row.addEventListener('dragleave', function () { row.classList.remove('dragover'); });
+      row.addEventListener('drop', function (e) {
+        if (!_draftDragId) return;
+        e.preventDefault();
+        row.classList.remove('dragover');
+        if (row.classList.contains('drop-blocked')) {
+          _toast('Cannot drop on a past day', true);
+          return;
+        }
+        var to = +row.getAttribute('data-day-offset');
+        var sid = _draftDragId;
+        _draftDragId = null;
+        // Amber confirm path: if preferred rest, confirm via API needs_confirm
+        _moveDraftSlot(sid, to);
+      });
+    });
+
     host.querySelectorAll('.pl-sess[data-click="1"]').forEach(function (el) {
       el.addEventListener('click', function () { _openDetailById(el.getAttribute('data-sess')); });
+      // Keyboard equivalent for the click above (role="button"/tabindex are
+      // set at render time — see _plannedCardHtml). Only fire when the card
+      // itself is focused; nested controls (buttons, selects, radios) handle
+      // their own Enter/Space natively and stop propagation on click.
+      el.addEventListener('keydown', function (e) {
+        if (e.target !== el) return;
+        if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+          e.preventDefault();
+          _openDetailById(el.getAttribute('data-sess'));
+        }
+      });
+    });
+    // Keyboard-operable reschedule (parity with the "Move to…" dropdown
+    // already used for draft slots) — lives inside the clickable card above,
+    // so stop the click from also opening the detail panel.
+    host.querySelectorAll('[data-sess-move]').forEach(function (sel) {
+      sel.addEventListener('click', function (e) { e.stopPropagation(); });
+      sel.addEventListener('change', function (e) {
+        e.stopPropagation();
+        var newDate = sel.value;
+        if (!newDate) return;
+        _mutate('PATCH', '/api/planned-sessions/' + sel.getAttribute('data-sess-move'), { planned_date: newDate });
+        sel.value = '';
+      });
+    });
+    host.querySelectorAll('[data-sess-del]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var id = b.getAttribute('data-sess-del');
+        var card = b.closest('.pl-sess');
+        var name = card ? ((card.querySelector('.pl-sn') || {}).textContent || 'this session') : 'this session';
+        _confirmDeleteSession(id, name);
+      });
     });
     host.querySelectorAll('[data-unlink]').forEach(function (b) {
       b.addEventListener('click', function (e) { e.stopPropagation(); _mutate('POST', '/api/planned-sessions/' + b.getAttribute('data-unlink') + '/unmatch'); });
@@ -1176,7 +2123,9 @@ information about.
       });
     });
     host.querySelectorAll('.pl-addday[data-add-date]').forEach(function (el) {
-      el.addEventListener('click', function () { _openAdd('single', el.getAttribute('data-add-date')); });
+      el.addEventListener('click', function () {
+        _openAdd('single', el.getAttribute('data-add-date'));
+      });
     });
 
     // Drag & drop reschedule (planned/missed only).
@@ -1324,6 +2273,7 @@ information about.
     _addState.top = topMode; _addState.sub = 'form';
     _addState.editId = null; _addState.edit = null;
     _addState.presetDate = presetDate || _iso(_weekStart);
+    _addDraftExtras = { ai: null, manualOpen: false };
     // Fresh create: reset the builders to the demo templates so leftovers from
     // a previous edit don't leak into a new session.
     _sfBlocks = [
@@ -1345,30 +2295,9 @@ information about.
   // flow uses, seeded from the session and saved via PATCH. (The Edit button
   // used to open the CREATE flow with demo template data and POST a duplicate.)
   function _openEdit(p) {
-    _panel.open = 'add';
-    _addState.top = 'single'; _addState.sub = 'form';
-    _addState.editId = p.id;
-    _addState.edit = { name: p.name || '', notes: p.notes || '', type: p.session_type };
-    _addState.presetDate = p.planned_date;
-    var s = p.structure || {};
-    if (p.session_type === 'run') {
-      _sfBlocks = (Array.isArray(s.blocks) ? s.blocks : []).map(function (b) {
-        return Object.assign({}, b);
-      });
-      if (!_sfBlocks.length) _sfBlocks = [{ phase: 'main', duration_min: 10 }];
-    } else if (p.session_type === 'strength' || p.session_type === 'plyo') {
-      if (Array.isArray(s.exercises) && s.exercises.length) {
-        _sfStrengthMode = 'detailed';
-        _sfExercises = s.exercises.map(function (x) { return Object.assign({}, x); });
-      } else {
-        _sfStrengthMode = 'simple';
-        _sfFocus = s.focus || '';
-        _sfExercises = [];
-      }
-    }
-    _renderAddSection(); _renderDetailSection();
-    var el = document.getElementById('plan-add-section');
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // Unified modal: editing IS the session surface (no separate Edit panel).
+    // Matched workouts can still open the Log detail via status/attach flows.
+    if (p && p.id) _openDetailById(p.id);
   }
 
   function _closeAdd() { _panel.open = null; _addState.editId = null; _addState.edit = null; _renderAddSection(); }
@@ -1379,7 +2308,7 @@ information about.
     if (_panel.open !== 'add') { host.innerHTML = ''; return; }
     var editing = !!_addState.editId;
     host.innerHTML = '<div class="pl-card pl-panelcard">' +
-      '<div class="pl-panelhead"><span class="pl-sectitle">' + (editing ? 'Edit session' : 'Add session(s)') + '</span><button class="pl-closepanel" id="pl-addclose">✕</button></div>' +
+      '<div class="pl-panelhead"><h2 class="pl-sectitle">' + (editing ? 'Edit session' : 'Add session(s)') + '</h2><button class="pl-closepanel" id="pl-addclose">✕</button></div>' +
       // No single/bulk toggle while editing — bulk/JSON create flows would
       // silently turn the edit into a duplicate-creating POST (the old bug).
       (editing ? '' : '<div class="pl-modetoggle" id="pl-addmode"><button data-m="single">Single session</button><button data-m="bulk">Bulk-add a week</button></div>') +
@@ -1391,17 +2320,22 @@ information about.
 
   function _renderAddBody() {
     var editing = !!_addState.editId;
-    var subs = _addState.top === 'single' ? [['form', 'Form'], ['json', 'JSON'], ['ai', 'Ask AI']]
-      : [['form', 'Form'], ['json', 'JSON'], ['sep', 'Separator']];
-    // Editing pins the structured Form — the JSON/Ask-AI sub-tabs are CREATE
-    // affordances (paste or generate a fresh plan) and would duplicate
-    // instead of update.
+    // Create single-session: Form (draft-first) | JSON. Ask AI lives on the form.
+    // Edit / bulk keep prior subtabs.
+    var subs;
+    if (editing) {
+      subs = [];
+    } else if (_addState.top === 'single') {
+      subs = [['form', 'Form'], ['json', 'JSON']];
+    } else {
+      subs = [['form', 'Form'], ['json', 'JSON'], ['sep', 'Separator']];
+    }
     var subHtml = editing ? '' : '<div class="pl-subtoggle" id="pl-addsub">' + subs.map(function (x) {
       return '<button class="' + (x[0] === _addState.sub ? 'on' : '') + '" data-sm="' + x[0] + '">' + x[1] + '</button>';
     }).join('') + '</div>';
     var content;
     if (_addState.top === 'single') {
-      content = _addState.sub === 'form' ? _singleFormHtml() : (_addState.sub === 'json' ? _singleJSONHtml() : _singleAIHtml());
+      content = _addState.sub === 'form' ? _singleFormHtml() : _singleJSONHtml();
     } else {
       content = _addState.sub === 'form' ? _bulkFormHtml() : (_addState.sub === 'json' ? _bulkJSONHtml() : _bulkSepHtml());
     }
@@ -1413,24 +2347,101 @@ information about.
     _wireAddBody();
   }
 
+  var _ADD_SUBTYPES = {
+    run: [
+      { v: 'easy', l: 'Easy' },
+      { v: 'long', l: 'Long' },
+      { v: 'intervals', l: 'Intervals' },
+      { v: 'tempo', l: 'Tempo' },
+    ],
+    strength: [
+      { v: 'upper', l: 'Upper' },
+      { v: 'lower', l: 'Lower' },
+      { v: 'full', l: 'Full body' },
+      { v: 'light', l: 'Light' },
+    ],
+    plyo: [{ v: 'plyo', l: 'Plyo' }],
+    stretch: [{ v: 'stretch', l: 'Stretch' }],
+  };
+
+  function _addSubtypeOptions(type, selected) {
+    var list = _ADD_SUBTYPES[type] || [];
+    if (!list.length) return '<option value="">—</option>';
+    return list.map(function (o) {
+      return '<option value="' + o.v + '"' + (o.v === selected ? ' selected' : '') + '>' + o.l + '</option>';
+    }).join('');
+  }
+
   // ── Single Form (adaptive: run block builder vs strength exercise rows) ─────
   function _singleFormHtml() {
     var ed = _addState.edit || {};
     function sel(t) { return ed.type === t ? ' selected' : ''; }
-    return '<div class="pl-frow">' +
+
+    // Edit existing planned session — keep full structure editor + Save changes.
+    if (_addState.editId) {
+      return '<div class="pl-frow">' +
+          '<div class="pl-fld"><label>Date</label><input type="date" id="pl-sf-date" aria-label="Session date" value="' + esc(_addState.presetDate) + '"/></div>' +
+          '<div class="pl-fld"><label>Type</label><select id="pl-sf-type" aria-label="Session type">' +
+            '<option value="run"' + sel('run') + '>Run</option>' +
+            '<option value="strength"' + sel('strength') + '>Strength</option>' +
+            '<option value="plyo"' + sel('plyo') + '>Plyo</option>' +
+            '<option value="rest"' + sel('rest') + '>Rest</option>' +
+          '</select></div>' +
+          '<div class="pl-fld"><label>Session name</label><input id="pl-sf-name" aria-label="Session name" placeholder="Sustained Tempo" value="' + esc(ed.name || '') + '"/></div>' +
+        '</div>' +
+        '<div id="pl-sf-structure"></div>' +
+        '<div class="pl-fld" style="margin-top:14px;"><label>Notes from coach</label><textarea id="pl-sf-notes" aria-label="Notes from coach" placeholder="e.g. hold 92% CP even on the 3rd rep">' + esc(ed.notes || '') + '</textarea></div>' +
+        '<div id="pl-sf-guard" aria-live="assertive"></div>' +
+        '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-sf-save">Save changes</button><button class="pl-btn pl-ghost" id="pl-sf-cancel">Cancel</button></div>';
+    }
+
+    // Create — draft-first: pins first, then AI / manual / skeleton, then save.
+    var draftMode = !!_draftVisible;
+    var defaultType = 'run';
+    return '<div class="pl-infobanner" style="margin-bottom:12px;">' +
+        (draftMode
+          ? 'Adds to the <b>week draft</b> first. Apply later (or use Save draft &amp; apply to commit this session now).'
+          : 'Pipeline draft is off — Save writes a planned session directly.') +
+      '</div>' +
+      '<div class="pl-frow">' +
         '<div class="pl-fld"><label>Date</label><input type="date" id="pl-sf-date" value="' + esc(_addState.presetDate) + '"/></div>' +
         '<div class="pl-fld"><label>Type</label><select id="pl-sf-type">' +
-          '<option value="run"' + sel('run') + '>Run</option>' +
-          '<option value="strength"' + sel('strength') + '>Strength</option>' +
-          '<option value="plyo"' + sel('plyo') + '>Plyo</option>' +
-          '<option value="rest"' + sel('rest') + '>Rest</option>' +
+          '<option value="run" selected>Run</option>' +
+          '<option value="strength">Strength</option>' +
+          '<option value="plyo">Plyo</option>' +
+          '<option value="stretch">Stretch</option>' +
         '</select></div>' +
-        '<div class="pl-fld"><label>Session name</label><input id="pl-sf-name" placeholder="Sustained Tempo" value="' + esc(ed.name || '') + '"/></div>' +
+        '<div class="pl-fld"><label>Subtype</label><select id="pl-sf-subtype">' +
+          _addSubtypeOptions(defaultType, 'easy') +
+        '</select></div>' +
       '</div>' +
-      '<div id="pl-sf-structure"></div>' +
-      '<div class="pl-fld" style="margin-top:14px;"><label>Notes from coach</label><textarea id="pl-sf-notes" placeholder="e.g. hold 92% CP even on the 3rd rep">' + esc(ed.notes || '') + '</textarea></div>' +
-      '<div id="pl-sf-guard"></div>' +
-      '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-sf-save">' + (_addState.editId ? 'Save changes' : 'Save session') + '</button><button class="pl-btn pl-ghost" id="pl-sf-cancel">Cancel</button></div>';
+      '<div class="pl-frow">' +
+        '<div class="pl-fld"><label>Expected TSS</label><input type="number" id="pl-sf-tss" min="0" max="400" value="40"/></div>' +
+        '<div class="pl-fld"><label>Duration (min)</label><input type="number" id="pl-sf-dur" min="0" max="600" value="45"/></div>' +
+        '<div class="pl-fld"><label>Name / intent</label><input id="pl-sf-name" placeholder="Optional — AI can fill"/></div>' +
+      '</div>' +
+      '<div class="pl-fld" style="margin-top:10px;"><label>Note to coach (optional)</label>' +
+        '<textarea id="pl-sf-note" placeholder="e.g. keep it under 45 min, focus on hip mobility"></textarea></div>' +
+      '<div class="pl-btnrow pl-sf-draft-tools" style="margin-top:12px;gap:8px;flex-wrap:wrap;">' +
+        '<button type="button" class="pl-btn pl-ghost" id="pl-sf-askai">✨ Ask AI to generate</button>' +
+        '<button type="button" class="pl-btn pl-ghost" id="pl-sf-manual-tog">' +
+          (_addDraftExtras.manualOpen ? 'Hide manual structure' : 'Fill structure manually') +
+        '</button>' +
+      '</div>' +
+      '<div id="pl-sf-ai-prev" style="margin-top:10px;"></div>' +
+      '<div id="pl-sf-structure" style="' + (_addDraftExtras.manualOpen ? '' : 'display:none;') + 'margin-top:12px;"></div>' +
+      '<div class="pl-fld" style="margin-top:12px;"><label>Notes</label><textarea id="pl-sf-notes" placeholder="Optional notes saved on the draft"></textarea></div>' +
+      '<div id="pl-sf-guard" aria-live="assertive"></div>' +
+      '<div class="pl-btnrow" style="margin-top:14px;gap:8px;flex-wrap:wrap;">' +
+        (draftMode
+          ? '<button class="pl-btn pl-lime" id="pl-sf-draft">Save draft</button>' +
+            '<button class="pl-btn pl-dark" id="pl-sf-draft-apply">Save draft &amp; apply</button>'
+          : '<button class="pl-btn pl-lime" id="pl-sf-save">Save session</button>') +
+        '<button class="pl-btn pl-ghost" id="pl-sf-cancel">Cancel</button>' +
+      '</div>' +
+      (draftMode
+        ? '<p class="pl-sf-hint">Leave structure empty to keep a skeleton — content can fill later via Generate details or a worker week draft.</p>'
+        : '');
   }
 
   // Run block builder rows
@@ -1466,11 +2477,11 @@ information about.
           '<button class="' + (_sfStrengthMode === 'json' ? 'on' : '') + '" data-str="json">JSON</button>' +
         '</div>' +
         (_sfStrengthMode === 'simple'
-          ? '<div class="pl-fld"><label>Focus</label><input id="pl-str-focus" placeholder="Lower / posterior chain" value="' + esc(_sfFocus || '') + '"/></div>'
+          ? '<div class="pl-fld"><label>Focus</label><input id="pl-str-focus" aria-label="Strength training focus" placeholder="Lower / posterior chain" value="' + esc(_sfFocus || '') + '"/></div>'
           : _sfStrengthMode === 'json'
           ? '<div class="pl-fld" style="margin-bottom:6px;"><label>Exercises (JSON)</label></div>' +
-            '<textarea class="pl-jsonta" id="pl-exjson-ta" style="min-height:160px;">' + esc(JSON.stringify(_sfExercises, null, 2)) + '</textarea>' +
-            '<div id="pl-exjson-err"></div>'
+            '<textarea class="pl-jsonta" id="pl-exjson-ta" aria-label="Exercises JSON" style="min-height:160px;">' + esc(JSON.stringify(_sfExercises, null, 2)) + '</textarea>' +
+            '<div id="pl-exjson-err" aria-live="polite"></div>'
           : '<div class="pl-fld" style="margin-bottom:6px;"><label>Exercises</label></div>' +
             // RPE here is a blank-by-default TARGET the coach can optionally
             // set going in — distinct from the real logged RPE, which is
@@ -1487,9 +2498,9 @@ information about.
     var cls = b.phase === 'warmup' ? 'warm' : (b.phase === 'main' ? 'main' : 'cool');
     var label = b.phase === 'warmup' ? 'Warmup' : (b.phase === 'main' ? 'Main set' : (b.phase === 'cooldown' ? 'Cooldown' : b.phase));
     return '<div class="pl-block" data-bi="' + i + '"><span class="pl-btag ' + cls + '">' + label + '</span>' +
-      '<input class="pl-bdur" data-f="duration_min" value="' + esc(b.duration_min != null ? b.duration_min : '') + '" placeholder="min"/>' +
-      '<input class="pl-btgt" data-f="repeat" value="' + esc(b.repeat != null ? b.repeat : '') + '" placeholder="×reps"/>' +
-      '<input class="pl-btgt" data-f="target" value="' + esc(b.target || '') + '" placeholder="target"/>' +
+      '<input class="pl-bdur" data-f="duration_min" aria-label="' + label + ' duration in minutes" value="' + esc(b.duration_min != null ? b.duration_min : '') + '" placeholder="min"/>' +
+      '<input class="pl-btgt" data-f="repeat" aria-label="' + label + ' repeat count" value="' + esc(b.repeat != null ? b.repeat : '') + '" placeholder="×reps"/>' +
+      '<input class="pl-btgt" data-f="target" aria-label="' + label + ' target" value="' + esc(b.target || '') + '" placeholder="target"/>' +
       '<button class="pl-rm" data-rm-block="' + i + '">✕</button></div>';
   }
   // Group containers derived from contiguous `block` runs in the flat
@@ -1512,11 +2523,21 @@ information about.
   }
 
   function _exRowsGroupedHtml() {
-    return _exGroups().map(function (g, gi) {
+    var groups = _exGroups();
+    return groups.map(function (g, gi) {
+      // Keyboard-operable alternative to the drag handle (drag alone has no
+      // keyboard path): up/down buttons that swap this group with its
+      // neighbor, disabled at the ends. The handle itself also gets a real
+      // button role so screen-reader/keyboard users know it's interactive.
+      var moveUp = '<button type="button" class="pl-gmove" data-gmove-up="' + gi + '"' +
+        (gi === 0 ? ' disabled' : '') + ' aria-label="Move group ' + esc(g.block || '(untitled)') + ' up">▲</button>';
+      var moveDown = '<button type="button" class="pl-gmove" data-gmove-down="' + gi + '"' +
+        (gi === groups.length - 1 ? ' disabled' : '') + ' aria-label="Move group ' + esc(g.block || '(untitled)') + ' down">▼</button>';
       return '<div class="pl-exgroup" data-gi="' + gi + '">' +
         '<div class="pl-exgroup-h">' +
-          '<span class="pl-gdrag" title="Drag to reorder this group" data-gdrag="' + gi + '">⠿</span>' +
-          '<input class="pl-gname" data-gname="' + gi + '" value="' + esc(g.block) + '" placeholder="Group name"/>' +
+          '<span class="pl-gdrag" role="button" tabindex="0" title="Drag to reorder this group" aria-label="Reorder group ' + esc(g.block || '(untitled)') + ' — use the up/down buttons for keyboard" data-gdrag="' + gi + '">⠿</span>' +
+          '<span class="pl-gmovebtns">' + moveUp + moveDown + '</span>' +
+          '<input class="pl-gname" data-gname="' + gi + '" aria-label="Group name" value="' + esc(g.block) + '" placeholder="Group name"/>' +
           '<button type="button" class="pl-rm" data-rm-group="' + gi + '" title="Remove group and its exercises">✕</button>' +
         '</div>' +
         g.idxs.map(function (i) { return _exRowHtml(_sfExercises[i], i); }).join('') +
@@ -1572,6 +2593,40 @@ information about.
       gs.forEach(function (g) { g.idxs.forEach(function (i) { out.push(_sfExercises[i]); }); });
       return out;
     }
+    // Keyboard-operable alternative to the group drag (parity with the
+    // "Move to…" pattern used for session-card rescheduling above): swap
+    // this group with its neighbor and re-render, keeping focus on the
+    // button that moved so repeated presses keep working.
+    function _swapGroups(gi, dir) {
+      var gs = _exGroups();
+      var target = gi + dir;
+      if (target < 0 || target >= gs.length) return;
+      var tmp = gs[gi];
+      gs[gi] = gs[target];
+      gs[target] = tmp;
+      _sfExercises = _flatten(gs);
+      _renderStructureBuilder();
+      var again = list.querySelector(
+        dir < 0 ? '[data-gmove-up="' + target + '"]' : '[data-gmove-down="' + target + '"]'
+      );
+      if (again) again.focus();
+    }
+    list.querySelectorAll('[data-gmove-up]').forEach(function (b) {
+      b.addEventListener('click', function () { _swapGroups(+b.getAttribute('data-gmove-up'), -1); });
+    });
+    list.querySelectorAll('[data-gmove-down]').forEach(function (b) {
+      b.addEventListener('click', function () { _swapGroups(+b.getAttribute('data-gmove-down'), 1); });
+    });
+    // The drag handle itself is now focusable (role="button" tabindex="0")
+    // — Enter/Space moves the group down as a minimal keyboard path directly
+    // on the handle, mirroring the dedicated ▲/▼ buttons next to it.
+    list.querySelectorAll('.pl-gdrag').forEach(function (h) {
+      h.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+        e.preventDefault();
+        _swapGroups(+h.getAttribute('data-gdrag'), 1);
+      });
+    });
     list.querySelectorAll('.pl-exgroup').forEach(function (gEl) {
       var gi = +gEl.getAttribute('data-gi');
       var handle = gEl.querySelector('.pl-gdrag');
@@ -1643,7 +2698,7 @@ information about.
       return '<label class="pl-exfld"><span class="pl-exfld-l">' + label + '</span>' + inputHtml + '</label>';
     }
     return '<div class="pl-block" data-xi="' + i + '">' +
-      '<input class="pl-exname" data-f="name" value="' + esc(x.name || '') + '" placeholder="Exercise"/>' +
+      '<input class="pl-exname" data-f="name" aria-label="Exercise name" value="' + esc(x.name || '') + '" placeholder="Exercise"/>' +
       fld('Sets', '<input class="pl-bdur" data-f="sets" value="' + esc(x.sets != null ? x.sets : '') + '" placeholder="sets"/>') +
       fld('Reps', '<input class="pl-bdur" data-f="reps" value="' + esc(x.reps != null ? x.reps : '') + '" placeholder="reps"/>') +
       fld('Load', '<input class="pl-btgt" data-f="load" value="' + esc(x.load || '') + '" placeholder="load"/>') +
@@ -1664,14 +2719,23 @@ information about.
           var f = inp.getAttribute('data-f'), v = inp.value;
           if (f === 'duration_min' || f === 'repeat') v = v === '' ? undefined : Number(v);
           if (v === undefined) delete _sfBlocks[i][f]; else _sfBlocks[i][f] = v;
+          if (_panel.open === 'detail') _smMarkDirty();
         });
       });
     });
     list.querySelectorAll('[data-rm-block]').forEach(function (b) {
-      b.addEventListener('click', function () { _sfBlocks.splice(+b.getAttribute('data-rm-block'), 1); _renderStructureBuilder(); });
+      b.addEventListener('click', function () {
+        _sfBlocks.splice(+b.getAttribute('data-rm-block'), 1);
+        if (_panel.open === 'detail') { _renderDetailSection(); }
+        else { _renderStructureBuilder(); }
+      });
     });
     var add = document.getElementById('pl-addblock');
-    if (add) add.onclick = function () { _sfBlocks.push({ phase: 'main', duration_min: 10 }); _renderStructureBuilder(); };
+    if (add) add.onclick = function () {
+      _sfBlocks.push({ phase: 'main', duration_min: 10 });
+      if (_panel.open === 'detail') { _renderDetailSection(); }
+      else { _renderStructureBuilder(); }
+    };
   }
   function _wireStrengthBuilder() {
     document.querySelectorAll('#pl-strmode button').forEach(function (b) {
@@ -1784,45 +2848,218 @@ information about.
     });
 
     if (_addState.top === 'single' && _addState.sub === 'form') {
-      _renderStructureBuilder();
-      document.getElementById('pl-sf-type').addEventListener('change', _renderStructureBuilder);
       document.getElementById('pl-sf-cancel').onclick = _closeAdd;
-      var _guardConfirmed = false;
-      document.getElementById('pl-sf-save').onclick = function () {
-        var payload = _collectSingleForm();
-        if (!payload.planned_date || !payload.session_type) { _toast('Date and type are required', true); return; }
-        var btn = document.getElementById('pl-sf-save');
 
-        function _doSave() {
-          var editId = _addState.editId;
-          var req = editId
-            ? _api('PATCH', '/api/planned-sessions/' + editId, payload)
-            : _api('POST', '/api/planned-sessions', payload);
-          req
-            .then(function () { _toast(editId ? 'Session updated' : 'Session saved'); _guardConfirmed = false; _closeAdd(); _loadWeek(); })
-            .catch(function (e) { _toast(e.message || 'Save failed', true); });
-        }
-
-        // If already confirmed past a warning, go straight to save.
-        if (_guardConfirmed) { _doSave(); return; }
-
-        // First click: run plan-check and show any inline warnings.
-        _planCheck({ session_type: payload.session_type, structure: payload.structure || null }, function (result) {
-          var guardEl = document.getElementById('pl-sf-guard');
-          if (result && result.warnings && result.warnings.length) {
-            if (guardEl) guardEl.innerHTML = _planGuardHtml(result);
-            _guardConfirmed = true;
-            if (btn) btn.textContent = 'Save anyway';
-          } else {
-            if (guardEl) guardEl.innerHTML = '';
-            _doSave();
+      if (_addState.editId) {
+        _renderStructureBuilder();
+        document.getElementById('pl-sf-type').addEventListener('change', _renderStructureBuilder);
+        var _guardConfirmed = false;
+        document.getElementById('pl-sf-save').onclick = function () {
+          var payload = _collectSingleForm();
+          if (!payload.planned_date || !payload.session_type) { _toast('Date and type are required', true); return; }
+          var btn = document.getElementById('pl-sf-save');
+          function _doSave() {
+            var editId = _addState.editId;
+            _api('PATCH', '/api/planned-sessions/' + editId, payload)
+              .then(function () { _toast('Session updated'); _guardConfirmed = false; _closeAdd(); _loadWeek(); })
+              .catch(function (e) { _toast(e.message || 'Save failed', true); });
           }
-        });
+          if (_guardConfirmed) { _doSave(); return; }
+          _planCheck({ session_type: payload.session_type, structure: payload.structure || null }, function (result) {
+            var guardEl = document.getElementById('pl-sf-guard');
+            if (result && result.warnings && result.warnings.length) {
+              if (guardEl) guardEl.innerHTML = _planGuardHtml(result);
+              _guardConfirmed = true;
+              if (btn) btn.textContent = 'Save anyway';
+            } else {
+              if (guardEl) guardEl.innerHTML = '';
+              _doSave();
+            }
+          });
+        };
+        return;
+      }
+
+      // ── Create: draft-first ───────────────────────────────────────────────
+      var typeEl = document.getElementById('pl-sf-type');
+      var subEl = document.getElementById('pl-sf-subtype');
+      function _syncSubtype() {
+        var t = typeEl.value;
+        var cur = subEl.value;
+        var opts = _ADD_SUBTYPES[t] || [];
+        var keep = opts.some(function (o) { return o.v === cur; });
+        subEl.innerHTML = _addSubtypeOptions(t, keep ? cur : (opts[0] && opts[0].v));
+        var defaults = { run: [40, 45], strength: [30, 40], plyo: [25, 25], stretch: [0, 15] };
+        var d = defaults[t] || [30, 30];
+        var tssEl = document.getElementById('pl-sf-tss');
+        var durEl = document.getElementById('pl-sf-dur');
+        if (tssEl && !tssEl.dataset.touched) tssEl.value = d[0];
+        if (durEl && !durEl.dataset.touched) durEl.value = d[1];
+      }
+      typeEl.addEventListener('change', function () {
+        _syncSubtype();
+        if (_addDraftExtras.manualOpen) _renderStructureBuilder();
+        _addDraftExtras.ai = null;
+        var prev = document.getElementById('pl-sf-ai-prev');
+        if (prev) prev.innerHTML = '';
+      });
+      ['pl-sf-tss', 'pl-sf-dur'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.addEventListener('input', function () { el.dataset.touched = '1'; });
+      });
+
+      var manualTog = document.getElementById('pl-sf-manual-tog');
+      if (manualTog) manualTog.onclick = function () {
+        _addDraftExtras.manualOpen = !_addDraftExtras.manualOpen;
+        manualTog.textContent = _addDraftExtras.manualOpen ? 'Hide manual structure' : 'Fill structure manually';
+        var host = document.getElementById('pl-sf-structure');
+        if (!host) return;
+        if (_addDraftExtras.manualOpen) {
+          host.style.display = '';
+          _renderStructureBuilder();
+        } else {
+          host.style.display = 'none';
+          host.innerHTML = '';
+        }
       };
+      if (_addDraftExtras.manualOpen) _renderStructureBuilder();
+
+      if (_addDraftExtras.ai) {
+        var prev0 = document.getElementById('pl-sf-ai-prev');
+        if (prev0) prev0.innerHTML = _aiSessionPreviewHtml(_addDraftExtras.ai);
+      }
+
+      var askBtn = document.getElementById('pl-sf-askai');
+      if (askBtn) askBtn.onclick = function () {
+        var dateEl = document.getElementById('pl-sf-date');
+        if (!dateEl.value) { _toast('Pick a date first', true); return; }
+        askBtn.disabled = true;
+        askBtn.textContent = 'Generating…';
+        _api('POST', '/api/plan/suggestions/session', {
+          date: dateEl.value,
+          workout_type: typeEl.value,
+          subtype: (subEl.value || null),
+          note: (document.getElementById('pl-sf-note').value || null),
+          target_tss: parseFloat(document.getElementById('pl-sf-tss').value) || null,
+          duration_minutes: parseInt(document.getElementById('pl-sf-dur').value, 10) || null,
+        })
+          .then(function (data) {
+            var s = data.session || {};
+            _addDraftExtras.ai = s;
+            if (s.intent) document.getElementById('pl-sf-name').value = s.intent;
+            if (s.notes) document.getElementById('pl-sf-notes').value = s.notes;
+            if (s.target_tss != null) {
+              var tssEl = document.getElementById('pl-sf-tss');
+              tssEl.value = s.target_tss;
+              tssEl.dataset.touched = '1';
+            }
+            if (s.duration_minutes != null) {
+              var durEl = document.getElementById('pl-sf-dur');
+              durEl.value = s.duration_minutes;
+              durEl.dataset.touched = '1';
+            }
+            if (Array.isArray(s.blocks) && s.blocks.length) {
+              _sfBlocks = s.blocks.slice();
+              _addDraftExtras.manualOpen = true;
+              manualTog.textContent = 'Hide manual structure';
+              var host = document.getElementById('pl-sf-structure');
+              host.style.display = '';
+              _renderStructureBuilder();
+            } else if (Array.isArray(s.exercises) && s.exercises.length) {
+              _sfExercises = s.exercises.slice();
+              _addDraftExtras.manualOpen = true;
+              manualTog.textContent = 'Hide manual structure';
+              var host2 = document.getElementById('pl-sf-structure');
+              host2.style.display = '';
+              _renderStructureBuilder();
+            }
+            document.getElementById('pl-sf-ai-prev').innerHTML = _aiSessionPreviewHtml(s);
+          })
+          .catch(function (e) {
+            document.getElementById('pl-sf-ai-prev').innerHTML =
+              '<div class="pl-previewbox err">' + esc(e.message || 'Could not generate') + '</div>';
+          })
+          .then(function () {
+            askBtn.disabled = false;
+            askBtn.textContent = '✨ Ask AI to generate';
+          });
+      };
+
+      function _readCreateCustom() {
+        var wt = typeEl.value;
+        var custom = {
+          workout_type: wt,
+          subtype: subEl.value || wt,
+          target_tss: parseFloat(document.getElementById('pl-sf-tss').value) || 0,
+          duration_minutes: parseInt(document.getElementById('pl-sf-dur').value, 10) || 0,
+          intent: (document.getElementById('pl-sf-name').value || '').trim(),
+          notes: (document.getElementById('pl-sf-notes').value || '').trim() || null,
+        };
+        var structure = null;
+        if (_addDraftExtras.manualOpen) {
+          var payload = _collectSingleForm();
+          if (payload && payload.structure) structure = payload.structure;
+        } else if (_addDraftExtras.ai) {
+          var ai = _addDraftExtras.ai;
+          if (Array.isArray(ai.exercises) && ai.exercises.length) structure = { exercises: ai.exercises };
+          else if (Array.isArray(ai.blocks) && ai.blocks.length) structure = { blocks: ai.blocks };
+          if (!custom.intent && ai.intent) custom.intent = ai.intent;
+          if (!custom.notes && ai.notes) custom.notes = ai.notes;
+        }
+        if (structure) custom.structure = structure;
+        return custom;
+      }
+
+      function _saveCreateDraft(apply) {
+        var dateEl = document.getElementById('pl-sf-date');
+        if (!dateEl.value) { _toast('Pick a date first', true); return; }
+        var day = _dayOffsetForDate(dateEl.value);
+        if (day < 0 || day > 6) {
+          _toast('Date must be in the visible week', true);
+          return;
+        }
+        var btn = document.getElementById(apply ? 'pl-sf-draft-apply' : 'pl-sf-draft');
+        if (btn) { btn.disabled = true; btn.textContent = apply ? 'Applying…' : 'Saving…'; }
+        _addDraftCustom(day, _readCreateCustom(), { apply: !!apply })
+          .then(function () {
+            _toast(apply ? 'Draft applied to plan' : 'Saved to week draft');
+            _closeAdd();
+            _loadWeek(function () { if (_draftVisible) _loadDraft(); });
+          })
+          .catch(function (err) {
+            if (btn) {
+              btn.disabled = false;
+              btn.textContent = apply ? 'Save draft & apply' : 'Save draft';
+            }
+            var detail = err && err.detail;
+            _toast((detail && (detail.block_reason || detail.error)) || (err && err.message) || 'Failed', true);
+          });
+      }
+
+      var draftBtn = document.getElementById('pl-sf-draft');
+      var applyBtn = document.getElementById('pl-sf-draft-apply');
+      var legacySave = document.getElementById('pl-sf-save');
+      if (draftBtn) draftBtn.onclick = function () { _saveCreateDraft(false); };
+      if (applyBtn) applyBtn.onclick = function () { _saveCreateDraft(true); };
+      if (legacySave) {
+        // Draft pipeline off — keep direct planned_sessions create
+        legacySave.onclick = function () {
+          var payload = {
+            planned_date: document.getElementById('pl-sf-date').value,
+            session_type: typeEl.value,
+            name: document.getElementById('pl-sf-name').value || null,
+            notes: document.getElementById('pl-sf-notes').value || null,
+            structure: null,
+          };
+          var custom = _readCreateCustom();
+          if (custom.structure) payload.structure = custom.structure;
+          _api('POST', '/api/planned-sessions', payload)
+            .then(function () { _toast('Session saved'); _closeAdd(); _loadWeek(); })
+            .catch(function (e) { _toast(e.message || 'Save failed', true); });
+        };
+      }
     } else if (_addState.top === 'single' && _addState.sub === 'json') {
       _wireSingleJSON();
-    } else if (_addState.top === 'single' && _addState.sub === 'ai') {
-      _wireSingleAI();
     } else if (_addState.top === 'bulk' && _addState.sub === 'form') {
       _wireBulkForm();
     } else if (_addState.top === 'bulk' && _addState.sub === 'json') {
@@ -1883,9 +3120,9 @@ information about.
         '<label class="pl-uploadlbl">Upload .json<input type="file" accept=".json" id="pl-sj-up" style="display:none"/></label>' +
       '</div>' +
       '<div class="pl-infobanner" style="margin-bottom:10px;">Paste a session as JSON — same shape as the template.</div>' +
-      '<textarea class="pl-jsonta" id="pl-sj-ta">' + esc(JSON.stringify(tplSingleRun, null, 2)) + '</textarea>' +
+      '<textarea class="pl-jsonta" id="pl-sj-ta" aria-label="Session JSON">' + esc(JSON.stringify(tplSingleRun, null, 2)) + '</textarea>' +
       '<div class="pl-btnrow" style="margin-top:10px;"><button class="pl-btn pl-ghost" id="pl-sj-val">Validate &amp; preview</button></div>' +
-      '<div id="pl-sj-prev"></div>' +
+      '<div id="pl-sj-prev" aria-live="polite"></div>' +
       '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-sj-save">Save session</button><button class="pl-btn pl-ghost" id="pl-sj-cancel">Cancel</button></div>';
   }
   function _wireSingleJSON() {
@@ -1923,16 +3160,16 @@ information about.
   function _singleAIHtml() {
     _aiSessionResult = null;
     return '<div class="pl-frow">' +
-        '<div class="pl-fld"><label>Date</label><input type="date" id="pl-ai-date" value="' + esc(_addState.presetDate) + '"/></div>' +
-        '<div class="pl-fld"><label>Type</label><select id="pl-ai-type">' +
+        '<div class="pl-fld"><label>Date</label><input type="date" id="pl-ai-date" aria-label="Session date" value="' + esc(_addState.presetDate) + '"/></div>' +
+        '<div class="pl-fld"><label>Type</label><select id="pl-ai-type" aria-label="Session type">' +
           '<option value="run">Run</option><option value="strength">Strength</option>' +
           '<option value="plyo">Plyo</option><option value="rest">Rest</option>' +
         '</select></div>' +
       '</div>' +
       '<div class="pl-fld" style="margin-top:10px;"><label>Note to the coach (optional)</label>' +
-        '<textarea id="pl-ai-note" placeholder="e.g. focus on hip mobility, keep it under 30 minutes"></textarea></div>' +
+        '<textarea id="pl-ai-note" aria-label="Note to the coach" placeholder="e.g. focus on hip mobility, keep it under 30 minutes"></textarea></div>' +
       '<div class="pl-btnrow" style="margin-top:10px;"><button class="pl-btn pl-ghost" id="pl-ai-gen">✨ Generate</button></div>' +
-      '<div id="pl-ai-prev"></div>' +
+      '<div id="pl-ai-prev" aria-live="assertive"></div>' +
       '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-ai-save" disabled>Save session</button><button class="pl-btn pl-ghost" id="pl-ai-cancel">Cancel</button></div>';
   }
 
@@ -1942,14 +3179,14 @@ information about.
     var sr = (x.sets != null && x.reps != null) ? (x.sets + ' × ' + x.reps) : (x.sets != null ? x.sets + ' sets' : '');
     return '<div class="pl-exd"><span class="pl-en">' + esc(x.name || 'Exercise') + '</span>' +
       '<span class="pl-sr">' + esc(sr) + '</span>' +
-      '<span class="pl-es" style="color:var(--pl-faint)">' + esc(x.load || '') + '</span></div>';
+      '<span class="pl-es" style="color:var(--text-sub)">' + esc(x.load || '') + '</span></div>';
   }
   function _aiPreviewBlockRow(b) {
     var dur = b.duration_min != null ? b.duration_min + ' min' : '';
     var main = (b.repeat && b.repeat > 1) ? (b.repeat + ' × ' + dur) : dur;
     return '<div class="pl-exd"><span class="pl-en">' + esc(_phaseLabel(b.phase)) + '</span>' +
       '<span class="pl-sr">' + esc(main) + '</span>' +
-      '<span class="pl-es" style="color:var(--pl-faint)">' + esc(b.target || '') + '</span></div>';
+      '<span class="pl-es" style="color:var(--text-sub)">' + esc(b.target || '') + '</span></div>';
   }
 
   function _aiSessionPreviewHtml(s) {
@@ -2024,9 +3261,9 @@ information about.
   function _bulkFormHtml() {
     var rows = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'].map(function (d, i) {
       return '<tr data-bulk-i="' + i + '"><td class="pl-bd">' + d + '</td>' +
-        '<td><select data-bf="type"><option value="rest">Rest</option><option value="run">Run</option><option value="strength">Strength</option><option value="plyo">Plyo</option></select></td>' +
-        '<td><input data-bf="name" placeholder="session name"/></td>' +
-        '<td><input data-bf="duration" placeholder="—"/></td></tr>';
+        '<td><select data-bf="type" aria-label="' + d + ' session type"><option value="rest">Rest</option><option value="run">Run</option><option value="strength">Strength</option><option value="plyo">Plyo</option></select></td>' +
+        '<td><input data-bf="name" aria-label="' + d + ' session name" placeholder="session name"/></td>' +
+        '<td><input data-bf="duration" aria-label="' + d + ' duration" placeholder="—"/></td></tr>';
     }).join('');
     return '<div class="pl-infobanner" style="margin-bottom:14px;">Quickly stub out the whole week. Open any session afterward to add block/exercise detail.</div>' +
       '<table class="pl-bulktbl"><thead><tr><th></th><th>Type</th><th>Session name</th><th>Duration</th></tr></thead><tbody>' + rows + '</tbody></table>' +
@@ -2060,9 +3297,9 @@ information about.
         '<label class="pl-uploadlbl">Upload .json<input type="file" accept=".json" id="pl-bj-up" style="display:none"/></label>' +
       '</div>' +
       '<div class="pl-infobanner" style="margin-bottom:10px;">Paste an array of sessions — one file for the whole week, full block/exercise detail.</div>' +
-      '<textarea class="pl-jsonta" id="pl-bj-ta">' + esc(JSON.stringify(tplBulkWeek, null, 2)) + '</textarea>' +
+      '<textarea class="pl-jsonta" id="pl-bj-ta" aria-label="Week JSON">' + esc(JSON.stringify(tplBulkWeek, null, 2)) + '</textarea>' +
       '<div class="pl-btnrow" style="margin-top:10px;"><button class="pl-btn pl-ghost" id="pl-bj-val">Validate &amp; preview</button></div>' +
-      '<div id="pl-bj-prev"></div>' +
+      '<div id="pl-bj-prev" aria-live="polite"></div>' +
       '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-bj-save">Save week</button><button class="pl-btn pl-ghost" id="pl-bj-cancel">Cancel</button></div>';
   }
   function _wireBulkJSON() {
@@ -2088,7 +3325,7 @@ information about.
       if (!Array.isArray(arr)) throw new Error('Expected a JSON array of sessions.');
       var rows = arr.map(function (o) {
         var det = o.blocks ? o.blocks.length + ' blocks' : (o.exercises ? o.exercises.length + ' exercises' : '—');
-        return '<div class="pl-previewrow"><span style="width:92px">' + esc(o.date || '?') + '</span><span style="width:72px">' + esc(o.type || '?') + '</span><span style="flex:1">' + esc(o.name || '') + '</span><span style="color:var(--pl-faint)">' + esc(det) + '</span></div>';
+        return '<div class="pl-previewrow"><span style="width:92px">' + esc(o.date || '?') + '</span><span style="width:72px">' + esc(o.type || '?') + '</span><span style="flex:1">' + esc(o.name || '') + '</span><span style="color:var(--text-sub)">' + esc(det) + '</span></div>';
       }).join('');
       out.innerHTML = '<div class="pl-previewbox ok">' + arr.length + ' sessions parsed<div class="pl-previewlist">' + rows + '</div></div>';
       return arr;
@@ -2112,8 +3349,8 @@ information about.
   function _bulkSepHtml() {
     var code = _addState.delim, dc = _delimChar(code);
     return '<div class="pl-jsontools">' +
-        '<span style="font-size:11px;font-weight:700;color:var(--pl-muted);">Delimiter:</span>' +
-        '<select class="pl-delimsel" id="pl-delim">' +
+        '<span style="font-size:11px;font-weight:700;color:var(--text-sub);">Delimiter:</span>' +
+        '<select class="pl-delimsel" id="pl-delim" aria-label="Delimiter">' +
           '<option value="pipe"' + (code === 'pipe' ? ' selected' : '') + '>Pipe  |</option>' +
           '<option value="comma"' + (code === 'comma' ? ' selected' : '') + '>Comma  ,</option>' +
           '<option value="tab"' + (code === 'tab' ? ' selected' : '') + '>Tab</option>' +
@@ -2121,9 +3358,9 @@ information about.
         '<button class="pl-btn pl-ghost" id="pl-sep-dl">⬇ Download template</button>' +
       '</div>' +
       '<div class="pl-infobanner" style="margin-bottom:10px;">One session per line: <b>date' + dc + 'type' + dc + 'name' + dc + 'duration' + dc + 'notes</b>. Simple fields only; open a session afterward for block/exercise detail.</div>' +
-      '<textarea class="pl-jsonta" id="pl-sep-ta">' + esc(_sepTemplate(code)) + '</textarea>' +
+      '<textarea class="pl-jsonta" id="pl-sep-ta" aria-label="Week sessions as delimited text">' + esc(_sepTemplate(code)) + '</textarea>' +
       '<div class="pl-btnrow" style="margin-top:10px;"><button class="pl-btn pl-ghost" id="pl-sep-val">Parse &amp; preview</button></div>' +
-      '<div id="pl-sep-prev"></div>' +
+      '<div id="pl-sep-prev" aria-live="polite"></div>' +
       '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-sep-save">Save week</button><button class="pl-btn pl-ghost" id="pl-sep-cancel">Cancel</button></div>';
   }
   function _parseSep() {
@@ -2135,7 +3372,7 @@ information about.
       return { date: (c[0] || '').trim(), type: (c[1] || '').trim().toLowerCase(), name: (c[2] || '').trim(), duration: (c[3] || '').trim(), notes: (c[4] || '').trim() };
     });
     var html = rows.map(function (r) {
-      return '<div class="pl-previewrow"><span style="width:92px">' + esc(r.date || '?') + '</span><span style="width:72px">' + esc(r.type || '?') + '</span><span style="flex:1">' + esc(r.name || '—') + '</span><span style="color:var(--pl-faint)">' + esc(r.duration || '—') + '</span></div>';
+      return '<div class="pl-previewrow"><span style="width:92px">' + esc(r.date || '?') + '</span><span style="width:72px">' + esc(r.type || '?') + '</span><span style="flex:1">' + esc(r.name || '—') + '</span><span style="color:var(--text-sub)">' + esc(r.duration || '—') + '</span></div>';
     }).join('');
     out.innerHTML = '<div class="pl-previewbox ok">' + rows.length + ' sessions parsed<div class="pl-previewlist">' + html + '</div></div>';
     return rows;
@@ -2166,63 +3403,586 @@ information about.
     reader.readAsText(f);
   }
 
-  // ══ DETAIL PANEL ══════════════════════════════════════════════════════════════
+  // ══ UNIFIED SESSION MODAL (view = edit = AI) ════════════════════════════════
+  // Merges Session Detail + Edit + Generate details into one surface.
+  // Create-new still uses the Add panel (`_openAdd`); edit opens this modal.
+
+  var _sm = {
+    baseline: null,
+    dirty: false,
+    strydOpen: false,
+    aiForcedOpen: false,
+    aiBusy: false,
+    aiError: '',
+    structTab: 'simple', // simple | detailed | json
+    suppressDomSync: false,
+  };
+
+  var _H = function () { return window.PlanSessionHelpers || {}; };
+
+  function _smHasStructure(p) {
+    var type = ((p && p.session_type) || 'run').toLowerCase();
+    if (type === 'run') return _sfBlocks.length > 0;
+    if (_sfExercises.length) return true;
+    if (_sfFocus && String(_sfFocus).trim()) return true;
+    return !!(_H().hasStructure && _H().hasStructure(p && p.structure));
+  }
+
+  function _smAiDormant(p) {
+    if (_sm.aiForcedOpen) return false;
+    return !!(_H().aiBarDormant && _H().aiBarDormant(p));
+  }
+
+  function _smSeedBuilders(p) {
+    var s = (p && p.structure) || {};
+    if ((p.session_type || '') === 'run') {
+      _sfBlocks = (Array.isArray(s.blocks) ? s.blocks : []).map(function (b) {
+        return Object.assign({}, b);
+      });
+      _sfExercises = [];
+      _sfFocus = '';
+      _sm.structTab = 'simple';
+    } else {
+      _sfBlocks = [];
+      if (Array.isArray(s.exercises) && s.exercises.length) {
+        _sfStrengthMode = 'detailed';
+        _sm.structTab = 'detailed';
+        _sfExercises = s.exercises.map(function (x) { return Object.assign({}, x); });
+        _sfFocus = s.focus || '';
+      } else {
+        _sfStrengthMode = 'simple';
+        _sm.structTab = 'simple';
+        _sfFocus = s.focus || '';
+        _sfExercises = [];
+      }
+    }
+  }
+
+  function _smCollectStructure(type) {
+    type = (type || 'run').toLowerCase();
+    if (type === 'rest') return null;
+    var prev = (_detail && _detail.structure) || {};
+    var out;
+    if (type === 'run') {
+      out = { blocks: _sfBlocks.map(function (b) { return Object.assign({}, b); }) };
+    } else if (_sm.structTab === 'simple' || _sfStrengthMode === 'simple') {
+      out = { focus: _sfFocus || '' };
+      if (_sfExercises.length) {
+        out.exercises = _sfExercises.map(function (x) { return Object.assign({}, x); });
+      }
+    } else {
+      out = { exercises: _sfExercises.map(function (x) { return Object.assign({}, x); }) };
+      if (_sfFocus) out.focus = _sfFocus;
+    }
+    if (!out) return null;
+    ['target_tss', 'duration_minutes', 'distance_km', 'source'].forEach(function (k) {
+      if (prev[k] != null && out[k] == null) out[k] = prev[k];
+    });
+    return out;
+  }
+
+  function _smReadDraftFromDom(p) {
+    var nameEl = document.getElementById('pl-sm-name');
+    var notesEl = document.getElementById('pl-sm-notes');
+    var dateEl = document.getElementById('pl-sm-date');
+    var typeEl = document.getElementById('pl-sm-type');
+    var type = typeEl ? typeEl.value : (p.session_type || 'run');
+    return {
+      name: nameEl ? nameEl.value.trim() : (p.name || ''),
+      notes: notesEl ? notesEl.value : (p.notes || ''),
+      planned_date: dateEl ? dateEl.value : (p.planned_date || ''),
+      session_type: type,
+      structure: _smCollectStructure(type),
+    };
+  }
+
+  function _smMarkDirty() {
+    if (!_detail || !_sm.baseline) return;
+    var cur = _smReadDraftFromDom(_detail);
+    _sm.dirty = !(_H().snapshotsEqual && _H().snapshotsEqual(_sm.baseline, cur));
+    var dirtyEl = document.getElementById('pl-sm-dirty');
+    var discardBtn = document.getElementById('pl-sm-discard');
+    var saveBtn = document.getElementById('pl-sm-save');
+    var closeBtn = document.getElementById('pl-sm-close-foot');
+    if (dirtyEl) dirtyEl.textContent = _sm.dirty ? 'unsaved changes' : '';
+    if (discardBtn) discardBtn.hidden = !_sm.dirty;
+    if (saveBtn) saveBtn.hidden = !_sm.dirty;
+    if (closeBtn) closeBtn.hidden = !!_sm.dirty;
+  }
+
+  function _smTypeLabel(t) {
+    t = (t || '').toLowerCase();
+    if (t === 'strength' || t === 'plyo') return 'LIFT';
+    if (t === 'stretch') return 'STRETCH';
+    if (t === 'rest') return 'REST';
+    return 'RUN';
+  }
+
+  function _smMatchedLine(p) {
+    if (!p.actual || !p.actual.id) return '';
+    var bits = [p.actual.name || 'Matched workout'];
+    if (p.actual.meta) bits.push(p.actual.meta);
+    return '<span class="pl-sm-matched">✓ matched · ' + esc(bits.join(' ')) + '</span>';
+  }
+
+  function _smTilesHtml(p) {
+    var H = _H();
+    var live = _smCollectStructure(p.session_type) || p.structure || {};
+    var tiles = H.deriveTiles
+      ? H.deriveTiles(live, {
+          duration_minutes: live.duration_minutes,
+          target_tss: live.target_tss,
+          distance_km: live.distance_km,
+        })
+      : { duration_min: null, target_tss: null, distance_km: null };
+    function cell(lab, val, empty) {
+      return '<div class="pl-sm-tile"><div class="pl-sm-tl">' + lab + '</div>' +
+        '<div class="pl-sm-tv' + (empty ? ' empty' : '') + '">' + esc(val) + '</div></div>';
+    }
+    return '<div class="pl-sm-tiles">' +
+      cell('Duration', tiles.duration_min != null ? tiles.duration_min + ' min' : '—', tiles.duration_min == null) +
+      cell('TSS', tiles.target_tss != null ? String(Math.round(tiles.target_tss)) : '—', tiles.target_tss == null) +
+      cell('Distance', tiles.distance_km != null ? tiles.distance_km + ' km' : '—', tiles.distance_km == null) +
+    '</div>';
+  }
+
+  function _smAiBarHtml(p) {
+    if ((p.session_type || '') === 'rest') return '';
+    var dormant = _smAiDormant(p);
+    if (dormant) {
+      return '<div class="pl-sm-ai pl-sm-ai-dormant" id="pl-sm-ai">' +
+        '<div class="pl-sm-ai-h"><b>Session completed — nothing left to plan</b>' +
+        '<button type="button" class="pl-sm-ai-expand" id="pl-sm-ai-expand">add structure anyway</button></div>' +
+      '</div>';
+    }
+    var has = _smHasStructure(p);
+    var s = p.structure || {};
+    var pins = [];
+    if (s.target_tss != null) pins.push(Math.round(s.target_tss) + ' TSS');
+    if (s.duration_minutes != null) pins.push(s.duration_minutes + ' min');
+    else {
+      var dm = _H().durationMinutesFromBlocks && _H().durationMinutesFromBlocks(s.blocks);
+      if (dm) pins.push(dm + ' min');
+    }
+    var pinNote = has && pins.length
+      ? 'keeps day · type · ' + pins.join(' · ') + ' pinned — content only'
+      : (has ? 'refines content · day & type stay pinned' : 'no structure yet — builds from focus + coach note');
+    var title = has ? '✨ Refine with AI' : '✨ Generate with AI';
+    var goLab = has ? 'Refine' : 'Generate';
+    var chips = has
+      ? '<div class="pl-sm-chips" id="pl-sm-chips">' +
+          '<button type="button" class="pl-sm-chip" data-steer="make it easier / lighter volume">Easier</button>' +
+          '<button type="button" class="pl-sm-chip" data-steer="make it harder / more stimulus">Harder</button>' +
+          '<button type="button" class="pl-sm-chip" data-steer="shorten the session while keeping the intent">Shorten</button>' +
+          '<button type="button" class="pl-sm-chip" data-steer="swap to a different subtype / focus">Swap subtype</button>' +
+        '</div>'
+      : '';
+    var err = _sm.aiError
+      ? '<div class="pl-sm-ai-err" id="pl-sm-ai-err" aria-live="assertive" role="alert">' + esc(_sm.aiError) + '</div>'
+      : '<div class="pl-sm-ai-err" id="pl-sm-ai-err" aria-live="assertive" hidden></div>';
+    return '<div class="pl-sm-ai" id="pl-sm-ai">' +
+      '<div class="pl-sm-ai-h"><b>' + title + '</b><span>' + esc(pinNote) + '</span></div>' +
+      chips +
+      '<div class="pl-sm-free">' +
+        '<input type="text" id="pl-sm-ai-note" aria-label="AI steering note" placeholder="' +
+          (has ? 'or describe the change… e.g. add 4 × 20s strides at the end'
+               : 'optional steer… e.g. lower / posterior chain, dumbbells only, 45 min') + '"/>' +
+        '<button type="button" class="pl-sm-go" id="pl-sm-ai-go"' + (_sm.aiBusy ? ' disabled' : '') + '>' +
+          (_sm.aiBusy ? '…' : goLab) + '</button>' +
+      '</div>' +
+      err +
+      '<div class="pl-sm-ai-n">' +
+        (has
+          ? 'manual edits below mark this session EDITED — drafts will never overwrite it'
+          : 'uses the same engine as week drafts · house structure · validated before it lands') +
+      '</div>' +
+    '</div>';
+  }
+
+  function _smStructureBodyHtml(p) {
+    var type = (p.session_type || 'run').toLowerCase();
+    if (type === 'rest') {
+      return '<div class="pl-sm-empty-s">Rest day — no structure.</div>';
+    }
+    if (type === 'run') {
+      if (!_sfBlocks.length && !_smHasStructure(p)) {
+        return '<div class="pl-sm-empty-s">No structure yet — Generate above, or add blocks in Detailed.</div>';
+      }
+      // Simple view: phase rows; Detailed reuses block builder
+      if (_sm.structTab === 'json') {
+        return '<textarea class="pl-jsonta" id="pl-sm-json" aria-label="Structure JSON" spellcheck="false">' +
+          esc(JSON.stringify({ blocks: _sfBlocks }, null, 2)) + '</textarea>';
+      }
+      if (_sm.structTab === 'detailed') {
+        return '<div id="pl-sm-struct-host"></div>';
+      }
+      // simple rows
+      var rows = _sfBlocks.map(function (b) {
+        var dur = b.duration_min != null ? b.duration_min + ' min' : '';
+        var rep = (b.repeat && b.repeat > 1) ? (' ×' + b.repeat) : '';
+        var tgt = b.target || '';
+        var lab = b.phase === 'warmup' ? 'Warmup' : (b.phase === 'cooldown' ? 'Cooldown' : 'Main');
+        return '<div class="pl-sm-brow"><span class="pl-sm-ph">' + lab + '</span>' +
+          '<span class="pl-sm-bt">' + esc(tgt || lab) + '</span>' +
+          '<span class="pl-sm-bm">' + esc(dur + rep) + '</span></div>';
+      }).join('');
+      return '<div class="pl-sm-blocks">' + (rows || '<div class="pl-sm-empty-s">No blocks yet.</div>') + '</div>';
+    }
+    // strength / plyo / stretch
+    if (_sm.structTab === 'json') {
+      return '<textarea class="pl-jsonta" id="pl-sm-json" aria-label="Structure JSON" spellcheck="false">' +
+        esc(JSON.stringify({ exercises: _sfExercises, focus: _sfFocus }, null, 2)) + '</textarea>';
+    }
+    if (_sm.structTab === 'simple') {
+      if (!_sfFocus && !_sfExercises.length) {
+        return '<div class="pl-sm-empty-s">No structure yet — Generate above, or switch to Detailed to build it by hand.</div>' +
+          '<div class="pl-fld" style="margin-top:10px;"><label>Focus</label>' +
+          '<input type="text" id="pl-sm-focus" aria-label="Focus" value="' + esc(_sfFocus) + '" placeholder="e.g. posterior chain"/></div>';
+      }
+      return '<div class="pl-fld"><label>Focus</label>' +
+        '<input type="text" id="pl-sm-focus" aria-label="Focus" value="' + esc(_sfFocus) + '"/></div>';
+    }
+    // detailed
+    return '<div id="pl-sm-struct-host"></div>';
+  }
+
+  function _smUnifiedHtml(p) {
+    var type = (p.session_type || 'run').toLowerCase();
+    var fam = _famClass(type);
+    var tagCls = (type === 'strength' || type === 'plyo') ? 'lift' : '';
+    var statusRow = _detailStatusActionsHtml(p);
+    var tabs = type === 'run'
+      ? [['simple', 'Simple'], ['detailed', 'Detailed'], ['json', 'JSON']]
+      : [['simple', 'Simple'], ['detailed', 'Detailed'], ['json', 'JSON']];
+    var tabHtml = tabs.map(function (t) {
+      return '<button type="button" class="pl-sm-tab' + (_sm.structTab === t[0] ? ' on' : '') + '" data-stab="' + t[0] + '">' + t[1] + '</button>';
+    }).join('');
+
+    var stryd = '';
+    if (type === 'run') {
+      stryd = '<div class="pl-sm-stryd" id="pl-sm-stryd-toggle">▸ <b>Copy for Stryd Workout Builder</b> — power/pace targets, import-safe</div>' +
+        '<div class="pl-exportbox" id="pl-sm-stryd-panel"' + (_sm.strydOpen ? '' : ' hidden') + '>' +
+          '<div class="pl-eh"><span class="pl-et">Stryd paste</span><button class="pl-copybtn" id="pl-det-copy">Copy</button></div>' +
+          '<div class="pl-ewarn">Paste into PowerCenter’s Workout Builder. Power-or-pace targets only.</div>' +
+          '<pre id="pl-stryd-pre">' + esc(_strydText(p)) + '</pre>' +
+        '</div>';
+    }
+
+    return '<div class="pl-sm-pad">' +
+      '<div class="pl-sm-top"><span class="pl-sm-lbl">Session</span>' +
+        '<button type="button" class="pl-sm-x" id="pl-detclose" aria-label="Close">✕</button></div>' +
+      '<div class="pl-sm-meta">' +
+        '<span class="pl-sm-tag ' + tagCls + '">' + _smTypeLabel(type) + '</span>' +
+        '<select id="pl-sm-type" aria-label="Session type">' +
+          ['run', 'strength', 'plyo', 'stretch', 'rest'].map(function (t) {
+            return '<option value="' + t + '"' + (type === t ? ' selected' : '') + '>' +
+              (t.charAt(0).toUpperCase() + t.slice(1)) + '</option>';
+          }).join('') +
+        '</select>' +
+        '<input class="pl-sm-datef" type="date" id="pl-sm-date" aria-label="Session date" value="' + esc(p.planned_date || '') + '"/>' +
+        _smMatchedLine(p) +
+      '</div>' +
+      '<input class="pl-sm-name" id="pl-sm-name" aria-label="Session name" value="' + esc(p.name || '') + '" placeholder="Session name"/>' +
+      _detailIdRowHtml(p) +
+      statusRow +
+      _smAiBarHtml(p) +
+      '<div class="pl-sm-sech"><span class="pl-sm-lbl">Structure</span>' +
+        '<div class="pl-sm-tabs">' + tabHtml + '</div></div>' +
+      _smTilesHtml(p) +
+      '<div id="pl-sm-struct-body">' + _smStructureBodyHtml(p) + '</div>' +
+      '<div class="pl-sm-notes"><span class="pl-sm-lbl">Coach notes</span>' +
+        '<textarea id="pl-sm-notes" rows="3" aria-label="Coach notes">' + esc(p.notes || '') + '</textarea></div>' +
+      stryd +
+    '</div>' +
+    '<div class="pl-sm-foot">' +
+      '<button type="button" class="pl-sm-del" id="pl-det-delete">Delete</button>' +
+      '<span class="pl-sm-sp"></span>' +
+      '<span class="pl-sm-dirty" id="pl-sm-dirty" aria-live="polite"></span>' +
+      '<button type="button" class="pl-sm-ghost" id="pl-sm-discard" hidden>Discard</button>' +
+      '<button type="button" class="pl-sm-ghost" id="pl-sm-close-foot">Close</button>' +
+      '<button type="button" class="pl-sm-save" id="pl-sm-save" hidden>Save changes</button>' +
+    '</div>';
+  }
+
+  function _smApplyTypeChange(newType, oldType) {
+    if (newType === oldType) return;
+    var has = _sfBlocks.length || _sfExercises.length || (_sfFocus && _sfFocus.trim());
+    function finish() {
+      if (_detail) _detail.session_type = newType;
+      _smMarkDirty();
+      _renderDetailSection();
+    }
+    if (has) {
+      _plConfirm(
+        'Structure is shaped for ' + oldType + ' — keep it or clear it?',
+        function () {
+          _sfBlocks = newType === 'run' ? [{ phase: 'main', duration_min: 30 }] : [];
+          _sfExercises = [];
+          _sfFocus = '';
+          _sm.structTab = 'simple';
+          finish();
+        },
+        {
+          okLabel: 'Clear structure',
+          cancelLabel: 'Keep structure',
+          onCancel: finish,
+        },
+      );
+      return;
+    }
+    if (newType === 'run' && !_sfBlocks.length) {
+      _sfBlocks = [{ phase: 'main', duration_min: 30 }];
+    }
+    finish();
+  }
+
+  function _smRunAi(steer) {
+    var p = _detail;
+    if (!p || _sm.aiBusy) return;
+    var H = _H();
+    var draft = _smReadDraftFromDom(p);
+    var note = (steer || '').trim();
+    var noteEl = document.getElementById('pl-sm-ai-note');
+    if (!note && noteEl) note = noteEl.value.trim();
+    if (!note) {
+      note = _smHasStructure(p)
+        ? 'Regenerate fuller session details while keeping the same intent.'
+        : 'Fill in full session details matching the existing title and coach notes.';
+    }
+    var current = {
+      day_offset: 0,
+      workout_type: draft.session_type,
+      intent: draft.name,
+      notes: draft.notes,
+      exercises: (draft.structure && draft.structure.exercises) || null,
+      blocks: (draft.structure && draft.structure.blocks) || null,
+      target_tss: (p.structure && p.structure.target_tss) || 0,
+      duration_minutes: (p.structure && p.structure.duration_minutes) ||
+        (H.durationMinutesFromBlocks && H.durationMinutesFromBlocks((p.structure || {}).blocks)) || 0,
+    };
+    var body = {
+      date: draft.planned_date || p.planned_date,
+      workout_type: draft.session_type,
+      note: note,
+      current_session: _smHasStructure(p) ? current : null,
+    };
+    if (current.target_tss > 0) body.target_tss = current.target_tss;
+    if (current.duration_minutes > 0) body.duration_minutes = current.duration_minutes;
+
+    _sm.aiBusy = true;
+    _sm.aiError = '';
+    _generatingIds[p.id] = true;
+    _renderWeekList();
+    _renderDetailSection();
+
+    _api('POST', '/api/plan/suggestions/session', body)
+      .then(function (data) {
+        var s = data.session || {};
+        var structure = null;
+        if (Array.isArray(s.exercises) && s.exercises.length) {
+          structure = { exercises: s.exercises };
+        } else if (Array.isArray(s.blocks) && s.blocks.length) {
+          structure = { blocks: s.blocks };
+        } else {
+          throw new Error('AI returned no exercises or run structure — try a more specific note.');
+        }
+        if (s.target_tss != null) structure.target_tss = s.target_tss;
+        else if (p.structure && p.structure.target_tss != null) structure.target_tss = p.structure.target_tss;
+        if (s.duration_minutes != null) structure.duration_minutes = s.duration_minutes;
+        else if (structure.blocks && H.durationMinutesFromBlocks) {
+          var dmin = H.durationMinutesFromBlocks(structure.blocks);
+          if (dmin) structure.duration_minutes = dmin;
+        }
+        if (H.stampSourceUser) structure = H.stampSourceUser(structure);
+
+        // Land in modal for review — mark dirty, do NOT autosave.
+        p.name = s.intent ? String(s.intent).substring(0, 80) : (draft.name || p.name);
+        p.notes = s.notes != null ? s.notes : draft.notes;
+        p.structure = structure;
+        _smSeedBuilders(p);
+        _sm.aiBusy = false;
+        delete _generatingIds[p.id];
+        _renderWeekList();
+        _sm.suppressDomSync = true;
+        _renderDetailSection();
+        // Force dirty vs baseline
+        _sm.dirty = true;
+        _smMarkDirty();
+        var dirtyEl = document.getElementById('pl-sm-dirty');
+        if (dirtyEl) dirtyEl.textContent = 'unsaved changes';
+        var discardBtn = document.getElementById('pl-sm-discard');
+        var saveBtn = document.getElementById('pl-sm-save');
+        var closeBtn = document.getElementById('pl-sm-close-foot');
+        if (discardBtn) discardBtn.hidden = false;
+        if (saveBtn) saveBtn.hidden = false;
+        if (closeBtn) closeBtn.hidden = true;
+      })
+      .catch(function (err) {
+        _sm.aiBusy = false;
+        _sm.aiError = (err && err.message) || 'Could not generate — try again.';
+        delete _generatingIds[p.id];
+        _renderWeekList();
+        _sm.suppressDomSync = true;
+        _renderDetailSection();
+      });
+  }
+
+  function _smSave() {
+    var p = _detail;
+    if (!p || !_sm.baseline) return;
+    var draft = _smReadDraftFromDom(p);
+    var H = _H();
+    var b = _sm.baseline;
+    var patch = {};
+    if (draft.name !== b.name) patch.name = draft.name || null;
+    if ((draft.notes || '') !== (b.notes || '')) patch.notes = (draft.notes || '').trim() || null;
+    if (draft.planned_date !== b.planned_date) patch.planned_date = draft.planned_date;
+    if (draft.session_type !== b.session_type) patch.session_type = draft.session_type;
+    var structChanged = !(H.snapshotsEqual && H.snapshotsEqual(draft.structure, b.structure));
+    if (structChanged) {
+      var structure = draft.structure;
+      if (structure && H.stampSourceUser) structure = H.stampSourceUser(structure);
+      patch.structure = structure;
+    }
+    if (!Object.keys(patch).length) {
+      _sm.dirty = false;
+      _smMarkDirty();
+      return;
+    }
+    var saveBtn = document.getElementById('pl-sm-save');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+    _api('PATCH', '/api/planned-sessions/' + p.id, patch)
+      .then(function (updated) {
+        _detail = updated;
+        _sm.dirty = false;
+        _smSeedBuilders(updated);
+        _toast('Session saved');
+        _loadWeek(function () {
+          if (_detail && _detail.id) {
+            (_bundle.days || []).forEach(function (d) {
+              (d.planned || []).forEach(function (row) {
+                if (row.id === _detail.id) _detail = row;
+              });
+            });
+          }
+          _smSeedBuilders(_detail);
+          _renderDetailSection();
+          _sm.baseline = _smReadDraftFromDom(_detail);
+          _sm.dirty = false;
+          _smMarkDirty();
+        });
+      })
+      .catch(function (err) {
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save changes'; }
+        _toast((err && err.message) || 'Save failed', true);
+      });
+  }
+
+  function _smDiscard() {
+    if (!_detail || !_sm.baseline) return;
+    _detail.name = _sm.baseline.name;
+    _detail.notes = _sm.baseline.notes;
+    _detail.planned_date = _sm.baseline.planned_date;
+    _detail.session_type = _sm.baseline.session_type;
+    _detail.structure = _sm.baseline.structure
+      ? JSON.parse(JSON.stringify(_sm.baseline.structure)) : null;
+    _smSeedBuilders(_detail);
+    _sm.dirty = false;
+    _sm.aiError = '';
+    _sm.suppressDomSync = true;
+    _renderDetailSection();
+  }
+
+  function _smTryClose() {
+    if (_sm.dirty) {
+      _plConfirm('Discard unsaved changes?', function () {
+        _smDiscard();
+        _closeDetail();
+      });
+      return;
+    }
+    _closeDetail();
+  }
+
   function _openDetailById(id) {
     var found = null;
     (_bundle.days || []).forEach(function (d) {
       (d.planned || []).forEach(function (p) { if (p.id === id) found = p; });
     });
     if (!found) return;
+    _detailDraft = null;
     _detail = found;
     _panel.open = 'detail';
+    _sm.strydOpen = false;
+    _sm.aiForcedOpen = false;
+    _sm.aiBusy = false;
+    _sm.aiError = '';
+    _sm.dirty = false;
+    _smSeedBuilders(found);
+    _sm.suppressDomSync = true;
     _renderDetailSection(); _renderAddSection();
+    // Baseline must match DOM/builder shape (not raw server structure) or the
+    // footer lights "unsaved" on every open.
+    _sm.baseline = _smReadDraftFromDom(found);
+    _sm.dirty = false;
+    _smMarkDirty();
     var el = document.getElementById('plan-detail-section');
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
-  function _closeDetail() { _panel.open = null; _detail = null; _renderDetailSection(); }
+
+  function _closeDetail() {
+    _panel.open = null;
+    _detail = null;
+    _detailDraft = null;
+    _sm.baseline = null;
+    _sm.dirty = false;
+    _renderDetailSection();
+  }
 
   function _renderDetailSection() {
     var host = document.getElementById('plan-detail-section');
     if (!host) return;
+    if (_detailDraft) {
+      _renderDraftDetailSection();
+      return;
+    }
     if (_panel.open !== 'detail' || !_detail) { host.innerHTML = ''; return; }
     var p = _detail;
-    var isRun = p.session_type === 'run';
-    host.innerHTML = '<div class="pl-card pl-panelcard">' +
-      '<div class="pl-panelhead" style="margin-bottom:2px;"><span class="pl-sectitle">Session detail</span><button class="pl-closepanel" id="pl-detclose">✕</button></div>' +
-      (isRun ? _runDetailHtml(p) : _liftDetailHtml(p)) +
-    '</div>';
-    document.getElementById('pl-detclose').onclick = _closeDetail;
-    var editBtn = document.getElementById('pl-det-edit');
-    if (editBtn) editBtn.onclick = function () {
-      // Once matched, the planned template is history — what's actually
-      // editable is the real logged workout. Redirect to it instead of
-      // opening the (now-stale) plan structure editor, so Plan/Log/Detail
-      // stay one source of truth rather than two that can drift apart.
-      if (p.actual && p.actual.id) {
-        document.dispatchEvent(new CustomEvent('plan:view-workout', {
-          detail: { workoutId: p.actual.id }
-        }));
-        return;
-      }
-      _openEdit(p);
-    };
+    // Preserve live edits across re-renders (tab switch, add/remove block).
+    // Skipped after AI apply / discard — those already wrote `_detail` + builders.
+    if (!_sm.suppressDomSync && document.getElementById('pl-sm-name')) {
+      var live = _smReadDraftFromDom(p);
+      p.name = live.name;
+      p.notes = live.notes;
+      p.planned_date = live.planned_date;
+      p.session_type = live.session_type;
+      if (live.structure) p.structure = live.structure;
+    }
+    _sm.suppressDomSync = false;
+    host.innerHTML = '<div class="pl-card pl-panelcard pl-sm-modal">' + _smUnifiedHtml(p) + '</div>';
+
+    document.getElementById('pl-detclose').onclick = _smTryClose;
+    var footClose = document.getElementById('pl-sm-close-foot');
+    if (footClose) footClose.onclick = _smTryClose;
+    var discardBtn = document.getElementById('pl-sm-discard');
+    if (discardBtn) discardBtn.onclick = function () { _smDiscard(); };
+    var saveBtn = document.getElementById('pl-sm-save');
+    if (saveBtn) saveBtn.onclick = _smSave;
+
     var delBtn = document.getElementById('pl-det-delete');
     if (delBtn) delBtn.onclick = function () {
-      if (!window.confirm('Delete this planned session? This can’t be undone.')) return;
-      _api('DELETE', '/api/planned-sessions/' + p.id)
-        .then(function () { _toast('Planned session deleted'); _closeDetail(); _loadWeek(); })
-        .catch(function (err) { _toast(err.message || 'Delete failed', true); });
+      _plConfirm(
+        'Delete this planned session? This can’t be undone.',
+        function () {
+          _api('DELETE', '/api/planned-sessions/' + p.id)
+            .then(function () { _toast('Planned session deleted'); _closeDetail(); _loadWeek(); })
+            .catch(function (err) { _toast(err.message || 'Delete failed', true); });
+        },
+        { okLabel: 'Delete' },
+      );
     };
-    var copyBtn = document.getElementById('pl-det-copy');
-    if (copyBtn) copyBtn.onclick = function () {
-      var pre = document.getElementById('pl-stryd-pre');
-      var text = pre ? pre.textContent : '';
-      _copyText(text, copyBtn);
-    };
+
     var idCopyBtn = document.getElementById('pl-detid-copy');
-    // Icon-only button — _copyText() swaps textContent for feedback, which
-    // would blow away the SVG. Toggle a class + title instead (same pattern
-    // as the Log tab's dp-id-copy).
     if (idCopyBtn) idCopyBtn.onclick = function () {
       function flash() {
         idCopyBtn.classList.add('pl-detid-copy--done');
@@ -2236,43 +3996,117 @@ information about.
         navigator.clipboard.writeText(p.id).then(flash).catch(function () { _fallbackCopy(p.id); flash(); });
       } else { _fallbackCopy(p.id); flash(); }
     };
-    _wireDetailEvents(host);
-  }
 
-  function _fmtDur(min) { return min != null ? (min + ' min') : '—'; }
-
-  function _runTiles(p) {
-    var s = p.structure || {}, blocks = Array.isArray(s.blocks) ? s.blocks : [];
-    var tot = 0;
-    blocks.forEach(function (b) {
-      var d = Number(b.duration_min) || 0, r = Math.max(1, Number(b.repeat) || 1);
-      tot += d * r + (Number(b.rest_min) || 0) * (r - 1);
+    ['pl-sm-name', 'pl-sm-notes', 'pl-sm-date', 'pl-sm-focus'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('input', function () {
+        if (id === 'pl-sm-focus') _sfFocus = el.value;
+        _smMarkDirty();
+      });
+      el.addEventListener('change', function () {
+        if (id === 'pl-sm-focus') _sfFocus = el.value;
+        _smMarkDirty();
+      });
     });
-    var tss = tot ? Math.round(tot * 1.2) : null;   // rough planned-TSS heuristic
-    var distKm = tot ? (tot / 6).toFixed(1) : null; // ~6 min/km placeholder
-    return '<div class="pl-dettiles">' +
-      '<div class="pl-dettile"><div class="l">Planned duration</div><div class="v">' + _fmtDur(tot || null) + '</div></div>' +
-      '<div class="pl-dettile"><div class="l">Planned TSS</div><div class="v">' + (tss != null ? '~' + tss : '—') + '</div></div>' +
-      '<div class="pl-dettile"><div class="l">Planned distance</div><div class="v">' + (distKm != null ? '~' + distKm + ' km' : '—') + '</div></div>' +
-    '</div>';
+
+    var typeEl = document.getElementById('pl-sm-type');
+    if (typeEl) {
+      typeEl.addEventListener('change', function () {
+        var old = p.session_type;
+        _smApplyTypeChange(typeEl.value, old);
+      });
+    }
+
+    host.querySelectorAll('.pl-sm-tab').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        _sm.structTab = btn.getAttribute('data-stab');
+        if (_sm.structTab === 'detailed') _sfStrengthMode = 'detailed';
+        if (_sm.structTab === 'simple') _sfStrengthMode = 'simple';
+        // sync JSON textarea → builders if leaving json
+        _renderDetailSection();
+      });
+    });
+
+    var jsonTa = document.getElementById('pl-sm-json');
+    if (jsonTa) {
+      jsonTa.addEventListener('change', function () {
+        try {
+          var parsed = JSON.parse(jsonTa.value);
+          if (Array.isArray(parsed.blocks)) _sfBlocks = parsed.blocks;
+          if (Array.isArray(parsed.exercises)) _sfExercises = parsed.exercises;
+          if (parsed.focus != null) _sfFocus = parsed.focus;
+          _smMarkDirty();
+        } catch (e) {
+          _toast('Invalid JSON', true);
+        }
+      });
+    }
+
+    // Detailed structure host — reuse Add-panel builders inside the modal
+    var structHost = document.getElementById('pl-sm-struct-host');
+    if (structHost) {
+      var typeNow = (p.session_type || 'run').toLowerCase();
+      structHost.innerHTML =
+        '<select id="pl-sf-type" hidden aria-hidden="true">' +
+          '<option value="' + typeNow + '" selected>' + typeNow + '</option></select>' +
+        '<div id="pl-sf-structure"></div>';
+      if (typeNow === 'run') {
+        _sfStrengthMode = 'detailed';
+      } else {
+        _sfStrengthMode = 'detailed';
+      }
+      _renderStructureBuilder();
+      // Mode toggles inside the add builder are redundant with the modal's
+      // Simple/Detailed/JSON tabs — hide them when embedded here.
+      var modeToggle = document.getElementById('pl-strmode');
+      if (modeToggle) modeToggle.hidden = true;
+      structHost.querySelectorAll('input,select,textarea').forEach(function (inp) {
+        inp.addEventListener('change', function () { _smMarkDirty(); });
+        inp.addEventListener('input', function () { _smMarkDirty(); });
+      });
+    }
+
+    var aiExpand = document.getElementById('pl-sm-ai-expand');
+    if (aiExpand) aiExpand.onclick = function () {
+      _sm.aiForcedOpen = true;
+      _renderDetailSection();
+    };
+    var aiGo = document.getElementById('pl-sm-ai-go');
+    if (aiGo) aiGo.onclick = function () { _smRunAi(null); };
+    host.querySelectorAll('.pl-sm-chip').forEach(function (chip) {
+      chip.addEventListener('click', function () {
+        _smRunAi(chip.getAttribute('data-steer') || chip.textContent);
+      });
+    });
+
+    var strydToggle = document.getElementById('pl-sm-stryd-toggle');
+    if (strydToggle) strydToggle.onclick = function () {
+      _sm.strydOpen = !_sm.strydOpen;
+      var panel = document.getElementById('pl-sm-stryd-panel');
+      if (panel) panel.hidden = !_sm.strydOpen;
+      strydToggle.textContent = (_sm.strydOpen ? '▾' : '▸') +
+        ' Copy for Stryd Workout Builder — power/pace targets, import-safe';
+    };
+    var copyBtn = document.getElementById('pl-det-copy');
+    if (copyBtn) copyBtn.onclick = function () {
+      var pre = document.getElementById('pl-stryd-pre');
+      _copyText(pre ? pre.textContent : '', copyBtn);
+    };
+
+    _wireDetailEvents(host);
+    _smMarkDirty();
   }
 
-  // Attach/mark-complete/mark-missed actions, shown in the detail panel for
-  // unresolved sessions (planned/missed). Wired by _wireDetailEvents.
   function _detailStatusActionsHtml(p) {
-    if (p.status !== 'planned' && p.status !== 'missed') return '';
-    // Short labels so all three fit one row on a 390px phone (grid, equal
-    // thirds; text may wrap to two lines inside a button).
-    return '<div class="pl-detactions">' +
-        '<button class="pl-btn pl-ghost pl-tiny" data-pick="' + p.id + '" data-pick-mode="attach">🔗 Attach workout</button>' +
-        '<button class="pl-btn pl-lime pl-tiny" data-markdone="' + p.id + '">✓ Completed</button>' +
-        (p.status === 'planned' ? '<button class="pl-btn pl-ghost pl-tiny" data-missed="' + p.id + '">Missed</button>' : '') +
-      '</div>' +
-      '<div class="pl-picker" data-pickerfor="' + p.id + '" hidden></div>';
+    var done = p.status === 'done_auto' || p.status === 'done_manual';
+    var missed = p.status === 'missed' || p.status === 'missed_auto' || p.status === 'missed_manual';
+    return '<div class="pl-sm-stat">' +
+      '<button type="button" class="pl-sm-sbtn" data-pick="' + p.id + '" data-pick-mode="attach">⚲ Attach workout</button>' +
+      '<button type="button" class="pl-sm-sbtn' + (done ? ' on' : '') + '" data-markdone="' + p.id + '">✓ Completed</button>' +
+      '<button type="button" class="pl-sm-sbtn' + (missed ? ' on' : '') + '" data-missed="' + p.id + '">Missed</button>' +
+    '</div><div class="pl-picker" data-pickerfor="' + p.id + '" hidden></div>';
   }
-
-  function _phaseLabel(ph) { return ph === 'warmup' ? 'Warmup' : (ph === 'cooldown' ? 'Cooldown' : (ph === 'main' ? 'Main set' : (ph || 'Block'))); }
-  function _phaseCls(ph) { return ph === 'warmup' ? 'warm' : (ph === 'cooldown' ? 'cool' : 'main'); }
 
   function _detailIdRowHtml(p) {
     if (!p.id) return '';
@@ -2282,35 +4116,6 @@ information about.
       '</button></div>';
   }
 
-  function _runDetailHtml(p) {
-    var s = p.structure || {}, blocks = Array.isArray(s.blocks) ? s.blocks : [];
-    var segs = blocks.map(function (b) {
-      var dur = b.duration_min != null ? b.duration_min + ' min' : '';
-      var rep = (b.repeat && b.repeat > 1) ? ('<span class="pl-repeatlbl">×' + b.repeat + '</span>') : '';
-      var main = (b.repeat && b.repeat > 1) ? (b.repeat + ' × ' + dur) : dur;
-      var tgt = (b.target || '') + (b.rest_min ? ' · ' + b.rest_min + 'min rest between' : '');
-      return '<div class="pl-segblk"><span class="pl-sbtag ' + _phaseCls(b.phase) + '">' + _phaseLabel(b.phase) + '</span>' +
-        '<span class="pl-sbmain">' + esc(main) + rep + '</span><span class="pl-sbtgt">' + esc(tgt) + '</span></div>';
-    }).join('') || '<div class="pl-segblk"><span class="pl-sbmain" style="color:var(--pl-faint)">No structure yet.</span></div>';
-
-    return '<div class="pl-dethead"><span class="pl-dettag run">Run</span>' +
-        '<span style="font-size:11px;color:var(--pl-faint);font-family:var(--pl-mono)">' + esc(_fmtDayDate(p.planned_date)) + '</span>' +
-        '<span style="flex:1"></span><button class="pl-btn pl-ghost pl-danger" id="pl-det-delete" title="Delete this planned session">Delete</button>' +
-        '<button class="pl-btn pl-ghost" id="pl-det-edit" title="' + (p.actual && p.actual.id ? 'Edit the logged workout' : 'Edit the plan') + '">' + (p.actual && p.actual.id ? 'Edit workout' : 'Edit') + '</button></div>' +
-      '<div class="pl-dettitle">' + esc(p.name || '(untitled)') + '</div>' +
-      _detailIdRowHtml(p) +
-      _detailStatusActionsHtml(p) +
-      (p.notes ? '' : '') +
-      _runTiles(p) +
-      '<div class="pl-segwrap"><div class="pl-sectitle" style="margin-bottom:8px;">Structure</div><div class="pl-seg2">' + segs + '</div></div>' +
-      (p.notes ? '<div class="pl-fld" style="margin-top:16px;"><label>Coach notes</label><div class="pl-notebox">' + esc(p.notes) + '</div></div>' : '') +
-      '<div class="pl-exportbox"><div class="pl-eh"><span class="pl-et">Copy for Stryd Workout Builder</span><button class="pl-copybtn" id="pl-det-copy">Copy</button></div>' +
-        '<div class="pl-ewarn">Stryd doesn’t accept structured workouts pushed from third-party apps — only synced from TrainingPeaks/Final Surge. Paste this into PowerCenter’s own Workout Builder to rebuild it. Power-or-pace targets only, no nested repeats, no ramps — matches Stryd’s import rules.</div>' +
-        '<pre id="pl-stryd-pre">' + esc(_strydText(p)) + '</pre>' +
-      '</div>';
-  }
-
-  // Build the flat Stryd paste block from the run structure (no nested repeats/ramps).
   function _strydText(p) {
     var s = p.structure || {}, blocks = Array.isArray(s.blocks) ? s.blocks : [];
     var out = [];
@@ -2331,95 +4136,6 @@ information about.
     return out.join('\n') || '(no structure)';
   }
 
-  function _liftDetailHtml(p) {
-    var s = p.structure || {}, plannedExs = Array.isArray(s.exercises) ? s.exercises : [];
-    var focus = s.focus || '';
-    var typeLabel = p.session_type === 'plyo' ? 'Plyo' : 'Strength';
-    // A matched session shows what ACTUALLY happened (real sets/reps/weight/
-    // RPE, live off the matched Workout — see _workout_actual_summary), not
-    // the plan. It's always fetched fresh on load, so editing the workout's
-    // exercises on the Log tab shows up here next time this panel opens —
-    // no separate "sync back" step needed.
-    var actual = p.actual;
-    var actualExs = actual && Array.isArray(actual.exercises) ? actual.exercises : [];
-    var usingActual = actualExs.length > 0;
-    // Real logged exercises have no block field of their own — but the plan
-    // they were matched against usually named the same exercises under a
-    // block, so borrow that grouping by name (case/whitespace-insensitive)
-    // rather than always falling back to one flat list once matched.
-    if (usingActual) {
-      var blockByName = {};
-      plannedExs.forEach(function (x) {
-        if (x && x.name && x.block) blockByName[String(x.name).toLowerCase().trim()] = x.block;
-      });
-      actualExs = actualExs.map(function (x) {
-        var b = blockByName[String(x.name || '').toLowerCase().trim()];
-        return b ? Object.assign({}, x, { block: b }) : x;
-      });
-    }
-    var exs = usingActual ? actualExs : plannedExs;
-
-    // One row template for both planned and actual exercises — same columns
-    // (name / sets×reps / load-or-weight / RPE), same plain styling. Actual
-    // rows use the real weight_kg + logged RPE (blank shows as a faint "—",
-    // not a colored badge); planned rows use the free-text load + optional
-    // target RPE. Kept as one function, not two, so matched vs. unmatched
-    // sessions render one visual design instead of two.
-    function _exRow(x) {
-      var sr = (x.sets != null && x.reps != null) ? (x.sets + ' × ' + x.reps) : (x.sets != null ? x.sets + ' sets' : '');
-      var loadTxt = usingActual ? (x.weight_kg != null ? x.weight_kg + 'kg' : '') : (x.load || '');
-      var rpeVal = x.rpe != null && x.rpe !== '' ? x.rpe : null;
-      var rpeHtml = rpeVal != null
-        ? '<span class="pl-es">' + (usingActual ? 'RPE ' : 'Target RPE ') + esc(rpeVal) + '</span>'
-        : (usingActual ? '<span class="pl-es" style="color:var(--pl-faint)">RPE —</span>' : '');
-      return '<div class="pl-exd"><span class="pl-en">' + esc(x.name || 'Exercise') + '</span>' +
-        '<span class="pl-sr">' + esc(sr) + '</span>' +
-        '<span class="pl-es" style="color:var(--pl-faint)">' + esc(loadTxt) + '</span>' +
-        rpeHtml + '</div>';
-    }
-    var exHtml;
-    if (!exs.length) {
-      exHtml = focus ? '' : '<div class="pl-exd"><span class="pl-en" style="color:var(--pl-faint)">No exercises listed.</span></div>';
-    } else if (exs.some(function (x) { return x && x.block; })) {
-      // Group by the pasted-back `block` label (Warm-up / Heavy compound /
-      // Superset 1 / … / Accessories), preserving order of first appearance.
-      // Real logged exercises never carry a block, so matched sessions just
-      // fall through to the flat list below.
-      var order = [];
-      exs.forEach(function (x) {
-        var b = (x && x.block) ? x.block : 'Other';
-        if (order.indexOf(b) === -1) order.push(b);
-      });
-      exHtml = order.map(function (b) {
-        var rows = exs.filter(function (x) { return ((x && x.block) ? x.block : 'Other') === b; }).map(_exRow).join('');
-        return '<div class="pl-exblock"><div class="pl-exblock-h">' + esc(b) + '</div>' + rows + '</div>';
-      }).join('');
-    } else {
-      exHtml = exs.map(_exRow).join('');
-    }
-
-    return '<div class="pl-dethead"><span class="pl-dettag lift">' + typeLabel + '</span>' +
-        '<span style="font-size:11px;color:var(--pl-faint);font-family:var(--pl-mono)">' + esc(_fmtDayDate(p.planned_date)) + '</span>' +
-        '<span style="flex:1"></span><button class="pl-btn pl-ghost pl-danger" id="pl-det-delete" title="Delete this planned session">Delete</button>' +
-        '<button class="pl-btn pl-ghost" id="pl-det-edit" title="' + (p.actual && p.actual.id ? 'Edit the logged workout' : 'Edit the plan') + '">' + (p.actual && p.actual.id ? 'Edit workout' : 'Edit') + '</button></div>' +
-      '<div class="pl-dettitle">' + esc(p.name || '(untitled)') + '</div>' +
-      _detailIdRowHtml(p) +
-      _detailStatusActionsHtml(p) +
-      (actual && actual.needs_rpe
-        ? '<div class="pl-infobanner" style="margin:8px 0;">Some exercises are missing RPE.' +
-            (actual.id ? ' <button type="button" class="pl-rpe-fixlink" data-viewfull="' + esc(actual.id) + '">Add it on the logged workout →</button>' : '') +
-          '</div>'
-        : '') +
-      // No Type tile — the STRENGTH/PLYO tag at the top of the panel already
-      // says it; a whole tile repeating one word was dead weight on mobile.
-      (focus && !usingActual
-        ? '<div class="pl-dettiles"><div class="pl-dettile"><div class="l">Focus</div><div class="v" style="font-size:14px;">' + esc(focus) + '</div></div></div>'
-        : '') +
-      (exs.length ? '<div class="pl-segwrap"><div class="pl-sectitle" style="margin-bottom:8px;">Exercises</div>' + exHtml + '</div>' : '') +
-      (p.notes ? '<div class="pl-fld" style="margin-top:16px;"><label>Coach notes</label><div class="pl-notebox">' + esc(p.notes) + '</div></div>' : '') +
-      '<div class="pl-infobanner" style="margin-top:16px;">No Stryd export here — power-based workout export only applies to runs. This session logs into the Economy model once completed.</div>';
-  }
-
   function _copyText(text, btn) {
     function done() { if (btn) { var o = btn.textContent; btn.textContent = 'Copied ✓'; setTimeout(function () { btn.textContent = o; }, 1400); } }
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -2435,101 +4151,118 @@ information about.
 
   // ── Scoped styles (injected once) ───────────────────────────────────────────
   function _injectStyles() {
-    if (document.getElementById('plan-tab-styles')) return;
+    var VER = '20260722draft7';
+    var existing = document.getElementById('plan-tab-styles');
+    if (existing) {
+      if (existing.getAttribute('data-ver') === VER) return;
+      existing.remove();
+    }
     var css = document.createElement('style');
     css.id = 'plan-tab-styles';
+    css.setAttribute('data-ver', VER);
     css.textContent = PLAN_CSS;
     document.head.appendChild(css);
   }
 
   var PLAN_CSS = [
-    '.plan-panel{',
-    '--pl-ink:#1b2340;--pl-muted:#6b7280;--pl-faint:#9aa3b8;--pl-line:#eceef4;--pl-tile:#f6f7fb;',
-    '--pl-blue:#4f6ef7;--pl-blueSoft:#e6ebfe;--pl-lavHi:#6366f1;--pl-green:#16a34a;--pl-greenSoft:#dcfce7;',
-    '--pl-amber:#d97706;--pl-amberSoft:#fdf3da;--pl-red:#dc2626;--pl-redSoft:#fee2e2;',
-    '--pl-run:#4f6ef7;--pl-lift:#8b5cf6;--pl-liftSoft:#ede9fe;--pl-lime:#cff245;--pl-mono:"JetBrains Mono",monospace;',
-    'display:flex;flex-direction:column;gap:16px;color:var(--pl-ink);}',
+    // Custom-property namespace (--pl-*) removed — was a drifted local hex
+    // duplicate of the canonical tokens in frontend/css/styles.css; every
+    // rule below now references the canonical tokens directly.
+    '.plan-panel{display:flex;flex-direction:column;gap:16px;color:var(--ink);}',
     '.plan-panel .pl-card{background:#fff;border-radius:16px;padding:18px 20px;box-shadow:0 8px 24px rgba(20,28,70,0.16);}',
-    '.plan-panel .pl-sectitle{font-size:11px;font-weight:800;letter-spacing:0.07em;color:var(--pl-faint);text-transform:uppercase;}',
+    '.plan-panel .pl-sectitle{font-size:11px;font-weight:800;letter-spacing:0.07em;color:var(--text-sub);text-transform:uppercase;margin:0;}',
     '.plan-panel .pl-chead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;flex-wrap:wrap;}',
-    '.plan-panel .pl-btn{font-size:12px;font-weight:700;border-radius:8px;padding:8px 13px;cursor:pointer;border:1px solid var(--pl-line);background:var(--pl-tile);color:var(--pl-ink);font-family:inherit;}',
+    '.plan-panel .pl-btn{font-size:12px;font-weight:700;border-radius:8px;padding:8px 13px;cursor:pointer;border:1px solid var(--border);background:var(--tile);color:var(--ink);font-family:inherit;}',
     '.plan-panel .pl-btn:disabled{opacity:0.42;cursor:not-allowed;}',
-    '.plan-panel .pl-btn.pl-dark{background:var(--pl-ink);color:#fff;border-color:var(--pl-ink);}',
-    '.plan-panel .pl-btn.pl-lime{background:var(--pl-lime);color:var(--pl-ink);border-color:var(--pl-lime);}',
-    '.plan-panel .pl-btn.pl-ghost{background:none;border:1px solid var(--pl-line);}',
+    '.plan-panel .pl-btn.pl-dark{background:var(--ink);color:#fff;border-color:var(--ink);}',
+    '.plan-panel .pl-btn.pl-lime{background:var(--accent);color:var(--ink);border-color:var(--accent);}',
+    '.plan-panel .pl-btn.pl-ghost{background:none;border:1px solid var(--border);}',
     '.plan-panel .pl-btn.pl-danger{color:#b91c1c;border-color:#fecaca;}',
     '.plan-panel .pl-btn.pl-danger:hover{background:#fee2e2;}',
     '.plan-panel .pl-btn.pl-tiny{font-size:10px;padding:5px 9px;}',
     '.plan-panel .pl-detactions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 4px;}',
     // Mobile: the three status actions share one row as equal thirds — short
     // labels, text allowed to wrap to two lines inside a button.
-    '@media(max-width:560px){',
+    '@media(max-width:640px){',
     '.plan-panel .pl-detactions{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;}',
     '.plan-panel .pl-detactions .pl-btn{white-space:normal;line-height:1.25;padding:8px 6px;text-align:center;font-size:11.5px;}',
     '}',
+    '.plan-panel .pl-det-ai{margin:10px 0 6px;padding:10px 12px;border:1px dashed #c7d2fe;border-radius:11px;background:#f8f9ff;}',
+    '.plan-panel .pl-det-ai-head{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}',
+    '.plan-panel .pl-det-ai-panel{margin-top:8px;}',
+    '.plan-panel .pl-det-ai-input{width:100%;box-sizing:border-box;font:inherit;font-size:12.5px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#fff;}',
+    '.plan-panel .pl-det-ai-status{font-size:11.5px;color:var(--text-sub);margin-top:6px;min-height:1em;}',
+    '.plan-panel .pl-det-ai-hint{font-size:11.5px;color:#3f4a7a;margin-top:8px;line-height:1.35;}',
     // Labeled input wrappers in the detailed exercise editor: invisible on
     // desktop (display:contents — the column header row names the fields),
     // visible inline labels on mobile where wrapping breaks column alignment.
     '.plan-panel .pl-exfld{display:contents;}',
     '.plan-panel .pl-exfld-l{display:none;}',
     '.plan-panel .pl-btnrow{display:flex;gap:8px;flex-wrap:wrap;}',
-    '.plan-panel .pl-loading{font-size:12.5px;color:var(--pl-faint);padding:14px 0;}',
+    '.plan-panel .pl-loading{font-size:12.5px;color:var(--text-sub);padding:14px 0;}',
     '.plan-panel .pl-infobanner{background:#f2f5ff;border:1px solid #e0e7ff;border-radius:11px;padding:10px 14px;font-size:12px;color:#3f4a7a;}',
-    '.plan-panel .pl-infobanner b{color:var(--pl-lavHi);}',
+    '.plan-panel .pl-infobanner b{color:var(--info-dark);}',
     '.plan-panel .pl-panelcard{animation:plPanelIn .18s ease;}',
     '@keyframes plPanelIn{from{opacity:0;transform:translateY(-6px);}to{opacity:1;transform:translateY(0);}}',
     '.plan-panel .pl-panelhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;}',
-    '.plan-panel .pl-closepanel{width:27px;height:27px;flex-shrink:0;border:1px solid var(--pl-line);background:var(--pl-tile);border-radius:8px;cursor:pointer;color:var(--pl-muted);font-size:13px;}',
-    '.plan-panel .pl-closepanel:hover{color:var(--pl-red);border-color:#fecaca;}',
+    '.plan-panel .pl-closepanel{width:44px;height:44px;flex-shrink:0;border:1px solid var(--border);background:var(--tile);border-radius:8px;cursor:pointer;color:var(--text-sub);font-size:13px;}',
+    '.plan-panel .pl-closepanel:hover{color:var(--danger);border-color:#fecaca;}',
     '.plan-panel .pl-wknav{display:flex;align-items:center;gap:10px;}',
-    '.plan-panel .pl-arw{width:26px;height:26px;border:1px solid var(--pl-line);background:var(--pl-tile);border-radius:8px;cursor:pointer;font-size:14px;color:var(--pl-muted);}',
+    '.plan-panel .pl-arw{width:44px;height:44px;border:1px solid var(--border);background:var(--tile);border-radius:8px;cursor:pointer;font-size:14px;color:var(--text-sub);}',
     '.plan-panel .pl-wktitle{font-size:13px;font-weight:800;}',
-    '.plan-panel .pl-weektotal{font-size:11px;color:var(--pl-muted);font-family:var(--pl-mono);margin-left:6px;}',
-    '.plan-panel .pl-weektotal b{color:var(--pl-ink);font-weight:800;}',
+    '.plan-panel .pl-weektotal{font-size:11px;color:var(--text-sub);font-family:var(--mono);margin-left:6px;}',
+    '.plan-panel .pl-weektotal b{color:var(--ink);font-weight:800;}',
     '.plan-panel .pl-weeklist{display:flex;flex-direction:column;gap:6px;margin-top:14px;}',
-    '.plan-panel .pl-dayrow{display:flex;gap:12px;padding:7px 12px;border:1px solid var(--pl-line);border-radius:12px;background:var(--pl-tile);align-items:flex-start;}',
+    '.plan-panel .pl-dayrow{display:flex;gap:12px;padding:7px 12px;border:1px solid var(--border);border-radius:12px;background:var(--tile);align-items:flex-start;}',
     '.plan-panel .pl-dayrow.today{border-color:#c7d2fe;background:#f4f6ff;}',
     '.plan-panel .pl-dayrow.past{opacity:0.94;}',
-    '.plan-panel .pl-dayrow.dragover{outline:2px dashed var(--pl-lavHi);outline-offset:-2px;background:#eef2ff;}',
+    '.plan-panel .pl-dayrow.dragover{outline:2px dashed var(--info);outline-offset:-2px;background:#eef2ff;}',
     '.plan-panel .pl-daylabel{width:58px;flex-shrink:0;padding-top:2px;}',
-    '.plan-panel .pl-daylabel .pl-dname{font-size:10px;font-weight:800;color:var(--pl-faint);text-transform:uppercase;display:block;}',
-    '.plan-panel .pl-daylabel .pl-dnum{font-size:20px;font-family:var(--pl-mono);color:var(--pl-ink);font-weight:700;display:block;margin-top:2px;}',
-    '.plan-panel .pl-dtotal{flex-shrink:0;align-self:center;font-size:10.5px;font-weight:700;font-family:var(--pl-mono);color:var(--pl-muted);white-space:nowrap;padding-left:8px;}',
+    '.plan-panel .pl-daylabel .pl-dname{font-size:10px;font-weight:800;color:var(--text-sub);text-transform:uppercase;display:block;}',
+    '.plan-panel .pl-daylabel .pl-dnum{font-size:20px;font-family:var(--mono);color:var(--ink);font-weight:700;display:block;margin-top:2px;}',
+    '.plan-panel .pl-dtotal{flex-shrink:0;align-self:center;font-size:10.5px;font-weight:700;font-family:var(--mono);color:var(--text-sub);white-space:nowrap;padding-left:8px;}',
     '.plan-panel .pl-daybody{flex:1;display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;min-width:0;}',
     '.plan-panel .pl-daybody .pl-sess,.plan-panel .pl-daybody .pl-ghost{flex:1 1 250px;max-width:360px;}',
-    '.plan-panel .pl-sess{position:relative;border-radius:8px;padding:7px 9px;font-size:11px;cursor:pointer;border-left:3px solid transparent;background:#fff;box-shadow:0 1px 2px rgba(20,28,70,0.06);}',
+    '.plan-panel .pl-sess{position:relative;border-radius:8px;padding:7px 9px;font-size:11px;cursor:pointer;background:#fff;box-shadow:0 1px 2px rgba(20,28,70,0.06);}',
     '.plan-panel .pl-sess.dragging{opacity:0.4;}',
     '.plan-panel .pl-sess[draggable="true"]{cursor:grab;}',
-    '.plan-panel .pl-sess.run{border-left-color:var(--pl-run);}.plan-panel .pl-sess.lift{border-left-color:var(--pl-lift);}',
-    '.plan-panel .pl-sess.plyo{border-left-color:var(--pl-amber);}.plan-panel .pl-sess.stretch{border-left-color:#0f766e;}',
-    '.plan-panel .pl-sess .pl-sn{font-weight:700;font-size:11.5px;}.plan-panel .pl-sess .pl-sm{color:var(--pl-muted);font-family:var(--pl-mono);font-size:10px;margin-top:2px;}',
-    '.plan-panel .pl-stypetag{font-size:8px;font-weight:800;letter-spacing:0.03em;padding:1px 5px;border-radius:4px;text-transform:uppercase;display:inline-block;}',
-    '.plan-panel .pl-stypetag.run{background:var(--pl-blueSoft);color:var(--pl-run);}.plan-panel .pl-stypetag.lift{background:var(--pl-liftSoft);color:#7c3aed;}',
-    '.plan-panel .pl-stypetag.plyo{background:var(--pl-amberSoft);color:var(--pl-amber);}.plan-panel .pl-stypetag.stretch{background:#ccfbf1;color:#0f766e;}',
-    '.plan-panel .pl-dhandle{position:absolute;top:7px;right:8px;font-size:9px;color:var(--pl-faint);letter-spacing:-1px;}',
-    '.plan-panel .pl-sesstop{display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:2px;}',
+    '.plan-panel .pl-sess .pl-sn{font-weight:700;font-size:11.5px;}.plan-panel .pl-sess .pl-sm{color:var(--text-sub);font-family:var(--mono);font-size:10px;margin-top:2px;}',
+    // .pl-stypetag base + variant colors were fully re-declared further down
+    // (re-audit #14) and that later, un-tokenized block always won the
+    // cascade — this tokenized version was dead. Removed rather than kept,
+    // to avoid a visual change without browser verification; see the note
+    // by the surviving definition.
+    '.plan-panel .pl-dhandle{font-size:9px;color:var(--text-sub);letter-spacing:-1px;line-height:1;padding:2px 0;}',
+    '.plan-panel .pl-sess-acts{position:absolute;top:5px;right:6px;display:flex;align-items:center;gap:4px;z-index:2;}',
+    '.plan-panel .pl-sess-del{background:none;border:none;padding:2px 3px;font-size:13px;line-height:1;cursor:pointer;opacity:0.35;border-radius:5px;}',
+    '.plan-panel .pl-sess-del:hover{opacity:1;background:var(--danger-soft);}',
+    '.pl-del-confirm-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;}',
+    '.pl-del-confirm-actions .pl-btn{flex:1;min-width:110px;text-align:center;font-size:12.5px;font-weight:700;padding:9px 12px;border-radius:9px;cursor:pointer;border:1px solid var(--border);background:#fff;color:var(--ink);}',
+    '.pl-del-confirm-actions .pl-btn.pl-danger{background:#fee2e2;border-color:#fecaca;color:#b91c1c;}',
+    '.pl-draft-rm-hint{font-size:11.5px;color:var(--text-sub);line-height:1.4;margin:8px 0 0;}',
+    '.plan-panel .pl-sesstop{display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:2px;padding-right:44px;}',
     '.plan-panel .pl-sesstop-left{display:flex;align-items:center;gap:6px;}',
-    '.plan-panel .pl-tss-badge{font-size:9.5px;font-weight:700;font-family:var(--pl-mono);color:var(--pl-muted);}',
-    '.plan-panel .pl-tss-badge.is-estimated{color:var(--pl-faint);font-style:italic;}',
+    '.plan-panel .pl-tss-badge{font-size:10.5px;font-weight:700;font-family:var(--mono);color:var(--text-sub);}',
+    '.plan-panel .pl-tss-badge.is-estimated{color:var(--text-sub);font-style:italic;}',
     '.plan-panel .pl-guard-badge{font-size:10px;color:#b45309;cursor:help;}',
-    '.plan-panel .pl-day-guard-badge{font-size:9px;color:#b45309;margin-left:2px;cursor:help;}',
+    '.plan-panel .pl-day-guard-badge{font-size:10px;color:#b45309;margin-left:2px;cursor:help;}',
     '.plan-panel .pl-guard-banner{background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;}',
     '.plan-panel .pl-guard-title{font-weight:700;color:#92400e;margin-bottom:4px;}',
     '.plan-panel .pl-guard-warn{color:#78350f;margin-bottom:3px;line-height:1.5;}',
     '.plan-panel .pl-guard-sug-title{font-weight:700;color:#1e40af;margin-top:6px;margin-bottom:2px;}',
     '.plan-panel .pl-guard-sug{color:#1e3a8a;margin-bottom:2px;line-height:1.5;}',
     '.plan-panel .pl-guard-inline{margin-top:8px;}',
-    '.plan-panel .pl-stat-tag{font-size:7.5px;font-weight:800;letter-spacing:0.03em;padding:1px 5px;border-radius:4px;text-transform:uppercase;}',
-    '.plan-panel .pl-stat-tag.missed{background:var(--pl-redSoft);color:var(--pl-red);}',
-    '.plan-panel .pl-stat-tag.review{background:var(--pl-amberSoft);color:var(--pl-amber);}',
-    '.plan-panel .pl-stat-tag.done{background:var(--pl-greenSoft);color:var(--pl-green);}',
+    '.plan-panel .pl-stat-tag{font-size:10px;font-weight:800;letter-spacing:0.03em;padding:1px 5px;border-radius:4px;text-transform:uppercase;}',
+    '.plan-panel .pl-stat-tag.missed{background:var(--danger-soft);color:var(--danger);}',
+    '.plan-panel .pl-stat-tag.review{background:var(--warning-soft);color:var(--warning);}',
+    '.plan-panel .pl-stat-tag.done{background:var(--success-soft);color:var(--success);}',
     '.plan-panel .pl-sess.status-missed{opacity:0.55;}',
-    '.plan-panel .pl-sess.status-done_auto,.plan-panel .pl-sess.status-done_manual{background:#f4fbf6;border-left-color:var(--pl-green)!important;}',
-    '.plan-panel .pl-sess.status-needs_review{background:#fffaf0;border-left-color:var(--pl-amber)!important;cursor:default;}',
-    '.plan-panel .pl-diffline{font-size:9.5px;color:var(--pl-muted);font-family:var(--pl-mono);margin-top:6px;line-height:1.4;}',
+    '.plan-panel .pl-sess.status-done_auto,.plan-panel .pl-sess.status-done_manual{background:#f4fbf6;}',
+    '.plan-panel .pl-sess.status-needs_review{background:#fffaf0;cursor:default;}',
+    '.plan-panel .pl-diffline{font-size:10.5px;color:var(--text-sub);font-family:var(--mono);margin-top:6px;line-height:1.4;}',
     '.plan-panel .pl-diffline--manual{font-style:italic;}',
-    '.plan-panel .pl-unlink{margin-top:4px;font-size:9.5px;color:var(--pl-faint);background:none;border:none;cursor:pointer;padding:0;}',
-    '.plan-panel .pl-unlink:hover{color:var(--pl-red);}',
+    '.plan-panel .pl-unlink{margin-top:4px;font-size:10.5px;color:var(--text-sub);background:none;border:none;cursor:pointer;padding:0;}',
+    '.plan-panel .pl-unlink:hover{color:var(--danger);}',
     // Quick-tag feeling row: faint icons until one is picked, then only it shows.
     '.plan-panel .pl-feelrow{display:flex;gap:4px;margin-top:5px;align-items:center;}',
     '.plan-panel .pl-feel-btn{background:none;border:none;padding:0 2px;font-size:14px;line-height:1;cursor:pointer;opacity:0.32;filter:grayscale(0.6);transition:opacity .12s,filter .12s,transform .12s;}',
@@ -2538,134 +4271,202 @@ information about.
     '.plan-panel .pl-feel-btn.is-hidden{display:none;}',
     // 24h attach/override picker.
     '.plan-panel .pl-matchbtns{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:4px;}',
-    '.plan-panel .pl-pickbtn{font-size:9.5px;color:var(--pl-run);background:none;border:none;cursor:pointer;padding:0;text-align:left;}',
+    '.plan-panel .pl-pickbtn{font-size:10.5px;color:var(--primary);background:none;border:none;cursor:pointer;padding:0;text-align:left;}',
     '.plan-panel .pl-pickbtn:hover{text-decoration:underline;}',
     '.plan-panel .pl-picker{margin-top:6px;}',
     '.plan-panel .pl-pickerlist{display:flex;flex-direction:column;gap:4px;}',
-    '.plan-panel .pl-pickrow{display:flex;align-items:center;gap:6px;font-size:10px;background:#fff;border:1px solid var(--pl-line);border-radius:6px;padding:5px 7px;cursor:pointer;text-align:left;width:100%;}',
-    '.plan-panel .pl-pickrow:hover{border-color:var(--pl-run);}',
-    '.plan-panel .pl-pickrow.is-sel{border-color:var(--pl-run);background:#eef3ff;}',
-    '.plan-panel .pl-pickrow-badge{font-size:8px;font-weight:800;text-transform:uppercase;padding:1px 4px;border-radius:4px;color:#fff;}',
-    '.plan-panel .pl-pickrow-badge.run{background:var(--pl-run);}.plan-panel .pl-pickrow-badge.lift{background:var(--pl-lift);}',
+    '.plan-panel .pl-pickrow{display:flex;align-items:center;gap:6px;font-size:10px;background:#fff;border:1px solid var(--border);border-radius:6px;padding:5px 7px;cursor:pointer;text-align:left;width:100%;}',
+    '.plan-panel .pl-pickrow:hover{border-color:var(--primary);}',
+    '.plan-panel .pl-pickrow.is-sel{border-color:var(--primary);background:#eef3ff;}',
+    '.plan-panel .pl-pickrow-badge{font-size:10px;font-weight:800;text-transform:uppercase;padding:1px 4px;border-radius:4px;color:#fff;}',
+    '.plan-panel .pl-pickrow-badge.run{background:var(--primary);}.plan-panel .pl-pickrow-badge.lift{background:var(--workout-lift);}',
     '.plan-panel .pl-pickrow-name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
-    '.plan-panel .pl-pickrow-meta{color:var(--pl-faint);font-family:var(--pl-mono);margin-left:auto;white-space:nowrap;}',
-    '.plan-panel .pl-pickconfirm{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:10px;color:var(--pl-muted);}',
-    '.plan-panel .pl-picker-empty{font-size:10px;color:var(--pl-faint);font-style:italic;padding:4px 2px;}',
+    '.plan-panel .pl-pickrow-meta{color:var(--text-sub);font-family:var(--mono);margin-left:auto;white-space:nowrap;}',
+    '.plan-panel .pl-pickconfirm{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:10px;color:var(--text-sub);}',
+    '.plan-panel .pl-picker-empty{font-size:10px;color:var(--text-sub);font-style:italic;padding:4px 2px;}',
     // "View full workout →" deep link.
-    '.plan-panel .pl-viewfull{display:block;margin-top:4px;font-size:9.5px;color:var(--pl-run);background:none;border:none;cursor:pointer;padding:0;text-align:left;}',
+    '.plan-panel .pl-viewfull{display:block;margin-top:4px;font-size:10.5px;color:var(--primary);background:none;border:none;cursor:pointer;padding:0;text-align:left;}',
     '.plan-panel .pl-viewfull:hover{text-decoration:underline;}',
     // RPE-missing banner on a matched session's detail panel.
     '.plan-panel .pl-rpe-fixlink{background:none;border:none;padding:0;font-size:12px;font-weight:700;color:inherit;text-decoration:underline;cursor:pointer;font-family:inherit;}',
     '.plan-panel .pl-candlist{margin-top:7px;display:flex;flex-direction:column;gap:4px;}',
-    '.plan-panel .pl-candrow{display:flex;align-items:center;gap:6px;font-size:10px;background:#fff;border:1px solid var(--pl-line);border-radius:6px;padding:5px 7px;cursor:pointer;}',
-    '.plan-panel .pl-candrow .pl-cn{font-weight:600;}.plan-panel .pl-candrow .pl-cm{color:var(--pl-faint);font-family:var(--pl-mono);margin-left:auto;}',
+    '.plan-panel .pl-candrow{display:flex;align-items:center;gap:6px;font-size:10px;background:#fff;border:1px solid var(--border);border-radius:6px;padding:5px 7px;cursor:pointer;}',
+    '.plan-panel .pl-candrow .pl-cn{font-weight:600;}.plan-panel .pl-candrow .pl-cm{color:var(--text-sub);font-family:var(--mono);margin-left:auto;}',
     '.plan-panel .pl-candbtns{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;}',
     '.plan-panel .pl-ghost{border:1.5px dashed #d7dcec;border-radius:8px;padding:8px 9px;background:#fbfcff;}',
+    // Draft cards — plan-draft-review.html .sess.draft layout (horizontal row).
+    '.plan-panel .pl-draft{display:flex;align-items:center;gap:11px;flex-wrap:wrap;border:1.5px dashed #4f6ef7;border-radius:11px;padding:10px 13px;background:#f4f6fe;position:relative;flex:1 1 250px;max-width:100%;}',
+    '.plan-panel .pl-draft .pl-stypetag{flex-shrink:0;}',
+    '.plan-panel .pl-draft-main{flex:1;min-width:140px;}',
+    '.plan-panel .pl-draft .pl-sn{font-size:13px;font-weight:650;line-height:1.3;}',
+    '.plan-panel .pl-draft .pl-sm{font-family:var(--mono);font-size:10px;color:var(--text-sub);margin-top:2px;}',
+    '.plan-panel .pl-draft-right{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto;}',
+    '.plan-panel .pl-draft-tss{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--text-sub);}',
+    '.plan-panel .pl-draft-rm{font-family:var(--mono);font-size:10px;font-weight:700;color:#dc2626;background:none;border:none;cursor:pointer;padding:0;white-space:nowrap;}',
+    '.plan-panel .pl-draft-rm:hover{text-decoration:underline;}',
+    // Raw-hex, un-tokenized — this is the block that actually wins the
+    // cascade (a dead, tokenized duplicate was removed above, re-audit
+    // #14). Left as-is rather than swapped for tokens: doing so changes
+    // the on-screen color of every .pl-stypetag site-wide, which needs a
+    // real browser check before shipping, not a blind swap.
+    '.plan-panel .pl-stypetag{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:0.04em;padding:2px 7px;border-radius:5px;background:#e4e8fd;color:#3b4bb8;text-transform:uppercase;}',
+    '.plan-panel .pl-stypetag.lift{background:#efe9fd;color:#6d3fd1;}',
+    '.plan-panel .pl-stypetag.plyo{background:#fef3c7;color:#92400e;}',
+    '.plan-panel .pl-stypetag.stretch{background:#e6f7ef;color:#0f7a46;}',
+    '.plan-panel .pl-stypetag.run{background:#e4e8fd;color:#3b4bb8;}',
+    '.plan-panel .pl-draft-tag{font-size:10px;font-weight:800;letter-spacing:0.04em;color:var(--info-dark);background:#eef2ff;padding:1px 5px;border-radius:4px;}',
+    '.plan-panel .pl-src-chip{font-family:var(--mono);font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;text-transform:uppercase;background:#f1f5f9;color:#64748b;display:inline-flex;align-items:center;gap:5px;}',
+    '.plan-panel .pl-src-user{background:var(--ink);color:#fff;}',
+    '.plan-panel .pl-src-tmpl{background:#fef3c7;color:#92400e;}',
+    '.plan-panel .pl-src-ai{background:#dcfce7;color:#15803d;}',
+    '.plan-panel .pl-src-gen{background:#e4e8fd;color:#3b4bb8;}',
+    // CSS border spinner (mock .spin / .src.gen i) — not an SVG.
+    '.plan-panel .pl-gen-spin{width:8px;height:8px;border-radius:99px;border:1.5px solid currentColor;border-right-color:transparent;display:inline-block;animation:pl-gen-spin 0.9s linear infinite;flex-shrink:0;}',
+    '.plan-panel .pl-gen-spin-lg{width:12px;height:12px;border-width:2px;}',
+    '.pl-gen-spin{width:8px;height:8px;border-radius:99px;border:1.5px solid currentColor;border-right-color:transparent;display:inline-block;animation:pl-gen-spin 0.9s linear infinite;flex-shrink:0;}',
+    '.pl-gen-spin-lg{width:12px;height:12px;border-width:2px;}',
+    '@keyframes pl-gen-spin{to{transform:rotate(360deg);}}',
+    '.plan-panel .pl-draft.is-pending{opacity:0.75;pointer-events:none;}',
+    '.plan-panel .pl-sess.is-generating{border:1.5px dashed #4f6ef7;border-left:1.5px dashed #4f6ef7;background:#f4f6fe;box-shadow:none;cursor:default;opacity:0.75;}',
+    '.plan-panel .pl-sm-generating{color:var(--text-sub);font-style:normal;}',
+    // Mock .genbar
+    '.plan-panel .pl-draft-pending{display:flex;align-items:center;gap:10px;background:#eef1fe;border:1px solid #dfe5fd;border-radius:11px;padding:10px 14px;font-size:12.5px;color:#3b4bb8;margin-bottom:10px;line-height:1.4;flex-wrap:wrap;}',
+    '.plan-panel .pl-det-ai-genline{display:inline-flex;align-items:center;gap:6px;color:var(--text-sub);}',
+    '.plan-panel .pl-draft-add{display:flex;flex-wrap:wrap;gap:4px;align-items:center;}',
+    '.plan-panel .pl-draft-move{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--primary);display:inline-flex;align-items:center;gap:4px;cursor:pointer;}',
+    '.plan-panel .pl-draft-move select{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--primary);border:none;background:transparent;cursor:pointer;padding:0;}',
+    '.plan-panel .pl-draft-move select:hover{text-decoration:underline;}',
+    '.plan-panel .pl-draft-move select:focus-visible{outline:2px solid var(--primary);outline-offset:2px;border-radius:3px;}',
+    '.plan-panel .pl-dayrow.drop-ok{outline:2px solid #86efac;outline-offset:-2px;}',
+    '.plan-panel .pl-dayrow.drop-warn{outline:2px solid #fbbf24;outline-offset:-2px;}',
+    '.plan-panel .pl-dayrow.drop-blocked{outline:2px solid #cbd5e1;outline-offset:-2px;opacity:0.7;}',
+    '.plan-panel .pl-draft.dragging{opacity:0.4;}',
+    '.plan-panel .pl-draft-banner{background:#fffbeb;border:1px solid #fcd34d;border-radius:11px;padding:10px 14px;font-size:12px;color:#92400e;margin-bottom:10px;}',
+    '.plan-panel .pl-draft-link{background:none;border:none;padding:0;font:inherit;font-weight:700;color:#1e40af;text-decoration:underline;cursor:pointer;}',
+    '.plan-panel .pl-legend-draft{font-style:italic;color:var(--text-sub);}',
+    '#log-tab-plan{position:relative;}',
+    '#log-tab-plan .pl-draft-badge{position:absolute;top:4px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--info);color:transparent;font-size:0;line-height:0;}',
     '.plan-panel .pl-gtop{margin-bottom:3px;}',
-    '.plan-panel .pl-gtag{font-size:8px;font-weight:800;letter-spacing:0.03em;color:var(--pl-faint);background:var(--pl-tile);padding:1px 5px;border-radius:4px;}',
-    '.plan-panel .pl-ghostsel{width:100%;font-size:10.5px;border:1px solid var(--pl-line);border-radius:6px;padding:4px 6px;margin-top:6px;background:#fff;}',
-    '.plan-panel .pl-daybody .pl-addday{border:1.5px dashed #d7dcec;border-radius:8px;flex:0 0 76px;min-height:34px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:10.5px;color:var(--pl-faint);cursor:pointer;}',
-    '.plan-panel .pl-addday:hover{color:var(--pl-lavHi);border-color:#c7d2fe;}',
+    '.plan-panel .pl-gtag{font-size:10px;font-weight:800;letter-spacing:0.03em;color:var(--text-sub);background:var(--tile);padding:1px 5px;border-radius:4px;}',
+    '.plan-panel .pl-ghostsel{width:100%;font-size:10.5px;border:1px solid var(--border);border-radius:6px;padding:4px 6px;margin-top:6px;background:#fff;}',
+    '.plan-panel .pl-daybody .pl-addday{border:1.5px dashed #d7dcec;border-radius:8px;flex:0 0 76px;min-height:34px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:10.5px;font-family:inherit;color:var(--text-sub);background:none;padding:0;cursor:pointer;}',
+    '.plan-panel .pl-daybody .pl-addday:focus-visible{outline:2px solid var(--info);outline-offset:1px;}',
+    '.plan-panel .pl-addday:hover{color:var(--info-dark);border-color:#c7d2fe;}',
     '.plan-panel .pl-addday.is-disabled{cursor:not-allowed;opacity:0.5;border-style:solid;}',
-    '.plan-panel .pl-addday.is-disabled:hover{color:var(--pl-faint);border-color:#d7dcec;}',
-    '.plan-panel .pl-restday{font-size:11px;color:var(--pl-faint);font-style:italic;align-self:center;padding:6px 4px;}',
-    '.plan-panel .pl-legend{display:flex;gap:14px;margin-top:12px;font-size:11px;color:var(--pl-muted);flex-wrap:wrap;}',
+    '.plan-panel .pl-addday.is-disabled:hover{color:var(--text-sub);border-color:#d7dcec;}',
+    '.plan-panel .pl-restday{font-size:11px;color:var(--text-sub);font-style:italic;align-self:center;padding:6px 4px;}',
+    '.plan-panel .pl-legend{display:flex;gap:14px;margin-top:12px;font-size:11px;color:var(--text-sub);flex-wrap:wrap;}',
     '.plan-panel .pl-legend b{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;}',
-    '.plan-panel .pl-modetoggle{display:flex;background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:9px;padding:3px;gap:2px;width:fit-content;margin-bottom:16px;}',
-    '.plan-panel .pl-modetoggle button{font-size:12px;font-weight:600;color:var(--pl-muted);background:none;border:none;padding:6px 13px;border-radius:7px;cursor:pointer;font-family:inherit;}',
-    '.plan-panel .pl-modetoggle button.on{background:#fff;color:var(--pl-ink);box-shadow:0 1px 2px rgba(0,0,0,0.06);}',
+    '.plan-panel .pl-modetoggle{display:flex;background:var(--tile);border:1px solid var(--border);border-radius:9px;padding:3px;gap:2px;width:fit-content;margin-bottom:16px;}',
+    '.plan-panel .pl-modetoggle button{font-size:12px;font-weight:600;color:var(--text-sub);background:none;border:none;padding:6px 13px;border-radius:7px;cursor:pointer;font-family:inherit;}',
+    '.plan-panel .pl-modetoggle button.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,0.06);}',
     '.plan-panel .pl-subtoggle{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;}',
-    '.plan-panel .pl-subtoggle button{font-size:11.5px;font-weight:700;color:var(--pl-muted);background:var(--pl-tile);border:1px solid var(--pl-line);padding:6px 12px;border-radius:7px;cursor:pointer;font-family:inherit;}',
-    '.plan-panel .pl-subtoggle button.on{background:var(--pl-ink);color:#fff;border-color:var(--pl-ink);}',
+    '.plan-panel .pl-subtoggle button{font-size:11.5px;font-weight:700;color:var(--text-sub);background:var(--tile);border:1px solid var(--border);padding:6px 12px;border-radius:7px;cursor:pointer;font-family:inherit;}',
+    '.plan-panel .pl-subtoggle button.on{background:var(--ink);color:#fff;border-color:var(--ink);}',
     '.plan-panel .pl-jsontools{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center;}',
-    '.plan-panel .pl-jsonta{width:100%;max-width:100%;min-height:230px;font-family:var(--pl-mono);font-size:12px;line-height:1.65;border:1px solid var(--pl-line);background:#0f1330;color:#cfe0ff;border-radius:10px;padding:14px;resize:vertical;white-space:pre;overflow:auto;}',
+    '.plan-panel .pl-jsonta{width:100%;max-width:100%;min-height:230px;font-family:var(--mono);font-size:12px;line-height:1.65;border:1px solid var(--border);background:#0f1330;color:#cfe0ff;border-radius:10px;padding:14px;resize:vertical;white-space:pre;overflow:auto;}',
     '.plan-panel .pl-previewbox{margin-top:12px;border-radius:10px;padding:12px 14px;font-size:12.5px;}',
-    '.plan-panel .pl-previewbox.ok{background:var(--pl-greenSoft);color:#14532d;}',
-    '.plan-panel .pl-previewbox.err{background:var(--pl-redSoft);color:#7f1d1d;font-family:var(--pl-mono);white-space:pre-wrap;}',
+    '.plan-panel .pl-previewbox.ok{background:var(--success-soft);color:#14532d;}',
+    '.plan-panel .pl-previewbox.err{background:var(--danger-soft);color:#7f1d1d;font-family:var(--mono);white-space:pre-wrap;}',
     '.plan-panel .pl-previewlist{margin-top:9px;display:flex;flex-direction:column;gap:5px;}',
-    '.plan-panel .pl-previewrow{display:flex;gap:10px;font-family:var(--pl-mono);font-size:11.5px;background:rgba(255,255,255,0.55);border-radius:6px;padding:6px 10px;}',
-    '.plan-panel .pl-delimsel{font-size:12px;font-weight:600;border:1px solid var(--pl-line);border-radius:7px;padding:7px 10px;background:var(--pl-tile);color:var(--pl-ink);}',
-    '.plan-panel .pl-uploadlbl{font-size:12px;font-weight:700;border-radius:8px;padding:8px 13px;cursor:pointer;border:1px solid var(--pl-line);background:var(--pl-tile);color:var(--pl-ink);}',
+    '.plan-panel .pl-previewrow{display:flex;gap:10px;font-family:var(--mono);font-size:11.5px;background:rgba(255,255,255,0.55);border-radius:6px;padding:6px 10px;}',
+    '.plan-panel .pl-delimsel{font-size:12px;font-weight:600;border:1px solid var(--border);border-radius:7px;padding:7px 10px;background:var(--tile);color:var(--ink);}',
+    '.plan-panel .pl-uploadlbl{font-size:12px;font-weight:700;border-radius:8px;padding:8px 13px;cursor:pointer;border:1px solid var(--border);background:var(--tile);color:var(--ink);}',
     '.plan-panel .pl-frow{display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap;}',
     '.plan-panel .pl-fld{flex:1;min-width:150px;}',
-    '.plan-panel .pl-fld label{font-size:10px;font-weight:800;letter-spacing:0.05em;color:var(--pl-faint);text-transform:uppercase;display:block;margin-bottom:5px;}',
-    '.plan-panel .pl-fld input,.plan-panel .pl-fld select,.plan-panel .pl-fld textarea{width:100%;font-family:inherit;font-size:13px;color:var(--pl-ink);border:1px solid var(--pl-line);background:var(--pl-tile);border-radius:8px;padding:9px 11px;}',
+    '.plan-panel .pl-fld label{font-size:10px;font-weight:800;letter-spacing:0.05em;color:var(--text-sub);text-transform:uppercase;display:block;margin-bottom:5px;}',
+    '.plan-panel .pl-fld input,.plan-panel .pl-fld select,.plan-panel .pl-fld textarea{width:100%;font-family:inherit;font-size:13px;color:var(--ink);border:1px solid var(--border);background:var(--tile);border-radius:8px;padding:9px 11px;}',
     '.plan-panel .pl-fld textarea{resize:vertical;min-height:54px;}',
-    '.plan-panel .pl-notebox{font-size:13px;color:var(--pl-muted);background:var(--pl-tile);border-radius:9px;padding:10px 13px;}',
+    '.plan-panel .pl-notebox{font-size:13px;color:var(--text-sub);background:var(--tile);border-radius:9px;padding:10px 13px;}',
     '.plan-panel .pl-blocklist{display:flex;flex-direction:column;gap:8px;margin-top:6px;}',
-    '.plan-panel .pl-ai-blockh{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:var(--pl-faint);margin:4px 0 -2px;}',
-    '.plan-panel .pl-block{display:flex;gap:8px;align-items:center;background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:10px;padding:9px 11px;flex-wrap:wrap;}',
-    '.plan-panel .pl-block .pl-btag{font-size:9px;font-weight:800;padding:3px 8px;border-radius:6px;flex-shrink:0;width:74px;text-align:center;}',
-    '.plan-panel .pl-btag.warm{background:#e0f2fe;color:#0369a1;}.plan-panel .pl-btag.main{background:var(--pl-amberSoft);color:var(--pl-amber);}.plan-panel .pl-btag.cool{background:var(--pl-greenSoft);color:var(--pl-green);}',
-    '.plan-panel .pl-block input{border:1px solid var(--pl-line);background:#fff;border-radius:6px;padding:6px 8px;font-size:11.5px;font-family:var(--pl-mono);}',
+    '.plan-panel .pl-ai-blockh{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-sub);margin:4px 0 -2px;}',
+    '.plan-panel .pl-block{display:flex;gap:8px;align-items:center;background:var(--tile);border:1px solid var(--border);border-radius:10px;padding:9px 11px;flex-wrap:wrap;}',
+    '.plan-panel .pl-block .pl-btag{font-size:10px;font-weight:800;padding:3px 8px;border-radius:6px;flex-shrink:0;width:74px;text-align:center;}',
+    '.plan-panel .pl-btag.warm{background:#e0f2fe;color:#0369a1;}.plan-panel .pl-btag.main{background:var(--warning-soft);color:var(--warning);}.plan-panel .pl-btag.cool{background:var(--success-soft);color:var(--success);}',
+    '.plan-panel .pl-block input{border:1px solid var(--border);background:#fff;border-radius:6px;padding:6px 8px;font-size:11.5px;font-family:var(--mono);}',
     '.plan-panel .pl-block .pl-bdur{width:70px;}.plan-panel .pl-block .pl-btgt{width:96px;}.plan-panel .pl-block .pl-exname{flex:1;min-width:120px;font-family:inherit;}',
-    '.plan-panel .pl-block .pl-rm{margin-left:auto;color:var(--pl-faint);cursor:pointer;font-size:13px;background:none;border:none;}',
-    '.plan-panel .pl-exhead{display:flex;gap:8px;padding:0 11px;margin-top:8px;font-size:9.5px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:var(--pl-faint);}',
+    '.plan-panel .pl-block .pl-rm{margin-left:auto;color:var(--text-sub);cursor:pointer;font-size:13px;background:none;border:none;}',
+    '.plan-panel .pl-exhead{display:flex;gap:8px;padding:0 11px;margin-top:8px;font-size:10.5px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:var(--text-sub);}',
     '.plan-panel .pl-exhead span:nth-child(1){flex:1;min-width:120px;}.plan-panel .pl-exhead span:nth-child(2){width:70px;}.plan-panel .pl-exhead span:nth-child(3){width:70px;}.plan-panel .pl-exhead span:nth-child(4){width:96px;}.plan-panel .pl-exhead span:nth-child(5){width:70px;}.plan-panel .pl-exhead span:nth-child(6){width:20px;}',
     // Mobile exercise editor: hide the column header row (each input carries
     // its own label via .pl-exfld-l), name goes full-width. MUST come after
     // the base .pl-exhead rules above — same specificity, cascade order wins.
-    '@media(max-width:560px){',
+    '@media(max-width:640px){',
     '.plan-panel .pl-exhead{display:none;}',
     '.plan-panel .pl-block .pl-exname{flex-basis:100%;min-width:0;}',
     '.plan-panel .pl-exfld{display:inline-flex;align-items:center;gap:5px;}',
-    '.plan-panel .pl-exfld-l{display:inline;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:var(--pl-faint);}',
+    '.plan-panel .pl-exfld-l{display:inline;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-sub);}',
     '}',
     // Exercise-group containers (detailed strength editor): drag handle
     // reorders the group, name is editable inline, rows drag between groups.
-    '.plan-panel .pl-exgroup{border:1px dashed var(--pl-line);border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:8px;}',
-    '.plan-panel .pl-exgroup.drop-hover{border-color:var(--pl-lavHi);background:#f4f6ff;}',
+    '.plan-panel .pl-exgroup{border:1px dashed var(--border);border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:8px;}',
+    '.plan-panel .pl-exgroup.drop-hover{border-color:var(--info);background:#f4f6ff;}',
     '.plan-panel .pl-exgroup-h{display:flex;align-items:center;gap:8px;}',
-    '.plan-panel .pl-gdrag{cursor:grab;color:var(--pl-faint);font-size:13px;line-height:1;padding:2px 4px;user-select:none;}',
+    '.plan-panel .pl-gdrag{cursor:grab;color:var(--text-sub);font-size:13px;line-height:1;padding:2px 4px;user-select:none;}',
     '.plan-panel .pl-gdrag:active{cursor:grabbing;}',
-    '.plan-panel .pl-gname{flex:0 0 220px;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:var(--pl-muted);border:1px solid transparent;border-radius:6px;padding:4px 6px;background:transparent;}',
-    '.plan-panel .pl-gname:hover,.plan-panel .pl-gname:focus{border-color:var(--pl-line);background:#fff;}',
+    '.plan-panel .pl-gdrag:focus-visible{outline:2px solid var(--primary);outline-offset:1px;border-radius:4px;}',
+    // Keyboard-operable up/down alternative to the drag handle above.
+    '.plan-panel .pl-gmovebtns{display:flex;flex-direction:column;gap:1px;}',
+    '.plan-panel .pl-gmove{cursor:pointer;color:var(--text-sub);background:none;border:1px solid var(--border);border-radius:3px;font-size:8px;line-height:1;padding:1px 3px;min-width:24px;min-height:24px;display:inline-flex;align-items:center;justify-content:center;}',
+    '.plan-panel .pl-gmove:hover:not(:disabled){background:var(--tile);color:var(--ink);}',
+    '.plan-panel .pl-gmove:disabled{opacity:0.35;cursor:not-allowed;}',
+    '.plan-panel .pl-gname{flex:0 0 220px;min-width:0;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-sub);border:1px solid transparent;border-radius:6px;padding:4px 6px;background:transparent;text-overflow:ellipsis;}',
+    '.plan-panel .pl-gname:hover,.plan-panel .pl-gname:focus{border-color:var(--border);background:#fff;}',
+    // Below ~640px the drag handle + move buttons + fixed-width name + remove
+    // button no longer fit on one row (min combined width comfortably exceeds
+    // a 320-375px phone) — let the row wrap and let the name field shrink
+    // instead of forcing horizontal overflow/scroll.
+    '@media(max-width:640px){',
+    '.plan-panel .pl-exgroup-h{flex-wrap:wrap;row-gap:6px;}',
+    '.plan-panel .pl-gname{flex:1 1 120px;}',
+    '.plan-panel .pl-rm{margin-left:auto;}',
+    '}',
     '.plan-panel .pl-addex-in{margin-top:0;font-size:10.5px;padding:4px 0;}',
-    '.plan-panel .pl-block.drop-hover{outline:2px dashed var(--pl-lavHi);outline-offset:-2px;}',
+    '.plan-panel .pl-block.drop-hover{outline:2px dashed var(--info);outline-offset:-2px;}',
     // Run block-builder header — columns mirror _blockRowHtml: 74px phase
     // tag, 70px min, 96px repeats, 96px target, remove button.
     '.plan-panel .pl-blockhead span:nth-child(1){flex:none;width:74px;min-width:0;}.plan-panel .pl-blockhead span:nth-child(2){width:70px;}.plan-panel .pl-blockhead span:nth-child(3){width:96px;}.plan-panel .pl-blockhead span:nth-child(4){width:96px;}.plan-panel .pl-blockhead span:nth-child(5){width:20px;}',
-    '.plan-panel .pl-addblock{font-size:11.5px;font-weight:700;color:var(--pl-lavHi);background:none;border:1px dashed #c7d2fe;border-radius:8px;padding:7px;cursor:pointer;text-align:center;margin-top:8px;width:100%;}',
+    '.plan-panel .pl-addblock{font-size:11.5px;font-weight:700;color:var(--info-dark);background:none;border:1px dashed #c7d2fe;border-radius:8px;padding:7px;cursor:pointer;text-align:center;margin-top:8px;width:100%;}',
     '.plan-panel .pl-bulktbl{width:100%;border-collapse:separate;border-spacing:0 8px;}',
-    '.plan-panel .pl-bulktbl th{font-size:9px;font-weight:800;color:var(--pl-faint);text-transform:uppercase;letter-spacing:0.04em;text-align:left;padding:0 8px 4px;}',
-    '.plan-panel .pl-bulktbl td{background:var(--pl-tile);border-top:1px solid var(--pl-line);border-bottom:1px solid var(--pl-line);padding:8px;}',
-    '.plan-panel .pl-bulktbl td:first-child{border-left:1px solid var(--pl-line);border-radius:9px 0 0 9px;}',
-    '.plan-panel .pl-bulktbl td:last-child{border-right:1px solid var(--pl-line);border-radius:0 9px 9px 0;}',
-    '.plan-panel .pl-bulktbl input,.plan-panel .pl-bulktbl select{width:100%;border:none;background:none;font-size:12px;font-family:inherit;color:var(--pl-ink);}',
-    '.plan-panel .pl-bulktbl .pl-bd{font-size:11px;font-weight:800;color:var(--pl-faint);width:40px;}',
+    '.plan-panel .pl-bulktbl th{font-size:10px;font-weight:800;color:var(--text-sub);text-transform:uppercase;letter-spacing:0.04em;text-align:left;padding:0 8px 4px;}',
+    '.plan-panel .pl-bulktbl td{background:var(--tile);border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:8px;}',
+    '.plan-panel .pl-bulktbl td:first-child{border-left:1px solid var(--border);border-radius:9px 0 0 9px;}',
+    '.plan-panel .pl-bulktbl td:last-child{border-right:1px solid var(--border);border-radius:0 9px 9px 0;}',
+    '.plan-panel .pl-bulktbl input,.plan-panel .pl-bulktbl select{width:100%;border:none;background:none;font-size:12px;font-family:inherit;color:var(--ink);}',
+    '.plan-panel .pl-bulktbl .pl-bd{font-size:11px;font-weight:800;color:var(--text-sub);width:40px;}',
     '.plan-panel .pl-dethead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}',
-    '.plan-panel .pl-dettag{font-size:9px;font-weight:800;letter-spacing:0.04em;padding:3px 8px;border-radius:6px;text-transform:uppercase;}',
-    '.plan-panel .pl-dettag.run{background:var(--pl-blueSoft);color:var(--pl-run);}.plan-panel .pl-dettag.lift{background:var(--pl-liftSoft);color:#7c3aed;}',
+    '.plan-panel .pl-dettag{font-size:10px;font-weight:800;letter-spacing:0.04em;padding:3px 8px;border-radius:6px;text-transform:uppercase;}',
+    '.plan-panel .pl-dettag.run{background:var(--primary-soft);color:var(--primary);}.plan-panel .pl-dettag.lift{background:var(--workout-lift-soft);color:#7c3aed;}',
     '.plan-panel .pl-dettitle{font-size:19px;font-weight:800;margin-top:10px;}',
     '.plan-panel .pl-detid-row{display:flex;align-items:center;gap:6px;margin-top:3px;}',
-    '.plan-panel .pl-detid{font-size:10.5px;font-family:var(--pl-mono);color:var(--pl-faint);letter-spacing:-0.01em;}',
-    '.plan-panel .pl-detid-copy{display:flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;border:none;background:none;color:var(--pl-faint);cursor:pointer;border-radius:4px;}',
-    '.plan-panel .pl-detid-copy:hover{background:var(--pl-tile);color:var(--pl-muted);}',
-    '.plan-panel .pl-detid-copy--done{color:var(--pl-green);}',
+    '.plan-panel .pl-detid{font-size:10.5px;font-family:var(--mono);color:var(--text-sub);letter-spacing:-0.01em;}',
+    '.plan-panel .pl-detid-copy{display:flex;align-items:center;justify-content:center;width:44px;height:44px;margin:-12px 0;padding:0;border:none;background:none;color:var(--text-sub);cursor:pointer;border-radius:4px;}',
+    '.plan-panel .pl-detid-copy:hover{background:var(--tile);color:var(--text-sub);}',
+    '.plan-panel .pl-detid-copy--done{color:var(--success);}',
     '.plan-panel .pl-dettiles{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;}',
-    '.plan-panel .pl-dettile{flex:1;min-width:120px;background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:11px;padding:11px 13px;}',
-    '.plan-panel .pl-dettile .l{font-size:9px;font-weight:800;color:var(--pl-faint);text-transform:uppercase;}.plan-panel .pl-dettile .v{font-size:18px;font-weight:700;font-family:var(--pl-mono);margin-top:4px;}',
+    '.plan-panel .pl-dettile{flex:1;min-width:120px;background:var(--tile);border:1px solid var(--border);border-radius:11px;padding:11px 13px;}',
+    '.plan-panel .pl-dettile .l{font-size:10px;font-weight:800;color:var(--text-sub);text-transform:uppercase;}.plan-panel .pl-dettile .v{font-size:18px;font-weight:700;font-family:var(--mono);margin-top:4px;}',
     '.plan-panel .pl-segwrap{margin-top:18px;}',
-    '.plan-panel .pl-seg2{border-radius:11px;overflow:hidden;border:1px solid var(--pl-line);}',
-    '.plan-panel .pl-segblk{display:flex;align-items:center;gap:12px;padding:12px 14px;border-top:1px solid var(--pl-line);}',
+    '.plan-panel .pl-seg2{border-radius:11px;overflow:hidden;border:1px solid var(--border);}',
+    '.plan-panel .pl-segblk{display:flex;align-items:center;gap:12px;padding:12px 14px;border-top:1px solid var(--border);}',
     '.plan-panel .pl-segblk:first-child{border-top:none;}',
-    '.plan-panel .pl-segblk .pl-sbtag{font-size:9px;font-weight:800;padding:4px 9px;border-radius:6px;width:76px;text-align:center;flex-shrink:0;}',
-    '.plan-panel .pl-segblk .pl-sbtag.warm{background:#e0f2fe;color:#0369a1;}.plan-panel .pl-segblk .pl-sbtag.main{background:var(--pl-amberSoft);color:var(--pl-amber);}.plan-panel .pl-segblk .pl-sbtag.cool{background:var(--pl-greenSoft);color:var(--pl-green);}',
+    '.plan-panel .pl-segblk .pl-sbtag{font-size:10px;font-weight:800;padding:4px 9px;border-radius:6px;width:76px;text-align:center;flex-shrink:0;}',
+    '.plan-panel .pl-segblk .pl-sbtag.warm{background:#e0f2fe;color:#0369a1;}.plan-panel .pl-segblk .pl-sbtag.main{background:var(--warning-soft);color:var(--warning);}.plan-panel .pl-segblk .pl-sbtag.cool{background:var(--success-soft);color:var(--success);}',
     '.plan-panel .pl-segblk .pl-sbmain{flex:1;font-size:13px;font-weight:600;}',
-    '.plan-panel .pl-segblk .pl-sbtgt{font-size:12px;color:var(--pl-muted);font-family:var(--pl-mono);}',
-    '.plan-panel .pl-repeatlbl{font-size:10.5px;color:var(--pl-lavHi);font-weight:700;background:var(--pl-blueSoft);padding:2px 8px;border-radius:6px;margin-left:6px;}',
+    '.plan-panel .pl-segblk .pl-sbtgt{font-size:12px;color:var(--text-sub);font-family:var(--mono);}',
+    '.plan-panel .pl-repeatlbl{font-size:10.5px;color:var(--info-dark);font-weight:700;background:var(--primary-soft);padding:2px 8px;border-radius:6px;margin-left:6px;}',
     '.plan-panel .pl-exportbox{background:#0f1330;color:#e3e6ff;border-radius:12px;padding:15px 17px;margin-top:18px;}',
     '.plan-panel .pl-exportbox .pl-eh{display:flex;justify-content:space-between;align-items:center;gap:10px;}',
     '.plan-panel .pl-exportbox .pl-et{font-size:12px;font-weight:800;color:#fff;}.plan-panel .pl-exportbox .pl-ewarn{font-size:10.5px;color:#a5abe0;margin-top:5px;line-height:1.5;}',
-    '.plan-panel .pl-exportbox pre{background:rgba(255,255,255,0.06);border-radius:9px;padding:12px 13px;margin-top:11px;font-family:var(--pl-mono);font-size:11px;color:#cfe0ff;line-height:1.7;overflow-x:auto;white-space:pre;}',
-    '.plan-panel .pl-copybtn{background:var(--pl-lime);color:#1b2340;border:none;border-radius:8px;padding:7px 13px;font-size:11.5px;font-weight:800;cursor:pointer;flex-shrink:0;}',
-    '.plan-panel .pl-exd{display:flex;align-items:center;gap:12px;background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:10px;padding:10px 13px;margin-bottom:8px;flex-wrap:wrap;}',
-    '.plan-panel .pl-exd .pl-en{flex:1;min-width:120px;font-size:13px;font-weight:600;}.plan-panel .pl-exd .pl-es{font-size:11.5px;color:var(--pl-muted);font-family:var(--pl-mono);}',
-    '.plan-panel .pl-exd .pl-sr{font-size:14px;font-weight:800;color:#7c3aed;font-family:var(--pl-mono);}',
+    '.plan-panel .pl-exportbox pre{background:rgba(255,255,255,0.06);border-radius:9px;padding:12px 13px;margin-top:11px;font-family:var(--mono);font-size:11px;color:#cfe0ff;line-height:1.7;overflow-x:auto;white-space:pre;}',
+    '.plan-panel .pl-copybtn{background:var(--accent);color:#1b2340;border:none;border-radius:8px;padding:7px 13px;font-size:11.5px;font-weight:800;cursor:pointer;flex-shrink:0;}',
+    '.plan-panel .pl-exd{display:flex;align-items:center;gap:12px;background:var(--tile);border:1px solid var(--border);border-radius:10px;padding:10px 13px;margin-bottom:8px;flex-wrap:wrap;}',
+    '.plan-panel .pl-exd .pl-en{flex:1;min-width:120px;font-size:13px;font-weight:600;}.plan-panel .pl-exd .pl-es{font-size:11.5px;color:var(--text-sub);font-family:var(--mono);}',
+    '.plan-panel .pl-exd .pl-sr{font-size:14px;font-weight:800;color:#7c3aed;font-family:var(--mono);}',
     // Mobile: two clean lines per exercise — name on its own (slightly
     // larger), then "2 × 12-15  bodyweight  RPE 7" together — instead of the
     // arbitrary 3-line wrap the desktop flex produced at 390px.
-    '@media(max-width:560px){',
+    '@media(max-width:640px){',
     '.plan-panel .pl-exd{row-gap:3px;column-gap:10px;}',
     '.plan-panel .pl-exd .pl-en{flex-basis:100%;min-width:0;font-size:15px;}',
     '.plan-panel .pl-exd .pl-sr{font-size:13px;}',
@@ -2673,104 +4474,232 @@ information about.
     // Exercises grouped by pasted-back `block` label.
     '.plan-panel .pl-exblock{margin-bottom:18px;padding:12px 12px 4px;border-radius:12px;background:rgba(13,30,67,0.03);}',
     '.plan-panel .pl-exblock:last-child{margin-bottom:0;}',
-    '.plan-panel .pl-exblock-h{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;color:var(--pl-muted);margin-bottom:9px;padding-bottom:7px;border-bottom:1px solid var(--pl-line);}',
-    '@media(max-width:560px){.plan-panel .pl-dayrow{flex-direction:column;gap:8px;}.plan-panel .pl-daylabel{width:auto;display:flex;align-items:baseline;gap:6px;padding-top:0;}}',
+    '.plan-panel .pl-exblock-h{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-sub);margin-bottom:9px;padding-bottom:7px;border-bottom:1px solid var(--border);}',
+    '@media(max-width:640px){.plan-panel .pl-dayrow{flex-direction:column;gap:8px;}.plan-panel .pl-daylabel{width:auto;display:flex;align-items:baseline;gap:6px;padding-top:0;}}',
     // ── Suggestions panel (issue #1315) ─────────────────────────────────────
-    '.pl-suggestions-panel{background:var(--pl-tile);border:1px solid var(--pl-line);border-radius:13px;padding:14px 16px;margin:14px 0;position:relative;}',
+    '.pl-suggestions-panel{background:var(--tile);border:1px solid var(--border);border-radius:13px;padding:14px 16px;margin:14px 0;position:relative;}',
     '.pl-sug-header{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;}',
-    '.pl-sug-title{font-size:13px;font-weight:800;color:var(--pl-ink);flex:1;}',
-    '.pl-sug-source{font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;background:var(--pl-blueSoft);color:var(--pl-run);text-transform:uppercase;letter-spacing:0.04em;}',
-    '.pl-sug-btn-sm{background:none;border:1px solid var(--pl-line);border-radius:7px;padding:3px 8px;font-size:12px;color:var(--pl-muted);cursor:pointer;}',
-    '.pl-sug-btn-sm:hover{background:var(--pl-tile);color:var(--pl-ink);}',
+    '.pl-sug-title{font-size:13px;font-weight:800;color:var(--ink);flex:1;}',
+    '.pl-sug-source{font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;background:var(--primary-soft);color:var(--primary);text-transform:uppercase;letter-spacing:0.04em;}',
+    '.pl-sug-btn-sm{background:none;border:1px solid var(--border);border-radius:7px;padding:3px 8px;font-size:12px;color:var(--text-sub);cursor:pointer;}',
+    '.pl-sug-btn-sm:hover{background:var(--tile);color:var(--ink);}',
     // Loading OVERLAY (not a full clear) — covers the panel (prefs form or the
     // previous suggestion list stays visible underneath, dimmed) while a
     // (re)generate call is in flight.
-    '.pl-sug-loading{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:rgba(255,255,255,0.85);border-radius:13px;font-size:12.5px;font-weight:600;color:var(--pl-muted);z-index:2;}',
-    '.pl-sug-spinner{width:22px;height:22px;border-radius:50%;border:2.5px solid var(--pl-line);border-top-color:var(--pl-run);animation:pl-sug-spin 0.7s linear infinite;}',
+    '.pl-sug-loading{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:rgba(255,255,255,0.85);border-radius:13px;font-size:12.5px;font-weight:600;color:var(--text-sub);z-index:2;}',
+    '.pl-sug-spinner{width:22px;height:22px;border-radius:50%;border:2.5px solid var(--border);border-top-color:var(--primary);animation:pl-sug-spin 0.7s linear infinite;}',
     '@keyframes pl-sug-spin{to{transform:rotate(360deg);}}',
-    '@media (prefers-reduced-motion: reduce){.pl-sug-spinner{animation:none;border-top-color:var(--pl-line);}}',
-    '.pl-sug-row-wrap{padding:9px 0;border-bottom:1px solid var(--pl-line);}',
+    '.pl-sug-row-wrap{padding:9px 0;border-bottom:1px solid var(--border);}',
     '.pl-sug-row-wrap:last-child{border-bottom:none;}',
     '.pl-sug-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}',
-    '.pl-sug-exercises{margin:8px 0 2px 46px;padding:8px 0 0;border-top:1px dashed var(--pl-line);}',
+    '.pl-sug-exercises{margin:8px 0 2px 46px;padding:8px 0 0;border-top:1px dashed var(--border);}',
     '.pl-sug-ex-block{margin-bottom:8px;}',
     '.pl-sug-ex-block:last-child{margin-bottom:0;}',
-    '.pl-sug-ex-block-h{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:var(--pl-faint);margin-bottom:4px;}',
+    '.pl-sug-ex-block-h{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-sub);margin-bottom:4px;}',
     '.pl-sug-ex-row{display:flex;align-items:baseline;gap:8px;font-size:12px;padding:2px 0;flex-wrap:wrap;}',
-    '.pl-sug-ex-name{font-weight:600;color:var(--pl-ink);min-width:140px;}',
-    '.pl-sug-ex-detail{font-family:var(--pl-mono);color:var(--pl-muted);}',
-    '.pl-sug-ex-load{color:var(--pl-faint);font-size:11.5px;}',
-    '.pl-sug-rep{font-size:10.5px;font-weight:800;color:var(--pl-run);background:var(--pl-blueSoft);border-radius:5px;padding:1px 5px;}',
-    '.pl-sug-day{font-size:10px;font-weight:800;color:var(--pl-faint);text-transform:uppercase;width:36px;flex-shrink:0;}',
-    '.pl-sug-type-select{font-size:10px;font-weight:800;padding:3px 6px;border-radius:6px;text-transform:uppercase;flex-shrink:0;border:1px solid transparent;cursor:pointer;-webkit-appearance:none;appearance:none;}',
-    '.pl-sug-type-select.run{background:var(--pl-blueSoft);color:var(--pl-run);}.pl-sug-type-select.strength{background:var(--pl-liftSoft);color:#7c3aed;}.pl-sug-type-select.plyo{background:var(--pl-amberSoft);color:var(--pl-amber);}.pl-sug-type-select.rest{background:#f1f5f9;color:#64748b;}',
-    '.pl-sug-meta{font-size:12px;font-family:var(--pl-mono);color:var(--pl-muted);flex-shrink:0;}',
-    '.pl-sug-intent{flex:1;font-size:12px;color:var(--pl-ink);min-width:100px;}',
-    '.pl-sug-notes-line{font-size:11.5px;color:var(--pl-muted);font-style:italic;margin:2px 0 4px 46px;line-height:1.4;}',
+    '.pl-sug-ex-name{font-weight:600;color:var(--ink);min-width:140px;}',
+    '.pl-sug-ex-detail{font-family:var(--mono);color:var(--text-sub);}',
+    '.pl-sug-ex-load{color:var(--text-sub);font-size:11.5px;}',
+    '.pl-sug-rep{font-size:10.5px;font-weight:800;color:var(--primary);background:var(--primary-soft);border-radius:5px;padding:1px 5px;}',
+    '.pl-sug-day{font-size:10px;font-weight:800;color:var(--text-sub);text-transform:uppercase;width:36px;flex-shrink:0;}',
+    '.pl-sug-type-select{font-size:10px;font-weight:800;padding:3px 6px;border-radius:6px;text-transform:uppercase;flex-shrink:0;border:1px solid transparent;cursor:pointer;}',
+    '.pl-sug-type-select:hover{border-color:currentColor;}',
+    '.pl-sug-type-select:focus-visible{outline:2px solid var(--primary);outline-offset:1px;}',
+    '.pl-sug-type-select.run{background:var(--primary-soft);color:var(--primary);}.pl-sug-type-select.strength{background:var(--workout-lift-soft);color:#7c3aed;}.pl-sug-type-select.plyo{background:var(--warning-soft);color:var(--warning);}.pl-sug-type-select.rest{background:#f1f5f9;color:#64748b;}',
+    '.pl-sug-meta{font-size:12px;font-family:var(--mono);color:var(--text-sub);flex-shrink:0;}',
+    '.pl-sug-intent{flex:1;font-size:12px;color:var(--ink);min-width:100px;}',
+    '.pl-sug-notes-line{font-size:11.5px;color:var(--text-sub);font-style:italic;margin:2px 0 4px 46px;line-height:1.4;}',
     '.pl-sug-adjust{display:flex;gap:4px;flex-shrink:0;}',
-    '.pl-sug-adj{font-size:10.5px;font-weight:600;background:none;border:1px solid var(--pl-line);border-radius:6px;padding:4px 7px;cursor:pointer;color:var(--pl-muted);}',
-    '.pl-sug-adj:hover{background:var(--pl-tile);color:var(--pl-ink);}',
-    '.pl-sug-add{font-size:11px;font-weight:700;background:var(--pl-lime);color:#1b2340;border:none;border-radius:7px;padding:5px 11px;cursor:pointer;flex-shrink:0;}',
+    '.pl-sug-adj{font-size:10.5px;font-weight:600;background:none;border:1px solid var(--border);border-radius:6px;padding:4px 7px;cursor:pointer;color:var(--text-sub);}',
+    '.pl-sug-adj:hover{background:var(--tile);color:var(--ink);}',
+    '.pl-sug-add{font-size:11px;font-weight:700;background:var(--accent);color:#1b2340;border:none;border-radius:7px;padding:5px 11px;cursor:pointer;flex-shrink:0;}',
     '.pl-sug-add:disabled{opacity:0.5;cursor:default;}',
     '.pl-sug-add.added{background:#d1fae5;color:#065f46;}',
-    '.pl-sug-refine-toggle{font-size:10.5px;font-weight:600;background:none;border:1px solid var(--pl-line);border-radius:6px;padding:4px 7px;cursor:pointer;color:var(--pl-lavHi);}',
-    '.pl-sug-refine-toggle:hover{background:var(--pl-tile);}',
+    '.pl-sug-refine-toggle{font-size:10.5px;font-weight:600;background:none;border:1px solid var(--border);border-radius:6px;padding:4px 7px;cursor:pointer;color:var(--info-dark);}',
+    '.pl-sug-refine-toggle:hover{background:var(--tile);}',
     '.pl-sug-refine-panel{display:flex;align-items:center;gap:6px;margin:4px 0 6px 46px;flex-wrap:wrap;}',
-    '.pl-sug-refine-input{flex:1;min-width:180px;font-size:11.5px;border:1px solid var(--pl-line);border-radius:6px;padding:5px 8px;font-family:inherit;}',
-    '.pl-sug-refine-status{font-size:10.5px;color:var(--pl-muted);}',
+    '.pl-sug-refine-input{flex:1;min-width:180px;font-size:11.5px;border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-family:inherit;}',
+    '.pl-sug-refine-status{font-size:10.5px;color:var(--text-sub);}',
     '.pl-sug-trigger-row{margin:10px 0 4px;display:flex;justify-content:flex-start;}',
-    '.pl-sug-trigger-btn{font-size:12px;font-weight:700;color:var(--pl-lavHi);background:none;border:1px dashed #c7d2fe;border-radius:8px;padding:7px 13px;cursor:pointer;}',
+    '.pl-sug-trigger-btn{font-size:12px;font-weight:700;color:var(--info-dark);background:none;border:1px dashed #c7d2fe;border-radius:8px;padding:7px 13px;cursor:pointer;}',
     // ── Pre-generation preferences form ─────────────────────────────────────
     '.pl-sug-prefs{display:flex;flex-direction:column;gap:12px;}',
     '.pl-sug-prefs-row{display:flex;flex-direction:column;gap:6px;}',
-    '.pl-sug-prefs-label{font-size:11px;font-weight:700;color:var(--pl-muted);text-transform:uppercase;letter-spacing:0.03em;}',
+    '.pl-sug-prefs-label{font-size:11px;font-weight:700;color:var(--text-sub);text-transform:uppercase;letter-spacing:0.03em;}',
     '.pl-sug-daychks{display:flex;gap:6px;flex-wrap:wrap;}',
-    '.pl-sug-daychk{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:var(--pl-ink);background:#fff;border:1px solid var(--pl-line);border-radius:8px;padding:5px 10px;cursor:pointer;}',
+    '.pl-sug-daychk{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:var(--ink);background:#fff;border:1px solid var(--border);border-radius:8px;padding:5px 10px;cursor:pointer;}',
     '.pl-sug-daychk input{margin:0;}',
     '.pl-sug-daychk.is-closed{opacity:0.4;cursor:not-allowed;}',
-    '.pl-sug-select{font-size:13px;padding:7px 10px;border:1px solid var(--pl-line);border-radius:8px;background:#fff;color:var(--pl-ink);width:auto;align-self:flex-start;}',
-    '.pl-sug-notes{font-size:13px;padding:9px 11px;border:1px solid var(--pl-line);border-radius:9px;background:#fff;color:var(--pl-ink);min-height:52px;resize:vertical;font-family:inherit;}',
+    '.pl-sug-daychk.is-past{opacity:0.45;cursor:not-allowed;background:var(--tile);}',
+    '.pl-sug-daychk.has-session{border-color:#c7d2fe;background:#eef2ff;}',
+    '.pl-sug-daychk .pl-sug-sess-tag{font-size:9.5px;font-weight:800;letter-spacing:0.03em;text-transform:uppercase;color:var(--primary);background:var(--primary-soft);border-radius:4px;padding:1px 5px;}',
+    '.pl-sug-prefs-extra{margin-top:4px;padding-top:10px;border-top:1px dashed var(--border);}',
+    '.pl-sug-prefs-row select,.pl-sug-prefs-row input[type=number]{font:inherit;font-size:12.5px;padding:5px 8px;border-radius:7px;border:1px solid var(--border);background:#fff;min-width:100px;}',
+    '.pl-sug-prefs-notes{width:100%;min-height:48px;font:inherit;font-size:12.5px;padding:7px 9px;border-radius:8px;border:1px solid var(--border);box-sizing:border-box;}',
+    '.pl-sug-habits{font-size:11.5px;color:var(--text-sub);margin-top:8px;line-height:1.4;}',
+    '.pl-sug-habits a{color:var(--primary);font-weight:600;}',
+    '.pl-sug-prefs-err{color:#b91c1c;font-size:12px;margin-top:8px;white-space:pre-wrap;}',
+    '.pl-sug-select{font-size:13px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--ink);width:auto;align-self:flex-start;}',
+    '.pl-sug-notes{font-size:13px;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:#fff;color:var(--ink);min-height:52px;resize:vertical;font-family:inherit;}',
     '.pl-sug-count-wrap{display:flex;align-items:center;gap:8px;}',
-    '.pl-sug-count{width:70px;font-size:13px;padding:7px 10px;border:1px solid var(--pl-line);border-radius:8px;background:#fff;color:var(--pl-ink);font-family:var(--pl-mono);}',
-    '.pl-sug-count-hint{font-size:11px;color:var(--pl-faint);}',
+    '.pl-sug-count{width:70px;font-size:13px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--ink);font-family:var(--mono);}',
+    '.pl-sug-count-hint{font-size:11px;color:var(--text-sub);}',
     // ── Two-rail suggestions (issue #1417): rail 1 schedule grid ─────────────
     '#plan-suggestions-sched{margin-bottom:12px;}',
     '.pl-rail-head{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;}',
-    '.pl-rail-title{font-size:11px;font-weight:800;color:var(--pl-muted);text-transform:uppercase;letter-spacing:0.03em;flex:1;}',
-    '.pl-rail-sum{font-size:12px;font-family:var(--pl-mono);color:var(--pl-muted);}',
-    '.pl-rail-sum b.on{color:#16a34a;}.pl-rail-sum b.under{color:var(--pl-amber);}.pl-rail-sum b.over{color:#b91c1c;}',
+    '.pl-rail-title{font-size:11px;font-weight:800;color:var(--text-sub);text-transform:uppercase;letter-spacing:0.03em;flex:1;}',
+    '.pl-rail-sum{font-size:12px;font-family:var(--mono);color:var(--text-sub);}',
+    '.pl-rail-sum b.on{color:#16a34a;}.pl-rail-sum b.under{color:var(--warning);}.pl-rail-sum b.over{color:#b91c1c;}',
     '.pl-fill-all{font-size:11.5px;padding:6px 12px;}',
     '.pl-fill-all:disabled{opacity:0.45;cursor:default;}',
-    '.pl-fill-skiprun{font-size:11px;color:var(--pl-muted);display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none;}',
+    '.pl-fill-group{display:inline-flex;align-items:stretch;position:relative;}',
+    '.pl-fill-group .pl-fill-all{border-radius:7px 0 0 7px;}',
+    '.pl-fill-menu-btn{font-size:11.5px;padding:6px 8px;border-radius:0 7px 7px 0;border-left:1px solid rgba(0,0,0,0.12);background:var(--accent);color:#1b2340;border-top:none;border-right:none;border-bottom:none;cursor:pointer;font-weight:800;}',
+    '.pl-fill-menu-btn:disabled{opacity:0.45;cursor:default;}',
+    '.pl-fill-menu{position:absolute;right:0;top:calc(100% + 4px);min-width:240px;background:#fff;border:1px solid var(--border);border-radius:9px;box-shadow:0 8px 24px rgba(15,23,42,0.12);z-index:80;padding:4px;display:none;}',
+    '.pl-fill-menu.is-open{display:block;}',
+    '.pl-fill-menu button{display:block;width:100%;text-align:left;background:none;border:none;border-radius:7px;padding:8px 10px;font-size:12px;font-weight:600;color:var(--ink);cursor:pointer;}',
+    '.pl-fill-menu button:hover{background:var(--tile);}',
+    '.pl-fill-menu button:disabled{opacity:0.45;cursor:default;}',
+    '.pl-fill-menu .pl-fill-menu-hint{display:block;font-size:10.5px;font-weight:500;color:var(--text-sub);margin-top:2px;}',
+    '.pl-fill-skiprun{font-size:11px;color:var(--text-sub);display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none;}',
+    /* Worker-draft queue UX */
+    '.pl-suggestions-panel.is-draft-queued{position:relative;}',
+    '.pl-suggestions-panel.is-draft-queued .pl-draft-lock-banner{display:flex;}',
+    '.pl-draft-lock-banner{display:none;align-items:center;gap:10px;margin:0 0 10px;padding:10px 12px;border-radius:10px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;font-size:12.5px;font-weight:600;}',
+    '.pl-draft-lock-banner .pl-draft-lock-msg{flex:1;line-height:1.35;}',
+    '.pl-draft-lock-banner .pl-draft-lock-open{font-size:11px;font-weight:700;background:#fff;border:1px solid #93c5fd;border-radius:7px;padding:5px 9px;cursor:pointer;color:#1d4ed8;}',
+    '.pl-suggestions-panel.is-draft-queued button:not(.pl-draft-lock-open):not(#plan-suggestions-dismiss),' +
+      '.pl-suggestions-panel.is-draft-queued select,' +
+      '.pl-suggestions-panel.is-draft-queued input,' +
+      '.pl-suggestions-panel.is-draft-queued .pl-fill-menu-btn,' +
+      '.pl-suggestions-panel.is-draft-queued .pl-slot-chip{pointer-events:none;opacity:0.5;}',
+    '.pl-draft-q-overlay{position:fixed;inset:0;background:rgba(15,23,42,0.45);z-index:1200;display:flex;align-items:center;justify-content:center;padding:20px;animation:pl-draft-q-fade 0.18s ease-out;}',
+    '@keyframes pl-draft-q-fade{from{opacity:0}to{opacity:1}}',
+    '.pl-draft-q-card{background:#fff;border-radius:16px;padding:22px 24px;max-width:380px;width:100%;box-shadow:0 20px 50px rgba(15,23,42,0.25);animation:pl-draft-q-pop 0.22s ease-out;}',
+    '@keyframes pl-draft-q-pop{from{transform:translateY(8px) scale(0.98);opacity:0}to{transform:none;opacity:1}}',
+    '.pl-draft-q-card h3{margin:0 0 6px;font-size:17px;font-weight:800;color:var(--ink);}',
+    '.pl-draft-q-card p{margin:0 0 14px;font-size:13px;line-height:1.45;color:var(--text-sub);}',
+    '.pl-draft-q-spin-wrap{display:flex;align-items:center;gap:10px;margin-bottom:14px;font-size:12.5px;font-weight:600;color:var(--primary);}',
+    '.pl-draft-q-actions{display:flex;gap:8px;flex-wrap:wrap;}',
+    '.pl-draft-q-actions .pl-btn{flex:1;min-width:120px;text-align:center;text-decoration:none;font-size:12.5px;font-weight:700;padding:9px 12px;border-radius:9px;cursor:pointer;border:1px solid var(--border);background:#fff;color:var(--ink);}',
+    '.pl-draft-q-actions .pl-btn.pl-lime{background:var(--accent);border-color:transparent;color:#1b2340;}',
+    '.pl-draft-q-jid{font-family:var(--mono);font-size:10.5px;color:var(--text-sub);margin-top:10px;word-break:break-all;}',
+    '.pl-dayrow.is-draft-adding{opacity:0.72;}',
+    '.pl-draft-add .pl-gen-spin{width:8px;height:8px;border-width:1.5px;margin-right:4px;vertical-align:middle;}',
+    '.pl-draft{cursor:pointer;}',
+    '.pl-dap-field{display:block;font-size:12px;font-weight:600;color:var(--text-sub);margin:8px 0;}',
+    '.pl-dap-field select,.pl-dap-field input{display:block;width:100%;margin-top:4px;font-size:13px;padding:7px 9px;border:1px solid var(--border);border-radius:8px;font-family:inherit;}',
+    '.pl-dap-row{display:flex;gap:10px;}',
+    '.pl-dap-row .pl-dap-field{flex:1;}',
+    '.pl-dd-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:10px 0;}',
+    '.pl-dd-grid label,.pl-dd-block{font-size:12px;font-weight:600;color:var(--text-sub);}',
+    '.pl-dd-grid select,.pl-dd-grid input,.pl-dd-block input,.pl-dd-block textarea{display:block;width:100%;margin-top:4px;font-size:13px;padding:7px 9px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-weight:500;color:var(--ink);}',
+    '.pl-dd-block{display:block;margin:8px 0;}',
+    '.pl-dd-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;}',
+    '.pl-sf-hint{font-size:11.5px;color:var(--text-sub);margin:10px 0 0;line-height:1.4;}',
+    '.pl-sf-draft-tools{display:flex;}',
     '.pl-fill-skiprun input{cursor:pointer;}',
     '.pl-sched-grid{display:grid;grid-template-columns:repeat(7,minmax(76px,1fr));gap:6px;overflow-x:auto;}',
-    '.pl-sched-day{background:#fff;border:1px solid var(--pl-line);border-radius:9px;padding:5px;min-height:74px;display:flex;flex-direction:column;gap:4px;}',
-    '.pl-sched-day.is-closed{opacity:0.45;background:var(--pl-tile);}',
-    '.pl-sched-day.drop-hover{border-color:var(--pl-run);background:var(--pl-blueSoft);}',
-    '.pl-sched-day-h{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.03em;color:var(--pl-faint);display:flex;justify-content:space-between;padding:0 2px;}',
+    '.pl-sched-day{background:#fff;border:1px solid var(--border);border-radius:9px;padding:5px;min-height:74px;display:flex;flex-direction:column;gap:4px;}',
+    '.pl-sched-day.is-closed{opacity:0.45;background:var(--tile);}',
+    '.pl-sched-day.drop-hover{border-color:var(--primary);background:var(--primary-soft);}',
+    '.pl-sched-day-h{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.03em;color:var(--text-sub);display:flex;justify-content:space-between;padding:0 2px;}',
     // Two-line chip: type + remove on line 1, TSS·min on its own line so the
     // numbers never truncate in a narrow day column.
     '.pl-slot-chip{display:flex;flex-direction:column;gap:2px;border-radius:7px;padding:5px 6px;font-size:10px;cursor:grab;border:1px solid transparent;}',
     '.pl-slot-chip:active{cursor:grabbing;}',
-    '.pl-slot-chip.run{background:var(--pl-blueSoft);color:var(--pl-run);}.pl-slot-chip.strength{background:var(--pl-liftSoft);color:#7c3aed;}.pl-slot-chip.plyo{background:var(--pl-amberSoft);color:var(--pl-amber);}.pl-slot-chip.stretch{background:#ccfbf1;color:#0f766e;}.pl-slot-chip.rest{background:#f1f5f9;color:#64748b;}',
+    '.pl-slot-chip.run{background:var(--primary-soft);color:var(--primary);}.pl-slot-chip.strength{background:var(--workout-lift-soft);color:#7c3aed;}.pl-slot-chip.plyo{background:var(--warning-soft);color:var(--warning);}.pl-slot-chip.stretch{background:#ccfbf1;color:#0f766e;}.pl-slot-chip.rest{background:#f1f5f9;color:#64748b;}',
     '.pl-slot-line1{display:flex;align-items:center;justify-content:space-between;gap:4px;}',
     '.pl-slot-type{font-weight:800;text-transform:uppercase;}',
-    '.pl-slot-meta{font-family:var(--pl-mono);font-size:9.5px;opacity:0.85;white-space:nowrap;}',
+    '.pl-slot-meta{font-family:var(--mono);font-size:10.5px;opacity:0.85;white-space:nowrap;}',
     '.pl-slot-x{background:none;border:none;font-size:12px;line-height:1;color:inherit;opacity:0.55;cursor:pointer;padding:0 2px;flex-shrink:0;}',
     '.pl-slot-x:hover{opacity:1;}',
-    '.pl-slot-addsel{margin-top:auto;background:none;border:1px dashed var(--pl-line);border-radius:6px;color:var(--pl-faint);font-size:11px;font-weight:700;line-height:1;padding:3px 2px;cursor:pointer;text-align:center;-webkit-appearance:none;appearance:none;width:100%;}',
-    '.pl-slot-addsel:hover{color:var(--pl-ink);border-color:var(--pl-muted);}',
+    '.pl-slot-addsel{margin-top:auto;background:none;border:1px dashed var(--border);border-radius:6px;color:var(--text-sub);font-size:11px;font-weight:700;line-height:1;padding:3px 2px;cursor:pointer;text-align:center;-webkit-appearance:none;appearance:none;width:100%;}',
+    '.pl-slot-addsel:hover{color:var(--ink);border-color:var(--text-sub);}',
+    '.pl-slot-addsel:focus-visible{outline:2px solid var(--primary);outline-offset:1px;}',
     // Rail 2 row additions: day select + editable TSS/duration + fill button.
-    '.pl-sug-day-select{font-size:10px;font-weight:800;color:var(--pl-faint);text-transform:uppercase;border:1px solid var(--pl-line);border-radius:6px;padding:3px 4px;background:#fff;cursor:pointer;flex-shrink:0;}',
+    '.pl-sug-day-select{font-size:10px;font-weight:800;color:var(--text-sub);text-transform:uppercase;border:1px solid var(--border);border-radius:6px;padding:3px 4px;background:#fff;cursor:pointer;flex-shrink:0;}',
     '.pl-sug-meta-edit{display:inline-flex;align-items:center;gap:3px;}',
-    '.pl-sug-tss-input,.pl-sug-dur-input{width:52px;font-size:11.5px;font-family:var(--pl-mono);border:1px solid var(--pl-line);border-radius:6px;padding:3px 5px;color:var(--pl-ink);}',
-    '.pl-sug-gen{font-size:10.5px;font-weight:700;background:none;border:1px solid #c7d2fe;border-radius:6px;padding:4px 8px;cursor:pointer;color:var(--pl-lavHi);}',
-    '.pl-sug-gen:hover{background:var(--pl-blueSoft);}',
+    '.pl-sug-tss-input,.pl-sug-dur-input{width:52px;font-size:11.5px;font-family:var(--mono);border:1px solid var(--border);border-radius:6px;padding:3px 5px;color:var(--ink);}',
+    '.pl-sug-gen{font-size:10.5px;font-weight:700;background:none;border:1px solid #c7d2fe;border-radius:6px;padding:4px 8px;cursor:pointer;color:var(--info-dark);}',
+    '.pl-sug-gen:hover{background:var(--primary-soft);}',
     '.pl-sug-gen:disabled{opacity:0.6;cursor:default;}',
-    '.pl-sug-intent-empty{color:var(--pl-faint);font-style:italic;}',
+    '.pl-sug-intent-empty{color:var(--text-sub);font-style:italic;}',
     '.pl-rail-note{font-size:11.5px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:6px 10px;margin-bottom:8px;}',
     '.pl-sug-type-select.stretch{background:#ccfbf1;color:#0f766e;}',
-    '.pl-sug-subtype-select{font-size:10px;font-weight:700;color:var(--pl-muted);border:1px solid var(--pl-line);border-radius:6px;padding:3px 4px;background:#fff;cursor:pointer;flex-shrink:0;}'
+    '.pl-sug-subtype-select{font-size:10px;font-weight:700;color:var(--text-sub);border:1px solid var(--border);border-radius:6px;padding:3px 4px;background:#fff;cursor:pointer;flex-shrink:0;}',
+    /* ── Unified session modal (view = edit = AI) ── */
+    '.plan-panel .pl-sm-modal{padding:0;overflow:hidden;}',
+    '.plan-panel .pl-sm-pad{padding:18px 22px;}',
+    '.plan-panel .pl-sm-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}',
+    '.plan-panel .pl-sm-lbl{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--text-sub);}',
+    '.plan-panel .pl-sm-x{margin-left:auto;width:30px;height:30px;border-radius:8px;border:none;background:var(--tile);color:var(--text-sub);font-size:15px;cursor:pointer;}',
+    // Bump to the file's established 44px touch target under a coarse
+    // (touch) pointer — matches .pl-closepanel/.pl-arw/.pl-detid-copy, which
+    // are 44px outright; this one stays compact for mouse users and only
+    // grows where precision is limited.
+    '@media(pointer:coarse){.plan-panel .pl-sm-x{width:44px;height:44px;}}',
+    '.plan-panel .pl-sm-meta{display:flex;align-items:center;gap:9px;margin-top:12px;flex-wrap:wrap;}',
+    '.plan-panel .pl-sm-tag{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.04em;padding:3px 8px;border-radius:5px;background:#e4e8fd;color:#3b4bb8;}',
+    '.plan-panel .pl-sm-tag.lift{background:#efe9fd;color:#6d3fd1;}',
+    '.plan-panel .pl-sm-meta select,.plan-panel .pl-sm-datef{border:1px solid var(--border);border-radius:8px;padding:6px 9px;font-family:var(--mono);font-size:11px;color:var(--ink);background:#fff;}',
+    '.plan-panel .pl-sm-matched{font-family:var(--mono);font-size:10px;color:var(--success);}',
+    '.plan-panel .pl-sm-name{font-size:21px;font-weight:700;border:none;outline:none;width:100%;margin-top:10px;border-bottom:1.5px dashed transparent;font-family:inherit;color:var(--ink);background:transparent;padding:0;}',
+    '.plan-panel .pl-sm-name:hover,.plan-panel .pl-sm-name:focus{border-bottom-color:var(--border);}',
+    '.plan-panel .pl-sm-stat{display:flex;gap:8px;margin-top:13px;flex-wrap:wrap;}',
+    '.plan-panel .pl-sm-sbtn{padding:7px 13px;border-radius:9px;border:1px solid var(--border);background:#fff;font-size:12.5px;font-weight:650;color:var(--text-sub);cursor:pointer;font-family:inherit;}',
+    '.plan-panel .pl-sm-sbtn.on{background:var(--accent);border-color:var(--accent);color:var(--ink);}',
+    '.plan-panel .pl-sm-ai{margin-top:15px;border:1.5px dashed #c9d2fb;background:#f7f8fe;border-radius:13px;padding:13px 15px;}',
+    '.plan-panel .pl-sm-ai-h{display:flex;align-items:center;gap:8px;margin-bottom:9px;flex-wrap:wrap;}',
+    '.plan-panel .pl-sm-ai-h b{font-size:13px;font-weight:700;}',
+    '.plan-panel .pl-sm-ai-h span{font-family:var(--mono);font-size:10.5px;color:var(--text-sub);}',
+    '.plan-panel .pl-sm-ai-dormant .pl-sm-ai-h{margin-bottom:0;}',
+    '.plan-panel .pl-sm-ai-expand{margin-left:auto;background:none;border:none;font:inherit;font-size:12px;font-weight:650;color:var(--primary);cursor:pointer;text-decoration:underline;}',
+    '.plan-panel .pl-sm-chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:9px;}',
+    '.plan-panel .pl-sm-chip{font-size:12px;font-weight:600;padding:6px 12px;border-radius:99px;border:1px solid var(--border);background:#fff;cursor:pointer;font-family:inherit;}',
+    '.plan-panel .pl-sm-chip:hover{border-color:var(--primary);color:var(--primary);}',
+    '.plan-panel .pl-sm-free{display:flex;gap:8px;}',
+    '.plan-panel .pl-sm-free input{flex:1;border:1px solid var(--border);border-radius:9px;padding:9px 12px;font-family:inherit;font-size:12.5px;}',
+    '.plan-panel .pl-sm-go{padding:9px 16px;border-radius:9px;border:none;background:var(--accent);color:var(--ink);font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:inherit;}',
+    '.plan-panel .pl-sm-go:disabled{opacity:.5;cursor:default;}',
+    '.plan-panel .pl-sm-ai-n{font-family:var(--mono);font-size:10.5px;color:var(--text-sub);margin-top:8px;}',
+    '.plan-panel .pl-sm-ai-err{font-size:12px;color:var(--danger);margin-top:8px;line-height:1.35;}',
+    '.plan-panel .pl-sm-sech{display:flex;align-items:center;gap:10px;margin-top:17px;margin-bottom:9px;}',
+    '.plan-panel .pl-sm-tabs{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap;}',
+    '.plan-panel .pl-sm-tab{font-size:11.5px;font-weight:650;padding:5px 11px;border-radius:8px;border:1px solid var(--border);background:#fff;color:var(--text-sub);cursor:pointer;font-family:inherit;}',
+    '.plan-panel .pl-sm-tab.on{background:var(--ink);border-color:var(--ink);color:#fff;}',
+    '.plan-panel .pl-sm-tiles{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;}',
+    '.plan-panel .pl-sm-tile{background:var(--tile);border-radius:11px;padding:10px 13px;}',
+    '.plan-panel .pl-sm-tl{font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-sub);}',
+    '.plan-panel .pl-sm-tv{font-family:var(--mono);font-size:17px;font-weight:700;margin-top:4px;}',
+    '.plan-panel .pl-sm-tv.empty{color:var(--text-sub);}',
+    '.plan-panel .pl-sm-blocks{border:1px solid var(--border);border-radius:12px;overflow:hidden;}',
+    '.plan-panel .pl-sm-brow{display:flex;gap:12px;padding:9px 14px;border-bottom:1px solid var(--border);align-items:center;}',
+    '.plan-panel .pl-sm-brow:last-child{border-bottom:none;}',
+    '.plan-panel .pl-sm-ph{font-family:var(--mono);font-size:10.5px;font-weight:700;color:var(--text-sub);min-width:66px;text-transform:uppercase;}',
+    '.plan-panel .pl-sm-bt{flex:1;font-size:12.5px;}',
+    '.plan-panel .pl-sm-bm{font-family:var(--mono);font-size:10.5px;color:var(--text-sub);}',
+    '.plan-panel .pl-sm-empty-s{border:1.5px dashed var(--border);border-radius:12px;padding:16px;text-align:center;color:var(--text-sub);font-size:12.5px;font-style:italic;}',
+    '.plan-panel .pl-sm-notes{margin-top:15px;}',
+    '.plan-panel .pl-sm-notes textarea{width:100%;border:1px solid var(--border);border-radius:11px;padding:11px 13px;font-family:inherit;font-size:12.5px;color:var(--ink);background:var(--tile);resize:vertical;min-height:52px;box-sizing:border-box;}',
+    '.plan-panel .pl-sm-stryd{margin-top:13px;font-family:var(--mono);font-size:10.5px;color:var(--text-sub);cursor:pointer;}',
+    '.plan-panel .pl-sm-stryd b{color:var(--ink);}',
+    '.plan-panel .pl-sm-foot{display:flex;gap:9px;align-items:center;padding:13px 22px;border-top:1px solid var(--border);background:var(--tile);}',
+    '.plan-panel .pl-sm-del{color:var(--danger);border:1px solid #f6caca;background:#fff;padding:8px 14px;border-radius:9px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;}',
+    '.plan-panel .pl-sm-sp{flex:1;}',
+    '.plan-panel .pl-sm-dirty{font-family:var(--mono);font-size:10.5px;color:var(--warning);}',
+    '.plan-panel .pl-sm-save{background:var(--accent);border:none;color:var(--ink);padding:9px 17px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}',
+    '.plan-panel .pl-sm-ghost{background:#fff;border:1px solid var(--border);color:var(--text-sub);padding:8px 14px;border-radius:9px;font-size:12.5px;font-weight:650;cursor:pointer;font-family:inherit;}',
+    // Single reduced-motion override covering every animation/transition
+    // declared above (placed last so it wins the cascade against each base
+    // rule regardless of where that rule appears earlier in this sheet).
+    '@media (prefers-reduced-motion: reduce){',
+    '.plan-panel .pl-panelcard{animation:none;}',
+    '.plan-panel .pl-feel-btn{transition:none;}',
+    '.plan-panel .pl-gen-spin{animation:none;}',
+    '.pl-sug-spinner{animation:none;border-top-color:var(--border);}',
+    '}'
   ].join('');
 
 }());
@@ -2784,7 +4713,22 @@ information about.
   // Rest days + optional exact strength-session count ('' = auto from the
   // athlete's own last-3-weeks history). No free-text — the schedule rail is
   // rule-based (zero LLM); per-slot Refine carries any free-form asks.
-  var _lastPrefs = { restDays: [], strengthSessions: '' };
+  var _lastPrefs = {
+    restDays: [],
+    strengthSessions: '',
+    strengthEmphasis: 'same',
+    plyoMode: 'off',
+    plyoSessions: 0,
+    mpSegmentMin: 0,
+    notes: '',
+  };
+  var _habitTargets = null;
+
+  // Worker-draft queue state — MUST live in THIS closure (suggestions is a
+  // separate IIFE from the main Plan module; bare refs to its locals throw).
+  var _draftQueueBusy = false;
+  var _draftQueueJobId = null;
+  var _draftQueuePollTimer = null;
 
   var _DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   var _DAY_NAMES_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -2825,8 +4769,30 @@ information about.
 
   function _adjustSession(s, harder) {
     var factor = harder ? 1.2 : 0.8;
-    s.target_tss = Math.max(0, Math.min(400, Math.round((s.target_tss || 0) * factor)));
-    s.duration_minutes = Math.max(0, Math.round((s.duration_minutes || 0) * factor));
+    var nextTss = Math.max(0, Math.min(400, Math.round((s.target_tss || 0) * factor)));
+    var nextDur = Math.max(0, Math.round((s.duration_minutes || 0) * factor));
+
+    // Clamp to preset constraints when present (from gap / coach rule base)
+    var c = s.preset_constraints || (s.structure && s.structure._preset_constraints) || null;
+    if (!c && s._preset_constraints) c = s._preset_constraints;
+    if (c) {
+      if (c.min_tss != null) nextTss = Math.max(nextTss, Math.round(c.min_tss));
+      if (c.max_tss != null) nextTss = Math.min(nextTss, Math.round(c.max_tss));
+      if (c.min_duration_min != null) nextDur = Math.max(nextDur, Math.round(c.min_duration_min));
+      if (c.max_duration_min != null) nextDur = Math.min(nextDur, Math.round(c.max_duration_min));
+      if (s.load_ceiling_tss != null && c.must_respect_load_ceiling !== false) {
+        nextTss = Math.min(nextTss, Math.round(s.load_ceiling_tss));
+      }
+    }
+
+    // Disable-at-bounds: if no movement possible, leave as-is
+    if (!harder && c && c.min_duration_min != null && (s.duration_minutes || 0) <= c.min_duration_min
+        && c.min_tss != null && (s.target_tss || 0) <= c.min_tss) {
+      return;
+    }
+
+    s.target_tss = nextTss;
+    s.duration_minutes = nextDur;
 
     if (Array.isArray(s.exercises)) {
       s.exercises.forEach(function (ex) {
@@ -2850,6 +4816,21 @@ information about.
           b.repeat = Math.max(1, Math.min(20, b.repeat + (harder ? 1 : -1)));
         }
       });
+      // Re-sum block durations toward clamped duration when preset floor applies
+      if (c && c.min_duration_min != null) {
+        var sum = 0;
+        s.blocks.forEach(function (b) {
+          sum += (b.duration_min || 0) * (b.repeat || 1);
+        });
+        if (sum > 0 && sum < c.min_duration_min) {
+          var scale = c.min_duration_min / sum;
+          s.blocks.forEach(function (b) {
+            if (b.duration_min != null) {
+              b.duration_min = Math.max(1, Math.round(b.duration_min * scale));
+            }
+          });
+        }
+      }
     }
   }
 
@@ -3129,6 +5110,8 @@ information about.
         // Show warning inline next to the Add button
         var warnEl = document.createElement('div');
         warnEl.className = 'pl-guard-inline';
+        warnEl.setAttribute('aria-live', 'assertive');
+        warnEl.setAttribute('role', 'alert');
         warnEl.innerHTML = tp.planGuardHtml(result) +
           '<button class="pl-btn pl-lime pl-tiny pl-guard-proceed">Add anyway</button>';
         btn.parentNode.insertBefore(warnEl, btn.nextSibling);
@@ -3168,7 +5151,7 @@ information about.
     (data.suggestions || []).forEach(function (s) { sum += s.workout_type !== 'rest' ? (s.target_tss || 0) : 0; });
     var target = data.facts && data.facts.target_tss ? Math.round(data.facts.target_tss) : null;
     if (target == null) return 'Σ ' + Math.round(sum) + ' TSS';
-    var cls = sum > target * 1.05 ? 'over' : (sum < target * 0.95 ? 'under' : 'on');
+    var cls = sum > target * 1.15 ? 'over' : (sum < target * 0.85 ? 'under' : 'on');
     return 'Σ <b class="' + cls + '">' + Math.round(sum) + '</b> / ' + target + ' TSS target';
   }
 
@@ -3214,14 +5197,30 @@ information about.
     }
 
     var anyUnfilled = _fillableSlots().length > 0;
+    var fillDisabled = !anyUnfilled || _fillAllRunning || _draftQueueBusy;
     host.innerHTML =
       '<div class="pl-rail-head">' +
         '<span class="pl-rail-title">Schedule — drag, resize, then fill</span>' +
         '<span class="pl-rail-sum">' + _slotSumHtml(data) + '</span>' +
         '<label class="pl-fill-skiprun" title="Exclude run slots from the AI fill — they are usually the most numerous and the first to exhaust the LLM budget">' +
           '<input type="checkbox" id="pl-skip-run"' + (_skipRunFill ? ' checked' : '') + (_fillAllRunning ? ' disabled' : '') + '/> Skip Run</label>' +
-        '<button type="button" class="pl-btn pl-lime pl-fill-all"' + (anyUnfilled && !_fillAllRunning ? '' : ' disabled') + '>' +
-          (_fillAllRunning ? '… filling' : '✨ Fill sessions with AI') + '</button>' +
+        '<div class="pl-fill-group">' +
+          '<button type="button" class="pl-btn pl-lime pl-fill-all"' + (fillDisabled ? ' disabled' : '') + '>' +
+            (_fillAllRunning ? '… filling' : '✨ Fill sessions with AI') + '</button>' +
+          '<button type="button" class="pl-fill-menu-btn" aria-haspopup="true" aria-expanded="false" title="More fill options"' +
+            (_fillAllRunning ? ' disabled' : '') + '>▾</button>' +
+          '<div class="pl-fill-menu" role="menu">' +
+            '<button type="button" data-fill-action="web"' + (fillDisabled ? ' disabled' : '') + '>' +
+              'Fill here (webapp AI)' +
+              '<span class="pl-fill-menu-hint">Sequential Groq fills — stays in this panel</span>' +
+            '</button>' +
+            '<button type="button" data-fill-action="worker-draft"' +
+              (_draftQueueBusy ? ' disabled' : '') + '>' +
+              'Queue week draft on worker' +
+              '<span class="pl-fill-menu-hint">plan_draft job on zeal-server — review &amp; apply later</span>' +
+            '</button>' +
+          '</div>' +
+        '</div>' +
       '</div>' +
       (data._fillNote ? '<div class="pl-rail-note">' + esc(data._fillNote) + '</div>' : '') +
       '<div class="pl-sched-grid">' + cols + '</div>';
@@ -3268,12 +5267,306 @@ information about.
       });
     });
     var fillBtn = host.querySelector('.pl-fill-all');
-    if (fillBtn) fillBtn.addEventListener('click', _fillAllSlots);
+    if (fillBtn) {
+      if (fillDisabled && !_fillAllRunning) {
+        // Disabled primary swallows clicks — make it open the ▾ menu so
+        // "Queue week draft" stays reachable when slots are already filled.
+        fillBtn.removeAttribute('disabled');
+        fillBtn.title = 'Open fill options (queue a worker draft from the menu)';
+        fillBtn.addEventListener('click', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          var menuBtn = host.querySelector('.pl-fill-menu-btn');
+          if (menuBtn) menuBtn.click();
+        });
+      } else {
+        fillBtn.addEventListener('click', _fillAllSlots);
+      }
+    }
     var skipRunChk = host.querySelector('#pl-skip-run');
     if (skipRunChk) skipRunChk.addEventListener('change', function () {
       _skipRunFill = skipRunChk.checked;
       _renderSuggestions(_suggestionsData);
     });
+    _wireFillMenu(host);
+  }
+
+  function _wireFillMenu(host) {
+    var menuBtn = host.querySelector('.pl-fill-menu-btn');
+    var menu = host.querySelector('.pl-fill-menu');
+    if (!menuBtn || !menu) return;
+
+    function _close() {
+      menu.classList.remove('is-open');
+      menuBtn.setAttribute('aria-expanded', 'false');
+    }
+
+    menuBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      var open = !menu.classList.contains('is-open');
+      menu.classList.toggle('is-open', open);
+      menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+
+    menu.querySelectorAll('[data-fill-action]').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (btn.disabled) return;
+        var action = btn.getAttribute('data-fill-action');
+        _close();
+        if (action === 'web') _fillAllSlots();
+        else if (action === 'worker-draft') _queueWorkerDraft();
+      });
+    });
+
+    if (!host._fillMenuDocBound) {
+      host._fillMenuDocBound = true;
+      document.addEventListener('click', function (e) {
+        if (!host.contains(e.target)) _close();
+      });
+    }
+  }
+
+  function _queueWorkerDraft() {
+    // Always show feedback first — never fail silently.
+    try {
+      _showDraftQueueModal({ queuing: true });
+    } catch (e1) {
+      try { window.alert('Queuing week draft on the worker…'); } catch (e2) { /* ignore */ }
+    }
+
+    if (_draftQueueBusy) {
+      _showDraftQueueModal({
+        error: false,
+        jobId: _draftQueueJobId,
+        already: true,
+      });
+      return;
+    }
+
+    _draftQueueBusy = true;
+    try {
+      _setDraftQueueLock(true, 'Queuing week draft on the worker…');
+    } catch (e3) {
+      console.warn('[plan] lock banner failed', e3);
+    }
+
+    var ws = _weekStartISO();
+
+    fetch('/api/plan/draft/refresh', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ week_start: ws }),
+    })
+      .then(function (r) {
+        return r.json().then(function (d) {
+          if (!r.ok) {
+            var detail = d && d.detail;
+            throw new Error(
+              (detail && (detail.error || detail.message || detail)) || ('HTTP ' + r.status)
+            );
+          }
+          return d;
+        });
+      })
+      .then(function (res) {
+        var jid = (res && res.job_id) ? String(res.job_id) : null;
+        _draftQueueJobId = jid;
+        if (window.TrainingPlan && window.TrainingPlan.markDraftPending) {
+          window.TrainingPlan.markDraftPending();
+        }
+        _showDraftQueueModal({
+          jobId: jid,
+          weekStart: res && res.week_start,
+        });
+      })
+      .catch(function (err) {
+        _draftQueueBusy = false;
+        try { _setDraftQueueLock(false); } catch (e5) { /* ignore */ }
+        _showDraftQueueModal({
+          error: true,
+          title: 'Could not queue draft',
+          body: (err && err.message) ? String(err.message) : 'The worker queue request failed.',
+        });
+      });
+  }
+
+  function _ensureDraftLockBanner() {
+    var panel = _el('plan-suggestions-panel');
+    if (!panel) return null;
+    var ban = panel.querySelector('.pl-draft-lock-banner');
+    if (ban) return ban;
+    ban = document.createElement('div');
+    ban.className = 'pl-draft-lock-banner';
+    ban.innerHTML =
+      '<i class="pl-gen-spin pl-gen-spin-lg" aria-hidden="true"></i>' +
+      '<span class="pl-draft-lock-msg"></span>' +
+      '<button type="button" class="pl-draft-lock-open">Open queue</button>';
+    var header = panel.querySelector('.pl-sug-header');
+    if (header && header.nextSibling) panel.insertBefore(ban, header.nextSibling);
+    else panel.insertBefore(ban, panel.firstChild);
+    ban.querySelector('.pl-draft-lock-open').addEventListener('click', function () {
+      window.location.href = '/settings#queue';
+    });
+    return ban;
+  }
+
+  function _setDraftQueueLock(locked, message) {
+    var panel = _el('plan-suggestions-panel');
+    if (!panel) return;
+    panel.classList.toggle('is-draft-queued', !!locked);
+    var ban = _ensureDraftLockBanner();
+    if (!ban) return;
+    var msg = ban.querySelector('.pl-draft-lock-msg');
+    if (msg) msg.textContent = message || 'Worker is building this week draft…';
+    var spin = ban.querySelector('.pl-gen-spin');
+    if (spin) spin.style.display = locked ? '' : 'none';
+  }
+
+  function _closeDraftQueueModal() {
+    var el = document.getElementById('pl-draft-q-overlay');
+    if (el) el.remove();
+  }
+
+  function _showDraftQueueModal(opts) {
+    opts = opts || {};
+    _closeDraftQueueModal();
+    var overlay = document.createElement('div');
+    overlay.id = 'pl-draft-q-overlay';
+    overlay.className = 'pl-draft-q-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+
+    var card = document.createElement('div');
+    card.className = 'pl-draft-q-card';
+
+    if (opts.queuing) {
+      card.innerHTML =
+        '<div class="pl-draft-q-spin-wrap">' +
+          '<i class="pl-gen-spin pl-gen-spin-lg" aria-hidden="true"></i>' +
+          '<span>Adding plan_draft to the worker queue…</span>' +
+        '</div>' +
+        '<h3>Queuing…</h3>' +
+        '<p>Hang on a moment — this is a quick database enqueue, not the full generation.</p>';
+      overlay.appendChild(card);
+      document.body.appendChild(overlay);
+      return;
+    }
+
+    if (opts.error) {
+      card.innerHTML =
+        '<h3>' + esc(opts.title || 'Something went wrong') + '</h3>' +
+        '<p>' + esc(opts.body || '') + '</p>' +
+        '<div class="pl-draft-q-actions">' +
+          '<button type="button" class="pl-btn" data-dq="dismiss">OK</button>' +
+        '</div>';
+      overlay.appendChild(card);
+      document.body.appendChild(overlay);
+      card.querySelector('[data-dq="dismiss"]').addEventListener('click', _closeDraftQueueModal);
+      overlay.addEventListener('click', function (e) {
+        if (e.target === overlay) _closeDraftQueueModal();
+      });
+      return;
+    }
+
+    var jid = opts.jobId || null;
+    var title = opts.already ? 'Draft already queued' : 'Week draft is in the queue';
+    var body = opts.already
+      ? 'A plan_draft job is already in flight for this week. Open the queue to watch it, or stay here.'
+      : 'The worker will build the full week draft in the background. Open the queue to watch it, or stay here — this panel will lock until the job finishes.';
+    card.innerHTML =
+      '<div class="pl-draft-q-spin-wrap">' +
+        '<i class="pl-gen-spin pl-gen-spin-lg" aria-hidden="true"></i>' +
+        '<span>Queued on zeal-server</span>' +
+      '</div>' +
+      '<h3>' + esc(title) + '</h3>' +
+      '<p>' + esc(body) + '</p>' +
+      '<div class="pl-draft-q-actions">' +
+        '<a class="pl-btn pl-lime" href="/settings#queue">Open queue</a>' +
+        '<button type="button" class="pl-btn" data-dq="stay">Stay here</button>' +
+      '</div>' +
+      (jid ? '<div class="pl-draft-q-jid">job ' + esc(jid) + '</div>' : '');
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    card.querySelector('[data-dq="stay"]').addEventListener('click', function () {
+      _closeDraftQueueModal();
+      _setDraftQueueLock(true, 'Worker is building this week draft — buttons paused');
+      _startDraftQueuePoll(jid);
+    });
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay) {
+        card.querySelector('[data-dq="stay"]').click();
+      }
+    });
+  }
+
+  function _stopDraftQueuePoll() {
+    if (_draftQueuePollTimer) {
+      clearInterval(_draftQueuePollTimer);
+      _draftQueuePollTimer = null;
+    }
+  }
+
+  function _startDraftQueuePoll(jobId) {
+    _stopDraftQueuePoll();
+    var tries = 0;
+    function tick() {
+      tries++;
+      fetch('/api/queue?limit=40', { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : { jobs: [] }; })
+        .then(function (data) {
+          var jobs = data.jobs || [];
+          var job = null;
+          if (jobId) {
+            job = jobs.filter(function (j) { return String(j.id) === String(jobId); })[0];
+          }
+          if (!job) {
+            job = jobs.filter(function (j) { return j.job_type === 'plan_draft'; })[0];
+          }
+          if (!job) {
+            if (tries > 40) {
+              _finishDraftQueueWait('timed out — check Settings → Queue');
+            }
+            return;
+          }
+          var st = (job.status || '').toLowerCase();
+          if (st === 'queued') {
+            _setDraftQueueLock(true, 'Queued — waiting for the worker to claim the job…');
+          } else if (st === 'running') {
+            _setDraftQueueLock(true, 'Worker is generating the week draft…');
+          } else if (st === 'done') {
+            _finishDraftQueueWait('Draft ready — refresh Plan or open the draft strip to review');
+            if (window.TrainingPlan && window.TrainingPlan.reloadDraft) {
+              window.TrainingPlan.reloadDraft();
+            }
+          } else if (st === 'failed') {
+            _finishDraftQueueWait('Draft job failed' + (job.error ? (': ' + job.error) : ''), true);
+          }
+        })
+        .catch(function () { /* keep polling */ });
+    }
+    tick();
+    _draftQueuePollTimer = setInterval(tick, 3000);
+  }
+
+  function _finishDraftQueueWait(message, isErr) {
+    _stopDraftQueuePoll();
+    _draftQueueBusy = false;
+    _setDraftQueueLock(false);
+    var panel = _el('plan-suggestions-panel');
+    if (panel) panel.classList.remove('is-draft-queued');
+    if (window.UIStates && window.UIStates.showToast) {
+      window.UIStates.showToast(message || 'Done', !!isErr);
+    }
+    if (_suggestionsData) {
+      _suggestionsData._fillNote = message || '';
+      _renderSuggestions(_suggestionsData);
+    }
   }
 
   // ── Rail 2: per-slot content generation ─────────────────────────────────────
@@ -3396,7 +5689,7 @@ information about.
     list.innerHTML = '';
     var suggestions = data.suggestions || [];
     if (!suggestions.length) {
-      list.innerHTML = '<span style="font-size:12px;color:var(--pl-muted);">Nothing left to suggest — the rest of this week is already scheduled.</span>';
+      list.innerHTML = '<span style="font-size:12px;color:var(--text-sub);">Nothing left to suggest — the rest of this week is already scheduled.</span>';
     } else {
       // Rows in the same Mon→Sun order as the schedule grid above — but keep
       // each slot's ORIGINAL index (drag/drop, inputs and generate all key
@@ -3427,13 +5720,77 @@ information about.
   function _titleForOpenDays(openDays) {
     var titleEl = _el('plan-suggestions-title');
     if (!titleEl) return;
-    var open = openDays.filter(function (d) { return d.open; });
-    if (!open.length) { titleEl.textContent = 'Suggested sessions'; return; }
-    var first = _DAY_NAMES_FULL[open[0].day_offset];
-    var last = _DAY_NAMES_FULL[open[open.length - 1].day_offset];
-    titleEl.textContent = open.length === 7
-      ? 'Next week’s suggestions'
+    var future = openDays.filter(function (d) { return !d.past; });
+    if (!future.length) { titleEl.textContent = 'Suggested sessions'; return; }
+    var first = _DAY_NAMES_FULL[future[0].day_offset];
+    var last = _DAY_NAMES_FULL[future[future.length - 1].day_offset];
+    titleEl.textContent = future.length === 7
+      ? 'Suggestions for this week'
       : 'Suggestions for ' + (first === last ? first : first + '–' + last);
+  }
+
+  function _nestedGet(obj, field) {
+    if (!obj) return null;
+    if (field.indexOf('.') < 0) return obj[field];
+    var parts = field.split('.');
+    var cur = obj;
+    for (var i = 0; i < parts.length; i++) {
+      if (!cur || typeof cur !== 'object') return null;
+      cur = cur[parts[i]];
+    }
+    return cur;
+  }
+
+  function _applyPrefsFromApi(data) {
+    var p = (data && data.active && data.active.payload) || {};
+    var days = _nestedGet(p, 'rest_days') || [];
+    _lastPrefs.restDays = days.map(Number).filter(function (d) { return d >= 0 && d <= 6; });
+    _lastPrefs.strengthEmphasis = _nestedGet(p, 'strength_emphasis') || 'same';
+    _lastPrefs.plyoMode = _nestedGet(p, 'plyo_mode') || 'off';
+    _lastPrefs.plyoSessions = Number(_nestedGet(p, 'plyo_sessions_per_week') || 0);
+    _lastPrefs.mpSegmentMin = Number(_nestedGet(p, 'long_run.mp_segment_min') || 0);
+    _lastPrefs.notes = _nestedGet(p, 'notes') || '';
+    _habitTargets = data.habit_targets || null;
+  }
+
+  function _collectTrainingPrefsPayload() {
+    return {
+      rest_days: _lastPrefs.restDays.slice().sort(function (a, b) { return a - b; }),
+      strength_emphasis: _lastPrefs.strengthEmphasis || 'same',
+      plyo_mode: _lastPrefs.plyoMode || 'off',
+      plyo_sessions_per_week: Number(_lastPrefs.plyoSessions) || 0,
+      long_run: { mp_segment_min: Number(_lastPrefs.mpSegmentMin) || 0 },
+      notes: _lastPrefs.notes || '',
+    };
+  }
+
+  function _readPrefsFormIntoState() {
+    var countEl = _el('pl-sug-strength-count');
+    if (countEl) _lastPrefs.strengthSessions = countEl.value.trim();
+    var se = _el('pl-sug-strength-emphasis');
+    if (se) _lastPrefs.strengthEmphasis = se.value;
+    var pm = _el('pl-sug-plyo-mode');
+    if (pm) _lastPrefs.plyoMode = pm.value;
+    var ps = _el('pl-sug-plyo-sessions');
+    if (ps) _lastPrefs.plyoSessions = Number(ps.value) || 0;
+    var mp = _el('pl-sug-mp-segment');
+    if (mp) _lastPrefs.mpSegmentMin = Number(mp.value) || 0;
+    var notes = _el('pl-sug-notes');
+    if (notes) _lastPrefs.notes = notes.value || '';
+  }
+
+  function _saveTrainingPrefs() {
+    return fetch('/api/preferences', {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payload: _collectTrainingPrefsPayload() }),
+    }).then(function (r) {
+      return r.json().then(function (body) {
+        if (!r.ok) return Promise.reject(body);
+        return body;
+      });
+    });
   }
 
   function _renderPrefsForm() {
@@ -3441,13 +5798,27 @@ information about.
     if (!host) return;
     var list = _el('plan-suggestions-list');
     if (list) list.innerHTML = '';
-    // Clear the schedule rail too — leaving the previous generation's grid
-    // rendered (and interactive) above a fresh prefs form let a stale chip
-    // drag re-render the old suggestions and wipe the prefs being entered.
     var sched = _el('plan-suggestions-sched');
     if (sched) sched.innerHTML = '';
     var loading = _el('plan-suggestions-loading');
     if (loading) loading.style.display = 'none';
+
+    host.innerHTML = '<div class="pl-sug-prefs"><span style="font-size:12px;color:var(--text-sub);">Loading preferences…</span></div>';
+
+    fetch('/api/preferences', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (data) {
+        _applyPrefsFromApi(data);
+        _paintPrefsForm();
+      })
+      .catch(function () {
+        _paintPrefsForm();
+      });
+  }
+
+  function _paintPrefsForm() {
+    var host = _el('plan-suggestions-prefs');
+    if (!host) return;
 
     var openDays = (window.TrainingPlan && window.TrainingPlan.getOpenDayInfo)
       ? window.TrainingPlan.getOpenDayInfo() : [];
@@ -3455,18 +5826,33 @@ information about.
 
     var dayChecks = openDays.map(function (d) {
       var checked = _lastPrefs.restDays.indexOf(d.day_offset) !== -1;
-      return '<label class="pl-sug-daychk' + (d.open ? '' : ' is-closed') + '" title="' +
-        (d.open ? 'Ask for this day off' : 'Already scheduled or in the past') + '">' +
+      var past = !!d.past;
+      var hasSession = !!d.hasSession;
+      var cls = 'pl-sug-daychk' + (past ? ' is-past' : '') + (hasSession && !past ? ' has-session' : '');
+      var title = past
+        ? 'Past day — cannot change'
+        : (hasSession ? 'Has a session — you can still mark it as a preferred rest day' : 'Ask for this day off');
+      return '<label class="' + cls + '" title="' + title + '">' +
         '<input type="checkbox" data-restday="' + d.day_offset + '"' +
-        (checked ? ' checked' : '') + (d.open ? '' : ' disabled') + '/>' +
-        '<span>' + _DAY_NAMES[d.day_offset] + '</span></label>';
+        (checked ? ' checked' : '') + (past ? ' disabled' : '') + '/>' +
+        '<span>' + _DAY_NAMES[d.day_offset] + '</span>' +
+        (hasSession && !past ? '<span class="pl-sug-sess-tag">session</span>' : '') +
+        (past ? '<span class="pl-sug-sess-tag" style="background:#f1f5f9;color:#64748b;">past</span>' : '') +
+        '</label>';
     }).join('');
 
-    var anyOpen = openDays.some(function (d) { return d.open; });
+    var anyFuture = openDays.some(function (d) { return !d.past; });
+    var ht = _habitTargets || {};
+    var habitsLine =
+      'Zone&nbsp;2 / stretch targets live on <a href="/habits">Habits</a>' +
+      (ht.zone2_weekly_min != null
+        ? (' · Z2 <b>' + esc(ht.zone2_weekly_min) + ' min/wk</b> · stretch <b>' +
+          esc(ht.stretch_daily_min != null ? ht.stretch_daily_min : '—') + ' min/day</b>')
+        : '');
 
     host.innerHTML =
       '<div class="pl-sug-prefs">' +
-        (anyOpen ? (
+        (anyFuture ? (
           '<div class="pl-sug-prefs-row">' +
             '<label class="pl-sug-prefs-label">Rest days</label>' +
             '<div class="pl-sug-daychks">' + dayChecks + '</div>' +
@@ -3476,10 +5862,45 @@ information about.
             '<span class="pl-sug-count-wrap"><input id="pl-sug-strength-count" class="pl-sug-count" type="number" min="0" max="7" step="1" placeholder="auto" value="' + esc(_lastPrefs.strengthSessions) + '"/>' +
             '<span class="pl-sug-count-hint">blank = match your recent weeks</span></span>' +
           '</div>' +
-          '<div class="pl-btnrow"><button type="button" class="pl-btn pl-lime" id="pl-sug-generate">Build schedule</button>' +
-          '<button type="button" class="pl-btn pl-ghost" id="pl-sug-cancel">Cancel</button></div>'
+          '<div class="pl-sug-prefs-extra">' +
+            '<div class="pl-sug-prefs-row">' +
+              '<label class="pl-sug-prefs-label" for="pl-sug-strength-emphasis">Strength emphasis</label>' +
+              '<select id="pl-sug-strength-emphasis">' +
+                ['less', 'same', 'more'].map(function (v) {
+                  return '<option value="' + v + '"' + (_lastPrefs.strengthEmphasis === v ? ' selected' : '') + '>' + v + '</option>';
+                }).join('') +
+              '</select>' +
+            '</div>' +
+            '<div class="pl-sug-prefs-row">' +
+              '<label class="pl-sug-prefs-label" for="pl-sug-plyo-mode">Plyo mode</label>' +
+              '<select id="pl-sug-plyo-mode">' +
+                ['standalone', 'superset', 'off'].map(function (v) {
+                  return '<option value="' + v + '"' + (_lastPrefs.plyoMode === v ? ' selected' : '') + '>' + v + '</option>';
+                }).join('') +
+              '</select>' +
+            '</div>' +
+            '<div class="pl-sug-prefs-row">' +
+              '<label class="pl-sug-prefs-label" for="pl-sug-plyo-sessions">Plyo sessions / week</label>' +
+              '<input id="pl-sug-plyo-sessions" type="number" min="0" max="2" step="1" value="' + esc(_lastPrefs.plyoSessions) + '"/>' +
+            '</div>' +
+            '<div class="pl-sug-prefs-row">' +
+              '<label class="pl-sug-prefs-label" for="pl-sug-mp-segment">Long-run MP segment (min)</label>' +
+              '<input id="pl-sug-mp-segment" type="number" min="0" max="30" step="10" value="' + esc(_lastPrefs.mpSegmentMin) + '"/>' +
+            '</div>' +
+            '<div class="pl-sug-prefs-row" style="align-items:start;">' +
+              '<label class="pl-sug-prefs-label" for="pl-sug-notes">Notes</label>' +
+              '<textarea id="pl-sug-notes" class="pl-sug-prefs-notes" maxlength="200">' + esc(_lastPrefs.notes) + '</textarea>' +
+            '</div>' +
+          '</div>' +
+          '<div class="pl-sug-habits">' + habitsLine + '</div>' +
+          '<div class="pl-sug-prefs-err" id="pl-sug-prefs-err" hidden></div>' +
+          '<div class="pl-btnrow" style="margin-top:12px;">' +
+            '<button type="button" class="pl-btn pl-lime" id="pl-sug-generate">Build schedule</button>' +
+            '<button type="button" class="pl-btn pl-ghost" id="pl-sug-save-prefs">Save preferences</button>' +
+            '<button type="button" class="pl-btn pl-ghost" id="pl-sug-cancel">Cancel</button>' +
+          '</div>'
         ) : (
-          '<div class="pl-infobanner">The rest of this week is already fully scheduled or logged — nothing left to suggest here. Use the week arrows to look at next week instead.</div>' +
+          '<div class="pl-infobanner">This week is entirely in the past — use the week arrows to look at the current or next week.</div>' +
           '<div class="pl-btnrow"><button type="button" class="pl-btn pl-ghost" id="pl-sug-cancel">Close</button></div>'
         )) +
       '</div>';
@@ -3494,9 +5915,28 @@ information about.
     });
     var genBtn = _el('pl-sug-generate');
     if (genBtn) genBtn.addEventListener('click', function () {
-      var countEl = _el('pl-sug-strength-count');
-      if (countEl) _lastPrefs.strengthSessions = countEl.value.trim();
+      _readPrefsFormIntoState();
       _loadSuggestions();
+    });
+    var savePrefsBtn = _el('pl-sug-save-prefs');
+    if (savePrefsBtn) savePrefsBtn.addEventListener('click', function () {
+      _readPrefsFormIntoState();
+      var errEl = _el('pl-sug-prefs-err');
+      if (errEl) { errEl.hidden = true; errEl.textContent = ''; }
+      savePrefsBtn.disabled = true;
+      _saveTrainingPrefs()
+        .then(function () {
+          savePrefsBtn.textContent = 'Saved';
+          setTimeout(function () { savePrefsBtn.textContent = 'Save preferences'; }, 1200);
+        })
+        .catch(function (body) {
+          var msg = 'Save failed';
+          if (body && body.detail) {
+            msg = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail, null, 2);
+          }
+          if (errEl) { errEl.hidden = false; errEl.textContent = msg; }
+        })
+        .finally(function () { savePrefsBtn.disabled = false; });
     });
     var cancelBtn = _el('pl-sug-cancel');
     if (cancelBtn) cancelBtn.addEventListener('click', _dismissPanel);
@@ -3512,38 +5952,49 @@ information about.
     var panel = _el('plan-suggestions-panel');
     var loading = _el('plan-suggestions-loading');
     var list = _el('plan-suggestions-list');
+    var errEl = _el('pl-sug-prefs-err');
     if (!panel) return;
     panel.style.display = '';
-    // Show the overlay ON TOP of whatever's already there (the prefs form, or
-    // last time's suggestion list) — don't clear it first, so the panel never
-    // goes blank while the call is in flight.
+    if (errEl) { errEl.hidden = true; errEl.textContent = ''; }
     if (loading) {
       loading.style.display = '';
       var lbl = loading.querySelector('span');
-      if (lbl) lbl.textContent = 'Building schedule…';
+      if (lbl) lbl.textContent = 'Saving preferences…';
     }
 
-    // Two-rail flow (issue #1417): fetch the rule-based schedule skeleton
-    // (instant, no LLM) — habits from the athlete's own last 3 weeks, with
-    // an optional exact strength-session count. The athlete rearranges the
-    // slots on the schedule rail, then fills content per slot (✨ buttons)
-    // — the LLM never chooses which day gets which session type again.
     var strengthCount = parseInt(_lastPrefs.strengthSessions, 10);
-    fetch('/api/plan/suggestions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        week_start: _weekStartISO(),
-        rest_days: _lastPrefs.restDays,
-        skeleton: true,
-        strength_sessions: isNaN(strengthCount) ? null : strengthCount,
-      }),
-    })
+    _saveTrainingPrefs()
+      .catch(function (body) {
+        if (loading) loading.style.display = 'none';
+        var msg = 'Could not save preferences';
+        if (body && body.detail) {
+          msg = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail, null, 2);
+        }
+        if (errEl) { errEl.hidden = false; errEl.textContent = msg; }
+        return Promise.reject(body);
+      })
+      .then(function () {
+        if (loading) {
+          var lbl2 = loading.querySelector('span');
+          if (lbl2) lbl2.textContent = 'Building schedule…';
+        }
+        return fetch('/api/plan/suggestions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            week_start: _weekStartISO(),
+            rest_days: _lastPrefs.restDays,
+            skeleton: true,
+            strength_sessions: isNaN(strengthCount) ? null : strengthCount,
+          }),
+        });
+      })
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
       .then(_renderSuggestions)
-      .catch(function () {
+      .catch(function (err) {
         if (loading) loading.style.display = 'none';
-        if (list) list.innerHTML = '<span style="font-size:12px;color:var(--pl-muted);">Could not load suggestions.</span>';
+        if (err && err.detail) return; // prefs error already shown
+        if (list) list.innerHTML = '<span style="font-size:12px;color:var(--text-sub);">Could not load suggestions.</span>';
       });
   }
 
