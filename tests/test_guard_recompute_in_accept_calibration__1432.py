@@ -10,7 +10,6 @@ import time
 import uuid
 from unittest.mock import MagicMock, patch
 
-
 _USER_ID = str(uuid.uuid4())
 
 
@@ -39,8 +38,6 @@ def _make_authed_client(user_id_str):
 
 def _mock_session(race_id_str, user_id, ctl_days=35, atl_days=5):
     """Return a mock SQLAlchemy session that resolves the race and prefs."""
-    race_uuid = uuid.UUID(race_id_str)
-
     mock_race = MagicMock()
     mock_race.user_id = user_id
 
