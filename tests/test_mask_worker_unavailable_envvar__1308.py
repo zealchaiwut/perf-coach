@@ -8,10 +8,7 @@ AC coverage:
   AC3 - The specific env-var name is logged at WARNING level server-side (not
         surfaced in the exception message)
 """
-import importlib
 import logging
-from unittest.mock import patch
-import uuid
 import pytest
 
 import backend.services.worker_client as worker_client
