@@ -12,8 +12,6 @@ import uuid as _uuid
 from datetime import date as _date, timedelta as _timedelta
 from typing import Optional
 
-_log = logging.getLogger(__name__)
-
 from fastapi import APIRouter, Body, Depends, HTTPException, Query as _Query
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
@@ -35,6 +33,8 @@ from backend.services.training_load import (
     current_load as _current_load,
     daily_tss_series as _daily_tss_series,
 )
+
+_log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
