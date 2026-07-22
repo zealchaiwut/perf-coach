@@ -29,7 +29,6 @@ else:
 _engine = None
 if _uat_url:
     from sqlalchemy import create_engine
-    from sqlalchemy.orm import Session as _OrmSess
     _engine = create_engine(_uat_url, pool_pre_ping=True)
 
 _TEST_PW = "test1473pw!"
