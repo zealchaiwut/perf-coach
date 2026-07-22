@@ -10,7 +10,6 @@ import time
 import uuid
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 _USER_ID = str(uuid.uuid4())
 
