@@ -7,12 +7,10 @@ AC coverage:
   AC4 - delegate_backfill accepts a per-call timeout kwarg that overrides the env var
   AC5 - WORKER_TIMEOUT_SECONDS is documented in the module docstring
 """
-import json
 import uuid
 from unittest.mock import MagicMock, patch
 import importlib
 
-import pytest
 import backend.services.worker_client as worker_client
 
 
