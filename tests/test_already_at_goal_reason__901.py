@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import datetime
 
-
 from backend.services.goal_arrival_caller import build_arrival_projection_response
 
 
@@ -87,9 +86,6 @@ def test_past_goal_returns_already_at_goal_reason():
     """AC2: User who has overshot goal (below a loss target) gets reason='already_at_goal'."""
     # User aims for 80 kg but is now at 79 kg and still losing
     goal = 80.0
-    trend = _trend(21, start_weight=81.0, weekly_change_kg=-0.4)
-    # Last entry will be slightly below 81, which may or may not be below goal.
-    # Build a trend that clearly ends below goal.
     trend_past = [
         {"date": TODAY - datetime.timedelta(days=20 - i), "weight_kg": 79.5 - i * 0.05}
         for i in range(21)
