@@ -38,7 +38,13 @@ def get_plan_prefs(
             from backend.services.training_prefs import prefs_for_assemble_facts
             stored.update(prefs_for_assemble_facts(db, user_id) or {})
         except Exception:
-            pass
+            # prefs_for_assemble_facts can write (carry-forward); a failure
+            # mid-write leaves the caller's session in an aborted transaction
+            # unless we roll it back here.
+            try:
+                db.rollback()
+            except Exception:
+                pass
 
     if preferred_rest_days is not None:
         stored["preferred_rest_days"] = list(preferred_rest_days)
