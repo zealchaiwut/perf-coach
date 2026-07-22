@@ -15,6 +15,9 @@ Environment variables:
   WORKER_TRIGGER_MODE           "queue" (default) | "http".
   WORKER_BASE_URL               Worker URL for http mode, e.g. http://zeal-server:9100.
   WORKER_SHARED_SECRET          Shared secret sent as X-Worker-Secret (http mode).
+  WORKER_TIMEOUT_SECONDS        HTTP timeout in seconds for worker calls (default 10).
+                                 Raise this on slow home-server links to avoid spurious
+                                 503s for backfill or long sync delegation calls.
   ROUTE_FULL_SYNC_FALLBACK_TO_INPROCESS  Set "1" to allow in-process fallback when
                                           the worker is unreachable (opt-in, off by default).
   ROUTE_BACKFILL_FALLBACK_TO_INPROCESS   Same for backfill (opt-in, off by default).
@@ -54,7 +57,15 @@ def get_worker_shared_secret() -> str | None:
     return os.getenv("WORKER_SHARED_SECRET", "").strip() or None
 
 
-def _post(path: str, payload: dict, timeout: int = 10) -> dict:
+def get_worker_timeout() -> int:
+    raw = os.getenv("WORKER_TIMEOUT_SECONDS", "").strip()
+    try:
+        return int(raw) if raw else 10
+    except ValueError:
+        return 10
+
+
+def _post(path: str, payload: dict, timeout: int | None = None) -> dict:
     base_url = get_worker_base_url()
     if not base_url:
         raise WorkerUnavailable("WORKER_BASE_URL is not configured")
@@ -63,6 +74,7 @@ def _post(path: str, payload: dict, timeout: int = 10) -> dict:
     if not secret:
         raise WorkerUnavailable("WORKER_SHARED_SECRET is not configured")
 
+    effective_timeout = timeout if timeout is not None else get_worker_timeout()
     url = base_url.rstrip("/") + path
     data = json.dumps(payload).encode()
     req = _urllib_request.Request(
@@ -75,7 +87,7 @@ def _post(path: str, payload: dict, timeout: int = 10) -> dict:
         method="POST",
     )
     try:
-        with _urllib_request.urlopen(req, timeout=timeout) as resp:
+        with _urllib_request.urlopen(req, timeout=effective_timeout) as resp:
             return json.loads(resp.read())
     except urllib.error.URLError as exc:
         raise WorkerUnavailable(f"Worker unreachable: {exc}") from exc
@@ -88,6 +100,7 @@ def delegate_sync(
     sources: list[str],
     full: bool = False,
     triggered_by: str = "manual",
+    timeout: int | None = None,
 ) -> dict:
     """Delegate a sync job to the worker. queue mode enqueues one job per source
     (dedupe_key mirrors the worker's single-flight intent); http mode POSTs."""
@@ -95,6 +108,7 @@ def delegate_sync(
         return _post(
             "/internal/sync/run",
             {"user_id": user_id, "sources": sources, "full": full, "triggered_by": triggered_by},
+            timeout=timeout if timeout is not None else get_worker_timeout(),
         )
 
     from backend.services import job_queue
@@ -149,10 +163,14 @@ def delegate_precompute(user_id: str, *, dates=None) -> dict:
         return {"queued": False}
 
 
-def delegate_backfill(user_id: str) -> dict:
+def delegate_backfill(user_id: str, timeout: int | None = None) -> dict:
     """Delegate a performance backfill to the worker. queue mode enqueues; http POSTs."""
     if _trigger_mode() == "http":
-        return _post("/internal/performance/backfill", {"user_id": user_id})
+        return _post(
+            "/internal/performance/backfill",
+            {"user_id": user_id},
+            timeout=timeout if timeout is not None else get_worker_timeout(),
+        )
 
     from backend.services import job_queue
     jid = job_queue.enqueue(
