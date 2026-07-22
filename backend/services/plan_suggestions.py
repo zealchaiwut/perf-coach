@@ -1311,11 +1311,13 @@ def assemble_facts(
                 db.commit()
         except Exception:
             _prefs_stored = None
-            if _own_session:
-                try:
-                    db.rollback()
-                except Exception:
-                    pass
+            # Roll back even on a caller-supplied session: the prefs fetch can
+            # write (carry-forward), and a failed write otherwise leaves the
+            # shared session's transaction aborted for the rest of the request.
+            try:
+                db.rollback()
+            except Exception:
+                pass
     finally:
         if _own_session:
             db.close()

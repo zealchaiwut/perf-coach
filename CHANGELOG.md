@@ -1,5 +1,11 @@
 # Changelog
 
+## Pre-release hardening — PRD merge-review blocker fixes (2026-07-22)
+
+- Session-poisoning fixes: `plan_prefs_accessor.get_plan_prefs`, `plan_suggestions.assemble_facts` (prefs fetch), and `coach_narrative.generate_brief` (daily-brief persist) all swallowed exceptions from code paths that write to the DB without rolling back the caller's session. A prefs carry-forward race or a `(user_id, brief_date)` unique-constraint race left the shared Postgres session in an aborted-transaction state, turning every subsequent query in that request/job into `InFailedSqlTransaction` — including a 500 on a plain `GET /api/coach/brief`. Each site now rolls back on failure
+- LLM atom hardening in `coach_narrative`: atom fields are coerced with `str()` before validation (GLM's `json_object` mode does not enforce types — an int/list field previously crashed `.strip()`), and each plain-path generation attempt is wrapped in try/except so a malformed payload counts as a failed attempt and falls through to the deterministic `_fallback()` instead of crashing `generate_brief` and 500ing the brief endpoint
+- Removed dead `frontend/js/preferences.js` (322 lines): never loaded by any page and none of its DOM ids exist — the live preferences UI is inline in `training-plan.js`; the old `/preferences` page is a redirect stub
+
 ## Sprint 120 — PR-endpoint curve fix, cadence-drift easy-run isolation, gap-analysis run-matching, phase-chip gating & half-marathon equivalent
 
 - #993: Run-PR endpoint now checks `curve_data` non-emptiness, not just row existence — `get_athlete_run_personal_records` computed `curve_populated` as `session.get(_AthleteDurationCurve, uid) is not None`, so an athlete whose earlier rebuild found no power data (leaving a row with `curve_data={}`) skipped the rebuild and logged `duration_curve_populated=True` despite having no usable curve. It now gates on `bool(curve_row and curve_row.curve_data)` both before and after `_rebuild_athlete_duration_curve`, so a row with empty `curve_data` is retried when the athlete has run history and the pre-detection log reflects the true populated state. Thresholds still come from `_DEFAULT_DURATION_LADDER` via `fetch_and_compute_curves` — no values hardcoded

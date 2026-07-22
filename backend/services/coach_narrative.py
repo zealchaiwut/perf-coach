@@ -560,7 +560,9 @@ def validation_errors_brief(atoms: dict, facts: dict, skeleton: dict | None = No
     connective = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "12", "14", "5%"}
 
     def _check_atom(name: str, text: str, budget: int, allow: set[str]):
-        body = (text or "").strip()
+        # LLM json mode does not enforce types — a field can come back as an
+        # int/list/dict; coerce before .strip() instead of crashing.
+        body = ("" if text is None else str(text)).strip()
         if len(body) > budget:
             errors.append(f"atom '{name}' over budget ({len(body)}>{budget})")
         if _FOCUS_RANK_RE.search(body):
@@ -621,7 +623,7 @@ def validation_errors_brief(atoms: dict, facts: dict, skeleton: dict | None = No
                     break
         # Proposal why-sentence: ≤140 chars, numerals only from delta/evidence
         if prop_meta is not None or str(sid).startswith("proposal_"):
-            why = s.get("evidence") or s.get("why") or ""
+            why = str(s.get("evidence") or s.get("why") or "")
             if len(why.strip()) > 140:
                 errors.append(f"atom '{sid}.evidence' over budget ({len(why.strip())}>140)")
             for tok in _extract_numerals(why):
@@ -851,19 +853,27 @@ def generate_brief(
         errors: list[str] = []
         for _ in range(max_attempts):
             attempts += 1
-            fb = feedback_block(errors)
-            atoms = call_llm_brief_atoms(facts, skeleton, fb)
-            if atoms is None:
-                errors = ["llm unavailable or empty"]
+            # Same guard as the langgraph branch: a malformed LLM payload must
+            # count as a failed attempt and fall through to _fallback(), not
+            # crash out of generate_brief.
+            try:
+                fb = feedback_block(errors)
+                atoms = call_llm_brief_atoms(facts, skeleton, fb)
+                if atoms is None:
+                    errors = ["llm unavailable or empty"]
+                    continue
+                chosen_code = atoms.pop("chosen_preset_code", None)
+                errors = validation_errors_brief(atoms, facts, skeleton)
+                if not errors:
+                    brief = merge_llm_atoms(skeleton, atoms, facts)
+                    source = _source_label()
+                    brief["source"] = source
+                    apply_chosen_preset(facts, chosen_code)
+                    break
+            except Exception as exc:
+                _log.warning("coach brief atom attempt failed: %s", exc)
+                errors = [f"attempt error: {exc}"]
                 continue
-            chosen_code = atoms.pop("chosen_preset_code", None)
-            errors = validation_errors_brief(atoms, facts, skeleton)
-            if not errors:
-                brief = merge_llm_atoms(skeleton, atoms, facts)
-                source = _source_label()
-                brief["source"] = source
-                apply_chosen_preset(facts, chosen_code)
-                break
         if brief is None:
             brief = _fallback()
             source = "fallback"
@@ -879,6 +889,13 @@ def generate_brief(
             persist_daily_brief(db, user_id, brief_date, brief, source)
         except Exception as exc:
             _log.warning("persist daily_brief failed: %s", exc)
+            # A failed persist (e.g. unique-constraint race on
+            # (user_id, brief_date)) aborts the transaction; roll back so the
+            # caller's later db.commit() doesn't raise on a poisoned session.
+            try:
+                db.rollback()
+            except Exception:
+                pass
 
     return {
         "brief": brief,
