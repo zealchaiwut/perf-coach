@@ -1322,4 +1322,9 @@ def recompute_user_running_tss(user_id, session) -> int:
     )
     for w in workouts:
         persist_running_tss(w.id, session)
+        # Release each workout's loaded state (splits etc.) after persisting so
+        # a full-user recompute holds ~one workout in memory, not the whole
+        # history. The pending tss/tss_method writes are flushed by expire.
+        session.flush()
+        session.expire(w)
     return len(workouts)

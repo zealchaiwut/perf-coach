@@ -87,13 +87,20 @@ def rebuild_athlete_duration_curve(user_id, db):
         if _stream is not None:
             db.expunge(_stream)
 
-    # Persist the rebuilt curve
+    # Persist the rebuilt curve. runs_considered records how many runs this
+    # rebuild saw, so callers can tell "empty because no power data in these N
+    # runs" (skip retry until a new run appears) from "never rebuilt".
     record = db.get(AthleteDurationCurve, user_id)
     if record is None:
-        record = AthleteDurationCurve(user_id=user_id, curve_data=merged_curve)
+        record = AthleteDurationCurve(
+            user_id=user_id,
+            curve_data=merged_curve,
+            runs_considered=len(run_workouts),
+        )
         db.add(record)
     else:
         record.curve_data = merged_curve
+        record.runs_considered = len(run_workouts)
         flag_modified(record, "curve_data")
 
     db.commit()
