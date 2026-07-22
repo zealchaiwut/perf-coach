@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import datetime
 
-import pytest
 
 from backend.services.goal_arrival_caller import build_arrival_projection_response
 
