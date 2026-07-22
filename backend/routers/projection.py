@@ -7,9 +7,12 @@ projection payload module; no domain logic lives in this router.
 """
 from __future__ import annotations
 
+import logging
 import uuid as _uuid
 from datetime import date as _date, timedelta as _timedelta
 from typing import Optional
+
+_log = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query as _Query
 from fastapi.responses import JSONResponse, Response
@@ -1088,7 +1091,7 @@ async def get_plan_projection(
         )
         _write_snap(user.id, today, snap_payload)
     except Exception:
-        pass  # snapshot failures must never break the projection response
+        _log.warning("prediction-snapshot write failed", exc_info=True)
 
     return JSONResponse(payload)
 
