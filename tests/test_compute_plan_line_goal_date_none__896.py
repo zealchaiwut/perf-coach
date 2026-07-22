@@ -36,7 +36,7 @@ def test_goal_date_none_does_not_raise():
     """compute_plan_line must not raise TypeError or AttributeError when goal_date=None."""
     plan = _plan(goal_date=None)
     try:
-        result = compute_plan_line(plan, datetime.date(2026, 2, 1))
+        compute_plan_line(plan, datetime.date(2026, 2, 1))
     except (TypeError, AttributeError) as exc:
         pytest.fail(f"compute_plan_line raised unexpectedly with goal_date=None: {exc}")
 
