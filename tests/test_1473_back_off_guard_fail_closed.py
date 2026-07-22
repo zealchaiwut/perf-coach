@@ -27,7 +27,10 @@ else:
     _uat_url = os.environ.get("DATABASE_URL_UAT")
 
 _engine = None
-if _uat_url:
+# Only create the engine when the backend itself is connected to a real DB.
+# The root conftest.py sets DATABASE_URL to sqlite when ENVIRONMENT != "uat".
+# If the backend uses SQLite, TestClient requests fail with "no such table".
+if _uat_url and "sqlite" not in os.getenv("DATABASE_URL", "sqlite").lower():
     from sqlalchemy import create_engine
     _engine = create_engine(_uat_url, pool_pre_ping=True)
 
