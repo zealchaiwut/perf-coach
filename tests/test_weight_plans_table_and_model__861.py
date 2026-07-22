@@ -129,6 +129,7 @@ def test_validate_missing_start_weight_returns_none_with_reason():
     result, reason = validate_weight_plan_required(
         start_weight_kg=None,
         goal_weight_kg=decimal.Decimal("80.00"),
+        start_date="2026-01-01",
     )
     assert result is None
     assert isinstance(reason, str) and len(reason) > 0
@@ -139,6 +140,7 @@ def test_validate_missing_goal_weight_returns_none_with_reason():
     result, reason = validate_weight_plan_required(
         start_weight_kg=decimal.Decimal("85.00"),
         goal_weight_kg=None,
+        start_date="2026-01-01",
     )
     assert result is None
     assert isinstance(reason, str) and len(reason) > 0
@@ -149,6 +151,7 @@ def test_validate_all_required_present_returns_true():
     result, reason = validate_weight_plan_required(
         start_weight_kg=decimal.Decimal("85.00"),
         goal_weight_kg=decimal.Decimal("80.00"),
+        start_date="2026-01-01",
     )
     assert result is True
     assert reason is None
@@ -159,6 +162,7 @@ def test_validate_both_missing_returns_none_with_reason():
     result, reason = validate_weight_plan_required(
         start_weight_kg=None,
         goal_weight_kg=None,
+        start_date="2026-01-01",
     )
     assert result is None
     assert isinstance(reason, str) and len(reason) > 0

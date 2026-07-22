@@ -1325,7 +1325,7 @@ class AthleteDurationCurve(Base):
     user = relationship("User", foreign_keys=[user_id])
 
 
-def validate_weight_plan_required(start_weight_kg, goal_weight_kg):
+def validate_weight_plan_required(start_weight_kg, goal_weight_kg, start_date=None):
     """Return (True, None) when required fields are present, else (None, reason).
 
     Mirrors the compute_goal_pace pattern: never raises, returns a 2-tuple so
@@ -1335,6 +1335,8 @@ def validate_weight_plan_required(start_weight_kg, goal_weight_kg):
         return (None, "start_weight_kg is required")
     if goal_weight_kg is None:
         return (None, "goal_weight_kg is required")
+    if start_date is None:
+        return (None, "start_date is required")
     return (True, None)
 
 
