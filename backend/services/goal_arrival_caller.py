@@ -66,7 +66,17 @@ def build_arrival_projection_response(
             "reason": "not_trending_toward_goal",
         }
 
-    # Any other reason from project_arrival (already at goal, bad input, etc.)
+    # User is already at or past their goal — distinct from insufficient data.
+    if reason_from_fn == "already at or past goal":
+        weekly_rate = result.get("weekly_rate_kg")
+        return {
+            "projected_arrival_date": None,
+            "projected_rate": None,
+            "recent_rate": weekly_rate,
+            "reason": "already_at_goal",
+        }
+
+    # Any other reason from project_arrival (bad input, etc.)
     # — surface as insufficient_data since the chart cannot project.
     if reason_from_fn:
         weekly_rate = result.get("weekly_rate_kg")
