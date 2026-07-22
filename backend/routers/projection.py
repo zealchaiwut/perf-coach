@@ -7,6 +7,7 @@ projection payload module; no domain logic lives in this router.
 """
 from __future__ import annotations
 
+import logging
 import uuid as _uuid
 from datetime import date as _date, timedelta as _timedelta
 from typing import Optional
@@ -32,6 +33,8 @@ from backend.services.training_load import (
     current_load as _current_load,
     daily_tss_series as _daily_tss_series,
 )
+
+_log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
@@ -1088,7 +1091,7 @@ async def get_plan_projection(
         )
         _write_snap(user.id, today, snap_payload)
     except Exception:
-        pass  # snapshot failures must never break the projection response
+        _log.warning("prediction-snapshot write failed", exc_info=True)
 
     return JSONResponse(payload)
 
