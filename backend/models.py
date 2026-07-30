@@ -72,6 +72,11 @@ class WeightEntry(Base):
     entry_date = Column(Date, nullable=False)
     entry_time = Column(Time, nullable=True)
     weight_kg = Column(Numeric(5, 2), nullable=False)
+    # Optional weekly bioimpedance reading. Poor at absolute body fat (±5 pts),
+    # acceptable at DIRECTION under standardized conditions — direction is the
+    # only thing asked of it. Lean mass is derived, never stored, so the two
+    # can't disagree. A guard, never a target.
+    body_fat_pct = Column(Numeric(4, 1), nullable=True)
     notes = Column(Text, nullable=True)
     source = Column(String(20), nullable=False, server_default=text("'manual'"))
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
@@ -90,6 +95,10 @@ class WeightEntry(Base):
             "entry_date",
             unique=True,
             postgresql_where=text("entry_time IS NULL"),
+        ),
+        CheckConstraint(
+            "body_fat_pct IS NULL OR (body_fat_pct >= 3 AND body_fat_pct <= 70)",
+            name="ck_weight_entries_body_fat_pct_range",
         ),
         CheckConstraint(
             "source IN ('manual', 'imported', 'backfill')",

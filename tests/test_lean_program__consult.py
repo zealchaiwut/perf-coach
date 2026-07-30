@@ -39,9 +39,9 @@ def test_consult_template_is_versioned_alongside_the_schema():
 
 
 def test_schema_and_prompt_versions_moved_together():
-    """Spec §10: the new blocks bump both. v1 payload + v2 template is a bug."""
-    assert ce.SCHEMA_VERSION == 2
-    assert ce.PROMPT_VERSION.endswith("v2")
+    """Spec §10: new payload blocks bump both. A v2 payload served with a v3
+    template (or the reverse) is a bug, not a version skew to tolerate."""
+    assert ce.PROMPT_VERSION.endswith(f"v{ce.SCHEMA_VERSION}")
 
 
 def test_consult_template_carries_no_athlete_facts():

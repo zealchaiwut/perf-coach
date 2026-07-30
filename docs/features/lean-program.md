@@ -8,7 +8,7 @@ pauses is a cut that wasn't failed.
 Everything here is code. The only LLM in the loop is the consult, which happens
 outside perf-coach by design.
 
-> Status: **Phases 0 and 1 complete.** Phases 2–4 are specified in the sprint
+> Status: **Phases 0, 1 and 2 complete.** Phases 3–4 are specified in the sprint
 > plan and not yet built. This document describes what exists and marks the rest.
 
 ## Governing decisions
@@ -180,30 +180,127 @@ Miss 7 days → nudge goes weekly and the copy changes; log 3 in a week → back
 ACTIVE. `tests/test_lean_program__weight_write.py`,
 `tests/test_lean_program__tracking_state.py`.
 
-## Phases 2–4 *(specified, not built)*
+## Phase 2 — structural deficit and guardrails *(built)*
+
+The deficit that failed five times was **managed**: a daily budget, daily
+decisions, daily chances to quit. This one is **structural** — set once, verified
+weekly by the weight trend, with no daily food logging at all.
+
+| Piece | Where |
+|---|---|
+| Auto-pause engine | `backend/services/deficit_guard.py` |
+| Composition trends | `backend/services/body_composition.py` |
+| Floors + carb floor | `backend/services/fuel.py` |
+| Weight-trend-only review | `backend/services/cut_review.py` |
+| Body-fat storage | `weight_entries.body_fat_pct` (migration `c76739716276`) |
+
+### `cut_review` re-gated to the weight trend
+
+This is the change that makes the rest usable. Every diagnosis gate was behind
+`MIN_ADHERENCE_PCT = 70` on **fuel logs** — so a non-logger had 0% adherence
+forever, `check_logging` fired forever, and the review never said anything. In
+`deficit_mode="structural"` (the default now):
+
+- `check_logging` keys on **weigh-in coverage**, not food logs — the one input
+  the program actually asks for is the only one it can ask more of;
+- `plateau` reads a 21-day stall in the trend directly;
+- `recalibrate_maintenance` treats "same swaps three weeks, still behind" as the
+  evidence, because there is no intake log to corroborate with;
+- `increase_deficit` no longer needs an intake-vs-budget comparison.
+
+`deficit_mode="managed"` keeps the original behaviour intact for anyone who does
+log. The `slow_down` guardrail still outranks everything — losing too fast is the
+one finding that must survive the re-gate.
+
+### Always-on floors
+
+`compute_budget` now floors on **both** energy availability and estimated BMR
+(Katch-McArdle from lean mass). EA is about fuelling training; BMR is about
+staying alive. Whichever binds higher wins, `floor_binding` says which, and
+neither is the athlete's to override. `DEFICIT_KCAL_RECOMMENDED_MAX = 500` is
+what a recommendation may propose; `DEFICIT_KCAL_MAX = 750` is where the schema
+check constraint slams the door.
+
+`carb_floor_g_quality_day` (4 g/kg) is **independent of the deficit** — the EA
+floor guards total energy, not carbohydrate, and an athlete can clear energy
+availability while still under-fuelling the one substrate hard running needs.
+
+### Auto-pause
+
+Any one trigger pauses; the deficit actually goes to zero rather than showing a
+warning next to an unchanged number.
+
+| Trigger | Fires when |
+|---|---|
+| `injury_or_illness` | an open niggle, injury or illness is logged |
+| `ctl_falling` | CTL down ≥ 2 TSS/day over 14 days while the deficit is on |
+| `scores_declining` | endurance or speed down 2+ consecutive weeks |
+| `recovery_degrading` | RHR up ≥ 3 bpm or sleep down ≥ 0.75 h vs baseline |
+| `lean_mass_falling` | lean-mass trend down 3+ weeks |
+
+**Every message says EAT MORE**, never "try harder" and never anything that reads
+as the athlete's fault. `assert_eat_more_copy` enforces that at import time, so a
+future edit can't quietly reintroduce a scolding. A missing input never triggers
+a pause — an absent signal is not a bad signal, and a guard that fired on missing
+data would pause the cut permanently for anyone without a sleep tracker.
+
+### Body composition — a guard, never a target
+
+Bioimpedance is poor at absolute body fat (±5 points) and acceptable at
+*direction* under standardized conditions. Direction is the only thing asked of
+it: answering what weight alone cannot — **fat or lean mass?**
+
+Lean mass is derived (`weight × (1 − bf/100)`), never stored, so the two can't
+drift apart. Everything is a 4-week rolling mean, and `lean_mass_4wk_delta`
+compares blocks rather than individual readings, so one bad reading moves a mean
+instead of flipping a verdict. Four readings are required before any direction is
+reported at all.
+
+**No target, no goal line, no "on track" flag** — the output carries none of
+those keys, and a test asserts it.
+
+### Export additions
+
+`SCHEMA_VERSION` 2 → 3. `constraints` gains `carb_floor_g_quality_day`,
+`deficit_mode`, `max_loss_rate_pct_bw_per_week`, `auto_pause_active`,
+`auto_pause_reason`, `auto_pause_message`; `body` gains `body_fat_pct_trend`,
+`lean_mass_kg_trend`, `lean_mass_4wk_delta`, `lean_mass_falling_weeks`,
+`composition_readable`, `composition_readings[]`.
+
+### Acceptance
+
+A deficit set once persists without daily input; a simulated 3-week lean-mass
+decline pauses the deficit with eat-more copy; `cut_review` returns a real
+recommendation from weight data alone.
+`tests/test_lean_program__deficit_guards.py`.
+
+### Already in place
+
+`fuel_periodize.py` was listed as "exists, unused" — it is in fact already wired
+through `fuel.compute_effective_deficit` and `get_today_payload`, with
+`auto_periodize` defaulting on. Hard days already eat big; no change was needed.
+
+## Phases 3–4 *(specified, not built)*
 
 | Phase | Contents |
 |---|---|
-| 2 — structural deficit | Deficit set once and verified weekly, `fuel_periodize` enabled, carb floor on quality days, `cut_review` re-gated to weight-trend-only, body-fat storage + lean-mass guard, auto-pause triggers |
 | 3 — habits & week composition | Three goal habits, stretch/plyo/drills moved into the plan, monthly benchmark effort, correlation evidence instead of streaks |
 | 4 — sprints & the hypothesis | Calibration sprint flag, maintenance recalibration, target weight as a hypothesis rather than a fixed number |
 
-Two guardrail families gate all of it, and none of them involve an LLM:
+### Guardrails still outstanding
 
-**Always on** — EA floor (`30 × lean_mass_kg + burn`), `budget >= bmr_estimate`,
-max deficit 500 kcal/day (reject > 750), protein 2.0 g/kg, a carb floor on quality
-days independent of the deficit, rate cap −0.5 %BW/week, never the biggest deficit
-on the biggest training day, cut window closes at week 10, ACWR ceiling
-independent of any weight goal.
+The always-on family from spec §4 is built **except** three that need the plan
+pipeline rather than the fuel model, and are therefore Phase 3+ work:
 
-**Auto-pause the deficit** (copy always says *eat more*, never "try harder") —
-niggle or illness logged, CTL falling while the deficit is on, endurance/speed
-declining 2+ weeks, RHR rising or sleep degrading, lean-mass trend falling 3+
-weeks.
-
-**Tracking-state degradation** — `ACTIVE` → `PAUSED` after 7 consecutive days with
-no weigh-in; back to `ACTIVE` after 3 weigh-ins within 7 days. Derived from
-weigh-in dates by a pure function, never stored, so it can't go stale.
+- **never the biggest deficit on the biggest training day** — needs the week's
+  session plan to know which day is biggest; the calorie-cycling half of it
+  already works via `fuel_periodize`;
+- **cut window closes at week 10** — needs the race-anchored block position, so
+  it belongs with the load-plan wiring;
+- **ACWR ceiling independent of any weight goal** — already true structurally
+  (the ceiling comes from `load_plan`, which never reads a weight target); no
+  code was needed, and a test asserting the independence is worth adding when
+  the deficit starts influencing the plan.
 
 ## Open items
 

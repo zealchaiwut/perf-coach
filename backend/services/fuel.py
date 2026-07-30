@@ -74,6 +74,54 @@ DEFICIT_KCAL_MAX = 750
 PROTEIN_G_PER_KG_MAX = 2.5
 PROTEIN_G_PER_KG_MIN = 0.25
 
+# ── Lean-program guardrails (spec §4, "always on") ───────────────────────────
+# The deficit the lean program is designed around. DEFICIT_KCAL_MAX stays the
+# hard rejection bound; this is the ceiling a *recommendation* may propose.
+DEFICIT_KCAL_RECOMMENDED_MAX = 500
+# Carbohydrate floor on quality days, g/kg bodyweight. INDEPENDENT of the
+# deficit: the EA floor guards total energy, not carbohydrate, and an athlete can
+# clear energy availability while still under-fuelling the one substrate hard
+# running actually needs. Low-carb wrecks quality sessions even at maintenance.
+CARB_FLOOR_G_PER_KG_QUALITY_DAY = 4.0
+# Weekly bodyweight loss beyond which the cut is too fast regardless of intake.
+MAX_LOSS_RATE_PCT_BW_PER_WEEK = 0.5
+TARGET_LOSS_RATE_PCT_BW_PER_WEEK = 0.35
+# Basal floor: the budget may never fall below estimated BMR, whatever the
+# deficit says. Mifflin-St Jeor without the activity factor, approximated from
+# lean mass (Katch-McArdle) since that is what the fuel model already tracks.
+BMR_KCAL_PER_KG_LEAN = 21.6
+BMR_BASE_KCAL = 370.0
+
+
+def bmr_estimate_kcal(lean_mass_kg: Optional[float]) -> Optional[int]:
+    """Katch-McArdle BMR from lean mass — the hard floor under any budget.
+
+    None when lean mass is unknown; callers must then fall back to the EA floor
+    alone rather than inventing a basal number.
+    """
+    if lean_mass_kg is None:
+        return None
+    try:
+        lean = float(lean_mass_kg)
+    except (TypeError, ValueError):
+        return None
+    if lean <= 0:
+        return None
+    return int(round(BMR_BASE_KCAL + BMR_KCAL_PER_KG_LEAN * lean))
+
+
+def carb_floor_g_quality_day(weight_kg: Optional[float]) -> Optional[int]:
+    """Grams of carbohydrate a quality-session day must not go below."""
+    if weight_kg is None:
+        return None
+    try:
+        w = float(weight_kg)
+    except (TypeError, ValueError):
+        return None
+    if w <= 0:
+        return None
+    return int(round(CARB_FLOOR_G_PER_KG_QUALITY_DAY * w))
+
 CALIBRATE_MIN_DAYS = 14
 CALIBRATE_MIN_ENTRIES = 10
 _KCAL_PER_KG = 7700
@@ -554,7 +602,16 @@ def compute_budget(
 
     raw_budget = base_kcal + burn - deficit_kcal
     ea_floor_kcal = ea_floor * lean_mass_kg + burn
-    budget = max(raw_budget, ea_floor_kcal)
+    # Basal floor sits UNDER the EA floor: energy availability is about fuelling
+    # training, BMR is about staying alive. Whichever binds higher wins, and
+    # neither is the athlete's choice to override.
+    bmr_kcal = bmr_estimate_kcal(lean_mass_kg)
+    floors = [ea_floor_kcal]
+    if bmr_kcal is not None:
+        floors.append(float(bmr_kcal))
+    binding_floor = max(floors)
+
+    budget = max(raw_budget, binding_floor)
     deficit_applied = base_kcal + burn - budget
     deficit_reduced = budget > raw_budget
 
@@ -567,6 +624,10 @@ def compute_budget(
         "deficit_reduced": deficit_reduced,
         "ea": round(ea, 1) if ea is not None else None,
         "ea_floor_kcal": round(ea_floor_kcal),
+        "bmr_estimate_kcal": bmr_kcal,
+        "floor_binding": (
+            "bmr" if bmr_kcal is not None and bmr_kcal > ea_floor_kcal else "ea"
+        ) if deficit_reduced else None,
         "effective_deficit_kcal": deficit_kcal,
     }
 

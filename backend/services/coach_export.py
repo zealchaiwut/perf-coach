@@ -53,12 +53,12 @@ from backend.db import engine
 
 _log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 # The one-way daily message.
-PROMPT_VERSION = "coach-paste-v2"
+PROMPT_VERSION = "coach-paste-v3"
 # The two-way check-in that ends in a change list. Same payload, second template
 # — versioned alongside the schema for the same reason the first one is.
-CONSULT_PROMPT_VERSION = "coach-consult-v1"
+CONSULT_PROMPT_VERSION = "coach-consult-v2"
 
 DEFAULT_WINDOW_DAYS = 90
 MAX_WINDOW_DAYS = 365
@@ -628,6 +628,12 @@ _NULL_CONSTRAINTS = {
     "taper_window_days": None,
     "preferred_rest_days": [],
     "max_consecutive_training_days": None,
+    "carb_floor_g_quality_day": None,
+    "deficit_mode": "structural",
+    "max_loss_rate_pct_bw_per_week": None,
+    "auto_pause_active": None,
+    "auto_pause_reason": None,
+    "auto_pause_message": None,
     "note": None,
 }
 
@@ -707,6 +713,13 @@ def _assemble_constraints(db: Session, user, today: _date, fitness: dict) -> dic
         lean_mass_source=lean["source"],
     )
 
+    # Auto-pause: the deficit guards, evaluated from data the app already owns.
+    # A paused deficit is deliberate — the consult template's rule 4 tells the
+    # coach to support it rather than undo it.
+    from backend.services.deficit_guard import guard_for_user
+
+    guard = guard_for_user(db, user.id, today)
+
     return {
         "acwr_ceiling_weekly_tss": ceiling,
         "acwr_high_bound": ACWR_HIGH_BOUND,
@@ -719,6 +732,16 @@ def _assemble_constraints(db: Session, user, today: _date, fitness: dict) -> dic
         "taper_window_days": taper_weeks * 7,
         "preferred_rest_days": [_DOW[d] for d in rest_days if 0 <= d <= 6],
         "max_consecutive_training_days": _max_consecutive_training_days(rest_days),
+        # Independent of the deficit: the EA floor guards total energy, not
+        # carbohydrate, and low-carb wrecks quality sessions even at maintenance.
+        "carb_floor_g_quality_day": fuel_svc.carb_floor_g_quality_day(
+            settings.get("weight_kg")
+        ),
+        "deficit_mode": "structural",
+        "max_loss_rate_pct_bw_per_week": fuel_svc.MAX_LOSS_RATE_PCT_BW_PER_WEEK,
+        "auto_pause_active": guard["active"],
+        "auto_pause_reason": guard["reason"],
+        "auto_pause_message": guard["message"],
         "note": _CONSTRAINTS_NOTE,
     }
 
@@ -736,6 +759,12 @@ _NULL_BODY = {
     "coverage_pct_45d": 0.0,
     "needed_rate_kg_per_week": None,
     "weigh_ins": [],
+    "body_fat_pct_trend": None,
+    "lean_mass_kg_trend": None,
+    "lean_mass_4wk_delta": None,
+    "lean_mass_falling_weeks": 0,
+    "composition_readable": False,
+    "composition_readings": [],
 }
 
 
@@ -783,6 +812,12 @@ def _assemble_body(db: Session, user, today: _date, window_days: int) -> dict:
         if window_start <= e["date"] <= today
     ]
 
+    # Composition: a guard, never a target. Trend series only — no goal line
+    # renders anywhere off these numbers.
+    from backend.services.body_composition import composition_for_user
+
+    composition = composition_for_user(db, user.id, today)
+
     return {
         "trend_kg": rate["trend_kg"],
         "last_weigh_in": rate["last_weigh_in"],
@@ -794,6 +829,12 @@ def _assemble_body(db: Session, user, today: _date, window_days: int) -> dict:
         "coverage_pct_45d": rate["coverage_pct"],
         "needed_rate_kg_per_week": needed,
         "weigh_ins": weigh_ins,
+        "body_fat_pct_trend": composition["body_fat_pct_trend"],
+        "lean_mass_kg_trend": composition["lean_mass_kg_trend"],
+        "lean_mass_4wk_delta": composition["lean_mass_4wk_delta"],
+        "lean_mass_falling_weeks": composition["lean_mass_falling_weeks"],
+        "composition_readable": composition["readable"],
+        "composition_readings": composition["readings"],
     }
 
 
