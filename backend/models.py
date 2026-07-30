@@ -54,6 +54,14 @@ class User(Base):
     avatar = Column(LargeBinary, nullable=True)
     avatar_mime = Column(Text, nullable=True)
     height_cm = Column(Numeric(5, 1), nullable=True)
+    birth_date = Column(Date, nullable=True)
+    # Free-text athlete identity for the coach export payload — training history,
+    # constraints, what the athlete is actually trying to do. Kept separate from
+    # plan-prefs `notes` (scheduling instructions), and capped in the API layer.
+    athlete_context = Column(Text, nullable=True)
+    # Last time GET /api/coach/export/paste was served for this user; the export's
+    # meta.previous_export_date, so the coach message can skip a season re-check.
+    last_coach_export_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class WeightEntry(Base):
