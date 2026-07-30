@@ -48,6 +48,16 @@ PREF_FIELDS: dict[str, dict[str, Any]] = {
         "reads": ["content"],
         "default": "",
     },
+    # High-volume dishes the athlete already cooks. The consult suggests FROM
+    # this list instead of inventing a meal plan — a recipe database is out of
+    # scope; this is a list of dish names and nothing more.
+    "volume_plays": {
+        "type": "list[str]",
+        "max_items": 10,
+        "max_len": 80,
+        "reads": ["content"],
+        "default": [],
+    },
 }
 
 _ENUM_MAP = {
@@ -198,6 +208,19 @@ def _validate_one(field: str, meta: dict, val: Any) -> str | None:
         if len(val) > max_len:
             return f"max length {max_len}"
         return None
+    if t == "list[str]":
+        if not isinstance(val, list):
+            return "must be a list of strings"
+        max_items = int(meta.get("max_items") or 10)
+        if len(val) > max_items:
+            return f"at most {max_items} items"
+        max_len = int(meta.get("max_len") or 80)
+        for item in val:
+            if not isinstance(item, str):
+                return "every item must be a string"
+            if len(item) > max_len:
+                return f"each item is at most {max_len} characters"
+        return None
     return None
 
 
@@ -224,6 +247,21 @@ def normalize_payload(payload: dict | None) -> dict:
                 set_field(out, field, int(meta.get("default") or 0))
     notes = get_field(out, "notes")
     set_field(out, "notes", str(notes or "")[:200])
+    # Coerce list[str] fields: drop blanks, trim to the item cap, clip each item.
+    for field, meta in PREF_FIELDS.items():
+        if meta.get("type") != "list[str]":
+            continue
+        raw_items = get_field(out, field) or []
+        if not isinstance(raw_items, list):
+            raw_items = []
+        item_len = int(meta.get("max_len") or 80)
+        max_items = int(meta.get("max_items") or 10)
+        cleaned = [
+            str(item).strip()[:item_len]
+            for item in raw_items
+            if str(item).strip()
+        ]
+        set_field(out, field, cleaned[:max_items])
     return out
 
 

@@ -53,8 +53,12 @@ from backend.db import engine
 
 _log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
-PROMPT_VERSION = "coach-paste-v1"
+SCHEMA_VERSION = 2
+# The one-way daily message.
+PROMPT_VERSION = "coach-paste-v2"
+# The two-way check-in that ends in a change list. Same payload, second template
+# — versioned alongside the schema for the same reason the first one is.
+CONSULT_PROMPT_VERSION = "coach-consult-v1"
 
 DEFAULT_WINDOW_DAYS = 90
 MAX_WINDOW_DAYS = 365
@@ -68,6 +72,9 @@ RECENT_HOURS_WEEKS = 8
 # Top-K anchors per score, matching running_performance's own TOP_K rows.
 ANCHOR_ROWS = 3
 ATHLETE_CONTEXT_MAX_CHARS = 200
+# Consult history carried in the payload. Enough for the coach to see what was
+# tried across the last couple of months without the blob growing a tail.
+DECISION_ROWS = 10
 
 BANGKOK_TZ = ZoneInfo("Asia/Bangkok")
 
@@ -1116,6 +1123,55 @@ def _assemble_plan(db: Session, user, today: _date) -> dict:
 
 # ── findings ─────────────────────────────────────────────────────────────────
 
+def _assemble_decisions(db: Session, user, today: _date) -> list[dict]:
+    """The last ``DECISION_ROWS`` consult decisions, newest first.
+
+    This is what closes the loop: without it, every consult starts from scratch
+    and re-proposes what was already declined or already running. ``due_for_review``
+    is computed here rather than left to the reader — a review date that has
+    passed is the single most actionable thing in the block.
+    """
+    from backend.models import Decision
+
+    rows = (
+        db.query(Decision)
+        .filter(Decision.user_id == user.id)
+        .order_by(Decision.decided_on.desc(), Decision.created_at.desc())
+        .limit(DECISION_ROWS)
+        .all()
+    )
+    out: list[dict] = []
+    for d in rows:
+        out.append({
+            "decided_on": d.decided_on.isoformat(),
+            "days_ago": (today - d.decided_on).days,
+            "raw_text": d.raw_text,
+            "tags": list(d.tags or []),
+            "applied": bool(d.applied),
+            "outcome_note": d.outcome_note,
+            "review_on": d.review_on.isoformat() if d.review_on else None,
+            "due_for_review": bool(
+                d.review_on is not None
+                and d.review_on <= today
+                and not d.outcome_note
+            ),
+        })
+    return out
+
+
+def _assemble_volume_plays(db: Session, user) -> list[str]:
+    """The athlete's own high-volume dishes.
+
+    The consult suggests FROM this list rather than inventing a meal plan. A
+    recipe database is out of scope — this is a list of dish names.
+    """
+    from backend.services.plan_prefs_accessor import get_plan_prefs
+
+    prefs = get_plan_prefs(db=db, user_id=user.id)
+    plays = prefs.get("volume_plays") or []
+    return [str(p) for p in plays if str(p).strip()]
+
+
 def _assemble_findings(user) -> list[dict]:
     """Visible gap-analysis findings only — muted/suppressed items are excluded.
 
@@ -1225,6 +1281,12 @@ def build_export(user_id, window_days: int = DEFAULT_WINDOW_DAYS, today: Optiona
         )
         plan = _safe("plan", lambda: _assemble_plan(db, user, today), dict(_NULL_PLAN), degraded)
         findings = _safe("findings", lambda: _assemble_findings(user), [], degraded)
+        decisions = _safe(
+            "decisions", lambda: _assemble_decisions(db, user, today), [], degraded
+        )
+        volume_plays = _safe(
+            "volume_plays", lambda: _assemble_volume_plays(db, user), [], degraded
+        )
 
     _safe(
         "anchor_titles",
@@ -1254,6 +1316,8 @@ def build_export(user_id, window_days: int = DEFAULT_WINDOW_DAYS, today: Optiona
         "habits": habits,
         "plan": plan,
         "findings": findings,
+        "decisions": decisions,
+        "volume_plays": volume_plays,
     }
 
 
@@ -1362,3 +1426,80 @@ def _render_json(value: Any, indent: int = 0) -> str:
 def build_paste_blob(export: dict) -> str:
     """Template first, data last — the instructions must be read before the payload."""
     return PROMPT_TEMPLATE + "\n```json\n" + _render_json(export) + "\n```\n"
+
+
+# ── Consult template ─────────────────────────────────────────────────────────
+# A second template over the SAME payload. Where the daily message is one-way and
+# short, this is a dialogue that ends in a change list — the judgment layer, which
+# lives outside the app on purpose. Behaviour only, no facts, same as above.
+
+CONSULT_TEMPLATE = f"""\
+# Coach consult — perf-coach export ({CONSULT_PROMPT_VERSION} / schema v{SCHEMA_VERSION})
+
+You are my running coach and we're doing a check-in. Talk to me, ask me things,
+and end with a concrete change list.
+
+## Who I am
+
+Everything is in `athlete` and `goal` — read it there. Don't assume anything not
+in the data.
+
+## Rules — these override anything you infer
+
+1. Numbers in `fitness`, `performance`, `body` and `goal` are CANONICAL. Do not
+   recompute CTL, ACWR, scores, weight trend, or race projections from the
+   session rows.
+2. Never recommend crossing anything in `constraints` — ACWR ceiling, EA floor,
+   max deficit, protein target, carb floor, rest days. If the data tempts you to,
+   say why you're not.
+3. If `meta.tracking_state` is `paused`, do NOT push me on weight data. Ask about
+   training instead.
+4. If `constraints.auto_pause_active` is true, the deficit is deliberately
+   paused. Support that; don't undo it.
+5. If a confidence interval includes zero, say the data isn't there yet. Never
+   celebrate noise.
+6. If the data contradicts itself, say so plainly. That's a bug I need to know
+   about.
+7. Read `decisions[]` first. Reference what we already tried before proposing
+   anything new. Don't re-propose something declined or already active, and
+   check anything with `due_for_review` set.
+8. Food suggestions must come from `volume_plays[]` where possible — I cook these
+   already. Don't invent a meal plan.
+
+## What to do
+
+1. **Where we are** — two or three sentences. What actually changed since the
+   last decision.
+2. **Did the last change work?** Name the decision, its date, and what the data
+   says now. If it's too early to tell, say so.
+3. **Ask me two or three questions** you actually need answered — recovery, life,
+   appetite, what got in the way. Don't guess at things I can just tell you.
+4. **Then wait for my answers before the change list.**
+
+After I answer, produce:
+
+```
+CHANGES TO APPLY
+prefs:    <field>  <from> → <to>
+skeleton: <move / add / remove>
+goal:     <field>  <from> → <to>
+habits:   <change>
+review:   <what to check, and when>
+```
+
+Only propose changes the constraints allow. One or two changes, not five — I'll
+actually do two. If a prefs change is involved, also give me the JSON patch to
+paste into the prefs importer.
+
+## Style
+
+Talk like a coach who knows me. Short sentences, no preamble, no bullet-point
+walls. Never moralise about food. If the week was fine, say it was fine.
+
+## My data
+"""
+
+
+def build_consult_blob(export: dict) -> str:
+    """The check-in blob: consult template first, same payload last."""
+    return CONSULT_TEMPLATE + "\n```json\n" + _render_json(export) + "\n```\n"

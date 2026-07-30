@@ -1937,6 +1937,48 @@ class PerformanceGoal(Base):
     )
 
 
+class Decision(Base):
+    """One coaching decision from a consult — the system of record for what was tried.
+
+    The consult loop is deliberately paste-based: a check-in produces a
+    ``CHANGES TO APPLY`` block, that block is pasted into ONE textarea, and it
+    lands here verbatim as ``raw_text``. There is no parser. A parser is a
+    project; a textarea is an afternoon, and the value is in having the history
+    at all — the export carries the last ~10 rows so the next consult can
+    reference what was already tried instead of re-proposing it.
+
+    Storage lives in the app (Neon), not Notion and not a local file, so the
+    record survives the machine and travels with the export.
+
+    ``tags`` is JSONB rather than a Postgres ARRAY: the rest of the schema
+    already uses JSONB for list payloads, and it round-trips through the SQLite
+    shim the test suite uses.
+    """
+
+    __tablename__ = "decisions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    decided_on = Column(Date, nullable=False)
+    # Only 'consult' today; the column exists so a future automated source is a
+    # value, not a migration.
+    source = Column(String(20), nullable=False, server_default=text("'consult'"))
+    raw_text = Column(Text, nullable=False)
+    tags = Column(JSONB, nullable=True)
+    applied = Column(Boolean, nullable=False, server_default=text("true"))
+    outcome_note = Column(Text, nullable=True)
+    # When to check whether this change worked — surfaced to the next consult.
+    review_on = Column(Date, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=text("now()"))
+
+    __table_args__ = (
+        CheckConstraint("source IN ('consult')", name="ck_decisions_source_values"),
+        CheckConstraint("length(raw_text) > 0", name="ck_decisions_raw_text_non_empty"),
+        Index("ix_decisions_user_decided_on", "user_id", decided_on.desc()),
+    )
+
+
 class WeeklyCoachMessage(Base):
     """Persisted daily coaching message — one record per (user, for_date).
 

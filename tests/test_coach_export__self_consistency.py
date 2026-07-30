@@ -42,6 +42,7 @@ except Exception:  # pragma: no cover - already registered by another module
 
 from backend.models import (  # noqa: E402
     Base,
+    Decision,
     Habit,
     HabitLog,
     PerformanceGoal,
@@ -65,6 +66,7 @@ WINDOW = 90
 _TABLES = (
     User, UserPreferences, Workout, WorkoutExercise, PlannedSession, WeightEntry,
     WeightTarget, Race, RaceCheckpoint, Habit, HabitLog, PerformanceGoal, TrainingPlan,
+    Decision,
 )
 
 _UTC = datetime.timezone.utc
