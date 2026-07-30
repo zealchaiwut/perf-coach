@@ -1,18 +1,21 @@
 """coach.py — Routes for /api/coach/* (issues #1501, #1504)."""
 from __future__ import annotations
 
-from datetime import date as _date
+import logging
+from datetime import date as _date, datetime as _datetime, timezone as _timezone
 
-from fastapi import APIRouter, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, validator
 from sqlalchemy.orm import Session
 
 from backend.auth import resolve_user
 from backend.db import engine
-from backend.models import PerformanceGoal
+from backend.models import PerformanceGoal, User
 
 router = APIRouter()
+
+_log = logging.getLogger(__name__)
 
 _VALID_DISTANCES = ("5k", "10k", "half", "marathon")
 
@@ -164,3 +167,67 @@ async def get_daily_messages(
 ):
     """Alias of weekly-messages history."""
     return await get_weekly_messages(request, limit=limit)
+
+
+# ── Coach export (paste-to-Claude loop) ──────────────────────────────────────
+
+
+@router.get("/api/coach/export")
+async def get_coach_export(
+    window: int = Query(default=None, alias="window"),
+    user: User = Depends(resolve_user),
+):
+    """Return the coach-export payload alone, for inspection and tests.
+
+    Pure assembly over services that already exist — no LLM call, no writes. The
+    paste endpoint below is what the nav button uses.
+    """
+    from backend.services.coach_export import DEFAULT_WINDOW_DAYS, build_export
+
+    window_days = DEFAULT_WINDOW_DAYS if window is None else window
+    try:
+        export = build_export(user.id, window_days=window_days)
+    except ValueError as exc:
+        return JSONResponse({"detail": {"window": str(exc)}}, status_code=422)
+    return JSONResponse(export)
+
+
+@router.get("/api/coach/export/paste", response_class=PlainTextResponse)
+async def get_coach_export_paste(
+    window: int = Query(default=None, alias="window"),
+    user: User = Depends(resolve_user),
+):
+    """Return the complete paste blob: prompt template first, payload last.
+
+    One request, one clipboard write — the client never assembles the blob, so a
+    partial fetch can never be pasted as if it were whole. Serving this also
+    stamps ``users.last_coach_export_at``, which the NEXT export reports as
+    ``meta.previous_export_date`` so the coach message can skip a season
+    re-check when nothing has moved.
+    """
+    from backend.services.coach_export import (
+        DEFAULT_WINDOW_DAYS,
+        build_export,
+        build_paste_blob,
+    )
+
+    window_days = DEFAULT_WINDOW_DAYS if window is None else window
+    try:
+        export = build_export(user.id, window_days=window_days)
+    except ValueError as exc:
+        return JSONResponse({"detail": {"window": str(exc)}}, status_code=422)
+
+    blob = build_paste_blob(export)
+
+    # Stamped only after the blob is successfully built — a failed export must
+    # not consume the "nothing moved since last time" signal.
+    try:
+        with Session(engine) as db:
+            db.query(User).filter(User.id == user.id).update(
+                {"last_coach_export_at": _datetime.now(_timezone.utc)}
+            )
+            db.commit()
+    except Exception:
+        _log.warning("failed to stamp last_coach_export_at", exc_info=True)
+
+    return PlainTextResponse(blob, media_type="text/plain; charset=utf-8")

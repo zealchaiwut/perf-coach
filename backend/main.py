@@ -14722,6 +14722,23 @@ def _prefs_row_dict(prefs: UserPreferences) -> dict:
     }
 
 
+# Athlete identity fields — stored on `users`, edited from Settings → Profile,
+# and read by backend/services/coach_export.py. `athlete_context` is the ONLY
+# free-text identity field; keep it distinct from plan-prefs `notes`, which are
+# scheduling instructions rather than who the athlete is.
+_ATHLETE_CONTEXT_MAX_CHARS = 200
+
+
+def _athlete_identity_dict(db_user: User) -> dict:
+    birth_date = getattr(db_user, "birth_date", None)
+    height_cm = getattr(db_user, "height_cm", None)
+    return {
+        "birth_date": birth_date.isoformat() if birth_date is not None else None,
+        "height_cm": float(height_cm) if height_cm is not None else None,
+        "athlete_context": getattr(db_user, "athlete_context", None),
+    }
+
+
 @app.get("/api/user-preferences")
 def get_user_preferences(user: User = Depends(resolve_user)):
     uid = user.id
@@ -14739,6 +14756,9 @@ def get_user_preferences(user: User = Depends(resolve_user)):
         row["user_name"] = db_user.name
         row["user_email"] = db_user.email
         row["user_id"] = str(db_user.id)
+        # Athlete identity lives on `users`, not `user_preferences` — the coach
+        # export reads these three for athlete.age / height_cm / context.
+        row.update(_athlete_identity_dict(db_user))
         return JSONResponse({
             "row": row,
             "defaults": _PREFS_DEFAULTS,
@@ -14776,6 +14796,9 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
     display_name = body.get("display_name", _PREFS_SENTINEL)
     week_start_day = body.get("week_start_day", _PREFS_SENTINEL)
     timezone = body.get("timezone", _PREFS_SENTINEL)
+    birth_date = body.get("birth_date", _PREFS_SENTINEL)
+    height_cm = body.get("height_cm", _PREFS_SENTINEL)
+    athlete_context = body.get("athlete_context", _PREFS_SENTINEL)
 
     errors = []
     if ftp_w is not _PREFS_SENTINEL and ftp_w is not None:
@@ -14810,6 +14833,30 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
             _zoneinfo.ZoneInfo(timezone)
         except (KeyError, _zoneinfo.ZoneInfoNotFoundError):
             errors.append({"field": "timezone", "msg": f"Unknown IANA timezone: {timezone}"})
+    _parsed_birth_date = None
+    if birth_date is not _PREFS_SENTINEL and birth_date is not None:
+        try:
+            _parsed_birth_date = _date.fromisoformat(str(birth_date))
+        except (ValueError, TypeError):
+            errors.append({"field": "birth_date", "msg": "birth_date must be YYYY-MM-DD"})
+        else:
+            if _parsed_birth_date > _date.today():
+                errors.append({"field": "birth_date", "msg": "birth_date cannot be in the future"})
+            elif _parsed_birth_date.year < 1900:
+                errors.append({"field": "birth_date", "msg": "birth_date must be after 1900"})
+    if height_cm is not _PREFS_SENTINEL and height_cm is not None:
+        if not isinstance(height_cm, (int, float)) or isinstance(height_cm, bool) or not (
+            80 <= float(height_cm) <= 250
+        ):
+            errors.append({"field": "height_cm", "msg": "height_cm must be between 80 and 250"})
+    if athlete_context is not _PREFS_SENTINEL and athlete_context is not None:
+        if not isinstance(athlete_context, str):
+            errors.append({"field": "athlete_context", "msg": "athlete_context must be text"})
+        elif len(athlete_context) > _ATHLETE_CONTEXT_MAX_CHARS:
+            errors.append({
+                "field": "athlete_context",
+                "msg": f"athlete_context must be ≤ {_ATHLETE_CONTEXT_MAX_CHARS} characters",
+            })
 
     if errors:
         raise HTTPException(status_code=422, detail=errors)
@@ -14847,6 +14894,24 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
         if timezone is not _PREFS_SENTINEL:
             prefs.timezone = timezone
 
+        _identity_sent = any(
+            f is not _PREFS_SENTINEL for f in (birth_date, height_cm, athlete_context)
+        )
+        db_user = session.get(User, uid) if _identity_sent else None
+        if db_user is not None:
+            if birth_date is not _PREFS_SENTINEL:
+                db_user.birth_date = _parsed_birth_date
+            if height_cm is not _PREFS_SENTINEL:
+                db_user.height_cm = height_cm
+            if athlete_context is not _PREFS_SENTINEL:
+                # Empty string clears the field rather than storing "" — the
+                # export reports a missing context as null, not as blank text.
+                db_user.athlete_context = (
+                    athlete_context.strip() or None
+                    if isinstance(athlete_context, str)
+                    else None
+                )
+
         prefs.updated_at = _datetime.now(_timezone.utc)
         _threshold_fields_changed = any(
             f is not _PREFS_SENTINEL for f in (ftp_w, threshold_hr, threshold_pace)
@@ -14865,7 +14930,11 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
             # background so scores and the fitness chart reflect new thresholds
             # without blocking the HTTP response.  Idempotent; safe to re-run.
             _trigger_performance_backfill_background(uid)
-        return JSONResponse(_prefs_row_dict(prefs))
+        saved = _prefs_row_dict(prefs)
+        identity_user = db_user if db_user is not None else session.get(User, uid)
+        if identity_user is not None:
+            saved.update(_athlete_identity_dict(identity_user))
+        return JSONResponse(saved)
 
 
 # ── Races ─────────────────────────────────────────────────────────────────────
