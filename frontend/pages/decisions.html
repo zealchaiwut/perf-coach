@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Decisions – perf-coach</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+  <style>
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: "Inter Tight", system-ui, sans-serif;
+      background: var(--page-bg);
+      background-color: #1f3b8a;
+      min-height: 100vh;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+    }
+    .dc-main :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+    .dc-main {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 24px 16px 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .dc-page-header { color: #fff; display: flex; flex-direction: column; gap: 6px; }
+    .dc-page-title { font-size: 24px; font-weight: 700; letter-spacing: -0.025em; margin: 0; }
+    .dc-page-sub { font-size: 13.5px; line-height: 1.5; opacity: 0.82; margin: 0; max-width: 62ch; }
+
+    .dc-card {
+      background: var(--surface);
+      border-radius: 16px;
+      padding: 18px;
+      box-shadow: 0 10px 30px rgba(8, 18, 48, 0.14);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .dc-label { font-size: 12.5px; font-weight: 600; color: var(--text); }
+    .dc-hint { font-size: 12px; line-height: 1.45; color: var(--text-sub); }
+
+    .dc-textarea, .dc-input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 10px 12px;
+      border: 1px solid color-mix(in srgb, var(--text) 15%, transparent);
+      border-radius: 10px;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 12.5px;
+      line-height: 1.5;
+      color: var(--text);
+      background: var(--surface);
+      outline: none;
+    }
+    .dc-textarea { min-height: 180px; resize: vertical; white-space: pre; overflow-wrap: normal; overflow-x: auto; }
+    .dc-textarea:focus, .dc-input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--focus-ring);
+    }
+
+    .dc-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+    .dc-field { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 150px; }
+    .dc-field .dc-input { font-family: inherit; font-size: 13px; }
+
+    .dc-btn {
+      align-self: flex-start;
+      padding: 9px 18px;
+      border: none;
+      border-radius: 999px;
+      background: #0b1530;
+      color: #fff;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .dc-btn:disabled { opacity: 0.5; cursor: default; }
+    .dc-btn.dc-secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+      padding: 6px 13px;
+      font-size: 12.5px;
+    }
+
+    .dc-feedback { font-size: 12.5px; min-height: 17px; }
+    .dc-feedback.success { color: var(--success, #2f9e44); }
+    .dc-feedback.error { color: var(--danger, #c92a2a); }
+
+    .dc-list { display: flex; flex-direction: column; gap: 12px; }
+    .dc-entry {
+      background: var(--surface);
+      border-radius: 14px;
+      padding: 15px 16px;
+      box-shadow: 0 8px 22px rgba(8, 18, 48, 0.1);
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+    }
+    .dc-entry-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .dc-date { font-size: 14px; font-weight: 700; color: var(--text); }
+    .dc-ago { font-size: 12px; color: var(--text-sub); }
+    .dc-chip {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 9px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--text) 8%, transparent);
+      color: var(--text-sub);
+    }
+    .dc-chip.due { background: #fff3bf; color: #8a6100; }
+    .dc-chip.notapplied { background: #ffe3e3; color: #c92a2a; }
+    .dc-raw {
+      margin: 0;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 12px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      color: var(--text);
+    }
+    .dc-outcome { font-size: 12.5px; line-height: 1.5; color: var(--text-sub); }
+    .dc-outcome strong { color: var(--text); font-weight: 600; }
+    .dc-entry-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .dc-empty { font-size: 13px; color: #fff; opacity: 0.8; }
+
+    @media (max-width: 599px) {
+      .dc-main { padding: 16px 12px 56px; }
+      .dc-page-title { font-size: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="dc-main page">
+    <header class="dc-page-header">
+      <h1 class="dc-page-title">Decisions</h1>
+      <p class="dc-page-sub">
+        What each consult decided, and whether it worked. Paste the
+        <code>CHANGES TO APPLY</code> block straight in — it is stored exactly as
+        written, and the coach export carries the most recent entries so the next
+        consult knows what was already tried.
+      </p>
+    </header>
+
+    <section class="dc-card" aria-labelledby="dc-add-heading">
+      <div class="dc-label" id="dc-add-heading">Paste a change list</div>
+      <textarea id="dc-raw" class="dc-textarea" spellcheck="false"
+        placeholder="CHANGES TO APPLY&#10;prefs:    plyo_sessions_per_week  0 → 1&#10;skeleton: move long run Sat → Sun&#10;habits:   protein-first, every meal&#10;review:   weight trend + endurance score, 2 weeks"></textarea>
+      <div class="dc-row">
+        <label class="dc-field">
+          <span class="dc-hint">Decided on</span>
+          <input type="date" id="dc-decided-on" class="dc-input">
+        </label>
+        <label class="dc-field">
+          <span class="dc-hint">Review on (defaults to two weeks out)</span>
+          <input type="date" id="dc-review-on" class="dc-input">
+        </label>
+        <label class="dc-field">
+          <span class="dc-hint">Tags, comma separated</span>
+          <input type="text" id="dc-tags" class="dc-input" placeholder="fuel, training">
+        </label>
+      </div>
+      <button type="button" class="dc-btn" id="dc-save">Save decision</button>
+      <div class="dc-feedback" id="dc-feedback" aria-live="polite"></div>
+    </section>
+
+    <section class="dc-list" id="dc-list" aria-live="polite">
+      <div class="dc-empty">Loading…</div>
+    </section>
+  </main>
+
+  <script src="js/nav.js"></script>
+  <script src="js/decisions.js"></script>
+</body>
+</html>

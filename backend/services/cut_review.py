@@ -36,8 +36,28 @@ ON_TRACK_TOLERANCE_KG: float = 0.10
 # kg/wk lead beyond which the user is going too fast — recommend ease_off
 EASE_OFF_THRESHOLD_KG: float = 0.15
 
-# Fuel-logging adherence floor; below this we can't diagnose intake vs deficit
+# Fuel-logging adherence floor; below this we can't diagnose intake vs deficit.
+# Only consulted in "managed" mode — see DEFICIT_MODE_STRUCTURAL below.
 MIN_ADHERENCE_PCT: float = 70.0
+
+# ── Deficit mode (lean program, spec §7) ─────────────────────────────────────
+# The deficit that failed five times was MANAGED: a daily budget, daily
+# decisions, daily chances to quit. The lean program's deficit is STRUCTURAL —
+# set once (two swaps, calorie cycling, protein at every meal) and verified
+# weekly by the weight trend, with no daily food logging at all.
+#
+# That makes every fuel-log gate below a permanent dead end in structural mode:
+# a non-logger has 0% adherence forever, so `check_logging` fires forever and
+# the review never says anything useful. In structural mode the diagnosis runs
+# off the WEIGHT TREND alone, and `check_logging` keys on weigh-in coverage —
+# the one input the athlete actually provides — instead of food logs.
+DEFICIT_MODE_STRUCTURAL = "structural"
+DEFICIT_MODE_MANAGED = "managed"
+
+# Weigh-ins in the trailing 14 days below which the trend can't be trusted, in
+# structural mode. Above MIN_WEIGH_INS_14D but sparse enough that a rate claim
+# would be noise.
+STRUCTURAL_MIN_WEIGH_INS_14D: int = 6
 
 # Minimum weigh-ins in the last 14 days to produce a reliable recommendation
 MIN_WEIGH_INS_14D: int = 4
@@ -73,6 +93,7 @@ def compute_cut_recommendation(
     current_deficit_kcal: int,
     plateau_days: int = 0,
     pct_at_or_under_budget_21d: float = 0.0,
+    deficit_mode: str = DEFICIT_MODE_STRUCTURAL,
 ) -> dict:
     """Return recommendation, action text, and optional deficit step.
 
@@ -102,7 +123,13 @@ def compute_cut_recommendation(
         0 = no plateau. >= PLATEAU_MIN_DAYS (21) + adherence >= 70% triggers plateau.
     pct_at_or_under_budget_21d:
         % of logged days in the trailing 21-day window where eaten_kcal <= budget.
+    deficit_mode:
+        ``"structural"`` (default) diagnoses from the weight trend alone and
+        ignores every fuel-log gate — the lean program's deficit is set once and
+        never logged, so demanding food logs returns `check_logging` forever.
+        ``"managed"`` keeps the original daily-budget behaviour.
     """
+    structural = deficit_mode == DEFICIT_MODE_STRUCTURAL
     # 1. Insufficient data — no reliable recommendation possible
     if weigh_in_count_14d < MIN_WEIGH_INS_14D or not has_active_plan:
         return {
@@ -132,14 +159,20 @@ def compute_cut_recommendation(
         }
 
     # 2.5. Plateau — stalled >= 21 days despite staying within budget
-    if (
-        plateau_days >= PLATEAU_MIN_DAYS
-        and pct_at_or_under_budget_21d >= MIN_ADHERENCE_PCT
+    # Structural mode has no budget adherence to check — a 21-day stall in the
+    # trend IS the finding, and the swaps either held or they didn't.
+    if plateau_days >= PLATEAU_MIN_DAYS and (
+        structural or pct_at_or_under_budget_21d >= MIN_ADHERENCE_PCT
     ):
+        stalled_because = (
+            "with the swaps in place"
+            if structural
+            else "despite logging within budget"
+        )
         return {
             "recommendation": "plateau",
             "action": (
-                f"Weight has stalled for {plateau_days} days despite logging within budget. "
+                f"Weight has stalled for {plateau_days} days {stalled_because}. "
                 "Consider recalibrating your maintenance estimate "
                 "(Fuel: Calibrate from history) "
                 "or take a 14-day diet break: set deficit to 0 kcal for 14 days."
@@ -163,8 +196,22 @@ def compute_cut_recommendation(
     # ahead = losing more than planned (actual is more negative than plan)
     ahead = actual_rate_kg_per_week < plan_rate_kg_per_week
 
-    # 4. Check logging — behind plan but can't diagnose without sufficient logs
-    if behind and logging_adherence_pct < MIN_ADHERENCE_PCT:
+    # 4. Check logging — the gap can't be diagnosed without enough input.
+    # In structural mode the missing input is WEIGH-INS, not food logs: the
+    # weight trend is the only measurement this program asks for, so that is the
+    # only one it can ask for more of.
+    if structural:
+        if behind and weigh_in_count_14d < STRUCTURAL_MIN_WEIGH_INS_14D:
+            return {
+                "recommendation": "check_logging",
+                "action": (
+                    "Step on the scale most mornings for a week — the trend is "
+                    "too sparse to tell whether the swaps are working."
+                ),
+                "suggested_deficit_delta_kcal": None,
+                "plateau_days": None,
+            }
+    elif behind and logging_adherence_pct < MIN_ADHERENCE_PCT:
         return {
             "recommendation": "check_logging",
             "action": (
@@ -176,10 +223,13 @@ def compute_cut_recommendation(
         }
 
     # 5. Recalibrate maintenance — persistently behind despite eating at budget
+    # Structurally, "same swaps for three weeks and still behind" IS the
+    # evidence that the maintenance estimate is wrong — there is no intake log
+    # to corroborate it with, and demanding one blocks the finding forever.
     if (
         behind
         and consecutive_weeks_behind >= RECALIBRATE_WEEKS_THRESHOLD
-        and pct_logged_days_at_or_under_budget >= MIN_ADHERENCE_PCT
+        and (structural or pct_logged_days_at_or_under_budget >= MIN_ADHERENCE_PCT)
     ):
         return {
             "recommendation": "recalibrate_maintenance",
@@ -193,7 +243,11 @@ def compute_cut_recommendation(
 
     # 6. Increase deficit — behind plan, adherence OK, eating at budget
     if behind:
-        at_budget = avg_intake_vs_budget_kcal >= -AT_BUDGET_TOLERANCE_KCAL
+        # Without food logs there is no intake-vs-budget comparison to make; the
+        # trend being behind is itself the signal that the structure needs more.
+        at_budget = structural or (
+            avg_intake_vs_budget_kcal >= -AT_BUDGET_TOLERANCE_KCAL
+        )
         if at_budget:
             new_deficit = current_deficit_kcal + DEFICIT_STEP_KCAL
             clamped = min(new_deficit, DEFICIT_KCAL_MAX)

@@ -325,7 +325,10 @@ def prefs_for_assemble_facts(db: Session, user_id) -> dict:
         "plyo_mode": get_field(p, "plyo_mode") or "off",
         "plyo_sessions_per_week": int(get_field(p, "plyo_sessions_per_week") or 0),
         "long_run_mp_segment_min": int(get_field(p, "long_run.mp_segment_min") or 0),
-        "stretch_daily_min": 0,
+        # Stretch now lives in the prefs catalog (lean-program D5 moved it out
+        # of habits and into the plan). The habit is read below only as a
+        # fallback, so an athlete who set a target before the move keeps it.
+        "stretch_daily_min": int(get_field(p, "stretch_daily_min") or 0),
         "zone2_weekly_min": 0,
         "notes": get_field(p, "notes") or "",
     }
@@ -333,8 +336,9 @@ def prefs_for_assemble_facts(db: Session, user_id) -> dict:
         from backend.services.coach_habit_targets import habit_targets_for_coach
 
         ht = habit_targets_for_coach(db, user_id, ensure=True)
-        out["stretch_daily_min"] = int(ht.get("stretch_daily_min") or 0)
         out["zone2_weekly_min"] = int(ht.get("zone2_weekly_min") or 0)
+        if not out["stretch_daily_min"]:
+            out["stretch_daily_min"] = int(ht.get("stretch_daily_min") or 0)
     except Exception:
         pass
     return out

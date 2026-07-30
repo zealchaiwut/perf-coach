@@ -29,9 +29,12 @@ except Exception:  # pragma: no cover - already registered by another module
 
 from backend.models import (  # noqa: E402
     Base,
+    CalibrationSprint,
+    Decision,
     Habit,
     HabitLog,
     PerformanceGoal,
+    PerformanceScoreHistory,
     PlannedSession,
     Race,
     RaceCheckpoint,
@@ -51,6 +54,7 @@ _UTC = datetime.timezone.utc
 _TABLES = (
     User, UserPreferences, Workout, WorkoutExercise, PlannedSession, WeightEntry,
     WeightTarget, Race, RaceCheckpoint, Habit, HabitLog, PerformanceGoal, TrainingPlan,
+    Decision, CalibrationSprint, PerformanceScoreHistory,
 )
 
 FUEL_SETTINGS = {

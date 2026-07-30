@@ -53,8 +53,12 @@ from backend.db import engine
 
 _log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
-PROMPT_VERSION = "coach-paste-v1"
+SCHEMA_VERSION = 4
+# The one-way daily message.
+PROMPT_VERSION = "coach-paste-v4"
+# The two-way check-in that ends in a change list. Same payload, second template
+# — versioned alongside the schema for the same reason the first one is.
+CONSULT_PROMPT_VERSION = "coach-consult-v3"
 
 DEFAULT_WINDOW_DAYS = 90
 MAX_WINDOW_DAYS = 365
@@ -68,6 +72,9 @@ RECENT_HOURS_WEEKS = 8
 # Top-K anchors per score, matching running_performance's own TOP_K rows.
 ANCHOR_ROWS = 3
 ATHLETE_CONTEXT_MAX_CHARS = 200
+# Consult history carried in the payload. Enough for the coach to see what was
+# tried across the last couple of months without the blob growing a tail.
+DECISION_ROWS = 10
 
 BANGKOK_TZ = ZoneInfo("Asia/Bangkok")
 
@@ -184,9 +191,17 @@ def _assemble_meta(
     )
     prev_export = getattr(user, "last_coach_export_at", None)
 
+    # Tracking state is derived, never stored — so a pasted coach knows not to
+    # nag about data the app deliberately stopped asking for.
+    from backend.services.tracking_state import state_for_user
+
+    tracking = state_for_user(db, user.id, today)
+
     return {
         "schema_version": SCHEMA_VERSION,
         "prompt_version": PROMPT_VERSION,
+        "tracking_state": tracking["state"],
+        "paused_since": tracking["paused_since"],
         "generated_at": generated_at,
         "timezone": "Asia/Bangkok",
         "window_days": window_days,
@@ -613,6 +628,12 @@ _NULL_CONSTRAINTS = {
     "taper_window_days": None,
     "preferred_rest_days": [],
     "max_consecutive_training_days": None,
+    "carb_floor_g_quality_day": None,
+    "deficit_mode": "structural",
+    "max_loss_rate_pct_bw_per_week": None,
+    "auto_pause_active": None,
+    "auto_pause_reason": None,
+    "auto_pause_message": None,
     "note": None,
 }
 
@@ -692,6 +713,13 @@ def _assemble_constraints(db: Session, user, today: _date, fitness: dict) -> dic
         lean_mass_source=lean["source"],
     )
 
+    # Auto-pause: the deficit guards, evaluated from data the app already owns.
+    # A paused deficit is deliberate — the consult template's rule 4 tells the
+    # coach to support it rather than undo it.
+    from backend.services.deficit_guard import guard_for_user
+
+    guard = guard_for_user(db, user.id, today)
+
     return {
         "acwr_ceiling_weekly_tss": ceiling,
         "acwr_high_bound": ACWR_HIGH_BOUND,
@@ -704,6 +732,16 @@ def _assemble_constraints(db: Session, user, today: _date, fitness: dict) -> dic
         "taper_window_days": taper_weeks * 7,
         "preferred_rest_days": [_DOW[d] for d in rest_days if 0 <= d <= 6],
         "max_consecutive_training_days": _max_consecutive_training_days(rest_days),
+        # Independent of the deficit: the EA floor guards total energy, not
+        # carbohydrate, and low-carb wrecks quality sessions even at maintenance.
+        "carb_floor_g_quality_day": fuel_svc.carb_floor_g_quality_day(
+            settings.get("weight_kg")
+        ),
+        "deficit_mode": "structural",
+        "max_loss_rate_pct_bw_per_week": fuel_svc.MAX_LOSS_RATE_PCT_BW_PER_WEEK,
+        "auto_pause_active": guard["active"],
+        "auto_pause_reason": guard["reason"],
+        "auto_pause_message": guard["message"],
         "note": _CONSTRAINTS_NOTE,
     }
 
@@ -721,6 +759,12 @@ _NULL_BODY = {
     "coverage_pct_45d": 0.0,
     "needed_rate_kg_per_week": None,
     "weigh_ins": [],
+    "body_fat_pct_trend": None,
+    "lean_mass_kg_trend": None,
+    "lean_mass_4wk_delta": None,
+    "lean_mass_falling_weeks": 0,
+    "composition_readable": False,
+    "composition_readings": [],
 }
 
 
@@ -768,6 +812,12 @@ def _assemble_body(db: Session, user, today: _date, window_days: int) -> dict:
         if window_start <= e["date"] <= today
     ]
 
+    # Composition: a guard, never a target. Trend series only — no goal line
+    # renders anywhere off these numbers.
+    from backend.services.body_composition import composition_for_user
+
+    composition = composition_for_user(db, user.id, today)
+
     return {
         "trend_kg": rate["trend_kg"],
         "last_weigh_in": rate["last_weigh_in"],
@@ -779,6 +829,12 @@ def _assemble_body(db: Session, user, today: _date, window_days: int) -> dict:
         "coverage_pct_45d": rate["coverage_pct"],
         "needed_rate_kg_per_week": needed,
         "weigh_ins": weigh_ins,
+        "body_fat_pct_trend": composition["body_fat_pct_trend"],
+        "lean_mass_kg_trend": composition["lean_mass_kg_trend"],
+        "lean_mass_4wk_delta": composition["lean_mass_4wk_delta"],
+        "lean_mass_falling_weeks": composition["lean_mass_falling_weeks"],
+        "composition_readable": composition["readable"],
+        "composition_readings": composition["readings"],
     }
 
 
@@ -960,7 +1016,13 @@ def _assemble_races(db: Session, user, today: _date) -> dict:
 
 # ── habits ───────────────────────────────────────────────────────────────────
 
-_NULL_HABITS = {"week_start": None, "items": [], "adherence_4w_pct": None}
+_NULL_HABITS = {
+    "week_start": None,
+    "items": [],
+    "adherence_4w_pct": None,
+    "goal_habits": [],
+    "evidence": [],
+}
 
 
 def _assemble_habits(db: Session, user, today: _date) -> dict:
@@ -978,7 +1040,13 @@ def _assemble_habits(db: Session, user, today: _date) -> dict:
         .all()
     )
     if not habits:
-        return {"week_start": _week_start(today).isoformat(), "items": [], "adherence_4w_pct": None}
+        return {
+            "week_start": _week_start(today).isoformat(),
+            "items": [],
+            "adherence_4w_pct": None,
+            "goal_habits": [],
+            "evidence": [],
+        }
 
     logs_by_habit: dict = {}
     for log in (
@@ -1005,10 +1073,27 @@ def _assemble_habits(db: Session, user, today: _date) -> dict:
         if isinstance(pct, (int, float)) and not h.get("building"):
             pcts.append(float(pct))
 
+    # The three goal habits, named so the coach knows which of the list are the
+    # program's own asks rather than the athlete's general tracking.
+    from backend.services.goal_habits import GOAL_HABIT_KEYS, goal_habit_ids
+    from backend.services.habit_evidence import build_user_evidence
+
+    try:
+        by_role = goal_habit_ids(db, user.id)
+    except Exception:
+        by_role = {}
+    id_to_role = {hid: role for role, hid in by_role.items()}
+    for item, habit in zip(items, habits):
+        item["goal_habit"] = id_to_role.get(str(habit.id))
+
     return {
         "week_start": _week_start(today).isoformat(),
         "items": items,
         "adherence_4w_pct": round(sum(pcts) / len(pcts), 1) if pcts else None,
+        "goal_habits": [k for k in GOAL_HABIT_KEYS if k in by_role],
+        # Correlation sentences replace streaks entirely (spec D8). Empty until
+        # there are enough weeks both with and without the habit to compare.
+        "evidence": build_user_evidence(db, user.id, today),
     }
 
 
@@ -1116,6 +1201,73 @@ def _assemble_plan(db: Session, user, today: _date) -> dict:
 
 # ── findings ─────────────────────────────────────────────────────────────────
 
+def _assemble_decisions(db: Session, user, today: _date) -> list[dict]:
+    """The last ``DECISION_ROWS`` consult decisions, newest first.
+
+    This is what closes the loop: without it, every consult starts from scratch
+    and re-proposes what was already declined or already running. ``due_for_review``
+    is computed here rather than left to the reader — a review date that has
+    passed is the single most actionable thing in the block.
+    """
+    from backend.models import Decision
+
+    rows = (
+        db.query(Decision)
+        .filter(Decision.user_id == user.id)
+        .order_by(Decision.decided_on.desc(), Decision.created_at.desc())
+        .limit(DECISION_ROWS)
+        .all()
+    )
+    out: list[dict] = []
+    for d in rows:
+        out.append({
+            "decided_on": d.decided_on.isoformat(),
+            "days_ago": (today - d.decided_on).days,
+            "raw_text": d.raw_text,
+            "tags": list(d.tags or []),
+            "applied": bool(d.applied),
+            "outcome_note": d.outcome_note,
+            "review_on": d.review_on.isoformat() if d.review_on else None,
+            "due_for_review": bool(
+                d.review_on is not None
+                and d.review_on <= today
+                and not d.outcome_note
+            ),
+        })
+    return out
+
+
+def _assemble_volume_plays(db: Session, user) -> list[str]:
+    """The athlete's own high-volume dishes.
+
+    The consult suggests FROM this list rather than inventing a meal plan. A
+    recipe database is out of scope — this is a list of dish names.
+    """
+    from backend.services.plan_prefs_accessor import get_plan_prefs
+
+    prefs = get_plan_prefs(db=db, user_id=user.id)
+    plays = prefs.get("volume_plays") or []
+    return [str(p) for p in plays if str(p).strip()]
+
+
+def _assemble_sprint(db: Session, user, today: _date) -> dict:
+    """Calibration-sprint status — a bounded measurement week, never a diet."""
+    from backend.services.calibration_sprint import sprint_status
+
+    return sprint_status(db, user.id, today)
+
+
+def _assemble_hypothesis(db: Session, user, today: _date) -> dict:
+    """Where performance scores have been highest, as a hypothesis.
+
+    Deliberately carries no target: "as lean as I can" has no stopping rule, and
+    the whole point is to make leanness pay only until it stops paying.
+    """
+    from backend.services.weight_hypothesis import hypothesis_for_user
+
+    return hypothesis_for_user(db, user.id, today)
+
+
 def _assemble_findings(user) -> list[dict]:
     """Visible gap-analysis findings only — muted/suppressed items are excluded.
 
@@ -1174,6 +1326,8 @@ def build_export(user_id, window_days: int = DEFAULT_WINDOW_DAYS, today: Optiona
                 "timezone": "Asia/Bangkok",
                 "window_days": window_days,
                 "previous_export_date": None,
+                "tracking_state": None,
+                "paused_since": None,
                 "data_freshness": {},
                 "note": _META_NOTE,
                 "acwr_null_note": _ACWR_NULL_NOTE,
@@ -1225,6 +1379,24 @@ def build_export(user_id, window_days: int = DEFAULT_WINDOW_DAYS, today: Optiona
         )
         plan = _safe("plan", lambda: _assemble_plan(db, user, today), dict(_NULL_PLAN), degraded)
         findings = _safe("findings", lambda: _assemble_findings(user), [], degraded)
+        decisions = _safe(
+            "decisions", lambda: _assemble_decisions(db, user, today), [], degraded
+        )
+        volume_plays = _safe(
+            "volume_plays", lambda: _assemble_volume_plays(db, user), [], degraded
+        )
+        sprint = _safe(
+            "sprint",
+            lambda: _assemble_sprint(db, user, today),
+            {"active": False, "due": False},
+            degraded,
+        )
+        hypothesis = _safe(
+            "hypothesis",
+            lambda: _assemble_hypothesis(db, user, today),
+            {"readable": False, "peak_estimate_kg": None, "confidence": "none"},
+            degraded,
+        )
 
     _safe(
         "anchor_titles",
@@ -1254,6 +1426,10 @@ def build_export(user_id, window_days: int = DEFAULT_WINDOW_DAYS, today: Optiona
         "habits": habits,
         "plan": plan,
         "findings": findings,
+        "decisions": decisions,
+        "volume_plays": volume_plays,
+        "sprint": sprint,
+        "hypothesis": hypothesis,
     }
 
 
@@ -1362,3 +1538,80 @@ def _render_json(value: Any, indent: int = 0) -> str:
 def build_paste_blob(export: dict) -> str:
     """Template first, data last — the instructions must be read before the payload."""
     return PROMPT_TEMPLATE + "\n```json\n" + _render_json(export) + "\n```\n"
+
+
+# ── Consult template ─────────────────────────────────────────────────────────
+# A second template over the SAME payload. Where the daily message is one-way and
+# short, this is a dialogue that ends in a change list — the judgment layer, which
+# lives outside the app on purpose. Behaviour only, no facts, same as above.
+
+CONSULT_TEMPLATE = f"""\
+# Coach consult — perf-coach export ({CONSULT_PROMPT_VERSION} / schema v{SCHEMA_VERSION})
+
+You are my running coach and we're doing a check-in. Talk to me, ask me things,
+and end with a concrete change list.
+
+## Who I am
+
+Everything is in `athlete` and `goal` — read it there. Don't assume anything not
+in the data.
+
+## Rules — these override anything you infer
+
+1. Numbers in `fitness`, `performance`, `body` and `goal` are CANONICAL. Do not
+   recompute CTL, ACWR, scores, weight trend, or race projections from the
+   session rows.
+2. Never recommend crossing anything in `constraints` — ACWR ceiling, EA floor,
+   max deficit, protein target, carb floor, rest days. If the data tempts you to,
+   say why you're not.
+3. If `meta.tracking_state` is `paused`, do NOT push me on weight data. Ask about
+   training instead.
+4. If `constraints.auto_pause_active` is true, the deficit is deliberately
+   paused. Support that; don't undo it.
+5. If a confidence interval includes zero, say the data isn't there yet. Never
+   celebrate noise.
+6. If the data contradicts itself, say so plainly. That's a bug I need to know
+   about.
+7. Read `decisions[]` first. Reference what we already tried before proposing
+   anything new. Don't re-propose something declined or already active, and
+   check anything with `due_for_review` set.
+8. Food suggestions must come from `volume_plays[]` where possible — I cook these
+   already. Don't invent a meal plan.
+
+## What to do
+
+1. **Where we are** — two or three sentences. What actually changed since the
+   last decision.
+2. **Did the last change work?** Name the decision, its date, and what the data
+   says now. If it's too early to tell, say so.
+3. **Ask me two or three questions** you actually need answered — recovery, life,
+   appetite, what got in the way. Don't guess at things I can just tell you.
+4. **Then wait for my answers before the change list.**
+
+After I answer, produce:
+
+```
+CHANGES TO APPLY
+prefs:    <field>  <from> → <to>
+skeleton: <move / add / remove>
+goal:     <field>  <from> → <to>
+habits:   <change>
+review:   <what to check, and when>
+```
+
+Only propose changes the constraints allow. One or two changes, not five — I'll
+actually do two. If a prefs change is involved, also give me the JSON patch to
+paste into the prefs importer.
+
+## Style
+
+Talk like a coach who knows me. Short sentences, no preamble, no bullet-point
+walls. Never moralise about food. If the week was fine, say it was fine.
+
+## My data
+"""
+
+
+def build_consult_blob(export: dict) -> str:
+    """The check-in blob: consult template first, same payload last."""
+    return CONSULT_TEMPLATE + "\n```json\n" + _render_json(export) + "\n```\n"

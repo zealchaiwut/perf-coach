@@ -72,6 +72,11 @@ class WeightEntry(Base):
     entry_date = Column(Date, nullable=False)
     entry_time = Column(Time, nullable=True)
     weight_kg = Column(Numeric(5, 2), nullable=False)
+    # Optional weekly bioimpedance reading. Poor at absolute body fat (±5 pts),
+    # acceptable at DIRECTION under standardized conditions — direction is the
+    # only thing asked of it. Lean mass is derived, never stored, so the two
+    # can't disagree. A guard, never a target.
+    body_fat_pct = Column(Numeric(4, 1), nullable=True)
     notes = Column(Text, nullable=True)
     source = Column(String(20), nullable=False, server_default=text("'manual'"))
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
@@ -90,6 +95,10 @@ class WeightEntry(Base):
             "entry_date",
             unique=True,
             postgresql_where=text("entry_time IS NULL"),
+        ),
+        CheckConstraint(
+            "body_fat_pct IS NULL OR (body_fat_pct >= 3 AND body_fat_pct <= 70)",
+            name="ck_weight_entries_body_fat_pct_range",
         ),
         CheckConstraint(
             "source IN ('manual', 'imported', 'backfill')",
@@ -296,6 +305,10 @@ class Workout(Base):
     # Flat-equivalent pace for treadmill activities (issue #1219): computed from
     # normalize_treadmill_signal via the Minetti NGP formula. None for outdoor runs.
     flat_equivalent_pace = Column(Float, nullable=True)
+    # Did this session take on fuel (gels / drink)? Nullable on purpose: unknown
+    # for everything logged before the column existed, and "unknown" must never
+    # read as "no". Only consulted for long runs, by the long-run-fuel habit.
+    fuelled = Column(Boolean, nullable=True)
     # Self-reported effort feeling (issue #1241): 'hard' | 'ok' | 'easy' | NULL.
     # One shared column tagged from either the Plan tab (matched workout) or the
     # Log tab. Does not affect scores.
@@ -1934,6 +1947,84 @@ class PerformanceGoal(Base):
             name="ck_performance_goals_race_distance_values",
         ),
         Index("ix_performance_goals_user_id", "user_id"),
+    )
+
+
+class Decision(Base):
+    """One coaching decision from a consult — the system of record for what was tried.
+
+    The consult loop is deliberately paste-based: a check-in produces a
+    ``CHANGES TO APPLY`` block, that block is pasted into ONE textarea, and it
+    lands here verbatim as ``raw_text``. There is no parser. A parser is a
+    project; a textarea is an afternoon, and the value is in having the history
+    at all — the export carries the last ~10 rows so the next consult can
+    reference what was already tried instead of re-proposing it.
+
+    Storage lives in the app (Neon), not Notion and not a local file, so the
+    record survives the machine and travels with the export.
+
+    ``tags`` is JSONB rather than a Postgres ARRAY: the rest of the schema
+    already uses JSONB for list payloads, and it round-trips through the SQLite
+    shim the test suite uses.
+    """
+
+    __tablename__ = "decisions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    decided_on = Column(Date, nullable=False)
+    # Only 'consult' today; the column exists so a future automated source is a
+    # value, not a migration.
+    source = Column(String(20), nullable=False, server_default=text("'consult'"))
+    raw_text = Column(Text, nullable=False)
+    tags = Column(JSONB, nullable=True)
+    applied = Column(Boolean, nullable=False, server_default=text("true"))
+    outcome_note = Column(Text, nullable=True)
+    # When to check whether this change worked — surfaced to the next consult.
+    review_on = Column(Date, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=text("now()"))
+
+    __table_args__ = (
+        CheckConstraint("source IN ('consult')", name="ck_decisions_source_values"),
+        CheckConstraint("length(raw_text) > 0", name="ck_decisions_raw_text_non_empty"),
+        Index("ix_decisions_user_decided_on", "user_id", decided_on.desc()),
+    )
+
+
+class CalibrationSprint(Base):
+    """A bounded measurement week — never a diet.
+
+    5-7 days of deliberate logging, once a month, with a visible end date from
+    the moment it starts. ``end_date`` is stored rather than derived so the
+    countdown can't quietly extend itself: an open-ended "just track for a
+    while" is exactly what turns into another failed attempt.
+
+    Its purpose is a maintenance recalibration. Five days of real intake data
+    beats a formula estimate, and it only has to happen twelve times a year.
+    """
+
+    __tablename__ = "calibration_sprints"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    status = Column(String(20), nullable=False, server_default=text("'active'"))
+    logged_days = Column(Integer, nullable=False, server_default=text("0"))
+    # Recalibrated maintenance, once the sprint produced enough data.
+    result_base_kcal = Column(Integer, nullable=True)
+    result_note = Column(Text, nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active', 'completed', 'abandoned')",
+            name="ck_calibration_sprints_status",
+        ),
+        CheckConstraint("end_date >= start_date", name="ck_calibration_sprints_dates"),
+        Index("ix_calibration_sprints_user_start", "user_id", start_date.desc()),
     )
 
 

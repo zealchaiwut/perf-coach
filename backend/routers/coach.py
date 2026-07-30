@@ -231,3 +231,33 @@ async def get_coach_export_paste(
         _log.warning("failed to stamp last_coach_export_at", exc_info=True)
 
     return PlainTextResponse(blob, media_type="text/plain; charset=utf-8")
+
+
+@router.get("/api/coach/consult", response_class=PlainTextResponse)
+async def get_coach_consult(
+    window: int = Query(default=None, alias="window"),
+    user: User = Depends(resolve_user),
+):
+    """Return the consult blob: check-in template + the same export payload.
+
+    The consult is the judgment layer and it lives outside the app by design —
+    this endpoint just hands over the prompt and the data. Unlike the daily paste
+    it does NOT stamp ``last_coach_export_at``: a check-in is a conversation, not
+    the daily message, and consuming the "nothing moved since" signal here would
+    silence the next day's season check.
+    """
+    from backend.services.coach_export import (
+        DEFAULT_WINDOW_DAYS,
+        build_consult_blob,
+        build_export,
+    )
+
+    window_days = DEFAULT_WINDOW_DAYS if window is None else window
+    try:
+        export = build_export(user.id, window_days=window_days)
+    except ValueError as exc:
+        return JSONResponse({"detail": {"window": str(exc)}}, status_code=422)
+
+    return PlainTextResponse(
+        build_consult_blob(export), media_type="text/plain; charset=utf-8"
+    )

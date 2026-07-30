@@ -120,6 +120,7 @@ from backend.routers.fuel import router as _fuel_router
 from backend.routers.injury_log import router as _injury_log_router
 from backend.routers.coach import router as _coach_router
 from backend.routers.preferences import router as _preferences_router
+from backend.routers.decisions import router as _decisions_router
 from backend.services.guardrail import get_guardrail_result
 from backend.services.body_modifier import get_body_modifier_guardrail_for_user
 from backend.services.lap_classify import aggregate_intensity_zones as _agg_zones
@@ -156,6 +157,7 @@ app.include_router(_fuel_router)
 app.include_router(_injury_log_router)
 app.include_router(_coach_router)
 app.include_router(_preferences_router)
+app.include_router(_decisions_router)
 
 
 def _today_bkk() -> _date:
@@ -5457,6 +5459,9 @@ _PAGES = {
     "trends": "trends.html",
     "settings": "settings.html",
     "preferences": "preferences.html",
+    # The consult loop's log. Its own small route rather than a Preferences tab:
+    # the export references these rows by date, so it needs a linkable home.
+    "decisions": "decisions.html",
     "run-view": "run-view.html",
     "run-builder": "run-builder.html",
     "strength-view": "strength-view.html",

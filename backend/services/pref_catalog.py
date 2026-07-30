@@ -40,13 +40,37 @@ PREF_FIELDS: dict[str, dict[str, Any]] = {
         "reads": ["content"],
         "default": 0,
     },
-    # stretch_daily_min + zone2_weekly_min live on Habits (coach_habit_targets),
-    # not in this catalog — coach/plan read them via habit_targets_for_coach.
+    # Daily mobility target, in minutes. Lean-program D5 moved stretch OUT of
+    # habits and into the plan: `plan_extras` attaches it to every day of the
+    # week from this value. zone2_weekly_min still lives on Habits.
+    #
+    # Migration note: the value used to be stored as the "Daily stretch" habit's
+    # target_value. `prefs_for_assemble_facts` still falls back to that habit
+    # when this pref is unset, so nobody loses their target — but the habit is
+    # no longer created for new athletes.
+    "stretch_daily_min": {
+        "type": "int",
+        "min": 0,
+        "max": 60,
+        "step": 5,
+        "reads": ["skeleton"],
+        "default": 0,
+    },
     "notes": {
         "type": "str",
         "max_len": 200,
         "reads": ["content"],
         "default": "",
+    },
+    # High-volume dishes the athlete already cooks. The consult suggests FROM
+    # this list instead of inventing a meal plan — a recipe database is out of
+    # scope; this is a list of dish names and nothing more.
+    "volume_plays": {
+        "type": "list[str]",
+        "max_items": 10,
+        "max_len": 80,
+        "reads": ["content"],
+        "default": [],
     },
 }
 
@@ -144,7 +168,7 @@ def validate_payload(
 
     # Reject unknown top-level keys (except nested containers we own).
     # stretch/zone2 were migrated to Habits — tolerate legacy payloads.
-    _migrated = {"stretch_daily_min", "zone2_weekly_min"}
+    _migrated = {"zone2_weekly_min"}
     known_top = {k.split(".")[0] for k in PREF_FIELDS} | _migrated
     for k in payload.keys():
         if k not in known_top:
@@ -154,9 +178,12 @@ def validate_payload(
 
 
 def strip_migrated_habit_fields(payload: dict) -> dict:
-    """Drop stretch/zone2 keys that now live on Habits."""
+    """Drop keys that live on Habits rather than in this catalog.
+
+    Only zone2_weekly_min now — stretch_daily_min moved INTO the catalog when
+    the lean program moved stretch out of habits and into the plan (D5).
+    """
     out = dict(payload or {})
-    out.pop("stretch_daily_min", None)
     out.pop("zone2_weekly_min", None)
     return out
 
@@ -198,6 +225,19 @@ def _validate_one(field: str, meta: dict, val: Any) -> str | None:
         if len(val) > max_len:
             return f"max length {max_len}"
         return None
+    if t == "list[str]":
+        if not isinstance(val, list):
+            return "must be a list of strings"
+        max_items = int(meta.get("max_items") or 10)
+        if len(val) > max_items:
+            return f"at most {max_items} items"
+        max_len = int(meta.get("max_len") or 80)
+        for item in val:
+            if not isinstance(item, str):
+                return "every item must be a string"
+            if len(item) > max_len:
+                return f"each item is at most {max_len} characters"
+        return None
     return None
 
 
@@ -224,6 +264,21 @@ def normalize_payload(payload: dict | None) -> dict:
                 set_field(out, field, int(meta.get("default") or 0))
     notes = get_field(out, "notes")
     set_field(out, "notes", str(notes or "")[:200])
+    # Coerce list[str] fields: drop blanks, trim to the item cap, clip each item.
+    for field, meta in PREF_FIELDS.items():
+        if meta.get("type") != "list[str]":
+            continue
+        raw_items = get_field(out, field) or []
+        if not isinstance(raw_items, list):
+            raw_items = []
+        item_len = int(meta.get("max_len") or 80)
+        max_items = int(meta.get("max_items") or 10)
+        cleaned = [
+            str(item).strip()[:item_len]
+            for item in raw_items
+            if str(item).strip()
+        ]
+        set_field(out, field, cleaned[:max_items])
     return out
 
 
