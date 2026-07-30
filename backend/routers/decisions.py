@@ -239,3 +239,91 @@ async def delete_decision(decision_id: str, user: User = Depends(resolve_user)):
         db.delete(decision)
         db.commit()
     return JSONResponse(content=None, status_code=204)
+
+
+# ── Calibration sprints (lean program Phase 4) ───────────────────────────────
+# A bounded measurement week, never a diet. Lives alongside decisions because
+# both are the athlete's own deliberate acts rather than derived state.
+
+
+class _SprintBody(BaseModel):
+    days: int | None = None
+    start_date: str | None = None
+
+
+@router.get("/api/calibration-sprint")
+async def get_calibration_sprint(user: User = Depends(resolve_user)):
+    """Current sprint status: countdown, logged days, and whether one is due."""
+    from backend.services.calibration_sprint import sprint_status
+
+    with Session(engine) as db:
+        return JSONResponse(sprint_status(db, user.id))
+
+
+@router.post("/api/calibration-sprint", status_code=201)
+async def start_calibration_sprint(
+    body: _SprintBody, user: User = Depends(resolve_user)
+):
+    """Open a 5-7 day measurement window with a visible end date."""
+    from backend.services.calibration_sprint import (
+        DEFAULT_SPRINT_DAYS,
+        SprintError,
+        sprint_status,
+        start_sprint,
+    )
+
+    start_date = None
+    if body.start_date:
+        try:
+            start_date = _date.fromisoformat(body.start_date)
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=422,
+                detail=[{"field": "start_date", "msg": "start_date must be ISO YYYY-MM-DD"}],
+            )
+
+    with Session(engine) as db:
+        try:
+            start_sprint(
+                db,
+                user.id,
+                start_date=start_date,
+                days=body.days or DEFAULT_SPRINT_DAYS,
+            )
+        except SprintError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        db.commit()
+        return JSONResponse(sprint_status(db, user.id), status_code=201)
+
+
+@router.post("/api/calibration-sprint/close")
+async def close_calibration_sprint(
+    abandon: bool = Query(default=False),
+    user: User = Depends(resolve_user),
+):
+    """End the sprint and recalibrate maintenance when enough days landed.
+
+    A sprint that fell short is completed, not failed — there is no penalty
+    state, because a measurement that didn't take is not a moral event.
+    """
+    from backend.services.calibration_sprint import close_sprint
+
+    with Session(engine) as db:
+        result = close_sprint(db, user.id, abandon=abandon)
+        if not result.get("closed"):
+            raise HTTPException(status_code=404, detail="no measurement week running")
+        db.commit()
+        return JSONResponse(result)
+
+
+@router.get("/api/weight-hypothesis")
+async def get_weight_hypothesis(user: User = Depends(resolve_user)):
+    """Where performance scores have been highest — a hypothesis, not a target.
+
+    The response deliberately carries no ``target_kg``: "as lean as I can" has no
+    stopping rule, and a number off a chart is a guess dressed as a goal.
+    """
+    from backend.services.weight_hypothesis import hypothesis_for_user
+
+    with Session(engine) as db:
+        return JSONResponse(hypothesis_for_user(db, user.id))

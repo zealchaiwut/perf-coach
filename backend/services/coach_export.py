@@ -53,12 +53,12 @@ from backend.db import engine
 
 _log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 # The one-way daily message.
-PROMPT_VERSION = "coach-paste-v3"
+PROMPT_VERSION = "coach-paste-v4"
 # The two-way check-in that ends in a change list. Same payload, second template
 # — versioned alongside the schema for the same reason the first one is.
-CONSULT_PROMPT_VERSION = "coach-consult-v2"
+CONSULT_PROMPT_VERSION = "coach-consult-v3"
 
 DEFAULT_WINDOW_DAYS = 90
 MAX_WINDOW_DAYS = 365
@@ -1250,6 +1250,24 @@ def _assemble_volume_plays(db: Session, user) -> list[str]:
     return [str(p) for p in plays if str(p).strip()]
 
 
+def _assemble_sprint(db: Session, user, today: _date) -> dict:
+    """Calibration-sprint status — a bounded measurement week, never a diet."""
+    from backend.services.calibration_sprint import sprint_status
+
+    return sprint_status(db, user.id, today)
+
+
+def _assemble_hypothesis(db: Session, user, today: _date) -> dict:
+    """Where performance scores have been highest, as a hypothesis.
+
+    Deliberately carries no target: "as lean as I can" has no stopping rule, and
+    the whole point is to make leanness pay only until it stops paying.
+    """
+    from backend.services.weight_hypothesis import hypothesis_for_user
+
+    return hypothesis_for_user(db, user.id, today)
+
+
 def _assemble_findings(user) -> list[dict]:
     """Visible gap-analysis findings only — muted/suppressed items are excluded.
 
@@ -1367,6 +1385,18 @@ def build_export(user_id, window_days: int = DEFAULT_WINDOW_DAYS, today: Optiona
         volume_plays = _safe(
             "volume_plays", lambda: _assemble_volume_plays(db, user), [], degraded
         )
+        sprint = _safe(
+            "sprint",
+            lambda: _assemble_sprint(db, user, today),
+            {"active": False, "due": False},
+            degraded,
+        )
+        hypothesis = _safe(
+            "hypothesis",
+            lambda: _assemble_hypothesis(db, user, today),
+            {"readable": False, "peak_estimate_kg": None, "confidence": "none"},
+            degraded,
+        )
 
     _safe(
         "anchor_titles",
@@ -1398,6 +1428,8 @@ def build_export(user_id, window_days: int = DEFAULT_WINDOW_DAYS, today: Optiona
         "findings": findings,
         "decisions": decisions,
         "volume_plays": volume_plays,
+        "sprint": sprint,
+        "hypothesis": hypothesis,
     }
 
 

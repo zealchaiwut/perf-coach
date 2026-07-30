@@ -143,7 +143,12 @@ def _normalize_type(workout_type: Optional[str]) -> str:
 # ── Settings ─────────────────────────────────────────────────────────────────
 
 def _default_settings_dict(user_id) -> dict:
+    import uuid as _uuid
+
     return {
+        # Generated here rather than by the server default so the insert
+        # round-trips identically on every backend.
+        "id": _uuid.uuid4(),
         "user_id": user_id,
         "weight_kg": 70.0,
         "lean_mass_kg": None,
@@ -975,7 +980,13 @@ class CalibrateNeedsMoreData(Exception):
         super().__init__("needs_more_data")
 
 
-def calibrate(weight_entries: list, fuel_entries_and_burn: list) -> dict:
+def calibrate(
+    weight_entries: list,
+    fuel_entries_and_burn: list,
+    *,
+    min_days: Optional[int] = None,
+    min_entries: Optional[int] = None,
+) -> dict:
     """Pure calculation given the caller's already-fetched inputs.
 
     weight_entries: list of (date, weight_kg) covering the last >=14 days.
@@ -984,10 +995,19 @@ def calibrate(weight_entries: list, fuel_entries_and_burn: list) -> dict:
 
     Uses WEEKLY-AVERAGE weights on both ends — daily weight is mostly
     glycogen/water and would produce garbage (spec §1.5).
+
+    min_days / min_entries override the standing 14-day / 10-entry minimums.
+    A calibration SPRINT (backend/services/calibration_sprint.py) is a
+    deliberate 5-7 day logging burst, so it passes its own bounds; without that
+    override this function is unreachable for a structural-deficit athlete, who
+    never logs food outside a sprint and so never accumulates 10 entries.
     """
+    need_days = CALIBRATE_MIN_DAYS if min_days is None else int(min_days)
+    need_entries = CALIBRATE_MIN_ENTRIES if min_entries is None else int(min_entries)
+
     days_span = len(weight_entries)
     n_entries = len(fuel_entries_and_burn)
-    if days_span < CALIBRATE_MIN_DAYS or n_entries < CALIBRATE_MIN_ENTRIES:
+    if days_span < need_days or n_entries < need_entries:
         raise CalibrateNeedsMoreData(days_span, n_entries)
 
     weight_entries = sorted(weight_entries, key=lambda t: t[0])

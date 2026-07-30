@@ -8,8 +8,8 @@ pauses is a cut that wasn't failed.
 Everything here is code. The only LLM in the loop is the consult, which happens
 outside perf-coach by design.
 
-> Status: **Phases 0–3 complete.** Phase 4 is specified in the sprint plan and
-> not yet built. This document describes what exists and marks the rest.
+> Status: **Phases 0–4 complete.** This document describes what exists; the
+> "Out of scope" section at the end is what deliberately does not.
 
 ## Governing decisions
 
@@ -379,11 +379,91 @@ red day (there is no streak or daily verdict to render one from); at least one
 correlation sentence appears with real numbers.
 `tests/test_lean_program__habits.py`, `tests/test_lean_program__plan_extras.py`.
 
-## Phase 4 *(specified, not built)*
+## Phase 4 — sprints and the hypothesis *(built)*
 
-| Phase | Contents |
+| Piece | Where |
 |---|---|
-| 4 — sprints & the hypothesis | Calibration sprint flag, maintenance recalibration, target weight as a hypothesis rather than a fixed number |
+| Calibration sprints | `backend/services/calibration_sprint.py`, migration `13f189e87eec` |
+| Maintenance recalibration | `fuel.calibrate(min_days=, min_entries=)` |
+| Weight hypothesis | `backend/services/weight_hypothesis.py` |
+| Endpoints | `backend/routers/decisions.py` |
+
+### A measurement week, never a diet
+
+5–7 days of deliberate logging, once a month, **with the end date visible from
+the moment it starts**. That bound is the feature: an open-ended "just track your
+food for a while" is precisely the shape of the five attempts that already
+failed. `assert_measurement_copy` enforces the framing at import, the same way
+`deficit_guard` enforces its eat-more contract.
+
+The sprint ends on its own date — nobody has to remember to stop it — and the
+countdown includes the final day, so the last day reads "1 to go" rather than
+"0" while there is still logging left in it.
+
+| Route | Purpose |
+|---|---|
+| `GET /api/calibration-sprint` | countdown, logged days, whether one is due |
+| `POST /api/calibration-sprint` | open a 5–7 day window (409 if one is running) |
+| `POST /api/calibration-sprint/close?abandon=` | close and recalibrate |
+| `GET /api/weight-hypothesis` | the weight band where scores were highest |
+
+### Why the recalibration needed unblocking
+
+`fuel.calibrate` already did the arithmetic but demanded 14 days and 10 fuel
+entries — thresholds a structural-deficit athlete never reaches, because they
+never log food. That is why the feature sat at `insufficient_data` forever. It
+now takes `min_days` / `min_entries` overrides, and a sprint passes its own
+bounds (5 days). Closing a sprint with enough logged days writes the new
+maintenance and flips `maintenance_source` to `measured`.
+
+A sprint that fell short is **completed, not failed**. The copy names the
+shortfall and moves on; there is no penalty state, because a measurement that
+didn't take is not a moral event.
+
+### Optimal racing weight as a hypothesis
+
+`weight_hypothesis` buckets the athlete's own history — weight trend against
+endurance score — and reports the band where the scores were highest. **The
+output has no `target_kg` and never will.** "As lean as I can" has no stopping
+rule, which is what makes it dangerous; a number off a chart or a peer
+percentile is a guess dressed as a goal, and in runners specifically that framing
+drives disordered patterns.
+
+It refuses to overclaim in three ways:
+
+- fewer than 30 paired days → "not enough data yet";
+- fewer than four populated weight bands → "the range you've actually trained at
+  is too narrow to locate a peak" (an athlete who has only ever been 84–85 kg
+  has no evidence about 80);
+- a bucket with fewer than three days can't be the peak, so one freak day never
+  becomes the recommendation.
+
+Confidence is coverage-based and **never earns "high"**, and the sentence ends
+with *"this is where the numbers were best, not proof that the weight caused
+it"* — a build block raises weight and score together.
+
+**On removing the fixed 82 kg target:** there was no hard-coded 82 kg in the
+codebase. That number is the athlete's own `WeightTarget` row, which other
+features legitimately read, so nothing was deleted. The hypothesis view is what
+replaces *relying* on it: a soft band with stated confidence instead of a single
+number to chase.
+
+### Export additions
+
+`SCHEMA_VERSION` 3 → 4. New `sprint` (active, dates, countdown, logged days,
+`can_recalibrate`, `due`) and `hypothesis` (peak estimate, band, confidence,
+buckets — no target) blocks.
+
+### DQS servings stay paste-only
+
+Deliberately. Spec §11: build an app feature for it **only after two sprints
+actually happen**. Logging it in notes and pasting into the consult is the MVP.
+
+### Acceptance
+
+A sprint starts and ends on its own dates; maintenance updates from ≥5 days of
+data and flips `maintenance_source` to `measured`; the hypothesis renders without
+a hard target. `tests/test_lean_program__sprints.py`.
 
 ### Guardrails still outstanding
 

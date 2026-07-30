@@ -1992,6 +1992,42 @@ class Decision(Base):
     )
 
 
+class CalibrationSprint(Base):
+    """A bounded measurement week — never a diet.
+
+    5-7 days of deliberate logging, once a month, with a visible end date from
+    the moment it starts. ``end_date`` is stored rather than derived so the
+    countdown can't quietly extend itself: an open-ended "just track for a
+    while" is exactly what turns into another failed attempt.
+
+    Its purpose is a maintenance recalibration. Five days of real intake data
+    beats a formula estimate, and it only has to happen twelve times a year.
+    """
+
+    __tablename__ = "calibration_sprints"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    status = Column(String(20), nullable=False, server_default=text("'active'"))
+    logged_days = Column(Integer, nullable=False, server_default=text("0"))
+    # Recalibrated maintenance, once the sprint produced enough data.
+    result_base_kcal = Column(Integer, nullable=True)
+    result_note = Column(Text, nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active', 'completed', 'abandoned')",
+            name="ck_calibration_sprints_status",
+        ),
+        CheckConstraint("end_date >= start_date", name="ck_calibration_sprints_dates"),
+        Index("ix_calibration_sprints_user_start", "user_id", start_date.desc()),
+    )
+
+
 class WeeklyCoachMessage(Base):
     """Persisted daily coaching message — one record per (user, for_date).
 
