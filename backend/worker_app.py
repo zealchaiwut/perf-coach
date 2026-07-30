@@ -20,6 +20,7 @@ import os
 import socket
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -1018,6 +1019,195 @@ def post_feel_entry(body: dict, user: str | None = None):
             "notes": row.notes,
             "created_at": row.created_at.isoformat() if row.created_at else None,
         }
+
+
+# ── Weight write + nudge API (Hermes / Discord) ───────────────────────────────
+#
+# The daily floor of the lean program. Everything else in it rests on this
+# endpoint: a number replied in Discord becomes a weight entry, the weigh-in
+# habit ticks itself, and the tracking state (derived, never stored) decides
+# whether tomorrow's nudge is daily, weekly, or silent.
+#
+# perf-coach does NOT talk to Discord. Hermes polls /api/weight/nudge and
+# delivers; this mirrors the plan-draft notify contract above (deliver_now +
+# ack) so there is one pattern for morning-window nudges, not two.
+
+_WEIGHT_MIN_KG = 20.0
+_WEIGHT_MAX_KG = 300.0
+_WEIGHT_NOTES_CAP = 500
+# Morning weigh-in window, BKK. Deliberately earlier than the plan-draft window
+# (07:00-09:00): the weigh-in happens before breakfast, the draft nudge doesn't.
+_WEIGHT_NUDGE_START_HOUR = 6
+_WEIGHT_NUDGE_END_HOUR = 8
+
+
+@app.post("/weight-entry", status_code=201, dependencies=[Depends(_require_worker_api_token)])
+def post_weight_entry(body: dict, user: str | None = None):
+    """Record one morning weigh-in on behalf of Hermes.
+
+    Auth: ``Authorization: Bearer <WORKER_API_TOKEN>``.
+
+    Upserts on (user, date) with a null entry_time — replying twice in one
+    morning corrects the number rather than creating a second row, which is what
+    "reply 87.6" should mean. Recomputes the weigh-in habit's autofill for that
+    week so the habit ticks with no tap.
+    """
+    from datetime import date as _date
+    from backend.models import WeightEntry
+
+    raw_weight = body.get("weight_kg")
+    if raw_weight is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"field": "weight_kg", "error": "weight_kg is required"},
+        )
+    try:
+        weight_kg = float(raw_weight)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=400,
+            detail={"field": "weight_kg", "error": "weight_kg must be a number"},
+        )
+    if not (_WEIGHT_MIN_KG <= weight_kg <= _WEIGHT_MAX_KG):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "field": "weight_kg",
+                "error": f"weight_kg must be between {_WEIGHT_MIN_KG:g} and {_WEIGHT_MAX_KG:g}",
+            },
+        )
+
+    entry_date_raw = body.get("entry_date")
+    if entry_date_raw:
+        try:
+            entry_date = _date.fromisoformat(str(entry_date_raw))
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=400,
+                detail={"field": "entry_date", "error": "entry_date must be a valid YYYY-MM-DD date"},
+            )
+    else:
+        entry_date = datetime.now(BANGKOK_TZ).date()
+
+    today_bkk = datetime.now(BANGKOK_TZ).date()
+    if entry_date > today_bkk:
+        raise HTTPException(
+            status_code=400,
+            detail={"field": "entry_date", "error": "entry_date cannot be in the future"},
+        )
+
+    notes = body.get("notes")
+    if notes is not None and len(str(notes)) > _WEIGHT_NOTES_CAP:
+        raise HTTPException(
+            status_code=400,
+            detail={"field": "notes", "error": f"notes must not exceed {_WEIGHT_NOTES_CAP} characters"},
+        )
+
+    resolved_user = _resolve_read_user(user)
+
+    with Session(engine) as s:
+        row = (
+            s.query(WeightEntry)
+            .filter(
+                WeightEntry.user_id == resolved_user.id,
+                WeightEntry.entry_date == entry_date,
+                WeightEntry.entry_time.is_(None),
+            )
+            .first()
+        )
+        created = row is None
+        if row is None:
+            row = WeightEntry(
+                # Generated here rather than by the server default so the insert
+                # round-trips identically on every backend.
+                id=uuid.uuid4(),
+                user_id=resolved_user.id,
+                entry_date=entry_date,
+                entry_time=None,
+                weight_kg=weight_kg,
+                notes=notes,
+                source="imported",
+            )
+            s.add(row)
+        else:
+            row.weight_kg = weight_kg
+            if notes is not None:
+                row.notes = notes
+        s.commit()
+        s.refresh(row)
+
+        payload = {
+            "id": str(row.id),
+            "user_id": str(row.user_id),
+            "entry_date": row.entry_date.isoformat(),
+            "weight_kg": float(row.weight_kg),
+            "notes": row.notes,
+            "created": created,
+        }
+
+    # Tick the weigh-in habit off the entry — real autofill, no tap. Best-effort:
+    # a habit that didn't tick must never cost the athlete the weigh-in itself.
+    try:
+        from backend.services.habit_autofill import recompute_autofill_for_week
+
+        week_start = entry_date - timedelta(days=entry_date.weekday())
+        recompute_autofill_for_week(resolved_user.id, week_start)
+    except Exception as exc:
+        logger.warning("weigh-in habit autofill failed: %s", exc)
+
+    return payload
+
+
+@app.get("/api/weight/nudge")
+def weight_nudge(user: str | None = None, ack: bool = False):
+    """Morning weight nudge for Hermes to deliver over Discord.
+
+    **Weight only.** There is exactly one message here and it never mentions
+    food — a food nudge is the fastest way to make a daily prompt something the
+    athlete mutes, and a muted app can't help.
+
+    ``deliver_now`` is true only inside the BKK morning window, when today isn't
+    already logged, and when the tracking state's cadence says so: daily while
+    ACTIVE, Mondays only once PAUSED. Silence is the correct output most of the
+    time, and the endpoint says so rather than inventing something to say.
+
+    ``ack`` is accepted for symmetry with the plan-draft notify contract; the
+    weight nudge needs no server-side pending flag because "already logged today"
+    is the natural, self-clearing acknowledgement.
+    """
+    from backend.services.tracking_state import (
+        PAUSED,
+        should_nudge,
+        state_for_user,
+    )
+
+    resolved_user = _resolve_read_user(user)
+    now = datetime.now(BANGKOK_TZ)
+    today = now.date()
+
+    with Session(engine) as s:
+        state = state_for_user(s, resolved_user.id, today)
+
+    in_window = _WEIGHT_NUDGE_START_HOUR <= now.hour < _WEIGHT_NUDGE_END_HOUR
+    due = should_nudge(state, today)
+
+    if state["state"] == PAUSED:
+        message = "weight tracking paused — training continues. one number when you're ready?"
+    else:
+        message = "morning — what's the number?"
+
+    return {
+        "tracking_state": state["state"],
+        "paused_since": state["paused_since"],
+        "nudge_cadence": state["nudge_cadence"],
+        "logged_today": state["logged_today"],
+        "last_weigh_in": state["last_weigh_in"],
+        "days_since_last": state["days_since_last"],
+        "in_window": in_window,
+        "deliver_now": bool(due and in_window),
+        "message": message,
+        "acked": bool(ack),
+    }
 
 
 # ── Scheduler thread ─────────────────────────────────────────────────────────

@@ -191,9 +191,17 @@ def _assemble_meta(
     )
     prev_export = getattr(user, "last_coach_export_at", None)
 
+    # Tracking state is derived, never stored — so a pasted coach knows not to
+    # nag about data the app deliberately stopped asking for.
+    from backend.services.tracking_state import state_for_user
+
+    tracking = state_for_user(db, user.id, today)
+
     return {
         "schema_version": SCHEMA_VERSION,
         "prompt_version": PROMPT_VERSION,
+        "tracking_state": tracking["state"],
+        "paused_since": tracking["paused_since"],
         "generated_at": generated_at,
         "timezone": "Asia/Bangkok",
         "window_days": window_days,
@@ -1230,6 +1238,8 @@ def build_export(user_id, window_days: int = DEFAULT_WINDOW_DAYS, today: Optiona
                 "timezone": "Asia/Bangkok",
                 "window_days": window_days,
                 "previous_export_date": None,
+                "tracking_state": None,
+                "paused_since": None,
                 "data_freshness": {},
                 "note": _META_NOTE,
                 "acwr_null_note": _ACWR_NULL_NOTE,

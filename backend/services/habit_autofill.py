@@ -47,6 +47,25 @@ def recompute_autofill_for_week(user_id: UUID, week_start: date) -> dict:
             .all()
         )
 
+        # Weight-sourced habits (the weigh-in habit) read weight_entries, not
+        # workouts. Fetched only when a habit actually asks for them.
+        weigh_in_dates: list = []
+        if any(
+            (h.auto_fill_source or "").startswith("weight.") for h in habits
+        ):
+            from backend.models import WeightEntry
+
+            weigh_in_dates = [
+                row[0]
+                for row in session.query(WeightEntry.entry_date)
+                .filter(
+                    WeightEntry.user_id == user_id,
+                    WeightEntry.entry_date >= week_start,
+                    WeightEntry.entry_date <= week_end,
+                )
+                .all()
+            ]
+
         logs_deleted = 0
         logs_created = 0
 
@@ -74,7 +93,9 @@ def recompute_autofill_for_week(user_id: UUID, week_start: date) -> dict:
                 .all()
             }
 
-            date_values = _compute_date_values(habit.auto_fill_source, workouts)
+            date_values = _compute_date_values(
+                habit.auto_fill_source, workouts, weigh_in_dates
+            )
 
             for log_date, value in date_values.items():
                 if log_date not in occupied:
@@ -99,9 +120,25 @@ def recompute_autofill_for_week(user_id: UUID, week_start: date) -> dict:
     }
 
 
-def _compute_date_values(auto_fill_source: str, workouts: list) -> dict:
-    """Return {date: float_value} for the given source and workout list."""
+def _compute_date_values(
+    auto_fill_source: str,
+    workouts: list,
+    weigh_in_dates: list | None = None,
+) -> dict:
+    """Return {date: float_value} for the given source.
+
+    ``weigh_in_dates`` backs the ``weight.*`` sources; workout-sourced habits
+    ignore it.
+    """
     values: dict = {}
+
+    if auto_fill_source == "weight.logged":
+        # The weigh-in habit ticks itself off the entry — real autofill, no tap.
+        # A number in Discord IS the habit; asking for a second confirmation in
+        # the app is the kind of demand this program exists to remove.
+        for d in weigh_in_dates or []:
+            values[d] = 1.0
+        return values
 
     if auto_fill_source == "workout.zone2_minutes":
         for w in workouts:

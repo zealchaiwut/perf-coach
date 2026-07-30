@@ -8,8 +8,8 @@ pauses is a cut that wasn't failed.
 Everything here is code. The only LLM in the loop is the consult, which happens
 outside perf-coach by design.
 
-> Status: **Phase 0 complete.** Phases 1–4 are specified in the sprint plan and
-> not yet built. This document describes what exists and marks the rest.
+> Status: **Phases 0 and 1 complete.** Phases 2–4 are specified in the sprint
+> plan and not yet built. This document describes what exists and marks the rest.
 
 ## Governing decisions
 
@@ -100,11 +100,90 @@ A consult produces a change list → pasted into one field → appears in the ne
 export, dated → the following consult references it by date.
 `tests/test_lean_program__decisions.py::test_round_trip_consult_to_export_references_it_by_date`.
 
-## Phases 1–4 *(specified, not built)*
+## Phase 1 — the daily floor *(built)*
+
+Daily lives in Discord, not in the app. The app is the weekly surface and the
+system of record; it does not need to be opened every day and is not designed to
+be.
+
+### Where the Discord part actually runs
+
+**perf-coach never talks to Discord.** Hermes polls a notify endpoint and
+delivers. This mirrors the existing `plan_draft_notify` contract so there is one
+pattern for morning-window nudges rather than two:
+
+| Piece | Where |
+|---|---|
+| Weight write | `POST /weight-entry` on the worker (`backend/worker_app.py`), bearer `WORKER_API_TOKEN` |
+| Nudge payload | `GET /api/weight/nudge` on the worker |
+| State machine | `backend/services/tracking_state.py` |
+| Weigh-in autofill | `habit_autofill` source `weight.logged` (migration `1fff1ada408b`) |
+
+Everything else in the lean program rests on the write endpoint. It upserts on
+`(user, date)` with a null `entry_time`, so replying twice in one morning
+*corrects* the number rather than creating a second row — which is what "reply
+87.6" should mean. Entries are stored with `source='imported'`.
+
+### The weigh-in habit ticks itself
+
+`auto_fill_source = 'weight.logged'` fills the habit from the weight entry. A
+number replied in Discord **is** the habit; asking for a confirmation tap in the
+app is exactly the kind of demand this program removes. The autofill is
+best-effort — a habit that failed to tick must never cost the athlete the
+weigh-in itself.
+
+### Tracking state
+
+```
+        ACTIVE ──── 7 consecutive days, no weigh-in ────► PAUSED
+          ▲                                                 │
+          └──── 3 weigh-ins within 7 days ──────────────────┘
+```
+
+- **ACTIVE** — daily nudge, cut diagnosis on, rate shown.
+- **PAUSED** — nudge drops to **weekly, not to nothing** (lower demand, not
+  abandonment). Copy: *"weight tracking paused — training continues."* No cut
+  verdicts, no rate claims, nothing red, no catch-up guilt. Training is
+  unaffected.
+
+**Derived, never stored** — a pure function over weigh-in dates, so it cannot go
+stale behind a job that didn't run, and all four consumers (nudge, `cut_review`,
+weight card, `meta.tracking_state` in the export) compute the same answer.
+
+The state machine is **simulated over the timeline**, not judged from the last
+few days in isolation. That distinction is load-bearing: a stateless reading
+can't tell "was paused, then logged once" from "has been logging", so a single
+Tuesday weigh-in would silently restart the daily nudge. The thresholds are
+asymmetric on purpose (7 days out, 3 weigh-ins back) so the state can't chatter.
+
+### The nudge
+
+One message type. **Weight only, never food** — a food nudge is the fastest way
+to make a daily prompt something the athlete mutes, and a muted app can't help.
+Silent when today is already logged: the nudge exists to ask for a number, not to
+confirm one. `deliver_now` is true only inside the BKK morning window
+(06:00–08:00, deliberately earlier than the 07:00–09:00 plan-draft window —
+the weigh-in happens before breakfast) with the cadence satisfied.
+
+Silence is the correct output most mornings, and the endpoint says so rather than
+inventing something to say.
+
+### Export addition
+
+`meta.tracking_state` and `meta.paused_since`, so a pasted coach knows not to nag
+about data the app deliberately stopped asking for (consult rule 3).
+
+### Acceptance
+
+Reply `87.6` in Discord → entry stored, habit ticked, nudge silent next morning.
+Miss 7 days → nudge goes weekly and the copy changes; log 3 in a week → back to
+ACTIVE. `tests/test_lean_program__weight_write.py`,
+`tests/test_lean_program__tracking_state.py`.
+
+## Phases 2–4 *(specified, not built)*
 
 | Phase | Contents |
 |---|---|
-| 1 — the daily floor | Worker weight-write endpoint, Discord morning nudge (weight only), `tracking_state.py`, weigh-in habit autofill |
 | 2 — structural deficit | Deficit set once and verified weekly, `fuel_periodize` enabled, carb floor on quality days, `cut_review` re-gated to weight-trend-only, body-fat storage + lean-mass guard, auto-pause triggers |
 | 3 — habits & week composition | Three goal habits, stretch/plyo/drills moved into the plan, monthly benchmark effort, correlation evidence instead of streaks |
 | 4 — sprints & the hypothesis | Calibration sprint flag, maintenance recalibration, target weight as a hypothesis rather than a fixed number |
@@ -128,7 +207,9 @@ weigh-in dates by a pure function, never stored, so it can't go stale.
 
 ## Open items
 
-- Discord nudge window: 06:00–08:00, or tied to the usual wake time?
+- Discord nudge window: **assumed 06:00–08:00 BKK** and implemented as
+  `_WEIGHT_NUDGE_START_HOUR` / `_WEIGHT_NUDGE_END_HOUR` in `worker_app.py` — two
+  constants to change if it should follow the actual wake time instead.
 - Body-fat scale: assume the weekly reading is typed by hand; auto-import is a
   bonus, not a dependency.
 - Whether the Sunday consult and the Sunday prefs reconfirm merge into one
