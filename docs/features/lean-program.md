@@ -317,6 +317,18 @@ budget maths would risk changing everyone's week for a preference most athletes
 leave off. With empty prefs and a non-benchmark week the decorator is the
 identity function — a test pins exactly that.
 
+`plan_draft` calls it after **both** of its `build_skeleton` sites, so the extras
+reach a real week; a test asserts the counts match, because a skeleton built and
+not decorated is a week where stretch and plyo silently vanish.
+
+**The stretch target moved with it.** It used to be stored as the "Daily stretch"
+habit's `target_value`, which is why the habit couldn't simply be deleted — it
+*was* the storage. `stretch_daily_min` is now a `pref_catalog` field (0–60 min),
+`ensure_coach_tracked_habits` no longer creates the habit, and
+`prefs_for_assemble_facts` falls back to an existing habit's value when the pref
+is unset. Nobody loses a target they already set; the habit is simply never
+created again. Zone 2 was never in scope for D5 and still lives on Habits.
+
 - **stretch** attaches to every day including rest days (mobility on a rest day
   is the point) and carries **no TSS** — it is not a training session and must
   not eat the load budget;
@@ -344,6 +356,15 @@ numbers did — never that the habit caused it.
 Nothing in `goal_habits` or `habit_evidence` computes a streak; a test strips
 docstrings and asserts the word appears nowhere in the actual code, since both
 modules discuss streaks at length in prose.
+
+`build_user_evidence` feeds it real rows: one pair per **week** (the claim is
+"weeks you fuelled the long run", and a long run happens once a week — daily
+alignment would compare a Tuesday tick to a Tuesday with no long run in it),
+pairing the long-run-fuel habit against that week's long-run HR drift. Weeks with
+no long run are dropped: there was nothing to fuel, so the week is evidence of
+neither outcome. The export'"'"'s `habits.evidence[]` renders whatever comes back,
+and only readable comparisons are returned — saying "not enough data yet" three
+times is worse than silence.
 
 ### The monthly benchmark exists for the evidence
 

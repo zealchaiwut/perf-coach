@@ -12,6 +12,7 @@ from typing import Any, Callable
 from sqlalchemy.orm import Session
 
 from backend.services.plan_prefs_accessor import get_plan_prefs
+from backend.services.plan_extras import apply_prefs_extras
 from backend.services.plan_skeleton import assemble_week, build_skeleton
 from backend.services.plan_slot import (
     build_week_ctx,
@@ -229,6 +230,15 @@ def generate_draft_payload(
         load_plan_week=load_plan_week,
         race_anchored_target=facts.get("target_tss"),
         existing_occupied=occupied,
+    )
+    # Stretch / plyo / monthly benchmark (lean program D5): prefs-driven extras
+    # decorated onto the skeleton. With those prefs unset this is the identity
+    # function, so a week is unchanged for anyone who hasn't opted in.
+    sk = apply_prefs_extras(
+        sk,
+        prefs=prefs,
+        week_start=week_start,
+        rest_days=set(prefs.get("preferred_rest_days") or []),
     )
 
     week_ctx = build_week_ctx(
@@ -1373,6 +1383,12 @@ def replan_remaining_budget(
         load_plan_week=load_plan_week,
         race_anchored_target=facts.get("target_tss"),
         existing_occupied=existing_occupied,
+    )
+    sk = apply_prefs_extras(
+        sk,
+        prefs=prefs,
+        week_start=week_start,
+        rest_days=set(prefs.get("preferred_rest_days") or []),
     )
     return {
         "budget": budget,

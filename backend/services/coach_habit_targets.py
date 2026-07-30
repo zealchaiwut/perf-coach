@@ -71,14 +71,23 @@ def _find_by_source(db: Session, user_id, source: str) -> Habit | None:
     )
 
 
-def ensure_coach_tracked_habits(db: Session, user_id) -> dict[str, Habit]:
-    """Idempotently create Zone 2 + Daily stretch habits. Returns both rows."""
+def ensure_coach_tracked_habits(db: Session, user_id) -> dict[str, Habit | None]:
+    """Idempotently create the Zone 2 habit; adopt an existing stretch habit.
+
+    Returns ``{"zone2": Habit, "stretch": Habit | None}``. Stretch is None for
+    any athlete onboarded after D5 moved it into the plan.
+    """
     out: dict[str, Habit] = {}
 
     z2 = _find_by_source(db, user_id, ZONE2_SOURCE)
     if z2 is None:
         target = _zone2_seed_target(db, user_id)
+        import uuid as _uuid
+
         z2 = Habit(
+            # Generated here rather than by the server default so the insert
+            # round-trips identically on every backend.
+            id=_uuid.uuid4(),
             user_id=user_id,
             name="Zone 2",
             habit_type="duration",
@@ -97,26 +106,16 @@ def ensure_coach_tracked_habits(db: Session, user_id) -> dict[str, Habit]:
         db.flush()
     out["zone2"] = z2
 
-    stretch = _find_by_source(db, user_id, STRETCH_SOURCE)
-    if stretch is None:
-        target = _stretch_seed_target(db, user_id)
-        stretch = Habit(
-            user_id=user_id,
-            name="Daily stretch",
-            habit_type="duration",
-            schedule_type="daily",
-            target_value=target,
-            unit="min",
-            tracking_type="daily_checkmark",
-            auto_fill_source=STRETCH_SOURCE,
-            section="training",
-            icon="ti-stretching",
-            active=True,
-            is_archived=False,
-        )
-        db.add(stretch)
-        db.flush()
-    out["stretch"] = stretch
+    # Stretch is NO LONGER created as a habit. Lean-program D5 moved it out of
+    # habits and into the plan: `plan_extras` attaches the daily mobility block
+    # to every day of the week from the `stretch_daily_min` preference, and a
+    # planned block that verifies itself beats a checkbox that asks the athlete
+    # to remember and then to confirm.
+    #
+    # An EXISTING stretch habit is still returned so nobody's history or target
+    # disappears — `prefs_for_assemble_facts` reads it as a fallback when the
+    # pref is unset. It is simply never created again.
+    out["stretch"] = _find_by_source(db, user_id, STRETCH_SOURCE)
     return out
 
 

@@ -1076,6 +1076,7 @@ def _assemble_habits(db: Session, user, today: _date) -> dict:
     # The three goal habits, named so the coach knows which of the list are the
     # program's own asks rather than the athlete's general tracking.
     from backend.services.goal_habits import GOAL_HABIT_KEYS, goal_habit_ids
+    from backend.services.habit_evidence import build_user_evidence
 
     try:
         by_role = goal_habit_ids(db, user.id)
@@ -1090,9 +1091,9 @@ def _assemble_habits(db: Session, user, today: _date) -> dict:
         "items": items,
         "adherence_4w_pct": round(sum(pcts) / len(pcts), 1) if pcts else None,
         "goal_habits": [k for k in GOAL_HABIT_KEYS if k in by_role],
-        # Correlation sentences replace streaks entirely (spec D8). Populated by
-        # the habit surface; empty until there are enough weeks to compare.
-        "evidence": [],
+        # Correlation sentences replace streaks entirely (spec D8). Empty until
+        # there are enough weeks both with and without the habit to compare.
+        "evidence": build_user_evidence(db, user.id, today),
     }
 
 

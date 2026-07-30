@@ -40,8 +40,22 @@ PREF_FIELDS: dict[str, dict[str, Any]] = {
         "reads": ["content"],
         "default": 0,
     },
-    # stretch_daily_min + zone2_weekly_min live on Habits (coach_habit_targets),
-    # not in this catalog — coach/plan read them via habit_targets_for_coach.
+    # Daily mobility target, in minutes. Lean-program D5 moved stretch OUT of
+    # habits and into the plan: `plan_extras` attaches it to every day of the
+    # week from this value. zone2_weekly_min still lives on Habits.
+    #
+    # Migration note: the value used to be stored as the "Daily stretch" habit's
+    # target_value. `prefs_for_assemble_facts` still falls back to that habit
+    # when this pref is unset, so nobody loses their target — but the habit is
+    # no longer created for new athletes.
+    "stretch_daily_min": {
+        "type": "int",
+        "min": 0,
+        "max": 60,
+        "step": 5,
+        "reads": ["skeleton"],
+        "default": 0,
+    },
     "notes": {
         "type": "str",
         "max_len": 200,
@@ -154,7 +168,7 @@ def validate_payload(
 
     # Reject unknown top-level keys (except nested containers we own).
     # stretch/zone2 were migrated to Habits — tolerate legacy payloads.
-    _migrated = {"stretch_daily_min", "zone2_weekly_min"}
+    _migrated = {"zone2_weekly_min"}
     known_top = {k.split(".")[0] for k in PREF_FIELDS} | _migrated
     for k in payload.keys():
         if k not in known_top:
@@ -164,9 +178,12 @@ def validate_payload(
 
 
 def strip_migrated_habit_fields(payload: dict) -> dict:
-    """Drop stretch/zone2 keys that now live on Habits."""
+    """Drop keys that live on Habits rather than in this catalog.
+
+    Only zone2_weekly_min now — stretch_daily_min moved INTO the catalog when
+    the lean program moved stretch out of habits and into the plan (D5).
+    """
     out = dict(payload or {})
-    out.pop("stretch_daily_min", None)
     out.pop("zone2_weekly_min", None)
     return out
 

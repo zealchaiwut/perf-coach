@@ -191,3 +191,109 @@ def build_evidence(pairs: Iterable[dict], metric_key: str, habit_phrase: str) ->
     comparison = compare_groups(pairs, metric_key)
     comparison["sentence"] = render_sentence(comparison, habit_phrase)
     return comparison
+
+
+# ── DB-backed pair building ──────────────────────────────────────────────────
+# Weekly, not daily: the claim is "weeks you fuelled the long run", and a long
+# run happens once a week. Daily alignment would compare a Tuesday habit tick to
+# a Tuesday with no long run in it.
+
+EVIDENCE_WEEKS = 16
+
+
+def _week_start(d):
+    from datetime import timedelta
+
+    return d - timedelta(days=d.weekday())
+
+
+def long_run_fuel_pairs(db, user_id, today, weeks: int = EVIDENCE_WEEKS) -> list[dict]:
+    """One pair per week: did the long run get fuelled, and what was its HR drift?
+
+    Weeks with no long run are dropped — there was nothing to fuel, so the week
+    is evidence of neither outcome.
+    """
+    from datetime import timedelta
+
+    from backend.models import Habit, HabitLog, Workout
+    from backend.services.goal_habits import (
+        LONG_RUN_FUEL_SOURCE,
+        LONG_RUN_MIN_MINUTES,
+    )
+
+    start = _week_start(today) - timedelta(weeks=weeks - 1)
+
+    habit = (
+        db.query(Habit)
+        .filter(
+            Habit.user_id == user_id,
+            Habit.auto_fill_source == LONG_RUN_FUEL_SOURCE,
+            Habit.is_archived.is_(False),
+        )
+        .first()
+    )
+    if habit is None:
+        return []
+
+    fuelled_weeks = {
+        _week_start(row[0])
+        for row in db.query(HabitLog.log_date)
+        .filter(
+            HabitLog.habit_id == habit.id,
+            HabitLog.log_date >= start,
+            HabitLog.log_date <= today,
+        )
+        .all()
+    }
+
+    drift_by_week: dict = {}
+    rows = (
+        db.query(Workout.workout_date, Workout.decoupling_percent)
+        .filter(
+            Workout.user_id == user_id,
+            Workout.workout_date >= start,
+            Workout.workout_date <= today,
+            Workout.decoupling_percent.isnot(None),
+            Workout.duration_seconds >= LONG_RUN_MIN_MINUTES * 60,
+        )
+        .all()
+    )
+    for day, drift in rows:
+        drift_by_week.setdefault(_week_start(day), []).append(float(drift))
+
+    pairs: list[dict] = []
+    for week, drifts in sorted(drift_by_week.items()):
+        pairs.append({
+            "habit_date": week.isoformat(),
+            "habit_value": week in fuelled_weeks,
+            "outcome_date": week.isoformat(),
+            "outcome_value": sum(drifts) / len(drifts),
+        })
+    return pairs
+
+
+def build_user_evidence(db, user_id, today, weeks: int = EVIDENCE_WEEKS) -> list[dict]:
+    """Every readable evidence sentence for a user's goal habits.
+
+    Only readable comparisons are returned — an unreadable one has nothing to
+    say, and saying "not enough data yet" three times is worse than silence.
+    """
+    out: list[dict] = []
+    try:
+        pairs = long_run_fuel_pairs(db, user_id, today, weeks)
+    except Exception:  # pragma: no cover — evidence is decoration, never fatal
+        return out
+
+    evidence = build_evidence(pairs, "hr_drift", "fuelled the long run")
+    if evidence.get("readable") and evidence.get("sentence"):
+        out.append({
+            "habit": "long_run_fuel",
+            "metric": "hr_drift",
+            "sentence": evidence["sentence"],
+            "with_mean": evidence["with_mean"],
+            "without_mean": evidence["without_mean"],
+            "n_with": evidence["n_with"],
+            "n_without": evidence["n_without"],
+            "better": evidence["better"],
+        })
+    return out
