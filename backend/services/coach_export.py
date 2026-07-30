@@ -1016,7 +1016,13 @@ def _assemble_races(db: Session, user, today: _date) -> dict:
 
 # ── habits ───────────────────────────────────────────────────────────────────
 
-_NULL_HABITS = {"week_start": None, "items": [], "adherence_4w_pct": None}
+_NULL_HABITS = {
+    "week_start": None,
+    "items": [],
+    "adherence_4w_pct": None,
+    "goal_habits": [],
+    "evidence": [],
+}
 
 
 def _assemble_habits(db: Session, user, today: _date) -> dict:
@@ -1034,7 +1040,13 @@ def _assemble_habits(db: Session, user, today: _date) -> dict:
         .all()
     )
     if not habits:
-        return {"week_start": _week_start(today).isoformat(), "items": [], "adherence_4w_pct": None}
+        return {
+            "week_start": _week_start(today).isoformat(),
+            "items": [],
+            "adherence_4w_pct": None,
+            "goal_habits": [],
+            "evidence": [],
+        }
 
     logs_by_habit: dict = {}
     for log in (
@@ -1061,10 +1073,26 @@ def _assemble_habits(db: Session, user, today: _date) -> dict:
         if isinstance(pct, (int, float)) and not h.get("building"):
             pcts.append(float(pct))
 
+    # The three goal habits, named so the coach knows which of the list are the
+    # program's own asks rather than the athlete's general tracking.
+    from backend.services.goal_habits import GOAL_HABIT_KEYS, goal_habit_ids
+
+    try:
+        by_role = goal_habit_ids(db, user.id)
+    except Exception:
+        by_role = {}
+    id_to_role = {hid: role for role, hid in by_role.items()}
+    for item, habit in zip(items, habits):
+        item["goal_habit"] = id_to_role.get(str(habit.id))
+
     return {
         "week_start": _week_start(today).isoformat(),
         "items": items,
         "adherence_4w_pct": round(sum(pcts) / len(pcts), 1) if pcts else None,
+        "goal_habits": [k for k in GOAL_HABIT_KEYS if k in by_role],
+        # Correlation sentences replace streaks entirely (spec D8). Populated by
+        # the habit surface; empty until there are enough weeks to compare.
+        "evidence": [],
     }
 
 

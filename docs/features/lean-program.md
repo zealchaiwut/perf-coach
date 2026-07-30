@@ -8,8 +8,8 @@ pauses is a cut that wasn't failed.
 Everything here is code. The only LLM in the loop is the consult, which happens
 outside perf-coach by design.
 
-> Status: **Phases 0, 1 and 2 complete.** Phases 3–4 are specified in the sprint
-> plan and not yet built. This document describes what exists and marks the rest.
+> Status: **Phases 0–3 complete.** Phase 4 is specified in the sprint plan and
+> not yet built. This document describes what exists and marks the rest.
 
 ## Governing decisions
 
@@ -280,11 +280,88 @@ recommendation from weight data alone.
 through `fuel.compute_effective_deficit` and `get_today_payload`, with
 `auto_periodize` defaulting on. Hard days already eat big; no change was needed.
 
-## Phases 3–4 *(specified, not built)*
+## Phase 3 — habits and week composition *(built)*
+
+| Piece | Where |
+|---|---|
+| Three goal habits | `backend/services/goal_habits.py` |
+| Long-run fuel signal | `workouts.fuelled` + `long_run.fuelled` autofill (migration `37e30b89c6cd`) |
+| Stretch / plyo / benchmark | `backend/services/plan_extras.py` |
+| Correlation evidence | `backend/services/habit_evidence.py` |
+
+### Three goal habits, and nothing else in the goal section
+
+| Habit | How it is satisfied |
+|---|---|
+| Morning weigh-in | autofills from a weight entry (Phase 1) |
+| Protein first | one self-reported tap — the only one the program asks for |
+| Long-run fuel | autofills from a **fuelled** long run (≥ 75 min, `fuelled = true`) |
+
+`ensure_goal_habits` is idempotent and **adopts** an existing habit with the same
+name rather than duplicating it, so an athlete who already tracked one keeps
+their history. Habits in the `general` section (journaling and the like) are
+never touched.
+
+`workouts.fuelled` is nullable and **None means unknown, not "no"** — a habit must
+never claim the athlete fuelled a run when nothing recorded that they did.
+
+### Stretch, plyo and drills move into the plan
+
+D5: a checkbox asks the athlete to remember and then to confirm; a planned
+session that verifies itself from a logged workout does neither.
+
+`plan_extras.apply_prefs_extras` **decorates** a built skeleton rather than
+changing `build_skeleton`. That engine has a "same inputs ⇒ identical skeleton"
+contract and several callers, so threading three more preferences through its
+budget maths would risk changing everyone's week for a preference most athletes
+leave off. With empty prefs and a non-benchmark week the decorator is the
+identity function — a test pins exactly that.
+
+- **stretch** attaches to every day including rest days (mobility on a rest day
+  is the point) and carries **no TSS** — it is not a training session and must
+  not eat the load budget;
+- **plyo** hangs off a strength day in `superset` mode, or claims its own
+  midweek day in `standalone` mode, and only ever takes a day the skeleton left
+  as rest or easy — never the long run or a quality session;
+- **the monthly benchmark** flags the month's first long run, decided from the
+  calendar rather than stored so it can't drift out of sync with a job that
+  didn't run.
+
+### Correlation evidence instead of streaks
+
+D8. A streak turns one missed day into a reason to stop; on a food habit that is
+actively harmful. So the habit surface shows an argument instead:
+
+> Weeks you fuelled the long run, HR drift averaged 3.0% vs 6.8%.
+
+`habit_evidence` refuses to speak when it shouldn't: below six aligned weeks, or
+when one group is empty (all-yes weeks compare nothing), the answer is "not
+enough data yet", said plainly. Lower-is-better metrics are handled explicitly so
+falling HR drift reads as the win it is, a negligible gap is reported as "about
+the same" rather than dressed up as a finding, and the copy states what the
+numbers did — never that the habit caused it.
+
+Nothing in `goal_habits` or `habit_evidence` computes a streak; a test strips
+docstrings and asserts the word appears nowhere in the actual code, since both
+modules discuss streaks at length in prose.
+
+### The monthly benchmark exists for the evidence
+
+Without a fixed route at a fixed effort, "HR drift on long runs" compares a flat
+90-minute run to a hilly two-hour one and reports the terrain. The benchmark is
+what gives the correlation a clean signal.
+
+### Acceptance
+
+Stretch and plyo appear as planned sessions and auto-verify; no habit renders a
+red day (there is no streak or daily verdict to render one from); at least one
+correlation sentence appears with real numbers.
+`tests/test_lean_program__habits.py`, `tests/test_lean_program__plan_extras.py`.
+
+## Phase 4 *(specified, not built)*
 
 | Phase | Contents |
 |---|---|
-| 3 — habits & week composition | Three goal habits, stretch/plyo/drills moved into the plan, monthly benchmark effort, correlation evidence instead of streaks |
 | 4 — sprints & the hypothesis | Calibration sprint flag, maintenance recalibration, target weight as a hypothesis rather than a fixed number |
 
 ### Guardrails still outstanding

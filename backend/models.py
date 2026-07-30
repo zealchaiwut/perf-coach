@@ -305,6 +305,10 @@ class Workout(Base):
     # Flat-equivalent pace for treadmill activities (issue #1219): computed from
     # normalize_treadmill_signal via the Minetti NGP formula. None for outdoor runs.
     flat_equivalent_pace = Column(Float, nullable=True)
+    # Did this session take on fuel (gels / drink)? Nullable on purpose: unknown
+    # for everything logged before the column existed, and "unknown" must never
+    # read as "no". Only consulted for long runs, by the long-run-fuel habit.
+    fuelled = Column(Boolean, nullable=True)
     # Self-reported effort feeling (issue #1241): 'hard' | 'ok' | 'easy' | NULL.
     # One shared column tagged from either the Plan tab (matched workout) or the
     # Log tab. Does not affect scores.

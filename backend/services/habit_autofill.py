@@ -132,6 +132,23 @@ def _compute_date_values(
     """
     values: dict = {}
 
+    if auto_fill_source == "long_run.fuelled":
+        # Ticks off a long run that actually took on fuel. `fuelled` is nullable
+        # and None means UNKNOWN, not "no" — a habit must never claim the
+        # athlete fuelled a run when nothing recorded that they did.
+        from backend.services.goal_habits import LONG_RUN_MIN_MINUTES
+
+        for w in workouts:
+            if (w.workout_type or "").lower() != "run":
+                continue
+            if not w.duration_seconds:
+                continue
+            if w.duration_seconds / 60.0 < LONG_RUN_MIN_MINUTES:
+                continue
+            if getattr(w, "fuelled", None) is True:
+                values[w.workout_date] = 1.0
+        return values
+
     if auto_fill_source == "weight.logged":
         # The weigh-in habit ticks itself off the entry — real autofill, no tap.
         # A number in Discord IS the habit; asking for a second confirmation in
