@@ -8,9 +8,12 @@ a route built, tested, and reviewed — `/api/weight-targets/{goal_id}/what-if`
 (`weight.js:401`'s `#whatif-open-btn`) but actually just unhides the ordinary
 edit-goal form. The user clicks something labelled for a simulation and
 silently gets the wrong feature. Two more endpoints
-(`/api/weight-targets/arrival-projection`, `/api/adherence-nudges`) and three
-pages (`/projection`, `/strength-view`, `/weight/targets`) had zero frontend
-callers at all — fully built, fully tested, unreachable from the app.
+(`/api/weight-targets/arrival-projection`, `/api/adherence-nudges`) and two
+pages (`/projection`, `/strength-view`) had zero frontend callers at all —
+fully built, fully tested, unreachable from the app. §3.1 named a third page,
+`/weight/targets`, in the same breath — that one turned out to be a
+misdiagnosis, not an orphan; see its `_PERMANENT_EXEMPT_PAGES` entry below
+for why it stays unlinked on purpose.
 
 None of that trips at review time, because a route existing and a route being
 *called* look identical in a diff. The only way to catch it is to ask the
@@ -380,6 +383,20 @@ _PERMANENT_EXEMPT_PAGES: dict[str, str] = {
         "in-page link in training.html. Same nav-absence-by-design as "
         "/run-builder."
     ),
+    "/weight/targets": (
+        "NOT an orphan awaiting a link, despite review doc §3.1 grouping it "
+        "with /projection and /strength-view — it is a superseded route "
+        "that must stay unlinked. AC #461 consolidated the standalone page "
+        "into weight.html's own 'Edit target' slide-in panel, and "
+        "test_weight_page_frontend__412.py::test_b_manage_target_links_to_"
+        "weight_targets pins the removal: `assert \"/weight/targets\" not "
+        "in WEIGHT_HTML`. feature/1602-s3-reachability-remainder (PR #1629) "
+        "confirmed this by hand — adding the link back is a regression, not "
+        "a fix — and left it deliberately unlinked, the same treatment as "
+        "/preferences: the redirect stays reachable by typing the URL, "
+        "never from normal flow. This entry does not go stale when #1629 "
+        "merges; it was never going to."
+    ),
 }
 
 _PERMANENT_EXEMPT_API: dict[str, str] = {
@@ -461,10 +478,6 @@ _BASELINE_ORPHANS_PAGES: dict[str, str] = {
         "that branch gives the page a real entry point."
     ),
     "/strength-view": (
-        "No nav.js entry and no frontend href (review doc §3.1). Fixed by "
-        "feature/1602-s3-reachability-remainder."
-    ),
-    "/weight/targets": (
         "No nav.js entry and no frontend href (review doc §3.1). Fixed by "
         "feature/1602-s3-reachability-remainder."
     ),
