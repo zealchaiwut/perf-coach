@@ -168,8 +168,13 @@ def _compute_date_values(
                 values[w.workout_date] = values.get(w.workout_date, 0.0) + 1.0
 
     elif auto_fill_source == "workout.lift_count":
+        # Was `"lift" in workout_type` — but writes normalise to "strength",
+        # and "lift" is not a substring of "strength", so this never matched a
+        # normally-logged session (issue #1607).
+        from backend.utils.workout_types import is_strength_workout
+
         for w in workouts:
-            if w.workout_type and "lift" in w.workout_type.lower():
+            if is_strength_workout(w.workout_type):
                 values[w.workout_date] = values.get(w.workout_date, 0.0) + 1.0
 
     elif auto_fill_source == "workout.total_duration_minutes":

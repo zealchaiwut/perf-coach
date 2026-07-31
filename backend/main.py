@@ -97,6 +97,10 @@ from backend.services.habit_autofill import recompute_autofill_for_week as _reco
 from backend.services.habit_streak import compute_streak
 from backend.services.habit_consistency import compute_consistency
 from backend.services.checkpoint_detector import evaluate_checkpoint as _evaluate_checkpoint, is_run_workout as _is_run_workout
+from backend.utils.workout_types import (
+    STRENGTH_SQL_PATTERNS as _STRENGTH_SQL_PATTERNS,
+    is_strength_workout as _is_strength_workout,
+)
 from backend.services.riegel import riegel_half_equivalent as _riegel_half_equivalent
 from backend.services.duration_curve_best_effort import get_athlete_duration_curve as _get_athlete_duration_curve
 from backend.services.lap_recompute import rebuild_athlete_duration_curve as _rebuild_athlete_duration_curve
@@ -4365,8 +4369,10 @@ def _get_computed_logs_from_workouts(workouts: list, auto_fill_source: str) -> l
             if "run" in (w.workout_type or "").lower():
                 date_values[w.workout_date.isoformat()] += 1.0
     elif auto_fill_source == "workout.lift_count":
+        # See backend/utils/workout_types — writes normalise to "strength", so
+        # a substring test for "lift" never matched (issue #1607).
         for w in workouts:
-            if "lift" in (w.workout_type or "").lower():
+            if _is_strength_workout(w.workout_type):
                 date_values[w.workout_date.isoformat()] += 1.0
     elif auto_fill_source == "workout.total_duration_minutes":
         for w in workouts:
@@ -4402,7 +4408,11 @@ def _get_computed_logs(
     elif auto_fill_source == "workout.run_count":
         workouts = base_q.filter(Workout.workout_type.ilike("%run%")).all()
     elif auto_fill_source == "workout.lift_count":
-        workouts = base_q.filter(Workout.workout_type.ilike("%lift%")).all()
+        # SQL-side twin of _is_strength_workout. ilike("%lift%") missed every
+        # row written as "strength" (issue #1607).
+        workouts = base_q.filter(
+            or_(*[Workout.workout_type.ilike(p) for p in _STRENGTH_SQL_PATTERNS])
+        ).all()
     elif auto_fill_source == "workout.total_duration_minutes":
         workouts = base_q.filter(Workout.duration_seconds.isnot(None)).all()
     elif auto_fill_source == "workout.distance_km":

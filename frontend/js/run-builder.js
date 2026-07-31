@@ -65,12 +65,11 @@
     return _segments.reduce(function (a, s) { return a + (parseInt(s.duration_seconds, 10) || 0); }, 0);
   }
 
+  // Delegates to the shared formatter (issue #531). The local copy lacked the
+  // minute-carry guard and could render "5:60 /km" (issue #1603).
   function avgPaceFmt(dist, dur) {
-    if (!dist || !dur) return '—';
-    var sPerKm = dur / dist;
-    var m = Math.floor(sPerKm / 60);
-    var s = Math.round(sPerKm % 60);
-    return m + ':' + pad(s) + ' /km';
+    var p = window.TrainingFormat && window.TrainingFormat.formatPace(dur, dist);
+    return p ? p + ' /km' : '—';
   }
 
   // ── Segment bar ────────────────────────────────────────────────────────────
