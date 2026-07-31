@@ -16041,6 +16041,12 @@ def _race_readiness_impl(
         "ctl": last_row["ctl"],
         "atl": last_row["atl"],
         "date": last_row["date"],
+        # Race priority selects the taper length: A-race gets the full
+        # A_RACE_TAPER_DAYS, a B/C tune-up gets the shorter B_RACE_TAPER_DAYS.
+        # Without this every race was tapered like a goal race (issue #1605).
+        # Anything that isn't "B" falls through to the A-race default, so a
+        # null or unexpected priority stays conservative.
+        "priority": getattr(race, "priority", None) or "A",
     }
     current_tsb = last_row["tsb"]
 
