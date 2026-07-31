@@ -16,12 +16,12 @@
     return v == null || v === "" ? "—" : v;
   }
 
+  // Delegates to the shared formatter (issue #531). The local copy rounded
+  // seconds without the minute-carry guard, so a pace landing near a boundary
+  // rendered "5:60 /km" (issue #1603).
   function fmtPace(distKm, durSec) {
-    if (!distKm || !durSec) return "—";
-    var secPerKm = durSec / distKm;
-    var m = Math.floor(secPerKm / 60);
-    var s = Math.round(secPerKm % 60);
-    return m + ":" + String(s).padStart(2, "0") + " /km";
+    var p = window.TrainingFormat && window.TrainingFormat.formatPace(durSec, distKm);
+    return p ? p + " /km" : "—";
   }
 
   function fmtDuration(sec) {

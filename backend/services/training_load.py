@@ -87,6 +87,10 @@ TARGET_FORM_LOWER: float = 5.0
 TARGET_FORM_UPPER: float = 25.0
 # Default taper window length in days (two calendar weeks).
 DEFAULT_TAPER_DAYS: int = 14
+# Standard full taper for an A-priority (goal) race: two calendar weeks.
+A_RACE_TAPER_DAYS: int = 14
+# Abbreviated mini-taper for a B-priority tune-up race: one calendar week.
+B_RACE_TAPER_DAYS: int = 7
 
 # ── Peak tracking constants ───────────────────────────────────────────────────
 # Tolerance band (in TSB units) within which an athlete is considered "on track"
@@ -840,16 +844,19 @@ def taper_recommendation(fitness_state, race_date, target_form) -> dict:
     exceptions for invalid input.  The calling layer is responsible for
     supplying fitness_state from the database.
 
-    A "taper" means reducing training load to zero for DEFAULT_TAPER_DAYS
-    before the race.  This lets fatigue (ATL) decay faster than fitness (CTL),
-    which raises form (TSB = CTL − ATL) into the positive band.  The function
-    projects form forward with zero load and checks whether race-day form will
-    reach TARGET_FORM_LOWER.
+    A taper means reducing training load to zero for the priority-appropriate
+    number of days before the race.  This lets fatigue (ATL) decay faster than
+    fitness (CTL), raising form (TSB = CTL − ATL) into the positive band.  The
+    function projects form forward with zero load and checks whether race-day
+    form will reach TARGET_FORM_LOWER.
 
     Args:
         fitness_state:
             Dict containing at minimum ``ctl``, ``atl``, and ``date``.  ``date``
-            is the anchor day for the projection (typically today).
+            is the anchor day for the projection (typically today).  An optional
+            ``priority`` key ("A" or "B") selects the taper length constant:
+            A-race uses A_RACE_TAPER_DAYS; B-race uses B_RACE_TAPER_DAYS.
+            Defaults to "A" when the key is absent.
         race_date:
             The target race date.  Must be in the future (strictly after today).
         target_form:
@@ -861,18 +868,25 @@ def taper_recommendation(fitness_state, race_date, target_form) -> dict:
         On invalid input:
             Dict with ``taper_start_date=None``, ``message=None``,
             ``achievable=None``, and a non-empty ``reason`` string.
-        On valid input:
+        On valid input with achievable=True:
             Dict with:
             ``taper_start_date`` -- date to begin easing load (race_date minus
-                                    DEFAULT_TAPER_DAYS).
+                                    priority taper length constant).
             ``message``          -- plain-language guidance string.
-            ``achievable``       -- True when projected race-day form reaches
-                                    target_form; False otherwise.
-            ``reason``           -- empty string on success.
+            ``achievable``       -- True; projected race-day form reaches
+                                    target_form.
+            ``reason``           -- empty string.
+        On valid input with achievable=False (race too close):
+            Dict with:
+            ``taper_start_date`` -- None; a positive form band cannot be reached.
+            ``message``          -- honest plain-language statement.
+            ``achievable``       -- False.
+            ``reason``           -- empty string.
 
-    Worked example 1 — Normal 2-week taper:
+    Worked example 1 — Normal A-race taper:
         Inputs:
-            fitness_state = {"ctl": 50.0, "atl": 60.0, "date": 2024-11-23}
+            fitness_state = {"ctl": 50.0, "atl": 60.0, "date": 2024-11-23,
+                             "priority": "A"}
             race_date     = 2024-12-14  (21 days away)
             target_form   = 10.0
 
@@ -882,11 +896,11 @@ def taper_recommendation(fitness_state, race_date, target_form) -> dict:
         which is above target_form (10.0), so achievable is True.
 
         Expected output:
-            taper_start_date = 2024-11-30  (14 days before race)
-            message = "begin easing load around Nov 30 to peak on Dec 14"
+            taper_start_date = 2024-11-30  (A_RACE_TAPER_DAYS before race)
+            message = "Begin your taper on Nov 30 to arrive at race day in peak form."
             achievable = True
 
-    Worked example 2 — Race too close to peak:
+    Worked example 2 — Race too close to reach the positive form band:
         Inputs:
             fitness_state = {"ctl": 50.0, "atl": 90.0, "date": 2024-12-09}
             race_date     = 2024-12-13  (4 days away)
@@ -895,10 +909,11 @@ def taper_recommendation(fitness_state, race_date, target_form) -> dict:
         With zero load for 4 days, ATL decays from 90 to roughly 51 (each day
         ATL drops by alpha_atl ≈ 0.133 of the gap to zero).  CTL decays from 50
         to roughly 45.  Race-day form ≈ 45 − 51 = −6, which is below
-        target_form (10.0), so achievable is False.
+        target_form (10.0), so achievable is False and the positive form band
+        cannot be reached in time.
 
         Expected output:
-            taper_start_date = 2024-11-29  (14 days before race, now in the past)
+            taper_start_date = None  (too close; cannot reach the positive band)
             message = "Race is too soon to reach a positive form band; manage
                        fatigue rather than targeting a peak"
             achievable = False
@@ -918,14 +933,15 @@ def taper_recommendation(fitness_state, race_date, target_form) -> dict:
     if race_date <= today:
         return {**_empty, "reason": "race_date must be in the future"}
 
-    # Taper start = DEFAULT_TAPER_DAYS before race day.  If this falls before
-    # today the race is already within the taper window (or past it).
-    taper_start_date = race_date - timedelta(days=DEFAULT_TAPER_DAYS)
+    # Select taper length by race priority; default to A-race when unspecified
+    priority = fitness_state.get("priority", "A") if isinstance(fitness_state, dict) else "A"
+    taper_days = B_RACE_TAPER_DAYS if priority == "B" else A_RACE_TAPER_DAYS
+    candidate_start = race_date - timedelta(days=taper_days)
 
-    # Project form to race_date assuming zero load — this simulates a full taper
-    # where the athlete trains nothing from today until race day.  Fatigue (ATL)
-    # decays with a short time constant (7 days) while fitness (CTL) decays more
-    # slowly (42 days), so form (CTL − ATL) rises over the taper window.
+    # Project form to race_date assuming zero load — simulates a full taper where
+    # the athlete trains nothing from today until race day.  Fatigue (ATL) decays
+    # with a short time constant while fitness (CTL) decays more slowly, so form
+    # (CTL − ATL) rises over the taper window.  Delegates all math to project_form.
     projection = project_form(fitness_state, 0.0, race_date)
     if projection["reason"]:
         # project_form reported a validation error; surface it as our reason
@@ -940,28 +956,38 @@ def taper_recommendation(fitness_state, race_date, target_form) -> dict:
 
     if achievable:
         # Format dates for readability: "Nov 30", "Dec 14"
-        start_str = taper_start_date.strftime("%b %-d")
+        start_str = candidate_start.strftime("%b %-d")
         race_str = race_date.strftime("%b %-d")
-        message = f"begin easing load around {start_str} to peak on {race_str}"
+        taper_label = "mini-taper" if priority == "B" else "taper"
+        message = (
+            f"Begin your {taper_label} on {start_str} "
+            f"to arrive at race day in peak form on {race_str}."
+        )
+        return {
+            "taper_start_date": candidate_start,
+            "message": message,
+            "achievable": True,
+            "reason": "",
+        }
     else:
         # Honest assessment: the positive band is out of reach given time remaining
         message = (
             "Race is too soon to reach a positive form band; "
             "manage fatigue rather than targeting a peak"
         )
-
-    return {
-        "taper_start_date": taper_start_date,
-        "message": message,
-        "achievable": achievable,
-        "reason": "",
-    }
+        return {
+            "taper_start_date": None,
+            "message": message,
+            "achievable": False,
+            "reason": "",
+        }
 
 
 def get_taper_recommendation(
     user_id: str,
     race_date: date,
     target_form: float,
+    priority: str = "A",
 ) -> dict:
     """Thin caller: fetch fitness state from DB, then compute taper recommendation.
 
@@ -973,6 +999,8 @@ def get_taper_recommendation(
         user_id: the authenticated user's ID.
         race_date: the target race date.
         target_form: the athlete's desired TSB value on race day.
+        priority: "A" for a goal race (A_RACE_TAPER_DAYS) or "B" for a tune-up
+                  race (B_RACE_TAPER_DAYS). Defaults to "A".
 
     Returns:
         Same dict shape as taper_recommendation: {taper_start_date, message,
@@ -983,6 +1011,7 @@ def get_taper_recommendation(
         "ctl": load_state["ctl"],
         "atl": load_state["atl"],
         "date": load_state["date"],
+        "priority": priority,
     }
     return taper_recommendation(fitness_state, race_date, target_form)
 

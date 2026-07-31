@@ -96,11 +96,12 @@
     return Math.ceil(diff / (7 * 24 * 60 * 60 * 1000));
   }
 
+  // Delegates to the shared formatter (issue #531). Pass an already-computed
+  // seconds-per-km as durSeconds with distKm = 1, per its contract. The local
+  // copy lacked the minute-carry guard and could render "5:60 /km" (#1603).
   function fmtPace(secPerKm) {
-    if (!secPerKm) return "—";
-    var m = Math.floor(secPerKm / 60);
-    var s = Math.round(secPerKm % 60);
-    return m + ":" + pad(s) + " /km";
+    var p = window.TrainingFormat && window.TrainingFormat.formatPace(secPerKm, 1);
+    return p ? p + " /km" : "—";
   }
 
   function fmtTime(totalSec) {
@@ -1530,11 +1531,13 @@
     return null;
   }
 
+  // Second pace formatter in this file (plan modal); same minute-carry bug as
+  // fmtPace had. Delegates to the shared formatter (#1603). Empty string, not
+  // an em dash — this one feeds an input value, not display text.
   function _paceToStr(secPerKm) {
     if (secPerKm == null) return "";
-    var m = Math.floor(secPerKm / 60);
-    var s = Math.round(secPerKm % 60);
-    return m + ":" + pad(s);
+    var p = window.TrainingFormat && window.TrainingFormat.formatPace(secPerKm, 1);
+    return p || "";
   }
 
   // Read the current distance from the input (NaN-safe).

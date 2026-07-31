@@ -17,6 +17,13 @@ set +a
 ENVIRONMENT="$(printf '%s' "${ENVIRONMENT:-uat}" | tr '[:upper:]' '[:lower:]')"
 export ENVIRONMENT
 
+# Single-timezone app: every "today" means a Bangkok calendar day. The Render
+# services set this in render.yaml; the worker is launched from here instead,
+# so it needs the same. Without it a bare date.today() on the worker returns
+# yesterday for the first 7 hours of every local day (issue #1600) — and the
+# worker is where the morning weigh-in nudge and the daily coach job run.
+export TZ="${TZ:-Asia/Bangkok}"
+
 if [ "$ENVIRONMENT" = "prd" ]; then
   export DATABASE_URL="${DATABASE_URL:-${DATABASE_URL_PRD:-}}"
 else
