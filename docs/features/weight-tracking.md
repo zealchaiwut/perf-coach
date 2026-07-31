@@ -312,24 +312,37 @@ To compare the user's actual progress against the plan, `compute_gap` selects a
 "current basis" weight by delegating to `_weight_rollup` — the same rule used
 by every other "current weight" figure in the app (the Home/Weight-page
 headline stats, the Hermes weight brief). This is a deliberately conservative
-rule: a displayed number is never driven by one noisy weigh-in. Priority order:
+rule: the basis never PREFERS the single most recent entry over other
+available context. Priority order:
 
 1. **`avg_7d`** — if the user has ≥ 2 entries in the last 7 days, use their
    rolling average over those entries.
-2. **`avg_wide`** — if fewer than 2 entries exist in the last 7 days, average
-   over whatever entries exist in the wider lookback window (55 days) instead
-   — never just the single latest entry, even when only one exists in the
-   trailing 7 days but more history is available further back.
-3. **`no_data`** — if no entry exists within the 55-day lookback, the gap
+2. **`avg_wide`** — if fewer than 2 entries exist in the last 7 days but ≥ 2
+   entries exist somewhere in the wider lookback window (55 days), average
+   over all of them instead — never just the single latest entry, even when
+   only one exists in the trailing 7 days but more history is available
+   further back.
+3. **`single_entry`** — if exactly one entry exists in the entire 55-day
+   lookback (the trailing 7 days included), the basis is that entry's raw
+   value — there is no other data to average against, so the rule cannot
+   (and does not pretend to) do anything else. `basis` reports this
+   honestly as `"single_entry"` rather than mislabeling it `"avg_wide"`,
+   which would claim an average that never happened.
+4. **`no_data`** — if no entry exists within the 55-day lookback, the gap
    cannot be computed and `gap_direction` is set to `"no_data"`.
 
 The `basis` field in the API response reflects which rule was applied
-(`"avg_7d"`, `"avg_wide"`, or `null` for no_data).
+(`"avg_7d"`, `"avg_wide"`, `"single_entry"`, or `null` for no_data). This is
+an API-visible contract change: any consumer that special-cased the old
+`"latest_entry"` string, or that only expected two non-null values, needs to
+handle `"single_entry"` too — see `docs/pre-production-review-status.md` §3.3.
 
 (Prior to the "current weight" unification, `compute_gap` had its own
 3-in-7d-else-latest-single-entry-within-14d rule, and `basis` could report
 `"latest_entry"`. That rule disagreed with `_weight_rollup`'s on identical
-data and has been retired — see `docs/pre-production-review-status.md` §3.3.)
+data and has been retired. Note also that the wider lookback is 55 days, not
+the old rule's 14-day cap — on sparse data the wide-lookback average can now
+reach materially further back than before.)
 
 ---
 

@@ -205,7 +205,11 @@ def test_compute_gap_uses_wide_lookback_before_giving_up():
     """An entry older than 14 days (the old cutoff) but within the wide
     _ROLLUP_LOOKBACK_DAYS lookback is now used rather than triggering
     no_data — this is the unified rule's whole point: more context beats an
-    arbitrary 14-day cliff."""
+    arbitrary 14-day cliff. Since it's the ONLY entry in the whole lookback,
+    there's nothing to average against, so basis is truthfully
+    'single_entry' (NOT 'avg_wide' — that would claim an average that never
+    happened, and would be less truthful than the retired compute_gap rule's
+    'latest_entry' for this exact case)."""
     today = datetime.date.today()
     entries = [
         _FakeEntry(today - datetime.timedelta(days=20), 82.0),
@@ -213,8 +217,23 @@ def test_compute_gap_uses_wide_lookback_before_giving_up():
     session = _FakeSession(entries)
     t = _target(85.0, 75.0)
     result = compute_gap(t, session, today)
-    assert result["basis"] == "avg_wide"
+    assert result["basis"] == "single_entry"
     assert result["current_basis_kg"] == 82.0
+    assert result["gap_direction"] != "no_data"
+
+
+def test_compute_gap_single_entry_matches_live_user_shape():
+    """Exact shape from docs/pre-production-review-status.md §1: tracking
+    paused, last (and only) weigh-in 10 days ago, none in the trailing 7
+    days. basis must be 'single_entry', not 'avg_wide' — this is the live
+    case the truthfulness requirement was written for."""
+    today = datetime.date(2026, 8, 1)
+    entries = [_FakeEntry(datetime.date(2026, 7, 22), 78.4)]
+    session = _FakeSession(entries)
+    t = _target(85.0, 75.0)
+    result = compute_gap(t, session, today)
+    assert result["basis"] == "single_entry"
+    assert result["current_basis_kg"] == 78.4
     assert result["gap_direction"] != "no_data"
 
 

@@ -350,18 +350,23 @@ def compute_gap(target, session, as_of_date: datetime.date) -> dict:
     progress consumer in the app. This used to be its own rule (3+ entries
     in the trailing 7 days else the single latest entry within 14 days),
     which could disagree with ``_weight_rollup``'s rule (2+ entries in 7
-    days else a wider-window average, never a single raw entry) on
-    identical data. They are now unified on ``_weight_rollup``'s rule — the
-    more conservative of the two — see that function's docstring for the
-    full contract.
+    days else a wider-window average over up to ``_ROLLUP_LOOKBACK_DAYS``
+    days) on identical data. They are now unified on ``_weight_rollup``'s
+    rule — the more conservative of the two — see that function's docstring
+    for the full contract, including why the label below has three non-null
+    values rather than two.
 
     ``basis`` truthfully reports which branch produced the number:
-        'avg_7d'   — the trailing 7-day window itself had >= 2 entries.
-        'avg_wide' — fewer than 2 in 7 days; averaged over the wider
-                     ``_ROLLUP_LOOKBACK_DAYS``-day lookback instead (never
-                     just the single latest entry).
-        None       — no entries at all within the lookback (gap_direction
-                     is 'no_data' in this case).
+        'avg_7d'       — the trailing 7-day window itself had >= 2 entries.
+        'avg_wide'     — fewer than 2 in 7 days, but >= 2 entries exist
+                         somewhere in the wider ``_ROLLUP_LOOKBACK_DAYS``-day
+                         lookback; a genuine multi-entry average.
+        'single_entry' — exactly one entry exists in the entire lookback;
+                         current_basis_kg is that entry's raw value (there
+                         is nothing to average against) — this is reported
+                         honestly rather than mislabeled 'avg_wide'.
+        None           — no entries at all within the lookback (gap_direction
+                         is 'no_data' in this case).
     gap_direction: 'behind' | 'ahead' | 'on_plan' | 'no_data'
     """
     from backend.models import WeightEntry  # local import to avoid circular dep
@@ -555,15 +560,32 @@ def _weight_rollup(rows: list, as_of_date: datetime.date) -> dict:
     [as_of_date-6, as_of_date]. Falls back to the average of every row given
     (i.e. "whatever's available" over the wider lookback) when the 7-day
     window has fewer than 2 entries, and to None when there are no rows at
-    all. Never returns a single day's raw entry.
+    all.
 
-    basis: which branch produced current_kg — "avg_7d" when the trailing
-    7-day window itself had >= 2 entries, "avg_wide" when the wider-lookback
-    fallback fired instead, or None when there were no rows at all (mirrors
-    current_kg being None). This is the single source of truth every other
-    "current weight" call site in the app (weight_plan.compute_gap,
-    backend/main.py's Home/Weight-page summaries) is unified on, so the
-    label a caller surfaces always describes what was actually computed.
+    The rule's whole point is that current_kg is never computed by
+    PREFERRING the single most recent entry over other available context —
+    when >= 2 entries exist anywhere in the lookback, it is always a genuine
+    multi-entry average, never just "whichever reading happened last." That
+    said, when the ENTIRE lookback truly contains only one reading, there is
+    no other data to average against, and current_kg necessarily equals that
+    reading's raw value — no rule can average what isn't there. `basis`
+    reports this case honestly (see below) rather than mislabeling it as an
+    average that didn't happen.
+
+    basis: which branch produced current_kg —
+        "avg_7d"       — the trailing 7-day window itself had >= 2 entries.
+        "avg_wide"     — fewer than 2 in 7 days, but >= 2 entries exist
+                         somewhere in the wider lookback; current_kg is a
+                         genuine average across them.
+        "single_entry" — exactly one entry exists in the entire lookback
+                         (the trailing 7 days included); current_kg is that
+                         entry's raw value — there is nothing to average.
+        None           — no entries at all (current_kg is also None).
+    This is the single source of truth every other "current weight" call
+    site in the app (weight_plan.compute_gap, backend/main.py's Home/
+    Weight-page summaries) is unified on, so the label a caller surfaces
+    always describes what was actually computed — never "avg_*" when only
+    one raw reading exists anywhere.
 
     trend_7d / trend_28d: (average over the current N-day window) minus
     (average over the immediately preceding N-day window), in kg. None
@@ -584,10 +606,17 @@ def _weight_rollup(rows: list, as_of_date: datetime.date) -> dict:
         basis = "avg_7d"
     else:
         # Fallback: fewer than 2 readings in the last week — average whatever
-        # is available in the wider lookback rather than surfacing one entry.
+        # is available in the wider lookback rather than surfacing one entry
+        # ... unless the wider lookback ALSO has only one entry total, in
+        # which case there is nothing to average and the label must say so.
         all_vals = [w for (_, w) in rows]
         current_kg = _avg(all_vals)
-        basis = "avg_wide" if current_kg is not None else None
+        if len(all_vals) >= 2:
+            basis = "avg_wide"
+        elif len(all_vals) == 1:
+            basis = "single_entry"
+        else:
+            basis = None
 
     prior_7 = _window(7, 13)
     trend_7d = None
