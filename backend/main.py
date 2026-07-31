@@ -638,7 +638,17 @@ async def upload_avatar(request: Request, file: UploadFile = File(...)):
 
 
 @app.get("/api/users/{user_id}/avatar")
-def get_avatar(user_id: str):
+def get_avatar(user_id: str, _viewer: User = Depends(resolve_user)):
+    """Serve a user's avatar bytes.
+
+    Requires a session (#1601). This was the one avatar route with no auth at
+    all — its siblings are /api/users/me/avatar and both require the session —
+    so anyone who could guess or enumerate a UUID could read any user's photo.
+
+    Kept readable across users on purpose rather than restricted to self: the
+    nav renders other members' avatars in a multi-user instance. The fix is that
+    you must be SOMEONE, not that you must be the subject.
+    """
     try:
         uid = _uuid.UUID(user_id)
     except ValueError:
@@ -1108,33 +1118,17 @@ def _compute_weight_target_active(t: WeightTarget, session) -> dict:
     weeks_remaining = days_remaining / 7.0
     required_pace = round(kg_to_go / weeks_remaining, 4) if weeks_remaining > 0 else None
 
-    # Current pace from last 14 days of weight entries logged since target creation
-    cutoff_14 = today - _timedelta(days=14)
-    entries_14 = (
-        session.query(WeightEntry)
-        .filter(
-            WeightEntry.user_id == t.user_id,
-            WeightEntry.entry_date >= cutoff_14,
-            WeightEntry.created_at >= t.created_at,
-        )
-        .order_by(WeightEntry.entry_date.asc())
-        .all()
-    )
+    # Current pace over the last 14 days of weigh-ins logged since the target was
+    # created. Delegates to weight_plan.compute_current_pace_kg_per_week, which
+    # was written specifically to mirror the copy that used to live here so the
+    # worker read-API could report the same number — its docstring says exactly
+    # that. main.py never called it and kept its own copy, so the claimed parity
+    # was enforced by a comment and nothing else (#1601). The two bodies were
+    # verified equivalent before this replaced one with the other.
+    from backend.services.weight_plan import compute_current_pace_kg_per_week
 
-    current_pace = None
+    current_pace = compute_current_pace_kg_per_week(t, session, today)
     projected_end_date = None
-    if len(entries_14) >= 2:
-        first_e = entries_14[0]
-        last_e = entries_14[-1]
-        days_span = (last_e.entry_date - first_e.entry_date).days
-        if days_span > 0:
-            kg_change = float(first_e.weight_kg) - float(last_e.weight_kg)
-            current_pace = round(kg_change / days_span * 7, 4)
-    elif len(entries_14) == 1:
-        days_elapsed = (today - start_date).days
-        if days_elapsed > 0:
-            kg_change = float(t.start_weight_kg) - float(entries_14[0].weight_kg)
-            current_pace = round(kg_change / days_elapsed * 7, 4)
 
     if current_pace is not None and current_pace > 0 and kg_to_go > 0:
         weeks_to_go = kg_to_go / current_pace

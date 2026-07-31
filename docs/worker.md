@@ -582,26 +582,18 @@ curl "http://localhost:9100/api/training/load?date=2026-07-13"
 }
 ```
 
-### `GET /api/scores`
+### ~~`GET /api/scores`~~ — documented but never implemented
 
-Current Endurance and Speed performance scores with a 7-day trend flag.
-Reads from `performance_score_history` (latest row, newest formula_version).
-Trend is `up` / `flat` / `down` comparing against the value ~7 days earlier
-(±0.5 pt dead-band → `flat`; `flat` when no earlier row). 404 if no
-history at all.
+**Removed from this document 2026-07-31 (issue #1601).** It described a live
+endpoint returning Endurance and Speed scores with a 7-day trend flag, complete
+with an example request and response. No such route exists in `worker_app.py`,
+and `git` shows none ever did — the documentation was written ahead of an
+implementation that did not land.
 
-```bash
-curl "http://localhost:9100/api/scores"
-```
-
-```json
-{
-  "as_of": "2026-07-13",
-  "endurance": { "value": 62.4, "trend": "up" },
-  "speed": { "value": 58.1, "trend": "flat" },
-  "formula_version": "v2"
-}
-```
+Anyone scoping "what does Hermes call today" from this file — including the
+audit that found it — got a larger surface than the code actually has. If the
+endpoint is wanted, build it and restore this section; until then the absence is
+the honest description.
 
 ### `GET /api/plan/today`
 

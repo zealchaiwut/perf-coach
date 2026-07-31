@@ -34,6 +34,7 @@ from __future__ import annotations
 
 from datetime import date as _date, timedelta as _timedelta
 from typing import Optional
+from backend.utils.time import today_bangkok
 
 # Weight buckets, in kg. Fine enough to locate a peak, coarse enough that a
 # bucket holds more than one week of data.
@@ -166,7 +167,7 @@ def pairs_for_user(db, user_id, today: Optional[_date] = None, days: int = 540) 
     from backend.models import PerformanceScoreHistory, WeightEntry
     from backend.services.weight_ewma import compute_ewma
 
-    today = today or _date.today()
+    today = today or today_bangkok()
     start = today - _timedelta(days=days)
 
     weight_rows = (

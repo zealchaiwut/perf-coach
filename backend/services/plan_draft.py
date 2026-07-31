@@ -500,7 +500,7 @@ def apply_draft(db: Session, user_id, week_start: date, *, today: date | None = 
     """Create planned sessions for open/future draft days; mark draft applied."""
     from backend.models import PlanDraft, PlannedSession
 
-    today = today or date.today()
+    today = today or today_bangkok()
     row = (
         db.query(PlanDraft)
         .filter(PlanDraft.user_id == user_id, PlanDraft.week_start == week_start)
@@ -605,7 +605,7 @@ def apply_draft_slot(
     from backend.models import PlanDraft, PlannedSession
     from backend.services import plan_skeleton_ops as ops
 
-    today = today or date.today()
+    today = today or today_bangkok()
     row = (
         db.query(PlanDraft)
         .filter(PlanDraft.user_id == user_id, PlanDraft.week_start == week_start)
@@ -847,7 +847,7 @@ def draft_status_for_badge(db: Session, user_id, *, today: date | None = None) -
     """In-app badge/chip: fresh or outdated draft awaiting review."""
     from backend.models import PlanDraft
 
-    today = today or date.today()
+    today = today or today_bangkok()
     ws = today - timedelta(days=today.weekday())
     row = (
         db.query(PlanDraft)

@@ -27,6 +27,7 @@ from backend.services.fuel import (
 )
 from backend.services.weight_ewma import compute_ewma
 from backend.services.weight_ewma_rate import compute_weekly_pct_bw_rate_of_change
+from backend.utils.time import today_bangkok
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
 
@@ -342,7 +343,7 @@ def get_weekly_review(
     from backend.models import FuelEntry, WeightEntry, WeightPlan
     from sqlalchemy import text
 
-    today = as_of_date or _date.today()
+    today = as_of_date or today_bangkok()
     window_7d_start = today - timedelta(days=7)
     window_14d_start = today - timedelta(days=14)
     window_21d_start = today - timedelta(days=21)

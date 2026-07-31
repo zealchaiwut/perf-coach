@@ -24,6 +24,7 @@ from datetime import date, datetime, timezone
 from typing import Any
 
 from backend.utils.log import get_logger
+from backend.utils.time import today_bangkok
 
 _log = get_logger(__name__)
 
@@ -464,7 +465,7 @@ def get_coach_payload_for_user(
         from backend.db import engine
         db = _Session(engine)
 
-    today = today or date.today()
+    today = today or today_bangkok()
     try:
         msg = get_latest_for_user(user_id, db, as_of=today)
         if msg:
@@ -719,7 +720,7 @@ def generate_for_user(user_id, db=None, today: date | None = None) -> dict | Non
         from backend.db import engine
         db = _Session(engine)
 
-    today = today or date.today()
+    today = today or today_bangkok()
 
     try:
         from backend.services.coach_brief import build_brief_deterministic

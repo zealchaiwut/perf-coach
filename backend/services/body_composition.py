@@ -34,6 +34,7 @@ from __future__ import annotations
 
 from datetime import date as _date, timedelta as _timedelta
 from typing import Iterable, Optional
+from backend.utils.time import today_bangkok
 
 # Rolling window for every trend reported here. Four weekly readings is the
 # fewest that can distinguish a direction from noise at bioimpedance's precision.
@@ -212,7 +213,7 @@ def readings_for_user(db, user_id, today: Optional[_date] = None, weeks: int = 2
     """Composition readings from ``weight_entries`` — those with a body-fat value."""
     from backend.models import WeightEntry
 
-    today = today or _date.today()
+    today = today or today_bangkok()
     start = today - _timedelta(weeks=weeks)
     rows = (
         db.query(WeightEntry.entry_date, WeightEntry.weight_kg, WeightEntry.body_fat_pct)
@@ -233,5 +234,5 @@ def readings_for_user(db, user_id, today: Optional[_date] = None, weeks: int = 2
 
 def composition_for_user(db, user_id, today: Optional[_date] = None) -> dict:
     """``compute_composition_trend`` over a user's stored readings."""
-    today = today or _date.today()
+    today = today or today_bangkok()
     return compute_composition_trend(readings_for_user(db, user_id, today), today)

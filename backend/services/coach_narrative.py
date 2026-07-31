@@ -28,6 +28,7 @@ from backend.services.coach_sections import (  # noqa: F401 - re-export
     sections_to_text,
 )
 from backend.utils.log import get_logger
+from backend.utils.time import today_bangkok
 
 _log = get_logger(__name__)
 
@@ -793,7 +794,7 @@ def generate_brief(
     )
 
     brief_date = brief_date or _date.fromisoformat(
-        str(facts.get("as_of") or _date.today().isoformat())[:10]
+        str(facts.get("as_of") or today_bangkok().isoformat())[:10]
     )
     yesterday = None
     if db is not None and user_id is not None:

@@ -37,6 +37,7 @@ from backend.services.training_load import (
     daily_tss_series,
 )
 from backend.services.fuel_periodize import resolve_week_phase, effective_deficit_for_phase
+from backend.utils.time import today_bangkok
 
 _log = _logging.getLogger(__name__)
 
@@ -565,7 +566,7 @@ def training_burn_kcal(
 ) -> dict:
     """§2.2 burn estimate for one date. Returns {"burn": float, "day_type":
     str, "session_status": str|None, "is_actual": bool}."""
-    today = today or _date.today()
+    today = today or today_bangkok()
     owns_db = db is None
     db = db or Session(engine)
     try:
@@ -826,7 +827,7 @@ def _fetch_lean_mass(user_id, settings_row, db: Session) -> dict:
     """
     from backend.models import BodyMeasurement, WeightEntry
 
-    today = _date.today()
+    today = today_bangkok()
     window_start = today - timedelta(days=_BF_WINDOW_DAYS)
 
     measured = [
@@ -891,7 +892,7 @@ def get_today_payload(user_id, target_date: _date, db: Optional[Session] = None)
         settings_row = get_or_create_settings(user_id, db=db)
         settings = settings_to_dict(settings_row)
 
-        today = _date.today()
+        today = today_bangkok()
         # Phase must follow the REQUESTED day, not the wall clock — a
         # historical ?date= during a taper week would otherwise get today's
         # taper/ramp deficit applied to that day's budget. (`today` itself is
@@ -968,7 +969,7 @@ def get_week_payload(user_id, week_start: _date, db: Optional[Session] = None) -
     try:
         settings_row = get_or_create_settings(user_id, db=db)
         settings = settings_to_dict(settings_row)
-        today = _date.today()
+        today = today_bangkok()
 
         # Phase follows the REQUESTED week's Monday, not the wall clock —
         # see get_today_payload above.

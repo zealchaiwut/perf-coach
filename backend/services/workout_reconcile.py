@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from sqlalchemy.orm import Session as _Session
+from backend.utils.time import today_bangkok
 
 _TOLERANCE = timedelta(minutes=5)
 
@@ -128,7 +129,7 @@ def reconcile_strava_to_workouts(
                 wdate = (
                     act.start_time.astimezone(timezone.utc).date()
                     if act.start_time
-                    else date.today()
+                    else today_bangkok()
                 )
                 w = Workout(
                     user_id=uid,

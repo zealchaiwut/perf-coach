@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 
 from backend.utils.log import get_logger
+from backend.utils.time import today_bangkok
 
 _log = get_logger(__name__)
 
@@ -335,9 +336,9 @@ def attach_completed_workout(brief: dict, user_id, db: Session | None = None) ->
     """Live-attach today's synced workout + plan nudge onto brief['today']."""
     today_block = brief.setdefault("today", {})
     try:
-        day = date.fromisoformat(str(brief.get("brief_date") or date.today())[:10])
+        day = date.fromisoformat(str(brief.get("brief_date") or today_bangkok())[:10])
     except ValueError:
-        day = date.today()
+        day = today_bangkok()
     today_block["completed_workout"] = completed_workout_for_day(user_id, day, db=db)
     today_block["planned_today"] = planned_today_for_day(user_id, day, db=db)
     return brief
@@ -521,7 +522,7 @@ def build_brief_skeleton(facts: dict, yesterday_payload: dict | None = None) -> 
     nxt = (facts.get("reflection") or {}).get("next_session") or {}
     serves = nxt.get("serves_focus_rank")
 
-    brief_date = facts.get("as_of") or date.today().isoformat()
+    brief_date = facts.get("as_of") or today_bangkok().isoformat()
     return {
         "schema_version": SCHEMA_VERSION,
         "brief_date": brief_date,
@@ -845,7 +846,7 @@ def build_brief_deterministic(
     from backend.services.coach_sections import apply_chosen_preset
 
     brief_date = brief_date or _date.fromisoformat(
-        str(facts.get("as_of") or _date.today().isoformat())[:10]
+        str(facts.get("as_of") or today_bangkok().isoformat())[:10]
     )
     yesterday = None
     if db is not None and user_id is not None:
