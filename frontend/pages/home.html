@@ -1290,17 +1290,17 @@
     .hc-bsec-badge--daily { background: var(--green-soft); color: var(--green); }
     .hc-bsec-badge--wk { background: var(--indigo-soft); color: var(--indigo-text); }
     .hc-bsec-badge--proposal { background: var(--amber-soft); color: var(--amber); }
-    .hc-bsec--proposal .hc-prop-life {
-      font-size: 12px; color: var(--text-tertiary); margin: 8px 0 4px;
+    /* Preference proposals moved to the Preferences panel (Priority 2, D6).
+       The brief keeps a one-line pointer so a pending proposal is still
+       noticed on the daily read; the Accept / Adjust / Not now rules that
+       used to sit here went with the controls. */
+    .hc-prop-pointer {
+      margin: 4px 22px 18px; padding: 11px 14px; border-radius: 9px;
+      background: var(--amber-soft); border: 1px solid var(--card-border);
+      font-size: 13px; font-weight: 600;
     }
-    .hc-prop-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-    .hc-prop-btn {
-      font: inherit; font-size: 13px; font-weight: 600; padding: 7px 12px;
-      border-radius: 8px; border: 1px solid var(--card-border); background: #fff;
-      cursor: pointer; color: var(--text-primary);
-    }
-    .hc-prop-accept { background: var(--text-primary); color: #fff; border-color: var(--text-primary); }
-    .hc-prop-btn:hover { filter: brightness(0.97); }
+    .hc-prop-pointer a { color: var(--amber); text-decoration: none; }
+    .hc-prop-pointer a:hover { text-decoration: underline; }
     .hc-caret {
       font-family: 'JetBrains Mono', monospace; color: var(--text-tertiary);
       font-size: 12px; transition: transform .15s;
