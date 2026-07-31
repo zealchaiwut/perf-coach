@@ -159,6 +159,19 @@
         <div class="insights-loading"><span class="insights-spinner"></span> Loading…</div>
       </div>
     </div>
+
+    <!-- Adherence & nudges panel — GET /api/adherence-nudges (issue #1602:
+         endpoint was implemented and tested with zero frontend callers).
+         Reuses the insights-panel markup/CSS above rather than inventing a
+         new card style. -->
+    <div id="nudges-panel" class="card insights-card">
+      <div class="insights-hdr">
+        <span class="insights-title">Adherence &amp; nudges</span>
+      </div>
+      <div id="nudges-body">
+        <div class="insights-loading"><span class="insights-spinner"></span> Loading…</div>
+      </div>
+    </div>
   </main>
 
   <!-- History Calendar card (issue #829/830) — hidden until habits load -->
@@ -376,6 +389,7 @@
   <script src="js/habit-wheel-fx.js"></script>
   <script src="js/habits.js"></script>
   <script src="js/habit-insights.js"></script>
+  <script src="js/habit-nudges.js"></script>
   <script src="js/user.js"></script>
   <script src="js/env.js"></script>
 </body>

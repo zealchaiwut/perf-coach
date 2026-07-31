@@ -2041,6 +2041,20 @@
       fillForm(workout);
       switchTab('new');
     };
+
+    // Strength workouts get a link into the full strength-view page
+    // (issue #1602 — /strength-view was registered but never linked).
+    var strengthLink = document.getElementById('detail-strength-view-link');
+    if (strengthLink) {
+      var isStrengthWorkout = (workout.workout_type || '').toLowerCase() === 'strength';
+      if (isStrengthWorkout) {
+        strengthLink.href = '/strength-view?id=' + encodeURIComponent(workout.id);
+        strengthLink.style.display = '';
+      } else {
+        strengthLink.removeAttribute('href');
+        strengthLink.style.display = 'none';
+      }
+    }
   }
 
   async function deleteWorkout(id) {
