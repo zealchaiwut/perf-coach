@@ -171,52 +171,6 @@ class TestBuildPromptTargetAware:
         assert "`notes` = the coach's RATIONALE" in system
 
 
-# ── Orchestrator: retry-once-then-fallback on a target violation (pure, no DB) ──
-
-class TestOrchPlainTargetRetry:
-    def _facts(self):
-        return {
-            "trailing_28d_weekly_avg_tss": 300.0,
-            "allowed_offsets": [3],
-            "target_tss": 332.0,
-            "logged_tss_so_far": 57.0,
-            "remaining_tss": 275.0,
-            "acwr_ceiling": 410.0,
-            "phase": "hold",
-            "today_offset": 3,
-        }
-
-    def test_retries_once_with_feedback_then_succeeds(self):
-        facts = self._facts()
-        bad = {"suggestions": [_run(3, tss=999)]}   # blows the target band
-        good = {"suggestions": [_run(3, tss=275)]}  # exactly on target
-
-        calls = []
-
-        def fake_call_llm(f, feedback=""):
-            calls.append(feedback)
-            return bad if len(calls) == 1 else good
-
-        with patch.object(ps, "_call_llm", side_effect=fake_call_llm):
-            result = ps._orch_plain(facts)
-
-        assert result["source"] == "llm"
-        assert result["attempts"] == 2
-        assert calls[0] == ""
-        assert "REJECTED" in calls[1]
-        assert "TSS target" in calls[1] or "falls short" in calls[1] or "exceeds" in calls[1]
-
-    def test_falls_back_to_template_after_exhausting_retries(self):
-        facts = self._facts()
-        bad = {"suggestions": [_run(3, tss=999)]}
-
-        with patch.object(ps, "_call_llm", return_value=bad):
-            result = ps._orch_plain(facts)
-
-        assert result["source"] == "fallback"
-        assert result["attempts"] == ps._MAX_PLAN_ATTEMPTS
-
-
 # ── assemble_facts: real-PG target-aware integration ─────────────────────────
 
 @pytest.fixture()

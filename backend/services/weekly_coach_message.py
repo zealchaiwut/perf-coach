@@ -19,10 +19,12 @@ generate_for_user(user_id, db=None, today=None) -> dict
 from __future__ import annotations
 
 import math
+import re as _re
 from datetime import date, datetime, timezone
 from typing import Any
 
 from backend.utils.log import get_logger
+from backend.utils.time import today_bangkok
 
 _log = get_logger(__name__)
 
@@ -212,14 +214,42 @@ def compose_deterministic_message(
 
 
 # ── LLM narrative layer ────────────────────────────────────────────────────────
+#
+# Restored after Priority 2 parked it (D4). The operator's rule moved from
+# "no LLM in the app" to "minimal LLM" — see CLAUDE.md — and the daily coach
+# message is one of the two surfaces judged to earn a provider call. The other
+# is Ask-AI single-session.
+#
+# The deterministic message remains the source of truth for every NUMBER. The
+# LLM only rewrites the prose around them, and any failure — disabled provider,
+# network error, malformed response, a number that changed — falls back to the
+# deterministic text silently. The athlete always gets a message.
+
+_NUMERAL_RE = _re.compile(r"\d+(?:[.:]\d+)*")
+
+
+def _numbers_preserved(original: str, rephrased: str) -> bool:
+    """True iff the rephrase kept every numeral from the deterministic text.
+
+    The prompt says to preserve numbers verbatim; this is what makes that a
+    guarantee rather than a request. A rephrase that drops a TSS figure or
+    invents a finish time is rejected outright — the whole reason the coach
+    message is trusted is that its numbers come from the engines, and a warm
+    sentence is not worth a wrong one.
+
+    Multiset comparison, not set: "315 TSS across 5 sessions" losing one of two
+    identical figures should still fail.
+    """
+    return sorted(_NUMERAL_RE.findall(original)) == sorted(_NUMERAL_RE.findall(rephrased))
+
 
 def _call_llm_narrative(deterministic_text: str, plan_state: dict) -> str | None:
     """Ask the LLM to add warmth to the deterministic message.
 
-    All numbers must be preserved verbatim.  Returns None on any failure
-    (disabled LLM, API error, bad response).  Never raises.
+    All numbers must be preserved verbatim. Returns None on any failure
+    (disabled LLM, API error, bad response, numeral drift). Never raises.
     """
-    from backend.services.llm import llm_enabled, complete_structured
+    from backend.services.llm import complete_structured, llm_enabled
 
     if not llm_enabled():
         return None
@@ -254,7 +284,15 @@ def _call_llm_narrative(deterministic_text: str, plan_state: dict) -> str | None
     if result is None:
         return None
     text = result.get("message", "")
-    return text if text else None
+    if not text:
+        return None
+    if not _numbers_preserved(deterministic_text, text):
+        _log.warning(
+            "LLM narrative changed a number — discarding the rephrase",
+            extra={"surface": "weekly_coach_message"},
+        )
+        return None
+    return text
 
 
 def _build_message(
@@ -427,7 +465,7 @@ def get_coach_payload_for_user(
         from backend.db import engine
         db = _Session(engine)
 
-    today = today or date.today()
+    today = today or today_bangkok()
     try:
         msg = get_latest_for_user(user_id, db, as_of=today)
         if msg:
@@ -479,7 +517,7 @@ def get_coach_payload_for_user(
         # Offline fallback: facts + brief v4 → legacy Markdown for Hermes
         from backend.services.coach_facts import build_coach_facts
         from backend.services.coach_brief import compose_coach_brief, brief_to_text, get_or_build_brief
-        from backend.services.coach_narrative import parse_sections_from_text
+        from backend.services.coach_sections import parse_sections_from_text
 
         # Prefer stored v4 brief when present
         stored = get_or_build_brief(db, user_id, today, force=False)
@@ -682,11 +720,11 @@ def generate_for_user(user_id, db=None, today: date | None = None) -> dict | Non
         from backend.db import engine
         db = _Session(engine)
 
-    today = today or date.today()
+    today = today or today_bangkok()
 
     try:
+        from backend.services.coach_brief import build_brief_deterministic
         from backend.services.coach_facts import build_coach_facts
-        from backend.services.coach_narrative import generate_brief
 
         facts = build_coach_facts(user_id, today=today, db=db)
         if facts is None:
@@ -696,9 +734,8 @@ def generate_for_user(user_id, db=None, today: date | None = None) -> dict | Non
             )
             return None
 
-        result = generate_brief(
+        result = build_brief_deterministic(
             facts,
-            max_attempts=3,
             db=db,
             user_id=user_id,
             brief_date=today,

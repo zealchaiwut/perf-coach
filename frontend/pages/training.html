@@ -40,6 +40,12 @@
     /* page head + tabs on the gradient */
     .rl-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; flex-wrap: wrap; color: #fff; }
     .rl-head h1 { font-size: 21px; font-weight: 600; letter-spacing: -0.02em; margin: 0; }
+    /* Alternate logging entry points — matches the niggle button beside them. */
+    .rl-altlog { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px;
+      border-radius: 999px; border: 1.5px solid var(--card-border); background: #fff;
+      color: var(--text-secondary); font-size: 12px; font-weight: 600;
+      text-decoration: none; font-family: inherit; }
+    .rl-altlog:hover { filter: brightness(0.97); }
     .rl-tabs { display: inline-flex; background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.2); border-radius: 999px; padding: 3px; }
     .rl-tabs .training-tab {
       padding: 6px 16px; border-radius: 999px; font-size: 12px; font-weight: 600;
@@ -1141,7 +1147,17 @@
   <main>
     <div class="rl-head">
       <h1>Log workout</h1>
-      <div style="display:flex; align-items:center; gap:10px;">
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <!-- /run-builder and /sessions were fully built but linked from nowhere
+             (issue #1602) — reachable only by typing the URL. Entry points live
+             here rather than in the global nav: they are alternate ways to log,
+             so they belong beside the thing they are alternates to. -->
+        <a href="/run-builder" class="rl-altlog">
+          <span aria-hidden="true">🏃</span> Build a run
+        </a>
+        <a href="/sessions" class="rl-altlog">
+          <span aria-hidden="true">🏋️</span> Strength / plyo session
+        </a>
         <button id="training-injury-log-btn" type="button"
           style="display:inline-flex; align-items:center; gap:5px; padding:6px 12px;
                  border-radius:999px; border:1.5px solid var(--card-border);
@@ -1190,6 +1206,26 @@
           <label id="workout-type-label">Workout type</label>
           <div id="type-chips" class="chip-group" role="group" aria-labelledby="workout-type-label"></div>
           <input id="custom-type-input" type="text" placeholder="Type name…" style="display:none" maxlength="50">
+        </div>
+
+        <div class="meta-field">
+          <label for="workout-drills">Drills (min)</label>
+          <input id="workout-drills" type="number" min="0" max="120" step="5"
+                 inputmode="numeric" placeholder="e.g. 10">
+          <small class="field-hint">Form drills or strides alongside this session. Doesn't count toward TSS.</small>
+        </div>
+
+        <div class="meta-field">
+          <label for="workout-fuelled">Took on fuel</label>
+          <!-- Tri-state, not a checkbox: null means "not recorded" and must
+               never read as "no". The long-run-fuel habit only ticks on an
+               explicit yes, so an unanswered question has to stay unanswered. -->
+          <select id="workout-fuelled">
+            <option value="">Not recorded</option>
+            <option value="true">Yes — gels / drink</option>
+            <option value="false">No</option>
+          </select>
+          <small class="field-hint">Only consulted for long runs (75+ min), where it ticks the long-run fuel habit.</small>
         </div>
 
         <div class="meta-field">
@@ -1381,6 +1417,7 @@
     </div>
   </div>
 
+  <script src="js/lib/app-common.js"></script>
   <script src="js/lib/sync-poller.js"></script>
 
   <script src="js/nav.js"></script>

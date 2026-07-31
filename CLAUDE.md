@@ -143,6 +143,52 @@ and a daily **readiness** score is computed from the wellness metrics.
   the worker — **`docs/worker.md`** is the reference (endpoints, manual
   trigger, deploy).
 
+## LLM policy — MINIMAL, not zero
+
+The rule is **minimal LLM**. Not "no LLM", and not "LLM wherever it helps" —
+the first is false and the second is how this codebase ended up with three
+planning paths and three coach-message producers for two jobs (see the
+Priority 2 consolidation, PR #1597).
+
+**Exactly two surfaces are sanctioned:**
+
+| Surface | Where | What it does |
+|---|---|---|
+| **Ask-AI single session** | webapp, interactive | fills ONE session's content once the skeleton has fixed the day/type/TSS |
+| **Daily coach message warmth rephrase** | worker, `weekly_coach_message._call_llm_narrative` | rewrites the prose around the deterministic message |
+
+Adding a third needs a decision, not a convenient import.
+
+**Rules that apply to both:**
+
+- **The LLM never produces a number.** Every figure comes from the engines
+  (`training_load`, `tss`, `coach_plan`, `coach_projection`). The rephrase is
+  guarded by `_numbers_preserved()`, which discards any output whose numerals
+  differ from the deterministic text — a warm sentence is not worth a wrong one.
+- **Every path falls back.** Disabled provider, network error, malformed
+  response, failed validation — all return the deterministic text. The athlete
+  always gets a message; an LLM surface must never 500 or block.
+- **The LLM never decides.** Verdicts, guardrails, and load decisions are
+  computed deterministically upstream and passed in as GIVENS. The LLM explains
+  them; it does not derive or override them
+  (see `weekly_summary.validate_summary` and `docs/calculations/acwr-guardrail.md`).
+
+**Parked and staying parked** (Priority 2, D4/D1) — do not re-import these:
+`coach_narrative`, `coach_orch_langgraph`, `coach_claude_cli`, `plan_draft`,
+`plan_slot_cache`, and `gap_analysis/phrasing.py`'s LLM path. They are on disk,
+unreferenced, pending deletion after a quiet release. Between them they carried
+atom validators, retry loops, a `claude -p` transport, and a second cache — that
+sprawl is what "minimal" exists to prevent.
+
+`tests/test_consolidation__worker_has_no_llm.py` enforces the parked list by
+importing `backend.worker_app` in a clean interpreter and inspecting
+`sys.modules`.
+
+**Judgment belongs in the paste loop.** The coach export
+(`GET /api/coach/export/paste`, `GET /api/coach/consult`) builds a blob the
+athlete pastes into Claude themselves. That is not an in-app LLM call and is not
+counted here — it is the reason the in-app surface can stay this small.
+
 ## Local Development
 
 - Copy `.env.example` to `.env` and fill in values before running locally. Local

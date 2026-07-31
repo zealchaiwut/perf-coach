@@ -22,12 +22,11 @@
     baseline_forming: { word: "BUILDING", color: "var(--lrx-muted)" },
   };
 
+  // Delegates to the shared escaper (issue #1603). The local copies
+  // disagreed about the apostrophe, so identical content was safe on
+  // some pages and attribute-injectable on others.
   function esc(s) {
-    return String(s == null ? "" : s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+    return window.AppCommon.escapeHtml(s);
   }
 
   function fmtLoadNum(v) {
@@ -224,7 +223,7 @@
     if (!ratioEl) return;
     resolveAthleteId(function (athleteId) {
       var today = new Date().toLocaleDateString("en-CA");
-      var start = new Date();
+      var start = window.AppCommon.nowBangkok();
       start.setDate(start.getDate() - 35);
       var startDate = start.toLocaleDateString("en-CA");
       fetch(

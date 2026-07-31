@@ -9,7 +9,8 @@ import time
 import uuid as _uuid
 from typing import Optional
 
-from fastapi import HTTPException, Request, Response
+from fastapi import HTTPException, Request, Response, Security
+from fastapi.security import APIKeyCookie
 from sqlalchemy.orm import Session, load_only as _load_only
 
 from backend.db import engine
@@ -18,6 +19,11 @@ from backend.models import User
 _log = logging.getLogger(__name__)
 
 COOKIE_NAME = "session"
+
+# Declared purely so the session requirement is visible in the OpenAPI schema.
+# auto_error=False means FastAPI never raises on a missing cookie — the routes
+# keep returning their own 401 — so this is documentation, not enforcement.
+_session_cookie_scheme = APIKeyCookie(name="session", auto_error=False)
 ADMIN_COOKIE_NAME = "admin_session"
 CSRF_COOKIE_NAME = "csrf-token"
 _ADMIN_COOKIE_MAX_AGE = int(os.getenv("ADMIN_COOKIE_MAX_AGE", str(4 * 3600)))  # 4 hours default
@@ -286,8 +292,23 @@ async def get_current_user(request: Request) -> User:
     return user
 
 
-async def resolve_user(request: Request) -> User:
-    """Shared FastAPI dependency: resolve the session user or raise 401."""
+async def resolve_user(
+    request: Request,
+    _scheme: Optional[str] = Security(_session_cookie_scheme),
+) -> User:
+    """Shared FastAPI dependency: resolve the session user or raise 401.
+
+    `_scheme` is declared but never read — the cookie is still taken off the
+    request below, exactly as before. Its only job is to put a security
+    requirement into the OpenAPI schema, because a dependency that reads
+    `request.cookies` by hand contributes nothing there and every one of these
+    routes therefore appeared **public** to anything inspecting `/openapi.json`
+    rather than the source.
+
+    `auto_error=False` on the scheme is what keeps behaviour identical: FastAPI
+    passes None instead of raising its own 403, so the 401 below is still the
+    one callers get.
+    """
     token = request.cookies.get(COOKIE_NAME)
     if token:
         return await get_current_user(request)

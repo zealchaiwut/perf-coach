@@ -1,3 +1,4 @@
+import inspect
 """Tests for docs/worker.md — Read API (Hermes) documentation (issue #1453).
 
 Each test anchors to a specific AC item and checks the doc file directly.
@@ -28,11 +29,23 @@ def test_training_load_endpoint_documented():
     assert "CTL" in doc and "ATL" in doc and "TSB" in doc
 
 
-def test_scores_endpoint_documented():
-    """AC1: GET /api/scores is documented with a description."""
-    doc = _doc()
-    assert "/api/scores" in doc
-    assert "Endurance" in doc and "Speed" in doc
+def test_scores_endpoint_is_not_documented_because_it_does_not_exist():
+    """REVERSED (#1601).
+
+    AC1 required `GET /api/scores` to be documented. It was — with a worked
+    request and response — but it was never implemented, and git shows no commit
+    that added it. The documentation described an endpoint that has never
+    existed, and this test was what kept the description in place.
+
+    Asserting its ABSENCE is the honest inversion: if someone documents it
+    again, they have to build it too.
+    """
+    import backend.worker_app as worker
+
+    assert '"/api/scores"' not in inspect.getsource(worker), (
+        "the route now exists — restore the docs section and this test's original form"
+    )
+    assert "### `GET /api/scores`" not in _doc()
 
 
 def test_plan_today_endpoint_documented():
@@ -136,12 +149,10 @@ def test_training_load_response_fields():
         assert field in doc, f"Expected field '{field}' in docs"
 
 
-def test_scores_response_fields():
-    """AC5: scores example has the expected fields from issue #1450."""
-    doc = _doc()
-    for field in ("as_of", "endurance", "speed", "trend"):
-        assert field in doc, f"Expected field '{field}' in docs"
-
+# test_scores_response_fields removed (#1601): it asserted the documented
+# response fields of GET /api/scores, an endpoint that was never implemented.
+# test_scores_endpoint_is_not_documented_because_it_does_not_exist above now
+# guards the inverse — documenting it again requires building it.
 
 def test_plan_today_response_fields():
     """AC5: plan/today example has the expected fields from issue #1451."""

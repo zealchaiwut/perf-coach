@@ -152,6 +152,9 @@
     { href: '/log',      label: 'Training',     icon: 'ti-list-details', match: ['/log', '/training', '/training.html'] },
     { href: '/weight',   label: 'Weight',       icon: 'ti-scale',        match: ['/weight', '/weight.html'] },
     { href: '/habits',   label: 'Habits',       icon: 'ti-checklist',    match: ['/habits', '/habits.html'] },
+    // The consult loop's memory. Had a route but no link — the export cites
+    // these rows by date, so it needs to be reachable without typing a URL.
+    { href: '/decisions', label: 'Decisions',   icon: 'ti-notes',        match: ['/decisions', '/decisions.html'] },
     { href: '/trends',      label: 'Trends',      icon: 'ti-chart-line',   match: ['/trends', '/trends.html'], disabled: true },
     { href: '/calendar',    label: 'Calendar',    icon: 'ti-calendar',     match: ['/calendar', '/calendar.html'], disabled: true }
     // Users is intentionally omitted — it's an admin-only page (see js/admin-gate.js).
@@ -200,6 +203,28 @@
     'body[data-env="prd"] .global-nav .gn-env{display:none;}',
     ".global-nav .gn-link-disabled{opacity:0.42;color:#9aa3b2;pointer-events:none;cursor:not-allowed;}",
     ".global-nav .gn-link-disabled i{opacity:0.7;}",
+    // Copy for Claude: one payload, one clipboard write. Same visual weight as
+    // the nav links so it reads as an action, not a destination.
+    ".global-nav .gn-copy{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;",
+    "border:1px solid rgba(13,30,67,0.14);border-radius:999px;background:#fff;",
+    "font:inherit;font-size:14px;font-weight:600;color:#0b1530;cursor:pointer;",
+    "white-space:nowrap;flex-shrink:0;transition:background 0.12s ease,border-color 0.12s ease;}",
+    ".global-nav .gn-copy:hover{background:rgba(13,30,67,0.05);border-color:rgba(13,30,67,0.28);}",
+    ".global-nav .gn-copy[disabled]{opacity:0.6;cursor:progress;}",
+    ".global-nav .gn-copy i{font-size:16px;line-height:1;}",
+    ".global-nav .gn-copy.is-error{border-color:#e08c8c;color:#c92a2a;}",
+    // Icon-only sibling — square padding, no label to hide at any width.
+    ".global-nav .gn-copy-icon{padding:7px 9px;}",
+    "#gn-copy-toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(8px);",
+    "max-width:min(92vw,460px);padding:10px 16px;border-radius:999px;background:#0b1530;color:#fff;",
+    "font-size:13px;font-weight:500;line-height:1.4;box-shadow:0 12px 32px rgba(8,18,48,0.28);",
+    "opacity:0;pointer-events:none;transition:opacity 0.16s ease,transform 0.16s ease;z-index:400;",
+    "display:flex;align-items:center;gap:12px;}",
+    "#gn-copy-toast.is-open{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto;}",
+    "#gn-copy-toast.is-error{background:#8f1f1f;}",
+    "#gn-copy-toast .gnct-retry{border:1px solid rgba(255,255,255,0.5);background:none;color:#fff;",
+    "font:inherit;font-size:12px;font-weight:600;padding:4px 11px;border-radius:999px;cursor:pointer;}",
+    "#gn-copy-toast .gnct-retry:hover{background:rgba(255,255,255,0.14);}",
   ".global-nav .gn-brand{display:none;font-weight:700;font-size:15px;letter-spacing:-0.02em;color:#0b1530;}",
   ".global-nav .gn-spacer{display:none;}",
   ".global-nav .gn-menu-btn{display:none;align-items:center;justify-content:center;",
@@ -215,6 +240,9 @@
     ".global-nav .gn-link-disabled{display:none;}",
     ".global-nav .gn-right{display:flex;}",
     ".global-nav .gn-env{display:none;}",
+    // Mobile: keep the button, drop its label — the icon carries it.
+    ".global-nav .gn-copy{padding:7px 9px;}",
+    ".global-nav .gn-copy span{display:none;}",
     ".global-nav .gn-menu-btn{display:flex;}",
     ".global-nav .gn-links{display:none;position:fixed;left:12px;right:12px;top:56px;",
       "flex-direction:column;gap:4px;background:#fff;border:1px solid rgba(13,30,67,0.1);",
@@ -267,11 +295,11 @@
     document.head.appendChild(style);
   }
 
+  // Delegates to the shared escaper (issue #1603). The local copies
+  // disagreed about the apostrophe, so identical content was safe on
+  // some pages and attribute-injectable on others.
   function escAttr(s) {
-    return String(s)
-      .replace(/&/g, "&amp;")
-      .replace(/"/g, "&quot;")
-      .replace(/</g, "&lt;");
+    return window.AppCommon.escapeHtml(s);
   }
 
   function buildNav() {
@@ -321,6 +349,17 @@
       linksHtml +
       "</div>" +
       '<div class="gn-right">' +
+      '<button type="button" class="gn-copy" id="gn-copy-claude"' +
+      ' title="Copy prompt + last 90 days of data for a fresh Claude session">' +
+      '<i class="ti ti-clipboard-text" aria-hidden="true"></i>' +
+      "<span>Copy for Claude</span></button>" +
+      // The check-in blob. Icon-only so it doesn't crowd the bar on mobile —
+      // aria-label carries the name for screen readers, since the visible
+      // <span> the daily button uses isn't there to do it.
+      '<button type="button" class="gn-copy gn-copy-icon" id="gn-copy-consult"' +
+      ' aria-label="Copy for consult"' +
+      ' title="Copy the check-in prompt — asks questions, ends in a change list for /decisions">' +
+      '<i class="ti ti-messages" aria-hidden="true"></i></button>' +
       '<span class="gn-env" id="env-label" aria-label="Environment"></span>' +
       '<div class="gn-profile" id="gn-profile">' +
       '<button class="gn-avatar' +
@@ -341,6 +380,7 @@
 
     _wireProfileMenu(nav);
     _wireMobileMenu(nav);
+    _wireCopyForClaude();
     _positionGlobalNav();
 
     document
@@ -356,6 +396,161 @@
             btn.disabled = false;
           });
       });
+  }
+
+  // ── Copy for Claude ──────────────────────────────────────────────────────
+  // Fetches the complete paste blob (prompt template + 90-day payload) in ONE
+  // request and writes it to the clipboard. Never copies a partial blob: on any
+  // fetch failure nothing touches the clipboard and the toast offers a retry.
+
+  // Two blobs, one mechanism. The daily message is one-way and short; the
+  // consult asks questions and ends in a change list you paste into
+  // /decisions. Both are plain text from the same export payload, so the only
+  // difference is which endpoint is fetched.
+  var COPY_ENDPOINT = "/api/coach/export/paste";
+  var CONSULT_ENDPOINT = "/api/coach/consult";
+
+  /** Same contract as training-plan.js's Stryd copy: Clipboard API, then a
+   * hidden-textarea fallback for older webviews and non-secure contexts. */
+  function _writeClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text).catch(function () {
+        return _fallbackClipboard(text);
+      });
+    }
+    return _fallbackClipboard(text);
+  }
+
+  function _fallbackClipboard(text) {
+    return new Promise(function (resolve, reject) {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.top = "0";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, ta.value.length);
+      var ok = false;
+      try {
+        ok = document.execCommand("copy");
+      } catch (e) {
+        ok = false;
+      }
+      document.body.removeChild(ta);
+      ok ? resolve() : reject(new Error("clipboard unavailable"));
+    });
+  }
+
+  var _toastTimer = null;
+
+  function _copyToast(message, opts) {
+    opts = opts || {};
+    var toast = document.getElementById("gn-copy-toast");
+    if (!toast) {
+      toast = document.createElement("div");
+      toast.id = "gn-copy-toast";
+      toast.setAttribute("role", "status");
+      toast.setAttribute("aria-live", "polite");
+      document.body.appendChild(toast);
+    }
+    toast.innerHTML = "";
+    var label = document.createElement("span");
+    label.textContent = message;
+    toast.appendChild(label);
+    if (opts.onRetry) {
+      var retry = document.createElement("button");
+      retry.type = "button";
+      retry.className = "gnct-retry";
+      retry.textContent = "Retry";
+      retry.addEventListener("click", function () {
+        toast.classList.remove("is-open");
+        opts.onRetry();
+      });
+      toast.appendChild(retry);
+    }
+    toast.classList.toggle("is-error", !!opts.error);
+    toast.classList.add("is-open");
+    if (_toastTimer) clearTimeout(_toastTimer);
+    // An error toast holds the retry button, so it stays until dismissed by the
+    // next toast rather than vanishing mid-reach.
+    if (!opts.onRetry) {
+      _toastTimer = setTimeout(function () {
+        toast.classList.remove("is-open");
+      }, 4000);
+    }
+  }
+
+  function _copyCharCount(chars) {
+    return chars >= 1000 ? Math.round(chars / 1000) + "k chars" : chars + " chars";
+  }
+
+  function _copyForClaude(btn, endpoint, label) {
+    endpoint = endpoint || COPY_ENDPOINT;
+    label = label || "copied";
+    var original = btn ? btn.innerHTML : null;
+    if (btn) {
+      btn.disabled = true;
+      btn.classList.remove("is-error");
+      btn.innerHTML =
+        '<i class="ti ti-loader-2" aria-hidden="true"></i><span>Building…</span>';
+    }
+
+    function restore() {
+      if (btn && original !== null) {
+        btn.disabled = false;
+        btn.innerHTML = original;
+      }
+    }
+
+    fetch(endpoint, { credentials: "same-origin" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("export failed (" + res.status + ")");
+        return res.text();
+      })
+      .then(function (blob) {
+        if (!blob || !blob.trim()) throw new Error("export was empty");
+        return _writeClipboard(blob).then(function () {
+          restore();
+          // Bangkok date, not the browser's — this app is single-timezone and
+          // the stamp must match the day the export itself was built for.
+          var stamp = new Date().toLocaleDateString("en-CA", {
+            timeZone: "Asia/Bangkok",
+          });
+          _copyToast(label + " · " + _copyCharCount(blob.length) + " · " + stamp);
+        });
+      })
+      .catch(function (err) {
+        restore();
+        if (btn) btn.classList.add("is-error");
+        _copyToast(
+          "Couldn't copy — " + (err && err.message ? err.message : "request failed") + ".",
+          {
+            error: true,
+            onRetry: function () {
+              _copyForClaude(btn, endpoint, label);
+            },
+          }
+        );
+      });
+  }
+
+  function _wireCopyForClaude() {
+    var btn = document.getElementById("gn-copy-claude");
+    if (btn && !btn._wired) {
+      btn._wired = true;
+      btn.addEventListener("click", function () {
+        _copyForClaude(btn, COPY_ENDPOINT, "copied");
+      });
+    }
+    var consult = document.getElementById("gn-copy-consult");
+    if (consult && !consult._wired) {
+      consult._wired = true;
+      consult.addEventListener("click", function () {
+        _copyForClaude(consult, CONSULT_ENDPOINT, "consult copied");
+      });
+    }
   }
 
   /**

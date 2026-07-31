@@ -1,18 +1,22 @@
 """coach.py — Routes for /api/coach/* (issues #1501, #1504)."""
 from __future__ import annotations
 
-from datetime import date as _date
+import logging
+from datetime import date as _date, datetime as _datetime, timezone as _timezone
+from backend.utils.time import today_bangkok as _today_bangkok
 
-from fastapi import APIRouter, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, validator
 from sqlalchemy.orm import Session
 
 from backend.auth import resolve_user
 from backend.db import engine
-from backend.models import PerformanceGoal
+from backend.models import PerformanceGoal, User
 
 router = APIRouter()
+
+_log = logging.getLogger(__name__)
 
 _VALID_DISTANCES = ("5k", "10k", "half", "marathon")
 
@@ -53,14 +57,13 @@ class _GoalBody(BaseModel):
             d = _date.fromisoformat(v)
         except (ValueError, TypeError):
             raise ValueError("race_date must be ISO format YYYY-MM-DD")
-        if d <= _date.today():
+        if d <= _today_bangkok():
             raise ValueError("race_date must be a future date")
         return v
 
 
 @router.get("/api/coach/goal")
-async def get_active_goal(request: Request):
-    user = await resolve_user(request)
+async def get_active_goal(user: User = Depends(resolve_user)):
     with Session(engine) as db:
         goal = (
             db.query(PerformanceGoal)
@@ -76,8 +79,7 @@ async def get_active_goal(request: Request):
 
 
 @router.put("/api/coach/goal")
-async def put_active_goal(body: _GoalBody, request: Request):
-    user = await resolve_user(request)
+async def put_active_goal(body: _GoalBody, user: User = Depends(resolve_user)):
     race_date = _date.fromisoformat(body.race_date)
     with Session(engine) as db:
         db.query(PerformanceGoal).filter(
@@ -100,11 +102,8 @@ async def put_active_goal(body: _GoalBody, request: Request):
 
 @router.get("/api/coach/brief")
 async def get_coach_brief(
-    request: Request,
-    date: str | None = Query(default=None, alias="date"),
-):
+    date: str | None = Query(default=None, alias="date"), user: User = Depends(resolve_user)):
     """Return stored coach brief v4 JSON; build on demand if today's is missing."""
-    user = await resolve_user(request)
     from datetime import date as _date
     from backend.services.coach_brief import get_or_build_brief
 
@@ -127,9 +126,8 @@ async def get_coach_brief(
 
 
 @router.get("/api/coach/daily-message")
-async def get_daily_message(request: Request):
+async def get_daily_message(user: User = Depends(resolve_user)):
     """Return the shared daily coach payload (sections + nudge) for Home / Hermes SoT."""
-    user = await resolve_user(request)
     from backend.services.weekly_coach_message import get_coach_payload_for_user
     with Session(engine) as db:
         payload = get_coach_payload_for_user(user_id=user.id, db=db)
@@ -146,11 +144,8 @@ async def get_weekly_message(request: Request):
 
 @router.get("/api/coach/weekly-messages")
 async def get_weekly_messages(
-    request: Request,
-    limit: int = Query(default=10, ge=1, le=52),
-):
+    limit: int = Query(default=10, ge=1, le=52), user: User = Depends(resolve_user)):
     """Return up to `limit` coaching messages newest-first."""
-    user = await resolve_user(request)
     from backend.services.weekly_coach_message import get_history_for_user
     with Session(engine) as db:
         messages = get_history_for_user(user_id=user.id, limit=limit, db=db)
@@ -164,3 +159,97 @@ async def get_daily_messages(
 ):
     """Alias of weekly-messages history."""
     return await get_weekly_messages(request, limit=limit)
+
+
+# ── Coach export (paste-to-Claude loop) ──────────────────────────────────────
+
+
+@router.get("/api/coach/export")
+async def get_coach_export(
+    window: int = Query(default=None, alias="window"),
+    user: User = Depends(resolve_user),
+):
+    """Return the coach-export payload alone, for inspection and tests.
+
+    Pure assembly over services that already exist — no LLM call, no writes. The
+    paste endpoint below is what the nav button uses.
+    """
+    from backend.services.coach_export import DEFAULT_WINDOW_DAYS, build_export
+
+    window_days = DEFAULT_WINDOW_DAYS if window is None else window
+    try:
+        export = build_export(user.id, window_days=window_days)
+    except ValueError as exc:
+        return JSONResponse({"detail": {"window": str(exc)}}, status_code=422)
+    return JSONResponse(export)
+
+
+@router.get("/api/coach/export/paste", response_class=PlainTextResponse)
+async def get_coach_export_paste(
+    window: int = Query(default=None, alias="window"),
+    user: User = Depends(resolve_user),
+):
+    """Return the complete paste blob: prompt template first, payload last.
+
+    One request, one clipboard write — the client never assembles the blob, so a
+    partial fetch can never be pasted as if it were whole. Serving this also
+    stamps ``users.last_coach_export_at``, which the NEXT export reports as
+    ``meta.previous_export_date`` so the coach message can skip a season
+    re-check when nothing has moved.
+    """
+    from backend.services.coach_export import (
+        DEFAULT_WINDOW_DAYS,
+        build_export,
+        build_paste_blob,
+    )
+
+    window_days = DEFAULT_WINDOW_DAYS if window is None else window
+    try:
+        export = build_export(user.id, window_days=window_days)
+    except ValueError as exc:
+        return JSONResponse({"detail": {"window": str(exc)}}, status_code=422)
+
+    blob = build_paste_blob(export)
+
+    # Stamped only after the blob is successfully built — a failed export must
+    # not consume the "nothing moved since last time" signal.
+    try:
+        with Session(engine) as db:
+            db.query(User).filter(User.id == user.id).update(
+                {"last_coach_export_at": _datetime.now(_timezone.utc)}
+            )
+            db.commit()
+    except Exception:
+        _log.warning("failed to stamp last_coach_export_at", exc_info=True)
+
+    return PlainTextResponse(blob, media_type="text/plain; charset=utf-8")
+
+
+@router.get("/api/coach/consult", response_class=PlainTextResponse)
+async def get_coach_consult(
+    window: int = Query(default=None, alias="window"),
+    user: User = Depends(resolve_user),
+):
+    """Return the consult blob: check-in template + the same export payload.
+
+    The consult is the judgment layer and it lives outside the app by design —
+    this endpoint just hands over the prompt and the data. Unlike the daily paste
+    it does NOT stamp ``last_coach_export_at``: a check-in is a conversation, not
+    the daily message, and consuming the "nothing moved since" signal here would
+    silence the next day's season check.
+    """
+    from backend.services.coach_export import (
+        DEFAULT_WINDOW_DAYS,
+        build_consult_blob,
+        build_export,
+    )
+
+    window_days = DEFAULT_WINDOW_DAYS if window is None else window
+    try:
+        export = build_export(user.id, window_days=window_days)
+    except ValueError as exc:
+        return JSONResponse({"detail": {"window": str(exc)}}, status_code=422)
+
+    return PlainTextResponse(
+        build_consult_blob(export), media_type="text/plain; charset=utf-8"
+    )

@@ -37,6 +37,7 @@ from backend.services.training_load import (
     daily_tss_series,
 )
 from backend.services.fuel_periodize import resolve_week_phase, effective_deficit_for_phase
+from backend.utils.time import today_bangkok
 
 _log = _logging.getLogger(__name__)
 
@@ -74,6 +75,54 @@ DEFICIT_KCAL_MAX = 750
 PROTEIN_G_PER_KG_MAX = 2.5
 PROTEIN_G_PER_KG_MIN = 0.25
 
+# ── Lean-program guardrails (spec §4, "always on") ───────────────────────────
+# The deficit the lean program is designed around. DEFICIT_KCAL_MAX stays the
+# hard rejection bound; this is the ceiling a *recommendation* may propose.
+DEFICIT_KCAL_RECOMMENDED_MAX = 500
+# Carbohydrate floor on quality days, g/kg bodyweight. INDEPENDENT of the
+# deficit: the EA floor guards total energy, not carbohydrate, and an athlete can
+# clear energy availability while still under-fuelling the one substrate hard
+# running actually needs. Low-carb wrecks quality sessions even at maintenance.
+CARB_FLOOR_G_PER_KG_QUALITY_DAY = 4.0
+# Weekly bodyweight loss beyond which the cut is too fast regardless of intake.
+MAX_LOSS_RATE_PCT_BW_PER_WEEK = 0.5
+TARGET_LOSS_RATE_PCT_BW_PER_WEEK = 0.35
+# Basal floor: the budget may never fall below estimated BMR, whatever the
+# deficit says. Mifflin-St Jeor without the activity factor, approximated from
+# lean mass (Katch-McArdle) since that is what the fuel model already tracks.
+BMR_KCAL_PER_KG_LEAN = 21.6
+BMR_BASE_KCAL = 370.0
+
+
+def bmr_estimate_kcal(lean_mass_kg: Optional[float]) -> Optional[int]:
+    """Katch-McArdle BMR from lean mass — the hard floor under any budget.
+
+    None when lean mass is unknown; callers must then fall back to the EA floor
+    alone rather than inventing a basal number.
+    """
+    if lean_mass_kg is None:
+        return None
+    try:
+        lean = float(lean_mass_kg)
+    except (TypeError, ValueError):
+        return None
+    if lean <= 0:
+        return None
+    return int(round(BMR_BASE_KCAL + BMR_KCAL_PER_KG_LEAN * lean))
+
+
+def carb_floor_g_quality_day(weight_kg: Optional[float]) -> Optional[int]:
+    """Grams of carbohydrate a quality-session day must not go below."""
+    if weight_kg is None:
+        return None
+    try:
+        w = float(weight_kg)
+    except (TypeError, ValueError):
+        return None
+    if w <= 0:
+        return None
+    return int(round(CARB_FLOOR_G_PER_KG_QUALITY_DAY * w))
+
 CALIBRATE_MIN_DAYS = 14
 CALIBRATE_MIN_ENTRIES = 10
 _KCAL_PER_KG = 7700
@@ -95,7 +144,12 @@ def _normalize_type(workout_type: Optional[str]) -> str:
 # ── Settings ─────────────────────────────────────────────────────────────────
 
 def _default_settings_dict(user_id) -> dict:
+    import uuid as _uuid
+
     return {
+        # Generated here rather than by the server default so the insert
+        # round-trips identically on every backend.
+        "id": _uuid.uuid4(),
         "user_id": user_id,
         "weight_kg": 70.0,
         "lean_mass_kg": None,
@@ -264,8 +318,8 @@ def current_lean_mass_kg(
 
     Returns dict with keys 'lean_mass_kg' (float, rounded to 1 dp) and 'source' (str).
     """
-    from datetime import date as _d
-    today = _d.today()
+    from backend.utils.time import today_bangkok
+    today = today_bangkok()
 
     # Find the most-recent bf reading within the 60-day window
     recent = None
@@ -512,7 +566,7 @@ def training_burn_kcal(
 ) -> dict:
     """§2.2 burn estimate for one date. Returns {"burn": float, "day_type":
     str, "session_status": str|None, "is_actual": bool}."""
-    today = today or _date.today()
+    today = today or today_bangkok()
     owns_db = db is None
     db = db or Session(engine)
     try:
@@ -554,7 +608,16 @@ def compute_budget(
 
     raw_budget = base_kcal + burn - deficit_kcal
     ea_floor_kcal = ea_floor * lean_mass_kg + burn
-    budget = max(raw_budget, ea_floor_kcal)
+    # Basal floor sits UNDER the EA floor: energy availability is about fuelling
+    # training, BMR is about staying alive. Whichever binds higher wins, and
+    # neither is the athlete's choice to override.
+    bmr_kcal = bmr_estimate_kcal(lean_mass_kg)
+    floors = [ea_floor_kcal]
+    if bmr_kcal is not None:
+        floors.append(float(bmr_kcal))
+    binding_floor = max(floors)
+
+    budget = max(raw_budget, binding_floor)
     deficit_applied = base_kcal + burn - budget
     deficit_reduced = budget > raw_budget
 
@@ -567,6 +630,10 @@ def compute_budget(
         "deficit_reduced": deficit_reduced,
         "ea": round(ea, 1) if ea is not None else None,
         "ea_floor_kcal": round(ea_floor_kcal),
+        "bmr_estimate_kcal": bmr_kcal,
+        "floor_binding": (
+            "bmr" if bmr_kcal is not None and bmr_kcal > ea_floor_kcal else "ea"
+        ) if deficit_reduced else None,
         "effective_deficit_kcal": deficit_kcal,
     }
 
@@ -722,23 +789,76 @@ def _resolve_week_phase_from_db(
 
 # ── Today payload ────────────────────────────────────────────────────────────
 
+class _BodyFatReading:
+    """A body-fat reading normalised across the two tables that store one.
+
+    ``current_lean_mass_kg`` wants ``.body_fat_pct`` and ``.measure_date``;
+    ``weight_entries`` calls the date ``entry_date``. This adapts it rather than
+    changing that function's contract, which ``body_measurements`` rows already
+    satisfy directly.
+    """
+
+    __slots__ = ("body_fat_pct", "measure_date", "source")
+
+    def __init__(self, body_fat_pct, measure_date, source):
+        self.body_fat_pct = body_fat_pct
+        self.measure_date = measure_date
+        self.source = source
+
+
 def _fetch_lean_mass(user_id, settings_row, db: Session) -> dict:
-    """Fetch body-fat readings and compute lean mass for the given user."""
+    """Fetch body-fat readings and compute lean mass for the given user.
+
+    Reads BOTH stores. body_fat_pct lives on two tables — weight_entries (the
+    weigh-in form, and what docs/lean-program-operator-guide.md §6 tells the
+    athlete to use) and body_measurements (the older measurements page) — and
+    this function used to read only the second.
+
+    The result was that the two halves of one coach export disagreed:
+    body_composition.py reads weight_entries and showed a populated composition
+    trend, while the protein target and fuel budget silently fell back to the
+    weight x 0.76 estimate as though no body-fat data existed (issue #1600).
+
+    Unioning is the conservative fix. Picking one table would have silently
+    discarded whichever set of readings the athlete had already logged; S5
+    (#1604) decides which store survives, and this keeps every reading counted
+    until then. Ties on the same date prefer weight_entries, since that is the
+    surface the guide points at.
+    """
     from backend.models import BodyMeasurement, WeightEntry
 
-    today = _date.today()
+    today = today_bangkok()
     window_start = today - timedelta(days=_BF_WINDOW_DAYS)
 
-    bf_rows = (
-        db.query(BodyMeasurement)
+    measured = [
+        _BodyFatReading(r.body_fat_pct, r.measure_date, "body_measurements")
+        for r in db.query(BodyMeasurement)
         .filter(
             BodyMeasurement.user_id == user_id,
             BodyMeasurement.measure_date >= window_start,
             BodyMeasurement.measure_date <= today,
             BodyMeasurement.body_fat_pct.isnot(None),
         )
-        .order_by(BodyMeasurement.measure_date.desc())
         .all()
+    ]
+    measured += [
+        _BodyFatReading(r.body_fat_pct, r.entry_date, "weight_entries")
+        for r in db.query(WeightEntry)
+        .filter(
+            WeightEntry.user_id == user_id,
+            WeightEntry.entry_date >= window_start,
+            WeightEntry.entry_date <= today,
+            WeightEntry.body_fat_pct.isnot(None),
+        )
+        .all()
+    ]
+
+    # Newest first, matching the previous order_by; the caller takes the most
+    # recent reading. weight_entries wins a same-date tie.
+    bf_rows = sorted(
+        measured,
+        key=lambda r: (r.measure_date, r.source == "weight_entries"),
+        reverse=True,
     )
 
     # EWMA weight: use the last 14 days of weight entries
@@ -772,7 +892,7 @@ def get_today_payload(user_id, target_date: _date, db: Optional[Session] = None)
         settings_row = get_or_create_settings(user_id, db=db)
         settings = settings_to_dict(settings_row)
 
-        today = _date.today()
+        today = today_bangkok()
         # Phase must follow the REQUESTED day, not the wall clock — a
         # historical ?date= during a taper week would otherwise get today's
         # taper/ramp deficit applied to that day's budget. (`today` itself is
@@ -849,7 +969,7 @@ def get_week_payload(user_id, week_start: _date, db: Optional[Session] = None) -
     try:
         settings_row = get_or_create_settings(user_id, db=db)
         settings = settings_to_dict(settings_row)
-        today = _date.today()
+        today = today_bangkok()
 
         # Phase follows the REQUESTED week's Monday, not the wall clock —
         # see get_today_payload above.
@@ -914,7 +1034,13 @@ class CalibrateNeedsMoreData(Exception):
         super().__init__("needs_more_data")
 
 
-def calibrate(weight_entries: list, fuel_entries_and_burn: list) -> dict:
+def calibrate(
+    weight_entries: list,
+    fuel_entries_and_burn: list,
+    *,
+    min_days: Optional[int] = None,
+    min_entries: Optional[int] = None,
+) -> dict:
     """Pure calculation given the caller's already-fetched inputs.
 
     weight_entries: list of (date, weight_kg) covering the last >=14 days.
@@ -923,10 +1049,19 @@ def calibrate(weight_entries: list, fuel_entries_and_burn: list) -> dict:
 
     Uses WEEKLY-AVERAGE weights on both ends — daily weight is mostly
     glycogen/water and would produce garbage (spec §1.5).
+
+    min_days / min_entries override the standing 14-day / 10-entry minimums.
+    A calibration SPRINT (backend/services/calibration_sprint.py) is a
+    deliberate 5-7 day logging burst, so it passes its own bounds; without that
+    override this function is unreachable for a structural-deficit athlete, who
+    never logs food outside a sprint and so never accumulates 10 entries.
     """
+    need_days = CALIBRATE_MIN_DAYS if min_days is None else int(min_days)
+    need_entries = CALIBRATE_MIN_ENTRIES if min_entries is None else int(min_entries)
+
     days_span = len(weight_entries)
     n_entries = len(fuel_entries_and_burn)
-    if days_span < CALIBRATE_MIN_DAYS or n_entries < CALIBRATE_MIN_ENTRIES:
+    if days_span < need_days or n_entries < need_entries:
         raise CalibrateNeedsMoreData(days_span, n_entries)
 
     weight_entries = sorted(weight_entries, key=lambda t: t[0])

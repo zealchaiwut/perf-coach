@@ -62,12 +62,13 @@ def _make_snap(ctl: float, atl: float, tsb: float) -> MagicMock:
 # ---------------------------------------------------------------------------
 
 
-def test_training_log_load_context_present_with_enough_data():
+def test_training_log_load_context_present_with_enough_data(as_user):
+    as_user(_UID)
     snap = _make_snap(ctl=55.0, atl=60.0, tsb=-5.0)
     mock_sess = _make_session_mock(total_workout_days=10, today_snap=snap)
 
     with patch("backend.main.Session", return_value=mock_sess):
-        res = _client.get(f"/api/training-log?user_id={_USER_ID}")
+        res = _client.get(f"/api/training-log")
 
     assert res.status_code == 200
     body = res.json()
@@ -86,11 +87,12 @@ def test_training_log_load_context_present_with_enough_data():
 # ---------------------------------------------------------------------------
 
 
-def test_training_log_load_context_null_with_insufficient_data():
+def test_training_log_load_context_null_with_insufficient_data(as_user):
+    as_user(_UID)
     mock_sess = _make_session_mock(total_workout_days=3, today_snap=None)
 
     with patch("backend.main.Session", return_value=mock_sess):
-        res = _client.get(f"/api/training-log?user_id={_USER_ID}")
+        res = _client.get(f"/api/training-log")
 
     assert res.status_code == 200
     body = res.json()
@@ -119,7 +121,7 @@ def test_training_log_interpretation_matches_threshold(ctl, atl, tsb, expected_l
     mock_sess = _make_session_mock(total_workout_days=30, today_snap=snap)
 
     with patch("backend.main.Session", return_value=mock_sess):
-        res = _client.get(f"/api/training-log?user_id={_USER_ID}")
+        res = _client.get(f"/api/training-log")
 
     assert res.status_code == 200
     lc = res.json()["load_context"]
@@ -132,11 +134,12 @@ def test_training_log_interpretation_matches_threshold(ctl, atl, tsb, expected_l
 # ---------------------------------------------------------------------------
 
 
-def test_training_log_weeks_field_still_present():
+def test_training_log_weeks_field_still_present(as_user):
+    as_user(_UID)
     mock_sess = _make_session_mock(total_workout_days=3)
 
     with patch("backend.main.Session", return_value=mock_sess):
-        res = _client.get(f"/api/training-log?user_id={_USER_ID}")
+        res = _client.get(f"/api/training-log")
 
     assert res.status_code == 200
     body = res.json()
@@ -149,7 +152,8 @@ def test_training_log_weeks_field_still_present():
 # ---------------------------------------------------------------------------
 
 
-def test_training_log_falls_back_to_on_demand_when_no_snapshot():
+def test_training_log_falls_back_to_on_demand_when_no_snapshot(as_user):
+    as_user(_UID)
     mock_sess = _make_session_mock(total_workout_days=10, today_snap=None)
     fake_load = {"date": date.today(), "ctl": 42.0, "atl": 38.0, "tsb": 4.0}
 
@@ -157,7 +161,7 @@ def test_training_log_falls_back_to_on_demand_when_no_snapshot():
         patch("backend.main.Session", return_value=mock_sess),
         patch("backend.main.current_load", return_value=fake_load) as mock_cl,
     ):
-        res = _client.get(f"/api/training-log?user_id={_USER_ID}")
+        res = _client.get(f"/api/training-log")
 
     assert res.status_code == 200
     lc = res.json()["load_context"]

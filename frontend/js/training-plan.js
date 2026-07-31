@@ -204,13 +204,10 @@ information about.
     },
     // Suggestions module (separate closure) calls this after queueing a
     // plan_draft so the week strip picks up the new draft when it lands.
-    markDraftPending: function () {
-      _draftVisible = true;
-    },
-    reloadDraft: function () {
-      _draftVisible = true;
-      _loadDraft();
-    },
+    // Both no-ops while drafts are parked (D1) — the suggestions module still
+    // calls them, and a stub is cheaper than teaching it that drafts are gone.
+    markDraftPending: function () {},
+    reloadDraft: function () {},
     // day_offset/date/open (no logged workout, no existing planned session,
     // not before today) for each day of the currently-viewed week — lets the
     // suggestions prefs form show accurate checkboxes without a second
@@ -258,7 +255,7 @@ information about.
   }
   function _addDays(d, n) { var x = new Date(d); x.setDate(x.getDate() + n); return x; }
   function _todayISO() {
-    return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    return window.AppCommon.todayISO();
   }
   function _fmtWeekTitle(start) {
     var end = _addDays(start, 6);
@@ -270,9 +267,11 @@ information about.
     return DOW[(d.getDay() + 6) % 7].charAt(0) + DOW[(d.getDay() + 6) % 7].slice(1).toLowerCase() +
       ', ' + MON[d.getMonth()] + ' ' + d.getDate();
   }
+  // Delegates to the shared escaper (issue #1603). The local copies
+  // disagreed about the apostrophe, so identical content was safe on
+  // some pages and attribute-injectable on others.
   function esc(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return window.AppCommon.escapeHtml(s);
   }
 
   // ── CSRF-safe fetch (window.fetch is patched by nav.js to attach X-CSRF) ────
@@ -306,10 +305,16 @@ information about.
     }
   }
 
+  // PARKED (Priority 2, D1). Worker drafts are off: nothing enqueues a
+  // plan_draft job and the worker no longer dispatches one, so there is never a
+  // draft to overlay. This returns false unconditionally rather than depending
+  // on _pipeline.ui_default / ?draft=1, so no server config or query param can
+  // surface an overlay that can only ever be empty.
+  //
+  // The overlay's rendering code below is left in place, unreachable, for one
+  // quiet release — it goes with plan_draft.py in the step-7 cleanup. Keeping
+  // the gate a single function is what makes that deletion mechanical.
   function _shouldShowDraftUi() {
-    if (!_pipeline) return false;
-    if (_pipeline.ui_default) return true;
-    if (_pipeline.shadow && (_urlFlag('draft') === '1' || _urlFlag('draft') === 'true')) return true;
     return false;
   }
 
@@ -1533,7 +1538,9 @@ information about.
         '<div class="pl-btnrow">' +
           '<button class="pl-btn pl-lime" id="pl-apply-draft" hidden title="Create planned sessions from this draft">Apply week</button>' +
           '<button class="pl-btn pl-ghost" id="pl-refresh-draft" hidden title="Regenerate untouched draft slots">Refresh draft</button>' +
-          '<button class="pl-btn pl-ghost" id="pl-replan-remaining" title="Replan open days from remaining budget">Replan remaining</button>' +
+          /* hidden with the other two draft buttons — drafts are parked (D1),
+             so this would queue a job the worker no longer dispatches. */
+          '<button class="pl-btn pl-ghost" id="pl-replan-remaining" hidden title="Replan open days from remaining budget">Replan remaining</button>' +
           /* Opens the suggestions panel (prefs + build schedule live there). */
           '<button class="pl-btn pl-ghost" id="pl-suggest" title="AI-suggested sessions for this week">✨ Suggest sessions</button>' +
         '</div></div>' +
@@ -4151,7 +4158,7 @@ information about.
 
   // ── Scoped styles (injected once) ───────────────────────────────────────────
   function _injectStyles() {
-    var VER = '20260722draft7';
+    var VER = '20260731import1';
     var existing = document.getElementById('plan-tab-styles');
     if (existing) {
       if (existing.getAttribute('data-ver') === VER) return;
@@ -4539,6 +4546,27 @@ information about.
     '.pl-sug-habits{font-size:11.5px;color:var(--text-sub);margin-top:8px;line-height:1.4;}',
     '.pl-sug-habits a{color:var(--primary);font-weight:600;}',
     '.pl-sug-prefs-err{color:#b91c1c;font-size:12px;margin-top:8px;white-space:pre-wrap;}',
+    // Preference proposals ledger — moved out of the coach brief (D6).
+    '.pl-prop-block{margin-top:14px;padding-top:12px;border-top:1px solid var(--border);}',
+    '.pl-prop-count{display:inline-block;margin-left:6px;padding:0 6px;border-radius:9px;background:var(--primary);color:#fff;font-size:10.5px;font-weight:700;line-height:16px;vertical-align:middle;}',
+    '.pl-props{display:flex;flex-direction:column;gap:8px;}',
+    '.pl-prop{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:10px 11px;border:1px solid var(--border);border-radius:9px;background:var(--surface-2,#fafafa);}',
+    '.pl-prop-main{flex:1 1 210px;min-width:0;}',
+    '.pl-prop-delta{font-size:12.5px;font-weight:600;color:var(--ink);}',
+    '.pl-prop-why{font-size:11.5px;color:var(--text-sub);margin-top:3px;line-height:1.4;}',
+    '.pl-prop-life{font-size:11px;color:var(--text-sub);margin-top:3px;opacity:.85;}',
+    '.pl-prop-actions{display:flex;gap:6px;flex-wrap:wrap;}',
+    '.pl-prop-actions .pl-btn{font-size:12px;padding:5px 10px;}',
+    // Prefs importer — the consult's change list, pasted back in (#1608).
+    '.pl-import-block{margin-top:14px;padding-top:12px;border-top:1px solid var(--border);}',
+    '.pl-import{display:flex;flex-direction:column;gap:8px;}',
+    '.pl-import-ta{width:100%;min-height:56px;font:inherit;font-size:12.5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;padding:8px 10px;border-radius:8px;border:1px solid var(--border);box-sizing:border-box;}',
+    '.pl-import-actions{display:flex;gap:6px;flex-wrap:wrap;}',
+    '.pl-import-out{font-size:12px;padding:9px 11px;border-radius:8px;background:var(--surface-2,#fafafa);border:1px solid var(--border);}',
+    '.pl-import-out.is-error{border-color:#e08c8c;color:#b91c1c;white-space:pre-wrap;}',
+    '.pl-import-title{font-weight:700;margin-bottom:5px;}',
+    '.pl-import-row{font-size:12px;line-height:1.7;}',
+    '.pl-import-row code{font-size:11.5px;background:var(--chip-bg,#eef1f5);padding:1px 5px;border-radius:4px;}',
     '.pl-sug-select{font-size:13px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--ink);width:auto;align-self:flex-start;}',
     '.pl-sug-notes{font-size:13px;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:#fff;color:var(--ink);min-height:52px;resize:vertical;font-family:inherit;}',
     '.pl-sug-count-wrap{display:flex;align-items:center;gap:8px;}',
@@ -4723,6 +4751,11 @@ information about.
     notes: '',
   };
   var _habitTargets = null;
+  // Pending preference proposals, rendered as a ledger in the prefs panel.
+  // Moved here from the coach brief (Priority 2, D6): the brief is a daily
+  // read, and a decision about a preference belongs next to the preference it
+  // would change, where the current value is on screen to compare against.
+  var _prefProposals = [];
 
   // Worker-draft queue state — MUST live in THIS closure (suggestions is a
   // separate IIFE from the main Plan module; bare refs to its locals throw).
@@ -4734,10 +4767,11 @@ information about.
   var _DAY_NAMES_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
   function _el(id) { return document.getElementById(id); }
+  // Delegates to the shared escaper (issue #1603). The local copies
+  // disagreed about the apostrophe, so identical content was safe on
+  // some pages and attribute-injectable on others.
   function esc(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
+    return window.AppCommon.escapeHtml(s);
   }
 
   // Local date helpers (this module is a separate closure from the main Plan
@@ -5751,6 +5785,12 @@ information about.
     _lastPrefs.mpSegmentMin = Number(_nestedGet(p, 'long_run.mp_segment_min') || 0);
     _lastPrefs.notes = _nestedGet(p, 'notes') || '';
     _habitTargets = data.habit_targets || null;
+    // Pending proposals only. GET /api/preferences returns settled ones too
+    // (include_settled=True); accepted/declined are history, and a decision
+    // surface that shows history is a report, not a decision surface.
+    _prefProposals = (data.proposals || []).filter(function (p2) {
+      return p2 && p2.status === 'proposed';
+    });
   }
 
   function _collectTrainingPrefsPayload() {
@@ -5814,6 +5854,294 @@ information about.
       .catch(function () {
         _paintPrefsForm();
       });
+  }
+
+  // ── Preference proposals ledger ────────────────────────────────────────────
+  //
+  // The gap analyzer watches for persistent findings and proposes a preference
+  // change (one catalog step). Accept / Adjust / Not now used to live in the
+  // coach brief; they live here now (D6) because deciding "should my plyo
+  // sessions go 0 -> 1" is easier with the plyo controls visible directly below.
+  //
+  // Pending only. Accepted and declined proposals are history and are not shown
+  // — the API still returns them, and a later Preferences history view can pick
+  // them up from the same payload.
+
+  function _proposalDeltaText(prop) {
+    var d = (prop && prop.delta) || {};
+    // Server sends a rendered strip when it can (delta_strip); fall back to
+    // field: from -> to so an unrecognised shape still reads as something.
+    if (d.strip) return String(d.strip);
+    var field = d.field || d.key || '';
+    if (field && d.from !== undefined && d.to !== undefined) {
+      return field + ': ' + d.from + ' → ' + d.to;
+    }
+    return field || JSON.stringify(d);
+  }
+
+  // ── Prefs importer ─────────────────────────────────────────────────────────
+  //
+  // The consult prompt (coach_export.CONSULT_TEMPLATE) tells the pasted-into
+  // Claude session: "If a prefs change is involved, also give me the JSON patch
+  // to paste into the prefs importer." No importer existed (issue #1608), so
+  // every consult touching a preference handed the athlete instructions for a
+  // feature that wasn't there — and they hand-translated it into Settings.
+  //
+  // MERGE, NOT REPLACE. This is the safety property of the whole feature.
+  // training_prefs.write_version stores `payload=normalized` wholesale with no
+  // merge against the previous version, so PUTting a partial patch would wipe
+  // every field the patch omits. A consult produces a PATCH ("plyo 0 -> 1"),
+  // never a full document. So the patch is merged onto the current payload here
+  // and the merged result is sent.
+
+  var _importPreview = null;   // {patch, merged, changes:[{key, from, to}]}
+
+  function _flatten(obj, prefix, out) {
+    out = out || {};
+    prefix = prefix || '';
+    Object.keys(obj || {}).forEach(function (k) {
+      var v = obj[k];
+      var key = prefix ? prefix + '.' + k : k;
+      if (v && typeof v === 'object' && !Array.isArray(v)) _flatten(v, key, out);
+      else out[key] = v;
+    });
+    return out;
+  }
+
+  function _deepMerge(base, patch) {
+    var out = JSON.parse(JSON.stringify(base || {}));
+    Object.keys(patch || {}).forEach(function (k) {
+      var v = patch[k];
+      if (v && typeof v === 'object' && !Array.isArray(v) &&
+          out[k] && typeof out[k] === 'object' && !Array.isArray(out[k])) {
+        out[k] = _deepMerge(out[k], v);
+      } else {
+        out[k] = v;
+      }
+    });
+    return out;
+  }
+
+  function _diffPayloads(before, after) {
+    var a = _flatten(before), b = _flatten(after), changes = [];
+    Object.keys(b).forEach(function (k) {
+      var was = JSON.stringify(a[k]), now = JSON.stringify(b[k]);
+      if (was !== now) changes.push({ key: k, from: a[k], to: b[k] });
+    });
+    return changes;
+  }
+
+  function _fmtVal(v) {
+    if (v === undefined) return 'unset';
+    if (Array.isArray(v)) return v.length ? v.join(', ') : 'none';
+    return String(v);
+  }
+
+  function _importerHtml() {
+    return (
+      '<div class="pl-sug-prefs-row pl-import-block" style="align-items:start;">' +
+        '<label class="pl-sug-prefs-label" for="pl-import-json">From a consult</label>' +
+        '<div class="pl-import">' +
+          '<textarea id="pl-import-json" class="pl-import-ta" rows="3" ' +
+            'placeholder=\'Paste the JSON patch from your consult, e.g. {"plyo_sessions_per_week": 1}\'></textarea>' +
+          '<div class="pl-import-actions">' +
+            '<button type="button" class="pl-btn pl-ghost" id="pl-import-preview">Preview change</button>' +
+            '<button type="button" class="pl-btn pl-lime" id="pl-import-apply" hidden>Apply</button>' +
+            '<button type="button" class="pl-btn pl-ghost" id="pl-import-cancel" hidden>Cancel</button>' +
+          '</div>' +
+          '<div class="pl-import-out" id="pl-import-out" hidden></div>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  function _bindImporter(host) {
+    var ta = _el('pl-import-json');
+    var previewBtn = _el('pl-import-preview');
+    var applyBtn = _el('pl-import-apply');
+    var cancelBtn = _el('pl-import-cancel');
+    var out = _el('pl-import-out');
+    if (!ta || !previewBtn || !out) return;
+
+    function show(html, isError) {
+      out.hidden = false;
+      out.className = 'pl-import-out' + (isError ? ' is-error' : '');
+      out.innerHTML = html;
+    }
+
+    function reset() {
+      _importPreview = null;
+      applyBtn.hidden = true;
+      cancelBtn.hidden = true;
+      out.hidden = true;
+      out.innerHTML = '';
+    }
+
+    cancelBtn.addEventListener('click', function () { reset(); ta.value = ''; });
+
+    previewBtn.addEventListener('click', function () {
+      var raw = (ta.value || '').trim();
+      if (!raw) { show('Paste the JSON patch first.', true); return; }
+      var patch;
+      try {
+        patch = JSON.parse(raw);
+      } catch (e) {
+        show('That is not valid JSON — ' + esc(e.message) + '.', true);
+        return;
+      }
+      if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+        show('Expected a JSON object, e.g. {"plyo_sessions_per_week": 1}.', true);
+        return;
+      }
+      // Merge onto CURRENT prefs. Never send the patch alone — the API replaces
+      // the whole payload, so a bare patch would erase everything it omits.
+      var current = _collectTrainingPrefsPayload();
+      var merged = _deepMerge(current, patch);
+      var changes = _diffPayloads(current, merged);
+      if (!changes.length) {
+        show('Nothing to change — those values are already set.', false);
+        applyBtn.hidden = true;
+        cancelBtn.hidden = false;
+        return;
+      }
+      _importPreview = { patch: patch, merged: merged, changes: changes };
+      show(
+        '<div class="pl-import-title">' + changes.length +
+          ' change' + (changes.length === 1 ? '' : 's') + ' to apply</div>' +
+        changes.map(function (c) {
+          return '<div class="pl-import-row"><code>' + esc(c.key) + '</code> ' +
+            esc(_fmtVal(c.from)) + ' → <b>' + esc(_fmtVal(c.to)) + '</b></div>';
+        }).join(''),
+        false
+      );
+      applyBtn.hidden = false;
+      cancelBtn.hidden = false;
+    });
+
+    applyBtn.addEventListener('click', function () {
+      if (!_importPreview) return;
+      applyBtn.disabled = true;
+      fetch('/api/preferences', {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payload: _importPreview.merged }),
+      })
+        .then(function (r) {
+          return r.json().then(function (body) {
+            if (!r.ok) return Promise.reject(body);
+            return body;
+          });
+        })
+        .then(function () {
+          ta.value = '';
+          reset();
+          // Re-fetch so the form shows what the server actually stored, not
+          // what we hoped it would store.
+          _renderPrefsForm();
+          _toast('Preferences updated from consult');
+        })
+        .catch(function (body) {
+          applyBtn.disabled = false;
+          var msg = 'Apply failed';
+          if (body && body.detail) {
+            msg = typeof body.detail === 'string'
+              ? body.detail : JSON.stringify(body.detail, null, 2);
+          }
+          show(esc(msg), true);
+        });
+    });
+  }
+
+  function _proposalsHtml() {
+    if (!_prefProposals.length) return '';
+    var rows = _prefProposals.map(function (p) {
+      var id = esc(p.id || '');
+      var expires = (p.expires_at || '').slice(0, 10);
+      return (
+        '<div class="pl-prop" data-proposal-id="' + id + '">' +
+          '<div class="pl-prop-main">' +
+            '<div class="pl-prop-delta">' + esc(_proposalDeltaText(p)) + '</div>' +
+            (p.rationale
+              ? '<div class="pl-prop-why">' + esc(p.rationale) + '</div>' : '') +
+            (expires
+              ? '<div class="pl-prop-life">expires ' + esc(expires) + ' if ignored</div>' : '') +
+          '</div>' +
+          '<div class="pl-prop-actions">' +
+            '<button type="button" class="pl-btn pl-lime pl-prop-accept">Accept</button>' +
+            '<button type="button" class="pl-btn pl-ghost pl-prop-adjust">Adjust…</button>' +
+            '<button type="button" class="pl-btn pl-ghost pl-prop-decline">Not now</button>' +
+          '</div>' +
+        '</div>'
+      );
+    }).join('');
+    return (
+      '<div class="pl-sug-prefs-row pl-prop-block" style="align-items:start;">' +
+        '<label class="pl-sug-prefs-label">Proposals' +
+          '<span class="pl-prop-count">' + _prefProposals.length + '</span>' +
+        '</label>' +
+        '<div class="pl-props">' + rows + '</div>' +
+      '</div>'
+    );
+  }
+
+  function _postProposal(id, action, body) {
+    return fetch('/api/preferences/proposals/' + encodeURIComponent(id) + '/' + action, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    }).then(function (r) {
+      if (r.ok) return r.json();
+      return r.json().then(
+        function (j) { throw new Error((j && j.detail) || r.statusText); },
+        function () { throw new Error(r.statusText); }
+      );
+    });
+  }
+
+  function _bindProposalActions(host) {
+    host.querySelectorAll('.pl-prop').forEach(function (row) {
+      var id = row.getAttribute('data-proposal-id');
+      if (!id) return;
+
+      // Re-fetch rather than reload the page: the coach brief reloaded because
+      // it was a modal over the Home page, but here the athlete is mid-edit in
+      // the prefs form and a reload would discard unsaved changes.
+      function settle(btn, action, body) {
+        var buttons = row.querySelectorAll('button');
+        buttons.forEach(function (b) { b.disabled = true; });
+        _postProposal(id, action, body)
+          .then(function () { _renderPrefsForm(); })
+          .catch(function (err) {
+            buttons.forEach(function (b) { b.disabled = false; });
+            var errEl = _el('pl-sug-prefs-err');
+            if (errEl) {
+              errEl.hidden = false;
+              errEl.textContent = err.message || (action + ' failed');
+            }
+          });
+      }
+
+      var accept = row.querySelector('.pl-prop-accept');
+      if (accept) accept.addEventListener('click', function () { settle(accept, 'accept'); });
+
+      var decline = row.querySelector('.pl-prop-decline');
+      if (decline) decline.addEventListener('click', function () { settle(decline, 'decline'); });
+
+      var adjust = row.querySelector('.pl-prop-adjust');
+      if (adjust) adjust.addEventListener('click', function () {
+        var raw = window.prompt('New value (one catalog step from current):');
+        if (raw == null || raw === '') return;
+        var n = Number(raw);
+        if (!Number.isFinite(n)) {
+          var errEl = _el('pl-sug-prefs-err');
+          if (errEl) { errEl.hidden = false; errEl.textContent = 'Enter a number'; }
+          return;
+        }
+        settle(adjust, 'adjust', { to: n });
+      });
+    });
   }
 
   function _paintPrefsForm() {
@@ -5892,6 +6220,8 @@ information about.
               '<textarea id="pl-sug-notes" class="pl-sug-prefs-notes" maxlength="200">' + esc(_lastPrefs.notes) + '</textarea>' +
             '</div>' +
           '</div>' +
+          _proposalsHtml() +
+          _importerHtml() +
           '<div class="pl-sug-habits">' + habitsLine + '</div>' +
           '<div class="pl-sug-prefs-err" id="pl-sug-prefs-err" hidden></div>' +
           '<div class="pl-btnrow" style="margin-top:12px;">' +
@@ -5904,6 +6234,9 @@ information about.
           '<div class="pl-btnrow"><button type="button" class="pl-btn pl-ghost" id="pl-sug-cancel">Close</button></div>'
         )) +
       '</div>';
+
+    _bindProposalActions(host);
+    _bindImporter(host);
 
     host.querySelectorAll('[data-restday]').forEach(function (chk) {
       chk.addEventListener('change', function () {

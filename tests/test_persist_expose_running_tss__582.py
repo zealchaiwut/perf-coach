@@ -309,7 +309,11 @@ def test_persist_running_tss_called_after_workout_create():
     src = pathlib.Path(__file__).resolve().parents[1] / "backend" / "main.py"
     code = src.read_text()
     func_start = code.find("def post_workout")
-    func_body = code[func_start:func_start + 4000]
+    # Slice to the next top-level def, not a fixed character window. A window
+    # silently truncates the moment anyone adds a field to the handler, turning
+    # an unrelated change into a false failure here.
+    func_end = code.find("\ndef ", func_start + 1)
+    func_body = code[func_start:func_end if func_end != -1 else None]
     assert "persist_running_tss" in func_body or "_persist_running_tss" in func_body, (
         "post_workout must call persist_running_tss to recompute TSS on creation"
     )
@@ -320,7 +324,8 @@ def test_persist_running_tss_called_after_workout_patch():
     src = pathlib.Path(__file__).resolve().parents[1] / "backend" / "main.py"
     code = src.read_text()
     func_start = code.find("def patch_workout")
-    func_body = code[func_start:func_start + 5000]
+    func_end = code.find("\ndef ", func_start + 1)
+    func_body = code[func_start:func_end if func_end != -1 else None]
     assert "persist_running_tss" in func_body or "_persist_running_tss" in func_body, (
         "patch_workout must call persist_running_tss to recompute TSS on metrics change"
     )
@@ -331,7 +336,8 @@ def test_persist_running_tss_called_after_splits_update():
     src = pathlib.Path(__file__).resolve().parents[1] / "backend" / "main.py"
     code = src.read_text()
     func_start = code.find("def replace_splits")
-    func_body = code[func_start:func_start + 3000]
+    func_end = code.find("\ndef ", func_start + 1)
+    func_body = code[func_start:func_end if func_end != -1 else None]
     assert "persist_running_tss" in func_body or "_persist_running_tss" in func_body, (
         "replace_splits must call persist_running_tss to recompute TSS when splits change"
     )

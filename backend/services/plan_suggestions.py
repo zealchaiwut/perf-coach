@@ -899,22 +899,14 @@ def _call_llm(facts: dict, feedback: str = "") -> dict | None:
 
 # ── Orchestration ─────────────────────────────────────────────────────────────
 #
-# The same feature — LLM plan → validate → retry-with-feedback → template
-# fallback — implemented three ways so their outputs can be A/B'd on real data.
-# All share the domain primitives above; they differ only in HOW the retry loop
-# is expressed. Selected per-request via the PLAN_ORCH env var; unset keeps the
-# original single-shot behaviour so nothing changes by default. Every path is
-# fallback-safe: any failure (LLM off, network, missing optional dependency,
-# retries exhausted) returns the deterministic template.
-
-_MAX_PLAN_ATTEMPTS = 3
-_VALID_ORCH = {"single", "plain", "langgraph", "pydantic_ai"}
-
-
-def _plan_orch() -> str:
-    orch = os.getenv("PLAN_ORCH", "").strip().lower()
-    return orch if orch in _VALID_ORCH else "single"
-
+# LLM plan → validate → template fallback, one implementation. There were once
+# four, switched per-request by PLAN_ORCH so their outputs could be A/B'd on
+# real data: single-shot, a plain retry loop, LangGraph, and Pydantic AI. The
+# comparison is over — the single-shot path won and the rest were deleted with
+# the env var, so there is nothing left to switch between.
+#
+# Still fallback-safe: any failure (LLM off, network, invalid output) returns
+# the deterministic template.
 
 def _template_result(facts: dict, attempts: int, orch: str) -> dict:
     return {
@@ -925,8 +917,16 @@ def _template_result(facts: dict, attempts: int, orch: str) -> dict:
     }
 
 
-# 1. Single-shot (original behaviour) — one call, one validation, no retry.
-def _orch_single(facts: dict) -> dict:
+def get_suggestions_from_facts(facts: dict) -> dict:
+    """Attempt LLM suggestions; fall back to the deterministic template if the
+    LLM is disabled, unreachable, or returns something that fails validation.
+
+    Single-shot: one call, one validation, no retry. Returns
+    {'suggestions': [...], 'source': 'llm'|'fallback', 'attempts': int,
+    'orch': str}. ``orch`` is always "single" — it survives in the payload
+    because callers and tests read the response shape, not because there is
+    anything to choose.
+    """
     raw = _call_llm(facts)
     if raw is not None:
         suggestions = raw.get("suggestions", [])
@@ -934,76 +934,6 @@ def _orch_single(facts: dict) -> dict:
             return {"suggestions": suggestions, "source": "llm", "attempts": 1, "orch": "single"}
         _log.warning("LLM plan_suggestion output failed validation — using fallback")
     return _template_result(facts, attempts=1 if raw is not None else 0, orch="single")
-
-
-# 2. Plain Python — an explicit while loop with reflection feedback.
-def _orch_plain(facts: dict) -> dict:
-    feedback = ""
-    attempt = 0
-    for attempt in range(1, _MAX_PLAN_ATTEMPTS + 1):
-        raw = _call_llm(facts, feedback)
-        if raw is None:
-            # A None here isn't necessarily a dead LLM — Groq's own strict-mode
-            # validator rejects the whole call (400) if a single generation
-            # forgets a required-but-nullable key (e.g. omits `blocks` on a
-            # strength entry). That's a transient generation slip, exactly
-            # what the retry loop exists for — don't give up on attempt 1.
-            _log.warning("plan(plain) attempt %d: LLM call failed/unavailable", attempt)
-            continue
-        suggestions = raw.get("suggestions", [])
-        errs = validation_errors(suggestions, facts)
-        if not errs:
-            return {"suggestions": suggestions, "source": "llm", "attempts": attempt, "orch": "plain"}
-        _log.warning("plan(plain) retry %d rejected: %s", attempt, errs)
-        feedback = _feedback_block(errs)
-    return _template_result(facts, attempts=attempt, orch="plain")
-
-
-# 3. LangGraph — the loop as nodes + a conditional edge (validate → generate).
-def _orch_langgraph(facts: dict) -> dict:
-    try:
-        from backend.services.plan_orch_langgraph import run as _run
-    except Exception as exc:  # dependency missing / import error → fallback-safe
-        _log.warning("plan(langgraph) unavailable (%s) — using fallback", exc)
-        return _template_result(facts, attempts=0, orch="langgraph")
-    try:
-        return _run(facts, _MAX_PLAN_ATTEMPTS)
-    except Exception as exc:
-        _log.warning("plan(langgraph) failed (%s) — using fallback", exc)
-        return _template_result(facts, attempts=0, orch="langgraph")
-
-
-# 4. Pydantic AI — a typed agent whose output_validator raises ModelRetry.
-def _orch_pydantic_ai(facts: dict) -> dict:
-    try:
-        from backend.services.plan_orch_pydantic_ai import run as _run
-    except Exception as exc:
-        _log.warning("plan(pydantic_ai) unavailable (%s) — using fallback", exc)
-        return _template_result(facts, attempts=0, orch="pydantic_ai")
-    try:
-        return _run(facts, _MAX_PLAN_ATTEMPTS)
-    except Exception as exc:
-        _log.warning("plan(pydantic_ai) failed (%s) — using fallback", exc)
-        return _template_result(facts, attempts=0, orch="pydantic_ai")
-
-
-_ORCHESTRATORS = {
-    "single": _orch_single,
-    "plain": _orch_plain,
-    "langgraph": _orch_langgraph,
-    "pydantic_ai": _orch_pydantic_ai,
-}
-
-
-def get_suggestions_from_facts(facts: dict) -> dict:
-    """Attempt LLM suggestions via the selected orchestrator; fall back to the
-    deterministic template if disabled or invalid.
-
-    Returns {'suggestions': [...], 'source': 'llm'|'fallback', 'attempts': int,
-    'orch': str}. Orchestrator chosen by PLAN_ORCH (default 'single').
-    """
-    orch = _plan_orch()
-    return _ORCHESTRATORS[orch](facts)
 
 
 # ── DB-calling layer ──────────────────────────────────────────────────────────
@@ -1042,7 +972,7 @@ def assemble_facts(
 
     # BKK-local "today" — matches the app-wide convention (workout_date, week
     # windows) fixed in the reconcile.py timezone bug. Using server-local
-    # date.today() here would misjudge which day_offset is "today" whenever
+    # today_bangkok() here would misjudge which day_offset is "today" whenever
     # the server clock isn't BKK, silently re-opening or closing the wrong day.
     today = today_bangkok()
 
@@ -1538,9 +1468,9 @@ def get_suggestions(
     """Full entry point: assemble facts → cache-aware LLM call → fallback.
 
     Returns {'facts': {...}, 'suggestions': [...], 'source': 'llm' | 'fallback',
-    'attempts': int, 'orch': str}. The cache is keyed per-orchestrator (surface
-    carries the PLAN_ORCH value) so switching orchestrators to A/B compare on the
-    same facts returns each one's own result instead of colliding on the cache.
+    'attempts': int, 'orch': str}. One surface, one orchestrator — the cache key
+    used to carry the PLAN_ORCH value so an A/B switch wouldn't collide on it,
+    which stopped mattering when the alternatives were deleted.
     week_start/preferred_rest_days/strength_emphasis/notes are the athlete's
     scoping + preference input (see assemble_facts) — they flow into facts and
     therefore into the cache signature, so different input never collides.
@@ -1592,8 +1522,7 @@ def get_suggestions(
             "orch": "none",
         }
     sig = build_signature(facts)
-    orch = _plan_orch()
-    surface = _SURFACE if orch == "single" else _SURFACE + ":" + orch
+    surface = _SURFACE
 
     # Cache lookup via get_or_generate.
     def _generate():

@@ -17,9 +17,11 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 import socket
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -306,12 +308,11 @@ def _run_daily_coach_batch(
     Webapps only READ persisted rows — generation belongs here so `claude -p`
     and long LLM work never run on Render.
     """
-    from datetime import date as _date
-
     from backend.models import User
     from backend.services.weekly_coach_message import generate_for_user
+    from backend.utils.time import today_bangkok
 
-    as_of = today or _date.today()
+    as_of = today or today_bangkok()
     with Session(engine) as s:
         q = s.query(User.id).filter(User.is_active.is_(True))
         if user_id:
@@ -458,14 +459,13 @@ def _h_garmin_sync(p: dict) -> None:
     _enqueue_precompute_after_sync(p.get("user_id"))
 
 
-def _h_plan_draft(p: dict) -> None:
-    from backend.services.plan_draft import run_plan_draft_job
-    # Generation is gated inside callers via PLAN_PIPELINE; job itself always runs
-    # when claimed so shadow/v2 modes work without re-checking here.
-    result = run_plan_draft_job(p)
-    logger.info("plan_draft done: %s", result)
-
-
+# plan_draft is PARKED (Priority 2, D1). Its handler is gone from the dispatch
+# table below, so a queued plan_draft row is now a no-op rather than an entry
+# point into plan_draft -> plan_slot_cache -> plan_suggestions -> llm. Nothing
+# ever enqueued one: the scheduler emits strava_sync / stryd_sync /
+# banister_refit / daily_coach, and post-sync emits precompute / daily_coach.
+# Removing the handler is what actually keeps the worker's import graph
+# LLM-free — see tests/test_consolidation__worker_has_no_llm.py.
 _DISPATCH = {
     "strava_sync": _h_strava_sync,
     "stryd_sync": _h_stryd_sync,
@@ -476,7 +476,6 @@ _DISPATCH = {
     "weekly_coach": _h_weekly_coach,  # compat alias
     "precompute": _h_precompute,
     "garmin_sync": _h_garmin_sync,
-    "plan_draft": _h_plan_draft,
 }
 
 
@@ -657,8 +656,37 @@ def weekly_coach_run(body: dict | None = None):
 # ── Read API (Hermes) ─────────────────────────────────────────────────────────
 #
 # Read-only endpoints on /api/* for local consumption by Hermes (the Mac Mini
-# voice assistant). No X-Worker-Secret required — the tailnet/localhost binding
-# is the access boundary. No writes happen here; every endpoint is GET-only.
+# voice assistant).
+#
+# These required NO authentication at all until issue #1601. `?user=<username>`
+# selected whose weight, training load and plan you got, and the tailnet was the
+# only thing standing in front of it — despite docs/worker.md reaching this
+# service as `http://zeal-server:9100`, a hostname on the tailnet rather than
+# loopback. Anyone who could route to port 9100 could read any account by
+# guessing a username.
+#
+# Every route below now requires the same bearer token the write routes already
+# used. Fails closed: an unset WORKER_API_TOKEN is a 503, not an open door.
+#
+# RESIDUAL, deliberately not fixed here: the token is a SERVICE credential. It
+# proves the caller is Hermes, never which athlete — so a token holder can still
+# read any user via `?user=`. Closing that needs per-user tokens and is tracked
+# in #1601's remaining scope. This change turns "anyone on the tailnet" into
+# "anyone holding the service token", which is the difference that matters today.
+
+
+def _require_worker_api_token(authorization: str | None = Header(default=None)) -> None:
+    """Bearer-token guard for the Hermes API. Fails closed."""
+    token = os.getenv("WORKER_API_TOKEN")
+    if not token:
+        raise HTTPException(status_code=503, detail="WORKER_API_TOKEN not configured")
+    if authorization is None or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    # compare_digest, not ==. String equality short-circuits on the first
+    # differing byte, which leaks the token a character at a time to anyone who
+    # can time the response.
+    if not secrets.compare_digest(authorization[7:], token):
+        raise HTTPException(status_code=401, detail="unauthorized")
 
 
 def _resolve_read_user(user_param: str | None):
@@ -716,16 +744,29 @@ def _session_to_dict(row) -> dict:
     }
 
 
-@app.get("/api/training/load")
+@app.get("/api/training/load", dependencies=[Depends(_require_worker_api_token)])
 def training_load(date: str | None = None, user: str | None = None):
     """Return CTL/ATL/TSB/ACWR + persisted verdict for a date for Hermes.
 
-    Reads from training_load_snapshots (single source of truth) and
-    verdict_history (persisted by _resolve_current_verdict). Does NOT
-    recompute anything.
+    Delegates to ``training_load.current_load`` — the same function the webapp's
+    ``GET /api/training-load/current`` calls — so Hermes and the dashboard can
+    never disagree about the athlete's fitness on the same day.
+
+    They used to. This route ran its own ``snapshot_date <= target_date`` query,
+    ordered desc, first row: no ``formula_version`` check, no calibration check,
+    no bound on how stale the row could be. ``current_load`` requires an exact
+    date match AND a matching formula version AND matching ctl_days/atl_days,
+    and recomputes otherwise. So after a formula change or a CTL-days settings
+    edit, the dashboard showed the correct number while Hermes reported a stale
+    one computed under the old formula — possibly many days old (issue #1601).
+
+    ``current_load`` is safe to call here: it lives in ``backend.services`` and
+    never imports ``backend.main``, which is the rule this module must not break.
     """
-    from backend.models import TrainingLoadSnapshot, VerdictHistory
     from datetime import date as _date
+
+    from backend.models import VerdictHistory
+    from backend.services.training_load import current_load
 
     resolved_user = _resolve_read_user(user)
 
@@ -737,19 +778,9 @@ def training_load(date: str | None = None, user: str | None = None):
     else:
         target_date = datetime.now(BANGKOK_TZ).date()
 
-    with Session(engine) as s:
-        snap = (
-            s.query(TrainingLoadSnapshot)
-            .filter(
-                TrainingLoadSnapshot.user_id == resolved_user.id,
-                TrainingLoadSnapshot.snapshot_date <= target_date,
-            )
-            .order_by(TrainingLoadSnapshot.snapshot_date.desc())
-            .first()
-        )
-        if snap is None:
-            raise HTTPException(status_code=404, detail="no training load snapshots found for user")
+    load = current_load(str(resolved_user.id), as_of=target_date)
 
+    with Session(engine) as s:
         verdict_row = (
             s.query(VerdictHistory)
             .filter(
@@ -759,19 +790,28 @@ def training_load(date: str | None = None, user: str | None = None):
             .first()
         )
 
+    def _r(value, digits=1):
+        """Match the webapp's rounding. The old path returned raw stored
+        precision (2 dp) while the dashboard rounded to 1, so the two could
+        print different numbers from identical data."""
+        return round(float(value), digits) if value is not None else None
+
     return {
         "date": target_date.isoformat(),
-        "snapshot_date": snap.snapshot_date.isoformat(),
-        "ctl": snap.ctl,
-        "atl": snap.atl,
-        "tsb": snap.tsb,
-        "acwr": snap.acwr,
+        # Kept for response-shape compatibility with Hermes. current_load may
+        # have recomputed rather than read a row, in which case the value it
+        # reports IS for target_date.
+        "snapshot_date": str(load.get("date") or target_date),
+        "ctl": _r(load.get("ctl")),
+        "atl": _r(load.get("atl")),
+        "tsb": _r(load.get("tsb")),
+        "acwr": _r(load.get("acwr"), 2),
         "verdict": verdict_row.verdict if verdict_row else None,
         "verdict_date": verdict_row.verdict_date.isoformat() if verdict_row else None,
     }
 
 
-@app.get("/api/plan/today")
+@app.get("/api/plan/today", dependencies=[Depends(_require_worker_api_token)])
 def plan_today(date: str | None = None, user: str | None = None):
     """Return today's planned session(s) from planned_sessions for Hermes.
 
@@ -809,27 +849,19 @@ def plan_today(date: str | None = None, user: str | None = None):
     }
 
 
-@app.get("/api/plan/draft-notify")
+@app.get("/api/plan/draft-notify", dependencies=[Depends(_require_worker_api_token)])
 def plan_draft_notify(user: str | None = None, ack: bool = False):
-    """Hermes morning-window draft nudge (never fires at job completion).
+    """Hermes morning-window draft nudge. PARKED — always reports pipeline off.
 
-    ``deliver_now`` is true only in BKK 07:00–09:00 while a notify is pending.
-    Pass ``ack=true`` after Discord delivery so the same draft is not re-sent.
+    Worker drafts are parked (Priority 2, D1) and nothing enqueues a plan_draft
+    job, so there is never a draft to announce. The route survives returning its
+    documented pipeline-off shape rather than 404ing, because Hermes polls it on
+    a schedule and a 404 would read as an outage rather than as "nothing today".
     """
-    from backend.services.plan_draft import hermes_draft_notify, pipeline_enabled
-
-    if not pipeline_enabled():
-        return {"ready": False, "deliver_now": False, "pipeline_off": True}
-
-    resolved_user = _resolve_read_user(user)
-    with Session(engine) as s:
-        out = hermes_draft_notify(s, resolved_user.id, ack=ack)
-        if ack:
-            s.commit()
-        return out
+    return {"ready": False, "deliver_now": False, "pipeline_off": True}
 
 
-@app.get("/api/weight/recent")
+@app.get("/api/weight/recent", dependencies=[Depends(_require_worker_api_token)])
 def weight_recent(n: int = 14, user: str | None = None):
     """Last N weigh-ins (default 14, clamped 1-90) from weight_entries, newest
     first, with the latest EWMA value (backend.services.weight_ewma — same
@@ -893,7 +925,7 @@ def weight_recent(n: int = 14, user: str | None = None):
     }
 
 
-@app.get("/api/weight/status")
+@app.get("/api/weight/status", dependencies=[Depends(_require_worker_api_token)])
 def weight_status(date: str | None = None, user: str | None = None):
     """Weight block for the Hermes coaching brief in one round trip: 7-day
     rolling-average current weight (never a single day's entry), 7d/28d
@@ -933,18 +965,6 @@ def weight_status(date: str | None = None, user: str | None = None):
 _FEEL_ENTRY_NOTES_CAP = 10_000
 
 
-def _require_worker_api_token(authorization: str | None = Header(default=None)) -> None:
-    token = os.getenv("WORKER_API_TOKEN")
-    if not token:
-        raise HTTPException(status_code=503, detail="WORKER_API_TOKEN not configured")
-    if (
-        authorization is None
-        or not authorization.startswith("Bearer ")
-        or authorization[7:] != token
-    ):
-        raise HTTPException(status_code=401, detail="unauthorized")
-
-
 @app.post("/feel-entry", status_code=201, dependencies=[Depends(_require_worker_api_token)])
 def post_feel_entry(body: dict, user: str | None = None):
     """Insert a feel/RPE entry into workout_feel on behalf of Hermes.
@@ -966,6 +986,18 @@ def post_feel_entry(body: dict, user: str | None = None):
         raise HTTPException(
             status_code=400,
             detail={"field": "feel_date", "error": "feel_date must be a valid YYYY-MM-DD date"},
+        )
+
+    # Same future-date rule as POST /api/feel (main.py). The two routes write the
+    # SAME table and had different integrity rules — this one accepted any
+    # parseable date, so a malformed Hermes request could insert a feel entry the
+    # webapp would have rejected (#1601). Tomorrow is allowed on both, for a
+    # session logged just past a local midnight.
+    tomorrow = datetime.now(BANGKOK_TZ).date() + timedelta(days=1)
+    if feel_date > tomorrow:
+        raise HTTPException(
+            status_code=400,
+            detail={"field": "feel_date", "error": "feel_date cannot be in the future"},
         )
 
     # Validate rpe_1_to_10
@@ -1018,6 +1050,224 @@ def post_feel_entry(body: dict, user: str | None = None):
             "notes": row.notes,
             "created_at": row.created_at.isoformat() if row.created_at else None,
         }
+
+
+# ── Weight write + nudge API (Hermes / Discord) ───────────────────────────────
+#
+# The daily floor of the lean program. Everything else in it rests on this
+# endpoint: a number replied in Discord becomes a weight entry, the weigh-in
+# habit ticks itself, and the tracking state (derived, never stored) decides
+# whether tomorrow's nudge is daily, weekly, or silent.
+#
+# perf-coach does NOT talk to Discord. Hermes polls /api/weight/nudge and
+# delivers; this mirrors the plan-draft notify contract above (deliver_now +
+# ack) so there is one pattern for morning-window nudges, not two.
+
+_WEIGHT_MIN_KG = 20.0
+_WEIGHT_MAX_KG = 300.0
+_WEIGHT_NOTES_CAP = 500
+# Matches the CHECK constraint on weight_entries.body_fat_pct.
+_BODY_FAT_MIN_PCT = 3.0
+_BODY_FAT_MAX_PCT = 70.0
+# Morning weigh-in window, BKK. Deliberately earlier than the plan-draft window
+# (07:00-09:00): the weigh-in happens before breakfast, the draft nudge doesn't.
+_WEIGHT_NUDGE_START_HOUR = 6
+_WEIGHT_NUDGE_END_HOUR = 8
+
+
+@app.post("/weight-entry", status_code=201, dependencies=[Depends(_require_worker_api_token)])
+def post_weight_entry(body: dict, user: str | None = None):
+    """Record one morning weigh-in on behalf of Hermes.
+
+    Auth: ``Authorization: Bearer <WORKER_API_TOKEN>``.
+
+    Upserts on (user, date) with a null entry_time — replying twice in one
+    morning corrects the number rather than creating a second row, which is what
+    "reply 87.6" should mean. Recomputes the weigh-in habit's autofill for that
+    week so the habit ticks with no tap.
+    """
+    from datetime import date as _date
+    from backend.models import WeightEntry
+
+    raw_weight = body.get("weight_kg")
+    if raw_weight is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"field": "weight_kg", "error": "weight_kg is required"},
+        )
+    try:
+        weight_kg = float(raw_weight)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=400,
+            detail={"field": "weight_kg", "error": "weight_kg must be a number"},
+        )
+    if not (_WEIGHT_MIN_KG <= weight_kg <= _WEIGHT_MAX_KG):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "field": "weight_kg",
+                "error": f"weight_kg must be between {_WEIGHT_MIN_KG:g} and {_WEIGHT_MAX_KG:g}",
+            },
+        )
+
+    entry_date_raw = body.get("entry_date")
+    if entry_date_raw:
+        try:
+            entry_date = _date.fromisoformat(str(entry_date_raw))
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=400,
+                detail={"field": "entry_date", "error": "entry_date must be a valid YYYY-MM-DD date"},
+            )
+    else:
+        entry_date = datetime.now(BANGKOK_TZ).date()
+
+    today_bkk = datetime.now(BANGKOK_TZ).date()
+    if entry_date > today_bkk:
+        raise HTTPException(
+            status_code=400,
+            detail={"field": "entry_date", "error": "entry_date cannot be in the future"},
+        )
+
+    notes = body.get("notes")
+    if notes is not None and len(str(notes)) > _WEIGHT_NOTES_CAP:
+        raise HTTPException(
+            status_code=400,
+            detail={"field": "notes", "error": f"notes must not exceed {_WEIGHT_NOTES_CAP} characters"},
+        )
+
+    # Optional weekly bioimpedance reading, riding along with the daily number.
+    # Omitting it leaves any existing reading alone — the daily weigh-in must
+    # never wipe the week's composition reading.
+    raw_body_fat = body.get("body_fat_pct")
+    body_fat_pct = None
+    if raw_body_fat is not None:
+        try:
+            body_fat_pct = float(raw_body_fat)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=400,
+                detail={"field": "body_fat_pct", "error": "body_fat_pct must be a number"},
+            )
+        if not (_BODY_FAT_MIN_PCT <= body_fat_pct <= _BODY_FAT_MAX_PCT):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "field": "body_fat_pct",
+                    "error": f"body_fat_pct must be between {_BODY_FAT_MIN_PCT:g} and {_BODY_FAT_MAX_PCT:g}",
+                },
+            )
+
+    resolved_user = _resolve_read_user(user)
+
+    with Session(engine) as s:
+        row = (
+            s.query(WeightEntry)
+            .filter(
+                WeightEntry.user_id == resolved_user.id,
+                WeightEntry.entry_date == entry_date,
+                WeightEntry.entry_time.is_(None),
+            )
+            .first()
+        )
+        created = row is None
+        if row is None:
+            row = WeightEntry(
+                # Generated here rather than by the server default so the insert
+                # round-trips identically on every backend.
+                id=uuid.uuid4(),
+                user_id=resolved_user.id,
+                entry_date=entry_date,
+                entry_time=None,
+                weight_kg=weight_kg,
+                body_fat_pct=body_fat_pct,
+                notes=notes,
+                source="imported",
+            )
+            s.add(row)
+        else:
+            row.weight_kg = weight_kg
+            if notes is not None:
+                row.notes = notes
+            if body_fat_pct is not None:
+                row.body_fat_pct = body_fat_pct
+        s.commit()
+        s.refresh(row)
+
+        payload = {
+            "id": str(row.id),
+            "user_id": str(row.user_id),
+            "entry_date": row.entry_date.isoformat(),
+            "weight_kg": float(row.weight_kg),
+            "body_fat_pct": float(row.body_fat_pct) if row.body_fat_pct is not None else None,
+            "notes": row.notes,
+            "created": created,
+        }
+
+    # Tick the weigh-in habit off the entry — real autofill, no tap. Best-effort:
+    # a habit that didn't tick must never cost the athlete the weigh-in itself.
+    try:
+        from backend.services.habit_autofill import recompute_autofill_for_week
+
+        week_start = entry_date - timedelta(days=entry_date.weekday())
+        recompute_autofill_for_week(resolved_user.id, week_start)
+    except Exception as exc:
+        logger.warning("weigh-in habit autofill failed: %s", exc)
+
+    return payload
+
+
+@app.get("/api/weight/nudge", dependencies=[Depends(_require_worker_api_token)])
+def weight_nudge(user: str | None = None, ack: bool = False):
+    """Morning weight nudge for Hermes to deliver over Discord.
+
+    **Weight only.** There is exactly one message here and it never mentions
+    food — a food nudge is the fastest way to make a daily prompt something the
+    athlete mutes, and a muted app can't help.
+
+    ``deliver_now`` is true only inside the BKK morning window, when today isn't
+    already logged, and when the tracking state's cadence says so: daily while
+    ACTIVE, Mondays only once PAUSED. Silence is the correct output most of the
+    time, and the endpoint says so rather than inventing something to say.
+
+    ``ack`` is accepted for symmetry with the plan-draft notify contract; the
+    weight nudge needs no server-side pending flag because "already logged today"
+    is the natural, self-clearing acknowledgement.
+    """
+    from backend.services.tracking_state import (
+        PAUSED,
+        should_nudge,
+        state_for_user,
+    )
+
+    resolved_user = _resolve_read_user(user)
+    now = datetime.now(BANGKOK_TZ)
+    today = now.date()
+
+    with Session(engine) as s:
+        state = state_for_user(s, resolved_user.id, today)
+
+    in_window = _WEIGHT_NUDGE_START_HOUR <= now.hour < _WEIGHT_NUDGE_END_HOUR
+    due = should_nudge(state, today)
+
+    if state["state"] == PAUSED:
+        message = "weight tracking paused — training continues. one number when you're ready?"
+    else:
+        message = "morning — what's the number?"
+
+    return {
+        "tracking_state": state["state"],
+        "paused_since": state["paused_since"],
+        "nudge_cadence": state["nudge_cadence"],
+        "logged_today": state["logged_today"],
+        "last_weigh_in": state["last_weigh_in"],
+        "days_since_last": state["days_since_last"],
+        "in_window": in_window,
+        "deliver_now": bool(due and in_window),
+        "message": message,
+        "acked": bool(ack),
+    }
 
 
 # ── Scheduler thread ─────────────────────────────────────────────────────────

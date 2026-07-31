@@ -18,6 +18,7 @@ import uuid as _uuid
 from datetime import date as _date, datetime as _datetime, timedelta as _timedelta, timezone as _timezone
 
 from sqlalchemy.orm import Session as _Session
+from backend.utils.time import today_bangkok
 
 # ── Tunable thresholds (documented in docs/calculations/plan-matching.md) ──────
 DAY_WINDOW = 1            # candidate workouts within ±1 day of planned_date
@@ -158,7 +159,7 @@ def reconcile_user(session: _Session, user_id) -> dict:
     from backend.models import PlannedSession, Workout
 
     uid = user_id if isinstance(user_id, _uuid.UUID) else _uuid.UUID(str(user_id))
-    today = _date.today()
+    today = today_bangkok()
 
     planned = (
         session.query(PlannedSession)

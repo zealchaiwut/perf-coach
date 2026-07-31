@@ -10,11 +10,12 @@ import uuid as _uuid
 from datetime import date as _date
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, validator
 
 from backend.auth import resolve_user
+from backend.models import User
 from backend.services import injury_log_service as _svc
 
 router = APIRouter()
@@ -129,26 +130,21 @@ class _PatchBody(BaseModel):
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get("/api/injury-log/active")
-async def list_active_injury_log(request: Request):
-    user = await resolve_user(request)
+async def list_active_injury_log(user: User = Depends(resolve_user)):
     return JSONResponse(_svc.list_active(user_id=user.id))
 
 
 @router.get("/api/injury-log")
 async def list_injury_log(
-    request: Request,
     from_: Optional[str] = Query(default=None, alias="from"),
-    to: Optional[str] = Query(default=None),
-):
-    user = await resolve_user(request)
+    to: Optional[str] = Query(default=None), user: User = Depends(resolve_user)):
     from_date = _parse_date(from_, "from")
     to_date = _parse_date(to, "to")
     return JSONResponse(_svc.list_entries(user_id=user.id, from_date=from_date, to_date=to_date))
 
 
 @router.post("/api/injury-log", status_code=201)
-async def create_injury_log(body: _CreateBody, request: Request):
-    user = await resolve_user(request)
+async def create_injury_log(body: _CreateBody, user: User = Depends(resolve_user)):
     result = _svc.create_entry(
         user_id=user.id,
         kind=body.kind,
@@ -162,8 +158,7 @@ async def create_injury_log(body: _CreateBody, request: Request):
 
 
 @router.patch("/api/injury-log/{entry_id}")
-async def patch_injury_log(entry_id: str, body: _PatchBody, request: Request):
-    user = await resolve_user(request)
+async def patch_injury_log(entry_id: str, body: _PatchBody, user: User = Depends(resolve_user)):
     eid = _parse_id(entry_id)
     fields = body.dict(exclude_unset=True)
     result = _svc.update_entry(entry_id=eid, user_id=user.id, fields=fields)
@@ -173,8 +168,7 @@ async def patch_injury_log(entry_id: str, body: _PatchBody, request: Request):
 
 
 @router.delete("/api/injury-log/{entry_id}", status_code=204)
-async def delete_injury_log(entry_id: str, request: Request):
-    user = await resolve_user(request)
+async def delete_injury_log(entry_id: str, user: User = Depends(resolve_user)):
     eid = _parse_id(entry_id)
     deleted = _svc.delete_entry(entry_id=eid, user_id=user.id)
     if not deleted:

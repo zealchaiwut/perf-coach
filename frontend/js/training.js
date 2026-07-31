@@ -28,7 +28,7 @@
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
   function todayIso() {
-    var d = new Date();
+    var d = window.AppCommon.nowBangkok();
     var m = String(d.getMonth() + 1).padStart(2, '0');
     var day = String(d.getDate()).padStart(2, '0');
     return d.getFullYear() + '-' + m + '-' + day;
@@ -591,8 +591,11 @@
     if (!data || !data.name) card.querySelector('.ex-name').focus();
   }
 
+  // Delegates to the shared escaper (issue #1603). The local copies
+  // disagreed about the apostrophe, so identical content was safe on
+  // some pages and attribute-injectable on others.
   function escapeAttr(s) {
-    return String(s).replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return window.AppCommon.escapeHtml(s);
   }
 
   // ── Run details: structured segment builder ───────────────────────────────────
@@ -625,6 +628,15 @@
     } else {
       renderStrengthProfile();
     }
+  }
+
+  // Tri-state select -> true | false | null. An empty value means the question
+  // was never answered, which is NOT the same as answering "no" — the
+  // long-run-fuel habit only ticks on an explicit true.
+  function triStateVal(id) {
+    var el = document.getElementById(id);
+    if (!el || el.value === '') return null;
+    return el.value === 'true';
   }
 
   function intFieldVal(id) {
@@ -1424,6 +1436,8 @@
     _setEl('workout-date', todayIso());
     _setEl('workout-remarks', '');
     _setEl('workout-tss', '');
+    _setEl('workout-drills', '');
+    _setEl('workout-fuelled', '');
     _clearEl('exercises-tbody', 'innerHTML');
     _clearEl('exercises-error');
     _clearEl('name-error');
@@ -1445,6 +1459,8 @@
     _setEl('workout-date', workout.workout_date);
     _setEl('workout-remarks', workout.remarks || '');
     _setEl('workout-tss', workout.tss != null ? workout.tss : '');
+    _setEl('workout-drills', workout.drills_minutes != null ? workout.drills_minutes : '');
+    _setEl('workout-fuelled', workout.fuelled == null ? '' : String(workout.fuelled));
     _clearEl('exercises-tbody', 'innerHTML');
     _clearEl('exercises-error');
     _clearEl('name-error');
@@ -1589,7 +1605,7 @@
   async function loadSuggestions() {
     try {
       var to = todayIso();
-      var d = new Date();
+      var d = window.AppCommon.nowBangkok();
       d.setFullYear(d.getFullYear() - 1);
       var from = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 
@@ -1645,7 +1661,7 @@
     btn.disabled = true;
     try {
       var to = todayIso();
-      var d = new Date();
+      var d = window.AppCommon.nowBangkok();
       d.setFullYear(d.getFullYear() - 3);
       var from = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 
@@ -1667,6 +1683,8 @@
       document.getElementById('workout-date').value = todayIso();
       document.getElementById('workout-remarks').value = w.remarks || '';
       document.getElementById('workout-tss').value = w.tss != null ? w.tss : '';
+      document.getElementById('workout-drills').value = w.drills_minutes != null ? w.drills_minutes : '';
+      document.getElementById('workout-fuelled').value = w.fuelled == null ? '' : String(w.fuelled);
       document.getElementById('exercises-tbody').innerHTML = '';
       document.getElementById('exercises-error').textContent = '';
       document.getElementById('name-error').textContent = '';
@@ -1814,6 +1832,10 @@
       workout_type: getSelectedType(),
       remarks: document.getElementById('workout-remarks').value.trim() || null,
       tss: tssVal,
+      // null = not recorded, distinct from 0 ("logged the session, no drills").
+      // intFieldVal already returns null for an empty input.
+      drills_minutes: intFieldVal('workout-drills'),
+      fuelled: triStateVal('workout-fuelled'),
     };
 
     // Simplified slide-over panel (issue #643) uses <select> — no run/exercise sections
@@ -1930,7 +1952,7 @@
           String(d.getDate()).padStart(2, '0');
       }
       var to = new Date();
-      var from = new Date();
+      var from = window.AppCommon.nowBangkok();
       from.setDate(from.getDate() - 30);
       var res = await fetch('/api/workouts?from=' + ymd(from) + '&to=' + ymd(to));
       if (!res.ok) throw new Error('Server error ' + res.status);
@@ -1974,12 +1996,11 @@
     });
   }
 
+  // Delegates to the shared escaper (issue #1603). The local copies
+  // disagreed about the apostrophe, so identical content was safe on
+  // some pages and attribute-injectable on others.
   function escapeHtml(s) {
-    return String(s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+    return window.AppCommon.escapeHtml(s);
   }
 
   // ── Detail modal ──────────────────────────────────────────────────────────────

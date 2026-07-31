@@ -156,10 +156,11 @@ def _patch_all_blocks(overrides=None):
 
 # ── AC (a): Full shape ────────────────────────────────────────────────────────
 
-def test_full_shape_all_blocks_present():
+def test_full_shape_all_blocks_present(as_user):
     """All 7 blocks present and correctly shaped when all data exists."""
+    as_user(_UID)
     with _patch_user_session(), _patch_all_blocks():
-        res = client.get(f"/api/home/summary?user_id={_UID}")
+        res = client.get(f"/api/home/summary")
     assert res.status_code == 200
     body = res.json()
     for block in ("habits", "weight", "readiness", "training_week",
@@ -168,9 +169,10 @@ def test_full_shape_all_blocks_present():
         assert body[block] is not None, f"block {block} unexpectedly null"
 
 
-def test_full_shape_habits_structure():
+def test_full_shape_habits_structure(as_user):
+    as_user(_UID)
     with _patch_user_session(), _patch_all_blocks():
-        res = client.get(f"/api/home/summary?user_id={_UID}")
+        res = client.get(f"/api/home/summary")
     h = res.json()["habits"]
     assert "wheel" in h
     assert "pct_elapsed" in h
@@ -180,9 +182,10 @@ def test_full_shape_habits_structure():
     assert isinstance(h["daily_habits"], list)
 
 
-def test_full_shape_weight_structure():
+def test_full_shape_weight_structure(as_user):
+    as_user(_UID)
     with _patch_user_session(), _patch_all_blocks():
-        res = client.get(f"/api/home/summary?user_id={_UID}")
+        res = client.get(f"/api/home/summary")
     w = res.json()["weight"]
     for key in ("current_kg", "basis_kg", "gap_kg", "gap_direction", "sparkline",
                 "seven_day_avg", "progress_pct", "target_kg", "target_date",
@@ -192,28 +195,32 @@ def test_full_shape_weight_structure():
     assert isinstance(w["sparkline"], list)
 
 
-def test_full_shape_training_week_structure():
+def test_full_shape_training_week_structure(as_user):
+    as_user(_UID)
     with _patch_user_session(), _patch_all_blocks():
-        res = client.get(f"/api/home/summary?user_id={_UID}")
+        res = client.get(f"/api/home/summary")
     t = res.json()["training_week"]
     for key in ("workouts_count", "distance_km", "zone2_minutes", "vs_last_week", "daily_load"):
         assert key in t, f"training_week block missing: {key}"
     assert len(t["daily_load"]) == 7
 
 
-def test_missing_user_id_returns_404():
+def test_missing_user_id_returns_404(as_user):
+    as_user(_UID)
     res = client.get("/api/home/summary")
     assert res.status_code == 404
 
 
-def test_invalid_user_id_returns_404():
+def test_invalid_user_id_returns_404(as_user):
+    as_user(_UID)
     res = client.get("/api/home/summary?user_id=not-a-uuid")
     assert res.status_code == 404
 
 
-def test_unknown_user_returns_404():
+def test_unknown_user_returns_404(as_user):
+    as_user(_UID)
     with _patch_user_session(found=False):
-        res = client.get(f"/api/home/summary?user_id={_UID}")
+        res = client.get(f"/api/home/summary")
     assert res.status_code == 404
 
 
@@ -251,7 +258,7 @@ def test_per_block_degradation(block_fn, block_key):
                 p.__exit__(*args)
 
     with _patch_user_session(), _CM():
-        res = client.get(f"/api/home/summary?user_id={_UID}")
+        res = client.get(f"/api/home/summary")
 
     assert res.status_code == 200
     body = res.json()
@@ -265,8 +272,9 @@ def test_per_block_degradation(block_fn, block_key):
 
 # ── AC (c): habits checked state for today ────────────────────────────────────
 
-def test_habits_checked_state_today():
+def test_habits_checked_state_today(as_user):
     """habits block daily_habits reflects correct checked state for today."""
+    as_user(_UID)
     from backend.main import _build_habits_block
 
     today_bkk = _TODAY
@@ -330,8 +338,9 @@ def test_habits_checked_state_today():
     assert dh["today_checked"] is True
 
 
-def test_habits_unchecked_state_today():
+def test_habits_unchecked_state_today(as_user):
     """daily_habits shows today_checked=False when no log for today."""
+    as_user(_UID)
     from backend.main import _build_habits_block
 
     today_bkk = _TODAY
@@ -388,8 +397,9 @@ def test_habits_unchecked_state_today():
 
 # ── AC (d): weight block logged_today and last_entry_kg ───────────────────────
 
-def test_weight_logged_today_true():
+def test_weight_logged_today_true(as_user):
     """weight block logged_today=True when an entry exists for today."""
+    as_user(_UID)
     from backend.main import _build_weight_block
 
     uid = uuid.UUID(_UID)
@@ -446,8 +456,9 @@ def test_weight_logged_today_true():
     assert result["last_entry_kg"] == pytest.approx(75.0, abs=0.01)
 
 
-def test_weight_logged_today_false():
+def test_weight_logged_today_false(as_user):
     """weight block logged_today=False when no entry exists for today."""
+    as_user(_UID)
     from backend.main import _build_weight_block
 
     uid = uuid.UUID(_UID)
@@ -496,8 +507,9 @@ def test_weight_logged_today_false():
     assert result["last_entry_kg"] == pytest.approx(75.5, abs=0.01)
 
 
-def test_weight_block_null_when_no_target():
+def test_weight_block_null_when_no_target(as_user):
     """weight block returns null when no active weight target."""
+    as_user(_UID)
     from backend.main import _build_weight_block
 
     uid = uuid.UUID(_UID)
@@ -532,8 +544,9 @@ def test_weight_block_null_when_no_target():
 
 # ── AC (e): training_week.daily_load always 7 entries ─────────────────────────
 
-def test_training_week_daily_load_7_entries():
+def test_training_week_daily_load_7_entries(as_user):
     """training_week.daily_load has exactly 7 entries regardless of workout data."""
+    as_user(_UID)
     from backend.main import _build_training_week_block
 
     uid = uuid.UUID(_UID)
@@ -562,8 +575,9 @@ def test_training_week_daily_load_7_entries():
         assert d_str == expected, f"day {i}: expected {expected}, got {d_str}"
 
 
-def test_training_week_daily_load_7_entries_with_workouts():
+def test_training_week_daily_load_7_entries_with_workouts(as_user):
     """training_week.daily_load has exactly 7 entries even with some workout data."""
+    as_user(_UID)
     from backend.main import _build_training_week_block
 
     uid = uuid.UUID(_UID)
@@ -595,8 +609,9 @@ def test_training_week_daily_load_7_entries_with_workouts():
 
 # ── AC (f): performance returns at most 3 tracks ──────────────────────────────
 
-def test_performance_at_most_3_tracks():
+def test_performance_at_most_3_tracks(as_user):
     """performance block returns at most 3 tracks."""
+    as_user(_UID)
     from backend.main import _build_performance_block
 
     uid = uuid.UUID(_UID)
@@ -640,8 +655,9 @@ def test_performance_at_most_3_tracks():
     assert len(result) <= 3
 
 
-def test_performance_null_when_no_records():
+def test_performance_null_when_no_records(as_user):
     """performance block returns null when user has no PR records."""
+    as_user(_UID)
     from backend.main import _build_performance_block
 
     uid = uuid.UUID(_UID)
@@ -665,8 +681,9 @@ def test_performance_null_when_no_records():
 
 # ── AC (g): Bangkok week/day boundaries ───────────────────────────────────────
 
-def test_bangkok_week_boundaries():
+def test_bangkok_week_boundaries(as_user):
     """Week start is computed in Bangkok time (Asia/Bangkok), not UTC."""
+    as_user(_UID)
     # Simulate a time where Bangkok day differs from UTC day.
     # E.g., 17:30 UTC on a Sunday = Monday 00:30 in Bangkok (UTC+7).
     # In this case, the Bangkok week should start on that Monday.
@@ -687,12 +704,13 @@ def test_bangkok_week_boundaries():
         )
         # Just verify the endpoint returns 200; Bangkok boundary correctness
         # is verified in _build_training_week_block / _build_habits_block tests
-        res = client.get(f"/api/home/summary?user_id={_UID}")
+        res = client.get(f"/api/home/summary")
     assert res.status_code == 200
 
 
-def test_training_week_start_is_monday():
+def test_training_week_start_is_monday(as_user):
     """daily_load first entry date is always a Monday (Bangkok week start)."""
+    as_user(_UID)
     from backend.main import _build_training_week_block
 
     uid = uuid.UUID(_UID)

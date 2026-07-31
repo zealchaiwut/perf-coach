@@ -9,9 +9,15 @@ requests==2.32.3
 python-multipart==0.0.20
 scipy==1.18.0
 httpx
-# Optional plan-suggestion orchestrators (PLAN_ORCH=langgraph|pydantic_ai),
-# imported lazily only when that orchestrator is selected — off by default, so
-# no startup memory cost; the feature falls back to the deterministic template
-# if either import fails. See backend/services/plan_orch_*.py.
-langgraph==0.2.76
-pydantic-ai-slim[openai]==2.6.0
+
+# Test/dev dependencies are NOT here — see requirements-dev.txt. Render installs
+# this file into a 512MB instance with an OOM history (PR #1576), so it carries
+# only what serving traffic needs.
+#
+# Removed 2026-07-31: langgraph and pydantic-ai-slim. They existed for the
+# PLAN_ORCH=langgraph|pydantic_ai plan-suggestion orchestrators, which #1597
+# deleted once the A/B comparison ended. pydantic-ai had zero remaining imports;
+# langgraph's only consumer was the PARKED coach_orch_langgraph, whose imports
+# are function-local inside a try/except that falls back to the deterministic
+# path. If that module is ever un-parked rather than deleted, langgraph comes
+# back with it.

@@ -3,7 +3,7 @@
 // ── Utilities ──────────────────────────────────────────────────────────────
 
 function todayISO() {
-  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+  return window.AppCommon.todayISO();
 }
 
 function isoDateStr(date) {
@@ -156,9 +156,21 @@ function renderStreakAndAdherence(entries) {
 
 // ── Subtitle ─────────────────────────────────────────────────────────────
 
-function renderSubtitle(summary, stats) {
+function renderSubtitle(summary, stats, tracking) {
   const el = document.getElementById('page-subtitle');
   if (!el) return;
+
+  // Paused tracking, said plainly. 7 days without a weigh-in drops the nudge to
+  // weekly and silences cut verdicts — deliberate ("the app gets quieter, not
+  // louder"), but until now that state existed ONLY in Discord and the paste
+  // blob, so an athlete using the app saw silence with no explanation (#1608).
+  // Nothing turns red; this is reassurance, not a warning.
+  const banner = document.getElementById('tracking-state');
+  if (banner) {
+    const paused = tracking && tracking.state === 'paused';
+    banner.hidden = !paused;
+    if (paused) banner.textContent = tracking.copy || 'weight tracking paused — training continues.';
+  }
 
   const count = summary ? summary.entries_logged : 0;
   const last14Count = _recentEntries.filter(e => e.weight_kg != null).length;
@@ -495,8 +507,9 @@ function renderRecentEntries(entries, activeTarget, totalEntries) {
     activeTarget.start_weight_kg == null ||
     activeTarget.target_weight_kg < activeTarget.start_weight_kg;
 
+  // Delegates to the shared escaper (issue #1603).
   function _esc(s) {
-    return String(s).replace(/[<>&"]/g, c => ({'<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;'}[c]));
+    return window.AppCommon.escapeHtml(s);
   }
 
   // empty state: if no entries exist at all, show prompt instead of 14 blank rows
@@ -816,7 +829,7 @@ let _calSelDate = null;    // currently-open editor date
 function _pad2(n) { return String(n).padStart(2, '0'); }
 
 function _initBackfillCalendar() {
-  const now = new Date();
+  const now = window.AppCommon.nowBangkok();
   _calY = now.getFullYear();
   _calM = now.getMonth();
   const prev = document.getElementById('wcal-prev');
@@ -836,7 +849,7 @@ function _calShift(delta) {
 async function renderBackfillCalendar() {
   const gridR = document.getElementById('wcal-grid-right');
   if (!gridR || _userId == null) return;
-  if (_calY == null) { const n = new Date(); _calY = n.getFullYear(); _calM = n.getMonth(); }
+  if (_calY == null) { const n = window.AppCommon.nowBangkok(); _calY = n.getFullYear(); _calM = n.getMonth(); }
 
   // Right = displayed month; Left = the month before it.
   const rY = _calY, rM = _calM;
@@ -847,7 +860,7 @@ async function renderBackfillCalendar() {
   const rLast = new Date(rY, rM + 1, 0).getDate();
   const toStr  = `${rY}-${_pad2(rM + 1)}-${_pad2(rLast)}`;
 
-  const now = new Date();
+  const now = window.AppCommon.nowBangkok();
   const atCurrent = (rY > now.getFullYear()) || (rY === now.getFullYear() && rM >= now.getMonth());
   const nextBtn = document.getElementById('wcal-next');
   if (nextBtn) nextBtn.disabled = atCurrent;
@@ -1764,7 +1777,7 @@ async function _reload() {
     _recentEntries = entriesRes.entries || [];
     _activeTarget = targetRes.target || null;
 
-    renderSubtitle(summaryRes.summary, chartData.stats);
+    renderSubtitle(summaryRes.summary, chartData.stats, entriesRes.tracking);
     renderHeroCardA(chartData, _activeTarget);
     renderCoachStrip(chartData, _activeTarget);
     renderChart(chartData, _currentRange);

@@ -32,6 +32,7 @@ from __future__ import annotations
 import math
 from datetime import date, timedelta
 from typing import Literal, Optional, TypedDict
+from backend.utils.time import today_bangkok
 
 Verdict = Literal["back_off", "hold", "build"]
 
@@ -196,7 +197,7 @@ def compute_verdict(
         last_week_actual: last completed week's actual TSS. Same as
             chronic_weekly — accepted, not yet used; keeps the signature
             stable for load_plan.py callers.
-        today: for the convergence-date projection; defaults to date.today().
+        today: for the convergence-date projection; defaults to today_bangkok().
         readiness_today: canonical readiness score for today (0–100). When
             below READINESS_LOW_TODAY the load verdict is downgraded one step.
         readiness_7d_mean: mean readiness over the trailing 7 days. When
@@ -211,7 +212,7 @@ def compute_verdict(
         leaves the load-only verdict unchanged. `modifiers` lists every rule
         that fired with its triggering value; empty when no rules fired.
     """
-    today = today or date.today()
+    today = today or today_bangkok()
     acwr = snap.get("acwr")
     tsb = float(snap.get("tsb", 0.0))
     ctl = float(snap.get("ctl", 0.0))

@@ -15,6 +15,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from backend.utils.log import get_logger
+from backend.utils.time import today_bangkok
 
 _log = get_logger(__name__)
 
@@ -1333,7 +1334,7 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
         _format_hms,
     )
 
-    today = today or date.today()
+    today = today or today_bangkok()
     _own = db is None
     if _own:
         from sqlalchemy.orm import Session

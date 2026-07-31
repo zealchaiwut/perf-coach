@@ -140,6 +140,12 @@
         font-size: 13px;
         color: rgba(255, 255, 255, 0.72);
       }
+      .tracking-state {
+        margin-top: 6px; font-size: 12.5px; font-weight: 600;
+        color: var(--text-secondary, #64748b);
+        background: rgba(255,255,255,0.14); border-radius: 999px;
+        padding: 4px 12px; display: inline-block;
+      }
 
       .header-actions {
         display: flex;
@@ -3026,6 +3032,9 @@
               >0 / 14 days</span
             >
           </div>
+          <!-- Paused weight tracking (#1608). Reassurance, not a warning:
+               nothing turns red, and the copy says training continues. -->
+          <p class="tracking-state" id="tracking-state" hidden></p>
         </div>
         <div class="header-actions">
           <button class="btn-secondary" id="export-csv-btn" type="button">
@@ -3905,6 +3914,7 @@
       </div>
     </div>
 
+    <script src="js/lib/app-common.js"></script>
     <script src="js/lib/sync-poller.js"></script>
 
     <script src="js/nav.js"></script>
