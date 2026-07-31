@@ -148,6 +148,25 @@ def _is_merge_migration(content: str) -> bool:
     return all(line == "pass" for line in code_lines)
 
 
+# Accepted existence-guard spellings.
+#
+# CLAUDE.md documents this project's convention as the helpers in alembic/
+# (table_exists / column_exists / index_exists / fk_exists), but these
+# assertions only ever recognised SQLAlchemy's raw inspector API. Every
+# migration written in the project's OWN documented style was reported as a
+# violation — 216 false failures, the single largest block in the suite, and
+# noise that made the real failures harder to see (#1606).
+_TABLE_GUARDS = ("has_table", "table_exists", "IF NOT EXISTS")
+_COLUMN_GUARDS = (
+    "has_column", "get_columns", "existing_cols", "column_exists", "IF NOT EXISTS",
+)
+_INDEX_GUARDS = ("has_index", "get_indexes", "index_exists", "IF NOT EXISTS")
+
+
+def _guarded(content: str, guards) -> bool:
+    return any(g in content for g in guards)
+
+
 @pytest.mark.parametrize("migration", _migration_files(), ids=lambda p: p.name)
 def test_ac3_create_table_guarded(migration):
     """Every op.create_table call must be inside an existence-check guard."""
@@ -156,8 +175,10 @@ def test_ac3_create_table_guarded(migration):
         pytest.skip("merge migration has no op.create_table calls")
     if "op.create_table(" not in content:
         pytest.skip(f"{migration.name} has no op.create_table calls")
-    assert "has_table" in content or "IF NOT EXISTS" in content, \
-        f"{migration.name}: op.create_table must be guarded with has_table() or IF NOT EXISTS"
+    assert _guarded(content, _TABLE_GUARDS), (
+        f"{migration.name}: op.create_table must be guarded — "
+        f"one of {_TABLE_GUARDS}"
+    )
 
 
 @pytest.mark.parametrize("migration", _migration_files(), ids=lambda p: p.name)
@@ -168,9 +189,10 @@ def test_ac3_add_column_guarded(migration):
         pytest.skip("merge migration")
     if "op.add_column(" not in content:
         pytest.skip(f"{migration.name} has no op.add_column calls")
-    assert "has_column" in content or "get_columns" in content or "existing_cols" in content or \
-           "IF NOT EXISTS" in content, \
-        f"{migration.name}: op.add_column must be guarded with column existence check"
+    assert _guarded(content, _COLUMN_GUARDS), (
+        f"{migration.name}: op.add_column must be guarded — "
+        f"one of {_COLUMN_GUARDS}"
+    )
 
 
 @pytest.mark.parametrize("migration", _migration_files(), ids=lambda p: p.name)
@@ -192,9 +214,14 @@ def test_ac3_create_index_guarded(migration):
     has_op_create_index = "op.create_index(" in upgrade_body
 
     if has_op_create_index and not has_create_index_safe:
-        assert "has_table" in upgrade_body or "inspector" in upgrade_body or \
-               "CREATE INDEX IF NOT EXISTS" in upgrade_body, \
-            f"{migration.name}: op.create_index must use IF NOT EXISTS or be inside an existence guard"
+        assert (
+            _guarded(upgrade_body, _INDEX_GUARDS)
+            or "inspector" in upgrade_body
+            or "CREATE INDEX IF NOT EXISTS" in upgrade_body
+        ), (
+            f"{migration.name}: op.create_index must use IF NOT EXISTS or be "
+            f"inside an existence guard — one of {_INDEX_GUARDS}"
+        )
 
 
 @pytest.mark.parametrize("migration", _migration_files(), ids=lambda p: p.name)
@@ -212,7 +239,7 @@ def test_ac3_drop_table_guarded(migration):
     if "op.drop_table(" not in downgrade_body:
         pytest.skip(f"{migration.name} has no op.drop_table in downgrade()")
 
-    assert "has_table" in downgrade_body or "DROP TABLE IF EXISTS" in downgrade_body, \
+    assert _guarded(downgrade_body, _TABLE_GUARDS + ("DROP TABLE IF EXISTS",)), \
         f"{migration.name}: op.drop_table in downgrade() must be guarded with has_table() or IF EXISTS"
 
 
