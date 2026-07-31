@@ -768,7 +768,7 @@ def brief_to_text(brief: dict) -> str:
     cq = brief.get("closing_question") or CLOSING_QUESTION
     ref_parts.append(cq)
 
-    from backend.services.coach_narrative import sections_to_text
+    from backend.services.coach_sections import sections_to_text
 
     return sections_to_text({
         "now": "\n\n".join(p for p in now_parts if p) or "—",
@@ -821,6 +821,71 @@ def persist_daily_brief(
     return row
 
 
+def build_brief_deterministic(
+    facts: dict,
+    *,
+    db: Session | None = None,
+    user_id=None,
+    brief_date: date | None = None,
+) -> dict:
+    """Build a v4 brief with no LLM, and persist it when given a db.
+
+    Replaces ``coach_narrative.generate_brief`` on every live path (Priority 2,
+    D4). Same return shape, so callers did not have to change: ``brief``,
+    ``text``, ``sections``, ``source``, ``attempts``, ``orch``,
+    ``chosen_preset``. ``source`` is always "fallback" and ``attempts`` always
+    0 — there is nothing to attempt.
+
+    This is exactly the branch ``generate_brief`` already took whenever the LLM
+    was off, unreachable, or produced atoms that failed validation. Parking the
+    LLM makes that branch the only branch; it does not introduce a new one.
+    """
+    from datetime import date as _date
+
+    from backend.services.coach_sections import apply_chosen_preset
+
+    brief_date = brief_date or _date.fromisoformat(
+        str(facts.get("as_of") or _date.today().isoformat())[:10]
+    )
+    yesterday = None
+    if db is not None and user_id is not None:
+        yesterday = get_yesterday_brief_payload(db, user_id, brief_date)
+
+    brief = compose_coach_brief(facts, yesterday)
+    # None = take the first active preset. The LLM's pick was validated against
+    # the same list and fell back here whenever it was absent or rejected.
+    apply_chosen_preset(facts, None)
+
+    finalize_brief(brief, facts)
+    brief["source"] = "fallback"
+
+    text = brief_to_text(brief)
+    if db is not None and user_id is not None:
+        try:
+            persist_daily_brief(db, user_id, brief_date, brief, "fallback")
+        except Exception as exc:
+            _log.warning("persist daily_brief failed: %s", exc)
+            # A failed persist (e.g. unique-constraint race on
+            # (user_id, brief_date)) aborts the transaction; roll back so the
+            # caller's later db.commit() doesn't raise on a poisoned session.
+            try:
+                db.rollback()
+            except Exception:
+                pass
+
+    from backend.services.coach_sections import parse_sections_from_text
+
+    return {
+        "brief": brief,
+        "text": text,
+        "sections": parse_sections_from_text(text),
+        "source": "fallback",
+        "attempts": 0,
+        "orch": "deterministic",
+        "chosen_preset": facts.get("chosen_preset"),
+    }
+
+
 def get_or_build_brief(
     db: Session,
     user_id,
@@ -831,7 +896,6 @@ def get_or_build_brief(
     """Return stored v4 brief; build on demand if missing."""
     from backend.models import DailyBrief
     from backend.services.coach_facts import build_coach_facts
-    from backend.services.coach_narrative import generate_brief
 
     brief_date = brief_date or datetime.now(BANGKOK_TZ).date()
     if not force:
@@ -849,7 +913,9 @@ def get_or_build_brief(
     facts = build_coach_facts(user_id, today=brief_date, db=db)
     if facts is None:
         return None
-    result = generate_brief(facts, db=db, user_id=user_id, brief_date=brief_date)
+    result = build_brief_deterministic(
+        facts, db=db, user_id=user_id, brief_date=brief_date
+    )
     brief = result.get("brief")
     if brief is None:
         return None

@@ -2,6 +2,16 @@
 
 Produces Now / Focus / Dream / Reflection Markdown from coach_facts.
 LLM may only use numerals present in facts['required_numerals'].
+
+PARKED (Priority 2, D4). Nothing in the live coach path imports this module —
+``coach_brief.get_or_build_brief`` and ``weekly_coach_message`` now call
+``coach_brief.build_brief_deterministic`` instead. It is left on disk,
+unreferenced, for one quiet release before deletion.
+
+The LLM-free primitives that used to live here (section rendering/parsing and
+preset choice) moved to ``coach_sections`` so the deterministic path does not
+have to import an LLM module to format a message. They are re-exported below
+for this module's own use.
 """
 
 from __future__ import annotations
@@ -10,17 +20,17 @@ import os
 import re
 from typing import Any
 
+from backend.services.coach_sections import (  # noqa: F401 - re-export
+    SECTION_HEADERS,
+    SECTION_ORDER,
+    apply_chosen_preset,
+    parse_sections_from_text,
+    sections_to_text,
+)
 from backend.utils.log import get_logger
 
 _log = get_logger(__name__)
 
-SECTION_ORDER = ("now", "focus", "dream", "reflection")
-SECTION_HEADERS = {
-    "now": "## Now",
-    "focus": "## Focus",
-    "dream": "## Dream",
-    "reflection": "## Reflection",
-}
 MAX_TOTAL_CHARS = 2800
 MIN_SECTION_CHARS = 24
 
@@ -77,37 +87,6 @@ _FOCUS_RANK_RE = re.compile(r"focus\s*#?\d", re.IGNORECASE)
 _MD_HEADER_RE = re.compile(r"^##\s", re.MULTILINE)
 _SENTENCE_RE = re.compile(r"[.!?](?:\s|$)")
 
-
-
-def sections_to_text(sections: dict[str, str]) -> str:
-    parts = []
-    for key in SECTION_ORDER:
-        body = (sections.get(key) or "").strip()
-        parts.append(f"{SECTION_HEADERS[key]}\n{body}")
-    return "\n\n".join(parts)
-
-
-def parse_sections_from_text(text: str) -> dict[str, str]:
-    """Split Markdown ## Now/Focus/Dream/Reflection into a dict."""
-    if not text:
-        return {k: "" for k in SECTION_ORDER}
-    pattern = re.compile(
-        r"^##\s+(Now|Focus|Dream|Reflection)\s*$",
-        re.IGNORECASE | re.MULTILINE,
-    )
-    matches = list(pattern.finditer(text))
-    out = {k: "" for k in SECTION_ORDER}
-    if not matches:
-        # Legacy weekly message — put everything in Now
-        out["now"] = text.strip()
-        return out
-    for i, m in enumerate(matches):
-        key = m.group(1).lower()
-        start = m.end()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        if key in out:
-            out[key] = text[start:end].strip()
-    return out
 
 
 def _fmt_unlock(load: dict) -> str:
@@ -988,29 +967,6 @@ def call_llm_sections(facts: dict, feedback: str = "") -> dict[str, str] | None:
 
 def coach_orch_mode() -> str:
     return (os.environ.get("COACH_ORCH") or "langgraph").strip().lower()
-
-
-def apply_chosen_preset(facts: dict, chosen_code: str | None) -> dict:
-    """Validate LLM pick against active_presets; update facts nudge/chosen_preset."""
-    from backend.services.gap_analysis.session_presets import pick_preset_by_code
-
-    presets = facts.get("active_presets") or []
-    if not presets:
-        return facts
-    picked = pick_preset_by_code(presets, chosen_code) if chosen_code else None
-    if picked is None:
-        picked = presets[0]
-    facts["chosen_preset"] = picked
-    facts["nudge"] = {
-        "focus_id": picked.get("code"),
-        "focus_label": picked.get("name") or picked.get("kind"),
-        "next_action": (
-            f"{picked.get('name') or picked.get('kind')} ({picked.get('summary')})"
-        ),
-        "why": picked.get("notes"),
-        "preset_code": picked.get("code"),
-    }
-    return facts
 
 
 def generate_narrative(facts: dict, max_attempts: int = 3) -> dict:

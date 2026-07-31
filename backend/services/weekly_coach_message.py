@@ -211,66 +211,26 @@ def compose_deterministic_message(
     return "\n\n".join(parts)
 
 
-# ── LLM narrative layer ────────────────────────────────────────────────────────
-
-def _call_llm_narrative(deterministic_text: str, plan_state: dict) -> str | None:
-    """Ask the LLM to add warmth to the deterministic message.
-
-    All numbers must be preserved verbatim.  Returns None on any failure
-    (disabled LLM, API error, bad response).  Never raises.
-    """
-    from backend.services.llm import llm_enabled, complete_structured
-
-    if not llm_enabled():
-        return None
-
-    system = (
-        "You are a supportive performance coach writing a weekly update for an athlete. "
-        "Rephrase the structured message below to sound encouraging and human, "
-        "but you MUST preserve ALL numeric values, dates, and time estimates exactly as given. "
-        "Do not invent, change, or omit any number, date, or time. "
-        "Keep all five sections (Now, Next steps, Constraint, Levers, Projection) in order. "
-        "Plain text only — no markdown, no bullet symbols beyond what is already present."
-    )
-    user = f"Rephrase this weekly coaching update:\n\n{deterministic_text}"
-
-    schema = {
-        "type": "object",
-        "properties": {
-            "message": {"type": "string"},
-        },
-        "required": ["message"],
-        "additionalProperties": False,
-    }
-
-    result = complete_structured(
-        system=system,
-        user=user,
-        schema_name="weekly_coach_message",
-        json_schema=schema,
-        model_tier="fast",
-        max_tokens=800,
-    )
-    if result is None:
-        return None
-    text = result.get("message", "")
-    return text if text else None
-
+# ── Message assembly ───────────────────────────────────────────────────────────
 
 def _build_message(
     plan_state: dict,
     projection_info: dict,
     today: date,
 ) -> str:
-    """Build the weekly message — tries LLM, falls back to deterministic."""
-    deterministic = compose_deterministic_message(plan_state, projection_info, today)
-    try:
-        llm_result = _call_llm_narrative(deterministic, plan_state)
-    except Exception as exc:
-        _log.warning("LLM narrative failed, using deterministic fallback", extra={"error": str(exc)})
-        llm_result = None
+    """Build the weekly message. Deterministic — no LLM.
 
-    return llm_result if llm_result else deterministic
+    There used to be a "warmth rephrase" layer here: the deterministic text went
+    to the LLM with an instruction to sound encouraging while preserving every
+    number verbatim, falling back silently on any failure. Parked in Priority 2
+    (D4) along with the rest of the worker's LLM surface.
+
+    Worth being explicit about what was given up: tone. What it bought was a
+    daily message that cannot invent a number, cannot 500, and needs no provider
+    key on the worker. Judgment and warmth now come from the paste loop
+    (Priority 1), where a human is in the conversation.
+    """
+    return compose_deterministic_message(plan_state, projection_info, today)
 
 
 # ── Persistence ────────────────────────────────────────────────────────────────
@@ -479,7 +439,7 @@ def get_coach_payload_for_user(
         # Offline fallback: facts + brief v4 → legacy Markdown for Hermes
         from backend.services.coach_facts import build_coach_facts
         from backend.services.coach_brief import compose_coach_brief, brief_to_text, get_or_build_brief
-        from backend.services.coach_narrative import parse_sections_from_text
+        from backend.services.coach_sections import parse_sections_from_text
 
         # Prefer stored v4 brief when present
         stored = get_or_build_brief(db, user_id, today, force=False)
@@ -685,8 +645,8 @@ def generate_for_user(user_id, db=None, today: date | None = None) -> dict | Non
     today = today or date.today()
 
     try:
+        from backend.services.coach_brief import build_brief_deterministic
         from backend.services.coach_facts import build_coach_facts
-        from backend.services.coach_narrative import generate_brief
 
         facts = build_coach_facts(user_id, today=today, db=db)
         if facts is None:
@@ -696,9 +656,8 @@ def generate_for_user(user_id, db=None, today: date | None = None) -> dict | Non
             )
             return None
 
-        result = generate_brief(
+        result = build_brief_deterministic(
             facts,
-            max_attempts=3,
             db=db,
             user_id=user_id,
             brief_date=today,
