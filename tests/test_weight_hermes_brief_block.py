@@ -124,10 +124,12 @@ class TestWeightRollup:
         assert result["current_kg"] == expected_avg
         # Not equal to any single day's raw value.
         assert result["current_kg"] not in daily
+        # basis truthfully reports the trailing-7d branch fired.
+        assert result["basis"] == "avg_7d"
 
     def test_zero_entries_all_none(self):
         result = _weight_rollup([], datetime.date(2026, 7, 15))
-        assert result == {"current_kg": None, "trend_7d": None, "trend_28d": None}
+        assert result == {"current_kg": None, "basis": None, "trend_7d": None, "trend_28d": None}
 
     def test_single_entry_in_7d_window_falls_back_to_wider_lookback_average(self):
         """Fewer than 2 entries in the trailing 7 days -> average of whatever
@@ -143,6 +145,8 @@ class TestWeightRollup:
         assert result["current_kg"] != 80.0
         # ...it must be the average of every row supplied.
         assert result["current_kg"] == round((80.0 + 76.0 + 74.0) / 3, 2)
+        # basis truthfully reports the wide-lookback branch fired, not avg_7d.
+        assert result["basis"] == "avg_wide"
 
     def test_single_row_total_does_not_crash(self):
         """A single row anywhere in the lookback (and nowhere else) must not
@@ -152,6 +156,7 @@ class TestWeightRollup:
         rows = [(as_of - datetime.timedelta(days=30), 82.5)]
         result = _weight_rollup(rows, as_of)
         assert result["current_kg"] == 82.5
+        assert result["basis"] == "avg_wide"
         assert result["trend_7d"] is None
         assert result["trend_28d"] is None
 

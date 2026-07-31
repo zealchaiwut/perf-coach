@@ -309,17 +309,27 @@ So on 2025-04-01 the plan expects the user to be at **81.3 kg**.
 ### Gap Basis Selection
 
 To compare the user's actual progress against the plan, `compute_gap` selects a
-"current basis" weight using this priority order:
+"current basis" weight by delegating to `_weight_rollup` — the same rule used
+by every other "current weight" figure in the app (the Home/Weight-page
+headline stats, the Hermes weight brief). This is a deliberately conservative
+rule: a displayed number is never driven by one noisy weigh-in. Priority order:
 
-1. **`avg_7d`** — if the user has ≥ 3 entries in the last 7 days, use their
+1. **`avg_7d`** — if the user has ≥ 2 entries in the last 7 days, use their
    rolling average over those entries.
-2. **`latest_entry`** — if fewer than 3 entries exist in 7 days but at least 1
-   entry exists in the last 14 days, use the single most recent entry.
-3. **`no_data`** — if no entry exists within 14 days, the gap cannot be computed
-   and `gap_direction` is set to `"no_data"`.
+2. **`avg_wide`** — if fewer than 2 entries exist in the last 7 days, average
+   over whatever entries exist in the wider lookback window (55 days) instead
+   — never just the single latest entry, even when only one exists in the
+   trailing 7 days but more history is available further back.
+3. **`no_data`** — if no entry exists within the 55-day lookback, the gap
+   cannot be computed and `gap_direction` is set to `"no_data"`.
 
 The `basis` field in the API response reflects which rule was applied
-(`"avg_7d"`, `"latest_entry"`, or `null` for no_data).
+(`"avg_7d"`, `"avg_wide"`, or `null` for no_data).
+
+(Prior to the "current weight" unification, `compute_gap` had its own
+3-in-7d-else-latest-single-entry-within-14d rule, and `basis` could report
+`"latest_entry"`. That rule disagreed with `_weight_rollup`'s on identical
+data and has been retired — see `docs/pre-production-review-status.md` §3.3.)
 
 ---
 

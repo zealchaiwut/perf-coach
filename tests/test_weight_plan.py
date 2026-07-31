@@ -136,12 +136,19 @@ def test_compute_gap_uses_7d_average():
     assert result["gap_direction"] != "no_data"
 
 
-# ── (c) compute_gap: fallback to latest entry when < 3 in 7-day window ───────
+# ── (c) compute_gap: fallback to the wide-lookback average when < 2 in 7d ────
+# (behaviour change: compute_gap used to fall back to the single latest entry
+# within 14 days; it is now unified on _weight_rollup's rule — fewer than 2
+# entries in the trailing 7 days averages over the wider
+# _ROLLUP_LOOKBACK_DAYS-day lookback instead, so a second entry outside the
+# 7-day window now pulls the basis toward it rather than being ignored.)
 
-def test_compute_gap_fallback_latest_entry():
-    """Falls back to single latest entry when < 3 entries in 7-day window."""
+def test_compute_gap_fallback_wide_average():
+    """Falls back to the wide-lookback average — not the single latest
+    entry — when fewer than 2 entries fall in the trailing 7-day window."""
     today = datetime.date.today()
-    # Only 1 entry in 7-day window; 1 more in 8-14 day range
+    # Only 1 entry in the 7-day window; 1 more inside the wider lookback
+    # (well within _ROLLUP_LOOKBACK_DAYS=55) but outside 7 days.
     entries = [
         _FakeEntry(today - datetime.timedelta(days=2), 80.5),
         _FakeEntry(today - datetime.timedelta(days=10), 81.0),
@@ -149,18 +156,41 @@ def test_compute_gap_fallback_latest_entry():
     session = _FakeSession(entries)
     t = _target(85.0, 75.0)
     result = compute_gap(t, session, today)
-    assert result["basis"] == "latest_entry"
-    assert result["current_basis_kg"] is not None
+    assert result["basis"] == "avg_wide"
+    # Must be the average of BOTH entries, not just the latest one's raw value
+    # — that's the "never a single raw entry" property this rule exists for.
+    assert result["current_basis_kg"] == round((80.5 + 81.0) / 2, 2)
+    assert result["current_basis_kg"] != 80.5
     assert result["gap_direction"] != "no_data"
 
 
-# ── (d) compute_gap: no_data when nothing within 14 days ────────────────────
-
-def test_compute_gap_no_data():
-    """Returns no_data when no entries exist within 14 days."""
+def test_compute_gap_never_a_single_raw_entry_even_with_more_context():
+    """With several entries outside the 7-day window and none inside it, the
+    basis is the average across all of them — not just the most recent one.
+    This is the specific property _weight_rollup's rule was chosen for."""
     today = datetime.date.today()
     entries = [
-        _FakeEntry(today - datetime.timedelta(days=20), 82.0),
+        _FakeEntry(today - datetime.timedelta(days=20), 79.0),
+        _FakeEntry(today - datetime.timedelta(days=30), 80.0),
+        _FakeEntry(today - datetime.timedelta(days=40), 81.0),
+    ]
+    session = _FakeSession(entries)
+    t = _target(85.0, 75.0)
+    result = compute_gap(t, session, today)
+    assert result["basis"] == "avg_wide"
+    assert result["current_basis_kg"] == round((79.0 + 80.0 + 81.0) / 3, 2)
+    # Not the most recent entry's raw value on its own.
+    assert result["current_basis_kg"] != 79.0
+
+
+# ── (d) compute_gap: no_data when nothing within the wide lookback ──────────
+
+def test_compute_gap_no_data():
+    """Returns no_data when no entries exist within the wide lookback window
+    (_ROLLUP_LOOKBACK_DAYS = 55 days)."""
+    today = datetime.date.today()
+    entries = [
+        _FakeEntry(today - datetime.timedelta(days=60), 82.0),
     ]
     session = _FakeSession(entries)
     t = _target(85.0, 75.0)
@@ -169,6 +199,23 @@ def test_compute_gap_no_data():
     assert result["current_basis_kg"] is None
     assert result["gap_kg"] is None
     assert result["gap_direction"] == "no_data"
+
+
+def test_compute_gap_uses_wide_lookback_before_giving_up():
+    """An entry older than 14 days (the old cutoff) but within the wide
+    _ROLLUP_LOOKBACK_DAYS lookback is now used rather than triggering
+    no_data — this is the unified rule's whole point: more context beats an
+    arbitrary 14-day cliff."""
+    today = datetime.date.today()
+    entries = [
+        _FakeEntry(today - datetime.timedelta(days=20), 82.0),
+    ]
+    session = _FakeSession(entries)
+    t = _target(85.0, 75.0)
+    result = compute_gap(t, session, today)
+    assert result["basis"] == "avg_wide"
+    assert result["current_basis_kg"] == 82.0
+    assert result["gap_direction"] != "no_data"
 
 
 # ── (e) gap_direction: behind on loss target when above plan ─────────────────
