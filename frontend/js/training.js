@@ -1424,6 +1424,7 @@
     _setEl('workout-date', todayIso());
     _setEl('workout-remarks', '');
     _setEl('workout-tss', '');
+    _setEl('workout-drills', '');
     _clearEl('exercises-tbody', 'innerHTML');
     _clearEl('exercises-error');
     _clearEl('name-error');
@@ -1445,6 +1446,7 @@
     _setEl('workout-date', workout.workout_date);
     _setEl('workout-remarks', workout.remarks || '');
     _setEl('workout-tss', workout.tss != null ? workout.tss : '');
+    _setEl('workout-drills', workout.drills_minutes != null ? workout.drills_minutes : '');
     _clearEl('exercises-tbody', 'innerHTML');
     _clearEl('exercises-error');
     _clearEl('name-error');
@@ -1667,6 +1669,7 @@
       document.getElementById('workout-date').value = todayIso();
       document.getElementById('workout-remarks').value = w.remarks || '';
       document.getElementById('workout-tss').value = w.tss != null ? w.tss : '';
+      document.getElementById('workout-drills').value = w.drills_minutes != null ? w.drills_minutes : '';
       document.getElementById('exercises-tbody').innerHTML = '';
       document.getElementById('exercises-error').textContent = '';
       document.getElementById('name-error').textContent = '';
@@ -1814,6 +1817,9 @@
       workout_type: getSelectedType(),
       remarks: document.getElementById('workout-remarks').value.trim() || null,
       tss: tssVal,
+      // null = not recorded, distinct from 0 ("logged the session, no drills").
+      // intFieldVal already returns null for an empty input.
+      drills_minutes: intFieldVal('workout-drills'),
     };
 
     // Simplified slide-over panel (issue #643) uses <select> — no run/exercise sections
