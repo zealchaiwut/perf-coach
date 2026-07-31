@@ -42,6 +42,7 @@ import logging
 from datetime import date, timedelta
 from typing import Any
 
+from backend.utils.time import today_bangkok
 from backend.services.vdot import (
     vdot_from_pace_duration,
     rescale_to_score,
@@ -374,7 +375,7 @@ def _aggregate_and_shape(
     # relative to today) — there the trend ends at the last real point.
     window_days = PERFORMANCE_CONFIG["trailing_window_days"]
     trend_dates = sorted({d for d, _ in points})
-    today = date.today()
+    today = today_bangkok()
     if trend_dates and trend_dates[-1] < today and (today - trend_dates[-1]).days <= window_days:
         trend_dates.append(today)
     trend = [_score_at(points, t, race_perf) for t in trend_dates]

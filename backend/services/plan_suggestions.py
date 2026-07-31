@@ -972,7 +972,7 @@ def assemble_facts(
 
     # BKK-local "today" — matches the app-wide convention (workout_date, week
     # windows) fixed in the reconcile.py timezone bug. Using server-local
-    # date.today() here would misjudge which day_offset is "today" whenever
+    # today_bangkok() here would misjudge which day_offset is "today" whenever
     # the server clock isn't BKK, silently re-opening or closing the wrong day.
     today = today_bangkok()
 

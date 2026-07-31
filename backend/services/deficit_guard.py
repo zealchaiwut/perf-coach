@@ -36,6 +36,7 @@ from __future__ import annotations
 import logging
 from datetime import date as _date, timedelta as _timedelta
 from typing import Optional
+from backend.utils.time import today_bangkok
 
 _log = logging.getLogger(__name__)
 
@@ -290,7 +291,7 @@ def guard_for_user(db, user_id, today: Optional[_date] = None) -> dict:
     pause the deficit *or* take the whole guard down. A missing input is treated
     as "no evidence", which is the only safe reading of silence.
     """
-    today = today or _date.today()
+    today = today or today_bangkok()
 
     def _safe(label, fn, fallback):
         try:

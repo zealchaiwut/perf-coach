@@ -989,6 +989,18 @@ def post_feel_entry(body: dict, user: str | None = None):
             detail={"field": "feel_date", "error": "feel_date must be a valid YYYY-MM-DD date"},
         )
 
+    # Same future-date rule as POST /api/feel (main.py). The two routes write the
+    # SAME table and had different integrity rules — this one accepted any
+    # parseable date, so a malformed Hermes request could insert a feel entry the
+    # webapp would have rejected (#1601). Tomorrow is allowed on both, for a
+    # session logged just past a local midnight.
+    tomorrow = datetime.now(BANGKOK_TZ).date() + timedelta(days=1)
+    if feel_date > tomorrow:
+        raise HTTPException(
+            status_code=400,
+            detail={"field": "feel_date", "error": "feel_date cannot be in the future"},
+        )
+
     # Validate rpe_1_to_10
     rpe = body.get("rpe_1_to_10")
     if rpe is not None:

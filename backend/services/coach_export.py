@@ -50,6 +50,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 
 from backend.db import engine
+from backend.utils.time import today_bangkok
 
 _log = logging.getLogger(__name__)
 
@@ -514,7 +515,7 @@ def _race_estimate(db: Session, user, race_row, distance_km: Optional[float]) ->
             if prefs is not None
             else None
         )
-        scores = _athlete_scores_as_of(db, user.id, _date.today())
+        scores = _athlete_scores_as_of(db, user.id, today_bangkok())
         est = blended_scores_estimate(
             scores.get("endurance"), scores.get("speed"), distance_km, thresholds
         )

@@ -43,6 +43,7 @@ from __future__ import annotations
 
 from datetime import date as _date, timedelta as _timedelta
 from typing import Iterable, Optional
+from backend.utils.time import today_bangkok
 
 ACTIVE = "active"
 PAUSED = "paused"
@@ -165,7 +166,7 @@ def state_for_user(db, user_id, today: Optional[_date] = None) -> dict:
     """
     from backend.models import WeightEntry
 
-    today = today or _date.today()
+    today = today or today_bangkok()
     lookback_start = today - _timedelta(days=90)
 
     rows = (

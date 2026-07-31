@@ -35,6 +35,7 @@ import logging
 import math
 from datetime import date, timedelta
 from typing import Any, Optional
+from backend.utils.time import today_bangkok
 
 _log = logging.getLogger(__name__)
 
@@ -94,7 +95,7 @@ def combined_correction(
     arithmetic mean of e.g. 0.5 and 2.0 (1.25) would claim a bias that isn't
     there; the geometric mean (1.0) doesn't.
     """
-    today = today or date.today()
+    today = today or today_bangkok()
     num = 0.0
     den = 0.0
     n = 0
@@ -335,7 +336,7 @@ def record_prediction(user_id: str, race_id, predicted_seconds: int, band_second
             .values(
                 user_id=user_id,
                 race_id=race_id,
-                prediction_date=date.today(),
+                prediction_date=today_bangkok(),
                 predicted_seconds=int(predicted_seconds),
                 band_seconds=int(band_seconds) if band_seconds is not None else None,
             )

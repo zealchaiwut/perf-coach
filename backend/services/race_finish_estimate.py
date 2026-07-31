@@ -17,6 +17,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from backend.utils.log import get_logger
+from backend.utils.time import today_bangkok
 
 _log = get_logger(__name__)
 
@@ -269,7 +270,7 @@ def estimate_race_finish(
     from sqlalchemy.orm import Session
     from backend.db import engine
 
-    today = today or date.today()
+    today = today or today_bangkok()
     _own = db is None
     if _own:
         db = Session(engine)

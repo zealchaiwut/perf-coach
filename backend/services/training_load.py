@@ -34,6 +34,7 @@ from sqlalchemy.orm import Session
 from backend.db import engine
 from backend.models import TrainingLoadSnapshot, UserPreferences, Workout
 from backend.services.acwr import compute_acwr
+from backend.utils.time import today_bangkok
 
 # ── EWMA time constants ───────────────────────────────────────────────────────
 # Chronic Training Load time constant (days).  The standard Banister value.
@@ -155,7 +156,7 @@ def daily_tss_series(
     Raises:
         ValueError: if from_date > to_date or from_date is in the future.
     """
-    today = date.today()
+    today = today_bangkok()
     if from_date > to_date:
         raise ValueError(f"from_date {from_date} must not be after to_date {to_date}")
     if from_date > today:
@@ -263,7 +264,7 @@ def current_load(
     Returns:
         dict with keys date, ctl, atl, tsb, acwr for the last day of the series.
     """
-    end = as_of if as_of is not None else date.today()
+    end = as_of if as_of is not None else today_bangkok()
 
     ctl_days, atl_days = resolve_user_ewma_days(user_id)
 
@@ -325,7 +326,7 @@ def daily_update(
     Returns:
         dict with keys: date, tss, ctl, atl, tsb, acwr.
     """
-    target = target_date if target_date is not None else date.today()
+    target = target_date if target_date is not None else today_bangkok()
     if ctl_days is None or atl_days is None:
         default_ctl, default_atl = resolve_user_ewma_days(user_id)
         ctl_days = ctl_days if ctl_days is not None else default_ctl
@@ -536,7 +537,7 @@ def recompute_user_snapshots(user_id: str) -> int:
     if row is None or row[0] is None:
         return 0
     earliest = row[0]
-    today = date.today()
+    today = today_bangkok()
     rows = get_snapshot_series(user_id, earliest, today)
     return len(rows)
 
@@ -622,7 +623,7 @@ def performance_curve(fitness_series) -> dict:
     if "date" not in first:
         return {**_empty, "reason": "fitness_series items are missing required 'date' column"}
 
-    today = date.today()
+    today = today_bangkok()
     today_form = None
     today_zone = None
     curve = []
@@ -812,7 +813,7 @@ def get_projected_form(
     Returns:
         Same dict shape as project_form: {days, reason}.
     """
-    today = date.today()
+    today = today_bangkok()
     load_state = current_load(user_id)
     fitness_state = {
         "ctl": load_state["ctl"],
@@ -928,7 +929,7 @@ def taper_recommendation(fitness_state, race_date, target_form) -> dict:
     if target_form is None:
         return {**_empty, "reason": "target_form is required"}
 
-    today = date.today()
+    today = today_bangkok()
     # Race must be in the future; a past or today race cannot be tapered into
     if race_date <= today:
         return {**_empty, "reason": "race_date must be in the future"}
@@ -1374,7 +1375,7 @@ def estimate_historical_pace_and_tss(user_id, db=None) -> dict:
     (no data ⇒ no estimate, never a fabricated number).
     """
     uid = user_id if isinstance(user_id, _uuid_mod.UUID) else _uuid_mod.UUID(str(user_id))
-    cutoff = date.today() - timedelta(days=_PLANNED_ESTIMATE_LOOKBACK_DAYS)
+    cutoff = today_bangkok() - timedelta(days=_PLANNED_ESTIMATE_LOOKBACK_DAYS)
 
     def _query(session):
         return (
