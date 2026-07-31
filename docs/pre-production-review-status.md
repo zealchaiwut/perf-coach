@@ -297,11 +297,14 @@ each one to the sleep parser. Harmless while the parser was a stub; not now.
   Two things learned while it ran, worth keeping either way: the triage target
   is `tests/BASELINE_FAILURES.txt`, a **623-line** shrink-only ratchet with a
   regeneration script at `scripts/check_test_regressions.py` — success is
-  shrinking that file, not reaching zero. And `pytest-timeout` is **not
-  installed in `.venv`**, so every local run prints `Unknown config option:
-  timeout` and `pytest.ini`'s 60s hang-guard is silently inert. It is in
-  `requirements-dev.txt`; the venv just doesn't have it. CI may or may not —
-  worth confirming, since a hang-guard nobody has installed is not a guard.
+  shrinking that file, not reaching zero.
+
+  Also: `pytest-timeout` was missing from `.venv` for most of this session, so
+  local runs printed `Unknown config option: timeout` and `pytest.ini`'s 60s
+  hang-guard was inert. Installed (2.3.1) before the session ended; CI was
+  never affected — `.github/workflows/tests.yml:38` installs
+  `requirements-dev.txt`. Noted only because a local run from earlier in the
+  night had no hang-guard behind it.
 
 - **#1596** — **DONE, PR #1627**, and "it works either way today" was true only
   in a sense that made it worth fixing. The two branches were not a live fork:
