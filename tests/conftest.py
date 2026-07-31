@@ -129,3 +129,67 @@ def pytest_collection_modifyitems(config, items):
         path = str(getattr(item, "fspath", "") or "")
         if path and _needs_live_service(path):
             item.add_marker(pytest.mark.integration)
+
+
+# ── Session-auth stub for endpoint tests (issue #1606 triage) ─────────────────
+#
+# A large block of the baselined failures were endpoint tests written against
+# `?user_id=<uuid>` — the legacy shim that identified the caller from a query
+# parameter. That shim was removed deliberately: it was an IDOR, and CLAUDE.md
+# now states "endpoints derive the user from the resolve_user dependency, NOT a
+# client-supplied user_id". So every one of those tests started returning 401
+# and was never updated.
+#
+# They are not testing auth; they are testing response shapes and endpoint
+# behaviour, and that coverage is worth keeping. This fixture gives them a
+# logged-in caller the supported way — the same dependency_overrides pattern
+# several suites already use by hand.
+#
+# OPT-IN on purpose. Applying it globally would silently defeat the suites that
+# assert 401 for anonymous requests (test_server_side_identity__*), which are
+# exactly the tests guarding the hole the shim's removal closed.
+
+import pytest as _pytest
+
+
+class _StubSessionUser:
+    """Minimal stand-in for backend.models.User as resolve_user returns it."""
+
+    def __init__(self, user_id, name: str = "test-user", is_admin: bool = True):
+        # Coerce to UUID. resolve_user returns a real User whose .id is a UUID
+        # object, and handlers call .hex on it — a str stub passes the request
+        # and then fails deep inside the endpoint, which looks like a product
+        # bug rather than a fixture one.
+        import uuid as _uuid
+
+        if isinstance(user_id, str):
+            try:
+                user_id = _uuid.UUID(user_id)
+            except ValueError:
+                pass
+        self.id = user_id
+        self.name = name
+        self.is_admin = is_admin
+        self.is_active = True
+
+
+@_pytest.fixture
+def as_user():
+    """Authenticate the app's TestClient as a given user id.
+
+        def test_x(as_user):
+            as_user(_UID)
+            assert client.get("/api/home/readiness").status_code == 200
+
+    Cleans the override up afterwards so it cannot leak into a test that
+    expects 401.
+    """
+    from backend.auth import resolve_user
+    from backend.main import app as _app
+
+    def _login(user_id, **kw):
+        _app.dependency_overrides[resolve_user] = lambda: _StubSessionUser(user_id, **kw)
+        return user_id
+
+    yield _login
+    _app.dependency_overrides.pop(resolve_user, None)
