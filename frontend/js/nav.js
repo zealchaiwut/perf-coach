@@ -152,6 +152,9 @@
     { href: '/log',      label: 'Training',     icon: 'ti-list-details', match: ['/log', '/training', '/training.html'] },
     { href: '/weight',   label: 'Weight',       icon: 'ti-scale',        match: ['/weight', '/weight.html'] },
     { href: '/habits',   label: 'Habits',       icon: 'ti-checklist',    match: ['/habits', '/habits.html'] },
+    // The consult loop's memory. Had a route but no link — the export cites
+    // these rows by date, so it needs to be reachable without typing a URL.
+    { href: '/decisions', label: 'Decisions',   icon: 'ti-notes',        match: ['/decisions', '/decisions.html'] },
     { href: '/trends',      label: 'Trends',      icon: 'ti-chart-line',   match: ['/trends', '/trends.html'], disabled: true },
     { href: '/calendar',    label: 'Calendar',    icon: 'ti-calendar',     match: ['/calendar', '/calendar.html'], disabled: true }
     // Users is intentionally omitted — it's an admin-only page (see js/admin-gate.js).
@@ -210,6 +213,8 @@
     ".global-nav .gn-copy[disabled]{opacity:0.6;cursor:progress;}",
     ".global-nav .gn-copy i{font-size:16px;line-height:1;}",
     ".global-nav .gn-copy.is-error{border-color:#e08c8c;color:#c92a2a;}",
+    // Icon-only sibling — square padding, no label to hide at any width.
+    ".global-nav .gn-copy-icon{padding:7px 9px;}",
     "#gn-copy-toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(8px);",
     "max-width:min(92vw,460px);padding:10px 16px;border-radius:999px;background:#0b1530;color:#fff;",
     "font-size:13px;font-weight:500;line-height:1.4;box-shadow:0 12px 32px rgba(8,18,48,0.28);",
@@ -348,6 +353,13 @@
       ' title="Copy prompt + last 90 days of data for a fresh Claude session">' +
       '<i class="ti ti-clipboard-text" aria-hidden="true"></i>' +
       "<span>Copy for Claude</span></button>" +
+      // The check-in blob. Icon-only so it doesn't crowd the bar on mobile —
+      // aria-label carries the name for screen readers, since the visible
+      // <span> the daily button uses isn't there to do it.
+      '<button type="button" class="gn-copy gn-copy-icon" id="gn-copy-consult"' +
+      ' aria-label="Copy for consult"' +
+      ' title="Copy the check-in prompt — asks questions, ends in a change list for /decisions">' +
+      '<i class="ti ti-messages" aria-hidden="true"></i></button>' +
       '<span class="gn-env" id="env-label" aria-label="Environment"></span>' +
       '<div class="gn-profile" id="gn-profile">' +
       '<button class="gn-avatar' +
@@ -391,7 +403,12 @@
   // request and writes it to the clipboard. Never copies a partial blob: on any
   // fetch failure nothing touches the clipboard and the toast offers a retry.
 
+  // Two blobs, one mechanism. The daily message is one-way and short; the
+  // consult asks questions and ends in a change list you paste into
+  // /decisions. Both are plain text from the same export payload, so the only
+  // difference is which endpoint is fetched.
   var COPY_ENDPOINT = "/api/coach/export/paste";
+  var CONSULT_ENDPOINT = "/api/coach/consult";
 
   /** Same contract as training-plan.js's Stryd copy: Clipboard API, then a
    * hidden-textarea fallback for older webviews and non-secure contexts. */
@@ -469,7 +486,9 @@
     return chars >= 1000 ? Math.round(chars / 1000) + "k chars" : chars + " chars";
   }
 
-  function _copyForClaude(btn) {
+  function _copyForClaude(btn, endpoint, label) {
+    endpoint = endpoint || COPY_ENDPOINT;
+    label = label || "copied";
     var original = btn ? btn.innerHTML : null;
     if (btn) {
       btn.disabled = true;
@@ -485,7 +504,7 @@
       }
     }
 
-    fetch(COPY_ENDPOINT, { credentials: "same-origin" })
+    fetch(endpoint, { credentials: "same-origin" })
       .then(function (res) {
         if (!res.ok) throw new Error("export failed (" + res.status + ")");
         return res.text();
@@ -494,8 +513,12 @@
         if (!blob || !blob.trim()) throw new Error("export was empty");
         return _writeClipboard(blob).then(function () {
           restore();
-          var stamp = new Date().toISOString().slice(0, 10);
-          _copyToast("copied · " + _copyCharCount(blob.length) + " · " + stamp);
+          // Bangkok date, not the browser's — this app is single-timezone and
+          // the stamp must match the day the export itself was built for.
+          var stamp = new Date().toLocaleDateString("en-CA", {
+            timeZone: "Asia/Bangkok",
+          });
+          _copyToast(label + " · " + _copyCharCount(blob.length) + " · " + stamp);
         });
       })
       .catch(function (err) {
@@ -506,7 +529,7 @@
           {
             error: true,
             onRetry: function () {
-              _copyForClaude(btn);
+              _copyForClaude(btn, endpoint, label);
             },
           }
         );
@@ -515,11 +538,19 @@
 
   function _wireCopyForClaude() {
     var btn = document.getElementById("gn-copy-claude");
-    if (!btn || btn._wired) return;
-    btn._wired = true;
-    btn.addEventListener("click", function () {
-      _copyForClaude(btn);
-    });
+    if (btn && !btn._wired) {
+      btn._wired = true;
+      btn.addEventListener("click", function () {
+        _copyForClaude(btn, COPY_ENDPOINT, "copied");
+      });
+    }
+    var consult = document.getElementById("gn-copy-consult");
+    if (consult && !consult._wired) {
+      consult._wired = true;
+      consult.addEventListener("click", function () {
+        _copyForClaude(consult, CONSULT_ENDPOINT, "consult copied");
+      });
+    }
   }
 
   /**
