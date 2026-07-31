@@ -34,7 +34,19 @@ def _media_block(max_px: int) -> str:
     raise AssertionError(f"unterminated @media (max-width: {max_px}px) block")
 
 
-MOBILE = _media_block(599)
+# The mobile breakpoint was standardised from 599px to 640px elsewhere in the
+# project; this module was never updated. Because the lookup ran at MODULE
+# SCOPE, its assert became a COLLECTION ERROR rather than a test failure — so
+# pytest reported it as a top-level interruption and the whole module silently
+# left the suite (issue #1606).
+#
+# Resolved lazily now: a future breakpoint change fails this module's tests
+# loudly instead of deleting them from the run.
+_MOBILE_MAX_PX = 640
+
+
+def _mobile():
+    return _media_block(_MOBILE_MAX_PX)
 
 
 def _declarations_for(block: str, selector: str):
@@ -53,7 +65,7 @@ def _declarations_for(block: str, selector: str):
 
 def test_entry_metric_not_hidden_on_mobile():
     """`.entry-metric` (distance/pace/duration) must NOT be display:none ≤599px."""
-    for body in _declarations_for(MOBILE, ".entry-metric"):
+    for body in _declarations_for(_mobile(), ".entry-metric"):
         assert "display: none" not in body.replace(" ", " "), \
             ".entry-metric is hidden in the ≤599px block"
         assert "display:none" not in body.replace(" ", ""), \
@@ -62,7 +74,7 @@ def test_entry_metric_not_hidden_on_mobile():
 
 def test_entry_metric_rule_present_on_mobile():
     """The mobile block must still address `.entry-metric` (keep it laid out)."""
-    assert ".entry-metric" in MOBILE, \
+    assert ".entry-metric" in _mobile(), \
         "no .entry-metric rule in the ≤599px block"
 
 
@@ -70,7 +82,7 @@ def test_entry_metric_rule_present_on_mobile():
 
 def test_source_badges_not_hidden_on_mobile():
     """`.source-badges-wrap` must NOT be display:none ≤599px."""
-    for body in _declarations_for(MOBILE, ".source-badges-wrap"):
+    for body in _declarations_for(_mobile(), ".source-badges-wrap"):
         assert "display:none" not in body.replace(" ", ""), \
             ".source-badges-wrap is hidden in the ≤599px block"
 
@@ -89,7 +101,7 @@ def test_source_badge_markup_is_icon_sized():
 def test_rows_wrap_to_avoid_overflow_on_mobile():
     """Rows must wrap (flex-wrap) so metric/badges drop to a new line instead of
     forcing horizontal scroll at narrow widths."""
-    row_bodies = _declarations_for(MOBILE, ".entry-row")
+    row_bodies = _declarations_for(_mobile(), ".entry-row")
     assert row_bodies, "no .entry-row rule in the ≤599px block"
     assert any("flex-wrap: wrap" in b or "flex-wrap:wrap" in b.replace(" ", "")
                for b in row_bodies), \
