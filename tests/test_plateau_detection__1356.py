@@ -123,9 +123,27 @@ def test_insufficient_data_beats_plateau():
     assert result["recommendation"] == "insufficient_data"
 
 
-def test_no_plan_beats_plateau():
-    """No active plan yields insufficient_data even when plateau_days >= 21."""
+def test_no_plan_does_not_block_plateau_in_structural_mode():
+    """REVERSED by #1600.
+
+    This asserted that a missing WeightPlan yields insufficient_data even with a
+    21-day stall. That gate was the bug: no UI creates a WeightPlan, and the one
+    route that does requires a `goal_weight_kg` — the target-weight concept the
+    lean program exists to eliminate. So a structural-deficit athlete could
+    plateau for three weeks and be told only to "set an active plan".
+
+    Structural mode diagnoses from the weight trend alone, which is its premise.
+    """
     result = compute_cut_recommendation(**_plateau_params(has_active_plan=False))
+    assert result["recommendation"] == "plateau"
+
+
+def test_no_plan_still_blocks_in_managed_mode():
+    """Managed mode keeps the original contract — a daily-budget cut genuinely
+    has a plan behind it."""
+    result = compute_cut_recommendation(
+        **_plateau_params(has_active_plan=False, deficit_mode="managed")
+    )
     assert result["recommendation"] == "insufficient_data"
 
 

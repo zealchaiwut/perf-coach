@@ -97,6 +97,7 @@ from backend.services.habit_autofill import recompute_autofill_for_week as _reco
 from backend.services.habit_streak import compute_streak
 from backend.services.habit_consistency import compute_consistency
 from backend.services.checkpoint_detector import evaluate_checkpoint as _evaluate_checkpoint, is_run_workout as _is_run_workout
+from backend.services.goal_habits import is_food_habit as _is_food_habit
 from backend.utils.workout_types import (
     STRENGTH_SQL_PATTERNS as _STRENGTH_SQL_PATTERNS,
     is_strength_workout as _is_strength_workout,
@@ -4130,8 +4131,14 @@ def get_habits_summary(user: User = Depends(resolve_user)):
         streak_data = compute_streak(habit, habit_logs, today)
         consistency_data = compute_consistency(habit, habit_logs, window_start, today)
         entry = _habit_dict(habit)
-        entry["current_streak"] = streak_data["current_streak"]
-        entry["longest_streak"] = streak_data["longest_streak"]
+        # No streaks near food (spec D8). Suppressed in the PAYLOAD, not the
+        # template: a frontend guard is one refactor away from being dropped,
+        # and the whole point is that a missed meal must never read as a broken
+        # streak. is_food_habit() existed for this and had zero callers (#1600).
+        food = _is_food_habit(habit)
+        entry["current_streak"] = 0 if food else streak_data["current_streak"]
+        entry["longest_streak"] = 0 if food else streak_data["longest_streak"]
+        entry["streak_suppressed"] = food
         entry["consistency_percent"] = consistency_data["consistency_percent"]
         result.append(entry)
 
@@ -4676,7 +4683,10 @@ def get_habit_summary(
     all_dates = {lg.log_date for lg in all_logs}
     sorted_dates = sorted(all_dates)
 
-    if habit.tracking_type == "daily_checkmark":
+    # Same suppression as the list endpoint — the detail panel is a second way
+    # to see the same habit and must not disagree with it.
+    food_habit = _is_food_habit(habit)
+    if habit.tracking_type == "daily_checkmark" and not food_habit:
         current_streak = _current_streak_from_dates(today, all_dates)
         longest_streak = _best_streak_from_dates(sorted_dates)
     else:
@@ -4694,6 +4704,7 @@ def get_habit_summary(
         "habit": _habit_dict(habit),
         "current_streak": current_streak,
         "longest_streak": longest_streak,
+        "streak_suppressed": food_habit,
         "consistency_pct": consistency_pct,
         "days_checked": days_checked,
         "days_total": days_in_window,

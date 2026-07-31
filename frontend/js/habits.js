@@ -359,7 +359,15 @@ function renderTodayCard(habits) {
     const isMiss = _hasMissThisWeek(habit, weekDone);
 
     let streakBadgeHTML = '';
-    if (V) {
+    // No streaks near food (spec D8). The backend already zeroes these and
+    // sends streak_suppressed, but the guard is repeated here because
+    // window.HabitVoice — the module the branch below expects — is referenced
+    // four times in this file and DEFINED NOWHERE, so every render has always
+    // fallen through to the raw-badge branch. A missed meal must never read as
+    // a broken streak, which is the mechanic the lean program exists to remove.
+    if (habit.streak_suppressed) {
+      streakBadgeHTML = '';
+    } else if (V) {
       const coaching = V.compose(habit, weekDone, weekTarget, totalLogs, isMiss, currentStreak);
       streakBadgeHTML = `<span class="coaching-copy coaching-copy--${esc(coaching.framing)}">${esc(coaching.message)}</span>`;
     } else {
@@ -851,7 +859,10 @@ function _buildHabitRow(habit, weekDatesArr, streaksPerHabit, todayStr, logSet) 
   const pct = target > 0 ? Math.min(100, Math.round(done / target * 100)) : 0;
   const barWidth = target > 0 ? Math.min(100, done / target * 100).toFixed(1) : '0.0';
 
-  const streak = streaksPerHabit[habit.id] || 0;
+  // Third badge render in this file. No streaks near food (spec D8) — the
+  // backend zeroes these and sends streak_suppressed, and this row builder
+  // reads a separate streaksPerHabit map, so it needs its own check.
+  const streak = habit.streak_suppressed ? 0 : (streaksPerHabit[habit.id] || 0);
   const streakBadge = streak >= 3
     ? `<span class="streak-badge">🔥 ${streak}-day streak</span>`
     : '';
