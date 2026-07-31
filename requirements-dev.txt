@@ -23,3 +23,8 @@ pytest-timeout==2.3.1
 # HTTP mocking, imported by tests/test_google_callback_oauth__216.py. Its absence
 # was one of the collection errors that silently removed a whole module.
 responses==0.25.3
+# Drives a real browser for the manual UI check CLAUDE.md requires before any
+# frontend change is called done. Not imported by the test suite; it is the
+# tool you reach for when "it returns 200" is not the question being asked.
+# Needs a one-off `.venv/bin/playwright install chromium` after pip install.
+playwright==1.62.0
