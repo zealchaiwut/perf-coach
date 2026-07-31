@@ -82,7 +82,27 @@ stored birth date, and `M:SS` from stored seconds are all fine.
   "races":       { past[], upcoming[] },
   "habits":      { week_start, items[], adherence_4w_pct },
   "plan":        { today, week[7], week_planned_tss, week_logged_tss_so_far },
-  "findings":    [ {code, severity, evidence, load_adding} ]
+  "findings":    [ {code, severity, evidence, load_adding} ],
+
+  // ── Added in schema v2–v4 (lean program, PR #1594). The block below was
+  //    missing from this document until #1608 — roughly a third of the payload
+  //    was undocumented, and this file is what people build against.
+  "decisions":    [ {date, days_ago, raw_text, outcome, due_for_review} ],
+  "volume_plays": [ "oyakodon with extra cabbage", … ],   // from prefs, ≤10
+  "sprint":       { active, started_on, ends_on, days_remaining, logged_days } | null,
+  "hypothesis":   { readable, band_kg, confidence, reason, current_weight_kg },
+  "tracking_state": "active" | "paused",
+  "paused_since": "YYYY-MM-DD" | null
+}
+```
+
+`habits` also carries two sub-keys added in the same range:
+
+```jsonc
+"habits": {
+  …,
+  "goal_habits": ["weigh_in", "protein_first", "long_run_fuel"],
+  "evidence":    [ {habit, claim, n_weeks, with_value, without_value} ]
 }
 ```
 

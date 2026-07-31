@@ -4156,7 +4156,7 @@ information about.
 
   // ── Scoped styles (injected once) ───────────────────────────────────────────
   function _injectStyles() {
-    var VER = '20260731props1';
+    var VER = '20260731import1';
     var existing = document.getElementById('plan-tab-styles');
     if (existing) {
       if (existing.getAttribute('data-ver') === VER) return;
@@ -4555,6 +4555,16 @@ information about.
     '.pl-prop-life{font-size:11px;color:var(--text-sub);margin-top:3px;opacity:.85;}',
     '.pl-prop-actions{display:flex;gap:6px;flex-wrap:wrap;}',
     '.pl-prop-actions .pl-btn{font-size:12px;padding:5px 10px;}',
+    // Prefs importer — the consult's change list, pasted back in (#1608).
+    '.pl-import-block{margin-top:14px;padding-top:12px;border-top:1px solid var(--border);}',
+    '.pl-import{display:flex;flex-direction:column;gap:8px;}',
+    '.pl-import-ta{width:100%;min-height:56px;font:inherit;font-size:12.5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;padding:8px 10px;border-radius:8px;border:1px solid var(--border);box-sizing:border-box;}',
+    '.pl-import-actions{display:flex;gap:6px;flex-wrap:wrap;}',
+    '.pl-import-out{font-size:12px;padding:9px 11px;border-radius:8px;background:var(--surface-2,#fafafa);border:1px solid var(--border);}',
+    '.pl-import-out.is-error{border-color:#e08c8c;color:#b91c1c;white-space:pre-wrap;}',
+    '.pl-import-title{font-weight:700;margin-bottom:5px;}',
+    '.pl-import-row{font-size:12px;line-height:1.7;}',
+    '.pl-import-row code{font-size:11.5px;background:var(--chip-bg,#eef1f5);padding:1px 5px;border-radius:4px;}',
     '.pl-sug-select{font-size:13px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--ink);width:auto;align-self:flex-start;}',
     '.pl-sug-notes{font-size:13px;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:#fff;color:var(--ink);min-height:52px;resize:vertical;font-family:inherit;}',
     '.pl-sug-count-wrap{display:flex;align-items:center;gap:8px;}',
@@ -5866,6 +5876,180 @@ information about.
     return field || JSON.stringify(d);
   }
 
+  // ── Prefs importer ─────────────────────────────────────────────────────────
+  //
+  // The consult prompt (coach_export.CONSULT_TEMPLATE) tells the pasted-into
+  // Claude session: "If a prefs change is involved, also give me the JSON patch
+  // to paste into the prefs importer." No importer existed (issue #1608), so
+  // every consult touching a preference handed the athlete instructions for a
+  // feature that wasn't there — and they hand-translated it into Settings.
+  //
+  // MERGE, NOT REPLACE. This is the safety property of the whole feature.
+  // training_prefs.write_version stores `payload=normalized` wholesale with no
+  // merge against the previous version, so PUTting a partial patch would wipe
+  // every field the patch omits. A consult produces a PATCH ("plyo 0 -> 1"),
+  // never a full document. So the patch is merged onto the current payload here
+  // and the merged result is sent.
+
+  var _importPreview = null;   // {patch, merged, changes:[{key, from, to}]}
+
+  function _flatten(obj, prefix, out) {
+    out = out || {};
+    prefix = prefix || '';
+    Object.keys(obj || {}).forEach(function (k) {
+      var v = obj[k];
+      var key = prefix ? prefix + '.' + k : k;
+      if (v && typeof v === 'object' && !Array.isArray(v)) _flatten(v, key, out);
+      else out[key] = v;
+    });
+    return out;
+  }
+
+  function _deepMerge(base, patch) {
+    var out = JSON.parse(JSON.stringify(base || {}));
+    Object.keys(patch || {}).forEach(function (k) {
+      var v = patch[k];
+      if (v && typeof v === 'object' && !Array.isArray(v) &&
+          out[k] && typeof out[k] === 'object' && !Array.isArray(out[k])) {
+        out[k] = _deepMerge(out[k], v);
+      } else {
+        out[k] = v;
+      }
+    });
+    return out;
+  }
+
+  function _diffPayloads(before, after) {
+    var a = _flatten(before), b = _flatten(after), changes = [];
+    Object.keys(b).forEach(function (k) {
+      var was = JSON.stringify(a[k]), now = JSON.stringify(b[k]);
+      if (was !== now) changes.push({ key: k, from: a[k], to: b[k] });
+    });
+    return changes;
+  }
+
+  function _fmtVal(v) {
+    if (v === undefined) return 'unset';
+    if (Array.isArray(v)) return v.length ? v.join(', ') : 'none';
+    return String(v);
+  }
+
+  function _importerHtml() {
+    return (
+      '<div class="pl-sug-prefs-row pl-import-block" style="align-items:start;">' +
+        '<label class="pl-sug-prefs-label" for="pl-import-json">From a consult</label>' +
+        '<div class="pl-import">' +
+          '<textarea id="pl-import-json" class="pl-import-ta" rows="3" ' +
+            'placeholder=\'Paste the JSON patch from your consult, e.g. {"plyo_sessions_per_week": 1}\'></textarea>' +
+          '<div class="pl-import-actions">' +
+            '<button type="button" class="pl-btn pl-ghost" id="pl-import-preview">Preview change</button>' +
+            '<button type="button" class="pl-btn pl-lime" id="pl-import-apply" hidden>Apply</button>' +
+            '<button type="button" class="pl-btn pl-ghost" id="pl-import-cancel" hidden>Cancel</button>' +
+          '</div>' +
+          '<div class="pl-import-out" id="pl-import-out" hidden></div>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  function _bindImporter(host) {
+    var ta = _el('pl-import-json');
+    var previewBtn = _el('pl-import-preview');
+    var applyBtn = _el('pl-import-apply');
+    var cancelBtn = _el('pl-import-cancel');
+    var out = _el('pl-import-out');
+    if (!ta || !previewBtn || !out) return;
+
+    function show(html, isError) {
+      out.hidden = false;
+      out.className = 'pl-import-out' + (isError ? ' is-error' : '');
+      out.innerHTML = html;
+    }
+
+    function reset() {
+      _importPreview = null;
+      applyBtn.hidden = true;
+      cancelBtn.hidden = true;
+      out.hidden = true;
+      out.innerHTML = '';
+    }
+
+    cancelBtn.addEventListener('click', function () { reset(); ta.value = ''; });
+
+    previewBtn.addEventListener('click', function () {
+      var raw = (ta.value || '').trim();
+      if (!raw) { show('Paste the JSON patch first.', true); return; }
+      var patch;
+      try {
+        patch = JSON.parse(raw);
+      } catch (e) {
+        show('That is not valid JSON — ' + esc(e.message) + '.', true);
+        return;
+      }
+      if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+        show('Expected a JSON object, e.g. {"plyo_sessions_per_week": 1}.', true);
+        return;
+      }
+      // Merge onto CURRENT prefs. Never send the patch alone — the API replaces
+      // the whole payload, so a bare patch would erase everything it omits.
+      var current = _collectTrainingPrefsPayload();
+      var merged = _deepMerge(current, patch);
+      var changes = _diffPayloads(current, merged);
+      if (!changes.length) {
+        show('Nothing to change — those values are already set.', false);
+        applyBtn.hidden = true;
+        cancelBtn.hidden = false;
+        return;
+      }
+      _importPreview = { patch: patch, merged: merged, changes: changes };
+      show(
+        '<div class="pl-import-title">' + changes.length +
+          ' change' + (changes.length === 1 ? '' : 's') + ' to apply</div>' +
+        changes.map(function (c) {
+          return '<div class="pl-import-row"><code>' + esc(c.key) + '</code> ' +
+            esc(_fmtVal(c.from)) + ' → <b>' + esc(_fmtVal(c.to)) + '</b></div>';
+        }).join(''),
+        false
+      );
+      applyBtn.hidden = false;
+      cancelBtn.hidden = false;
+    });
+
+    applyBtn.addEventListener('click', function () {
+      if (!_importPreview) return;
+      applyBtn.disabled = true;
+      fetch('/api/preferences', {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payload: _importPreview.merged }),
+      })
+        .then(function (r) {
+          return r.json().then(function (body) {
+            if (!r.ok) return Promise.reject(body);
+            return body;
+          });
+        })
+        .then(function () {
+          ta.value = '';
+          reset();
+          // Re-fetch so the form shows what the server actually stored, not
+          // what we hoped it would store.
+          _renderPrefsForm();
+          _toast('Preferences updated from consult');
+        })
+        .catch(function (body) {
+          applyBtn.disabled = false;
+          var msg = 'Apply failed';
+          if (body && body.detail) {
+            msg = typeof body.detail === 'string'
+              ? body.detail : JSON.stringify(body.detail, null, 2);
+          }
+          show(esc(msg), true);
+        });
+    });
+  }
+
   function _proposalsHtml() {
     if (!_prefProposals.length) return '';
     var rows = _prefProposals.map(function (p) {
@@ -6034,6 +6218,7 @@ information about.
             '</div>' +
           '</div>' +
           _proposalsHtml() +
+          _importerHtml() +
           '<div class="pl-sug-habits">' + habitsLine + '</div>' +
           '<div class="pl-sug-prefs-err" id="pl-sug-prefs-err" hidden></div>' +
           '<div class="pl-btnrow" style="margin-top:12px;">' +
@@ -6048,6 +6233,7 @@ information about.
       '</div>';
 
     _bindProposalActions(host);
+    _bindImporter(host);
 
     host.querySelectorAll('[data-restday]').forEach(function (chk) {
       chk.addEventListener('change', function () {

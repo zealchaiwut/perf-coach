@@ -78,6 +78,24 @@ PLATEAU_MIN_DAYS: int = 21
 
 # ── Pure recommendation function ──────────────────────────────────────────────
 
+# Guardrail-triggered copy. Held to deficit_guard's tone contract — "eat more",
+# never "try harder" — and checked at import so a drifted string fails here
+# rather than in front of the athlete. Only the GUARDRAIL message is bound by
+# this: `ease_off` below is a pace adjustment, not a guardrail trip, and is
+# deliberately outside the contract.
+SLOW_DOWN_COPY = (
+    "Eat more — add back 100-200 kcal. Losing at this pace risks muscle "
+    "loss and performance."
+)
+
+try:  # pragma: no cover - import-time contract check
+    from backend.services.deficit_guard import assert_eat_more_copy as _assert_eat_more
+
+    _assert_eat_more(SLOW_DOWN_COPY)
+except ImportError:  # deficit_guard is optional at import time in some contexts
+    pass
+
+
 def compute_cut_recommendation(
     *,
     weigh_in_count_14d: int,
@@ -174,10 +192,12 @@ def compute_cut_recommendation(
     if guardrail["guardrail_state"] == "warn":
         return {
             "recommendation": "slow_down",
-            "action": (
-                "Reduce your deficit by 100-200 kcal — losing at this pace "
-                "risks muscle loss and performance."
-            ),
+            # Guardrail-triggered, so it obeys the same tone contract as
+            # deficit_guard.PAUSE_COPY: say EAT MORE, blame nobody (#1608).
+            # This is the same advice a deficit pause gives; it read in a
+            # different voice only because it lived in a different module and
+            # sat outside assert_eat_more_copy's coverage.
+            "action": SLOW_DOWN_COPY,
             "suggested_deficit_delta_kcal": -DEFICIT_STEP_KCAL,
             "plateau_days": None,
         }

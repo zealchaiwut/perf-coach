@@ -402,19 +402,25 @@ hypothesis replaces *relying* on it.
 
 Working today over HTTP, no UI:
 
-- marking a long run `fuelled` (§6.1) — the only recurring one
-- `body_fat_pct` on the weigh-in (§6) — free if Hermes sends it
 - `volume_plays` editing
 - calibration sprint start / close / countdown
 - the weight hypothesis view
-- the consult blob (only the *daily* blob has a nav button)
-- `/decisions` has a page but no nav link — type the URL
 
-Worth building on screen, in my order of preference: **a fuelled toggle on the
-workout detail panel** (weekly, recurring, and currently the only thing the
-program asks for that has no button), then **the sprint countdown** (a bounded
-thing with a visible end date is exactly what wants to be visible), then **the
-hypothesis band**, then a **Copy for consult** button next to the existing one.
+**Now on screen** (was API-only):
+
+| Was | Now |
+|---|---|
+| marking a long run `fuelled` | a tri-state control on the workout form |
+| `body_fat_pct` on the weigh-in | accepted on create / upsert / patch, and by Hermes |
+| the consult blob | icon button beside **Copy for Claude** |
+| `/decisions` | a nav item |
+| applying a consult's prefs change by hand | the **From a consult** paste box in Preferences |
+| paused weight tracking | stated on the Weight page |
+| habit correlation evidence | rendered on the Habits page |
+
+Worth building next, in my order of preference: **the sprint countdown** (a
+bounded thing with a visible end date is exactly what wants to be visible), then
+**the hypothesis band**.
 
 ---
 

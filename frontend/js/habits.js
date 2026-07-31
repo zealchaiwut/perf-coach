@@ -502,6 +502,30 @@ function renderTodayCard(habits) {
 
 // ── Load & Render (main entry) ────────────────────────────────────────────────
 
+
+// ── Correlation evidence ─────────────────────────────────────────────────────
+//
+// "Weeks you fuelled the long run, HR drift averaged 3.1% vs 6.8%." This is
+// what habit_evidence.py was built to show INSTEAD of a streak — a claim about
+// what the habit did for you, not a count of consecutive days.
+//
+// Silence is correct. build_user_evidence returns only readable comparisons, so
+// an empty list means there is genuinely nothing to say yet — and saying "not
+// enough data" three times is worse than saying nothing.
+function _renderHabitEvidence(evidence) {
+  const host = document.getElementById('habit-evidence');
+  if (!host) return;
+  if (!evidence || !evidence.length) {
+    host.hidden = true;
+    host.innerHTML = '';
+    return;
+  }
+  host.hidden = false;
+  host.innerHTML = evidence.map(function (e) {
+    return '<div class="habit-evidence-row">' + esc(e.sentence || '') + '</div>';
+  }).join('');
+}
+
 async function loadAndRender() {
   clearError();
 
@@ -515,11 +539,16 @@ async function loadAndRender() {
       ? `/api/habits/week?week_start=${currentWeekStart}`
       : '/api/habits/week';
 
-    const [weekRes, activeRes, archivedRes, logsRes] = await Promise.all([
+    const [weekRes, activeRes, archivedRes, logsRes, summaryRes] = await Promise.all([
       fetch(weekUrl),
       fetch('/api/habits'),
       fetch('/api/habits?include_archived=true'),
       fetch(`/api/habits/logs?from=${weekFrom}&to=${weekTo}`),
+      // Correlation evidence — what this surface shows INSTEAD of streaks.
+      // Not awaited separately and never fatal: it is decoration, and a habit
+      // grid that fails because a sentence could not be built is worse than a
+      // grid with no sentence (#1608).
+      fetch('/api/habits/summary').catch(() => null),
     ]);
 
     if (!weekRes.ok) throw new Error(`Server error ${weekRes.status}`);
@@ -528,6 +557,14 @@ async function loadAndRender() {
 
     weekData = await weekRes.json();
     currentWeekStart = weekData.week_start;
+
+    if (summaryRes && summaryRes.ok) {
+      summaryRes.json()
+        .then(function (d) { _renderHabitEvidence(d.evidence || []); })
+        .catch(function () { _renderHabitEvidence([]); });
+    } else {
+      _renderHabitEvidence([]);
+    }
 
     activeHabits = await activeRes.json();
     const allHabits = await archivedRes.json();

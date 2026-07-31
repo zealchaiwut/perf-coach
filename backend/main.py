@@ -875,7 +875,31 @@ def list_weight_entries(
             "days_logged_pct": days_logged_pct,
         }
 
-        return JSONResponse({"entries": entries, "count": count, "summary": summary})
+        # Weight-tracking state, so the app can say "paused" as plainly as the
+        # Discord nudge does. tracking_state's docstring claimed four consumers
+        # including "the weight card (copy)"; in reality only the worker nudge
+        # and coach_export read it, so an athlete who uses the app rather than
+        # replying in Discord had NO way to learn tracking had paused — the
+        # "app gets quieter, not louder" reassurance was invisible (#1608).
+        #
+        # Best-effort: a state we could not compute must never cost the athlete
+        # their weight history.
+        tracking = None
+        try:
+            from backend.services.tracking_state import state_for_user
+
+            tracking = state_for_user(session, uid, today)
+        except Exception:
+            _logging.getLogger(__name__).warning(
+                "tracking state unavailable for user %s", uid, exc_info=True
+            )
+
+        return JSONResponse({
+            "entries": entries,
+            "count": count,
+            "summary": summary,
+            "tracking": tracking,
+        })
 
 
 class WeightEntryByDateIn(BaseModel):
@@ -4142,7 +4166,29 @@ def get_habits_summary(user: User = Depends(resolve_user)):
         entry["consistency_percent"] = consistency_data["consistency_percent"]
         result.append(entry)
 
-    return JSONResponse({"habits": result})
+    # Correlation sentences — what the habit surface shows INSTEAD of streaks.
+    # habit_evidence.py's own docstring calls itself exactly that, and
+    # lean-program.md describes it rendering here, but nothing outside
+    # coach_export ever built it (#1608). Combined with the streak bug (#1600)
+    # the live app did the inverse of the design: fire-streaks on the food
+    # habits, and never the sentence meant to replace them.
+    #
+    # Silence is correct when a comparison isn't readable — build_user_evidence
+    # returns only readable ones, because "not enough data yet" three times is
+    # worse than saying nothing. Best-effort: evidence is decoration, and a
+    # failure here must not cost the athlete their habit grid.
+    evidence: list = []
+    try:
+        from backend.services.habit_evidence import build_user_evidence
+
+        with Session(engine) as _ev_session:
+            evidence = build_user_evidence(_ev_session, user.id, today)
+    except Exception:
+        _logging.getLogger(__name__).warning(
+            "habit evidence unavailable for user %s", user.id, exc_info=True
+        )
+
+    return JSONResponse({"habits": result, "evidence": evidence})
 
 
 @app.get("/api/habits")
