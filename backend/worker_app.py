@@ -1035,6 +1035,9 @@ def post_feel_entry(body: dict, user: str | None = None):
 _WEIGHT_MIN_KG = 20.0
 _WEIGHT_MAX_KG = 300.0
 _WEIGHT_NOTES_CAP = 500
+# Matches the CHECK constraint on weight_entries.body_fat_pct.
+_BODY_FAT_MIN_PCT = 3.0
+_BODY_FAT_MAX_PCT = 70.0
 # Morning weigh-in window, BKK. Deliberately earlier than the plan-draft window
 # (07:00-09:00): the weigh-in happens before breakfast, the draft nudge doesn't.
 _WEIGHT_NUDGE_START_HOUR = 6
@@ -1103,6 +1106,28 @@ def post_weight_entry(body: dict, user: str | None = None):
             detail={"field": "notes", "error": f"notes must not exceed {_WEIGHT_NOTES_CAP} characters"},
         )
 
+    # Optional weekly bioimpedance reading, riding along with the daily number.
+    # Omitting it leaves any existing reading alone — the daily weigh-in must
+    # never wipe the week's composition reading.
+    raw_body_fat = body.get("body_fat_pct")
+    body_fat_pct = None
+    if raw_body_fat is not None:
+        try:
+            body_fat_pct = float(raw_body_fat)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=400,
+                detail={"field": "body_fat_pct", "error": "body_fat_pct must be a number"},
+            )
+        if not (_BODY_FAT_MIN_PCT <= body_fat_pct <= _BODY_FAT_MAX_PCT):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "field": "body_fat_pct",
+                    "error": f"body_fat_pct must be between {_BODY_FAT_MIN_PCT:g} and {_BODY_FAT_MAX_PCT:g}",
+                },
+            )
+
     resolved_user = _resolve_read_user(user)
 
     with Session(engine) as s:
@@ -1125,6 +1150,7 @@ def post_weight_entry(body: dict, user: str | None = None):
                 entry_date=entry_date,
                 entry_time=None,
                 weight_kg=weight_kg,
+                body_fat_pct=body_fat_pct,
                 notes=notes,
                 source="imported",
             )
@@ -1133,6 +1159,8 @@ def post_weight_entry(body: dict, user: str | None = None):
             row.weight_kg = weight_kg
             if notes is not None:
                 row.notes = notes
+            if body_fat_pct is not None:
+                row.body_fat_pct = body_fat_pct
         s.commit()
         s.refresh(row)
 
@@ -1141,6 +1169,7 @@ def post_weight_entry(body: dict, user: str | None = None):
             "user_id": str(row.user_id),
             "entry_date": row.entry_date.isoformat(),
             "weight_kg": float(row.weight_kg),
+            "body_fat_pct": float(row.body_fat_pct) if row.body_fat_pct is not None else None,
             "notes": row.notes,
             "created": created,
         }
