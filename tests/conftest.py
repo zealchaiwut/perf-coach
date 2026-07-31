@@ -87,8 +87,42 @@ def _needs_live_service(path: str) -> bool:
     return cached
 
 
+def _excluding_integration(config) -> bool:
+    """True when this run asked NOT to include integration tests."""
+    expr = config.getoption("-m", default="") or ""
+    return "not integration" in expr.replace("  ", " ")
+
+
+def pytest_ignore_collect(collection_path, config):
+    """Skip live-service modules BEFORE importing them.
+
+    Marking alone is not enough. pytest_collection_modifyitems runs AFTER every
+    module has been imported, so a module that raises at IMPORT time — because
+    it reads DATABASE_URL_UAT at module scope, say — produces a collection error
+    before there is an item to mark. It then breaks the very `--collect-only`
+    step that is supposed to prove the suite is importable.
+
+    CI caught this on its own first run: 17 collection errors there against 0
+    locally, because a local .env supplies DATABASE_URL_UAT and a clean runner
+    does not. The marker was correct and useless at the same time.
+
+    So when a run excludes integration, those files are never imported at all.
+    """
+    if not _excluding_integration(config):
+        return None
+    path = str(collection_path)
+    if path.endswith(".py") and _needs_live_service(path):
+        return True
+    return None
+
+
 def pytest_collection_modifyitems(config, items):
-    """Mark every test in a module that references a live service."""
+    """Mark every test in a module that references a live service.
+
+    Still needed even with the ignore hook above: a run that does NOT exclude
+    integration (a full local run, or `-m integration`) imports these modules
+    normally and needs them labelled.
+    """
     import pytest
 
     for item in items:
