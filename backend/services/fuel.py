@@ -788,23 +788,76 @@ def _resolve_week_phase_from_db(
 
 # ── Today payload ────────────────────────────────────────────────────────────
 
+class _BodyFatReading:
+    """A body-fat reading normalised across the two tables that store one.
+
+    ``current_lean_mass_kg`` wants ``.body_fat_pct`` and ``.measure_date``;
+    ``weight_entries`` calls the date ``entry_date``. This adapts it rather than
+    changing that function's contract, which ``body_measurements`` rows already
+    satisfy directly.
+    """
+
+    __slots__ = ("body_fat_pct", "measure_date", "source")
+
+    def __init__(self, body_fat_pct, measure_date, source):
+        self.body_fat_pct = body_fat_pct
+        self.measure_date = measure_date
+        self.source = source
+
+
 def _fetch_lean_mass(user_id, settings_row, db: Session) -> dict:
-    """Fetch body-fat readings and compute lean mass for the given user."""
+    """Fetch body-fat readings and compute lean mass for the given user.
+
+    Reads BOTH stores. body_fat_pct lives on two tables — weight_entries (the
+    weigh-in form, and what docs/lean-program-operator-guide.md §6 tells the
+    athlete to use) and body_measurements (the older measurements page) — and
+    this function used to read only the second.
+
+    The result was that the two halves of one coach export disagreed:
+    body_composition.py reads weight_entries and showed a populated composition
+    trend, while the protein target and fuel budget silently fell back to the
+    weight x 0.76 estimate as though no body-fat data existed (issue #1600).
+
+    Unioning is the conservative fix. Picking one table would have silently
+    discarded whichever set of readings the athlete had already logged; S5
+    (#1604) decides which store survives, and this keeps every reading counted
+    until then. Ties on the same date prefer weight_entries, since that is the
+    surface the guide points at.
+    """
     from backend.models import BodyMeasurement, WeightEntry
 
     today = _date.today()
     window_start = today - timedelta(days=_BF_WINDOW_DAYS)
 
-    bf_rows = (
-        db.query(BodyMeasurement)
+    measured = [
+        _BodyFatReading(r.body_fat_pct, r.measure_date, "body_measurements")
+        for r in db.query(BodyMeasurement)
         .filter(
             BodyMeasurement.user_id == user_id,
             BodyMeasurement.measure_date >= window_start,
             BodyMeasurement.measure_date <= today,
             BodyMeasurement.body_fat_pct.isnot(None),
         )
-        .order_by(BodyMeasurement.measure_date.desc())
         .all()
+    ]
+    measured += [
+        _BodyFatReading(r.body_fat_pct, r.entry_date, "weight_entries")
+        for r in db.query(WeightEntry)
+        .filter(
+            WeightEntry.user_id == user_id,
+            WeightEntry.entry_date >= window_start,
+            WeightEntry.entry_date <= today,
+            WeightEntry.body_fat_pct.isnot(None),
+        )
+        .all()
+    ]
+
+    # Newest first, matching the previous order_by; the caller takes the most
+    # recent reading. weight_entries wins a same-date tie.
+    bf_rows = sorted(
+        measured,
+        key=lambda r: (r.measure_date, r.source == "weight_entries"),
+        reverse=True,
     )
 
     # EWMA weight: use the last 14 days of weight entries

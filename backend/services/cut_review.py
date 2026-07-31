@@ -130,14 +130,38 @@ def compute_cut_recommendation(
         ``"managed"`` keeps the original daily-budget behaviour.
     """
     structural = deficit_mode == DEFICIT_MODE_STRUCTURAL
-    # 1. Insufficient data — no reliable recommendation possible
-    if weigh_in_count_14d < MIN_WEIGH_INS_14D or not has_active_plan:
+
+    # 1. Insufficient data — no reliable recommendation possible.
+    #
+    # Structural mode does NOT require a WeightPlan. It used to, and that made
+    # this the only verdict a lean-program athlete could ever see (issue #1600):
+    # `structural` was computed on the line above and then ignored here, so the
+    # gate demanded an active plan regardless of mode. No UI creates one —
+    # `grep -rn "weight-plans" frontend/` returns nothing — and the only route
+    # that does, POST /api/weight-plans, requires a `goal_weight_kg`.
+    #
+    # That last part is why this could not be fixed by "just set a plan": a hard
+    # target weight is precisely the concept weight_hypothesis.py and
+    # body_composition.py were built to eliminate ("no target, no goal line").
+    # The single documented way to unblock the weekly verdict reintroduced the
+    # framing the rest of the feature set exists to remove.
+    #
+    # The weight trend is sufficient on its own, which is the whole premise of
+    # structural mode.
+    needs_active_plan = not structural
+    if weigh_in_count_14d < MIN_WEIGH_INS_14D or (needs_active_plan and not has_active_plan):
+        action = (
+            f"Log at least {MIN_WEIGH_INS_14D} weigh-ins over 14 days to get a "
+            "weekly review."
+        )
+        if needs_active_plan and not has_active_plan:
+            action = (
+                f"Log at least {MIN_WEIGH_INS_14D} weigh-ins over 14 days and set "
+                "an active plan to get a weekly review."
+            )
         return {
             "recommendation": "insufficient_data",
-            "action": (
-                "Log at least 4 weigh-ins over 14 days and set an active plan "
-                "to get a weekly review."
-            ),
+            "action": action,
             "suggested_deficit_delta_kcal": None,
             "plateau_days": None,
         }
