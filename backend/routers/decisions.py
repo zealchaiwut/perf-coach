@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import uuid as _uuid
 from datetime import date as _date, timedelta as _timedelta
+from backend.utils.time import today_bangkok as _today_bangkok
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -107,7 +108,7 @@ async def create_decision(body: _DecisionBody, user: User = Depends(resolve_user
             "msg": f"raw_text must be ≤ {RAW_TEXT_MAX_CHARS} characters",
         })
 
-    decided_on = _parse_date(body.decided_on, "decided_on", errors) or _date.today()
+    decided_on = _parse_date(body.decided_on, "decided_on", errors) or _today_bangkok()
     review_on = _parse_date(body.review_on, "review_on", errors)
     tags = _clean_tags(body.tags, errors)
 
@@ -118,7 +119,7 @@ async def create_decision(body: _DecisionBody, user: User = Depends(resolve_user
             "msg": f"outcome_note must be ≤ {OUTCOME_NOTE_MAX_CHARS} characters",
         })
 
-    if body.decided_on and decided_on and decided_on > _date.today():
+    if body.decided_on and decided_on and decided_on > _today_bangkok():
         errors.append({"field": "decided_on", "msg": "decided_on cannot be in the future"})
 
     if errors:

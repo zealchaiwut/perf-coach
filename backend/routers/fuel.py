@@ -6,6 +6,7 @@ formulas live here. See docs/calculations/fuel.md.
 from __future__ import annotations
 
 from datetime import date as _date
+from backend.utils.time import today_bangkok as _today_bangkok
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -25,7 +26,7 @@ router = APIRouter()
 
 def _parse_date(value: Optional[str], *, param: str) -> _date:
     if not value:
-        return _date.today()
+        return _today_bangkok()
     try:
         return _date.fromisoformat(value)
     except ValueError:
@@ -126,7 +127,7 @@ async def put_fuel_settings(body: _SettingsBody, request: Request):
             _svc.update_settings(user.id, db=db, **fields)
         except _svc.SettingsValidationError as e:
             raise HTTPException(status_code=422, detail=str(e))
-        return JSONResponse(_svc.get_today_payload(user.id, _date.today(), db=db))
+        return JSONResponse(_svc.get_today_payload(user.id, _today_bangkok(), db=db))
 
 
 @router.post("/api/fuel/settings/sync-deficit")
@@ -150,7 +151,7 @@ async def post_fuel_calibrate(request: Request):
     user = await resolve_user(request)
     with Session(engine) as db:
         from datetime import timedelta
-        window_start = _date.today() - timedelta(days=_svc.CALIBRATE_MIN_DAYS + 7)
+        window_start = _today_bangkok() - timedelta(days=_svc.CALIBRATE_MIN_DAYS + 7)
 
         weight_rows = (
             db.query(WeightEntry)
@@ -176,7 +177,7 @@ async def post_fuel_calibrate(request: Request):
             eaten = _svc.compute_food_totals(e)["kcal"]
             burn_info = _svc.training_burn_kcal(
                 user.id, e.entry_date, settings["weight_kg"], settings["run_kcal_per_kg_per_km"],
-                today=_date.today(), db=db,
+                today=_today_bangkok(), db=db,
             )
             fuel_entries_and_burn.append(
                 (e.entry_date, eaten, settings["base_kcal"], burn_info["burn"])

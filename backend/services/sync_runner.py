@@ -13,6 +13,8 @@ import urllib.error as _urllib_error
 import urllib.request as _urllib_request
 import uuid as _uuid
 from datetime import date as _date_cls, datetime as _datetime, timezone as _timezone
+
+from backend.utils.time import today_bangkok as _today_bangkok
 from typing import Optional, Protocol
 from urllib.parse import urlencode as _urlencode
 
@@ -54,7 +56,7 @@ def default_strava_since_date(user_id: _uuid.UUID) -> str:
             return (latest_synced.date() - _timedelta(days=1)).isoformat()
     except (AttributeError, TypeError, ValueError):
         pass
-    return (_date_cls.today() - _timedelta(days=_STRAVA_DEFAULT_LOOKBACK_DAYS)).isoformat()
+    return (_today_bangkok() - _timedelta(days=_STRAVA_DEFAULT_LOOKBACK_DAYS)).isoformat()
 
 
 def run_plan_matcher(uid) -> None:

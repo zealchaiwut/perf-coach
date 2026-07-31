@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date as _date, datetime as _datetime, timezone as _timezone
+from backend.utils.time import today_bangkok as _today_bangkok
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -56,7 +57,7 @@ class _GoalBody(BaseModel):
             d = _date.fromisoformat(v)
         except (ValueError, TypeError):
             raise ValueError("race_date must be ISO format YYYY-MM-DD")
-        if d <= _date.today():
+        if d <= _today_bangkok():
             raise ValueError("race_date must be a future date")
         return v
 
