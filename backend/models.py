@@ -309,6 +309,12 @@ class Workout(Base):
     # for everything logged before the column existed, and "unknown" must never
     # read as "no". Only consulted for long runs, by the long-run-fuel habit.
     fuelled = Column(Boolean, nullable=True)
+    # Running drills done alongside this session — form drills, strides, skips.
+    # A duration only, on purpose: no exercise breakdown and no TSS. Drills ride
+    # along with a session rather than being one, so they never claim a skeleton
+    # slot or a load budget. Nullable = unknown (logged before the column
+    # existed), which must not read as "did no drills".
+    drills_minutes = Column(Integer, nullable=True)
     # Self-reported effort feeling (issue #1241): 'hard' | 'ok' | 'easy' | NULL.
     # One shared column tagged from either the Plan tab (matched workout) or the
     # Log tab. Does not affect scores.
@@ -327,6 +333,7 @@ class Workout(Base):
         CheckConstraint("avg_hr IS NULL OR (avg_hr >= 20 AND avg_hr <= 250)", name="ck_workouts_avg_hr_range"),
         CheckConstraint("max_hr IS NULL OR (max_hr >= 20 AND max_hr <= 250)", name="ck_workouts_max_hr_range"),
         CheckConstraint("feeling IS NULL OR feeling IN ('hard', 'ok', 'easy')", name="ck_workouts_feeling_values"),
+        CheckConstraint("drills_minutes IS NULL OR (drills_minutes >= 0 AND drills_minutes <= 120)", name="ck_workouts_drills_minutes_range"),
         # Matches alembic/versions/c3d4e5f6a7b8_create_workouts_table.py's raw-SQL
         # index (already in the DB) — declared here so autogenerate stays quiet.
         Index("ix_workouts_user_id_workout_date", "user_id", workout_date.desc()),

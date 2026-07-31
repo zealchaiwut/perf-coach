@@ -5718,6 +5718,25 @@ class ExerciseIn(BaseModel):
 _VALID_SOURCES = frozenset({"manual", "strava", "stryd", "strava,stryd", "stryd,strava"})
 
 
+# Bounds match the CHECK constraint on workouts.drills_minutes so a bad value
+# is a 422 with a field message, not a DB-level IntegrityError 500.
+_DRILLS_MIN_MINUTES = 0
+_DRILLS_MAX_MINUTES = 120
+
+
+def _validate_drills_minutes(value):
+    """422 unless drills_minutes is None or inside the stored range."""
+    if value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise HTTPException(status_code=422, detail="drills_minutes must be a whole number of minutes")
+    if not (_DRILLS_MIN_MINUTES <= value <= _DRILLS_MAX_MINUTES):
+        raise HTTPException(
+            status_code=422,
+            detail=f"drills_minutes must be between {_DRILLS_MIN_MINUTES} and {_DRILLS_MAX_MINUTES}",
+        )
+
+
 class WorkoutIn(BaseModel):
     user_id: Optional[str] = None
     name: str
@@ -5747,6 +5766,8 @@ class WorkoutIn(BaseModel):
     # unknown must never read as "no". Only consulted for long runs, by the
     # long-run-fuel habit.
     fuelled: Optional[bool] = None
+    # Running drills alongside this session — a duration only, no TSS.
+    drills_minutes: Optional[int] = None
 
 
 class WorkoutPatch(BaseModel):
@@ -5777,6 +5798,8 @@ class WorkoutPatch(BaseModel):
     feeling: Optional[str] = None
     # Did this session take on fuel? null clears it back to unknown.
     fuelled: Optional[bool] = None
+    # Running drills alongside this session. null clears it back to unknown.
+    drills_minutes: Optional[int] = None
     # Full exercise list to replace this workout's exercises (same shape as
     # WorkoutIn.exercises / the /exercises/replace endpoint). The Form editor
     # has always sent this on edit; before this field existed pydantic silently
@@ -6341,6 +6364,7 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "flat_equivalent_pace": float(w.flat_equivalent_pace) if w.flat_equivalent_pace is not None else None,
         "feeling": w.feeling,
         "fuelled": w.fuelled,
+        "drills_minutes": w.drills_minutes,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
         **_best_values_dict(w),
@@ -6575,6 +6599,7 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "exercise_count": exercise_count,
         "feeling": w.feeling,
         "fuelled": w.fuelled,
+        "drills_minutes": w.drills_minutes,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         **_best_values_dict(w),
     }
@@ -7226,6 +7251,7 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
         raise HTTPException(status_code=422, detail="max_hr must be between 20 and 250")
     if body.zone2_minutes is not None and not (0 <= body.zone2_minutes <= 600):
         raise HTTPException(status_code=422, detail="zone2_minutes must be between 0 and 600")
+    _validate_drills_minutes(body.drills_minutes)
     if body.source is not None and body.source not in _VALID_SOURCES:
         raise HTTPException(status_code=422, detail="source must be one of: " + ", ".join(sorted(_VALID_SOURCES)))
     if body.strava_activity_url is not None and body.strava_activity_url != "":
@@ -7258,6 +7284,7 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             temperature_c=body.temperature_c,
             humidity_pct=body.humidity_pct,
             fuelled=body.fuelled,
+            drills_minutes=body.drills_minutes,
         )
         session.add(workout)
         session.flush()
@@ -7425,6 +7452,11 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             # Explicit null returns it to unknown rather than to "no" — the
             # long-run-fuel habit only ticks on a literal True.
             workout.fuelled = body.fuelled
+        if 'drills_minutes' in body.model_fields_set:
+            # Explicit null returns it to unknown, which is distinct from 0
+            # ("logged the session, did no drills").
+            _validate_drills_minutes(body.drills_minutes)
+            workout.drills_minutes = body.drills_minutes
         if 'feeling' in body.model_fields_set:
             # None/empty clears it; otherwise must be one of the allowed values.
             fl = body.feeling
