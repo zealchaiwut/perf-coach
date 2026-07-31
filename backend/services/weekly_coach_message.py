@@ -19,6 +19,7 @@ generate_for_user(user_id, db=None, today=None) -> dict
 from __future__ import annotations
 
 import math
+import re as _re
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -211,26 +212,102 @@ def compose_deterministic_message(
     return "\n\n".join(parts)
 
 
-# ── Message assembly ───────────────────────────────────────────────────────────
+# ── LLM narrative layer ────────────────────────────────────────────────────────
+#
+# Restored after Priority 2 parked it (D4). The operator's rule moved from
+# "no LLM in the app" to "minimal LLM" — see CLAUDE.md — and the daily coach
+# message is one of the two surfaces judged to earn a provider call. The other
+# is Ask-AI single-session.
+#
+# The deterministic message remains the source of truth for every NUMBER. The
+# LLM only rewrites the prose around them, and any failure — disabled provider,
+# network error, malformed response, a number that changed — falls back to the
+# deterministic text silently. The athlete always gets a message.
+
+_NUMERAL_RE = _re.compile(r"\d+(?:[.:]\d+)*")
+
+
+def _numbers_preserved(original: str, rephrased: str) -> bool:
+    """True iff the rephrase kept every numeral from the deterministic text.
+
+    The prompt says to preserve numbers verbatim; this is what makes that a
+    guarantee rather than a request. A rephrase that drops a TSS figure or
+    invents a finish time is rejected outright — the whole reason the coach
+    message is trusted is that its numbers come from the engines, and a warm
+    sentence is not worth a wrong one.
+
+    Multiset comparison, not set: "315 TSS across 5 sessions" losing one of two
+    identical figures should still fail.
+    """
+    return sorted(_NUMERAL_RE.findall(original)) == sorted(_NUMERAL_RE.findall(rephrased))
+
+
+def _call_llm_narrative(deterministic_text: str, plan_state: dict) -> str | None:
+    """Ask the LLM to add warmth to the deterministic message.
+
+    All numbers must be preserved verbatim. Returns None on any failure
+    (disabled LLM, API error, bad response, numeral drift). Never raises.
+    """
+    from backend.services.llm import complete_structured, llm_enabled
+
+    if not llm_enabled():
+        return None
+
+    system = (
+        "You are a supportive performance coach writing a weekly update for an athlete. "
+        "Rephrase the structured message below to sound encouraging and human, "
+        "but you MUST preserve ALL numeric values, dates, and time estimates exactly as given. "
+        "Do not invent, change, or omit any number, date, or time. "
+        "Keep all five sections (Now, Next steps, Constraint, Levers, Projection) in order. "
+        "Plain text only — no markdown, no bullet symbols beyond what is already present."
+    )
+    user = f"Rephrase this weekly coaching update:\n\n{deterministic_text}"
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "message": {"type": "string"},
+        },
+        "required": ["message"],
+        "additionalProperties": False,
+    }
+
+    result = complete_structured(
+        system=system,
+        user=user,
+        schema_name="weekly_coach_message",
+        json_schema=schema,
+        model_tier="fast",
+        max_tokens=800,
+    )
+    if result is None:
+        return None
+    text = result.get("message", "")
+    if not text:
+        return None
+    if not _numbers_preserved(deterministic_text, text):
+        _log.warning(
+            "LLM narrative changed a number — discarding the rephrase",
+            extra={"surface": "weekly_coach_message"},
+        )
+        return None
+    return text
+
 
 def _build_message(
     plan_state: dict,
     projection_info: dict,
     today: date,
 ) -> str:
-    """Build the weekly message. Deterministic — no LLM.
+    """Build the weekly message — tries LLM, falls back to deterministic."""
+    deterministic = compose_deterministic_message(plan_state, projection_info, today)
+    try:
+        llm_result = _call_llm_narrative(deterministic, plan_state)
+    except Exception as exc:
+        _log.warning("LLM narrative failed, using deterministic fallback", extra={"error": str(exc)})
+        llm_result = None
 
-    There used to be a "warmth rephrase" layer here: the deterministic text went
-    to the LLM with an instruction to sound encouraging while preserving every
-    number verbatim, falling back silently on any failure. Parked in Priority 2
-    (D4) along with the rest of the worker's LLM surface.
-
-    Worth being explicit about what was given up: tone. What it bought was a
-    daily message that cannot invent a number, cannot 500, and needs no provider
-    key on the worker. Judgment and warmth now come from the paste loop
-    (Priority 1), where a human is in the conversation.
-    """
-    return compose_deterministic_message(plan_state, projection_info, today)
+    return llm_result if llm_result else deterministic
 
 
 # ── Persistence ────────────────────────────────────────────────────────────────

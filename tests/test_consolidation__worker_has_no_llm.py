@@ -1,13 +1,25 @@
-"""Priority 2 guard: the compute worker makes no LLM calls.
+"""Guard: the worker's LLM surface stays exactly two calls wide.
 
-D4 parks the in-app coach LLM and D1 parks worker drafts, leaving exactly one
-LLM call in perf-coach — Ask-AI single session, interactive, in the webapp. The
-worker's job is syncs, backfills, Banister refit, precompute, and a
-deterministic daily message.
+The rule is **minimal LLM**, not no LLM (see CLAUDE.md). Two surfaces earn a
+provider call:
 
-That is easy to state and easy to regress: one convenience import of
-``backend.services.llm`` in any module the worker's daily_coach path touches
-puts a provider client back on zeal-server. This file is the tripwire.
+1. **Ask-AI single session** — interactive, in the webapp.
+2. **The daily coach message** — the warmth rephrase in ``weekly_coach_message``,
+   which runs on the worker.
+
+Everything else Priority 2 parked stays parked: ``coach_narrative`` and its
+LangGraph orchestrator, ``coach_claude_cli``, ``plan_draft`` and its slot cache,
+and ``phrasing.py``'s LLM path. Those are the modules that made the worker's
+surface sprawl — atom validators, retry loops, a ``claude -p`` transport — and
+none of them is coming back without a decision.
+
+So this file no longer asserts "no LLM on the worker". It asserts that the
+*parked cluster* stays unreachable, and that no third-party SDK appears. The
+line it defends is: adding warmth to one message is a decision; re-importing the
+whole parked orchestration stack is a regression.
+
+Note ``backend.services.llm`` IS now expected on the worker — it is what the
+daily message's rephrase calls.
 
 The check is a RUNTIME one — import ``backend.worker_app`` in a clean
 interpreter and look at ``sys.modules`` — rather than a static AST walk, because
@@ -22,6 +34,7 @@ Mirrors the older single-file guard in test_coach_plan__build_state.py
 """
 from __future__ import annotations
 
+import inspect
 import subprocess
 import sys
 import textwrap
@@ -31,11 +44,13 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 
-# Modules whose presence means an LLM client is reachable from the worker.
-# The parked cluster is listed alongside the client itself: those modules exist
-# only to make LLM calls, so importing one is the same failure a step earlier.
+# The parked cluster. These modules exist only to make LLM calls that the
+# consolidation decided not to keep; importing one from the worker means the
+# parked orchestration is reachable again.
+#
+# backend.services.llm is deliberately NOT here — the daily coach message's
+# warmth rephrase calls it, which is one of the two sanctioned LLM surfaces.
 FORBIDDEN_MODULES = {
-    "backend.services.llm",
     "backend.services.coach_narrative",
     "backend.services.coach_claude_cli",
     "backend.services.coach_orch_langgraph",
@@ -82,14 +97,14 @@ def worker_modules() -> set[str]:
     return _loaded_modules("backend.worker_app")
 
 
-def test_worker_does_not_load_an_llm_client(worker_modules):
-    """The whole point of D4: zero LLM on the worker."""
+def test_worker_does_not_load_the_parked_llm_cluster(worker_modules):
+    """Minimal LLM means two sanctioned calls, not an open door."""
     hits = sorted(worker_modules & FORBIDDEN_MODULES)
     assert not hits, (
-        "importing backend.worker_app pulled in LLM module(s): "
+        "importing backend.worker_app pulled in parked LLM module(s): "
         + ", ".join(hits)
-        + ". The worker must stay deterministic — move the import inside the "
-        "function that needs it, or drop the dependency."
+        + ". These were parked in Priority 2 and stay parked — move the import "
+        "inside the function that needs it, or drop the dependency."
     )
 
 
@@ -123,7 +138,12 @@ def test_draft_notify_still_answers_with_pipeline_off():
 
 
 def test_deterministic_brief_builder_exists_and_is_llm_free():
-    """The brief still gets built — just without the narrative LLM."""
+    """The BRIEF stays deterministic even though the daily message does not.
+
+    These are two different surfaces. The warmth rephrase was restored for the
+    daily message only; the brief's LLM atom assembly — validators, retry loops,
+    the 22 Jul hardening scars — stays parked in coach_narrative.
+    """
     from backend.services import coach_brief
 
     assert callable(coach_brief.build_brief_deterministic)
@@ -133,11 +153,36 @@ def test_deterministic_brief_builder_exists_and_is_llm_free():
     assert not hits, f"coach_brief pulled in {hits}"
 
 
-def test_weekly_coach_message_has_no_warmth_rephrase():
-    """The LLM 'add warmth, preserve every number' layer is gone. It was the
-    last LLM call on the daily message path."""
+def test_daily_message_has_its_warmth_rephrase():
+    """Restored deliberately — one of the two sanctioned LLM surfaces."""
     import backend.services.weekly_coach_message as wcm
 
-    assert not hasattr(wcm, "_call_llm_narrative"), (
-        "the warmth-rephrase layer is back on the daily coach message"
-    )
+    assert hasattr(wcm, "_call_llm_narrative")
+
+
+def test_warmth_rephrase_is_guarded_by_a_numeral_check():
+    """The prose may change; the numbers may not.
+
+    The message is trusted because its figures come from the engines. A rephrase
+    that alters one is discarded rather than shown — a warm sentence is not
+    worth a wrong number.
+    """
+    import backend.services.weekly_coach_message as wcm
+
+    assert wcm._numbers_preserved("hold 315 TSS, 1:45 goal", "Hold 315 TSS — 1:45 is the goal.")
+    assert not wcm._numbers_preserved("hold 315 TSS", "Hold 320 TSS")
+    assert not wcm._numbers_preserved("315 TSS over 5 runs", "315 TSS over some runs")
+
+
+def test_warmth_rephrase_falls_back_rather_than_raising():
+    """Any failure must yield the deterministic text, never an exception — the
+    athlete always gets a message."""
+    src = inspect.getsource(wcm_module()._build_message)
+    assert "except Exception" in src
+    assert "compose_deterministic_message" in src
+
+
+def wcm_module():
+    import backend.services.weekly_coach_message as wcm
+
+    return wcm
