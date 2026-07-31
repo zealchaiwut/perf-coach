@@ -1,9 +1,13 @@
 import os
 from datetime import date, timedelta
+
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, func, text
 from sqlalchemy.orm import Session
 from models import Workout, WorkoutExercise
+# Bare (non-`backend.`-prefixed) imports throughout this file are deliberate:
+# it is run as `python backend/seed.py`, which puts backend/ on sys.path.
+from utils.time import today_bangkok
 
 load_dotenv()
 
@@ -87,7 +91,7 @@ with Session(engine) as session:
 
         alice = session.execute(text("SELECT id FROM users WHERE name = 'Alice'")).fetchone()
         if alice:
-            today = date.today()
+            today = today_bangkok()
             seed_workouts = [
                 {
                     "user_id": str(alice.id),
@@ -176,7 +180,7 @@ with Session(engine) as session:
             {"uid": str(alice.id)},
         ).scalar()
         if dm_count == 0:
-            today = date.today()
+            today = today_bangkok()
             # 14 days of realistic recovery data (rhr 50-60, hrv 40-80,
             # sleep 6.5-8.5, quality/energy/mood 2-5), most recent first
             seed_metrics = [
@@ -276,7 +280,7 @@ with Session(engine) as session:
 with Session(engine) as session:
     alice = session.execute(text("SELECT id FROM users WHERE name = 'Alice'")).fetchone()
     if alice:
-        today = date.today()
+        today = today_bangkok()
 
         # Half-marathon run: 1:58:12 (7092 s) at 21.1 km — gives amber delta vs 1:54:31 PR
         hm_exists = session.query(Workout).filter_by(user_id=alice.id, name="Half Marathon Race").first()

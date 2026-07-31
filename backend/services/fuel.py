@@ -318,8 +318,8 @@ def current_lean_mass_kg(
 
     Returns dict with keys 'lean_mass_kg' (float, rounded to 1 dp) and 'source' (str).
     """
-    from datetime import date as _d
-    today = _d.today()
+    from backend.utils.time import today_bangkok
+    today = today_bangkok()
 
     # Find the most-recent bf reading within the 60-day window
     recent = None

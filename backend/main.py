@@ -30,6 +30,7 @@ from zoneinfo import ZoneInfo
 
 from backend.auth import require_admin
 from backend.db import check_db, engine, environment
+from backend.utils.time import today_bangkok as _today_bangkok
 from backend.models import (
     AppConfig, BodyMeasurement, DailyMetric, DailyReadiness, DriveSleepConnection,
     EconomyCeilingSnapshot, ExerciseCatalog, GoogleOAuthCredentials, Habit, HabitLog,
@@ -166,8 +167,13 @@ app.include_router(_decisions_router)
 
 
 def _today_bkk() -> _date:
-    """Return today's date in Asia/Bangkok (UTC+7) timezone."""
-    return _datetime.now(ZoneInfo("Asia/Bangkok")).date()
+    """Return today's date in Asia/Bangkok (UTC+7) timezone.
+
+    Kept as a short local alias because it appears ~50 times below, but it is
+    now the SAME function the services and the worker call rather than a third
+    private copy of the zone lookup.
+    """
+    return _today_bangkok()
 
 
 # Serve static files (index.html, weight.html, habits.html, css/, js/)
@@ -1091,7 +1097,7 @@ def _compute_weight_target_active(t: WeightTarget, session) -> dict:
     """Return _weight_target_dict augmented with computed fields for the active target view."""
     base = _weight_target_dict(t)
 
-    today = _date.today()
+    today = _today_bkk()
     target_date = t.target_date if isinstance(t.target_date, _date) else _date.fromisoformat(str(t.target_date))
     start_date = t.start_date if isinstance(t.start_date, _date) else _date.fromisoformat(str(t.start_date))
 
@@ -1197,7 +1203,7 @@ def create_weight_target(body: WeightTargetCreateIn, user: User = Depends(resolv
         start_date = _date.fromisoformat(body.start_date)
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid start_date; use YYYY-MM-DD")
-    if start_date > _date.today():
+    if start_date > _today_bkk():
         raise HTTPException(status_code=422, detail="start_date cannot be in the future")
 
     try:
@@ -1352,7 +1358,7 @@ def get_weight_target_history_summary(user: User = Depends(resolve_user)):
         current_day_count = None
         if active_target:
             s_date = active_target.start_date if isinstance(active_target.start_date, _date) else _date.fromisoformat(str(active_target.start_date))
-            current_day_count = (_date.today() - s_date).days + 1
+            current_day_count = (_today_bkk() - s_date).days + 1
 
         past_attempts = []
         for t in achieved:
@@ -1466,7 +1472,7 @@ def end_weight_target(target_id: str, body: WeightTargetEndIn, user: User = Depe
         if target.status != "active":
             raise HTTPException(status_code=422, detail="Only active targets can be ended")
 
-        cutoff = _date.today() - _timedelta(days=7)
+        cutoff = _today_bkk() - _timedelta(days=7)
         recent_weight = (
             session.query(WeightEntry)
             .filter(
@@ -1549,7 +1555,7 @@ def weight_target_what_if(goal_id: str, body: WeightTargetWhatIfIn, user: User =
             )
 
         # Fetch the most recent weight entry to anchor the simulation
-        today = _date.today()
+        today = _today_bkk()
         latest_entry = (
             session.query(WeightEntry)
             .filter(WeightEntry.user_id == user.id, WeightEntry.entry_date <= today)
@@ -2408,7 +2414,7 @@ _WEIGHT_SUMMARY_EMPTY = {
 @app.get("/api/home/weight-summary")
 def get_home_weight_summary(user: User = Depends(resolve_user)):
     uid = user.id
-    today = _date.today()
+    today = _today_bkk()
     # today-36 covers 7-day MA windows for all 30 sparkline days and delta_month
     fetch_from = today - _timedelta(days=36)
 
@@ -2582,7 +2588,7 @@ def get_home_recent_workouts(
     has_more = len(rows) > limit
     rows = rows[:limit]
 
-    today = _date.today()
+    today = _today_bkk()
 
     def _rel(d):
         delta = (today - d).days
@@ -2827,7 +2833,7 @@ def get_home_readiness(
     uid = current_user.id
 
     try:
-        query_date = _date.fromisoformat(date) if date else _date.today()
+        query_date = _date.fromisoformat(date) if date else _today_bkk()
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid date format")
 
@@ -3203,7 +3209,7 @@ def get_weekly_summary(
     # explains it (see weekly_summary._build_prompt/validate_summary). Uses
     # week_end (capped at today) so a future-dated week query never asks
     # daily_tss_series for future days.
-    _verdict_as_of = min(week_end, _date_cls.today())
+    _verdict_as_of = min(week_end, _today_bkk())
     _chronic_start = _verdict_as_of - _td(days=27)
     _chronic_series = _dts(str(uid), _chronic_start, _verdict_as_of)
     chronic_weekly = round(sum(v for _, v in _chronic_series) / 4.0, 1)
@@ -3218,7 +3224,7 @@ def get_weekly_summary(
         readiness_7d_mean=_readiness_7d,
         injury_log=_active_injuries,
     )
-    if _verdict_as_of == _date_cls.today():
+    if _verdict_as_of == _today_bkk():
         _upsert_verdict_history(uid, _verdict_as_of, verdict, readiness_score=_readiness_today)
 
     # Gap findings (issue #1378): query active findings for the week.
@@ -4111,7 +4117,7 @@ class HabitLogUpsertIn(BaseModel):
 def get_habits_summary(user: User = Depends(resolve_user)):
     """Return each active habit with streak and 30-day consistency stats."""
     from datetime import date as _date_cls, timedelta as _td
-    today = _date_cls.today()
+    today = _today_bkk()
     window_start = today - _td(days=29)
 
     with Session(engine) as session:
@@ -4698,7 +4704,7 @@ def get_habit_summary(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid habit_id")
 
-    today = _date.today()
+    today = _today_bkk()
     lookback_30 = today - _timedelta(days=29)
     lookback_365 = today - _timedelta(days=365)
 
@@ -5122,7 +5128,7 @@ def get_habit_stats(
     uid = user.id
 
     from datetime import timedelta
-    today = _date.today()
+    today = _today_bkk()
     window_start = today - timedelta(days=days - 1)
 
     # List mode: return stats for all active habits when habit_id is omitted
@@ -5225,7 +5231,7 @@ def get_habits_adherence(user: User = Depends(resolve_user)):
     HTTP status is always 200.
     """
     uid = user.id
-    today = _date.today()
+    today = _today_bkk()
 
     with Session(engine) as session:
         active_habits = (
@@ -5366,7 +5372,7 @@ def get_adherence_nudges(user: User = Depends(resolve_user)):
     from datetime import date as _date_cls, timedelta as _td
 
     uid = user.id
-    today = _date_cls.today()
+    today = _today_bkk()
     current_start = today - _td(days=29)
     prev_start = today - _td(days=59)
     prev_end = today - _td(days=30)
@@ -5528,7 +5534,7 @@ def get_active_streak(current_user: User = Depends(resolve_user)):
 
     from datetime import timedelta
     from sqlalchemy import text as _sql_text
-    today = _date.today()
+    today = _today_bkk()
 
     with Session(engine) as session:
         rows = session.execute(
@@ -6064,7 +6070,7 @@ def _workout_signal_scores(session, workout) -> dict:
     except Exception:
         compute_decoupling = None
 
-    _today = _date.today()
+    _today = _today_bkk()
     _window_start = _today - _timedelta(days=89)
     run_workouts = (
         session.query(Workout)
@@ -7298,7 +7304,7 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
         workout_date = _date.fromisoformat(body.workout_date)
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid workout_date; use YYYY-MM-DD")
-    if workout_date > _date.today():
+    if workout_date > _today_bkk():
         raise HTTPException(status_code=422, detail="workout_date cannot be in the future")
     if body.tss is not None and body.tss < 0:
         raise HTTPException(status_code=422, detail="tss must be >= 0")
@@ -7432,7 +7438,7 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
                 d = _date.fromisoformat(body.workout_date)
             except ValueError:
                 raise HTTPException(status_code=422, detail="Invalid workout_date; use YYYY-MM-DD")
-            if d > _date.today():
+            if d > _today_bkk():
                 raise HTTPException(status_code=422, detail="workout_date cannot be in the future")
             workout.workout_date = d
         if body.workout_type is not None:
@@ -7789,7 +7795,7 @@ def _planned_session_dict(p, matched=None, estimate_baseline=None) -> dict:
         estimate_baseline is not None
         and matched is None
         and p.status != "missed"
-        and p.planned_date >= _date.today()
+        and p.planned_date >= _today_bkk()
     ):
         from backend.services.training_load import estimate_planned_session_metrics as _est
         d.update(_est(estimate_baseline, p.session_type, p.structure))
@@ -7846,7 +7852,7 @@ def get_planned_sessions(
     from datetime import timedelta as _td
     from backend.services import plan_matching as _pm
 
-    today = _date.today()
+    today = _today_bkk()
     # Default to the current Monday–Sunday ISO week.
     if from_date:
         start = _validate_planned_date(from_date)
@@ -7926,7 +7932,7 @@ def get_planned_sessions(
                 extract_strength_exercise_names as _pg_ex_names,
                 fetch_catalog_for_exercises as _pg_catalog,
             )
-            _today_pg = _date.today()
+            _today_pg = _today_bkk()
             _ml_payload = _cml(uid, _today_pg)
             _group_stats = _ml_payload.get("groups", {})
 
@@ -8120,7 +8126,7 @@ def duplicate_workout(workout_id: str, body: WorkoutDuplicateIn, user: User = De
         new_date = _date.fromisoformat(body.workout_date)
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid workout_date; use YYYY-MM-DD")
-    if new_date > _date.today():
+    if new_date > _today_bkk():
         raise HTTPException(status_code=422, detail="workout_date cannot be in the future")
 
     with Session(engine) as session:
@@ -8863,7 +8869,7 @@ def list_daily_metrics(
     user: User = Depends(resolve_user),
 ):
     from datetime import timedelta
-    today = _date.today()
+    today = _today_bkk()
     if from_date is None and to_date is None:
         from_d = today - timedelta(days=29)
         to_d = today
@@ -8916,7 +8922,7 @@ def create_daily_metric(body: DailyMetricIn, user: User = Depends(resolve_user))
         md = _date.fromisoformat(body.metric_date)
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid metric_date; use YYYY-MM-DD")
-    if md > _date.today():
+    if md > _today_bkk():
         raise HTTPException(status_code=422, detail="metric_date cannot be in the future")
     _validate_metric_fields(
         resting_hr=body.resting_hr,
@@ -8970,7 +8976,7 @@ def patch_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user: 
         md = _date.fromisoformat(metric_date)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid metric_date; use YYYY-MM-DD")
-    if md > _date.today():
+    if md > _today_bkk():
         raise HTTPException(status_code=422, detail="metric_date cannot be in the future")
     _validate_metric_fields(
         resting_hr=body.resting_hr,
@@ -9027,7 +9033,7 @@ def upsert_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user:
         md = _date.fromisoformat(metric_date)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid metric_date; use YYYY-MM-DD")
-    if md > _date.today():
+    if md > _today_bkk():
         raise HTTPException(status_code=422, detail="metric_date cannot be in the future")
     _validate_metric_fields(
         resting_hr=body.resting_hr,
@@ -9085,7 +9091,7 @@ def get_daily_metrics_trend(
     from datetime import timedelta
     uid = user.id
 
-    today = _date.today()
+    today = _today_bkk()
     window_start = today - timedelta(days=days - 1)
 
     with Session(engine) as session:
@@ -9655,7 +9661,7 @@ def get_trends_summary(
 
     uid = user.id
 
-    today = _date.today()
+    today = _today_bkk()
 
     if from_date and to_date:
         try:
@@ -9859,7 +9865,7 @@ def compute_readiness_score(
     Idempotent: existing rows are upserted with freshly computed values.
     """
     uid = user.id
-    target_date = _date.today()
+    target_date = _today_bkk()
     if date is not None:
         try:
             target_date = _date.fromisoformat(date)
@@ -9891,7 +9897,7 @@ def get_readiness_today(user: User = Depends(resolve_user)):
     """
     uid = user.id
 
-    today = _date.today()
+    today = _today_bkk()
     from sqlalchemy import text as _text
     with Session(engine) as session:
         row = session.execute(
@@ -9988,7 +9994,7 @@ def get_readiness(
     # SAME snapshot-backed path the weekly coach report and the fitness/
     # fatigue/form chart read, so this card can never disagree with them for
     # the same date. See docs/calculations/training-load.md.
-    today = _date.today()
+    today = _today_bkk()
     series_start = today - _timedelta(days=89)
     series = get_snapshot_series(str(user.id), series_start, today)
 
@@ -10049,7 +10055,7 @@ def get_readiness_current(user: User = Depends(resolve_user)):
     Response when building_baseline=True:
       { building_baseline: true }
     """
-    today = _date.today()
+    today = _today_bkk()
     warmup_start = today - _timedelta(days=180)
     tss_series = daily_tss_series(str(user.id), warmup_start, today)
     _ctl_days, _atl_days = resolve_user_ewma_days(str(user.id))
@@ -10349,7 +10355,7 @@ def _week_key_and_bounds(date_obj):
 
 def _week_label(mon_key: str) -> str:
     from datetime import date as _d2, timedelta
-    today = _d2.today()
+    today = _today_bkk()
     this_mon = today - timedelta(days=today.weekday())
     mon = _d2.fromisoformat(mon_key)
     if mon == this_mon:
@@ -10390,7 +10396,7 @@ def get_training_log(
     user: User = Depends(resolve_user),
 ):
     from datetime import timedelta
-    today = _date.today()
+    today = _today_bkk()
 
     uid = user.id
 
@@ -10666,7 +10672,7 @@ def create_personal_record(body: PersonalRecordIn, current_user: User = Depends(
         achieved = _date.fromisoformat(body.achieved_on)
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid achieved_on; use YYYY-MM-DD")
-    if achieved > _date.today():
+    if achieved > _today_bkk():
         raise HTTPException(status_code=422, detail="achieved_on cannot be in the future")
     with Session(engine) as session:
         user = session.get(User, uid)
@@ -10710,7 +10716,7 @@ def patch_personal_record(record_id: str, body: PersonalRecordPatch, current_use
                 achieved = _date.fromisoformat(body.achieved_on)
             except ValueError:
                 raise HTTPException(status_code=422, detail="Invalid achieved_on; use YYYY-MM-DD")
-            if achieved > _date.today():
+            if achieved > _today_bkk():
                 raise HTTPException(status_code=422, detail="achieved_on cannot be in the future")
             pr.achieved_on = achieved
         if body.track_key is not None:
@@ -10819,7 +10825,7 @@ def bulk_create_personal_records(body: _BulkInsertIn, current_user: User = Depen
         except ValueError:
             rec_errors.append("Invalid achieved_on; use YYYY-MM-DD")
             achieved = None
-        if achieved and achieved > _date.today():
+        if achieved and achieved > _today_bkk():
             rec_errors.append("achieved_on cannot be in the future")
         if not item.track_key or not item.track_key.strip():
             rec_errors.append("track_key is required")
@@ -11524,7 +11530,7 @@ async def post_sync_strava(
             parsed_since = _date.fromisoformat(body.since_date)
         except ValueError:
             raise HTTPException(status_code=422, detail="since_date must be ISO format YYYY-MM-DD")
-        cutoff = _date.today() - _timedelta(days=365)
+        cutoff = _today_bkk() - _timedelta(days=365)
         if parsed_since < cutoff:
             raise HTTPException(status_code=422, detail="since_date cannot be more than 1 year in the past")
 
@@ -12858,7 +12864,7 @@ def post_feel(body: _FeelBody, user: User = Depends(resolve_user)):
             detail={"field": "feel_date", "error": "feel_date must be a valid YYYY-MM-DD date"},
         )
 
-    today = _date.today()
+    today = _today_bkk()
     tomorrow = today + _timedelta(days=1)
     if feel_date > tomorrow:
         raise HTTPException(
@@ -13103,7 +13109,7 @@ def get_training_load_current(
     uid = current_user.id
 
     try:
-        as_of_date = _date.fromisoformat(as_of) if as_of else _date.today()
+        as_of_date = _date.fromisoformat(as_of) if as_of else _today_bkk()
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid as_of date; use YYYY-MM-DD")
 
@@ -13133,7 +13139,7 @@ def get_training_load(
 ):
     uid = current_user.id
 
-    today = _date.today()
+    today = _today_bkk()
     try:
         from_d = _date.fromisoformat(from_date) if from_date else today - _timedelta(days=90)
         to_d = _date.fromisoformat(to_date) if to_date else today
@@ -13188,7 +13194,7 @@ def get_training_load_weekly(
     import re as _re
 
     uid = current_user.id
-    today = _date.today()
+    today = _today_bkk()
 
     try:
         from_d = _date.fromisoformat(from_date) if from_date else today - _timedelta(days=90)
@@ -13278,7 +13284,7 @@ def recompute_training_load(
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid from date; use YYYY-MM-DD")
 
-    today = _date.today()
+    today = _today_bkk()
     if from_d > today:
         raise HTTPException(status_code=422, detail="'from' must not be in the future")
 
@@ -13307,7 +13313,7 @@ def refresh_training_load(
 ):
     uid = current_user.id
 
-    today = _date.today()
+    today = _today_bkk()
     try:
         target = _date.fromisoformat(target_date) if target_date else today
     except ValueError:
@@ -13343,7 +13349,7 @@ def backfill_training_load(
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid from date; use YYYY-MM-DD")
 
-    today = _date.today()
+    today = _today_bkk()
     if from_d > today:
         raise HTTPException(status_code=422, detail="'from' must not be in the future")
 
@@ -15020,7 +15026,7 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
         except (ValueError, TypeError):
             errors.append({"field": "birth_date", "msg": "birth_date must be YYYY-MM-DD"})
         else:
-            if _parsed_birth_date > _date.today():
+            if _parsed_birth_date > _today_bkk():
                 errors.append({"field": "birth_date", "msg": "birth_date cannot be in the future"})
             elif _parsed_birth_date.year < 1900:
                 errors.append({"field": "birth_date", "msg": "birth_date must be after 1900"})
@@ -15148,7 +15154,7 @@ def _race_met_status(race: Race) -> str:
     """Derive met_status from race date and status for display in the Plan tab."""
     if race.status == "done":
         return "met"
-    today = _date.today()
+    today = _today_bkk()
     if race.race_date < today:
         return "missed"
     return "upcoming"
@@ -15694,7 +15700,7 @@ def get_calibration_status(user: User = Depends(resolve_user)):
         load_calibrations as _load_calibrations,
     )
 
-    today = _date.today()
+    today = _today_bkk()
     window_90 = today - _timedelta(days=_CALIB_WINDOW_90)
     window_42 = today - _timedelta(days=_CALIB_WINDOW_42)
 
@@ -16063,7 +16069,7 @@ def _race_readiness_impl(
     min_history_weeks = _rdns_cfg_int(_RDNS_CFG_MIN_HISTORY_WEEKS, 8)
     peak_tolerance = _rdns_cfg_float(_RDNS_CFG_PEAK_TOLERANCE, PEAK_TRACKING_TOLERANCE)
 
-    today = _date.today()
+    today = _today_bkk()
 
     # ── 3. Load historical TSS series for form_curve (6-month warmup window) ──
     warmup_start = today - _timedelta(days=180)
@@ -18449,7 +18455,7 @@ def _compute_plan_bundle(user) -> dict:
             .order_by(Race.race_date)
             .all()
         )
-        today = _date.today()
+        today = _today_bkk()
 
         # Self-healing calibration: create the predicted-vs-actual row for any
         # finished race that lacks one. The bundle is the single choke point
@@ -18743,8 +18749,9 @@ def _resolve_current_verdict(user_id, today, trailing_28d_avg=None):
         readiness_7d_mean=readiness_7d_mean,
         injury_log=active_injuries,
     )
-    from datetime import date as _real_date
-    if today == _real_date.today():
+    # Persist history only for the real current day; this helper is also called
+    # with historical dates when backfilling, and those must not overwrite it.
+    if today == _today_bkk():
         _upsert_verdict_history(user_id, today, result, readiness_score=readiness_today)
     return result
 
@@ -19205,7 +19212,7 @@ def get_projection(user: User = Depends(resolve_user)):
     from backend.services.zone_constants import make_zone_constants
     from backend.services.lap_classify import classify_laps
 
-    today = _date.today()
+    today = _today_bkk()
     warmup_start = today - _timedelta(days=180)
 
     with Session(engine) as db:
@@ -19608,7 +19615,7 @@ def get_athlete_monthly_summary(
             .filter(
                 Race.user_id == uid,
                 Race.race_type == "checkpoint",
-                Race.race_date > _date.today(),
+                Race.race_date > _today_bkk(),
             )
             .order_by(Race.race_date)
             .all()
@@ -19692,7 +19699,7 @@ def get_athlete_monthly_summary(
 
     # ── Next checkpoint ────────────────────────────────────────────────────────
     next_checkpoint = None
-    today = _date.today()
+    today = _today_bkk()
     upcoming = [r for r in races if r.race_date > today and r.race_type == "checkpoint"]
     if upcoming:
         nearest = min(upcoming, key=lambda r: r.race_date)
@@ -19814,7 +19821,7 @@ def get_rolling_intensity_distribution(
         session_count   int       — number of workouts in the date range
     """
     from datetime import date as _date_cls, timedelta as _timedelta_cls
-    today = _date_cls.today()
+    today = _today_bkk()
 
     if from_date is None:
         start = today - _timedelta_cls(days=27)

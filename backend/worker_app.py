@@ -308,12 +308,11 @@ def _run_daily_coach_batch(
     Webapps only READ persisted rows — generation belongs here so `claude -p`
     and long LLM work never run on Render.
     """
-    from datetime import date as _date
-
     from backend.models import User
     from backend.services.weekly_coach_message import generate_for_user
+    from backend.utils.time import today_bangkok
 
-    as_of = today or _date.today()
+    as_of = today or today_bangkok()
     with Session(engine) as s:
         q = s.query(User.id).filter(User.is_active.is_(True))
         if user_id:
