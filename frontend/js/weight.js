@@ -156,9 +156,21 @@ function renderStreakAndAdherence(entries) {
 
 // ── Subtitle ─────────────────────────────────────────────────────────────
 
-function renderSubtitle(summary, stats) {
+function renderSubtitle(summary, stats, tracking) {
   const el = document.getElementById('page-subtitle');
   if (!el) return;
+
+  // Paused tracking, said plainly. 7 days without a weigh-in drops the nudge to
+  // weekly and silences cut verdicts — deliberate ("the app gets quieter, not
+  // louder"), but until now that state existed ONLY in Discord and the paste
+  // blob, so an athlete using the app saw silence with no explanation (#1608).
+  // Nothing turns red; this is reassurance, not a warning.
+  const banner = document.getElementById('tracking-state');
+  if (banner) {
+    const paused = tracking && tracking.state === 'paused';
+    banner.hidden = !paused;
+    if (paused) banner.textContent = tracking.copy || 'weight tracking paused — training continues.';
+  }
 
   const count = summary ? summary.entries_logged : 0;
   const last14Count = _recentEntries.filter(e => e.weight_kg != null).length;
@@ -1764,7 +1776,7 @@ async function _reload() {
     _recentEntries = entriesRes.entries || [];
     _activeTarget = targetRes.target || null;
 
-    renderSubtitle(summaryRes.summary, chartData.stats);
+    renderSubtitle(summaryRes.summary, chartData.stats, entriesRes.tracking);
     renderHeroCardA(chartData, _activeTarget);
     renderCoachStrip(chartData, _activeTarget);
     renderChart(chartData, _currentRange);
