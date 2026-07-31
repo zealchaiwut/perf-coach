@@ -27,7 +27,11 @@
       gap: 20px;
     }
 
-    .dc-page-header { color: #fff; display: flex; flex-direction: column; gap: 6px; }
+    /* The shared stylesheet's bare `header { background: var(--surface) }` rule
+       (styles.css:103) targets every <header> element site-wide and this page's
+       header is a real <header> tag — without an explicit override here it wins,
+       painting a white box under this page's white title text. */
+    .dc-page-header { color: #fff; background: transparent; display: flex; flex-direction: column; gap: 6px; }
     .dc-page-title { font-size: 24px; font-weight: 700; letter-spacing: -0.025em; margin: 0; }
     .dc-page-sub { font-size: 13.5px; line-height: 1.5; opacity: 0.82; margin: 0; max-width: 62ch; }
 
