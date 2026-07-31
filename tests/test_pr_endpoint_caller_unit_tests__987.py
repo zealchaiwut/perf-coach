@@ -14,6 +14,7 @@ Acceptance Criteria covered:
 import json
 import logging
 import unittest.mock as mock
+import uuid
 
 import pytest
 
@@ -87,7 +88,7 @@ def _call_endpoint(caplog, fake_raw, run_count=5, curve_exists=True):
     import backend.main as main_mod
 
     mock_user = mock.MagicMock()
-    mock_user.id = 1
+    mock_user.id = uuid.uuid4()
 
     mock_session = mock.MagicMock()
     mock_session.__enter__ = mock.MagicMock(return_value=mock_session)
@@ -103,7 +104,11 @@ def _call_endpoint(caplog, fake_raw, run_count=5, curve_exists=True):
             return_value=dict(fake_raw),
         ),
     ):
-        response = main_mod.get_athlete_run_personal_records(user=mock_user)
+        # athlete_id is a required path param (/api/athletes/{athlete_id}/...);
+        # the endpoint 404s unless it matches user.id (#1606).
+        response = main_mod.get_athlete_run_personal_records(
+            athlete_id=str(mock_user.id), user=mock_user
+        )
 
     info_records = [r for r in caplog.records if r.levelno == logging.INFO]
     return info_records, response
