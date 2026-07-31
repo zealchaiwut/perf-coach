@@ -63,8 +63,7 @@ class _GoalBody(BaseModel):
 
 
 @router.get("/api/coach/goal")
-async def get_active_goal(request: Request):
-    user = await resolve_user(request)
+async def get_active_goal(user: User = Depends(resolve_user)):
     with Session(engine) as db:
         goal = (
             db.query(PerformanceGoal)
@@ -80,8 +79,7 @@ async def get_active_goal(request: Request):
 
 
 @router.put("/api/coach/goal")
-async def put_active_goal(body: _GoalBody, request: Request):
-    user = await resolve_user(request)
+async def put_active_goal(body: _GoalBody, user: User = Depends(resolve_user)):
     race_date = _date.fromisoformat(body.race_date)
     with Session(engine) as db:
         db.query(PerformanceGoal).filter(
@@ -104,11 +102,8 @@ async def put_active_goal(body: _GoalBody, request: Request):
 
 @router.get("/api/coach/brief")
 async def get_coach_brief(
-    request: Request,
-    date: str | None = Query(default=None, alias="date"),
-):
+    date: str | None = Query(default=None, alias="date"), user: User = Depends(resolve_user)):
     """Return stored coach brief v4 JSON; build on demand if today's is missing."""
-    user = await resolve_user(request)
     from datetime import date as _date
     from backend.services.coach_brief import get_or_build_brief
 
@@ -131,9 +126,8 @@ async def get_coach_brief(
 
 
 @router.get("/api/coach/daily-message")
-async def get_daily_message(request: Request):
+async def get_daily_message(user: User = Depends(resolve_user)):
     """Return the shared daily coach payload (sections + nudge) for Home / Hermes SoT."""
-    user = await resolve_user(request)
     from backend.services.weekly_coach_message import get_coach_payload_for_user
     with Session(engine) as db:
         payload = get_coach_payload_for_user(user_id=user.id, db=db)
@@ -150,11 +144,8 @@ async def get_weekly_message(request: Request):
 
 @router.get("/api/coach/weekly-messages")
 async def get_weekly_messages(
-    request: Request,
-    limit: int = Query(default=10, ge=1, le=52),
-):
+    limit: int = Query(default=10, ge=1, le=52), user: User = Depends(resolve_user)):
     """Return up to `limit` coaching messages newest-first."""
-    user = await resolve_user(request)
     from backend.services.weekly_coach_message import get_history_for_user
     with Session(engine) as db:
         messages = get_history_for_user(user_id=user.id, limit=limit, db=db)
