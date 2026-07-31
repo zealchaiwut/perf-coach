@@ -1,7 +1,10 @@
 /**
  * Home Coach — full brief accordion (brief v4).
  * Opened from strip / digest. Max 3 sections with changed_since_yesterday open.
- * Proposal sections: Accept / Adjust / Not now → /api/preferences/proposals/*.
+ *
+ * Preference proposals are summarised as a link to /preferences, not rendered
+ * as actionable rows (Priority 2, D6) — the Accept / Adjust / Not now controls
+ * live in the Preferences panel now, next to the settings they would change.
  */
 (function () {
   'use strict';
@@ -68,22 +71,33 @@
     return !!(s && (s.type === 'proposal' || (s.id || '').indexOf('proposal_') === 0));
   }
 
-  function _proposalActions(s) {
-    var p = s.proposal || {};
-    if (p.status !== 'proposed') return '';
-    var id = esc(p.id || '');
+  // Accept / Adjust / Not now moved to the Preferences panel (Priority 2, D6) —
+  // deciding a preference change belongs next to the preference it would
+  // change, with the current value on screen to compare against. The brief is a
+  // daily read; it keeps a pointer so a pending proposal is still noticed.
+  function _pendingProposalCount(sections) {
+    var n = 0;
+    (sections || []).forEach(function (s) {
+      if (_isProposal(s) && (s.proposal || {}).status === 'proposed') n += 1;
+    });
+    return n;
+  }
+
+  function _proposalsLink(n) {
+    if (!n) return '';
     return (
-      '<div class="hc-prop-actions" data-proposal-id="' + id + '">' +
-        '<button type="button" class="hc-prop-btn hc-prop-accept">Accept</button>' +
-        '<button type="button" class="hc-prop-btn hc-prop-adjust">Adjust…</button>' +
-        '<button type="button" class="hc-prop-btn hc-prop-decline">Not now</button>' +
+      '<div class="hc-prop-pointer">' +
+        '<a href="' + CARD_HREF.preferences + '">' +
+          n + ' preference proposal' + (n === 1 ? '' : 's') + ' waiting →' +
+        '</a>' +
       '</div>'
     );
   }
 
+  // Only ever receives non-proposal sections — renderBriefHtml filters them out
+  // before mapping, so the isProposal branches this used to carry are gone.
   function _sectionHtml(s, openSet) {
     var id = s.id || '';
-    var isProposal = _isProposal(s);
     var isOpen = openSet.indexOf(id) >= 0;
     var link = s.card_link ? CARD_HREF[s.card_link] : null;
     var strip = s.evidence_strip || '';
@@ -92,25 +106,22 @@
       stripHtml =
         '<div class="hc-ev">' +
           hiliteNums(strip) +
-          (link && !isProposal
+          (link
             ? ' → <a href="' + esc(link) + '">' + esc(s.card_link) + ' card</a>'
             : '') +
         '</div>';
     }
-    var life = s.lifecycle
-      ? '<div class="hc-prop-life">● ' + esc(s.lifecycle) + '</div>'
-      : '';
     var unchanged = '';
     if (!s.changed_since_yesterday && s.cadence === 'season') {
       unchanged = '<span class="hc-unchanged">unchanged recently</span>';
     }
     return (
-      '<div class="hc-bsec' + (isOpen ? ' open' : '') + (isProposal ? ' hc-bsec--proposal' : '') +
+      '<div class="hc-bsec' + (isOpen ? ' open' : '') +
         '" data-sec-id="' + esc(id) + '">' +
         '<div class="hc-bsec-h" role="button" tabindex="0">' +
           '<span class="hc-bsec-dot' + (s.changed_since_yesterday ? ' new' : '') + '"></span>' +
           '<span class="hc-bsec-t">' + esc(s.headline || id) + '</span>' +
-          '<span class="' + _badge(isProposal ? 'proposal' : s.cadence) + '">' +
+          '<span class="' + _badge(s.cadence) + '">' +
             esc(_badgeLabel(s.cadence, s)) + '</span>' +
           unchanged +
           '<span class="hc-caret">›</span>' +
@@ -118,9 +129,7 @@
         '<div class="hc-bsec-b">' +
           (s.evidence ? '<p>' + hiliteNums(s.evidence) + '</p>' : '') +
           stripHtml +
-          life +
-          (isProposal ? _proposalActions(s) : '') +
-          (!isProposal && s.do
+          (s.do
             ? '<div class="hc-do"><span class="hc-k">DO</span><span>' + hiliteNums(s.do) + '</span></div>'
             : '') +
         '</div>' +
@@ -147,78 +156,7 @@
     return _overlay;
   }
 
-  function _postProposal(id, action, body) {
-    var url = '/api/preferences/proposals/' + encodeURIComponent(id) + '/' + action;
-    return fetch(url, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: body ? JSON.stringify(body) : undefined,
-    }).then(function (r) {
-      if (!r.ok) {
-        return r.json().then(function (j) {
-          throw new Error((j && j.detail) || r.statusText);
-        }).catch(function (e) {
-          if (e.message) throw e;
-          throw new Error(r.statusText);
-        });
-      }
-      return r.json();
-    });
-  }
 
-  function _bindProposalActions(root) {
-    root.querySelectorAll('.hc-prop-actions').forEach(function (wrap) {
-      var id = wrap.getAttribute('data-proposal-id');
-      if (!id) return;
-      var accept = wrap.querySelector('.hc-prop-accept');
-      var adjust = wrap.querySelector('.hc-prop-adjust');
-      var decline = wrap.querySelector('.hc-prop-decline');
-      if (accept) {
-        accept.addEventListener('click', function (e) {
-          e.stopPropagation();
-          accept.disabled = true;
-          _postProposal(id, 'accept')
-            .then(function () { window.location.reload(); })
-            .catch(function (err) {
-              accept.disabled = false;
-              window.alert(err.message || 'Accept failed');
-            });
-        });
-      }
-      if (adjust) {
-        adjust.addEventListener('click', function (e) {
-          e.stopPropagation();
-          var raw = window.prompt('New value (one catalog step from current):');
-          if (raw == null || raw === '') return;
-          var n = Number(raw);
-          if (!Number.isFinite(n)) {
-            window.alert('Enter a number');
-            return;
-          }
-          adjust.disabled = true;
-          _postProposal(id, 'adjust', { to: n })
-            .then(function () { window.location.reload(); })
-            .catch(function (err) {
-              adjust.disabled = false;
-              window.alert(err.message || 'Adjust failed');
-            });
-        });
-      }
-      if (decline) {
-        decline.addEventListener('click', function (e) {
-          e.stopPropagation();
-          decline.disabled = true;
-          _postProposal(id, 'decline')
-            .then(function () { window.location.reload(); })
-            .catch(function (err) {
-              decline.disabled = false;
-              window.alert(err.message || 'Decline failed');
-            });
-        });
-      }
-    });
-  }
 
   function _bindAccordion(root) {
     root.querySelectorAll('.hc-bsec-h').forEach(function (h) {
@@ -235,7 +173,11 @@
   }
 
   function renderBriefHtml(brief) {
-    var sections = brief.sections || [];
+    var allSections = brief.sections || [];
+    var pendingProposals = _pendingProposalCount(allSections);
+    // Proposal sections are summarised as a link, not rendered as accordion
+    // rows — they are decisions, and decisions live in Preferences now (D6).
+    var sections = allSections.filter(function (s) { return !_isProposal(s); });
     var openSet = _openIds(sections);
     var totalChanged = 0;
     sections.forEach(function (s) {
@@ -256,6 +198,7 @@
         sections.map(function (s) {
           return _sectionHtml(s, openSet);
         }).join('') +
+        _proposalsLink(pendingProposals) +
         '<div class="hc-brief-foot">' +
           esc(brief.closing_question || '') +
         '</div>' +
@@ -270,7 +213,6 @@
     var mount = ov.querySelector('.hc-brief-mount');
     mount.innerHTML = renderBriefHtml(brief);
     _bindAccordion(mount);
-    _bindProposalActions(mount);
     ov.hidden = false;
     document.body.classList.add('hc-brief-open');
   }

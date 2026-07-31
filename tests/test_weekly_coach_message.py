@@ -169,37 +169,35 @@ def test_compose_deterministic_all_five_elements_present():
     assert has_e, f"Missing projection content in:\n{msg}"
 
 
-# ── AC5: LLM failure triggers fallback ────────────────────────────────────────
+# ── AC5: the message is deterministic ─────────────────────────────────────────
+#
+# AC5 used to read "LLM failure triggers fallback": _build_message asked the LLM
+# to rephrase the deterministic text with warmth, preserving every number, and
+# fell back on any error. Priority 2 (D4) parked that layer, so there is no
+# failure mode left to fall back FROM — the deterministic message is the only
+# message. What AC5 was really protecting is unchanged and still asserted here:
+# whatever comes out carries the numbers verbatim.
 
-def test_llm_failure_falls_back_to_deterministic():
-    """AC5: When LLM raises an exception, the deterministic fallback is returned."""
+def test_build_message_is_deterministic():
+    """Same input, same output, no LLM in the path."""
     from backend.services.weekly_coach_message import _build_message
 
-    with patch(
-        "backend.services.weekly_coach_message._call_llm_narrative",
-        side_effect=RuntimeError("LLM unavailable"),
-    ):
-        result = _build_message(_PLAN_STATE, _PROJECTION_INFO, _TODAY)
+    first = _build_message(_PLAN_STATE, _PROJECTION_INFO, _TODAY)
+    second = _build_message(_PLAN_STATE, _PROJECTION_INFO, _TODAY)
 
-    assert isinstance(result, str)
-    assert len(result) > 0
-    # Must still contain all five elements
-    assert "1.60" in result
-    assert "1:45" in result
+    assert isinstance(first, str)
+    assert len(first) > 0
+    assert first == second
+    # The numbers still survive into the message.
+    assert "1.60" in first
+    assert "1:45" in first
 
 
-def test_llm_returning_none_falls_back_to_deterministic():
-    """AC5: When LLM returns None, the deterministic message is used."""
-    from backend.services.weekly_coach_message import _build_message
+def test_build_message_has_no_llm_rephrase_layer():
+    """The warmth-rephrase call is gone, not merely disabled by config."""
+    import backend.services.weekly_coach_message as wcm
 
-    with patch(
-        "backend.services.weekly_coach_message._call_llm_narrative",
-        return_value=None,
-    ):
-        result = _build_message(_PLAN_STATE, _PROJECTION_INFO, _TODAY)
-
-    assert isinstance(result, str)
-    assert "1:45" in result
+    assert not hasattr(wcm, "_call_llm_narrative")
 
 
 # ── AC9: Idempotency per ISO week ─────────────────────────────────────────────

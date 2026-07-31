@@ -42,76 +42,9 @@ def _sig(user_id, week_start, code, evidence):
 class TestLLMPhrasing:
     """AC1: LLM produces phrasing; numbers in output must match input facts."""
 
-    def test_llm_response_accepted_when_numbers_match(self):
-        """Valid LLM response (numerals all from facts) is accepted."""
-        from backend.services.gap_analysis.phrasing import get_finding_phrasing
 
-        finding = _make_finding(
-            code="no_recent_plyo",
-            evidence=[{"metric": "days_since_plyo", "value": 35, "threshold": 28, "window": "28d"}],
-        )
-        llm_text = "You haven't done plyometrics in 35 days — aim for one session every 28 days."
 
-        with patch("backend.services.llm.llm_enabled", return_value=True), \
-             patch("backend.services.llm.get_or_generate", return_value={"phrasing": llm_text}):
-            result = get_finding_phrasing(finding, user_id=uuid.uuid4(), week_start="2026-07-07")
 
-        assert result["phrasing"] == llm_text
-        assert result["phrasing_source"] == "llm"
-
-    def test_numeral_guard_rejects_hallucinated_numbers(self):
-        """LLM output with numbers not in input facts → fallback to template."""
-        from backend.services.gap_analysis.phrasing import get_finding_phrasing
-
-        finding = _make_finding(
-            code="no_recent_plyo",
-            evidence=[{"metric": "days_since_plyo", "value": 35, "threshold": 28, "window": "28d"}],
-        )
-        # "42" is not in the evidence facts (35, 28 are)
-        bad_llm_text = "You haven't trained plyometrics in 42 days."
-
-        with patch("backend.services.llm.llm_enabled", return_value=True), \
-             patch("backend.services.llm.get_or_generate", return_value={"phrasing": bad_llm_text}):
-            result = get_finding_phrasing(finding, user_id=uuid.uuid4(), week_start="2026-07-07")
-
-        # Numeral guard should trip → fallback
-        assert result["phrasing_source"] == "template"
-        assert "35" in result["phrasing"] or "plyo" in result["phrasing"].lower()
-
-    def test_numeral_guard_allows_all_input_numbers(self):
-        """LLM output whose numbers are a subset of input facts passes the guard."""
-        from backend.services.gap_analysis.phrasing import get_finding_phrasing
-
-        finding = _make_finding(
-            code="gct_lengthening",
-            evidence=[
-                {"metric": "gct_recent_mean_ms", "value": 248, "threshold": None, "window": "28d"},
-                {"metric": "gct_prior_mean_ms", "value": 241, "threshold": None, "window": "28d_prior"},
-                {"metric": "gct_rise_ms", "value": 7, "threshold": 5, "window": "28d_vs_prior_28d"},
-            ],
-        )
-        # 248, 241, 7 all appear in evidence
-        llm_text = "Your ground contact time is now 248 ms, up 7 ms from your prior baseline of 241 ms."
-
-        with patch("backend.services.llm.llm_enabled", return_value=True), \
-             patch("backend.services.llm.get_or_generate", return_value={"phrasing": llm_text}):
-            result = get_finding_phrasing(finding, user_id=uuid.uuid4(), week_start="2026-07-07")
-
-        assert result["phrasing_source"] == "llm"
-        assert result["phrasing"] == llm_text
-
-    def test_phrasing_length_capped(self):
-        """LLM output exceeding max length → fallback to template."""
-        from backend.services.gap_analysis.phrasing import get_finding_phrasing
-
-        finding = _make_finding()
-        long_text = "A" * 600  # over any reasonable cap
-
-        with patch("backend.services.llm.llm_enabled", return_value=True), \
-             patch("backend.services.llm.get_or_generate", return_value={"phrasing": long_text}):
-            result = get_finding_phrasing(finding, user_id=uuid.uuid4(), week_start="2026-07-07")
-
-        assert result["phrasing_source"] == "template"
 
 
 # ── AC2: Caching ──────────────────────────────────────────────────────────────
@@ -153,39 +86,7 @@ class TestCaching:
         sig2 = build_phrasing_signature(uid, "2026-07-14", "no_recent_plyo", ev)
         assert sig1 != sig2
 
-    def test_get_or_generate_called_with_gap_finding_surface(self):
-        """get_or_generate is invoked with surface='gap_finding'."""
-        from backend.services.gap_analysis.phrasing import get_finding_phrasing
 
-        finding = _make_finding()
-        captured: list[dict] = []
-
-        def fake_get_or_generate(user_id, surface, signature, generate_fn, *, db=None, model_tier="fast"):
-            captured.append({"user_id": user_id, "surface": surface, "signature": signature})
-            return {"phrasing": "No plyometrics in 35 days — add one session per 28 days."}
-
-        with patch("backend.services.llm.llm_enabled", return_value=True), \
-             patch("backend.services.llm.get_or_generate", side_effect=fake_get_or_generate):
-            get_finding_phrasing(finding, user_id=uuid.uuid4(), week_start="2026-07-07")
-
-        assert len(captured) == 1
-        assert captured[0]["surface"] == "gap_finding"
-
-    def test_cache_hit_returns_same_text(self):
-        """When get_or_generate returns cached payload, same phrasing is returned."""
-        from backend.services.gap_analysis.phrasing import get_finding_phrasing
-
-        cached_text = "Cached coach sentence about 35 days of no plyo."
-        finding = _make_finding(
-            evidence=[{"metric": "days_since_plyo", "value": 35, "threshold": 28, "window": "28d"}],
-        )
-
-        with patch("backend.services.llm.llm_enabled", return_value=True), \
-             patch("backend.services.llm.get_or_generate", return_value={"phrasing": cached_text}):
-            r1 = get_finding_phrasing(finding, user_id=uuid.uuid4(), week_start="2026-07-07")
-
-        assert r1["phrasing"] == cached_text
-        assert r1["phrasing_source"] == "llm"
 
     def test_evidence_change_produces_different_signature(self):
         """Evidence value change means a different cache key (new generate call)."""
@@ -224,74 +125,9 @@ class TestFallbackPaths:
         assert isinstance(result["phrasing"], str)
         assert len(result["phrasing"]) > 0
 
-    def test_llm_returns_none_fallback_to_template(self):
-        """When LLM call returns None (network failure etc.), use template."""
-        from backend.services.gap_analysis.phrasing import get_finding_phrasing
 
-        finding = _make_finding(
-            evidence=[{"metric": "days_since_plyo", "value": 35, "threshold": 28, "window": "28d"}],
-        )
 
-        with patch("backend.services.llm.llm_enabled", return_value=True), \
-             patch("backend.services.llm.get_or_generate", return_value=None):
-            result = get_finding_phrasing(finding, user_id=uuid.uuid4(), week_start="2026-07-07")
 
-        assert result["phrasing_source"] == "template"
-        assert isinstance(result["phrasing"], str)
-        assert len(result["phrasing"]) > 0
-
-    def test_both_paths_have_identical_field_shape(self):
-        """Both LLM and template paths return same dict shape."""
-        from backend.services.gap_analysis.phrasing import get_finding_phrasing
-
-        finding = _make_finding(
-            evidence=[{"metric": "days_since_plyo", "value": 35, "threshold": 28, "window": "28d"}],
-        )
-        uid = uuid.uuid4()
-
-        with patch("backend.services.llm.llm_enabled", return_value=False):
-            template_result = get_finding_phrasing(finding, user_id=uid, week_start="2026-07-07")
-
-        with patch("backend.services.llm.llm_enabled", return_value=True), \
-             patch("backend.services.llm.get_or_generate", return_value={
-                 "phrasing": "No plyometrics in 35 days — aim for one every 28 days."
-             }):
-            llm_result = get_finding_phrasing(finding, user_id=uid, week_start="2026-07-07")
-
-        assert set(template_result.keys()) == {"phrasing", "phrasing_source"}
-        assert set(llm_result.keys()) == {"phrasing", "phrasing_source"}
-        assert template_result["phrasing_source"] == "template"
-        assert llm_result["phrasing_source"] == "llm"
-
-    def test_empty_phrasing_from_llm_falls_back(self):
-        """Empty string from LLM → fallback to template."""
-        from backend.services.gap_analysis.phrasing import get_finding_phrasing
-
-        finding = _make_finding()
-
-        with patch("backend.services.llm.llm_enabled", return_value=True), \
-             patch("backend.services.llm.get_or_generate", return_value={"phrasing": ""}):
-            result = get_finding_phrasing(finding, user_id=uuid.uuid4(), week_start="2026-07-07")
-
-        assert result["phrasing_source"] == "template"
-        assert len(result["phrasing"]) > 0
-
-    def test_guard_trip_uses_template_text(self):
-        """Guard-tripped phrasing falls back to render_evidence_text output."""
-        from backend.services.gap_analysis.phrasing import get_finding_phrasing
-        from backend.services.gap_analysis.evidence_text import render_evidence_text
-
-        evidence = [{"metric": "days_since_plyo", "value": 35, "threshold": 28, "window": "28d"}]
-        finding = _make_finding(code="no_recent_plyo", evidence=evidence)
-
-        # LLM returns number not in facts
-        with patch("backend.services.llm.llm_enabled", return_value=True), \
-             patch("backend.services.llm.get_or_generate", return_value={"phrasing": "99 days gone"}):
-            result = get_finding_phrasing(finding, user_id=uuid.uuid4(), week_start="2026-07-07")
-
-        expected = render_evidence_text("no_recent_plyo", evidence, None)
-        assert result["phrasing"] == expected
-        assert result["phrasing_source"] == "template"
 
 
 # ── AC4: Schema enforces single text field only ───────────────────────────────
@@ -316,36 +152,6 @@ class TestSchemaShape:
 
         assert "phrasing" in _PHRASING_JSON_SCHEMA.get("required", [])
 
-    def test_complete_structured_called_with_phrasing_schema(self):
-        """complete_structured is invoked with the single-field schema."""
-        import backend.services.llm as llm_mod
-        from backend.services.gap_analysis.phrasing import _PHRASING_JSON_SCHEMA
-
-        finding = _make_finding(
-            evidence=[{"metric": "days_since_plyo", "value": 35, "threshold": 28, "window": "28d"}],
-        )
-        captured_schemas: list[dict] = []
-
-        original_complete = llm_mod.complete_structured
-
-        def capturing_complete(system, user, schema_name, json_schema, **kwargs):
-            captured_schemas.append(json_schema)
-            return {"phrasing": "No plyo in 35 days — target 28-day cycle."}
-
-        def fake_get_or_generate(user_id, surface, signature, generate_fn, **kw):
-            return generate_fn()
-
-        with patch("backend.services.llm.llm_enabled", return_value=True), \
-             patch.object(llm_mod, "complete_structured", side_effect=capturing_complete), \
-             patch("backend.services.llm.get_or_generate", side_effect=fake_get_or_generate):
-            from backend.services.gap_analysis.phrasing import get_finding_phrasing
-            get_finding_phrasing(finding, user_id=uuid.uuid4(), week_start="2026-07-07")
-
-        assert len(captured_schemas) == 1
-        schema = captured_schemas[0]
-        props = schema.get("properties", {})
-        assert list(props.keys()) == ["phrasing"]
-        assert schema.get("additionalProperties") is False
 
 
 # ── AC5 (also integration): API field shape both paths ────────────────────────
@@ -353,22 +159,6 @@ class TestSchemaShape:
 class TestAPIFieldShape:
     """API response findings include phrasing + phrasing_source on both paths."""
 
-    def test_enrich_findings_with_phrasing_llm_path(self):
-        """enrich_finding_with_phrasing adds both fields when LLM succeeds."""
-        from backend.services.gap_analysis.phrasing import get_finding_phrasing
-
-        finding = _make_finding(
-            code="strength_lapsed",
-            evidence=[{"metric": "days_since_strength", "value": 28, "threshold": 21, "window": "21d"}],
-        )
-        llm_text = "Your last strength session was 28 days ago — aim for one every 21 days."
-
-        with patch("backend.services.llm.llm_enabled", return_value=True), \
-             patch("backend.services.llm.get_or_generate", return_value={"phrasing": llm_text}):
-            result = get_finding_phrasing(finding, user_id=uuid.uuid4(), week_start="2026-07-07")
-
-        assert result["phrasing"] == llm_text
-        assert result["phrasing_source"] == "llm"
 
     def test_enrich_findings_with_phrasing_template_path(self):
         """enrich_finding_with_phrasing adds both fields when LLM is off."""
@@ -401,3 +191,67 @@ class TestAPIFieldShape:
              patch("backend.services.llm.get_or_generate", return_value={"phrasing": "No plyo in 35 days."}):
             r = get_finding_phrasing(finding, user_id=uuid.uuid4(), week_start="2026-07-07")
         assert r["phrasing_source"] in ("llm", "template")
+
+
+# ── Priority 2, step 6: the LLM phrasing path is parked ───────────────────────
+#
+# Issue #1375 built an LLM one-liner for each gap finding, with a numeral guard,
+# a length cap, a cache and a template fallback for every failure mode. All of
+# it worked. It is parked anyway: the template path already covered every case,
+# so the LLM was buying a nicer sentence for the same information on a surface
+# the athlete reads in passing — and it put a provider call behind a findings
+# list. See docs/features/consolidation.md.
+#
+# The tests that asserted `phrasing_source == "llm"` and exercised the guard,
+# cap, cache and empty-output fallbacks went with it — every one of those paths
+# is now unreachable, so they were asserting dead code. These replace them: they
+# pin that the LLM stays unconsulted.
+
+class TestLLMPathParked:
+    def test_llm_is_not_consulted_even_when_enabled(self):
+        """Enabled provider, valid response, and it still returns the template.
+
+        This is the actual park. If someone restores the `if not
+        llm.llm_enabled()` early-return, this is what fails."""
+        from backend.services.gap_analysis.phrasing import get_finding_phrasing
+
+        finding = _make_finding(
+            code="no_recent_plyo",
+            evidence=[{"metric": "days_since_plyo", "value": 35, "threshold": 28, "window": "28d"}],
+        )
+        llm_text = "You haven't done plyometrics in 35 days — aim for one session every 28 days."
+
+        with patch("backend.services.llm.llm_enabled", return_value=True) as mock_enabled, \
+             patch("backend.services.llm.get_or_generate", return_value={"phrasing": llm_text}) as mock_gen:
+            result = get_finding_phrasing(finding, user_id=uuid.uuid4(), week_start="2026-07-07")
+
+        assert result["phrasing_source"] == "template"
+        assert result["phrasing"] != llm_text
+        mock_gen.assert_not_called()
+        mock_enabled.assert_not_called()
+
+    def test_field_shape_is_unchanged_by_the_park(self):
+        """Callers still get the same two keys — main.py reads both."""
+        from backend.services.gap_analysis.phrasing import get_finding_phrasing
+
+        finding = _make_finding(
+            evidence=[{"metric": "days_since_plyo", "value": 35, "threshold": 28, "window": "28d"}],
+        )
+        result = get_finding_phrasing(finding, user_id=uuid.uuid4(), week_start="2026-07-07")
+
+        assert set(result.keys()) == {"phrasing", "phrasing_source"}
+        assert isinstance(result["phrasing"], str) and result["phrasing"]
+        assert result["phrasing_source"] == "template"
+
+    def test_phrasing_matches_the_deterministic_evidence_text(self):
+        """The template path is render_evidence_text — no second renderer."""
+        from backend.services.gap_analysis.evidence_text import render_evidence_text
+        from backend.services.gap_analysis.phrasing import get_finding_phrasing
+
+        evidence = [{"metric": "days_since_plyo", "value": 35, "threshold": 28, "window": "28d"}]
+        finding = _make_finding(code="no_recent_plyo", evidence=evidence)
+
+        result = get_finding_phrasing(finding, user_id=uuid.uuid4(), week_start="2026-07-07")
+        assert result["phrasing"] == render_evidence_text(
+            "no_recent_plyo", evidence, finding.get("target")
+        )
