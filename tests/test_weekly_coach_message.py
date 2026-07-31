@@ -169,35 +169,74 @@ def test_compose_deterministic_all_five_elements_present():
     assert has_e, f"Missing projection content in:\n{msg}"
 
 
-# ── AC5: the message is deterministic ─────────────────────────────────────────
+# ── AC5: LLM failure triggers fallback ────────────────────────────────────────
 #
-# AC5 used to read "LLM failure triggers fallback": _build_message asked the LLM
-# to rephrase the deterministic text with warmth, preserving every number, and
-# fell back on any error. Priority 2 (D4) parked that layer, so there is no
-# failure mode left to fall back FROM — the deterministic message is the only
-# message. What AC5 was really protecting is unchanged and still asserted here:
-# whatever comes out carries the numbers verbatim.
+# Priority 2 (D4) parked this layer; the operator's rule then moved from
+# "no LLM" to "minimal LLM" and the daily coach message was judged one of the
+# two surfaces that earns a provider call, so it is back. AC5's original
+# contract holds again: whatever goes wrong, the athlete gets a message.
 
-def test_build_message_is_deterministic():
-    """Same input, same output, no LLM in the path."""
+def test_llm_failure_falls_back_to_deterministic():
+    """AC5: When LLM raises an exception, the deterministic fallback is returned."""
     from backend.services.weekly_coach_message import _build_message
 
-    first = _build_message(_PLAN_STATE, _PROJECTION_INFO, _TODAY)
-    second = _build_message(_PLAN_STATE, _PROJECTION_INFO, _TODAY)
+    with patch(
+        "backend.services.weekly_coach_message._call_llm_narrative",
+        side_effect=RuntimeError("LLM unavailable"),
+    ):
+        result = _build_message(_PLAN_STATE, _PROJECTION_INFO, _TODAY)
 
-    assert isinstance(first, str)
-    assert len(first) > 0
-    assert first == second
-    # The numbers still survive into the message.
-    assert "1.60" in first
-    assert "1:45" in first
+    assert isinstance(result, str)
+    assert len(result) > 0
+    # Must still contain all five elements
+    assert "1.60" in result
+    assert "1:45" in result
 
 
-def test_build_message_has_no_llm_rephrase_layer():
-    """The warmth-rephrase call is gone, not merely disabled by config."""
-    import backend.services.weekly_coach_message as wcm
+def test_llm_returning_none_falls_back_to_deterministic():
+    """AC5: When LLM returns None, the deterministic message is used."""
+    from backend.services.weekly_coach_message import _build_message
 
-    assert not hasattr(wcm, "_call_llm_narrative")
+    with patch(
+        "backend.services.weekly_coach_message._call_llm_narrative",
+        return_value=None,
+    ):
+        result = _build_message(_PLAN_STATE, _PROJECTION_INFO, _TODAY)
+
+    assert isinstance(result, str)
+    assert "1:45" in result
+
+
+def test_llm_rephrase_is_used_when_it_preserves_the_numbers():
+    from backend.services.weekly_coach_message import _build_message
+
+    warm = "Nice work — hold 1.60 ACWR and 315 TSS; 1:45 and 1:52 are in reach."
+    with patch(
+        "backend.services.weekly_coach_message._call_llm_narrative",
+        return_value=warm,
+    ):
+        assert _build_message(_PLAN_STATE, _PROJECTION_INFO, _TODAY) == warm
+
+
+def test_a_rephrase_that_changes_a_number_is_discarded():
+    """The numeral guard is what makes "preserve the numbers" a guarantee rather
+    than a prompt instruction. A drifted figure must never reach the athlete."""
+    from backend.services.weekly_coach_message import _call_llm_narrative
+
+    deterministic = "Hold 315 TSS this week. Projection 1:45."
+    drifted = {"message": "Hold 300 TSS this week. Projection 1:45."}
+
+    with patch("backend.services.llm.llm_enabled", return_value=True), patch(
+        "backend.services.llm.complete_structured", return_value=drifted
+    ):
+        assert _call_llm_narrative(deterministic, _PLAN_STATE) is None
+
+
+def test_disabled_llm_short_circuits(_=None):
+    from backend.services.weekly_coach_message import _call_llm_narrative
+
+    with patch("backend.services.llm.llm_enabled", return_value=False):
+        assert _call_llm_narrative("anything", _PLAN_STATE) is None
 
 
 # ── AC9: Idempotency per ISO week ─────────────────────────────────────────────
