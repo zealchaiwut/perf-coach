@@ -7,13 +7,11 @@
 
   var DOW = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 
+  // Delegates to the shared escaper (issue #1603). The local copies
+  // disagreed about the apostrophe, so identical content was safe on
+  // some pages and attribute-injectable on others.
   function esc(s) {
-    if (s == null) return '';
-    return String(s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+    return window.AppCommon.escapeHtml(s);
   }
 
   function _iso(d) {
@@ -135,7 +133,7 @@
     var monday = _mondayOf(new Date());
     var from = _iso(monday);
     var to = _iso(_addDays(monday, 6));
-    var todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    var todayStr = window.AppCommon.todayISO();
 
     fetch('/api/planned-sessions?from=' + from + '&to=' + to)
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })

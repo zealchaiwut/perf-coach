@@ -21,8 +21,10 @@
       const [y, m] = raw.split('-').map(Number);
       if (m >= 1 && m <= 12) return { year: y, month: m - 1 };
     }
-    const now = new Date();
-    return { year: now.getFullYear(), month: now.getMonth() };
+    // Bangkok, not the device (issue #1603): near a month boundary a client in
+    // another timezone would otherwise open the calendar on the wrong month.
+    const [y2, m2] = window.AppCommon.todayISO().split('-').map(Number);
+    return { year: y2, month: m2 - 1 };
   }
 
   function writeMonthToURL(year, month) {
@@ -124,7 +126,7 @@
   }
 
   function populateCell(cell, date, inMonth) {
-    const todayStr = toLocalDateStr(new Date());
+    const todayStr = window.AppCommon.todayISO();
     const dateStr = toLocalDateStr(date);
     const isToday = dateStr === todayStr;
     const isPast = dateStr < todayStr;
@@ -248,7 +250,7 @@
   function updateTodayBtn() {
     var btn = document.getElementById('today-btn');
     if (!btn) return;
-    var now = new Date();
+    var now = window.AppCommon.nowBangkok();
     var isCurrentMonth = state.year === now.getFullYear() && state.month === now.getMonth();
     btn.disabled = isCurrentMonth;
   }
@@ -359,8 +361,9 @@
 
   function goToToday() {
     withFade(() => {
-      const now = new Date();
-      state = { year: now.getFullYear(), month: now.getMonth() };
+      // Bangkok, matching the default month above (issue #1603).
+      const [y2, m2] = window.AppCommon.todayISO().split('-').map(Number);
+      state = { year: y2, month: m2 - 1 };
       writeMonthToURL(state.year, state.month);
       calData = emptyData();
     });
@@ -372,7 +375,7 @@
     modalDirty = false;
     const metricsRef = { dirty: false };
 
-    const todayStr = toLocalDateStr(new Date());
+    const todayStr = window.AppCommon.todayISO();
     const isFuture = dateStr > todayStr;
     const isToday = dateStr === todayStr;
 

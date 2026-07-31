@@ -6,14 +6,13 @@
 
   /* ── Helpers ── */
 
+  // Delegates to the shared escaper (issue #1603).
   function _esc(s) {
-    return String(s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return window.AppCommon.escapeHtml(s);
   }
 
   function _bangkokTodayStr() {
-    return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    return window.AppCommon.todayISO();
   }
 
   function _showToast(msg, isErr) {

@@ -205,10 +205,11 @@ const InjuryLog = (() => {
 
   // body_area is free text headed for innerHTML — escape it (self-XSS
   // otherwise: a pasted payload would run on every home/training load).
+  // Delegates to the shared escaper (issue #1603). The local copies
+  // disagreed about the apostrophe, so identical content was safe on
+  // some pages and attribute-injectable on others.
   function esc(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
-      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-    ));
+    return window.AppCommon.escapeHtml(s);
   }
 
   async function renderActiveStrip(containerId) {

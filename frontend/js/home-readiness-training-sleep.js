@@ -3,13 +3,11 @@
 
   /* HTML escaping (XSS guard) for the user-generated strings the home v2
      widgets echo — session names, error/reason text from the API. */
+  // Delegates to the shared escaper (issue #1603). The local copies
+  // disagreed about the apostrophe, so identical content was safe on
+  // some pages and attribute-injectable on others.
   function esc(s) {
-    if (s == null) return '';
-    return String(s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+    return window.AppCommon.escapeHtml(s);
   }
 
   /* ── Compact Readiness Tile ─────────────────────────────────────────────── */
@@ -144,7 +142,7 @@
       var explanationHTML = '';
       if (readiness.explanation) {
         explanationHTML = '<p class="rd-tile-explanation">' +
-          readiness.explanation.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') +
+          esc(readiness.explanation) +
         '</p>';
       }
 
@@ -172,7 +170,7 @@
   var _TRAINING_DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
   function _bangkokTodayStr() {
-    return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    return window.AppCommon.todayISO();
   }
 
   function _deltaCls(n) {

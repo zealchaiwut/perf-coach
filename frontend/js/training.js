@@ -28,7 +28,7 @@
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
   function todayIso() {
-    var d = new Date();
+    var d = window.AppCommon.nowBangkok();
     var m = String(d.getMonth() + 1).padStart(2, '0');
     var day = String(d.getDate()).padStart(2, '0');
     return d.getFullYear() + '-' + m + '-' + day;
@@ -591,8 +591,11 @@
     if (!data || !data.name) card.querySelector('.ex-name').focus();
   }
 
+  // Delegates to the shared escaper (issue #1603). The local copies
+  // disagreed about the apostrophe, so identical content was safe on
+  // some pages and attribute-injectable on others.
   function escapeAttr(s) {
-    return String(s).replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return window.AppCommon.escapeHtml(s);
   }
 
   // ── Run details: structured segment builder ───────────────────────────────────
@@ -1602,7 +1605,7 @@
   async function loadSuggestions() {
     try {
       var to = todayIso();
-      var d = new Date();
+      var d = window.AppCommon.nowBangkok();
       d.setFullYear(d.getFullYear() - 1);
       var from = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 
@@ -1658,7 +1661,7 @@
     btn.disabled = true;
     try {
       var to = todayIso();
-      var d = new Date();
+      var d = window.AppCommon.nowBangkok();
       d.setFullYear(d.getFullYear() - 3);
       var from = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 
@@ -1949,7 +1952,7 @@
           String(d.getDate()).padStart(2, '0');
       }
       var to = new Date();
-      var from = new Date();
+      var from = window.AppCommon.nowBangkok();
       from.setDate(from.getDate() - 30);
       var res = await fetch('/api/workouts?from=' + ymd(from) + '&to=' + ymd(to));
       if (!res.ok) throw new Error('Server error ' + res.status);
@@ -1993,12 +1996,11 @@
     });
   }
 
+  // Delegates to the shared escaper (issue #1603). The local copies
+  // disagreed about the apostrophe, so identical content was safe on
+  // some pages and attribute-injectable on others.
   function escapeHtml(s) {
-    return String(s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+    return window.AppCommon.escapeHtml(s);
   }
 
   // ── Detail modal ──────────────────────────────────────────────────────────────
