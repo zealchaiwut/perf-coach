@@ -10,6 +10,8 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
+from helpers import column_exists
+
 
 # revision identifiers, used by Alembic.
 revision: str = 'd915ffcb4c0c'
@@ -20,6 +22,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
+    if column_exists("user_preferences", "aerobic_decoupling_threshold"):
+        return
     op.add_column(
         "user_preferences",
         sa.Column("aerobic_decoupling_threshold", sa.Float(), nullable=True),
@@ -28,4 +32,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
+    if not column_exists("user_preferences", "aerobic_decoupling_threshold"):
+        return
     op.drop_column("user_preferences", "aerobic_decoupling_threshold")

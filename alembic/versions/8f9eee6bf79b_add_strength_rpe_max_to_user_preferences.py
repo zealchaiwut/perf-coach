@@ -10,6 +10,8 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
+from helpers import column_exists
+
 
 # revision identifiers, used by Alembic.
 revision: str = '8f9eee6bf79b'
@@ -20,6 +22,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
+    if column_exists("user_preferences", "strength_rpe_max"):
+        return
     op.add_column(
         "user_preferences",
         sa.Column("strength_rpe_max", sa.Integer(), nullable=True),
@@ -28,4 +32,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
+    if not column_exists("user_preferences", "strength_rpe_max"):
+        return
     op.drop_column("user_preferences", "strength_rpe_max")

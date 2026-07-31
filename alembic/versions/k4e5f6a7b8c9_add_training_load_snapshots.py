@@ -47,5 +47,8 @@ def upgrade():
 
 
 def downgrade():
-    op.drop_index("ix_training_load_snapshots_user_date", table_name="training_load_snapshots")
+    if not table_exists("training_load_snapshots"):
+        return
+    if index_exists("training_load_snapshots", "ix_training_load_snapshots_user_date"):
+        op.drop_index("ix_training_load_snapshots_user_date", table_name="training_load_snapshots")
     op.drop_table("training_load_snapshots")
