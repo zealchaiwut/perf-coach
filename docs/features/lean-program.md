@@ -236,7 +236,7 @@ warning next to an unchanged number.
 | `ctl_falling` | CTL down ≥ 2 TSS/day over 14 days while the deficit is on |
 | `scores_declining` | endurance or speed down 2+ consecutive weeks |
 | `recovery_degrading` | RHR up ≥ 3 bpm or sleep down ≥ 0.75 h vs baseline |
-| `lean_mass_falling` | lean-mass trend down 3+ weeks |
+| `lean_mass_falling` | 4-week lean-mass mean down `LEAN_MASS_FALL_DELTA_KG` (0.7) vs the previous 4-week block. Was "3 consecutive falling weeks" until #1598, which measured that rule as unable to fire for a decline at or below its 0.15 kg dead-band, and firing for only ~4% of faster genuine ones. |
 
 **Every message says EAT MORE**, never "try harder" and never anything that reads
 as the athlete's fault. `assert_eat_more_copy` enforces that at import time, so a

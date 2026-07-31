@@ -38,11 +38,48 @@ from typing import Iterable, Optional
 # Rolling window for every trend reported here. Four weekly readings is the
 # fewest that can distinguish a direction from noise at bioimpedance's precision.
 ROLLING_WEEKS = 4
-# Consecutive falling blocks before the lean-mass guard fires (spec §4).
+# Consecutive falling blocks — REPORTED, no longer what the guard fires on.
+# See LEAN_MASS_FALL_DELTA_KG and issue #1598.
 LEAN_MASS_FALL_WEEKS = 3
 # Lean-mass movement smaller than this is noise, not a fall. Bioimpedance can't
 # resolve a quarter-kilo, and a guard that fires on noise gets ignored.
 LEAN_MASS_NOISE_KG = 0.15
+
+# Drop in the 4-week rolling MEAN, versus the previous 4-week block, that counts
+# as lean mass genuinely falling.
+#
+# Chosen by simulation (#1598) rather than intuition. The previous rule —
+# LEAN_MASS_FALL_WEEKS consecutive raw readings each falling by more than
+# LEAN_MASS_NOISE_KG — was measured against a simulated athlete genuinely losing
+# lean mass under realistic bioimpedance scatter, and had TWO independent
+# defects:
+#
+#   1. The dead-band was applied per STEP, and the comparison was strict, so a
+#      decline at or below 0.15 kg/week was invisible FOREVER — even with
+#      perfect measurements. That is ~0.6 kg of lean mass a month, silently.
+#   2. Any flat or up week reset the run to zero. Against a genuine decline with
+#      ±1.0 point of body-fat scatter, the guard fired in roughly 4% of cases.
+#
+# Comparing 4-week block means fixes both: averaging four readings roughly halves
+# the noise, and a cumulative drop cannot be hidden by one flat week. The module
+# already smooths every other trend it reports this way — the guard was the one
+# place reading raw consecutive values.
+#
+# Threshold trade-off, measured at ±1.0pt scatter over 3,000 simulated athletes
+# per cell (false positive = fires on a FLAT athlete):
+#
+#     threshold | false+ | detects 0.15 kg/wk | detects 0.25 kg/wk
+#       0.40 kg |  13.8% |       69.7%        |       95.2%
+#       0.60 kg |   4.9% |       49.0%        |       85.7%
+#   >>  0.70 kg |   2.1% |       38.3%        |       78.7%   <<
+#       1.00 kg |   0.1% |       13.8%        |       49.1%
+#
+# 0.70 is deliberate. The costs are asymmetric — a false positive means eating
+# a bit more for a week, a false negative means losing muscle — which argues for
+# a low threshold. But the guard is evaluated EVERY week, so a real decline gets
+# many chances to trip it, while a guard that cries wolf gets ignored and then
+# protects nobody. 2% per check is roughly one spurious pause a year.
+LEAN_MASS_FALL_DELTA_KG = 0.7
 
 
 def derive_lean_mass_kg(weight_kg, body_fat_pct) -> Optional[float]:
@@ -109,6 +146,7 @@ def compute_composition_trend(readings: Iterable[dict], today: _date) -> dict:
         "lean_mass_kg_trend": None,
         "lean_mass_4wk_delta": None,
         "lean_mass_falling_weeks": 0,
+        "lean_mass_falling": False,
         "readings_count": len(rows),
         "readable": False,
         "readable_note": None,
@@ -147,6 +185,11 @@ def compute_composition_trend(readings: Iterable[dict], today: _date) -> dict:
         out["lean_mass_4wk_delta"] = round(out["lean_mass_kg_trend"] - prev_mean, 2)
 
     out["lean_mass_falling_weeks"] = _count_falling_weeks(rows)
+    # What the deficit guard actually reads (#1598). The consecutive-raw-fall
+    # count above is kept because it is reported and readable, but it could not
+    # carry the guard: see LEAN_MASS_FALL_DELTA_KG for the measurements.
+    delta = out["lean_mass_4wk_delta"]
+    out["lean_mass_falling"] = delta is not None and delta <= -LEAN_MASS_FALL_DELTA_KG
     return out
 
 

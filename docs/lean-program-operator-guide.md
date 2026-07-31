@@ -295,7 +295,7 @@ oscillates between nagging and silence.
 | CTL falling | down ≥2 TSS/day over 14 days while cutting |
 | scores declining | endurance or speed down 2+ weeks |
 | recovery degrading | RHR up ≥3 bpm or sleep down ≥0.75 h vs baseline |
-| lean mass falling | trend down 3+ weeks |
+| lean mass falling | 4-week lean-mass average down 0.7 kg vs the previous 4 weeks |
 
 Every message says **eat more**. None of them says "try harder" — that's enforced
 in code, not convention.
