@@ -255,7 +255,7 @@ information about.
   }
   function _addDays(d, n) { var x = new Date(d); x.setDate(x.getDate() + n); return x; }
   function _todayISO() {
-    return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    return window.AppCommon.todayISO();
   }
   function _fmtWeekTitle(start) {
     var end = _addDays(start, 6);
@@ -267,9 +267,11 @@ information about.
     return DOW[(d.getDay() + 6) % 7].charAt(0) + DOW[(d.getDay() + 6) % 7].slice(1).toLowerCase() +
       ', ' + MON[d.getMonth()] + ' ' + d.getDate();
   }
+  // Delegates to the shared escaper (issue #1603). The local copies
+  // disagreed about the apostrophe, so identical content was safe on
+  // some pages and attribute-injectable on others.
   function esc(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return window.AppCommon.escapeHtml(s);
   }
 
   // ── CSRF-safe fetch (window.fetch is patched by nav.js to attach X-CSRF) ────
@@ -4765,10 +4767,11 @@ information about.
   var _DAY_NAMES_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
   function _el(id) { return document.getElementById(id); }
+  // Delegates to the shared escaper (issue #1603). The local copies
+  // disagreed about the apostrophe, so identical content was safe on
+  // some pages and attribute-injectable on others.
   function esc(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
+    return window.AppCommon.escapeHtml(s);
   }
 
   // Local date helpers (this module is a separate closure from the main Plan

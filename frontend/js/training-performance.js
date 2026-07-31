@@ -61,19 +61,20 @@
     return String(n).padStart(2, "0");
   }
 
+  // Delegates to the shared escaper (issue #1603). The local copies
+  // disagreed about the apostrophe, so identical content was safe on
+  // some pages and attribute-injectable on others.
   function esc(s) {
-    return String(s == null ? "" : s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+    return window.AppCommon.escapeHtml(s);
   }
 
+  // Bangkok, not browser-local (issue #1603). This drives the is-today
+  // highlight, the default `to` filter and the date picker's max — so on a
+  // client outside Bangkok this page disagreed with Weight, Habits and Home
+  // about what day it is, and the "no future dates" max contradicted the
+  // backend rule it mirrors.
   function todayISO() {
-    var d = new Date();
-    return (
-      d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate())
-    );
+    return window.AppCommon.todayISO();
   }
 
   function formatDate(iso) {
@@ -505,9 +506,8 @@
     // wastes half the x-axis and drags the y-domain. Keep the last ~3
     // months (projection already runs today → race day, so the right edge
     // IS race day).
-    var cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 90);
-    var cutoffISO = cutoff.toISOString().slice(0, 10);
+    // Bangkok via the ISO helper; toISOString() is UTC (issue #1603).
+    var cutoffISO = window.AppCommon.addDaysISO(window.AppCommon.todayISO(), -90);
     var recent = history.filter(function (e) { return !e.date || e.date >= cutoffISO; });
     history = recent.length ? recent : history.slice(-90);
     var goalSec = tc && tc.goal_finish_seconds != null
@@ -1648,7 +1648,7 @@
   }
 
   function _isoDaysAgo(days) {
-    var d = new Date();
+    var d = window.AppCommon.nowBangkok();
     d.setDate(d.getDate() - days);
     return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
   }
@@ -2208,7 +2208,7 @@
       if (future.length) return future[0].date;
     }
     if (!weekStart) return "";
-    var today = new Date();
+    var today = window.AppCommon.nowBangkok();
     var tomorrow = new Date(today);
     tomorrow.setDate(today.getDate() + 1);
     var ws = new Date(weekStart + "T00:00:00");
@@ -2812,7 +2812,7 @@
     return new Date().toLocaleDateString("en-CA", { timeZone: _perfTz });
   }
   function _perfDateMinusDays(days) {
-    var d = new Date();
+    var d = window.AppCommon.nowBangkok();
     d.setDate(d.getDate() - days);
     return d.toLocaleDateString("en-CA", { timeZone: _perfTz });
   }

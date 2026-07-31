@@ -117,7 +117,7 @@
   }
 
   function resolveDateWindow(state) {
-    const today = new Date();
+    const today = window.AppCommon.nowBangkok();
     today.setHours(0, 0, 0, 0);
     if (state.type === 'custom') return { from: state.from || null, to: state.to || null };
     const days = parseInt(state.preset, 10);
@@ -1064,7 +1064,7 @@
 
     fetchSummary(state)
       .then(summary => {
-        const today = toLocalDateStr(new Date());
+        const today = window.AppCommon.todayISO();
         renderReadinessFromSummary(readinessBodyEl, summary);
         renderHrvChart(hrvBodyEl, summary.hrv, today);
         renderRhrChart(rhrBodyEl, summary.rhr, today);

@@ -508,7 +508,7 @@
     // Set today's date by default
     var dateInput = document.getElementById('rb-date');
     if (dateInput && !dateInput.value) {
-      var d = new Date();
+      var d = window.AppCommon.nowBangkok();
       dateInput.value = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
     }
 

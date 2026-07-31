@@ -17,10 +17,11 @@
   var saveBtn = document.getElementById("dc-save");
   var feedbackEl = document.getElementById("dc-feedback");
 
+  // Delegates to the shared escaper (issue #1603). The local copies
+  // disagreed about the apostrophe, so identical content was safe on
+  // some pages and attribute-injectable on others.
   function esc(s) {
-    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
-      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
-    });
+    return window.AppCommon.escapeHtml(s);
   }
 
   function setFeedback(msg, kind) {
@@ -40,7 +41,7 @@
   }
 
   function isDue(d) {
-    return d.review_on && !d.outcome_note && d.review_on <= new Date().toISOString().slice(0, 10);
+    return d.review_on && !d.outcome_note && d.review_on <= window.AppCommon.todayISO();
   }
 
   function entryHtml(d) {
@@ -191,7 +192,7 @@
   if (saveBtn) saveBtn.addEventListener("click", save);
 
   if (decidedEl && !decidedEl.value) {
-    decidedEl.value = new Date().toISOString().slice(0, 10);
+    decidedEl.value = window.AppCommon.todayISO();
   }
 
   load();

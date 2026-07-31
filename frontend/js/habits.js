@@ -111,7 +111,7 @@ function isoDate(d) {
 }
 
 function bangkokToday() {
-  const bk = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+  const bk = window.AppCommon.todayISO();
   const [y, m, d] = bk.split('-').map(Number);
   return new Date(y, m - 1, d);
 }
@@ -173,12 +173,11 @@ function habitIconHTML(icon, color, size) {
   return `<span class="habit-icon-chip" style="background:${bg};width:${s}px;height:${s}px;font-size:${Math.round(s*0.45)}px;font-weight:700">?</span>`;
 }
 
-function esc(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+// Delegates to the shared escaper (issue #1603). The local copies
+// disagreed about the apostrophe, so identical content was safe on
+// some pages and attribute-injectable on others.
+function esc(s) {
+  return window.AppCommon.escapeHtml(s);
 }
 
 // ── Today quick-log surface ───────────────────────────────────────────────────
@@ -212,7 +211,7 @@ function _hasMissThisWeek(habit, weekDone) {
   if (habit.tracking_type !== 'daily_checkmark') return false;
   const wt = habit.weekly_target != null ? parseFloat(habit.weekly_target) : 7;
   if (wt < 7) return false;
-  const bkkDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+  const bkkDate = window.AppCommon.todayISO();
   const dow = new Date(bkkDate + 'T00:00:00').getDay(); // 0=Sun..6=Sat
   const daysBeforeToday = dow === 0 ? 6 : dow - 1;     // Mon=0...Sat=5, Sun=6
   return daysBeforeToday > 0 && weekDone < daysBeforeToday;
@@ -2378,7 +2377,7 @@ function renderHabitMonthCal() {
   const el = document.getElementById('habits-month-cal');
   if (!el) return;
 
-  const now = new Date();
+  const now = window.AppCommon.nowBangkok();
   if (!hcalMonth) hcalMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
   const year = hcalMonth.getFullYear();
@@ -2472,7 +2471,7 @@ function renderHabitMonthCal() {
     await _refreshHabitCal();
   });
   if (todayBtn) todayBtn.addEventListener('click', async () => {
-    const t = new Date();
+    const t = window.AppCommon.nowBangkok();
     hcalMonth = new Date(t.getFullYear(), t.getMonth(), 1);
     await _refreshHabitCal();
   });
@@ -2729,8 +2728,8 @@ async function _refreshHabitCal() {
   // Invalidate cached range so the next fetch is fresh
   hcalFetchedRange = null;
 
-  const year = hcalMonth ? hcalMonth.getFullYear() : new Date().getFullYear();
-  const month = hcalMonth ? hcalMonth.getMonth() : new Date().getMonth();
+  const year = hcalMonth ? hcalMonth.getFullYear() : window.AppCommon.nowBangkok().getFullYear();
+  const month = hcalMonth ? hcalMonth.getMonth() : window.AppCommon.nowBangkok().getMonth();
   const lastDay = new Date(year, month + 1, 0).getDate();
   const from = year + '-' + _hcalPad(month + 1) + '-01';
   const to = year + '-' + _hcalPad(month + 1) + '-' + _hcalPad(lastDay);
@@ -2746,7 +2745,7 @@ async function initHabitCal() {
   if (!calSection) return;
 
   if (!_hcalInitialized) {
-    const now = new Date();
+    const now = window.AppCommon.nowBangkok();
     hcalMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
     const today = bangkokToday();

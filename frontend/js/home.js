@@ -1,12 +1,10 @@
 (function () {
   /* ---- HTML escaping (XSS guard for user/API strings in innerHTML) ---- */
+  // Delegates to the shared escaper (issue #1603). The local copies
+  // disagreed about the apostrophe, so identical content was safe on
+  // some pages and attribute-injectable on others.
   function esc(s) {
-    if (s == null) return "";
-    return String(s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+    return window.AppCommon.escapeHtml(s);
   }
 
   /* ---- Greeting ---- */
@@ -19,7 +17,7 @@
   }
 
   function formatDateSubtitle() {
-    var d = new Date();
+    var d = window.AppCommon.nowBangkok();
     var days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return days[d.getDay()] + ', ' + d.getDate() + ' ' + months[d.getMonth()];
@@ -45,7 +43,7 @@
 
   // Returns today's date string (YYYY-MM-DD) in Asia/Bangkok timezone.
   function bangkokTodayStr() {
-    return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    return window.AppCommon.todayISO();
   }
 
   /* ---- Personal records card helpers (home v3, Task 6) ----
@@ -564,12 +562,9 @@
     }
   }
 
-  function _escHtml(str) {
-    return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+  // Delegates to the shared escaper (issue #1603).
+  function _escHtml(s) {
+    return window.AppCommon.escapeHtml(s);
   }
 
   function _weightSummaryAdapter(wBlock) {
@@ -625,10 +620,10 @@
   // weight tab uses, so the two widgets stay byte-for-byte identical.
   function _hwwLoadCurrentCard() {
     if (!window.WeightCurrentCard) return;
-    var to = new Date().toISOString().slice(0, 10);
-    var f = new Date();
-    f.setDate(f.getDate() - 90);
-    var from = f.toISOString().slice(0, 10);
+    var to = window.AppCommon.todayISO();
+    // Bangkok, and via the ISO helper: toISOString() is UTC, so during Bangkok
+    // early mornings this window started a day early (issue #1603).
+    var from = window.AppCommon.addDaysISO(to, -90);
     Promise.all([
       fetch('/api/weight-chart?from=' + from + '&to=' + to + '&include_target=true')
         .then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }),
