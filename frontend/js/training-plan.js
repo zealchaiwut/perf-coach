@@ -204,13 +204,10 @@ information about.
     },
     // Suggestions module (separate closure) calls this after queueing a
     // plan_draft so the week strip picks up the new draft when it lands.
-    markDraftPending: function () {
-      _draftVisible = true;
-    },
-    reloadDraft: function () {
-      _draftVisible = true;
-      _loadDraft();
-    },
+    // Both no-ops while drafts are parked (D1) — the suggestions module still
+    // calls them, and a stub is cheaper than teaching it that drafts are gone.
+    markDraftPending: function () {},
+    reloadDraft: function () {},
     // day_offset/date/open (no logged workout, no existing planned session,
     // not before today) for each day of the currently-viewed week — lets the
     // suggestions prefs form show accurate checkboxes without a second
@@ -306,10 +303,16 @@ information about.
     }
   }
 
+  // PARKED (Priority 2, D1). Worker drafts are off: nothing enqueues a
+  // plan_draft job and the worker no longer dispatches one, so there is never a
+  // draft to overlay. This returns false unconditionally rather than depending
+  // on _pipeline.ui_default / ?draft=1, so no server config or query param can
+  // surface an overlay that can only ever be empty.
+  //
+  // The overlay's rendering code below is left in place, unreachable, for one
+  // quiet release — it goes with plan_draft.py in the step-7 cleanup. Keeping
+  // the gate a single function is what makes that deletion mechanical.
   function _shouldShowDraftUi() {
-    if (!_pipeline) return false;
-    if (_pipeline.ui_default) return true;
-    if (_pipeline.shadow && (_urlFlag('draft') === '1' || _urlFlag('draft') === 'true')) return true;
     return false;
   }
 
@@ -1533,7 +1536,9 @@ information about.
         '<div class="pl-btnrow">' +
           '<button class="pl-btn pl-lime" id="pl-apply-draft" hidden title="Create planned sessions from this draft">Apply week</button>' +
           '<button class="pl-btn pl-ghost" id="pl-refresh-draft" hidden title="Regenerate untouched draft slots">Refresh draft</button>' +
-          '<button class="pl-btn pl-ghost" id="pl-replan-remaining" title="Replan open days from remaining budget">Replan remaining</button>' +
+          /* hidden with the other two draft buttons — drafts are parked (D1),
+             so this would queue a job the worker no longer dispatches. */
+          '<button class="pl-btn pl-ghost" id="pl-replan-remaining" hidden title="Replan open days from remaining budget">Replan remaining</button>' +
           /* Opens the suggestions panel (prefs + build schedule live there). */
           '<button class="pl-btn pl-ghost" id="pl-suggest" title="AI-suggested sessions for this week">✨ Suggest sessions</button>' +
         '</div></div>' +

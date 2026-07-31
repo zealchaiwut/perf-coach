@@ -79,10 +79,17 @@ def get_finding_phrasing(
     week_start,
     db=None,
 ) -> dict[str, str]:
-    """Return {"phrasing": str, "phrasing_source": "llm"|"template"}.
+    """Return {"phrasing": str, "phrasing_source": "template"}.
 
-    Tries LLM path first; falls back to deterministic evidence_text on any
-    failure (disabled, network error, guard trip, length cap, empty output).
+    PARKED (Priority 2, step 6). This used to try an LLM one-liner first and
+    fall back to deterministic evidence_text on any failure — disabled provider,
+    network error, numeral-guard trip, length cap, empty output. The template
+    path already covered every one of those cases, which is the argument for
+    parking: the LLM was producing a nicer sentence for the same information,
+    on a surface the athlete reads in passing.
+
+    The LLM body below is left unreachable for one quiet release and goes in the
+    step-7 cleanup along with the module.
     """
     from backend.services.gap_analysis.evidence_text import render_evidence_text
 
@@ -95,8 +102,8 @@ def get_finding_phrasing(
     def _fallback():
         return {"phrasing": fallback_text, "phrasing_source": "template"}
 
-    if not llm.llm_enabled():
-        return _fallback()
+    # Forced. Was: `if not llm.llm_enabled(): return _fallback()`
+    return _fallback()
 
     facts_str = _evidence_to_facts_str(evidence)
     sig = build_phrasing_signature(user_id, week_start, code, evidence)
