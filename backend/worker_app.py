@@ -719,12 +719,25 @@ def _session_to_dict(row) -> dict:
 def training_load(date: str | None = None, user: str | None = None):
     """Return CTL/ATL/TSB/ACWR + persisted verdict for a date for Hermes.
 
-    Reads from training_load_snapshots (single source of truth) and
-    verdict_history (persisted by _resolve_current_verdict). Does NOT
-    recompute anything.
+    Delegates to ``training_load.current_load`` — the same function the webapp's
+    ``GET /api/training-load/current`` calls — so Hermes and the dashboard can
+    never disagree about the athlete's fitness on the same day.
+
+    They used to. This route ran its own ``snapshot_date <= target_date`` query,
+    ordered desc, first row: no ``formula_version`` check, no calibration check,
+    no bound on how stale the row could be. ``current_load`` requires an exact
+    date match AND a matching formula version AND matching ctl_days/atl_days,
+    and recomputes otherwise. So after a formula change or a CTL-days settings
+    edit, the dashboard showed the correct number while Hermes reported a stale
+    one computed under the old formula — possibly many days old (issue #1601).
+
+    ``current_load`` is safe to call here: it lives in ``backend.services`` and
+    never imports ``backend.main``, which is the rule this module must not break.
     """
-    from backend.models import TrainingLoadSnapshot, VerdictHistory
     from datetime import date as _date
+
+    from backend.models import VerdictHistory
+    from backend.services.training_load import current_load
 
     resolved_user = _resolve_read_user(user)
 
@@ -736,19 +749,9 @@ def training_load(date: str | None = None, user: str | None = None):
     else:
         target_date = datetime.now(BANGKOK_TZ).date()
 
-    with Session(engine) as s:
-        snap = (
-            s.query(TrainingLoadSnapshot)
-            .filter(
-                TrainingLoadSnapshot.user_id == resolved_user.id,
-                TrainingLoadSnapshot.snapshot_date <= target_date,
-            )
-            .order_by(TrainingLoadSnapshot.snapshot_date.desc())
-            .first()
-        )
-        if snap is None:
-            raise HTTPException(status_code=404, detail="no training load snapshots found for user")
+    load = current_load(str(resolved_user.id), as_of=target_date)
 
+    with Session(engine) as s:
         verdict_row = (
             s.query(VerdictHistory)
             .filter(
@@ -758,13 +761,22 @@ def training_load(date: str | None = None, user: str | None = None):
             .first()
         )
 
+    def _r(value, digits=1):
+        """Match the webapp's rounding. The old path returned raw stored
+        precision (2 dp) while the dashboard rounded to 1, so the two could
+        print different numbers from identical data."""
+        return round(float(value), digits) if value is not None else None
+
     return {
         "date": target_date.isoformat(),
-        "snapshot_date": snap.snapshot_date.isoformat(),
-        "ctl": snap.ctl,
-        "atl": snap.atl,
-        "tsb": snap.tsb,
-        "acwr": snap.acwr,
+        # Kept for response-shape compatibility with Hermes. current_load may
+        # have recomputed rather than read a row, in which case the value it
+        # reports IS for target_date.
+        "snapshot_date": str(load.get("date") or target_date),
+        "ctl": _r(load.get("ctl")),
+        "atl": _r(load.get("atl")),
+        "tsb": _r(load.get("tsb")),
+        "acwr": _r(load.get("acwr"), 2),
         "verdict": verdict_row.verdict if verdict_row else None,
         "verdict_date": verdict_row.verdict_date.isoformat() if verdict_row else None,
     }

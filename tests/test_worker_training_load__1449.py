@@ -3,7 +3,12 @@
 AC coverage:
 - AC1: endpoint GET /api/training/load?date=YYYY-MM-DD&user=<username> in worker_app.py
 - AC2: user resolution — explicit ?user=, WORKER_READ_API_USER env, one-active fallback, 400
-- AC3: CTL/ATL/TSB/ACWR from training_load_snapshots; fallback to latest ≤ date; 404 if none
+- AC3: CTL/ATL/TSB/ACWR via training_load.current_load — the SAME function the
+       webapp calls. SUPERSEDED by issue #1601: this route used to run its own
+       "latest snapshot <= date" query with no formula_version or calibration
+       check, so Hermes and the dashboard could report different fitness for the
+       same day. The "fallback to latest <= date" and "404 if none" behaviours
+       were that bug, not a contract, and are gone with it.
 - AC4: verdict from verdict_history, no recompute; null if no row for date
 - AC5: response shape: date, snapshot_date, ctl, atl, tsb, acwr, verdict, verdict_date
 - AC6: no auth required
@@ -50,6 +55,25 @@ def _make_verdict(
     return row
 
 
+def _load_from(snap):
+    """Stand in for training_load.current_load using a snapshot fixture.
+
+    The route delegates to current_load now (issue #1601), so these tests patch
+    that instead of the raw Session query the route used to run. Patched at its
+    source — backend.services.training_load — because worker_app imports it
+    inside the handler, so it is never a module attribute of worker_app.
+    """
+    def _fn(user_id, as_of=None):
+        return {
+            "date": snap.snapshot_date,
+            "ctl": snap.ctl,
+            "atl": snap.atl,
+            "tsb": snap.tsb,
+            "acwr": snap.acwr,
+        }
+    return _fn
+
+
 def _make_user(username: str = "testuser") -> MagicMock:
     u = MagicMock()
     u.id = uuid.uuid4()
@@ -85,6 +109,7 @@ def test_no_auth_required():
     snap = _make_snapshot()
 
     with patch("backend.worker_app._resolve_read_user", return_value=user), \
+         patch("backend.services.training_load.current_load", side_effect=_load_from(snap)), \
          patch("backend.worker_app.Session") as MockSession:
         mock_db = MagicMock()
         MockSession.return_value.__enter__ = MagicMock(return_value=mock_db)
@@ -109,6 +134,7 @@ def test_explicit_date_returns_correct_shape():
     verdict = _make_verdict(verdict_date=date(2026, 7, 10), verdict="build")
 
     with patch("backend.worker_app._resolve_read_user", return_value=user), \
+         patch("backend.services.training_load.current_load", side_effect=_load_from(snap)), \
          patch("backend.worker_app.Session") as MockSession:
         mock_db = MagicMock()
         MockSession.return_value.__enter__ = MagicMock(return_value=mock_db)
@@ -142,77 +168,74 @@ def test_explicit_date_returns_correct_shape():
     assert data["verdict_date"] == "2026-07-10"
 
 
-# ── AC3: fallback to latest snapshot ≤ date ──────────────────────────────────
+# ── AC3 (superseded by #1601) ────────────────────────────────────────────────
+#
+# Two behaviours used to be asserted here and are deliberately gone:
+#
+#   test_fallback_to_latest_snapshot_when_no_row_for_date
+#       The route took the newest snapshot at-or-before the requested date and
+#       returned it, whatever formula version or calibration produced it. That
+#       IS the bug in #1601 — it is how Hermes came to report a stale number
+#       while the dashboard showed the correct one for the same day.
+#
+#   test_404_when_no_snapshots_at_all
+#       current_load recomputes when no usable snapshot exists rather than
+#       giving up, so there is no "no snapshots" state left to 404 on. A brand
+#       new athlete now reads as zero fitness, which is true, instead of an
+#       error. NOTE: this is a real contract change for Hermes — it must no
+#       longer treat 404 as "no data yet".
 
-def test_fallback_to_latest_snapshot_when_no_row_for_date():
-    """AC3/AC8: No snapshot for requested date → latest ≤ date returned with its actual snapshot_date."""
+
+def test_route_reports_the_requested_date_not_a_stale_snapshot_date():
+    """The replacement for the old fallback test.
+
+    current_load answers FOR the requested date — reading a fresh snapshot when
+    one exists, recomputing when it does not. So snapshot_date tracks the date
+    the numbers describe rather than whatever old row happened to be nearest.
+    """
     user = _make_user()
-    # snapshot is 3 days old, but it's the most recent one before the requested date
-    older_snap = _make_snapshot(snapshot_date=date(2026, 7, 7), ctl=40.0, atl=45.0, tsb=-5.0, acwr=1.05)
+    snap = _make_snapshot(snapshot_date=date(2026, 7, 10), ctl=40.0, atl=45.0, tsb=-5.0)
 
     with patch("backend.worker_app._resolve_read_user", return_value=user), \
+         patch("backend.services.training_load.current_load", side_effect=_load_from(snap)), \
          patch("backend.worker_app.Session") as MockSession:
         mock_db = MagicMock()
         MockSession.return_value.__enter__ = MagicMock(return_value=mock_db)
         MockSession.return_value.__exit__ = MagicMock(return_value=False)
-
-        def query_side_effect(model):
-            from backend.models import TrainingLoadSnapshot
-            if model is TrainingLoadSnapshot:
-                q = MagicMock()
-                q.filter.return_value.order_by.return_value.first.return_value = older_snap
-                return q
-            else:
-                q = MagicMock()
-                q.filter.return_value.first.return_value = None
-                return q
-
-        mock_db.query.side_effect = query_side_effect
+        mock_db.query.return_value.filter.return_value.first.return_value = None
 
         client = TestClient(app, raise_server_exceptions=True)
         r = client.get("/api/training/load?date=2026-07-10&user=testuser")
 
     assert r.status_code == 200
-    data = r.json()
-    assert data["date"] == "2026-07-10"       # requested date
-    assert data["snapshot_date"] == "2026-07-07"  # actual snapshot date (older)
-    assert data["ctl"] == pytest.approx(40.0)
-    assert data["verdict"] is None
-    assert data["verdict_date"] is None
+    assert r.json()["snapshot_date"] == "2026-07-10"
 
 
-# ── AC3: 404 if user has no snapshots at all ──────────────────────────────────
-
-def test_404_when_no_snapshots_at_all():
-    """AC3/AC8: User has zero snapshot rows → 404."""
+def test_numbers_come_from_current_load_not_a_raw_row():
+    """The parity guarantee, asserted at the route: whatever current_load says
+    is what Hermes reports. Any divergence would mean the delegation is only
+    partial."""
     user = _make_user()
+    snap = _make_snapshot(ctl=51.234, atl=44.567, tsb=6.667, acwr=0.987)
 
     with patch("backend.worker_app._resolve_read_user", return_value=user), \
+         patch("backend.services.training_load.current_load", side_effect=_load_from(snap)), \
          patch("backend.worker_app.Session") as MockSession:
         mock_db = MagicMock()
         MockSession.return_value.__enter__ = MagicMock(return_value=mock_db)
         MockSession.return_value.__exit__ = MagicMock(return_value=False)
-
-        def query_side_effect(model):
-            from backend.models import TrainingLoadSnapshot
-            if model is TrainingLoadSnapshot:
-                q = MagicMock()
-                q.filter.return_value.order_by.return_value.first.return_value = None
-                return q
-            else:
-                q = MagicMock()
-                q.filter.return_value.first.return_value = None
-                return q
-
-        mock_db.query.side_effect = query_side_effect
+        mock_db.query.return_value.filter.return_value.first.return_value = None
 
         client = TestClient(app, raise_server_exceptions=True)
         r = client.get("/api/training/load?date=2026-07-10&user=testuser")
 
-    assert r.status_code == 404
+    data = r.json()
+    # Rounded to the webapp's precision: 1 dp for ctl/atl/tsb, 2 for acwr.
+    assert data["ctl"] == pytest.approx(51.2)
+    assert data["atl"] == pytest.approx(44.6)
+    assert data["tsb"] == pytest.approx(6.7)
+    assert data["acwr"] == pytest.approx(0.99)
 
-
-# ── AC4: null verdict when no row for date ───────────────────────────────────
 
 def test_null_verdict_when_no_verdict_row():
     """AC4/AC8: No verdict row for the date → verdict: null, verdict_date: null."""
@@ -220,6 +243,7 @@ def test_null_verdict_when_no_verdict_row():
     snap = _make_snapshot(snapshot_date=date(2026, 7, 10))
 
     with patch("backend.worker_app._resolve_read_user", return_value=user), \
+         patch("backend.services.training_load.current_load", side_effect=_load_from(snap)), \
          patch("backend.worker_app.Session") as MockSession:
         mock_db = MagicMock()
         MockSession.return_value.__enter__ = MagicMock(return_value=mock_db)
@@ -255,6 +279,7 @@ def test_acwr_can_be_null():
     snap = _make_snapshot(snapshot_date=date(2026, 7, 10), acwr=None)
 
     with patch("backend.worker_app._resolve_read_user", return_value=user), \
+         patch("backend.services.training_load.current_load", side_effect=_load_from(snap)), \
          patch("backend.worker_app.Session") as MockSession:
         mock_db = MagicMock()
         MockSession.return_value.__enter__ = MagicMock(return_value=mock_db)
@@ -292,6 +317,7 @@ def test_default_date_is_today_bangkok():
     snap = _make_snapshot(snapshot_date=today_bkk)
 
     with patch("backend.worker_app._resolve_read_user", return_value=user), \
+         patch("backend.services.training_load.current_load", side_effect=_load_from(snap)), \
          patch("backend.worker_app.Session") as MockSession:
         mock_db = MagicMock()
         MockSession.return_value.__enter__ = MagicMock(return_value=mock_db)
