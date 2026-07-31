@@ -666,10 +666,46 @@ async def delete_avatar(request: Request):
 
 # ── Weight entries CRUD endpoints ─────────────────────────────────────────────
 
+# Optional weekly bioimpedance reading. Bounds match the CHECK constraint on
+# weight_entries.body_fat_pct so the API rejects with a field message rather
+# than letting the DB raise an IntegrityError.
+_BODY_FAT_PCT_MIN = 3
+_BODY_FAT_PCT_MAX = 70
+
+
+def _validate_body_fat_pct(value):
+    """422 unless the reading is None or inside the stored range."""
+    if value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise HTTPException(status_code=422, detail="body_fat_pct must be a number")
+    if not (_BODY_FAT_PCT_MIN <= value <= _BODY_FAT_PCT_MAX):
+        raise HTTPException(
+            status_code=422,
+            detail=f"body_fat_pct must be between {_BODY_FAT_PCT_MIN} and {_BODY_FAT_PCT_MAX}",
+        )
+
+
+def _recompute_weigh_in_autofill(user_id, entry_date) -> None:
+    """Tick the weigh-in habit off a weight write — real autofill, no tap.
+
+    Best-effort by design, exactly like the workout write paths: a habit that
+    failed to recompute must never cost the athlete the weigh-in itself. The
+    worker's ``POST /weight-entry`` does the same thing on the Discord path.
+    """
+    try:
+        _recompute_autofill(user_id, _week_start_bangkok(entry_date))
+    except Exception as exc:
+        _logging.getLogger(__name__).warning(
+            "weigh-in autofill recompute failed for user %s date %s: %s", user_id, entry_date, exc
+        )
+
+
 class WeightEntriesCreateIn(BaseModel):
     entry_date: str  # YYYY-MM-DD
     entry_time: Optional[str] = None  # HH:MM or HH:MM:SS
     weight_kg: float
+    body_fat_pct: Optional[float] = None
     notes: Optional[str] = None
 
 
@@ -677,6 +713,7 @@ class WeightEntriesPatchIn(BaseModel):
     user_id: Optional[str] = None    # forbidden — 422 if present in model_fields_set
     entry_date: Optional[str] = None  # forbidden — 422 if present in model_fields_set
     weight_kg: Optional[float] = None
+    body_fat_pct: Optional[float] = None
     entry_time: Optional[str] = None
     notes: Optional[str] = None
 
@@ -688,6 +725,7 @@ def _weight_entry_dict(e: WeightEntry) -> dict:
         "entry_date": str(e.entry_date),
         "entry_time": str(e.entry_time) if e.entry_time is not None else None,
         "weight_kg": float(e.weight_kg),
+        "body_fat_pct": float(e.body_fat_pct) if e.body_fat_pct is not None else None,
         "notes": e.notes,
         "source": e.source,
         "created_at": e.created_at.isoformat() if e.created_at else None,
@@ -715,6 +753,7 @@ def create_weight_entry(body: WeightEntriesCreateIn, user: User = Depends(resolv
 
     if not (20 <= body.weight_kg <= 300):
         raise HTTPException(status_code=422, detail="weight_kg must be between 20 and 300")
+    _validate_body_fat_pct(body.body_fat_pct)
     if body.notes is not None and len(body.notes) > 500:
         raise HTTPException(status_code=422, detail="notes must not exceed 500 characters")
 
@@ -733,6 +772,7 @@ def create_weight_entry(body: WeightEntriesCreateIn, user: User = Depends(resolv
             entry_date=entry_date,
             entry_time=entry_time,
             weight_kg=body.weight_kg,
+            body_fat_pct=body.body_fat_pct,
             notes=body.notes,
             source="manual",
         )
@@ -758,7 +798,10 @@ def create_weight_entry(body: WeightEntriesCreateIn, user: User = Depends(resolv
                 },
             )
         session.refresh(entry)
-        return JSONResponse(status_code=201, content=_weight_entry_dict(entry))
+        payload = _weight_entry_dict(entry)
+
+    _recompute_weigh_in_autofill(uid, entry_date)
+    return JSONResponse(status_code=201, content=payload)
 
 
 @app.get("/api/weight-entries")
@@ -833,6 +876,7 @@ def list_weight_entries(
 class WeightEntryByDateIn(BaseModel):
     entry_date: str  # YYYY-MM-DD
     weight_kg: float
+    body_fat_pct: Optional[float] = None
     notes: Optional[str] = None
 
 
@@ -848,6 +892,7 @@ def upsert_weight_entry_by_date(body: WeightEntryByDateIn, user: User = Depends(
 
     if not (20 <= body.weight_kg <= 300):
         raise HTTPException(status_code=422, detail="weight_kg must be between 20 and 300")
+    _validate_body_fat_pct(body.body_fat_pct)
     if body.notes is not None and len(body.notes) > 500:
         raise HTTPException(status_code=422, detail="notes must not exceed 500 characters")
 
@@ -864,6 +909,10 @@ def upsert_weight_entry_by_date(body: WeightEntryByDateIn, user: User = Depends(
     }
     if body.notes is not None:
         conflict_updates["notes"] = body.notes
+    # Omitted on an upsert means "leave the existing reading alone" — a plain
+    # re-weigh must not silently wipe the week's bioimpedance number.
+    if body.body_fat_pct is not None:
+        conflict_updates["body_fat_pct"] = body.body_fat_pct
 
     with Session(engine) as session:
         stmt = (
@@ -873,6 +922,7 @@ def upsert_weight_entry_by_date(body: WeightEntryByDateIn, user: User = Depends(
                 entry_date=entry_date,
                 entry_time=None,
                 weight_kg=body.weight_kg,
+                body_fat_pct=body.body_fat_pct,
                 notes=body.notes,
                 source="manual",
             )
@@ -886,7 +936,10 @@ def upsert_weight_entry_by_date(body: WeightEntryByDateIn, user: User = Depends(
         row_id = session.execute(stmt).scalar_one()
         session.commit()
         entry = session.get(WeightEntry, row_id)
-        return JSONResponse(_weight_entry_dict(entry))
+        payload = _weight_entry_dict(entry)
+
+    _recompute_weigh_in_autofill(uid, entry_date)
+    return JSONResponse(payload)
 
 
 @app.patch("/api/weight-entries/{entry_id}")
@@ -908,6 +961,12 @@ def patch_weight_entry(entry_id: str, body: WeightEntriesPatchIn, user: User = D
             if not (20 <= body.weight_kg <= 300):
                 raise HTTPException(status_code=422, detail="weight_kg must be between 20 and 300")
             entry.weight_kg = body.weight_kg
+
+        if "body_fat_pct" in body.model_fields_set:
+            # Explicit null clears the reading; a bad number is a 422, never a
+            # DB-level IntegrityError.
+            _validate_body_fat_pct(body.body_fat_pct)
+            entry.body_fat_pct = body.body_fat_pct
 
         if "notes" in body.model_fields_set:
             if body.notes is not None and len(body.notes) > 500:
@@ -940,8 +999,13 @@ def delete_weight_entry(entry_id: str, user: User = Depends(resolve_user)):
         entry = session.get(WeightEntry, eid)
         if entry is None or entry.user_id != user.id:
             raise HTTPException(status_code=404, detail="Entry not found")
+        deleted_date = entry.entry_date
         session.delete(entry)
         session.commit()
+
+    # Deleting the day's only weigh-in must untick the habit too, or the grid
+    # keeps claiming a number that no longer exists.
+    _recompute_weigh_in_autofill(user.id, deleted_date)
     return JSONResponse({"deleted": True})
 
 
@@ -4078,8 +4142,13 @@ def get_habits(
 ):
     with Session(engine) as session:
         from backend.services.coach_habit_targets import ensure_coach_tracked_habits
+        from backend.services.goal_habits import ensure_goal_habits
 
         ensure_coach_tracked_habits(session, user.id)
+        # The lean program's three goal habits (weigh-in, protein-first,
+        # long-run fuel). Idempotent and adopt-not-duplicate, so opening this
+        # page is the whole bootstrap — the same shape as the line above.
+        ensure_goal_habits(session, user.id)
         session.commit()
         q = session.query(Habit).filter(Habit.user_id == user.id)
         if active is not None:
@@ -5674,6 +5743,10 @@ class WorkoutIn(BaseModel):
     # Environmental conditions for heat/humidity normalization (issue #1168)
     temperature_c: Optional[float] = None
     humidity_pct: Optional[float] = None
+    # Did this session take on fuel? Tri-state on purpose: null = unknown, and
+    # unknown must never read as "no". Only consulted for long runs, by the
+    # long-run-fuel habit.
+    fuelled: Optional[bool] = None
 
 
 class WorkoutPatch(BaseModel):
@@ -5702,6 +5775,8 @@ class WorkoutPatch(BaseModel):
     humidity_pct: Optional[float] = None
     # Self-reported effort feeling (issue #1241): 'hard' | 'ok' | 'easy' | null.
     feeling: Optional[str] = None
+    # Did this session take on fuel? null clears it back to unknown.
+    fuelled: Optional[bool] = None
     # Full exercise list to replace this workout's exercises (same shape as
     # WorkoutIn.exercises / the /exercises/replace endpoint). The Form editor
     # has always sent this on edit; before this field existed pydantic silently
@@ -6265,6 +6340,7 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "humidity_pct": w.humidity_pct,
         "flat_equivalent_pace": float(w.flat_equivalent_pace) if w.flat_equivalent_pace is not None else None,
         "feeling": w.feeling,
+        "fuelled": w.fuelled,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
         **_best_values_dict(w),
@@ -6498,6 +6574,7 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "zone2_minutes": w.zone2_minutes,
         "exercise_count": exercise_count,
         "feeling": w.feeling,
+        "fuelled": w.fuelled,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         **_best_values_dict(w),
     }
@@ -7180,6 +7257,7 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             avg_stride_m=body.avg_stride_m,
             temperature_c=body.temperature_c,
             humidity_pct=body.humidity_pct,
+            fuelled=body.fuelled,
         )
         session.add(workout)
         session.flush()
@@ -7343,6 +7421,10 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             workout.temperature_c = body.temperature_c
         if 'humidity_pct' in body.model_fields_set:
             workout.humidity_pct = body.humidity_pct
+        if 'fuelled' in body.model_fields_set:
+            # Explicit null returns it to unknown rather than to "no" — the
+            # long-run-fuel habit only ticks on a literal True.
+            workout.fuelled = body.fuelled
         if 'feeling' in body.model_fields_set:
             # None/empty clears it; otherwise must be one of the allowed values.
             fl = body.feeling
