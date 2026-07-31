@@ -150,6 +150,98 @@ def test_connect_stryd_5xx_returns_502(monkeypatch):
     assert "Stryd is unavailable" in res.json()["detail"]
 
 
+# ── 4b. Stryd unreachable (no HTTP response at all) → 502, not a bare 500 ────
+# Found during the S1 UX review: a real connection failure (DNS, refused,
+# timeout) raises urllib.error.URLError, not HTTPError — only HTTPError was
+# caught, so this fell through as an unhandled exception and surfaced to the
+# athlete as a bare "Internal Server Error" instead of the same friendly
+# message already used for Stryd 5xx responses.
+
+def test_call_stryd_signin_url_error_raises_502():
+    """_call_stryd_signin converts a connection failure (URLError) to 502."""
+    import urllib.error
+    from fastapi import HTTPException as _HTTPException
+    from backend.services.stryd import _call_stryd_signin
+
+    url_err = urllib.error.URLError("Temporary failure in name resolution")
+    with patch("urllib.request.urlopen", side_effect=url_err):
+        with pytest.raises(_HTTPException) as exc_info:
+            _call_stryd_signin("athlete@example.com", "any-password")
+
+    assert exc_info.value.status_code == 502
+    assert "Stryd is unavailable" in exc_info.value.detail
+
+
+def test_connect_stryd_unreachable_via_service_returns_502(monkeypatch):
+    _fernet_key(monkeypatch)
+    from fastapi import HTTPException as _HTTPException
+
+    with patch("backend.main._stryd_signin", side_effect=_HTTPException(
+        status_code=502,
+        detail="Stryd is unavailable, try again later.",
+    )):
+        res = client.post("/api/stryd/connect", json={
+            "email": "athlete@example.com",
+            "password": "any-password",
+        })
+
+    assert res.status_code == 502
+    assert "Stryd is unavailable" in res.json()["detail"]
+
+
+# ── 4c. Unknown email → Stryd itself returns 404, not 401/403 ────────────────
+# Found live during the S1 UX review by hitting the real Stryd signin API
+# with an unregistered email: it returns HTTP 404 with body "Account does not
+# exist. Please sign up first." — a very plausible real mistake (mistyped
+# email) that previously fell through the existing 401/403/5xx branches as an
+# unhandled exception, surfacing as a bare "Internal Server Error".
+
+def test_call_stryd_signin_404_raises_401_with_stryd_message():
+    """_call_stryd_signin converts a Stryd 404 (unknown account) to a
+    friendly 401, preferring Stryd's own response body when present."""
+    import io
+    import urllib.error
+    from fastapi import HTTPException as _HTTPException
+    from backend.services.stryd import _call_stryd_signin
+
+    body = b"Account does not exist. Please sign up first."
+    http_err = urllib.error.HTTPError(
+        "https://www.stryd.com/b/email/signin",
+        404,
+        "Not Found",
+        {},  # type: ignore[arg-type]
+        io.BytesIO(body),  # type: ignore[arg-type]
+    )
+    with patch("urllib.request.urlopen", side_effect=http_err):
+        with pytest.raises(_HTTPException) as exc_info:
+            _call_stryd_signin("nobody@example.com", "any-password")
+
+    assert exc_info.value.status_code == 401
+    assert "Account does not exist" in exc_info.value.detail
+
+
+def test_call_stryd_signin_404_falls_back_when_body_unreadable():
+    """If Stryd's 404 body can't be read for any reason, fall back to the
+    same generic message used for 401/403 rather than raising a raw 500."""
+    import urllib.error
+    from fastapi import HTTPException as _HTTPException
+    from backend.services.stryd import _call_stryd_signin
+
+    http_err = urllib.error.HTTPError(
+        "https://www.stryd.com/b/email/signin",
+        404,
+        "Not Found",
+        {},  # type: ignore[arg-type]
+        None,  # type: ignore[arg-type] — no readable fp
+    )
+    with patch("urllib.request.urlopen", side_effect=http_err):
+        with pytest.raises(_HTTPException) as exc_info:
+            _call_stryd_signin("nobody@example.com", "any-password")
+
+    assert exc_info.value.status_code == 401
+    assert "Stryd authentication failed" in exc_info.value.detail
+
+
 # ── 5. Invalid email → 422 ───────────────────────────────────────────────────
 
 def test_connect_invalid_email_returns_422():

@@ -865,6 +865,17 @@
       }
       if (data.status === "success") _ssbSuccess(data);
       else _ssbError(data);
+    } else {
+      // Anything else — "idle" (job aged out of the registry, e.g. a
+      // server restart mid-sync per docs/sync.md "Status lost on restart"),
+      // "cancelled", "pending", or any status this bar doesn't render a
+      // dedicated state for. SyncPoller stops polling as soon as status
+      // leaves "running" (see lib/sync-poller.js), so without this branch
+      // the bar was left frozen on its last "Syncing…" spinner forever —
+      // found live during the S1 UX review by stubbing exactly this
+      // transition. Hiding is the safe default: it matches what the athlete
+      // actually knows (no sync is running right now).
+      _ssbHide();
     }
   }
 

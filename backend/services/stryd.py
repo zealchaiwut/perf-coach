@@ -33,12 +33,37 @@ def _call_stryd_signin(email: str, password: str) -> dict:
                 status_code=401,
                 detail="Stryd authentication failed — check email and password.",
             )
+        if exc.code == 404:
+            # Stryd's own API uses 404 (not 401/403) for "no account with this
+            # email" — confirmed live during the S1 UX review: POSTing an
+            # unregistered email returns 404 with body "Account does not
+            # exist. Please sign up first." That message is more actionable
+            # than the generic 401 copy above, so surface it when present;
+            # this branch was previously unhandled and fell through to a bare
+            # 500 for what is a very plausible real mistake (mistyped email).
+            try:
+                body = exc.read().decode("utf-8", errors="replace").strip()
+            except Exception:
+                body = ""
+            raise HTTPException(
+                status_code=401,
+                detail=body or "Stryd authentication failed — check email and password.",
+            )
         if exc.code >= 500:
             raise HTTPException(
                 status_code=502,
                 detail="Stryd is unavailable, try again later.",
             )
         raise
+    except _urllib_error.URLError:
+        # No HTTP response at all (DNS failure, connection refused, timeout) —
+        # HTTPError (caught above) is a URLError subclass for responses that
+        # did arrive; this catches the case where the request never reached
+        # Stryd, which previously fell through as an unhandled 500.
+        raise HTTPException(
+            status_code=502,
+            detail="Stryd is unavailable, try again later.",
+        )
 
 
 def refresh_stryd_session_if_needed(user_id: str) -> str:
