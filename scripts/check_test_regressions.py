@@ -53,7 +53,25 @@ _ERROR_RE = re.compile(r"^ERROR (.+?)(?: - .*)?$")
 
 
 def _parse(output: str) -> tuple[set[str], set[str]]:
-    failures, errors = set(), set()
+    """Return (failures, collection_errors).
+
+    pytest prints two different things as ERROR and they are NOT equivalent:
+
+        ERROR tests/foo.py                 <- COLLECTION error: the module could
+                                              not be imported, so every test in
+                                              it silently left the suite. Never
+                                              baselineable; this is the failure
+                                              mode that hid #1605 for 41 days.
+
+        ERROR tests/foo.py::test_bar       <- a single test errored in setup or
+                                              teardown. One test, loud, no worse
+                                              than a failure — so it is tracked
+                                              alongside failures.
+
+    The presence of "::" is what separates them. Conflating the two made 16
+    ordinary fixture errors look like 16 modules vanishing.
+    """
+    failures, collection_errors = set(), set()
     for line in output.splitlines():
         m = _FAILED_RE.match(line)
         if m:
@@ -61,8 +79,9 @@ def _parse(output: str) -> tuple[set[str], set[str]]:
             continue
         m = _ERROR_RE.match(line)
         if m:
-            errors.add(m.group(1).strip())
-    return failures, errors
+            node = m.group(1).strip()
+            (failures if "::" in node else collection_errors).add(node)
+    return failures, collection_errors
 
 
 _HEADER = """\

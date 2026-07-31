@@ -179,3 +179,36 @@ def test_production_requirements_exclude_the_test_runner():
         if ln.strip() and not ln.startswith("#")
     ]
     assert "pytest" not in prod_pkgs
+
+
+def test_collection_error_and_test_level_error_are_distinguished(tmp_path):
+    """pytest prints both as ERROR, and they are not the same thing.
+
+        ERROR tests/foo.py            -> the module did not import; every test
+                                         in it silently left the suite
+        ERROR tests/foo.py::test_bar  -> one test errored in setup/teardown
+
+    Only the first is unbaselineable. Conflating them made 16 ordinary fixture
+    errors on CI look like 16 modules vanishing, and blocked a green build.
+    """
+    module_level = _run("ERROR tests/test_invented__gate.py\n", tmp_path)
+    assert module_level.returncode == 1
+    assert "collection error" in module_level.stdout
+
+    test_level = _run("ERROR tests/test_invented__gate.py::test_thing\n", tmp_path)
+    assert "collection error" not in test_level.stdout
+    assert "NEW test failure" in test_level.stdout
+
+
+def test_baseline_is_generated_from_ci_not_a_developer_laptop():
+    """The baseline records what the GATE sees, and the gate only runs on CI.
+
+    Generated locally it was wrong in both directions: a local .env supplies
+    DATABASE_URL_UAT and a local venv carries packages a clean runner lacks, so
+    the first baseline had 588 entries against CI's 613. A gate whose reference
+    comes from a different environment than its measurement is not a gate.
+    """
+    header = BASELINE.read_text()
+    assert "#" in header, "baseline lost its explanatory header"
+    entries = [ln for ln in header.splitlines() if ln.strip() and not ln.startswith("#")]
+    assert len(entries) > 500, "baseline looks truncated"
