@@ -413,10 +413,23 @@ query param. Resolution order:
 **Date defaults** — `?date=` params default to today in Asia/Bangkok
 (matching the existing worker scheduler timezone). Pass `YYYY-MM-DD`.
 
-**No auth on GET routes** — deliberate contrast with the secret-gated
-`/internal/*` routes (which require `X-Worker-Secret`). The tailnet/localhost
-binding is the access boundary. The write route (`POST /feel-entry`) uses
-its own bearer-token guard; see below.
+**All GET routes require `Authorization: Bearer $WORKER_API_TOKEN`** — the same
+token the write routes use. Requests without it get `401`; if the variable is
+unset on the worker the API answers `503` rather than serving anything.
+
+> **Changed 2026-07-31 (issue #1601).** These routes previously required no auth
+> at all, justified as "the tailnet/localhost binding is the access boundary".
+> That was not what shipped: this document reaches the service at
+> `http://zeal-server:9100`, a hostname on the tailnet rather than loopback, so
+> anyone able to route to the port could read any athlete's weight, training
+> load and plan by passing `?user=<username>`.
+>
+> **Hermes must now send the bearer header on GETs as well as POSTs.** It will
+> receive 401s until updated.
+>
+> Still open: the token is a *service* credential. It proves the caller is
+> Hermes, never which athlete — a token holder can still select any user via
+> `?user=`. Per-user tokens are tracked in #1601's remaining scope.
 
 ### `POST /feel-entry`
 
@@ -542,7 +555,7 @@ natural, self-clearing acknowledgement.
 
 | Var | Default | Purpose |
 |-----|---------|---------|
-| `WORKER_API_TOKEN` | _(unset)_ | Static bearer token for the write routes (`POST /feel-entry`, `POST /weight-entry`). Requests fail with 503 if unset. |
+| `WORKER_API_TOKEN` | _(unset)_ | Static bearer token for the ENTIRE Hermes API — all six `/api/*` GET routes plus `POST /feel-entry` and `POST /weight-entry`. Requests fail with 503 if unset (fails closed). |
 
 ### `GET /api/training/load`
 

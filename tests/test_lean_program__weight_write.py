@@ -81,7 +81,11 @@ def worker(db_engine, monkeypatch):
         id = uid
 
     monkeypatch.setattr(worker_app, "_resolve_read_user", lambda user=None: _Resolved())
-    return TestClient(worker_app.app), uid, db_engine, tracking_state
+    # The Hermes read API requires the bearer token since #1601; these tests
+    # cover nudge BEHAVIOUR, so the client presents a valid one.
+    client = TestClient(worker_app.app)
+    client.headers.update({"Authorization": f"Bearer {TOKEN}"})
+    return client, uid, db_engine, tracking_state
 
 
 # ── Writing a weigh-in ───────────────────────────────────────────────────────
@@ -180,7 +184,11 @@ def test_bad_date_format_is_rejected(worker):
 
 def test_write_requires_the_worker_token(worker):
     client, _, _, _ = worker
-    assert client.post("/weight-entry", json={"weight_kg": 87.6}).status_code == 401
+    # A separate client WITHOUT the header — the `worker` fixture's client now
+    # carries a valid token by default (#1601 guards the reads too), so asking
+    # it for a 401 would only prove the fixture works.
+    unauthenticated = TestClient(client.app, raise_server_exceptions=False)
+    assert unauthenticated.post("/weight-entry", json={"weight_kg": 87.6}).status_code == 401
     assert client.post(
         "/weight-entry", json={"weight_kg": 87.6}, headers={"Authorization": "Bearer wrong"}
     ).status_code == 401
@@ -345,8 +353,16 @@ def test_nudge_deliver_now_requires_the_morning_window(worker):
         assert body["deliver_now"] is False
 
 
-def test_nudge_needs_no_auth_token(worker):
-    """Same as the other /api/weight/* read routes — tailnet-scoped, not
-    token-scoped. Only the write is token-guarded."""
+def test_nudge_requires_an_auth_token(worker):
+    """REVERSED by #1601.
+
+    This used to assert the nudge was tailnet-scoped rather than token-scoped —
+    "only the write is token-guarded". That was the vulnerability: the tailnet
+    was never the boundary the docs claimed, since the worker is reached at a
+    tailnet hostname rather than loopback, so `?user=` alone read any account.
+
+    Every read route carries the same guard as the writes now.
+    """
     client, _, _, _ = worker
-    assert client.get("/api/weight/nudge").status_code == 200
+    unauthenticated = TestClient(client.app, raise_server_exceptions=False)
+    assert unauthenticated.get("/api/weight/nudge").status_code == 401

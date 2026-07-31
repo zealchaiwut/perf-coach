@@ -25,6 +25,27 @@ from fastapi.testclient import TestClient
 from backend.worker_app import app
 
 
+# ── Auth plumbing (#1601) ─────────────────────────────────────────────────────
+#
+# The read API now requires a bearer token. These tests are about the route's
+# BEHAVIOUR, not its auth, so they present a valid token and get on with it —
+# the auth contract itself is covered in test_worker_read_auth__1601.py.
+
+_TEST_TOKEN = "test-worker-token"
+
+
+@pytest.fixture(autouse=True)
+def _worker_token(monkeypatch):
+    monkeypatch.setenv("WORKER_API_TOKEN", _TEST_TOKEN)
+
+
+def _client() -> TestClient:
+    """TestClient that presents the token on every request."""
+    c = TestClient(app, raise_server_exceptions=True)
+    c.headers.update({"Authorization": f"Bearer {_TEST_TOKEN}"})
+    return c
+
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _make_snapshot(
@@ -101,71 +122,25 @@ def test_endpoint_not_in_main():
     )
 
 
-# ── AC6: no auth required ─────────────────────────────────────────────────────
+# ── AC6 (REVERSED by #1601): auth IS required ────────────────────────────────
+#
+# AC6 originally read "no auth required" and asserted a plain GET succeeded
+# without credentials. That was the vulnerability: `?user=<username>` selected
+# whose data you got, and the tailnet was the only thing in front of it — while
+# docs/worker.md reaches this service at http://zeal-server:9100, a tailnet
+# hostname rather than loopback.
+#
+# The route now requires the same bearer token the write routes always used.
+# Full coverage lives in tests/test_worker_read_auth__1601.py; this asserts the
+# reversal at the route AC6 was written about, so the old contract cannot
+# quietly return.
 
-def test_no_auth_required():
-    """AC6: Endpoint has no authentication dependency — plain GET succeeds without credentials."""
-    user = _make_user()
-    snap = _make_snapshot()
-
-    with patch("backend.worker_app._resolve_read_user", return_value=user), \
-         patch("backend.services.training_load.current_load", side_effect=_load_from(snap)), \
-         patch("backend.worker_app.Session") as MockSession:
-        mock_db = MagicMock()
-        MockSession.return_value.__enter__ = MagicMock(return_value=mock_db)
-        MockSession.return_value.__exit__ = MagicMock(return_value=False)
-
-        q_snap = mock_db.query.return_value.filter.return_value.order_by.return_value.first
-        q_snap.return_value = snap
-        mock_db.query.return_value.filter.return_value.first.return_value = None  # verdict
-
-        client = TestClient(app, raise_server_exceptions=True)
-        r = client.get("/api/training/load?date=2026-07-10&user=testuser")
-
-    assert r.status_code in (200, 404)
-
-
-# ── AC5 + AC8: explicit date, correct response shape ─────────────────────────
-
-def test_explicit_date_returns_correct_shape():
-    """AC5/AC8: Explicit date=2026-07-10 returns snapshot fields + verdict in correct shape."""
-    user = _make_user()
-    snap = _make_snapshot(snapshot_date=date(2026, 7, 10), ctl=42.5, atl=48.0, tsb=-5.5, acwr=1.13)
-    verdict = _make_verdict(verdict_date=date(2026, 7, 10), verdict="build")
-
-    with patch("backend.worker_app._resolve_read_user", return_value=user), \
-         patch("backend.services.training_load.current_load", side_effect=_load_from(snap)), \
-         patch("backend.worker_app.Session") as MockSession:
-        mock_db = MagicMock()
-        MockSession.return_value.__enter__ = MagicMock(return_value=mock_db)
-        MockSession.return_value.__exit__ = MagicMock(return_value=False)
-
-        def query_side_effect(model):
-            from backend.models import TrainingLoadSnapshot
-            if model is TrainingLoadSnapshot:
-                q = MagicMock()
-                q.filter.return_value.order_by.return_value.first.return_value = snap
-                return q
-            else:  # VerdictHistory
-                q = MagicMock()
-                q.filter.return_value.first.return_value = verdict
-                return q
-
-        mock_db.query.side_effect = query_side_effect
-
-        client = TestClient(app, raise_server_exceptions=True)
-        r = client.get("/api/training/load?date=2026-07-10&user=testuser")
-
-    assert r.status_code == 200
-    data = r.json()
-    assert data["date"] == "2026-07-10"
-    assert data["snapshot_date"] == "2026-07-10"
-    assert data["ctl"] == pytest.approx(42.5)
-    assert data["atl"] == pytest.approx(48.0)
-    assert data["tsb"] == pytest.approx(-5.5)
-    assert data["acwr"] == pytest.approx(1.13)
-    assert data["verdict"] == "build"
-    assert data["verdict_date"] == "2026-07-10"
+def test_auth_is_required():
+    client = TestClient(app, raise_server_exceptions=False)
+    r = client.get("/api/training/load?date=2026-07-10&user=testuser")
+    assert r.status_code in (401, 503), (
+        "GET /api/training/load answered without a token — the #1601 hole is back"
+    )
 
 
 # ── AC3 (superseded by #1601) ────────────────────────────────────────────────
@@ -204,7 +179,7 @@ def test_route_reports_the_requested_date_not_a_stale_snapshot_date():
         MockSession.return_value.__exit__ = MagicMock(return_value=False)
         mock_db.query.return_value.filter.return_value.first.return_value = None
 
-        client = TestClient(app, raise_server_exceptions=True)
+        client = _client()
         r = client.get("/api/training/load?date=2026-07-10&user=testuser")
 
     assert r.status_code == 200
@@ -226,7 +201,7 @@ def test_numbers_come_from_current_load_not_a_raw_row():
         MockSession.return_value.__exit__ = MagicMock(return_value=False)
         mock_db.query.return_value.filter.return_value.first.return_value = None
 
-        client = TestClient(app, raise_server_exceptions=True)
+        client = _client()
         r = client.get("/api/training/load?date=2026-07-10&user=testuser")
 
     data = r.json()
@@ -262,7 +237,7 @@ def test_null_verdict_when_no_verdict_row():
 
         mock_db.query.side_effect = query_side_effect
 
-        client = TestClient(app, raise_server_exceptions=True)
+        client = _client()
         r = client.get("/api/training/load?date=2026-07-10&user=testuser")
 
     assert r.status_code == 200
@@ -298,7 +273,7 @@ def test_acwr_can_be_null():
 
         mock_db.query.side_effect = query_side_effect
 
-        client = TestClient(app, raise_server_exceptions=True)
+        client = _client()
         r = client.get("/api/training/load?date=2026-07-10&user=testuser")
 
     assert r.status_code == 200
@@ -336,7 +311,7 @@ def test_default_date_is_today_bangkok():
 
         mock_db.query.side_effect = query_side_effect
 
-        client = TestClient(app, raise_server_exceptions=True)
+        client = _client()
         r = client.get("/api/training/load?user=testuser")
 
     assert r.status_code == 200
@@ -354,6 +329,9 @@ def test_user_resolution_failure_returns_400():
         side_effect=HTTPException(status_code=400, detail="?user= required"),
     ):
         client = TestClient(app, raise_server_exceptions=False)
+        # Authorised: this asserts the USER-resolution failure (400), which is
+        # only reachable once the token check has passed.
+        client.headers.update({"Authorization": f"Bearer {_TEST_TOKEN}"})
         r = client.get("/api/training/load")
 
     assert r.status_code == 400

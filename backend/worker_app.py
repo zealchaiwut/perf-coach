@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 import socket
 import threading
 import time
@@ -656,8 +657,37 @@ def weekly_coach_run(body: dict | None = None):
 # ── Read API (Hermes) ─────────────────────────────────────────────────────────
 #
 # Read-only endpoints on /api/* for local consumption by Hermes (the Mac Mini
-# voice assistant). No X-Worker-Secret required — the tailnet/localhost binding
-# is the access boundary. No writes happen here; every endpoint is GET-only.
+# voice assistant).
+#
+# These required NO authentication at all until issue #1601. `?user=<username>`
+# selected whose weight, training load and plan you got, and the tailnet was the
+# only thing standing in front of it — despite docs/worker.md reaching this
+# service as `http://zeal-server:9100`, a hostname on the tailnet rather than
+# loopback. Anyone who could route to port 9100 could read any account by
+# guessing a username.
+#
+# Every route below now requires the same bearer token the write routes already
+# used. Fails closed: an unset WORKER_API_TOKEN is a 503, not an open door.
+#
+# RESIDUAL, deliberately not fixed here: the token is a SERVICE credential. It
+# proves the caller is Hermes, never which athlete — so a token holder can still
+# read any user via `?user=`. Closing that needs per-user tokens and is tracked
+# in #1601's remaining scope. This change turns "anyone on the tailnet" into
+# "anyone holding the service token", which is the difference that matters today.
+
+
+def _require_worker_api_token(authorization: str | None = Header(default=None)) -> None:
+    """Bearer-token guard for the Hermes API. Fails closed."""
+    token = os.getenv("WORKER_API_TOKEN")
+    if not token:
+        raise HTTPException(status_code=503, detail="WORKER_API_TOKEN not configured")
+    if authorization is None or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    # compare_digest, not ==. String equality short-circuits on the first
+    # differing byte, which leaks the token a character at a time to anyone who
+    # can time the response.
+    if not secrets.compare_digest(authorization[7:], token):
+        raise HTTPException(status_code=401, detail="unauthorized")
 
 
 def _resolve_read_user(user_param: str | None):
@@ -715,7 +745,7 @@ def _session_to_dict(row) -> dict:
     }
 
 
-@app.get("/api/training/load")
+@app.get("/api/training/load", dependencies=[Depends(_require_worker_api_token)])
 def training_load(date: str | None = None, user: str | None = None):
     """Return CTL/ATL/TSB/ACWR + persisted verdict for a date for Hermes.
 
@@ -782,7 +812,7 @@ def training_load(date: str | None = None, user: str | None = None):
     }
 
 
-@app.get("/api/plan/today")
+@app.get("/api/plan/today", dependencies=[Depends(_require_worker_api_token)])
 def plan_today(date: str | None = None, user: str | None = None):
     """Return today's planned session(s) from planned_sessions for Hermes.
 
@@ -820,7 +850,7 @@ def plan_today(date: str | None = None, user: str | None = None):
     }
 
 
-@app.get("/api/plan/draft-notify")
+@app.get("/api/plan/draft-notify", dependencies=[Depends(_require_worker_api_token)])
 def plan_draft_notify(user: str | None = None, ack: bool = False):
     """Hermes morning-window draft nudge. PARKED — always reports pipeline off.
 
@@ -832,7 +862,7 @@ def plan_draft_notify(user: str | None = None, ack: bool = False):
     return {"ready": False, "deliver_now": False, "pipeline_off": True}
 
 
-@app.get("/api/weight/recent")
+@app.get("/api/weight/recent", dependencies=[Depends(_require_worker_api_token)])
 def weight_recent(n: int = 14, user: str | None = None):
     """Last N weigh-ins (default 14, clamped 1-90) from weight_entries, newest
     first, with the latest EWMA value (backend.services.weight_ewma — same
@@ -896,7 +926,7 @@ def weight_recent(n: int = 14, user: str | None = None):
     }
 
 
-@app.get("/api/weight/status")
+@app.get("/api/weight/status", dependencies=[Depends(_require_worker_api_token)])
 def weight_status(date: str | None = None, user: str | None = None):
     """Weight block for the Hermes coaching brief in one round trip: 7-day
     rolling-average current weight (never a single day's entry), 7d/28d
@@ -934,18 +964,6 @@ def weight_status(date: str | None = None, user: str | None = None):
 # exists (mirrors feel_link.auto_link_feel_entries).
 
 _FEEL_ENTRY_NOTES_CAP = 10_000
-
-
-def _require_worker_api_token(authorization: str | None = Header(default=None)) -> None:
-    token = os.getenv("WORKER_API_TOKEN")
-    if not token:
-        raise HTTPException(status_code=503, detail="WORKER_API_TOKEN not configured")
-    if (
-        authorization is None
-        or not authorization.startswith("Bearer ")
-        or authorization[7:] != token
-    ):
-        raise HTTPException(status_code=401, detail="unauthorized")
 
 
 @app.post("/feel-entry", status_code=201, dependencies=[Depends(_require_worker_api_token)])
@@ -1189,7 +1207,7 @@ def post_weight_entry(body: dict, user: str | None = None):
     return payload
 
 
-@app.get("/api/weight/nudge")
+@app.get("/api/weight/nudge", dependencies=[Depends(_require_worker_api_token)])
 def weight_nudge(user: str | None = None, ack: bool = False):
     """Morning weight nudge for Hermes to deliver over Discord.
 
