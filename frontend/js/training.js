@@ -627,6 +627,15 @@
     }
   }
 
+  // Tri-state select -> true | false | null. An empty value means the question
+  // was never answered, which is NOT the same as answering "no" — the
+  // long-run-fuel habit only ticks on an explicit true.
+  function triStateVal(id) {
+    var el = document.getElementById(id);
+    if (!el || el.value === '') return null;
+    return el.value === 'true';
+  }
+
   function intFieldVal(id) {
     var el = document.getElementById(id);
     if (!el) return null;
@@ -1425,6 +1434,7 @@
     _setEl('workout-remarks', '');
     _setEl('workout-tss', '');
     _setEl('workout-drills', '');
+    _setEl('workout-fuelled', '');
     _clearEl('exercises-tbody', 'innerHTML');
     _clearEl('exercises-error');
     _clearEl('name-error');
@@ -1447,6 +1457,7 @@
     _setEl('workout-remarks', workout.remarks || '');
     _setEl('workout-tss', workout.tss != null ? workout.tss : '');
     _setEl('workout-drills', workout.drills_minutes != null ? workout.drills_minutes : '');
+    _setEl('workout-fuelled', workout.fuelled == null ? '' : String(workout.fuelled));
     _clearEl('exercises-tbody', 'innerHTML');
     _clearEl('exercises-error');
     _clearEl('name-error');
@@ -1670,6 +1681,7 @@
       document.getElementById('workout-remarks').value = w.remarks || '';
       document.getElementById('workout-tss').value = w.tss != null ? w.tss : '';
       document.getElementById('workout-drills').value = w.drills_minutes != null ? w.drills_minutes : '';
+      document.getElementById('workout-fuelled').value = w.fuelled == null ? '' : String(w.fuelled);
       document.getElementById('exercises-tbody').innerHTML = '';
       document.getElementById('exercises-error').textContent = '';
       document.getElementById('name-error').textContent = '';
@@ -1820,6 +1832,7 @@
       // null = not recorded, distinct from 0 ("logged the session, no drills").
       // intFieldVal already returns null for an empty input.
       drills_minutes: intFieldVal('workout-drills'),
+      fuelled: triStateVal('workout-fuelled'),
     };
 
     // Simplified slide-over panel (issue #643) uses <select> — no run/exercise sections
