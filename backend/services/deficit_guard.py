@@ -17,7 +17,8 @@ Triggers (spec §4) — any one pauses
 ``ctl_falling``           chronic load is dropping while the deficit is on
 ``scores_declining``      endurance or speed down 2+ consecutive weeks
 ``recovery_degrading``    RHR rising or sleep shortening against baseline
-``lean_mass_falling``     lean-mass trend down 3+ weeks — the scale's real job
+``lean_mass_falling``     4-week lean-mass mean down past LEAN_MASS_FALL_DELTA_KG
+                          versus the previous 4-week block — the scale's real job
 ========================  =====================================================
 
 Each is computed from data the app already owns; none involves an LLM. The
@@ -105,6 +106,7 @@ def evaluate(
     sleep_recent_hours: Optional[float] = None,
     sleep_baseline_hours: Optional[float] = None,
     lean_mass_falling_weeks: int = 0,
+    lean_mass_falling: bool = False,
 ) -> dict:
     """Pure guard evaluation. Any trigger pauses; all firing reasons are reported.
 
@@ -142,9 +144,18 @@ def evaluate(
     if rhr_rising or sleep_short:
         reasons.append("recovery_degrading")
 
+    # Reads the SMOOTHED signal, not the consecutive-raw-fall count (#1598).
+    # The old rule required LEAN_MASS_FALL_WEEKS raw readings each dropping more
+    # than a 0.15 kg dead-band, which measurement showed could not fire for a
+    # decline at or below that rate and fired for only ~4% of genuine faster
+    # ones — any single flat week reset the run. lean_mass_falling compares
+    # 4-week block means instead; see body_composition.LEAN_MASS_FALL_DELTA_KG.
+    #
+    # lean_mass_falling_weeks stays in the signature: it is still reported, and
+    # callers that pass only it keep their previous (conservative) behaviour.
     from backend.services.body_composition import LEAN_MASS_FALL_WEEKS
 
-    if lean_mass_falling_weeks >= LEAN_MASS_FALL_WEEKS:
+    if lean_mass_falling or lean_mass_falling_weeks >= LEAN_MASS_FALL_WEEKS:
         reasons.append("lean_mass_falling")
 
     # Priority order for the single-line summary: the most physically urgent
@@ -310,4 +321,5 @@ def guard_for_user(db, user_id, today: Optional[_date] = None) -> dict:
         sleep_recent_hours=recovery.get("sleep_recent_hours"),
         sleep_baseline_hours=recovery.get("sleep_baseline_hours"),
         lean_mass_falling_weeks=composition.get("lean_mass_falling_weeks", 0),
+        lean_mass_falling=composition.get("lean_mass_falling", False),
     )
