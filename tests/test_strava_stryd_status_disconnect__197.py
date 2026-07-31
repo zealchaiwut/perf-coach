@@ -36,6 +36,7 @@ def _strava_token_row(
     expires_at=None,
     scope="activity:read_all",
     athlete_data=None,
+    athlete_id=12345,
 ):
     if expires_at is None:
         expires_at = _FRESH_EXPIRES
@@ -47,6 +48,11 @@ def _strava_token_row(
     row.expires_at = expires_at
     row.scope = scope
     row.athlete_data = athlete_data
+    # strava_status() reads token_row.athlete_id directly into the JSON
+    # response; an unset MagicMock attribute isn't JSON-serializable, which
+    # only started surfacing once these tests were authenticated far enough
+    # to reach that code (#1606 — see the as_user fixture above).
+    row.athlete_id = athlete_id
     return row
 
 
@@ -68,8 +74,9 @@ def _stryd_cred_row(
 
 # ── GET /api/strava/status ────────────────────────────────────────────────────
 
-def test_strava_status_not_connected_no_token_row():
+def test_strava_status_not_connected_no_token_row(as_user):
     """No strava_tokens row → connected: false with null fields."""
+    as_user(_USER_ID)
     mock_s = _mock_session_with_user()
     mock_s.query.return_value.filter.return_value.first.return_value = None
 
@@ -84,23 +91,16 @@ def test_strava_status_not_connected_no_token_row():
     assert body["expires_at"] is None
 
 
-def test_strava_status_connected_fresh_token():
+def test_strava_status_connected_fresh_token(as_user):
     """Valid, non-expired token → connected: true with correct fields."""
+    as_user(_USER_ID)
     token_row = _strava_token_row()
-    call_count = [0]
+    mock_s = MagicMock()
+    mock_s.__enter__ = MagicMock(return_value=mock_s)
+    mock_s.__exit__ = MagicMock(return_value=False)
+    mock_s.query.return_value.filter.return_value.first.return_value = token_row
 
-    def _session_factory(*args, **kwargs):
-        s = MagicMock()
-        s.__enter__ = MagicMock(return_value=s)
-        s.__exit__ = MagicMock(return_value=False)
-        call_count[0] += 1
-        if call_count[0] == 1:
-            s.query.return_value.order_by.return_value.first.return_value = _mock_user()
-        else:
-            s.query.return_value.filter.return_value.first.return_value = token_row
-        return s
-
-    with patch("backend.main.Session", side_effect=_session_factory), \
+    with patch("backend.main.Session", return_value=mock_s), \
          patch("backend.main.refresh_token_if_needed", return_value="access-abc"):
         res = client.get("/api/strava/status")
 
@@ -112,8 +112,9 @@ def test_strava_status_connected_fresh_token():
     assert body["expires_at"] is not None
 
 
-def test_strava_status_expired_token_refresh_succeeds():
+def test_strava_status_expired_token_refresh_succeeds(as_user):
     """Expired token that can be refreshed → connected: true, expires_at updated."""
+    as_user(_USER_ID)
     expired_row = _strava_token_row(expires_at=_EXPIRED)
     fresh_row = _strava_token_row(expires_at=_FRESH_EXPIRES)
     call_count = [0]
@@ -124,8 +125,6 @@ def test_strava_status_expired_token_refresh_succeeds():
         s.__exit__ = MagicMock(return_value=False)
         call_count[0] += 1
         if call_count[0] == 1:
-            s.query.return_value.order_by.return_value.first.return_value = _mock_user()
-        elif call_count[0] == 2:
             s.query.return_value.filter.return_value.first.return_value = expired_row
         else:
             s.query.return_value.filter.return_value.first.return_value = fresh_row
@@ -141,23 +140,16 @@ def test_strava_status_expired_token_refresh_succeeds():
     assert body["expires_at"] is not None
 
 
-def test_strava_status_refresh_fails_returns_not_connected():
+def test_strava_status_refresh_fails_returns_not_connected(as_user):
     """Token refresh failure → connected: false, HTTP 200, no 5xx."""
+    as_user(_USER_ID)
     token_row = _strava_token_row(expires_at=_EXPIRED)
-    call_count = [0]
+    mock_s = MagicMock()
+    mock_s.__enter__ = MagicMock(return_value=mock_s)
+    mock_s.__exit__ = MagicMock(return_value=False)
+    mock_s.query.return_value.filter.return_value.first.return_value = token_row
 
-    def _session_factory(*args, **kwargs):
-        s = MagicMock()
-        s.__enter__ = MagicMock(return_value=s)
-        s.__exit__ = MagicMock(return_value=False)
-        call_count[0] += 1
-        if call_count[0] == 1:
-            s.query.return_value.order_by.return_value.first.return_value = _mock_user()
-        else:
-            s.query.return_value.filter.return_value.first.return_value = token_row
-        return s
-
-    with patch("backend.main.Session", side_effect=_session_factory), \
+    with patch("backend.main.Session", return_value=mock_s), \
          patch("backend.main.refresh_token_if_needed", side_effect=Exception("token revoked")):
         res = client.get("/api/strava/status")
 
@@ -167,23 +159,16 @@ def test_strava_status_refresh_fails_returns_not_connected():
     assert body["athlete_name"] is None
 
 
-def test_strava_status_refresh_http_exception_returns_not_connected():
+def test_strava_status_refresh_http_exception_returns_not_connected(as_user):
     """HTTPException from refresh → connected: false, no crash."""
+    as_user(_USER_ID)
     token_row = _strava_token_row(expires_at=_EXPIRED)
-    call_count = [0]
+    mock_s = MagicMock()
+    mock_s.__enter__ = MagicMock(return_value=mock_s)
+    mock_s.__exit__ = MagicMock(return_value=False)
+    mock_s.query.return_value.filter.return_value.first.return_value = token_row
 
-    def _session_factory(*args, **kwargs):
-        s = MagicMock()
-        s.__enter__ = MagicMock(return_value=s)
-        s.__exit__ = MagicMock(return_value=False)
-        call_count[0] += 1
-        if call_count[0] == 1:
-            s.query.return_value.order_by.return_value.first.return_value = _mock_user()
-        else:
-            s.query.return_value.filter.return_value.first.return_value = token_row
-        return s
-
-    with patch("backend.main.Session", side_effect=_session_factory), \
+    with patch("backend.main.Session", return_value=mock_s), \
          patch("backend.main.refresh_token_if_needed", side_effect=HTTPException(status_code=502, detail="bad")):
         res = client.get("/api/strava/status")
 
@@ -193,23 +178,16 @@ def test_strava_status_refresh_http_exception_returns_not_connected():
 
 # ── DELETE /api/strava/disconnect ─────────────────────────────────────────────
 
-def test_strava_disconnect_with_row_deletes_and_returns_disconnected():
+def test_strava_disconnect_with_row_deletes_and_returns_disconnected(as_user):
     """Valid token row present → row deleted, returns {disconnected: true}."""
+    as_user(_USER_ID)
     token_row = _strava_token_row()
-    call_count = [0]
+    mock_s = MagicMock()
+    mock_s.__enter__ = MagicMock(return_value=mock_s)
+    mock_s.__exit__ = MagicMock(return_value=False)
+    mock_s.query.return_value.filter.return_value.first.return_value = token_row
 
-    def _session_factory(*args, **kwargs):
-        s = MagicMock()
-        s.__enter__ = MagicMock(return_value=s)
-        s.__exit__ = MagicMock(return_value=False)
-        call_count[0] += 1
-        if call_count[0] == 1:
-            s.query.return_value.order_by.return_value.first.return_value = _mock_user()
-        else:
-            s.query.return_value.filter.return_value.first.return_value = token_row
-        return s
-
-    with patch("backend.main.Session", side_effect=_session_factory), \
+    with patch("backend.main.Session", return_value=mock_s), \
          patch("urllib.request.urlopen"):
         res = client.delete("/api/strava/disconnect")
 
@@ -217,48 +195,34 @@ def test_strava_disconnect_with_row_deletes_and_returns_disconnected():
     assert res.json() == {"disconnected": True}
 
 
-def test_strava_disconnect_without_row_is_idempotent():
+def test_strava_disconnect_without_row_is_idempotent(as_user):
     """No token row → returns {disconnected: true} (idempotent)."""
-    call_count = [0]
+    as_user(_USER_ID)
+    mock_s = MagicMock()
+    mock_s.__enter__ = MagicMock(return_value=mock_s)
+    mock_s.__exit__ = MagicMock(return_value=False)
+    mock_s.query.return_value.filter.return_value.first.return_value = None
 
-    def _session_factory(*args, **kwargs):
-        s = MagicMock()
-        s.__enter__ = MagicMock(return_value=s)
-        s.__exit__ = MagicMock(return_value=False)
-        call_count[0] += 1
-        if call_count[0] == 1:
-            s.query.return_value.order_by.return_value.first.return_value = _mock_user()
-        else:
-            s.query.return_value.filter.return_value.first.return_value = None
-        return s
-
-    with patch("backend.main.Session", side_effect=_session_factory):
+    with patch("backend.main.Session", return_value=mock_s):
         res = client.delete("/api/strava/disconnect")
 
     assert res.status_code == 200
     assert res.json() == {"disconnected": True}
 
 
-def test_strava_disconnect_deauthorize_failure_silently_ignored():
+def test_strava_disconnect_deauthorize_failure_silently_ignored(as_user):
     """Strava deauthorize call fails → still returns {disconnected: true}."""
+    as_user(_USER_ID)
     import urllib.error
     token_row = _strava_token_row()
-    call_count = [0]
-
-    def _session_factory(*args, **kwargs):
-        s = MagicMock()
-        s.__enter__ = MagicMock(return_value=s)
-        s.__exit__ = MagicMock(return_value=False)
-        call_count[0] += 1
-        if call_count[0] == 1:
-            s.query.return_value.order_by.return_value.first.return_value = _mock_user()
-        else:
-            s.query.return_value.filter.return_value.first.return_value = token_row
-        return s
+    mock_s = MagicMock()
+    mock_s.__enter__ = MagicMock(return_value=mock_s)
+    mock_s.__exit__ = MagicMock(return_value=False)
+    mock_s.query.return_value.filter.return_value.first.return_value = token_row
 
     http_err = urllib.error.HTTPError("https://www.strava.com/oauth/deauthorize", 401, "Unauthorized", {}, None)  # type: ignore[arg-type]
 
-    with patch("backend.main.Session", side_effect=_session_factory), \
+    with patch("backend.main.Session", return_value=mock_s), \
          patch("urllib.request.urlopen", side_effect=http_err):
         res = client.delete("/api/strava/disconnect")
 
@@ -268,8 +232,9 @@ def test_strava_disconnect_deauthorize_failure_silently_ignored():
 
 # ── GET /api/stryd/status ─────────────────────────────────────────────────────
 
-def test_stryd_status_not_connected_no_cred_row():
+def test_stryd_status_not_connected_no_cred_row(as_user):
     """No stryd_credentials row → connected: false with null fields."""
+    as_user(_USER_ID)
     mock_s = _mock_session_with_user()
     mock_s.query.return_value.filter.return_value.first.return_value = None
 
@@ -284,23 +249,16 @@ def test_stryd_status_not_connected_no_cred_row():
     assert body["session_expires_at"] is None
 
 
-def test_stryd_status_connected_fresh_session():
+def test_stryd_status_connected_fresh_session(as_user):
     """Valid credentials with fresh session → connected: true with correct fields."""
+    as_user(_USER_ID)
     cred_row = _stryd_cred_row()
-    call_count = [0]
+    mock_s = MagicMock()
+    mock_s.__enter__ = MagicMock(return_value=mock_s)
+    mock_s.__exit__ = MagicMock(return_value=False)
+    mock_s.query.return_value.filter.return_value.first.return_value = cred_row
 
-    def _session_factory(*args, **kwargs):
-        s = MagicMock()
-        s.__enter__ = MagicMock(return_value=s)
-        s.__exit__ = MagicMock(return_value=False)
-        call_count[0] += 1
-        if call_count[0] == 1:
-            s.query.return_value.order_by.return_value.first.return_value = _mock_user()
-        else:
-            s.query.return_value.filter.return_value.first.return_value = cred_row
-        return s
-
-    with patch("backend.main.Session", side_effect=_session_factory), \
+    with patch("backend.main.Session", return_value=mock_s), \
          patch("backend.main.refresh_stryd_session_if_needed", return_value="tok-xyz"):
         res = client.get("/api/stryd/status")
 
@@ -312,8 +270,9 @@ def test_stryd_status_connected_fresh_session():
     assert body["session_expires_at"] is not None
 
 
-def test_stryd_status_expired_session_refresh_succeeds():
+def test_stryd_status_expired_session_refresh_succeeds(as_user):
     """Expired session that re-auths successfully → connected: true."""
+    as_user(_USER_ID)
     cred_row = _stryd_cred_row(session_expires_at=_EXPIRED)
     fresh_row = _stryd_cred_row(session_expires_at=_FRESH_EXPIRES)
     call_count = [0]
@@ -324,8 +283,6 @@ def test_stryd_status_expired_session_refresh_succeeds():
         s.__exit__ = MagicMock(return_value=False)
         call_count[0] += 1
         if call_count[0] == 1:
-            s.query.return_value.order_by.return_value.first.return_value = _mock_user()
-        elif call_count[0] == 2:
             s.query.return_value.filter.return_value.first.return_value = cred_row
         else:
             s.query.return_value.filter.return_value.first.return_value = fresh_row
@@ -339,29 +296,23 @@ def test_stryd_status_expired_session_refresh_succeeds():
     assert res.json()["connected"] is True
 
 
-def test_stryd_status_refresh_fails_deletes_credentials_returns_not_connected():
+def test_stryd_status_refresh_fails_deletes_credentials_returns_not_connected(as_user):
     """Re-auth failure → credentials row deleted, connected: false, HTTP 200."""
+    as_user(_USER_ID)
     cred_row = _stryd_cred_row(session_expires_at=_EXPIRED)
-    call_count = [0]
     delete_called = [False]
 
-    def _session_factory(*args, **kwargs):
-        s = MagicMock()
-        s.__enter__ = MagicMock(return_value=s)
-        s.__exit__ = MagicMock(return_value=False)
+    mock_s = MagicMock()
+    mock_s.__enter__ = MagicMock(return_value=mock_s)
+    mock_s.__exit__ = MagicMock(return_value=False)
+    mock_s.query.return_value.filter.return_value.first.return_value = cred_row
 
-        def _delete(obj):
-            delete_called[0] = True
+    def _delete(obj):
+        delete_called[0] = True
 
-        s.delete.side_effect = _delete
-        call_count[0] += 1
-        if call_count[0] == 1:
-            s.query.return_value.order_by.return_value.first.return_value = _mock_user()
-        else:
-            s.query.return_value.filter.return_value.first.return_value = cred_row
-        return s
+    mock_s.delete.side_effect = _delete
 
-    with patch("backend.main.Session", side_effect=_session_factory), \
+    with patch("backend.main.Session", return_value=mock_s), \
          patch("backend.main.refresh_stryd_session_if_needed", side_effect=Exception("re-auth failed")):
         res = client.get("/api/stryd/status")
 
@@ -374,45 +325,31 @@ def test_stryd_status_refresh_fails_deletes_credentials_returns_not_connected():
 
 # ── DELETE /api/stryd/disconnect ──────────────────────────────────────────────
 
-def test_stryd_disconnect_with_row_deletes_and_returns_disconnected():
+def test_stryd_disconnect_with_row_deletes_and_returns_disconnected(as_user):
     """Valid credentials row present → row deleted, returns {disconnected: true}."""
+    as_user(_USER_ID)
     cred_row = _stryd_cred_row()
-    call_count = [0]
+    mock_s = MagicMock()
+    mock_s.__enter__ = MagicMock(return_value=mock_s)
+    mock_s.__exit__ = MagicMock(return_value=False)
+    mock_s.query.return_value.filter.return_value.first.return_value = cred_row
 
-    def _session_factory(*args, **kwargs):
-        s = MagicMock()
-        s.__enter__ = MagicMock(return_value=s)
-        s.__exit__ = MagicMock(return_value=False)
-        call_count[0] += 1
-        if call_count[0] == 1:
-            s.query.return_value.order_by.return_value.first.return_value = _mock_user()
-        else:
-            s.query.return_value.filter.return_value.first.return_value = cred_row
-        return s
-
-    with patch("backend.main.Session", side_effect=_session_factory):
+    with patch("backend.main.Session", return_value=mock_s):
         res = client.delete("/api/stryd/disconnect")
 
     assert res.status_code == 200
     assert res.json() == {"disconnected": True}
 
 
-def test_stryd_disconnect_without_row_is_idempotent():
+def test_stryd_disconnect_without_row_is_idempotent(as_user):
     """No credentials row → returns {disconnected: true} (idempotent)."""
-    call_count = [0]
+    as_user(_USER_ID)
+    mock_s = MagicMock()
+    mock_s.__enter__ = MagicMock(return_value=mock_s)
+    mock_s.__exit__ = MagicMock(return_value=False)
+    mock_s.query.return_value.filter.return_value.first.return_value = None
 
-    def _session_factory(*args, **kwargs):
-        s = MagicMock()
-        s.__enter__ = MagicMock(return_value=s)
-        s.__exit__ = MagicMock(return_value=False)
-        call_count[0] += 1
-        if call_count[0] == 1:
-            s.query.return_value.order_by.return_value.first.return_value = _mock_user()
-        else:
-            s.query.return_value.filter.return_value.first.return_value = None
-        return s
-
-    with patch("backend.main.Session", side_effect=_session_factory):
+    with patch("backend.main.Session", return_value=mock_s):
         res = client.delete("/api/stryd/disconnect")
 
     assert res.status_code == 200
