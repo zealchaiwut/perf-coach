@@ -21,7 +21,7 @@ for both services (UAT + PRD). Override in the Render dashboard to enable.
 |---|---|---|
 | Habit insights / nudges | `habit_insights.py`, `habit_nudges.py` | Fast tier |
 | Readiness explanation | `readiness_explanation.py` | Fast tier |
-| Plan session suggest | `plan_suggestions.py` + `plan_orch_langgraph.py` | Deep tier; `PLAN_ORCH` |
+| Plan session suggest | `plan_suggestions.py` | Deep tier. Single-shot — the `PLAN_ORCH` switch and its LangGraph / Pydantic-AI alternatives were deleted once the comparison ended. |
 | **Daily Home Coach** | `coach_facts` + `coach_narrative` + `coach_claude_cli` + worker `daily_coach` job | **Worker only** (`PERFCOACH_ROLE=worker`). Webapp reads DB. `weekly_coach` is a dispatch alias. |
 
 ### Daily Home Coach (`COACH_LLM` / worker schedule)
