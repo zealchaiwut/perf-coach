@@ -6,9 +6,34 @@ AC1 — current_lean_mass_kg(): three fallback paths
         estimated: weight × 0.76 when neither
 AC2 — protein target computed from lean mass when measured; total weight otherwise
       fuel payload exposes lean_mass_kg + lean_mass_source
-AC3 — losing_lean_mass guard in weekly cut review payload
-      two bf readings ≥14d apart, lean mass fell >0.3 kg, weight also fell
 AC4 — docs/calculations/fuel.md mentions lean-mass derivation (checked separately)
+
+AC3 is gone — see below.
+
+## Where AC3 went
+
+AC3 covered ``cut_review.compute_losing_lean_mass_flag`` and the
+``losing_lean_mass`` key on the cut-review payload: two body-fat readings ≥14
+days apart, lean mass fell >0.3 kg, and weight also fell.
+
+That function was added by #1359 on 2026-07-13 and deleted the same day by
+#1355's rewrite of ``cut_review.py`` — a merge collision, not a decision
+(#1355's branch predated #1359 landing, and its wholesale rewrite of the file
+did not carry the addition forward). Nothing has imported ``losing_lean_mass``
+since; this module's own import of it is why the whole file stopped collecting,
+taking the nine still-valid AC1/AC2 tests with it.
+
+The capability returned on 2026-07-30 with the lean program (#1594) as
+``deficit_guard.lean_mass_falling``, driven by
+``body_composition.lean_mass_falling_weeks`` and covered by
+tests/test_lean_program__deficit_guards.py. Its semantics are different —
+3 consecutive falling weekly readings rather than 2 readings ≥14 days apart —
+and whether that is sensitive enough is under review in #1598.
+
+The AC3 tests were removed rather than repaired: they asserted a deleted
+function, and reviving it would leave two lean-mass guards with different
+thresholds answering the same question. Do not re-add it here; #1598 is where
+that guard's behaviour is being decided.
 """
 from __future__ import annotations
 
@@ -17,10 +42,6 @@ from datetime import date, timedelta
 import pytest
 
 from backend.services import fuel
-from backend.services.cut_review import (
-    compute_losing_lean_mass_flag,
-    compute_cut_recommendation,
-)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -150,123 +171,3 @@ def test_compute_targets_backward_compat_no_lean_mass_args():
     targets = fuel.compute_targets(settings, budget=1700)
 
     assert targets["protein_g"] == 140  # 70 × 2.0
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# AC3: losing_lean_mass guard
-# ─────────────────────────────────────────────────────────────────────────────
-
-def test_losing_lean_mass_flag_true_when_lean_fell_and_weight_fell():
-    """AC3: two bf readings ≥14d apart, lean fell >0.3 kg, weight also fell → True."""
-    today = date(2026, 7, 12)
-    older_reading = {"date": today - timedelta(days=21), "body_fat_pct": 20.0, "weight_kg": 80.0}
-    newer_reading = {"date": today - timedelta(days=0), "body_fat_pct": 22.0, "weight_kg": 78.0}
-
-    # older lean: 80 × 0.80 = 64 kg; newer lean: 78 × 0.78 = 60.84 kg → fell >0.3 kg ✓
-    # weight fell: 80 → 78 ✓
-    assert compute_losing_lean_mass_flag([older_reading, newer_reading]) is True
-
-
-def test_losing_lean_mass_flag_false_when_lean_fell_less_than_threshold():
-    """AC3: lean fell only ~0.12 kg (below 0.3 threshold) → False."""
-    today = date(2026, 7, 12)
-    # older lean: 80 * 0.80 = 64.0
-    # newer lean: 79.95 * (1 - 0.201) = 79.95 * 0.799 = 63.88 → fell 0.12 kg < 0.3
-    older_reading = {"date": today - timedelta(days=21), "body_fat_pct": 20.0, "weight_kg": 80.0}
-    newer_reading = {"date": today - timedelta(days=0), "body_fat_pct": 20.1, "weight_kg": 79.95}
-
-    assert compute_losing_lean_mass_flag([older_reading, newer_reading]) is False
-
-
-def test_losing_lean_mass_flag_false_when_weight_did_not_fall():
-    """AC3: lean mass fell >0.3 kg but total weight rose → guard doesn't fire."""
-    today = date(2026, 7, 12)
-    older_reading = {"date": today - timedelta(days=21), "body_fat_pct": 20.0, "weight_kg": 80.0}
-    newer_reading = {"date": today - timedelta(days=0), "body_fat_pct": 25.0, "weight_kg": 82.0}
-
-    # older lean: 64.0; newer lean: 82 × 0.75 = 61.5 → fell 2.5 kg
-    # weight ROSE: 80 → 82 → guard should NOT fire
-    assert compute_losing_lean_mass_flag([older_reading, newer_reading]) is False
-
-
-def test_losing_lean_mass_flag_false_when_less_than_2_readings():
-    """AC3: fewer than two readings → cannot compute, returns False."""
-    today = date(2026, 7, 12)
-    reading = {"date": today, "body_fat_pct": 20.0, "weight_kg": 80.0}
-
-    assert compute_losing_lean_mass_flag([]) is False
-    assert compute_losing_lean_mass_flag([reading]) is False
-
-
-def test_losing_lean_mass_flag_false_when_readings_less_than_14d_apart():
-    """AC3: two readings but only 10 days apart → not enough separation, returns False."""
-    today = date(2026, 7, 12)
-    older_reading = {"date": today - timedelta(days=10), "body_fat_pct": 20.0, "weight_kg": 80.0}
-    newer_reading = {"date": today - timedelta(days=0), "body_fat_pct": 25.0, "weight_kg": 77.0}
-
-    assert compute_losing_lean_mass_flag([older_reading, newer_reading]) is False
-
-
-def test_losing_lean_mass_flag_false_when_lean_mass_rose():
-    """AC3: lean mass rose (good outcome) → False."""
-    today = date(2026, 7, 12)
-    older_reading = {"date": today - timedelta(days=21), "body_fat_pct": 22.0, "weight_kg": 80.0}
-    newer_reading = {"date": today - timedelta(days=0), "body_fat_pct": 18.0, "weight_kg": 79.0}
-
-    # older lean: 80 × 0.78 = 62.4; newer lean: 79 × 0.82 = 64.78 → lean ROSE
-    assert compute_losing_lean_mass_flag([older_reading, newer_reading]) is False
-
-
-def test_losing_lean_mass_exactly_at_boundary():
-    """AC3: lean mass fell exactly 0.3 kg → boundary is EXCLUSIVE (>0.3), so False."""
-    today = date(2026, 7, 12)
-    # Design reading pair where lean_old - lean_new = exactly 0.3:
-    # older: 80.0 kg, 20% bf → lean = 64.0
-    # newer: ? kg, ? bf → lean = 63.7
-    # Use 79.6 kg @ 20% → lean = 63.68 (≈0.32 difference, use approx)
-    # For exactly 0.3: need lean_new = 63.7
-    # Use 79.625 kg @ 20% bf → 79.625 * 0.80 = 63.7 ✓
-    older_reading = {"date": today - timedelta(days=21), "body_fat_pct": 20.0, "weight_kg": 80.0}
-    newer_reading = {"date": today - timedelta(days=0), "body_fat_pct": 20.0, "weight_kg": 79.625}
-
-    # lean fell: 64.0 - 63.7 = 0.3 exactly → NOT > 0.3 → False
-    assert compute_losing_lean_mass_flag([older_reading, newer_reading]) is False
-
-
-def test_compute_cut_recommendation_includes_losing_lean_mass_flag():
-    """AC3: losing_lean_mass is present in the recommendation output dict."""
-    result = compute_cut_recommendation(
-        weigh_in_count_14d=8,
-        has_active_plan=True,
-        actual_rate_kg_per_week=-0.5,
-        plan_rate_kg_per_week=-0.5,
-        weekly_pct_bw_rate=-0.625,
-        ea_proxy=0.8,
-        logging_adherence_pct=80.0,
-        avg_intake_vs_budget_kcal=-50.0,
-        consecutive_weeks_behind=0,
-        pct_logged_days_at_or_under_budget=80.0,
-        current_deficit_kcal=350,
-        losing_lean_mass=False,
-    )
-    assert "losing_lean_mass" in result
-    assert result["losing_lean_mass"] is False
-
-
-def test_compute_cut_recommendation_propagates_losing_lean_mass_true():
-    """AC3: losing_lean_mass=True is propagated to the output payload."""
-    result = compute_cut_recommendation(
-        weigh_in_count_14d=8,
-        has_active_plan=True,
-        actual_rate_kg_per_week=-0.5,
-        plan_rate_kg_per_week=-0.5,
-        weekly_pct_bw_rate=-0.625,
-        ea_proxy=0.8,
-        logging_adherence_pct=80.0,
-        avg_intake_vs_budget_kcal=-50.0,
-        consecutive_weeks_behind=0,
-        pct_logged_days_at_or_under_budget=80.0,
-        current_deficit_kcal=350,
-        losing_lean_mass=True,
-    )
-    assert result["losing_lean_mass"] is True
