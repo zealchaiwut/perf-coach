@@ -235,8 +235,9 @@ def test_unknown_user_returns_404(as_user):
     ("backend.main._build_recent_workouts_block", "recent_workouts"),
     ("backend.main._build_sleep_block", "sleep"),
 ])
-def test_per_block_degradation(block_fn, block_key):
+def test_per_block_degradation(block_fn, block_key, as_user):
     """Each block independently returns null on exception without affecting siblings."""
+    as_user(_UID)
     overrides = {block_fn: Exception("simulated DB failure")}
     exc_patches = {k: patch(k, side_effect=v) if isinstance(v, Exception)
                    else patch(k, return_value=v)
