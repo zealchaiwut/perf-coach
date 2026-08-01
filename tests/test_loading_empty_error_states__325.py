@@ -2,7 +2,7 @@
 
 Acceptance criteria verified:
 (AC-1) ui-states.js exists and exports UIStates with required helpers
-(AC-2) All six daily pages load ui-states.js before their page script
+(AC-2) All daily pages load ui-states.js before their page script
 (AC-3) Each page's JS uses UIStates.showToast for success saves
 (AC-4) Each page's JS uses UIStates loading helpers (setLoading / loadingHTML) for widgets
 (AC-5) Error states use UIStates.setError / errorHTML instead of raw inline strings
@@ -20,14 +20,12 @@ WEIGHT_JS = (JS / "weight.js").read_text()
 HABITS_JS = (JS / "habits.js").read_text()
 TRAIN_JS  = (JS / "training.js").read_text()
 LOG_JS    = (JS / "training-log.js").read_text()
-CAL_JS    = (JS / "calendar.js").read_text()
 
 HOME_HTML   = (PGS / "home.html").read_text()
 WEIGHT_HTML = (PGS / "weight.html").read_text()
 HABITS_HTML = (PGS / "habits.html").read_text()
 TRAIN_HTML  = (PGS / "training.html").read_text()
 LOG_HTML    = (PGS / "training-log.html").read_text()
-CAL_HTML    = (PGS / "calendar.html").read_text()
 
 
 # ── AC-1: ui-states.js exports required helpers ──────────────────────────────
@@ -102,11 +100,6 @@ def test_training_log_loads_ui_states_before_training_log_js():
         "training-log.html must load ui-states.js before training-log.js"
 
 
-def test_calendar_loads_ui_states_before_calendar_js():
-    assert _script_order_ok(CAL_HTML, "calendar.js"), \
-        "calendar.html must load ui-states.js before calendar.js"
-
-
 # ── AC-3: Success saves show UIStates.showToast ───────────────────────────────
 
 def test_weight_js_shows_toast_on_save():
@@ -127,11 +120,6 @@ def test_training_js_shows_toast_on_save():
 def test_training_log_js_shows_toast_on_delete():
     assert "UIStates.showToast" in LOG_JS, \
         "training-log.js must call UIStates.showToast on workout delete"
-
-
-def test_calendar_js_shows_toast_on_save():
-    assert "UIStates.showToast" in CAL_JS, \
-        "calendar.js must call UIStates.showToast on save"
 
 
 def test_home_js_shows_toast_on_save():
@@ -183,7 +171,7 @@ def test_training_js_uses_ui_error():
 def test_main_py_not_referenced():
     """Canary: none of the changed JS files import or reference backend routes
     in a way that would suggest backend logic was added."""
-    changed = [HOME_JS, WEIGHT_JS, HABITS_JS, TRAIN_JS, LOG_JS, CAL_JS]
+    changed = [HOME_JS, WEIGHT_JS, HABITS_JS, TRAIN_JS, LOG_JS]
     backend_patterns = ["from backend", "import main", "alembic"]
     for content in changed:
         for pat in backend_patterns:

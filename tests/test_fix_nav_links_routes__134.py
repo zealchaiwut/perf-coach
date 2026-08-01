@@ -20,7 +20,6 @@ NAV_PAGES = [
     "home.html",
     "weight.html",
     "habits.html",
-    "calendar.html",
     "training-log.html",
     "trends.html",
 ]

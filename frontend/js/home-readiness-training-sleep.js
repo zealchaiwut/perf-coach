@@ -10,6 +10,25 @@
     return window.AppCommon.escapeHtml(s);
   }
 
+  /* "Log metrics" CTAs used to link to the standalone /calendar page (its
+     day-detail modal was the only way to log daily_metrics for a given
+     date). Calendar is gone (nav-cleanup) — same reveal as the Today ·
+     Coach strip's own "Log metrics" CTA (home-coach-strip.js), so there is
+     one fast-log entry point, not two divergent ones. */
+  function _wireLogMetricsCtas(el) {
+    if (!el) return;
+    var btns = el.querySelectorAll('[data-rd-log-metrics]');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].addEventListener('click', function () {
+        var row = document.getElementById('row-log');
+        if (row) row.hidden = false;
+        var btn = document.getElementById('lts-cta-btn') || document.querySelector('.lts-cta-btn');
+        if (btn) btn.click();
+        else if (row) row.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
+  }
+
   /* ── Compact Readiness Tile ─────────────────────────────────────────────── */
 
   var _RD_TILE_FACTOR_META = {
@@ -99,7 +118,7 @@
     var header =
       '<div class="card-head">' +
         '<h2 class="ttl"><i class="ti ti-heart-rate-monitor"></i>Readiness · today</h2>' +
-        '<a href="/calendar">Log metrics &#8594;</a>' +
+        '<button type="button" class="rd-tile-log-link" data-rd-log-metrics>Log metrics &#8594;</button>' +
       '</div>';
 
     var body;
@@ -117,9 +136,9 @@
         '<div class="rd-tile-empty">' +
           '<i class="ti ti-moon-stars rd-tile-icon"></i>' +
           '<p class="rd-tile-msg">No metrics logged yet today. Log to see your readiness score.</p>' +
-          '<a href="/calendar" class="rd-tile-cta-btn">' +
+          '<button type="button" class="rd-tile-cta-btn" data-rd-log-metrics>' +
             '<i class="ti ti-pencil-plus"></i> Log today\'s metrics' +
-          '</a>' +
+          '</button>' +
         '</div>';
 
     /* logged === true → score ring + top 3 factors */
@@ -164,6 +183,7 @@
     // Load tiles (CTL/ATL/TSB/ACWR) below the daily-signal block — independent
     // of whether today's wellness metrics were logged.
     el.innerHTML = header + body + _rdLoadTilesHtml(trainingLoad);
+    _wireLogMetricsCtas(el);
     if (trainingLoad && window.LoadReadinessTiles) {
       LoadReadinessTiles.loadAcwrTile(el);
     }
@@ -303,8 +323,9 @@
       el.innerHTML = header +
         '<div class="slp-empty">' +
           'No sleep logged for last night &middot; ' +
-          '<a href="/calendar">Add it with today\'s metrics &#8594;</a>' +
+          '<button type="button" class="slp-log-link" data-rd-log-metrics>Add it with today\'s metrics &#8594;</button>' +
         '</div>';
+      _wireLogMetricsCtas(el);
       return;
     }
 

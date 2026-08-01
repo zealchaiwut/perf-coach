@@ -290,6 +290,13 @@
       text-align: center;
       padding: 20px 0;
     }
+    /* .slp-log-link is a <button> standing in for the old /calendar link
+       (nav-cleanup removed that page) — reset button chrome, keep the
+       underlined-link look against the card's dark background. */
+    .sleep-card .slp-empty button.slp-log-link {
+      background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
+      color: #fff; text-decoration: underline;
+    }
 
     /* ---- CARD HEADER (shared) ---- */
     .card-head {
@@ -309,6 +316,13 @@
     .card-head .ttl i { font-size: 17px; color: var(--text-tertiary); }
     .card-head a { font-size: 12px; color: var(--link); text-decoration: none; white-space: nowrap; }
     .card-head .meta { font-size: 12px; color: var(--text-tertiary); }
+    /* .rd-tile-log-link is a <button> standing in for the old /calendar link
+       (nav-cleanup removed that page) — reset button chrome so it reads the
+       same as the other .card-head a trailing links. */
+    .card-head button.rd-tile-log-link {
+      background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
+      font-size: 12px; color: var(--link); text-decoration: none; white-space: nowrap;
+    }
 
     /* ---- PERSONAL RECORDS CARD (home v3, Task 6 — 10K/Half/Marathon tiles
        from /api/athletes/{id}/run-personal-records, see loadPerformanceCard) ---- */
