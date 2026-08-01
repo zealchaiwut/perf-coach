@@ -14,6 +14,12 @@ PREF_FIELDS: dict[str, dict[str, Any]] = {
         "type": "enum:less|same|more",
         "reads": ["content"],
         "default": "same",
+        # Training-stress-relevant in both directions (more strength work adds
+        # load; less strength work removes a structural stimulus) — use the
+        # same 3-week persistence bar as the other load_adding fields rather
+        # than the 2-week default, whichever direction it moves.
+        "persist_weeks": 3,
+        "load_adding": True,
     },
     "plyo_mode": {
         "type": "enum:standalone|superset|off",
@@ -301,6 +307,40 @@ def apply_step(payload: dict, field: str, step: int) -> dict | None:
         return None
     out = deepcopy(payload)
     set_field(out, field, nxt)
+    return out
+
+
+def enum_options(field: str) -> tuple[str, ...] | None:
+    """Ordered enum values for *field* (catalog order = step order), or None
+    if the field isn't enum-typed."""
+    return _ENUM_MAP.get(field)
+
+
+def apply_enum_step(payload: dict, field: str, direction: int) -> dict | None:
+    """Return a new payload with an enum field moved one position in
+    _ENUM_MAP[field], or None if already at the extreme in that direction,
+    the value isn't a recognised option, or the field isn't enum-typed.
+
+    Mirrors apply_step()'s clamp-at-bound → None behavior, but for enum
+    fields (e.g. strength_emphasis: less/same/more) instead of int fields.
+    """
+    meta = PREF_FIELDS.get(field)
+    if not meta or not str(meta.get("type") or "").startswith("enum:"):
+        return None
+    options = _ENUM_MAP.get(field)
+    if not options:
+        return None
+    cur = get_field(payload, field)
+    cur_s = str(cur) if cur is not None else str(meta.get("default") or options[0])
+    if cur_s not in options:
+        return None
+    idx = options.index(cur_s)
+    step_dir = 1 if direction > 0 else -1
+    nxt = idx + step_dir
+    if nxt < 0 or nxt >= len(options):
+        return None
+    out = deepcopy(payload)
+    set_field(out, field, options[nxt])
     return out
 
 

@@ -6053,6 +6053,22 @@ information about.
     });
   }
 
+  // "Adjust..." asks for a custom value via window.prompt() and both the
+  // frontend parse (Number(raw)) and the backend accept_proposal() adjust
+  // path (int(adjusted_to)) are int-only today. plyo_sessions_per_week /
+  // long_run.mp_segment_min are ints, so this always worked before — but
+  // strength_emphasis (issue #1604 follow-up: muscle_overused/untrained/
+  // strength_lapsed proposals) is an enum ("less"/"same"/"more"), and typing
+  // that into the numeric prompt fails with a confusing "Enter a number".
+  // Hiding Adjust for enum-valued proposals is the honest scoped fix — Accept
+  // and Not now both work correctly for enums already (accept applies the
+  // pre-computed delta.to with no client parsing). A real enum adjust UI
+  // (a 3-way choice instead of free text) is a separate follow-up.
+  function _isNumericDelta(p) {
+    var to = p && p.delta && p.delta.to;
+    return typeof to === 'number' || (typeof to === 'string' && /^-?\d+(\.\d+)?$/.test(to));
+  }
+
   function _proposalsHtml() {
     if (!_prefProposals.length) return '';
     var rows = _prefProposals.map(function (p) {
@@ -6069,7 +6085,9 @@ information about.
           '</div>' +
           '<div class="pl-prop-actions">' +
             '<button type="button" class="pl-btn pl-lime pl-prop-accept">Accept</button>' +
-            '<button type="button" class="pl-btn pl-ghost pl-prop-adjust">Adjust…</button>' +
+            (_isNumericDelta(p)
+              ? '<button type="button" class="pl-btn pl-ghost pl-prop-adjust">Adjust…</button>'
+              : '') +
             '<button type="button" class="pl-btn pl-ghost pl-prop-decline">Not now</button>' +
           '</div>' +
         '</div>'
