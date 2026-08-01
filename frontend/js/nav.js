@@ -202,8 +202,13 @@
     'body[data-env="prd"] .global-nav .gn-env{display:none;}',
     ".global-nav .gn-link-disabled{opacity:0.42;color:#9aa3b2;pointer-events:none;cursor:not-allowed;}",
     ".global-nav .gn-link-disabled i{opacity:0.7;}",
-    // Copy for Claude: one payload, one clipboard write. Same visual weight as
-    // the nav links so it reads as an action, not a destination.
+    // Copy for Claude / Copy for consult: one payload, two clipboard writes,
+    // grouped under a single entry point with a dropdown (product decision —
+    // they're two distinct actions on the same data, not one action, so they
+    // stay as two menu choices rather than merging the logic). Same visual
+    // weight as the nav links so the trigger reads as an action, not a
+    // destination.
+    ".global-nav .gn-copy-menu{position:relative;flex-shrink:0;}",
     ".global-nav .gn-copy{position:relative;display:inline-flex;align-items:center;gap:6px;padding:7px 13px;",
     "border:1px solid rgba(13,30,67,0.14);border-radius:999px;background:#fff;",
     "font:inherit;font-size:14px;font-weight:600;color:#0b1530;cursor:pointer;",
@@ -211,14 +216,11 @@
     ".global-nav .gn-copy:hover{background:rgba(13,30,67,0.05);border-color:rgba(13,30,67,0.28);}",
     ".global-nav .gn-copy[disabled]{opacity:0.6;cursor:progress;}",
     ".global-nav .gn-copy i{font-size:16px;line-height:1;}",
-    // Pre-copy explanation: reuses the shared .info-tip-bubble component
-    // (styles.css, issue #1638's metric tooltips) instead of a native `title`
-    // attribute — title has an inconsistent OS-native look and a long hover
-    // delay, easy to miss on a button that otherwise looks like a plain
-    // action. The whole button is the hover/focus trigger (not a separate
-    // "i" icon) so it costs no extra width in an already space-tight bar.
-    ".global-nav .gn-copy:hover .info-tip-bubble,.global-nav .gn-copy:focus-visible .info-tip-bubble,",
-    ".global-nav .gn-copy:focus .info-tip-bubble{opacity:1;visibility:visible;}",
+    // The trigger's caret flips to signal open/closed state, same idea as the
+    // profile menu's aria-expanded but with a visible affordance since this
+    // one isn't an avatar users already know is a menu.
+    ".global-nav .gn-copy-caret{font-size:12px;line-height:1;transition:transform 0.14s ease;}",
+    '.global-nav .gn-copy-trigger[aria-expanded="true"] .gn-copy-caret{transform:rotate(180deg);}',
     // The export takes several seconds to assemble (90 days across many
     // blocks) — without motion, the "Building…" state reads as frozen rather
     // than working for the whole wait. Same rotate-in-place pattern as the
@@ -226,8 +228,35 @@
     ".global-nav .gn-copy .ti-loader-2{display:inline-block;animation:gn-copy-spin 0.8s linear infinite;}",
     "@keyframes gn-copy-spin{to{transform:rotate(360deg)}}",
     ".global-nav .gn-copy.is-error{border-color:#e08c8c;color:#c92a2a;}",
-    // Icon-only sibling — square padding, no label to hide at any width.
-    ".global-nav .gn-copy-icon{padding:7px 9px;}",
+    // Dropdown panel: right-aligned to the trigger (not centered), same
+    // pattern as .gn-profile-menu — the trigger sits near the env badge/
+    // avatar at the nav's right edge, and a centered panel clipped off-screen
+    // there the same way the old per-button info-tip bubbles did (fixed in
+    // e4fb2e2c). Right-aligning is the fix that already works for the
+    // profile menu, so it's reused here instead of a new bubble-positioning
+    // scheme.
+    ".global-nav .gn-copy-dropdown{display:none;position:absolute;top:calc(100% + 8px);right:0;left:auto;",
+    "min-width:250px;max-width:min(88vw,320px);background:#fff;border:1px solid rgba(13,30,67,0.1);",
+    "border-radius:12px;box-shadow:0 12px 36px rgba(8,18,48,0.16);padding:6px;z-index:200;}",
+    ".global-nav .gn-copy-dropdown.is-open{display:block;}",
+    // Each item carries its own explanation as always-in-DOM body text
+    // instead of a hover/focus info-tip bubble — inside an already-floating,
+    // already-positioned dropdown, a second nested absolutely-positioned
+    // bubble is exactly the kind of thing that reintroduces off-screen
+    // clipping (the bug e4fb2e2c fixed), and a menu is read top-to-bottom
+    // anyway so hover-to-reveal buys nothing here. The explanation is simply
+    // part of the item.
+    ".global-nav .gn-copy-item{display:flex;flex-direction:column;align-items:stretch;gap:2px;width:100%;",
+    "box-sizing:border-box;padding:9px 12px;border:none;background:none;border-radius:8px;",
+    "font:inherit;text-align:left;cursor:pointer;color:#0b1530;transition:background 0.12s ease;}",
+    ".global-nav .gn-copy-item:hover,.global-nav .gn-copy-item:focus-visible{background:rgba(13,30,67,0.05);outline:none;}",
+    ".global-nav .gn-copy-item[disabled]{opacity:0.6;cursor:progress;}",
+    ".global-nav .gn-copy-item.is-error{color:#c92a2a;}",
+    ".global-nav .gn-copy-item-title{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;}",
+    ".global-nav .gn-copy-item-title i{font-size:16px;line-height:1;flex-shrink:0;}",
+    ".global-nav .gn-copy-item-title .ti-loader-2{animation:gn-copy-spin 0.8s linear infinite;}",
+    ".global-nav .gn-copy-item-desc{font-size:12px;font-weight:400;color:#5c6886;line-height:1.4;",
+    "padding-left:24px;}",
     "#gn-copy-toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(8px);",
     "max-width:min(92vw,460px);padding:10px 16px;border-radius:999px;background:#0b1530;color:#fff;",
     "font-size:13px;font-weight:500;line-height:1.4;box-shadow:0 12px 32px rgba(8,18,48,0.28);",
@@ -253,12 +282,14 @@
     ".global-nav .gn-link-disabled{display:none;}",
     ".global-nav .gn-right{display:flex;}",
     ".global-nav .gn-env{display:none;}",
-    // Mobile: keep the button, drop its label — the icon carries it. The
-    // info-tip bubble is also a <span> but must survive this rule (it stays
-    // hidden/shown on its own opacity/visibility toggle above, tap-to-focus
-    // reveals it on mobile) — excluded explicitly, not just left unstyled.
+    // Mobile: keep the trigger, drop its label — the icon (+ caret) carries
+    // it. Unlike the old per-button info-tip bubble, the dropdown items'
+    // explanations live in .gn-copy-item-desc, a different class outside
+    // .gn-copy entirely, so this rule doesn't need an exclusion to keep them
+    // reachable — they were never a `.gn-copy span` to begin with.
     ".global-nav .gn-copy{padding:7px 9px;}",
-    ".global-nav .gn-copy span:not(.info-tip-bubble){display:none;}",
+    ".global-nav .gn-copy-trigger span{display:none;}",
+    ".global-nav .gn-copy-dropdown{max-width:88vw;}",
     ".global-nav .gn-menu-btn{display:flex;}",
     ".global-nav .gn-links{display:none;position:fixed;left:12px;right:12px;top:56px;",
       "flex-direction:column;gap:4px;background:#fff;border:1px solid rgba(13,30,67,0.1);",
@@ -365,45 +396,45 @@
       linksHtml +
       "</div>" +
       '<div class="gn-right">' +
-      // aria-label duplicates the visible <span> deliberately: the mobile media
-      // query (".gn-copy span:not(.info-tip-bubble){display:none}") hides that
-      // span on narrow viewports for BOTH copy buttons, and a display:none span
-      // drops out of the accessible-name computation — without this, a
-      // screen-reader user on mobile would hit an unlabeled button here.
-      // info-tip--below: the global nav is `position:sticky;top:0`, so it's
-      // always pinned to the very top of the viewport — the component's
-      // default upward-opening bubble (bottom:calc(100% + 7px)) would open
-      // above y=0 and render entirely off-screen. Verified in the browser:
-      // without this the bubble measured top:-93px, invisible despite
-      // opacity:1/visibility:visible. NOTE: .info-tip--below/--right are
-      // descendant selectors (".info-tip--below .info-tip-bubble" in
-      // styles.css) — they belong on this ANCESTOR button, not on the
-      // bubble span itself (that was tried first and silently no-opped).
-      '<button type="button" class="gn-copy info-tip--below" id="gn-copy-claude"' +
-      ' aria-label="Copy for Claude"' +
-      ' aria-describedby="gn-copy-claude-tip">' +
+      // One entry point, two choices (product decision — the daily paste and
+      // the consult blob are distinct actions on the same data, so they stay
+      // separate menu items rather than merging the copy logic itself; see
+      // _copyForClaude below). aria-label on the trigger duplicates its
+      // visible <span> deliberately: the mobile media query
+      // (".gn-copy-trigger span{display:none}") hides that span on narrow
+      // viewports, and a display:none span drops out of the accessible-name
+      // computation — without this, a screen-reader user on mobile would hit
+      // an unlabeled button here.
+      '<div class="gn-copy-menu" id="gn-copy-menu">' +
+      '<button type="button" class="gn-copy gn-copy-trigger" id="gn-copy-trigger"' +
+      ' aria-haspopup="true" aria-expanded="false" aria-controls="gn-copy-dropdown"' +
+      ' aria-label="Copy for Claude or consult">' +
       '<i class="ti ti-clipboard-text" aria-hidden="true"></i>' +
-      "<span>Copy for Claude</span>" +
-      '<span class="info-tip-bubble" role="tooltip" id="gn-copy-claude-tip">' +
+      "<span>Copy</span>" +
+      '<i class="ti ti-chevron-down gn-copy-caret" aria-hidden="true"></i>' +
+      "</button>" +
+      '<div class="gn-copy-dropdown" id="gn-copy-dropdown" role="menu" aria-labelledby="gn-copy-trigger">' +
+      // Each item's explanation is plain body text under its title rather
+      // than a hover info-tip bubble — see the CSS comment above
+      // .gn-copy-item for why (this is the fix for the off-screen clipping
+      // that e4fb2e2c had to chase for the old standalone buttons: there is
+      // no absolutely-positioned bubble left to clip).
+      '<button type="button" class="gn-copy-item" id="gn-copy-claude" role="menuitem">' +
+      '<span class="gn-copy-item-title"><i class="ti ti-clipboard-text" aria-hidden="true"></i>Copy for Claude</span>' +
+      '<span class="gn-copy-item-desc">' +
       "Copies a training summary — readiness, training load, and your " +
       "last 90 days of workouts — as plain text to paste into a fresh " +
       "Claude chat. About 10 seconds to build, ~25k characters." +
       "</span></button>" +
-      // The check-in blob. Icon-only at every width so it doesn't crowd the bar —
-      // aria-label carries the name for screen readers, since the visible
-      // <span> the daily button uses isn't there to do it.
-      // info-tip--right: this button sits close to the env badge/avatar on
-      // the right edge, and a centered bubble would clip off-screen there —
-      // same fix as the ATL tile in #1638.
-      '<button type="button" class="gn-copy gn-copy-icon info-tip--right info-tip--below" id="gn-copy-consult"' +
-      ' aria-label="Copy for consult"' +
-      ' aria-describedby="gn-copy-consult-tip">' +
-      '<i class="ti ti-messages" aria-hidden="true"></i>' +
-      '<span class="info-tip-bubble" role="tooltip" id="gn-copy-consult-tip">' +
+      '<button type="button" class="gn-copy-item" id="gn-copy-consult" role="menuitem">' +
+      '<span class="gn-copy-item-title"><i class="ti ti-messages" aria-hidden="true"></i>Copy for consult</span>' +
+      '<span class="gn-copy-item-desc">' +
       "Copies the check-in prompt — asks a few questions, then ends in " +
       "a change list to paste into /decisions. Same last-90-days data, " +
       "about 10 seconds to build." +
       "</span></button>" +
+      "</div>" +
+      "</div>" +
       '<span class="gn-env" id="env-label" aria-label="Environment"></span>' +
       '<div class="gn-profile" id="gn-profile">' +
       '<button class="gn-avatar' +
@@ -424,6 +455,7 @@
 
     _wireProfileMenu(nav);
     _wireMobileMenu(nav);
+    _wireCopyMenu(nav);
     _wireCopyForClaude();
     _positionGlobalNav();
     _observeNavRightWidth(nav);
@@ -603,6 +635,7 @@
     if (btn && !btn._wired) {
       btn._wired = true;
       btn.addEventListener("click", function () {
+        _closeCopyDropdown();
         _copyForClaude(btn, COPY_ENDPOINT, "copied");
       });
     }
@@ -610,9 +643,70 @@
     if (consult && !consult._wired) {
       consult._wired = true;
       consult.addEventListener("click", function () {
+        _closeCopyDropdown();
         _copyForClaude(consult, CONSULT_ENDPOINT, "consult copied");
       });
     }
+  }
+
+  // ── Copy menu (dropdown) ────────────────────────────────────────────────
+  // One trigger, one panel holding both copy choices (see the CSS comment
+  // above .gn-copy-menu for why they're grouped this way instead of two peer
+  // buttons). Open/close/outside-click/Escape mirrors _wireProfileMenu below;
+  // kept as its own function because selecting an item fires a network
+  // request and closes the panel, rather than navigating to a destination.
+  var _closeCopyDropdown = function () {};
+
+  function _wireCopyMenu(nav) {
+    var trigger = document.getElementById("gn-copy-trigger");
+    var dropdown = document.getElementById("gn-copy-dropdown");
+    if (!trigger || !dropdown) return;
+
+    function close() {
+      dropdown.classList.remove("is-open");
+      trigger.setAttribute("aria-expanded", "false");
+    }
+    // Exposed so _wireCopyForClaude's item click handlers (wired separately,
+    // after this function runs) can close the panel once a choice is made.
+    _closeCopyDropdown = close;
+
+    function open() {
+      // Mutually exclusive with the profile menu and the mobile links panel —
+      // the same rule _wireProfileMenu/_wireMobileMenu already apply to each
+      // other, so at most one floating panel is open at a time.
+      var profileMenu = document.getElementById("gn-profile-menu");
+      var avatar = document.getElementById("nav-avatar");
+      if (profileMenu) profileMenu.classList.remove("is-open");
+      if (avatar) avatar.setAttribute("aria-expanded", "false");
+      var links = document.getElementById("gn-links");
+      var menuBtn = document.getElementById("gn-menu-btn");
+      var backdrop = document.getElementById("gn-menu-backdrop");
+      if (links && links.classList.contains("is-open")) {
+        links.classList.remove("is-open");
+        if (menuBtn) menuBtn.setAttribute("aria-expanded", "false");
+        if (backdrop) {
+          backdrop.classList.remove("is-open");
+          backdrop.hidden = true;
+        }
+        document.body.style.overflow = "";
+      }
+      dropdown.classList.add("is-open");
+      trigger.setAttribute("aria-expanded", "true");
+    }
+
+    trigger.addEventListener("click", function (e) {
+      e.stopPropagation();
+      if (dropdown.classList.contains("is-open")) close();
+      else open();
+    });
+
+    document.addEventListener("click", function (e) {
+      if (!nav.contains(e.target)) close();
+    });
+
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") close();
+    });
   }
 
   /**
