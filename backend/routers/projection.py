@@ -879,8 +879,9 @@ class SingleSessionRequest(BaseModel):
     # a suggestions[] item) — omitted when creating a fresh one from scratch.
     current_session: Optional[dict] = None
     # Two-rail flow (issue #1417): the schedule rail's slot budget. When set,
-    # the generated session must land on these numbers (pinned in the prompt)
-    # — the athlete owns the schedule; the LLM only fills the content.
+    # generate_single_session takes the plan_slot.py content-only path — the
+    # LLM never emits these numbers, Python stamps them onto the response —
+    # the athlete owns the schedule; the LLM only fills the content.
     target_tss: Optional[float] = None
     duration_minutes: Optional[int] = None
     # Optional slot flavor (run: easy/long/intervals/tempo; strength:

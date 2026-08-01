@@ -2,12 +2,23 @@
 
 - get_suggestions(skeleton=True) returns the deterministic template with no
   LLM involvement (source="skeleton", zero attempts, never cached).
-- build_single_session_prompt pins the schedule rail's slot budget
-  (target_tss / duration_minutes) as a hard prompt rule.
+- build_single_session_prompt is the FREEFORM single-session prompt — no
+  schedule-rail budget concept lives here any more (see #1596 below).
 
 Pure-function tests; the live endpoint pass-through is covered by the
 request-model validation tests at the bottom (no LLM key needed — skeleton
 never calls the LLM, and validation rejects before any LLM call).
+
+#1596 (Ask-AI consolidation): generate_single_session used to have two
+branches for a PINNED slot budget — this file originally pinned target_tss/
+duration_minutes straight into build_single_session_prompt (issue #1417,
+2026-07-13). A week later, the plan_slot.py content-only path was added in
+front of it (2026-07-20) and started intercepting every call that carried a
+budget, so the #1417 prompt-pinning code stopped running — it just sat there
+un-exercised, and the tests below that pinned it went stale (see
+BASELINE_FAILURES.txt pre-#1596). #1596 deleted the dead branch; the pinned
+case is now covered by the "pinned single-session generation" section below,
+against the plan_slot path that was already the live behaviour.
 """
 from unittest import mock
 
@@ -288,24 +299,7 @@ def test_skeleton_falls_back_to_template_without_history():
     assert any(s["workout_type"] != "rest" for s in result["suggestions"])
 
 
-# ── slot-budget pinning in the single-session prompt ─────────────────────────
-
-def test_single_session_prompt_pins_slot_budget():
-    sys_p, _ = ps.build_single_session_prompt(
-        _FACTS, 4, "strength", "", target_tss=63.0, duration_minutes=45,
-    )
-    assert "target_tss MUST be 63" in sys_p
-    assert "duration_minutes MUST be 45" in sys_p
-    assert "do not resize the slot" in sys_p
-
-
-def test_single_session_prompt_pins_partial_budget():
-    sys_p, _ = ps.build_single_session_prompt(
-        _FACTS, 4, "run", "", target_tss=80.0,
-    )
-    assert "target_tss MUST be 80" in sys_p
-    assert "duration_minutes MUST" not in sys_p
-
+# ── freeform single-session prompt has no budget concept ─────────────────────
 
 def test_single_session_prompt_unchanged_without_budget():
     sys_p, _ = ps.build_single_session_prompt(_FACTS, 4, "run", "note")
@@ -314,19 +308,85 @@ def test_single_session_prompt_unchanged_without_budget():
     assert "duration_minutes MUST be" not in sys_p
 
 
-def test_generate_single_session_threads_budget_to_prompt():
-    captured = {}
+def test_single_session_prompt_has_no_budget_params():
+    """#1596: target_tss/duration_minutes were removed from this signature,
+    not just left unused — passing them is a TypeError, so a future patch
+    can't quietly re-thread a schedule-rail budget through the freeform
+    prompt (that's the plan_slot.py path's job, see below)."""
+    import inspect
+    params = inspect.signature(ps.build_single_session_prompt).parameters
+    assert "target_tss" not in params
+    assert "duration_minutes" not in params
 
-    def _fake_complete(system, user, **kw):
-        captured["system"] = system
-        return None  # short-circuit after prompt build
 
+# ── pinned single-session generation (schedule rail owns the budget) ────────
+# The ONE live path for a pinned request (target_tss and/or duration_minutes
+# given): plan_slot.py's content-only machinery. Covers the three guardrails
+# CLAUDE.md's "LLM policy" section requires of every sanctioned LLM surface.
+
+def test_generate_single_session_with_pins_never_reaches_the_freeform_prompt():
+    """A pinned request must not go anywhere near build_single_session_prompt
+    — the schedule rail's TSS/duration are GIVENS, not something a freeform
+    prompt should ever be negotiating."""
     with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)), \
-         mock.patch.object(ps.llm_svc, "complete_structured", side_effect=_fake_complete):
-        out = ps.generate_single_session(
+         mock.patch.object(ps, "build_single_session_prompt") as legacy_prompt, \
+         mock.patch.object(ps.llm_svc, "complete_structured", return_value=None):
+        ps.generate_single_session(
             "someone", 4, "", workout_type="strength",
             target_tss=63.0, duration_minutes=45,
         )
-    assert out is None
-    assert "target_tss MUST be 63" in captured["system"]
-    assert "duration_minutes MUST be 45" in captured["system"]
+    legacy_prompt.assert_not_called()
+
+
+def test_generate_single_session_with_pins_stamps_the_exact_numbers():
+    """Guardrail: the LLM never produces a number. Python stamps the
+    athlete's own target_tss/duration_minutes regardless of what the model
+    volunteers (here it tries to sneak in 999/999) — pins always win."""
+    llm_content = {
+        "intent": "Heavy day", "notes": None, "blocks": None,
+        "exercises": [
+            {"block": "Warm-up", "name": "Band walk", "sets": 2, "reps": "10", "load": "band"},
+            {"block": "Heavy compound", "name": "Squat", "sets": 4, "reps": "5", "load": "heavy"},
+            {"block": "Superset 1", "name": "Bench", "sets": 3, "reps": "8", "load": "moderate"},
+            {"block": "Superset 2", "name": "Row", "sets": 3, "reps": "8", "load": "moderate"},
+        ],
+        # A careless/malicious model volunteers its own numbers — discarded.
+        "target_tss": 999, "duration_minutes": 999,
+    }
+    with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)), \
+         mock.patch.object(ps.llm_svc, "complete_structured", return_value=llm_content):
+        session = ps.generate_single_session(
+            "someone", 4, "", workout_type="strength",
+            target_tss=63.0, duration_minutes=45,
+        )
+    assert session["target_tss"] == 63
+    assert session["duration_minutes"] == 45
+    assert session["source"] == "llm"
+
+
+def test_generate_single_session_with_pins_falls_back_to_template_on_provider_failure():
+    """Guardrail: every path falls back. Provider disabled / network error /
+    malformed response all surface as complete_structured returning None —
+    a pinned request must still return a usable, exact-budget session
+    (never 422, never block), via the day template on exhausted retries."""
+    with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)), \
+         mock.patch.object(ps.llm_svc, "complete_structured", return_value=None):
+        session = ps.generate_single_session(
+            "someone", 4, "", workout_type="run",
+            target_tss=63.0, duration_minutes=45,
+        )
+    assert session is not None
+    assert session["source"] == "template"
+    assert session["target_tss"] == 63
+    assert session["duration_minutes"] == 45
+
+
+def test_generate_single_session_without_pins_can_return_none():
+    """Guardrail contrast: the freeform (no-budget) path is the one caller
+    that can still come back empty — no deterministic template stands in for
+    a specific athlete request with no fixed day/type/TSS to fall back to.
+    The endpoint (routers/projection.py) turns this into a 422, never a 500."""
+    with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)), \
+         mock.patch.object(ps.llm_svc, "complete_structured", return_value=None):
+        session = ps.generate_single_session("someone", 4, "", workout_type="run")
+    assert session is None

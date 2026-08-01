@@ -1630,43 +1630,29 @@ def build_single_session_prompt(
     workout_type: str | None,
     note: str,
     current_session: dict | None = None,
-    target_tss: float | None = None,
-    duration_minutes: int | None = None,
     subtype: str | None = None,
 ) -> tuple[str, str]:
     """Build (system_prompt, user_prompt) for a ONE-session generate/refine call.
 
-    target_tss/duration_minutes are the schedule rail's slot budget (two-rail
-    flow, issue #1417): when given, the session must land on those numbers —
-    the athlete owns the schedule; the LLM only fills content within it.
-    subtype is the slot's optional flavor tag (SESSION_SUBTYPES) — e.g. a run
-    is "easy" vs "intervals", a strength day is "upper" vs "light"."""
+    This is the freeform path: no schedule-rail budget is pinned, so the LLM
+    proposes target_tss/duration_minutes itself, bounded by the rules below
+    and checked by validation_errors (range + weekly ACWR ceiling). When the
+    schedule rail HAS pinned a budget (two-rail flow, issue #1417),
+    generate_single_session takes the plan_slot.py content-only path instead
+    — this prompt is never reached with a budget to honour, so it does not
+    build one. subtype is the slot's optional flavor tag (SESSION_SUBTYPES)
+    — e.g. a run is "easy" vs "intervals", a strength day is "upper" vs
+    "light"."""
     trailing = facts.get("trailing_28d_weekly_avg_tss", 0.0)
     max_weekly = round(max(float(trailing), FALLBACK_MIN_WEEKLY_TSS) * ACWR_HIGH_BOUND)
     day_name = _DAY_NAMES[day_offset]
-
-    budget_rule = ""
-    if target_tss is not None or duration_minutes is not None:
-        parts = []
-        if target_tss is not None:
-            parts.append(f"target_tss MUST be {round(float(target_tss))} (±10%)")
-        if duration_minutes is not None:
-            parts.append(f"duration_minutes MUST be {int(duration_minutes)} (±10%)")
-        budget_rule = (
-            "6. The athlete fixed this session's budget on their schedule: "
-            + " and ".join(parts)
-            + " — size the exercises/blocks to fill exactly that, do not resize the slot. "
-            "If the note mentions a gap preset / min duration / min TSS, treat those as "
-            "hard floors (never go below them).\n"
-        )
 
     subtype_rule = ""
     ui_subtype = coerce_ui_subtype(workout_type, subtype) if subtype else None
     subtype_desc = SESSION_SUBTYPES.get(workout_type or "", {}).get(ui_subtype or "")
     if subtype_desc:
-        n = 7 if budget_rule else 6
         subtype_rule = (
-            f"{n}. The athlete tagged this session \"{ui_subtype}\": build {subtype_desc}. "
+            f"6. The athlete tagged this session \"{ui_subtype}\": build {subtype_desc}. "
             "The tag is binding — do not build a different kind of session.\n"
         )
 
@@ -1711,7 +1697,6 @@ def build_single_session_prompt(
         + "5. `intent` = a short session TITLE, 4-5 words max (e.g. \"Full body strength, glute focus\") "
         "— it becomes the saved session's name, so no full sentences. "
         "`notes` = terse coach rationale for this session, or null for rest.\n"
-        f"{budget_rule}"
         f"{subtype_rule}"
     )
 
@@ -1749,7 +1734,19 @@ def generate_single_session(
     When the schedule rail has pinned the slot (target_tss / duration_minutes),
     content is produced via plan_slot.generate_slot_content — LLM never emits
     pins; Python stamps them; exhausted retries fall back to day templates.
-    Without pins, keeps the legacy whole-session schema path for older callers.
+    This is the sanctioned Ask-AI shape per CLAUDE.md: "fills ONE session's
+    content once the skeleton has fixed the day/type/TSS."
+
+    Without pins (the suggestion-row "Refine" action, and any caller that
+    hasn't fixed a budget yet), the LLM proposes target_tss/duration_minutes
+    itself, bounded by validation_errors' range + weekly-ACWR checks; a
+    session that never validates after 2 tries returns None (422, no
+    template fallback — a templated session isn't a stand-in for a specific
+    request). This freeform branch used to also carry a second, shadowed
+    attempt at budget-pinning (issue #1417, superseded a week later by the
+    plan_slot path above without being removed) — that dead code is gone;
+    it never ran once the pinned branch started intercepting every call with
+    a budget, since that branch returns before this one is reached.
     """
     from backend.services.plan_prefs_accessor import get_plan_prefs
 
@@ -1831,14 +1828,18 @@ def generate_single_session(
         )
         return stamp_session(slot, content)
 
-    # Legacy path (no pins) — keep prior behaviour
+    # Legacy path (no pins) — freeform generate/refine, kept for callers with
+    # no schedule-rail budget to hand it (e.g. the suggestion-row "Refine"
+    # action). The LLM proposes its own target_tss/duration_minutes here;
+    # validation_errors bounds them (range + weekly ACWR ceiling) same as the
+    # whole-week path. No deterministic-template fallback — see the endpoint
+    # docstring in routers/projection.py for why.
     validation_facts = {**facts, "allowed_offsets": [day_offset]}
 
     feedback = ""
     for _attempt in range(2):
         system, user = build_single_session_prompt(
             facts, day_offset, workout_type, note, current_session,
-            target_tss=target_tss, duration_minutes=duration_minutes,
             subtype=subtype,
         )
         raw = llm_svc.complete_structured(
@@ -1858,42 +1859,7 @@ def generate_single_session(
         if not isinstance(session, dict):
             continue
         errs = validation_errors([session], validation_facts)
-        errs.extend(_budget_errors(session, target_tss, duration_minutes))
         if not errs:
-            return session
-        if _attempt == 1 and not validation_errors([session], validation_facts):
-            if target_tss is not None:
-                session["target_tss"] = round(float(target_tss))
-            if duration_minutes is not None:
-                session["duration_minutes"] = int(duration_minutes)
             return session
         feedback = _feedback_block(errs)
     return None
-
-
-# Tolerance for the slot-budget contract — matches the ±10% the prompt
-# states, with a small absolute floor so tiny budgets don't reject rounding.
-_BUDGET_TOLERANCE_FRAC = 0.10
-_BUDGET_TOLERANCE_ABS = 5.0
-
-
-def _budget_errors(session: dict, target_tss, duration_minutes) -> list[str]:
-    errs: list[str] = []
-
-    def _off(got, want) -> bool:
-        if got is None:
-            return True
-        tol = max(_BUDGET_TOLERANCE_ABS, abs(float(want)) * _BUDGET_TOLERANCE_FRAC)
-        return abs(float(got) - float(want)) > tol
-
-    if target_tss is not None and _off(session.get("target_tss"), target_tss):
-        errs.append(
-            f"target_tss must be {round(float(target_tss))} (±10%) — got "
-            f"{session.get('target_tss')}; do not resize the slot."
-        )
-    if duration_minutes is not None and _off(session.get("duration_minutes"), duration_minutes):
-        errs.append(
-            f"duration_minutes must be {int(duration_minutes)} (±10%) — got "
-            f"{session.get('duration_minutes')}; do not resize the slot."
-        )
-    return errs
