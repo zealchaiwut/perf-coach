@@ -547,8 +547,8 @@ _BASELINE_ORPHANS_API: dict[str, str] = {
     "/api/imports/sleep": "No UI for manual/viewing sleep imports; settings.html's drive-sleep integration card only calls status/connect/disconnect/folder.",
     "/api/integrations/drive-sleep/sync": "No manual 'Sync now' button for Drive-sleep in settings.html, unlike Strava's strava-sync-now-btn — this manual-trigger endpoint has no caller.",
 
-    "/api/intensity-distribution/rolling": "trends.js calls the real one, /api/workouts/intensity-distribution; this sibling is unused.",
-    "/api/sessions/{session_id}/intensity-distribution": "Same — trends.js calls /api/workouts/intensity-distribution instead.",
+    "/api/intensity-distribution/rolling": "No frontend caller. Formerly explained as 'trends.js calls the real one instead' but both trends.js and that sibling (/api/workouts/intensity-distribution) were deleted with the Trends page (feature/remove-trends-tab) — this route was always the unused one of the two.",
+    "/api/sessions/{session_id}/intensity-distribution": "No frontend caller (see cluster note above) — same history as /api/intensity-distribution/rolling.",
 
     "/api/performance/backfill": "No frontend caller; training-performance.js reads /api/athletes/{id}/performance instead.",
     "/api/performance/score-breakdown": "No frontend caller (see cluster note above).",

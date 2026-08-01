@@ -1,4 +1,13 @@
-"""nav-cleanup ticket: /trends enabled, /calendar removed entirely.
+"""nav-cleanup ticket: /trends enabled (#1636), then removed entirely
+(feature/remove-trends-tab); /calendar removed entirely (this file's
+original ticket).
+
+/trends was enabled in nav.js and shipped live for less than a day before
+the product owner, after actually using it, decided not to keep it — a
+genuine reversal, not a bug. It was pulled the same way /calendar was:
+page file, JS file, nav.js entry, and every backend endpoint that had no
+caller left once the page was gone, all deleted outright rather than
+hidden behind a flag.
 
 Static assertions over nav.js and main.py (no bundler, no DOM harness — see
 test_nav__consult_and_decisions.py for the same idiom) plus a route-table
@@ -36,29 +45,36 @@ def _links_block(nav_src: str) -> str:
     return nav_src[start:end]
 
 
-# ── /trends is live, not "Coming soon" ──────────────────────────────────────
+# ── /trends is gone, not just hidden (feature/remove-trends-tab) ────────────
 
-def test_trends_link_is_in_nav_links(nav):
-    assert "'/trends'" in _links_block(nav)
-
-
-def test_trends_link_is_not_disabled(nav):
-    links = _links_block(nav)
-    for line in links.splitlines():
-        if "/trends" in line:
-            assert "disabled" not in line, (
-                "/trends must be a live link now, not 'disabled: true'"
-            )
-            return
-    pytest.fail("no /trends entry found in LINKS")
+def test_trends_link_is_not_in_nav_links(nav):
+    assert "/trends" not in _links_block(nav)
 
 
-def test_trends_page_route_is_registered():
-    """/trends must resolve to a real route in the assembled app, not just
-    a string in nav.js — a link to nothing would be worse than no link."""
+def test_trends_page_file_deleted():
+    assert not (REPO / "frontend" / "pages" / "trends.html").exists()
+
+
+def test_trends_js_file_deleted():
+    assert not (REPO / "frontend" / "js" / "trends.js").exists()
+
+
+def test_trends_page_route_not_registered():
+    """A route that used to exist must not still resolve — GET /trends
+    should 404, not fall through to some other handler."""
     paths = {r.path for r in app.routes if isinstance(r, APIRoute)}
-    assert "/trends" in paths
-    assert "/trends.html" in paths
+    assert "/trends" not in paths
+    assert "/trends.html" not in paths
+
+
+def test_trends_summary_api_route_not_registered():
+    """/trends/summary only ever existed to back the deleted page."""
+    paths = {r.path for r in app.routes if isinstance(r, APIRoute)}
+    assert "/trends/summary" not in paths
+
+
+def test_main_py_has_no_trends_page_entry(main_py):
+    assert '"trends": "trends.html"' not in main_py
 
 
 # ── /calendar is gone, not just hidden ──────────────────────────────────────

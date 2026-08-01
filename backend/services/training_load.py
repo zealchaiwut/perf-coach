@@ -27,7 +27,7 @@ import uuid as _uuid_mod
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
@@ -302,6 +302,72 @@ def current_load(
     }
 
 
+def _day_workout_signature(session: Session, user_id, d: date) -> str:
+    """Cheap fingerprint of a single date's workout rows — same idea as
+    main.py's _summary_signature, scoped to one day instead of the whole
+    user, since CTL/ATL/TSB snapshots are keyed per date.
+
+    Deliberately per-day, not per-180-day-window: the bug this exists to
+    catch is a snapshot computed before that date's own workout was
+    logged/synced, which is what actually happened live (tss_for_day stuck
+    at 0 for weeks that had real workouts). A workout edited far outside the
+    target date only shifts the EWMA by a fraction of a fraction — real, but
+    not what caused the observed failure, and checking the full window on
+    every read would be a much heavier query for a case that isn't the one
+    that broke. If retroactive-edit drift ever turns out to matter in
+    practice, that's a separate, additive check on top of this one.
+    """
+    row = (
+        session.query(
+            func.count(Workout.id),
+            func.max(Workout.created_at),
+            func.max(Workout.updated_at),
+        )
+        .filter(Workout.user_id == user_id, Workout.workout_date == d)
+        .one()
+    )
+    return "%s|%s|%s" % (row[0], row[1], row[2])
+
+
+_NO_WORKOUTS_SIGNATURE = "0|None|None"
+
+
+def _workout_signatures_for_range(
+    session: Session, user_id, from_date: date, to_date: date
+) -> dict[date, str]:
+    """Same fingerprint as _day_workout_signature, batched across a date
+    range in one GROUP BY query instead of one query per day — get_snapshot_series
+    checks staleness for a whole range at once, and N individual queries would
+    undo the "one batch, not N daily_update() calls" property its own
+    docstring promises.
+
+    A date with zero workouts is absent from the GROUP BY result; filled in
+    with the same default _day_workout_signature would compute for it, so
+    range and single-day lookups never disagree on a rest day's signature.
+    """
+    rows = (
+        session.query(
+            Workout.workout_date,
+            func.count(Workout.id),
+            func.max(Workout.created_at),
+            func.max(Workout.updated_at),
+        )
+        .filter(
+            Workout.user_id == user_id,
+            Workout.workout_date >= from_date,
+            Workout.workout_date <= to_date,
+        )
+        .group_by(Workout.workout_date)
+        .all()
+    )
+    out = {r[0]: "%s|%s|%s" % (r[1], r[2], r[3]) for r in rows}
+    d = from_date
+    while d <= to_date:
+        out.setdefault(d, _NO_WORKOUTS_SIGNATURE)
+        d += timedelta(days=1)
+    return out
+
+
 def daily_update(
     user_id: str,
     target_date: Optional[date] = None,
@@ -341,35 +407,38 @@ def daily_update(
     acwr = _acwr_ratio_for_window([tss for _, tss in series[-_ACWR_WINDOW_DAYS:]])
 
     uid = _uuid_mod.UUID(str(user_id))
-    row = {
-        "user_id": uid,
-        "snapshot_date": target,
-        "tss_for_day": last["tss"],
-        "ctl": round(last["ctl"], 2),
-        "atl": round(last["atl"], 2),
-        "tsb": round(last["tsb"], 2),
-        "acwr": acwr,
-        "formula_version": _FORMULA_VERSION,
-        "ctl_days": ctl_days,
-        "atl_days": atl_days,
-    }
 
-    stmt = _pg_insert(TrainingLoadSnapshot).values([row])
-    upsert = stmt.on_conflict_do_update(
-        index_elements=["user_id", "snapshot_date"],
-        set_={
-            "tss_for_day": stmt.excluded.tss_for_day,
-            "ctl": stmt.excluded.ctl,
-            "atl": stmt.excluded.atl,
-            "tsb": stmt.excluded.tsb,
-            "acwr": stmt.excluded.acwr,
-            "formula_version": stmt.excluded.formula_version,
-            "ctl_days": stmt.excluded.ctl_days,
-            "atl_days": stmt.excluded.atl_days,
-            "computed_at": datetime.now(tz=timezone.utc),
-        },
-    )
     with Session(engine) as session:
+        signature = _day_workout_signature(session, uid, target)
+        row = {
+            "user_id": uid,
+            "snapshot_date": target,
+            "tss_for_day": last["tss"],
+            "ctl": round(last["ctl"], 2),
+            "atl": round(last["atl"], 2),
+            "tsb": round(last["tsb"], 2),
+            "acwr": acwr,
+            "formula_version": _FORMULA_VERSION,
+            "ctl_days": ctl_days,
+            "atl_days": atl_days,
+            "workout_signature": signature,
+        }
+        stmt = _pg_insert(TrainingLoadSnapshot).values([row])
+        upsert = stmt.on_conflict_do_update(
+            index_elements=["user_id", "snapshot_date"],
+            set_={
+                "tss_for_day": stmt.excluded.tss_for_day,
+                "ctl": stmt.excluded.ctl,
+                "atl": stmt.excluded.atl,
+                "tsb": stmt.excluded.tsb,
+                "acwr": stmt.excluded.acwr,
+                "formula_version": stmt.excluded.formula_version,
+                "ctl_days": stmt.excluded.ctl_days,
+                "atl_days": stmt.excluded.atl_days,
+                "workout_signature": stmt.excluded.workout_signature,
+                "computed_at": datetime.now(tz=timezone.utc),
+            },
+        )
         session.execute(upsert)
         session.commit()
 
@@ -458,12 +527,21 @@ def get_snapshot_series(
                 TrainingLoadSnapshot.snapshot_date <= to_date,
             ).all()
         }
+        current_signatures = _workout_signatures_for_range(session, uid, from_date, to_date)
 
     stale_or_missing = {
         d for d in all_dates
         if d not in existing
         or existing[d].formula_version != _FORMULA_VERSION
         or not _snap_matches_calibration(existing[d], ctl_days, atl_days)
+        # A row with no recorded signature predates this check (migration
+        # 63d019bb0d5b) — treat as stale so it self-heals on next read rather
+        # than needing a one-time bulk backfill. A row whose stored signature
+        # no longer matches the date's current workout data was cached before
+        # that day's workout existed/was edited and never recomputed since —
+        # the actual bug this whole check exists to close (found live: 3 of
+        # the last 4 weeks had tss_for_day stuck at 0 despite real workouts).
+        or existing[d].workout_signature != current_signatures.get(d, _NO_WORKOUTS_SIGNATURE)
     }
 
     computed_by_date: dict = {}
@@ -478,6 +556,7 @@ def get_snapshot_series(
                 "formula_version": _FORMULA_VERSION,
                 "ctl_days": ctl_days,
                 "atl_days": atl_days,
+                "workout_signature": current_signatures.get(c["date"], _NO_WORKOUTS_SIGNATURE),
             }
             rows.append(row)
             computed_by_date[c["date"]] = c
@@ -494,6 +573,7 @@ def get_snapshot_series(
                     "formula_version": stmt.excluded.formula_version,
                     "ctl_days": stmt.excluded.ctl_days,
                     "atl_days": stmt.excluded.atl_days,
+                    "workout_signature": stmt.excluded.workout_signature,
                     "computed_at": datetime.now(tz=timezone.utc),
                 },
             )

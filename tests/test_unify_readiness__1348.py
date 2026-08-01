@@ -57,16 +57,11 @@ def test_home_readiness_calls_canonical_calculator():
     )
 
 
-def test_trends_readiness_calls_canonical_calculator():
-    """AC1: get_trends_summary must use canonical _canonical_readiness, not a local formula."""
-    from backend.main import get_trends_summary
-    source = inspect.getsource(get_trends_summary)
-    assert "_canonical_readiness" in source, (
-        "get_trends_summary does not call _canonical_readiness (canonical calculator)"
-    )
-    assert "(float(hrv) - 20.0) / 80.0" not in source, (
-        "Old HRV inline formula still inside get_trends_summary"
-    )
+# get_trends_summary itself (the /trends/summary endpoint) was deleted along
+# with the Trends page (feature/remove-trends-tab) — it was the page's only
+# caller. The AC1 coverage for "trends readiness calls the canonical
+# calculator" no longer applies; home readiness and the daily_readiness job
+# are still covered above and below.
 
 
 # ── AC3: form_label rename + readiness_label alias ───────────────────────────

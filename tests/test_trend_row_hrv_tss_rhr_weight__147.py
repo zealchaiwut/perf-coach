@@ -158,22 +158,13 @@ def test_trend_row__weight_save_button_handler(home_js):
     assert 'weight_kg' in home_js
 
 
-def test_trend_row__trends_summary_endpoint_fetch(home_js):
-    """AC: HRV, RHR, and TSS series are fetched from GET /trends/summary?user_id={uid}&range=30d"""
-    assert '/trends/summary' in home_js
-    assert 'range=30d' in home_js or 'range' in home_js
-    
-    # Verify it's fetched in loadRow3
-    assert 'loadRow3' in home_js
-
-
 def test_trend_row__weight_api_endpoint_fetch(home_js):
     """AC: Weight series is fetched from GET /api/weight-entries"""
     assert '/api/weight-entries' in home_js
 
 
 def test_trend_row__error_state_friendly_message(home_js):
-    """AC: /trends/summary errors display friendly message via _trendCardErrorHTML"""
+    """AC: trend-card fetch errors display friendly message via _trendCardErrorHTML"""
     assert '_trendCardErrorHTML' in home_js or 'trendCardErrorHTML' in home_js
     
     # Verify error handling is present

@@ -11,8 +11,8 @@
   // perf/hot-paths Task 7 fix: the shared fetchCurrentUser() promise now
   // starts resolving earlier (nav.js kicks it off before this script even
   // runs), which can race ahead of a still-loading blocking <script src>
-  // further down the page (e.g. the Chart.js CDN tag on /trends) — the
-  // fetch can resolve, and this dispatch fire, before trends.js/calendar.js/
+  // further down the page (e.g. the Chart.js CDN tag on /log) — the
+  // fetch can resolve, and this dispatch fire, before training-log.js/
   // habits.js/training*.js have executed and registered their 'userReady'
   // listener. document.readyState !== "loading" is only true once the
   // parser has finished running every synchronous script in the document,
