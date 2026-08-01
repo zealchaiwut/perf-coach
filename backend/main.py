@@ -17491,6 +17491,19 @@ def _generate_weekly_note(
 _SUMMARY_CACHE: dict = {}
 
 
+def _l1_cacheable(key: str) -> bool:
+    """Whether ``key`` is safe to hold in the unbounded in-process L1 dict.
+
+    Fixed keys ("performance", "weekly") are bounded by the number of active
+    users — fine. "monthly:<iso-date>" keys are not: every distinct month a
+    user has ever viewed adds a permanent entry for the life of the process,
+    since only a restart clears L1. Those keys still get the durable L2 table
+    (``summary_cache``), just not the in-process dict — a slightly slower
+    cache hit (one query) instead of unbounded process memory growth.
+    """
+    return not key.startswith("monthly:")
+
+
 def _summary_signature(session, user_id) -> str:
     row = (
         session.query(
@@ -17510,14 +17523,19 @@ def _summary_signature(session, user_id) -> str:
 def _summary_cache_get(user_id, key, sig):
     """Two-level cache read: in-memory L1, then durable Neon L2.
 
-    L1 (``_SUMMARY_CACHE``) is the fast per-process path. On an L1 miss (e.g. the
-    first request after a restart wiped L1) fall back to the ``summary_cache``
-    table: if a row exists whose stored signature matches, hydrate L1 and return
-    it — no recompute. Any DB error degrades gracefully to a miss (recompute).
+    L1 (``_SUMMARY_CACHE``) is the fast per-process path — but only for
+    ``_l1_cacheable`` keys (see that function). On an L1 miss (e.g. the first
+    request after a restart wiped L1, or an unbounded-cardinality key that
+    never touches L1 at all) fall back to the ``summary_cache`` table: if a
+    row exists whose stored signature matches, hydrate L1 (when cacheable)
+    and return it — no recompute. Any DB error degrades gracefully to a miss
+    (recompute).
     """
-    ent = _SUMMARY_CACHE.get((str(user_id), key))
-    if ent and ent[0] == sig:
-        return ent[1]
+    cacheable = _l1_cacheable(key)
+    if cacheable:
+        ent = _SUMMARY_CACHE.get((str(user_id), key))
+        if ent and ent[0] == sig:
+            return ent[1]
 
     # L2: durable Neon-backed cache. A restart clears L1 but not this table.
     try:
@@ -17532,7 +17550,8 @@ def _summary_cache_get(user_id, key, sig):
             )
         if row is not None and row[0] == sig:
             payload = row[1]
-            _SUMMARY_CACHE[(str(user_id), key)] = (sig, payload)  # hydrate L1
+            if cacheable:
+                _SUMMARY_CACHE[(str(user_id), key)] = (sig, payload)  # hydrate L1
             return payload
     except Exception:
         _performance_log.exception("summary_cache L2 read failed for %s/%s", user_id, key)
@@ -17540,12 +17559,14 @@ def _summary_cache_get(user_id, key, sig):
 
 
 def _summary_cache_put(user_id, key, sig, payload):
-    """Two-level cache write: set L1, then UPSERT the durable L2 row.
+    """Two-level cache write: set L1 (if bounded), then UPSERT the durable L2 row.
 
     A DB failure on the L2 write must not break the request — L1 still serves
-    within the process; the durable row simply refreshes on the next compute.
+    within the process (when the key is L1-cacheable); the durable row simply
+    refreshes on the next compute.
     """
-    _SUMMARY_CACHE[(str(user_id), key)] = (sig, payload)
+    if _l1_cacheable(key):
+        _SUMMARY_CACHE[(str(user_id), key)] = (sig, payload)
     try:
         from sqlalchemy.dialects.postgresql import insert as _pg_insert
         stmt = _pg_insert(SummaryCache.__table__).values(
