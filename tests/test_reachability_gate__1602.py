@@ -12,8 +12,12 @@ silently gets the wrong feature. Two more endpoints
 pages (`/projection`, `/strength-view`) had zero frontend callers at all —
 fully built, fully tested, unreachable from the app. §3.1 named a third page,
 `/weight/targets`, in the same breath — that one turned out to be a
-misdiagnosis, not an orphan; see its `_PERMANENT_EXEMPT_PAGES` entry below
-for why it stays unlinked on purpose.
+misdiagnosis, not an orphan: it was a redirect shim AC #461 deliberately left
+unlinked (superseded by weight.html's own "Edit target" slide-in panel). It
+stayed exempted here for a while, but the product owner later decided to
+delete the route outright rather than keep it around as a typed-URL-only
+shim, so it no longer appears in `_PERMANENT_EXEMPT_PAGES` — it isn't a
+registered route at all anymore.
 
 None of that trips at review time, because a route existing and a route being
 *called* look identical in a diff. The only way to catch it is to ask the
@@ -382,20 +386,6 @@ _PERMANENT_EXEMPT_PAGES: dict[str, str] = {
         "Reachable via run-builder.js's post-submit redirect and a second "
         "in-page link in training.html. Same nav-absence-by-design as "
         "/run-builder."
-    ),
-    "/weight/targets": (
-        "NOT an orphan awaiting a link, despite review doc §3.1 grouping it "
-        "with /projection and /strength-view — it is a superseded route "
-        "that must stay unlinked. AC #461 consolidated the standalone page "
-        "into weight.html's own 'Edit target' slide-in panel, and "
-        "test_weight_page_frontend__412.py::test_b_manage_target_links_to_"
-        "weight_targets pins the removal: `assert \"/weight/targets\" not "
-        "in WEIGHT_HTML`. feature/1602-s3-reachability-remainder (PR #1629) "
-        "confirmed this by hand — adding the link back is a regression, not "
-        "a fix — and left it deliberately unlinked, the same treatment as "
-        "/preferences: the redirect stays reachable by typing the URL, "
-        "never from normal flow. This entry does not go stale when #1629 "
-        "merges; it was never going to."
     ),
 }
 

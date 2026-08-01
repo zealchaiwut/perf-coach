@@ -17,10 +17,13 @@ Four items, none of them needing a design decision once the endpoints existed:
    test_b_manage_target_links_to_weight_targets` (AC #461) pins that the link
    was deliberately REMOVED from weight.html when the standalone
    `/weight/targets` page was consolidated into weight.html's own slide-in
-   panel. Re-adding it anywhere on that page fights a real prior decision, not
-   an oversight — so it is treated the same way as `/preferences`: the
-   redirect shim stays reachable by typing the URL, not linked from normal
-   flow.
+   panel. It stayed registered for a while as a bare redirect shim to
+   `/weight` for anyone with the old URL bookmarked, the same treatment as
+   `/preferences` — but the product owner later decided a zero-caller shim
+   wasn't worth keeping around either, so the route itself was deleted
+   outright (not just left unlinked). See `_PERMANENT_EXEMPT_PAGES` in
+   `test_reachability_gate__1602.py` — there's no entry for it there anymore
+   because there's no route left to exempt.
 
 Static analysis only — no live server needed, mirrors
 tests/test_frontend_shared_lib__1603.py's grep/regex-ratchet style rather than
@@ -153,12 +156,10 @@ def test_habits_page_loads_a_nudges_module_and_has_a_mount_point():
 
 # ── 4. /projection and /strength-view are reachable ────────────────────────────
 
-@pytest.mark.parametrize("route", ["/projection", "/strength-view", "/weight/targets"])
+@pytest.mark.parametrize("route", ["/projection", "/strength-view"])
 def test_route_is_still_registered(route: str):
     """Ground truth — these must still be real routes, or the frontend links
-    added below would point at 404s. Includes /weight/targets even though it
-    stays deliberately unlinked (below) — it must still resolve for anyone
-    who has the old URL bookmarked."""
+    added below would point at 404s."""
     assert f'"{route.lstrip("/")}"' in MAIN or f'"{route}"' in MAIN, (
         f"{route} no longer appears to be registered in main.py"
     )
