@@ -5562,12 +5562,6 @@ def _serve_dev_mobile():
 app.add_api_route("/dev/mobile", _serve_dev_mobile, include_in_schema=False)
 
 
-def _serve_weight_targets():
-    return RedirectResponse(url="/weight", status_code=302)
-
-app.add_api_route("/weight/targets", _serve_weight_targets, include_in_schema=False)
-
-
 def _serve_projection_redirect():
     # Projection was merged into the Training → Projection sub-tab
     # (issue #1226; tab renamed Plan → Projection in feature/performance-tab-rework;
