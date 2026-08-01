@@ -204,13 +204,21 @@
     ".global-nav .gn-link-disabled i{opacity:0.7;}",
     // Copy for Claude: one payload, one clipboard write. Same visual weight as
     // the nav links so it reads as an action, not a destination.
-    ".global-nav .gn-copy{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;",
+    ".global-nav .gn-copy{position:relative;display:inline-flex;align-items:center;gap:6px;padding:7px 13px;",
     "border:1px solid rgba(13,30,67,0.14);border-radius:999px;background:#fff;",
     "font:inherit;font-size:14px;font-weight:600;color:#0b1530;cursor:pointer;",
     "white-space:nowrap;flex-shrink:0;transition:background 0.12s ease,border-color 0.12s ease;}",
     ".global-nav .gn-copy:hover{background:rgba(13,30,67,0.05);border-color:rgba(13,30,67,0.28);}",
     ".global-nav .gn-copy[disabled]{opacity:0.6;cursor:progress;}",
     ".global-nav .gn-copy i{font-size:16px;line-height:1;}",
+    // Pre-copy explanation: reuses the shared .info-tip-bubble component
+    // (styles.css, issue #1638's metric tooltips) instead of a native `title`
+    // attribute — title has an inconsistent OS-native look and a long hover
+    // delay, easy to miss on a button that otherwise looks like a plain
+    // action. The whole button is the hover/focus trigger (not a separate
+    // "i" icon) so it costs no extra width in an already space-tight bar.
+    ".global-nav .gn-copy:hover .info-tip-bubble,.global-nav .gn-copy:focus-visible .info-tip-bubble,",
+    ".global-nav .gn-copy:focus .info-tip-bubble{opacity:1;visibility:visible;}",
     // The export takes several seconds to assemble (90 days across many
     // blocks) — without motion, the "Building…" state reads as frozen rather
     // than working for the whole wait. Same rotate-in-place pattern as the
@@ -245,9 +253,12 @@
     ".global-nav .gn-link-disabled{display:none;}",
     ".global-nav .gn-right{display:flex;}",
     ".global-nav .gn-env{display:none;}",
-    // Mobile: keep the button, drop its label — the icon carries it.
+    // Mobile: keep the button, drop its label — the icon carries it. The
+    // info-tip bubble is also a <span> but must survive this rule (it stays
+    // hidden/shown on its own opacity/visibility toggle above, tap-to-focus
+    // reveals it on mobile) — excluded explicitly, not just left unstyled.
     ".global-nav .gn-copy{padding:7px 9px;}",
-    ".global-nav .gn-copy span{display:none;}",
+    ".global-nav .gn-copy span:not(.info-tip-bubble){display:none;}",
     ".global-nav .gn-menu-btn{display:flex;}",
     ".global-nav .gn-links{display:none;position:fixed;left:12px;right:12px;top:56px;",
       "flex-direction:column;gap:4px;background:#fff;border:1px solid rgba(13,30,67,0.1);",
@@ -355,22 +366,44 @@
       "</div>" +
       '<div class="gn-right">' +
       // aria-label duplicates the visible <span> deliberately: the mobile media
-      // query (".gn-copy span{display:none}") hides that span on narrow
-      // viewports for BOTH copy buttons, and a display:none span drops out of
-      // the accessible-name computation — without this, a screen-reader user
-      // on mobile would hit an unlabeled button here.
-      '<button type="button" class="gn-copy" id="gn-copy-claude"' +
+      // query (".gn-copy span:not(.info-tip-bubble){display:none}") hides that
+      // span on narrow viewports for BOTH copy buttons, and a display:none span
+      // drops out of the accessible-name computation — without this, a
+      // screen-reader user on mobile would hit an unlabeled button here.
+      // info-tip--below: the global nav is `position:sticky;top:0`, so it's
+      // always pinned to the very top of the viewport — the component's
+      // default upward-opening bubble (bottom:calc(100% + 7px)) would open
+      // above y=0 and render entirely off-screen. Verified in the browser:
+      // without this the bubble measured top:-93px, invisible despite
+      // opacity:1/visibility:visible. NOTE: .info-tip--below/--right are
+      // descendant selectors (".info-tip--below .info-tip-bubble" in
+      // styles.css) — they belong on this ANCESTOR button, not on the
+      // bubble span itself (that was tried first and silently no-opped).
+      '<button type="button" class="gn-copy info-tip--below" id="gn-copy-claude"' +
       ' aria-label="Copy for Claude"' +
-      ' title="Copy prompt + last 90 days of data for a fresh Claude session">' +
+      ' aria-describedby="gn-copy-claude-tip">' +
       '<i class="ti ti-clipboard-text" aria-hidden="true"></i>' +
-      "<span>Copy for Claude</span></button>" +
+      "<span>Copy for Claude</span>" +
+      '<span class="info-tip-bubble" role="tooltip" id="gn-copy-claude-tip">' +
+      "Copies a training summary — readiness, training load, and your " +
+      "last 90 days of workouts — as plain text to paste into a fresh " +
+      "Claude chat. About 10 seconds to build, ~25k characters." +
+      "</span></button>" +
       // The check-in blob. Icon-only at every width so it doesn't crowd the bar —
       // aria-label carries the name for screen readers, since the visible
       // <span> the daily button uses isn't there to do it.
-      '<button type="button" class="gn-copy gn-copy-icon" id="gn-copy-consult"' +
+      // info-tip--right: this button sits close to the env badge/avatar on
+      // the right edge, and a centered bubble would clip off-screen there —
+      // same fix as the ATL tile in #1638.
+      '<button type="button" class="gn-copy gn-copy-icon info-tip--right info-tip--below" id="gn-copy-consult"' +
       ' aria-label="Copy for consult"' +
-      ' title="Copy the check-in prompt — asks questions, ends in a change list for /decisions">' +
-      '<i class="ti ti-messages" aria-hidden="true"></i></button>' +
+      ' aria-describedby="gn-copy-consult-tip">' +
+      '<i class="ti ti-messages" aria-hidden="true"></i>' +
+      '<span class="info-tip-bubble" role="tooltip" id="gn-copy-consult-tip">' +
+      "Copies the check-in prompt — asks a few questions, then ends in " +
+      "a change list to paste into /decisions. Same last-90-days data, " +
+      "about 10 seconds to build." +
+      "</span></button>" +
       '<span class="gn-env" id="env-label" aria-label="Environment"></span>' +
       '<div class="gn-profile" id="gn-profile">' +
       '<button class="gn-avatar' +
@@ -486,8 +519,13 @@
     toast.classList.add("is-open");
     if (_toastTimer) clearTimeout(_toastTimer);
     // An error toast holds the retry button, so it stays until dismissed by the
-    // next toast rather than vanishing mid-reach.
-    if (!opts.onRetry) {
+    // next toast rather than vanishing mid-reach. A persisted toast (the
+    // in-flight "Building…" status) skips the auto-dismiss for the same
+    // reason: the ~12s build regularly outlasts the normal 4s toast life, and
+    // it would otherwise vanish mid-wait, right when it's most needed, and
+    // leave nothing but the button's own spinner for the rest of the wait.
+    // The next _copyToast call (success or error) always replaces it.
+    if (!opts.onRetry && !opts.persist) {
       _toastTimer = setTimeout(function () {
         toast.classList.remove("is-open");
       }, 4000);
@@ -515,6 +553,18 @@
         btn.innerHTML = original;
       }
     }
+
+    // The button's own "Building…" + spinner only reads clearly once you've
+    // noticed it; the toast is the loud, hard-to-miss half of the same
+    // signal, and names roughly how long the ~12s build takes so the wait
+    // reads as expected rather than possibly-stuck. persist:true keeps it
+    // open for the full wait — see _copyToast's comment on why the normal
+    // 4s auto-dismiss doesn't fit this case.
+    var buildingMsg =
+      endpoint === CONSULT_ENDPOINT
+        ? "Building your check-in — usually takes about 10 seconds…"
+        : "Building your training summary — usually takes about 10 seconds…";
+    _copyToast(buildingMsg, { persist: true });
 
     fetch(endpoint, { credentials: "same-origin" })
       .then(function (res) {
