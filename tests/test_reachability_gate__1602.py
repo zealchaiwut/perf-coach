@@ -471,37 +471,9 @@ _PERMANENT_EXEMPT_API: dict[str, str] = {
 # — that failure is the instruction to delete the entry, not a merge conflict
 # to resolve. The list may only shrink from here.
 
-_BASELINE_ORPHANS_PAGES: dict[str, str] = {
-    "/projection": (
-        "No nav.js entry and no frontend href (review doc §3.1). Fixed by "
-        "feature/1602-s3-reachability-remainder — delete this entry once "
-        "that branch gives the page a real entry point."
-    ),
-    "/strength-view": (
-        "No nav.js entry and no frontend href (review doc §3.1). Fixed by "
-        "feature/1602-s3-reachability-remainder."
-    ),
-}
+_BASELINE_ORPHANS_PAGES: dict[str, str] = {}
 
 _BASELINE_ORPHANS_API: dict[str, str] = {
-    "/api/weight-targets/{goal_id}/what-if": (
-        "The decoy button (review doc §3.1): weight.js:401's "
-        "#whatif-open-btn unhides the ordinary edit-goal form instead of "
-        "calling this POST endpoint. Fixed by "
-        "feature/1602-s3-reachability-remainder — delete once the button "
-        "calls it for real."
-    ),
-    "/api/weight-targets/arrival-projection": (
-        "Zero frontend callers (review doc §3.1), backed by goal_arrival.py "
-        "and tested by test_arrival_projection_endpoint__878.py. Fixed by "
-        "feature/1602-s3-reachability-remainder."
-    ),
-    "/api/adherence-nudges": (
-        "Zero frontend callers (review doc §3.1), backed by "
-        "habit_nudges.py + habit_adherence.py. Fixed by "
-        "feature/1602-s3-reachability-remainder."
-    ),
-
     # ── Found by this gate, NOT in review doc §3.1 ──────────────────────────
     #
     # The review doc predicted this ("greps undercount, ratchet tests find
