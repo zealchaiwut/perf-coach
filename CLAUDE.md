@@ -173,12 +173,21 @@ Adding a third needs a decision, not a convenient import.
   them; it does not derive or override them
   (see `weekly_summary.validate_summary` and `docs/calculations/acwr-guardrail.md`).
 
-**Parked and staying parked** (Priority 2, D4/D1) — do not re-import these:
-`coach_narrative`, `coach_orch_langgraph`, `coach_claude_cli`, `plan_draft`,
-`plan_slot_cache`, and `gap_analysis/phrasing.py`'s LLM path. They are on disk,
-unreferenced, pending deletion after a quiet release. Between them they carried
-atom validators, retry loops, a `claude -p` transport, and a second cache — that
-sprawl is what "minimal" exists to prevent.
+**Parked and staying parked in the worker** (Priority 2, D4/D1) — do not
+re-import these into `backend/worker_app.py`: `coach_narrative`,
+`coach_orch_langgraph`, `coach_claude_cli`, and `gap_analysis/phrasing.py`'s
+LLM path. These four are genuinely unreferenced anywhere and pending deletion
+after a quiet release. Between them they carried atom validators, retry loops,
+a `claude -p` transport, and a second cache — that sprawl is what "minimal"
+exists to prevent.
+
+`plan_draft` and `plan_slot_cache` are a different case — **parked from the
+worker only, still live in the webapp.** `backend/worker_app.py`'s dispatch
+table explicitly does not route to `plan_draft`, but `backend/main.py` and
+`backend/routers/projection.py` import it directly, backing the live
+`/api/plan/draft*` routes that `frontend/js/training-plan.js` and
+`frontend/js/home-coach-strip.js` actually call. Do not delete either module —
+they're load-bearing for the Training → Plan draft-review feature.
 
 `tests/test_consolidation__worker_has_no_llm.py` enforces the parked list by
 importing `backend.worker_app` in a clean interpreter and inspecting
