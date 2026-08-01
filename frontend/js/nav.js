@@ -393,6 +393,7 @@
     _wireMobileMenu(nav);
     _wireCopyForClaude();
     _positionGlobalNav();
+    _observeNavRightWidth(nav);
 
     document
       .getElementById("nav-logout")
@@ -588,6 +589,7 @@
       var right = Math.max(0, document.documentElement.clientWidth - (rect.right - pr));
       gnav.style.paddingLeft = left + "px";
       gnav.style.paddingRight = right + "px";
+      _shrinkNavInsetIfClipped(gnav);
       return;
     }
 
@@ -597,6 +599,57 @@
     var inset = Math.max(0, (vw - CONTENT_MAX) / 2) + PAD;
     gnav.style.paddingLeft = inset + "px";
     gnav.style.paddingRight = inset + "px";
+    _shrinkNavInsetIfClipped(gnav);
+  }
+
+  // The page-column inset above is cosmetic (lines the nav up with the page's
+  // own content edges) — it must never win over the nav's OWN links actually
+  // fitting. A narrow centered column (e.g. Decisions' 760px page, centered
+  // at 1440px) or a page with no `.page` wrapper at all (the CONTENT_MAX
+  // fallback, e.g. Trends/Habits/Log) can compute an inset that leaves
+  // `.gn-links` narrower than its own content. Because that row scrolls
+  // (`overflow-x:auto`) with no visible scrollbar (`scrollbar-width:none`),
+  // the overflow doesn't look like a scrollable list — it looks like the
+  // last link got cut off mid-word ("Trends" rendering as "Tren"). Re-measure
+  // after applying the inset and back off symmetrically, down to a 16px
+  // floor, until the links row actually fits.
+  var _NAV_PAD_FLOOR = 16;
+  var _NAV_PAD_STEP = 8;
+
+  function _shrinkNavInsetIfClipped(gnav) {
+    var links = gnav.querySelector(".gn-links");
+    if (!links) return;
+    // Bounded, not unconditional: on the common case (nothing clipped) this
+    // reads layout once and exits without writing a second style.
+    for (var guard = 0; guard < 40 && links.scrollWidth > links.clientWidth + 1; guard++) {
+      var pl = parseFloat(gnav.style.paddingLeft) || 0;
+      var pr = parseFloat(gnav.style.paddingRight) || 0;
+      if (pl <= _NAV_PAD_FLOOR && pr <= _NAV_PAD_FLOOR) break;
+      gnav.style.paddingLeft = Math.max(_NAV_PAD_FLOOR, pl - _NAV_PAD_STEP) + "px";
+      gnav.style.paddingRight = Math.max(_NAV_PAD_FLOOR, pr - _NAV_PAD_STEP) + "px";
+    }
+  }
+
+  // `_positionGlobalNav` runs once at build time (and again on resize/load),
+  // but `.gn-right` keeps changing size AFTER that: env.js fetches /api/env
+  // and pops the UAT/LOCAL badge in asynchronously, the avatar swaps from a
+  // text initial to an <img> once it loads, and the copy buttons' label
+  // toggles ("Copy for Claude" ↔ "Building…"). None of those fire a resize
+  // event, so the padding computed at build time can go stale and the links
+  // row silently clips (this is what produced "Tren" instead of "Trends" on
+  // /log, /habits, /trends — .gn-env was still empty/width:0 when the padding
+  // was first computed). A ResizeObserver on `.gn-right` reacts to exactly
+  // the content that can drift, without polling and without the feedback
+  // loop a `.gn-links` observer would risk (nav padding doesn't feed back
+  // into .gn-right's own size).
+  function _observeNavRightWidth(nav) {
+    if (!window.ResizeObserver) return;
+    var right = nav.querySelector(".gn-right");
+    if (!right) return;
+    var ro = new ResizeObserver(function () {
+      _positionGlobalNav();
+    });
+    ro.observe(right);
   }
 
   function _wireProfileMenu(nav) {
