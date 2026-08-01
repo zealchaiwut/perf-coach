@@ -3,13 +3,30 @@
 
   /* HTML escaping (XSS guard) for the user-generated strings the home v2
      widgets echo — session names, error/reason text from the API. */
+  // Delegates to the shared escaper (issue #1603). The local copies
+  // disagreed about the apostrophe, so identical content was safe on
+  // some pages and attribute-injectable on others.
   function esc(s) {
-    if (s == null) return '';
-    return String(s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+    return window.AppCommon.escapeHtml(s);
+  }
+
+  /* "Log metrics" CTAs used to link to the standalone /calendar page (its
+     day-detail modal was the only way to log daily_metrics for a given
+     date). Calendar is gone (nav-cleanup) — same reveal as the Today ·
+     Coach strip's own "Log metrics" CTA (home-coach-strip.js), so there is
+     one fast-log entry point, not two divergent ones. */
+  function _wireLogMetricsCtas(el) {
+    if (!el) return;
+    var btns = el.querySelectorAll('[data-rd-log-metrics]');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].addEventListener('click', function () {
+        var row = document.getElementById('row-log');
+        if (row) row.hidden = false;
+        var btn = document.getElementById('lts-cta-btn') || document.querySelector('.lts-cta-btn');
+        if (btn) btn.click();
+        else if (row) row.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
   }
 
   /* ── Compact Readiness Tile ─────────────────────────────────────────────── */
@@ -26,6 +43,10 @@
     rhr: {
       name: 'RHR',
       fmt: function (v) { return v != null ? Math.round(v) + ' bpm' : '—'; },
+    },
+    sleep_quality: {
+      name: 'Sleep quality',
+      fmt: function (v) { return v != null ? v + '/5' : '—'; },
     },
     mood: {
       name: 'Mood',
@@ -97,7 +118,7 @@
     var header =
       '<div class="card-head">' +
         '<h2 class="ttl"><i class="ti ti-heart-rate-monitor"></i>Readiness · today</h2>' +
-        '<a href="/calendar">Log metrics &#8594;</a>' +
+        '<button type="button" class="rd-tile-log-link" data-rd-log-metrics>Log metrics &#8594;</button>' +
       '</div>';
 
     var body;
@@ -115,9 +136,9 @@
         '<div class="rd-tile-empty">' +
           '<i class="ti ti-moon-stars rd-tile-icon"></i>' +
           '<p class="rd-tile-msg">No metrics logged yet today. Log to see your readiness score.</p>' +
-          '<a href="/calendar" class="rd-tile-cta-btn">' +
+          '<button type="button" class="rd-tile-cta-btn" data-rd-log-metrics>' +
             '<i class="ti ti-pencil-plus"></i> Log today\'s metrics' +
-          '</a>' +
+          '</button>' +
         '</div>';
 
     /* logged === true → score ring + top 3 factors */
@@ -144,7 +165,7 @@
       var explanationHTML = '';
       if (readiness.explanation) {
         explanationHTML = '<p class="rd-tile-explanation">' +
-          readiness.explanation.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') +
+          esc(readiness.explanation) +
         '</p>';
       }
 
@@ -162,6 +183,7 @@
     // Load tiles (CTL/ATL/TSB/ACWR) below the daily-signal block — independent
     // of whether today's wellness metrics were logged.
     el.innerHTML = header + body + _rdLoadTilesHtml(trainingLoad);
+    _wireLogMetricsCtas(el);
     if (trainingLoad && window.LoadReadinessTiles) {
       LoadReadinessTiles.loadAcwrTile(el);
     }
@@ -172,7 +194,7 @@
   var _TRAINING_DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
   function _bangkokTodayStr() {
-    return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    return window.AppCommon.todayISO();
   }
 
   function _deltaCls(n) {
@@ -301,8 +323,9 @@
       el.innerHTML = header +
         '<div class="slp-empty">' +
           'No sleep logged for last night &middot; ' +
-          '<a href="/calendar">Add it with today\'s metrics &#8594;</a>' +
+          '<button type="button" class="slp-log-link" data-rd-log-metrics>Add it with today\'s metrics &#8594;</button>' +
         '</div>';
+      _wireLogMetricsCtas(el);
       return;
     }
 
@@ -325,7 +348,16 @@
       '</div>';
   }
 
-  /* ── Recent workout (compact, beside Performance) ───────────────────────── */
+  /* ── Recent workouts (retrospective, below Training) ─────────────────────
+     Used to live in the top-row slot beside Performance/Readiness; moved down
+     so that slot could become home-today-plan-card.js's forward-looking
+     "what should I do today" focal card instead (Home today-focal-point UX
+     review). Function/CSS-class names below keep the old "nw-" (next
+     workout) prefix — it was never accurate even before this move (this
+     widget only ever rendered *recent*, not *next*, workouts; see the
+     historical comment on renderRecentWorkoutsCard below) — renaming the
+     shared .nw-* CSS classes isn't worth the diff for a page-internal
+     prefix nobody reads as an acronym. */
 
   function _nwBadgeCls(sessionType) {
     return (sessionType === 'strength' || sessionType === 'plyo') ? 'lift' : 'run';
@@ -368,7 +400,7 @@
       '</div>';
   }
 
-  function renderNextWorkoutCard(el, recentWorkouts) {
+  function renderRecentWorkoutsCard(el, recentWorkouts) {
     if (!el) return;
     el.innerHTML = _nwSkeletonHtml();
     var recent = Array.isArray(recentWorkouts) ? recentWorkouts : [];
@@ -540,7 +572,7 @@
     var rdEl  = document.getElementById('home-top-row-right');
     var twEl  = document.getElementById('home-training-card');
     var slpEl = document.getElementById('home-sleep-card');
-    var nwEl  = document.getElementById('home-next-workout-card');
+    var nwEl  = document.getElementById('home-recent-workouts-card');
     var pfEl  = document.getElementById('home-performance-card');
 
     if (rdEl) {
@@ -565,7 +597,7 @@
       renderSleepCard(slpEl, summary && summary.sleep ? summary.sleep : null);
     }
     if (nwEl) {
-      renderNextWorkoutCard(nwEl, summary && summary.recent_workouts ? summary.recent_workouts : []);
+      renderRecentWorkoutsCard(nwEl, summary && summary.recent_workouts ? summary.recent_workouts : []);
     }
     if (pfEl) {
       renderPerformanceCard(pfEl, userId);

@@ -182,7 +182,13 @@ def _build_highlights_md(user_id, for_date: date) -> str:
 
     from backend.models import Workout
     from backend.services.training_verdict import compute_verdict
-    from backend.services.weekly_summary import assemble_facts, build_fallback_narrative
+    # From weekly_summary_facts, not weekly_summary: these two are pure, but
+    # their old home imports an LLM client at module level and this function is
+    # on the worker's daily_coach path (coach_facts -> daily_brief).
+    from backend.services.weekly_summary_facts import (
+        assemble_facts,
+        build_fallback_narrative,
+    )
 
     week_start = for_date - timedelta(days=for_date.weekday())
     week_end = for_date

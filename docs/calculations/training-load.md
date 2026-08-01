@@ -93,6 +93,15 @@ TSB       = CTL − ATL   (same-day)
 - Constants: `CTL_DAYS=42`, `ATL_DAYS=7`; form zones `FORM_BURIED_CEILING=-10`,
   `FORM_FRESH_FLOOR=5`; taper band TSB 5..25, `DEFAULT_TAPER_DAYS=14`;
   `PEAK_TRACKING_TOLERANCE=5`.
+- **Taper length is chosen by race priority** (issue #711, restored in #1605):
+  `A_RACE_TAPER_DAYS=14` for a goal race, `B_RACE_TAPER_DAYS=7` for a tune-up.
+  `taper_recommendation` reads `fitness_state["priority"]`, which `main.py`
+  threads from `races.priority`. Anything other than `"B"` — including a null
+  or a `"C"` — falls back to the A-race length, so an unknown priority stays
+  conservative rather than accidentally shortening a taper.
+  When the race is too close for form to reach `target_form`,
+  `taper_start_date` is `None` and `achievable` is `False` — the function says
+  the peak is unreachable rather than returning a start date already in the past.
 - `daily_tss_series` sums `workouts.tss` per day, zero-fills gaps.
 - `daily_update`/`get_snapshot_series` use a **180-day warm-up window** before
   the requested date/range so the EWMA has time to converge.

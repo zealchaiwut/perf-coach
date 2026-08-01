@@ -12,6 +12,7 @@ from typing import Any, Callable
 from sqlalchemy.orm import Session
 
 from backend.services.plan_prefs_accessor import get_plan_prefs
+from backend.services.plan_extras import apply_prefs_extras
 from backend.services.plan_skeleton import assemble_week, build_skeleton
 from backend.services.plan_slot import (
     build_week_ctx,
@@ -229,6 +230,15 @@ def generate_draft_payload(
         load_plan_week=load_plan_week,
         race_anchored_target=facts.get("target_tss"),
         existing_occupied=occupied,
+    )
+    # Stretch / plyo / monthly benchmark (lean program D5): prefs-driven extras
+    # decorated onto the skeleton. With those prefs unset this is the identity
+    # function, so a week is unchanged for anyone who hasn't opted in.
+    sk = apply_prefs_extras(
+        sk,
+        prefs=prefs,
+        week_start=week_start,
+        rest_days=set(prefs.get("preferred_rest_days") or []),
     )
 
     week_ctx = build_week_ctx(
@@ -490,7 +500,7 @@ def apply_draft(db: Session, user_id, week_start: date, *, today: date | None = 
     """Create planned sessions for open/future draft days; mark draft applied."""
     from backend.models import PlanDraft, PlannedSession
 
-    today = today or date.today()
+    today = today or today_bangkok()
     row = (
         db.query(PlanDraft)
         .filter(PlanDraft.user_id == user_id, PlanDraft.week_start == week_start)
@@ -595,7 +605,7 @@ def apply_draft_slot(
     from backend.models import PlanDraft, PlannedSession
     from backend.services import plan_skeleton_ops as ops
 
-    today = today or date.today()
+    today = today or today_bangkok()
     row = (
         db.query(PlanDraft)
         .filter(PlanDraft.user_id == user_id, PlanDraft.week_start == week_start)
@@ -837,7 +847,7 @@ def draft_status_for_badge(db: Session, user_id, *, today: date | None = None) -
     """In-app badge/chip: fresh or outdated draft awaiting review."""
     from backend.models import PlanDraft
 
-    today = today or date.today()
+    today = today or today_bangkok()
     ws = today - timedelta(days=today.weekday())
     row = (
         db.query(PlanDraft)
@@ -1373,6 +1383,12 @@ def replan_remaining_budget(
         load_plan_week=load_plan_week,
         race_anchored_target=facts.get("target_tss"),
         existing_occupied=existing_occupied,
+    )
+    sk = apply_prefs_extras(
+        sk,
+        prefs=prefs,
+        week_start=week_start,
+        rest_days=set(prefs.get("preferred_rest_days") or []),
     )
     return {
         "budget": budget,

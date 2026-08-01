@@ -64,4 +64,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if not table_exists("personal_records"):
+        return
     op.drop_table("personal_records")

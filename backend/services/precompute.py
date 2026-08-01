@@ -23,6 +23,7 @@ from typing import Any, Iterable, Optional
 
 from backend.services import training_load
 from backend.utils.log import get_logger
+from backend.utils.time import today_bangkok
 
 _log = get_logger(__name__)
 
@@ -57,7 +58,7 @@ def precompute_user(
     a custom EWMA calibration bypass the snapshot cache by design (see
     `daily_update`), so this is a cheap no-write recompute for them.
     """
-    end = as_of or date.today()
+    end = as_of or today_bangkok()
     targets = {end, end - timedelta(days=1)}
     for d in dates or []:
         cd = _coerce_date(d)

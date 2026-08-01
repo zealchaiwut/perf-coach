@@ -71,7 +71,7 @@ def test_ac1_help_mentions_user_id():
     """python run_strava_sync.py --help must mention --user_id."""
     import subprocess
     result = subprocess.run(
-        ["python3", str(SCRIPT), "--help"],
+        [sys.executable, str(SCRIPT), "--help"],
         capture_output=True, text=True, timeout=15,
     )
     assert result.returncode == 0, f"--help exited {result.returncode}: {result.stderr}"
@@ -221,7 +221,7 @@ def test_ac5_help_documents_fallback():
     """--help output must mention the default fallback user behaviour."""
     import subprocess
     result = subprocess.run(
-        ["python3", str(SCRIPT), "--help"],
+        [sys.executable, str(SCRIPT), "--help"],
         capture_output=True, text=True, timeout=15,
     )
     output = result.stdout + result.stderr

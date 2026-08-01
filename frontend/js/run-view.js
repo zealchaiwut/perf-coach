@@ -3,25 +3,23 @@
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
+  // Delegates to the shared escaper (issue #1603). The local copies
+  // disagreed about the apostrophe, so identical content was safe on
+  // some pages and attribute-injectable on others.
   function esc(s) {
-    if (s == null) return "";
-    return String(s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+    return window.AppCommon.escapeHtml(s);
   }
 
   function dash(v) {
     return v == null || v === "" ? "—" : v;
   }
 
+  // Delegates to the shared formatter (issue #531). The local copy rounded
+  // seconds without the minute-carry guard, so a pace landing near a boundary
+  // rendered "5:60 /km" (issue #1603).
   function fmtPace(distKm, durSec) {
-    if (!distKm || !durSec) return "—";
-    var secPerKm = durSec / distKm;
-    var m = Math.floor(secPerKm / 60);
-    var s = Math.round(secPerKm % 60);
-    return m + ":" + String(s).padStart(2, "0") + " /km";
+    var p = window.TrainingFormat && window.TrainingFormat.formatPace(durSec, distKm);
+    return p ? p + " /km" : "—";
   }
 
   function fmtDuration(sec) {

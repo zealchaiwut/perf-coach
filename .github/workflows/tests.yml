@@ -1,0 +1,69 @@
+name: Tests — unit subset, no new failures
+
+# The first automated gate this repo has had on ordinary code. Before it, no PR
+# ever ran a check: every "verified" claim came from a human reading a diff, and
+# three features were silently reverted by merges without anyone noticing for
+# weeks (#1605 shipped broken for 41 days).
+#
+# Runs the UNIT subset only — `-m "not integration"`. Tests needing a live
+# server on :9001 or real Postgres are marked automatically by tests/conftest.py
+# from what each file references, so this needs no services and finishes in
+# ~80s. Standing up disposable Postgres for the integration half is the next
+# step (#1606).
+#
+# The gate is a ratchet, not a green wall: zero collection errors, and no new
+# failures against tests/BASELINE_FAILURES.txt. See
+# scripts/check_test_regressions.py for why.
+
+on:
+  pull_request:
+  push:
+    branches: [develop, master]
+
+jobs:
+  unit:
+    name: Unit subset — zero collection errors, no regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Collect — any collection error fails the build
+        # Deliberately WITHOUT --continue-on-collection-errors. A module that
+        # cannot be imported must break the build here rather than quietly
+        # leaving the suite.
+        env:
+          # Matches production and start_worker.sh. Without it the runner is UTC
+          # and every date-boundary assertion drifts by a day (#1600).
+          TZ: Asia/Bangkok
+        run: python -m pytest tests/ -m "not integration" --collect-only -q
+
+      - name: Run unit subset
+        env:
+          TZ: Asia/Bangkok
+        # `|| true` so the regression check below is what decides the outcome —
+        # a nonzero pytest exit merely means "some tests failed", which is
+        # already true and is exactly what the baseline exists to measure.
+        run: python -m pytest tests/ -m "not integration" --tb=no -q > pytest-output.txt 2>&1 || true
+
+      - name: Show summary
+        run: tail -n 30 pytest-output.txt
+
+      - name: Check for regressions
+        run: python scripts/check_test_regressions.py pytest-output.txt
+
+      - name: Upload full output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-output
+          path: pytest-output.txt

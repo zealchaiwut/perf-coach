@@ -54,6 +54,14 @@ class User(Base):
     avatar = Column(LargeBinary, nullable=True)
     avatar_mime = Column(Text, nullable=True)
     height_cm = Column(Numeric(5, 1), nullable=True)
+    birth_date = Column(Date, nullable=True)
+    # Free-text athlete identity for the coach export payload — training history,
+    # constraints, what the athlete is actually trying to do. Kept separate from
+    # plan-prefs `notes` (scheduling instructions), and capped in the API layer.
+    athlete_context = Column(Text, nullable=True)
+    # Last time GET /api/coach/export/paste was served for this user; the export's
+    # meta.previous_export_date, so the coach message can skip a season re-check.
+    last_coach_export_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class WeightEntry(Base):
@@ -64,6 +72,11 @@ class WeightEntry(Base):
     entry_date = Column(Date, nullable=False)
     entry_time = Column(Time, nullable=True)
     weight_kg = Column(Numeric(5, 2), nullable=False)
+    # Optional weekly bioimpedance reading. Poor at absolute body fat (±5 pts),
+    # acceptable at DIRECTION under standardized conditions — direction is the
+    # only thing asked of it. Lean mass is derived, never stored, so the two
+    # can't disagree. A guard, never a target.
+    body_fat_pct = Column(Numeric(4, 1), nullable=True)
     notes = Column(Text, nullable=True)
     source = Column(String(20), nullable=False, server_default=text("'manual'"))
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
@@ -82,6 +95,10 @@ class WeightEntry(Base):
             "entry_date",
             unique=True,
             postgresql_where=text("entry_time IS NULL"),
+        ),
+        CheckConstraint(
+            "body_fat_pct IS NULL OR (body_fat_pct >= 3 AND body_fat_pct <= 70)",
+            name="ck_weight_entries_body_fat_pct_range",
         ),
         CheckConstraint(
             "source IN ('manual', 'imported', 'backfill')",
@@ -103,6 +120,14 @@ class WeightTarget(Base):
     ended_at = Column(DateTime(timezone=True), nullable=True)
     end_weight_kg = Column(Numeric(5, 2), nullable=True)
     notes = Column(Text, nullable=True)
+    # Folded in from the now-retired weight_plans table (#1604 schema
+    # consolidation). phase is informational (cut/bulk/maintain);
+    # target_rate_kg_per_week is an optional EXPLICIT weekly-rate override —
+    # when unset (the common case; nothing in the UI sets it), consumers fall
+    # back to the implied rate derived from start/target weight and date.
+    # Negative = losing weight, matching the old weight_plans convention.
+    phase = Column(Text, nullable=False, server_default=text("'cut'"))
+    target_rate_kg_per_week = Column(Numeric(4, 2), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
@@ -110,6 +135,10 @@ class WeightTarget(Base):
         CheckConstraint(
             "status IN ('active', 'achieved', 'abandoned', 'replaced')",
             name="ck_weight_targets_status_values",
+        ),
+        CheckConstraint(
+            "phase IN ('cut', 'bulk', 'maintain')",
+            name="ck_weight_targets_phase_values",
         ),
         Index("ix_weight_targets_user_status", "user_id", "status"),
         # Partial unique index — one active target per user; enforced at DB level
@@ -173,6 +202,28 @@ class Habit(Base):
         CheckConstraint(
             "section IN ('training', 'general')",
             name="ck_habits_section_values",
+        ),
+        # Partial unique indexes (#1604) closing ensure_goal_habits' check-then-
+        # insert race — see goal_habits.py and
+        # alembic/versions/becc012af2e6_derive_habit_type_from_tracking_type_.py.
+        # Both scoped WHERE is_archived = false so archiving-then-recreating a
+        # habit with the same name/source stays legal. Two indexes because
+        # goal_habits._find matches by auto_fill_source when the spec has one,
+        # else falls back to name — auto_fill_source alone would miss habits
+        # like "Protein first" that have none (NULL is never equal to NULL).
+        Index(
+            "uq_habits_user_id_auto_fill_source_active",
+            "user_id",
+            "auto_fill_source",
+            unique=True,
+            postgresql_where=text("is_archived = false AND auto_fill_source IS NOT NULL"),
+        ),
+        Index(
+            "uq_habits_user_id_name_active",
+            "user_id",
+            "name",
+            unique=True,
+            postgresql_where=text("is_archived = false"),
         ),
     )
 
@@ -288,6 +339,16 @@ class Workout(Base):
     # Flat-equivalent pace for treadmill activities (issue #1219): computed from
     # normalize_treadmill_signal via the Minetti NGP formula. None for outdoor runs.
     flat_equivalent_pace = Column(Float, nullable=True)
+    # Did this session take on fuel (gels / drink)? Nullable on purpose: unknown
+    # for everything logged before the column existed, and "unknown" must never
+    # read as "no". Only consulted for long runs, by the long-run-fuel habit.
+    fuelled = Column(Boolean, nullable=True)
+    # Running drills done alongside this session — form drills, strides, skips.
+    # A duration only, on purpose: no exercise breakdown and no TSS. Drills ride
+    # along with a session rather than being one, so they never claim a skeleton
+    # slot or a load budget. Nullable = unknown (logged before the column
+    # existed), which must not read as "did no drills".
+    drills_minutes = Column(Integer, nullable=True)
     # Self-reported effort feeling (issue #1241): 'hard' | 'ok' | 'easy' | NULL.
     # One shared column tagged from either the Plan tab (matched workout) or the
     # Log tab. Does not affect scores.
@@ -306,6 +367,7 @@ class Workout(Base):
         CheckConstraint("avg_hr IS NULL OR (avg_hr >= 20 AND avg_hr <= 250)", name="ck_workouts_avg_hr_range"),
         CheckConstraint("max_hr IS NULL OR (max_hr >= 20 AND max_hr <= 250)", name="ck_workouts_max_hr_range"),
         CheckConstraint("feeling IS NULL OR feeling IN ('hard', 'ok', 'easy')", name="ck_workouts_feeling_values"),
+        CheckConstraint("drills_minutes IS NULL OR (drills_minutes >= 0 AND drills_minutes <= 120)", name="ck_workouts_drills_minutes_range"),
         # Matches alembic/versions/c3d4e5f6a7b8_create_workouts_table.py's raw-SQL
         # index (already in the DB) — declared here so autogenerate stays quiet.
         Index("ix_workouts_user_id_workout_date", "user_id", workout_date.desc()),
@@ -463,6 +525,12 @@ class FuelSettings(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
     weight_kg = Column(Numeric(5, 2), nullable=False)
+    # Optional manual override, not a workaround: fuel.current_lean_mass_kg()
+    # prefers a measured value (from body_fat_pct history) and reports this
+    # setting only as its 'setting' fallback tier, ahead of the last-resort
+    # 'estimated' weight_kg * 0.76 — an intentional escape hatch for athletes
+    # who know their lean mass from a source this app doesn't ingest (DEXA,
+    # etc.) (#1604).
     lean_mass_kg = Column(Numeric(5, 2), nullable=True)  # fallback: weight_kg * 0.76
     base_kcal = Column(Integer, nullable=False)
     maintenance_source = Column(Text, nullable=False, server_default=text("'estimated'"))
@@ -1325,39 +1393,11 @@ class AthleteDurationCurve(Base):
     user = relationship("User", foreign_keys=[user_id])
 
 
-def validate_weight_plan_required(start_weight_kg, goal_weight_kg):
-    """Return (True, None) when required fields are present, else (None, reason).
-
-    Mirrors the compute_goal_pace pattern: never raises, returns a 2-tuple so
-    callers can distinguish success from missing-input without catching exceptions.
-    """
-    if start_weight_kg is None:
-        return (None, "start_weight_kg is required")
-    if goal_weight_kg is None:
-        return (None, "goal_weight_kg is required")
-    return (True, None)
-
-
-class WeightPlan(Base):
-    """Structured weight-goal plan: phase, target rate, and date range for one user."""
-
-    __tablename__ = "weight_plans"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    start_date = Column(Date, nullable=False)
-    start_weight_kg = Column(Numeric(6, 2), nullable=False)
-    goal_weight_kg = Column(Numeric(6, 2), nullable=False)
-    goal_date = Column(Date, nullable=True)
-    target_rate_kg_per_week = Column(Numeric(4, 2), nullable=True)
-    phase = Column(Text, nullable=False, server_default=text("'cut'"))
-    active = Column(Boolean, nullable=False, server_default=text("true"))
-    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
-    updated_at = Column(DateTime(timezone=True), server_default=text("now()"), onupdate=text("now()"))
-
-    __table_args__ = (
-        Index("ix_weight_plans_user_id", "user_id"),
-    )
+# NOTE: WeightPlan (table weight_plans) and its validate_weight_plan_required
+# helper were removed in #1604 — schema consolidation. weight_plans' two
+# distinguishing columns (phase, target_rate_kg_per_week) now live on
+# WeightTarget above; see that class's docstring comment and
+# alembic/versions/6f945c183d82_merge_weight_plans_into_weight_targets_.py.
 
 
 class SleepRecord(Base):
@@ -1726,7 +1766,7 @@ class VerdictHistory(Base):
 
     __table_args__ = (
         UniqueConstraint("user_id", "verdict_date", name="uq_verdict_history_user_date"),
-        Index("ix_verdict_history_user_date", "user_id", "verdict_date"),
+        Index("ix_verdict_history_user_date", "user_id", text("verdict_date DESC")),
     )
 
 
@@ -1926,6 +1966,84 @@ class PerformanceGoal(Base):
             name="ck_performance_goals_race_distance_values",
         ),
         Index("ix_performance_goals_user_id", "user_id"),
+    )
+
+
+class Decision(Base):
+    """One coaching decision from a consult — the system of record for what was tried.
+
+    The consult loop is deliberately paste-based: a check-in produces a
+    ``CHANGES TO APPLY`` block, that block is pasted into ONE textarea, and it
+    lands here verbatim as ``raw_text``. There is no parser. A parser is a
+    project; a textarea is an afternoon, and the value is in having the history
+    at all — the export carries the last ~10 rows so the next consult can
+    reference what was already tried instead of re-proposing it.
+
+    Storage lives in the app (Neon), not Notion and not a local file, so the
+    record survives the machine and travels with the export.
+
+    ``tags`` is JSONB rather than a Postgres ARRAY: the rest of the schema
+    already uses JSONB for list payloads, and it round-trips through the SQLite
+    shim the test suite uses.
+    """
+
+    __tablename__ = "decisions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    decided_on = Column(Date, nullable=False)
+    # Only 'consult' today; the column exists so a future automated source is a
+    # value, not a migration.
+    source = Column(String(20), nullable=False, server_default=text("'consult'"))
+    raw_text = Column(Text, nullable=False)
+    tags = Column(JSONB, nullable=True)
+    applied = Column(Boolean, nullable=False, server_default=text("true"))
+    outcome_note = Column(Text, nullable=True)
+    # When to check whether this change worked — surfaced to the next consult.
+    review_on = Column(Date, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=text("now()"))
+
+    __table_args__ = (
+        CheckConstraint("source IN ('consult')", name="ck_decisions_source_values"),
+        CheckConstraint("length(raw_text) > 0", name="ck_decisions_raw_text_non_empty"),
+        Index("ix_decisions_user_decided_on", "user_id", decided_on.desc()),
+    )
+
+
+class CalibrationSprint(Base):
+    """A bounded measurement week — never a diet.
+
+    5-7 days of deliberate logging, once a month, with a visible end date from
+    the moment it starts. ``end_date`` is stored rather than derived so the
+    countdown can't quietly extend itself: an open-ended "just track for a
+    while" is exactly what turns into another failed attempt.
+
+    Its purpose is a maintenance recalibration. Five days of real intake data
+    beats a formula estimate, and it only has to happen twelve times a year.
+    """
+
+    __tablename__ = "calibration_sprints"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    status = Column(String(20), nullable=False, server_default=text("'active'"))
+    logged_days = Column(Integer, nullable=False, server_default=text("0"))
+    # Recalibrated maintenance, once the sprint produced enough data.
+    result_base_kcal = Column(Integer, nullable=True)
+    result_note = Column(Text, nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active', 'completed', 'abandoned')",
+            name="ck_calibration_sprints_status",
+        ),
+        CheckConstraint("end_date >= start_date", name="ck_calibration_sprints_dates"),
+        Index("ix_calibration_sprints_user_start", "user_id", start_date.desc()),
     )
 
 

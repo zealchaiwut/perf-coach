@@ -7,7 +7,24 @@ from unittest.mock import MagicMock, patch, call
 import pytest
 
 from backend.services import sync_jobs
-from backend.services.reconcile import reconcile_workouts, _find_in_memory, _TOLERANCE
+from backend.services.reconcile import (
+    _TOLERANCE,
+    _build_workout_index,
+    _find_in_index,
+    reconcile_workouts,
+)
+
+
+def _find_in_memory(start_time, workouts, tolerance):
+    """Adapter for the renamed API (issue #1606).
+
+    _find_in_memory became _find_in_index in a real O(n^2)->O(n) refactor:
+    it now takes a date-bucketed index rather than a flat list. The matching
+    BEHAVIOUR these tests cover is unchanged, so they build the index here
+    rather than being deleted — this module stopped collecting entirely on
+    the rename, taking its real coverage with it.
+    """
+    return _find_in_index(start_time, _build_workout_index(workouts), tolerance)
 
 
 def _clear_registry():
@@ -94,7 +111,7 @@ def _make_session(strava_acts, stryd_acts, existing_workouts):
     return session
 
 
-# ── _find_in_memory ───────────────────────────────────────────────────────────
+# ── _find_in_index (via the _find_in_memory adapter above) ───────────────────────────────────────────────────────────
 
 def test_find_in_memory_match_within_tolerance():
     t = datetime(2026, 6, 1, 9, 0, 0, tzinfo=timezone.utc)

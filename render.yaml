@@ -41,6 +41,13 @@ services:
     envVars:
       - key: ENVIRONMENT
         value: uat
+      # Container timezone. perf-coach is a single-timezone app: the athlete
+      # lives in Asia/Bangkok and every "today" — weigh-in, fuel budget, the
+      # guardrail's week boundary — means a Bangkok calendar day. Without this
+      # the container runs UTC, so bare date.today() returns YESTERDAY for the
+      # first 7 hours of every local day (issue #1600).
+      - key: TZ
+        value: Asia/Bangkok
       - key: GIT_SHA
         value: ${{RENDER_GIT_COMMIT}}  # Render built-in deploy metadata
       - key: DATABASE_URL_UAT
@@ -72,6 +79,13 @@ services:
     envVars:
       - key: ENVIRONMENT
         value: prd
+      # Container timezone. perf-coach is a single-timezone app: the athlete
+      # lives in Asia/Bangkok and every "today" — weigh-in, fuel budget, the
+      # guardrail's week boundary — means a Bangkok calendar day. Without this
+      # the container runs UTC, so bare date.today() returns YESTERDAY for the
+      # first 7 hours of every local day (issue #1600).
+      - key: TZ
+        value: Asia/Bangkok
       - key: GIT_SHA
         value: ${{RENDER_GIT_COMMIT}}  # Render built-in deploy metadata
       - key: DATABASE_URL_PRD

@@ -62,15 +62,24 @@ def test_ac1_readme_warn_against_parallel_checkouts():
 # ── AC-2: start_uat.sh and start_prd.sh ───────────────────────────────────────
 
 def test_ac2_start_uat_uses_environment_variable():
-    """start_uat.sh must set ENVIRONMENT=UAT explicitly in the script."""
-    assert "ENVIRONMENT=UAT" in START_UAT, \
-        "start_uat.sh must set ENVIRONMENT=UAT"
+    """start_uat.sh must validate ENVIRONMENT against 'uat'.
+
+    #101's original script hardcoded `export ENVIRONMENT=UAT`, overriding
+    whatever .env said. a90f7894 (#160) deliberately replaced that with reading
+    and validating ENVIRONMENT from .env instead — documented in CLAUDE.md's
+    Local Development section ("source .env, export ENVIRONMENT=uat") and
+    required by the very next test below (start_uat.sh must source .env, not
+    select env by directory name). This assertion was never updated to match
+    and was failing against the shipped design (#1606).
+    """
+    assert "ENVIRONMENT" in START_UAT and '!= "uat"' in START_UAT, \
+        "start_uat.sh must validate ENVIRONMENT is 'uat' (read from .env, not hardcoded)"
 
 
 def test_ac2_start_prd_uses_environment_variable():
-    """start_prd.sh must set ENVIRONMENT=PRD explicitly in the script."""
-    assert "ENVIRONMENT=PRD" in START_PRD, \
-        "start_prd.sh must set ENVIRONMENT=PRD"
+    """start_prd.sh must validate ENVIRONMENT against 'prd' (see #160 note above)."""
+    assert "ENVIRONMENT" in START_PRD and '!= "prd"' in START_PRD, \
+        "start_prd.sh must validate ENVIRONMENT is 'prd' (read from .env, not hardcoded)"
 
 
 def test_ac2_start_uat_reads_env_file_not_directory_name():
@@ -148,6 +157,33 @@ def _is_merge_migration(content: str) -> bool:
     return all(line == "pass" for line in code_lines)
 
 
+# Accepted existence-guard spellings.
+#
+# CLAUDE.md documents this project's convention as the helpers in alembic/
+# (table_exists / column_exists / index_exists / fk_exists), but these
+# assertions only ever recognised SQLAlchemy's raw inspector API. Every
+# migration written in the project's OWN documented style was reported as a
+# violation — 216 false failures, the single largest block in the suite, and
+# noise that made the real failures harder to see (#1606).
+_TABLE_GUARDS = ("has_table", "table_exists", "IF NOT EXISTS")
+_COLUMN_GUARDS = (
+    "has_column", "get_columns", "existing_cols", "column_exists", "IF NOT EXISTS",
+)
+# "table_exists" belongs here too, same reason as _TABLE_GUARDS/_COLUMN_GUARDS
+# above: many migrations guard their WHOLE upgrade() with a single
+# `if table_exists(...): return` before ever reaching op.create_index, which
+# makes the index creation safe to re-run without a second, index-specific
+# check. That pattern was missed when the false-positive fix above landed,
+# so every migration written in it (~14) still read as a violation (#1606).
+_INDEX_GUARDS = (
+    "has_index", "get_indexes", "index_exists", "IF NOT EXISTS", "table_exists",
+)
+
+
+def _guarded(content: str, guards) -> bool:
+    return any(g in content for g in guards)
+
+
 @pytest.mark.parametrize("migration", _migration_files(), ids=lambda p: p.name)
 def test_ac3_create_table_guarded(migration):
     """Every op.create_table call must be inside an existence-check guard."""
@@ -156,8 +192,10 @@ def test_ac3_create_table_guarded(migration):
         pytest.skip("merge migration has no op.create_table calls")
     if "op.create_table(" not in content:
         pytest.skip(f"{migration.name} has no op.create_table calls")
-    assert "has_table" in content or "IF NOT EXISTS" in content, \
-        f"{migration.name}: op.create_table must be guarded with has_table() or IF NOT EXISTS"
+    assert _guarded(content, _TABLE_GUARDS), (
+        f"{migration.name}: op.create_table must be guarded — "
+        f"one of {_TABLE_GUARDS}"
+    )
 
 
 @pytest.mark.parametrize("migration", _migration_files(), ids=lambda p: p.name)
@@ -168,9 +206,10 @@ def test_ac3_add_column_guarded(migration):
         pytest.skip("merge migration")
     if "op.add_column(" not in content:
         pytest.skip(f"{migration.name} has no op.add_column calls")
-    assert "has_column" in content or "get_columns" in content or "existing_cols" in content or \
-           "IF NOT EXISTS" in content, \
-        f"{migration.name}: op.add_column must be guarded with column existence check"
+    assert _guarded(content, _COLUMN_GUARDS), (
+        f"{migration.name}: op.add_column must be guarded — "
+        f"one of {_COLUMN_GUARDS}"
+    )
 
 
 @pytest.mark.parametrize("migration", _migration_files(), ids=lambda p: p.name)
@@ -192,9 +231,14 @@ def test_ac3_create_index_guarded(migration):
     has_op_create_index = "op.create_index(" in upgrade_body
 
     if has_op_create_index and not has_create_index_safe:
-        assert "has_table" in upgrade_body or "inspector" in upgrade_body or \
-               "CREATE INDEX IF NOT EXISTS" in upgrade_body, \
-            f"{migration.name}: op.create_index must use IF NOT EXISTS or be inside an existence guard"
+        assert (
+            _guarded(upgrade_body, _INDEX_GUARDS)
+            or "inspector" in upgrade_body
+            or "CREATE INDEX IF NOT EXISTS" in upgrade_body
+        ), (
+            f"{migration.name}: op.create_index must use IF NOT EXISTS or be "
+            f"inside an existence guard — one of {_INDEX_GUARDS}"
+        )
 
 
 @pytest.mark.parametrize("migration", _migration_files(), ids=lambda p: p.name)
@@ -212,7 +256,7 @@ def test_ac3_drop_table_guarded(migration):
     if "op.drop_table(" not in downgrade_body:
         pytest.skip(f"{migration.name} has no op.drop_table in downgrade()")
 
-    assert "has_table" in downgrade_body or "DROP TABLE IF EXISTS" in downgrade_body, \
+    assert _guarded(downgrade_body, _TABLE_GUARDS + ("DROP TABLE IF EXISTS",)), \
         f"{migration.name}: op.drop_table in downgrade() must be guarded with has_table() or IF EXISTS"
 
 
@@ -224,8 +268,18 @@ def test_ac4_59a_has_import_sqlalchemy():
 
 
 def test_ac4_59a_has_import_inspect():
-    assert "from sqlalchemy import inspect" in MIGRATION_59A, \
-        "59a1b2c3d4e5 must have 'from sqlalchemy import inspect'"
+    """59a1b2c3d4e5 must import an existence-check helper.
+
+    a90f7894 (#160) replaced the raw `from sqlalchemy import inspect` +
+    `inspector.has_table()` guard with the shared `from helpers import
+    table_exists` (alembic/helpers.py) — same idempotency check, project's own
+    documented convention (CLAUDE.md). This assertion still looked for the
+    pre-#160 spelling and was failing against the shipped design (#1606).
+    """
+    assert (
+        "from sqlalchemy import inspect" in MIGRATION_59A
+        or "table_exists" in MIGRATION_59A
+    ), "59a1b2c3d4e5 must import an existence-check helper (inspect or helpers.table_exists)"
 
 
 def test_ac4_59a_has_import_sequence_union():
@@ -238,8 +292,9 @@ def test_ac4_59a_upgrade_has_existence_guard():
     upgrade_block = re.search(r"def upgrade\(\).*?(?=\ndef |\Z)", MIGRATION_59A, re.DOTALL)
     assert upgrade_block, "59a1b2c3d4e5 must have an upgrade() function"
     body = upgrade_block.group(0)
-    assert "has_table" in body and "daily_readiness" in body, \
-        "59a1b2c3d4e5 upgrade() must guard against daily_readiness already existing"
+    assert (
+        ("has_table" in body or "table_exists" in body) and "daily_readiness" in body
+    ), "59a1b2c3d4e5 upgrade() must guard against daily_readiness already existing"
     assert "return" in body, \
         "59a1b2c3d4e5 upgrade() must return early if the table already exists"
 
@@ -250,8 +305,11 @@ def test_ac4_a9b_has_import_sqlalchemy():
 
 
 def test_ac4_a9b_has_import_inspect():
-    assert "from sqlalchemy import inspect" in MIGRATION_A9B, \
-        "a9b0c1d2e3f4 must have 'from sqlalchemy import inspect'"
+    """a9b0c1d2e3f4 must import an existence-check helper (see 59a note above)."""
+    assert (
+        "from sqlalchemy import inspect" in MIGRATION_A9B
+        or "table_exists" in MIGRATION_A9B
+    ), "a9b0c1d2e3f4 must import an existence-check helper (inspect or helpers.table_exists)"
 
 
 def test_ac4_a9b_has_import_sequence_union():
@@ -264,8 +322,9 @@ def test_ac4_a9b_upgrade_has_existence_guard():
     upgrade_block = re.search(r"def upgrade\(\).*?(?=\ndef |\Z)", MIGRATION_A9B, re.DOTALL)
     assert upgrade_block, "a9b0c1d2e3f4 must have an upgrade() function"
     body = upgrade_block.group(0)
-    assert "has_table" in body and "daily_readiness" in body, \
-        "a9b0c1d2e3f4 upgrade() must guard against daily_readiness already existing"
+    assert (
+        ("has_table" in body or "table_exists" in body) and "daily_readiness" in body
+    ), "a9b0c1d2e3f4 upgrade() must guard against daily_readiness already existing"
     assert "return" in body, \
         "a9b0c1d2e3f4 upgrade() must return early if the table already exists"
 

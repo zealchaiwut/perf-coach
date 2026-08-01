@@ -18,10 +18,15 @@ def test_document_hermes_read_api__section_exists():
     # Check section exists
     assert "## Read API (Hermes)" in content, "Missing 'Read API (Hermes)' section header"
 
-    # Check all four endpoints are listed
+    # GET /api/scores was in this list and is NOT — it was documented in
+    # docs/worker.md but never implemented in worker_app.py, and git shows no
+    # commit that ever added it (#1601). This assertion was enforcing the
+    # documentation of a phantom: anyone scoping the Hermes surface from that
+    # file got a larger API than the code has, and this test kept it there.
+    #
+    # If the endpoint is built, add it back here and to the docs together.
     endpoints = [
         "GET /api/training/load",
-        "GET /api/scores",
         "GET /api/plan/today",
         "GET /api/weight/recent",
     ]
@@ -77,7 +82,9 @@ def test_document_hermes_read_api__example_responses_field_names():
     hermes_section = content[hermes_section_start:hermes_section_end]
 
     json_blocks = re.findall(r'```json\n(.*?)\n```', hermes_section, re.DOTALL)
-    assert len(json_blocks) >= 4, f"Expected at least 4 JSON examples in Hermes section, found {len(json_blocks)}"
+    # Was >= 4. One example went with the GET /api/scores section, which
+    # documented an endpoint that was never implemented (#1601).
+    assert len(json_blocks) >= 3, f"Expected at least 3 JSON examples in Hermes section, found {len(json_blocks)}"
 
     # Parse each and check structure
     for i, block in enumerate(json_blocks):
@@ -92,18 +99,17 @@ def test_document_hermes_read_api__example_responses_field_names():
     full_doc = content
 
     # training/load: check ctl, atl, tsb, acwr, verdict
-    load_section = full_doc[full_doc.find("### `GET /api/training/load`"):full_doc.find("### `GET /api/scores`")]
+    load_section = full_doc[full_doc.find("### `GET /api/training/load`"):# was the /api/scores heading, removed with that phantom section (#1601)
+        full_doc.find("### `GET /api/plan/today`")]
     assert "ctl" in load_section, "training/load response missing 'ctl' field"
     assert "atl" in load_section, "training/load response missing 'atl' field"
     assert "tsb" in load_section, "training/load response missing 'tsb' field"
     assert "acwr" in load_section, "training/load response missing 'acwr' field"
     assert "verdict" in load_section, "training/load response missing 'verdict' field"
 
-    # scores: check endurance, speed, trend
-    scores_section = full_doc[full_doc.find("### `GET /api/scores`"):full_doc.find("### `GET /api/plan/today`")]
-    assert "endurance" in scores_section, "scores response missing 'endurance' field"
-    assert "speed" in scores_section, "scores response missing 'speed' field"
-    assert "trend" in scores_section, "scores response missing 'trend' field"
+    # The scores spot-check was removed with the phantom GET /api/scores
+    # section (#1601): it verified example fields for an endpoint that was
+    # documented but never implemented.
 
     # plan/today: check planned, sessions
     plan_section = full_doc[full_doc.find("### `GET /api/plan/today`"):full_doc.find("### `GET /api/weight/recent`")]

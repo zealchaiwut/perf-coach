@@ -27,7 +27,7 @@ Issue #351: GET /api/home/readiness
   AC (d) great sleep + great HRV yields score > 70
   AC (e) score_label correct at every boundary value (19, 20, 39, 40, 59, 60, 79, 80)
   AC (f) rolling_baseline excludes the queried date, covers only prior 7 days
-  AC (g) contributors array contains exactly 5 factors
+  AC (g) contributors array contains exactly 4 factors
 """
 import datetime
 import uuid
@@ -87,10 +87,11 @@ def _patch_session(workouts, user=None):
 
 # ── AC (a): response shape ────────────────────────────────────────────────────
 
-def test_response_shape():
+def test_response_shape(as_user):
+    as_user(_UID)
     w = _make_workout(distance_km=5.0, duration_seconds=1800, avg_hr=145, tss=50.0, source="strava")
     with _patch_session([w]):
-        res = client.get(f"/api/home/recent-workouts?user_id={_UID}")
+        res = client.get(f"/api/home/recent-workouts")
     assert res.status_code == 200
     body = res.json()
     assert "workouts" in body
@@ -113,10 +114,11 @@ def test_response_shape():
     assert wo["source"] == "strava"
 
 
-def test_null_fields_omitted():
+def test_null_fields_omitted(as_user):
+    as_user(_UID)
     w = _make_workout()
     with _patch_session([w]):
-        res = client.get(f"/api/home/recent-workouts?user_id={_UID}")
+        res = client.get(f"/api/home/recent-workouts")
     assert res.status_code == 200
     wo = res.json()["workouts"][0]
     assert "distance_km" not in wo
@@ -126,88 +128,108 @@ def test_null_fields_omitted():
     assert "source" not in wo
 
 
-def test_is_stryd_synced_false_when_no_stryd_pk():
+def test_is_stryd_synced_false_when_no_stryd_pk(as_user):
+    as_user(_UID)
     w = _make_workout(stryd_activity_pk=None)
     with _patch_session([w]):
-        res = client.get(f"/api/home/recent-workouts?user_id={_UID}")
+        res = client.get(f"/api/home/recent-workouts")
     assert res.json()["workouts"][0]["is_stryd_synced"] is False
 
 
-def test_is_stryd_synced_true_when_stryd_pk_set():
+def test_is_stryd_synced_true_when_stryd_pk_set(as_user):
+    as_user(_UID)
     w = _make_workout(stryd_activity_pk=uuid.uuid4())
     with _patch_session([w]):
-        res = client.get(f"/api/home/recent-workouts?user_id={_UID}")
+        res = client.get(f"/api/home/recent-workouts")
     assert res.json()["workouts"][0]["is_stryd_synced"] is True
 
 
 # ── AC (b): limit=11 returns 422 ─────────────────────────────────────────────
 
-def test_limit_11_returns_422():
-    res = client.get(f"/api/home/recent-workouts?user_id={_UID}&limit=11")
+def test_limit_11_returns_422(as_user):
+    as_user(_UID)
+    res = client.get(f"/api/home/recent-workouts?limit=11")
     assert res.status_code == 422
 
 
-def test_limit_10_accepted():
+def test_limit_10_accepted(as_user):
+    as_user(_UID)
     with _patch_session([]):
-        res = client.get(f"/api/home/recent-workouts?user_id={_UID}&limit=10")
+        res = client.get(f"/api/home/recent-workouts?limit=10")
     assert res.status_code == 200
 
 
-def test_missing_user_id_returns_422():
+def test_anonymous_request_is_rejected():
+    """REVERSED (#1606 triage).
+
+    Was `test_missing_user_id_returns_422`: identity came from a `?user_id=`
+    query param, and omitting it was a validation error. That shim was removed
+    deliberately — it was an IDOR — so identity now comes from the session and
+    an anonymous caller gets 401, not 422.
+
+    Deliberately does NOT take the `as_user` fixture: the point is that nobody
+    is logged in.
+    """
     res = client.get("/api/home/recent-workouts")
-    assert res.status_code == 422
+    assert res.status_code == 401
 
 
 # ── AC (c): relative_date computation ────────────────────────────────────────
 
-def test_relative_date_today():
+def test_relative_date_today(as_user):
+    as_user(_UID)
     w = _make_workout(workout_date=TODAY)
     with _patch_session([w]):
-        res = client.get(f"/api/home/recent-workouts?user_id={_UID}")
+        res = client.get(f"/api/home/recent-workouts")
     assert res.json()["workouts"][0]["relative_date"] == "Today"
 
 
-def test_relative_date_yesterday():
+def test_relative_date_yesterday(as_user):
+    as_user(_UID)
     yesterday = TODAY - datetime.timedelta(days=1)
     w = _make_workout(workout_date=yesterday)
     with _patch_session([w]):
-        res = client.get(f"/api/home/recent-workouts?user_id={_UID}")
+        res = client.get(f"/api/home/recent-workouts")
     assert res.json()["workouts"][0]["relative_date"] == "Yesterday"
 
 
-def test_relative_date_3_days_ago():
+def test_relative_date_3_days_ago(as_user):
+    as_user(_UID)
     three_ago = TODAY - datetime.timedelta(days=3)
     w = _make_workout(workout_date=three_ago)
     with _patch_session([w]):
-        res = client.get(f"/api/home/recent-workouts?user_id={_UID}")
+        res = client.get(f"/api/home/recent-workouts")
     assert res.json()["workouts"][0]["relative_date"] == "3 days ago"
 
 
-def test_relative_date_6_days_ago():
+def test_relative_date_6_days_ago(as_user):
+    as_user(_UID)
     six_ago = TODAY - datetime.timedelta(days=6)
     w = _make_workout(workout_date=six_ago)
     with _patch_session([w]):
-        res = client.get(f"/api/home/recent-workouts?user_id={_UID}")
+        res = client.get(f"/api/home/recent-workouts")
     assert res.json()["workouts"][0]["relative_date"] == "6 days ago"
 
 
-def test_relative_date_old_is_iso():
+def test_relative_date_old_is_iso(as_user):
+    as_user(_UID)
     old_date = TODAY - datetime.timedelta(days=10)
     w = _make_workout(workout_date=old_date)
     with _patch_session([w]):
-        res = client.get(f"/api/home/recent-workouts?user_id={_UID}")
+        res = client.get(f"/api/home/recent-workouts")
     assert res.json()["workouts"][0]["relative_date"] == old_date.isoformat()
 
 
 # ── AC (d): sort order most-recent-first ─────────────────────────────────────
 
-def test_sort_order_most_recent_first():
+def test_sort_order_most_recent_first(as_user):
+    as_user(_UID)
     oldest = _make_workout(workout_date=TODAY - datetime.timedelta(days=5), name="Oldest")
     newest = _make_workout(workout_date=TODAY, name="Newest")
     middle = _make_workout(workout_date=TODAY - datetime.timedelta(days=2), name="Middle")
     # DB mock returns them in sorted order (endpoint delegates sort to DB)
     with _patch_session([newest, middle, oldest]):
-        res = client.get(f"/api/home/recent-workouts?user_id={_UID}")
+        res = client.get(f"/api/home/recent-workouts")
     workouts = res.json()["workouts"]
     assert workouts[0]["name"] == "Newest"
     assert workouts[1]["name"] == "Middle"
@@ -216,9 +238,10 @@ def test_sort_order_most_recent_first():
 
 # ── AC (e): empty result ──────────────────────────────────────────────────────
 
-def test_empty_result():
+def test_empty_result(as_user):
+    as_user(_UID)
     with _patch_session([]):
-        res = client.get(f"/api/home/recent-workouts?user_id={_UID}")
+        res = client.get(f"/api/home/recent-workouts")
     assert res.status_code == 200
     body = res.json()
     assert body == {"workouts": [], "count": 0, "has_more": False}
@@ -226,29 +249,32 @@ def test_empty_result():
 
 # ── AC (f): has_more ──────────────────────────────────────────────────────────
 
-def test_has_more_false_when_within_limit():
+def test_has_more_false_when_within_limit(as_user):
+    as_user(_UID)
     workouts = [_make_workout() for _ in range(3)]
     # limit=5 default, DB returns 3 (≤ limit) so has_more=False
     with _patch_session(workouts):
-        res = client.get(f"/api/home/recent-workouts?user_id={_UID}")
+        res = client.get(f"/api/home/recent-workouts")
     assert res.json()["has_more"] is False
 
 
-def test_has_more_true_when_exceeds_limit():
+def test_has_more_true_when_exceeds_limit(as_user):
+    as_user(_UID)
     # limit=3, but DB returns 4 (limit+1) meaning there are more
     workouts = [_make_workout() for _ in range(4)]
     with _patch_session(workouts):
-        res = client.get(f"/api/home/recent-workouts?user_id={_UID}&limit=3")
+        res = client.get(f"/api/home/recent-workouts?limit=3")
     body = res.json()
     assert body["has_more"] is True
     assert body["count"] == 3  # Only limit rows returned
 
 
-def test_has_more_false_at_exact_limit():
+def test_has_more_false_at_exact_limit(as_user):
+    as_user(_UID)
     workouts = [_make_workout() for _ in range(5)]
     # limit=5 default; DB returns exactly 5 (limit+1 = 6 was asked but only 5 available)
     with _patch_session(workouts):
-        res = client.get(f"/api/home/recent-workouts?user_id={_UID}")
+        res = client.get(f"/api/home/recent-workouts")
     body = res.json()
     assert body["has_more"] is False
     assert body["count"] == 5
@@ -256,7 +282,8 @@ def test_has_more_false_at_exact_limit():
 
 # ── Unknown user returns 404 ──────────────────────────────────────────────────
 
-def test_unknown_user_returns_404():
+def test_unknown_user_returns_404(as_user):
+    as_user(_UID)
     mock_session = MagicMock()
     mock_session.get.return_value = None
 
@@ -265,11 +292,12 @@ def test_unknown_user_returns_404():
     mock_cm.__exit__.return_value = False
 
     with patch("backend.main.Session", return_value=mock_cm):
-        res = client.get(f"/api/home/recent-workouts?user_id={_UID}")
+        res = client.get(f"/api/home/recent-workouts")
     assert res.status_code == 404
 
 
-def test_invalid_user_id_returns_404():
+def test_invalid_user_id_returns_404(as_user):
+    as_user(_UID)
     res = client.get("/api/home/recent-workouts?user_id=not-a-uuid")
     assert res.status_code == 404
 
@@ -369,27 +397,29 @@ def _patch_pr_session(records, user_found=True, raise_on_all=None):
 
 
 # AC (a): returns expected shape with current weight present
-def test_weight_summary_shape():
+def test_weight_summary_shape(as_user):
+    as_user(_UID)
     entry = _make_entry(_TODAY, 75.0)
     with _patch_weight_session([entry]):
         res = client.get(f"/api/home/weight-summary?user_id={_W_UID}")
     assert res.status_code == 200
     body = res.json()
-    for key in ("current_weight_kg", "current_date", "moving_avg_7d_kg",
+    for key in ("current_weight", "current_date", "moving_avg_7d_kg",
                 "delta_7d_kg", "delta_30d_kg", "target", "sparkline"):
         assert key in body, f"missing key: {key}"
-    assert isinstance(body["current_weight_kg"], float)
-    assert body["current_weight_kg"] == 75.0
+    assert isinstance(body["current_weight"], float)
+    assert body["current_weight"] == 75.0
     assert body["current_date"] == str(_TODAY)
 
 
 # AC (b): returns nulls cleanly when no weight entries exist
-def test_weight_summary_no_entries():
+def test_weight_summary_no_entries(as_user):
+    as_user(_UID)
     with _patch_weight_session([]):
         res = client.get(f"/api/home/weight-summary?user_id={_W_UID}")
     assert res.status_code == 200
     body = res.json()
-    assert body["current_weight_kg"] is None
+    assert body["current_weight"] is None
     assert body["moving_avg_7d_kg"] is None
     assert body["delta_7d_kg"] is None
     assert body["delta_30d_kg"] is None
@@ -400,7 +430,8 @@ def test_weight_summary_no_entries():
 
 
 # AC (c): sparkline length is exactly 30, nulls for days with no data
-def test_weight_summary_sparkline_length():
+def test_weight_summary_sparkline_length(as_user):
+    as_user(_UID)
     entry = _make_entry(_TODAY, 75.0)
     with _patch_weight_session([entry]):
         res = client.get(f"/api/home/weight-summary?user_id={_W_UID}")
@@ -411,7 +442,8 @@ def test_weight_summary_sparkline_length():
 
 
 # AC (d): target block populated correctly when active target exists
-def test_weight_summary_target_block():
+def test_weight_summary_target_block(as_user):
+    as_user(_UID)
     entry = _make_entry(_TODAY, 75.0)
     target_date = _TODAY + datetime.timedelta(days=60)
     start_date = _TODAY - datetime.timedelta(days=30)
@@ -438,7 +470,8 @@ def test_weight_summary_target_block():
 
 
 # AC (e): target is null when no active target exists
-def test_weight_summary_no_target():
+def test_weight_summary_no_target(as_user):
+    as_user(_UID)
     entry = _make_entry(_TODAY, 75.0)
     with _patch_weight_session([entry], target=None):
         res = client.get(f"/api/home/weight-summary?user_id={_W_UID}")
@@ -447,7 +480,8 @@ def test_weight_summary_no_target():
 
 
 # AC (f): graceful empty-defaults when weight_entries table absent
-def test_weight_summary_table_absent():
+def test_weight_summary_table_absent(as_user):
+    as_user(_UID)
     mock_user = MagicMock()
     mock_user.id = uuid.UUID(_W_UID)
 
@@ -466,7 +500,7 @@ def test_weight_summary_table_absent():
 
     assert res.status_code == 200
     body = res.json()
-    assert body["current_weight_kg"] is None
+    assert body["current_weight"] is None
     assert body["moving_avg_7d_kg"] is None
     assert body["delta_7d_kg"] is None
     assert body["delta_30d_kg"] is None
@@ -476,7 +510,8 @@ def test_weight_summary_table_absent():
 
 
 # (a) response shape matches spec
-def test_pr_response_shape():
+def test_pr_response_shape(as_user):
+    as_user(_UID)
     r = _make_pr(value_numeric=6871.0)
     with _patch_pr_session([r]):
         res = client.get(f"/api/home/personal-records?user_id={_PR_UID}&tracks=half_marathon")
@@ -496,7 +531,8 @@ def test_pr_response_shape():
 
 
 # (b) tracks filter returns only requested tracks
-def test_pr_tracks_filter():
+def test_pr_tracks_filter(as_user):
+    as_user(_UID)
     r_10k = _make_pr(track_key="10k", track_name="10K", track_type="time", value_numeric=2400.0)
     with _patch_pr_session([r_10k]):
         res = client.get(f"/api/home/personal-records?user_id={_PR_UID}&tracks=10k")
@@ -507,7 +543,8 @@ def test_pr_tracks_filter():
 
 
 # (c) time formatting: 6871 → "1:54:31"
-def test_pr_time_formatting():
+def test_pr_time_formatting(as_user):
+    as_user(_UID)
     r = _make_pr(track_key="half_marathon", track_type="time", value_numeric=6871.0)
     with _patch_pr_session([r]):
         res = client.get(f"/api/home/personal-records?user_id={_PR_UID}&tracks=half_marathon")
@@ -515,7 +552,8 @@ def test_pr_time_formatting():
 
 
 # (d) trend "improving" for a faster time record
-def test_pr_trend_improving_time():
+def test_pr_trend_improving_time(as_user):
+    as_user(_UID)
     r_latest = _make_pr(track_key="half_marathon", track_type="time", value_numeric=6000.0,
                         achieved_on=_PR_TODAY)
     r_prev = _make_pr(track_key="half_marathon", track_type="time", value_numeric=6871.0,
@@ -526,7 +564,8 @@ def test_pr_trend_improving_time():
 
 
 # (e) trend "stable" when values are within 1% threshold
-def test_pr_trend_stable():
+def test_pr_trend_stable(as_user):
+    as_user(_UID)
     r_latest = _make_pr(track_key="half_marathon", track_type="time", value_numeric=6871.0)
     r_prev = _make_pr(track_key="half_marathon", track_type="time", value_numeric=6870.0)
     with _patch_pr_session([r_latest, r_prev]):
@@ -535,7 +574,8 @@ def test_pr_trend_stable():
 
 
 # (f) graceful empty response when personal_records table is absent
-def test_pr_table_absent():
+def test_pr_table_absent(as_user):
+    as_user(_UID)
     with _patch_pr_session([], raise_on_all=Exception("relation 'personal_records' does not exist")):
         res = client.get(f"/api/home/personal-records?user_id={_PR_UID}")
     assert res.status_code == 200
@@ -543,7 +583,8 @@ def test_pr_table_absent():
 
 
 # (g) graceful empty response when user has no records
-def test_pr_no_records_for_user():
+def test_pr_no_records_for_user(as_user):
+    as_user(_UID)
     with _patch_pr_session([]):
         res = client.get(f"/api/home/personal-records?user_id={_PR_UID}&tracks=half_marathon")
     assert res.status_code == 200
@@ -559,7 +600,8 @@ _RDY_UID = str(uuid.uuid4())
 _RDY_TODAY = datetime.date.today()
 
 
-def _make_daily_metric(metric_date=None, sleep_hours=7.0, hrv=60, resting_hr=60, mood=3, energy=3):
+def _make_daily_metric(metric_date=None, sleep_hours=7.0, hrv=60, resting_hr=60, mood=3, energy=3,
+                        sleep_quality=None):
     m = MagicMock()
     m.metric_date = metric_date or _RDY_TODAY
     m.sleep_hours = Decimal(str(sleep_hours)) if sleep_hours is not None else None
@@ -567,6 +609,15 @@ def _make_daily_metric(metric_date=None, sleep_hours=7.0, hrv=60, resting_hr=60,
     m.resting_hr = resting_hr
     m.mood = mood
     m.energy = energy
+    # get_home_readiness (#1348, commit 16ccab9c) reads sleep_quality, not
+    # sleep_hours, for the readiness score's sleep component — sleep_hours
+    # here is display-only. Callers that don't care about the readiness score
+    # leave sleep_quality unset, which historically meant an unconfigured
+    # MagicMock: float(m.sleep_quality) silently evaluated to 1.0 (worst
+    # possible), not the neutral/omitted value the callers assumed. Keeping
+    # that default preserves every existing test's behavior exactly; pass
+    # sleep_quality explicitly when a test's assertion actually depends on it.
+    m.sleep_quality = sleep_quality if sleep_quality is not None else 1.0
     return m
 
 
@@ -591,15 +642,16 @@ def _patch_readiness_session(user_found=True, metrics_row=None, baseline_rows=No
 
 
 # (a) response has expected shape
-def test_readiness_response_shape():
+def test_readiness_response_shape(as_user):
+    as_user(_UID)
     m = _make_daily_metric()
     with _patch_readiness_session(metrics_row=m, baseline_rows=[]):
-        res = client.get(f"/api/home/readiness?user_id={_RDY_UID}")
+        res = client.get("/api/home/readiness")
     assert res.status_code == 200
     body = res.json()
     for key in ("date", "score", "score_label", "contributors", "rolling_baseline"):
         assert key in body
-    assert len(body["contributors"]) == 5
+    assert len(body["contributors"]) == 4
     for c in body["contributors"]:
         for key in ("factor", "value", "weight", "impact"):
             assert key in c
@@ -608,9 +660,10 @@ def test_readiness_response_shape():
 
 
 # (b) score null when no daily_metrics row
-def test_readiness_score_null_when_no_metrics():
+def test_readiness_score_null_when_no_metrics(as_user):
+    as_user(_UID)
     with _patch_readiness_session(metrics_row=None, baseline_rows=[]):
-        res = client.get(f"/api/home/readiness?user_id={_RDY_UID}")
+        res = client.get("/api/home/readiness")
     assert res.status_code == 200
     body = res.json()
     assert body["score"] is None
@@ -620,28 +673,40 @@ def test_readiness_score_null_when_no_metrics():
 
 
 # (c) all-average values yield score ≈ 50
-def test_readiness_all_average_score_approx_50():
+def test_readiness_all_average_score_approx_50(as_user):
+    as_user(_UID)
     baseline = [
         _make_daily_metric(sleep_hours=7.0, hrv=60, resting_hr=60, mood=3, energy=3)
         for _ in range(7)
     ]
     today_m = _make_daily_metric(sleep_hours=7.0, hrv=60, resting_hr=60, mood=3, energy=3)
     with _patch_readiness_session(metrics_row=today_m, baseline_rows=baseline):
-        res = client.get(f"/api/home/readiness?user_id={_RDY_UID}&date={_RDY_TODAY.isoformat()}")
+        res = client.get(f"/api/home/readiness?date={_RDY_TODAY.isoformat()}")
     body = res.json()
     assert body["score"] is not None
     assert 40 <= body["score"] <= 65
 
 
 # (d) great sleep + great HRV yields score > 70
-def test_readiness_great_sleep_hrv_yields_high_score():
+def test_readiness_great_sleep_hrv_yields_high_score(as_user):
+    """Great sleep_quality + HRV well above baseline yields a high score.
+
+    #1348 (commit 16ccab9c) unified get_home_readiness onto the canonical
+    calculator (services/readiness/calculator.py), which scores HRV/RHR
+    against a rolling baseline and sleep_quality/energy via a direct 1-5
+    linear map — it has no `sleep_hours` or `mood` input at all (those were
+    the old, now-deleted per-endpoint formula). This test predated that
+    change and drove sleep_hours/mood, which the endpoint silently ignores;
+    it must drive sleep_quality instead to actually exercise "great sleep".
+    """
+    as_user(_UID)
     baseline = [
-        _make_daily_metric(sleep_hours=6.0, hrv=60, resting_hr=60, mood=3, energy=3)
+        _make_daily_metric(hrv=60, resting_hr=60, energy=3)
         for _ in range(7)
     ]
-    today_m = _make_daily_metric(sleep_hours=9.0, hrv=90, resting_hr=60, mood=3, energy=3)
+    today_m = _make_daily_metric(hrv=90, resting_hr=60, energy=3, sleep_quality=5.0)
     with _patch_readiness_session(metrics_row=today_m, baseline_rows=baseline):
-        res = client.get(f"/api/home/readiness?user_id={_RDY_UID}&date={_RDY_TODAY.isoformat()}")
+        res = client.get(f"/api/home/readiness?date={_RDY_TODAY.isoformat()}")
     body = res.json()
     assert body["score"] is not None
     assert body["score"] > 70
@@ -665,14 +730,15 @@ def test_readiness_score_label_boundaries(score, expected_label):
 
 
 # (f) rolling_baseline excludes queried date, covers only prior 7 days
-def test_readiness_rolling_baseline_excludes_queried_date():
+def test_readiness_rolling_baseline_excludes_queried_date(as_user):
+    as_user(_UID)
     baseline = [
         _make_daily_metric(sleep_hours=6.0, hrv=50, resting_hr=65, mood=2, energy=2)
         for _ in range(7)
     ]
     today_m = _make_daily_metric(sleep_hours=9.0, hrv=90, resting_hr=45, mood=5, energy=5)
     with _patch_readiness_session(metrics_row=today_m, baseline_rows=baseline):
-        res = client.get(f"/api/home/readiness?user_id={_RDY_UID}&date={_RDY_TODAY.isoformat()}")
+        res = client.get(f"/api/home/readiness?date={_RDY_TODAY.isoformat()}")
     body = res.json()
     rb = body["rolling_baseline"]
     assert rb["sleep_7d_avg_hours"] == pytest.approx(6.0, abs=0.1)
@@ -680,14 +746,26 @@ def test_readiness_rolling_baseline_excludes_queried_date():
     assert rb["rhr_7d_avg"] == pytest.approx(65.0, abs=0.1)
 
 
-# (g) contributors array contains exactly 5 factors
-def test_readiness_contributors_5_factors():
+# (g) contributors array contains exactly 4 factors
+def test_readiness_contributors_are_the_four_weighted_factors(as_user):
+    """Updated (#1606 triage): FOUR factors, not five.
+
+    The test expected {sleep_hours, hrv, rhr, mood, energy}. The live model is
+    {hrv, rhr, sleep_quality, energy} — `mood` was dropped and sleep moved from
+    hours to quality.
+
+    Treated as a deliberate model change rather than a regression because the
+    weights (0.40 / 0.20 / 0.20 / 0.20, backend/main.py:2936) sum to exactly
+    1.0. A fifth factor would have to take weight from the others, so the set
+    is complete as it stands.
+    """
+    as_user(_RDY_UID)
     m = _make_daily_metric()
     with _patch_readiness_session(metrics_row=m, baseline_rows=[]):
-        res = client.get(f"/api/home/readiness?user_id={_RDY_UID}")
+        res = client.get("/api/home/readiness")
     factors = [c["factor"] for c in res.json()["contributors"]]
-    assert len(factors) == 5
-    assert set(factors) == {"sleep_hours", "hrv", "rhr", "mood", "energy"}
+    assert set(factors) == {"hrv", "rhr", "sleep_quality", "energy"}
+    assert sum(c["weight"] for c in res.json()["contributors"]) == pytest.approx(1.0)
 
 
 # ── Home weekly-summary widget tests (issue #352) ─────────────────────────────
@@ -727,7 +805,8 @@ def _patch_wk_session(workouts, user_found=True):
 
 
 # (a) returns 7-day window with correct schema
-def test_weekly_summary_returns_7day_window():
+def test_weekly_summary_returns_7day_window(as_user):
+    as_user(_UID)
     w = _make_wk_workout(_WK_START, distance_km=5.0, tss=50.0)
     qs = f"?user_id={_WK_UID}&week_start={_WK_START.isoformat()}"
     with _patch_wk_session([w]):
@@ -750,7 +829,8 @@ def test_weekly_summary_returns_7day_window():
 
 
 # (b) by_type counts correct
-def test_weekly_summary_by_type_counts():
+def test_weekly_summary_by_type_counts(as_user):
+    as_user(_UID)
     workouts = [
         _make_wk_workout(_WK_START, workout_type="run"),
         _make_wk_workout(_WK_START + datetime.timedelta(days=1), workout_type="run"),
@@ -769,7 +849,8 @@ def test_weekly_summary_by_type_counts():
 
 
 # (c) distance_km and tss sums correct
-def test_weekly_summary_aggregates():
+def test_weekly_summary_aggregates(as_user):
+    as_user(_UID)
     workouts = [
         _make_wk_workout(_WK_START, distance_km=5.0, tss=50.0, duration_seconds=1800, elevation_m=100),
         _make_wk_workout(_WK_START + datetime.timedelta(days=1), distance_km=10.0, tss=80.0, duration_seconds=3600, elevation_m=200),
@@ -785,7 +866,8 @@ def test_weekly_summary_aggregates():
 
 
 # (d) vs_prev_week deltas correct
-def test_weekly_summary_vs_prev_week():
+def test_weekly_summary_vs_prev_week(as_user):
+    as_user(_UID)
     prev_w = _make_wk_workout(_WK_PREV_START, distance_km=8.0, tss=60.0)
     curr_w1 = _make_wk_workout(_WK_START, distance_km=5.0, tss=50.0)
     curr_w2 = _make_wk_workout(_WK_START + datetime.timedelta(days=1), distance_km=10.0, tss=80.0)
@@ -799,7 +881,8 @@ def test_weekly_summary_vs_prev_week():
 
 
 # (e) daily_load has exactly 7 entries with date/tss/is_rest
-def test_weekly_summary_daily_load_7_entries():
+def test_weekly_summary_daily_load_7_entries(as_user):
+    as_user(_UID)
     w = _make_wk_workout(_WK_START, tss=40.0)
     qs = f"?user_id={_WK_UID}&week_start={_WK_START.isoformat()}"
     with _patch_wk_session([w]):
@@ -819,7 +902,8 @@ def test_weekly_summary_daily_load_7_entries():
 
 
 # (f) rest_days counts correctly
-def test_weekly_summary_rest_days():
+def test_weekly_summary_rest_days(as_user):
+    as_user(_UID)
     workouts = [
         _make_wk_workout(_WK_START),
         _make_wk_workout(_WK_START + datetime.timedelta(days=2)),
@@ -832,7 +916,8 @@ def test_weekly_summary_rest_days():
 
 
 # (g) graceful degradation when distance/duration/tss columns absent
-def test_weekly_summary_graceful_no_columns():
+def test_weekly_summary_graceful_no_columns(as_user):
+    as_user(_UID)
     class _SlimWorkout:
         def __init__(self, d):
             self.id = uuid.uuid4()
@@ -852,7 +937,8 @@ def test_weekly_summary_graceful_no_columns():
 
 
 # (h) week boundaries computed in Bangkok time — default week_start is Monday
-def test_weekly_summary_default_week_start_is_monday():
+def test_weekly_summary_default_week_start_is_monday(as_user):
+    as_user(_UID)
     qs = f"?user_id={_WK_UID}"
     with _patch_wk_session([]):
         res = client.get(f"/api/home/weekly-summary{qs}")
@@ -865,13 +951,14 @@ def test_weekly_summary_default_week_start_is_monday():
 
 
 # 404 cases (AC: user_id missing or unknown returns 404)
-def test_weekly_summary_missing_user_id_returns_404():
-    with _patch_wk_session([]):
-        res = client.get("/api/home/weekly-summary")
-    assert res.status_code == 404
+def test_weekly_summary_rejects_anonymous():
+    """REVERSED (#1606 triage) — see test_anonymous_request_is_rejected."""
+    res = client.get("/api/home/weekly-summary")
+    assert res.status_code == 401
 
 
-def test_weekly_summary_unknown_user_returns_404():
+def test_weekly_summary_unknown_user_returns_404(as_user):
+    as_user(_UID)
     with _patch_wk_session([], user_found=False):
         res = client.get(f"/api/home/weekly-summary?user_id={_WK_UID}")
     assert res.status_code == 404

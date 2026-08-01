@@ -1,5 +1,5 @@
 """Tests for issue #280: server-side user identity for workouts, training-log,
-trends, calendar, readiness, exports, and integration (Strava/Stryd/Google) endpoints.
+trends, readiness, exports, and integration (Strava/Stryd/Google) endpoints.
 
 Verifies:
 - Anonymous request → 401 for each endpoint group
@@ -107,9 +107,6 @@ class TestAnonymousReturns401:
     def test_trends_summary_get(self, client):
         assert client.get("/trends/summary").status_code == 401
 
-    def test_calendar_month_get(self, client):
-        assert client.get("/api/calendar/month", params={"year": 2024, "month": 1}).status_code == 401
-
     def test_readiness_today_get(self, client):
         assert client.get("/api/readiness/today").status_code == 401
 
@@ -189,11 +186,6 @@ class TestSameUserWorkoutAccess:
 
     def test_training_log_authenticated(self, client, cookie_a):
         res = client.get("/api/training-log", cookies={"session": cookie_a})
-        assert res.status_code == 200
-
-    def test_calendar_month_authenticated(self, client, cookie_a):
-        res = client.get("/api/calendar/month", params={"year": 2024, "month": 3},
-                         cookies={"session": cookie_a})
         assert res.status_code == 200
 
     def test_trends_summary_authenticated(self, client, cookie_a):

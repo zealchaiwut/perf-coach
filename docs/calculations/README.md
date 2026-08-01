@@ -48,6 +48,7 @@ daily_metrics (HRV, RHR, sleep, energy, mood) ──► readiness (4 formulas! s
 | [plan-matching.md](plan-matching.md) | Plan-tab planned-session → workout matcher (states, thresholds) | `plan_matching.py` |
 | [load-plan.md](load-plan.md) | Race-anchored ramp/hold/taper weekly TSS targets (Session Load Plan) | `load_plan.py` |
 | [fuel.md](fuel.md) | Daily calorie budget, macro targets, weekly deficit projection | `fuel.py` |
+| [weight-trend-rate.md](weight-trend-rate.md) | Weight-trend slope ± 95% CI, flat/losing/gaining, readability | `weight_trend_rate.py` |
 
 ## Caching summary
 

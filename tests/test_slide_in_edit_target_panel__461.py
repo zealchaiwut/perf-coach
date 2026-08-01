@@ -13,7 +13,9 @@ AC anchors:
   (F) "Save changes" button (accent/lime, footer right); JS does PATCH or POST
   (G) After save, panel closes and widgets refresh without full reload
   (H) "End target" button (red, footer left); JS confirms before calling end API
-  (I) GET /weight/targets redirects to /weight — main.py uses RedirectResponse
+  (I) /weight/targets route removed from main.py entirely (superseded by a
+      later cleanup — see issue #1602's reachability gate; a bare redirect
+      shim with zero callers wasn't worth keeping)
   (J) weight-targets.html deleted; weight-targets.js deleted from codebase
   (K) Underlying target API endpoints unchanged (no route mutations)
 """
@@ -321,33 +323,23 @@ def test_h_js_calls_end_endpoint():
     )
 
 
-# ── (I) /weight/targets redirects to /weight ─────────────────────────────────
+# ── (I) /weight/targets route removed entirely ───────────────────────────────
+#
+# #461 originally left the route as a bare RedirectResponse shim to /weight
+# (for anyone with the old URL bookmarked). A later cleanup deleted the route
+# outright — same treatment #1602's reachability gate had already applied to
+# other zero-caller routes — so /weight/targets no longer resolves at all.
 
-def test_i_backend_redirects_weight_targets():
-    """(I) main.py uses RedirectResponse for /weight/targets route."""
-    assert "RedirectResponse" in main_py, (
-        "main.py must use RedirectResponse (AC-I)"
+def test_i_weight_targets_route_and_handler_removed():
+    """(I) Neither the route registration nor its handler remain in main.py."""
+    assert '"/weight/targets"' not in main_py, (
+        "main.py must not register /weight/targets — the route was deleted, "
+        "not just left as a redirect (AC-I)"
     )
-    # The route handler should no longer serve weight-targets.html
-    assert "_serve_weight_targets" not in main_py or (
-        "RedirectResponse" in main_py and
-        "weight-targets.html" not in main_py[
-            main_py.find("_serve_weight_targets"):
-            main_py.find("_serve_weight_targets") + 300
-        ] if "_serve_weight_targets" in main_py else True
-    ), "main.py weight/targets route must redirect, not serve the old HTML (AC-I)"
-
-
-def test_i_weight_targets_route_points_to_weight():
-    """(I) The /weight/targets redirect destination is /weight."""
-    # Find the route definition area
-    route_area_start = main_py.find("/weight/targets")
-    assert route_area_start != -1, "/weight/targets route not found in main.py"
-    # Look in a window around the route for the redirect destination
-    route_window = main_py[max(0, route_area_start - 200):route_area_start + 600]
-    assert '"/weight"' in route_window or "'/weight'" in route_window or (
-        "url" in route_window and "/weight" in route_window
-    ), "Redirect must target /weight (AC-I)"
+    assert "_serve_weight_targets" not in main_py, (
+        "main.py must not define _serve_weight_targets — the redirect "
+        "handler was deleted along with the route (AC-I)"
+    )
 
 
 # ── (J) Old files deleted ─────────────────────────────────────────────────────

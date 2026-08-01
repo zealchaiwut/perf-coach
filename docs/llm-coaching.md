@@ -21,8 +21,9 @@ for both services (UAT + PRD). Override in the Render dashboard to enable.
 |---|---|---|
 | Habit insights / nudges | `habit_insights.py`, `habit_nudges.py` | Fast tier |
 | Readiness explanation | `readiness_explanation.py` | Fast tier |
-| Plan session suggest | `plan_suggestions.py` + `plan_orch_langgraph.py` | Deep tier; `PLAN_ORCH` |
-| **Daily Home Coach** | `coach_facts` + `coach_narrative` + `coach_claude_cli` + worker `daily_coach` job | **Worker only** (`PERFCOACH_ROLE=worker`). Webapp reads DB. `weekly_coach` is a dispatch alias. |
+| Plan session suggest | `plan_suggestions.py` | Deep tier. Single-shot — the `PLAN_ORCH` switch and its LangGraph / Pydantic-AI alternatives were deleted once the comparison ended. |
+| **Daily coach message** | `coach_facts` + `weekly_coach_message._call_llm_narrative` + worker `daily_coach` job | **Worker only.** Fast tier. Rewrites the prose around a deterministic message; `_numbers_preserved()` discards any rephrase whose numerals drift. Falls back to the deterministic text on any failure. `weekly_coach` is a dispatch alias. |
+| ~~Coach brief atoms~~ | ~~`coach_narrative` + `coach_orch_langgraph` + `coach_claude_cli`~~ | **PARKED** (Priority 2, D4). `GET /api/coach/brief` is served by `coach_brief.build_brief_deterministic` — no LLM. These modules are unreferenced, pending deletion. |
 
 ### Daily Home Coach (`COACH_LLM` / worker schedule)
 

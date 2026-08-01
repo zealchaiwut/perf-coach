@@ -69,6 +69,24 @@ def _make_workout_obj(zone2_minutes=None, wid=None):
     w.elevation_m = None
     w.zone2_minutes = zone2_minutes
     w.manual_overrides = None
+    # _workout_dict() (backend/main.py) serializes several fields added by
+    # later tickets that this mock predates; an unconfigured MagicMock
+    # attribute isn't JSON-serializable, so PATCH's response-building step
+    # (not this test's own zone2_minutes assertion) was what actually failed
+    # (#1606).
+    w.run_subtype = None
+    w.tss_method = None
+    w.avg_power = None
+    w.max_power = None
+    w.np = None
+    w.avg_cadence_spm = None
+    w.avg_stride_m = None
+    w.temperature_c = None
+    w.humidity_pct = None
+    w.flat_equivalent_pace = None
+    w.feeling = None
+    w.fuelled = None
+    w.drills_minutes = None
     created = MagicMock()
     created.isoformat.return_value = "2026-06-10T00:00:00+00:00"
     w.created_at = created

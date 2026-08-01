@@ -11,7 +11,7 @@
     <link rel="stylesheet" href="css/training-form.css" />
     <link rel="stylesheet" href="css/training-detail.css" />
     <link rel="stylesheet" href="css/run-detail-v4.css?v=20260717y" />
-    <link rel="stylesheet" href="css/load-readiness-tiles.css?v=20260717r" />
+    <link rel="stylesheet" href="css/load-readiness-tiles.css?v=20260801a" />
     <link
       href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css"
       rel="stylesheet"
@@ -7229,6 +7229,17 @@
         position: relative;
         height: 320px;
       }
+      /* Corner placement for the chart's combined CTL/ATL/TSB/ACWR info-tip
+         (.info-tip lives in styles.css) — the chart deliberately has no
+         title/caption (see comment above), so this is the only affordance
+         slot; the Chart.js legend renders top-center, leaving the corner free. */
+      .info-tip--corner {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        z-index: 5;
+        background: var(--surface, #fff);
+      }
       .perf-chart-baseline {
         padding: 20px;
         text-align: center;
@@ -8480,6 +8491,14 @@
                 >
               </div>
               <div id="perf-chart-wrap">
+                <button
+                  type="button"
+                  class="info-tip info-tip--right info-tip--below info-tip--corner"
+                  aria-label="What do CTL, ATL, TSB, and ACWR mean?"
+                  aria-describedby="fff-chart-tip"
+                >i<span class="info-tip-bubble" role="tooltip" id="fff-chart-tip"
+                  >CTL (42-day avg load) = fitness. ATL (7-day avg load) = fatigue. TSB = CTL minus ATL = form. ACWR = this week's load vs. your last 4 weeks' average = ramp-up risk. Full definitions on the tiles alongside.</span
+                ></button>
                 <canvas
                   id="perf-fitness-canvas"
                   height="220"
@@ -9406,13 +9425,14 @@
       </div>
     </div>
 
+    <script src="js/lib/app-common.js"></script>
     <script src="js/lib/sync-poller.js"></script>
     <script src="js/nav.js?v=20260718nav1"></script>
     <script src="js/lib/html2canvas.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
     <script src="js/ui-states.js"></script>
     <script src="js/lib/training-format.js"></script>
-    <script src="js/lib/load-readiness-tiles.js?v=20260717r"></script>
+    <script src="js/lib/load-readiness-tiles.js?v=20260801a"></script>
     <script src="js/lib/run-detail-view.js?v=20260717y"></script>
     <script src="js/training.js"></script>
     <script src="js/training-log.js?v=20260717ae"></script>

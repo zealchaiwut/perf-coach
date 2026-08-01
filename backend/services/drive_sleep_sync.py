@@ -5,7 +5,10 @@ Provides:
 - run_scheduled_sleep_sync(): runs all users with Google creds (called by scheduler).
 - upsert_sleep_records(user_id, records, session): idempotent DB write.
 - list_drive_sleep_files(access_token, modified_after=None): Drive API listing.
-- parse_sleep_file_content(content_bytes): file-format parser stub (Ticket 3).
+- parse_sleep_file_content(content_bytes, user_id): delegates to
+  services.health_sync.sleep_csv_parser (#1034), which was already written.
+- merge_sleep_records_into_daily_metrics(user_id, session): copies imported
+  durations onto daily_metrics.sleep_hours, which is what readiness reads.
 - _get_all_google_credential_user_ids(): helper for scheduler.
 """
 import logging
@@ -30,6 +33,10 @@ _DRIVE_DOWNLOAD_URL = "https://www.googleapis.com/drive/v3/files/{file_id}?alt=m
 
 # Health Sync typically drops CSV files; adjust the q-filter for your naming convention.
 _DRIVE_QUERY_BASE = "mimeType='text/csv' and trashed=false"
+# Health Sync writes local wall-clock timestamps. This is a single-timezone
+# app (#1600/#1603), so parsing them as anything else would shift every night.
+SLEEP_CSV_TIMEZONE = "Asia/Bangkok"
+
 _DRIVE_HEALTH_SYNC_FOLDER_ENV = "HEALTH_SYNC_DRIVE_FOLDER_ID"
 
 
@@ -56,9 +63,20 @@ def list_drive_sleep_files(access_token: str, modified_after: Optional[datetime]
 
     folder_id = os.getenv(_DRIVE_HEALTH_SYNC_FOLDER_ENV, "")
 
-    q = _DRIVE_QUERY_BASE
-    if folder_id:
-        q += f" and '{folder_id}' in parents"
+    # Scoped or nothing. Unset, this used to fall back to a query matching EVERY
+    # CSV in the user's Drive — tax returns, exports, anything — and hand each
+    # one to the sleep parser. That was harmless only because the parser was a
+    # stub returning []; now that it parses for real, an unscoped scan is a
+    # privacy problem, so it is a hard stop instead of a silent wildcard.
+    if not folder_id:
+        _log.warning(
+            "drive_sleep_sync: %s is not set — refusing to scan the whole Drive; "
+            "set it to the Health Sync export folder to enable sleep import",
+            _DRIVE_HEALTH_SYNC_FOLDER_ENV,
+        )
+        return []
+
+    q = _DRIVE_QUERY_BASE + f" and '{folder_id}' in parents"
     if modified_after is not None:
         # RFC 3339 format required by Drive API
         ts = modified_after.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -89,13 +107,26 @@ def _download_drive_file(file_id: str, access_token: str) -> bytes:
     return resp.content
 
 
-def parse_sleep_file_content(content_bytes: bytes) -> list:
+def parse_sleep_file_content(content_bytes: bytes, user_id) -> list:
     """Parse raw Health Sync CSV bytes into a list of sleep record dicts.
 
-    This is a stub — full parsing is implemented in Ticket 3.
-    Returns an empty list until Ticket 3 lands.
+    Delegates to `services.health_sync.sleep_csv_parser.parse_sleep_csv`.
 
-    Expected return shape per record:
+    This function used to be a stub returning `[]`, with a docstring reading
+    "full parsing is implemented in Ticket 3". Ticket 3 is #1034 — and it WAS
+    implemented, 340 lines of it, with 29 passing tests. It landed in the
+    top-level `services/` package while this module lives in
+    `backend/services/`, so the import was never made and every Drive sync
+    imported nothing, silently, for months. The OAuth flow, the folder picker,
+    the hourly scheduler and the first-connect backfill all worked; they just
+    fed a function that threw the file away.
+
+    Timestamps are parsed as Asia/Bangkok. There is no per-user timezone
+    column — this is a single-timezone app (see #1600/#1603) — so passing
+    anything else here would silently shift every sleep record.
+
+    Returned rows are shaped for `upsert_sleep_records` below; the two were
+    verified field-for-field before wiring:
         {
             "sleep_date": "YYYY-MM-DD",
             "start_at": "<ISO datetime>",
@@ -113,7 +144,23 @@ def parse_sleep_file_content(content_bytes: bytes) -> list:
             "external_id": str,
         }
     """
-    return []
+    from services.health_sync.sleep_csv_parser import parse_sleep_csv
+
+    if isinstance(content_bytes, (bytes, bytearray)):
+        # errors="replace" rather than strict: one bad byte in a month of
+        # exports should cost that row, not the whole file.
+        text = content_bytes.decode("utf-8", errors="replace")
+    else:
+        text = str(content_bytes)
+
+    result = parse_sleep_csv(text, user_id, user_timezone=SLEEP_CSV_TIMEZONE)
+
+    # Unparseable rows are already skipped and described by the parser. Surface
+    # them — a silent skip here is what this whole feature has been doing.
+    for err in result.get("errors") or []:
+        _log.warning("drive_sleep_sync: %s", err, extra={"user_id": str(user_id)})
+
+    return result["rows"]
 
 
 def upsert_sleep_records(user_id: str, records: list, session: Session) -> dict:
@@ -234,7 +281,7 @@ def sync_drive_sleep_for_user(user_id: str) -> dict:
         for f in files:
             try:
                 content = _download_drive_file(f["id"], access_token)
-                parsed = parse_sleep_file_content(content)
+                parsed = parse_sleep_file_content(content, user_id)
                 all_records.extend(parsed)
             except Exception as exc:
                 _log.error(
@@ -244,6 +291,18 @@ def sync_drive_sleep_for_user(user_id: str) -> dict:
 
         counts = upsert_sleep_records(user_id, all_records, session)
         session.commit()
+
+        # Reachable, not merely implemented: without this, imported sleep never
+        # reaches readiness, deficit_guard or habit_evidence, which all read
+        # daily_metrics.sleep_hours. Best-effort — a merge failure must not
+        # discard rows that were successfully imported above.
+        try:
+            merge_sleep_records_into_daily_metrics(user_id, session)
+        except Exception as _merge_exc:  # pragma: no cover - defensive
+            _log.warning(
+                "drive_sleep_sync: daily_metrics merge failed",
+                extra={"user_id": str(user_id), "error": str(_merge_exc)},
+            )
 
         # Update last_sync_at
         creds = (
@@ -290,7 +349,7 @@ def backfill_drive_sleep_for_user(user_id: str) -> dict:
         for f in files:
             try:
                 content = _download_drive_file(f["id"], access_token)
-                parsed = parse_sleep_file_content(content)
+                parsed = parse_sleep_file_content(content, user_id)
                 all_records.extend(parsed)
             except Exception as exc:
                 _log.error(
@@ -300,6 +359,18 @@ def backfill_drive_sleep_for_user(user_id: str) -> dict:
 
         counts = upsert_sleep_records(user_id, all_records, session)
         session.commit()
+
+        # Reachable, not merely implemented: without this, imported sleep never
+        # reaches readiness, deficit_guard or habit_evidence, which all read
+        # daily_metrics.sleep_hours. Best-effort — a merge failure must not
+        # discard rows that were successfully imported above.
+        try:
+            merge_sleep_records_into_daily_metrics(user_id, session)
+        except Exception as _merge_exc:  # pragma: no cover - defensive
+            _log.warning(
+                "drive_sleep_sync: daily_metrics merge failed",
+                extra={"user_id": str(user_id), "error": str(_merge_exc)},
+            )
 
     return {
         "files_seen": files_seen,
@@ -331,3 +402,82 @@ def run_scheduled_sleep_sync() -> None:
                 extra={"user_id": uid, "error": str(exc)},
                 exc_info=True,
             )
+
+
+# ── Merge into daily_metrics ──────────────────────────────────────────────────
+#
+# The piece that was genuinely missing. Everything downstream — readiness
+# (main.py), deficit_guard's 7-day sleep average, habit_evidence's sleep metric,
+# readiness_explanation's "sleep" factor — reads DailyMetric.sleep_hours, and
+# NOTHING read sleep_records. So even a fully working Drive import would have
+# left every one of those untouched.
+
+def merge_sleep_records_into_daily_metrics(user_id, session: Session) -> dict:
+    """Copy imported sleep durations onto daily_metrics.sleep_hours.
+
+    Manual entry wins. A value the athlete typed is a deliberate statement about
+    their night; an imported one is a device's guess, and silently overwriting
+    the former with the latter would make the app argue with its user. So this
+    only fills rows where sleep_hours IS NULL, and only creates a daily_metrics
+    row when none exists for that date.
+
+    Returns {"filled": int, "created": int, "skipped": int} — skipped counts
+    dates that already had a manual value.
+    """
+    from backend.models import DailyMetric
+
+    records = (
+        session.query(SleepRecord)
+        .filter(
+            SleepRecord.user_id == user_id,
+            SleepRecord.total_sleep_minutes.isnot(None),
+        )
+        .all()
+    )
+    if not records:
+        return {"filled": 0, "created": 0, "skipped": 0}
+
+    # One night per date. Health Sync can emit several rows for a fragmented
+    # night; the longest is the one that represents the sleep.
+    by_date: dict = {}
+    for r in records:
+        prev = by_date.get(r.sleep_date)
+        if prev is None or (r.total_sleep_minutes or 0) > (prev.total_sleep_minutes or 0):
+            by_date[r.sleep_date] = r
+
+    existing = {
+        m.metric_date: m
+        for m in session.query(DailyMetric)
+        .filter(
+            DailyMetric.user_id == user_id,
+            DailyMetric.metric_date.in_(list(by_date.keys())),
+        )
+        .all()
+    }
+
+    filled = created = skipped = 0
+    for sleep_date, rec in by_date.items():
+        hours = round((rec.total_sleep_minutes or 0) / 60.0, 1)
+        row = existing.get(sleep_date)
+        if row is None:
+            session.add(DailyMetric(user_id=user_id, metric_date=sleep_date, sleep_hours=hours))
+            created += 1
+        elif row.sleep_hours is None:
+            row.sleep_hours = hours
+            filled += 1
+        else:
+            skipped += 1
+
+    session.commit()
+    _log.info(
+        "drive_sleep_sync: merged sleep into daily_metrics",
+        # NB: not "created" — logging.LogRecord already defines that attribute
+        # and passing it via extra raises KeyError at emit time.
+        extra={
+            "user_id": str(user_id),
+            "rows_filled": filled,
+            "rows_created": created,
+            "rows_skipped": skipped,
+        },
+    )
+    return {"filled": filled, "created": created, "skipped": skipped}

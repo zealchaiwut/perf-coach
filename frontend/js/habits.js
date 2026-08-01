@@ -111,7 +111,7 @@ function isoDate(d) {
 }
 
 function bangkokToday() {
-  const bk = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+  const bk = window.AppCommon.todayISO();
   const [y, m, d] = bk.split('-').map(Number);
   return new Date(y, m - 1, d);
 }
@@ -173,12 +173,11 @@ function habitIconHTML(icon, color, size) {
   return `<span class="habit-icon-chip" style="background:${bg};width:${s}px;height:${s}px;font-size:${Math.round(s*0.45)}px;font-weight:700">?</span>`;
 }
 
-function esc(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+// Delegates to the shared escaper (issue #1603). The local copies
+// disagreed about the apostrophe, so identical content was safe on
+// some pages and attribute-injectable on others.
+function esc(s) {
+  return window.AppCommon.escapeHtml(s);
 }
 
 // ── Today quick-log surface ───────────────────────────────────────────────────
@@ -212,7 +211,7 @@ function _hasMissThisWeek(habit, weekDone) {
   if (habit.tracking_type !== 'daily_checkmark') return false;
   const wt = habit.weekly_target != null ? parseFloat(habit.weekly_target) : 7;
   if (wt < 7) return false;
-  const bkkDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+  const bkkDate = window.AppCommon.todayISO();
   const dow = new Date(bkkDate + 'T00:00:00').getDay(); // 0=Sun..6=Sat
   const daysBeforeToday = dow === 0 ? 6 : dow - 1;     // Mon=0...Sat=5, Sun=6
   return daysBeforeToday > 0 && weekDone < daysBeforeToday;
@@ -359,7 +358,15 @@ function renderTodayCard(habits) {
     const isMiss = _hasMissThisWeek(habit, weekDone);
 
     let streakBadgeHTML = '';
-    if (V) {
+    // No streaks near food (spec D8). The backend already zeroes these and
+    // sends streak_suppressed, but the guard is repeated here because
+    // window.HabitVoice — the module the branch below expects — is referenced
+    // four times in this file and DEFINED NOWHERE, so every render has always
+    // fallen through to the raw-badge branch. A missed meal must never read as
+    // a broken streak, which is the mechanic the lean program exists to remove.
+    if (habit.streak_suppressed) {
+      streakBadgeHTML = '';
+    } else if (V) {
       const coaching = V.compose(habit, weekDone, weekTarget, totalLogs, isMiss, currentStreak);
       streakBadgeHTML = `<span class="coaching-copy coaching-copy--${esc(coaching.framing)}">${esc(coaching.message)}</span>`;
     } else {
@@ -494,6 +501,30 @@ function renderTodayCard(habits) {
 
 // ── Load & Render (main entry) ────────────────────────────────────────────────
 
+
+// ── Correlation evidence ─────────────────────────────────────────────────────
+//
+// "Weeks you fuelled the long run, HR drift averaged 3.1% vs 6.8%." This is
+// what habit_evidence.py was built to show INSTEAD of a streak — a claim about
+// what the habit did for you, not a count of consecutive days.
+//
+// Silence is correct. build_user_evidence returns only readable comparisons, so
+// an empty list means there is genuinely nothing to say yet — and saying "not
+// enough data" three times is worse than saying nothing.
+function _renderHabitEvidence(evidence) {
+  const host = document.getElementById('habit-evidence');
+  if (!host) return;
+  if (!evidence || !evidence.length) {
+    host.hidden = true;
+    host.innerHTML = '';
+    return;
+  }
+  host.hidden = false;
+  host.innerHTML = evidence.map(function (e) {
+    return '<div class="habit-evidence-row">' + esc(e.sentence || '') + '</div>';
+  }).join('');
+}
+
 async function loadAndRender() {
   clearError();
 
@@ -507,11 +538,16 @@ async function loadAndRender() {
       ? `/api/habits/week?week_start=${currentWeekStart}`
       : '/api/habits/week';
 
-    const [weekRes, activeRes, archivedRes, logsRes] = await Promise.all([
+    const [weekRes, activeRes, archivedRes, logsRes, summaryRes] = await Promise.all([
       fetch(weekUrl),
       fetch('/api/habits'),
       fetch('/api/habits?include_archived=true'),
       fetch(`/api/habits/logs?from=${weekFrom}&to=${weekTo}`),
+      // Correlation evidence — what this surface shows INSTEAD of streaks.
+      // Not awaited separately and never fatal: it is decoration, and a habit
+      // grid that fails because a sentence could not be built is worse than a
+      // grid with no sentence (#1608).
+      fetch('/api/habits/summary').catch(() => null),
     ]);
 
     if (!weekRes.ok) throw new Error(`Server error ${weekRes.status}`);
@@ -520,6 +556,14 @@ async function loadAndRender() {
 
     weekData = await weekRes.json();
     currentWeekStart = weekData.week_start;
+
+    if (summaryRes && summaryRes.ok) {
+      summaryRes.json()
+        .then(function (d) { _renderHabitEvidence(d.evidence || []); })
+        .catch(function () { _renderHabitEvidence([]); });
+    } else {
+      _renderHabitEvidence([]);
+    }
 
     activeHabits = await activeRes.json();
     const allHabits = await archivedRes.json();
@@ -851,7 +895,10 @@ function _buildHabitRow(habit, weekDatesArr, streaksPerHabit, todayStr, logSet) 
   const pct = target > 0 ? Math.min(100, Math.round(done / target * 100)) : 0;
   const barWidth = target > 0 ? Math.min(100, done / target * 100).toFixed(1) : '0.0';
 
-  const streak = streaksPerHabit[habit.id] || 0;
+  // Third badge render in this file. No streaks near food (spec D8) — the
+  // backend zeroes these and sends streak_suppressed, and this row builder
+  // reads a separate streaksPerHabit map, so it needs its own check.
+  const streak = habit.streak_suppressed ? 0 : (streaksPerHabit[habit.id] || 0);
   const streakBadge = streak >= 3
     ? `<span class="streak-badge">🔥 ${streak}-day streak</span>`
     : '';
@@ -2204,6 +2251,7 @@ function computeDayStatus(dateStr, habits, logsByDate) {
 
   const applicable = (habits || []).filter(h => {
     if (h.is_archived) return false;
+    if (h.tracking_type !== 'daily_checkmark') return false;
     if (!h.created_at) return true;
     return h.created_at.slice(0, 10) <= dateStr;
   });
@@ -2231,6 +2279,7 @@ function computeAllHabitsDaySummary(dateStr, habits, logsByDate) {
 
   const applicable = (habits || []).filter(h => {
     if (h.is_archived) return false;
+    if (h.tracking_type !== 'daily_checkmark') return false;
     if (!h.created_at) return true;
     return h.created_at.slice(0, 10) <= dateStr;
   });
@@ -2245,13 +2294,17 @@ function computeAllHabitsDaySummary(dateStr, habits, logsByDate) {
 
 // Compute status for a single habit on a given day (issue #830, AC4, AC8).
 // Returns 'no-data' when the habit was created after dateStr (AC8).
+// Weekly habits (weekly_count / weekly_minutes) are not expected to be logged
+// every day, so a missing log returns 'no-data' rather than 'not-met' (issue #849).
 function computeSingleHabitDayStatus(dateStr, habit, logsByDate) {
   const todayStr = bangkokTodayStr();
   if (dateStr > todayStr) return 'no-data';
   if (habit.is_archived) return 'no-data';
   if (habit.created_at && habit.created_at.slice(0, 10) > dateStr) return 'no-data';
   const logsOnDate = logsByDate[dateStr] || new Set();
-  return logsOnDate.has(habit.id) ? 'met' : 'not-met';
+  if (logsOnDate.has(habit.id)) return 'met';
+  if (habit.tracking_type !== 'daily_checkmark') return 'no-data';
+  return 'not-met';
 }
 
 // Render the filter control for the history calendar (issue #830, AC1/AC2/AC9/AC10).
@@ -2324,7 +2377,7 @@ function renderHabitMonthCal() {
   const el = document.getElementById('habits-month-cal');
   if (!el) return;
 
-  const now = new Date();
+  const now = window.AppCommon.nowBangkok();
   if (!hcalMonth) hcalMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
   const year = hcalMonth.getFullYear();
@@ -2418,7 +2471,7 @@ function renderHabitMonthCal() {
     await _refreshHabitCal();
   });
   if (todayBtn) todayBtn.addEventListener('click', async () => {
-    const t = new Date();
+    const t = window.AppCommon.nowBangkok();
     hcalMonth = new Date(t.getFullYear(), t.getMonth(), 1);
     await _refreshHabitCal();
   });
@@ -2675,8 +2728,8 @@ async function _refreshHabitCal() {
   // Invalidate cached range so the next fetch is fresh
   hcalFetchedRange = null;
 
-  const year = hcalMonth ? hcalMonth.getFullYear() : new Date().getFullYear();
-  const month = hcalMonth ? hcalMonth.getMonth() : new Date().getMonth();
+  const year = hcalMonth ? hcalMonth.getFullYear() : window.AppCommon.nowBangkok().getFullYear();
+  const month = hcalMonth ? hcalMonth.getMonth() : window.AppCommon.nowBangkok().getMonth();
   const lastDay = new Date(year, month + 1, 0).getDate();
   const from = year + '-' + _hcalPad(month + 1) + '-01';
   const to = year + '-' + _hcalPad(month + 1) + '-' + _hcalPad(lastDay);
@@ -2692,7 +2745,7 @@ async function initHabitCal() {
   if (!calSection) return;
 
   if (!_hcalInitialized) {
-    const now = new Date();
+    const now = window.AppCommon.nowBangkok();
     hcalMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
     const today = bangkokToday();

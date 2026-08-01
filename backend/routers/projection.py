@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid as _uuid
 from datetime import date as _date, timedelta as _timedelta
+from backend.utils.time import today_bangkok as _today_bangkok
 from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query as _Query
@@ -832,9 +833,9 @@ def get_plan_suggestions(
 
     Response shape: {facts: {...}, suggestions: [{day_offset, workout_type,
     target_tss, duration_minutes, intent}], source: "llm"|"fallback",
-    attempts: int, orch: "single"|"plain"|"langgraph"|"pydantic_ai"}. The
-    orchestrator is chosen by the PLAN_ORCH env var (default "single"); switch
-    it and re-request to A/B the three implementations on the same facts.
+    attempts: int, orch: "single"}. ``orch`` is a constant kept for response-
+    shape stability — the PLAN_ORCH switch and its alternative implementations
+    were deleted once the single-shot path won.
     """
     from backend.services.plan_suggestions import get_suggestions as _get_suggestions
 
@@ -878,8 +879,9 @@ class SingleSessionRequest(BaseModel):
     # a suggestions[] item) — omitted when creating a fresh one from scratch.
     current_session: Optional[dict] = None
     # Two-rail flow (issue #1417): the schedule rail's slot budget. When set,
-    # the generated session must land on these numbers (pinned in the prompt)
-    # — the athlete owns the schedule; the LLM only fills the content.
+    # generate_single_session takes the plan_slot.py content-only path — the
+    # LLM never emits these numbers, Python stamps them onto the response —
+    # the athlete owns the schedule; the LLM only fills the content.
     target_tss: Optional[float] = None
     duration_minutes: Optional[int] = None
     # Optional slot flavor (run: easy/long/intervals/tempo; strength:
@@ -983,7 +985,7 @@ async def get_plan_projection(
     try:
         from backend.main import _athlete_scores_as_of as _scores_as_of
         with _Session(_engine) as _sdb:
-            _cur = _scores_as_of(_sdb, user.id, _date.today())
+            _cur = _scores_as_of(_sdb, user.id, _today_bangkok())
         _current_score = _cur.get("endurance")
     except Exception:
         _current_score = None
@@ -1021,7 +1023,7 @@ async def get_plan_projection(
     # Find the most recent past B race with an actual result (issue #1162).
     # This re-anchors forward projections to the expressed race-day fitness.
     # Querying at request time means delete/edit propagates naturally (AC4).
-    today = _date.today()
+    today = _today_bangkok()
     b_race_result = None
     stimulus_history = []
     with _Session(_engine) as db:

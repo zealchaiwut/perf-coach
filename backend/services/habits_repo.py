@@ -15,6 +15,25 @@ SCHEDULE_TYPE_VALUES: frozenset[str] = frozenset(
     ("daily", "weekly", "times_per_week"))
 SECTION_VALUES: frozenset[str] = frozenset(("training", "general"))
 
+# tracking_type -> habit_type (#1604 — tracking_type is the survivor column;
+# habit_type is derived from it rather than independently settable). Mirrors
+# the pairings the app's own seeders already use: goal_habits.py's three
+# daily_checkmark habits are all binary, coach_habit_targets.py's Zone 2 habit
+# is weekly_minutes/duration.
+_TRACKING_TYPE_TO_HABIT_TYPE: dict[str, str] = {
+    "daily_checkmark": "binary",
+    "weekly_minutes": "duration",
+    "weekly_count": "count",
+    "weekly_quantity": "count",
+}
+
+
+def derive_habit_type(tracking_type: Optional[str]) -> Optional[str]:
+    """Return the habit_type implied by tracking_type, or None if unknown/absent."""
+    if tracking_type is None:
+        return None
+    return _TRACKING_TYPE_TO_HABIT_TYPE.get(tracking_type)
+
 
 def _week_start(d: date) -> date:
     return d - timedelta(days=d.weekday())
@@ -56,8 +75,6 @@ def create_habit(
     habit.is_archived = False
 
     # v2 fields — only set when explicitly provided so server_defaults apply otherwise
-    if data.get("habit_type") is not None:
-        habit.habit_type = data["habit_type"]
     if data.get("schedule_type") is not None:
         habit.schedule_type = data["schedule_type"]
     if data.get("target_value") is not None:
@@ -67,9 +84,27 @@ def create_habit(
     if data.get("schedule_target") is not None:
         habit.schedule_target = data["schedule_target"]
 
+    # habit_type (#1604): derived from tracking_type when tracking_type is
+    # given — tracking_type is the survivor column and carries the real
+    # behavior, so it wins over any habit_type also passed in the same
+    # request. The real frontend (frontend/js/habits.js) only ever sends
+    # tracking_type; before this, a caller that omitted habit_type (i.e.
+    # every real habit created through the UI) silently got the column's
+    # server default of 'binary' regardless of its actual tracking type.
+    # When tracking_type is absent (the older, still-tested v2-only creation
+    # path: habit_type + schedule_type, no tracking_type — see
+    # tests/test_825_ac_verification.py's AC10), there is nothing to derive
+    # from, so an explicitly supplied habit_type is honored as before.
+    tracking_type = data.get("tracking_type")
+    if tracking_type is not None:
+        habit.tracking_type = tracking_type
+        derived_habit_type = derive_habit_type(tracking_type)
+        if derived_habit_type is not None:
+            habit.habit_type = derived_habit_type
+    elif data.get("habit_type") is not None:
+        habit.habit_type = data["habit_type"]
+
     # legacy fields
-    if data.get("tracking_type") is not None:
-        habit.tracking_type = data["tracking_type"]
     if data.get("weekly_target") is not None:
         habit.weekly_target = data["weekly_target"]
     if data.get("description") is not None:

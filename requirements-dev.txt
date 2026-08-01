@@ -1,0 +1,30 @@
+# Test and development dependencies.
+#
+# Separate from requirements.txt because Render installs that file into a 512MB
+# instance with an OOM history (PR #1576) — production has no reason to carry a
+# test runner.
+#
+# Install both for local work:
+#   uv pip install --python .venv/bin/python -r requirements.txt -r requirements-dev.txt
+#
+# Before this file existed, none of these were declared anywhere. A fresh
+# `uv pip install -r requirements.txt` per CLAUDE.md's own setup instructions
+# produced a venv that could not run pytest at all — the suite only worked
+# because someone's venv already happened to have it (issue #1606).
+
+-r requirements.txt
+
+pytest==9.0.3
+# Enforces pytest.ini's `timeout`. It was configured but NOT installed, so every
+# run printed "Unknown config option: timeout" and the timeout silently did
+# nothing — a single hung test could stall CI forever. Eight tests actually
+# time out once it is active.
+pytest-timeout==2.3.1
+# HTTP mocking, imported by tests/test_google_callback_oauth__216.py. Its absence
+# was one of the collection errors that silently removed a whole module.
+responses==0.25.3
+# Drives a real browser for the manual UI check CLAUDE.md requires before any
+# frontend change is called done. Not imported by the test suite; it is the
+# tool you reach for when "it returns 200" is not the question being asked.
+# Needs a one-off `.venv/bin/playwright install chromium` after pip install.
+playwright==1.62.0

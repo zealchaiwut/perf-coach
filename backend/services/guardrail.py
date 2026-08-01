@@ -38,6 +38,7 @@ Otherwise ``guardrail_state`` is ``"ok"``.
 from __future__ import annotations
 
 from backend.services.acwr import compute_acwr
+from backend.utils.time import today_bangkok
 
 # ── Configurable threshold ────────────────────────────────────────────────────
 # Week-over-week percentage increase in a stressor that is considered a sharp
@@ -212,7 +213,7 @@ def get_guardrail_result(user_id: str, as_of_date=None) -> dict:
     from backend.db import engine
     from backend.services.training_load import daily_tss_series
 
-    today = as_of_date if as_of_date is not None else date.today()
+    today = as_of_date if as_of_date is not None else today_bangkok()
 
     # Current ISO week: Monday through today
     curr_week_start = today - timedelta(days=today.weekday())

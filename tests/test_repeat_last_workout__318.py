@@ -49,6 +49,17 @@ def _find_js_root() -> pathlib.Path:
 
 _ROOT = _find_js_root()
 _TRAINING_JS = (_ROOT / "frontend" / "js" / "training.js").read_text()
+
+
+def _fn_body(fn_idx: int) -> str:
+    """Slice from a function to the next top-level declaration.
+
+    These assertions used a fixed 1600-character window, which silently
+    truncated the moment anyone added a line to repeatLastWorkout — turning an
+    unrelated change into a false failure here.
+    """
+    end = _TRAINING_JS.find("\n  function ", fn_idx + 1)
+    return _TRAINING_JS[fn_idx : end if end != -1 else None]
 _TRAINING_HTML = (_ROOT / "frontend" / "pages" / "training.html").read_text()
 
 BASE = os.environ.get("UAT_BASE_URL", "http://127.0.0.1:9005")
@@ -169,7 +180,7 @@ def test_js_no_new_repeat_endpoint():
 def test_js_fetches_individual_workout_for_prefill():
     """Function fetches /api/workouts/{id} to get full detail including exercises."""
     fn_idx = _TRAINING_JS.index("function repeatLastWorkout")
-    fn_body = _TRAINING_JS[fn_idx: fn_idx + 1600]
+    fn_body = _fn_body(fn_idx)
     assert "/api/workouts/" in fn_body
 
 
@@ -177,31 +188,31 @@ def test_js_fetches_individual_workout_for_prefill():
 
 def test_js_prefills_name():
     fn_idx = _TRAINING_JS.index("function repeatLastWorkout")
-    fn_body = _TRAINING_JS[fn_idx: fn_idx + 1600]
+    fn_body = _fn_body(fn_idx)
     assert "workout-name" in fn_body
 
 
 def test_js_prefills_workout_type():
     fn_idx = _TRAINING_JS.index("function repeatLastWorkout")
-    fn_body = _TRAINING_JS[fn_idx: fn_idx + 1600]
+    fn_body = _fn_body(fn_idx)
     assert "setSelectedType" in fn_body or "workout_type" in fn_body
 
 
 def test_js_prefills_remarks():
     fn_idx = _TRAINING_JS.index("function repeatLastWorkout")
-    fn_body = _TRAINING_JS[fn_idx: fn_idx + 1600]
+    fn_body = _fn_body(fn_idx)
     assert "workout-remarks" in fn_body
 
 
 def test_js_prefills_tss():
     fn_idx = _TRAINING_JS.index("function repeatLastWorkout")
-    fn_body = _TRAINING_JS[fn_idx: fn_idx + 1600]
+    fn_body = _fn_body(fn_idx)
     assert "workout-tss" in fn_body
 
 
 def test_js_populates_exercise_rows():
     fn_idx = _TRAINING_JS.index("function repeatLastWorkout")
-    fn_body = _TRAINING_JS[fn_idx: fn_idx + 1600]
+    fn_body = _fn_body(fn_idx)
     assert "addExerciseRow" in fn_body
 
 
@@ -209,14 +220,14 @@ def test_js_populates_exercise_rows():
 
 def test_js_sets_date_to_today():
     fn_idx = _TRAINING_JS.index("function repeatLastWorkout")
-    fn_body = _TRAINING_JS[fn_idx: fn_idx + 1600]
+    fn_body = _fn_body(fn_idx)
     assert "workout-date" in fn_body
     assert "todayIso()" in fn_body or "todayIso" in fn_body
 
 
 def test_js_does_not_copy_source_workout_date():
     fn_idx = _TRAINING_JS.index("function repeatLastWorkout")
-    fn_body = _TRAINING_JS[fn_idx: fn_idx + 1600]
+    fn_body = _fn_body(fn_idx)
     assert "workout_date" not in fn_body, (
         "Should not copy source workout's date — date must be today"
     )
@@ -226,7 +237,7 @@ def test_js_does_not_copy_source_workout_date():
 
 def test_js_handles_empty_history():
     fn_idx = _TRAINING_JS.index("function repeatLastWorkout")
-    fn_body = _TRAINING_JS[fn_idx: fn_idx + 1600]
+    fn_body = _fn_body(fn_idx)
     assert "No previous workout" in fn_body or "showToast" in fn_body
 
 
@@ -234,7 +245,7 @@ def test_js_handles_empty_history():
 
 def test_js_resets_editingWorkoutId():
     fn_idx = _TRAINING_JS.index("function repeatLastWorkout")
-    fn_body = _TRAINING_JS[fn_idx: fn_idx + 1600]
+    fn_body = _fn_body(fn_idx)
     assert "editingWorkoutId" in fn_body, (
         "editingWorkoutId must be reset to null so save creates a new record"
     )

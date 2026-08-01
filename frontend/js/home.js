@@ -1,12 +1,10 @@
 (function () {
   /* ---- HTML escaping (XSS guard for user/API strings in innerHTML) ---- */
+  // Delegates to the shared escaper (issue #1603). The local copies
+  // disagreed about the apostrophe, so identical content was safe on
+  // some pages and attribute-injectable on others.
   function esc(s) {
-    if (s == null) return "";
-    return String(s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+    return window.AppCommon.escapeHtml(s);
   }
 
   /* ---- Greeting ---- */
@@ -19,7 +17,7 @@
   }
 
   function formatDateSubtitle() {
-    var d = new Date();
+    var d = window.AppCommon.nowBangkok();
     var days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return days[d.getDay()] + ', ' + d.getDate() + ' ' + months[d.getMonth()];
@@ -45,7 +43,7 @@
 
   // Returns today's date string (YYYY-MM-DD) in Asia/Bangkok timezone.
   function bangkokTodayStr() {
-    return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    return window.AppCommon.todayISO();
   }
 
   /* ---- Personal records card helpers (home v3, Task 6) ----
@@ -128,11 +126,13 @@
   }
 
 
-  /* Recent workouts are now rendered by home-readiness-training-sleep.js's
-     renderNextWorkoutCard, which owns the whole merged "Next + Recent" card so
-     it can budget Next vs Recent rows against one shared capacity (see
-     _nwFill / _nwFillCounts there). home.js passes summary.recent_workouts in
-     via HomeRTS.render(summary, userId); it no longer fills the section here. */
+  /* Recent workouts are rendered by home-readiness-training-sleep.js's
+     renderRecentWorkoutsCard, into #home-recent-workouts-card (below Training —
+     see the Home today-focal-point UX review: that slot used to sit in the top
+     row, but the top row is now home-today-plan-card.js's forward-looking
+     "what should I do today" card instead). home.js passes
+     summary.recent_workouts in via HomeRTS.render(summary, userId); it no
+     longer fills the section here. */
 
   /* ---- Fast-log form (issue #394: mobile-optimised daily metrics) ---- */
 
@@ -381,7 +381,14 @@
 
   function _showStravaStaleBanner(hoursAgo) {
     var container = document.getElementById('strava-stale-banner');
-    if (!container || container.hidden) return;
+    // The container starts `hidden` in home.html (frontend/pages/home.html)
+    // so it takes no layout space until a stale sync is actually detected —
+    // this is the call that's supposed to reveal it. Bailing out because it
+    // was still hidden (found live during the S1 UX review) meant this
+    // banner could never render for anyone: nothing else ever cleared the
+    // attribute, so every call hit this guard and returned immediately.
+    if (!container) return;
+    container.hidden = false;
     var h = Math.round(hoursAgo);
     container.innerHTML =
       '<div class="strava-stale-banner" id="strava-stale-banner-inner">' +
@@ -564,12 +571,9 @@
     }
   }
 
-  function _escHtml(str) {
-    return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+  // Delegates to the shared escaper (issue #1603).
+  function _escHtml(s) {
+    return window.AppCommon.escapeHtml(s);
   }
 
   function _weightSummaryAdapter(wBlock) {
@@ -625,10 +629,10 @@
   // weight tab uses, so the two widgets stay byte-for-byte identical.
   function _hwwLoadCurrentCard() {
     if (!window.WeightCurrentCard) return;
-    var to = new Date().toISOString().slice(0, 10);
-    var f = new Date();
-    f.setDate(f.getDate() - 90);
-    var from = f.toISOString().slice(0, 10);
+    var to = window.AppCommon.todayISO();
+    // Bangkok, and via the ISO helper: toISOString() is UTC, so during Bangkok
+    // early mornings this window started a day early (issue #1603).
+    var from = window.AppCommon.addDaysISO(to, -90);
     Promise.all([
       fetch('/api/weight-chart?from=' + from + '&to=' + to + '&include_target=true')
         .then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }),
@@ -644,6 +648,9 @@
   function _initBriefCards() {
     var weekEl = document.getElementById('home-brief-week-plan-card');
     if (window.HomeBriefWeekPlanCard && weekEl) HomeBriefWeekPlanCard.render(weekEl);
+
+    var todayPlanEl = document.getElementById('home-today-plan-card');
+    if (window.HomeTodayPlanCard && todayPlanEl) HomeTodayPlanCard.render(todayPlanEl);
   }
 
   /* ---- Race goal — same A-race as Training > Performance (no separate form) ---- */
@@ -795,12 +802,12 @@
       /* Personal records card (fetches its own data — see loadPerformanceCard) */
       loadPerformanceCard(userId);
 
-      /* Recent workouts are rendered inside the merged Next+Recent card by
+      /* Recent workouts (#home-recent-workouts-card) are rendered by
          HomeRTS.render (called just above with summary.recent_workouts). */
 
       initFastLogForm(userId);
 
-      /* Week plan — same PlannedSessions week as Training > Plan */
+      /* Today's plan + Week plan — same PlannedSessions data as Training > Plan */
       _initBriefCards();
 
       /* Race goal — same A-race as Training > Performance */

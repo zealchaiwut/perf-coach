@@ -3,7 +3,7 @@
 // ── Utilities ──────────────────────────────────────────────────────────────
 
 function todayISO() {
-  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+  return window.AppCommon.todayISO();
 }
 
 function isoDateStr(date) {
@@ -156,9 +156,21 @@ function renderStreakAndAdherence(entries) {
 
 // ── Subtitle ─────────────────────────────────────────────────────────────
 
-function renderSubtitle(summary, stats) {
+function renderSubtitle(summary, stats, tracking) {
   const el = document.getElementById('page-subtitle');
   if (!el) return;
+
+  // Paused tracking, said plainly. 7 days without a weigh-in drops the nudge to
+  // weekly and silences cut verdicts — deliberate ("the app gets quieter, not
+  // louder"), but until now that state existed ONLY in Discord and the paste
+  // blob, so an athlete using the app saw silence with no explanation (#1608).
+  // Nothing turns red; this is reassurance, not a warning.
+  const banner = document.getElementById('tracking-state');
+  if (banner) {
+    const paused = tracking && tracking.state === 'paused';
+    banner.hidden = !paused;
+    if (paused) banner.textContent = tracking.copy || 'weight tracking paused — training continues.';
+  }
 
   const count = summary ? summary.entries_logged : 0;
   const last14Count = _recentEntries.filter(e => e.weight_kg != null).length;
@@ -384,27 +396,22 @@ function renderProgress(target) {
   }
 
   // ── What-if prompt (AC5): surface when behind plan with winnable framing ──
+  // The open button's click handler is wired once in _initWhatifPanel() (it
+  // opens the assumed-pace simulator, not the edit-goal form — see #1602).
   const whatifPrompt    = document.getElementById('whatif-prompt');
   const whatifHeadline  = document.getElementById('whatif-headline');
-  const whatifOpenBtn   = document.getElementById('whatif-open-btn');
 
   if (whatifPrompt) {
     if (gapDir === 'behind') {
-      if (whatifHeadline && typeof WeightVoice !== 'undefined') {
-        whatifHeadline.textContent = WeightVoice.whatIfHeadline(target.target_date || null);
+      if (whatifHeadline) {
+        // WeightVoice was referenced here but never defined anywhere in the
+        // frontend, so this headline was permanently blank — fall back to
+        // fixed copy so the prompt is never empty.
+        whatifHeadline.textContent = typeof WeightVoice !== 'undefined'
+          ? WeightVoice.whatIfHeadline(target.target_date || null)
+          : 'Behind plan — see what a faster pace would do.';
       }
       whatifPrompt.hidden = false;
-      if (whatifOpenBtn && !whatifOpenBtn._wired923) {
-        whatifOpenBtn._wired923 = true;
-        whatifOpenBtn.addEventListener('click', () => {
-          const panel = document.getElementById('edit-panel');
-          const scrim = document.getElementById('edit-scrim');
-          if (panel) panel.hidden = false;
-          if (scrim) scrim.hidden = false;
-          const goalInput = document.getElementById('et-goal-weight');
-          if (goalInput) goalInput.focus();
-        });
-      }
     } else {
       whatifPrompt.hidden = true;
     }
@@ -495,8 +502,9 @@ function renderRecentEntries(entries, activeTarget, totalEntries) {
     activeTarget.start_weight_kg == null ||
     activeTarget.target_weight_kg < activeTarget.start_weight_kg;
 
+  // Delegates to the shared escaper (issue #1603).
   function _esc(s) {
-    return String(s).replace(/[<>&"]/g, c => ({'<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;'}[c]));
+    return window.AppCommon.escapeHtml(s);
   }
 
   // empty state: if no entries exist at all, show prompt instead of 14 blank rows
@@ -816,7 +824,7 @@ let _calSelDate = null;    // currently-open editor date
 function _pad2(n) { return String(n).padStart(2, '0'); }
 
 function _initBackfillCalendar() {
-  const now = new Date();
+  const now = window.AppCommon.nowBangkok();
   _calY = now.getFullYear();
   _calM = now.getMonth();
   const prev = document.getElementById('wcal-prev');
@@ -836,7 +844,7 @@ function _calShift(delta) {
 async function renderBackfillCalendar() {
   const gridR = document.getElementById('wcal-grid-right');
   if (!gridR || _userId == null) return;
-  if (_calY == null) { const n = new Date(); _calY = n.getFullYear(); _calM = n.getMonth(); }
+  if (_calY == null) { const n = window.AppCommon.nowBangkok(); _calY = n.getFullYear(); _calM = n.getMonth(); }
 
   // Right = displayed month; Left = the month before it.
   const rY = _calY, rM = _calM;
@@ -847,7 +855,7 @@ async function renderBackfillCalendar() {
   const rLast = new Date(rY, rM + 1, 0).getDate();
   const toStr  = `${rY}-${_pad2(rM + 1)}-${_pad2(rLast)}`;
 
-  const now = new Date();
+  const now = window.AppCommon.nowBangkok();
   const atCurrent = (rY > now.getFullYear()) || (rY === now.getFullYear() && rM >= now.getMonth());
   const nextBtn = document.getElementById('wcal-next');
   if (nextBtn) nextBtn.disabled = atCurrent;
@@ -1491,6 +1499,206 @@ function _initEditPanel() {
   if (goalDInput) goalDInput.addEventListener('input', _updatePreview);
 }
 
+// ── What-if simulation slide-in panel ─────────────────────────────────────
+// Calls POST /api/weight-targets/{goal_id}/what-if and renders the projected
+// arrival date (issue #1602 — the endpoint was fully implemented and tested
+// with zero frontend callers; the "What if?" button used to silently open
+// the ordinary edit-goal form instead).
+
+function _openWhatifPanel() {
+  const scrim    = document.getElementById('whatif-scrim');
+  const panel    = document.getElementById('whatif-panel');
+  const input    = document.getElementById('whatif-rate-input');
+  const hintEl   = document.getElementById('whatif-rate-hint');
+  const resultEl = document.getElementById('whatif-result');
+
+  if (resultEl) resultEl.innerHTML = '';
+
+  const losing = _activeTarget
+    ? _activeTarget.target_weight_kg < _activeTarget.start_weight_kg
+    : null;
+
+  if (input) {
+    const magnitude = _activeTarget && _activeTarget.required_pace_kg_per_week != null
+      ? Math.abs(_activeTarget.required_pace_kg_per_week)
+      : null;
+    input.value = magnitude != null ? magnitude.toFixed(2) : '';
+  }
+  if (hintEl) {
+    hintEl.textContent = losing != null
+      ? `Enter a positive number — you're aiming to ${losing ? 'lose' : 'gain'} weight`
+      : '';
+  }
+
+  if (scrim) scrim.hidden = false;
+  if (panel) panel.hidden = false;
+  if (input) input.focus();
+}
+
+function _closeWhatifPanel() {
+  const scrim = document.getElementById('whatif-scrim');
+  const panel = document.getElementById('whatif-panel');
+  if (scrim) scrim.hidden = true;
+  if (panel) panel.hidden = true;
+}
+
+function _renderWhatifResult(data) {
+  const resultEl = document.getElementById('whatif-result');
+  if (!resultEl) return;
+
+  const today = todayISO();
+  const arrivalStr = data.arrival_date
+    ? new Date(data.arrival_date + 'T00:00:00').toLocaleDateString('en-US', {
+        month: 'short', day: 'numeric', year: 'numeric',
+      })
+    : null;
+  const weeksAway = data.arrival_date
+    ? Math.max(0, Math.round(
+        (new Date(data.arrival_date + 'T00:00:00') - new Date(today + 'T00:00:00')) / (7 * 86400000)
+      ))
+    : null;
+  const line = Array.isArray(data.simulated_line) ? data.simulated_line : [];
+  const lastPoint = line.length ? line[line.length - 1] : null;
+
+  resultEl.innerHTML =
+    '<div class="et-preview">' +
+      '<div class="et-preview-row"><span>Arrival date</span><span class="mono">' +
+        window.AppCommon.escapeHtml(arrivalStr || 'Not reached in the simulated window') +
+      '</span></div>' +
+      (weeksAway != null
+        ? '<div class="et-preview-row"><span>From today</span><span class="mono">' +
+            weeksAway + (weeksAway === 1 ? ' week' : ' weeks') +
+          '</span></div>'
+        : '') +
+      (lastPoint && lastPoint.weight != null
+        ? '<div class="et-preview-row"><span>Weight then</span><span class="mono">' +
+            Number(lastPoint.weight).toFixed(1) + ' kg' +
+          '</span></div>'
+        : '') +
+    '</div>';
+}
+
+async function _runWhatifSimulation() {
+  const input    = document.getElementById('whatif-rate-input');
+  const runBtn   = document.getElementById('whatif-run-btn');
+  const resultEl = document.getElementById('whatif-result');
+  if (!resultEl) return;
+
+  if (!_activeTarget) {
+    UIStates.setError(resultEl, 'No active target to simulate against.');
+    return;
+  }
+
+  const magnitude = input ? parseFloat(input.value) : NaN;
+  if (isNaN(magnitude) || magnitude <= 0) {
+    UIStates.setError(resultEl, 'Enter a positive weekly rate.');
+    return;
+  }
+
+  const losing = _activeTarget.target_weight_kg < _activeTarget.start_weight_kg;
+  const assumedRate = losing ? -Math.abs(magnitude) : Math.abs(magnitude);
+
+  UIStates.setLoading(resultEl, 'Simulating…');
+  if (runBtn) runBtn.disabled = true;
+
+  try {
+    const res = await fetch(`/api/weight-targets/${encodeURIComponent(_activeTarget.id)}/what-if`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assumed_rate: assumedRate }),
+    });
+    if (res.status === 401 || res.status === 403) {
+      window.location.href = '/login';
+      return;
+    }
+    if (!res.ok) {
+      let detail = `Server error ${res.status}`;
+      try {
+        const body = await res.json();
+        if (body && body.detail) detail = body.detail;
+      } catch (_) { /* body wasn't JSON — keep the generic message */ }
+      UIStates.setError(resultEl, detail);
+      return;
+    }
+    const data = await res.json();
+    _renderWhatifResult(data);
+  } catch (e) {
+    UIStates.setError(resultEl, 'Network error: ' + e.message);
+  } finally {
+    if (runBtn) runBtn.disabled = false;
+  }
+}
+
+function _initWhatifPanel() {
+  const openBtn  = document.getElementById('whatif-open-btn');
+  const closeBtn = document.getElementById('whatif-panel-close');
+  const scrim    = document.getElementById('whatif-scrim');
+  const runBtn   = document.getElementById('whatif-run-btn');
+  const input    = document.getElementById('whatif-rate-input');
+
+  if (openBtn)  openBtn.addEventListener('click', _openWhatifPanel);
+  if (closeBtn) closeBtn.addEventListener('click', _closeWhatifPanel);
+  if (scrim)    scrim.addEventListener('click', _closeWhatifPanel);
+  if (runBtn)   runBtn.addEventListener('click', _runWhatifSimulation);
+  if (input) {
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); _runWhatifSimulation(); }
+    });
+  }
+}
+
+// ── Projected arrival date ─────────────────────────────────────────────────
+// GET /api/weight-targets/arrival-projection (issue #1602 — tested and
+// implemented, zero frontend callers).
+
+async function fetchArrivalProjection() {
+  return apiFetch('/api/weight-targets/arrival-projection');
+}
+
+function renderArrivalProjection(data) {
+  const el   = document.getElementById('arrival-projection');
+  const text = document.getElementById('arrival-projection-text');
+  if (!el || !text) return;
+
+  if (!data || data.reason === 'no_active_plan' || data.reason === 'no_active_goal') {
+    el.hidden = true;
+    return;
+  }
+
+  if (data.reason === 'already_at_goal') {
+    text.textContent = "You've already reached your goal weight.";
+    el.hidden = false;
+    return;
+  }
+
+  if (data.reason === 'not_trending_toward_goal') {
+    text.textContent = data.recent_rate != null
+      ? `Not currently trending toward your goal (recent pace ${Math.abs(data.recent_rate).toFixed(2)} kg/wk the wrong way).`
+      : 'Not currently trending toward your goal.';
+    el.hidden = false;
+    return;
+  }
+
+  if (data.reason === 'insufficient_data') {
+    text.textContent = 'Log a few more weigh-ins to project an arrival date.';
+    el.hidden = false;
+    return;
+  }
+
+  if (data.projected_arrival_date) {
+    const dateStr = new Date(data.projected_arrival_date + 'T00:00:00').toLocaleDateString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric',
+    });
+    const rateStr = data.projected_rate != null ? ` at ${Math.abs(data.projected_rate).toFixed(2)} kg/wk` : '';
+    text.textContent = `Projected arrival: ${dateStr}${rateStr}`;
+    el.hidden = false;
+    return;
+  }
+
+  // Unrecognized/empty shape — hide rather than show a blank or stale row.
+  el.hidden = true;
+}
+
 // ── Range tabs ─────────────────────────────────────────────────────────────
 
 function _initRangeTabs() {
@@ -1764,7 +1972,7 @@ async function _reload() {
     _recentEntries = entriesRes.entries || [];
     _activeTarget = targetRes.target || null;
 
-    renderSubtitle(summaryRes.summary, chartData.stats);
+    renderSubtitle(summaryRes.summary, chartData.stats, entriesRes.tracking);
     renderHeroCardA(chartData, _activeTarget);
     renderCoachStrip(chartData, _activeTarget);
     renderChart(chartData, _currentRange);
@@ -1778,6 +1986,17 @@ async function _reload() {
     _renderP2WCard(_currentRange);
   } catch (e) {
     if (e.message !== 'auth') showPageError('Load error: ' + e.message);
+  }
+
+  // Independent of the batch above: never let an arrival-projection failure
+  // block the rest of the page from rendering.
+  try {
+    renderArrivalProjection(await fetchArrivalProjection());
+  } catch (e) {
+    if (e.message !== 'auth') {
+      const el = document.getElementById('arrival-projection');
+      if (el) el.hidden = true;
+    }
   }
 }
 
@@ -1985,6 +2204,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   _initRangeTabs();
   _initModeToggle();
   _initEditPanel();
+  _initWhatifPanel();
   _initTargetHistoryFilters();
   _initBackfillCalendar();
   _initBodyMeasurements();
