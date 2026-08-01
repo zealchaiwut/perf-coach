@@ -172,8 +172,14 @@ def test_call_stryd_signin_url_error_raises_502():
     assert "Stryd is unavailable" in exc_info.value.detail
 
 
-def test_connect_stryd_unreachable_via_service_returns_502(monkeypatch):
+def test_connect_stryd_unreachable_via_service_returns_502(monkeypatch, as_user):
     _fernet_key(monkeypatch)
+    # The other endpoint-level tests in this file predate session auth being
+    # enforced everywhere and are pre-existing BASELINE_FAILURES.txt entries
+    # (client.post 401s with no session) — that's out of scope here. This is
+    # a new test, so it gets a real session via the `as_user` fixture instead
+    # of inheriting the same known gap.
+    as_user(TEST_USER_ID)
     from fastapi import HTTPException as _HTTPException
 
     with patch("backend.main._stryd_signin", side_effect=_HTTPException(
