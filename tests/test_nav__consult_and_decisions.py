@@ -69,10 +69,10 @@ def test_both_buttons_are_wired(nav):
     assert "gn-copy-consult" in body
 
 
-def test_icon_only_button_has_an_accessible_name(nav):
-    """It has no visible <span>, so aria-label is the only name a screen reader
-    gets."""
-    btn = nav[nav.index('id="gn-copy-consult"') - 200:]
+def test_copy_trigger_has_an_accessible_name(nav):
+    """The trigger's visible <span> label is hidden at mobile widths (icon +
+    caret only), so aria-label is the only name a screen reader gets there."""
+    btn = nav[nav.index('id="gn-copy-trigger"') - 200:]
     btn = btn[: btn.index("</button>")]
     assert "aria-label=" in btn
 
@@ -171,27 +171,84 @@ def test_building_toast_differs_by_endpoint_without_new_helper_params(nav):
     assert "endpoint === CONSULT_ENDPOINT" in copy_fn
 
 
-def test_copy_buttons_have_a_pre_copy_explanation(nav):
-    """A short, always-in-the-DOM explanation of what each button copies —
-    reusing the shared .info-tip-bubble component (styles.css) that the
-    CTL/ATL/TSB/ACWR tiles already use for this exact job, hover/focus
-    triggered off the button itself rather than a native `title` (slow,
-    inconsistent, easy to miss)."""
+def test_copy_items_have_a_pre_copy_explanation(nav):
+    """A short, always-in-the-DOM explanation of what each menu item copies.
+    The two buttons used to carry this as a hover .info-tip-bubble; merged
+    into one dropdown, it's plain body text under each item's title instead
+    (see the CSS comment above .gn-copy-item) — a menu is read top-to-bottom
+    so hover-to-reveal buys nothing, and it removes a second nested
+    absolutely-positioned bubble that could reintroduce the off-screen
+    clipping e4fb2e2c fixed for the old standalone buttons."""
     for btn_id in ("gn-copy-claude", "gn-copy-consult"):
         start = nav.index('id="' + btn_id + '"')
         end = nav.index("</button>", start)
-        btn = nav[start:end]
-        assert "info-tip-bubble" in btn
-        assert 'role="tooltip"' in btn
-        assert "aria-describedby=" in btn
+        item = nav[start:end]
+        assert "gn-copy-item-title" in item
+        assert "gn-copy-item-desc" in item
+        # No hover-triggered bubble should have crept back in here.
+        assert "info-tip-bubble" not in item
 
 
-def test_pre_copy_explanation_is_reachable_on_mobile():
-    """The mobile media query hides the copy buttons' plain <span> labels
-    (icon-only at narrow widths) — it must not blanket-hide the info-tip
-    bubble along with them, or the pre-copy explanation would be unreachable
-    on the majority-mobile surface it matters most for."""
+def test_pre_copy_explanation_is_reachable_at_every_width():
+    """Unlike the old per-button info-tip bubble (hover/focus only, and the
+    mobile query had to explicitly exempt it from the label-hiding rule), the
+    dropdown item's .gn-copy-item-desc is plain text belonging to a class the
+    mobile media query never touches — reachable at every width as soon as
+    the menu is open, with no exemption to maintain."""
     nav_src = NAV_JS.read_text()
     mobile_start = nav_src.index("@media (max-width:880px)")
     mobile = nav_src[mobile_start : nav_src.index("]", mobile_start)]
-    assert "gn-copy span:not(.info-tip-bubble){display:none;}" in mobile
+    # No rule in the mobile block hides the description class.
+    assert "gn-copy-item-desc{display:none" not in mobile
+    assert "gn-copy-item-desc {display:none" not in mobile
+    # The trigger's own label is what mobile hides — icon + caret carry it,
+    # backed by the aria-label test above.
+    assert "gn-copy-trigger span{display:none;}" in mobile
+
+
+# ── The merged dropdown ─────────────────────────────────────────────────────
+# Product decision: the two actions stay distinct (same data, different
+# purposes — one open-ended, one ending in a /decisions change list) but move
+# from two peer buttons in the bar to one entry point with a dropdown.
+
+def test_single_trigger_replaces_the_two_peer_buttons(nav):
+    """Exactly one clickable entry point sits in the nav bar itself; the two
+    choices live inside the panel it opens, not beside it."""
+    assert 'id="gn-copy-trigger"' in nav
+    assert 'aria-haspopup="true"' in nav[nav.index('id="gn-copy-trigger"') - 50 :][:400]
+
+
+def test_dropdown_panel_is_right_aligned_not_centered(nav):
+    """The trigger sits at the nav's right edge next to the env badge/avatar —
+    a centered panel would clip off-screen there exactly the way the old
+    info-tip bubbles did before e4fb2e2c. Right-aligning (right:0;left:auto)
+    is the same fix already proven for .gn-profile-menu, reused here."""
+    css_start = nav.index(".global-nav .gn-copy-dropdown{")
+    css_end = nav.index("}", css_start)
+    rule = nav[css_start:css_end]
+    assert "right:0" in rule
+    assert "left:auto" in rule
+
+
+def test_dropdown_items_are_inside_the_panel(nav):
+    menu_start = nav.index('id="gn-copy-dropdown"')
+    menu_end = nav.index('"gn-env"', menu_start)  # next sibling markup after the menu closes
+    body = nav[menu_start:menu_end]
+    assert 'id="gn-copy-claude"' in body
+    assert 'id="gn-copy-consult"' in body
+
+
+def test_selecting_an_item_closes_the_dropdown(nav):
+    """The panel must not linger open after a choice is made — both item click
+    handlers close it before kicking off the copy."""
+    wire_start = nav.index("function _wireCopyForClaude(")
+    wire_end = nav.index("\n  function ", wire_start + 10)
+    body = nav[wire_start:wire_end]
+    assert body.count("_closeCopyDropdown()") == 2
+
+
+def test_copy_menu_is_wired_in_build_nav(nav):
+    build_start = nav.index("function buildNav(")
+    build_end = nav.index("\n  // ── Copy for Claude")
+    body = nav[build_start:build_end]
+    assert "_wireCopyMenu(nav)" in body
