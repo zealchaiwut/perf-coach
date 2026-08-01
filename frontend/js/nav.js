@@ -152,9 +152,10 @@
     { href: '/log',      label: 'Training',     icon: 'ti-list-details', match: ['/log', '/training', '/training.html'] },
     { href: '/weight',   label: 'Weight',       icon: 'ti-scale',        match: ['/weight', '/weight.html'] },
     { href: '/habits',   label: 'Habits',       icon: 'ti-checklist',    match: ['/habits', '/habits.html'] },
-    // The consult loop's memory. Had a route but no link — the export cites
-    // these rows by date, so it needs to be reachable without typing a URL.
-    { href: '/decisions', label: 'Decisions',   icon: 'ti-notes',        match: ['/decisions', '/decisions.html'] },
+    // The consult loop, end to end: start a check-in, paste the changes
+    // back, see the history. Supersedes the old standalone /decisions link
+    // (decisions.html is now a redirect shim to here — see main.py's _PAGES).
+    { href: '/coach',    label: 'Coach',        icon: 'ti-notes',        match: ['/coach', '/coach.html'] },
     { href: '/trends',      label: 'Trends',      icon: 'ti-chart-line',   match: ['/trends', '/trends.html'] }
     // Users is intentionally omitted — it's an admin-only page (see js/admin-gate.js).
   ];
@@ -629,6 +630,20 @@
         );
       });
   }
+
+  // Shared with coach.js's "Start a check-in" card — the /coach page's own
+  // consult trigger calls this SAME function (same fetch, clipboard write,
+  // persisted "Building…" toast, and error/retry behavior) rather than
+  // reimplementing it, so the nav dropdown's "Copy for consult" item and the
+  // Coach page entry point can't drift apart the way 17 divergent esc()
+  // copies once did (issue #1603). nav.js is a single IIFE with nothing else
+  // copy-related on window, so this is the one addition needed to make the
+  // logic reachable from another page's script.
+  window.NavCopy = {
+    copyForClaude: _copyForClaude,
+    COPY_ENDPOINT: COPY_ENDPOINT,
+    CONSULT_ENDPOINT: CONSULT_ENDPOINT,
+  };
 
   function _wireCopyForClaude() {
     var btn = document.getElementById("gn-copy-claude");

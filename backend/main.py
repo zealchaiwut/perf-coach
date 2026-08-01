@@ -5522,8 +5522,12 @@ _PAGES = {
     "trends": "trends.html",
     "settings": "settings.html",
     "preferences": "preferences.html",
-    # The consult loop's log. Its own small route rather than a Preferences tab:
-    # the export references these rows by date, so it needs a linkable home.
+    # The consult loop, start to finish — check-in, paste-back, and history —
+    # in one page. Supersedes the standalone Decisions page (below).
+    "coach": "coach.html",
+    # Redirect shim only (-> /coach), same pattern as "preferences" above.
+    # Route kept registered so old /decisions bookmarks still land somewhere
+    # real instead of 404ing; decisions.html itself just redirects now.
     "decisions": "decisions.html",
     "run-view": "run-view.html",
     "run-builder": "run-builder.html",

@@ -1,13 +1,52 @@
 /*
- * decisions.js — the consult loop's log view.
+ * coach.js — the /coach page: check-in → paste-back → history, in one place.
  *
- * One textarea in, a dated list out. There is no parser and there should not be
- * one: the block is stored exactly as the consult wrote it, and the value is in
- * having the history at all. Recording an outcome is the half that closes the
- * loop, so it is one tap from the list rather than a separate screen.
+ * Three pieces that used to live in two disconnected surfaces:
+ *  1. "Start a check-in" — calls the exact same /api/coach/consult flow the
+ *     nav dropdown's "Copy for consult" item already implements. Rather than
+ *     re-fetch/re-clipboard/re-toast a second time, this reuses nav.js's own
+ *     _copyForClaude, exposed as window.NavCopy (see nav.js's "Copy for
+ *     Claude" section) — one fetch/clipboard/toast/retry path for both entry
+ *     points, so they cannot drift the way 17 divergent esc() copies once did
+ *     (issue #1603).
+ *  2. The paste-back box — relocated verbatim from decisions.js. There is no
+ *     parser and there should not be one: the CHANGES TO APPLY block is
+ *     stored exactly as the consult wrote it, and the value is in having the
+ *     history at all.
+ *  3. The decisions history/log — same list, same outcome/applied actions,
+ *     just living on this page now that /decisions is a redirect shim to
+ *     /coach.
  */
 (function () {
   "use strict";
+
+  // ── 1. Start a check-in ──────────────────────────────────────────────────
+  // Same endpoint, same "Building…" persisted toast, same success/error
+  // behavior as the nav dropdown's "Copy for consult" item — see nav.js.
+  var checkinBtn = document.getElementById("coach-checkin-btn");
+  if (checkinBtn) {
+    if (window.NavCopy && typeof window.NavCopy.copyForClaude === "function") {
+      checkinBtn.addEventListener("click", function () {
+        window.NavCopy.copyForClaude(
+          checkinBtn,
+          window.NavCopy.CONSULT_ENDPOINT,
+          "consult copied"
+        );
+      });
+    } else {
+      // nav.js failed to load/expose the shared helper — fail loud rather
+      // than silently doing nothing when clicked.
+      checkinBtn.disabled = true;
+      checkinBtn.title = "Check-in unavailable — reload the page.";
+    }
+  }
+
+  // ── 2 & 3. Paste-back box + history log (relocated from decisions.js) ──────
+  // One textarea in, a dated list out. There is no parser and there should
+  // not be one: the block is stored exactly as the consult wrote it, and the
+  // value is in having the history at all. Recording an outcome is the half
+  // that closes the loop, so it is one tap from the list rather than a
+  // separate screen.
 
   var listEl = document.getElementById("dc-list");
   var rawEl = document.getElementById("dc-raw");
@@ -85,7 +124,7 @@
     if (!listEl) return;
     if (!decisions.length) {
       listEl.innerHTML =
-        '<div class="dc-empty">No decisions yet. After your next consult, paste the change list above.</div>';
+        '<div class="dc-empty">No decisions yet. After your check-in, paste the change list above.</div>';
       return;
     }
     listEl.innerHTML = decisions.map(entryHtml).join("");
