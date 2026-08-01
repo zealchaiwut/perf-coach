@@ -548,17 +548,32 @@
       });
       toast.appendChild(retry);
     }
+    // onCopy: the export is already fetched and sitting in memory — this
+    // button's click is a fresh, real user gesture, so the clipboard write
+    // it triggers succeeds even in the case (see _copyForClaude) where the
+    // automatic post-fetch write couldn't. Deliberately not styled/labeled
+    // as an error state — this is the expected, common path, not a failure.
+    if (opts.onCopy) {
+      var copyBtn = document.createElement("button");
+      copyBtn.type = "button";
+      copyBtn.className = "gnct-retry";
+      copyBtn.textContent = "Copy";
+      copyBtn.addEventListener("click", function () {
+        opts.onCopy(toast);
+      });
+      toast.appendChild(copyBtn);
+    }
     toast.classList.toggle("is-error", !!opts.error);
     toast.classList.add("is-open");
     if (_toastTimer) clearTimeout(_toastTimer);
-    // An error toast holds the retry button, so it stays until dismissed by the
-    // next toast rather than vanishing mid-reach. A persisted toast (the
+    // An error/action toast holds a button, so it stays until dismissed by
+    // the next toast rather than vanishing mid-reach. A persisted toast (the
     // in-flight "Building…" status) skips the auto-dismiss for the same
     // reason: the ~12s build regularly outlasts the normal 4s toast life, and
     // it would otherwise vanish mid-wait, right when it's most needed, and
     // leave nothing but the button's own spinner for the rest of the wait.
     // The next _copyToast call (success or error) always replaces it.
-    if (!opts.onRetry && !opts.persist) {
+    if (!opts.onRetry && !opts.onCopy && !opts.persist) {
       _toastTimer = setTimeout(function () {
         toast.classList.remove("is-open");
       }, 4000);
@@ -606,14 +621,39 @@
       })
       .then(function (blob) {
         if (!blob || !blob.trim()) throw new Error("export was empty");
-        return _writeClipboard(blob).then(function () {
-          restore();
+
+        function stamped() {
           // Bangkok date, not the browser's — this app is single-timezone and
           // the stamp must match the day the export itself was built for.
-          var stamp = new Date().toLocaleDateString("en-CA", {
-            timeZone: "Asia/Bangkok",
+          return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
+        }
+
+        return _writeClipboard(blob).then(function () {
+          restore();
+          _copyToast(label + " · " + _copyCharCount(blob.length) + " · " + stamped());
+        }).catch(function () {
+          // The automatic write failed — almost always because this fetch
+          // took the ~10-12s it's expected to, and by the time it resolved,
+          // the browser's clipboard-write permission (tied to a recent, real
+          // user gesture — "transient activation") had expired. Retrying the
+          // whole fetch would hit the exact same timing wall again. Instead,
+          // the blob is already sitting in memory — offer a manual Copy
+          // button, whose own click is a fresh gesture, so the write it
+          // triggers succeeds even though the automatic one couldn't.
+          restore();
+          _copyToast("Ready — " + _copyCharCount(blob.length) + " to copy", {
+            persist: true,
+            onCopy: function (toastEl) {
+              _writeClipboard(blob).then(function () {
+                toastEl.classList.remove("is-open");
+                _copyToast(label + " · " + _copyCharCount(blob.length) + " · " + stamped());
+              }).catch(function () {
+                _copyToast("Still couldn't copy — select and copy the text manually.", {
+                  error: true,
+                });
+              });
+            },
           });
-          _copyToast(label + " · " + _copyCharCount(blob.length) + " · " + stamp);
         });
       })
       .catch(function (err) {

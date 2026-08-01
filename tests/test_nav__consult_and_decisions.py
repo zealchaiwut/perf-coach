@@ -350,3 +350,40 @@ def test_coach_html_has_a_flow_hint_between_checkin_and_paste_back():
     paste_idx = html.index('id="dc-raw"')
     hint = html[checkin_idx:paste_idx]
     assert "paste" in hint.lower()
+
+
+# ── Clipboard write can outlive the browser's transient-activation window ──
+#
+# Found live: the automatic post-fetch clipboard write can fail with
+# "clipboard unavailable" because the ~10-12s export fetch routinely outlasts
+# the window browsers keep a click's "this was a real user gesture" status
+# valid for. Retrying just re-fetches and hits the same timing wall again.
+# The fix keeps the already-fetched blob in memory and offers a manual Copy
+# button instead — that button's own click is a fresh gesture, so the write
+# it triggers succeeds even though the automatic one couldn't.
+
+def test_copy_toast_supports_an_oncopy_action_button(nav):
+    fn = nav[nav.index("function _copyToast(") : nav.index("function _copyCharCount(")]
+    assert "opts.onCopy" in fn
+    assert "gnct-retry" in fn  # reuses the existing action-button styling
+
+
+def test_automatic_write_failure_offers_manual_copy_not_just_retry(nav):
+    """A failed automatic write must not fall straight into the generic
+    fetch-failure/Retry handler — retrying re-fetches and hits the identical
+    activation-expiry wall again, wasting another ~12s for the same result."""
+    fn = nav[nav.index("function _copyForClaude(") : nav.index("function _wireCopyForClaude(")]
+    write_idx = fn.index("_writeClipboard(blob)")
+    fallback = fn[write_idx:]
+    assert "onCopy:" in fallback
+    assert fallback.index("onCopy:") < fallback.index("Couldn't copy")
+
+
+def test_manual_copy_button_writes_the_already_fetched_blob(nav):
+    """The fallback path must not re-fetch — the whole point is avoiding a
+    second ~12s wait for a problem that isn't about the data."""
+    fn = nav[nav.index("function _copyForClaude(") : nav.index("function _wireCopyForClaude(")]
+    onCopy_idx = fn.index("onCopy: function")
+    body = fn[onCopy_idx:onCopy_idx + 300]
+    assert "_writeClipboard(blob)" in body
+    assert "fetch(" not in body
