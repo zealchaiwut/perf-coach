@@ -376,6 +376,15 @@ _PERMANENT_EXEMPT_PAGES: dict[str, str] = {
         "CARD_HREF map — but not in nav.js's LINKS table, which is what a "
         "nav-only reachability reading would check first."
     ),
+    "/decisions": (
+        "Deliberate redirect shim -> /coach (feature/coach-tab, same pattern "
+        "as /preferences above). The standalone Decisions page and its "
+        "nav.js LINKS entry were retired in favor of /coach, which now hosts "
+        "the paste-back box and history log — decisions.html itself just "
+        "redirects. The route stays registered so old bookmarks land "
+        "somewhere real instead of 404ing, but is deliberately absent from "
+        "nav.js's LINKS table now."
+    ),
     "/run-builder": (
         "Reachable via an in-page link in training.html ('Log a workout' alt "
         "path), not from nav.js's LINKS. Absent from nav by design (§3.1: "
