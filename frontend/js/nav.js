@@ -370,7 +370,16 @@
       // span on narrow viewports for BOTH copy buttons, and a display:none span
       // drops out of the accessible-name computation — without this, a
       // screen-reader user on mobile would hit an unlabeled button here.
-      '<button type="button" class="gn-copy" id="gn-copy-claude"' +
+      // info-tip--below: the global nav is `position:sticky;top:0`, so it's
+      // always pinned to the very top of the viewport — the component's
+      // default upward-opening bubble (bottom:calc(100% + 7px)) would open
+      // above y=0 and render entirely off-screen. Verified in the browser:
+      // without this the bubble measured top:-93px, invisible despite
+      // opacity:1/visibility:visible. NOTE: .info-tip--below/--right are
+      // descendant selectors (".info-tip--below .info-tip-bubble" in
+      // styles.css) — they belong on this ANCESTOR button, not on the
+      // bubble span itself (that was tried first and silently no-opped).
+      '<button type="button" class="gn-copy info-tip--below" id="gn-copy-claude"' +
       ' aria-label="Copy for Claude"' +
       ' aria-describedby="gn-copy-claude-tip">' +
       '<i class="ti ti-clipboard-text" aria-hidden="true"></i>' +
@@ -383,14 +392,14 @@
       // The check-in blob. Icon-only at every width so it doesn't crowd the bar —
       // aria-label carries the name for screen readers, since the visible
       // <span> the daily button uses isn't there to do it.
-      '<button type="button" class="gn-copy gn-copy-icon" id="gn-copy-consult"' +
+      // info-tip--right: this button sits close to the env badge/avatar on
+      // the right edge, and a centered bubble would clip off-screen there —
+      // same fix as the ATL tile in #1638.
+      '<button type="button" class="gn-copy gn-copy-icon info-tip--right info-tip--below" id="gn-copy-consult"' +
       ' aria-label="Copy for consult"' +
       ' aria-describedby="gn-copy-consult-tip">' +
       '<i class="ti ti-messages" aria-hidden="true"></i>' +
-      // Right-aligned (styles.css .info-tip--right): this button sits close
-      // to the env badge/avatar on the right edge, and a centered bubble
-      // would clip off-screen there — same fix as the ATL tile in #1638.
-      '<span class="info-tip-bubble info-tip--right" role="tooltip" id="gn-copy-consult-tip">' +
+      '<span class="info-tip-bubble" role="tooltip" id="gn-copy-consult-tip">' +
       "Copies the check-in prompt — asks a few questions, then ends in " +
       "a change list to paste into /decisions. Same last-90-days data, " +
       "about 10 seconds to build." +
