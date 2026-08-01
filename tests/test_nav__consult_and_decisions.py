@@ -5,13 +5,22 @@ Both existed as working backend surfaces with no way in:
 - ``GET /api/coach/consult`` shipped with the coach export (#1593) but only the
   *daily* blob got a button, so the check-in — the half that asks questions and
   produces a change list — was curl-only.
-- ``/decisions`` is registered in ``main.py``'s ``_PAGES`` but ``nav.js`` never
+- ``/decisions`` was registered in ``main.py``'s ``_PAGES`` but ``nav.js`` never
   linked it, and no page linked it either. The export cites decision rows by
   date, so the loop's own memory was URL-only.
 
 Both were listed in ``docs/lean-program-operator-guide.md`` §9 as known gaps.
 That listing is the reason they were found; these tests are the reason they
 stay fixed.
+
+**Update (feature/coach-tab):** the standalone ``/decisions`` page and the
+nav dropdown's "Copy for consult" item are now one linear flow, ``/coach`` —
+start a check-in, paste the changes back, see the history — reachable from a
+single new top-level nav entry (``Coach``, superseding the old ``Decisions``
+link). ``/decisions`` itself becomes a redirect shim to ``/coach`` (same
+pattern as ``/preferences``), so old bookmarks still land somewhere real. The
+nav dropdown's copy buttons are untouched by this — "Copy for consult" stays
+available there too, per product decision; this is additive, not a reduction.
 
 Static assertions over ``nav.js`` — the nav is vanilla JS with no bundler and
 no DOM harness in this repo, so reading the source is the alternative to not
@@ -89,41 +98,62 @@ def test_retry_preserves_the_endpoint(nav):
     assert "_copyForClaude(btn, endpoint, label)" in nav
 
 
-# ── The decisions link ────────────────────────────────────────────────────────
+# ── The Coach link (supersedes the old standalone Decisions link) ─────────────
 
-def test_decisions_is_in_the_nav_links(nav):
+def test_coach_is_in_the_nav_links(nav):
     links_start = nav.index("var LINKS = [")
     links_end = nav.index("];", links_start)
     links = nav[links_start:links_end]
-    assert "'/decisions'" in links
+    assert "'/coach'" in links
 
 
-def test_decisions_link_is_not_disabled(nav):
+def test_coach_link_is_not_disabled(nav):
     """Other LINKS entries have carried `disabled: true` in the past (e.g. the
-    now-removed `/calendar` link). Decisions must not inherit that by
-    copy-paste."""
+    now-removed `/calendar` link). Coach must not inherit that by copy-paste."""
     links_start = nav.index("var LINKS = [")
     links_end = nav.index("];", links_start)
     for line in nav[links_start:links_end].splitlines():
-        if "/decisions" in line:
+        if "/coach" in line:
             assert "disabled" not in line
             break
     else:
-        pytest.fail("no /decisions entry found in LINKS")
+        pytest.fail("no /coach entry found in LINKS")
 
 
-def test_the_decisions_page_route_exists():
+def test_decisions_is_no_longer_a_top_level_nav_link(nav):
+    """Coach supersedes the standalone Decisions link — LINKS should carry
+    exactly one of the two, not both left behind by copy-paste."""
+    links_start = nav.index("var LINKS = [")
+    links_end = nav.index("];", links_start)
+    links = nav[links_start:links_end]
+    assert "'/decisions'" not in links
+
+
+def test_the_coach_page_route_exists():
+    assert '"coach": "coach.html"' in MAIN_PY.read_text()
+
+
+def test_the_decisions_page_route_still_exists_as_a_shim():
+    """Not hard-deleted — old /decisions bookmarks must land somewhere real,
+    not 404. See frontend/pages/decisions.html, which now redirects to
+    /coach (same pattern as preferences.html -> /training-log)."""
     assert '"decisions": "decisions.html"' in MAIN_PY.read_text()
 
 
-def test_decisions_matches_its_legacy_html_path(nav):
+def test_decisions_page_redirects_to_coach():
+    decisions_html = (REPO / "frontend" / "pages" / "decisions.html").read_text()
+    assert "/coach" in decisions_html
+    assert "location.replace" in decisions_html
+
+
+def test_coach_matches_its_legacy_html_path(nav):
     """Every page is served at both /x and /x.html; the active-state match list
     has to cover both or the nav item never highlights."""
     links_start = nav.index("var LINKS = [")
     links_end = nav.index("];", links_start)
     for line in nav[links_start:links_end].splitlines():
-        if "/decisions" in line:
-            assert "/decisions.html" in line
+        if "/coach" in line:
+            assert "/coach.html" in line
             break
 
 
@@ -252,3 +282,71 @@ def test_copy_menu_is_wired_in_build_nav(nav):
     build_end = nav.index("\n  // ── Copy for Claude")
     body = nav[build_start:build_end]
     assert "_wireCopyMenu(nav)" in body
+
+
+# ── The /coach page reuses nav.js's copy logic, not a second copy ──────────────
+# The ticket's explicit instruction: don't reimplement the fetch/clipboard/toast
+# path a second time in coach.js. nav.js is a single IIFE with nothing
+# copy-related previously exposed on window, so the fix is exposing the one
+# function coach.js needs.
+
+COACH_JS = REPO / "frontend" / "js" / "coach.js"
+COACH_HTML = REPO / "frontend" / "pages" / "coach.html"
+
+
+@pytest.fixture(scope="module")
+def coach_js() -> str:
+    return COACH_JS.read_text()
+
+
+def test_navcopy_is_exposed_on_window(nav):
+    assert "window.NavCopy" in nav
+    assert "copyForClaude: _copyForClaude" in nav
+
+
+def test_coach_js_calls_the_shared_helper_not_a_new_one(coach_js):
+    assert "window.NavCopy" in coach_js
+    assert "NavCopy.copyForClaude" in coach_js
+    # No second _copyForClaude/fetch-and-clipboard implementation in coach.js.
+    assert "function _copyForClaude(" not in coach_js
+    assert "navigator.clipboard" not in coach_js
+
+
+def test_coach_js_uses_the_consult_endpoint_via_navcopy(coach_js):
+    assert "NavCopy.CONSULT_ENDPOINT" in coach_js
+    # Not a hardcoded second copy of the literal endpoint string.
+    assert '"/api/coach/consult"' not in coach_js
+
+
+def test_coach_html_has_a_checkin_button_wired_by_coach_js():
+    html = COACH_HTML.read_text()
+    js = COACH_JS.read_text()
+    assert 'id="coach-checkin-btn"' in html
+    assert 'getElementById("coach-checkin-btn")' in js
+
+
+def test_coach_html_loads_nav_js_before_coach_js():
+    """coach.js reads window.NavCopy at click time (after nav.js has already
+    run its top-level `window.NavCopy = {...}` assignment), but script order
+    still has to put nav.js first for that to ever be true, not just for the
+    happy timing case."""
+    html = COACH_HTML.read_text()
+    assert html.index('src="js/nav.js"') < html.index('src="js/coach.js"')
+
+
+def test_coach_html_carries_the_paste_back_and_history_ids():
+    """Relocated from decisions.js/decisions.html verbatim — same ids, same
+    behavior, just living on /coach now."""
+    html = COACH_HTML.read_text()
+    for el_id in ("dc-raw", "dc-decided-on", "dc-review-on", "dc-tags", "dc-save", "dc-list"):
+        assert 'id="' + el_id + '"' in html
+
+
+def test_coach_html_has_a_flow_hint_between_checkin_and_paste_back():
+    """The whole point of this page over the old split nav-dropdown +
+    /decisions arrangement: the round trip has to be obvious on first use."""
+    html = COACH_HTML.read_text()
+    checkin_idx = html.index('id="coach-checkin-btn"')
+    paste_idx = html.index('id="dc-raw"')
+    hint = html[checkin_idx:paste_idx]
+    assert "paste" in hint.lower()

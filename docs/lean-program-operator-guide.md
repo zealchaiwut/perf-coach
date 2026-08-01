@@ -210,7 +210,8 @@ record.
    review:   weight trend + endurance score, 2 weeks
    ```
 
-4. **Paste that block into `/decisions`.** One textarea. Save.
+4. **Paste that block into `/coach`.** One textarea, right below the "Start a
+   check-in" card. Save. (`/decisions` still works — it now redirects here.)
 
 ### Step 4 is the one that matters
 
@@ -413,7 +414,7 @@ Working today over HTTP, no UI:
 | marking a long run `fuelled` | a tri-state control on the workout form |
 | `body_fat_pct` on the weigh-in | accepted on create / upsert / patch, and by Hermes |
 | the consult blob | icon button beside **Copy for Claude** |
-| `/decisions` | a nav item |
+| `/decisions` | a nav item (now `/coach` — the whole consult loop, one page) |
 | applying a consult's prefs change by hand | the **From a consult** paste box in Preferences |
 | paused weight tracking | stated on the Weight page |
 | habit correlation evidence | rendered on the Habits page |
