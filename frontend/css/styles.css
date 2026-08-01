@@ -307,3 +307,124 @@ main {
 }
 
 .btn-secondary:hover { background: var(--surface-2); }
+
+/* ── Metric info tooltip ──────────────────────────────────────────────────
+   Lightweight "i" affordance for a metric that's shown with a color bar and
+   a one-word verdict but no explanation (CTL/ATL/TSB/ACWR tiles, the
+   Fitness/Fatigue/Form/ACWR chart). One shared component, reused wherever
+   this pattern appears, instead of a page-local popover per page.
+   No JS required: :hover reveals it on desktop, :focus reveals it on
+   keyboard tab AND on mobile tap (buttons receive focus on tap in every
+   major mobile browser), so a single CSS rule covers hover + tap. */
+.info-tip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 4px;
+  border: 1px solid var(--text-sub);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-sub);
+  font-size: 10px;
+  font-weight: 700;
+  font-style: italic;
+  font-family: Georgia, 'Times New Roman', serif;
+  line-height: 1;
+  padding: 0;
+  cursor: help;
+  vertical-align: middle;
+  flex-shrink: 0;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.info-tip:hover,
+.info-tip:focus-visible,
+.info-tip:focus {
+  color: #fff;
+  background: var(--primary);
+  border-color: var(--primary);
+  outline: none;
+}
+
+.info-tip-bubble {
+  position: absolute;
+  z-index: 30;
+  bottom: calc(100% + 7px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 230px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: #1f2937;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 400;
+  font-style: normal;
+  text-transform: none;
+  letter-spacing: normal;
+  text-align: left;
+  line-height: 1.4;
+  white-space: normal;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease;
+  pointer-events: none;
+}
+
+.info-tip-bubble::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: #1f2937;
+}
+
+.info-tip:hover .info-tip-bubble,
+.info-tip:focus-visible .info-tip-bubble,
+.info-tip:focus .info-tip-bubble {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Tiles near the right edge of their grid/card would otherwise push the
+   centered bubble off-screen; align its right edge to the icon instead. */
+.info-tip--right .info-tip-bubble {
+  left: auto;
+  right: -6px;
+  transform: none;
+}
+
+.info-tip--right .info-tip-bubble::after {
+  left: auto;
+  right: 9px;
+  transform: none;
+}
+
+/* Icons pinned near the top of their container (e.g. a chart's corner info-
+   tip) would open upward into whatever sits above the card, and risk going
+   off the top of the viewport when that card is scrolled near the top of
+   the page. Open downward instead. */
+.info-tip--below .info-tip-bubble {
+  bottom: auto;
+  top: calc(100% + 7px);
+}
+
+.info-tip--below .info-tip-bubble::after {
+  top: auto;
+  bottom: 100%;
+  border-top-color: transparent;
+  border-bottom-color: #1f2937;
+}
+
+@media (max-width: 479px) {
+  .info-tip-bubble {
+    max-width: 180px;
+  }
+}

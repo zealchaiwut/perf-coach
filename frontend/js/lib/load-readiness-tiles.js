@@ -15,6 +15,55 @@
     tsb: "linear-gradient(90deg,#f59e0b,#22c55e,#60a5fa)",
   };
 
+  // Plain-language definitions, grounded in docs/calculations/training-load.md
+  // and docs/calculations/acwr-guardrail.md — do not drift from the formulas
+  // documented there without updating both.
+  var METRIC_TIPS = {
+    ctl:
+      "Chronic Training Load (fitness): a slow, 42-day rolling average of " +
+      "your daily training stress (TSS). It moves gradually, reflecting " +
+      "fitness you've built up over weeks — not any single workout.",
+    atl:
+      "Acute Training Load (fatigue): a fast, 7-day rolling average of " +
+      "your daily training stress (TSS). It reacts quickly to what you've " +
+      "trained in just the last week.",
+    tsb:
+      "Training Stress Balance (freshness/form): today's CTL minus ATL. " +
+      "Positive means you're fresher than your recent training would " +
+      "suggest; very negative means fatigue has outpaced fitness " +
+      "(overreached).",
+    acwr:
+      "Acute:Chronic Workload Ratio: the last 7 days' training load " +
+      "divided by your average load over the 4 weeks before that. Flags " +
+      "when load is ramping up faster than your body has adapted to — " +
+      "a load-management signal, not a medical diagnosis. Below 0.8 = " +
+      "detraining, above 1.5 = high risk.",
+  };
+
+  var _tipSeq = 0;
+
+  // Builds a self-contained "i" affordance: a focusable/hoverable button
+  // holding its own tooltip bubble (see .info-tip in styles.css). alignRight
+  // nudges the bubble so it doesn't clip off the right edge of a 2-col grid.
+  function infoTip(metric, alignRight) {
+    var text = METRIC_TIPS[metric];
+    if (!text) return "";
+    var id = "info-tip-" + metric + "-" + _tipSeq++;
+    return (
+      '<button type="button" class="info-tip' +
+      (alignRight ? " info-tip--right" : "") +
+      '" aria-label="' +
+      esc("What is " + metric.toUpperCase() + "?") +
+      '" aria-describedby="' +
+      id +
+      '">i<span class="info-tip-bubble" role="tooltip" id="' +
+      id +
+      '">' +
+      esc(text) +
+      "</span></button>"
+    );
+  }
+
   var ACWR_STATUS_META = {
     detraining: { word: "DETRAINING", color: "var(--lrx-amber)" },
     productive: { word: "PRODUCTIVE", color: "var(--lrx-green)" },
@@ -60,6 +109,9 @@
   function rcard(metric, val, abbr, label) {
     var st = readStatus(metric, val);
     var pct = markerPct(metric, val);
+    // Right column of the 2×2 grid (ATL) would clip the bubble off-screen
+    // if centered — see buildGridHtml's fixed CTL/ATL/TSB/ACWR order.
+    var alignRight = metric === "atl";
     return (
       '<div class="lrx-rcard">' +
       '<div class="rv">' +
@@ -69,6 +121,7 @@
       abbr +
       " · " +
       label +
+      infoTip(metric, alignRight) +
       "</div>" +
       '<div class="lrx-rband" style="background:' +
       BAND[metric] +
@@ -89,7 +142,9 @@
     return (
       '<div class="lrx-rcard" id="acwr-tile">' +
       '<div class="rv" id="acwr-ratio">–</div>' +
-      '<div class="rl">ACWR · Load ratio</div>' +
+      '<div class="rl">ACWR · Load ratio' +
+      infoTip("acwr", true) +
+      "</div>" +
       '<div class="lrx-rband perf-acwr-rband" id="acwr-band">' +
       '<div class="mk" id="acwr-marker" style="left:50%"></div>' +
       "</div>" +
@@ -257,6 +312,8 @@
     ACWR_MIN_DAYS: ACWR_MIN_DAYS,
     ACWR_STATUS_META: ACWR_STATUS_META,
     BAND: BAND,
+    METRIC_TIPS: METRIC_TIPS,
+    infoTip: infoTip,
     esc: esc,
     fmtLoadNum: fmtLoadNum,
     readStatus: readStatus,
