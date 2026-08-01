@@ -706,6 +706,11 @@ def _assemble_constraints(db: Session, user, today: _date, fitness: dict) -> dic
     settings_row = fuel_svc.get_or_create_settings(user.id, db=db)
     settings = fuel_svc.settings_to_dict(settings_row)
     rest_budget = fuel_svc.compute_budget(settings, burn=0.0)
+    # This is the fueling POINT ESTIMATE (measured -> setting -> estimated
+    # fallback chain) — a second, intentionally different lean-mass figure
+    # (a trend-only guard with no fallback) is assembled in _assemble_body /
+    # body_composition.py. See the comment in build_export where both blocks
+    # are put together for why two numbers exist (#1604).
     lean = fuel_svc._fetch_lean_mass(user.id, settings_row, db)
     targets = fuel_svc.compute_targets(
         settings,
@@ -814,7 +819,11 @@ def _assemble_body(db: Session, user, today: _date, window_days: int) -> dict:
     ]
 
     # Composition: a guard, never a target. Trend series only — no goal line
-    # renders anywhere off these numbers.
+    # renders anywhere off these numbers. This is deliberately a SEPARATE
+    # lean-mass figure from the one _assemble_constraints computes via
+    # fuel_svc's cascade (constraints has no `body` in scope to compare
+    # against, and shouldn't — see the comment in build_export where both
+    # blocks are put together for why two numbers exist) (#1604).
     from backend.services.body_composition import composition_for_user
 
     composition = composition_for_user(db, user.id, today)
@@ -1337,6 +1346,25 @@ def build_export(user_id, window_days: int = DEFAULT_WINDOW_DAYS, today: Optiona
             degraded,
         )
 
+        # ── Two lean-mass numbers, by design (#1604) ────────────────────────
+        # `constraints` (below, via `_assemble_constraints` -> fuel_svc's
+        # cascade -> lean_mass_kg/lean_mass_source ~line 709-714) and `body`
+        # (via `_assemble_body` -> body_composition.derive_lean_mass_kg ->
+        # lean_mass_kg_trend/lean_mass_4wk_delta/lean_mass_falling_weeks
+        # ~line 833-836) both compute a lean-mass figure from the same raw
+        # inputs (weight, body_fat_pct), but they answer different questions
+        # and are allowed to disagree:
+        #   - fuel's cascade is a POINT ESTIMATE with fallbacks (measured ->
+        #     manual setting -> weight-based formula) feeding today's protein
+        #     target math. It always returns a number because a fueling
+        #     target can't be left blank.
+        #   - body_composition's is a TREND-ONLY GUARD with no fallback at
+        #     all (see that module's docstring: "no target, no goal line") —
+        #     it exists purely to catch lean mass falling during a cut and
+        #     goes unreadable rather than estimate one.
+        # A caller (or coach) seeing both numbers diverge is seeing two
+        # different tools answer two different questions, not a bug to
+        # reconcile.
         body = _safe(
             "body",
             lambda: _assemble_body(db, user, today, window_days),

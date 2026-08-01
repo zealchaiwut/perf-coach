@@ -120,6 +120,14 @@ class WeightTarget(Base):
     ended_at = Column(DateTime(timezone=True), nullable=True)
     end_weight_kg = Column(Numeric(5, 2), nullable=True)
     notes = Column(Text, nullable=True)
+    # Folded in from the now-retired weight_plans table (#1604 schema
+    # consolidation). phase is informational (cut/bulk/maintain);
+    # target_rate_kg_per_week is an optional EXPLICIT weekly-rate override —
+    # when unset (the common case; nothing in the UI sets it), consumers fall
+    # back to the implied rate derived from start/target weight and date.
+    # Negative = losing weight, matching the old weight_plans convention.
+    phase = Column(Text, nullable=False, server_default=text("'cut'"))
+    target_rate_kg_per_week = Column(Numeric(4, 2), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
@@ -127,6 +135,10 @@ class WeightTarget(Base):
         CheckConstraint(
             "status IN ('active', 'achieved', 'abandoned', 'replaced')",
             name="ck_weight_targets_status_values",
+        ),
+        CheckConstraint(
+            "phase IN ('cut', 'bulk', 'maintain')",
+            name="ck_weight_targets_phase_values",
         ),
         Index("ix_weight_targets_user_status", "user_id", "status"),
         # Partial unique index — one active target per user; enforced at DB level
@@ -190,6 +202,28 @@ class Habit(Base):
         CheckConstraint(
             "section IN ('training', 'general')",
             name="ck_habits_section_values",
+        ),
+        # Partial unique indexes (#1604) closing ensure_goal_habits' check-then-
+        # insert race — see goal_habits.py and
+        # alembic/versions/becc012af2e6_derive_habit_type_from_tracking_type_.py.
+        # Both scoped WHERE is_archived = false so archiving-then-recreating a
+        # habit with the same name/source stays legal. Two indexes because
+        # goal_habits._find matches by auto_fill_source when the spec has one,
+        # else falls back to name — auto_fill_source alone would miss habits
+        # like "Protein first" that have none (NULL is never equal to NULL).
+        Index(
+            "uq_habits_user_id_auto_fill_source_active",
+            "user_id",
+            "auto_fill_source",
+            unique=True,
+            postgresql_where=text("is_archived = false AND auto_fill_source IS NOT NULL"),
+        ),
+        Index(
+            "uq_habits_user_id_name_active",
+            "user_id",
+            "name",
+            unique=True,
+            postgresql_where=text("is_archived = false"),
         ),
     )
 
@@ -491,6 +525,12 @@ class FuelSettings(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
     weight_kg = Column(Numeric(5, 2), nullable=False)
+    # Optional manual override, not a workaround: fuel.current_lean_mass_kg()
+    # prefers a measured value (from body_fat_pct history) and reports this
+    # setting only as its 'setting' fallback tier, ahead of the last-resort
+    # 'estimated' weight_kg * 0.76 — an intentional escape hatch for athletes
+    # who know their lean mass from a source this app doesn't ingest (DEXA,
+    # etc.) (#1604).
     lean_mass_kg = Column(Numeric(5, 2), nullable=True)  # fallback: weight_kg * 0.76
     base_kcal = Column(Integer, nullable=False)
     maintenance_source = Column(Text, nullable=False, server_default=text("'estimated'"))
@@ -1353,39 +1393,11 @@ class AthleteDurationCurve(Base):
     user = relationship("User", foreign_keys=[user_id])
 
 
-def validate_weight_plan_required(start_weight_kg, goal_weight_kg):
-    """Return (True, None) when required fields are present, else (None, reason).
-
-    Mirrors the compute_goal_pace pattern: never raises, returns a 2-tuple so
-    callers can distinguish success from missing-input without catching exceptions.
-    """
-    if start_weight_kg is None:
-        return (None, "start_weight_kg is required")
-    if goal_weight_kg is None:
-        return (None, "goal_weight_kg is required")
-    return (True, None)
-
-
-class WeightPlan(Base):
-    """Structured weight-goal plan: phase, target rate, and date range for one user."""
-
-    __tablename__ = "weight_plans"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    start_date = Column(Date, nullable=False)
-    start_weight_kg = Column(Numeric(6, 2), nullable=False)
-    goal_weight_kg = Column(Numeric(6, 2), nullable=False)
-    goal_date = Column(Date, nullable=True)
-    target_rate_kg_per_week = Column(Numeric(4, 2), nullable=True)
-    phase = Column(Text, nullable=False, server_default=text("'cut'"))
-    active = Column(Boolean, nullable=False, server_default=text("true"))
-    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
-    updated_at = Column(DateTime(timezone=True), server_default=text("now()"), onupdate=text("now()"))
-
-    __table_args__ = (
-        Index("ix_weight_plans_user_id", "user_id"),
-    )
+# NOTE: WeightPlan (table weight_plans) and its validate_weight_plan_required
+# helper were removed in #1604 — schema consolidation. weight_plans' two
+# distinguishing columns (phase, target_rate_kg_per_week) now live on
+# WeightTarget above; see that class's docstring comment and
+# alembic/versions/6f945c183d82_merge_weight_plans_into_weight_targets_.py.
 
 
 class SleepRecord(Base):

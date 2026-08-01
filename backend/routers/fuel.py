@@ -19,7 +19,7 @@ from backend.db import engine
 from backend.models import FuelEntry, User, WeightEntry
 from backend.services import cut_review as _cut_review
 from backend.services import fuel as _svc
-from backend.services import weight_plans_repo as _wp_repo
+from backend.services import weight_plan as _weight_plan_svc
 
 router = APIRouter()
 
@@ -87,7 +87,7 @@ class _SettingsBody(BaseModel):
 def _settings_payload(user_id, db) -> dict:
     """Build the full fuel settings payload including plan linkage fields."""
     settings_row = _svc.get_or_create_settings(user_id, db=db)
-    active_plan = _wp_repo.get_active_plan(db, user_id)
+    active_plan = _weight_plan_svc.get_active_target(db, user_id)
     payload = _svc.settings_to_dict(settings_row)
     payload.update(_svc.plan_linkage(active_plan, settings_row.deficit_kcal))
     return payload
@@ -133,7 +133,7 @@ async def post_fuel_sync_deficit(user: User = Depends(resolve_user)):
     Returns 409 when no active plan exists.
     """
     with Session(engine) as db:
-        active_plan = _wp_repo.get_active_plan(db, user.id)
+        active_plan = _weight_plan_svc.get_active_target(db, user.id)
         if active_plan is None or active_plan.target_rate_kg_per_week is None:
             raise HTTPException(status_code=409, detail="no_active_plan")
         new_deficit = _svc.implied_deficit_kcal(float(active_plan.target_rate_kg_per_week))

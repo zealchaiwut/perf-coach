@@ -112,7 +112,7 @@ def resolve_arrival_projection(
     from backend.models import WeightEntry, WeightTarget  # local — caller owns DB
 
     if today is None:
-        today = datetime.today_bangkok()
+        today = today_bangkok()
 
     active_target = (
         session.query(WeightTarget)

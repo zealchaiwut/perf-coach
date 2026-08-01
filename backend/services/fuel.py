@@ -225,7 +225,9 @@ def implied_deficit_kcal(target_rate_kg_per_week: float) -> int:
 def plan_linkage(plan, current_deficit_kcal: int) -> dict:
     """Return plan-linkage fields for the fuel-settings payload.
 
-    plan: active WeightPlan row or None.
+    plan: active WeightTarget row or None (weight_plans was merged onto
+        weight_targets in #1604; this still only reads .target_rate_kg_per_week,
+        so it duck-types on either shape).
     Adds: plan_rate_kg_per_week, implied_deficit_kcal, deficit_gap_kcal, consistency.
     """
     if plan is None:

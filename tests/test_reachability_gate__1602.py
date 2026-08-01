@@ -621,17 +621,10 @@ _BASELINE_ORPHANS_API: dict[str, str] = {
 
     "/api/weight-hypothesis": "No frontend caller; cut_review.py's comments describe weight_hypothesis.py as internal to the deficit-mode computation, not a route the UI calls directly.",
 
-    # cut_review.py already investigated this exact question and left the
-    # answer in a comment: "No UI creates one — `grep -rn 'weight-plans'
-    # frontend/` returns nothing — and the only route that does, POST
-    # /api/weight-plans, requires a `goal_weight_kg`" — kept deliberately
-    # unlinked while weight_hypothesis.py/body_composition.py replace the
-    # target-weight concept it represents. §3.2's weight_targets-vs-
-    # weight_plans merge decision covers this route's eventual fate; that is
-    # a schema-consolidation ticket, not S3's.
-    "/api/weight-plans": "No frontend caller — confirmed independently by cut_review.py's own comment (see cluster note above).",
-    "/api/weight-plans/active": "No frontend caller (see cluster note above).",
-    "/api/weight-plans/{plan_id}": "No frontend caller (see cluster note above).",
+    # /api/weight-plans, /active, /{plan_id} — formerly listed here as known
+    # orphans (see git history) — were removed outright by #1604's S5 schema
+    # consolidation (weight_plans merged into weight_targets). They're gone,
+    # not just uncalled, so they no longer belong in this table at all.
 
     "/api/workouts/recent-type": "No frontend caller anywhere.",
     "/api/workouts/{workout_id}/exercises/reorder": "No frontend caller; the other workout-exercises verbs (replace, the base collection) are used, but not reorder.",

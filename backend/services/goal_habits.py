@@ -32,6 +32,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.models import Habit
@@ -104,6 +105,21 @@ def ensure_goal_habits(db: Session, user_id) -> dict[str, Habit]:
     Existing rows are adopted rather than duplicated, and are marked as focus
     habits so the UI can group them apart from the general section. Nothing here
     archives or edits a habit the athlete created themselves.
+
+    Concurrency (#1604): the ``_find`` pre-check below is a plain read, so two
+    near-simultaneous calls for the same user can both see "not found" and
+    both try to insert — reproduced live on the UAT DB, where two concurrent
+    requests each duplicated all three goal habits. Two partial unique
+    indexes on ``habits`` (see
+    alembic/versions/becc012af2e6_derive_habit_type_from_tracking_type_.py)
+    now make the loser's insert fail with an IntegrityError instead of
+    silently succeeding; each insert attempt below runs inside its own
+    SAVEPOINT (``db.begin_nested()``) so that failure only unwinds that one
+    insert — not any goal habit already created earlier in this same loop, or
+    anything a caller staged before calling this function (``main.py`` calls
+    ``ensure_coach_tracked_habits`` first, in the same session, before its own
+    commit). On conflict, the row is simply re-fetched: the concurrent request
+    that won the race already created it.
     """
     out: dict[str, Habit] = {}
     for key in GOAL_HABIT_KEYS:
@@ -112,7 +128,7 @@ def ensure_goal_habits(db: Session, user_id) -> dict[str, Habit]:
         if habit is None:
             import uuid as _uuid
 
-            habit = Habit(
+            candidate = Habit(
                 # Generated here rather than by the server default so the insert
                 # round-trips identically on every backend.
                 id=_uuid.uuid4(),
@@ -131,8 +147,22 @@ def ensure_goal_habits(db: Session, user_id) -> dict[str, Habit]:
                 is_archived=False,
                 is_focus=True,
             )
-            db.add(habit)
-            db.flush()
+            try:
+                with db.begin_nested():
+                    db.add(candidate)
+                    db.flush()
+                habit = candidate
+            except IntegrityError:
+                # Lost the race — a concurrent call already created this
+                # habit (or one with the same name/auto_fill_source) between
+                # our _find() and our insert. Re-fetch rather than trusting
+                # the pre-check; do not re-raise and do not retry the insert.
+                habit = _find(db, user_id, source=spec["auto_fill_source"], name=spec["name"])
+                if habit is None:
+                    # Should not happen — the IntegrityError implies a row
+                    # matching one of _find's two keys now exists — but never
+                    # leave a goal role unresolved if it somehow does.
+                    raise
         else:
             # Adopt: an athlete who already had one of these keeps their history.
             habit.is_focus = True

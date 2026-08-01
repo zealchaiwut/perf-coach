@@ -5,6 +5,12 @@ Covers AC items:
   AC2 — plan_linkage(): all three consistency states (aligned, mismatch, no_plan)
   AC3 — sync-deficit service logic and 409 guard when no plan
   AC4 — payload fields present in all three states
+
+"The active plan" used to be a separate `weight_plans` row; #1604 (schema
+consolidation) merged it onto `WeightTarget` (phase, target_rate_kg_per_week
+columns). These tests were updated to create WeightTarget rows instead —
+plan_linkage() itself is unchanged, since it only ever duck-typed on
+`.target_rate_kg_per_week`.
 """
 from __future__ import annotations
 
@@ -15,8 +21,8 @@ import pytest
 from sqlalchemy.orm import Session
 
 from backend.db import engine
-from backend.models import FuelSettings, User, WeightPlan
-from backend.services import fuel, weight_plans_repo as wp_repo
+from backend.models import FuelSettings, User, WeightTarget
+from backend.services import fuel, weight_plan as weight_plan_svc
 
 
 # ── AC1: implied_deficit_kcal helper ─────────────────────────────────────────
@@ -124,14 +130,14 @@ def plan_link_user():
         db.commit()
         yield uid
         db.query(FuelSettings).filter(FuelSettings.user_id == uid).delete()
-        db.query(WeightPlan).filter(WeightPlan.user_id == uid).delete()
+        db.query(WeightTarget).filter(WeightTarget.user_id == uid).delete()
         db.query(User).filter(User.id == uid).delete()
         db.commit()
 
 
 def _build_payload(user_id, db):
     settings_row = fuel.get_or_create_settings(user_id, db=db)
-    active_plan = wp_repo.get_active_plan(db, user_id)
+    active_plan = weight_plan_svc.get_active_target(db, user_id)
     payload = fuel.settings_to_dict(settings_row)
     payload.update(fuel.plan_linkage(active_plan, settings_row.deficit_kcal))
     return payload
@@ -151,13 +157,14 @@ def test_settings_payload_no_plan_state(plan_link_user):
 def test_settings_payload_mismatch_state(plan_link_user):
     # Plan: 0.5 kg/wk -> implied 550; configured 300 -> gap 250 -> mismatch
     with Session(engine) as db:
-        db.add(WeightPlan(
+        db.add(WeightTarget(
             user_id=plan_link_user,
             start_date=date(2026, 1, 1),
             start_weight_kg=80.0,
-            goal_weight_kg=76.0,
+            target_date=date(2026, 6, 1),
+            target_weight_kg=76.0,
             target_rate_kg_per_week=-0.5,
-            active=True,
+            status="active",
         ))
         db.commit()
         fuel.update_settings(plan_link_user, db=db, deficit_kcal=300)
@@ -172,13 +179,14 @@ def test_settings_payload_mismatch_state(plan_link_user):
 def test_settings_payload_aligned_state(plan_link_user):
     # Plan: 0.5 kg/wk -> implied 550; configured 550 -> gap 0 -> aligned
     with Session(engine) as db:
-        db.add(WeightPlan(
+        db.add(WeightTarget(
             user_id=plan_link_user,
             start_date=date(2026, 1, 1),
             start_weight_kg=80.0,
-            goal_weight_kg=76.0,
+            target_date=date(2026, 6, 1),
+            target_weight_kg=76.0,
             target_rate_kg_per_week=-0.5,
-            active=True,
+            status="active",
         ))
         db.commit()
         fuel.update_settings(plan_link_user, db=db, deficit_kcal=550)
@@ -192,18 +200,19 @@ def test_settings_payload_aligned_state(plan_link_user):
 
 def test_sync_deficit_updates_deficit_to_implied_value(plan_link_user):
     with Session(engine) as db:
-        db.add(WeightPlan(
+        db.add(WeightTarget(
             user_id=plan_link_user,
             start_date=date(2026, 1, 1),
             start_weight_kg=80.0,
-            goal_weight_kg=76.0,
+            target_date=date(2026, 6, 1),
+            target_weight_kg=76.0,
             target_rate_kg_per_week=-0.5,
-            active=True,
+            status="active",
         ))
         db.commit()
         fuel.update_settings(plan_link_user, db=db, deficit_kcal=300)
 
-        active_plan = wp_repo.get_active_plan(db, plan_link_user)
+        active_plan = weight_plan_svc.get_active_target(db, plan_link_user)
         assert active_plan is not None
         new_deficit = fuel.implied_deficit_kcal(float(active_plan.target_rate_kg_per_week))
         fuel.update_settings(plan_link_user, db=db, deficit_kcal=new_deficit)
@@ -215,5 +224,5 @@ def test_sync_deficit_updates_deficit_to_implied_value(plan_link_user):
 def test_sync_deficit_no_active_plan_returns_none(plan_link_user):
     """Route should 409 when get_active_plan returns None."""
     with Session(engine) as db:
-        result = wp_repo.get_active_plan(db, plan_link_user)
+        result = weight_plan_svc.get_active_target(db, plan_link_user)
     assert result is None
