@@ -18,7 +18,9 @@ from backend.services.gap_analysis.suppression import (
 )
 from backend.services.pref_catalog import (
     PREF_FIELDS,
+    apply_enum_step,
     apply_step,
+    enum_options,
     field_meta,
     get_field,
     persist_weeks_for,
@@ -41,12 +43,53 @@ MIN_ACTIVE_WEEKS_BEFORE_NEXT = 2
 SAFETY_ROLLBACK_WINDOW_DAYS = 14
 
 # Gap code → preference field + signed step direction (magnitude from catalog).
+#
+# recurrent_niggle_area (priority/severity-3, recurring injury pattern) and
+# undertrained_area_under_ramp (already has its own severe-injury guard) are
+# deliberately NOT mapped — both need human/coach judgment, not a blind
+# catalog step. cadence_drift, gct_lengthening, intensity_too_hard,
+# speed_neglected, base_neglected are pure form/biomechanical signals with no
+# clean 1:1 preference-field mapping and are out of scope. All five stay
+# diagnostic-only in the gap panel.
 GAP_TO_PREF_DELTA: dict[str, dict[str, Any]] = {
     "plyo_deficit": {"field": "plyo_sessions_per_week", "step": +1},
     "no_recent_plyo": {"field": "plyo_sessions_per_week", "step": +1},
     "aerobic_durability_gap": {"field": "long_run.mp_segment_min", "step": +10},
+    "strength_lapsed": {"field": "strength_emphasis", "step": +1},
+    "muscle_overused": {"field": "strength_emphasis", "step": -1},
+    "muscle_untrained": {"field": "strength_emphasis", "step": +1},
     # stretch_neglect lands when that gap rule ships
 }
+
+# muscle_overused / muscle_untrained findings carry a dynamic per-group code
+# ("muscle_overused.calf", not bare "muscle_overused" — see
+# gap_analysis/rules/muscle_balance.py and templates.py's _PREFIX table for
+# the same pattern). Resolve those by prefix instead of exact dict lookup.
+_PREFIX_GAP_CODES: tuple[str, ...] = ("muscle_overused", "muscle_untrained")
+
+
+def mapping_for_gap_code(code: str) -> dict[str, Any] | None:
+    """Resolve a finding code (exact, or dynamic "<prefix>.<group>") to its
+    GAP_TO_PREF_DELTA entry, or None if the code has no proposal mapping."""
+    if not code:
+        return None
+    if code in GAP_TO_PREF_DELTA:
+        return GAP_TO_PREF_DELTA[code]
+    for prefix in _PREFIX_GAP_CODES:
+        if code.startswith(prefix + "."):
+            return GAP_TO_PREF_DELTA[prefix]
+    return None
+
+
+def has_open_proposal_for_code(db: Session, user_id, code: str) -> bool:
+    """True when *code* maps to a preference field that currently has an open
+    ("proposed") proposal. Used by the gap-analysis endpoint to suppress a
+    finding that's already actionable elsewhere — never used to hide a
+    finding just because it's proposal-eligible but hasn't proposed yet."""
+    mapping = mapping_for_gap_code(code)
+    if mapping is None:
+        return False
+    return _open_proposal_for_field(db, user_id, mapping["field"]) is not None
 
 
 def _now() -> datetime:
@@ -247,12 +290,12 @@ def maybe_create_proposals_from_findings(
 
     for f in findings or []:
         code = f.get("code") if isinstance(f, dict) else getattr(f, "code", None)
-        if not code or code not in GAP_TO_PREF_DELTA:
+        mapping = mapping_for_gap_code(code) if code else None
+        if mapping is None:
             continue
         severity = int(
             f.get("severity") if isinstance(f, dict) else getattr(f, "severity", 1) or 1
         )
-        mapping = GAP_TO_PREF_DELTA[code]
         field = mapping["field"]
         meta = field_meta(field) or {}
         need = persist_weeks_for(field)
@@ -266,18 +309,41 @@ def maybe_create_proposals_from_findings(
         if _accepted_still_ramping(db, user_id, field):
             continue
 
+        field_type = str(meta.get("type") or "")
         cur = get_field(payload, field)
-        try:
-            cur_i = int(cur if cur is not None else meta.get("default") or 0)
-        except (TypeError, ValueError):
-            continue
-        hi = int(meta.get("max") or 0)
-        if cur_i >= hi:
-            continue
 
-        stepped = apply_step(payload, field, int(mapping["step"]))
-        if stepped is None:
-            continue
+        if field_type.startswith("enum:"):
+            options = enum_options(field)
+            if not options:
+                continue
+            cur_s = str(cur) if cur is not None else str(meta.get("default") or options[0])
+            if cur_s not in options:
+                continue
+            direction = 1 if int(mapping["step"]) > 0 else -1
+            idx = options.index(cur_s)
+            at_extreme = (
+                (direction > 0 and idx >= len(options) - 1)
+                or (direction < 0 and idx <= 0)
+            )
+            if at_extreme:
+                continue
+            stepped = apply_enum_step(payload, field, int(mapping["step"]))
+            if stepped is None:
+                continue
+            from_val: Any = cur_s
+        else:
+            try:
+                cur_i = int(cur if cur is not None else meta.get("default") or 0)
+            except (TypeError, ValueError):
+                continue
+            hi = int(meta.get("max") or 0)
+            if cur_i >= hi:
+                continue
+            stepped = apply_step(payload, field, int(mapping["step"]))
+            if stepped is None:
+                continue
+            from_val = cur_i
+
         new_val = get_field(stepped, field)
         evidence = f.get("evidence") if isinstance(f, dict) else getattr(f, "evidence", None)
         finding_ref = evidence_hash(evidence or [])[:32]
@@ -287,7 +353,7 @@ def maybe_create_proposals_from_findings(
             user_id=user_id,
             gap_code=code,
             finding_ref=finding_ref,
-            delta={"field": field, "from": cur_i, "to": new_val},
+            delta={"field": field, "from": from_val, "to": new_val},
             status="proposed",
             proposed_at=now,
             expires_at=now + timedelta(days=PROPOSAL_EXPIRE_DAYS),
@@ -298,7 +364,7 @@ def maybe_create_proposals_from_findings(
         created.append(row)
         _log.info(
             "pref proposal created user=%s field=%s %s→%s gap=%s weeks=%s",
-            user_id, field, cur_i, new_val, code, weeks,
+            user_id, field, from_val, new_val, code, weeks,
         )
     return created
 
@@ -568,8 +634,17 @@ def title_for_proposal(delta: dict) -> str:
         "plyo_sessions_per_week": "plyo session / week",
         "long_run.mp_segment_min": "min MP segment in long run",
         "stretch_daily_min": "min daily stretch",
+        "strength_emphasis": "strength training emphasis",
     }
     label = labels.get(field, field.replace("_", " ").replace(".", " "))
+    if field == "strength_emphasis":
+        try:
+            opts = enum_options(field) or ()
+            step = opts.index(str(to_v)) - opts.index(str(fr))
+            verb = "increase" if step > 0 else "decrease"
+        except (ValueError, TypeError):
+            verb = "change"
+        return f"PROPOSAL · {verb} {label} ({fr} → {to_v})"
     try:
         step = int(to_v) - int(fr)
         verb = "add" if step > 0 else "reduce"
@@ -585,5 +660,6 @@ def delta_strip(delta: dict) -> str:
         "plyo_sessions_per_week": "plyo / week",
         "long_run.mp_segment_min": "long-run MP min",
         "stretch_daily_min": "stretch min / day",
+        "strength_emphasis": "strength emphasis",
     }.get(field, field)
     return f"{short}: {(delta or {}).get('from')} → {(delta or {}).get('to')}"

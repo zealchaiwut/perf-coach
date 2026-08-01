@@ -10,8 +10,10 @@ import pytest
 
 from backend.services.pref_catalog import (
     PREF_FIELDS,
+    apply_enum_step,
     apply_step,
     default_payload,
+    enum_options,
     get_field,
     normalize_payload,
     persist_weeks_for,
@@ -56,6 +58,50 @@ def test_load_adding_persist_weeks_is_3():
     assert persist_weeks_for("plyo_sessions_per_week") == 3
     assert persist_weeks_for("long_run.mp_segment_min") == 3
     assert persist_weeks_for("notes") == 2
+    # strength_emphasis is training-stress-relevant in both directions —
+    # same 3-week persistence bar as the other load_adding fields.
+    assert persist_weeks_for("strength_emphasis") == 3
+    assert PREF_FIELDS["strength_emphasis"]["load_adding"] is True
+
+
+# ── apply_enum_step ──────────────────────────────────────────────────────────
+
+def test_apply_enum_step_moves_one_position_each_direction():
+    p = default_payload()
+    set_field(p, "strength_emphasis", "same")
+
+    up = apply_enum_step(p, "strength_emphasis", +1)
+    assert get_field(up, "strength_emphasis") == "more"
+
+    down = apply_enum_step(p, "strength_emphasis", -1)
+    assert get_field(down, "strength_emphasis") == "less"
+
+
+def test_apply_enum_step_clamps_at_high_bound():
+    p = default_payload()
+    set_field(p, "strength_emphasis", "more")
+    assert apply_enum_step(p, "strength_emphasis", +1) is None
+
+
+def test_apply_enum_step_clamps_at_low_bound():
+    p = default_payload()
+    set_field(p, "strength_emphasis", "less")
+    assert apply_enum_step(p, "strength_emphasis", -1) is None
+
+
+def test_apply_enum_step_rejects_non_enum_field():
+    p = default_payload()
+    assert apply_enum_step(p, "plyo_sessions_per_week", +1) is None
+
+
+def test_apply_enum_step_rejects_unknown_field():
+    p = default_payload()
+    assert apply_enum_step(p, "not_a_real_field", +1) is None
+
+
+def test_enum_options_returns_none_for_non_enum_field():
+    assert enum_options("plyo_sessions_per_week") is None
+    assert enum_options("strength_emphasis") == ("less", "same", "more")
 
 
 def test_signature_changes_when_prefs_version_changes():
@@ -101,6 +147,62 @@ def test_validation_zone2_when_target_aware():
     ]
     errs = validation_errors(suggestions, facts)
     assert any("zone2_weekly_min" in e for e in errs)
+
+
+# ── GAP_TO_PREF_DELTA mapping (issue expand-gap-proposals-strength) ──────────
+
+def test_gap_to_pref_delta_has_strength_emphasis_mappings():
+    from backend.services.gap_analysis.pref_proposals import (
+        GAP_TO_PREF_DELTA,
+        mapping_for_gap_code,
+    )
+
+    assert GAP_TO_PREF_DELTA["strength_lapsed"] == {
+        "field": "strength_emphasis", "step": +1,
+    }
+    assert GAP_TO_PREF_DELTA["muscle_overused"] == {
+        "field": "strength_emphasis", "step": -1,
+    }
+    assert GAP_TO_PREF_DELTA["muscle_untrained"] == {
+        "field": "strength_emphasis", "step": +1,
+    }
+    # muscle_overused/muscle_untrained findings carry a dynamic per-group
+    # code ("muscle_overused.calf") — resolved by prefix, not exact match.
+    assert mapping_for_gap_code("muscle_overused.calf") == {
+        "field": "strength_emphasis", "step": -1,
+    }
+    assert mapping_for_gap_code("muscle_untrained.hamstring") == {
+        "field": "strength_emphasis", "step": +1,
+    }
+    assert mapping_for_gap_code("strength_lapsed") == {
+        "field": "strength_emphasis", "step": +1,
+    }
+    assert mapping_for_gap_code("not_a_real_code") is None
+
+
+def test_excluded_gap_codes_are_not_mapped_to_proposals():
+    """Pin: recurrent_niggle_area and undertrained_area_under_ramp are
+    deliberately excluded from GAP_TO_PREF_DELTA — both need human/coach
+    judgment (highest-severity recurring-injury signal, and a rule with its
+    own built-in severe-injury guard) rather than a blind catalog step.
+    Don't add them back without re-reading why (see CLAUDE.md / PR history)."""
+    from backend.services.gap_analysis.pref_proposals import (
+        GAP_TO_PREF_DELTA,
+        mapping_for_gap_code,
+    )
+
+    assert "recurrent_niggle_area" not in GAP_TO_PREF_DELTA
+    assert "undertrained_area_under_ramp" not in GAP_TO_PREF_DELTA
+    assert mapping_for_gap_code("recurrent_niggle_area") is None
+    assert mapping_for_gap_code("undertrained_area_under_ramp") is None
+    # Also out of scope for this ticket: form/biomechanical signals with no
+    # clean 1:1 preference-field mapping.
+    for code in (
+        "cadence_drift", "gct_lengthening", "intensity_too_hard",
+        "speed_neglected", "base_neglected",
+    ):
+        assert code not in GAP_TO_PREF_DELTA
+        assert mapping_for_gap_code(code) is None
 
 
 def test_brief_proposal_numeral_outside_delta_rejected():
@@ -291,6 +393,189 @@ def test_proposal_persistence_rules(db_session, test_user):
     assert len(created) == 1
     assert created[0].delta["field"] == "plyo_sessions_per_week"
     assert created[0].delta["to"] - created[0].delta["from"] == 1
+
+
+def _seed_consecutive_gap_weeks(db_session, uid, code, count, week_start):
+    """Insert `count` consecutive weekly gap_findings rows for `code`, ending
+    at (and including) `week_start`."""
+    from sqlalchemy import text
+
+    db_session.execute(
+        text("DELETE FROM gap_findings WHERE user_id = :uid AND code = :code"),
+        {"uid": str(uid), "code": code},
+    )
+    for i in range(count):
+        ws = week_start - timedelta(days=7 * i)
+        db_session.execute(
+            text("""
+                INSERT INTO gap_findings
+                  (id, user_id, week_start, code, severity, recommendation, evidence, status, computed_at)
+                VALUES
+                  (gen_random_uuid(), :uid, :ws, :code, 2, 'x', '[]'::jsonb, 'active', now())
+                ON CONFLICT (user_id, week_start, code) DO UPDATE SET severity = 2
+            """),
+            {"uid": str(uid), "ws": ws.isoformat(), "code": code},
+        )
+    db_session.flush()
+
+
+def test_strength_lapsed_creates_strength_emphasis_proposal(db_session, test_user):
+    from backend.services.gap_analysis import pref_proposals as pp
+    from backend.services import training_prefs as tp
+    from sqlalchemy import text
+
+    uid = test_user.id
+    payload = default_payload()
+    set_field(payload, "strength_emphasis", "same")  # not at "more" extreme
+    tp.write_version(db_session, uid, payload, source="user", confirm=True)
+    db_session.execute(
+        text("DELETE FROM preference_proposals WHERE user_id = :uid"),
+        {"uid": str(uid)},
+    )
+    week = date.today() - timedelta(days=date.today().weekday())
+    code = "strength_lapsed"
+
+    _seed_consecutive_gap_weeks(db_session, uid, code, 1, week)
+    created = pp.maybe_create_proposals_from_findings(
+        db_session, uid, [{"code": code, "severity": 1, "evidence": []}], week
+    )
+    assert created == []  # load_adding field needs 3 consecutive weeks
+
+    _seed_consecutive_gap_weeks(db_session, uid, code, 3, week)
+    created = pp.maybe_create_proposals_from_findings(
+        db_session, uid, [{"code": code, "severity": 1, "evidence": []}], week
+    )
+    assert len(created) == 1
+    assert created[0].gap_code == "strength_lapsed"
+    assert created[0].delta == {"field": "strength_emphasis", "from": "same", "to": "more"}
+
+
+def test_muscle_overused_group_code_creates_strength_emphasis_proposal(db_session, test_user):
+    """muscle_overused findings carry a dynamic per-group code
+    ("muscle_overused.calf") — GAP_TO_PREF_DELTA is keyed on the bare rule
+    name, so this exercises the prefix resolution in mapping_for_gap_code."""
+    from backend.services.gap_analysis import pref_proposals as pp
+    from backend.services import training_prefs as tp
+    from sqlalchemy import text
+
+    uid = test_user.id
+    payload = default_payload()
+    set_field(payload, "strength_emphasis", "more")  # step is -1; not at "less" extreme
+    tp.write_version(db_session, uid, payload, source="user", confirm=True)
+    db_session.execute(
+        text("DELETE FROM preference_proposals WHERE user_id = :uid"),
+        {"uid": str(uid)},
+    )
+    week = date.today() - timedelta(days=date.today().weekday())
+    code = "muscle_overused.calf"
+
+    _seed_consecutive_gap_weeks(db_session, uid, code, 3, week)
+    created = pp.maybe_create_proposals_from_findings(
+        db_session, uid, [{"code": code, "severity": 2, "evidence": []}], week
+    )
+    assert len(created) == 1
+    assert created[0].gap_code == "muscle_overused.calf"
+    assert created[0].delta == {"field": "strength_emphasis", "from": "more", "to": "same"}
+
+
+def test_muscle_untrained_group_code_creates_strength_emphasis_proposal(db_session, test_user):
+    from backend.services.gap_analysis import pref_proposals as pp
+    from backend.services import training_prefs as tp
+    from sqlalchemy import text
+
+    uid = test_user.id
+    payload = default_payload()
+    set_field(payload, "strength_emphasis", "same")
+    tp.write_version(db_session, uid, payload, source="user", confirm=True)
+    db_session.execute(
+        text("DELETE FROM preference_proposals WHERE user_id = :uid"),
+        {"uid": str(uid)},
+    )
+    week = date.today() - timedelta(days=date.today().weekday())
+    code = "muscle_untrained.hamstring"
+
+    _seed_consecutive_gap_weeks(db_session, uid, code, 3, week)
+    created = pp.maybe_create_proposals_from_findings(
+        db_session, uid, [{"code": code, "severity": 2, "evidence": []}], week
+    )
+    assert len(created) == 1
+    assert created[0].gap_code == "muscle_untrained.hamstring"
+    assert created[0].delta == {"field": "strength_emphasis", "from": "same", "to": "more"}
+
+
+def test_muscle_and_strength_lapsed_share_field_dedup(db_session, test_user):
+    """strength_lapsed, muscle_overused.* and muscle_untrained.* all map to
+    strength_emphasis. When two fire in the same window, whichever hits its
+    persistence threshold first creates the proposal; the other waits — the
+    existing field-level dedup in _open_proposal_for_field, unchanged here."""
+    from backend.services.gap_analysis import pref_proposals as pp
+    from backend.services import training_prefs as tp
+    from sqlalchemy import text
+
+    uid = test_user.id
+    payload = default_payload()
+    set_field(payload, "strength_emphasis", "same")
+    tp.write_version(db_session, uid, payload, source="user", confirm=True)
+    db_session.execute(
+        text("DELETE FROM preference_proposals WHERE user_id = :uid"),
+        {"uid": str(uid)},
+    )
+    week = date.today() - timedelta(days=date.today().weekday())
+
+    _seed_consecutive_gap_weeks(db_session, uid, "strength_lapsed", 3, week)
+    _seed_consecutive_gap_weeks(db_session, uid, "muscle_untrained.calf", 3, week)
+
+    findings = [
+        {"code": "strength_lapsed", "severity": 1, "evidence": []},
+        {"code": "muscle_untrained.calf", "severity": 2, "evidence": []},
+    ]
+    created = pp.maybe_create_proposals_from_findings(db_session, uid, findings, week)
+    assert len(created) == 1
+    assert created[0].gap_code == "strength_lapsed"  # processed first, wins the field
+
+
+def test_has_open_proposal_for_code(db_session, test_user):
+    """Gap-panel suppression logic: a finding is only hidden once its mapped
+    field actually has an open proposal — never merely because the code is
+    proposal-eligible (that would hide an emerging issue for weeks)."""
+    from backend.services.gap_analysis.pref_proposals import has_open_proposal_for_code
+    from backend.models import PreferenceProposal
+    from sqlalchemy import text
+
+    uid = test_user.id
+    db_session.execute(
+        text("DELETE FROM preference_proposals WHERE user_id = :uid"),
+        {"uid": str(uid)},
+    )
+    db_session.flush()
+
+    # Proposal-eligible codes with no open proposal yet → not suppressed.
+    assert has_open_proposal_for_code(db_session, uid, "muscle_overused.quad") is False
+    assert has_open_proposal_for_code(db_session, uid, "strength_lapsed") is False
+    # A code with no mapping at all is never suppressed.
+    assert has_open_proposal_for_code(db_session, uid, "cadence_drift") is False
+
+    now = datetime.now(timezone.utc)
+    prop = PreferenceProposal(
+        user_id=uid,
+        gap_code="muscle_overused.quad",
+        finding_ref="x",
+        delta={"field": "strength_emphasis", "from": "more", "to": "same"},
+        status="proposed",
+        proposed_at=now,
+        expires_at=now + timedelta(days=14),
+    )
+    db_session.add(prop)
+    db_session.flush()
+
+    # Same finding is now suppressed — it's actionable via the open proposal.
+    assert has_open_proposal_for_code(db_session, uid, "muscle_overused.quad") is True
+    # Different gap code, same mapped field (strength_emphasis) — also
+    # suppressed, matching _open_proposal_for_field's field-level dedup grain.
+    assert has_open_proposal_for_code(db_session, uid, "strength_lapsed") is True
+    assert has_open_proposal_for_code(db_session, uid, "muscle_untrained.hamstring") is True
+    # A code with no mapping is still never suppressed.
+    assert has_open_proposal_for_code(db_session, uid, "cadence_drift") is False
 
 
 def test_accept_bumps_prefs_and_signature(db_session, test_user):

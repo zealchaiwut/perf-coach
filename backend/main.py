@@ -13711,6 +13711,19 @@ def get_gap_analysis(user: User = Depends(resolve_user)):
         from backend.services.gap_analysis.suppression import apply_suppression
         partitioned = apply_suppression(db, user.id, week_start_date, enriched)
 
+        # De-dup against open preference proposals: a finding whose gap code
+        # maps to a field that already has an open ("proposed") proposal is
+        # actionable elsewhere (the Plan Accept/Adjust/Decline UI) — no need
+        # to show it twice. Only suppress when a proposal is actually open,
+        # never just because the code is proposal-eligible — a finding that
+        # hasn't persisted long enough to become a proposal yet must still
+        # show here, or its pre-proposal visibility disappears for weeks.
+        from backend.services.gap_analysis.pref_proposals import has_open_proposal_for_code
+        partitioned["findings"] = [
+            item for item in partitioned["findings"]
+            if not has_open_proposal_for_code(db, user.id, item["code"])
+        ]
+
     sorted_visible = sort_findings_for_panel(partitioned["findings"])
     sorted_muted = sort_findings_for_panel(partitioned["muted"])
 
