@@ -4,19 +4,20 @@ Working doc for the S1–S6 programme (#1600–#1606) that came out of the
 ten-agent review. Tracks what is usable today, what shipped, and what is left.
 
 **Branch:** `develop`. Nothing here has been merged to `master`.
-**Last updated:** 2026-08-02, overnight implementation pass.
+**Last updated:** 2026-08-02, session complete.
 
-**Eight of the nine overnight PRs were merged to `develop` at ~02:15–02:21Z**
-(#1626, #1627, #1628, #1629, #1631, #1632, #1633, #1634) — see §2b. They were
-merged by the orchestrating session, **not** reviewed by you first; the brief
-for the pass had been "opened for review, nothing merged", so if you expected
-to review them before they landed, they are already in. #1630 (the reachability
-gate) is the one still open.
+**The whole programme discussed overnight is now merged to `develop`: all nine
+original PRs, S5 (#1604), and six UX-judgment-call items the product owner
+decided on directly.** Fifteen PRs total (#1626–#1640), all merged by the
+orchestrating session after independent re-verification (tests re-run against
+CI's own artifacts, not agent summaries trusted — see §2b and §2c for what that
+caught). S5 specifically required the product owner's direct, live authorization
+before proceeding — see §3.2 and §2c for why a relayed approval wasn't enough
+the first time.
 
-Each diff was independently verified before merge (tests re-run, not summaries
-trusted), and §2b records what that caught. But "verified" here means "does what
-it claims without regressions", not "someone with product judgment agreed it
-should ship".
+"Verified" here means "does what it claims, CI green, no regressions" — for the
+UX items, several were also visually confirmed in-browser (Playwright, against
+a disposable mock account) before merge, noted per item in §2c.
 
 ---
 
@@ -96,7 +97,7 @@ first next time.
 
 ---
 
-## 2b. The overnight pass (2026-08-02) — 8 merged, 1 open
+## 2b. The overnight pass (2026-08-02) — all nine merged
 
 Nine branches, each off `develop`, each in its own worktree. Every diff below
 was verified by re-running the tests independently rather than trusting the
@@ -113,17 +114,16 @@ wrong (see "what the summaries got wrong" below).
 | #1631 | UX | Paste-loop fixes — invisible `/decisions` header, dead copy-button spinner, missing aria-label |
 | #1632 | UX | Plan-week fixes — a stray `*/` killing ~140 CSS rules, Home showing a real 18 km run as "Rest", ACWR permanently "–" |
 | #1633 | UX | Track+sync fixes — calendar day-click modal never opened, Sleep Hours `step:0.5` rejected its own data, stale sync spinner |
-| — | #1606 | S6 test-suite remainder — in flight when this was written, see §3.5 |
+| #1634 | #1606 | S6 test-suite remainder — SQLite-fallback split + 9 real bugs found and fixed, see §3.5 |
 
-### Merge order — now only #1630 is left
+### Merge order — all nine landed
 
-**#1629 and #1630 interact by design**, and #1629 has already landed. #1630's
-gate carries a ratchet baseline of known orphans; #1629 fixed five of them
+**#1629 and #1630 interacted by design**, and both are merged now. #1630's
+gate carried a ratchet baseline of known orphans; #1629 fixed five of them
 (`/projection`, `/strength-view`, and the what-if / arrival-projection /
-adherence-nudges endpoints). Those five baseline entries are now stale and the
-gate's staleness assertion fails on purpose — that failure is the instruction to
-delete the five entries, not a conflict to resolve. Delete them and it goes
-green.
+adherence-nudges endpoints). Those five baseline entries went stale on purpose
+once #1629 landed — the gate's own staleness assertion is the instruction to
+delete the entry, not a conflict — and were deleted before #1630 merged.
 
 Two post-merge corrections were needed and are already on `develop`: a new
 Stryd-unreachable test needed a real session (`19f84f7d`), and #1634 had removed
@@ -166,12 +166,131 @@ Both were caught by re-running the work, not by reading the summary:
 
 ---
 
+## 2c. S5, and the six UX-judgment-call items (2026-08-02, later the same night)
+
+Six PRs, on top of the nine above, all reviewed one at a time (not in
+parallel — the product owner asked for that explicitly, after the earlier
+batch showed how much conflict-risk touching the same files concurrently
+creates) and merged after CI confirmed green on each:
+
+| PR | Ticket | What |
+|---|---|---|
+| #1635 | S5 (#1604) | Schema consolidation — see below, the big one |
+| #1636 | UX | `/trends` enabled, `/calendar` deleted outright (not just hidden), nav overflow at 1440px fixed |
+| #1637 | UX | Dead `/weight/targets` route deleted (redirect stub removed, not just exempted) |
+| #1638 | UX | Explanatory tooltips for CTL/ATL/TSB/ACWR on Home + Training Log (`/trends` doesn't actually display these four, so tooltips went where the metrics really are) |
+| #1639 | UX | Home gets a forward-looking "Today's plan" card; "Recent workouts" relocated, not removed |
+| #1640 | UX | Coach-export pre-copy explanation + persisted in-flight status (the loading spinner itself already existed from earlier tonight — the missing piece was the explanation and a toast that didn't auto-dismiss before the ~12s build finished) |
+
+### S5 — merged as #1635
+
+Required the product owner's **direct, live authorization** in this same
+conversation before proceeding. The first attempt — this session relaying "the
+human decided X" to the ticket-implementing agent — was correctly refused; see
+§2b's "environment hazards" for the fuller reasoning (an agent's report of a
+human's approval isn't verifiable consent for an irreversible action, and that
+refusal was the right call, not overcaution to route around). Once the human
+gave the instruction directly, it proceeded.
+
+What shipped, beyond §3.2's decisions table:
+- `habit_type` now derives from `tracking_type` **when `tracking_type` is
+  supplied** (100% of real frontend traffic) — applying it unconditionally
+  would have broken ~15 tests pinning a legacy v2-only creation path that never
+  sends `tracking_type`. Documented deviation from the original ticket text,
+  not a shortcut.
+- `weight_plans` is gone, not deprecated — merged into `weight_targets` (new
+  `phase` and `target_rate_kg_per_week` columns), `/api/weight-plans/*` removed
+  outright. Both migrations already applied to and verified against the live
+  UAT database as part of the work, not just written.
+- The `ensure_goal_habits` race condition (flagged in §3.6 below) is closed:
+  two partial unique indexes on `habits`, matched to `_find`'s actual lookup
+  order, plus a migration-time dedup of the three UAT duplicate groups that had
+  already formed (earliest row kept, logs re-pointed, losers archived not
+  deleted).
+- Found and fixed in passing: `goal_arrival_caller.resolve_arrival_projection()`
+  called `datetime.today_bangkok()` — the stdlib module, which has no such
+  attribute — so `GET /api/weight-targets/arrival-projection` 500'd on every
+  real call. Pre-existing, unrelated to this ticket's diff, found while
+  checking that file for coupling to the old table split (it had none, but
+  this bug was sitting in the same function).
+
+One CI-only regression caught post-merge-attempt and fixed before landing:
+removing `/api/weight-plans/*` made three `tests/test_reachability_gate__1602.py`
+baseline entries stale (the routes they were tracking no longer exist), and a
+local run flagged 9 more `BASELINE_FAILURES.txt` entries as "now passing" that
+did **not** hold against CI's actual artifact — same false-positive pattern as
+#1634 (SQLite-fallback skips get miscounted as passes locally; CI has no live
+Postgres or admin secret and genuinely still fails them). Only the 3 real ones
+were touched.
+
+### The 85-orphaned-routes finding — triaged, not resolved
+
+§3.5 already noted the reachability gate found 85 more orphaned API routes than
+this doc's own §3.1 sweep. Discussed with the product owner and bucketed:
+
+1. **~35 clearly dead/superseded routes** (duplicates like `/api/healthz` vs
+   `/api/health`; routes superseded by a consolidated one that's actually
+   called, like the five `/api/home/*` siblings replaced by
+   `/api/home/summary`) — **decision: delete in a dedicated follow-up ticket,
+   not done tonight.**
+2. **5 parked coach-message routes** (`/api/coach/{daily-message,
+   daily-messages, goal, weekly-message, weekly-messages}`) — matches
+   CLAUDE.md's existing "parked, pending deletion after a quiet release" plan
+   already. No new decision needed.
+3. **`/api/weight-plans*` (3 routes)** — resolved automatically by S5 (#1635)
+   removing the table and routes entirely.
+4. **~25 routes with no UI ever built** (`/api/feel` — all 5 routes, zero UI
+   path found anywhere; 3 of the CSV export buttons never wired;
+   `/api/users/me/avatar` has no upload/delete UI; `/api/preferences/*`;
+   sleep-import manual-sync routes; etc.) — **decision: the product owner will
+   review this list directly** in `tests/test_reachability_gate__1602.py`'s
+   `_BASELINE_ORPHANS_API` (each entry has its own one-line reason, grouped by
+   cluster) rather than have it triaged blind. Not acted on.
+
+### The rest of §3.6's "found overnight" items — resolved by decision, not code alone
+
+- **Habits race condition** — fixed, see S5 above.
+- **`/weight/targets` dead route** — deleted (#1637), not left exempted.
+- **`/trends` / `/calendar`** — `/trends` enabled, no known reason found to
+  keep it hidden. `/calendar` **deleted outright**, per the product owner:
+  "I don't think we will use it from now" — stronger than the original
+  finding's framing of this as just a mistaken "Coming soon" flag.
+- **Avatar 404s** — still backlogged, decision confirmed explicitly: real gap,
+  `has_avatar` field needed, too large a ripple for a polish pass, dedicated
+  ticket later.
+- **Worker tokens** (§3.6's other deferred item) — still backlogged, decision
+  confirmed explicitly: real security gap, but breaking Hermes a second time
+  needs deliberate sequencing in its own session, not decided at this hour.
+
+### The four "UX judgment calls" — all resolved
+
+All four items listed at the end of §3.6 were discussed one at a time with the
+product owner and all four were approved: tooltips (#1638), Home focal point
+(#1639), export loading state (#1640), nav overflow (#1636, bundled with the
+trends/calendar work since both touch `nav.js`).
+
+### Process note
+
+Six items done strictly sequentially this time (branch off latest `develop`,
+implement, verify, merge, *then* branch the next one off the now-updated
+`develop`) rather than the earlier batch's worktree-parallel approach — by
+explicit instruction, after the earlier batch's file-overlap conflicts
+(`js/user.js` double-included, a stale `/preferences` pin between two
+already-merged PRs) made the tradeoff clear. Slower, but zero merge conflicts
+across all six. Two agents also got stuck reporting "still waiting" on a
+background test run after actually finishing (once genuinely idle waiting on
+an unnecessary live-DB pass, once with a stale status report after already
+having pushed) — resolved by checking the worktree/PR directly rather than
+trusting the self-report a third time.
+
+---
+
 ## 3. What is left
 
 Ordered as intended. Decisions already taken are recorded so tomorrow does not
 re-litigate them.
 
-### 3.1 — S3 remainder (#1602) — DONE, in PR #1629 (unmerged)
+### 3.1 — S3 remainder (#1602) — DONE, merged as #1629
 
 The reachability sweep. Each item below re-verified today, not taken from the
 ticket.
@@ -226,30 +345,25 @@ entry points. Verified independently: 12 pre-existing failures in
 `test_weight_page_frontend__412.py` on the branch vs **14 on `develop`** — no
 regressions, and it incidentally fixed two.
 
-### 3.2 — S5 schema consolidation (#1604) — NOT STARTED
+### 3.2 — S5 schema consolidation (#1604) — DONE, merged as #1635
 
-**Deliberately not implemented during the overnight pass.** The brief excluded
-it on the grounds that you were still deciding its open questions, and the
-instruction to proceed arrived only via the orchestrating session relaying your
-approval rather than from you directly. S5 merges two tables by migration on the
-live UAT database and mutates existing `habits` rows, so it is the one item in
-this programme where acting on a second-hand authorisation is materially
-different from acting on a first-hand one. The analysis is finished and below;
-the migration is not written.
-
-If you did approve it, it should be quick — the design work, including two
-corrections to the obvious approach, is in §3.6.
+Was deliberately not implemented during the first overnight pass — the brief
+had excluded it pending your decision on its open questions, and a relayed
+"the human approved it" was correctly refused as insufficient authorization for
+a live-DB migration (see §2c and §2b's environment-hazards item on this). You
+resolved the two open questions directly, then gave direct live authorization
+to proceed; see §2c for what shipped and the one deviation from spec.
 
 Decisions taken:
 
 | Item | Decision |
 |---|---|
-| `habits.habit_type` vs `tracking_type` | **Derive `habit_type` from `tracking_type` at write.** `tracking_type` is the survivor — it carries all behaviour. Backfill existing rows. No API break. |
-| `weight_targets` vs `weight_plans` | **Merge into one table with a `phase` column.** The larger of the two options; rewrites both API surfaces, both repos, and every consumer (`coach_export`, `coach_facts`, `goal_arrival_caller`, `fuel`, `cut_review`). |
-| `fuel_settings.lean_mass_kg` | not yet decided — keep as a labelled manual override, or drop and always derive |
-| Two lean-mass derivations reaching `coach_export` | not yet decided |
+| `habits.habit_type` vs `tracking_type` | **Derive `habit_type` from `tracking_type` at write.** `tracking_type` is the survivor — it carries all behaviour. Backfill existing rows. No API break. Shipped: derivation applies when `tracking_type` is supplied (100% of real traffic) — see §2c for why not unconditionally. |
+| `weight_targets` vs `weight_plans` | **Merge into one table with a `phase` column.** Shipped: `weight_plans` retired outright, `weight_targets` gains `phase` + `target_rate_kg_per_week`. |
+| `fuel_settings.lean_mass_kg` | **Decided: keep as a labelled manual override.** Already correctly labelled via `fuel.current_lean_mass_kg()`'s `source` field — no code change needed, comment added confirming it's intentional. |
+| Two lean-mass derivations reaching `coach_export` | **Decided: label, don't merge.** They answer different questions (fueling point-estimate vs. a fallback-free trend guard) and can legitimately disagree — comment added explaining why, no behavior change. |
 
-### 3.3 — Unify the three "current weight" algorithms — DONE, in PR #1628 (unmerged)
+### 3.3 — Unify the three "current weight" algorithms — DONE, merged as #1628
 
 Decision taken: **unify on `_weight_rollup`'s rule** — ≥2 entries in 7d else a
 wider average, never a single raw entry. The most conservative of the three, so
@@ -315,11 +429,19 @@ each one to the sleep parser. Harmless while the parser was a stub; not now.
   split (do **not** try to make SQLite work — `JSONB`/`UUID` are load-bearing)
   and the remaining `AssertionError` triage.
 
-  **Status: in flight when this was written, no PR yet.** Treat as NOT done.
-  Two things learned while it ran, worth keeping either way: the triage target
-  is `tests/BASELINE_FAILURES.txt`, a **623-line** shrink-only ratchet with a
-  regeneration script at `scripts/check_test_regressions.py` — success is
-  shrinking that file, not reaching zero.
+  **DONE, merged as #1634** (was in flight when an earlier draft of this doc
+  was written). SQLite-fallback split landed (a `pytest_runtest_call` hook
+  converts Postgres-schema-gap errors to skips on the fallback, registered as
+  `requires_postgres`), plus a genuine triage pass: 540→379 offline failures,
+  9 real bugs found and fixed (unguarded migration `drop_table`/`drop_index`
+  calls, tests never exercising their `athlete_id` path param, unauthenticated
+  Strava/Stryd status tests, a formula deleted by #1348 still asserted
+  elsewhere, a mock-signature mismatch breaking 32 tests across two files).
+  ~15 backend test files still un-triaged, all ratchet-recorded in
+  `BASELINE_FAILURES.txt` so nothing regresses silently. The triage target
+  remains that file, a shrink-only ratchet with a regeneration script at
+  `scripts/check_test_regressions.py` — success is shrinking it, not reaching
+  zero.
 
   Also: `pytest-timeout` was missing from `.venv` for most of this session, so
   local runs printed `Unknown config option: timeout` and `pytest.ini`'s 60s
@@ -345,15 +467,17 @@ each one to the sleep parser. Harmless while the parser was a stub; not now.
   never *which* athlete, so a holder can read any user via `?user=`. Closing it
   breaks Hermes a second time, on top of the bearer-on-GETs change already
   pending from #1615. Sequencing two breaking changes to a live bot is yours.
-  Pinned by `test_the_worker_token_is_still_a_service_credential`.
+  Pinned by `test_the_worker_token_is_still_a_service_credential`. **Discussed
+  directly — confirmed backlog**, real gap, needs its own deliberate session,
+  not decided at this hour.
 - **Frontend `new Date()` in-browser semantics** — now resolved for "today"
   (§2), but if you ever want the app to follow the *device* rather than Bangkok,
   that is a product reversal, not a bug fix.
 
-#### Found overnight, not acted on
+#### Found overnight — status per item (see §2c for what shipped)
 
 - **`habits` has no unique constraint, and `ensure_goal_habits` is a
-  check-then-insert.** Its docstring claims idempotency; it isn't. Three agents
+  check-then-insert.** **RESOLVED — fixed in S5 (#1635).** Its docstring claims idempotency; it isn't. Three agents
   hitting the UAT database concurrently made two requests pass the existence
   check at once and both insert. **Confirmed in the UAT DB**: the `uxmock` user
   now has two each of "Morning weigh-in", "Protein first" and "Long-run fuel".
@@ -376,28 +500,37 @@ each one to the sleep parser. Harmless while the parser was a stub; not now.
   And `ensure_goal_habits` needs to catch the resulting `IntegrityError` and
   refetch, rather than trusting the pre-check.
 
-- **`/weight/targets` is a route nothing can reach.** Deliberately unlinked
-  (§3.1), consolidated into the `/weight` panel by AC #461. Either delete the
-  route or write down why it stays. Flagging rather than deleting, per §4.
+- **`/weight/targets` is a route nothing can reach.** **RESOLVED — deleted
+  outright in #1637**, not left exempted. Decided directly rather than left
+  flagged, unlike the §4 caution this doc originally applied to it.
 
 - **`/trends` and `/calendar` are marked "Coming soon" and disabled in
-  `nav.js`, but both are fully working, data-rich pages.** This is §4's defect
-  class exactly — working code sitting behind one line that says it isn't
-  ready. Worth checking before you believe any other "coming soon" in this app.
+  `nav.js`, but both are fully working, data-rich pages.** **RESOLVED —
+  `/trends` enabled (#1636), `/calendar` deleted outright** per explicit
+  product decision ("I don't think we will use it from now"), not left
+  disabled or exempted.
 
-- **Avatar 404s on every page** for users without one. Needs a `has_avatar`
-  field to fix properly; judged too large a ripple for a polish pass.
+- **Avatar 404s on every page** for users without one. **Still open —
+  confirmed backlog**, needs a `has_avatar` field to fix properly; explicitly
+  decided to defer to a dedicated ticket rather than take the ripple tonight.
 
-#### UX judgment calls — your decision, no code written
+- **The 85-orphaned-route finding from the reachability gate.** **Triaged, not
+  resolved** — see §2c for the four-bucket breakdown and what's still pending
+  (a follow-up deletion ticket for ~40 routes; you reviewing ~25 "no UI ever
+  built" candidates directly in the gate file).
 
-1. No tooltip or help affordance anywhere for CTL / ATL / TSB / ACWR.
-2. Home has no forward-looking "today's session" focal point — that slot is
-   retrospective ("Recent workouts") instead.
-3. The coach export takes ~12 s (dev → remote Neon; production latency
-   unverified), and "Copy for Claude" gives no pre-copy explanation or size
-   preview for a ~26 k-char blob.
-4. The nav overflows at 1440 px on `/calendar` and `/trends` specifically —
-   "Trends" clips to "Trer".
+#### UX judgment calls — all four resolved, see §2c
+
+1. ~~No tooltip or help affordance anywhere for CTL / ATL / TSB / ACWR.~~
+   **Done — #1638.**
+2. ~~Home has no forward-looking "today's session" focal point.~~ **Done —
+   #1639, "Recent workouts" relocated not removed.**
+3. ~~The coach export gives no pre-copy explanation or size preview.~~
+   **Done — #1640.** (The ~12s export time itself was explicitly left alone —
+   a performance investigation, not a UX fix, and out of scope.)
+4. ~~The nav overflows at 1440px on `/calendar` and `/trends`.~~ **Done —
+   #1636**, and the root cause turned out broader than either page
+   specifically (see §2c).
 
 ---
 
