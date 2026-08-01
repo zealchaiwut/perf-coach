@@ -155,8 +155,7 @@
     // The consult loop's memory. Had a route but no link — the export cites
     // these rows by date, so it needs to be reachable without typing a URL.
     { href: '/decisions', label: 'Decisions',   icon: 'ti-notes',        match: ['/decisions', '/decisions.html'] },
-    { href: '/trends',      label: 'Trends',      icon: 'ti-chart-line',   match: ['/trends', '/trends.html'], disabled: true },
-    { href: '/calendar',    label: 'Calendar',    icon: 'ti-calendar',     match: ['/calendar', '/calendar.html'], disabled: true }
+    { href: '/trends',      label: 'Trends',      icon: 'ti-chart-line',   match: ['/trends', '/trends.html'] }
     // Users is intentionally omitted — it's an admin-only page (see js/admin-gate.js).
   ];
 

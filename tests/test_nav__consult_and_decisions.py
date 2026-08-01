@@ -99,8 +99,9 @@ def test_decisions_is_in_the_nav_links(nav):
 
 
 def test_decisions_link_is_not_disabled(nav):
-    """`/trends` and `/calendar` are deliberately `disabled: true`. Decisions
-    must not inherit that by copy-paste."""
+    """Other LINKS entries have carried `disabled: true` in the past (e.g. the
+    now-removed `/calendar` link). Decisions must not inherit that by
+    copy-paste."""
     links_start = nav.index("var LINKS = [")
     links_end = nav.index("];", links_start)
     for line in nav[links_start:links_end].splitlines():

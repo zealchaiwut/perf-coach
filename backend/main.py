@@ -5624,7 +5624,6 @@ _PAGES = {
     "home": "home.html",
     "weight": "weight.html",
     "habits": "habits.html",
-    "calendar": "calendar.html",
     "log": "training-log.html",
     "training": "training.html",
     "trends": "trends.html",
@@ -5690,112 +5689,6 @@ app.add_api_route("/projection.html", _serve_projection_redirect, include_in_sch
 def index():
     # Bare domain → the home dashboard (clean URL).
     return RedirectResponse(url="/home")
-
-
-@app.get("/api/calendar/month")
-def get_calendar_month(
-    year: int = Query(...),
-    month: int = Query(...),
-    user: User = Depends(resolve_user),
-):
-    """Return per-day calendar data for the given month.
-
-    Response shape: a list of objects, one per calendar day in the month:
-      {
-        date: "YYYY-MM-DD",
-        weight: float | null,
-        habits_done: int,
-        workouts: int,
-        energy: int | null,        # 1–5
-        sleep_quality: int | null  # 1–5
-      }
-    """
-    from datetime import date as _date
-    import calendar as _cal
-
-    uid = user.id
-
-    if not (1 <= month <= 12):
-        raise HTTPException(status_code=400, detail="month must be 1–12")
-
-    days_in_month = _cal.monthrange(year, month)[1]
-    from_d = _date(year, month, 1)
-    to_d = _date(year, month, days_in_month)
-
-    with Session(engine) as session:
-        # Weight entries
-        weight_rows = (
-            session.query(WeightEntry)
-            .filter(
-                WeightEntry.user_id == uid,
-                WeightEntry.entry_date >= from_d,
-                WeightEntry.entry_date <= to_d,
-            )
-            .all()
-        )
-        weight_by_date = {str(w.entry_date): float(w.weight_kg) for w in weight_rows}
-
-        # Habit log counts per date
-        log_rows = (
-            session.query(HabitLog.log_date)
-            .filter(
-                HabitLog.user_id == uid,
-                HabitLog.log_date >= from_d,
-                HabitLog.log_date <= to_d,
-            )
-            .all()
-        )
-        habits_by_date: dict = {}
-        for (ld,) in log_rows:
-            key = str(ld)
-            habits_by_date[key] = habits_by_date.get(key, 0) + 1
-
-        # Workout counts per date
-        workout_rows = (
-            session.query(Workout.workout_date)
-            .filter(
-                Workout.user_id == uid,
-                Workout.workout_date >= from_d,
-                Workout.workout_date <= to_d,
-            )
-            .all()
-        )
-        workouts_by_date: dict = {}
-        for (wd,) in workout_rows:
-            key = str(wd)
-            workouts_by_date[key] = workouts_by_date.get(key, 0) + 1
-
-        # Daily metrics (energy + sleep_quality)
-        metric_rows = (
-            session.query(DailyMetric)
-            .filter(
-                DailyMetric.user_id == uid,
-                DailyMetric.metric_date >= from_d,
-                DailyMetric.metric_date <= to_d,
-            )
-            .all()
-        )
-        metrics_by_date: dict = {}
-        for m in metric_rows:
-            metrics_by_date[str(m.metric_date)] = {
-                "energy": m.energy,
-                "sleep_quality": m.sleep_quality,
-            }
-
-    days = []
-    for day in range(1, days_in_month + 1):
-        d = str(_date(year, month, day))
-        m = metrics_by_date.get(d, {})
-        days.append({
-            "date": d,
-            "weight": weight_by_date.get(d),
-            "habits_done": habits_by_date.get(d, 0),
-            "workouts": workouts_by_date.get(d, 0),
-            "energy": m.get("energy"),
-            "sleep_quality": m.get("sleep_quality"),
-        })
-
-    return JSONResponse(days)
 
 
 # ── Workout endpoints ─────────────────────────────────────────────────────────
