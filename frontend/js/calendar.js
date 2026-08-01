@@ -385,7 +385,7 @@
     });
 
     const overlay = document.createElement('div');
-    overlay.className = 'modal-overlay day-modal-overlay';
+    overlay.className = 'modal-overlay day-modal-overlay is-open';
 
     const box = document.createElement('div');
     box.className = 'modal-box day-modal-box';
@@ -500,7 +500,7 @@
     const FIELDS = [
       { key: 'resting_hr',    label: 'Resting HR',    min: 20, max: 200, step: 1,   placeholder: 'bpm' },
       { key: 'hrv',           label: 'HRV',           min: 0,  max: 300, step: 1,   placeholder: 'ms'  },
-      { key: 'sleep_hours',   label: 'Sleep Hours',   min: 0,  max: 24,  step: 0.5, placeholder: 'hrs' },
+      { key: 'sleep_hours',   label: 'Sleep Hours',   min: 0,  max: 24,  step: 'any', placeholder: 'hrs' },
       { key: 'sleep_quality', label: 'Sleep Quality', min: 1,  max: 5,   step: 1,   placeholder: '1–5' },
       { key: 'energy',        label: 'Energy',        min: 1,  max: 5,   step: 1,   placeholder: '1–5' },
       { key: 'mood',          label: 'Mood',          min: 1,  max: 5,   step: 1,   placeholder: '1–5' },

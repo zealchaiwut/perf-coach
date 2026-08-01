@@ -25,6 +25,10 @@
       name: 'RHR',
       fmt: function (v) { return v != null ? Math.round(v) + ' bpm' : '—'; },
     },
+    sleep_quality: {
+      name: 'Sleep quality',
+      fmt: function (v) { return v != null ? v + '/5' : '—'; },
+    },
     mood: {
       name: 'Mood',
       fmt: function (v) { return v != null ? v + '/5' : '—'; },
