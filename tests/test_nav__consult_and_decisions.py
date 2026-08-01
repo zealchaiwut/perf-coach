@@ -138,3 +138,60 @@ def test_copy_toast_stamps_bangkok_not_browser_local():
     copy_fn = copy_fn[: copy_fn.index("function _wireCopyForClaude(")]
     assert "Asia/Bangkok" in copy_fn
     assert "toISOString" not in copy_fn
+
+
+# ── Loading state during the ~12s build ────────────────────────────────────────
+# The export is consistently slow (dev→remote Neon; see
+# docs/pre-production-review-status.md §"UX judgment calls" item 3) and, before
+# this fix, gave no feedback beyond a button label swap — nothing told the
+# athlete it was working rather than stuck, and nothing explained what the
+# button was about to copy before they clicked it.
+
+def test_copy_fn_shows_a_persisted_building_toast(nav):
+    """The button's own "Building…" label is easy to miss; the toast is the
+    loud half of the same signal and must survive the whole ~12s wait, not
+    the normal 4s auto-dismiss (see _copyToast's `persist` branch)."""
+    copy_fn = nav[nav.index("function _copyForClaude(") : nav.index("function _wireCopyForClaude(")]
+    assert "persist: true" in copy_fn
+    assert "Building your training summary" in copy_fn
+    assert "Building your check-in" in copy_fn
+
+
+def test_persisted_toast_is_exempted_from_auto_dismiss(nav):
+    toast_fn = nav[nav.index("function _copyToast(") : nav.index("function _copyCharCount(")]
+    assert "opts.persist" in toast_fn
+
+
+def test_building_toast_differs_by_endpoint_without_new_helper_params(nav):
+    """The retry path calls `_copyForClaude(btn, endpoint, label)` verbatim
+    (see test_retry_preserves_the_endpoint) — the building-toast copy must be
+    derived from `endpoint` inside the function, not bolted on as a new
+    parameter that would silently break that call."""
+    copy_fn = nav[nav.index("function _copyForClaude(") : nav.index("function _wireCopyForClaude(")]
+    assert "endpoint === CONSULT_ENDPOINT" in copy_fn
+
+
+def test_copy_buttons_have_a_pre_copy_explanation(nav):
+    """A short, always-in-the-DOM explanation of what each button copies —
+    reusing the shared .info-tip-bubble component (styles.css) that the
+    CTL/ATL/TSB/ACWR tiles already use for this exact job, hover/focus
+    triggered off the button itself rather than a native `title` (slow,
+    inconsistent, easy to miss)."""
+    for btn_id in ("gn-copy-claude", "gn-copy-consult"):
+        start = nav.index('id="' + btn_id + '"')
+        end = nav.index("</button>", start)
+        btn = nav[start:end]
+        assert "info-tip-bubble" in btn
+        assert 'role="tooltip"' in btn
+        assert "aria-describedby=" in btn
+
+
+def test_pre_copy_explanation_is_reachable_on_mobile():
+    """The mobile media query hides the copy buttons' plain <span> labels
+    (icon-only at narrow widths) — it must not blanket-hide the info-tip
+    bubble along with them, or the pre-copy explanation would be unreachable
+    on the majority-mobile surface it matters most for."""
+    nav_src = NAV_JS.read_text()
+    mobile_start = nav_src.index("@media (max-width:880px)")
+    mobile = nav_src[mobile_start : nav_src.index("]", mobile_start)]
+    assert "gn-copy span:not(.info-tip-bubble){display:none;}" in mobile
