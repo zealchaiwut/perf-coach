@@ -203,9 +203,10 @@ def test_weight_targets_was_deliberately_left_unlinked():
 
 def test_preferences_was_deliberately_left_alone():
     """Documented exception, not an oversight — its client-side redirect shim
-    (-> /training-log?tab=plan#prefs) was judged fine as-is. This test pins
-    the shim's destination so a future sweep doesn't silently change it
+    was judged fine as-is (destination fixed by the UX review pass, which
+    found the original target didn't exist — see #1632). This test pins the
+    shim's *current* destination so a future sweep doesn't silently change it
     without re-reading why it wasn't touched here."""
     assert '"preferences": "preferences.html"' in MAIN
     prefs_html = (PAGES / "preferences.html").read_text()
-    assert "/training-log?tab=plan#prefs" in prefs_html
+    assert "/log?tab=plan#prefs" in prefs_html

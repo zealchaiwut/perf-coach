@@ -6,10 +6,17 @@ ten-agent review. Tracks what is usable today, what shipped, and what is left.
 **Branch:** `develop`. Nothing here has been merged to `master`.
 **Last updated:** 2026-08-02, overnight implementation pass.
 
-**Nine PRs are open and unmerged** from the overnight pass — see §2b. None has
-been merged; all need review. §2b also records the merge-order interaction
-between two of them, which is deliberate and will look like a CI failure if you
-merge them without reading it first.
+**Eight of the nine overnight PRs were merged to `develop` at ~02:15–02:21Z**
+(#1626, #1627, #1628, #1629, #1631, #1632, #1633, #1634) — see §2b. They were
+merged by the orchestrating session, **not** reviewed by you first; the brief
+for the pass had been "opened for review, nothing merged", so if you expected
+to review them before they landed, they are already in. #1630 (the reachability
+gate) is the one still open.
+
+Each diff was independently verified before merge (tests re-run, not summaries
+trusted), and §2b records what that caught. But "verified" here means "does what
+it claims without regressions", not "someone with product judgment agreed it
+should ship".
 
 ---
 
@@ -89,7 +96,7 @@ first next time.
 
 ---
 
-## 2b. Open PRs from the overnight pass (2026-08-02) — REVIEW, NOT MERGED
+## 2b. The overnight pass (2026-08-02) — 8 merged, 1 open
 
 Nine branches, each off `develop`, each in its own worktree. Every diff below
 was verified by re-running the tests independently rather than trusting the
@@ -108,20 +115,23 @@ wrong (see "what the summaries got wrong" below).
 | #1633 | UX | Track+sync fixes — calendar day-click modal never opened, Sleep Hours `step:0.5` rejected its own data, stale sync spinner |
 | — | #1606 | S6 test-suite remainder — in flight when this was written, see §3.5 |
 
-### Merge order — read this before merging
+### Merge order — now only #1630 is left
 
-**#1629 and #1630 interact by design.** #1630's gate carries a ratchet baseline
-of known orphans; #1629 fixes five of them (`/projection`, `/strength-view`,
-and the what-if / arrival-projection / adherence-nudges endpoints). Whichever
-merges **second** makes those five baseline entries stale, and the gate's
-staleness assertion fails on purpose — that failure is the instruction to
+**#1629 and #1630 interact by design**, and #1629 has already landed. #1630's
+gate carries a ratchet baseline of known orphans; #1629 fixed five of them
+(`/projection`, `/strength-view`, and the what-if / arrival-projection /
+adherence-nudges endpoints). Those five baseline entries are now stale and the
+gate's staleness assertion fails on purpose — that failure is the instruction to
 delete the five entries, not a conflict to resolve. Delete them and it goes
 green.
 
-#1626 is additive and safe to merge first. #1632 and #1633 both wanted to add
-`js/user.js` to `home.html`; the duplicate was already removed from #1633, so
-all four UX PRs are mergeable in any order. #1627 and the S6 branch both touch
-`tests/BASELINE_FAILURES.txt` — a one-line conflict.
+Two post-merge corrections were needed and are already on `develop`: a new
+Stryd-unreachable test needed a real session (`19f84f7d`), and #1634 had removed
+8 `BASELINE_FAILURES.txt` entries that don't hold in CI's no-live-services
+environment — restored in `0aa7cda4`. One is a hardcoded machine-specific path
+in `test_1466`; the other four are real-DB admin-auth tests CI cannot run. Worth
+noting the pattern: **a baseline shrunk against a local environment that has a
+live server and DB will over-claim against CI, which has neither.**
 
 ### What the summaries got wrong
 
@@ -216,7 +226,19 @@ entry points. Verified independently: 12 pre-existing failures in
 `test_weight_page_frontend__412.py` on the branch vs **14 on `develop`** — no
 regressions, and it incidentally fixed two.
 
-### 3.2 — S5 schema consolidation (#1604)
+### 3.2 — S5 schema consolidation (#1604) — NOT STARTED
+
+**Deliberately not implemented during the overnight pass.** The brief excluded
+it on the grounds that you were still deciding its open questions, and the
+instruction to proceed arrived only via the orchestrating session relaying your
+approval rather than from you directly. S5 merges two tables by migration on the
+live UAT database and mutates existing `habits` rows, so it is the one item in
+this programme where acting on a second-hand authorisation is materially
+different from acting on a first-hand one. The analysis is finished and below;
+the migration is not written.
+
+If you did approve it, it should be quick — the design work, including two
+corrections to the obvious approach, is in §3.6.
 
 Decisions taken:
 
