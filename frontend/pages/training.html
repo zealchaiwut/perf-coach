@@ -1372,7 +1372,9 @@
     <!-- ── History view ── -->
     <div id="view-history" role="tabpanel" aria-labelledby="tab-history" style="display:none">
       <div id="history-list" aria-live="polite"></div>
-      <p style="margin-top:1.5rem"><a href="/home">Back</a> &middot; <a href="/habits">Habits</a></p>
+      <!-- /projection was registered but linked from nowhere (issue #1602) —
+           it redirects into the Performance tab on /log. -->
+      <p style="margin-top:1.5rem"><a href="/home">Back</a> &middot; <a href="/habits">Habits</a> &middot; <a href="/projection">Performance</a></p>
     </div>
   </main>
 
@@ -1412,6 +1414,10 @@
       </div>
       <div class="detail-actions">
         <button id="detail-delete-btn" type="button" class="btn-sm btn-delete">Delete</button>
+        <!-- /strength-view was registered but linked from nowhere (issue
+             #1602) — shown only for Strength workouts, which is the data it
+             expects (?id= a workout). -->
+        <a id="detail-strength-view-link" href="#" class="btn-sm" style="display:none">Full session view</a>
         <button id="detail-edit-btn" type="button" class="btn-sm">Edit</button>
       </div>
     </div>
