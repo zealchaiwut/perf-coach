@@ -126,11 +126,13 @@
   }
 
 
-  /* Recent workouts are now rendered by home-readiness-training-sleep.js's
-     renderNextWorkoutCard, which owns the whole merged "Next + Recent" card so
-     it can budget Next vs Recent rows against one shared capacity (see
-     _nwFill / _nwFillCounts there). home.js passes summary.recent_workouts in
-     via HomeRTS.render(summary, userId); it no longer fills the section here. */
+  /* Recent workouts are rendered by home-readiness-training-sleep.js's
+     renderRecentWorkoutsCard, into #home-recent-workouts-card (below Training —
+     see the Home today-focal-point UX review: that slot used to sit in the top
+     row, but the top row is now home-today-plan-card.js's forward-looking
+     "what should I do today" card instead). home.js passes
+     summary.recent_workouts in via HomeRTS.render(summary, userId); it no
+     longer fills the section here. */
 
   /* ---- Fast-log form (issue #394: mobile-optimised daily metrics) ---- */
 
@@ -646,6 +648,9 @@
   function _initBriefCards() {
     var weekEl = document.getElementById('home-brief-week-plan-card');
     if (window.HomeBriefWeekPlanCard && weekEl) HomeBriefWeekPlanCard.render(weekEl);
+
+    var todayPlanEl = document.getElementById('home-today-plan-card');
+    if (window.HomeTodayPlanCard && todayPlanEl) HomeTodayPlanCard.render(todayPlanEl);
   }
 
   /* ---- Race goal — same A-race as Training > Performance (no separate form) ---- */
@@ -797,12 +802,12 @@
       /* Personal records card (fetches its own data — see loadPerformanceCard) */
       loadPerformanceCard(userId);
 
-      /* Recent workouts are rendered inside the merged Next+Recent card by
+      /* Recent workouts (#home-recent-workouts-card) are rendered by
          HomeRTS.render (called just above with summary.recent_workouts). */
 
       initFastLogForm(userId);
 
-      /* Week plan — same PlannedSessions week as Training > Plan */
+      /* Today's plan + Week plan — same PlannedSessions data as Training > Plan */
       _initBriefCards();
 
       /* Race goal — same A-race as Training > Performance */

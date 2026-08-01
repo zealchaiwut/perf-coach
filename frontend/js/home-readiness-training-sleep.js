@@ -348,7 +348,16 @@
       '</div>';
   }
 
-  /* ── Recent workout (compact, beside Performance) ───────────────────────── */
+  /* ── Recent workouts (retrospective, below Training) ─────────────────────
+     Used to live in the top-row slot beside Performance/Readiness; moved down
+     so that slot could become home-today-plan-card.js's forward-looking
+     "what should I do today" focal card instead (Home today-focal-point UX
+     review). Function/CSS-class names below keep the old "nw-" (next
+     workout) prefix — it was never accurate even before this move (this
+     widget only ever rendered *recent*, not *next*, workouts; see the
+     historical comment on renderRecentWorkoutsCard below) — renaming the
+     shared .nw-* CSS classes isn't worth the diff for a page-internal
+     prefix nobody reads as an acronym. */
 
   function _nwBadgeCls(sessionType) {
     return (sessionType === 'strength' || sessionType === 'plyo') ? 'lift' : 'run';
@@ -391,7 +400,7 @@
       '</div>';
   }
 
-  function renderNextWorkoutCard(el, recentWorkouts) {
+  function renderRecentWorkoutsCard(el, recentWorkouts) {
     if (!el) return;
     el.innerHTML = _nwSkeletonHtml();
     var recent = Array.isArray(recentWorkouts) ? recentWorkouts : [];
@@ -563,7 +572,7 @@
     var rdEl  = document.getElementById('home-top-row-right');
     var twEl  = document.getElementById('home-training-card');
     var slpEl = document.getElementById('home-sleep-card');
-    var nwEl  = document.getElementById('home-next-workout-card');
+    var nwEl  = document.getElementById('home-recent-workouts-card');
     var pfEl  = document.getElementById('home-performance-card');
 
     if (rdEl) {
@@ -588,7 +597,7 @@
       renderSleepCard(slpEl, summary && summary.sleep ? summary.sleep : null);
     }
     if (nwEl) {
-      renderNextWorkoutCard(nwEl, summary && summary.recent_workouts ? summary.recent_workouts : []);
+      renderRecentWorkoutsCard(nwEl, summary && summary.recent_workouts ? summary.recent_workouts : []);
     }
     if (pfEl) {
       renderPerformanceCard(pfEl, userId);

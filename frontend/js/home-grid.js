@@ -39,11 +39,12 @@
   // full-width anyway.
   var REGISTRY = [
     { id: 'home-top-row-right',          w: { 8: 4, 6: 4, 1: 1 } }, // Readiness
-    { id: 'home-next-workout-card',      w: { 8: 2, 6: 2, 1: 1 } }, // Recent workouts
+    { id: 'home-today-plan-card',        w: { 8: 2, 6: 2, 1: 1 } }, // Today's plan (the forward-looking focal card)
     { id: 'home-performance-card',       w: { 8: 2, 6: 2, 1: 1 } }, // Performance
     { id: 'home-today-rec-card',         w: { 8: 2, 6: 2, 1: 1 } }, // Coach digest
     { id: 'home-brief-week-plan-card',   w: { 8: 2, 6: 2, 1: 1 } }, // Week plan
     { id: 'home-training-card',          w: { 8: 4, 6: 4, 1: 1 } }, // Training
+    { id: 'home-recent-workouts-card',   w: { 8: 4, 6: 4, 1: 1 } }, // Recent workouts (retrospective — moved off the top row so Today's plan can take that slot)
     { id: 'home-perf-container',         w: { 8: 4, 6: 3, 1: 1 } }, // Personal records
     { id: 'home-habits-widget',          w: { 8: 4, 6: 4, 1: 1 } }, // Habits
     { id: 'home-weight-widget',          w: { 8: 4, 6: 3, 1: 1 } }, // Weight
@@ -94,7 +95,7 @@
 
   // Side-by-side pairs that should share a row height.
   var HEIGHT_PAIRS = [
-    ['home-next-workout-card', 'home-performance-card'],
+    ['home-today-plan-card', 'home-performance-card'],
     ['home-today-rec-card', 'home-brief-week-plan-card'],
   ];
 
