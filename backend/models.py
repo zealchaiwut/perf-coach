@@ -989,6 +989,17 @@ class TrainingLoadSnapshot(Base):
     # CompileError: Unconsumed column names.
     ctl_days = Column(Integer, nullable=True)
     atl_days = Column(Integer, nullable=True)
+    # Fingerprint of the target date's own workout rows (count/max(created_at)/
+    # max(updated_at)) at compute time — see training_load._day_workout_signature.
+    # A stored value that no longer matches the date's current signature means
+    # a workout was logged/edited/deleted for that date after this row was
+    # cached; get_snapshot_series() treats that as a cache miss and recomputes,
+    # instead of serving a snapshot computed before the day's data existed
+    # (found live: tss_for_day stuck at 0 for weeks with real workouts,
+    # because nothing previously invalidated on data change — only on a
+    # formula/calibration change). Nullable: rows predating this column are
+    # simply treated as stale on next read (self-heals, no bulk backfill).
+    workout_signature = Column(Text, nullable=True)
     computed_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
     __table_args__ = (
