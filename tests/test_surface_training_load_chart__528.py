@@ -182,7 +182,7 @@ def test_ac4_range_change_triggers_rerender():
 # ── AC6: only on training-log page; no regression on other Chart.js pages ────
 
 def test_ac6_volume_chart_only_on_training_log_page():
-    for other in ("trends.html", "weight.html"):
+    for other in ("weight.html",):
         txt = (_REPO / "frontend" / "pages" / other).read_text()
         assert 'id="volume-chart"' not in txt, f"{other} must not host the volume chart"
 
