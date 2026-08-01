@@ -1358,13 +1358,19 @@
     }
     #home-today-rec-card { padding: 16px; }
     #home-today-rec-body { flex: 1 1 auto; }
-    /* Dead-code removal (re-audit #13) — .rec-tabs/.rec-tab*/.rec-msg-*/
-       .rec-tag*/.rec-coach-narrative/.rec-coach-*/.rec-nudge*/.rec-checkin*/
-       .rec-apply-btn styled a tabbed coach-narrative widget that was
-       superseded by the brief v4 Today strip + digest card; none of these
-       classes are built by any JS on this page anymore (confirmed via
-       grep). .rec-loading/.rec-empty are still live (loadCoachBrief's
-       loading state, HomeCoachDigest's no-brief-yet state) and stay. */
+    /* Dead-code removal (re-audit #13) — .rec-tabs, .rec-tab-*, .rec-msg-*,
+       .rec-tag-*, .rec-coach-narrative, .rec-coach-*, .rec-nudge-*,
+       .rec-checkin-*, .rec-apply-btn styled a tabbed coach-narrative widget
+       that was superseded by the brief v4 Today strip + digest card; none of
+       these classes are built by any JS on this page anymore (confirmed via
+       grep). .rec-loading, .rec-empty are still live (loadCoachBrief's
+       loading state, HomeCoachDigest's no-brief-yet state) and stay.
+       NOTE: this comment previously used "/" between class names ending in
+       "*", which produced literal "*/" sequences and closed this CSS comment
+       early -- silently truncating every rule after it in this <style> block
+       (Week plan card, Race goal card, brief-unavail, goal-card__*,
+       hg-race*, brief-skeleton, and more, ~140 rules). Never let "*/" appear
+       inside a CSS comment, even by accident via string collision. */
     .rec-loading, .rec-empty { font-size: 13px; color: var(--text-secondary); }
     .rec-empty { font-size: 13px; color: var(--text-tertiary); padding: 8px 0; }
 
@@ -1494,6 +1500,23 @@
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .hpl-meta { font-size: 11px; color: var(--text-secondary); margin-top: 1px; }
+    /* Logged workout with no matching plan slot (see _ghostCardHtml) —
+       dashed accent borrows the same "unplanned/ghost" visual vocabulary
+       as the full Plan tab's .pl-ghost, just lighter for this half-width
+       teaser card. */
+    .hpl-sess--unplanned { border-left: 2px dashed var(--card-divider); padding-left: 8px; }
+    .hpl-tag--unplanned {
+      background: none; border: 1px dashed var(--text-tertiary);
+      color: var(--text-tertiary); font-weight: 700;
+    }
+    /* Honest empty state: zero planned sessions all week (see render()) —
+       do not let a column of "Rest" imply the planner recommends resting. */
+    .hpl-noplan {
+      font-size: 12px; color: var(--text-secondary); line-height: 1.5;
+      padding: 2px 0 10px; margin-bottom: 6px;
+      border-bottom: 1px solid var(--card-divider);
+    }
+    .hpl-noplan a { color: var(--text-primary); font-weight: 700; text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -1693,6 +1716,7 @@
   InjuryLog.renderActiveStrip('home-injury-strip');
 </script>
 
+<script src="js/user.js"></script>
 <script src="js/env.js"></script>
 </body>
 </html>

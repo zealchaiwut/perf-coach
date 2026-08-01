@@ -212,6 +212,12 @@
     ".global-nav .gn-copy:hover{background:rgba(13,30,67,0.05);border-color:rgba(13,30,67,0.28);}",
     ".global-nav .gn-copy[disabled]{opacity:0.6;cursor:progress;}",
     ".global-nav .gn-copy i{font-size:16px;line-height:1;}",
+    // The export takes several seconds to assemble (90 days across many
+    // blocks) — without motion, the "Building…" state reads as frozen rather
+    // than working for the whole wait. Same rotate-in-place pattern as the
+    // sync bar's spinner (ssb-spin), just applied to the tabler loader glyph.
+    ".global-nav .gn-copy .ti-loader-2{display:inline-block;animation:gn-copy-spin 0.8s linear infinite;}",
+    "@keyframes gn-copy-spin{to{transform:rotate(360deg)}}",
     ".global-nav .gn-copy.is-error{border-color:#e08c8c;color:#c92a2a;}",
     // Icon-only sibling — square padding, no label to hide at any width.
     ".global-nav .gn-copy-icon{padding:7px 9px;}",
@@ -349,11 +355,17 @@
       linksHtml +
       "</div>" +
       '<div class="gn-right">' +
+      // aria-label duplicates the visible <span> deliberately: the mobile media
+      // query (".gn-copy span{display:none}") hides that span on narrow
+      // viewports for BOTH copy buttons, and a display:none span drops out of
+      // the accessible-name computation — without this, a screen-reader user
+      // on mobile would hit an unlabeled button here.
       '<button type="button" class="gn-copy" id="gn-copy-claude"' +
+      ' aria-label="Copy for Claude"' +
       ' title="Copy prompt + last 90 days of data for a fresh Claude session">' +
       '<i class="ti ti-clipboard-text" aria-hidden="true"></i>' +
       "<span>Copy for Claude</span></button>" +
-      // The check-in blob. Icon-only so it doesn't crowd the bar on mobile —
+      // The check-in blob. Icon-only at every width so it doesn't crowd the bar —
       // aria-label carries the name for screen readers, since the visible
       // <span> the daily button uses isn't there to do it.
       '<button type="button" class="gn-copy gn-copy-icon" id="gn-copy-consult"' +
@@ -865,6 +877,17 @@
       }
       if (data.status === "success") _ssbSuccess(data);
       else _ssbError(data);
+    } else {
+      // Anything else — "idle" (job aged out of the registry, e.g. a
+      // server restart mid-sync per docs/sync.md "Status lost on restart"),
+      // "cancelled", "pending", or any status this bar doesn't render a
+      // dedicated state for. SyncPoller stops polling as soon as status
+      // leaves "running" (see lib/sync-poller.js), so without this branch
+      // the bar was left frozen on its last "Syncing…" spinner forever —
+      // found live during the S1 UX review by stubbing exactly this
+      // transition. Hiding is the safe default: it matches what the athlete
+      // actually knows (no sync is running right now).
+      _ssbHide();
     }
   }
 

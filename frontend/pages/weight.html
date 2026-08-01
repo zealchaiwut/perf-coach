@@ -824,6 +824,43 @@
         color: var(--w-blue-ink);
       }
 
+      /* What-if prompt (issue #1602) — same info-banner language as
+         .journey-banner, laid out as a row so the "What if?" pill sits
+         opposite the headline instead of stacking under it. */
+      .whatif-prompt {
+        background: linear-gradient(135deg, #dde6f8 0%, transparent 100%);
+        border: 1px solid #dde6f8;
+        border-radius: 11px;
+        padding: 11px 14px;
+        margin-top: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .whatif-headline {
+        font-size: 12px;
+        color: #1e3a8a;
+        line-height: 1.5;
+      }
+      .whatif-open-btn {
+        flex-shrink: 0;
+      }
+
+      /* Projected arrival (issue #1602 — GET /api/weight-targets/arrival-projection) */
+      .arrival-projection {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11.5px;
+        color: var(--text-tertiary);
+        margin-top: 6px;
+      }
+      .arrival-projection i {
+        font-size: 13px;
+      }
+
       /* Milestone list */
       .milestone-list-section {
         border-top: 1px solid var(--w-tile-hover);
@@ -3288,6 +3325,26 @@
                 <span id="kg-to-go" hidden></span>
                 <span class="pgstatus-pill" id="pgstatus-pill"></span>
               </div>
+
+              <!-- Projected arrival (issue #1602 — GET /api/weight-targets/arrival-projection) -->
+              <div id="arrival-projection" class="arrival-projection" hidden>
+                <i class="ti ti-flag-3" aria-hidden="true"></i>
+                <span id="arrival-projection-text"></span>
+              </div>
+
+              <!-- What-if prompt (AC5): appears when behind plan. Opens the
+                   assumed-pace simulator (issue #1602 — used to silently open
+                   #edit-panel, the ordinary edit-goal form, instead). -->
+              <div id="whatif-prompt" class="whatif-prompt" hidden>
+                <span id="whatif-headline" class="whatif-headline"></span>
+                <button
+                  id="whatif-open-btn"
+                  type="button"
+                  class="edit-target-pill whatif-open-btn"
+                >
+                  What if?
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -3757,6 +3814,15 @@
       <section id="target-history-section" class="target-history-section">
         <div class="target-history-hdr" style="background-color: #1f3b8a">
           <h2>Target history</h2>
+          <!-- issue #1602 considered a "Manage targets" link to the legacy
+               targets route here, but test_weight_page_frontend__412.py's
+               test_b_manage_target_links_to_weight_targets (AC #461) pins
+               the opposite: that route was deliberately de-linked from this
+               page when it was consolidated into this slide-in panel, and
+               the string must not reappear anywhere in this file (see that
+               test's own assertion). Treated the same as /preferences — the
+               redirect shim stays reachable by URL, not linked from normal
+               flow. See test_s3_remainder__1602.py for the full note. -->
         </div>
         <div class="target-history-grid">
           <!-- Left: Your weight journey (all-time stats + vs past attempts) -->
@@ -3910,6 +3976,51 @@
         </button>
         <button id="et-save-btn" class="et-save-btn" type="button">
           Save changes
+        </button>
+      </div>
+    </div>
+
+    <!-- ── What-if simulation slide-in panel (issue #1602) ────────────────────
+         Reuses the .et-panel* chrome/field/preview classes above so the two
+         slide-in panels look and behave the same way. -->
+    <div id="whatif-scrim" class="et-panel-scrim" hidden></div>
+    <div
+      id="whatif-panel"
+      class="et-panel"
+      hidden
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="whatif-panel-title"
+    >
+      <div class="et-panel-hdr">
+        <span class="et-panel-title" id="whatif-panel-title">What if?</span>
+        <button
+          id="whatif-panel-close"
+          class="et-panel-close"
+          type="button"
+          aria-label="Close"
+        >
+          &#x2715;
+        </button>
+      </div>
+      <div class="et-panel-body">
+        <div class="et-field">
+          <label for="whatif-rate-input">Assumed pace (kg/week)</label>
+          <input
+            type="number"
+            id="whatif-rate-input"
+            step="0.05"
+            min="0.01"
+            inputmode="decimal"
+            placeholder="e.g. 0.50"
+          />
+          <span class="et-hint" id="whatif-rate-hint"></span>
+        </div>
+        <div id="whatif-result"></div>
+      </div>
+      <div class="et-panel-foot">
+        <button id="whatif-run-btn" class="et-save-btn" type="button">
+          Simulate
         </button>
       </div>
     </div>

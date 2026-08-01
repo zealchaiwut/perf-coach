@@ -3093,6 +3093,8 @@
         var _dq = document.getElementById('stryd-data-quality'); if (_dq) _dq.style.display = 'none';
 
         document.getElementById('stryd-form-wrap').innerHTML =
+          '<p class="u-muted-13" style="margin:0 0 10px;">Stryd has no OAuth, so this app signs in on your ' +
+          'behalf: your password is encrypted before it’s stored and used only to refresh your Stryd session.</p>' +
           '<div class="stryd-form" id="stryd-cred-form">' +
           '<input type="email" id="stryd-email" placeholder="Stryd email" autocomplete="username">' +
           '<input type="password" id="stryd-password" placeholder="Stryd password" autocomplete="current-password">' +

@@ -125,11 +125,21 @@ def _call_weekly_endpoint(user, guardrail_result=None):
     mock_db.__exit__ = MagicMock(return_value=False)
     mock_db.get.return_value = MagicMock(id=uid)
 
-    def _query_side_effect(model_cls):
+    def _query_side_effect(*args):
         q = MagicMock()
         q.filter.return_value = q
         q.order_by.return_value = q
         q.first.return_value = None
+        if len(args) != 1:
+            # Cache-signature pre-check (_summary_signature, #log-rework
+            # commit 0a9b7c3d) queries aggregate functions, not a single
+            # model class — same fix as test_monthly_summary_supercompensation
+            # __1056.py (#1606). Always misses so these tests still exercise
+            # the real recompute path.
+            q.one.return_value = tuple(None for _ in args)
+            q.all.return_value = []
+            return q
+        model_cls = args[0]
         model_name = getattr(model_cls, "__name__", str(model_cls))
         if "Workout" in model_name:
             q.all.return_value = []
@@ -147,7 +157,11 @@ def _call_weekly_endpoint(user, guardrail_result=None):
         patch("backend.main.get_guardrail_result", return_value=guardrail_result),
     ):
         MockSession.return_value = mock_db
-        result = get_athlete_weekly_summary(user)
+        # athlete_id is a required path param (/api/athletes/{athlete_id}/...);
+        # the endpoint 404s unless it matches user.id. week must be passed
+        # explicitly too — called directly (not via FastAPI), its default is
+        # the raw `Query(default=None)` marker object, not None (#1606).
+        result = get_athlete_weekly_summary(athlete_id=str(user.id), user=user, week=None)
 
     return json.loads(result.body)
 
@@ -169,10 +183,16 @@ def _call_monthly_endpoint(user, workouts, guardrail_result=None):
     mock_db.__exit__ = MagicMock(return_value=False)
     mock_db.get.return_value = MagicMock(id=user.id)
 
-    def _query_side_effect(model_cls):
+    def _query_side_effect(*args):
         q = MagicMock()
         q.filter.return_value = q
         q.order_by.return_value = q
+        if len(args) != 1:
+            # See _call_weekly_endpoint's _query_side_effect above (#1606).
+            q.one.return_value = tuple(None for _ in args)
+            q.all.return_value = []
+            return q
+        model_cls = args[0]
         model_name = getattr(model_cls, "__name__", str(model_cls))
         if "Workout" in model_name:
             q.all.return_value = workouts

@@ -150,10 +150,25 @@ def _call_endpoint(
     mock_db.__exit__ = MagicMock(return_value=False)
     mock_db.get.return_value = athlete
 
-    def _query_side_effect(model_cls):
+    def _query_side_effect(*args):
         q = MagicMock()
         q.filter.return_value = q
         q.order_by.return_value = q
+        if len(args) != 1:
+            # The cache-signature pre-check (_summary_signature /
+            # _performance_signature, #log-rework commit 0a9b7c3d) queries
+            # aggregate functions like session.query(func.max(...),
+            # func.count(...), func.max(...)) instead of a single model
+            # class, to fingerprint "has anything changed since the last
+            # compute" before doing the real work below. It always misses
+            # here (no signature match is ever cached), which is what we
+            # want: these tests exercise the real recompute path, not the
+            # cache. `.one()` just needs a same-length tuple so the sig
+            # string formatting doesn't blow up.
+            q.one.return_value = tuple(None for _ in args)
+            q.all.return_value = []
+            return q
+        model_cls = args[0]
         model_name = getattr(model_cls, "__name__", str(model_cls))
         if "Workout" in model_name:
             q.all.return_value = workouts

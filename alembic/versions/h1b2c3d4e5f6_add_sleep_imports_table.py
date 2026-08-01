@@ -53,5 +53,8 @@ def upgrade():
 
 
 def downgrade():
-    op.drop_index("ix_sleep_imports_user_import_date", table_name="sleep_imports")
+    if not table_exists("sleep_imports"):
+        return
+    if index_exists("sleep_imports", "ix_sleep_imports_user_import_date"):
+        op.drop_index("ix_sleep_imports_user_import_date", table_name="sleep_imports")
     op.drop_table("sleep_imports")

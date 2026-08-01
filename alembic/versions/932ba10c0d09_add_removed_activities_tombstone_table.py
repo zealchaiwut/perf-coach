@@ -74,4 +74,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if not table_exists("removed_activities"):
+        return
     op.drop_table("removed_activities")

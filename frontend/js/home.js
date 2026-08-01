@@ -379,7 +379,14 @@
 
   function _showStravaStaleBanner(hoursAgo) {
     var container = document.getElementById('strava-stale-banner');
-    if (!container || container.hidden) return;
+    // The container starts `hidden` in home.html (frontend/pages/home.html)
+    // so it takes no layout space until a stale sync is actually detected —
+    // this is the call that's supposed to reveal it. Bailing out because it
+    // was still hidden (found live during the S1 UX review) meant this
+    // banner could never render for anyone: nothing else ever cleared the
+    // attribute, so every call hit this guard and returned immediately.
+    if (!container) return;
+    container.hidden = false;
     var h = Math.round(hoursAgo);
     container.innerHTML =
       '<div class="strava-stale-banner" id="strava-stale-banner-inner">' +
