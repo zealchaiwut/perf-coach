@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.models import Habit, UserPreferences
@@ -76,6 +77,18 @@ def ensure_coach_tracked_habits(db: Session, user_id) -> dict[str, Habit | None]
 
     Returns ``{"zone2": Habit, "stretch": Habit | None}``. Stretch is None for
     any athlete onboarded after D5 moved it into the plan.
+
+    Concurrency (#1604 follow-up): same check-then-insert race as
+    ``goal_habits.ensure_goal_habits`` — two near-simultaneous calls can both
+    see "not found" and both try to insert. The partial unique index on
+    ``habits (user_id, auto_fill_source)`` (see
+    alembic/versions/becc012af2e6_derive_habit_type_from_tracking_type_.py)
+    now makes the loser's insert raise IntegrityError instead of silently
+    duplicating — this was previously harmless-but-wrong, and the same
+    migration that fixed it for goal habits would otherwise turn it into an
+    unhandled 500 on GET /api/habits and GET /api/preferences (both call this
+    function unguarded). Mirrors goal_habits' SAVEPOINT + re-fetch-on-conflict
+    pattern for the same reason.
     """
     out: dict[str, Habit] = {}
 
@@ -84,7 +97,7 @@ def ensure_coach_tracked_habits(db: Session, user_id) -> dict[str, Habit | None]
         target = _zone2_seed_target(db, user_id)
         import uuid as _uuid
 
-        z2 = Habit(
+        candidate = Habit(
             # Generated here rather than by the server default so the insert
             # round-trips identically on every backend.
             id=_uuid.uuid4(),
@@ -102,8 +115,17 @@ def ensure_coach_tracked_habits(db: Session, user_id) -> dict[str, Habit | None]
             active=True,
             is_archived=False,
         )
-        db.add(z2)
-        db.flush()
+        try:
+            with db.begin_nested():
+                db.add(candidate)
+                db.flush()
+            z2 = candidate
+        except IntegrityError:
+            # Lost the race — re-fetch rather than trusting the pre-check;
+            # do not re-raise and do not retry the insert.
+            z2 = _find_by_source(db, user_id, ZONE2_SOURCE)
+            if z2 is None:
+                raise
     out["zone2"] = z2
 
     # Stretch is NO LONGER created as a habit. Lean-program D5 moved it out of

@@ -39,13 +39,18 @@ try:  # pragma: no cover - registration is idempotent per process
 except Exception:  # pragma: no cover - already registered by another module
     pass
 
-from backend.models import Base, Habit, User, WeightTarget  # noqa: E402
+from backend.models import Base, Habit, User, UserPreferences, WeightTarget  # noqa: E402
 from backend.services import goal_habits  # noqa: E402
 from backend.services.goal_habits import (  # noqa: E402
     WEIGH_IN_SOURCE,
     ensure_goal_habits,
 )
 from backend.services.habits_repo import create_habit, derive_habit_type  # noqa: E402
+from backend.services import coach_habit_targets  # noqa: E402
+from backend.services.coach_habit_targets import (  # noqa: E402
+    ZONE2_SOURCE,
+    ensure_coach_tracked_habits,
+)
 
 # habits_repo.create_habit() relies on Habit.id's server_default
 # (gen_random_uuid()) rather than setting it in Python — correct against real
@@ -142,7 +147,9 @@ def db_engine():
         )
         dbapi_conn.create_function("gen_random_uuid", 0, lambda: str(uuid.uuid4()))
 
-    Base.metadata.create_all(engine, tables=[User.__table__, Habit.__table__])
+    Base.metadata.create_all(
+        engine, tables=[User.__table__, Habit.__table__, UserPreferences.__table__]
+    )
     return engine
 
 
@@ -301,3 +308,52 @@ def test_ensure_goal_habits_still_creates_all_three_after_a_lost_race(session_us
     assert set(result.keys()) == {"weigh_in", "protein_first", "long_run_fuel"}
     assert str(result["protein_first"].id) == str(winner.id)
     assert session.query(Habit).filter(Habit.user_id == uid).count() == 3
+
+
+def test_ensure_coach_tracked_habits_race_lost_falls_back_to_the_winners_row(session_user, monkeypatch):
+    """Found during the pre-master-merge review: ensure_coach_tracked_habits
+    (the Zone 2 habit) had the identical check-then-insert race as
+    ensure_goal_habits, but wasn't given the same SAVEPOINT-protected fix
+    when the partial unique indexes were added — so a two-tab race on
+    GET /api/habits or GET /api/preferences would have raised an unhandled
+    IntegrityError/500 instead of the pre-migration silent duplicate. This
+    pins the fix the same way test_race_lost_falls_back_to_the_winners_row
+    pins ensure_goal_habits'.
+    """
+    session, uid = session_user
+
+    winner = Habit(
+        id=uuid.uuid4(), user_id=uid, name="Zone 2", habit_type="duration",
+        schedule_type="weekly", tracking_type="weekly_minutes",
+        auto_fill_source=ZONE2_SOURCE, active=True, is_archived=False,
+        sort_order=0, display_order=0, section="training",
+        created_at=datetime.datetime.now(_UTC),
+    )
+    session.add(winner)
+    session.commit()
+
+    real_find = coach_habit_targets._find_by_source
+    seen = {"n": 0}
+
+    def _stale_find(db, user_id, source):
+        if source == ZONE2_SOURCE and seen["n"] == 0:
+            seen["n"] += 1
+            return None
+        return real_find(db, user_id, source)
+
+    monkeypatch.setattr(coach_habit_targets, "_find_by_source", _stale_find)
+
+    result = ensure_coach_tracked_habits(session, uid)
+    session.commit()
+
+    assert str(result["zone2"].id) == str(winner.id)
+    rows = (
+        session.query(Habit)
+        .filter(
+            Habit.user_id == uid,
+            Habit.auto_fill_source == ZONE2_SOURCE,
+            Habit.is_archived.is_(False),
+        )
+        .all()
+    )
+    assert len(rows) == 1, "the race must yield one row, not two"
