@@ -57,7 +57,6 @@ def test_ac_top_nav_four_primary_links(log_html):
     """Top nav has exactly four resolvable primary navigation links."""
     assert 'home.html' in log_html, "Home link should be in the top nav"
     assert 'habits.html' in log_html, "Habits link should be in the top nav"
-    assert 'trends.html' in log_html, "Trends link should be in the top nav"
     # Log is the active link on this page
     assert 'href="log"' in log_html or "href='log'" in log_html or 'class="top-nav-link active"' in log_html, \
         "Log (active) link should be in the top nav"

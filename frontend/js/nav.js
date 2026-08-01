@@ -155,8 +155,7 @@
     // The consult loop, end to end: start a check-in, paste the changes
     // back, see the history. Supersedes the old standalone /decisions link
     // (decisions.html is now a redirect shim to here — see main.py's _PAGES).
-    { href: '/coach',    label: 'Coach',        icon: 'ti-notes',        match: ['/coach', '/coach.html'] },
-    { href: '/trends',      label: 'Trends',      icon: 'ti-chart-line',   match: ['/trends', '/trends.html'] }
+    { href: '/coach',    label: 'Coach',        icon: 'ti-notes',        match: ['/coach', '/coach.html'] }
     // Users is intentionally omitted — it's an admin-only page (see js/admin-gate.js).
   ];
 

@@ -14,7 +14,6 @@ Solo athlete / self-coached individual who wants data-driven decisions about tra
 
 - **Home dashboard** — daily readiness score, weight trend, recent workouts, PR widget, weekly summary
 - **Training log** — grouped workout list by week, detail panel, CSV export, Strava/Stryd sync
-- **Trends page** — readiness over time, HRV/RHR chart, sleep/energy/mood trends, TSS readiness overlay
 - **Calendar** — month grid with energy/sleep dots, day-detail modal, daily metrics entry
 - **Weight tracker** — entries, targets, chart, inline edit/delete
 - **Habits tracker** — daily toggles, stats, streak
