@@ -600,7 +600,8 @@ _RDY_UID = str(uuid.uuid4())
 _RDY_TODAY = datetime.date.today()
 
 
-def _make_daily_metric(metric_date=None, sleep_hours=7.0, hrv=60, resting_hr=60, mood=3, energy=3):
+def _make_daily_metric(metric_date=None, sleep_hours=7.0, hrv=60, resting_hr=60, mood=3, energy=3,
+                        sleep_quality=None):
     m = MagicMock()
     m.metric_date = metric_date or _RDY_TODAY
     m.sleep_hours = Decimal(str(sleep_hours)) if sleep_hours is not None else None
@@ -608,6 +609,15 @@ def _make_daily_metric(metric_date=None, sleep_hours=7.0, hrv=60, resting_hr=60,
     m.resting_hr = resting_hr
     m.mood = mood
     m.energy = energy
+    # get_home_readiness (#1348, commit 16ccab9c) reads sleep_quality, not
+    # sleep_hours, for the readiness score's sleep component — sleep_hours
+    # here is display-only. Callers that don't care about the readiness score
+    # leave sleep_quality unset, which historically meant an unconfigured
+    # MagicMock: float(m.sleep_quality) silently evaluated to 1.0 (worst
+    # possible), not the neutral/omitted value the callers assumed. Keeping
+    # that default preserves every existing test's behavior exactly; pass
+    # sleep_quality explicitly when a test's assertion actually depends on it.
+    m.sleep_quality = sleep_quality if sleep_quality is not None else 1.0
     return m
 
 
@@ -679,12 +689,22 @@ def test_readiness_all_average_score_approx_50(as_user):
 
 # (d) great sleep + great HRV yields score > 70
 def test_readiness_great_sleep_hrv_yields_high_score(as_user):
+    """Great sleep_quality + HRV well above baseline yields a high score.
+
+    #1348 (commit 16ccab9c) unified get_home_readiness onto the canonical
+    calculator (services/readiness/calculator.py), which scores HRV/RHR
+    against a rolling baseline and sleep_quality/energy via a direct 1-5
+    linear map — it has no `sleep_hours` or `mood` input at all (those were
+    the old, now-deleted per-endpoint formula). This test predated that
+    change and drove sleep_hours/mood, which the endpoint silently ignores;
+    it must drive sleep_quality instead to actually exercise "great sleep".
+    """
     as_user(_UID)
     baseline = [
-        _make_daily_metric(sleep_hours=6.0, hrv=60, resting_hr=60, mood=3, energy=3)
+        _make_daily_metric(hrv=60, resting_hr=60, energy=3)
         for _ in range(7)
     ]
-    today_m = _make_daily_metric(sleep_hours=9.0, hrv=90, resting_hr=60, mood=3, energy=3)
+    today_m = _make_daily_metric(hrv=90, resting_hr=60, energy=3, sleep_quality=5.0)
     with _patch_readiness_session(metrics_row=today_m, baseline_rows=baseline):
         res = client.get(f"/api/home/readiness?date={_RDY_TODAY.isoformat()}")
     body = res.json()

@@ -62,15 +62,24 @@ def test_ac1_readme_warn_against_parallel_checkouts():
 # ── AC-2: start_uat.sh and start_prd.sh ───────────────────────────────────────
 
 def test_ac2_start_uat_uses_environment_variable():
-    """start_uat.sh must set ENVIRONMENT=UAT explicitly in the script."""
-    assert "ENVIRONMENT=UAT" in START_UAT, \
-        "start_uat.sh must set ENVIRONMENT=UAT"
+    """start_uat.sh must validate ENVIRONMENT against 'uat'.
+
+    #101's original script hardcoded `export ENVIRONMENT=UAT`, overriding
+    whatever .env said. a90f7894 (#160) deliberately replaced that with reading
+    and validating ENVIRONMENT from .env instead — documented in CLAUDE.md's
+    Local Development section ("source .env, export ENVIRONMENT=uat") and
+    required by the very next test below (start_uat.sh must source .env, not
+    select env by directory name). This assertion was never updated to match
+    and was failing against the shipped design (#1606).
+    """
+    assert "ENVIRONMENT" in START_UAT and '!= "uat"' in START_UAT, \
+        "start_uat.sh must validate ENVIRONMENT is 'uat' (read from .env, not hardcoded)"
 
 
 def test_ac2_start_prd_uses_environment_variable():
-    """start_prd.sh must set ENVIRONMENT=PRD explicitly in the script."""
-    assert "ENVIRONMENT=PRD" in START_PRD, \
-        "start_prd.sh must set ENVIRONMENT=PRD"
+    """start_prd.sh must validate ENVIRONMENT against 'prd' (see #160 note above)."""
+    assert "ENVIRONMENT" in START_PRD and '!= "prd"' in START_PRD, \
+        "start_prd.sh must validate ENVIRONMENT is 'prd' (read from .env, not hardcoded)"
 
 
 def test_ac2_start_uat_reads_env_file_not_directory_name():
@@ -160,7 +169,15 @@ _TABLE_GUARDS = ("has_table", "table_exists", "IF NOT EXISTS")
 _COLUMN_GUARDS = (
     "has_column", "get_columns", "existing_cols", "column_exists", "IF NOT EXISTS",
 )
-_INDEX_GUARDS = ("has_index", "get_indexes", "index_exists", "IF NOT EXISTS")
+# "table_exists" belongs here too, same reason as _TABLE_GUARDS/_COLUMN_GUARDS
+# above: many migrations guard their WHOLE upgrade() with a single
+# `if table_exists(...): return` before ever reaching op.create_index, which
+# makes the index creation safe to re-run without a second, index-specific
+# check. That pattern was missed when the false-positive fix above landed,
+# so every migration written in it (~14) still read as a violation (#1606).
+_INDEX_GUARDS = (
+    "has_index", "get_indexes", "index_exists", "IF NOT EXISTS", "table_exists",
+)
 
 
 def _guarded(content: str, guards) -> bool:
@@ -251,8 +268,18 @@ def test_ac4_59a_has_import_sqlalchemy():
 
 
 def test_ac4_59a_has_import_inspect():
-    assert "from sqlalchemy import inspect" in MIGRATION_59A, \
-        "59a1b2c3d4e5 must have 'from sqlalchemy import inspect'"
+    """59a1b2c3d4e5 must import an existence-check helper.
+
+    a90f7894 (#160) replaced the raw `from sqlalchemy import inspect` +
+    `inspector.has_table()` guard with the shared `from helpers import
+    table_exists` (alembic/helpers.py) — same idempotency check, project's own
+    documented convention (CLAUDE.md). This assertion still looked for the
+    pre-#160 spelling and was failing against the shipped design (#1606).
+    """
+    assert (
+        "from sqlalchemy import inspect" in MIGRATION_59A
+        or "table_exists" in MIGRATION_59A
+    ), "59a1b2c3d4e5 must import an existence-check helper (inspect or helpers.table_exists)"
 
 
 def test_ac4_59a_has_import_sequence_union():
@@ -265,8 +292,9 @@ def test_ac4_59a_upgrade_has_existence_guard():
     upgrade_block = re.search(r"def upgrade\(\).*?(?=\ndef |\Z)", MIGRATION_59A, re.DOTALL)
     assert upgrade_block, "59a1b2c3d4e5 must have an upgrade() function"
     body = upgrade_block.group(0)
-    assert "has_table" in body and "daily_readiness" in body, \
-        "59a1b2c3d4e5 upgrade() must guard against daily_readiness already existing"
+    assert (
+        ("has_table" in body or "table_exists" in body) and "daily_readiness" in body
+    ), "59a1b2c3d4e5 upgrade() must guard against daily_readiness already existing"
     assert "return" in body, \
         "59a1b2c3d4e5 upgrade() must return early if the table already exists"
 
@@ -277,8 +305,11 @@ def test_ac4_a9b_has_import_sqlalchemy():
 
 
 def test_ac4_a9b_has_import_inspect():
-    assert "from sqlalchemy import inspect" in MIGRATION_A9B, \
-        "a9b0c1d2e3f4 must have 'from sqlalchemy import inspect'"
+    """a9b0c1d2e3f4 must import an existence-check helper (see 59a note above)."""
+    assert (
+        "from sqlalchemy import inspect" in MIGRATION_A9B
+        or "table_exists" in MIGRATION_A9B
+    ), "a9b0c1d2e3f4 must import an existence-check helper (inspect or helpers.table_exists)"
 
 
 def test_ac4_a9b_has_import_sequence_union():
@@ -291,8 +322,9 @@ def test_ac4_a9b_upgrade_has_existence_guard():
     upgrade_block = re.search(r"def upgrade\(\).*?(?=\ndef |\Z)", MIGRATION_A9B, re.DOTALL)
     assert upgrade_block, "a9b0c1d2e3f4 must have an upgrade() function"
     body = upgrade_block.group(0)
-    assert "has_table" in body and "daily_readiness" in body, \
-        "a9b0c1d2e3f4 upgrade() must guard against daily_readiness already existing"
+    assert (
+        ("has_table" in body or "table_exists" in body) and "daily_readiness" in body
+    ), "a9b0c1d2e3f4 upgrade() must guard against daily_readiness already existing"
     assert "return" in body, \
         "a9b0c1d2e3f4 upgrade() must return early if the table already exists"
 
