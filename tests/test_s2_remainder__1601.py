@@ -117,28 +117,6 @@ def test_the_removal_is_explained_rather_than_silent():
 
 # ── Still open, deliberately ──────────────────────────────────────────────────
 
-def test_three_current_weight_algorithms_still_exist():
-    """NOT fixed here, on purpose.
-
-    `_ma` (7-day mean), `compute_gap` (3+ entries in 7d else latest ≤14d) and
-    `_weight_rollup` (2+ entries in 7d else a wider average, never a single raw
-    entry) genuinely disagree — different minimums, different fallbacks.
-
-    Unifying them CHANGES USER-VISIBLE NUMBERS on the Home and Weight pages, and
-    `compute_gap` exposes its choice through a `basis` label that is part of the
-    API contract. That is a product decision about which rule is right, not a
-    cleanup, so it is left for the operator rather than picked unilaterally.
-
-    This test documents the state rather than asserting the fix — it fails when
-    someone unifies them, which is the moment to delete it.
-    """
-    from backend.services import weight_plan
-
-    src = Path(weight_plan.__file__).read_text()
-    assert "def compute_gap" in src
-    assert "def _weight_rollup" in src
-
-
 def test_the_worker_token_is_still_a_service_credential():
     """Also NOT fixed here. The token proves the caller is Hermes, never WHICH
     athlete, so a holder can still read any user via `?user=`. Closing that

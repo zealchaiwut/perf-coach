@@ -89,6 +89,11 @@ from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
 from backend.services.weight_ewma import compute_ewma as _compute_ewma, DEFAULT_SPAN as _EWMA_DEFAULT_SPAN
 from backend.services.weight_plan import compute_gap as _compute_weight_gap, generate_milestones as _generate_weight_milestones, plan_at as _weight_plan_at, project_hit_date as _project_hit_date
+# _weight_rollup / _ROLLUP_LOOKBACK_DAYS: the canonical "current weight" rule
+# (>=2 entries in the trailing 7 days else a wider-lookback average, never a
+# single raw entry). Home/Weight's headline current-weight figures delegate
+# to this directly so they can never re-diverge from compute_gap's basis.
+from backend.services.weight_plan import _weight_rollup as _weight_current_rollup, _ROLLUP_LOOKBACK_DAYS as _WEIGHT_ROLLUP_LOOKBACK_DAYS
 from backend.services import weight_plans_repo as _wp_repo
 from backend.services import sync_jobs as _sync_jobs
 from backend.services import reconcile as _reconcile
@@ -2024,6 +2029,12 @@ def get_weight_chart(
             date_weights.setdefault(d, []).append(float(e.weight_kg))
 
         def _ma_for_day(day: _date):
+            # Chart-only helper (dense trend/today_marker.trend_kg series) —
+            # a third naive-mean implementation, distinct from the two
+            # headline-stat _ma closures unified onto _weight_rollup
+            # elsewhere in this file. Left as-is: it draws the trend LINE's
+            # shape day by day (nulls on data gaps are correct here), not a
+            # "current weight" figure competing with compute_gap's basis.
             window_start = day - _timedelta(days=6)
             vals = []
             for offset in range(7):
@@ -2415,8 +2426,11 @@ _WEIGHT_SUMMARY_EMPTY = {
 def get_home_weight_summary(user: User = Depends(resolve_user)):
     uid = user.id
     today = _today_bkk()
-    # today-36 covers 7-day MA windows for all 30 sparkline days and delta_month
-    fetch_from = today - _timedelta(days=36)
+    # today-36 covers 7-day MA windows for all 30 sparkline days; the
+    # current-weight rollup (avg_7d/delta_week/delta_month, below) needs its
+    # own wider fetch since its wide-lookback fallback can reach back
+    # _WEIGHT_ROLLUP_LOOKBACK_DAYS days from today-30 (delta_month's as-of).
+    fetch_from = today - _timedelta(days=max(36, _WEIGHT_ROLLUP_LOOKBACK_DAYS + 30))
 
     try:
         with Session(engine) as session:
@@ -2448,7 +2462,11 @@ def get_home_weight_summary(user: User = Depends(resolve_user)):
         date_weights.setdefault(d, []).append(float(e.weight_kg))
 
     def _ma(day: _date):
-        """7-day moving average ending on day (inclusive window [day-6, day])."""
+        """7-day moving average ending on day (inclusive window [day-6, day]).
+        Chart-only helper (ma30/sparkline dense series) — does NOT back any
+        headline "current weight" figure; those delegate to _weight_rollup
+        instead (see avg_7d/delta_week/delta_month below) so they can never
+        disagree with compute_gap's basis."""
         vals = []
         for offset in range(7):
             di = day - _timedelta(days=6 - offset)
@@ -2471,19 +2489,24 @@ def get_home_weight_summary(user: User = Depends(resolve_user)):
     else:
         current_weight = None
 
-    avg_7d = _ma(today)
+    # avg_7d / delta_week / delta_month: the headline "current weight" figures
+    # delegate to _weight_rollup (>=2 entries in the trailing 7 days else a
+    # wider-lookback average, never a single raw entry) — the same rule
+    # compute_gap uses — instead of the chart-only _ma above.
+    _rollup_rows = [(d, w) for d, ws in date_weights.items() for w in ws]
+    avg_7d = _weight_current_rollup(_rollup_rows, today)["current_kg"]
 
     delta_week = None
     if avg_7d is not None:
-        ma_7d_ago = _ma(today - _timedelta(days=7))
-        if ma_7d_ago is not None:
-            delta_week = round(avg_7d - ma_7d_ago, 2)
+        rollup_7d_ago = _weight_current_rollup(_rollup_rows, today - _timedelta(days=7))["current_kg"]
+        if rollup_7d_ago is not None:
+            delta_week = round(avg_7d - rollup_7d_ago, 2)
 
     delta_month = None
     if avg_7d is not None:
-        ma_30d_ago = _ma(today - _timedelta(days=30))
-        if ma_30d_ago is not None:
-            delta_month = round(avg_7d - ma_30d_ago, 2)
+        rollup_30d_ago = _weight_current_rollup(_rollup_rows, today - _timedelta(days=30))["current_kg"]
+        if rollup_30d_ago is not None:
+            delta_month = round(avg_7d - rollup_30d_ago, 2)
 
     # sparkline: last 7 days of actual daily average weights (non-null days only)
     sparkline = []
@@ -3419,7 +3442,11 @@ def _build_habits_block(uid, today_bkk, ws):
 
 def _build_weight_block(uid, today_bkk):
     """Return the weight block, or None when no active target exists."""
-    fetch_from = today_bkk - _timedelta(days=36)
+    # 36 covers the 14-point sparkline's own 7-day MA windows; the
+    # current-weight rollup (seven_day_avg/weekly_rate_kg, below) needs its
+    # own wider fetch since its wide-lookback fallback can reach back
+    # _WEIGHT_ROLLUP_LOOKBACK_DAYS days from today-7 (weekly_rate_kg's as-of).
+    fetch_from = today_bkk - _timedelta(days=max(36, _WEIGHT_ROLLUP_LOOKBACK_DAYS + 7))
 
     with Session(engine) as session:
         entries = (
@@ -3446,6 +3473,9 @@ def _build_weight_block(uid, today_bkk):
         date_weights.setdefault(d, []).append(float(e.weight_kg))
 
     def _ma(day):
+        """Chart-only helper (14-point sparkline) — does NOT back
+        seven_day_avg/weekly_rate_kg below; those delegate to _weight_rollup
+        so they can never disagree with compute_gap's basis."""
         vals = []
         for offset in range(7):
             di = day - _timedelta(days=6 - offset)
@@ -3457,9 +3487,14 @@ def _build_weight_block(uid, today_bkk):
     last_entry_kg = float(entries[-1].weight_kg) if entries else None
     current_kg = last_entry_kg
 
-    seven_day_avg = _ma(today_bkk)
-    ma_7d_ago = _ma(today_bkk - _timedelta(days=7))
-    weekly_rate_kg = round(seven_day_avg - ma_7d_ago, 2) if (seven_day_avg is not None and ma_7d_ago is not None) else None
+    # seven_day_avg / weekly_rate_kg: the headline "current weight" figures
+    # delegate to _weight_rollup (>=2 entries in the trailing 7 days else a
+    # wider-lookback average, never a single raw entry) — the same rule
+    # compute_gap uses.
+    _rollup_rows = [(d, w) for d, ws in date_weights.items() for w in ws]
+    seven_day_avg = _weight_current_rollup(_rollup_rows, today_bkk)["current_kg"]
+    rollup_7d_ago = _weight_current_rollup(_rollup_rows, today_bkk - _timedelta(days=7))["current_kg"]
+    weekly_rate_kg = round(seven_day_avg - rollup_7d_ago, 2) if (seven_day_avg is not None and rollup_7d_ago is not None) else None
 
     # 14-point sparkline (recent trend)
     sparkline = []

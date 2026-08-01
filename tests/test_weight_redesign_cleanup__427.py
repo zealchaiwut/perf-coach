@@ -4,7 +4,9 @@ AC anchors verified:
   (ac1)  docs/mockups/weight-redesign-v6.html exists
   (ac2)  docs/mockups/README.md marks pre-v6 weight mockups as superseded by weight-redesign-v6
   (ac3a) docs/features/weight-tracking.md has plan_at derivation formula with worked numeric example
-  (ac3b) docs/features/weight-tracking.md has gap basis selection rules (avg_7d → latest_entry → no_data)
+  (ac3b) docs/features/weight-tracking.md has gap basis selection rules (avg_7d →
+         avg_wide → no_data — unified onto _weight_rollup's rule per issue #1601's
+         S2 remainder; avg_wide replaced the old latest_entry fallback)
   (ac3c) docs/features/weight-tracking.md has gap_direction thresholds: on_plan band is ±0.2 kg
   (ac3d) docs/features/weight-tracking.md has milestone generation: thirds, month-start rounding, dedup
   (ac3e) docs/features/weight-tracking.md has coach strip state table
@@ -81,12 +83,23 @@ def test_ac3a_weight_tracking_doc_has_plan_at_formula():
 # ── AC3b: gap basis selection rules ──────────────────────────────────────────
 
 def test_ac3b_weight_tracking_doc_has_gap_basis_rules():
+    """compute_gap is unified onto _weight_rollup's rule (issue #1601's S2
+    remainder / pre-production-review §3.3): avg_7d -> avg_wide ->
+    single_entry -> no_data. The old latest_entry fallback is retired; the
+    doc keeps a historical note naming it, so this only asserts presence,
+    not absence."""
     text = WEIGHT_TRACKING_DOC.read_text()
     assert "avg_7d" in text or "7-day" in text.lower() or "7 day" in text.lower(), (
         "weight-tracking.md must document 7-day rolling average as first gap basis"
     )
-    assert "latest_entry" in text or "latest entry" in text.lower(), (
-        "weight-tracking.md must document latest_entry as fallback gap basis"
+    assert "avg_wide" in text, (
+        "weight-tracking.md must document avg_wide as a fallback gap "
+        "basis (unified onto _weight_rollup's rule)"
+    )
+    assert "single_entry" in text, (
+        "weight-tracking.md must document single_entry as the honest label "
+        "for the case where only one weigh-in exists in the whole lookback "
+        "(must not be mislabeled avg_wide)"
     )
     assert "no_data" in text, (
         "weight-tracking.md must document no_data as the final fallback gap basis"
