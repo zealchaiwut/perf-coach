@@ -37,7 +37,7 @@ from backend.models import (
     PersonalRecord, Race, RaceCheckpoint, RemovedActivity, RunFormMetrics, SleepImport,
     StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES,
     TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, VerdictHistory, WeightEntry,
-    WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit,
+    WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit,
     WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession,
 )
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
@@ -94,7 +94,6 @@ from backend.services.weight_plan import compute_gap as _compute_weight_gap, gen
 # single raw entry). Home/Weight's headline current-weight figures delegate
 # to this directly so they can never re-diverge from compute_gap's basis.
 from backend.services.weight_plan import _weight_rollup as _weight_current_rollup, _ROLLUP_LOOKBACK_DAYS as _WEIGHT_ROLLUP_LOOKBACK_DAYS
-from backend.services import weight_plans_repo as _wp_repo
 from backend.services import sync_jobs as _sync_jobs
 from backend.services import reconcile as _reconcile
 from backend.services import sync_runner as _sync_runner
@@ -1061,12 +1060,21 @@ def delete_weight_entry(entry_id: str, user: User = Depends(resolve_user)):
 
 # ── Weight target endpoints ───────────────────────────────────────────────────
 
+_WEIGHT_TARGET_PHASE_VALUES = frozenset({"cut", "bulk", "maintain"})
+
+
 class WeightTargetCreateIn(BaseModel):
     start_weight_kg: float
     start_date: str        # YYYY-MM-DD
     target_weight_kg: float
     target_date: str       # YYYY-MM-DD
     notes: Optional[str] = None
+    # Folded in from the retired weight_plans table (#1604). phase is
+    # informational; target_rate_kg_per_week is an optional EXPLICIT rate
+    # override — most goals leave it unset and let consumers derive the
+    # implied rate from start/target weight and date instead.
+    phase: Optional[str] = None                       # "cut" | "bulk" | "maintain"
+    target_rate_kg_per_week: Optional[float] = None    # negative = losing weight
 
 
 class WeightTargetPatchIn(BaseModel):
@@ -1075,6 +1083,8 @@ class WeightTargetPatchIn(BaseModel):
     target_weight_kg: Optional[float] = None
     target_date: Optional[str] = None
     notes: Optional[str] = None
+    phase: Optional[str] = None
+    target_rate_kg_per_week: Optional[float] = None
 
 
 class WeightTargetEndIn(BaseModel):
@@ -1091,6 +1101,10 @@ def _weight_target_dict(t: WeightTarget) -> dict:
         "target_date": str(t.target_date),
         "status": t.status,
         "notes": t.notes,
+        "phase": t.phase,
+        "target_rate_kg_per_week": (
+            float(t.target_rate_kg_per_week) if t.target_rate_kg_per_week is not None else None
+        ),
         "end_weight_kg": float(t.end_weight_kg) if t.end_weight_kg is not None else None,
         "ended_at": t.ended_at.isoformat() if t.ended_at else None,
         "created_at": t.created_at.isoformat() if t.created_at else None,
@@ -1203,6 +1217,13 @@ def create_weight_target(body: WeightTargetCreateIn, user: User = Depends(resolv
         raise HTTPException(status_code=422, detail="start_weight_kg must be between 20 and 300")
     if not (20 <= body.target_weight_kg <= 300):
         raise HTTPException(status_code=422, detail="target_weight_kg must be between 20 and 300")
+    if body.phase is not None and body.phase not in _WEIGHT_TARGET_PHASE_VALUES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"phase must be one of {sorted(_WEIGHT_TARGET_PHASE_VALUES)}",
+        )
+    if body.target_rate_kg_per_week is not None and body.target_rate_kg_per_week == 0:
+        raise HTTPException(status_code=422, detail="target_rate_kg_per_week must be non-zero")
 
     try:
         start_date = _date.fromisoformat(body.start_date)
@@ -1245,6 +1266,8 @@ def create_weight_target(body: WeightTargetCreateIn, user: User = Depends(resolv
             target_date=target_date,
             notes=body.notes,
             status="active",
+            phase=body.phase or "cut",
+            target_rate_kg_per_week=body.target_rate_kg_per_week,
         )
         session.add(target)
         try:
@@ -1454,6 +1477,19 @@ def patch_weight_target(target_id: str, body: WeightTargetPatchIn, user: User = 
         if "notes" in body.model_fields_set:
             target.notes = body.notes
 
+        if "phase" in body.model_fields_set and body.phase is not None:
+            if body.phase not in _WEIGHT_TARGET_PHASE_VALUES:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"phase must be one of {sorted(_WEIGHT_TARGET_PHASE_VALUES)}",
+                )
+            target.phase = body.phase
+
+        if "target_rate_kg_per_week" in body.model_fields_set:
+            if body.target_rate_kg_per_week is not None and body.target_rate_kg_per_week == 0:
+                raise HTTPException(status_code=422, detail="target_rate_kg_per_week must be non-zero")
+            target.target_rate_kg_per_week = body.target_rate_kg_per_week
+
         target.updated_at = _datetime.now(_timezone.utc)
         session.commit()
         session.refresh(target)
@@ -1592,190 +1628,6 @@ def weight_target_what_if(goal_id: str, body: WeightTargetWhatIfIn, user: User =
     arrival_date = str(result["arrival_date"]) if result["arrival_date"] else None
 
     return JSONResponse({"simulated_line": simulated_line, "arrival_date": arrival_date})
-
-
-# ── Weight plan endpoints (issue #864) ────────────────────────────────────────
-
-class WeightPlanCreateIn(BaseModel):
-    start_weight: float
-    goal_weight: float
-    start_date: str          # YYYY-MM-DD
-    goal_date: Optional[str] = None   # YYYY-MM-DD; may be omitted when rate is given
-    rate: Optional[float] = None      # target_rate_kg_per_week; may be omitted when goal_date is given
-    phase: Optional[str] = "cut"      # "cut" | "bulk" | "maintain"
-
-
-class WeightPlanPatchIn(BaseModel):
-    goal_weight: Optional[float] = None
-    goal_date: Optional[str] = None
-    rate: Optional[float] = None
-    phase: Optional[str] = None
-
-
-def _weight_plan_dict(p: WeightPlan) -> dict:
-    return {
-        "id": str(p.id),
-        "user_id": str(p.user_id),
-        "start_date": str(p.start_date),
-        "start_weight": float(p.start_weight_kg),
-        "goal_weight": float(p.goal_weight_kg),
-        "goal_date": str(p.goal_date) if p.goal_date is not None else None,
-        "rate": float(p.target_rate_kg_per_week) if p.target_rate_kg_per_week is not None else None,
-        "phase": p.phase,
-        "active": p.active,
-        "created_at": p.created_at.isoformat() if p.created_at else None,
-        "updated_at": p.updated_at.isoformat() if p.updated_at else None,
-    }
-
-
-def _validate_weight_plan_fields(
-    start_weight: Optional[float],
-    goal_weight: Optional[float],
-    rate: Optional[float],
-    start_date_str: Optional[str],
-    goal_date_str: Optional[str],
-    phase: Optional[str],
-) -> None:
-    """Raise HTTPException 422 with a field-specific message if validation fails."""
-    if start_weight is not None and start_weight <= 0:
-        raise HTTPException(status_code=422, detail={"field": "start_weight", "msg": "start_weight must be positive"})
-    if goal_weight is not None and goal_weight <= 0:
-        raise HTTPException(status_code=422, detail={"field": "goal_weight", "msg": "goal_weight must be positive"})
-    if rate is not None and rate <= 0:
-        raise HTTPException(status_code=422, detail={"field": "rate", "msg": "rate must be positive"})
-
-    start_date = None
-    if start_date_str is not None:
-        try:
-            start_date = _date.fromisoformat(start_date_str)
-        except ValueError:
-            raise HTTPException(status_code=422, detail={"field": "start_date", "msg": "start_date must be YYYY-MM-DD"})
-
-    goal_date = None
-    if goal_date_str is not None:
-        try:
-            goal_date = _date.fromisoformat(goal_date_str)
-        except ValueError:
-            raise HTTPException(status_code=422, detail={"field": "goal_date", "msg": "goal_date must be YYYY-MM-DD"})
-
-    if start_date is not None and goal_date is not None and start_date >= goal_date:
-        raise HTTPException(status_code=422, detail={"field": "start_date", "msg": "start_date must be before goal_date"})
-
-    if phase is not None and start_weight is not None and goal_weight is not None:
-        if phase == "cut" and goal_weight >= start_weight:
-            raise HTTPException(
-                status_code=422,
-                detail={"field": "goal_weight", "msg": "cut phase requires goal_weight < start_weight"},
-            )
-        if phase == "bulk" and goal_weight <= start_weight:
-            raise HTTPException(
-                status_code=422,
-                detail={"field": "goal_weight", "msg": "bulk phase requires goal_weight > start_weight"},
-            )
-
-
-@app.post("/api/weight-plans", status_code=201)
-def create_weight_plan(body: WeightPlanCreateIn, user: User = Depends(resolve_user)):
-    _validate_weight_plan_fields(
-        start_weight=body.start_weight,
-        goal_weight=body.goal_weight,
-        rate=body.rate,
-        start_date_str=body.start_date,
-        goal_date_str=body.goal_date,
-        phase=body.phase,
-    )
-    start_date = _date.fromisoformat(body.start_date)
-    goal_date = _date.fromisoformat(body.goal_date) if body.goal_date else None
-
-    with Session(engine) as session:
-        plan = _wp_repo.create_plan(
-            session,
-            user_id=user.id,
-            start_date=start_date,
-            start_weight_kg=body.start_weight,
-            goal_weight_kg=body.goal_weight,
-            goal_date=goal_date,
-            target_rate_kg_per_week=body.rate,
-            phase=body.phase or "cut",
-        )
-        session.commit()
-        session.refresh(plan)
-        return JSONResponse(status_code=201, content=_weight_plan_dict(plan))
-
-
-@app.get("/api/weight-plans/active")
-def get_active_weight_plan(user: User = Depends(resolve_user)):
-    with Session(engine) as session:
-        plan = _wp_repo.get_active_plan(session, user.id)
-        if plan is None:
-            raise HTTPException(status_code=404, detail="No active weight plan")
-        return JSONResponse(_weight_plan_dict(plan))
-
-
-@app.patch("/api/weight-plans/{plan_id}")
-def patch_weight_plan(plan_id: str, body: WeightPlanPatchIn, user: User = Depends(resolve_user)):
-    try:
-        pid = _uuid.UUID(plan_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid plan_id")
-
-    with Session(engine) as session:
-        plan = _wp_repo.get_plan_by_id(session, pid)
-        if plan is None:
-            raise HTTPException(status_code=404, detail="Weight plan not found")
-        if plan.user_id != user.id:
-            raise HTTPException(status_code=403, detail="Access denied")
-
-        # Resolve effective values after potential update for direction validation
-        new_goal_weight = body.goal_weight if body.goal_weight is not None else float(plan.goal_weight_kg)
-        new_start_weight = float(plan.start_weight_kg)
-        new_phase = body.phase if body.phase is not None else plan.phase
-        new_goal_date = body.goal_date  # may stay None
-        new_rate = body.rate
-
-        _validate_weight_plan_fields(
-            start_weight=new_start_weight,
-            goal_weight=new_goal_weight,
-            rate=new_rate,
-            start_date_str=None,
-            goal_date_str=new_goal_date,
-            phase=new_phase,
-        )
-
-        fields: dict = {}
-        if body.goal_weight is not None:
-            fields["goal_weight_kg"] = body.goal_weight
-        if body.goal_date is not None:
-            fields["goal_date"] = _date.fromisoformat(body.goal_date)
-        if body.rate is not None:
-            fields["target_rate_kg_per_week"] = body.rate
-        if body.phase is not None:
-            fields["phase"] = body.phase
-
-        plan = _wp_repo.update_plan(session, plan, fields)
-        session.commit()
-        session.refresh(plan)
-        return JSONResponse(_weight_plan_dict(plan))
-
-
-@app.delete("/api/weight-plans/{plan_id}")
-def delete_weight_plan(plan_id: str, user: User = Depends(resolve_user)):
-    try:
-        pid = _uuid.UUID(plan_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid plan_id")
-
-    with Session(engine) as session:
-        plan = _wp_repo.get_plan_by_id(session, pid)
-        if plan is None:
-            raise HTTPException(status_code=404, detail="Weight plan not found")
-        if plan.user_id != user.id:
-            raise HTTPException(status_code=403, detail="Access denied")
-
-        plan = _wp_repo.deactivate_plan(session, plan)
-        session.commit()
-        session.refresh(plan)
-        return JSONResponse(_weight_plan_dict(plan))
 
 
 # ── Training plan endpoints (issue #1101) ──────────────────────────────────────
@@ -4288,7 +4140,37 @@ def post_habit(body: HabitIn, user: User = Depends(resolve_user)):
                         "existing_habit_id": str(existing.id),
                     },
                 )
-        habit = _habits_repo.create_habit(session, user.id, body.model_dump())
+        existing_name = (
+            session.query(Habit)
+            .filter(
+                Habit.user_id == user.id,
+                Habit.name == body.name.strip(),
+                Habit.is_archived.is_(False),
+            )
+            .first()
+        )
+        if existing_name is not None:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "error": "An active habit with this name already exists",
+                    "existing_habit_id": str(existing_name.id),
+                },
+            )
+        try:
+            habit = _habits_repo.create_habit(session, user.id, body.model_dump())
+        except sa_exc.IntegrityError:
+            # Backstop for the same race the two pre-checks above narrow but
+            # cannot close (#1604 — matches ensure_goal_habits' fix): the two
+            # partial unique indexes on habits((user_id, auto_fill_source))
+            # and ((user_id, name)), both WHERE is_archived = false, are what
+            # actually prevent the duplicate; this just turns the resulting
+            # IntegrityError into a clean 409 instead of a 500.
+            session.rollback()
+            return JSONResponse(
+                status_code=409,
+                content={"error": "A habit with this name or auto_fill_source already exists"},
+            )
         return JSONResponse(status_code=201, content=_habit_dict_v2(habit))
 
 
@@ -4319,7 +4201,18 @@ async def patch_habit(habit_id: str, request: Request, user: User = Depends(reso
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid habit_id")
     with Session(engine) as session:
-        habit = _habits_repo.update_habit(session, hid, user.id, body.model_dump(exclude_none=True))
+        try:
+            habit = _habits_repo.update_habit(session, hid, user.id, body.model_dump(exclude_none=True))
+        except sa_exc.IntegrityError:
+            # A rename or un-archive (is_archived: false) collided with the
+            # partial unique indexes on habits((user_id, name)) or
+            # ((user_id, auto_fill_source)), both WHERE is_archived = false
+            # (#1604). Same backstop as post_habit's — 409, not a 500.
+            session.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="An active habit with this name or auto_fill_source already exists",
+            )
         if habit is None:
             raise HTTPException(status_code=404, detail="Habit not found")
         return JSONResponse(_habit_dict_v2(habit))

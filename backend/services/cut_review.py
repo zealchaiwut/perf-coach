@@ -119,9 +119,11 @@ def compute_cut_recommendation(
     Parameters
     ----------
     actual_rate_kg_per_week:
-        Signed: negative = losing weight (matches WeightPlan.target_rate_kg_per_week convention).
+        Signed: negative = losing weight (matches WeightTarget.target_rate_kg_per_week
+        convention — this column lived on a separate weight_plans table before #1604
+        merged it onto WeightTarget).
     plan_rate_kg_per_week:
-        Signed: negative = losing weight (from WeightPlan.target_rate_kg_per_week).
+        Signed: negative = losing weight (from WeightTarget.target_rate_kg_per_week).
     weekly_pct_bw_rate:
         Signed: negative = losing (%BW/wk), same convention as body_modifier inputs.
     ea_proxy:
@@ -152,12 +154,17 @@ def compute_cut_recommendation(
 
     # 1. Insufficient data — no reliable recommendation possible.
     #
-    # Structural mode does NOT require a WeightPlan. It used to, and that made
-    # this the only verdict a lean-program athlete could ever see (issue #1600):
-    # `structural` was computed on the line above and then ignored here, so the
-    # gate demanded an active plan regardless of mode. No UI creates one —
-    # `grep -rn "weight-plans" frontend/` returns nothing — and the only route
-    # that does, POST /api/weight-plans, requires a `goal_weight_kg`.
+    # Structural mode does NOT require an active plan. It used to, and that
+    # made this the only verdict a lean-program athlete could ever see (issue
+    # #1600): `structural` was computed on the line above and then ignored
+    # here, so the gate demanded an active plan regardless of mode. At the
+    # time "a plan" meant a separate weight_plans row that no UI ever created
+    # (`grep -rn "weight-plans" frontend/` returned nothing) — that table was
+    # later merged onto WeightTarget (#1604), so "a plan" now means an active
+    # WeightTarget, which the real Weight-page flow does create. The
+    # structural-mode carve-out below stays regardless, since a WeightTarget
+    # still doesn't guarantee target_rate_kg_per_week is set (nothing in the
+    # UI sets it either) and structural mode must not depend on that field.
     #
     # That last part is why this could not be fixed by "just set a plan": a hard
     # target weight is precisely the concept weight_hypothesis.py and
@@ -340,7 +347,7 @@ def get_weekly_review(
 
     Returns a dict suitable for direct JSON serialisation.
     """
-    from backend.models import FuelEntry, WeightEntry, WeightPlan
+    from backend.models import FuelEntry, WeightEntry, WeightTarget
     from sqlalchemy import text
 
     today = as_of_date or today_bangkok()
@@ -352,9 +359,12 @@ def get_weekly_review(
     db = db or Session(engine)
     try:
         # ── Active plan ───────────────────────────────────────────────────────
+        # weight_plans was merged into weight_targets (#1604); "the active
+        # plan" is now the user's active WeightTarget, read for its
+        # phase/target_rate_kg_per_week columns.
         plan = (
-            db.query(WeightPlan)
-            .filter(WeightPlan.user_id == user_id, WeightPlan.active.is_(True))
+            db.query(WeightTarget)
+            .filter(WeightTarget.user_id == user_id, WeightTarget.status == "active")
             .first()
         )
         has_plan = plan is not None

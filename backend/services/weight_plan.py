@@ -800,6 +800,28 @@ def compute_weight_status(session, user_id, as_of_date: datetime.date) -> dict:
     }
 
 
+# ── active-target lookup (issue #1604 — merged replacement for the retired
+# weight_plans_repo.get_active_plan) ─────────────────────────────────────────
+
+def get_active_target(session, user_id):
+    """Return the user's active WeightTarget row, or None.
+
+    Thin DB helper. Before #1604's schema consolidation, "the active plan"
+    (phase, target_rate_kg_per_week) and "the active goal" (start/target
+    weight and date) were two different tables (weight_plans, weight_targets)
+    with two different repos. They are now one table and one row — this is
+    the single lookup every caller that used to reach for
+    weight_plans_repo.get_active_plan should use instead.
+    """
+    from backend.models import WeightTarget  # local import to avoid circular dep
+
+    return (
+        session.query(WeightTarget)
+        .filter(WeightTarget.user_id == user_id, WeightTarget.status == "active")
+        .first()
+    )
+
+
 def _snap_to_month_start(d: datetime.date) -> datetime.date:
     """Round date to nearest 1st-of-month."""
     # First of current month
