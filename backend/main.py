@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import cast as _sa_cast, exc as sa_exc, func, or_, select, text
 from sqlalchemy.types import DateTime as _sa_DateTime
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
-from sqlalchemy.orm import Session, joinedload, load_only, selectinload
+from sqlalchemy.orm import Session, joinedload, load_only
 from zoneinfo import ZoneInfo
 
 from backend.auth import require_admin
@@ -4032,7 +4032,7 @@ class HabitLogUpsertIn(BaseModel):
 @app.get("/api/habits/summary")
 def get_habits_summary(user: User = Depends(resolve_user)):
     """Return each active habit with streak and 30-day consistency stats."""
-    from datetime import date as _date_cls, timedelta as _td
+    from datetime import timedelta as _td
     today = _today_bkk()
     window_start = today - _td(days=29)
 
@@ -5326,7 +5326,7 @@ def get_adherence_nudges(user: User = Depends(resolve_user)):
     All computation is delegated to compute_adherence_breakdown,
     detect_slipping_habits, and build_nudges.
     """
-    from datetime import date as _date_cls, timedelta as _td
+    from datetime import timedelta as _td
 
     uid = user.id
     today = _today_bkk()
