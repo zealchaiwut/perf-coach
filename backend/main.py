@@ -284,6 +284,36 @@ def health():
     })
 
 
+@app.get("/api/health/schema")
+def health_schema():
+    """Return alembic drift info for the smoke suite (issue #1580).
+
+    Compares the repo's expected migration head (from the bundled alembic
+    migration files) with the version currently stamped in the live DB.
+    No auth required — the revision IDs carry no sensitive info.
+
+    Response shape:
+        { "repo_head": "<hex>", "db_head": "<hex>" | null }
+    """
+    from alembic.config import Config as _AlembicConfig
+    from alembic.script import ScriptDirectory as _ScriptDirectory
+
+    _ini_path = Path(__file__).parent.parent / "alembic.ini"
+    _cfg = _AlembicConfig(str(_ini_path))
+    _script = _ScriptDirectory.from_config(_cfg)
+    heads = _script.get_heads()
+    repo_head = heads[0] if len(heads) == 1 else ",".join(sorted(heads))
+
+    try:
+        with engine.connect() as _conn:
+            row = _conn.execute(text("SELECT version_num FROM alembic_version LIMIT 1")).fetchone()
+            db_head = row[0] if row else None
+    except Exception:
+        db_head = None
+
+    return JSONResponse({"repo_head": repo_head, "db_head": db_head})
+
+
 @app.get("/api/healthz")
 def healthz():
     """Render health check ping. Returns {ok, version, env}."""
