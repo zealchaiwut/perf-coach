@@ -1,7 +1,5 @@
 """Tests for issue #861: Add weight_plans table — migration and SQLAlchemy model."""
 import decimal
-import pytest
-from sqlalchemy import inspect as sa_inspect
 from backend.models import WeightPlan, validate_weight_plan_required
 
 
