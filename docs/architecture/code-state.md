@@ -1,4 +1,4 @@
-# Code State — sprint-121
+# Code State — sprint-123
 
 _Deterministic snapshot generated at sprint finish. Do not hand-edit — regenerated each sprint._
 
@@ -10,43 +10,41 @@ _Deterministic snapshot generated at sprint finish. Do not hand-edit — regener
 - **`docs/`** — Project documentation
 - **`alembic/`** — Database migration scripts
 
-## Recent Deltas (sprint-121)
+## Recent Deltas (sprint-123)
 
-Files changed: **12**
+Files changed: **7**
 
-- `tests/` — 5 file(s)
-- `backend/` — 4 file(s)
+- `tests/` — 4 file(s)
+- `backend/` — 2 file(s)
 - `(root)/` — 1 file(s)
-- `docs/` — 1 file(s)
-- `frontend/` — 1 file(s)
 
 ## Hot Files (last 90 days)
 
 | File | Commits |
 |------|---------|
-| `backend/main.py` | 467 |
-| `frontend/pages/training-log.html` | 226 |
-| `frontend/js/training-log.js` | 139 |
-| `backend/models.py` | 137 |
+| `backend/main.py` | 489 |
+| `frontend/pages/training-log.html` | 228 |
+| `backend/models.py` | 145 |
+| `frontend/js/training-log.js` | 140 |
 | `CHANGELOG.md` | 107 |
-| `frontend/js/training-plan.js` | 91 |
-| `README.md` | 82 |
-| `frontend/pages/home.html` | 66 |
-| `frontend/pages/weight.html` | 61 |
-| `frontend/js/training-performance.js` | 51 |
-| `frontend/js/home.js` | 51 |
-| `frontend/js/weight.js` | 45 |
-| `SCHEMA.md` | 40 |
-| `frontend/pages/habits.html` | 37 |
-| `frontend/pages/settings.html` | 36 |
-| `frontend/js/nav.js` | 34 |
-| `backend/services/plan_suggestions.py` | 33 |
-| `frontend/js/training.js` | 32 |
-| `frontend/css/run-detail-v4.css` | 32 |
-| `frontend/js/habits.js` | 30 |
+| `frontend/js/training-plan.js` | 96 |
+| `README.md` | 89 |
+| `frontend/pages/home.html` | 74 |
+| `frontend/pages/weight.html` | 64 |
+| `frontend/js/home.js` | 54 |
+| `frontend/js/training-performance.js` | 53 |
+| `frontend/js/weight.js` | 48 |
+| `frontend/js/nav.js` | 47 |
+| `SCHEMA.md` | 41 |
+| `frontend/pages/habits.html` | 40 |
+| `frontend/pages/settings.html` | 39 |
+| `frontend/js/training.js` | 36 |
+| `backend/services/plan_suggestions.py` | 36 |
+| `frontend/pages/training.html` | 33 |
+| `frontend/js/habits.js` | 33 |
 
 ## Generated
 
-Sprint: `sprint-121`  
-Timestamp: `2026-07-22T11:55:06Z`  
+Sprint: `sprint-123`  
+Timestamp: `2026-08-03T14:23:31Z`  
 _Generated deterministically — no LLM required._
