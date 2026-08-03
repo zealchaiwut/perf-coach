@@ -16770,10 +16770,16 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
                 _performance_log.info("performance cache hit for %s", uid)
                 return JSONResponse(_perf_cached)
 
-            # Load all run workouts in chronological order (oldest first)
+            # Load run workouts within the scoring window (issue #1578: cap
+            # history to bound in-request memory on cache miss).
+            _history_cutoff = _datetime.now(_timezone.utc).date() - _timedelta(days=_RUN_HISTORY_CAP_DAYS)
             run_workouts = (
                 session.query(Workout)
-                .filter(Workout.user_id == uid, Workout.workout_type == "run")
+                .filter(
+                    Workout.user_id == uid,
+                    Workout.workout_type == "run",
+                    Workout.workout_date >= _history_cutoff,
+                )
                 .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
                 .all()
             )
@@ -16781,15 +16787,25 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
             prefs_dict = preferences or {}
             _ml_map_perf = _classified_manual_laps_map(session, run_workouts, prefs_dict)
 
-            runs = []
-            for workout in run_workouts:
-                # Load per-lap splits ordered by split_index
-                splits = (
+            # Batch-load all splits for the qualifying runs in one query
+            # (issue #1578: replaces N sequential per-workout queries → 1 query).
+            _run_ids = [w.id for w in run_workouts]
+            if _run_ids:
+                _all_splits = (
                     session.query(WorkoutSplit)
-                    .filter(WorkoutSplit.workout_id == workout.id)
-                    .order_by(WorkoutSplit.split_index)
+                    .filter(WorkoutSplit.workout_id.in_(_run_ids))
+                    .order_by(WorkoutSplit.workout_id, WorkoutSplit.split_index)
                     .all()
                 )
+            else:
+                _all_splits = []
+            _splits_by_workout: dict = {}
+            for _s in _all_splits:
+                _splits_by_workout.setdefault(_s.workout_id, []).append(_s)
+
+            runs = []
+            for workout in run_workouts:
+                splits = _splits_by_workout.get(workout.id, [])
 
                 # Classify lap intensity bands using user thresholds
                 classifications = classify_laps(splits, prefs_dict)
@@ -17177,6 +17193,15 @@ def _summary_cache_put(user_id, key, sig, payload):
 # block; v10 = race_floor_now + floor_binding; v11 = manual-lap reps;
 # v12 = aborted-session guard (MIN_ENDURANCE_QUALIFYING_SESSION_SECONDS).
 _PERF_FORMULA_VERSION = "vdot-v12"
+
+# History window cap for the cold-cache run load (issue #1578).
+# trailing_window_days=90: only runs within 90d of the most-recent run affect
+# scores. Adding a 310d buffer handles users who last ran up to 400 days ago;
+# beyond that all runs are outside the scoring window and the endpoint returns
+# building_baseline regardless.  Peak memory on a 512 MB dyno with this cap:
+# ≤ ~400 runs × ~2 KB/run dict ≈ 0.8 MB for the runs list, well under the OOM
+# threshold observed in the 2026-07-22 incident (PR #1576 follow-up #1578).
+_RUN_HISTORY_CAP_DAYS = 400
 
 
 def _performance_signature(session, user_id, prefs_row) -> str:
