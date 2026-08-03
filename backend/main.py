@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import cast as _sa_cast, exc as sa_exc, func, or_, select, text
 from sqlalchemy.types import DateTime as _sa_DateTime
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
-from sqlalchemy.orm import Session, joinedload, load_only, selectinload
+from sqlalchemy.orm import Session, joinedload, load_only
 from zoneinfo import ZoneInfo
 
 from backend.auth import require_admin
@@ -282,6 +282,36 @@ def health():
         "db": check_db(),
         "uptime_seconds": int(time.monotonic() - _start_time),
     })
+
+
+@app.get("/api/health/schema")
+def health_schema():
+    """Return alembic drift info for the smoke suite (issue #1580).
+
+    Compares the repo's expected migration head (from the bundled alembic
+    migration files) with the version currently stamped in the live DB.
+    No auth required — the revision IDs carry no sensitive info.
+
+    Response shape:
+        { "repo_head": "<hex>", "db_head": "<hex>" | null }
+    """
+    from alembic.config import Config as _AlembicConfig
+    from alembic.script import ScriptDirectory as _ScriptDirectory
+
+    _ini_path = Path(__file__).parent.parent / "alembic.ini"
+    _cfg = _AlembicConfig(str(_ini_path))
+    _script = _ScriptDirectory.from_config(_cfg)
+    heads = _script.get_heads()
+    repo_head = heads[0] if len(heads) == 1 else ",".join(sorted(heads))
+
+    try:
+        with engine.connect() as _conn:
+            row = _conn.execute(text("SELECT version_num FROM alembic_version LIMIT 1")).fetchone()
+            db_head = row[0] if row else None
+    except Exception:
+        db_head = None
+
+    return JSONResponse({"repo_head": repo_head, "db_head": db_head})
 
 
 @app.get("/api/healthz")
@@ -1117,7 +1147,6 @@ def _compute_weight_target_active(t: WeightTarget, session) -> dict:
 
     today = _today_bkk()
     target_date = t.target_date if isinstance(t.target_date, _date) else _date.fromisoformat(str(t.target_date))
-    start_date = t.start_date if isinstance(t.start_date, _date) else _date.fromisoformat(str(t.start_date))
 
     days_remaining = (target_date - today).days
     total_kg = float(t.start_weight_kg) - float(t.target_weight_kg)
@@ -4002,7 +4031,7 @@ class HabitLogUpsertIn(BaseModel):
 @app.get("/api/habits/summary")
 def get_habits_summary(user: User = Depends(resolve_user)):
     """Return each active habit with streak and 30-day consistency stats."""
-    from datetime import date as _date_cls, timedelta as _td
+    from datetime import timedelta as _td
     today = _today_bkk()
     window_start = today - _td(days=29)
 
@@ -5296,7 +5325,7 @@ def get_adherence_nudges(user: User = Depends(resolve_user)):
     All computation is delegated to compute_adherence_breakdown,
     detect_slipping_habits, and build_nudges.
     """
-    from datetime import date as _date_cls, timedelta as _td
+    from datetime import timedelta as _td
 
     uid = user.id
     today = _today_bkk()
