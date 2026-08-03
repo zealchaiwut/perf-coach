@@ -463,8 +463,11 @@ def refresh_plan_draft(
     user: User = Depends(resolve_user),
 ):
     """Enqueue a plan_draft job (debounced). Does not wait for generation."""
-    from backend.services.plan_draft import enqueue_plan_draft
+    from backend.services.plan_draft import enqueue_plan_draft, pipeline_enabled
     from backend.utils.time import today_bangkok
+
+    if not pipeline_enabled():
+        raise HTTPException(status_code=400, detail="plan pipeline not enabled; set PLAN_PIPELINE=skeleton_v2")
 
     ws = None
     if body is not None and body.week_start:
@@ -575,8 +578,10 @@ def draft_op_regen(
     user: User = Depends(resolve_user),
 ):
     """Enqueue async content generation for one draft slot (Generate details)."""
-    from backend.services.plan_draft import request_slot_regen
+    from backend.services.plan_draft import request_slot_regen, pipeline_enabled
 
+    if not pipeline_enabled():
+        raise HTTPException(status_code=400, detail="plan pipeline not enabled; set PLAN_PIPELINE=skeleton_v2")
     if not body.slot_id:
         raise HTTPException(status_code=422, detail="slot_id required")
     ws = _parse_week_start(body.week_start)

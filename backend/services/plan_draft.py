@@ -375,7 +375,10 @@ def enqueue_plan_draft(
     """Debounced enqueue: skip if pending plan_draft for user exists.
 
     When ``slot_ids`` is set, the worker regenerates ONLY those slots (partial).
+    Returns None immediately when the pipeline is disabled (PLAN_PIPELINE=legacy).
     """
+    if not pipeline_enabled():
+        return None
     from backend.services import job_queue as jq
     from backend.utils.time import today_bangkok
 
