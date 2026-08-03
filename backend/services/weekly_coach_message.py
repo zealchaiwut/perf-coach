@@ -20,7 +20,10 @@ from __future__ import annotations
 
 import math
 from datetime import date, datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from backend.models import WeeklyCoachMessage
 
 from backend.utils.log import get_logger
 
@@ -277,8 +280,6 @@ def _build_message(
 
 def _serialize_plan_state(plan_state: dict) -> dict:
     """Convert date objects in plan_state to ISO strings for JSONB storage."""
-    import json
-
     def _convert(obj: Any) -> Any:
         if isinstance(obj, date):
             return obj.isoformat()
@@ -299,37 +300,42 @@ def persist_daily_message(
     db,
     for_week: str | None = None,
 ) -> "WeeklyCoachMessage":
-    """Upsert a daily message record on (user_id, for_date)."""
+    """Upsert a daily message record on (user_id, for_date).
+
+    Uses INSERT … ON CONFLICT DO UPDATE so concurrent same-day runs converge
+    instead of racing on the select-then-insert pattern.
+    """
     from backend.models import WeeklyCoachMessage
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     week = for_week or _iso_week(for_date)
     snapshot = _serialize_plan_state(plan_state_snapshot) if plan_state_snapshot else None
     now = datetime.now(tz=timezone.utc)
 
-    existing = (
-        db.query(WeeklyCoachMessage)
-        .filter_by(user_id=user_id, for_date=for_date)
-        .first()
+    stmt = (
+        pg_insert(WeeklyCoachMessage)
+        .values(
+            user_id=user_id,
+            for_week=week,
+            for_date=for_date,
+            text=text,
+            generated_at=now,
+            plan_state_snapshot=snapshot,
+        )
+        .on_conflict_do_update(
+            constraint="uq_weekly_coach_messages_user_date",
+            set_={
+                "text": text,
+                "for_week": week,
+                "generated_at": now,
+                "plan_state_snapshot": snapshot,
+            },
+        )
+        .returning(WeeklyCoachMessage.__table__.c.id)
     )
-    if existing is not None:
-        existing.text = text
-        existing.for_week = week
-        existing.generated_at = now
-        existing.plan_state_snapshot = snapshot
-        db.flush()
-        return existing
-
-    record = WeeklyCoachMessage(
-        user_id=user_id,
-        for_week=week,
-        for_date=for_date,
-        text=text,
-        generated_at=now,
-        plan_state_snapshot=snapshot,
-    )
-    db.add(record)
+    row_id = db.execute(stmt).scalar_one()
     db.flush()
-    return record
+    return db.get(WeeklyCoachMessage, row_id, populate_existing=True)
 
 
 def persist_weekly_message(
