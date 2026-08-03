@@ -298,6 +298,21 @@ def _run_banister_refit_batch() -> None:
         logger.error("job finish: banister_refit status=error: %s", exc, exc_info=True)
 
 
+def _daily_coach_message_exists(db, user_id, today) -> bool:
+    """Return True if a WeeklyCoachMessage row already exists for (user_id, today).
+
+    Used as a per-user per-day short-circuit so a post-sync job and a scheduled
+    batch job that both wake on the same calendar day never double-fire the LLM
+    for the same user (#1582).
+    """
+    from backend.models import WeeklyCoachMessage
+    return (
+        db.query(WeeklyCoachMessage.id)
+        .filter_by(user_id=user_id, for_date=today)
+        .first()
+    ) is not None
+
+
 def _run_daily_coach_batch(
     user_id: str | None = None,
     triggered_by: str = "schedule",
@@ -335,6 +350,14 @@ def _run_daily_coach_batch(
         for uid in user_ids:
             key = str(uid)
             try:
+                with Session(engine) as check_db:
+                    if _daily_coach_message_exists(check_db, uid, as_of):
+                        logger.info(
+                            "daily_coach user=%s skipped: message already generated for %s",
+                            key, as_of,
+                        )
+                        results[key] = "skip_already_generated"
+                        continue
                 out = generate_for_user(user_id=uid, today=as_of)
                 if out is None:
                     results[key] = "skip_no_goal"
