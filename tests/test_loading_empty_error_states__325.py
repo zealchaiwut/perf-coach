@@ -9,6 +9,7 @@ Acceptance criteria verified:
 (AC-6) No backend files are modified (frontend-only change)
 """
 import pathlib
+import re
 
 ROOT = pathlib.Path(__file__).parent.parent
 JS   = ROOT / "frontend" / "js"
@@ -70,9 +71,18 @@ def test_ui_states_assigns_global():
 # ── AC-2: All six pages load ui-states.js before their page script ─────────
 
 def _script_order_ok(html: str, page_script: str) -> bool:
-    ui_pos   = html.find("ui-states.js")
-    page_pos = html.find(page_script)
-    return ui_pos != -1 and page_pos != -1 and ui_pos < page_pos
+    # Find positions only within <script src=...> tags, not in HTML comments
+    # or prose. str.find() over the whole file matched comment text first,
+    # causing false negatives when comments mentioned file names before the
+    # actual tags (e.g. "<!-- populated by habits.js -->").
+    tag_positions = {m.start(): m.group(0) for m in re.finditer(r'<script\s[^>]*>', html)}
+    ui_pos, page_pos = None, None
+    for pos, tag in tag_positions.items():
+        if 'ui-states.js' in tag and ui_pos is None:
+            ui_pos = pos
+        if page_script in tag and page_pos is None:
+            page_pos = pos
+    return ui_pos is not None and page_pos is not None and ui_pos < page_pos
 
 
 def test_home_loads_ui_states_before_home_js():
