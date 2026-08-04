@@ -37,6 +37,7 @@ from backend.services.daily_brief import (  # noqa: F401
     _load_interpretation,
     _plan_to_session,
     _get_plan_for_date,
+    _get_plans_for_date_range,
     build_brief,
 )
 

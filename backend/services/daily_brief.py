@@ -108,6 +108,46 @@ def _get_plan_for_date(user_id, for_date: date) -> dict:
     }
 
 
+def _get_plans_for_date_range(user_id, start_date: date, end_date: date) -> dict:
+    """Fetch all PlannedSession rows for [start_date, end_date] in one query.
+
+    Returns a dict mapping each date in the range to its plan dict (same shape
+    as _get_plan_for_date).  Non-UUID user_id returns empty-plan dicts without
+    touching the DB.
+    """
+    import uuid as _uuid
+
+    from backend.models import PlannedSession
+
+    num_days = (end_date - start_date).days + 1
+    dates = [start_date + timedelta(days=i) for i in range(num_days)]
+    empty = {d: {"plan_date": d.isoformat(), "planned": False, "sessions": []} for d in dates}
+
+    try:
+        uid = _uuid.UUID(str(user_id))
+    except (ValueError, AttributeError):
+        return empty
+
+    with Session(engine) as s:
+        rows = (
+            s.query(PlannedSession)
+            .filter(
+                PlannedSession.user_id == uid,
+                PlannedSession.planned_date >= start_date,
+                PlannedSession.planned_date <= end_date,
+            )
+            .all()
+        )
+
+    result = empty
+    for row in rows:
+        d = row.planned_date
+        if d in result:
+            result[d]["sessions"].append(_session_row_to_dict(row))
+            result[d]["planned"] = True
+    return result
+
+
 def _plan_to_session(plan_resp: dict, for_date: date) -> dict:
     """Convert a plan response dict into a brief session object."""
     sessions = plan_resp.get("sessions") or []
@@ -419,12 +459,15 @@ def _assemble_advisories(user_id, for_date: date, weight: dict) -> list[dict]:
 
 # ── Week plan ─────────────────────────────────────────────────────────────────
 
-def _assemble_week_plan(user_id, for_date: date) -> list[dict]:
+def _assemble_week_plan(user_id, for_date: date, plan_cache: dict | None = None) -> list[dict]:
     """Return remaining days this Bangkok week after tomorrow.
 
     Covers tomorrow through the Sunday of for_date's week (Monday=0 … Sunday=6).
     Returns [] when tomorrow falls on a weekend (Sat/Sun) or is past this week's
     Sunday (i.e. today is Sunday and tomorrow is already next week's Monday).
+
+    plan_cache: optional dict[date, plan_dict] from _get_plans_for_date_range.
+    When provided, no additional DB queries are issued.
     """
     tomorrow = for_date + timedelta(days=1)
     days_until_sunday = 6 - for_date.weekday()
@@ -436,7 +479,14 @@ def _assemble_week_plan(user_id, for_date: date) -> list[dict]:
     result: list[dict] = []
     current = tomorrow
     while current <= sunday:
-        plan = _get_plan_for_date(user_id, current)
+        if plan_cache is not None:
+            plan = plan_cache.get(current, {
+                "plan_date": current.isoformat(),
+                "planned": False,
+                "sessions": [],
+            })
+        else:
+            plan = _get_plan_for_date(user_id, current)
         session = _plan_to_session(plan, current)
         result.append({
             "date": current.isoformat(),
@@ -524,9 +574,18 @@ def _build_brief(for_date: date, worker_url=None, user_id=None, username=None) -
     that still pass the old four-argument signature; they are not used.
     """
     tomorrow = for_date + timedelta(days=1)
+    days_until_sunday = 6 - for_date.weekday()
+    sunday = for_date + timedelta(days=days_until_sunday)
 
-    today_plan = _get_plan_for_date(user_id, for_date)
-    tomorrow_plan = _get_plan_for_date(user_id, tomorrow)
+    # Single query covers today, tomorrow, and the rest of the week.
+    plan_cache = _get_plans_for_date_range(user_id, for_date, sunday)
+
+    today_plan = plan_cache.get(for_date, {
+        "plan_date": for_date.isoformat(), "planned": False, "sessions": [],
+    })
+    tomorrow_plan = plan_cache.get(tomorrow, {
+        "plan_date": tomorrow.isoformat(), "planned": False, "sessions": [],
+    })
 
     today_session = _plan_to_session(today_plan, for_date)
     tomorrow_session = _plan_to_session(tomorrow_plan, tomorrow)
@@ -535,7 +594,7 @@ def _build_brief(for_date: date, worker_url=None, user_id=None, username=None) -
     recent_wrap = _assemble_recent_wrap(user_id, for_date)
     weight = _assemble_weight(user_id, for_date)
     advisories = _assemble_advisories(user_id, for_date, weight)
-    week_plan = _assemble_week_plan(user_id, for_date)
+    week_plan = _assemble_week_plan(user_id, for_date, plan_cache=plan_cache)
     coach = _assemble_coach(user_id, for_date)
     advisories_degraded = any(a.get("severity") == "error" for a in advisories)
 

@@ -109,7 +109,6 @@ from backend.utils.workout_types import (
 )
 from backend.services.riegel import riegel_half_equivalent as _riegel_half_equivalent
 from backend.services.duration_curve_best_effort import get_athlete_duration_curve as _get_athlete_duration_curve
-from backend.services.lap_recompute import rebuild_athlete_duration_curve as _rebuild_athlete_duration_curve
 from backend.services.session_profile_caller import get_session_profile_for_workout as _get_session_profile
 from backend.services.aerobic_decoupling import compute_decoupling as _compute_decoupling
 from backend.services.heat_correction import (
@@ -19443,11 +19442,13 @@ _BRIEF_DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 
 def _build_week_plan(user_id, for_date: _date) -> dict:
-    from backend.services.daily_brief import _get_plan_for_date, _plan_to_session
+    from backend.services.daily_brief import _get_plans_for_date_range, _plan_to_session
+    end_date = for_date + _timedelta(days=6)
+    plan_cache = _get_plans_for_date_range(user_id, for_date, end_date)
     days = []
     for i in range(7):
         d = for_date + _timedelta(days=i)
-        plan = _get_plan_for_date(user_id, d)
+        plan = plan_cache.get(d, {"plan_date": d.isoformat(), "planned": False, "sessions": []})
         session = _plan_to_session(plan, d)
         days.append({
             "date": d.isoformat(),
