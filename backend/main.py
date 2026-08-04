@@ -16912,14 +16912,14 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
                 "state": "needs_thresholds",
                 "reason": _NEEDS_THRESHOLDS_REASON,
             }
-            if _performance_log.isEnabledFor(_logging.DEBUG):
+            if _performance_log.isEnabledFor(_logging.INFO):
                 log_entry = _build_performance_log_entry(
                     preferences=preferences,
                     runs=runs,
                     endurance=_needs_thresholds_obj,
                     speed=_needs_thresholds_obj,
                 )
-                _performance_log.debug("performance score request", extra=log_entry)
+                _performance_log.info("performance score request", extra=log_entry)
             return JSONResponse(
                 _build_performance_response(
                     state="needs_thresholds",
@@ -16938,14 +16938,14 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
         endurance = compute_endurance_score(runs, preferences, zone_constants, race_perf=_race_perf, body_modifier=_bm)
         speed = compute_speed_score(runs, preferences, zone_constants, race_perf=_race_perf, body_modifier=_bm)
 
-        if _performance_log.isEnabledFor(_logging.DEBUG):
+        if _performance_log.isEnabledFor(_logging.INFO):
             log_entry = _build_performance_log_entry(
                 preferences=preferences,
                 runs=runs,
                 endurance=endurance,
                 speed=speed,
             )
-            _performance_log.debug("performance score request", extra=log_entry)
+            _performance_log.info("performance score request", extra=log_entry)
 
         # Endurance requires threshold_hr (HR extrapolation); surface its
         # needs_thresholds sub-state as the top-level state.
