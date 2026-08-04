@@ -1996,8 +1996,21 @@ function closeHabitForm() {
 }
 
 function _sfUpdateVisibility() {
-  const habitType = (document.getElementById('habit-form-habit-type') || {}).value;
-  const scheduleType = (document.getElementById('habit-form-schedule-type') || {}).value;
+  const habitTypeEl = document.getElementById('habit-form-habit-type');
+  const schedTypeEl = document.getElementById('habit-form-schedule-type');
+  const habitType = (habitTypeEl || {}).value;
+
+  // Binary habits are naturally daily — disable the 'weekly' option so the user
+  // cannot reach the silent weekly_target=7 hardcode path (issue #868).
+  const weeklyOptEl = schedTypeEl ? schedTypeEl.querySelector('option[value="weekly"]') : null;
+  if (weeklyOptEl) {
+    weeklyOptEl.disabled = habitType === 'binary';
+  }
+  if (habitType === 'binary' && schedTypeEl && schedTypeEl.value === 'weekly') {
+    schedTypeEl.value = 'daily';
+  }
+
+  const scheduleType = (schedTypeEl || {}).value;
 
   const targetRow = document.getElementById('habit-form-target-row');
   const scheduleTargetRow = document.getElementById('habit-form-schedule-target-row');
@@ -2054,15 +2067,9 @@ function _sfFormToApiPayload(habitType, scheduleType, targetValue, scheduleTarge
   let weekly_target = null;
 
   if (habitType === 'binary') {
-    if (scheduleType === 'daily') {
-      tracking_type = 'daily_checkmark';
-    } else if (scheduleType === 'weekly') {
-      tracking_type = 'weekly_count';
-      weekly_target = 7;
-    } else {
-      tracking_type = 'weekly_count';
-      weekly_target = scheduleTarget;
-    }
+    // binary+weekly is prevented in the UI (_sfUpdateVisibility resets to daily);
+    // treat any non-daily schedule as daily_checkmark defensively.
+    tracking_type = 'daily_checkmark';
   } else if (habitType === 'count') {
     tracking_type = 'weekly_count';
     weekly_target = scheduleType === 'times_per_week' ? scheduleTarget : targetValue;
@@ -3018,6 +3025,8 @@ window.addEventListener('userReady', () => {
 });
 
 window.addEventListener('userChanged', () => {
+  _hcalInitialized = false;
+  hcalFetchedRange = null;
   loadAndRender();
   loadInsights();
 });

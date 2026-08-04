@@ -13060,15 +13060,32 @@ _FORM_METRICS_ROLLING_DAYS = 28
 
 
 def _rolling_mean(values: list, window: int = _FORM_METRICS_ROLLING_DAYS) -> list:
-    """Return a trailing-window simple mean for each position in values.
+    """Return a date-based trailing-window simple mean for each position in values.
 
     values is a list of (run_date, float|None) tuples sorted ascending.
-    Returns a list of float|None — None when no non-null values exist in window.
+    run_date may be a datetime.date or an ISO-format string.
+    For each row, includes only entries whose date is within (window - 1) calendar
+    days of that row's date (i.e. the inclusive [date - 27d, date] window for a
+    28-day window). Returns a list of float|None — None when no non-null values
+    exist in window.
     """
+    import datetime as _dt
+
+    def _as_date(d):
+        if isinstance(d, _dt.date):
+            return d
+        return _dt.date.fromisoformat(d)
+
     out = []
-    for i, (_, v) in enumerate(values):
-        start = max(0, i - window + 1)
-        window_vals = [v2 for _, v2 in values[start : i + 1] if v2 is not None]
+    cutoff_delta = _dt.timedelta(days=window - 1)
+    for i, (rd, _) in enumerate(values):
+        current_date = _as_date(rd)
+        earliest = current_date - cutoff_delta
+        window_vals = [
+            v2
+            for rd2, v2 in values[: i + 1]
+            if v2 is not None and _as_date(rd2) >= earliest
+        ]
         out.append(round(sum(window_vals) / len(window_vals), 4) if window_vals else None)
     return out
 
@@ -13079,7 +13096,7 @@ def get_run_form_metrics(
     to_date: Optional[str] = Query(default=None, alias="to"),
     user: User = Depends(resolve_user),
 ):
-    """Per-run Stryd running-dynamics series with 28-day rolling means.
+    """Per-run Stryd running-dynamics series with 28-calendar-day rolling means.
 
     Query params (both optional):
         from  YYYY-MM-DD  start of range (default: 90 days ago)
@@ -13087,7 +13104,8 @@ def get_run_form_metrics(
 
     Response:
         runs           list of per-run objects sorted by run_date asc
-        rolling_means  28-day trailing means for each metric at each date position
+        rolling_means  28-calendar-day trailing means for each metric at each date
+                       position (only entries within the preceding 27 days are included)
     """
     today = _today_bkk()
     if from_date is None and to_date is None:

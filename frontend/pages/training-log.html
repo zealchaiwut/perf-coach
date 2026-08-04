@@ -4747,8 +4747,11 @@
                 <button id="plan-recalc-btn" class="pm-ckbtn" type="button">
                   ↻ Recalculate
                 </button>
-                <button id="plan-add-btn" class="pm-ckbtn dark" type="button">
-                  + Add
+                <button id="plan-add-race-btn" class="pm-ckbtn dark" type="button">
+                  + Add Race
+                </button>
+                <button id="plan-add-checkpoint-btn" class="pm-ckbtn" type="button">
+                  + Add Checkpoint
                 </button>
               </div>
             </div>
@@ -9092,7 +9095,7 @@
             &#x2715;
           </button>
         </div>
-        <select id="plan-modal-type" hidden aria-hidden="true">
+        <select id="plan-modal-type" style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;" aria-label="Entry type">
           <option value="race">Race</option>
           <option value="checkpoint">Checkpoint</option>
         </select>

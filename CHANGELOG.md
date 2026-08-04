@@ -1,5 +1,14 @@
 # Changelog
 
+## Sprint 126 — code-review follow-up fixes (form-metrics window, habit form, gap phrasing, chart/calendar state)
+
+- #1443: form-metrics rolling mean is now a 28-**calendar-day** window, not a 28-**run** window — `_rolling_mean` in `main.py` computes each row's trailing simple mean over the inclusive `[date − 27d, date]` calendar window (accepting either a `datetime.date` or an ISO string) instead of the previous fixed 28-row window. The `GET /api/training/form-metrics` `rolling_means` now reflect calendar-day windows; the endpoint docstring/response notes were updated accordingly
+- #1471: render LLM coach phrasing in the improvement (gap) panel — the gap-finding evidence line in `training-performance.js` now shows `f.phrasing` when `f.phrasing_source !== "template"`, falling back to `f.evidence_text` when the phrasing is template-sourced or absent
+- #1282: remove the hidden `plan-modal-type` `<select>` from `training-log.html` (added by backend ticket #1028) — replaced the `hidden`/`aria-hidden` select with an off-screen but accessible select (`aria-label="Entry type"`), and split the single "+ Add" button into "+ Add Race" / "+ Add Checkpoint" buttons wired to `openModal(null, "race")` / `openModal(null, "checkpoint")`
+- #868: binary+weekly habit no longer silently hardcodes `weekly_target=7` with no UI feedback — the habit form now disables the "weekly" schedule option for `binary` habits (`_sfUpdateVisibility` resets a stray weekly selection back to daily), and `_sfFormToApiPayload` defensively maps any binary habit to `daily_checkmark`
+- #853: `_hcalInitialized` reset on user switch — the habits page `userChanged` handler now resets `_hcalInitialized = false` and `hcalFetchedRange = null` before reloading, so switching users no longer shows the previous user's stale habit-calendar data
+- #1255: `_activeTapDate` cleared on every tooltip hide — `WeightChart._hideTooltip` now nulls `_activeTapDate` so any hide path (not just the tap-toggle path) resets tap state
+
 ## Sprint 125 — daily-brief consolidation & code-review follow-up hardening
 
 - #1508: `docs/features/api.md` documented `GET /api/planned-sessions` with the old flat-array shape; corrected to the week-bundle object `{from, to, days:[...]}` where each day carries `planned`/`unplanned` arrays, plus the `actual` matched-workout summary, `estimated_tss`/`estimated_distance_km`, and `plan_warnings`/`candidates` fields
