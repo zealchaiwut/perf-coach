@@ -18,9 +18,7 @@ Acceptance criteria:
 from __future__ import annotations
 
 from datetime import date, timedelta
-from unittest.mock import MagicMock, call, patch
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 import backend.services.daily_brief as svc
 
@@ -187,7 +185,6 @@ def test_assemble_week_plan_uses_plan_cache():
     for_date = date(2026, 7, 14)  # Monday — full week ahead
     user_id = "00000000-0000-0000-0000-000000000001"
 
-    sunday = date(2026, 7, 20)
     plan_cache = {
         for_date + timedelta(days=i): {
             "plan_date": (for_date + timedelta(days=i)).isoformat(),
@@ -232,7 +229,6 @@ def test_build_week_plan_in_main_uses_batch_query():
     for_date = date(2026, 7, 14)
     user_id = "00000000-0000-0000-0000-000000000001"
 
-    sunday = for_date + timedelta(days=6)
     fake_cache = {
         for_date + timedelta(days=i): {
             "plan_date": (for_date + timedelta(days=i)).isoformat(),
