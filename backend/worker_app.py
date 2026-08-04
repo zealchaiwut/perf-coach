@@ -737,24 +737,7 @@ def _resolve_read_user(user_param: str | None):
         raise HTTPException(status_code=400, detail="?user= required: multiple or zero active users")
 
 
-def _extract_target(structure: dict | None) -> dict:
-    """Extract distance_km, duration_min, intensity from a planned_sessions structure blob.
-
-    Tries top-level keys first, then the first block in structure["blocks"].
-    Returns nulls for any field not found.
-    """
-    out: dict = {"distance_km": None, "duration_min": None, "intensity": None}
-    if not structure or not isinstance(structure, dict):
-        return out
-    for key in out:
-        val = structure.get(key)
-        if val is None:
-            for block in structure.get("blocks", []):
-                if isinstance(block, dict) and block.get(key) is not None:
-                    val = block[key]
-                    break
-        out[key] = val
-    return out
+from backend.services.daily_brief import extract_session_target as _extract_target
 
 
 def _session_to_dict(row) -> dict:
@@ -1290,6 +1273,76 @@ def weight_nudge(user: str | None = None, ack: bool = False):
         "deliver_now": bool(due and in_window),
         "message": message,
         "acked": bool(ack),
+    }
+
+
+# Trend thresholds for /api/scores
+_SCORES_TREND_FLAT_DELTA = 0.5   # abs(delta) ≤ this → "flat"
+_SCORES_TREND_LOOKBACK_DAYS = 7  # days back to find the comparison row
+
+
+def _score_trend(current: float | None, prior: float | None) -> str:
+    """Compute up/flat/down trend between two nullable score values."""
+    if current is None or prior is None:
+        return "flat"
+    delta = current - prior
+    if delta > _SCORES_TREND_FLAT_DELTA:
+        return "up"
+    if delta < -_SCORES_TREND_FLAT_DELTA:
+        return "down"
+    return "flat"
+
+
+@app.get("/api/scores", dependencies=[Depends(_require_worker_api_token)])
+def scores(user: str | None = None):
+    """Return current Endurance/Speed scores with 7-day trend for Hermes.
+
+    Reads from performance_score_history (never recomputes).
+    404 when no history rows exist for the user.
+    """
+    from backend.models import PerformanceScoreHistory
+
+    resolved_user = _resolve_read_user(user)
+
+    with Session(engine) as s:
+        # Latest row (newest score_date, tie-break by newest formula_version lexically)
+        latest = (
+            s.query(PerformanceScoreHistory)
+            .filter(PerformanceScoreHistory.user_id == resolved_user.id)
+            .order_by(
+                PerformanceScoreHistory.score_date.desc(),
+                PerformanceScoreHistory.formula_version.desc(),
+            )
+            .first()
+        )
+
+        if latest is None:
+            raise HTTPException(status_code=404, detail="no performance score history for user")
+
+        # Comparison row: latest row ≤ 7 days before latest, same formula_version
+        cutoff = latest.score_date - timedelta(days=_SCORES_TREND_LOOKBACK_DAYS)
+        prior = (
+            s.query(PerformanceScoreHistory)
+            .filter(
+                PerformanceScoreHistory.user_id == resolved_user.id,
+                PerformanceScoreHistory.formula_version == latest.formula_version,
+                PerformanceScoreHistory.score_date <= cutoff,
+            )
+            .order_by(PerformanceScoreHistory.score_date.desc())
+            .first()
+        )
+
+    return {
+        "as_of": latest.score_date.isoformat(),
+        "formula_version": latest.formula_version,
+        "endurance": {
+            "value": latest.endurance,
+            "trend": _score_trend(latest.endurance, prior.endurance if prior else None),
+        },
+        "speed": {
+            "value": latest.speed,
+            "trend": _score_trend(latest.speed, prior.speed if prior else None),
+        },
     }
 
 
