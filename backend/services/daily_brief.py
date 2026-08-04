@@ -424,7 +424,7 @@ def _assemble_advisories(user_id, for_date: date, weight: dict) -> list[dict]:
         advisories.append({
             "key": "gap_analysis_error",
             "severity": "error",
-            "text": f"Gap analysis unavailable: {exc}",
+            "text": "Gap analysis temporarily unavailable.",
         })
 
     verdict_str: str | None = None
@@ -444,7 +444,7 @@ def _assemble_advisories(user_id, for_date: date, weight: dict) -> list[dict]:
         advisories.append({
             "key": "training_verdict_error",
             "severity": "error",
-            "text": f"Training verdict unavailable: {exc}",
+            "text": "Training verdict temporarily unavailable.",
         })
 
     try:
