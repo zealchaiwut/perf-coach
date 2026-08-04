@@ -19,7 +19,6 @@ Acceptance Criteria (derived from issue description):
 import logging
 import unittest.mock as mock
 
-import pytest
 
 
 class TestInfoLogLevel:
