@@ -19443,11 +19443,13 @@ _BRIEF_DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 
 def _build_week_plan(user_id, for_date: _date) -> dict:
-    from backend.services.daily_brief import _get_plan_for_date, _plan_to_session
+    from backend.services.daily_brief import _get_plans_for_date_range, _plan_to_session
+    end_date = for_date + _timedelta(days=6)
+    plan_cache = _get_plans_for_date_range(user_id, for_date, end_date)
     days = []
     for i in range(7):
         d = for_date + _timedelta(days=i)
-        plan = _get_plan_for_date(user_id, d)
+        plan = plan_cache.get(d, {"plan_date": d.isoformat(), "planned": False, "sessions": []})
         session = _plan_to_session(plan, d)
         days.append({
             "date": d.isoformat(),
