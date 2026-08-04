@@ -1,6 +1,5 @@
 """Tests for issue #868: binary+weekly habit silently hardcodes weekly_target=7 with no UI feedback."""
 import os
-import re
 import pytest
 
 
