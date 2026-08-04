@@ -737,24 +737,7 @@ def _resolve_read_user(user_param: str | None):
         raise HTTPException(status_code=400, detail="?user= required: multiple or zero active users")
 
 
-def _extract_target(structure: dict | None) -> dict:
-    """Extract distance_km, duration_min, intensity from a planned_sessions structure blob.
-
-    Tries top-level keys first, then the first block in structure["blocks"].
-    Returns nulls for any field not found.
-    """
-    out: dict = {"distance_km": None, "duration_min": None, "intensity": None}
-    if not structure or not isinstance(structure, dict):
-        return out
-    for key in out:
-        val = structure.get(key)
-        if val is None:
-            for block in structure.get("blocks", []):
-                if isinstance(block, dict) and block.get(key) is not None:
-                    val = block[key]
-                    break
-        out[key] = val
-    return out
+from backend.services.daily_brief import extract_session_target as _extract_target
 
 
 def _session_to_dict(row) -> dict:

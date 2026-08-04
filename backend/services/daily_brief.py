@@ -37,7 +37,16 @@ _NULL_WEIGHT_BLOCK: dict = {
 
 # ── Plan helpers ──────────────────────────────────────────────────────────────
 
-def _extract_target(structure: dict | None) -> dict:
+def extract_session_target(structure: dict | None) -> dict:
+    """Extract distance_km, duration_min, intensity from a planned_sessions structure blob.
+
+    Tries top-level keys first, then the first block in structure["blocks"].
+    Returns nulls for any field not found.
+
+    Shared between worker_app.py (Hermes read API) and this module so a schema
+    change only has to be applied once. Formerly duplicated as ``_extract_target``
+    in both files; issue #1601 moved it here as the canonical home.
+    """
     out: dict = {"distance_km": None, "duration_min": None, "intensity": None}
     if not structure or not isinstance(structure, dict):
         return out
@@ -52,11 +61,15 @@ def _extract_target(structure: dict | None) -> dict:
     return out
 
 
+# Backward-compat alias; internal callers use the public name.
+_extract_target = extract_session_target
+
+
 def _session_row_to_dict(row) -> dict:
     return {
         "session_type": row.session_type,
         "name": row.name,
-        "target": _extract_target(row.structure),
+        "target": extract_session_target(row.structure),
         "note": row.notes,
         "status": row.status,
     }
