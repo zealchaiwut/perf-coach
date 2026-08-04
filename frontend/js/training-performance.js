@@ -2351,7 +2351,7 @@
 
     var evidence = document.createElement("p");
     evidence.className = "gap-finding-evidence";
-    evidence.textContent = f.evidence_text || "";
+    evidence.textContent = (f.phrasing && f.phrasing_source !== "template") ? f.phrasing : (f.evidence_text || "");
 
     card.appendChild(headline);
     card.appendChild(evidence);
