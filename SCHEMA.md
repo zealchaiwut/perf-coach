@@ -259,7 +259,7 @@ Unique: `(user_id, date)`.
 
 ---
 
-## user_preferences _(updated Sprint 66; source columns added Sprint 65; strength_rpe_max added Sprint 71; ctl_days/atl_days added Sprint 75; threshold timestamps added Sprint 76)_
+## user_preferences _(updated Sprint 66; source columns added Sprint 65; strength_rpe_max added Sprint 71; ctl_days/atl_days added Sprint 75; threshold timestamps added Sprint 76; scale_constant/max_tss added Sprint 127 / #769)_
 
 | column | type | notes |
 |--------|------|-------|
@@ -288,6 +288,8 @@ Unique: `(user_id, date)`.
 | strength_rpe_max | int | nullable — ceiling of the RPE scale used for strength TSS (e.g. 10 for standard RPE, 20 for Borg); required for session-RPE strength TSS calculation |
 | ctl_days | int | nullable — personalised CTL time constant in days; falls back to population default (42) when null |
 | atl_days | int | nullable — personalised ATL time constant in days; falls back to population default (7) when null |
+| scale_constant | float | nullable — per-set strength-TSS scale constant; no hardcoded default (a null value yields a null TSS result with a reason) _(added Sprint 127 / #769)_ |
+| max_tss | int | nullable — per-set strength-TSS ceiling; no hardcoded default _(added Sprint 127 / #769)_ |
 | created_at / updated_at | timestamptz | |
 
 `GET /api/user-preferences` returns both a `row` (stored overrides, null when unset) and a `defaults` object with system default values for all threshold fields. `PATCH /api/user-preferences` accepts any subset of the nullable columns; omitted fields are unchanged.
@@ -309,7 +311,7 @@ Unique: `(user_id, date)`.
 
 ---
 
-## strava_activities _(detail_payload and streams_payload added Sprint 63)_
+## strava_activities _(detail_payload and streams_payload added Sprint 63; promoted scalars laps/splits_metric/best_efforts/calories added Sprint 127 / #1307)_
 
 Raw activities pulled from Strava. Reconciled into `workouts` by `reconcile.py`.
 
@@ -329,6 +331,10 @@ Raw activities pulled from Strava. Reconciled into `workouts` by `reconcile.py`.
 | raw_payload | jsonb | |
 | detail_payload | jsonb | nullable — full `/activities/{id}` detail blob |
 | streams_payload | jsonb | nullable — raw `/activities/{id}/streams` response; used by reconcile to populate `activity_streams` |
+| laps | jsonb | nullable — promoted from `detail_payload` at sync time so `_strava_source_dict` serves it without loading the full detail blob; NULL means the row was synced before this column existed (falls back to `detail_payload`) _(added Sprint 127 / #1307)_ |
+| splits_metric | jsonb | nullable — promoted from `detail_payload`; see `laps` _(added Sprint 127 / #1307)_ |
+| best_efforts | jsonb | nullable — promoted from `detail_payload`; see `laps` _(added Sprint 127 / #1307)_ |
+| calories | int | nullable — promoted from `detail_payload`; see `laps` _(added Sprint 127 / #1307)_ |
 | synced_at | timestamptz | |
 
 ---
