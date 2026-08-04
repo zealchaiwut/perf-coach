@@ -237,68 +237,155 @@ Returns planned sessions for a date range or the current week.
 **Response (HTTP 200):**
 
 ```json
-[
-  {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "user_id": "550e8400-e29b-41d4-a716-446655440001",
-    "planned_date": "2026-07-17",
-    "session_type": "run",
-    "name": "Easy 10k",
-    "status": "planned",
-    "structure": {
-      "distance_km": 10.0,
-      "duration_min": 60,
-      "intensity": "easy",
-      "blocks": []
-    },
-    "notes": "Easy aerobic run",
-    "matched_workout_id": null,
-    "created_at": "2026-07-16T10:30:00Z",
-    "updated_at": "2026-07-16T10:30:00Z"
-  },
-  {
-    "id": "550e8400-e29b-41d4-a716-446655440002",
-    "user_id": "550e8400-e29b-41d4-a716-446655440001",
-    "planned_date": "2026-07-18",
-    "session_type": "strength",
-    "name": "Lower Body",
-    "status": "completed",
-    "structure": {
-      "distance_km": null,
-      "duration_min": 45,
-      "intensity": "moderate",
-      "blocks": [
+{
+  "from": "2026-07-17",
+  "to": "2026-07-23",
+  "days": [
+    {
+      "date": "2026-07-17",
+      "dow": "THU",
+      "planned": [
         {
-          "name": "Squats",
-          "reps": 4,
-          "sets": 3,
-          "load_kg": 100
+          "id": "550e8400-e29b-41d4-a716-446655440000",
+          "planned_date": "2026-07-17",
+          "session_type": "run",
+          "name": "Easy 10k",
+          "status": "planned",
+          "structure": {
+            "distance_km": 10.0,
+            "duration_min": 60,
+            "intensity": "easy",
+            "blocks": []
+          },
+          "notes": "Easy aerobic run",
+          "matched_workout_id": null,
+          "actual": null,
+          "created_at": "2026-07-16T10:30:00Z",
+          "updated_at": "2026-07-16T10:30:00Z",
+          "estimated_tss": 45.2,
+          "estimated_distance_km": 10.0,
+          "plan_warnings": []
+        }
+      ],
+      "unplanned": []
+    },
+    {
+      "date": "2026-07-18",
+      "dow": "FRI",
+      "planned": [
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440002",
+          "planned_date": "2026-07-18",
+          "session_type": "strength",
+          "name": "Lower Body",
+          "status": "completed",
+          "structure": {
+            "distance_km": null,
+            "duration_min": 45,
+            "intensity": "moderate",
+            "blocks": [
+              {
+                "name": "Squats",
+                "reps": 4,
+                "sets": 3,
+                "load_kg": 100
+              }
+            ]
+          },
+          "notes": null,
+          "matched_workout_id": "550e8400-e29b-41d4-a716-446655440099",
+          "actual": {
+            "date": "2026-07-18",
+            "workout_type": "strength",
+            "duration_min": 48,
+            "distance_km": null,
+            "avg_hr": 142
+          },
+          "created_at": "2026-07-16T11:00:00Z",
+          "updated_at": "2026-07-18T15:45:00Z",
+          "estimated_tss": null,
+          "estimated_distance_km": null,
+          "plan_warnings": []
+        }
+      ],
+      "unplanned": [
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440100",
+          "name": "Recovery Run",
+          "workout_type": "run",
+          "run_subtype": "easy",
+          "date": "2026-07-18",
+          "meta": "32 min · 5.2 km"
         }
       ]
     },
-    "notes": null,
-    "matched_workout_id": "550e8400-e29b-41d4-a716-446655440099",
-    "created_at": "2026-07-16T11:00:00Z",
-    "updated_at": "2026-07-18T15:45:00Z"
-  }
-]
+    {
+      "date": "2026-07-19",
+      "dow": "SAT",
+      "planned": [],
+      "unplanned": []
+    }
+  ]
+}
 ```
 
-**Response Fields:**
+**Top-level Response Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `from` | string (ISO 8601 date) | Start date of the requested range |
+| `to` | string (ISO 8601 date) | End date of the requested range |
+| `days` | array | Array of day objects, one per day in the range (including empty days) |
+
+**Day Object Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `date` | string (ISO 8601 date) | Date of this day |
+| `dow` | string | Day of week abbreviation (`MON`, `TUE`, `WED`, `THU`, `FRI`, `SAT`, `SUN`) |
+| `planned` | array | List of planned sessions for this day |
+| `unplanned` | array | List of workouts logged but not in the plan (ghost/unplanned workouts) |
+
+**Planned Session Object Fields:**
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | string (UUID) | Unique identifier for the planned session |
-| `user_id` | string (UUID) | User who owns this plan |
 | `planned_date` | string (ISO 8601) | Date the session is scheduled (Bangkok timezone) |
 | `session_type` | string | Type of session: `run`, `strength`, `recovery`, `sport`, etc. |
 | `name` | string | Human-readable name (e.g., "Easy 10k", "Lower Body") |
-| `status` | string | One of: `planned`, `completed`, `missed`, `skipped`, `in_progress` |
+| `status` | string | One of: `planned`, `completed`, `missed`, `skipped`, `in_progress`, `needs_review` |
 | `structure` | object | Session details (distance, duration, intensity, exercise blocks) |
 | `notes` | string or null | Optional coach notes or athlete comments |
 | `matched_workout_id` | string (UUID) or null | If completed, ID of the matched workout from Strava/Stryd/manual entry |
+| `actual` | object or null | Summary of the matched workout (if `matched_workout_id` is not null) |
 | `created_at` | string (ISO 8601 UTC) | When the plan was created |
 | `updated_at` | string (ISO 8601 UTC) | When the plan was last modified |
+| `estimated_tss` | number or null | Estimated TSS for unmatched future sessions; null if matched or past |
+| `estimated_distance_km` | number or null | Estimated distance for unmatched future sessions; null if matched or past |
+| `plan_warnings` | array | Array of plan-guard warnings (e.g., muscle load conflicts) |
+| `candidates` | array (optional) | For `needs_review` sessions, list of potential matching workouts within ±1 day |
+
+**Unplanned Workout Object Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string (UUID) | Unique identifier for the workout |
+| `name` | string | Workout name or description |
+| `workout_type` | string | Type: `run`, `strength`, `cycling`, etc. |
+| `run_subtype` | string or null | For runs: `easy`, `tempo`, `interval`, `long`, etc. |
+| `date` | string (ISO 8601 date) | Date of the workout |
+| `meta` | string | Human-readable summary (e.g., "32 min · 5.2 km") |
+
+**Actual Workout Summary (within planned session):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `date` | string (ISO 8601 date) | Date the workout was logged |
+| `workout_type` | string | Type of workout |
+| `duration_min` | integer or null | Duration in minutes |
+| `distance_km` | number or null | Distance in kilometers |
+| `avg_hr` | integer or null | Average heart rate |
 
 **Error Responses:**
 - `400` — Invalid date format or `from` provided without `to`
@@ -307,8 +394,11 @@ Returns planned sessions for a date range or the current week.
 
 **Notes:**
 - Default range is the current week (Mon–Sun in Bangkok timezone) if no params provided.
-- Sessions can be matched to logged workouts (via `matched_workout_id`) from Strava, Stryd, or manual entry.
-- The `structure` field is flexible; different session types use different fields (run uses `distance_km`, strength uses `blocks`, etc.).
+- The response always includes all days in the range, even if empty (to support Rest day UI).
+- Planned sessions are matched to logged workouts via `matched_workout_id`, which populates the `actual` field.
+- Ghost/unplanned workouts surface in the `unplanned` array of their logged date and represent workouts not in the plan.
+- Estimated TSS and distance are computed for future unmatched sessions to support progress views.
+- Plan warnings are computed from muscle-load ACWR and session-footprint conflicts.
 
 ---
 
