@@ -187,11 +187,13 @@ def test_ac6_put_half_marathon_returns_200(client):
         })
         assert r.status_code == 200, r.text
         data = r.json()
-        assert data["race_distance"] == "half"
-        assert data["target_time"] == 6300
-        assert data["race_date"] == future
-        assert data["active"] is True
-        assert "id" in data
+        assert "goal" in data, f"PUT must return {{\"goal\": ...}} envelope, got: {list(data.keys())}"
+        goal = data["goal"]
+        assert goal["race_distance"] == "half"
+        assert goal["target_time"] == 6300
+        assert goal["race_date"] == future
+        assert goal["active"] is True
+        assert "id" in goal
     finally:
         auth.close()
         _delete_user(user_id)
@@ -237,7 +239,7 @@ def test_ac3_ac13_put_replaces_prior_active_goal(client):
             "race_date": future1,
         })
         assert r1.status_code == 200, r1.text
-        old_id = r1.json()["id"]
+        old_id = r1.json()["goal"]["id"]
 
         future2 = (datetime.date.today() + datetime.timedelta(days=180)).isoformat()
         r2 = auth.put("/api/coach/goal", json={
@@ -246,7 +248,7 @@ def test_ac3_ac13_put_replaces_prior_active_goal(client):
             "race_date": future2,
         })
         assert r2.status_code == 200, r2.text
-        new_id = r2.json()["id"]
+        new_id = r2.json()["goal"]["id"]
         assert new_id != old_id
 
         # Old goal should be inactive

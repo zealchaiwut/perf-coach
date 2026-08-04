@@ -14993,7 +14993,12 @@ def accept_calibration(
         ctl_days = prefs.ctl_days
         atl_days = prefs.atl_days
 
-    snapshots_recomputed = recompute_user_snapshots(str(user.id))
+    # Recompute is best-effort: prefs are already committed, and stale snapshots
+    # self-heal on next read via the ctl_days/atl_days mismatch guard.
+    try:
+        snapshots_recomputed = recompute_user_snapshots(str(user.id))
+    except Exception:
+        snapshots_recomputed = 0
 
     return JSONResponse({
         "ctl_days": ctl_days,
