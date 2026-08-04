@@ -781,6 +781,7 @@ def update_draft_slot(
     *,
     patch: dict | None = None,
     remove: bool = False,
+    draft_version: str | None = None,
 ) -> dict | None:
     """Edit or remove one draft slot. Any edit stamps source=user (pinned)."""
     from backend.models import PlanDraft
@@ -792,6 +793,8 @@ def update_draft_slot(
     )
     if row is None:
         return None
+    if draft_version is not None and draft_version != draft_version_token(row):
+        return {"ok": False, "error": "stale_draft", "status_code": 409, "draft_version": draft_version_token(row)}
     payload = dict(row.payload or {})
     sessions = list(payload.get("sessions") or [])
     idx = next(
@@ -1323,7 +1326,7 @@ def replan_remaining_budget(
         offset = (p.planned_date - week_start).days
         if p.status in ("done_auto", "done_manual") and p.matched_workout_id:
             w = db.get(Workout, p.matched_workout_id)
-            if w and w.tss is not None:
+            if w and w.user_id == user_id and w.tss is not None:
                 matched_actual += float(w.tss)
             occupied.add(offset)
         elif p.status in ("done_auto", "done_manual", "needs_review"):

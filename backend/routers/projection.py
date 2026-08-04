@@ -486,6 +486,7 @@ class PlanDraftApplyRequest(BaseModel):
 class PlanDraftSlotPatch(BaseModel):
     week_start: Optional[str] = None
     day_offset: int
+    draft_version: Optional[str] = None
     workout_type: Optional[str] = None
     target_tss: Optional[float] = None
     duration_minutes: Optional[int] = None
@@ -631,9 +632,12 @@ def patch_plan_draft_slot(
         draft = update_draft_slot(
             db, user.id, ws, body.day_offset,
             patch=patch, remove=bool(body.remove),
+            draft_version=body.draft_version,
         )
         if draft is None:
             raise HTTPException(status_code=404, detail="no draft for this week")
+        if isinstance(draft, dict) and not draft.get("ok", True) and draft.get("error") == "stale_draft":
+            raise HTTPException(status_code=409, detail=draft)
         db.commit()
         return JSONResponse(draft)
     finally:
