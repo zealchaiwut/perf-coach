@@ -62,4 +62,10 @@ def upgrade():
 
 
 def downgrade():
-    pass
+    if not table_exists("verdict_history"):
+        return
+
+    if index_exists("verdict_history", "ix_verdict_history_user_date"):
+        op.drop_index("ix_verdict_history_user_date", table_name="verdict_history")
+
+    op.drop_table("verdict_history")

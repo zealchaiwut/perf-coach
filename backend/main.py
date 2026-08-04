@@ -5204,11 +5204,13 @@ def get_habits_adherence(user: User = Depends(resolve_user)):
 
         logs_by_habit: dict = {}
         if habit_ids:
+            log_cutoff = today - _timedelta(days=60)
             all_logs = (
                 session.query(HabitLog)
                 .filter(
                     HabitLog.habit_id.in_(habit_ids),
                     HabitLog.user_id == uid,
+                    HabitLog.log_date >= log_cutoff,
                 )
                 .all()
             )
@@ -6295,13 +6297,37 @@ def _strava_source_dict(sa, prebuilt_streams: dict | None = None) -> dict | None
     """
     if sa is None:
         return None
-    detail = sa.detail_payload or {}
-    raw = sa.raw_payload or {}
     if prebuilt_streams is not None:
         streams = prebuilt_streams
     else:
         streams = sa.streams_payload if isinstance(sa.streams_payload, dict) else {}
+
+    # For rows synced after issue #1307 the four most-accessed detail scalars live
+    # in promoted columns (laps, splits_metric, best_efforts, calories) so we never
+    # need to load the full detail_payload blob for them.  For older rows all four
+    # promoted columns are NULL; fall back to detail_payload in that case.
+    has_promoted = sa.laps is not None
+    if has_promoted:
+        laps = sa.laps or []
+        splits_metric = sa.splits_metric or []
+        best_efforts = sa.best_efforts or []
+        calories = sa.calories
+        detail = {}  # only accessed below for the un-promoted fields
+    else:
+        detail = sa.detail_payload or {}
+        laps = detail.get("laps") or []
+        splits_metric = detail.get("splits_metric") or []
+        best_efforts = detail.get("best_efforts") or []
+        calories = detail.get("calories")
+
+    # Remaining detail fields that are not yet promoted — needs detail_payload
+    # for both old and new rows (segment_efforts, description, gear, map polyline).
+    if not has_promoted:
+        raw = sa.raw_payload or {}
+    else:
+        raw = {}
     map_obj = detail.get("map") or raw.get("map") or {}
+
     return {
         "strava_activity_id": sa.strava_activity_id,
         "name": sa.name,
@@ -6320,11 +6346,11 @@ def _strava_source_dict(sa, prebuilt_streams: dict | None = None) -> dict | None
         "external_id": sa.external_id,
         "is_stryd_synced": sa.is_stryd_synced,
         # full nested capture (Tier 2 detail)
-        "laps": detail.get("laps") or [],
-        "splits_metric": detail.get("splits_metric") or [],
-        "best_efforts": detail.get("best_efforts") or [],
+        "laps": laps,
+        "splits_metric": splits_metric,
+        "best_efforts": best_efforts,
         "segment_efforts": detail.get("segment_efforts") or [],
-        "calories": detail.get("calories"),
+        "calories": calories,
         "description": detail.get("description"),
         "gear": detail.get("gear"),
         "map_polyline": map_obj.get("polyline") or map_obj.get("summary_polyline"),
@@ -6498,7 +6524,7 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "remarks": w.remarks,
         "tss": w.tss,
         "tss_source": w.tss_source,
-        "source": w.source,
+        "source": w.source or w.tss_source or "manual",
         "has_strava": "strava" in src or w.strava_activity_pk is not None,
         "has_stryd": "stryd" in src or w.stryd_activity_pk is not None,
         "strava_activity_url": w.strava_activity_url,
@@ -14188,8 +14214,10 @@ async def get_sync_status(user: User = Depends(resolve_user)):
                 "started_at": wjr.started_at.isoformat() if wjr.started_at else None,
                 "finished_at": wjr.finished_at.isoformat() if wjr.finished_at else None,
             })
-    except Exception:
-        pass
+    except Exception as _wjr_exc:
+        _logging.getLogger(__name__).warning(
+            "sync_status: worker_job_runs query failed: %s", _wjr_exc
+        )
 
     # Phase 3: a queued/running job in the pull queue (e.g. a full sync waiting
     # for the worker to claim it) surfaces as "pending" so the nav bar reflects
@@ -16910,14 +16938,14 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
                 "state": "needs_thresholds",
                 "reason": _NEEDS_THRESHOLDS_REASON,
             }
-            if _performance_log.isEnabledFor(_logging.DEBUG):
+            if _performance_log.isEnabledFor(_logging.INFO):
                 log_entry = _build_performance_log_entry(
                     preferences=preferences,
                     runs=runs,
                     endurance=_needs_thresholds_obj,
                     speed=_needs_thresholds_obj,
                 )
-                _performance_log.debug("performance score request", extra=log_entry)
+                _performance_log.info("performance score request", extra=log_entry)
             return JSONResponse(
                 _build_performance_response(
                     state="needs_thresholds",
@@ -16936,14 +16964,14 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
         endurance = compute_endurance_score(runs, preferences, zone_constants, race_perf=_race_perf, body_modifier=_bm)
         speed = compute_speed_score(runs, preferences, zone_constants, race_perf=_race_perf, body_modifier=_bm)
 
-        if _performance_log.isEnabledFor(_logging.DEBUG):
+        if _performance_log.isEnabledFor(_logging.INFO):
             log_entry = _build_performance_log_entry(
                 preferences=preferences,
                 runs=runs,
                 endurance=endurance,
                 speed=speed,
             )
-            _performance_log.debug("performance score request", extra=log_entry)
+            _performance_log.info("performance score request", extra=log_entry)
 
         # Endurance requires threshold_hr (HR extrapolation); surface its
         # needs_thresholds sub-state as the top-level state.

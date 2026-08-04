@@ -1,5 +1,22 @@
 # Changelog
 
+## Sprint 127 — code-review follow-up hardening (strava detail promotion, per-set strength TSS prefs, migration reversibility, observability)
+
+- #1307: promote the four most-accessed Strava detail scalars to columns on `strava_activities` — `sync_strava_activities` now writes `laps`, `splits_metric`, `best_efforts`, and `calories` alongside `detail_payload` at sync time, and `_strava_source_dict` reads them from the promoted columns (falling back to `detail_payload` only for rows synced before the columns existed, detected via `laps IS NULL`). Avoids loading the large deferred `detail_payload` blob for these fields on new rows. Migration `ad22fdb94551`
+- #769: add `scale_constant` and `max_tss` columns to `user_preferences` and a thin caller `get_strength_tss_per_set_for_workout` in `tss.py` — reads the two per-set strength-TSS preferences from the user's row and delegates to `calculate_strength_tss_per_set_with_prefs`. Neither value is given a hardcoded default; a null preference yields a null TSS result with a reason string. Migration `1a199ee7593e`
+- #545: unify the `source` field in `_workout_list_dict` — the workout-list serializer now returns `source or tss_source or "manual"` instead of a bare `source`, matching the training-log list endpoint so a null `source` no longer leaks to clients
+- #939: bound the `HabitLog` query in `GET /api/habits/adherence` to the last 60 days (`log_date >= today − 60d`), so adherence no longer scans a habit's entire log history
+- #1305: log (not silence) DB errors in the `get_sync_status` `worker_job_runs` fallback — the bare `except: pass` now emits a `warning` with the exception instead of swallowing it
+- #992: restore INFO log level for performance-observability logging in `get_athlete_performance` — the `performance score request` log entry is emitted at `INFO` (guarded by `isEnabledFor(INFO)`) instead of `DEBUG`, so it is visible under the default log level again
+- #1386: implement `downgrade()` in the `verdict_history` migration (`bf3b956dd2e0`) — was a no-op; now idempotently drops the `ix_verdict_history_user_date` index and `verdict_history` table, making the migration reversible
+- #1393: remove dead/duplicate code from `training_verdict.py` — deleted the redefined `READINESS_LOW_TODAY` / `READINESS_LOW_TREND` constants, the unused `_VERDICT_ORDER` map, and the unreferenced `_downgrade_one` helper
+- #1563: add the missing assertion to `test_debug_log_emitted_on_value_error` (AC3 was previously unverified — the test asserted nothing)
+- #1300: add a positive assertion to `test_worker_app_not_gated` to complement the negative string check for the worker refit scheduler
+- #835: fix a hardcoded absolute path in `test_no_consistency_module_duplicates_met_rule` (made portable via a `conftest.py` glob translation) so the assertion is no longer a no-op in CI
+- #1414: include `auto_periodize` in the fuel `get_today_payload` — the payload returned by `GET /api/fuel/today` (and the recomputed `PUT /api/fuel/settings` response) now carries the `auto_periodize` flag, so the HTTP test asserting it is no longer checking an absent field
+- #1411: skip the week-phase resolver DB lookup when `auto_periodize` is off — `get_today_payload` / `get_week_payload` only call `_resolve_week_phase_from_db` when `auto_periodize` is on; when off, the phase is set directly to `("base", "Base week — full deficit")` without querying the DB
+- #1550: exclude the stray skip-only `test_weekly_coach_double_fire__1543.py` (merged under #618 before #1543's implementation landed) from collection via a `conftest.py` `pytest_ignore_collect` guard, so `--collect-only` no longer raises on machines without UAT env vars set
+
 ## Sprint 126 — code-review follow-up fixes (form-metrics window, habit form, gap phrasing, chart/calendar state)
 
 - #1443: form-metrics rolling mean is now a 28-**calendar-day** window, not a 28-**run** window — `_rolling_mean` in `main.py` computes each row's trailing simple mean over the inclusive `[date − 27d, date]` calendar window (accepting either a `datetime.date` or an ISO string) instead of the previous fixed 28-row window. The `GET /api/training/form-metrics` `rolling_means` now reflect calendar-day windows; the endpoint docstring/response notes were updated accordingly
