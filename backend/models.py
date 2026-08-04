@@ -756,6 +756,13 @@ class StravaActivity(Base):
     # surface later). detail_payload = /activities/{id}; streams_payload = its /streams.
     detail_payload = deferred(Column(JSONB, nullable=True))
     streams_payload = deferred(Column(JSONB, nullable=True))
+    # Promoted scalars from detail_payload (issue #1307): populated at sync time so
+    # _strava_source_dict can serve these fields without touching the large detail_payload
+    # blob for new rows. NULL means the row was synced before this column was added.
+    laps = deferred(Column(JSONB, nullable=True))
+    splits_metric = deferred(Column(JSONB, nullable=True))
+    best_efforts = deferred(Column(JSONB, nullable=True))
+    calories = Column(Integer, nullable=True)
     synced_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
 
     __table_args__ = (
