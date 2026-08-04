@@ -3018,6 +3018,8 @@ window.addEventListener('userReady', () => {
 });
 
 window.addEventListener('userChanged', () => {
+  _hcalInitialized = false;
+  hcalFetchedRange = null;
   loadAndRender();
   loadInsights();
 });
