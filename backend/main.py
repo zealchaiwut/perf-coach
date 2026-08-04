@@ -5204,11 +5204,13 @@ def get_habits_adherence(user: User = Depends(resolve_user)):
 
         logs_by_habit: dict = {}
         if habit_ids:
+            log_cutoff = today - _timedelta(days=60)
             all_logs = (
                 session.query(HabitLog)
                 .filter(
                     HabitLog.habit_id.in_(habit_ids),
                     HabitLog.user_id == uid,
+                    HabitLog.log_date >= log_cutoff,
                 )
                 .all()
             )
