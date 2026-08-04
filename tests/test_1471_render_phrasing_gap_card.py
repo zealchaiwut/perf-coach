@@ -13,9 +13,7 @@ Since _buildGapCard is JavaScript, these tests verify:
 from __future__ import annotations
 
 import uuid
-from unittest.mock import patch
 
-import pytest
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
