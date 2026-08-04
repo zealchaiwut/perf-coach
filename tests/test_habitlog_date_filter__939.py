@@ -12,7 +12,6 @@ import datetime
 import types
 import unittest.mock as mock
 
-import pytest
 
 
 TODAY = datetime.date(2026, 8, 4)
