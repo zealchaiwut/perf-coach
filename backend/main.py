@@ -16268,29 +16268,6 @@ def get_athlete_detected_prs(athlete_id: str, user: User = Depends(resolve_user)
     return JSONResponse(records)
 
 
-def _trigger_curve_rebuild_background(user_id) -> None:
-    """Fire-and-forget: rebuild the athlete's duration curve in a daemon thread.
-
-    Used after threshold saves so the duration curve reflects the latest data
-    without blocking the HTTP response.  Errors are logged but do not propagate.
-    """
-    _curve_log = _logging.getLogger(__name__)
-
-    def _rebuild():
-        try:
-            from sqlalchemy.orm import Session as _Session
-            with _Session(engine) as _db:
-                _rebuild_athlete_duration_curve(user_id, _db)
-        except Exception as _exc:
-            _curve_log.warning(
-                "background curve rebuild failed for user %s: %s",
-                user_id, _exc, exc_info=True,
-            )
-
-    t = _threading.Thread(target=_rebuild, daemon=True)
-    t.start()
-
-
 # ── Athlete performance scores ────────────────────────────────────────────────
 
 _performance_log = _logging.getLogger(__name__)
