@@ -498,6 +498,7 @@ def _session_to_planned_body(week_start: date, session: dict) -> dict | None:
 def apply_draft(db: Session, user_id, week_start: date, *, today: date | None = None) -> dict:
     """Create planned sessions for open/future draft days; mark draft applied."""
     from backend.models import PlanDraft, PlannedSession
+    from backend.utils.time import today_bangkok
 
     today = today or today_bangkok()
     row = (
@@ -603,6 +604,7 @@ def apply_draft_slot(
     """Apply one draft session → PlannedSession; leave the rest of the draft open."""
     from backend.models import PlanDraft, PlannedSession
     from backend.services import plan_skeleton_ops as ops
+    from backend.utils.time import today_bangkok
 
     today = today or today_bangkok()
     row = (
@@ -848,6 +850,7 @@ def update_draft_slot(
 def draft_status_for_badge(db: Session, user_id, *, today: date | None = None) -> dict:
     """In-app badge/chip: fresh or outdated draft awaiting review."""
     from backend.models import PlanDraft
+    from backend.utils.time import today_bangkok
 
     today = today or today_bangkok()
     ws = today - timedelta(days=today.weekday())
@@ -945,6 +948,7 @@ def hermes_draft_notify(
         "deeplink": f"/log?tab=plan&week={row.week_start.isoformat()}",
         "combine_with_prefs_reconfirm": today.weekday() == 6,  # Sunday
     }
+
 
 def draft_version_token(row) -> str:
     """Client sends this back; reject ops if mismatched (stale draft)."""
@@ -1351,7 +1355,7 @@ def replan_remaining_budget(
         day = week_start + timedelta(days=d)
         if day < today:
             continue
-        if d not in { (p.planned_date - week_start).days for p in rows }:
+        if d not in {(p.planned_date - week_start).days for p in rows}:
             open_offsets.append(d)
     open_offsets = sorted(set(open_offsets))
 
