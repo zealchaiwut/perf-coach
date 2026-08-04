@@ -16,7 +16,7 @@ import json
 import os
 import sys
 import tempfile
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 # All assembly logic — including _build_brief and _assemble_coach — lives in
 # the service module.  Re-importing names into this module's namespace keeps

@@ -27,7 +27,7 @@ import importlib.util
 import pathlib
 import uuid as _uuid_mod
 from datetime import date
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 

@@ -27,7 +27,7 @@ import pathlib
 import sys
 import tempfile
 from datetime import date
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import patch
 
 import pytest
 

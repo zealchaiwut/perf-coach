@@ -26,7 +26,7 @@ import importlib.util
 import inspect
 import pathlib
 from datetime import date
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 
