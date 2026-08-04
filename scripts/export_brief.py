@@ -41,9 +41,6 @@ from backend.services.daily_brief import (  # noqa: F401
     build_brief,
 )
 
-WORKER_DEFAULT_URL = "http://127.0.0.1:9100"
-
-
 def _today_bkk() -> date:
     return datetime.now(BANGKOK_TZ).date()
 
@@ -129,7 +126,7 @@ def main() -> int:
     ap.add_argument("--output", default=None,
                     help="Output file path (default: perfcoach_brief.latest.json next to the script)")
     ap.add_argument("--worker-url", default=None, dest="worker_url",
-                    help=f"Ignored — kept for backward compatibility (default: {WORKER_DEFAULT_URL})")
+                    help="Ignored — kept for backward compatibility only")
     args = ap.parse_args()
 
     if args.date:
@@ -144,8 +141,6 @@ def main() -> int:
     script_dir = os.path.dirname(os.path.abspath(__file__))
     output_path = args.output or os.path.join(script_dir, "perfcoach_brief.latest.json")
     lock_path = os.path.join(os.path.dirname(os.path.abspath(output_path)), "perfcoach_brief.lock")
-    worker_url = args.worker_url or os.getenv("WORKER_BASE_URL") or WORKER_DEFAULT_URL
-
     try:
         from dotenv import load_dotenv
         load_dotenv()
@@ -173,7 +168,7 @@ def main() -> int:
 
     if args.dry_run:
         try:
-            brief = _build_brief(for_date, worker_url, user_id, args.user)
+            brief = _build_brief(for_date, user_id=user_id)
             print(json.dumps(brief, indent=2))
             return 0
         except Exception as exc:
@@ -192,7 +187,7 @@ def main() -> int:
             )
             return 1
 
-        brief = _build_brief(for_date, worker_url, user_id, args.user)
+        brief = _build_brief(for_date, user_id=user_id)
         _write_atomic(output_path, brief)
         print(f"Brief written to {output_path}", file=sys.stderr)
         return 0
