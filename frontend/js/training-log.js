@@ -565,7 +565,7 @@
       source: source,
       strava_activity_url: w.strava_activity_url,
       is_stryd_synced: !!w.stryd_activity_pk,
-      has_strava: source.indexOf("strava") !== -1 || !!w.strava_activity_pk,
+      has_strava: isStravaWorkout(w),
       has_stryd: source.indexOf("stryd") !== -1 || !!w.stryd_activity_pk,
       notes: w.remarks || "",
       weight_context: w.remarks,

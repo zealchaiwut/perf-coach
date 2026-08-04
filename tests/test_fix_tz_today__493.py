@@ -54,39 +54,27 @@ def auth_client():
 # ── AC1 & AC2: frontend/js/weight.js uses Bangkok timezone for todayISO() ────
 
 def test_ac1_weight_js_todayiso_uses_asia_bangkok():
-    """AC1+AC2: todayISO() in weight.js must use Asia/Bangkok timezone string.
-
-    After issue #1603, weight.js delegates to window.AppCommon.todayISO(), which
-    is the single implementation that uses 'Asia/Bangkok'. The delegation shim
-    is equally correct — it eliminates the very duplication this test was
-    written to prevent. Both the direct implementation and the delegation shim
-    satisfy the AC (Bangkok timezone is used); either form is accepted.
-    """
+    """AC1+AC2: todayISO() in weight.js must use Asia/Bangkok timezone string."""
     js = _js()
+    # Locate the todayISO function body
     m = re.search(r"function todayISO\(\)\s*\{(.*?)\}", js, re.DOTALL)
     assert m, "todayISO() function not found in weight.js"
     body = m.group(1)
-    # Accepts either: (a) direct Bangkok impl, or (b) delegation to AppCommon
-    # (which is verified to use Bangkok in test_frontend_shared_lib__1603.py).
-    assert "Asia/Bangkok" in body or "AppCommon.todayISO" in body, (
-        "todayISO() must either implement Bangkok timezone directly or delegate "
-        "to window.AppCommon.todayISO(); neither found in function body"
+    assert "Asia/Bangkok" in body, (
+        "todayISO() must derive today from Asia/Bangkok timezone; "
+        "'Asia/Bangkok' not found in function body"
     )
 
 
 def test_ac2_weight_js_todayiso_uses_tolocaledatestring_en_ca():
-    """AC2: todayISO() uses toLocaleDateString('en-CA', ...) to get YYYY-MM-DD in Bangkok.
-
-    After issue #1603, weight.js delegates to window.AppCommon.todayISO(), which
-    implements the 'en-CA' / Bangkok pattern. Both forms are accepted.
-    """
+    """AC2: todayISO() uses toLocaleDateString('en-CA', ...) to get YYYY-MM-DD in Bangkok."""
     js = _js()
     m = re.search(r"function todayISO\(\)\s*\{(.*?)\}", js, re.DOTALL)
     assert m, "todayISO() function not found in weight.js"
     body = m.group(1)
-    assert "en-CA" in body or "AppCommon.todayISO" in body, (
+    assert "en-CA" in body, (
         "todayISO() must use toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }) "
-        "or delegate to AppCommon.todayISO() to produce YYYY-MM-DD in Bangkok time"
+        "to produce YYYY-MM-DD in Bangkok time"
     )
 
 

@@ -23,7 +23,6 @@ node, so they verify real behavior, not just source text.
 import json
 import os
 import pathlib
-import re
 import subprocess
 import uuid
 from datetime import date
@@ -77,17 +76,6 @@ def test_ac1_exports_named_helper(name):
 
 # ── AC2: both pages consume shared helpers; no local copies remain ───────────
 
-def _script_tag_position(html_text: str, fragment: str):
-    """Return the start position of the first <script src=...> tag containing
-    `fragment`. Uses tag-level search rather than str.find() so comments that
-    mention a file name (e.g. '<!-- rendered by training-log.js -->') don't
-    produce false positives before the actual script tag."""
-    for m in re.finditer(r'<script\s[^>]*>', html_text):
-        if fragment in m.group(0):
-            return m.start()
-    return -1
-
-
 def test_ac2_pages_load_shared_module_before_page_script():
     for html, page in (
         (TRAINING_HTML, "training.js"),
@@ -97,9 +85,7 @@ def test_ac2_pages_load_shared_module_before_page_script():
         assert "lib/training-format.js" in text, (
             f"{html.name} must load the shared training-format.js module"
         )
-        lib_pos = _script_tag_position(text, "lib/training-format.js")
-        page_pos = _script_tag_position(text, page)
-        assert lib_pos != -1 and page_pos != -1 and lib_pos < page_pos, (
+        assert text.index("lib/training-format.js") < text.index(page), (
             f"training-format.js must load before {page} in {html.name}"
         )
 
