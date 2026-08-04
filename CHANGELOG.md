@@ -13,6 +13,9 @@
 - #1563: add the missing assertion to `test_debug_log_emitted_on_value_error` (AC3 was previously unverified — the test asserted nothing)
 - #1300: add a positive assertion to `test_worker_app_not_gated` to complement the negative string check for the worker refit scheduler
 - #835: fix a hardcoded absolute path in `test_no_consistency_module_duplicates_met_rule` (made portable via a `conftest.py` glob translation) so the assertion is no longer a no-op in CI
+- #1414: include `auto_periodize` in the fuel `get_today_payload` — the payload returned by `GET /api/fuel/today` (and the recomputed `PUT /api/fuel/settings` response) now carries the `auto_periodize` flag, so the HTTP test asserting it is no longer checking an absent field
+- #1411: skip the week-phase resolver DB lookup when `auto_periodize` is off — `get_today_payload` / `get_week_payload` only call `_resolve_week_phase_from_db` when `auto_periodize` is on; when off, the phase is set directly to `("base", "Base week — full deficit")` without querying the DB
+- #1550: exclude the stray skip-only `test_weekly_coach_double_fire__1543.py` (merged under #618 before #1543's implementation landed) from collection via a `conftest.py` `pytest_ignore_collect` guard, so `--collect-only` no longer raises on machines without UAT env vars set
 
 ## Sprint 126 — code-review follow-up fixes (form-metrics window, habit form, gap phrasing, chart/calendar state)
 
