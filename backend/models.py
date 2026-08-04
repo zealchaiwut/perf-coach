@@ -950,6 +950,8 @@ class UserPreferences(Base):
     aerobic_decoupling_threshold = Column(Float, nullable=True)
     ctl_days = Column(Integer, nullable=True)
     atl_days = Column(Integer, nullable=True)
+    scale_constant = Column(Float, nullable=True)
+    max_tss = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
