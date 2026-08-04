@@ -9,9 +9,11 @@ from backend.services.plan_pattern_fill import (
     fill_run,
     fill_slot,
     fill_strength,
+    resolve_groups_for_duration,
     select_pattern,
 )
 from backend.services.plan_pattern_seeds import default_exercises, default_run_patterns, default_strength_patterns
+from backend.services.plan_slot import validate_slot
 from backend.services.plan_week_balance import balance_week_sessions, build_muscle_summary
 
 
@@ -46,7 +48,7 @@ def test_strength_lower_focus_bias_prefers_lower_tags():
         rng=rng,
     )
     assert content["exercises"]
-    assert 4 <= len(content["exercises"]) <= 10
+    assert 4 <= len(content["exercises"]) <= 12
     names = {e["name"] for e in content["exercises"]}
     # Seeded lower session should include at least one lower-tagged compound
     lower_names = {
@@ -55,6 +57,63 @@ def test_strength_lower_focus_bias_prefers_lower_tags():
     }
     assert names & lower_names
     assert content.get("_muscle_footprint")
+
+
+def test_spend_for_pick_fair_shares_group_minutes():
+    """Second pick must not get ~0 min when the first could eat the whole group budget."""
+    from backend.services.plan_pattern_fill import _spend_for_pick
+
+    # Heavy compound: 2 picks, ~13.2 min group budget, 4 sets × 3.5 = 14 raw
+    tss1, min1 = _spend_for_pick(
+        key="heavy_compound", sets=4, tss_weight=1.0,
+        remain_tss=50, remain_min=60,
+        picks_left_in_group=2,
+        group_tss_left=14.0, group_min_left=13.2,
+    )
+    tss2, min2 = _spend_for_pick(
+        key="heavy_compound", sets=4, tss_weight=1.0,
+        remain_tss=50 - tss1, remain_min=60 - min1,
+        picks_left_in_group=1,
+        group_tss_left=14.0 - tss1, group_min_left=13.2 - min1,
+    )
+    assert min1 >= 5.0
+    assert min2 >= 5.0
+    assert abs((min1 + min2) - 13.2) < 0.2
+
+    # Superset: 2 picks, 10.8 min — neither should collapse to <1
+    _, s1 = _spend_for_pick(
+        key="superset", sets=4, tss_weight=1.0,
+        remain_tss=40, remain_min=50,
+        picks_left_in_group=2,
+        group_tss_left=10.0, group_min_left=10.8,
+    )
+    _, s2 = _spend_for_pick(
+        key="superset", sets=4, tss_weight=1.0,
+        remain_tss=40, remain_min=50 - s1,
+        picks_left_in_group=1,
+        group_tss_left=5.0, group_min_left=10.8 - s1,
+    )
+    assert s1 >= 4.0
+    assert s2 >= 4.0
+
+
+def test_fill_strength_multi_pick_groups_share_time():
+    pat = next(p for p in default_strength_patterns() if p["subtype"] == "strength_lower")
+    pool = default_exercises()
+    content = fill_strength(
+        pat,
+        {"duration_minutes": 60, "target_tss": 50, "subtype": "strength_lower"},
+        pool,
+        rng=random.Random(42),
+    )
+    # Group spend_min from pick log details when present
+    for g in content.get("_pick_log") or []:
+        picks = g.get("picks") or []
+        if len(picks) < 2:
+            continue
+        mins = [float(p.get("spend_min") or 0) for p in picks]
+        assert min(mins) >= 2.0, f"{g.get('label')}: {mins}"
+        assert max(mins) / max(min(mins), 0.1) < 3.0, f"{g.get('label')} skewed: {mins}"
 
 
 def test_week_balancer_swaps_adjacent_lower_days():
@@ -265,6 +324,48 @@ def test_long_run_mp_segment_before_cooldown():
     assert abs(total - 120) <= 2
 
 
+def test_intervals_per_set_accounts_for_rest():
+    from backend.services.plan_slot import _blocks_duration_sum
+
+    pat = next(p for p in default_run_patterns() if p["subtype"] == "intervals")
+    content = fill_run(
+        pat,
+        {"duration_minutes": 80, "target_tss": 50, "subtype": "intervals"},
+    )
+    main = next(b for b in content["blocks"] if b["phase"] == "main")
+    assert main["repeat"] == 6
+    assert main["rest_min"] == 2
+    assert main["pace_mult"] == 0.92
+    # Phase bucket ~44; rest 10 → work ~34 → ~5–6 min/rep (not 13)
+    assert 4 <= int(main["duration_min"]) <= 7
+    wall = _blocks_duration_sum(content["blocks"])
+    assert abs(wall - 80) <= 8  # ±10% of 80
+    tss_sum = sum(float(b.get("spend_tss") or 0) for b in content["blocks"])
+    assert abs(tss_sum - 50) < 0.15
+    main_tss = float(main["spend_tss"])
+    warm_tss = float(next(b for b in content["blocks"] if b["phase"] == "warmup")["spend_tss"])
+    assert main_tss > warm_tss  # quality work carries more TSS
+    fp = content["_muscle_footprint"]
+    assert fp["calf"] > fp["glute"]  # intervals tilt shin/calf
+
+
+def test_tempo_per_set_and_pace_mult():
+    from backend.services.plan_slot import _blocks_duration_sum
+
+    pat = next(p for p in default_run_patterns() if p["subtype"] == "tempo")
+    content = fill_run(
+        pat,
+        {"duration_minutes": 80, "target_tss": 50, "subtype": "tempo"},
+    )
+    main = next(b for b in content["blocks"] if b["phase"] == "main")
+    assert main["repeat"] == 3
+    assert main["pace_mult"] == 1.02
+    # ~40 work / 3 ≈ 13 min/rep
+    assert 10 <= int(main["duration_min"]) <= 15
+    assert abs(_blocks_duration_sum(content["blocks"]) - 80) <= 8
+    assert abs(sum(float(b["spend_tss"]) for b in content["blocks"]) - 50) < 0.15
+
+
 @pytest.mark.parametrize(
     "kind,subtype,dur",
     [
@@ -279,3 +380,86 @@ def test_select_pattern_parametrized(kind, subtype, dur):
     pat = select_pattern(None, workout_type=wt, subtype=subtype, duration_min=dur)
     assert pat is not None
     assert pat["subtype"] == subtype
+
+
+def test_resolve_groups_for_duration_picks_band():
+    pat = next(p for p in default_strength_patterns() if p["subtype"] == "strength_lower")
+    short, meta_s = resolve_groups_for_duration(pat["recipe"], 50)
+    long, meta_l = resolve_groups_for_duration(pat["recipe"], 75)
+    assert meta_s["source"] == "bands"
+    assert meta_l["source"] == "bands"
+    assert meta_s["band"] == [0, 54]
+    assert meta_l["band"] == [70, 89]
+    short_keys = [g["key"] for g in short]
+    long_keys = [g["key"] for g in long]
+    assert "accessories" not in short_keys
+    assert "finisher" not in short_keys
+    assert "standalone" not in short_keys
+    assert "accessories" in long_keys
+    assert "finisher" in long_keys
+    ss1 = next(g for g in long if g.get("label") == "Superset 1")
+    assert ss1["pick"]["n"] == 3
+
+
+def test_strength_50_vs_75_structure_and_finisher():
+    """50 min cuts accessories/finisher; 75 adds SS n=3 + accessories + finisher format."""
+    pat = next(p for p in default_strength_patterns() if p["subtype"] == "strength_full")
+    pool = default_exercises()
+    short = fill_strength(
+        pat,
+        {"duration_minutes": 50, "target_tss": 40, "subtype": "strength_full"},
+        pool,
+        rng=random.Random(7),
+    )
+    long = fill_strength(
+        pat,
+        {"duration_minutes": 75, "target_tss": 55, "subtype": "strength_full"},
+        pool,
+        rng=random.Random(7),
+    )
+    short_blocks = {e["block"] for e in short["exercises"]}
+    long_blocks = {e["block"] for e in long["exercises"]}
+    assert "Heavy compound" in short_blocks
+    assert "Stretch" in short_blocks
+    assert "Accessories" not in short_blocks
+    assert not (short_blocks & {"EMOM", "40/20", "Plyometrics"})
+    assert "Accessories" in long_blocks
+    assert long_blocks & {"EMOM", "40/20", "Plyometrics"}
+    ss1 = [e for e in long["exercises"] if e["block"] == "Superset 1"]
+    assert len(ss1) == 3
+    assert 4 <= len(short["exercises"]) <= 12
+    assert 4 <= len(long["exercises"]) <= 12
+    # Finisher prescription should mention the format
+    fin = [e for e in long["exercises"] if e["block"] in {"EMOM", "40/20", "Plyometrics"}]
+    assert fin
+    if fin[0]["block"] == "EMOM":
+        assert "EMOM" in (fin[0].get("load") or "")
+    if fin[0]["block"] == "40/20":
+        assert "40s" in (fin[0].get("reps") or "") or "20s" in (fin[0].get("load") or "")
+    slot = {
+        "workout_type": "strength",
+        "duration_minutes": 75,
+        "subtype": "strength_full",
+        "target_tss": 55,
+    }
+    assert validate_slot(
+        {"intent": long["intent"], "exercises": long["exercises"]},
+        slot,
+    ) == []
+
+
+def test_finisher_format_rotates_across_seeds():
+    pat = next(p for p in default_strength_patterns() if p["subtype"] == "strength_lower")
+    pool = default_exercises()
+    seen: set[str] = set()
+    for seed in range(40):
+        content = fill_strength(
+            pat,
+            {"duration_minutes": 75, "target_tss": 50, "subtype": "strength_lower"},
+            pool,
+            rng=random.Random(seed),
+        )
+        for e in content["exercises"]:
+            if e["block"] in {"EMOM", "40/20", "Plyometrics"}:
+                seen.add(e["block"])
+    assert len(seen) >= 2, f"expected multiple finisher formats across seeds, got {seen}"

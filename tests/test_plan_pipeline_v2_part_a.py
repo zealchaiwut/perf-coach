@@ -275,7 +275,7 @@ def test_validate_strength_pass_and_fail():
     assert any("block label" in e for e in errs)
 
     too_few = exercises[:2]
-    assert any("4–10" in e or "4-10" in e for e in validate_slot({"intent": "x", "exercises": too_few}, slot))
+    assert any("4–12" in e or "4-12" in e or "4–10" in e for e in validate_slot({"intent": "x", "exercises": too_few}, slot))
 
 
 def test_validate_intent_max_140():

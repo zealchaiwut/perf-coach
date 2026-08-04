@@ -13853,45 +13853,171 @@ class AdminPlanExercisePreviewIn(BaseModel):
     subtype: str = "strength_light"
     duration_minutes: int = 45
     target_tss: float = 40
+    # None → fresh random each Preview click so you can see shuffle.
+    seed: int | None = None
+
+
+_RUN_PREVIEW_SUBTYPES = frozenset({
+    "easy_run", "easy", "tempo", "intervals", "long_run",
+})
 
 
 @app.post("/api/admin/plan-exercises/preview", dependencies=[Depends(require_admin)])
 def admin_preview_plan_exercise_fill(body: AdminPlanExercisePreviewIn):
-    """Dry-run pattern fill for one strength subtype — uses the live exercise pool."""
+    """Dry-run pattern fill for one strength or run subtype."""
     import random
+    import time
 
-    from backend.services.plan_pattern_fill import fill_slot
+    from backend.services.plan_pattern_fill import (
+        compute_pool_counts,
+        fill_slot,
+        select_pattern,
+        _load_exercise_pool,
+    )
     from backend.services.plan_slot import normalize_slot_subtype
 
-    subtype = normalize_slot_subtype("strength", body.subtype) or "strength_light"
+    raw_sub = (body.subtype or "").strip()
+    if raw_sub in _RUN_PREVIEW_SUBTYPES:
+        wt = "run"
+        subtype = normalize_slot_subtype("run", raw_sub) or raw_sub
+    else:
+        wt = "strength"
+        subtype = normalize_slot_subtype("strength", raw_sub) or "strength_light"
+
     slot = {
         "day_offset": 0,
-        "workout_type": "strength",
+        "workout_type": wt,
         "target_tss": float(body.target_tss),
         "duration_minutes": int(body.duration_minutes),
         "subtype": subtype,
         "structure_hints": {},
         "locked": False,
     }
+    seed = body.seed if body.seed is not None else (time.time_ns() & 0xFFFFFFFF)
     with Session(engine) as db:
-        # Seed by duration so different minutes reshuffle picks (still deterministic).
         content = fill_slot(
             slot,
             db=db,
             week_ctx={"skeleton_slots": [slot]},
-            rng=random.Random((hash((subtype, int(body.duration_minutes))) & 0xFFFFFFFF) or 1),
+            rng=random.Random(seed),
         )
+        pattern = select_pattern(
+            db,
+            workout_type=wt,
+            subtype=subtype,
+            duration_min=int(body.duration_minutes),
+        )
+        pool_counts = None
+        if pattern and wt == "strength":
+            pool_counts = compute_pool_counts(
+                pattern,
+                _load_exercise_pool(db),
+                duration_min=int(body.duration_minutes),
+            )
+            pool_counts["pattern_id"] = pattern.get("id")
+    fill_log = content.get("fill_log") or {}
+    footprint = content.get("_muscle_footprint") or {}
+    muscle_summary = [
+        {"part": p, "tss": round(float(v), 2)}
+        for p, v in sorted(footprint.items(), key=lambda kv: -float(kv[1]))
+        if float(v) > 0
+    ]
     return JSONResponse({
         "subtype": subtype,
+        "workout_type": wt,
         "intent": content.get("intent"),
         "notes": content.get("notes"),
         "exercises": content.get("exercises") or [],
+        "blocks": content.get("blocks") or [],
         "source": content.get("source"),
         "pattern_name": content.get("pattern_name"),
-        "fill_log": content.get("fill_log"),
+        "pattern_id": (pattern or {}).get("id") if pattern else None,
+        "fill_log": fill_log,
+        "budget_trace": fill_log.get("budget_trace") or [],
+        "pool_counts": pool_counts,
+        "muscle_footprint": footprint,
+        "muscle_summary": muscle_summary,
         "duration_minutes": int(body.duration_minutes),
+        "target_tss": float(body.target_tss),
+        "seed": seed,
     })
 
+
+@app.get("/api/admin/plan-patterns/{pattern_id}/pool-counts", dependencies=[Depends(require_admin)])
+def admin_plan_pattern_pool_counts(pattern_id: str, duration_min: int = 60):
+    """Matched exercise counts per recipe group (same tag matcher as fill)."""
+    from uuid import UUID
+
+    from backend.models import PlanPattern
+    from backend.services.plan_pattern_fill import _load_exercise_pool, compute_pool_counts
+
+    with Session(engine) as db:
+        row = db.query(PlanPattern).filter(PlanPattern.id == UUID(pattern_id)).first()
+        if row is None:
+            raise HTTPException(status_code=404, detail="pattern not found")
+        pattern = {
+            "id": str(row.id),
+            "kind": row.kind,
+            "subtype": row.subtype,
+            "name": row.name,
+            "recipe": row.recipe or {},
+            "duration_min_lo": row.duration_min_lo,
+            "duration_min_hi": row.duration_min_hi,
+            "priority": row.priority,
+            "active": bool(row.active),
+        }
+        counts = compute_pool_counts(
+            pattern,
+            _load_exercise_pool(db),
+            duration_min=int(duration_min),
+        )
+        counts["pattern_id"] = str(row.id)
+        return JSONResponse(counts)
+
+
+@app.get("/api/admin/plan-library/pool-counts", dependencies=[Depends(require_admin)])
+def admin_plan_library_pool_counts(subtype: str, duration_min: int = 60):
+    """Resolve pattern by subtype + duration, then return pool counts (Preview strip)."""
+    from backend.services.plan_pattern_fill import (
+        _load_exercise_pool,
+        compute_pool_counts,
+        select_pattern,
+    )
+    from backend.services.plan_slot import normalize_slot_subtype
+
+    raw = (subtype or "").strip()
+    if raw in _RUN_PREVIEW_SUBTYPES:
+        wt = "run"
+        sub = normalize_slot_subtype("run", raw) or raw
+    else:
+        wt = "strength"
+        sub = normalize_slot_subtype("strength", raw) or raw
+
+    with Session(engine) as db:
+        pattern = select_pattern(
+            db, workout_type=wt, subtype=sub, duration_min=int(duration_min),
+        )
+        if pattern is None:
+            raise HTTPException(status_code=404, detail="no matching pattern")
+        if wt == "run":
+            return JSONResponse({
+                "pattern_id": pattern.get("id"),
+                "pattern_name": pattern.get("name"),
+                "subtype": pattern.get("subtype"),
+                "duration_min": int(duration_min),
+                "matched_total": 0,
+                "blocks": [],
+                "thin_blocks": [],
+                "kind": "run",
+                "note": "run patterns scale phases — no exercise pool",
+            })
+        counts = compute_pool_counts(
+            pattern,
+            _load_exercise_pool(db),
+            duration_min=int(duration_min),
+        )
+        counts["pattern_id"] = pattern.get("id")
+        return JSONResponse(counts)
 
 @app.post("/api/admin/plan-patterns/seed", dependencies=[Depends(require_admin)])
 def admin_seed_plan_patterns(reset: bool = False):
@@ -13902,6 +14028,208 @@ def admin_seed_plan_patterns(reset: bool = False):
         result = seed_defaults(db, reset=reset)
         db.commit()
         return JSONResponse(result)
+
+
+class AdminPlanLibraryImportIn(BaseModel):
+    """Bulk create/upsert from a Claude-authored (or downloaded) catalog JSON.
+
+    Accepts either a full catalog ``{exercises, patterns}`` or a bare list
+    under one of those keys. ``mode=upsert`` updates by name (exercises) or
+    kind+subtype+name (patterns); ``mode=create`` skips existing rows.
+    """
+    exercises: list[dict] = []
+    patterns: list[dict] = []
+    mode: str = "upsert"  # upsert | create
+
+
+def _export_exercise_row(r) -> dict:
+    return {
+        "name": r.name,
+        "groups": r.groups or [],
+        "focus_tags": r.focus_tags or [],
+        "body_parts": r.body_parts or [],
+        "tss_weight": float(r.tss_weight or 1.0),
+        "default_sets": r.default_sets,
+        "default_reps": r.default_reps,
+        "default_load": r.default_load,
+        "active": bool(r.active),
+    }
+
+
+def _export_pattern_row(r) -> dict:
+    return {
+        "kind": r.kind,
+        "subtype": r.subtype,
+        "duration_min_lo": r.duration_min_lo,
+        "duration_min_hi": r.duration_min_hi,
+        "name": r.name,
+        "priority": r.priority,
+        "recipe": r.recipe or {},
+        "active": bool(r.active),
+    }
+
+
+@app.get("/api/admin/plan-library/export", dependencies=[Depends(require_admin)])
+def admin_export_plan_library():
+    """Downloadable catalog (no ids) for Claude edit → bulk import."""
+    from backend.models import PlanExercise, PlanPattern
+    from datetime import datetime, timezone
+
+    with Session(engine) as db:
+        exercises = [
+            _export_exercise_row(r)
+            for r in db.query(PlanExercise).order_by(PlanExercise.name).all()
+        ]
+        patterns = [
+            _export_pattern_row(r)
+            for r in db.query(PlanPattern).order_by(
+                PlanPattern.kind, PlanPattern.subtype, PlanPattern.priority.desc()
+            ).all()
+        ]
+    return JSONResponse({
+        "version": 1,
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "exercises": exercises,
+        "patterns": patterns,
+    })
+
+
+@app.post("/api/admin/plan-library/import", dependencies=[Depends(require_admin)])
+def admin_import_plan_library(body: AdminPlanLibraryImportIn):
+    """Bulk create / upsert exercises and patterns from catalog JSON."""
+    from backend.models import PlanExercise, PlanPattern
+    from datetime import datetime, timezone
+
+    mode = (body.mode or "upsert").strip().lower()
+    if mode not in ("upsert", "create"):
+        raise HTTPException(status_code=422, detail="mode must be upsert or create")
+
+    now = datetime.now(timezone.utc)
+    summary = {
+        "mode": mode,
+        "exercises": {"created": 0, "updated": 0, "skipped": 0, "errors": []},
+        "patterns": {"created": 0, "updated": 0, "skipped": 0, "errors": []},
+    }
+
+    with Session(engine) as db:
+        for i, raw in enumerate(body.exercises or []):
+            if not isinstance(raw, dict):
+                summary["exercises"]["errors"].append({"index": i, "detail": "not an object"})
+                continue
+            name = str(raw.get("name") or "").strip()
+            if not name:
+                summary["exercises"]["errors"].append({"index": i, "detail": "name required"})
+                continue
+            try:
+                tss_weight = float(raw.get("tss_weight") if raw.get("tss_weight") is not None else 1.0)
+            except (TypeError, ValueError):
+                summary["exercises"]["errors"].append({"index": i, "name": name, "detail": "bad tss_weight"})
+                continue
+            groups = raw.get("groups") if isinstance(raw.get("groups"), list) else []
+            focus_tags = raw.get("focus_tags") if isinstance(raw.get("focus_tags"), list) else []
+            body_parts = raw.get("body_parts") if isinstance(raw.get("body_parts"), list) else []
+            default_sets = raw.get("default_sets")
+            if default_sets is not None:
+                try:
+                    default_sets = int(default_sets)
+                except (TypeError, ValueError):
+                    summary["exercises"]["errors"].append({"index": i, "name": name, "detail": "bad default_sets"})
+                    continue
+            active = bool(raw.get("active", True))
+            row = db.query(PlanExercise).filter_by(name=name).first()
+            if row is None:
+                db.add(PlanExercise(
+                    name=name,
+                    groups=groups,
+                    focus_tags=focus_tags,
+                    body_parts=body_parts,
+                    tss_weight=tss_weight,
+                    default_sets=default_sets,
+                    default_reps=raw.get("default_reps"),
+                    default_load=raw.get("default_load"),
+                    active=active,
+                    updated_at=now,
+                ))
+                summary["exercises"]["created"] += 1
+            elif mode == "create":
+                summary["exercises"]["skipped"] += 1
+            else:
+                row.groups = groups
+                row.focus_tags = focus_tags
+                row.body_parts = body_parts
+                row.tss_weight = tss_weight
+                row.default_sets = default_sets
+                row.default_reps = raw.get("default_reps")
+                row.default_load = raw.get("default_load")
+                row.active = active
+                row.updated_at = now
+                summary["exercises"]["updated"] += 1
+
+        for i, raw in enumerate(body.patterns or []):
+            if not isinstance(raw, dict):
+                summary["patterns"]["errors"].append({"index": i, "detail": "not an object"})
+                continue
+            kind = str(raw.get("kind") or "").strip()
+            subtype = str(raw.get("subtype") or "").strip()
+            name = str(raw.get("name") or "").strip()
+            if kind not in ("run", "strength"):
+                summary["patterns"]["errors"].append({
+                    "index": i, "name": name, "detail": "kind must be run or strength",
+                })
+                continue
+            if not subtype or not name:
+                summary["patterns"]["errors"].append({
+                    "index": i, "detail": "subtype and name required",
+                })
+                continue
+            recipe = raw.get("recipe")
+            if not isinstance(recipe, dict):
+                summary["patterns"]["errors"].append({
+                    "index": i, "name": name, "detail": "recipe must be an object",
+                })
+                continue
+            try:
+                duration_min_lo = int(raw.get("duration_min_lo") if raw.get("duration_min_lo") is not None else 0)
+                duration_min_hi = int(raw.get("duration_min_hi") if raw.get("duration_min_hi") is not None else 120)
+                priority = int(raw.get("priority") if raw.get("priority") is not None else 10)
+            except (TypeError, ValueError):
+                summary["patterns"]["errors"].append({
+                    "index": i, "name": name, "detail": "bad duration/priority ints",
+                })
+                continue
+            active = bool(raw.get("active", True))
+            row = (
+                db.query(PlanPattern)
+                .filter_by(kind=kind, subtype=subtype, name=name)
+                .first()
+            )
+            if row is None:
+                db.add(PlanPattern(
+                    kind=kind,
+                    subtype=subtype,
+                    duration_min_lo=duration_min_lo,
+                    duration_min_hi=duration_min_hi,
+                    name=name,
+                    priority=priority,
+                    recipe=recipe,
+                    active=active,
+                    updated_at=now,
+                ))
+                summary["patterns"]["created"] += 1
+            elif mode == "create":
+                summary["patterns"]["skipped"] += 1
+            else:
+                row.duration_min_lo = duration_min_lo
+                row.duration_min_hi = duration_min_hi
+                row.priority = priority
+                row.recipe = recipe
+                row.active = active
+                row.updated_at = now
+                summary["patterns"]["updated"] += 1
+
+        db.commit()
+
+    return JSONResponse(summary)
 
 
 # ── Sync status endpoint ───────────────────────────────────────────────────────

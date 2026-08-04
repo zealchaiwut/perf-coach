@@ -4428,7 +4428,9 @@ information about.
     '.pl-sug-fill-log>summary::-webkit-details-marker{display:none;}',
     '.pl-sug-fill-log>summary::before{content:"▸ ";font-size:10px;}',
     '.pl-sug-fill-log[open]>summary::before{content:"▾ ";}',
-    '.pl-sug-fill-log-pre{margin:6px 0 0;padding:8px 10px;background:var(--tile);border:1px solid var(--border);border-radius:8px;font-family:var(--mono);font-size:10.5px;line-height:1.45;white-space:pre-wrap;word-break:break-word;color:var(--ink);max-height:220px;overflow:auto;}',
+    '.pl-sug-budget-h{margin:8px 0 4px 46px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-sub);}',
+    '.pl-sug-fill-log-pre{margin:6px 0 0 46px;padding:8px 10px;background:var(--tile);border:1px solid var(--border);border-radius:8px;font-family:var(--mono);font-size:10.5px;line-height:1.45;white-space:pre-wrap;word-break:break-word;color:var(--ink);max-height:280px;overflow:auto;}',
+    '.pl-sug-fill-log .pl-sug-fill-log-pre{margin-left:0;}',
     '.pl-sug-trigger-row{margin:10px 0 4px;display:flex;justify-content:flex-start;}',
     '.pl-sug-trigger-btn{font-size:12px;font-weight:700;color:var(--info-dark);background:none;border:1px dashed #c7d2fe;border-radius:8px;padding:7px 13px;cursor:pointer;}',
     // ── Pre-generation preferences form ─────────────────────────────────────
@@ -4861,6 +4863,66 @@ information about.
     return '<div class="pl-sug-exercises"><div class="pl-sug-ex-block">' + segs + '</div></div>';
   }
 
+  function _formatBudgetTrace(trace) {
+    if (!trace || !trace.length) return '';
+    var lines = [];
+    var lastWasRemain = false;
+    function pushRemain(tss, mins, note) {
+      var line = 'Remained ' + tss + ' TSS, ' + mins + ' mins' +
+        (note ? ' [' + note + ']' : '');
+      if (lastWasRemain && lines.length && lines[lines.length - 1].indexOf('Remained ') === 0) {
+        lines[lines.length - 1] = line;
+      } else {
+        lines.push(line);
+      }
+      lastWasRemain = true;
+    }
+    trace.forEach(function (ev) {
+      var op = ev.op || '';
+      if (op === 'budget_start') {
+        pushRemain(ev.remain_tss, ev.remain_min, null);
+        return;
+      }
+      if (op === 'group_open') {
+        lines.push('');
+        lines.push('— ' + (ev.label || 'Group') + ' (aim ' + ev.n + ') —');
+        lastWasRemain = false;
+        return;
+      }
+      if (op === 'group_skip') {
+        lines.push('— skip ' + (ev.label || '') + ' —');
+        lastWasRemain = false;
+        return;
+      }
+      if (op === 'budget_remain') {
+        if (ev.note) pushRemain(ev.remain_tss, ev.remain_min, ev.note);
+        return;
+      }
+      if (op === 'budget_pick') {
+        var detail = (ev.sets != null ? ev.sets : '?') + ' × ' + (ev.reps || '?') +
+          (ev.load ? ' · ' + ev.load : '');
+        lines.push((ev.name || '?') + '  ' + detail +
+          '  →  spending ' + ev.spend_min + ' mins, ' + ev.spend_tss + ' TSS');
+        lines.push('    score ' + ev.score + ' = bias ' + ev.bias + ' × random ' + ev.random);
+        lastWasRemain = false;
+        pushRemain(ev.remain_tss_after, ev.remain_min_after, ev.note || null);
+        return;
+      }
+      if (op === 'budget_exhausted') {
+        lines.push('Budget exhausted');
+        lastWasRemain = false;
+        return;
+      }
+      if (op === 'budget_end') {
+        lines.push('');
+        lines.push('Done · ' + ev.exercise_count + ' exercises · leftover ' +
+          ev.remain_tss + ' TSS, ' + ev.remain_min + ' mins');
+        lastWasRemain = false;
+      }
+    });
+    return lines.join('\n');
+  }
+
   function _formatFillStep(step) {
     var op = step.op || '?';
     if (op === 'normalize_subtype') {
@@ -4878,14 +4940,9 @@ information about.
         (band[1] != null ? band[1] : '?') + ' min]';
     }
     if (op === 'fill_strength') {
-      var head = op + (step.attempt ? ' attempt ' + step.attempt : '') +
+      return op + (step.attempt ? ' attempt ' + step.attempt : '') +
         ' · ' + (step.exercise_count || 0) + ' exercises' +
         (step.blocks && step.blocks.length ? ' · blocks: ' + step.blocks.join(', ') : '');
-      var groups = (step.groups || []).map(function (g) {
-        return '  ' + (g.label || '') + ' ← [' + (g.from_tags || []).join(', ') +
-          '] n=' + g.n + ': ' + (g.picked || []).join(', ');
-      }).join('\n');
-      return groups ? head + '\n' + groups : head;
     }
     if (op === 'fill_run') {
       var phases = (step.phases || []).map(function (p) {
@@ -4914,15 +4971,24 @@ information about.
 
   function _sugFillLogHtml(s) {
     var log = s && s.fill_log;
-    if (!log || !log.steps || !log.steps.length) return '';
-    var lines = log.steps.map(_formatFillStep).join('\n');
-    var meta = [];
-    if (s.pattern_name) meta.push(s.pattern_name);
-    if (s.source) meta.push(s.source);
-    return '<details class="pl-sug-fill-log">' +
-      '<summary>Fill log' + (meta.length ? ' · ' + esc(meta.join(' · ')) : '') + '</summary>' +
-      '<pre class="pl-sug-fill-log-pre">' + esc(lines) + '</pre>' +
-      '</details>';
+    if (!log) return '';
+    var parts = [];
+    var budgetText = _formatBudgetTrace(log.budget_trace || []);
+    if (budgetText) {
+      parts.push('<div class="pl-sug-budget-h">Pick-by-pick budget</div>' +
+        '<pre class="pl-sug-fill-log-pre">' + esc(budgetText) + '</pre>');
+    }
+    if (log.steps && log.steps.length) {
+      var lines = log.steps.map(_formatFillStep).join('\n');
+      var meta = [];
+      if (s.pattern_name) meta.push(s.pattern_name);
+      if (s.source) meta.push(s.source);
+      parts.push('<details class="pl-sug-fill-log">' +
+        '<summary>Pipeline log' + (meta.length ? ' · ' + esc(meta.join(' · ')) : '') + '</summary>' +
+        '<pre class="pl-sug-fill-log-pre">' + esc(lines) + '</pre>' +
+        '</details>');
+    }
+    return parts.join('');
   }
 
   function _sugHasDetail(s) {
