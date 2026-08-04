@@ -17197,8 +17197,9 @@ def _summary_cache_put(user_id, key, sig, payload):
 # v6 = run_contributions + model + consistency bonus + improve hint;
 # v7 = power-fallback guards; v8 = implausible-lap filter; v9 = breakdown
 # block; v10 = race_floor_now + floor_binding; v11 = manual-lap reps;
-# v12 = aborted-session guard (MIN_ENDURANCE_QUALIFYING_SESSION_SECONDS).
-_PERF_FORMULA_VERSION = "vdot-v12"
+# v12 = aborted-session guard (MIN_ENDURANCE_QUALIFYING_SESSION_SECONDS);
+# v13 = endurance calibration: exponent 1.5→2.5, durability /50→/100 (#1331).
+_PERF_FORMULA_VERSION = "vdot-v13"
 
 # History window cap for the cold-cache run load (issue #1578).
 # trailing_window_days=90: only runs within 90d of the most-recent run affect

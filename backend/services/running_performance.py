@@ -95,7 +95,12 @@ PLAN_SHORT_CUT_RATIO: float = 0.75  # must complete ≥75 % of planned duration
 PERFORMANCE_CONFIG: dict = {
     "trailing_window_days": 90,
     "threshold_effort_minutes": 30.0,
-    "endurance_hr_extrapolation_exponent": 1.5,
+    # Recalibrated from 1.5 → 2.5 (issue #1331): k=1.5 mapped easy runs at
+    # ~140/155 bpm to ~408 s/km equivalent pace vs the stated 360 threshold —
+    # systematically pessimistic by ~48 s/km. k=2.5 closes the extrapolation
+    # gap so typical aerobic sessions land within ~5–10 pts of race-demonstrated
+    # fitness instead of 10+ pts below. Falls back gracefully for any HR ratio.
+    "endurance_hr_extrapolation_exponent": 2.5,
     "speed_sparse_effort_threshold": 5,
     "speed_sparse_band_multiplier": 1.5,
 }
@@ -220,11 +225,15 @@ def compute_endurance_score(
         vdot = vdot_from_pace_duration(velocity, threshold_effort_min)
         perf = rescale_to_score(vdot)
 
-        # Durability factor from decoupling (unchanged).
+        # Durability factor from decoupling (softened, issue #1331).
+        # Old: 1 − dec/50 → 20% decoupling removed 60% of perf (too harsh).
+        # New: 1 − dec/100 → 20% decoupling removes 20%; typical 5–10%
+        # decoupling now costs 5–10% instead of 10–20%, matching the intent
+        # (a long run with moderate drift should still score near its true level).
         decoupling_pct = run.get("decoupling_pct")
         if isinstance(decoupling_pct, (int, float)) and not isinstance(decoupling_pct, bool):
-            clamped = max(0.0, min(float(decoupling_pct), 50.0))
-            durability_factor = 1.0 - clamped / 50.0
+            clamped = max(0.0, min(float(decoupling_pct), 100.0))
+            durability_factor = 1.0 - clamped / 100.0
         else:
             durability_factor = 1.0
 
