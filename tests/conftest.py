@@ -93,6 +93,23 @@ def _excluding_integration(config) -> bool:
     return "not integration" in expr.replace("  ", " ")
 
 
+# ── Stray / not-yet-implemented test files (issue #1550) ─────────────────────
+#
+# These files were merged into the sprint before their backing implementation
+# landed.  All their tests use pytest.skip() so they verify nothing, but the
+# module-level env-var check raises RuntimeError at import time when the UAT
+# env is not configured — breaking --collect-only on any machine without those
+# vars set.
+#
+# Listing the files here causes pytest_ignore_collect to skip them entirely
+# (pre-import), which matches the "remove until #N actually lands" fix
+# without deleting the files from the repo.  Remove the entry once the
+# implementation is merged and the tests are made non-skip.
+_STRAY_UNIMPLEMENTED_TESTS = {
+    "test_weekly_coach_double_fire__1543.py",  # #1543 not yet in this sprint
+}
+
+
 def pytest_ignore_collect(collection_path, config):
     """Skip live-service modules BEFORE importing them.
 
@@ -107,10 +124,15 @@ def pytest_ignore_collect(collection_path, config):
     does not. The marker was correct and useless at the same time.
 
     So when a run excludes integration, those files are never imported at all.
+
+    Stray / not-yet-implemented files in _STRAY_UNIMPLEMENTED_TESTS are always
+    excluded regardless of the -m flag (issue #1550).
     """
+    path = str(collection_path)
+    if any(path.endswith(name) for name in _STRAY_UNIMPLEMENTED_TESTS):
+        return True
     if not _excluding_integration(config):
         return None
-    path = str(collection_path)
     if path.endswith(".py") and _needs_live_service(path):
         return True
     return None
