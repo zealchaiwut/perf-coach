@@ -1,4 +1,4 @@
-# Code State — sprint-127.2
+# Code State — sprint-128
 
 _Deterministic snapshot generated at sprint finish. Do not hand-edit — regenerated each sprint._
 
@@ -10,15 +10,14 @@ _Deterministic snapshot generated at sprint finish. Do not hand-edit — regener
 - **`docs/`** — Project documentation
 - **`alembic/`** — Database migration scripts
 
-## Recent Deltas (sprint-127.2)
+## Recent Deltas (sprint-128)
 
-Files changed: **26**
+Files changed: **7**
 
-- `tests/` — 14 file(s)
-- `backend/` — 6 file(s)
-- `alembic/` — 3 file(s)
-- `(root)/` — 2 file(s)
-- `docs/` — 1 file(s)
+- `tests/` — 4 file(s)
+- `backend/` — 1 file(s)
+- `frontend/` — 1 file(s)
+- `scripts/` — 1 file(s)
 
 ## Hot Files (last 90 days)
 
@@ -40,13 +39,13 @@ Files changed: **26**
 | `SCHEMA.md` | 43 |
 | `frontend/pages/habits.html` | 41 |
 | `frontend/pages/settings.html` | 39 |
-| `frontend/js/habits.js` | 37 |
+| `frontend/js/habits.js` | 38 |
 | `frontend/js/training.js` | 36 |
 | `backend/services/plan_suggestions.py` | 36 |
 | `frontend/pages/training.html` | 33 |
 
 ## Generated
 
-Sprint: `sprint-127.2`  
-Timestamp: `2026-08-04T16:21:42Z`  
+Sprint: `sprint-128`  
+Timestamp: `2026-08-04T17:13:18Z`  
 _Generated deterministically — no LLM required._
