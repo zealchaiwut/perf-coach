@@ -111,7 +111,13 @@ returned for back-compat but must not be used for badges.
    (zone_constants.py:47-48). **Tempo/threshold laps are excluded from both.**
 2. **Per-run efficiency** = duration-weighted power/HR, else (km/min)/HR
    (`_efficiency_from_laps` :518-577).
-3. **Durability factor** = `1 − clamp(decoupling_pct, 0, 50)/50` (:206-212).
+3. **Durability factor** = `1 − clamp(decoupling_pct, 0, 100)/100` (:206-212)
+   (softened from `…/50` in issue #1331 — 20% decoupling now costs 20%, not 60%,
+   so a long run with moderate drift still scores near its true level).
+   The HR-extrapolation exponent (`endurance_hr_extrapolation_exponent`) was
+   also recalibrated `1.5 → 2.5` in #1331, closing a systematic ~48 s/km
+   pessimism on easy runs; both changes bump `formula_version` `vdot-v12 →
+   vdot-v13`.
 4. **Window**: trailing 90 days (:131-139); min 3 qualifying runs
    (`MIN_QUALIFYING_RUNS=3`) else status `building_baseline`.
 5. **Min-max normalize** adjusted efficiencies to 0–100 *within the window*
