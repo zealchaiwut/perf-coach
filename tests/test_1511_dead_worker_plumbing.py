@@ -106,7 +106,6 @@ def test_build_brief_not_called_with_live_worker_url(m, tmp_path, capsys):
     argument (worker_url positional) is None, or that _build_brief is called
     with fewer than 2 positional args.
     """
-    import json
     output = tmp_path / "brief.json"
     fake_brief = {"schema_version": 3, "for_date": "2026-08-04"}
     captured_args = []
