@@ -2202,6 +2202,53 @@ class UserCustomPreset(Base):
     )
 
 
+class PlanPattern(Base):
+    """Admin-editable run/strength session recipe keyed by subtype + duration band."""
+
+    __tablename__ = "plan_patterns"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    kind = Column(String(20), nullable=False)  # run | strength
+    subtype = Column(String(40), nullable=False)
+    duration_min_lo = Column(Integer, nullable=False, server_default=text("0"))
+    duration_min_hi = Column(Integer, nullable=False, server_default=text("120"))
+    name = Column(String(120), nullable=False)
+    priority = Column(Integer, nullable=False, server_default=text("10"))
+    recipe = Column(JSONB, nullable=False)
+    active = Column(Boolean, nullable=False, server_default=text("true"))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    __table_args__ = (
+        CheckConstraint("kind IN ('run', 'strength')", name="ck_plan_patterns_kind"),
+        Index("ix_plan_patterns_kind_subtype", "kind", "subtype"),
+        Index("ix_plan_patterns_active", "active"),
+    )
+
+
+class PlanExercise(Base):
+    """Global exercise pool for strength pattern fill (muscle tags + group eligibility)."""
+
+    __tablename__ = "plan_exercises"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    name = Column(String(200), nullable=False, unique=True)
+    groups = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    focus_tags = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    body_parts = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    tss_weight = Column(Float, nullable=False, server_default=text("1.0"))
+    default_sets = Column(Integer, nullable=True)
+    default_reps = Column(String(40), nullable=True)
+    default_load = Column(String(80), nullable=True)
+    active = Column(Boolean, nullable=False, server_default=text("true"))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    __table_args__ = (
+        Index("ix_plan_exercises_active", "active"),
+    )
+
+
 class PreferenceImportAudit(Base):
     """Raw JSON audit for preference imports."""
 

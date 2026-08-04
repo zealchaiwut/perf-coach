@@ -688,38 +688,19 @@ information about.
           if (d.draft_version) _draft.draft_version = d.draft_version;
           _renderDraftChrome();
           _renderWeekList();
+          var sess = null;
+          (((_draft || {}).payload || {}).sessions || []).forEach(function (s) {
+            if (s && s.slot_id === slotId) sess = s;
+          });
+          if (sess && _detailDraft && _detailDraft.slot_id === slotId) {
+            _detailDraft = sess;
+            _renderDraftDetailSection();
+          }
         }
-        _toast('Generating details…');
-        _pollDraftPending(slotId);
+        _toast('Details filled');
         return d;
       });
     });
-  }
-
-  var _draftPendingTimer = null;
-  function _pollDraftPending(slotId) {
-    if (_draftPendingTimer) clearInterval(_draftPendingTimer);
-    var tries = 0;
-    _draftPendingTimer = setInterval(function () {
-      tries++;
-      _loadDraft(function () {
-        var sess = null;
-        (((_draft || {}).payload || {}).sessions || []).forEach(function (s) {
-          if (s && s.slot_id === slotId) sess = s;
-        });
-        if (!sess || !sess.pending || tries > 40) {
-          clearInterval(_draftPendingTimer);
-          _draftPendingTimer = null;
-          if (sess && !sess.pending) {
-            _toast('Details ready');
-            if (_detailDraft && _detailDraft.slot_id === slotId) {
-              _detailDraft = sess;
-              _renderDraftDetailSection();
-            }
-          }
-        }
-      });
-    }, 3000);
   }
 
   function _dayOffsetForDate(isoDate) {
@@ -904,7 +885,7 @@ information about.
         pendingBar.innerHTML =
           '<span class="pl-gen-spin pl-gen-spin-lg" aria-hidden="true"></span>' +
           '<span>Regenerating ' + pendingN + ' session' + (pendingN === 1 ? '' : 's') +
-          ' on zeal-server — you can keep editing. We\'ll nudge you when it\'s done.</span>';
+          '…</span>';
       } else {
         pendingBar.hidden = true;
         pendingBar.innerHTML = '';
@@ -924,9 +905,10 @@ information about.
 
   function _refreshDraft() {
     _api('POST', '/api/plan/draft/refresh', { week_start: _iso(_weekStart) })
-      .then(function () {
-        _toast('Draft refresh queued');
-        setTimeout(function () { _loadDraft(); }, 2500);
+      .then(function (res) {
+        if (res && res.draft) _draft = res.draft;
+        _toast('Draft refreshed');
+        _loadDraft();
       })
       .catch(function () { _toast('Could not refresh draft', true); });
   }
@@ -1563,7 +1545,7 @@ information about.
       _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(function () { if (_draftVisible) _loadDraft(); }); _loadWeekLoad(_iso(_weekStart));
     };
     // Header "+ Add" removed — use Suggest sessions or each day's "+ add"
-    // (bulk JSON / Ask AI still live in the Add panel opened from a day).
+    // (bulk JSON still live in the Add panel opened from a day).
     var applyBtn = document.getElementById('pl-apply-draft');
     if (applyBtn) applyBtn.onclick = _applyDraftWeek;
     var refreshBtn = document.getElementById('pl-refresh-draft');
@@ -2327,7 +2309,7 @@ information about.
 
   function _renderAddBody() {
     var editing = !!_addState.editId;
-    // Create single-session: Form (draft-first) | JSON. Ask AI lives on the form.
+    // Create single-session: Form (draft-first) | JSON.
     // Edit / bulk keep prior subtabs.
     var subs;
     if (editing) {
@@ -2402,7 +2384,7 @@ information about.
         '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-sf-save">Save changes</button><button class="pl-btn pl-ghost" id="pl-sf-cancel">Cancel</button></div>';
     }
 
-    // Create — draft-first: pins first, then AI / manual / skeleton, then save.
+    // Create — draft-first: pins + optional manual structure, then save.
     var draftMode = !!_draftVisible;
     var defaultType = 'run';
     return '<div class="pl-infobanner" style="margin-bottom:12px;">' +
@@ -2425,17 +2407,13 @@ information about.
       '<div class="pl-frow">' +
         '<div class="pl-fld"><label>Expected TSS</label><input type="number" id="pl-sf-tss" min="0" max="400" value="40"/></div>' +
         '<div class="pl-fld"><label>Duration (min)</label><input type="number" id="pl-sf-dur" min="0" max="600" value="45"/></div>' +
-        '<div class="pl-fld"><label>Name / intent</label><input id="pl-sf-name" placeholder="Optional — AI can fill"/></div>' +
+        '<div class="pl-fld"><label>Name / intent</label><input id="pl-sf-name" placeholder="Optional"/></div>' +
       '</div>' +
-      '<div class="pl-fld" style="margin-top:10px;"><label>Note to coach (optional)</label>' +
-        '<textarea id="pl-sf-note" placeholder="e.g. keep it under 45 min, focus on hip mobility"></textarea></div>' +
       '<div class="pl-btnrow pl-sf-draft-tools" style="margin-top:12px;gap:8px;flex-wrap:wrap;">' +
-        '<button type="button" class="pl-btn pl-ghost" id="pl-sf-askai">✨ Ask AI to generate</button>' +
         '<button type="button" class="pl-btn pl-ghost" id="pl-sf-manual-tog">' +
           (_addDraftExtras.manualOpen ? 'Hide manual structure' : 'Fill structure manually') +
         '</button>' +
       '</div>' +
-      '<div id="pl-sf-ai-prev" style="margin-top:10px;"></div>' +
       '<div id="pl-sf-structure" style="' + (_addDraftExtras.manualOpen ? '' : 'display:none;') + 'margin-top:12px;"></div>' +
       '<div class="pl-fld" style="margin-top:12px;"><label>Notes</label><textarea id="pl-sf-notes" placeholder="Optional notes saved on the draft"></textarea></div>' +
       '<div id="pl-sf-guard" aria-live="assertive"></div>' +
@@ -2447,7 +2425,7 @@ information about.
         '<button class="pl-btn pl-ghost" id="pl-sf-cancel">Cancel</button>' +
       '</div>' +
       (draftMode
-        ? '<p class="pl-sf-hint">Leave structure empty to keep a skeleton — content can fill later via Generate details or a worker week draft.</p>'
+        ? '<p class="pl-sf-hint">Leave structure empty — Save draft fills content from patterns. Or fill structure manually.</p>'
         : '');
   }
 
@@ -2907,8 +2885,6 @@ information about.
         _syncSubtype();
         if (_addDraftExtras.manualOpen) _renderStructureBuilder();
         _addDraftExtras.ai = null;
-        var prev = document.getElementById('pl-sf-ai-prev');
-        if (prev) prev.innerHTML = '';
       });
       ['pl-sf-tss', 'pl-sf-dur'].forEach(function (id) {
         var el = document.getElementById(id);
@@ -2930,67 +2906,6 @@ information about.
         }
       };
       if (_addDraftExtras.manualOpen) _renderStructureBuilder();
-
-      if (_addDraftExtras.ai) {
-        var prev0 = document.getElementById('pl-sf-ai-prev');
-        if (prev0) prev0.innerHTML = _aiSessionPreviewHtml(_addDraftExtras.ai);
-      }
-
-      var askBtn = document.getElementById('pl-sf-askai');
-      if (askBtn) askBtn.onclick = function () {
-        var dateEl = document.getElementById('pl-sf-date');
-        if (!dateEl.value) { _toast('Pick a date first', true); return; }
-        askBtn.disabled = true;
-        askBtn.textContent = 'Generating…';
-        _api('POST', '/api/plan/suggestions/session', {
-          date: dateEl.value,
-          workout_type: typeEl.value,
-          subtype: (subEl.value || null),
-          note: (document.getElementById('pl-sf-note').value || null),
-          target_tss: parseFloat(document.getElementById('pl-sf-tss').value) || null,
-          duration_minutes: parseInt(document.getElementById('pl-sf-dur').value, 10) || null,
-        })
-          .then(function (data) {
-            var s = data.session || {};
-            _addDraftExtras.ai = s;
-            if (s.intent) document.getElementById('pl-sf-name').value = s.intent;
-            if (s.notes) document.getElementById('pl-sf-notes').value = s.notes;
-            if (s.target_tss != null) {
-              var tssEl = document.getElementById('pl-sf-tss');
-              tssEl.value = s.target_tss;
-              tssEl.dataset.touched = '1';
-            }
-            if (s.duration_minutes != null) {
-              var durEl = document.getElementById('pl-sf-dur');
-              durEl.value = s.duration_minutes;
-              durEl.dataset.touched = '1';
-            }
-            if (Array.isArray(s.blocks) && s.blocks.length) {
-              _sfBlocks = s.blocks.slice();
-              _addDraftExtras.manualOpen = true;
-              manualTog.textContent = 'Hide manual structure';
-              var host = document.getElementById('pl-sf-structure');
-              host.style.display = '';
-              _renderStructureBuilder();
-            } else if (Array.isArray(s.exercises) && s.exercises.length) {
-              _sfExercises = s.exercises.slice();
-              _addDraftExtras.manualOpen = true;
-              manualTog.textContent = 'Hide manual structure';
-              var host2 = document.getElementById('pl-sf-structure');
-              host2.style.display = '';
-              _renderStructureBuilder();
-            }
-            document.getElementById('pl-sf-ai-prev').innerHTML = _aiSessionPreviewHtml(s);
-          })
-          .catch(function (e) {
-            document.getElementById('pl-sf-ai-prev').innerHTML =
-              '<div class="pl-previewbox err">' + esc(e.message || 'Could not generate') + '</div>';
-          })
-          .then(function () {
-            askBtn.disabled = false;
-            askBtn.textContent = '✨ Ask AI to generate';
-          });
-      };
 
       function _readCreateCustom() {
         var wt = typeEl.value;
@@ -3571,37 +3486,24 @@ information about.
       var dm = _H().durationMinutesFromBlocks && _H().durationMinutesFromBlocks(s.blocks);
       if (dm) pins.push(dm + ' min');
     }
-    var pinNote = has && pins.length
-      ? 'keeps day · type · ' + pins.join(' · ') + ' pinned — content only'
-      : (has ? 'refines content · day & type stay pinned' : 'no structure yet — builds from focus + coach note');
-    var title = has ? '✨ Refine with AI' : '✨ Generate with AI';
-    var goLab = has ? 'Refine' : 'Generate';
-    var chips = has
-      ? '<div class="pl-sm-chips" id="pl-sm-chips">' +
-          '<button type="button" class="pl-sm-chip" data-steer="make it easier / lighter volume">Easier</button>' +
-          '<button type="button" class="pl-sm-chip" data-steer="make it harder / more stimulus">Harder</button>' +
-          '<button type="button" class="pl-sm-chip" data-steer="shorten the session while keeping the intent">Shorten</button>' +
-          '<button type="button" class="pl-sm-chip" data-steer="swap to a different subtype / focus">Swap subtype</button>' +
-        '</div>'
-      : '';
+    var pinNote = pins.length
+      ? 'fills from patterns · keeps ' + pins.join(' · ') + ' pinned'
+      : 'needs TSS or duration pinned to fill from patterns';
+    var title = has ? 'Refill from patterns' : 'Fill from patterns';
+    var goLab = has ? 'Refill' : 'Fill';
     var err = _sm.aiError
       ? '<div class="pl-sm-ai-err" id="pl-sm-ai-err" aria-live="assertive" role="alert">' + esc(_sm.aiError) + '</div>'
       : '<div class="pl-sm-ai-err" id="pl-sm-ai-err" aria-live="assertive" hidden></div>';
     return '<div class="pl-sm-ai" id="pl-sm-ai">' +
       '<div class="pl-sm-ai-h"><b>' + title + '</b><span>' + esc(pinNote) + '</span></div>' +
-      chips +
       '<div class="pl-sm-free">' +
-        '<input type="text" id="pl-sm-ai-note" aria-label="AI steering note" placeholder="' +
-          (has ? 'or describe the change… e.g. add 4 × 20s strides at the end'
-               : 'optional steer… e.g. lower / posterior chain, dumbbells only, 45 min') + '"/>' +
-        '<button type="button" class="pl-sm-go" id="pl-sm-ai-go"' + (_sm.aiBusy ? ' disabled' : '') + '>' +
+        '<button type="button" class="pl-sm-go" id="pl-sm-ai-go"' +
+          (_sm.aiBusy || !pins.length ? ' disabled' : '') + '>' +
           (_sm.aiBusy ? '…' : goLab) + '</button>' +
       '</div>' +
       err +
       '<div class="pl-sm-ai-n">' +
-        (has
-          ? 'manual edits below mark this session EDITED — drafts will never overwrite it'
-          : 'uses the same engine as week drafts · house structure · validated before it lands') +
+        'deterministic pattern fill · no LLM · review then save' +
       '</div>' +
     '</div>';
   }
@@ -3743,19 +3645,11 @@ information about.
     finish();
   }
 
-  function _smRunAi(steer) {
+  function _smRunAi() {
     var p = _detail;
     if (!p || _sm.aiBusy) return;
     var H = _H();
     var draft = _smReadDraftFromDom(p);
-    var note = (steer || '').trim();
-    var noteEl = document.getElementById('pl-sm-ai-note');
-    if (!note && noteEl) note = noteEl.value.trim();
-    if (!note) {
-      note = _smHasStructure(p)
-        ? 'Regenerate fuller session details while keeping the same intent.'
-        : 'Fill in full session details matching the existing title and coach notes.';
-    }
     var current = {
       day_offset: 0,
       workout_type: draft.session_type,
@@ -3767,14 +3661,19 @@ information about.
       duration_minutes: (p.structure && p.structure.duration_minutes) ||
         (H.durationMinutesFromBlocks && H.durationMinutesFromBlocks((p.structure || {}).blocks)) || 0,
     };
+    if (!(current.target_tss > 0) && !(current.duration_minutes > 0)) {
+      _sm.aiError = 'Set TSS or duration before filling from patterns.';
+      _renderDetailSection();
+      return;
+    }
     var body = {
       date: draft.planned_date || p.planned_date,
       workout_type: draft.session_type,
-      note: note,
       current_session: _smHasStructure(p) ? current : null,
+      target_tss: current.target_tss > 0 ? current.target_tss : null,
+      duration_minutes: current.duration_minutes > 0 ? current.duration_minutes : null,
+      subtype: (p.structure && p.structure.subtype) || p.subtype || null,
     };
-    if (current.target_tss > 0) body.target_tss = current.target_tss;
-    if (current.duration_minutes > 0) body.duration_minutes = current.duration_minutes;
 
     _sm.aiBusy = true;
     _sm.aiError = '';
@@ -3791,7 +3690,7 @@ information about.
         } else if (Array.isArray(s.blocks) && s.blocks.length) {
           structure = { blocks: s.blocks };
         } else {
-          throw new Error('AI returned no exercises or run structure — try a more specific note.');
+          throw new Error('Pattern fill returned no exercises or run structure.');
         }
         if (s.target_tss != null) structure.target_tss = s.target_tss;
         else if (p.structure && p.structure.target_tss != null) structure.target_tss = p.structure.target_tss;
@@ -3802,19 +3701,17 @@ information about.
         }
         if (H.stampSourceUser) structure = H.stampSourceUser(structure);
 
-        // Land in modal for review — mark dirty, do NOT autosave.
         p.name = s.intent ? String(s.intent).substring(0, 80) : (draft.name || p.name);
         p.notes = s.notes != null ? s.notes : draft.notes;
         p.structure = structure;
         _smSeedBuilders(p);
         _sm.aiBusy = false;
         delete _generatingIds[p.id];
+        _sm.dirty = true;
+        _smMarkDirty();
         _renderWeekList();
         _sm.suppressDomSync = true;
         _renderDetailSection();
-        // Force dirty vs baseline
-        _sm.dirty = true;
-        _smMarkDirty();
         var dirtyEl = document.getElementById('pl-sm-dirty');
         if (dirtyEl) dirtyEl.textContent = 'unsaved changes';
         var discardBtn = document.getElementById('pl-sm-discard');
@@ -3824,12 +3721,11 @@ information about.
         if (saveBtn) saveBtn.hidden = false;
         if (closeBtn) closeBtn.hidden = true;
       })
-      .catch(function (err) {
+      .catch(function (e) {
         _sm.aiBusy = false;
-        _sm.aiError = (err && err.message) || 'Could not generate — try again.';
         delete _generatingIds[p.id];
+        _sm.aiError = (e && e.message) || 'Pattern fill failed';
         _renderWeekList();
-        _sm.suppressDomSync = true;
         _renderDetailSection();
       });
   }
@@ -4080,12 +3976,7 @@ information about.
       _renderDetailSection();
     };
     var aiGo = document.getElementById('pl-sm-ai-go');
-    if (aiGo) aiGo.onclick = function () { _smRunAi(null); };
-    host.querySelectorAll('.pl-sm-chip').forEach(function (chip) {
-      chip.addEventListener('click', function () {
-        _smRunAi(chip.getAttribute('data-steer') || chip.textContent);
-      });
-    });
+    if (aiGo) aiGo.onclick = function () { _smRunAi(); };
 
     var strydToggle = document.getElementById('pl-sm-stryd-toggle');
     if (strydToggle) strydToggle.onclick = function () {
@@ -5054,6 +4945,9 @@ information about.
             workout_type: s.workout_type,
             note: note,
             current_session: s,
+            target_tss: s.target_tss || null,
+            duration_minutes: s.duration_minutes || null,
+            subtype: s.subtype || null,
           }),
         })
           .then(function (r) {
@@ -5236,22 +5130,22 @@ information about.
       '<div class="pl-rail-head">' +
         '<span class="pl-rail-title">Schedule — drag, resize, then fill</span>' +
         '<span class="pl-rail-sum">' + _slotSumHtml(data) + '</span>' +
-        '<label class="pl-fill-skiprun" title="Exclude run slots from the AI fill — they are usually the most numerous and the first to exhaust the LLM budget">' +
+        '<label class="pl-fill-skiprun" title="Exclude run slots from pattern fill">' +
           '<input type="checkbox" id="pl-skip-run"' + (_skipRunFill ? ' checked' : '') + (_fillAllRunning ? ' disabled' : '') + '/> Skip Run</label>' +
         '<div class="pl-fill-group">' +
           '<button type="button" class="pl-btn pl-lime pl-fill-all"' + (fillDisabled ? ' disabled' : '') + '>' +
-            (_fillAllRunning ? '… filling' : '✨ Fill sessions with AI') + '</button>' +
+            (_fillAllRunning ? '… filling' : 'Fill from patterns') + '</button>' +
           '<button type="button" class="pl-fill-menu-btn" aria-haspopup="true" aria-expanded="false" title="More fill options"' +
             (_fillAllRunning ? ' disabled' : '') + '>▾</button>' +
           '<div class="pl-fill-menu" role="menu">' +
             '<button type="button" data-fill-action="web"' + (fillDisabled ? ' disabled' : '') + '>' +
-              'Fill here (webapp AI)' +
-              '<span class="pl-fill-menu-hint">Sequential Groq fills — stays in this panel</span>' +
+              'Fill here (patterns)' +
+              '<span class="pl-fill-menu-hint">Sync pattern fill per open slot</span>' +
             '</button>' +
             '<button type="button" data-fill-action="worker-draft"' +
               (_draftQueueBusy ? ' disabled' : '') + '>' +
-              'Queue week draft on worker' +
-              '<span class="pl-fill-menu-hint">plan_draft job on zeal-server — review &amp; apply later</span>' +
+              'Refresh week draft' +
+              '<span class="pl-fill-menu-hint">Sync pattern refill of the Plan draft</span>' +
             '</button>' +
           '</div>' +
         '</div>' +
@@ -5364,25 +5258,10 @@ information about.
   }
 
   function _queueWorkerDraft() {
-    // Always show feedback first — never fail silently.
-    try {
-      _showDraftQueueModal({ queuing: true });
-    } catch (e1) {
-      try { window.alert('Queuing week draft on the worker…'); } catch (e2) { /* ignore */ }
-    }
-
-    if (_draftQueueBusy) {
-      _showDraftQueueModal({
-        error: false,
-        jobId: _draftQueueJobId,
-        already: true,
-      });
-      return;
-    }
-
+    if (_draftQueueBusy) return;
     _draftQueueBusy = true;
     try {
-      _setDraftQueueLock(true, 'Queuing week draft on the worker…');
+      _setDraftQueueLock(true, 'Refreshing week draft from patterns…');
     } catch (e3) {
       console.warn('[plan] lock banner failed', e3);
     }
@@ -5407,24 +5286,26 @@ information about.
         });
       })
       .then(function (res) {
-        var jid = (res && res.job_id) ? String(res.job_id) : null;
-        _draftQueueJobId = jid;
-        if (window.TrainingPlan && window.TrainingPlan.markDraftPending) {
-          window.TrainingPlan.markDraftPending();
+        _draftQueueBusy = false;
+        try { _setDraftQueueLock(false); } catch (e5) { /* ignore */ }
+        if (window.TrainingPlan && window.TrainingPlan.reloadDraft) {
+          window.TrainingPlan.reloadDraft();
         }
-        _showDraftQueueModal({
-          jobId: jid,
-          weekStart: res && res.week_start,
-        });
+        if (window.UIStates && window.UIStates.showToast) {
+          window.UIStates.showToast('Week draft refreshed', false);
+        }
+        if (_suggestionsData) {
+          _suggestionsData._fillNote = 'Draft refreshed from patterns';
+          _renderSuggestions(_suggestionsData);
+        }
+        return res;
       })
       .catch(function (err) {
         _draftQueueBusy = false;
         try { _setDraftQueueLock(false); } catch (e5) { /* ignore */ }
-        _showDraftQueueModal({
-          error: true,
-          title: 'Could not queue draft',
-          body: (err && err.message) ? String(err.message) : 'The worker queue request failed.',
-        });
+        if (window.UIStates && window.UIStates.showToast) {
+          window.UIStates.showToast((err && err.message) || 'Draft refresh failed', true);
+        }
       });
   }
 
@@ -5696,7 +5577,7 @@ information about.
       if (loading) loading.style.display = 'none';
       _suggestionsData._fillNote = failed
         ? 'Filled ' + done + ' of ' + slots.length + ' — the AI provider rate-limited the rest. ' +
-          'Wait a minute and press ✨ Fill sessions with AI again; already-filled sessions are kept.'
+          'Wait a minute and press Fill from patterns again; already-filled sessions are kept.'
         : '';
       _renderSuggestions(_suggestionsData);
     });

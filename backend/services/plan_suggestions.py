@@ -1729,26 +1729,22 @@ def generate_single_session(
     subtype: str | None = None,
     db=None,
 ) -> dict | None:
-    """Generate or refine ONE session.
+    """Fill ONE session from DB patterns using pinned type/TSS/duration.
 
-    When the schedule rail has pinned the slot (target_tss / duration_minutes),
-    content is produced via plan_slot.generate_slot_content — LLM never emits
-    pins; Python stamps them; exhausted retries fall back to day templates.
-    This is the sanctioned Ask-AI shape per CLAUDE.md: "fills ONE session's
-    content once the skeleton has fixed the day/type/TSS."
-
-    Without pins (the suggestion-row "Refine" action, and any caller that
-    hasn't fixed a budget yet), the LLM proposes target_tss/duration_minutes
-    itself, bounded by validation_errors' range + weekly-ACWR checks; a
-    session that never validates after 2 tries returns None (422, no
-    template fallback — a templated session isn't a stand-in for a specific
-    request). This freeform branch used to also carry a second, shadowed
-    attempt at budget-pinning (issue #1417, superseded a week later by the
-    plan_slot path above without being removed) — that dead code is gone;
-    it never ran once the pinned branch started intercepting every call with
-    a budget, since that branch returns before this one is reached.
+    Planning LLM removed — `note` is ignored for content generation.
+    Requires pins (target_tss and/or duration_minutes); without pins returns None.
     """
+    del note  # unused — no freeform LLM refine
     from backend.services.plan_prefs_accessor import get_plan_prefs
+    from backend.services.plan_slot import (
+        build_week_ctx,
+        normalize_slot_subtype,
+        stamp_session,
+    )
+    from backend.services.plan_pattern_fill import fill_slot
+
+    if target_tss is None and duration_minutes is None:
+        return None
 
     prefs = get_plan_prefs(
         db, user_id,
@@ -1763,103 +1759,34 @@ def generate_single_session(
         notes=prefs["notes"],
     )
 
-    # Two-rail / pipeline v2: pins present → content-only path
-    if target_tss is not None or duration_minutes is not None:
-        from backend.services.plan_slot import (
-            build_week_ctx,
-            generate_slot_content,
-            normalize_slot_subtype,
-            stamp_session,
-        )
-
-        slot = {
-            "day_offset": day_offset,
-            "workout_type": (workout_type or "run").lower(),
-            "target_tss": round(float(target_tss)) if target_tss is not None else 0,
-            "duration_minutes": int(duration_minutes) if duration_minutes is not None else 0,
-            "subtype": normalize_slot_subtype(workout_type, subtype),
-            "structure_hints": {},
-            "locked": False,
+    slot = {
+        "day_offset": day_offset,
+        "workout_type": (workout_type or "run").lower(),
+        "target_tss": round(float(target_tss)) if target_tss is not None else 0,
+        "duration_minutes": int(duration_minutes) if duration_minutes is not None else 0,
+        "subtype": normalize_slot_subtype(workout_type, subtype),
+        "structure_hints": {},
+        "locked": False,
+    }
+    week_ctx = build_week_ctx(
+        facts=facts,
+        skeleton_slots=[slot],
+        strength_emphasis=prefs["strength_emphasis"],
+        notes=prefs["notes"],
+    )
+    current = None
+    if current_session and isinstance(current_session, dict):
+        current = {
+            "intent": current_session.get("intent"),
+            "notes": current_session.get("notes"),
+            "blocks": current_session.get("blocks"),
+            "exercises": current_session.get("exercises"),
+            "source": current_session.get("source"),
         }
-        week_ctx = build_week_ctx(
-            facts=facts,
-            skeleton_slots=[slot],
-            strength_emphasis=prefs["strength_emphasis"],
-            notes=prefs["notes"],
-        )
-
-        def _llm(system: str, user: str) -> dict | None:
-            return llm_svc.complete_structured(
-                system=system,
-                user=user,
-                schema_name="plan_slot_content",
-                json_schema={
-                    "type": "object",
-                    "properties": {
-                        "intent": {"type": "string", "maxLength": 140},
-                        "notes": {"type": ["string", "null"]},
-                        "blocks": {"type": ["array", "null"]},
-                        "exercises": {"type": ["array", "null"]},
-                    },
-                    "required": ["intent"],
-                    "additionalProperties": True,
-                },
-                model_tier="deep",
-                max_tokens=(
-                    _RUN_SESSION_MAX_COMPLETION_TOKENS if workout_type == "run"
-                    else _SINGLE_SESSION_MAX_COMPLETION_TOKENS
-                ),
-            )
-
-        current = None
-        if current_session and isinstance(current_session, dict):
-            current = {
-                "intent": current_session.get("intent"),
-                "notes": current_session.get("notes"),
-                "blocks": current_session.get("blocks"),
-                "exercises": current_session.get("exercises"),
-                "source": current_session.get("source"),
-            }
-        content = generate_slot_content(
-            week_ctx, slot,
-            instruction=note or None,
-            current=current,
-            llm_call=_llm,
-        )
-        return stamp_session(slot, content)
-
-    # Legacy path (no pins) — freeform generate/refine, kept for callers with
-    # no schedule-rail budget to hand it (e.g. the suggestion-row "Refine"
-    # action). The LLM proposes its own target_tss/duration_minutes here;
-    # validation_errors bounds them (range + weekly ACWR ceiling) same as the
-    # whole-week path. No deterministic-template fallback — see the endpoint
-    # docstring in routers/projection.py for why.
-    validation_facts = {**facts, "allowed_offsets": [day_offset]}
-
-    feedback = ""
-    for _attempt in range(2):
-        system, user = build_single_session_prompt(
-            facts, day_offset, workout_type, note, current_session,
-            subtype=subtype,
-        )
-        raw = llm_svc.complete_structured(
-            system=system,
-            user=user + feedback,
-            schema_name="single_session",
-            json_schema=_LLM_SINGLE_SESSION_SCHEMA,
-            model_tier="deep",
-            max_tokens=(
-                _RUN_SESSION_MAX_COMPLETION_TOKENS if workout_type == "run"
-                else _SINGLE_SESSION_MAX_COMPLETION_TOKENS
-            ),
-        )
-        if raw is None:
-            continue
-        session = raw.get("session")
-        if not isinstance(session, dict):
-            continue
-        errs = validation_errors([session], validation_facts)
-        if not errs:
-            return session
-        feedback = _feedback_block(errs)
-    return None
+    content = fill_slot(slot, db=db, week_ctx=week_ctx, current=current)
+    footprint = content.pop("_muscle_footprint", None)
+    stamped = stamp_session(slot, content)
+    stamped["source"] = content.get("source") or "pattern"
+    if footprint:
+        stamped["_muscle_footprint"] = footprint
+    return stamped

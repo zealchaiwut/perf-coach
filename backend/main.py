@@ -14099,6 +14099,229 @@ def admin_copy_user_to_uat(body: AdminCopyUserIn):
     return JSONResponse(result)
 
 
+# ── Admin: plan patterns / exercises ──────────────────────────────────────────
+
+class AdminPlanPatternIn(BaseModel):
+    kind: str
+    subtype: str
+    duration_min_lo: int = 0
+    duration_min_hi: int = 120
+    name: str
+    priority: int = 10
+    recipe: dict
+    active: bool = True
+
+
+class AdminPlanExerciseIn(BaseModel):
+    name: str
+    groups: list = []
+    focus_tags: list = []
+    body_parts: list = []
+    tss_weight: float = 1.0
+    default_sets: Optional[int] = None
+    default_reps: Optional[str] = None
+    default_load: Optional[str] = None
+    active: bool = True
+
+
+def _pattern_dict(r) -> dict:
+    return {
+        "id": str(r.id),
+        "kind": r.kind,
+        "subtype": r.subtype,
+        "duration_min_lo": r.duration_min_lo,
+        "duration_min_hi": r.duration_min_hi,
+        "name": r.name,
+        "priority": r.priority,
+        "recipe": r.recipe or {},
+        "active": bool(r.active),
+        "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+    }
+
+
+def _exercise_dict(r) -> dict:
+    return {
+        "id": str(r.id),
+        "name": r.name,
+        "groups": r.groups or [],
+        "focus_tags": r.focus_tags or [],
+        "body_parts": r.body_parts or [],
+        "tss_weight": float(r.tss_weight or 1.0),
+        "default_sets": r.default_sets,
+        "default_reps": r.default_reps,
+        "default_load": r.default_load,
+        "active": bool(r.active),
+        "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+    }
+
+
+@app.get("/api/admin/plan-patterns", dependencies=[Depends(require_admin)])
+def admin_list_plan_patterns(kind: Optional[str] = None, subtype: Optional[str] = None):
+    from backend.models import PlanPattern
+
+    with Session(engine) as db:
+        q = db.query(PlanPattern)
+        if kind:
+            q = q.filter(PlanPattern.kind == kind)
+        if subtype:
+            q = q.filter(PlanPattern.subtype == subtype)
+        rows = q.order_by(PlanPattern.kind, PlanPattern.subtype, PlanPattern.priority.desc()).all()
+        return JSONResponse({"patterns": [_pattern_dict(r) for r in rows]})
+
+
+@app.post("/api/admin/plan-patterns", status_code=201, dependencies=[Depends(require_admin)])
+def admin_create_plan_pattern(body: AdminPlanPatternIn):
+    from backend.models import PlanPattern
+    from datetime import datetime, timezone
+
+    if body.kind not in ("run", "strength"):
+        raise HTTPException(status_code=422, detail="kind must be run or strength")
+    with Session(engine) as db:
+        row = PlanPattern(
+            kind=body.kind,
+            subtype=body.subtype.strip(),
+            duration_min_lo=body.duration_min_lo,
+            duration_min_hi=body.duration_min_hi,
+            name=body.name.strip(),
+            priority=body.priority,
+            recipe=body.recipe,
+            active=body.active,
+            updated_at=datetime.now(timezone.utc),
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return JSONResponse(status_code=201, content=_pattern_dict(row))
+
+
+@app.patch("/api/admin/plan-patterns/{pattern_id}", dependencies=[Depends(require_admin)])
+def admin_patch_plan_pattern(pattern_id: str, body: AdminPlanPatternIn):
+    from backend.models import PlanPattern
+    from datetime import datetime, timezone
+    from uuid import UUID
+
+    with Session(engine) as db:
+        row = db.query(PlanPattern).filter(PlanPattern.id == UUID(pattern_id)).first()
+        if row is None:
+            raise HTTPException(status_code=404, detail="pattern not found")
+        if body.kind not in ("run", "strength"):
+            raise HTTPException(status_code=422, detail="kind must be run or strength")
+        row.kind = body.kind
+        row.subtype = body.subtype.strip()
+        row.duration_min_lo = body.duration_min_lo
+        row.duration_min_hi = body.duration_min_hi
+        row.name = body.name.strip()
+        row.priority = body.priority
+        row.recipe = body.recipe
+        row.active = body.active
+        row.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(row)
+        return JSONResponse(_pattern_dict(row))
+
+
+@app.delete("/api/admin/plan-patterns/{pattern_id}", status_code=204, dependencies=[Depends(require_admin)])
+def admin_delete_plan_pattern(pattern_id: str):
+    from backend.models import PlanPattern
+    from uuid import UUID
+
+    with Session(engine) as db:
+        row = db.query(PlanPattern).filter(PlanPattern.id == UUID(pattern_id)).first()
+        if row is None:
+            raise HTTPException(status_code=404, detail="pattern not found")
+        db.delete(row)
+        db.commit()
+    return Response(status_code=204)
+
+
+@app.get("/api/admin/plan-exercises", dependencies=[Depends(require_admin)])
+def admin_list_plan_exercises():
+    from backend.models import PlanExercise
+
+    with Session(engine) as db:
+        rows = db.query(PlanExercise).order_by(PlanExercise.name).all()
+        return JSONResponse({"exercises": [_exercise_dict(r) for r in rows]})
+
+
+@app.post("/api/admin/plan-exercises", status_code=201, dependencies=[Depends(require_admin)])
+def admin_create_plan_exercise(body: AdminPlanExerciseIn):
+    from backend.models import PlanExercise
+    from datetime import datetime, timezone
+    from sqlalchemy.exc import IntegrityError
+
+    with Session(engine) as db:
+        row = PlanExercise(
+            name=body.name.strip(),
+            groups=body.groups or [],
+            focus_tags=body.focus_tags or [],
+            body_parts=body.body_parts or [],
+            tss_weight=body.tss_weight,
+            default_sets=body.default_sets,
+            default_reps=body.default_reps,
+            default_load=body.default_load,
+            active=body.active,
+            updated_at=datetime.now(timezone.utc),
+        )
+        db.add(row)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=409, detail=f"Exercise '{body.name}' already exists")
+        db.refresh(row)
+        return JSONResponse(status_code=201, content=_exercise_dict(row))
+
+
+@app.patch("/api/admin/plan-exercises/{exercise_id}", dependencies=[Depends(require_admin)])
+def admin_patch_plan_exercise(exercise_id: str, body: AdminPlanExerciseIn):
+    from backend.models import PlanExercise
+    from datetime import datetime, timezone
+    from uuid import UUID
+
+    with Session(engine) as db:
+        row = db.query(PlanExercise).filter(PlanExercise.id == UUID(exercise_id)).first()
+        if row is None:
+            raise HTTPException(status_code=404, detail="exercise not found")
+        row.name = body.name.strip()
+        row.groups = body.groups or []
+        row.focus_tags = body.focus_tags or []
+        row.body_parts = body.body_parts or []
+        row.tss_weight = body.tss_weight
+        row.default_sets = body.default_sets
+        row.default_reps = body.default_reps
+        row.default_load = body.default_load
+        row.active = body.active
+        row.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(row)
+        return JSONResponse(_exercise_dict(row))
+
+
+@app.delete("/api/admin/plan-exercises/{exercise_id}", status_code=204, dependencies=[Depends(require_admin)])
+def admin_delete_plan_exercise(exercise_id: str):
+    from backend.models import PlanExercise
+    from uuid import UUID
+
+    with Session(engine) as db:
+        row = db.query(PlanExercise).filter(PlanExercise.id == UUID(exercise_id)).first()
+        if row is None:
+            raise HTTPException(status_code=404, detail="exercise not found")
+        db.delete(row)
+        db.commit()
+    return Response(status_code=204)
+
+
+@app.post("/api/admin/plan-patterns/seed", dependencies=[Depends(require_admin)])
+def admin_seed_plan_patterns(reset: bool = False):
+    """Idempotent upsert of ship-default patterns and exercises."""
+    from backend.services.plan_pattern_fill import seed_defaults
+
+    with Session(engine) as db:
+        result = seed_defaults(db, reset=reset)
+        db.commit()
+        return JSONResponse(result)
+
+
 # ── Sync status endpoint ───────────────────────────────────────────────────────
 
 @app.get("/api/sync/status")

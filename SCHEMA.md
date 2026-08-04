@@ -1079,3 +1079,44 @@ week-only uniqueness).
 | plan_state_snapshot | jsonb | nullable — engine plan-state snapshot the message was built from |
 
 Unique: `(user_id, for_week)` (`uq_weekly_coach_messages_user_week`). Index: `ix_weekly_coach_messages_user_generated_at` on `(user_id, generated_at)`. Migration: `5b2f59e19e14_add_weekly_coach_messages_table`.
+
+## plan_patterns _(pattern plan fill)_
+
+Global (not per-user) run/strength session recipes keyed by subtype + duration band. Used by `plan_pattern_fill` for deterministic draft content (no planning LLM). Admin CRUD: `/api/admin/plan-patterns`. Migration: `25a16908c6b4_add_plan_patterns_and_plan_exercises`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | `gen_random_uuid()` |
+| kind | varchar(20) | NOT NULL — `run` \| `strength` |
+| subtype | varchar(40) | NOT NULL — e.g. `easy_run`, `strength_lower` |
+| duration_min_lo | int | NOT NULL, default 0 |
+| duration_min_hi | int | NOT NULL, default 120 |
+| name | varchar(120) | NOT NULL |
+| priority | int | NOT NULL, default 10 — higher wins on band overlap |
+| recipe | jsonb | NOT NULL — run blocks or strength groups + focus_bias |
+| active | bool | NOT NULL, default true |
+| created_at | timestamptz | server default now() |
+| updated_at | timestamptz | server default now() |
+
+Indexes: `(kind, subtype)`, `active`.
+
+## plan_exercises _(pattern plan fill)_
+
+Global strength exercise pool for pattern fill. Admin CRUD: `/api/admin/plan-exercises`. Same migration as `plan_patterns`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | `gen_random_uuid()` |
+| name | varchar(200) | NOT NULL, unique |
+| groups | jsonb | NOT NULL — e.g. `warmup`, `heavy_compound`, `superset` |
+| focus_tags | jsonb | NOT NULL — `lower` / `upper` / `core` / `full` |
+| body_parts | jsonb | NOT NULL — `[{part, ratio}, …]` |
+| tss_weight | float | NOT NULL, default 1.0 |
+| default_sets | int | nullable |
+| default_reps | varchar(40) | nullable |
+| default_load | varchar(80) | nullable |
+| active | bool | NOT NULL, default true |
+| created_at | timestamptz | server default now() |
+| updated_at | timestamptz | server default now() |
+
+Index: `active`.

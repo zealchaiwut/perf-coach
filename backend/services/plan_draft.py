@@ -150,40 +150,18 @@ def _cached_or_generate(
     user_id,
     week_ctx: dict,
     slot: dict,
-    llm_call,
-    current: dict | None,
+    llm_call=None,
+    current: dict | None = None,
+    *,
+    avoid_parts: set | None = None,
 ) -> dict:
+    """Pattern-fill one slot. `llm_call` ignored (planning LLM removed)."""
+    del user_id, llm_call
     if current and current.get("source") == "user":
         return {**current, "source": "user"}
-
-    ctx = content_ctx_from_week(week_ctx)
-    key = slot_cache_key(pins=slot, content_ctx=ctx)
-
-    from backend.models import LlmGeneration
-
-    cached = (
-        db.query(LlmGeneration)
-        .filter_by(user_id=user_id, surface=SURFACE, input_signature=key)
-        .first()
+    return generate_slot_content(
+        week_ctx, slot, current=current, db=db, avoid_parts=avoid_parts,
     )
-    if cached and isinstance(cached.payload, dict):
-        return {**cached.payload, "source": cached.payload.get("source") or "llm"}
-
-    content = generate_slot_content(week_ctx, slot, current=current, llm_call=llm_call)
-    if content.get("source") == "llm":
-        try:
-            row = LlmGeneration(
-                user_id=user_id,
-                surface=SURFACE,
-                input_signature=key,
-                payload=content,
-                model=os.getenv("LLM_TRANSPORT", "groq_api"),
-            )
-            db.add(row)
-            db.flush()
-        except Exception:
-            _log.debug("slot cache write skipped", exc_info=True)
-    return content
 
 
 def generate_draft_payload(
@@ -247,7 +225,6 @@ def generate_draft_payload(
         strength_emphasis=prefs["strength_emphasis"],
         notes=prefs["notes"],
     )
-    llm_call = _llm_call_for_transport()
 
     prev_by_day = {}
     if previous_payload:
@@ -271,24 +248,25 @@ def generate_draft_payload(
             continue
         to_fill.append((d, slot))
 
-    # ≤3 concurrent
-    def _one(item):
-        d, slot = item
-        return d, _cached_or_generate(db, user_id, week_ctx, slot, llm_call, None)
-
-    with ThreadPoolExecutor(max_workers=_MAX_CONCURRENT_SLOTS) as pool:
-        futs = [pool.submit(_one, item) for item in to_fill]
-        for fut in as_completed(futs):
-            d, content = fut.result()
-            contents[d] = content
+    # Sequential — one SQLAlchemy Session must not be shared across threads
+    for d, slot in to_fill:
+        contents[d] = _cached_or_generate(db, user_id, week_ctx, slot, None, None)
 
     # Ensure order
     ordered_contents = [contents[i] or {"intent": "Rest", "source": "template"} for i in range(7)]
     assembled = assemble_week(sk["slots"], ordered_contents, facts=facts)
 
     from backend.services.plan_skeleton_ops import ensure_slot_ids, sync_slots_from_sessions
+    from backend.services.plan_week_balance import balance_week_sessions, sore_parts_for_user
+    from backend.utils.time import today_bangkok
 
     sessions = ensure_slot_ids(assembled["sessions"])
+    sore = sore_parts_for_user(db, user_id, today_bangkok())
+    sessions, muscle_summary = balance_week_sessions(
+        sessions, db=db, week_ctx=week_ctx, sore_parts=sore,
+    )
+    sessions = ensure_slot_ids(sessions)
+
     # Carry slot_ids onto skeleton slots by day
     by_day = {int(s["day_offset"]): s for s in sessions}
     for slot in sk["slots"]:
@@ -303,6 +281,7 @@ def generate_draft_payload(
         "sessions": sessions,
         "sanity_errors": assembled.get("sanity_errors") or [],
         "facts_signature": facts_signature_for_draft(facts),
+        "muscle_summary": muscle_summary,
         "version": 1,
     }
 
@@ -333,6 +312,33 @@ def upsert_draft(db: Session, user_id, week_start: date, payload: dict, *, statu
         row.updated_at = now
     db.flush()
     return row
+
+
+def refresh_draft_sync(
+    db: Session,
+    user_id,
+    week_start: date,
+    *,
+    refresh_untouched_only: bool = True,
+) -> dict:
+    """Synchronously regenerate draft content from patterns (no worker / no LLM)."""
+    previous = None
+    existing = get_draft(db, user_id, week_start)
+    if existing and refresh_untouched_only:
+        previous = existing.get("payload")
+    payload = generate_draft_payload(
+        db,
+        user_id,
+        week_start,
+        previous_payload=previous,
+        refresh_untouched_only=refresh_untouched_only and previous is not None,
+    )
+    upsert_draft(db, user_id, week_start, payload, status="fresh")
+    return get_draft(db, user_id, week_start) or {
+        "week_start": week_start.isoformat(),
+        "payload": payload,
+        "status": "fresh",
+    }
 
 
 def get_draft(db: Session, user_id, week_start: date) -> dict | None:
@@ -729,7 +735,7 @@ def request_slot_regen(
     slot_id: str,
     draft_version: str | None = None,
 ) -> dict:
-    """Mark one slot pending and enqueue background content generation."""
+    """Sync pattern-refill one slot (no worker / no LLM)."""
     from backend.models import PlanDraft
 
     row = (
@@ -744,32 +750,17 @@ def request_slot_regen(
     if draft_version is not None and draft_version != token:
         return {"ok": False, "error": "stale_draft", "status_code": 409, "draft_version": token}
 
-    payload = dict(row.payload or {})
-    sessions = list(payload.get("sessions") or [])
-    found = False
-    for s in sessions:
-        if isinstance(s, dict) and s.get("slot_id") == slot_id:
-            s["pending"] = True
-            s["source"] = "pending"
-            found = True
-            break
-    if not found:
-        return {"ok": False, "error": "slot_not_found", "status_code": 404}
+    result = regenerate_partial_slots(db, user_id, week_start, [slot_id])
+    if result.get("status") != "ok":
+        return {"ok": False, "error": result.get("reason") or "regen_failed", "status_code": 422}
 
-    payload["sessions"] = sessions
-    payload["version"] = int(payload.get("version") or 1) + 1
-    row.payload = payload
-    row.updated_at = datetime.now(timezone.utc)
-    db.flush()
-
-    job_id = enqueue_plan_draft(user_id, week_start, slot_ids=[slot_id], enqueued_by="web")
     return {
         "ok": True,
-        "job_id": job_id,
+        "job_id": None,
         "slot_id": slot_id,
         "draft": get_draft(db, user_id, week_start),
         "draft_version": draft_version_token(row),
-        "dispatch": {"dispatch": "background", "job_id": job_id, "slot_ids": [slot_id]},
+        "dispatch": {"dispatch": "inline", "slot_ids": [slot_id]},
     }
 
 
@@ -1026,10 +1017,12 @@ def regenerate_partial_slots(db: Session, user_id, week_start: date, slot_ids: l
         strength_emphasis=prefs["strength_emphasis"],
         notes=prefs["notes"],
     )
-    llm_call = _llm_call_for_transport()
     regenerated = 0
-
-    def _one(sess):
+    results: dict[str, dict] = {}
+    for sess in sessions:
+        sid = sess.get("slot_id")
+        if sid not in want:
+            continue
         pins = {
             "day_offset": sess["day_offset"],
             "workout_type": sess.get("workout_type"),
@@ -1039,22 +1032,19 @@ def regenerate_partial_slots(db: Session, user_id, week_start: date, slot_ids: l
             "structure_hints": sess.get("structure_hints") or {},
         }
         if sess.get("source") == "user":
-            return sess  # never overwrite user pins content
-        content = _cached_or_generate(db, user_id, week_ctx, pins, llm_call, None)
+            results[sid] = sess
+            continue
+        content = _cached_or_generate(db, user_id, week_ctx, pins, None, None)
         stamped = stamp_session(pins, content)
         stamped["slot_id"] = sess["slot_id"]
         stamped["pending"] = False
-        stamped["source"] = stamped.get("source") or content.get("source") or "llm"
-        return stamped
-
-    to_run = [s for s in sessions if s.get("slot_id") in want]
-    results: dict[str, dict] = {}
-    with ThreadPoolExecutor(max_workers=_MAX_CONCURRENT_SLOTS) as pool:
-        futs = {pool.submit(_one, s): s["slot_id"] for s in to_run}
-        for fut in as_completed(futs):
-            sid = futs[fut]
-            results[sid] = fut.result()
-            regenerated += 1
+        stamped["source"] = stamped.get("source") or content.get("source") or "pattern"
+        if content.get("_muscle_footprint"):
+            stamped["_muscle_footprint"] = content["_muscle_footprint"]
+        if content.get("pattern_name"):
+            stamped["pattern_name"] = content["pattern_name"]
+        results[sid] = stamped
+        regenerated += 1
 
     new_sessions = []
     for s in sessions:
@@ -1064,8 +1054,18 @@ def regenerate_partial_slots(db: Session, user_id, week_start: date, slot_ids: l
         else:
             new_sessions.append(s)
 
+    from backend.services.plan_week_balance import balance_week_sessions, sore_parts_for_user
+    from backend.utils.time import today_bangkok
+
+    sore = sore_parts_for_user(db, user_id, today_bangkok())
+    new_sessions, muscle_summary = balance_week_sessions(
+        new_sessions, db=db, week_ctx=week_ctx, sore_parts=sore,
+    )
+    new_sessions = ensure_slot_ids(new_sessions)
+
     payload["sessions"] = new_sessions
     payload["slots"] = sync_slots_from_sessions(new_sessions)
+    payload["muscle_summary"] = muscle_summary
     payload["version"] = int(payload.get("version") or 1) + 1
     row.payload = payload
     row.updated_at = datetime.now(timezone.utc)
@@ -1084,33 +1084,13 @@ def _dispatch_after_op(
     inline: bool,
     background: bool,
 ) -> dict:
-    """0 → done; 1+inline → webapp Groq; ≥2 or background → enqueue partial."""
+    """Refill affected slots with patterns synchronously (no worker enqueue)."""
+    del inline, background
     n = len(affected)
     if n == 0:
         return {"dispatch": "none"}
-    if n == 1 and inline and not background:
-        result = regenerate_partial_slots(db, user_id, week_start, affected)
-        return {"dispatch": "inline", "result": result}
-    # Mark pending, enqueue
-    from backend.models import PlanDraft
-
-    row = (
-        db.query(PlanDraft)
-        .filter(PlanDraft.user_id == user_id, PlanDraft.week_start == week_start)
-        .first()
-    )
-    if row and row.payload:
-        payload = dict(row.payload)
-        sessions = list(payload.get("sessions") or [])
-        for s in sessions:
-            if s.get("slot_id") in affected:
-                s["pending"] = True
-        payload["sessions"] = sessions
-        row.payload = payload
-        row.updated_at = datetime.now(timezone.utc)
-        db.flush()
-    job_id = enqueue_plan_draft(user_id, week_start, slot_ids=affected, enqueued_by="web")
-    return {"dispatch": "background", "job_id": job_id, "slot_ids": affected}
+    result = regenerate_partial_slots(db, user_id, week_start, affected)
+    return {"dispatch": "inline", "result": result, "slot_ids": affected}
 
 
 def apply_structure_op(

@@ -92,7 +92,7 @@ def stamp_session(slot: dict, content: dict) -> dict:
         "notes": clean.get("notes"),
         "blocks": clean.get("blocks"),
         "exercises": clean.get("exercises"),
-        "source": clean.get("source") or "llm",
+        "source": clean.get("source") or "pattern",
         "structure_hints": slot.get("structure_hints") or {},
         "locked": bool(slot.get("locked")),
     }
@@ -360,72 +360,24 @@ def generate_slot_content(
     current: dict | None = None,
     llm_call: Callable[[str, str], dict | None] | None = None,
     max_tries: int = _MAX_SLOT_TRIES,
+    db=None,
+    avoid_parts: set | None = None,
 ) -> dict:
-    """Fill one slot. Retry ≤2 with slot-local feedback; exhausted ⇒ template.
+    """Fill one slot from DB patterns (no LLM).
 
-    `llm_call(system, user) -> dict | None` — None / unparseable burns a try.
-    Slots are independent: week_ctx never includes other slots' generated content.
+    `llm_call` / `instruction` / `max_tries` are retained for call-site
+    compatibility but ignored — planning LLM is removed.
     """
-    slot = dict(slot)
-    slot["subtype"] = normalize_slot_subtype(slot.get("workout_type"), slot.get("subtype"))
-    wt = str(slot.get("workout_type") or "").lower()
-    if wt == "rest" or slot.get("locked"):
-        out = template_content_for_slot(slot)
-        out["source"] = "template" if wt == "rest" else (current or {}).get("source") or "user"
-        if current and current.get("source") == "user":
-            return {**strip_volunteered_pins(current), "source": "user"}
-        return out
+    del instruction, llm_call, max_tries  # unused — no planning LLM
+    from backend.services.plan_pattern_fill import fill_slot
 
-    # User-pinned content skips LLM
-    if current and current.get("source") == "user" and not instruction:
-        return {**strip_volunteered_pins(current), "source": "user"}
-
-    errors: list[str] = []
-    attempts = 0
-    last: dict | None = None
-
-    while attempts < max_tries:
-        attempts += 1
-        content: dict | None = None
-        if llm_call is not None:
-            feedback = ""
-            if errors:
-                feedback = (
-                    "\n\nPrevious draft rejected:\n- "
-                    + "\n- ".join(errors)
-                    + "\nFix these only; return content JSON again."
-                )
-            system, user = build_slot_prompt(
-                week_ctx, slot, instruction=instruction, current=current or last
-            )
-            user = user + feedback
-            try:
-                raw = llm_call(system, user)
-            except Exception:
-                _log.warning("slot LLM call raised (burns try)", exc_info=True)
-                raw = None
-            if raw is None:
-                # Failed/unparseable burns a try (transient-slip semantics)
-                errors = ["llm call failed or unparseable"]
-                continue
-            if "session" in raw and isinstance(raw["session"], dict):
-                raw = raw["session"]
-            content = strip_volunteered_pins(raw)
-        else:
-            # No LLM wired — use template immediately
-            break
-
-        errs = validate_slot(content, slot, week_ctx)
-        if not errs:
-            content["source"] = "llm"
-            return content
-        errors = errs
-        last = content
-        _log.info("slot %s try %d rejected: %s", slot.get("day_offset"), attempts, errs)
-
-    tmpl = template_content_for_slot(slot)
-    tmpl["source"] = "template"
-    return tmpl
+    return fill_slot(
+        slot,
+        db=db,
+        week_ctx=week_ctx,
+        current=current,
+        avoid_parts=avoid_parts,
+    )
 
 
 def build_week_ctx(
