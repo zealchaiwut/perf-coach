@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from backend.models import WeeklyCoachMessage
 
+from backend.services.coach_plan import _TARGET_CTL
 from backend.utils.log import get_logger
 from backend.utils.time import today_bangkok
 
@@ -45,14 +46,6 @@ _DIST_KM: dict[str, float] = {
     "10k": 10.0,
     "half": 21.0975,
     "marathon": 42.195,
-}
-
-# Representative target CTL per distance (mirrors coach_plan._TARGET_CTL)
-_TARGET_CTL: dict[str, float] = {
-    "5k": 50.0,
-    "10k": 60.0,
-    "half": 70.0,
-    "marathon": 85.0,
 }
 
 
