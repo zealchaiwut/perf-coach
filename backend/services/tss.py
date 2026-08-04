@@ -10,6 +10,7 @@ IF method precedence (highest quality to lowest):
 # Audit: rows where tss IS NULL AND duration_seconds IS NOT NULL in the workouts
 # table are candidates for future backfill using estimate_tss_for_workout().
 """
+import json
 import logging
 
 from sqlalchemy import text
@@ -1190,7 +1191,8 @@ def compute_strength_tss(workout, exercises, prefs) -> dict:
         "tss": None,
         "method": "none",
         "partial": False,
-        "debug": {"reason": reason},    }
+        "debug": {"reason": reason},
+    }
 
 
 def persist_running_tss(workout_id, session) -> dict:
@@ -1328,3 +1330,82 @@ def recompute_user_running_tss(user_id, session) -> int:
         session.flush()
         session.expire(w)
     return len(workouts)
+
+
+def get_strength_tss_per_set_for_workout(workout_id, user_id, db) -> dict:
+    """Thin caller: read per-set prefs from UserPreferences and delegate to the pure function.
+
+    Reads ``scale_constant`` and ``max_tss`` from the ``user_preferences`` row
+    for ``user_id``, collects set-level {reps, rpe} data from the workout's
+    exercises, and delegates to ``calculate_strength_tss_per_set_with_prefs``.
+    Neither preference value is given a hardcoded default here — if either is
+    absent (None), it is passed as-is to the pure function, which returns a
+    null result with a reason string.
+
+    Parameters
+    ----------
+    workout_id:
+        Primary key of the workout to compute TSS for.
+    user_id:
+        Primary key of the user whose ``UserPreferences`` row provides
+        ``scale_constant`` and ``max_tss``.
+    db:
+        SQLAlchemy session (or compatible).
+
+    Returns
+    -------
+    dict with keys ``tss`` (int|None), ``method`` (str), ``debug`` (dict) —
+    same shape as ``calculate_strength_tss_per_set_with_prefs``.
+
+    Raises
+    ------
+    ValueError
+        When ``workout_id`` or ``user_id`` does not exist in the database.
+    """
+    from backend.models import User, UserPreferences, Workout, WorkoutExercise
+
+    workout = db.get(Workout, workout_id)
+    if workout is None:
+        raise ValueError(f"Workout not found: {workout_id}")
+
+    user = db.get(User, user_id)
+    if user is None:
+        raise ValueError(f"User not found: {user_id}")
+
+    prefs = (
+        db.query(UserPreferences)
+        .filter(UserPreferences.user_id == user_id)
+        .first()
+    )
+    scale_constant = prefs.scale_constant if prefs is not None else None
+    max_tss = prefs.max_tss if prefs is not None else None
+
+    exercises = (
+        db.query(WorkoutExercise)
+        .filter(WorkoutExercise.workout_id == workout_id)
+        .all()
+    )
+
+    sets = []
+    for ex in exercises:
+        sets_json_raw = getattr(ex, "sets_json", None)
+        if sets_json_raw is not None:
+            try:
+                parsed = json.loads(sets_json_raw) if isinstance(sets_json_raw, str) else sets_json_raw
+                if isinstance(parsed, list):
+                    for s in parsed:
+                        sets.append({
+                            "reps": s.get("reps") if isinstance(s, dict) else None,
+                            "rpe": s.get("rpe") if isinstance(s, dict) else None,
+                        })
+            except (ValueError, TypeError):
+                pass
+        else:
+            ex_rpe = getattr(ex, "rpe", None)
+            ex_reps = getattr(ex, "reps", None)
+            ex_sets_count = getattr(ex, "sets", None) or 1
+            if ex_rpe is not None or ex_reps is not None:
+                for _ in range(int(ex_sets_count)):
+                    sets.append({"reps": ex_reps, "rpe": ex_rpe})
+
+    return calculate_strength_tss_per_set_with_prefs(sets, scale_constant, max_tss)
