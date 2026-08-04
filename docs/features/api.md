@@ -89,9 +89,16 @@ Returns the daily coaching brief for today, including form (CTL/ATL/TSB), weight
   ],
   "actions": [],
   "week_plan": {
-    "planned_sessions": 5,
-    "completed_sessions": 2,
-    "adherence": 0.4
+    "days": [
+      {
+        "date": "2026-07-18",
+        "day": "Sat",
+        "session_type": "run",
+        "intensity": "easy",
+        "duration_min": 60,
+        "planned": true
+      }
+    ]
   }
 }
 ```
@@ -110,7 +117,7 @@ Returns the daily coaching brief for today, including form (CTL/ATL/TSB), weight
 | `weight` | object | Current weight status and target progress |
 | `advisories` | array | List of coaching advisories (low volume, etc.) |
 | `actions` | array | Actionable recommendations (currently empty, reserved) |
-| `week_plan` | object | Summary of the current week's plan and completion |
+| `week_plan` | object | `{"days": [...]}` — remaining days this Bangkok week; each day has `date`, `day`, `session_type`, `intensity`, `duration_min`, `planned` |
 
 **Error Responses:**
 - `401` — Not authenticated (session cookie missing or invalid)
@@ -118,7 +125,7 @@ Returns the daily coaching brief for today, including form (CTL/ATL/TSB), weight
 
 **Notes:**
 - Dates are in Asia/Bangkok timezone (UTC+7).
-- Schema version 3 adds the `week_plan` field for weekly adherence tracking.
+- Schema version 3 adds the `week_plan` field. Its shape is `{"days": [...]}` where each element describes one remaining day of the Bangkok week (tomorrow through Sunday). Empty when tomorrow is Saturday, Sunday, or past this week's Sunday.
 - The `form` field contains guardrail state and interpretation suitable for AI coaching.
 
 ---

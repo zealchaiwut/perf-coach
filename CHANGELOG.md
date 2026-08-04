@@ -1,5 +1,17 @@
 # Changelog
 
+## Sprint 125 — daily-brief consolidation & code-review follow-up hardening
+
+- #1508: `docs/features/api.md` documented `GET /api/planned-sessions` with the old flat-array shape; corrected to the week-bundle object `{from, to, days:[...]}` where each day carries `planned`/`unplanned` arrays, plus the `actual` matched-workout summary, `estimated_tss`/`estimated_distance_km`, and `plan_warnings`/`candidates` fields
+- #1509: `_build_brief` no longer duplicated in `scripts/export_brief.py` — the full assembly (including `_assemble_coach`) lives in `backend/services/daily_brief.py`; the CLI is now a thin wrapper delegating to the service (four-arg signature and helper re-imports preserved for existing test patches)
+- #1510: consistent non-UUID `user_id` handling in daily-brief assembly — `_build_highlights_md` now guards the `uuid.UUID(...)` conversion and returns `""` for non-UUID ids instead of raising, matching the empty-plan behaviour elsewhere
+- #1517: batch week-plan lookups into one query — new `_get_plans_for_date_range` fetches all `PlannedSession` rows for `[today, Sunday]` in a single date-range query and passes a `plan_cache` to `_assemble_week_plan`, replacing the per-day `_get_plan_for_date` calls
+- #1523: coach_plan timeline phases no longer invert (`start_date > end_date`) for near-term / available-load inputs — the hold phase anchors to the previous day when load is already available (`unlock_date <= today`), and any inverted/zero-length phase is dropped before sorting
+- #1529: promote `weekly_coach_message` private helpers to public API — `load_inputs_for_user`, `build_projection_info`, and `format_hms` are now public (back-compat `_`-prefixed aliases kept); `coach_facts` imports the public names instead of reaching into privates
+- #1530: deduplicate the `_TARGET_CTL` constant — `weekly_coach_message` now imports it from `coach_plan` rather than redefining the same per-distance target-CTL map
+- #1555: degraded advisories no longer embed raw exception text — the gap-analysis and training-verdict error advisories show fixed user-friendly text ("… temporarily unavailable.") instead of interpolating the exception
+- #1516: converge `week_plan` on a single shape `{"days": [...]}` across API, service, and docs — `GET /api/brief/today` normalizes the service's list to the canonical dict, dropping the old `_build_week_plan` seven-day builder in `main.py`
+
 ## Sprint 124 — endurance recalibration, habit-streak semantics, API/frontend consolidation
 
 - #1331: Recalibrate endurance training-run path — runs were under-reading vs race-demonstrated fitness. In `running_performance.py` the HR-extrapolation exponent goes `1.5 → 2.5` (k=1.5 mapped easy runs at ~140/155 bpm to ~408 s/km equivalent vs the 360 threshold, ~48 s/km pessimistic; k=2.5 lands typical aerobic sessions within ~5–10 pts of race fitness) and the durability factor softens from `1 − dec/50` to `1 − dec/100` (20% decoupling now costs 20% instead of 60%). Bumps the persisted performance-score `formula_version` `vdot-v12 → vdot-v13`
