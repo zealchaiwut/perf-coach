@@ -150,6 +150,19 @@ def test_worker_app_not_gated():
         "worker_app.py must not gate its Banister refit on BANISTER_REFIT_ENABLED"
     )
 
+    # Positive assertion: the refit scheduler setup code must actually be present.
+    # This catches the case where a future refactor removes the refit entirely —
+    # the negative check above would still pass but the invariant would be violated.
+    assert "_run_banister_refit_batch" in src, (
+        "worker_app.py must define _run_banister_refit_batch (refit scheduler setup absent)"
+    )
+    assert '"banister_refit"' in src, (
+        "worker_app.py must dispatch 'banister_refit' jobs (refit scheduler setup absent)"
+    )
+    assert "_BANISTER_REFIT_INTERVAL_SECONDS" in src, (
+        "worker_app.py must define _BANISTER_REFIT_INTERVAL_SECONDS (refit scheduler setup absent)"
+    )
+
 
 # ── AC6: refit scheduler thread does not start when env var is 0 ─────────────
 
