@@ -1432,6 +1432,10 @@
     _activeTab = tab;
     _editingRaceType = tab === "checkpoint" ? "checkpoint" : "race";
 
+    var typeSelect = document.getElementById("plan-modal-type");
+    if (typeSelect && ["race", "checkpoint"].indexOf(tab) >= 0)
+      typeSelect.value = tab;
+
     var seg = document.getElementById("plan-modal-typeseg");
     if (seg) {
       Array.from(seg.querySelectorAll(".plan-modal-seg-btn")).forEach(
