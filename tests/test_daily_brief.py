@@ -22,7 +22,7 @@ from __future__ import annotations
 import importlib
 import uuid
 from datetime import date
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, call
 
 import pytest
 
@@ -331,7 +331,6 @@ V2_FIELD_TYPES = {
     "recent_wrap": dict,
     "weight": dict,
     "advisories": list,
-    "advisories_degraded": bool,
     "actions": list,
     "week_plan": list,
 }
@@ -447,8 +446,7 @@ def test_service_and_script_same_v2_shape():
          patch.object(svc_mod, "_assemble_form", return_value=_FAKE_FORM), \
          patch.object(svc_mod, "_assemble_recent_wrap", return_value=_FAKE_WRAP), \
          patch.object(svc_mod, "_assemble_weight", return_value=_FAKE_WEIGHT), \
-         patch.object(svc_mod, "_assemble_advisories", return_value=[]), \
-         patch.object(svc_mod, "_assemble_coach", return_value=None):
+         patch.object(svc_mod, "_assemble_advisories", return_value=[]):
         svc_result = svc_mod.build_brief(uid, for_date)
 
     assert set(svc_result.keys()) == set(V2_FIELD_TYPES.keys())
