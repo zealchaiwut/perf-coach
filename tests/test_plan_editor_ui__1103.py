@@ -123,13 +123,13 @@ def test_add_race_form_has_distance_field(user_and_client):
 
 
 def test_add_race_form_has_type_field(user_and_client):
-    """AC1/AC2: Plan modal has a type field showing race/checkpoint options."""
+    """AC1/AC2: Plan modal has a segmented type control showing race/checkpoint options."""
     client, _ = user_and_client
     r = client.get("/log")
     html = r.text
-    assert 'id="plan-modal-type"' in html, "Type field (plan-modal-type) not found in plan modal"
-    assert 'value="race"' in html, "Race option not found in type select"
-    assert 'value="checkpoint"' in html, "Checkpoint option not found in type select"
+    assert 'id="plan-modal-typeseg"' in html, "Type segmented control (plan-modal-typeseg) not found in plan modal"
+    assert 'data-type="race"' in html, "Race option not found in type control"
+    assert 'data-type="checkpoint"' in html, "Checkpoint option not found in type control"
 
 
 def test_add_race_form_has_goal_time_field(user_and_client):
@@ -416,10 +416,10 @@ def test_training_plan_js_validates_name():
 
 
 def test_training_log_html_has_type_select():
-    """AC1/AC2: training-log.html plan modal has a type select with race/checkpoint options."""
+    """AC1/AC2: training-log.html plan modal has a segmented type control with race/checkpoint options."""
     html_path = _ROOT / "frontend" / "pages" / "training-log.html"
     assert html_path.exists(), "training-log.html not found"
     source = html_path.read_text()
-    assert 'id="plan-modal-type"' in source, "Type select (plan-modal-type) missing from modal"
-    assert 'value="race"' in source, "'race' option missing from type select"
-    assert 'value="checkpoint"' in source, "'checkpoint' option missing from type select"
+    assert 'id="plan-modal-typeseg"' in source, "Segmented type control (plan-modal-typeseg) missing from modal"
+    assert 'data-type="race"' in source, "'race' option missing from type control"
+    assert 'data-type="checkpoint"' in source, "'checkpoint' option missing from type control"
