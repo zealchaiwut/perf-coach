@@ -345,51 +345,52 @@ def compute_gap(target, session, as_of_date: datetime.date) -> dict:
     """Return gap analysis dict for the given target and date.
 
     Shape: {plan_today_kg, current_basis_kg, basis, gap_kg, gap_direction}
-    basis: 'avg_7d' | 'latest_entry' | None
+
+    ``current_basis_kg`` is resolved by delegating to ``_weight_rollup`` —
+    the same "current weight" rule used by the Hermes weight brief
+    (``compute_weight_status``) and, via this function, every gap/pace/
+    progress consumer in the app. This used to be its own rule (3+ entries
+    in the trailing 7 days else the single latest entry within 14 days),
+    which could disagree with ``_weight_rollup``'s rule (2+ entries in 7
+    days else a wider-window average over up to ``_ROLLUP_LOOKBACK_DAYS``
+    days) on identical data. They are now unified on ``_weight_rollup``'s
+    rule — the more conservative of the two — see that function's docstring
+    for the full contract, including why the label below has three non-null
+    values rather than two.
+
+    ``basis`` truthfully reports which branch produced the number:
+        'avg_7d'       — the trailing 7-day window itself had >= 2 entries.
+        'avg_wide'     — fewer than 2 in 7 days, but >= 2 entries exist
+                         somewhere in the wider ``_ROLLUP_LOOKBACK_DAYS``-day
+                         lookback; a genuine multi-entry average.
+        'single_entry' — exactly one entry exists in the entire lookback;
+                         current_basis_kg is that entry's raw value (there
+                         is nothing to average against) — this is reported
+                         honestly rather than mislabeled 'avg_wide'.
+        None           — no entries at all within the lookback (gap_direction
+                         is 'no_data' in this case).
     gap_direction: 'behind' | 'ahead' | 'on_plan' | 'no_data'
     """
     from backend.models import WeightEntry  # local import to avoid circular dep
 
     plan_today = plan_at(target, as_of_date)
 
-    window_7_start = as_of_date - datetime.timedelta(days=6)
-    window_14_start = as_of_date - datetime.timedelta(days=13)
-
-    entries_7d = (
+    lookback_start = as_of_date - datetime.timedelta(days=_ROLLUP_LOOKBACK_DAYS)
+    rows = (
         session.query(WeightEntry)
         .filter(
             WeightEntry.user_id == target.user_id,
-            WeightEntry.entry_date >= window_7_start,
+            WeightEntry.entry_date >= lookback_start,
             WeightEntry.entry_date <= as_of_date,
         )
-        .order_by(WeightEntry.entry_date.desc())
         .all()
     )
+    weight_rows = [(e.entry_date, float(e.weight_kg)) for e in rows]
+    rollup = _weight_rollup(weight_rows, as_of_date)
+    current_kg = rollup["current_kg"]
+    basis_label = rollup["basis"]
 
-    current_basis: Optional[Decimal] = None
-    basis_label: Optional[str] = None
-
-    if len(entries_7d) >= 3:
-        avg = sum(Decimal(str(e.weight_kg)) for e in entries_7d) / len(entries_7d)
-        current_basis = avg
-        basis_label = "avg_7d"
-    else:
-        # Try latest single entry within 14 days
-        entries_14d = (
-            session.query(WeightEntry)
-            .filter(
-                WeightEntry.user_id == target.user_id,
-                WeightEntry.entry_date >= window_14_start,
-                WeightEntry.entry_date <= as_of_date,
-            )
-            .order_by(WeightEntry.entry_date.desc())
-            .all()
-        )
-        if entries_14d:
-            current_basis = Decimal(str(entries_14d[0].weight_kg))
-            basis_label = "latest_entry"
-
-    if current_basis is None:
+    if current_kg is None:
         return {
             "plan_today_kg": float(round(plan_today, 1)),
             "current_basis_kg": None,
@@ -398,12 +399,13 @@ def compute_gap(target, session, as_of_date: datetime.date) -> dict:
             "gap_direction": "no_data",
         }
 
+    current_basis = Decimal(str(current_kg))
     gap = current_basis - plan_today
     gap_direction = _gap_direction(gap, target)
 
     return {
         "plan_today_kg": float(round(plan_today, 1)),
-        "current_basis_kg": float(round(current_basis, 2)),
+        "current_basis_kg": round(current_kg, 2),
         "basis": basis_label,
         "gap_kg": float(round(gap, 2)),
         "gap_direction": gap_direction,
@@ -554,13 +556,38 @@ def _weight_rollup(rows: list, as_of_date: datetime.date) -> dict:
     expected to span at least the trailing _ROLLUP_LOOKBACK_DAYS days from
     as_of_date (callers fetch that window from the DB before calling this).
 
-    Returns {"current_kg", "trend_7d", "trend_28d"}.
+    Returns {"current_kg", "basis", "trend_7d", "trend_28d"}.
 
     current_kg: average weight_kg over the trailing 7-day window
     [as_of_date-6, as_of_date]. Falls back to the average of every row given
     (i.e. "whatever's available" over the wider lookback) when the 7-day
     window has fewer than 2 entries, and to None when there are no rows at
-    all. Never returns a single day's raw entry.
+    all.
+
+    The rule's whole point is that current_kg is never computed by
+    PREFERRING the single most recent entry over other available context —
+    when >= 2 entries exist anywhere in the lookback, it is always a genuine
+    multi-entry average, never just "whichever reading happened last." That
+    said, when the ENTIRE lookback truly contains only one reading, there is
+    no other data to average against, and current_kg necessarily equals that
+    reading's raw value — no rule can average what isn't there. `basis`
+    reports this case honestly (see below) rather than mislabeling it as an
+    average that didn't happen.
+
+    basis: which branch produced current_kg —
+        "avg_7d"       — the trailing 7-day window itself had >= 2 entries.
+        "avg_wide"     — fewer than 2 in 7 days, but >= 2 entries exist
+                         somewhere in the wider lookback; current_kg is a
+                         genuine average across them.
+        "single_entry" — exactly one entry exists in the entire lookback
+                         (the trailing 7 days included); current_kg is that
+                         entry's raw value — there is nothing to average.
+        None           — no entries at all (current_kg is also None).
+    This is the single source of truth every other "current weight" call
+    site in the app (weight_plan.compute_gap, backend/main.py's Home/
+    Weight-page summaries) is unified on, so the label a caller surfaces
+    always describes what was actually computed — never "avg_*" when only
+    one raw reading exists anywhere.
 
     trend_7d / trend_28d: (average over the current N-day window) minus
     (average over the immediately preceding N-day window), in kg. None
@@ -578,11 +605,20 @@ def _weight_rollup(rows: list, as_of_date: datetime.date) -> dict:
     window_7 = _window(0, 6)
     if len(window_7) >= 2:
         current_kg = _avg(window_7)
+        basis = "avg_7d"
     else:
         # Fallback: fewer than 2 readings in the last week — average whatever
-        # is available in the wider lookback rather than surfacing one entry.
+        # is available in the wider lookback rather than surfacing one entry
+        # ... unless the wider lookback ALSO has only one entry total, in
+        # which case there is nothing to average and the label must say so.
         all_vals = [w for (_, w) in rows]
         current_kg = _avg(all_vals)
+        if len(all_vals) >= 2:
+            basis = "avg_wide"
+        elif len(all_vals) == 1:
+            basis = "single_entry"
+        else:
+            basis = None
 
     prior_7 = _window(7, 13)
     trend_7d = None
@@ -595,7 +631,7 @@ def _weight_rollup(rows: list, as_of_date: datetime.date) -> dict:
     if window_28 and prior_28:
         trend_28d = round(sum(window_28) / len(window_28) - sum(prior_28) / len(prior_28), 2)
 
-    return {"current_kg": current_kg, "trend_7d": trend_7d, "trend_28d": trend_28d}
+    return {"current_kg": current_kg, "basis": basis, "trend_7d": trend_7d, "trend_28d": trend_28d}
 
 
 def compute_current_pace_kg_per_week(target, session, as_of_date: datetime.date) -> Optional[float]:
@@ -648,8 +684,9 @@ def compute_current_pace_kg_per_week(target, session, as_of_date: datetime.date)
 
 def compute_required_pace_kg_per_week(target, session, as_of_date: datetime.date) -> Optional[float]:
     """Required kg/week pace to reach target.target_date, based on the same
-    current-basis (7d avg, or latest-entry-within-14d fallback) compute_gap
-    already uses. None once target_date has passed (weeks_remaining <= 0).
+    current-basis (_weight_rollup's rule: 7d avg when >= 2 entries, else a
+    wider-lookback average) compute_gap already uses. None once target_date
+    has passed (weeks_remaining <= 0).
     """
     target_date = _as_date(target.target_date)
     days_remaining = (target_date - as_of_date).days
@@ -763,6 +800,28 @@ def compute_weight_status(session, user_id, as_of_date: datetime.date) -> dict:
         "on_track": on_track,
         "projection_date": hit_date.isoformat() if hit_date is not None else None,
     }
+
+
+# ── active-target lookup (issue #1604 — merged replacement for the retired
+# weight_plans_repo.get_active_plan) ─────────────────────────────────────────
+
+def get_active_target(session, user_id):
+    """Return the user's active WeightTarget row, or None.
+
+    Thin DB helper. Before #1604's schema consolidation, "the active plan"
+    (phase, target_rate_kg_per_week) and "the active goal" (start/target
+    weight and date) were two different tables (weight_plans, weight_targets)
+    with two different repos. They are now one table and one row — this is
+    the single lookup every caller that used to reach for
+    weight_plans_repo.get_active_plan should use instead.
+    """
+    from backend.models import WeightTarget  # local import to avoid circular dep
+
+    return (
+        session.query(WeightTarget)
+        .filter(WeightTarget.user_id == user_id, WeightTarget.status == "active")
+        .first()
+    )
 
 
 def _snap_to_month_start(d: datetime.date) -> datetime.date:

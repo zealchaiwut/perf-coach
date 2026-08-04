@@ -20,9 +20,7 @@ NAV_PAGES = [
     "home.html",
     "weight.html",
     "habits.html",
-    "calendar.html",
     "training-log.html",
-    "trends.html",
 ]
 
 
@@ -104,19 +102,13 @@ def test_no_slash_training_html_anywhere(page):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# AC: /log and /trends routes return 200
+# AC: /log route returns 200
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_log_route_200(client):
     """/log returns HTTP 200."""
     r = client.get("/log")
     assert r.status_code == 200, f"/log returned {r.status_code}"
-
-
-def test_trends_route_200(client):
-    """/trends returns HTTP 200."""
-    r = client.get("/trends")
-    assert r.status_code == 200, f"/trends returned {r.status_code}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

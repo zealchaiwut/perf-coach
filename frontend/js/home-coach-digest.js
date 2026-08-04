@@ -5,13 +5,11 @@
 (function () {
   'use strict';
 
+  // Delegates to the shared escaper (issue #1603). The local copies
+  // disagreed about the apostrophe, so identical content was safe on
+  // some pages and attribute-injectable on others.
   function esc(s) {
-    if (s == null) return '';
-    return String(s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+    return window.AppCommon.escapeHtml(s);
   }
 
   function _changedCount(brief) {
@@ -25,9 +23,15 @@
   function render(el, brief) {
     if (!el) return;
     if (!brief) {
+      // "Plan" used to be plain text, not a link, and named the wrong tab —
+      // races are created/edited on Performance (see the Race goal card's
+      // own "/log#performance" link), not Plan. A user following this
+      // literally would land on the Plan tab and not find anywhere to set
+      // a race.
       el.innerHTML =
         '<div class="card-head"><h2 class="ttl">Coach</h2></div>' +
-        '<div class="rec-empty">No coach brief yet. Set an A-race on Plan.</div>';
+        '<div class="rec-empty">No coach brief yet. Set an A-race on ' +
+          '<a href="/log#performance">Performance</a>.</div>';
       return;
     }
     var dig = brief.digest || {};

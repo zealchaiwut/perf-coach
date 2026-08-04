@@ -26,11 +26,13 @@
     return String(n).padStart(2, "0");
   }
 
+  // Bangkok, not browser-local (issue #1603). This drives the is-today
+  // highlight, the default `to` filter and the date picker's max — so on a
+  // client outside Bangkok this page disagreed with Weight, Habits and Home
+  // about what day it is, and the "no future dates" max contradicted the
+  // backend rule it mirrors.
   function todayISO() {
-    var d = new Date();
-    return (
-      d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate())
-    );
+    return window.AppCommon.todayISO();
   }
 
   function addDays(iso, n) {
@@ -45,7 +47,7 @@
   // unconditionally "from 2010-01-01", see fetchAndRender). N months back
   // from today, ISO date.
   function isoMonthsAgo(n) {
-    var d = new Date();
+    var d = window.AppCommon.nowBangkok();
     d.setMonth(d.getMonth() - n);
     return (
       d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate())
@@ -68,12 +70,11 @@
   ];
   var DAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+  // Delegates to the shared escaper (issue #1603). The local copies
+  // disagreed about the apostrophe, so identical content was safe on
+  // some pages and attribute-injectable on others.
   function esc(s) {
-    return String(s == null ? "" : s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+    return window.AppCommon.escapeHtml(s);
   }
 
   function csvField(val) {
@@ -883,7 +884,7 @@
   }
 
   function _fffDateStr(daysAgo) {
-    var d = new Date();
+    var d = window.AppCommon.nowBangkok();
     d.setDate(d.getDate() - daysAgo);
     return d.toLocaleDateString("en-CA");
   }
@@ -6301,7 +6302,7 @@
     var el = document.getElementById("log-calendar");
     if (!el) return;
 
-    var now = new Date();
+    var now = window.AppCommon.nowBangkok();
     if (!calCurrentMonth) {
       calCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     }
@@ -6692,7 +6693,7 @@
   }
 
   function _targetMonthKey() {
-    var d = new Date();
+    var d = window.AppCommon.nowBangkok();
     if (_when === "last") d.setMonth(d.getMonth() - 1);
     return d.getFullYear() + "-" + _pad2(d.getMonth() + 1);
   }
@@ -6716,12 +6717,9 @@
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
 
+  // Delegates to the shared escaper (issue #1603).
   function _esc(s) {
-    return String(s == null ? "" : s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+    return window.AppCommon.escapeHtml(s);
   }
 
   // Compact rollup for the summary-digest Duration tile: 3h 3m, 45m, 2h.
@@ -7248,10 +7246,9 @@
     return d.toLocaleDateString("en-US", opts) + " – " + end.toLocaleDateString("en-US", opts);
   }
 
+  // Delegates to the shared escaper (issue #1603).
   function _esc(s) {
-    return String(s == null ? "" : s)
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    return window.AppCommon.escapeHtml(s);
   }
 
   // Make the prose scannable: put every number in the mono highlight font (same

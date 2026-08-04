@@ -51,7 +51,7 @@
     if (!actuals || !actuals.length) return '';
     var lastDate = actuals[actuals.length - 1].date;
     if (!lastDate) return '';
-    var today = new Date().toISOString().slice(0, 10);
+    var today = window.AppCommon.todayISO();
     if (lastDate === today) return 'Today';
     var d = new Date(lastDate + 'T00:00:00');
     var mo = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });

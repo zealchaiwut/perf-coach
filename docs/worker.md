@@ -413,10 +413,23 @@ query param. Resolution order:
 **Date defaults** — `?date=` params default to today in Asia/Bangkok
 (matching the existing worker scheduler timezone). Pass `YYYY-MM-DD`.
 
-**No auth on GET routes** — deliberate contrast with the secret-gated
-`/internal/*` routes (which require `X-Worker-Secret`). The tailnet/localhost
-binding is the access boundary. The write route (`POST /feel-entry`) uses
-its own bearer-token guard; see below.
+**All GET routes require `Authorization: Bearer $WORKER_API_TOKEN`** — the same
+token the write routes use. Requests without it get `401`; if the variable is
+unset on the worker the API answers `503` rather than serving anything.
+
+> **Changed 2026-07-31 (issue #1601).** These routes previously required no auth
+> at all, justified as "the tailnet/localhost binding is the access boundary".
+> That was not what shipped: this document reaches the service at
+> `http://zeal-server:9100`, a hostname on the tailnet rather than loopback, so
+> anyone able to route to the port could read any athlete's weight, training
+> load and plan by passing `?user=<username>`.
+>
+> **Hermes must now send the bearer header on GETs as well as POSTs.** It will
+> receive 401s until updated.
+>
+> Still open: the token is a *service* credential. It proves the caller is
+> Hermes, never which athlete — a token holder can still select any user via
+> `?user=`. Per-user tokens are tracked in #1601's remaining scope.
 
 ### `POST /feel-entry`
 
@@ -473,11 +486,76 @@ curl -X POST http://localhost:9100/feel-entry \
 }
 ```
 
+### `POST /weight-entry`
+
+The lean program's daily floor — a morning weigh-in replied over Discord. Same
+bearer-token auth and user-resolution chain as `/feel-entry`.
+
+Body: `weight_kg` (required, 20–300), `entry_date` (optional ISO, defaults to
+today in Bangkok, must not be in the future), `notes` (optional, ≤ 500 chars).
+
+**Upserts on `(user, date)`** with a null `entry_time`, so replying twice in one
+morning corrects the number rather than creating a second row — `created` in the
+response says which happened. Entries are stored with `source='imported'`, and
+the weigh-in habit (`auto_fill_source='weight.logged'`) is recomputed for that
+week so it ticks with no tap. That autofill is best-effort: a habit that failed
+to tick never costs the athlete the weigh-in.
+
+```bash
+curl -X POST http://localhost:9100/weight-entry \
+  -H "Authorization: Bearer $WORKER_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"weight_kg": 87.6}'
+```
+
+```json
+{
+  "id": "9c41ab77-...",
+  "user_id": "a2c9...",
+  "entry_date": "2026-07-30",
+  "weight_kg": 87.6,
+  "notes": null,
+  "created": true
+}
+```
+
+### `GET /api/weight/nudge`
+
+The morning weight nudge for Hermes to deliver over Discord. Read-only, no token
+(same boundary as the other `/api/weight/*` reads).
+
+**perf-coach never talks to Discord** — Hermes polls this and delivers only when
+`deliver_now` is true, mirroring the `plan_draft_notify` contract above.
+`deliver_now` requires the BKK morning window (06:00–08:00, deliberately earlier
+than the 07:00–09:00 draft window), today not already logged, and the tracking
+state's cadence: daily while ACTIVE, Mondays only once PAUSED.
+
+There is exactly **one message type and it is weight-only** — never food. Silence
+is the correct output most mornings and the endpoint says so rather than
+inventing something to say. `ack` is accepted for symmetry with the draft notify;
+the weight nudge needs no pending flag because "already logged today" is the
+natural, self-clearing acknowledgement.
+
+```json
+{
+  "tracking_state": "active",
+  "paused_since": null,
+  "nudge_cadence": "daily",
+  "logged_today": false,
+  "last_weigh_in": "2026-07-29",
+  "days_since_last": 1,
+  "in_window": true,
+  "deliver_now": true,
+  "message": "morning — what's the number?",
+  "acked": false
+}
+```
+
 **Worker env var:**
 
 | Var | Default | Purpose |
 |-----|---------|---------|
-| `WORKER_API_TOKEN` | _(unset)_ | Static bearer token for `POST /feel-entry`. Requests fail with 503 if unset. |
+| `WORKER_API_TOKEN` | _(unset)_ | Static bearer token for the ENTIRE Hermes API — all six `/api/*` GET routes plus `POST /feel-entry` and `POST /weight-entry`. Requests fail with 503 if unset (fails closed). |
 
 ### `GET /api/training/load`
 
@@ -504,26 +582,18 @@ curl "http://localhost:9100/api/training/load?date=2026-07-13"
 }
 ```
 
-### `GET /api/scores`
+### ~~`GET /api/scores`~~ — documented but never implemented
 
-Current Endurance and Speed performance scores with a 7-day trend flag.
-Reads from `performance_score_history` (latest row, newest formula_version).
-Trend is `up` / `flat` / `down` comparing against the value ~7 days earlier
-(±0.5 pt dead-band → `flat`; `flat` when no earlier row). 404 if no
-history at all.
+**Removed from this document 2026-07-31 (issue #1601).** It described a live
+endpoint returning Endurance and Speed scores with a 7-day trend flag, complete
+with an example request and response. No such route exists in `worker_app.py`,
+and `git` shows none ever did — the documentation was written ahead of an
+implementation that did not land.
 
-```bash
-curl "http://localhost:9100/api/scores"
-```
-
-```json
-{
-  "as_of": "2026-07-13",
-  "endurance": { "value": 62.4, "trend": "up" },
-  "speed": { "value": 58.1, "trend": "flat" },
-  "formula_version": "v2"
-}
-```
+Anyone scoping "what does Hermes call today" from this file — including the
+audit that found it — got a larger surface than the code actually has. If the
+endpoint is wanted, build it and restore this section; until then the absence is
+the honest description.
 
 ### `GET /api/plan/today`
 

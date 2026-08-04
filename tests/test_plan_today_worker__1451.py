@@ -20,6 +20,33 @@ from fastapi.testclient import TestClient
 from backend.worker_app import app
 
 
+# ── Auth plumbing (#1601) ─────────────────────────────────────────────────────
+# The Hermes API now requires a bearer token on reads as well as writes. These
+# tests cover route BEHAVIOUR, so they present a valid token; the auth contract
+# itself lives in tests/test_worker_read_auth__1601.py.
+
+_TEST_TOKEN = "test-worker-token"
+
+
+@pytest.fixture(autouse=True)
+def _worker_token(monkeypatch):
+    monkeypatch.setenv("WORKER_API_TOKEN", _TEST_TOKEN)
+
+
+@pytest.fixture(autouse=True)
+def _authorised_client(monkeypatch):
+    """Attach the token to every TestClient this module builds."""
+    import fastapi.testclient as _tc
+    orig = _tc.TestClient.__init__
+
+    def patched(self, *a, **kw):
+        orig(self, *a, **kw)
+        self.headers.update({"Authorization": f"Bearer {_TEST_TOKEN}"})
+
+    monkeypatch.setattr(_tc.TestClient, "__init__", patched)
+
+
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _make_session(

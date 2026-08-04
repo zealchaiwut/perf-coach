@@ -30,13 +30,14 @@ from zoneinfo import ZoneInfo
 
 from backend.auth import require_admin
 from backend.db import check_db, engine, environment
+from backend.utils.time import today_bangkok as _today_bangkok
 from backend.models import (
     AppConfig, BodyMeasurement, DailyMetric, DailyReadiness, DriveSleepConnection,
     EconomyCeilingSnapshot, ExerciseCatalog, GoogleOAuthCredentials, Habit, HabitLog,
     PersonalRecord, Race, RaceCheckpoint, RemovedActivity, RunFormMetrics, SleepImport,
     StravaActivity, StravaToken, StrydActivity, StrydCredentials, SyncJob, TAPER_SHAPE_VALUES,
     TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, VerdictHistory, WeightEntry,
-    WeightPlan, WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit,
+    WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit,
     WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession,
 )
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
@@ -88,7 +89,11 @@ from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
 from backend.services.weight_ewma import compute_ewma as _compute_ewma, DEFAULT_SPAN as _EWMA_DEFAULT_SPAN
 from backend.services.weight_plan import compute_gap as _compute_weight_gap, generate_milestones as _generate_weight_milestones, plan_at as _weight_plan_at, project_hit_date as _project_hit_date
-from backend.services import weight_plans_repo as _wp_repo
+# _weight_rollup / _ROLLUP_LOOKBACK_DAYS: the canonical "current weight" rule
+# (>=2 entries in the trailing 7 days else a wider-lookback average, never a
+# single raw entry). Home/Weight's headline current-weight figures delegate
+# to this directly so they can never re-diverge from compute_gap's basis.
+from backend.services.weight_plan import _weight_rollup as _weight_current_rollup, _ROLLUP_LOOKBACK_DAYS as _WEIGHT_ROLLUP_LOOKBACK_DAYS
 from backend.services import sync_jobs as _sync_jobs
 from backend.services import reconcile as _reconcile
 from backend.services import sync_runner as _sync_runner
@@ -97,6 +102,11 @@ from backend.services.habit_autofill import recompute_autofill_for_week as _reco
 from backend.services.habit_streak import compute_streak
 from backend.services.habit_consistency import compute_consistency
 from backend.services.checkpoint_detector import evaluate_checkpoint as _evaluate_checkpoint, is_run_workout as _is_run_workout
+from backend.services.goal_habits import is_food_habit as _is_food_habit
+from backend.utils.workout_types import (
+    STRENGTH_SQL_PATTERNS as _STRENGTH_SQL_PATTERNS,
+    is_strength_workout as _is_strength_workout,
+)
 from backend.services.riegel import riegel_half_equivalent as _riegel_half_equivalent
 from backend.services.duration_curve_best_effort import get_athlete_duration_curve as _get_athlete_duration_curve
 from backend.services.lap_recompute import rebuild_athlete_duration_curve as _rebuild_athlete_duration_curve
@@ -120,10 +130,10 @@ from backend.routers.fuel import router as _fuel_router
 from backend.routers.injury_log import router as _injury_log_router
 from backend.routers.coach import router as _coach_router
 from backend.routers.preferences import router as _preferences_router
+from backend.routers.decisions import router as _decisions_router
 from backend.services.guardrail import get_guardrail_result
 from backend.services.body_modifier import get_body_modifier_guardrail_for_user
 from backend.services.lap_classify import aggregate_intensity_zones as _agg_zones
-from backend.services.polarized_split import check_polarized_split as _check_polarized_split, _DEFAULT_BOUNDS as _POLARIZED_BOUNDS
 from backend.services.lap_classify import classify_laps as _classify_laps
 from backend.services.intensity_distribution import compute_polarized_check as _compute_polarized_check
 from backend.services import worker_client as _worker_client
@@ -156,11 +166,17 @@ app.include_router(_fuel_router)
 app.include_router(_injury_log_router)
 app.include_router(_coach_router)
 app.include_router(_preferences_router)
+app.include_router(_decisions_router)
 
 
 def _today_bkk() -> _date:
-    """Return today's date in Asia/Bangkok (UTC+7) timezone."""
-    return _datetime.now(ZoneInfo("Asia/Bangkok")).date()
+    """Return today's date in Asia/Bangkok (UTC+7) timezone.
+
+    Kept as a short local alias because it appears ~50 times below, but it is
+    now the SAME function the services and the worker call rather than a third
+    private copy of the zone lookup.
+    """
+    return _today_bangkok()
 
 
 # Serve static files (index.html, weight.html, habits.html, css/, js/)
@@ -631,7 +647,17 @@ async def upload_avatar(request: Request, file: UploadFile = File(...)):
 
 
 @app.get("/api/users/{user_id}/avatar")
-def get_avatar(user_id: str):
+def get_avatar(user_id: str, _viewer: User = Depends(resolve_user)):
+    """Serve a user's avatar bytes.
+
+    Requires a session (#1601). This was the one avatar route with no auth at
+    all — its siblings are /api/users/me/avatar and both require the session —
+    so anyone who could guess or enumerate a UUID could read any user's photo.
+
+    Kept readable across users on purpose rather than restricted to self: the
+    nav renders other members' avatars in a multi-user instance. The fix is that
+    you must be SOMEONE, not that you must be the subject.
+    """
     try:
         uid = _uuid.UUID(user_id)
     except ValueError:
@@ -664,10 +690,46 @@ async def delete_avatar(request: Request):
 
 # ── Weight entries CRUD endpoints ─────────────────────────────────────────────
 
+# Optional weekly bioimpedance reading. Bounds match the CHECK constraint on
+# weight_entries.body_fat_pct so the API rejects with a field message rather
+# than letting the DB raise an IntegrityError.
+_BODY_FAT_PCT_MIN = 3
+_BODY_FAT_PCT_MAX = 70
+
+
+def _validate_body_fat_pct(value):
+    """422 unless the reading is None or inside the stored range."""
+    if value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise HTTPException(status_code=422, detail="body_fat_pct must be a number")
+    if not (_BODY_FAT_PCT_MIN <= value <= _BODY_FAT_PCT_MAX):
+        raise HTTPException(
+            status_code=422,
+            detail=f"body_fat_pct must be between {_BODY_FAT_PCT_MIN} and {_BODY_FAT_PCT_MAX}",
+        )
+
+
+def _recompute_weigh_in_autofill(user_id, entry_date) -> None:
+    """Tick the weigh-in habit off a weight write — real autofill, no tap.
+
+    Best-effort by design, exactly like the workout write paths: a habit that
+    failed to recompute must never cost the athlete the weigh-in itself. The
+    worker's ``POST /weight-entry`` does the same thing on the Discord path.
+    """
+    try:
+        _recompute_autofill(user_id, _week_start_bangkok(entry_date))
+    except Exception as exc:
+        _logging.getLogger(__name__).warning(
+            "weigh-in autofill recompute failed for user %s date %s: %s", user_id, entry_date, exc
+        )
+
+
 class WeightEntriesCreateIn(BaseModel):
     entry_date: str  # YYYY-MM-DD
     entry_time: Optional[str] = None  # HH:MM or HH:MM:SS
     weight_kg: float
+    body_fat_pct: Optional[float] = None
     notes: Optional[str] = None
 
 
@@ -675,6 +737,7 @@ class WeightEntriesPatchIn(BaseModel):
     user_id: Optional[str] = None    # forbidden — 422 if present in model_fields_set
     entry_date: Optional[str] = None  # forbidden — 422 if present in model_fields_set
     weight_kg: Optional[float] = None
+    body_fat_pct: Optional[float] = None
     entry_time: Optional[str] = None
     notes: Optional[str] = None
 
@@ -686,6 +749,7 @@ def _weight_entry_dict(e: WeightEntry) -> dict:
         "entry_date": str(e.entry_date),
         "entry_time": str(e.entry_time) if e.entry_time is not None else None,
         "weight_kg": float(e.weight_kg),
+        "body_fat_pct": float(e.body_fat_pct) if e.body_fat_pct is not None else None,
         "notes": e.notes,
         "source": e.source,
         "created_at": e.created_at.isoformat() if e.created_at else None,
@@ -713,6 +777,7 @@ def create_weight_entry(body: WeightEntriesCreateIn, user: User = Depends(resolv
 
     if not (20 <= body.weight_kg <= 300):
         raise HTTPException(status_code=422, detail="weight_kg must be between 20 and 300")
+    _validate_body_fat_pct(body.body_fat_pct)
     if body.notes is not None and len(body.notes) > 500:
         raise HTTPException(status_code=422, detail="notes must not exceed 500 characters")
 
@@ -731,6 +796,7 @@ def create_weight_entry(body: WeightEntriesCreateIn, user: User = Depends(resolv
             entry_date=entry_date,
             entry_time=entry_time,
             weight_kg=body.weight_kg,
+            body_fat_pct=body.body_fat_pct,
             notes=body.notes,
             source="manual",
         )
@@ -756,7 +822,10 @@ def create_weight_entry(body: WeightEntriesCreateIn, user: User = Depends(resolv
                 },
             )
         session.refresh(entry)
-        return JSONResponse(status_code=201, content=_weight_entry_dict(entry))
+        payload = _weight_entry_dict(entry)
+
+    _recompute_weigh_in_autofill(uid, entry_date)
+    return JSONResponse(status_code=201, content=payload)
 
 
 @app.get("/api/weight-entries")
@@ -825,12 +894,37 @@ def list_weight_entries(
             "days_logged_pct": days_logged_pct,
         }
 
-        return JSONResponse({"entries": entries, "count": count, "summary": summary})
+        # Weight-tracking state, so the app can say "paused" as plainly as the
+        # Discord nudge does. tracking_state's docstring claimed four consumers
+        # including "the weight card (copy)"; in reality only the worker nudge
+        # and coach_export read it, so an athlete who uses the app rather than
+        # replying in Discord had NO way to learn tracking had paused — the
+        # "app gets quieter, not louder" reassurance was invisible (#1608).
+        #
+        # Best-effort: a state we could not compute must never cost the athlete
+        # their weight history.
+        tracking = None
+        try:
+            from backend.services.tracking_state import state_for_user
+
+            tracking = state_for_user(session, uid, today)
+        except Exception:
+            _logging.getLogger(__name__).warning(
+                "tracking state unavailable for user %s", uid, exc_info=True
+            )
+
+        return JSONResponse({
+            "entries": entries,
+            "count": count,
+            "summary": summary,
+            "tracking": tracking,
+        })
 
 
 class WeightEntryByDateIn(BaseModel):
     entry_date: str  # YYYY-MM-DD
     weight_kg: float
+    body_fat_pct: Optional[float] = None
     notes: Optional[str] = None
 
 
@@ -846,6 +940,7 @@ def upsert_weight_entry_by_date(body: WeightEntryByDateIn, user: User = Depends(
 
     if not (20 <= body.weight_kg <= 300):
         raise HTTPException(status_code=422, detail="weight_kg must be between 20 and 300")
+    _validate_body_fat_pct(body.body_fat_pct)
     if body.notes is not None and len(body.notes) > 500:
         raise HTTPException(status_code=422, detail="notes must not exceed 500 characters")
 
@@ -862,6 +957,10 @@ def upsert_weight_entry_by_date(body: WeightEntryByDateIn, user: User = Depends(
     }
     if body.notes is not None:
         conflict_updates["notes"] = body.notes
+    # Omitted on an upsert means "leave the existing reading alone" — a plain
+    # re-weigh must not silently wipe the week's bioimpedance number.
+    if body.body_fat_pct is not None:
+        conflict_updates["body_fat_pct"] = body.body_fat_pct
 
     with Session(engine) as session:
         stmt = (
@@ -871,6 +970,7 @@ def upsert_weight_entry_by_date(body: WeightEntryByDateIn, user: User = Depends(
                 entry_date=entry_date,
                 entry_time=None,
                 weight_kg=body.weight_kg,
+                body_fat_pct=body.body_fat_pct,
                 notes=body.notes,
                 source="manual",
             )
@@ -884,7 +984,10 @@ def upsert_weight_entry_by_date(body: WeightEntryByDateIn, user: User = Depends(
         row_id = session.execute(stmt).scalar_one()
         session.commit()
         entry = session.get(WeightEntry, row_id)
-        return JSONResponse(_weight_entry_dict(entry))
+        payload = _weight_entry_dict(entry)
+
+    _recompute_weigh_in_autofill(uid, entry_date)
+    return JSONResponse(payload)
 
 
 @app.patch("/api/weight-entries/{entry_id}")
@@ -906,6 +1009,12 @@ def patch_weight_entry(entry_id: str, body: WeightEntriesPatchIn, user: User = D
             if not (20 <= body.weight_kg <= 300):
                 raise HTTPException(status_code=422, detail="weight_kg must be between 20 and 300")
             entry.weight_kg = body.weight_kg
+
+        if "body_fat_pct" in body.model_fields_set:
+            # Explicit null clears the reading; a bad number is a 422, never a
+            # DB-level IntegrityError.
+            _validate_body_fat_pct(body.body_fat_pct)
+            entry.body_fat_pct = body.body_fat_pct
 
         if "notes" in body.model_fields_set:
             if body.notes is not None and len(body.notes) > 500:
@@ -938,12 +1047,20 @@ def delete_weight_entry(entry_id: str, user: User = Depends(resolve_user)):
         entry = session.get(WeightEntry, eid)
         if entry is None or entry.user_id != user.id:
             raise HTTPException(status_code=404, detail="Entry not found")
+        deleted_date = entry.entry_date
         session.delete(entry)
         session.commit()
+
+    # Deleting the day's only weigh-in must untick the habit too, or the grid
+    # keeps claiming a number that no longer exists.
+    _recompute_weigh_in_autofill(user.id, deleted_date)
     return JSONResponse({"deleted": True})
 
 
 # ── Weight target endpoints ───────────────────────────────────────────────────
+
+_WEIGHT_TARGET_PHASE_VALUES = frozenset({"cut", "bulk", "maintain"})
+
 
 class WeightTargetCreateIn(BaseModel):
     start_weight_kg: float
@@ -951,6 +1068,12 @@ class WeightTargetCreateIn(BaseModel):
     target_weight_kg: float
     target_date: str       # YYYY-MM-DD
     notes: Optional[str] = None
+    # Folded in from the retired weight_plans table (#1604). phase is
+    # informational; target_rate_kg_per_week is an optional EXPLICIT rate
+    # override — most goals leave it unset and let consumers derive the
+    # implied rate from start/target weight and date instead.
+    phase: Optional[str] = None                       # "cut" | "bulk" | "maintain"
+    target_rate_kg_per_week: Optional[float] = None    # negative = losing weight
 
 
 class WeightTargetPatchIn(BaseModel):
@@ -959,6 +1082,8 @@ class WeightTargetPatchIn(BaseModel):
     target_weight_kg: Optional[float] = None
     target_date: Optional[str] = None
     notes: Optional[str] = None
+    phase: Optional[str] = None
+    target_rate_kg_per_week: Optional[float] = None
 
 
 class WeightTargetEndIn(BaseModel):
@@ -975,6 +1100,10 @@ def _weight_target_dict(t: WeightTarget) -> dict:
         "target_date": str(t.target_date),
         "status": t.status,
         "notes": t.notes,
+        "phase": t.phase,
+        "target_rate_kg_per_week": (
+            float(t.target_rate_kg_per_week) if t.target_rate_kg_per_week is not None else None
+        ),
         "end_weight_kg": float(t.end_weight_kg) if t.end_weight_kg is not None else None,
         "ended_at": t.ended_at.isoformat() if t.ended_at else None,
         "created_at": t.created_at.isoformat() if t.created_at else None,
@@ -986,7 +1115,7 @@ def _compute_weight_target_active(t: WeightTarget, session) -> dict:
     """Return _weight_target_dict augmented with computed fields for the active target view."""
     base = _weight_target_dict(t)
 
-    today = _date.today()
+    today = _today_bkk()
     target_date = t.target_date if isinstance(t.target_date, _date) else _date.fromisoformat(str(t.target_date))
     start_date = t.start_date if isinstance(t.start_date, _date) else _date.fromisoformat(str(t.start_date))
 
@@ -1013,33 +1142,17 @@ def _compute_weight_target_active(t: WeightTarget, session) -> dict:
     weeks_remaining = days_remaining / 7.0
     required_pace = round(kg_to_go / weeks_remaining, 4) if weeks_remaining > 0 else None
 
-    # Current pace from last 14 days of weight entries logged since target creation
-    cutoff_14 = today - _timedelta(days=14)
-    entries_14 = (
-        session.query(WeightEntry)
-        .filter(
-            WeightEntry.user_id == t.user_id,
-            WeightEntry.entry_date >= cutoff_14,
-            WeightEntry.created_at >= t.created_at,
-        )
-        .order_by(WeightEntry.entry_date.asc())
-        .all()
-    )
+    # Current pace over the last 14 days of weigh-ins logged since the target was
+    # created. Delegates to weight_plan.compute_current_pace_kg_per_week, which
+    # was written specifically to mirror the copy that used to live here so the
+    # worker read-API could report the same number — its docstring says exactly
+    # that. main.py never called it and kept its own copy, so the claimed parity
+    # was enforced by a comment and nothing else (#1601). The two bodies were
+    # verified equivalent before this replaced one with the other.
+    from backend.services.weight_plan import compute_current_pace_kg_per_week
 
-    current_pace = None
+    current_pace = compute_current_pace_kg_per_week(t, session, today)
     projected_end_date = None
-    if len(entries_14) >= 2:
-        first_e = entries_14[0]
-        last_e = entries_14[-1]
-        days_span = (last_e.entry_date - first_e.entry_date).days
-        if days_span > 0:
-            kg_change = float(first_e.weight_kg) - float(last_e.weight_kg)
-            current_pace = round(kg_change / days_span * 7, 4)
-    elif len(entries_14) == 1:
-        days_elapsed = (today - start_date).days
-        if days_elapsed > 0:
-            kg_change = float(t.start_weight_kg) - float(entries_14[0].weight_kg)
-            current_pace = round(kg_change / days_elapsed * 7, 4)
 
     if current_pace is not None and current_pace > 0 and kg_to_go > 0:
         weeks_to_go = kg_to_go / current_pace
@@ -1103,12 +1216,19 @@ def create_weight_target(body: WeightTargetCreateIn, user: User = Depends(resolv
         raise HTTPException(status_code=422, detail="start_weight_kg must be between 20 and 300")
     if not (20 <= body.target_weight_kg <= 300):
         raise HTTPException(status_code=422, detail="target_weight_kg must be between 20 and 300")
+    if body.phase is not None and body.phase not in _WEIGHT_TARGET_PHASE_VALUES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"phase must be one of {sorted(_WEIGHT_TARGET_PHASE_VALUES)}",
+        )
+    if body.target_rate_kg_per_week is not None and body.target_rate_kg_per_week == 0:
+        raise HTTPException(status_code=422, detail="target_rate_kg_per_week must be non-zero")
 
     try:
         start_date = _date.fromisoformat(body.start_date)
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid start_date; use YYYY-MM-DD")
-    if start_date > _date.today():
+    if start_date > _today_bkk():
         raise HTTPException(status_code=422, detail="start_date cannot be in the future")
 
     try:
@@ -1145,6 +1265,8 @@ def create_weight_target(body: WeightTargetCreateIn, user: User = Depends(resolv
             target_date=target_date,
             notes=body.notes,
             status="active",
+            phase=body.phase or "cut",
+            target_rate_kg_per_week=body.target_rate_kg_per_week,
         )
         session.add(target)
         try:
@@ -1263,7 +1385,7 @@ def get_weight_target_history_summary(user: User = Depends(resolve_user)):
         current_day_count = None
         if active_target:
             s_date = active_target.start_date if isinstance(active_target.start_date, _date) else _date.fromisoformat(str(active_target.start_date))
-            current_day_count = (_date.today() - s_date).days + 1
+            current_day_count = (_today_bkk() - s_date).days + 1
 
         past_attempts = []
         for t in achieved:
@@ -1354,6 +1476,19 @@ def patch_weight_target(target_id: str, body: WeightTargetPatchIn, user: User = 
         if "notes" in body.model_fields_set:
             target.notes = body.notes
 
+        if "phase" in body.model_fields_set and body.phase is not None:
+            if body.phase not in _WEIGHT_TARGET_PHASE_VALUES:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"phase must be one of {sorted(_WEIGHT_TARGET_PHASE_VALUES)}",
+                )
+            target.phase = body.phase
+
+        if "target_rate_kg_per_week" in body.model_fields_set:
+            if body.target_rate_kg_per_week is not None and body.target_rate_kg_per_week == 0:
+                raise HTTPException(status_code=422, detail="target_rate_kg_per_week must be non-zero")
+            target.target_rate_kg_per_week = body.target_rate_kg_per_week
+
         target.updated_at = _datetime.now(_timezone.utc)
         session.commit()
         session.refresh(target)
@@ -1377,7 +1512,7 @@ def end_weight_target(target_id: str, body: WeightTargetEndIn, user: User = Depe
         if target.status != "active":
             raise HTTPException(status_code=422, detail="Only active targets can be ended")
 
-        cutoff = _date.today() - _timedelta(days=7)
+        cutoff = _today_bkk() - _timedelta(days=7)
         recent_weight = (
             session.query(WeightEntry)
             .filter(
@@ -1460,7 +1595,7 @@ def weight_target_what_if(goal_id: str, body: WeightTargetWhatIfIn, user: User =
             )
 
         # Fetch the most recent weight entry to anchor the simulation
-        today = _date.today()
+        today = _today_bkk()
         latest_entry = (
             session.query(WeightEntry)
             .filter(WeightEntry.user_id == user.id, WeightEntry.entry_date <= today)
@@ -1492,190 +1627,6 @@ def weight_target_what_if(goal_id: str, body: WeightTargetWhatIfIn, user: User =
     arrival_date = str(result["arrival_date"]) if result["arrival_date"] else None
 
     return JSONResponse({"simulated_line": simulated_line, "arrival_date": arrival_date})
-
-
-# ── Weight plan endpoints (issue #864) ────────────────────────────────────────
-
-class WeightPlanCreateIn(BaseModel):
-    start_weight: float
-    goal_weight: float
-    start_date: str          # YYYY-MM-DD
-    goal_date: Optional[str] = None   # YYYY-MM-DD; may be omitted when rate is given
-    rate: Optional[float] = None      # target_rate_kg_per_week; may be omitted when goal_date is given
-    phase: Optional[str] = "cut"      # "cut" | "bulk" | "maintain"
-
-
-class WeightPlanPatchIn(BaseModel):
-    goal_weight: Optional[float] = None
-    goal_date: Optional[str] = None
-    rate: Optional[float] = None
-    phase: Optional[str] = None
-
-
-def _weight_plan_dict(p: WeightPlan) -> dict:
-    return {
-        "id": str(p.id),
-        "user_id": str(p.user_id),
-        "start_date": str(p.start_date),
-        "start_weight": float(p.start_weight_kg),
-        "goal_weight": float(p.goal_weight_kg),
-        "goal_date": str(p.goal_date) if p.goal_date is not None else None,
-        "rate": float(p.target_rate_kg_per_week) if p.target_rate_kg_per_week is not None else None,
-        "phase": p.phase,
-        "active": p.active,
-        "created_at": p.created_at.isoformat() if p.created_at else None,
-        "updated_at": p.updated_at.isoformat() if p.updated_at else None,
-    }
-
-
-def _validate_weight_plan_fields(
-    start_weight: Optional[float],
-    goal_weight: Optional[float],
-    rate: Optional[float],
-    start_date_str: Optional[str],
-    goal_date_str: Optional[str],
-    phase: Optional[str],
-) -> None:
-    """Raise HTTPException 422 with a field-specific message if validation fails."""
-    if start_weight is not None and start_weight <= 0:
-        raise HTTPException(status_code=422, detail={"field": "start_weight", "msg": "start_weight must be positive"})
-    if goal_weight is not None and goal_weight <= 0:
-        raise HTTPException(status_code=422, detail={"field": "goal_weight", "msg": "goal_weight must be positive"})
-    if rate is not None and rate <= 0:
-        raise HTTPException(status_code=422, detail={"field": "rate", "msg": "rate must be positive"})
-
-    start_date = None
-    if start_date_str is not None:
-        try:
-            start_date = _date.fromisoformat(start_date_str)
-        except ValueError:
-            raise HTTPException(status_code=422, detail={"field": "start_date", "msg": "start_date must be YYYY-MM-DD"})
-
-    goal_date = None
-    if goal_date_str is not None:
-        try:
-            goal_date = _date.fromisoformat(goal_date_str)
-        except ValueError:
-            raise HTTPException(status_code=422, detail={"field": "goal_date", "msg": "goal_date must be YYYY-MM-DD"})
-
-    if start_date is not None and goal_date is not None and start_date >= goal_date:
-        raise HTTPException(status_code=422, detail={"field": "start_date", "msg": "start_date must be before goal_date"})
-
-    if phase is not None and start_weight is not None and goal_weight is not None:
-        if phase == "cut" and goal_weight >= start_weight:
-            raise HTTPException(
-                status_code=422,
-                detail={"field": "goal_weight", "msg": "cut phase requires goal_weight < start_weight"},
-            )
-        if phase == "bulk" and goal_weight <= start_weight:
-            raise HTTPException(
-                status_code=422,
-                detail={"field": "goal_weight", "msg": "bulk phase requires goal_weight > start_weight"},
-            )
-
-
-@app.post("/api/weight-plans", status_code=201)
-def create_weight_plan(body: WeightPlanCreateIn, user: User = Depends(resolve_user)):
-    _validate_weight_plan_fields(
-        start_weight=body.start_weight,
-        goal_weight=body.goal_weight,
-        rate=body.rate,
-        start_date_str=body.start_date,
-        goal_date_str=body.goal_date,
-        phase=body.phase,
-    )
-    start_date = _date.fromisoformat(body.start_date)
-    goal_date = _date.fromisoformat(body.goal_date) if body.goal_date else None
-
-    with Session(engine) as session:
-        plan = _wp_repo.create_plan(
-            session,
-            user_id=user.id,
-            start_date=start_date,
-            start_weight_kg=body.start_weight,
-            goal_weight_kg=body.goal_weight,
-            goal_date=goal_date,
-            target_rate_kg_per_week=body.rate,
-            phase=body.phase or "cut",
-        )
-        session.commit()
-        session.refresh(plan)
-        return JSONResponse(status_code=201, content=_weight_plan_dict(plan))
-
-
-@app.get("/api/weight-plans/active")
-def get_active_weight_plan(user: User = Depends(resolve_user)):
-    with Session(engine) as session:
-        plan = _wp_repo.get_active_plan(session, user.id)
-        if plan is None:
-            raise HTTPException(status_code=404, detail="No active weight plan")
-        return JSONResponse(_weight_plan_dict(plan))
-
-
-@app.patch("/api/weight-plans/{plan_id}")
-def patch_weight_plan(plan_id: str, body: WeightPlanPatchIn, user: User = Depends(resolve_user)):
-    try:
-        pid = _uuid.UUID(plan_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid plan_id")
-
-    with Session(engine) as session:
-        plan = _wp_repo.get_plan_by_id(session, pid)
-        if plan is None:
-            raise HTTPException(status_code=404, detail="Weight plan not found")
-        if plan.user_id != user.id:
-            raise HTTPException(status_code=403, detail="Access denied")
-
-        # Resolve effective values after potential update for direction validation
-        new_goal_weight = body.goal_weight if body.goal_weight is not None else float(plan.goal_weight_kg)
-        new_start_weight = float(plan.start_weight_kg)
-        new_phase = body.phase if body.phase is not None else plan.phase
-        new_goal_date = body.goal_date  # may stay None
-        new_rate = body.rate
-
-        _validate_weight_plan_fields(
-            start_weight=new_start_weight,
-            goal_weight=new_goal_weight,
-            rate=new_rate,
-            start_date_str=None,
-            goal_date_str=new_goal_date,
-            phase=new_phase,
-        )
-
-        fields: dict = {}
-        if body.goal_weight is not None:
-            fields["goal_weight_kg"] = body.goal_weight
-        if body.goal_date is not None:
-            fields["goal_date"] = _date.fromisoformat(body.goal_date)
-        if body.rate is not None:
-            fields["target_rate_kg_per_week"] = body.rate
-        if body.phase is not None:
-            fields["phase"] = body.phase
-
-        plan = _wp_repo.update_plan(session, plan, fields)
-        session.commit()
-        session.refresh(plan)
-        return JSONResponse(_weight_plan_dict(plan))
-
-
-@app.delete("/api/weight-plans/{plan_id}")
-def delete_weight_plan(plan_id: str, user: User = Depends(resolve_user)):
-    try:
-        pid = _uuid.UUID(plan_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid plan_id")
-
-    with Session(engine) as session:
-        plan = _wp_repo.get_plan_by_id(session, pid)
-        if plan is None:
-            raise HTTPException(status_code=404, detail="Weight plan not found")
-        if plan.user_id != user.id:
-            raise HTTPException(status_code=403, detail="Access denied")
-
-        plan = _wp_repo.deactivate_plan(session, plan)
-        session.commit()
-        session.refresh(plan)
-        return JSONResponse(_weight_plan_dict(plan))
 
 
 # ── Training plan endpoints (issue #1101) ──────────────────────────────────────
@@ -1929,6 +1880,12 @@ def get_weight_chart(
             date_weights.setdefault(d, []).append(float(e.weight_kg))
 
         def _ma_for_day(day: _date):
+            # Chart-only helper (dense trend/today_marker.trend_kg series) —
+            # a third naive-mean implementation, distinct from the two
+            # headline-stat _ma closures unified onto _weight_rollup
+            # elsewhere in this file. Left as-is: it draws the trend LINE's
+            # shape day by day (nulls on data gaps are correct here), not a
+            # "current weight" figure competing with compute_gap's basis.
             window_start = day - _timedelta(days=6)
             vals = []
             for offset in range(7):
@@ -2319,9 +2276,12 @@ _WEIGHT_SUMMARY_EMPTY = {
 @app.get("/api/home/weight-summary")
 def get_home_weight_summary(user: User = Depends(resolve_user)):
     uid = user.id
-    today = _date.today()
-    # today-36 covers 7-day MA windows for all 30 sparkline days and delta_month
-    fetch_from = today - _timedelta(days=36)
+    today = _today_bkk()
+    # today-36 covers 7-day MA windows for all 30 sparkline days; the
+    # current-weight rollup (avg_7d/delta_week/delta_month, below) needs its
+    # own wider fetch since its wide-lookback fallback can reach back
+    # _WEIGHT_ROLLUP_LOOKBACK_DAYS days from today-30 (delta_month's as-of).
+    fetch_from = today - _timedelta(days=max(36, _WEIGHT_ROLLUP_LOOKBACK_DAYS + 30))
 
     try:
         with Session(engine) as session:
@@ -2353,7 +2313,11 @@ def get_home_weight_summary(user: User = Depends(resolve_user)):
         date_weights.setdefault(d, []).append(float(e.weight_kg))
 
     def _ma(day: _date):
-        """7-day moving average ending on day (inclusive window [day-6, day])."""
+        """7-day moving average ending on day (inclusive window [day-6, day]).
+        Chart-only helper (ma30/sparkline dense series) — does NOT back any
+        headline "current weight" figure; those delegate to _weight_rollup
+        instead (see avg_7d/delta_week/delta_month below) so they can never
+        disagree with compute_gap's basis."""
         vals = []
         for offset in range(7):
             di = day - _timedelta(days=6 - offset)
@@ -2376,19 +2340,24 @@ def get_home_weight_summary(user: User = Depends(resolve_user)):
     else:
         current_weight = None
 
-    avg_7d = _ma(today)
+    # avg_7d / delta_week / delta_month: the headline "current weight" figures
+    # delegate to _weight_rollup (>=2 entries in the trailing 7 days else a
+    # wider-lookback average, never a single raw entry) — the same rule
+    # compute_gap uses — instead of the chart-only _ma above.
+    _rollup_rows = [(d, w) for d, ws in date_weights.items() for w in ws]
+    avg_7d = _weight_current_rollup(_rollup_rows, today)["current_kg"]
 
     delta_week = None
     if avg_7d is not None:
-        ma_7d_ago = _ma(today - _timedelta(days=7))
-        if ma_7d_ago is not None:
-            delta_week = round(avg_7d - ma_7d_ago, 2)
+        rollup_7d_ago = _weight_current_rollup(_rollup_rows, today - _timedelta(days=7))["current_kg"]
+        if rollup_7d_ago is not None:
+            delta_week = round(avg_7d - rollup_7d_ago, 2)
 
     delta_month = None
     if avg_7d is not None:
-        ma_30d_ago = _ma(today - _timedelta(days=30))
-        if ma_30d_ago is not None:
-            delta_month = round(avg_7d - ma_30d_ago, 2)
+        rollup_30d_ago = _weight_current_rollup(_rollup_rows, today - _timedelta(days=30))["current_kg"]
+        if rollup_30d_ago is not None:
+            delta_month = round(avg_7d - rollup_30d_ago, 2)
 
     # sparkline: last 7 days of actual daily average weights (non-null days only)
     sparkline = []
@@ -2493,7 +2462,7 @@ def get_home_recent_workouts(
     has_more = len(rows) > limit
     rows = rows[:limit]
 
-    today = _date.today()
+    today = _today_bkk()
 
     def _rel(d):
         delta = (today - d).days
@@ -2738,7 +2707,7 @@ def get_home_readiness(
     uid = current_user.id
 
     try:
-        query_date = _date.fromisoformat(date) if date else _date.today()
+        query_date = _date.fromisoformat(date) if date else _today_bkk()
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid date format")
 
@@ -3114,7 +3083,7 @@ def get_weekly_summary(
     # explains it (see weekly_summary._build_prompt/validate_summary). Uses
     # week_end (capped at today) so a future-dated week query never asks
     # daily_tss_series for future days.
-    _verdict_as_of = min(week_end, _date_cls.today())
+    _verdict_as_of = min(week_end, _today_bkk())
     _chronic_start = _verdict_as_of - _td(days=27)
     _chronic_series = _dts(str(uid), _chronic_start, _verdict_as_of)
     chronic_weekly = round(sum(v for _, v in _chronic_series) / 4.0, 1)
@@ -3129,7 +3098,7 @@ def get_weekly_summary(
         readiness_7d_mean=_readiness_7d,
         injury_log=_active_injuries,
     )
-    if _verdict_as_of == _date_cls.today():
+    if _verdict_as_of == _today_bkk():
         _upsert_verdict_history(uid, _verdict_as_of, verdict, readiness_score=_readiness_today)
 
     # Gap findings (issue #1378): query active findings for the week.
@@ -3324,7 +3293,11 @@ def _build_habits_block(uid, today_bkk, ws):
 
 def _build_weight_block(uid, today_bkk):
     """Return the weight block, or None when no active target exists."""
-    fetch_from = today_bkk - _timedelta(days=36)
+    # 36 covers the 14-point sparkline's own 7-day MA windows; the
+    # current-weight rollup (seven_day_avg/weekly_rate_kg, below) needs its
+    # own wider fetch since its wide-lookback fallback can reach back
+    # _WEIGHT_ROLLUP_LOOKBACK_DAYS days from today-7 (weekly_rate_kg's as-of).
+    fetch_from = today_bkk - _timedelta(days=max(36, _WEIGHT_ROLLUP_LOOKBACK_DAYS + 7))
 
     with Session(engine) as session:
         entries = (
@@ -3351,6 +3324,9 @@ def _build_weight_block(uid, today_bkk):
         date_weights.setdefault(d, []).append(float(e.weight_kg))
 
     def _ma(day):
+        """Chart-only helper (14-point sparkline) — does NOT back
+        seven_day_avg/weekly_rate_kg below; those delegate to _weight_rollup
+        so they can never disagree with compute_gap's basis."""
         vals = []
         for offset in range(7):
             di = day - _timedelta(days=6 - offset)
@@ -3362,9 +3338,14 @@ def _build_weight_block(uid, today_bkk):
     last_entry_kg = float(entries[-1].weight_kg) if entries else None
     current_kg = last_entry_kg
 
-    seven_day_avg = _ma(today_bkk)
-    ma_7d_ago = _ma(today_bkk - _timedelta(days=7))
-    weekly_rate_kg = round(seven_day_avg - ma_7d_ago, 2) if (seven_day_avg is not None and ma_7d_ago is not None) else None
+    # seven_day_avg / weekly_rate_kg: the headline "current weight" figures
+    # delegate to _weight_rollup (>=2 entries in the trailing 7 days else a
+    # wider-lookback average, never a single raw entry) — the same rule
+    # compute_gap uses.
+    _rollup_rows = [(d, w) for d, ws in date_weights.items() for w in ws]
+    seven_day_avg = _weight_current_rollup(_rollup_rows, today_bkk)["current_kg"]
+    rollup_7d_ago = _weight_current_rollup(_rollup_rows, today_bkk - _timedelta(days=7))["current_kg"]
+    weekly_rate_kg = round(seven_day_avg - rollup_7d_ago, 2) if (seven_day_avg is not None and rollup_7d_ago is not None) else None
 
     # 14-point sparkline (recent trend)
     sparkline = []
@@ -4022,7 +4003,7 @@ class HabitLogUpsertIn(BaseModel):
 def get_habits_summary(user: User = Depends(resolve_user)):
     """Return each active habit with streak and 30-day consistency stats."""
     from datetime import date as _date_cls, timedelta as _td
-    today = _date_cls.today()
+    today = _today_bkk()
     window_start = today - _td(days=29)
 
     with Session(engine) as session:
@@ -4060,12 +4041,40 @@ def get_habits_summary(user: User = Depends(resolve_user)):
         streak_data = compute_streak(habit, habit_logs, today)
         consistency_data = compute_consistency(habit, habit_logs, window_start, today)
         entry = _habit_dict(habit)
-        entry["current_streak"] = streak_data["current_streak"]
-        entry["longest_streak"] = streak_data["longest_streak"]
+        # No streaks near food (spec D8). Suppressed in the PAYLOAD, not the
+        # template: a frontend guard is one refactor away from being dropped,
+        # and the whole point is that a missed meal must never read as a broken
+        # streak. is_food_habit() existed for this and had zero callers (#1600).
+        food = _is_food_habit(habit)
+        entry["current_streak"] = 0 if food else streak_data["current_streak"]
+        entry["longest_streak"] = 0 if food else streak_data["longest_streak"]
+        entry["streak_suppressed"] = food
         entry["consistency_percent"] = consistency_data["consistency_percent"]
         result.append(entry)
 
-    return JSONResponse({"habits": result})
+    # Correlation sentences — what the habit surface shows INSTEAD of streaks.
+    # habit_evidence.py's own docstring calls itself exactly that, and
+    # lean-program.md describes it rendering here, but nothing outside
+    # coach_export ever built it (#1608). Combined with the streak bug (#1600)
+    # the live app did the inverse of the design: fire-streaks on the food
+    # habits, and never the sentence meant to replace them.
+    #
+    # Silence is correct when a comparison isn't readable — build_user_evidence
+    # returns only readable ones, because "not enough data yet" three times is
+    # worse than saying nothing. Best-effort: evidence is decoration, and a
+    # failure here must not cost the athlete their habit grid.
+    evidence: list = []
+    try:
+        from backend.services.habit_evidence import build_user_evidence
+
+        with Session(engine) as _ev_session:
+            evidence = build_user_evidence(_ev_session, user.id, today)
+    except Exception:
+        _logging.getLogger(__name__).warning(
+            "habit evidence unavailable for user %s", user.id, exc_info=True
+        )
+
+    return JSONResponse({"habits": result, "evidence": evidence})
 
 
 @app.get("/api/habits")
@@ -4076,8 +4085,13 @@ def get_habits(
 ):
     with Session(engine) as session:
         from backend.services.coach_habit_targets import ensure_coach_tracked_habits
+        from backend.services.goal_habits import ensure_goal_habits
 
         ensure_coach_tracked_habits(session, user.id)
+        # The lean program's three goal habits (weigh-in, protein-first,
+        # long-run fuel). Idempotent and adopt-not-duplicate, so opening this
+        # page is the whole bootstrap — the same shape as the line above.
+        ensure_goal_habits(session, user.id)
         session.commit()
         q = session.query(Habit).filter(Habit.user_id == user.id)
         if active is not None:
@@ -4125,7 +4139,37 @@ def post_habit(body: HabitIn, user: User = Depends(resolve_user)):
                         "existing_habit_id": str(existing.id),
                     },
                 )
-        habit = _habits_repo.create_habit(session, user.id, body.model_dump())
+        existing_name = (
+            session.query(Habit)
+            .filter(
+                Habit.user_id == user.id,
+                Habit.name == body.name.strip(),
+                Habit.is_archived.is_(False),
+            )
+            .first()
+        )
+        if existing_name is not None:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "error": "An active habit with this name already exists",
+                    "existing_habit_id": str(existing_name.id),
+                },
+            )
+        try:
+            habit = _habits_repo.create_habit(session, user.id, body.model_dump())
+        except sa_exc.IntegrityError:
+            # Backstop for the same race the two pre-checks above narrow but
+            # cannot close (#1604 — matches ensure_goal_habits' fix): the two
+            # partial unique indexes on habits((user_id, auto_fill_source))
+            # and ((user_id, name)), both WHERE is_archived = false, are what
+            # actually prevent the duplicate; this just turns the resulting
+            # IntegrityError into a clean 409 instead of a 500.
+            session.rollback()
+            return JSONResponse(
+                status_code=409,
+                content={"error": "A habit with this name or auto_fill_source already exists"},
+            )
         return JSONResponse(status_code=201, content=_habit_dict_v2(habit))
 
 
@@ -4156,7 +4200,18 @@ async def patch_habit(habit_id: str, request: Request, user: User = Depends(reso
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid habit_id")
     with Session(engine) as session:
-        habit = _habits_repo.update_habit(session, hid, user.id, body.model_dump(exclude_none=True))
+        try:
+            habit = _habits_repo.update_habit(session, hid, user.id, body.model_dump(exclude_none=True))
+        except sa_exc.IntegrityError:
+            # A rename or un-archive (is_archived: false) collided with the
+            # partial unique indexes on habits((user_id, name)) or
+            # ((user_id, auto_fill_source)), both WHERE is_archived = false
+            # (#1604). Same backstop as post_habit's — 409, not a 500.
+            session.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="An active habit with this name or auto_fill_source already exists",
+            )
         if habit is None:
             raise HTTPException(status_code=404, detail="Habit not found")
         return JSONResponse(_habit_dict_v2(habit))
@@ -4294,8 +4349,10 @@ def _get_computed_logs_from_workouts(workouts: list, auto_fill_source: str) -> l
             if "run" in (w.workout_type or "").lower():
                 date_values[w.workout_date.isoformat()] += 1.0
     elif auto_fill_source == "workout.lift_count":
+        # See backend/utils/workout_types — writes normalise to "strength", so
+        # a substring test for "lift" never matched (issue #1607).
         for w in workouts:
-            if "lift" in (w.workout_type or "").lower():
+            if _is_strength_workout(w.workout_type):
                 date_values[w.workout_date.isoformat()] += 1.0
     elif auto_fill_source == "workout.total_duration_minutes":
         for w in workouts:
@@ -4331,7 +4388,11 @@ def _get_computed_logs(
     elif auto_fill_source == "workout.run_count":
         workouts = base_q.filter(Workout.workout_type.ilike("%run%")).all()
     elif auto_fill_source == "workout.lift_count":
-        workouts = base_q.filter(Workout.workout_type.ilike("%lift%")).all()
+        # SQL-side twin of _is_strength_workout. ilike("%lift%") missed every
+        # row written as "strength" (issue #1607).
+        workouts = base_q.filter(
+            or_(*[Workout.workout_type.ilike(p) for p in _STRENGTH_SQL_PATTERNS])
+        ).all()
     elif auto_fill_source == "workout.total_duration_minutes":
         workouts = base_q.filter(Workout.duration_seconds.isnot(None)).all()
     elif auto_fill_source == "workout.distance_km":
@@ -4570,7 +4631,7 @@ def get_habit_summary(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid habit_id")
 
-    today = _date.today()
+    today = _today_bkk()
     lookback_30 = today - _timedelta(days=29)
     lookback_365 = today - _timedelta(days=365)
 
@@ -4595,7 +4656,10 @@ def get_habit_summary(
     all_dates = {lg.log_date for lg in all_logs}
     sorted_dates = sorted(all_dates)
 
-    if habit.tracking_type == "daily_checkmark":
+    # Same suppression as the list endpoint — the detail panel is a second way
+    # to see the same habit and must not disagree with it.
+    food_habit = _is_food_habit(habit)
+    if habit.tracking_type == "daily_checkmark" and not food_habit:
         current_streak = _current_streak_from_dates(today, all_dates)
         longest_streak = _best_streak_from_dates(sorted_dates)
     else:
@@ -4613,6 +4677,7 @@ def get_habit_summary(
         "habit": _habit_dict(habit),
         "current_streak": current_streak,
         "longest_streak": longest_streak,
+        "streak_suppressed": food_habit,
         "consistency_pct": consistency_pct,
         "days_checked": days_checked,
         "days_total": days_in_window,
@@ -4990,7 +5055,7 @@ def get_habit_stats(
     uid = user.id
 
     from datetime import timedelta
-    today = _date.today()
+    today = _today_bkk()
     window_start = today - timedelta(days=days - 1)
 
     # List mode: return stats for all active habits when habit_id is omitted
@@ -5093,7 +5158,7 @@ def get_habits_adherence(user: User = Depends(resolve_user)):
     HTTP status is always 200.
     """
     uid = user.id
-    today = _date.today()
+    today = _today_bkk()
 
     with Session(engine) as session:
         active_habits = (
@@ -5234,7 +5299,7 @@ def get_adherence_nudges(user: User = Depends(resolve_user)):
     from datetime import date as _date_cls, timedelta as _td
 
     uid = user.id
-    today = _date_cls.today()
+    today = _today_bkk()
     current_start = today - _td(days=29)
     prev_start = today - _td(days=59)
     prev_end = today - _td(days=30)
@@ -5396,7 +5461,7 @@ def get_active_streak(current_user: User = Depends(resolve_user)):
 
     from datetime import timedelta
     from sqlalchemy import text as _sql_text
-    today = _date.today()
+    today = _today_bkk()
 
     with Session(engine) as session:
         rows = session.execute(
@@ -5451,12 +5516,17 @@ _PAGES = {
     "home": "home.html",
     "weight": "weight.html",
     "habits": "habits.html",
-    "calendar": "calendar.html",
     "log": "training-log.html",
     "training": "training.html",
-    "trends": "trends.html",
     "settings": "settings.html",
     "preferences": "preferences.html",
+    # The consult loop, start to finish — check-in, paste-back, and history —
+    # in one page. Supersedes the standalone Decisions page (below).
+    "coach": "coach.html",
+    # Redirect shim only (-> /coach), same pattern as "preferences" above.
+    # Route kept registered so old /decisions bookmarks still land somewhere
+    # real instead of 404ing; decisions.html itself just redirects now.
+    "decisions": "decisions.html",
     "run-view": "run-view.html",
     "run-builder": "run-builder.html",
     "strength-view": "strength-view.html",
@@ -5494,12 +5564,6 @@ def _serve_dev_mobile():
 app.add_api_route("/dev/mobile", _serve_dev_mobile, include_in_schema=False)
 
 
-def _serve_weight_targets():
-    return RedirectResponse(url="/weight", status_code=302)
-
-app.add_api_route("/weight/targets", _serve_weight_targets, include_in_schema=False)
-
-
 def _serve_projection_redirect():
     # Projection was merged into the Training → Projection sub-tab
     # (issue #1226; tab renamed Plan → Projection in feature/performance-tab-rework;
@@ -5514,112 +5578,6 @@ app.add_api_route("/projection.html", _serve_projection_redirect, include_in_sch
 def index():
     # Bare domain → the home dashboard (clean URL).
     return RedirectResponse(url="/home")
-
-
-@app.get("/api/calendar/month")
-def get_calendar_month(
-    year: int = Query(...),
-    month: int = Query(...),
-    user: User = Depends(resolve_user),
-):
-    """Return per-day calendar data for the given month.
-
-    Response shape: a list of objects, one per calendar day in the month:
-      {
-        date: "YYYY-MM-DD",
-        weight: float | null,
-        habits_done: int,
-        workouts: int,
-        energy: int | null,        # 1–5
-        sleep_quality: int | null  # 1–5
-      }
-    """
-    from datetime import date as _date
-    import calendar as _cal
-
-    uid = user.id
-
-    if not (1 <= month <= 12):
-        raise HTTPException(status_code=400, detail="month must be 1–12")
-
-    days_in_month = _cal.monthrange(year, month)[1]
-    from_d = _date(year, month, 1)
-    to_d = _date(year, month, days_in_month)
-
-    with Session(engine) as session:
-        # Weight entries
-        weight_rows = (
-            session.query(WeightEntry)
-            .filter(
-                WeightEntry.user_id == uid,
-                WeightEntry.entry_date >= from_d,
-                WeightEntry.entry_date <= to_d,
-            )
-            .all()
-        )
-        weight_by_date = {str(w.entry_date): float(w.weight_kg) for w in weight_rows}
-
-        # Habit log counts per date
-        log_rows = (
-            session.query(HabitLog.log_date)
-            .filter(
-                HabitLog.user_id == uid,
-                HabitLog.log_date >= from_d,
-                HabitLog.log_date <= to_d,
-            )
-            .all()
-        )
-        habits_by_date: dict = {}
-        for (ld,) in log_rows:
-            key = str(ld)
-            habits_by_date[key] = habits_by_date.get(key, 0) + 1
-
-        # Workout counts per date
-        workout_rows = (
-            session.query(Workout.workout_date)
-            .filter(
-                Workout.user_id == uid,
-                Workout.workout_date >= from_d,
-                Workout.workout_date <= to_d,
-            )
-            .all()
-        )
-        workouts_by_date: dict = {}
-        for (wd,) in workout_rows:
-            key = str(wd)
-            workouts_by_date[key] = workouts_by_date.get(key, 0) + 1
-
-        # Daily metrics (energy + sleep_quality)
-        metric_rows = (
-            session.query(DailyMetric)
-            .filter(
-                DailyMetric.user_id == uid,
-                DailyMetric.metric_date >= from_d,
-                DailyMetric.metric_date <= to_d,
-            )
-            .all()
-        )
-        metrics_by_date: dict = {}
-        for m in metric_rows:
-            metrics_by_date[str(m.metric_date)] = {
-                "energy": m.energy,
-                "sleep_quality": m.sleep_quality,
-            }
-
-    days = []
-    for day in range(1, days_in_month + 1):
-        d = str(_date(year, month, day))
-        m = metrics_by_date.get(d, {})
-        days.append({
-            "date": d,
-            "weight": weight_by_date.get(d),
-            "habits_done": habits_by_date.get(d, 0),
-            "workouts": workouts_by_date.get(d, 0),
-            "energy": m.get("energy"),
-            "sleep_quality": m.get("sleep_quality"),
-        })
-
-    return JSONResponse(days)
 
 
 # ── Workout endpoints ─────────────────────────────────────────────────────────
@@ -5642,6 +5600,25 @@ class ExerciseIn(BaseModel):
 
 # Compound sources (e.g. 'strava,stryd') are supported so a single workout can carry data from multiple integrations.
 _VALID_SOURCES = frozenset({"manual", "strava", "stryd", "strava,stryd", "stryd,strava"})
+
+
+# Bounds match the CHECK constraint on workouts.drills_minutes so a bad value
+# is a 422 with a field message, not a DB-level IntegrityError 500.
+_DRILLS_MIN_MINUTES = 0
+_DRILLS_MAX_MINUTES = 120
+
+
+def _validate_drills_minutes(value):
+    """422 unless drills_minutes is None or inside the stored range."""
+    if value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise HTTPException(status_code=422, detail="drills_minutes must be a whole number of minutes")
+    if not (_DRILLS_MIN_MINUTES <= value <= _DRILLS_MAX_MINUTES):
+        raise HTTPException(
+            status_code=422,
+            detail=f"drills_minutes must be between {_DRILLS_MIN_MINUTES} and {_DRILLS_MAX_MINUTES}",
+        )
 
 
 class WorkoutIn(BaseModel):
@@ -5669,6 +5646,12 @@ class WorkoutIn(BaseModel):
     # Environmental conditions for heat/humidity normalization (issue #1168)
     temperature_c: Optional[float] = None
     humidity_pct: Optional[float] = None
+    # Did this session take on fuel? Tri-state on purpose: null = unknown, and
+    # unknown must never read as "no". Only consulted for long runs, by the
+    # long-run-fuel habit.
+    fuelled: Optional[bool] = None
+    # Running drills alongside this session — a duration only, no TSS.
+    drills_minutes: Optional[int] = None
 
 
 class WorkoutPatch(BaseModel):
@@ -5697,6 +5680,10 @@ class WorkoutPatch(BaseModel):
     humidity_pct: Optional[float] = None
     # Self-reported effort feeling (issue #1241): 'hard' | 'ok' | 'easy' | null.
     feeling: Optional[str] = None
+    # Did this session take on fuel? null clears it back to unknown.
+    fuelled: Optional[bool] = None
+    # Running drills alongside this session. null clears it back to unknown.
+    drills_minutes: Optional[int] = None
     # Full exercise list to replace this workout's exercises (same shape as
     # WorkoutIn.exercises / the /exercises/replace endpoint). The Form editor
     # has always sent this on edit; before this field existed pydantic silently
@@ -5900,7 +5887,7 @@ def _workout_signal_scores(session, workout) -> dict:
     except Exception:
         compute_decoupling = None
 
-    _today = _date.today()
+    _today = _today_bkk()
     _window_start = _today - _timedelta(days=89)
     run_workouts = (
         session.query(Workout)
@@ -6260,6 +6247,8 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "humidity_pct": w.humidity_pct,
         "flat_equivalent_pace": float(w.flat_equivalent_pace) if w.flat_equivalent_pace is not None else None,
         "feeling": w.feeling,
+        "fuelled": w.fuelled,
+        "drills_minutes": w.drills_minutes,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
         **_best_values_dict(w),
@@ -6493,6 +6482,8 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "zone2_minutes": w.zone2_minutes,
         "exercise_count": exercise_count,
         "feeling": w.feeling,
+        "fuelled": w.fuelled,
+        "drills_minutes": w.drills_minutes,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         **_best_values_dict(w),
     }
@@ -6643,205 +6634,6 @@ def get_exercise_names(user: User = Depends(resolve_user)):
         )
         names = [r[0] for r in rows if r[0] and r[0].strip()]
         return JSONResponse(names)
-
-
-# ── Intensity distribution chart data ───────────────────────────────────────
-# Declared BEFORE /api/workouts/{workout_id} so the literal path isn't parsed as an id.
-
-
-def _accumulate_intensity_window(workouts, prefs_dict):
-    """Duration-weighted rolling-window aggregation shared by intensity-distribution
-    and polarized-check endpoints.
-
-    Each Workout in *workouts* must have its .splits already loaded (e.g. via
-    selectinload) so this function issues no additional DB queries.
-
-    Returns:
-        sessions_out   list of per-workout dicts (date, workout_id, name,
-                       duration_seconds, low_pct, moderate_pct, high_pct)
-        rolling_window dict with low_pct / moderate_pct / high_pct, all None
-                       when no workouts have classifiable band data.
-    """
-    sessions_out = []
-    total_dur = 0.0
-    total_low = 0.0
-    total_mod = 0.0
-    total_high = 0.0
-
-    for w in workouts:
-        zones = _agg_zones(w.splits, prefs_dict)
-        dur = w.duration_seconds or 0
-
-        if zones["low_pct"] is not None and dur > 0:
-            total_dur += dur
-            total_low  += dur * zones["low_pct"]
-            total_mod  += dur * zones["moderate_pct"]
-            total_high += dur * zones["high_pct"]
-
-        sessions_out.append({
-            "date":             w.workout_date.isoformat(),
-            "workout_id":       str(w.id),
-            "name":             w.name,
-            "duration_seconds": dur or None,
-            "low_pct":          zones["low_pct"],
-            "moderate_pct":     zones["moderate_pct"],
-            "high_pct":         zones["high_pct"],
-        })
-
-    if total_dur == 0:
-        rolling_window = {"low_pct": None, "moderate_pct": None, "high_pct": None}
-    else:
-        rolling_window = {
-            "low_pct":      round(total_low  / total_dur, 2),
-            "moderate_pct": round(total_mod  / total_dur, 2),
-            "high_pct":     round(total_high / total_dur, 2),
-        }
-
-    return sessions_out, rolling_window
-
-
-@app.get("/api/workouts/intensity-distribution")
-def get_intensity_distribution(
-    from_date: str = Query(alias="from"),
-    to_date: str = Query(alias="to"),
-    user: User = Depends(resolve_user),
-):
-    """Per-session and rolling-window intensity distribution for the chart (issue #1133).
-
-    Returns one entry per workout in the date range with low/moderate/high
-    percentage breakdown derived from lap band data, plus a duration-weighted
-    aggregate across all sessions (rolling_window).
-    """
-    uid = user.id
-    try:
-        from_d = _date.fromisoformat(from_date)
-        to_d = _date.fromisoformat(to_date)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
-
-    with Session(engine) as session:
-        prefs = (
-            session.query(UserPreferences)
-            .filter(UserPreferences.user_id == uid)
-            .first()
-        )
-        prefs_dict = {
-            "ftp_w": prefs.ftp_w if prefs is not None else None,
-            "threshold_hr": prefs.threshold_hr if prefs is not None else None,
-            "threshold_pace_seconds_per_km": (
-                prefs.threshold_pace_seconds_per_km if prefs is not None else None
-            ),
-        }
-
-        workouts = (
-            session.query(Workout)
-            .options(
-                load_only(
-                    Workout.id, Workout.workout_date, Workout.name,
-                    Workout.duration_seconds, Workout.workout_type, Workout.created_at,
-                ),
-                selectinload(Workout.splits).options(load_only(
-                    WorkoutSplit.workout_id, WorkoutSplit.split_index,
-                    WorkoutSplit.avg_power, WorkoutSplit.avg_hr,
-                    WorkoutSplit.distance_km, WorkoutSplit.duration_seconds,
-                    WorkoutSplit.intensity_band,
-                )),
-            )
-            .filter(
-                Workout.user_id == uid,
-                Workout.workout_date >= from_d,
-                Workout.workout_date <= to_d,
-            )
-            .order_by(Workout.workout_date.asc(), Workout.created_at.asc())
-            .all()
-        )
-
-        sessions_out, rolling_window = _accumulate_intensity_window(workouts, prefs_dict)
-
-    return JSONResponse({"sessions": sessions_out, "rolling_window": rolling_window})
-
-
-@app.get("/api/workouts/polarized-check")
-def get_polarized_check(
-    from_date: str = Query(alias="from"),
-    to_date: str = Query(alias="to"),
-    user: User = Depends(resolve_user),
-):
-    """Polarized-split on-target vs grey-zone verdict for the date window (issue #1134).
-
-    Computes the duration-weighted rolling window split (same logic as
-    /api/workouts/intensity-distribution) and runs check_polarized_split to
-    produce an authoritative verdict field.  The frontend indicator reads
-    'verdict' directly — no client-side recalculation.
-
-    Returns:
-        verdict:    "on-target" | "grey-zone" | null (null when no band data)
-        actual:     {low, moderate, high} percentage values | null
-        targets:    {low, moderate, high} each a [lo, hi] list
-        deviations: list of {band, direction} for off-target bands
-        grey_zone:  bool — True when moderate band exceeds its upper bound
-    """
-    uid = user.id
-    try:
-        from_d = _date.fromisoformat(from_date)
-        to_d = _date.fromisoformat(to_date)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
-
-    with Session(engine) as session:
-        prefs = (
-            session.query(UserPreferences)
-            .filter(UserPreferences.user_id == uid)
-            .first()
-        )
-        prefs_dict = {
-            "ftp_w": prefs.ftp_w if prefs is not None else None,
-            "threshold_hr": prefs.threshold_hr if prefs is not None else None,
-            "threshold_pace_seconds_per_km": (
-                prefs.threshold_pace_seconds_per_km if prefs is not None else None
-            ),
-        }
-
-        workouts = (
-            session.query(Workout)
-            .options(selectinload(Workout.splits))
-            .filter(
-                Workout.user_id == uid,
-                Workout.workout_date >= from_d,
-                Workout.workout_date <= to_d,
-            )
-            .order_by(Workout.workout_date.asc(), Workout.created_at.asc())
-            .all()
-        )
-
-        _, rolling_window = _accumulate_intensity_window(workouts, prefs_dict)
-
-    targets = {k: list(v) for k, v in _POLARIZED_BOUNDS.items()}
-
-    if rolling_window["low_pct"] is None:
-        return JSONResponse({
-            "verdict":    None,
-            "actual":     None,
-            "targets":    targets,
-            "deviations": [],
-            "grey_zone":  False,
-        })
-
-    actual_low  = rolling_window["low_pct"]
-    actual_mod  = rolling_window["moderate_pct"]
-    actual_high = rolling_window["high_pct"]
-
-    check = _check_polarized_split(actual_low, actual_mod, actual_high)
-
-    verdict = "on-target" if check["on_target"] else "grey-zone"
-
-    return JSONResponse({
-        "verdict":    verdict,
-        "actual":     {"low": actual_low, "moderate": actual_mod, "high": actual_high},
-        "targets":    targets,
-        "deviations": check["deviations"],
-        "grey_zone":  check["grey_zone"],
-    })
 
 
 # ── Removed (tombstoned) synced workouts ────────────────────────────────────
@@ -7130,7 +6922,7 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
         workout_date = _date.fromisoformat(body.workout_date)
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid workout_date; use YYYY-MM-DD")
-    if workout_date > _date.today():
+    if workout_date > _today_bkk():
         raise HTTPException(status_code=422, detail="workout_date cannot be in the future")
     if body.tss is not None and body.tss < 0:
         raise HTTPException(status_code=422, detail="tss must be >= 0")
@@ -7144,6 +6936,7 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
         raise HTTPException(status_code=422, detail="max_hr must be between 20 and 250")
     if body.zone2_minutes is not None and not (0 <= body.zone2_minutes <= 600):
         raise HTTPException(status_code=422, detail="zone2_minutes must be between 0 and 600")
+    _validate_drills_minutes(body.drills_minutes)
     if body.source is not None and body.source not in _VALID_SOURCES:
         raise HTTPException(status_code=422, detail="source must be one of: " + ", ".join(sorted(_VALID_SOURCES)))
     if body.strava_activity_url is not None and body.strava_activity_url != "":
@@ -7175,6 +6968,8 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             avg_stride_m=body.avg_stride_m,
             temperature_c=body.temperature_c,
             humidity_pct=body.humidity_pct,
+            fuelled=body.fuelled,
+            drills_minutes=body.drills_minutes,
         )
         session.add(workout)
         session.flush()
@@ -7261,7 +7056,7 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
                 d = _date.fromisoformat(body.workout_date)
             except ValueError:
                 raise HTTPException(status_code=422, detail="Invalid workout_date; use YYYY-MM-DD")
-            if d > _date.today():
+            if d > _today_bkk():
                 raise HTTPException(status_code=422, detail="workout_date cannot be in the future")
             workout.workout_date = d
         if body.workout_type is not None:
@@ -7338,6 +7133,15 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             workout.temperature_c = body.temperature_c
         if 'humidity_pct' in body.model_fields_set:
             workout.humidity_pct = body.humidity_pct
+        if 'fuelled' in body.model_fields_set:
+            # Explicit null returns it to unknown rather than to "no" — the
+            # long-run-fuel habit only ticks on a literal True.
+            workout.fuelled = body.fuelled
+        if 'drills_minutes' in body.model_fields_set:
+            # Explicit null returns it to unknown, which is distinct from 0
+            # ("logged the session, did no drills").
+            _validate_drills_minutes(body.drills_minutes)
+            workout.drills_minutes = body.drills_minutes
         if 'feeling' in body.model_fields_set:
             # None/empty clears it; otherwise must be one of the allowed values.
             fl = body.feeling
@@ -7609,7 +7413,7 @@ def _planned_session_dict(p, matched=None, estimate_baseline=None) -> dict:
         estimate_baseline is not None
         and matched is None
         and p.status != "missed"
-        and p.planned_date >= _date.today()
+        and p.planned_date >= _today_bkk()
     ):
         from backend.services.training_load import estimate_planned_session_metrics as _est
         d.update(_est(estimate_baseline, p.session_type, p.structure))
@@ -7666,7 +7470,7 @@ def get_planned_sessions(
     from datetime import timedelta as _td
     from backend.services import plan_matching as _pm
 
-    today = _date.today()
+    today = _today_bkk()
     # Default to the current Monday–Sunday ISO week.
     if from_date:
         start = _validate_planned_date(from_date)
@@ -7746,7 +7550,7 @@ def get_planned_sessions(
                 extract_strength_exercise_names as _pg_ex_names,
                 fetch_catalog_for_exercises as _pg_catalog,
             )
-            _today_pg = _date.today()
+            _today_pg = _today_bkk()
             _ml_payload = _cml(uid, _today_pg)
             _group_stats = _ml_payload.get("groups", {})
 
@@ -7940,7 +7744,7 @@ def duplicate_workout(workout_id: str, body: WorkoutDuplicateIn, user: User = De
         new_date = _date.fromisoformat(body.workout_date)
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid workout_date; use YYYY-MM-DD")
-    if new_date > _date.today():
+    if new_date > _today_bkk():
         raise HTTPException(status_code=422, detail="workout_date cannot be in the future")
 
     with Session(engine) as session:
@@ -8683,7 +8487,7 @@ def list_daily_metrics(
     user: User = Depends(resolve_user),
 ):
     from datetime import timedelta
-    today = _date.today()
+    today = _today_bkk()
     if from_date is None and to_date is None:
         from_d = today - timedelta(days=29)
         to_d = today
@@ -8736,7 +8540,7 @@ def create_daily_metric(body: DailyMetricIn, user: User = Depends(resolve_user))
         md = _date.fromisoformat(body.metric_date)
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid metric_date; use YYYY-MM-DD")
-    if md > _date.today():
+    if md > _today_bkk():
         raise HTTPException(status_code=422, detail="metric_date cannot be in the future")
     _validate_metric_fields(
         resting_hr=body.resting_hr,
@@ -8790,7 +8594,7 @@ def patch_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user: 
         md = _date.fromisoformat(metric_date)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid metric_date; use YYYY-MM-DD")
-    if md > _date.today():
+    if md > _today_bkk():
         raise HTTPException(status_code=422, detail="metric_date cannot be in the future")
     _validate_metric_fields(
         resting_hr=body.resting_hr,
@@ -8847,7 +8651,7 @@ def upsert_daily_metric(uid: str, metric_date: str, body: DailyMetricBody, user:
         md = _date.fromisoformat(metric_date)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid metric_date; use YYYY-MM-DD")
-    if md > _date.today():
+    if md > _today_bkk():
         raise HTTPException(status_code=422, detail="metric_date cannot be in the future")
     _validate_metric_fields(
         resting_hr=body.resting_hr,
@@ -8905,7 +8709,7 @@ def get_daily_metrics_trend(
     from datetime import timedelta
     uid = user.id
 
-    today = _date.today()
+    today = _today_bkk()
     window_start = today - timedelta(days=days - 1)
 
     with Session(engine) as session:
@@ -9425,248 +9229,6 @@ def export_body_measurements_csv(
     )
 
 
-# ── Trends summary endpoint ────────────────────────────────────────────────────
-
-def _agg_stats(values):
-    non_null = [v for v in values if v is not None]
-    if not non_null:
-        return None, None, None
-    return round(sum(non_null) / len(non_null), 1), min(non_null), max(non_null)
-
-
-def _delta_int(curr, prev):
-    if curr is None or prev is None:
-        return None
-    diff = round(curr - prev)
-    return f"+{diff}" if diff >= 0 else str(diff)
-
-
-def _delta_hours(curr, prev):
-    if curr is None or prev is None:
-        return None
-    diff = curr - prev
-    sign = "+" if diff >= 0 else ""
-    return f"{sign}{diff:.1f}h"
-
-
-def _delta_decimal(curr, prev, places=1):
-    if curr is None or prev is None:
-        return None
-    diff = curr - prev
-    sign = "+" if diff >= 0 else ""
-    return f"{sign}{diff:.{places}f}"
-
-
-def _delta_pct(curr, prev):
-    if curr is None or prev is None or prev == 0:
-        return None
-    pct = round((curr - prev) / prev * 100)
-    return f"+{pct}%" if pct >= 0 else f"{pct}%"
-
-
-@app.get("/trends/summary")
-def get_trends_summary(
-    range_preset: Optional[str] = Query(default=None, alias="range"),
-    from_date: Optional[str] = Query(default=None, alias="from"),
-    to_date: Optional[str] = Query(default=None, alias="to"),
-    user: User = Depends(resolve_user),
-):
-    from datetime import timedelta
-
-    uid = user.id
-
-    today = _date.today()
-
-    if from_date and to_date:
-        try:
-            from_d = _date.fromisoformat(from_date)
-            to_d = _date.fromisoformat(to_date)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
-        if from_d > to_d:
-            raise HTTPException(status_code=400, detail="from must be before to")
-    elif range_preset:
-        if range_preset not in ("7d", "30d", "90d"):
-            raise HTTPException(status_code=400, detail="range must be 7d, 30d, or 90d")
-        n = int(range_preset[:-1])
-        to_d = today
-        from_d = today - timedelta(days=n - 1)
-    else:
-        to_d = today
-        from_d = today - timedelta(days=29)
-
-    days_count = (to_d - from_d).days + 1
-    prev_to_d = from_d - timedelta(days=1)
-    prev_from_d = prev_to_d - timedelta(days=days_count - 1)
-
-    # Single extended metrics fetch covers current period, prev period, and all baselines
-    # (RHR baseline = 30 days before earliest date we score readiness for)
-    extended_metrics_from = min(from_d, prev_from_d) - timedelta(days=_RDN_RHR_WINDOW)
-
-    with Session(engine) as session:
-        extended_metrics = (
-            session.query(DailyMetric)
-            .filter(
-                DailyMetric.user_id == uid,
-                DailyMetric.metric_date >= extended_metrics_from,
-                DailyMetric.metric_date <= to_d,
-            )
-            .all()
-        )
-        all_metrics_by_date = {str(m.metric_date): m for m in extended_metrics}
-        by_date = {d: m for d, m in all_metrics_by_date.items()
-                   if _date.fromisoformat(d) >= from_d}
-        prev_by_date = {d: m for d, m in all_metrics_by_date.items()
-                        if prev_from_d <= _date.fromisoformat(d) <= prev_to_d}
-
-        workouts = (
-            session.query(Workout)
-            .filter(
-                Workout.user_id == uid,
-                Workout.workout_date >= from_d,
-                Workout.workout_date <= to_d,
-                Workout.tss.isnot(None),
-            )
-            .all()
-        )
-        tss_by_date: dict = {}
-        for w in workouts:
-            d = str(w.workout_date)
-            tss_by_date[d] = tss_by_date.get(d, 0.0) + (w.tss or 0.0)
-
-        prev_workouts = (
-            session.query(Workout)
-            .filter(
-                Workout.user_id == uid,
-                Workout.workout_date >= prev_from_d,
-                Workout.workout_date <= prev_to_d,
-                Workout.tss.isnot(None),
-            )
-            .all()
-        )
-        prev_tss_by_date: dict = {}
-        for w in prev_workouts:
-            d = str(w.workout_date)
-            prev_tss_by_date[d] = prev_tss_by_date.get(d, 0.0) + (w.tss or 0.0)
-
-    # Baseline stats for the display fields (30-day window ending at to_d)
-    baseline_from_d = to_d - timedelta(days=29)
-    baseline_metrics = [m for d, m in all_metrics_by_date.items()
-                        if baseline_from_d <= _date.fromisoformat(d) <= to_d]
-    baseline_hrv_vals = [float(m.hrv) for m in baseline_metrics if m.hrv is not None]
-    baseline_rhr_vals = [float(m.resting_hr) for m in baseline_metrics if m.resting_hr is not None]
-
-    def _baseline_stats(vals):
-        if not vals:
-            return None, None
-        mean = sum(vals) / len(vals)
-        sd = (sum((v - mean) ** 2 for v in vals) / len(vals)) ** 0.5
-        return round(mean, 1), round(sd, 1)
-
-    hrv_baseline_mean, hrv_baseline_sd = _baseline_stats(baseline_hrv_vals)
-    rhr_baseline_mean, rhr_baseline_sd = _baseline_stats(baseline_rhr_vals)
-    hrv_is_approx = len(baseline_hrv_vals) < 30
-    rhr_is_approx = len(baseline_rhr_vals) < 30
-
-    def _date_range(start, end):
-        dates = []
-        cur = start
-        while cur <= end:
-            dates.append(str(cur))
-            cur += timedelta(days=1)
-        return dates
-
-    all_dates = _date_range(from_d, to_d)
-    prev_dates = _date_range(prev_from_d, prev_to_d)
-
-    def _trends_readiness(target_date_str: str) -> Optional[int]:
-        """Compute canonical readiness for a date using per-date rolling baselines."""
-        target = _date.fromisoformat(target_date_str)
-        m = all_metrics_by_date.get(target_date_str)
-        if m is None:
-            return None
-        hrv_bl = [
-            float(all_metrics_by_date[str(target - timedelta(days=i))].hrv)
-            for i in range(1, _RDN_HRV_WINDOW + 1)
-            if str(target - timedelta(days=i)) in all_metrics_by_date
-            and all_metrics_by_date[str(target - timedelta(days=i))].hrv is not None
-        ]
-        rhr_bl = [
-            float(all_metrics_by_date[str(target - timedelta(days=i))].resting_hr)
-            for i in range(1, _RDN_RHR_WINDOW + 1)
-            if str(target - timedelta(days=i)) in all_metrics_by_date
-            and all_metrics_by_date[str(target - timedelta(days=i))].resting_hr is not None
-        ]
-        r = _canonical_readiness(
-            hrv=float(m.hrv) if m.hrv is not None else None,
-            resting_hr=float(m.resting_hr) if m.resting_hr is not None else None,
-            sleep_quality=float(m.sleep_quality) if m.sleep_quality is not None else None,
-            energy=float(m.energy) if m.energy is not None else None,
-            hrv_baseline=hrv_bl,
-            rhr_baseline=rhr_bl,
-        )
-        return int(round(r.score)) if r is not None else None
-
-    readiness_series, hrv_series, rhr_series, sleep_series, energy_series, mood_series, tss_series = [], [], [], [], [], [], []
-
-    for d in all_dates:
-        m = by_date.get(d)
-        sh = float(m.sleep_hours) if m and m.sleep_hours is not None else None
-        readiness_series.append({"date": d, "score": _trends_readiness(d)})
-        hrv_series.append({"date": d, "value": m.hrv if m else None})
-        rhr_series.append({"date": d, "value": m.resting_hr if m else None})
-        sleep_series.append({"date": d, "hours": sh, "quality": m.sleep_quality if m else None})
-        energy_series.append({"date": d, "value": m.energy if m else None})
-        mood_series.append({"date": d, "value": m.mood if m else None})
-        tss_val = tss_by_date.get(d)
-        tss_series.append({"date": d, "value": round(tss_val, 1) if tss_val is not None else None})
-
-    r_avg, r_min, r_max = _agg_stats([s["score"] for s in readiness_series])
-    hrv_avg, hrv_min, hrv_max = _agg_stats([s["value"] for s in hrv_series])
-    rhr_avg, rhr_min, rhr_max = _agg_stats([s["value"] for s in rhr_series])
-    sleep_avg, sleep_min, sleep_max = _agg_stats([s["hours"] for s in sleep_series])
-    energy_avg, energy_min, energy_max = _agg_stats([s["value"] for s in energy_series])
-    mood_avg, mood_min, mood_max = _agg_stats([s["value"] for s in mood_series])
-    tss_vals = [s["value"] for s in tss_series if s["value"] is not None]
-    tss_avg = round(sum(tss_vals) / len(tss_vals), 1) if tss_vals else None
-    tss_total = round(sum(tss_vals), 1) if tss_vals else None
-
-    def _prev_metric_avg(field):
-        vals = [float(getattr(m, field)) for d in prev_dates if (m := prev_by_date.get(d)) and getattr(m, field) is not None]
-        return sum(vals) / len(vals) if vals else None
-
-    def _prev_readiness_avg():
-        vals = [v for d in prev_dates if (v := _trends_readiness(d)) is not None]
-        return sum(vals) / len(vals) if vals else None
-
-    prev_tss_vals = [prev_tss_by_date[d] for d in prev_dates if d in prev_tss_by_date]
-    prev_tss_avg = sum(prev_tss_vals) / len(prev_tss_vals) if prev_tss_vals else None
-
-    prev_r_avg = _prev_readiness_avg()
-
-    return JSONResponse({
-        "range": {"from": str(from_d), "to": str(to_d), "days": days_count},
-        "readiness": {"series": readiness_series, "avg": r_avg, "min": r_min, "max": r_max},
-        "hrv": {"series": hrv_series, "avg": hrv_avg, "min": hrv_min, "max": hrv_max,
-                "baseline_mean": hrv_baseline_mean, "baseline_sd": hrv_baseline_sd, "is_approximate": hrv_is_approx},
-        "rhr": {"series": rhr_series, "avg": rhr_avg, "min": rhr_min, "max": rhr_max,
-                "baseline_mean": rhr_baseline_mean, "baseline_sd": rhr_baseline_sd, "is_approximate": rhr_is_approx},
-        "sleep": {"series": sleep_series, "avg_hours": sleep_avg, "min_hours": sleep_min, "max_hours": sleep_max},
-        "energy": {"series": energy_series, "avg": energy_avg, "min": energy_min, "max": energy_max},
-        "mood": {"series": mood_series, "avg": mood_avg, "min": mood_min, "max": mood_max},
-        "tss": {"series": tss_series, "avg": tss_avg, "total": tss_total},
-        "deltas": {
-            "readiness": _delta_int(r_avg, prev_r_avg),
-            "hrv": _delta_int(hrv_avg, _prev_metric_avg("hrv")),
-            "rhr": _delta_int(rhr_avg, _prev_metric_avg("resting_hr")),
-            "sleep": _delta_hours(sleep_avg, _prev_metric_avg("sleep_hours")),
-            "energy": _delta_decimal(energy_avg, _prev_metric_avg("energy")),
-            "mood": _delta_decimal(mood_avg, _prev_metric_avg("mood")),
-            "tss": _delta_pct(tss_avg, prev_tss_avg),
-        },
-    })
-
-
 # ── Readiness compute endpoint ────────────────────────────────────────────────
 
 @app.post("/api/readiness/compute", status_code=200)
@@ -9679,7 +9241,7 @@ def compute_readiness_score(
     Idempotent: existing rows are upserted with freshly computed values.
     """
     uid = user.id
-    target_date = _date.today()
+    target_date = _today_bkk()
     if date is not None:
         try:
             target_date = _date.fromisoformat(date)
@@ -9711,7 +9273,7 @@ def get_readiness_today(user: User = Depends(resolve_user)):
     """
     uid = user.id
 
-    today = _date.today()
+    today = _today_bkk()
     from sqlalchemy import text as _text
     with Session(engine) as session:
         row = session.execute(
@@ -9808,7 +9370,7 @@ def get_readiness(
     # SAME snapshot-backed path the weekly coach report and the fitness/
     # fatigue/form chart read, so this card can never disagree with them for
     # the same date. See docs/calculations/training-load.md.
-    today = _date.today()
+    today = _today_bkk()
     series_start = today - _timedelta(days=89)
     series = get_snapshot_series(str(user.id), series_start, today)
 
@@ -9869,7 +9431,7 @@ def get_readiness_current(user: User = Depends(resolve_user)):
     Response when building_baseline=True:
       { building_baseline: true }
     """
-    today = _date.today()
+    today = _today_bkk()
     warmup_start = today - _timedelta(days=180)
     tss_series = daily_tss_series(str(user.id), warmup_start, today)
     _ctl_days, _atl_days = resolve_user_ewma_days(str(user.id))
@@ -10169,7 +9731,7 @@ def _week_key_and_bounds(date_obj):
 
 def _week_label(mon_key: str) -> str:
     from datetime import date as _d2, timedelta
-    today = _d2.today()
+    today = _today_bkk()
     this_mon = today - timedelta(days=today.weekday())
     mon = _d2.fromisoformat(mon_key)
     if mon == this_mon:
@@ -10210,7 +9772,7 @@ def get_training_log(
     user: User = Depends(resolve_user),
 ):
     from datetime import timedelta
-    today = _date.today()
+    today = _today_bkk()
 
     uid = user.id
 
@@ -10486,7 +10048,7 @@ def create_personal_record(body: PersonalRecordIn, current_user: User = Depends(
         achieved = _date.fromisoformat(body.achieved_on)
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid achieved_on; use YYYY-MM-DD")
-    if achieved > _date.today():
+    if achieved > _today_bkk():
         raise HTTPException(status_code=422, detail="achieved_on cannot be in the future")
     with Session(engine) as session:
         user = session.get(User, uid)
@@ -10530,7 +10092,7 @@ def patch_personal_record(record_id: str, body: PersonalRecordPatch, current_use
                 achieved = _date.fromisoformat(body.achieved_on)
             except ValueError:
                 raise HTTPException(status_code=422, detail="Invalid achieved_on; use YYYY-MM-DD")
-            if achieved > _date.today():
+            if achieved > _today_bkk():
                 raise HTTPException(status_code=422, detail="achieved_on cannot be in the future")
             pr.achieved_on = achieved
         if body.track_key is not None:
@@ -10639,7 +10201,7 @@ def bulk_create_personal_records(body: _BulkInsertIn, current_user: User = Depen
         except ValueError:
             rec_errors.append("Invalid achieved_on; use YYYY-MM-DD")
             achieved = None
-        if achieved and achieved > _date.today():
+        if achieved and achieved > _today_bkk():
             rec_errors.append("achieved_on cannot be in the future")
         if not item.track_key or not item.track_key.strip():
             rec_errors.append("track_key is required")
@@ -11344,7 +10906,7 @@ async def post_sync_strava(
             parsed_since = _date.fromisoformat(body.since_date)
         except ValueError:
             raise HTTPException(status_code=422, detail="since_date must be ISO format YYYY-MM-DD")
-        cutoff = _date.today() - _timedelta(days=365)
+        cutoff = _today_bkk() - _timedelta(days=365)
         if parsed_since < cutoff:
             raise HTTPException(status_code=422, detail="since_date cannot be more than 1 year in the past")
 
@@ -12678,7 +12240,7 @@ def post_feel(body: _FeelBody, user: User = Depends(resolve_user)):
             detail={"field": "feel_date", "error": "feel_date must be a valid YYYY-MM-DD date"},
         )
 
-    today = _date.today()
+    today = _today_bkk()
     tomorrow = today + _timedelta(days=1)
     if feel_date > tomorrow:
         raise HTTPException(
@@ -12923,7 +12485,7 @@ def get_training_load_current(
     uid = current_user.id
 
     try:
-        as_of_date = _date.fromisoformat(as_of) if as_of else _date.today()
+        as_of_date = _date.fromisoformat(as_of) if as_of else _today_bkk()
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid as_of date; use YYYY-MM-DD")
 
@@ -12953,7 +12515,7 @@ def get_training_load(
 ):
     uid = current_user.id
 
-    today = _date.today()
+    today = _today_bkk()
     try:
         from_d = _date.fromisoformat(from_date) if from_date else today - _timedelta(days=90)
         to_d = _date.fromisoformat(to_date) if to_date else today
@@ -13008,7 +12570,7 @@ def get_training_load_weekly(
     import re as _re
 
     uid = current_user.id
-    today = _date.today()
+    today = _today_bkk()
 
     try:
         from_d = _date.fromisoformat(from_date) if from_date else today - _timedelta(days=90)
@@ -13098,7 +12660,7 @@ def recompute_training_load(
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid from date; use YYYY-MM-DD")
 
-    today = _date.today()
+    today = _today_bkk()
     if from_d > today:
         raise HTTPException(status_code=422, detail="'from' must not be in the future")
 
@@ -13127,7 +12689,7 @@ def refresh_training_load(
 ):
     uid = current_user.id
 
-    today = _date.today()
+    today = _today_bkk()
     try:
         target = _date.fromisoformat(target_date) if target_date else today
     except ValueError:
@@ -13163,7 +12725,7 @@ def backfill_training_load(
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid from date; use YYYY-MM-DD")
 
-    today = _date.today()
+    today = _today_bkk()
     if from_d > today:
         raise HTTPException(status_code=422, detail="'from' must not be in the future")
 
@@ -13709,6 +13271,19 @@ def get_gap_analysis(user: User = Depends(resolve_user)):
         # Apply suppression filter (issue #1377): partition into visible / muted
         from backend.services.gap_analysis.suppression import apply_suppression
         partitioned = apply_suppression(db, user.id, week_start_date, enriched)
+
+        # De-dup against open preference proposals: a finding whose gap code
+        # maps to a field that already has an open ("proposed") proposal is
+        # actionable elsewhere (the Plan Accept/Adjust/Decline UI) — no need
+        # to show it twice. Only suppress when a proposal is actually open,
+        # never just because the code is proposal-eligible — a finding that
+        # hasn't persisted long enough to become a proposal yet must still
+        # show here, or its pre-proposal visibility disappears for weeks.
+        from backend.services.gap_analysis.pref_proposals import has_open_proposal_for_code
+        partitioned["findings"] = [
+            item for item in partitioned["findings"]
+            if not has_open_proposal_for_code(db, user.id, item["code"])
+        ]
 
     sorted_visible = sort_findings_for_panel(partitioned["findings"])
     sorted_muted = sort_findings_for_panel(partitioned["muted"])
@@ -14722,6 +14297,23 @@ def _prefs_row_dict(prefs: UserPreferences) -> dict:
     }
 
 
+# Athlete identity fields — stored on `users`, edited from Settings → Profile,
+# and read by backend/services/coach_export.py. `athlete_context` is the ONLY
+# free-text identity field; keep it distinct from plan-prefs `notes`, which are
+# scheduling instructions rather than who the athlete is.
+_ATHLETE_CONTEXT_MAX_CHARS = 200
+
+
+def _athlete_identity_dict(db_user: User) -> dict:
+    birth_date = getattr(db_user, "birth_date", None)
+    height_cm = getattr(db_user, "height_cm", None)
+    return {
+        "birth_date": birth_date.isoformat() if birth_date is not None else None,
+        "height_cm": float(height_cm) if height_cm is not None else None,
+        "athlete_context": getattr(db_user, "athlete_context", None),
+    }
+
+
 @app.get("/api/user-preferences")
 def get_user_preferences(user: User = Depends(resolve_user)):
     uid = user.id
@@ -14739,6 +14331,9 @@ def get_user_preferences(user: User = Depends(resolve_user)):
         row["user_name"] = db_user.name
         row["user_email"] = db_user.email
         row["user_id"] = str(db_user.id)
+        # Athlete identity lives on `users`, not `user_preferences` — the coach
+        # export reads these three for athlete.age / height_cm / context.
+        row.update(_athlete_identity_dict(db_user))
         return JSONResponse({
             "row": row,
             "defaults": _PREFS_DEFAULTS,
@@ -14776,6 +14371,9 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
     display_name = body.get("display_name", _PREFS_SENTINEL)
     week_start_day = body.get("week_start_day", _PREFS_SENTINEL)
     timezone = body.get("timezone", _PREFS_SENTINEL)
+    birth_date = body.get("birth_date", _PREFS_SENTINEL)
+    height_cm = body.get("height_cm", _PREFS_SENTINEL)
+    athlete_context = body.get("athlete_context", _PREFS_SENTINEL)
 
     errors = []
     if ftp_w is not _PREFS_SENTINEL and ftp_w is not None:
@@ -14810,6 +14408,30 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
             _zoneinfo.ZoneInfo(timezone)
         except (KeyError, _zoneinfo.ZoneInfoNotFoundError):
             errors.append({"field": "timezone", "msg": f"Unknown IANA timezone: {timezone}"})
+    _parsed_birth_date = None
+    if birth_date is not _PREFS_SENTINEL and birth_date is not None:
+        try:
+            _parsed_birth_date = _date.fromisoformat(str(birth_date))
+        except (ValueError, TypeError):
+            errors.append({"field": "birth_date", "msg": "birth_date must be YYYY-MM-DD"})
+        else:
+            if _parsed_birth_date > _today_bkk():
+                errors.append({"field": "birth_date", "msg": "birth_date cannot be in the future"})
+            elif _parsed_birth_date.year < 1900:
+                errors.append({"field": "birth_date", "msg": "birth_date must be after 1900"})
+    if height_cm is not _PREFS_SENTINEL and height_cm is not None:
+        if not isinstance(height_cm, (int, float)) or isinstance(height_cm, bool) or not (
+            80 <= float(height_cm) <= 250
+        ):
+            errors.append({"field": "height_cm", "msg": "height_cm must be between 80 and 250"})
+    if athlete_context is not _PREFS_SENTINEL and athlete_context is not None:
+        if not isinstance(athlete_context, str):
+            errors.append({"field": "athlete_context", "msg": "athlete_context must be text"})
+        elif len(athlete_context) > _ATHLETE_CONTEXT_MAX_CHARS:
+            errors.append({
+                "field": "athlete_context",
+                "msg": f"athlete_context must be ≤ {_ATHLETE_CONTEXT_MAX_CHARS} characters",
+            })
 
     if errors:
         raise HTTPException(status_code=422, detail=errors)
@@ -14847,6 +14469,24 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
         if timezone is not _PREFS_SENTINEL:
             prefs.timezone = timezone
 
+        _identity_sent = any(
+            f is not _PREFS_SENTINEL for f in (birth_date, height_cm, athlete_context)
+        )
+        db_user = session.get(User, uid) if _identity_sent else None
+        if db_user is not None:
+            if birth_date is not _PREFS_SENTINEL:
+                db_user.birth_date = _parsed_birth_date
+            if height_cm is not _PREFS_SENTINEL:
+                db_user.height_cm = height_cm
+            if athlete_context is not _PREFS_SENTINEL:
+                # Empty string clears the field rather than storing "" — the
+                # export reports a missing context as null, not as blank text.
+                db_user.athlete_context = (
+                    athlete_context.strip() or None
+                    if isinstance(athlete_context, str)
+                    else None
+                )
+
         prefs.updated_at = _datetime.now(_timezone.utc)
         _threshold_fields_changed = any(
             f is not _PREFS_SENTINEL for f in (ftp_w, threshold_hr, threshold_pace)
@@ -14865,7 +14505,11 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
             # background so scores and the fitness chart reflect new thresholds
             # without blocking the HTTP response.  Idempotent; safe to re-run.
             _trigger_performance_backfill_background(uid)
-        return JSONResponse(_prefs_row_dict(prefs))
+        saved = _prefs_row_dict(prefs)
+        identity_user = db_user if db_user is not None else session.get(User, uid)
+        if identity_user is not None:
+            saved.update(_athlete_identity_dict(identity_user))
+        return JSONResponse(saved)
 
 
 # ── Races ─────────────────────────────────────────────────────────────────────
@@ -14899,7 +14543,7 @@ def _race_met_status(race: Race) -> str:
     """Derive met_status from race date and status for display in the Plan tab."""
     if race.status == "done":
         return "met"
-    today = _date.today()
+    today = _today_bkk()
     if race.race_date < today:
         return "missed"
     return "upcoming"
@@ -15450,7 +15094,7 @@ def get_calibration_status(user: User = Depends(resolve_user)):
         load_calibrations as _load_calibrations,
     )
 
-    today = _date.today()
+    today = _today_bkk()
     window_90 = today - _timedelta(days=_CALIB_WINDOW_90)
     window_42 = today - _timedelta(days=_CALIB_WINDOW_42)
 
@@ -15819,7 +15463,7 @@ def _race_readiness_impl(
     min_history_weeks = _rdns_cfg_int(_RDNS_CFG_MIN_HISTORY_WEEKS, 8)
     peak_tolerance = _rdns_cfg_float(_RDNS_CFG_PEAK_TOLERANCE, PEAK_TRACKING_TOLERANCE)
 
-    today = _date.today()
+    today = _today_bkk()
 
     # ── 3. Load historical TSS series for form_curve (6-month warmup window) ──
     warmup_start = today - _timedelta(days=180)
@@ -15858,6 +15502,12 @@ def _race_readiness_impl(
         "ctl": last_row["ctl"],
         "atl": last_row["atl"],
         "date": last_row["date"],
+        # Race priority selects the taper length: A-race gets the full
+        # A_RACE_TAPER_DAYS, a B/C tune-up gets the shorter B_RACE_TAPER_DAYS.
+        # Without this every race was tapered like a goal race (issue #1605).
+        # Anything that isn't "B" falls through to the A-race default, so a
+        # null or unexpected priority stays conservative.
+        "priority": getattr(race, "priority", None) or "A",
     }
     current_tsb = last_row["tsb"]
 
@@ -17420,6 +17070,19 @@ def _generate_weekly_note(
 _SUMMARY_CACHE: dict = {}
 
 
+def _l1_cacheable(key: str) -> bool:
+    """Whether ``key`` is safe to hold in the unbounded in-process L1 dict.
+
+    Fixed keys ("performance", "weekly") are bounded by the number of active
+    users — fine. "monthly:<iso-date>" keys are not: every distinct month a
+    user has ever viewed adds a permanent entry for the life of the process,
+    since only a restart clears L1. Those keys still get the durable L2 table
+    (``summary_cache``), just not the in-process dict — a slightly slower
+    cache hit (one query) instead of unbounded process memory growth.
+    """
+    return not key.startswith("monthly:")
+
+
 def _summary_signature(session, user_id) -> str:
     row = (
         session.query(
@@ -17439,14 +17102,19 @@ def _summary_signature(session, user_id) -> str:
 def _summary_cache_get(user_id, key, sig):
     """Two-level cache read: in-memory L1, then durable Neon L2.
 
-    L1 (``_SUMMARY_CACHE``) is the fast per-process path. On an L1 miss (e.g. the
-    first request after a restart wiped L1) fall back to the ``summary_cache``
-    table: if a row exists whose stored signature matches, hydrate L1 and return
-    it — no recompute. Any DB error degrades gracefully to a miss (recompute).
+    L1 (``_SUMMARY_CACHE``) is the fast per-process path — but only for
+    ``_l1_cacheable`` keys (see that function). On an L1 miss (e.g. the first
+    request after a restart wiped L1, or an unbounded-cardinality key that
+    never touches L1 at all) fall back to the ``summary_cache`` table: if a
+    row exists whose stored signature matches, hydrate L1 (when cacheable)
+    and return it — no recompute. Any DB error degrades gracefully to a miss
+    (recompute).
     """
-    ent = _SUMMARY_CACHE.get((str(user_id), key))
-    if ent and ent[0] == sig:
-        return ent[1]
+    cacheable = _l1_cacheable(key)
+    if cacheable:
+        ent = _SUMMARY_CACHE.get((str(user_id), key))
+        if ent and ent[0] == sig:
+            return ent[1]
 
     # L2: durable Neon-backed cache. A restart clears L1 but not this table.
     try:
@@ -17461,7 +17129,8 @@ def _summary_cache_get(user_id, key, sig):
             )
         if row is not None and row[0] == sig:
             payload = row[1]
-            _SUMMARY_CACHE[(str(user_id), key)] = (sig, payload)  # hydrate L1
+            if cacheable:
+                _SUMMARY_CACHE[(str(user_id), key)] = (sig, payload)  # hydrate L1
             return payload
     except Exception:
         _performance_log.exception("summary_cache L2 read failed for %s/%s", user_id, key)
@@ -17469,12 +17138,14 @@ def _summary_cache_get(user_id, key, sig):
 
 
 def _summary_cache_put(user_id, key, sig, payload):
-    """Two-level cache write: set L1, then UPSERT the durable L2 row.
+    """Two-level cache write: set L1 (if bounded), then UPSERT the durable L2 row.
 
     A DB failure on the L2 write must not break the request — L1 still serves
-    within the process; the durable row simply refreshes on the next compute.
+    within the process (when the key is L1-cacheable); the durable row simply
+    refreshes on the next compute.
     """
-    _SUMMARY_CACHE[(str(user_id), key)] = (sig, payload)
+    if _l1_cacheable(key):
+        _SUMMARY_CACHE[(str(user_id), key)] = (sig, payload)
     try:
         from sqlalchemy.dialects.postgresql import insert as _pg_insert
         stmt = _pg_insert(SummaryCache.__table__).values(
@@ -18199,7 +17870,7 @@ def _compute_plan_bundle(user) -> dict:
             .order_by(Race.race_date)
             .all()
         )
-        today = _date.today()
+        today = _today_bkk()
 
         # Self-healing calibration: create the predicted-vs-actual row for any
         # finished race that lacks one. The bundle is the single choke point
@@ -18493,8 +18164,9 @@ def _resolve_current_verdict(user_id, today, trailing_28d_avg=None):
         readiness_7d_mean=readiness_7d_mean,
         injury_log=active_injuries,
     )
-    from datetime import date as _real_date
-    if today == _real_date.today():
+    # Persist history only for the real current day; this helper is also called
+    # with historical dates when backfilling, and those must not overwrite it.
+    if today == _today_bkk():
         _upsert_verdict_history(user_id, today, result, readiness_score=readiness_today)
     return result
 
@@ -18955,7 +18627,7 @@ def get_projection(user: User = Depends(resolve_user)):
     from backend.services.zone_constants import make_zone_constants
     from backend.services.lap_classify import classify_laps
 
-    today = _date.today()
+    today = _today_bkk()
     warmup_start = today - _timedelta(days=180)
 
     with Session(engine) as db:
@@ -19358,7 +19030,7 @@ def get_athlete_monthly_summary(
             .filter(
                 Race.user_id == uid,
                 Race.race_type == "checkpoint",
-                Race.race_date > _date.today(),
+                Race.race_date > _today_bkk(),
             )
             .order_by(Race.race_date)
             .all()
@@ -19442,7 +19114,7 @@ def get_athlete_monthly_summary(
 
     # ── Next checkpoint ────────────────────────────────────────────────────────
     next_checkpoint = None
-    today = _date.today()
+    today = _today_bkk()
     upcoming = [r for r in races if r.race_date > today and r.race_type == "checkpoint"]
     if upcoming:
         nearest = min(upcoming, key=lambda r: r.race_date)
@@ -19564,7 +19236,7 @@ def get_rolling_intensity_distribution(
         session_count   int       — number of workouts in the date range
     """
     from datetime import date as _date_cls, timedelta as _timedelta_cls
-    today = _date_cls.today()
+    today = _today_bkk()
 
     if from_date is None:
         start = today - _timedelta_cls(days=27)

@@ -278,7 +278,11 @@ class TestBackfillPartialFailure:
                 raise ValueError("malformed CSV")
             return b"good-csv-bytes"
 
-        def fake_parse(content_bytes):
+        # parse_sleep_file_content now takes user_id too (#1602): it delegates to
+        # services.health_sync.sleep_csv_parser, which derives external_id from
+        # the user. A one-arg fake would raise TypeError inside the per-file
+        # try/except and read as "the good file was skipped".
+        def fake_parse(content_bytes, user_id):
             processed_ids.append("good")
             return [_make_sleep_record()]
 

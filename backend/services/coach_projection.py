@@ -46,6 +46,7 @@ from datetime import date, timedelta
 
 from backend.services.riegel import RIEGEL_EXPONENT, HALF_MARATHON_KM  # noqa: F401 (re-exported)
 from backend.services.projection import project_fitness
+from backend.utils.time import today_bangkok
 
 # ── Model constants ───────────────────────────────────────────────────────────
 
@@ -244,7 +245,7 @@ def race_projection(
 
         {"unavailable": True, "reason": str}
     """
-    today = _today if _today is not None else date.today()
+    today = _today if _today is not None else today_bangkok()
     qualifying = _qualifying_efforts(efforts)
 
     if not qualifying:

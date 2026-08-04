@@ -319,10 +319,14 @@ def test_ac13_weight_route_registered():
         "main.py must register the /weight route (via _PAGES dict)"
 
 
-def test_ac13_weight_targets_route_registered():
+def test_ac13_weight_targets_route_removed():
+    # AC #461 consolidated the standalone page into weight.html's slide-in
+    # panel and left /weight/targets as a redirect shim; a later cleanup
+    # deleted the route outright (zero callers — see #1602's reachability
+    # gate), so main.py must no longer register it at all.
     main_py = (ROOT / "backend" / "main.py").read_text()
-    assert '"/weight/targets"' in main_py or "'/weight/targets'" in main_py, \
-        "main.py must register the /weight/targets route"
+    assert '"/weight/targets"' not in main_py and "'/weight/targets'" not in main_py, \
+        "main.py must not register the /weight/targets route — it was deleted"
 
 
 def test_ac13_weight_page_title():

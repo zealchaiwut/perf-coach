@@ -8,8 +8,9 @@ Acceptance Criteria covered:
   AC3 — /api/training-load/weekly gains the same 365-day range cap as
          /api/training-load and computes weekly sums SQL-side (func.sum +
          GROUP BY) — response JSON unchanged for in-cap ranges.
-  AC4 — /api/workouts/intensity-distribution replaces N+1 splits loop with
-         column-only loads (load_only on Workout + WorkoutSplit) — response unchanged.
+  AC4 — (removed) /api/workouts/intensity-distribution's load_only tightening
+         is moot — the endpoint itself was deleted with the Trends page
+         (feature/remove-trends-tab).
   AC5 — Full reconcile defers raw_payload (already model-level deferred; verified
          by #1293) — here we verify full-sync queries add load_only for non-payload
          columns.
@@ -291,28 +292,9 @@ def test_weekly_endpoint_response_json_unchanged_run_tss():
         _teardown()
 
 
-# ── AC4: /api/workouts/intensity-distribution uses column-only loads ──────────
-
-
-def test_intensity_distribution_uses_load_only_on_workout():
-    """AC4: The intensity-distribution endpoint uses load_only on the Workout query."""
-    import backend.main as main_mod
-    src = inspect.getsource(main_mod.get_intensity_distribution)
-    assert "load_only" in src, (
-        "get_intensity_distribution must use load_only on the Workout query to avoid "
-        "loading unused columns (remarks, manual_overrides, tss, etc.)"
-    )
-
-
-def test_intensity_distribution_retains_selectinload():
-    """AC4: The intensity-distribution endpoint still uses selectinload for splits
-    (no N+1 per workout)."""
-    import backend.main as main_mod
-    src = inspect.getsource(main_mod.get_intensity_distribution)
-    assert "selectinload" in src, (
-        "get_intensity_distribution must retain selectinload(Workout.splits) to load "
-        "splits in a single batch query (no per-workout N+1)"
-    )
+# ── AC4: removed — /api/workouts/intensity-distribution no longer exists ─────
+# (deleted along with the Trends page, feature/remove-trends-tab; it was the
+# page's only caller, so the load_only tightening this AC verified is moot.)
 
 
 # ── AC5: full reconcile load_only for non-payload columns ────────────────────

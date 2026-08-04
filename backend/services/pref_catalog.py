@@ -14,6 +14,12 @@ PREF_FIELDS: dict[str, dict[str, Any]] = {
         "type": "enum:less|same|more",
         "reads": ["content"],
         "default": "same",
+        # Training-stress-relevant in both directions (more strength work adds
+        # load; less strength work removes a structural stimulus) — use the
+        # same 3-week persistence bar as the other load_adding fields rather
+        # than the 2-week default, whichever direction it moves.
+        "persist_weeks": 3,
+        "load_adding": True,
     },
     "plyo_mode": {
         "type": "enum:standalone|superset|off",
@@ -40,13 +46,37 @@ PREF_FIELDS: dict[str, dict[str, Any]] = {
         "reads": ["content"],
         "default": 0,
     },
-    # stretch_daily_min + zone2_weekly_min live on Habits (coach_habit_targets),
-    # not in this catalog — coach/plan read them via habit_targets_for_coach.
+    # Daily mobility target, in minutes. Lean-program D5 moved stretch OUT of
+    # habits and into the plan: `plan_extras` attaches it to every day of the
+    # week from this value. zone2_weekly_min still lives on Habits.
+    #
+    # Migration note: the value used to be stored as the "Daily stretch" habit's
+    # target_value. `prefs_for_assemble_facts` still falls back to that habit
+    # when this pref is unset, so nobody loses their target — but the habit is
+    # no longer created for new athletes.
+    "stretch_daily_min": {
+        "type": "int",
+        "min": 0,
+        "max": 60,
+        "step": 5,
+        "reads": ["skeleton"],
+        "default": 0,
+    },
     "notes": {
         "type": "str",
         "max_len": 200,
         "reads": ["content"],
         "default": "",
+    },
+    # High-volume dishes the athlete already cooks. The consult suggests FROM
+    # this list instead of inventing a meal plan — a recipe database is out of
+    # scope; this is a list of dish names and nothing more.
+    "volume_plays": {
+        "type": "list[str]",
+        "max_items": 10,
+        "max_len": 80,
+        "reads": ["content"],
+        "default": [],
     },
 }
 
@@ -144,7 +174,7 @@ def validate_payload(
 
     # Reject unknown top-level keys (except nested containers we own).
     # stretch/zone2 were migrated to Habits — tolerate legacy payloads.
-    _migrated = {"stretch_daily_min", "zone2_weekly_min"}
+    _migrated = {"zone2_weekly_min"}
     known_top = {k.split(".")[0] for k in PREF_FIELDS} | _migrated
     for k in payload.keys():
         if k not in known_top:
@@ -154,9 +184,12 @@ def validate_payload(
 
 
 def strip_migrated_habit_fields(payload: dict) -> dict:
-    """Drop stretch/zone2 keys that now live on Habits."""
+    """Drop keys that live on Habits rather than in this catalog.
+
+    Only zone2_weekly_min now — stretch_daily_min moved INTO the catalog when
+    the lean program moved stretch out of habits and into the plan (D5).
+    """
     out = dict(payload or {})
-    out.pop("stretch_daily_min", None)
     out.pop("zone2_weekly_min", None)
     return out
 
@@ -198,6 +231,19 @@ def _validate_one(field: str, meta: dict, val: Any) -> str | None:
         if len(val) > max_len:
             return f"max length {max_len}"
         return None
+    if t == "list[str]":
+        if not isinstance(val, list):
+            return "must be a list of strings"
+        max_items = int(meta.get("max_items") or 10)
+        if len(val) > max_items:
+            return f"at most {max_items} items"
+        max_len = int(meta.get("max_len") or 80)
+        for item in val:
+            if not isinstance(item, str):
+                return "every item must be a string"
+            if len(item) > max_len:
+                return f"each item is at most {max_len} characters"
+        return None
     return None
 
 
@@ -224,6 +270,21 @@ def normalize_payload(payload: dict | None) -> dict:
                 set_field(out, field, int(meta.get("default") or 0))
     notes = get_field(out, "notes")
     set_field(out, "notes", str(notes or "")[:200])
+    # Coerce list[str] fields: drop blanks, trim to the item cap, clip each item.
+    for field, meta in PREF_FIELDS.items():
+        if meta.get("type") != "list[str]":
+            continue
+        raw_items = get_field(out, field) or []
+        if not isinstance(raw_items, list):
+            raw_items = []
+        item_len = int(meta.get("max_len") or 80)
+        max_items = int(meta.get("max_items") or 10)
+        cleaned = [
+            str(item).strip()[:item_len]
+            for item in raw_items
+            if str(item).strip()
+        ]
+        set_field(out, field, cleaned[:max_items])
     return out
 
 
@@ -246,6 +307,40 @@ def apply_step(payload: dict, field: str, step: int) -> dict | None:
         return None
     out = deepcopy(payload)
     set_field(out, field, nxt)
+    return out
+
+
+def enum_options(field: str) -> tuple[str, ...] | None:
+    """Ordered enum values for *field* (catalog order = step order), or None
+    if the field isn't enum-typed."""
+    return _ENUM_MAP.get(field)
+
+
+def apply_enum_step(payload: dict, field: str, direction: int) -> dict | None:
+    """Return a new payload with an enum field moved one position in
+    _ENUM_MAP[field], or None if already at the extreme in that direction,
+    the value isn't a recognised option, or the field isn't enum-typed.
+
+    Mirrors apply_step()'s clamp-at-bound → None behavior, but for enum
+    fields (e.g. strength_emphasis: less/same/more) instead of int fields.
+    """
+    meta = PREF_FIELDS.get(field)
+    if not meta or not str(meta.get("type") or "").startswith("enum:"):
+        return None
+    options = _ENUM_MAP.get(field)
+    if not options:
+        return None
+    cur = get_field(payload, field)
+    cur_s = str(cur) if cur is not None else str(meta.get("default") or options[0])
+    if cur_s not in options:
+        return None
+    idx = options.index(cur_s)
+    step_dir = 1 if direction > 0 else -1
+    nxt = idx + step_dir
+    if nxt < 0 or nxt >= len(options):
+        return None
+    out = deepcopy(payload)
+    set_field(out, field, options[nxt])
     return out
 
 

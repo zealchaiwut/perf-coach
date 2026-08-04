@@ -152,8 +152,10 @@
     { href: '/log',      label: 'Training',     icon: 'ti-list-details', match: ['/log', '/training', '/training.html'] },
     { href: '/weight',   label: 'Weight',       icon: 'ti-scale',        match: ['/weight', '/weight.html'] },
     { href: '/habits',   label: 'Habits',       icon: 'ti-checklist',    match: ['/habits', '/habits.html'] },
-    { href: '/trends',      label: 'Trends',      icon: 'ti-chart-line',   match: ['/trends', '/trends.html'], disabled: true },
-    { href: '/calendar',    label: 'Calendar',    icon: 'ti-calendar',     match: ['/calendar', '/calendar.html'], disabled: true }
+    // The consult loop, end to end: start a check-in, paste the changes
+    // back, see the history. Supersedes the old standalone /decisions link
+    // (decisions.html is now a redirect shim to here — see main.py's _PAGES).
+    { href: '/coach',    label: 'Coach',        icon: 'ti-notes',        match: ['/coach', '/coach.html'] }
     // Users is intentionally omitted — it's an admin-only page (see js/admin-gate.js).
   ];
 
@@ -200,6 +202,71 @@
     'body[data-env="prd"] .global-nav .gn-env{display:none;}',
     ".global-nav .gn-link-disabled{opacity:0.42;color:#9aa3b2;pointer-events:none;cursor:not-allowed;}",
     ".global-nav .gn-link-disabled i{opacity:0.7;}",
+    // Copy for Claude / Copy for consult: one payload, two clipboard writes,
+    // grouped under a single entry point with a dropdown (product decision —
+    // they're two distinct actions on the same data, not one action, so they
+    // stay as two menu choices rather than merging the logic). Same visual
+    // weight as the nav links so the trigger reads as an action, not a
+    // destination.
+    ".global-nav .gn-copy-menu{position:relative;flex-shrink:0;}",
+    ".global-nav .gn-copy{position:relative;display:inline-flex;align-items:center;gap:6px;padding:7px 13px;",
+    "border:1px solid rgba(13,30,67,0.14);border-radius:999px;background:#fff;",
+    "font:inherit;font-size:14px;font-weight:600;color:#0b1530;cursor:pointer;",
+    "white-space:nowrap;flex-shrink:0;transition:background 0.12s ease,border-color 0.12s ease;}",
+    ".global-nav .gn-copy:hover{background:rgba(13,30,67,0.05);border-color:rgba(13,30,67,0.28);}",
+    ".global-nav .gn-copy[disabled]{opacity:0.6;cursor:progress;}",
+    ".global-nav .gn-copy i{font-size:16px;line-height:1;}",
+    // The trigger's caret flips to signal open/closed state, same idea as the
+    // profile menu's aria-expanded but with a visible affordance since this
+    // one isn't an avatar users already know is a menu.
+    ".global-nav .gn-copy-caret{font-size:12px;line-height:1;transition:transform 0.14s ease;}",
+    '.global-nav .gn-copy-trigger[aria-expanded="true"] .gn-copy-caret{transform:rotate(180deg);}',
+    // The export takes several seconds to assemble (90 days across many
+    // blocks) — without motion, the "Building…" state reads as frozen rather
+    // than working for the whole wait. Same rotate-in-place pattern as the
+    // sync bar's spinner (ssb-spin), just applied to the tabler loader glyph.
+    ".global-nav .gn-copy .ti-loader-2{display:inline-block;animation:gn-copy-spin 0.8s linear infinite;}",
+    "@keyframes gn-copy-spin{to{transform:rotate(360deg)}}",
+    ".global-nav .gn-copy.is-error{border-color:#e08c8c;color:#c92a2a;}",
+    // Dropdown panel: right-aligned to the trigger (not centered), same
+    // pattern as .gn-profile-menu — the trigger sits near the env badge/
+    // avatar at the nav's right edge, and a centered panel clipped off-screen
+    // there the same way the old per-button info-tip bubbles did (fixed in
+    // e4fb2e2c). Right-aligning is the fix that already works for the
+    // profile menu, so it's reused here instead of a new bubble-positioning
+    // scheme.
+    ".global-nav .gn-copy-dropdown{display:none;position:absolute;top:calc(100% + 8px);right:0;left:auto;",
+    "min-width:250px;max-width:min(88vw,320px);background:#fff;border:1px solid rgba(13,30,67,0.1);",
+    "border-radius:12px;box-shadow:0 12px 36px rgba(8,18,48,0.16);padding:6px;z-index:200;}",
+    ".global-nav .gn-copy-dropdown.is-open{display:block;}",
+    // Each item carries its own explanation as always-in-DOM body text
+    // instead of a hover/focus info-tip bubble — inside an already-floating,
+    // already-positioned dropdown, a second nested absolutely-positioned
+    // bubble is exactly the kind of thing that reintroduces off-screen
+    // clipping (the bug e4fb2e2c fixed), and a menu is read top-to-bottom
+    // anyway so hover-to-reveal buys nothing here. The explanation is simply
+    // part of the item.
+    ".global-nav .gn-copy-item{display:flex;flex-direction:column;align-items:stretch;gap:2px;width:100%;",
+    "box-sizing:border-box;padding:9px 12px;border:none;background:none;border-radius:8px;",
+    "font:inherit;text-align:left;cursor:pointer;color:#0b1530;transition:background 0.12s ease;}",
+    ".global-nav .gn-copy-item:hover,.global-nav .gn-copy-item:focus-visible{background:rgba(13,30,67,0.05);outline:none;}",
+    ".global-nav .gn-copy-item[disabled]{opacity:0.6;cursor:progress;}",
+    ".global-nav .gn-copy-item.is-error{color:#c92a2a;}",
+    ".global-nav .gn-copy-item-title{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;}",
+    ".global-nav .gn-copy-item-title i{font-size:16px;line-height:1;flex-shrink:0;}",
+    ".global-nav .gn-copy-item-title .ti-loader-2{animation:gn-copy-spin 0.8s linear infinite;}",
+    ".global-nav .gn-copy-item-desc{font-size:12px;font-weight:400;color:#5c6886;line-height:1.4;",
+    "padding-left:24px;}",
+    "#gn-copy-toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(8px);",
+    "max-width:min(92vw,460px);padding:10px 16px;border-radius:999px;background:#0b1530;color:#fff;",
+    "font-size:13px;font-weight:500;line-height:1.4;box-shadow:0 12px 32px rgba(8,18,48,0.28);",
+    "opacity:0;pointer-events:none;transition:opacity 0.16s ease,transform 0.16s ease;z-index:400;",
+    "display:flex;align-items:center;gap:12px;}",
+    "#gn-copy-toast.is-open{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto;}",
+    "#gn-copy-toast.is-error{background:#8f1f1f;}",
+    "#gn-copy-toast .gnct-retry{border:1px solid rgba(255,255,255,0.5);background:none;color:#fff;",
+    "font:inherit;font-size:12px;font-weight:600;padding:4px 11px;border-radius:999px;cursor:pointer;}",
+    "#gn-copy-toast .gnct-retry:hover{background:rgba(255,255,255,0.14);}",
   ".global-nav .gn-brand{display:none;font-weight:700;font-size:15px;letter-spacing:-0.02em;color:#0b1530;}",
   ".global-nav .gn-spacer{display:none;}",
   ".global-nav .gn-menu-btn{display:none;align-items:center;justify-content:center;",
@@ -215,6 +282,14 @@
     ".global-nav .gn-link-disabled{display:none;}",
     ".global-nav .gn-right{display:flex;}",
     ".global-nav .gn-env{display:none;}",
+    // Mobile: keep the trigger, drop its label — the icon (+ caret) carries
+    // it. Unlike the old per-button info-tip bubble, the dropdown items'
+    // explanations live in .gn-copy-item-desc, a different class outside
+    // .gn-copy entirely, so this rule doesn't need an exclusion to keep them
+    // reachable — they were never a `.gn-copy span` to begin with.
+    ".global-nav .gn-copy{padding:7px 9px;}",
+    ".global-nav .gn-copy-trigger span{display:none;}",
+    ".global-nav .gn-copy-dropdown{max-width:88vw;}",
     ".global-nav .gn-menu-btn{display:flex;}",
     ".global-nav .gn-links{display:none;position:fixed;left:12px;right:12px;top:56px;",
       "flex-direction:column;gap:4px;background:#fff;border:1px solid rgba(13,30,67,0.1);",
@@ -267,11 +342,11 @@
     document.head.appendChild(style);
   }
 
+  // Delegates to the shared escaper (issue #1603). The local copies
+  // disagreed about the apostrophe, so identical content was safe on
+  // some pages and attribute-injectable on others.
   function escAttr(s) {
-    return String(s)
-      .replace(/&/g, "&amp;")
-      .replace(/"/g, "&quot;")
-      .replace(/</g, "&lt;");
+    return window.AppCommon.escapeHtml(s);
   }
 
   function buildNav() {
@@ -321,6 +396,45 @@
       linksHtml +
       "</div>" +
       '<div class="gn-right">' +
+      // One entry point, two choices (product decision — the daily paste and
+      // the consult blob are distinct actions on the same data, so they stay
+      // separate menu items rather than merging the copy logic itself; see
+      // _copyForClaude below). aria-label on the trigger duplicates its
+      // visible <span> deliberately: the mobile media query
+      // (".gn-copy-trigger span{display:none}") hides that span on narrow
+      // viewports, and a display:none span drops out of the accessible-name
+      // computation — without this, a screen-reader user on mobile would hit
+      // an unlabeled button here.
+      '<div class="gn-copy-menu" id="gn-copy-menu">' +
+      '<button type="button" class="gn-copy gn-copy-trigger" id="gn-copy-trigger"' +
+      ' aria-haspopup="true" aria-expanded="false" aria-controls="gn-copy-dropdown"' +
+      ' aria-label="Copy for Claude or consult">' +
+      '<i class="ti ti-clipboard-text" aria-hidden="true"></i>' +
+      "<span>Copy</span>" +
+      '<i class="ti ti-chevron-down gn-copy-caret" aria-hidden="true"></i>' +
+      "</button>" +
+      '<div class="gn-copy-dropdown" id="gn-copy-dropdown" role="menu" aria-labelledby="gn-copy-trigger">' +
+      // Each item's explanation is plain body text under its title rather
+      // than a hover info-tip bubble — see the CSS comment above
+      // .gn-copy-item for why (this is the fix for the off-screen clipping
+      // that e4fb2e2c had to chase for the old standalone buttons: there is
+      // no absolutely-positioned bubble left to clip).
+      '<button type="button" class="gn-copy-item" id="gn-copy-claude" role="menuitem">' +
+      '<span class="gn-copy-item-title"><i class="ti ti-clipboard-text" aria-hidden="true"></i>Copy for Claude</span>' +
+      '<span class="gn-copy-item-desc">' +
+      "Copies a training summary — readiness, training load, and your " +
+      "last 90 days of workouts — as plain text to paste into a fresh " +
+      "Claude chat. About 10 seconds to build, ~25k characters." +
+      "</span></button>" +
+      '<button type="button" class="gn-copy-item" id="gn-copy-consult" role="menuitem">' +
+      '<span class="gn-copy-item-title"><i class="ti ti-messages" aria-hidden="true"></i>Copy for consult</span>' +
+      '<span class="gn-copy-item-desc">' +
+      "Copies the check-in prompt — asks a few questions, then ends in " +
+      "a change list to paste into /decisions. Same last-90-days data, " +
+      "about 10 seconds to build." +
+      "</span></button>" +
+      "</div>" +
+      "</div>" +
       '<span class="gn-env" id="env-label" aria-label="Environment"></span>' +
       '<div class="gn-profile" id="gn-profile">' +
       '<button class="gn-avatar' +
@@ -341,7 +455,10 @@
 
     _wireProfileMenu(nav);
     _wireMobileMenu(nav);
+    _wireCopyMenu(nav);
+    _wireCopyForClaude();
     _positionGlobalNav();
+    _observeNavRightWidth(nav);
 
     document
       .getElementById("nav-logout")
@@ -356,6 +473,294 @@
             btn.disabled = false;
           });
       });
+  }
+
+  // ── Copy for Claude ──────────────────────────────────────────────────────
+  // Fetches the complete paste blob (prompt template + 90-day payload) in ONE
+  // request and writes it to the clipboard. Never copies a partial blob: on any
+  // fetch failure nothing touches the clipboard and the toast offers a retry.
+
+  // Two blobs, one mechanism. The daily message is one-way and short; the
+  // consult asks questions and ends in a change list you paste into
+  // /decisions. Both are plain text from the same export payload, so the only
+  // difference is which endpoint is fetched.
+  var COPY_ENDPOINT = "/api/coach/export/paste";
+  var CONSULT_ENDPOINT = "/api/coach/consult";
+
+  /** Same contract as training-plan.js's Stryd copy: Clipboard API, then a
+   * hidden-textarea fallback for older webviews and non-secure contexts. */
+  function _writeClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text).catch(function () {
+        return _fallbackClipboard(text);
+      });
+    }
+    return _fallbackClipboard(text);
+  }
+
+  function _fallbackClipboard(text) {
+    return new Promise(function (resolve, reject) {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.top = "0";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, ta.value.length);
+      var ok = false;
+      try {
+        ok = document.execCommand("copy");
+      } catch (e) {
+        ok = false;
+      }
+      document.body.removeChild(ta);
+      ok ? resolve() : reject(new Error("clipboard unavailable"));
+    });
+  }
+
+  var _toastTimer = null;
+
+  function _copyToast(message, opts) {
+    opts = opts || {};
+    var toast = document.getElementById("gn-copy-toast");
+    if (!toast) {
+      toast = document.createElement("div");
+      toast.id = "gn-copy-toast";
+      toast.setAttribute("role", "status");
+      toast.setAttribute("aria-live", "polite");
+      document.body.appendChild(toast);
+    }
+    toast.innerHTML = "";
+    var label = document.createElement("span");
+    label.textContent = message;
+    toast.appendChild(label);
+    if (opts.onRetry) {
+      var retry = document.createElement("button");
+      retry.type = "button";
+      retry.className = "gnct-retry";
+      retry.textContent = "Retry";
+      retry.addEventListener("click", function () {
+        toast.classList.remove("is-open");
+        opts.onRetry();
+      });
+      toast.appendChild(retry);
+    }
+    // onCopy: the export is already fetched and sitting in memory — this
+    // button's click is a fresh, real user gesture, so the clipboard write
+    // it triggers succeeds even in the case (see _copyForClaude) where the
+    // automatic post-fetch write couldn't. Deliberately not styled/labeled
+    // as an error state — this is the expected, common path, not a failure.
+    if (opts.onCopy) {
+      var copyBtn = document.createElement("button");
+      copyBtn.type = "button";
+      copyBtn.className = "gnct-retry";
+      copyBtn.textContent = "Copy";
+      copyBtn.addEventListener("click", function () {
+        opts.onCopy(toast);
+      });
+      toast.appendChild(copyBtn);
+    }
+    toast.classList.toggle("is-error", !!opts.error);
+    toast.classList.add("is-open");
+    if (_toastTimer) clearTimeout(_toastTimer);
+    // An error/action toast holds a button, so it stays until dismissed by
+    // the next toast rather than vanishing mid-reach. A persisted toast (the
+    // in-flight "Building…" status) skips the auto-dismiss for the same
+    // reason: the ~12s build regularly outlasts the normal 4s toast life, and
+    // it would otherwise vanish mid-wait, right when it's most needed, and
+    // leave nothing but the button's own spinner for the rest of the wait.
+    // The next _copyToast call (success or error) always replaces it.
+    if (!opts.onRetry && !opts.onCopy && !opts.persist) {
+      _toastTimer = setTimeout(function () {
+        toast.classList.remove("is-open");
+      }, 4000);
+    }
+  }
+
+  function _copyCharCount(chars) {
+    return chars >= 1000 ? Math.round(chars / 1000) + "k chars" : chars + " chars";
+  }
+
+  function _copyForClaude(btn, endpoint, label) {
+    endpoint = endpoint || COPY_ENDPOINT;
+    label = label || "copied";
+    var original = btn ? btn.innerHTML : null;
+    if (btn) {
+      btn.disabled = true;
+      btn.classList.remove("is-error");
+      btn.innerHTML =
+        '<i class="ti ti-loader-2" aria-hidden="true"></i><span>Building…</span>';
+    }
+
+    function restore() {
+      if (btn && original !== null) {
+        btn.disabled = false;
+        btn.innerHTML = original;
+      }
+    }
+
+    // The button's own "Building…" + spinner only reads clearly once you've
+    // noticed it; the toast is the loud, hard-to-miss half of the same
+    // signal, and names roughly how long the ~12s build takes so the wait
+    // reads as expected rather than possibly-stuck. persist:true keeps it
+    // open for the full wait — see _copyToast's comment on why the normal
+    // 4s auto-dismiss doesn't fit this case.
+    var buildingMsg =
+      endpoint === CONSULT_ENDPOINT
+        ? "Building your check-in — usually takes about 10 seconds…"
+        : "Building your training summary — usually takes about 10 seconds…";
+    _copyToast(buildingMsg, { persist: true });
+
+    fetch(endpoint, { credentials: "same-origin" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("export failed (" + res.status + ")");
+        return res.text();
+      })
+      .then(function (blob) {
+        if (!blob || !blob.trim()) throw new Error("export was empty");
+
+        function stamped() {
+          // Bangkok date, not the browser's — this app is single-timezone and
+          // the stamp must match the day the export itself was built for.
+          return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
+        }
+
+        return _writeClipboard(blob).then(function () {
+          restore();
+          _copyToast(label + " · " + _copyCharCount(blob.length) + " · " + stamped());
+        }).catch(function () {
+          // The automatic write failed — almost always because this fetch
+          // took the ~10-12s it's expected to, and by the time it resolved,
+          // the browser's clipboard-write permission (tied to a recent, real
+          // user gesture — "transient activation") had expired. Retrying the
+          // whole fetch would hit the exact same timing wall again. Instead,
+          // the blob is already sitting in memory — offer a manual Copy
+          // button, whose own click is a fresh gesture, so the write it
+          // triggers succeeds even though the automatic one couldn't.
+          restore();
+          _copyToast("Ready — " + _copyCharCount(blob.length) + " to copy", {
+            persist: true,
+            onCopy: function (toastEl) {
+              _writeClipboard(blob).then(function () {
+                toastEl.classList.remove("is-open");
+                _copyToast(label + " · " + _copyCharCount(blob.length) + " · " + stamped());
+              }).catch(function () {
+                _copyToast("Still couldn't copy — select and copy the text manually.", {
+                  error: true,
+                });
+              });
+            },
+          });
+        });
+      })
+      .catch(function (err) {
+        restore();
+        if (btn) btn.classList.add("is-error");
+        _copyToast(
+          "Couldn't copy — " + (err && err.message ? err.message : "request failed") + ".",
+          {
+            error: true,
+            onRetry: function () {
+              _copyForClaude(btn, endpoint, label);
+            },
+          }
+        );
+      });
+  }
+
+  // Shared with coach.js's "Start a check-in" card — the /coach page's own
+  // consult trigger calls this SAME function (same fetch, clipboard write,
+  // persisted "Building…" toast, and error/retry behavior) rather than
+  // reimplementing it, so the nav dropdown's "Copy for consult" item and the
+  // Coach page entry point can't drift apart the way 17 divergent esc()
+  // copies once did (issue #1603). nav.js is a single IIFE with nothing else
+  // copy-related on window, so this is the one addition needed to make the
+  // logic reachable from another page's script.
+  window.NavCopy = {
+    copyForClaude: _copyForClaude,
+    COPY_ENDPOINT: COPY_ENDPOINT,
+    CONSULT_ENDPOINT: CONSULT_ENDPOINT,
+  };
+
+  function _wireCopyForClaude() {
+    var btn = document.getElementById("gn-copy-claude");
+    if (btn && !btn._wired) {
+      btn._wired = true;
+      btn.addEventListener("click", function () {
+        _closeCopyDropdown();
+        _copyForClaude(btn, COPY_ENDPOINT, "copied");
+      });
+    }
+    var consult = document.getElementById("gn-copy-consult");
+    if (consult && !consult._wired) {
+      consult._wired = true;
+      consult.addEventListener("click", function () {
+        _closeCopyDropdown();
+        _copyForClaude(consult, CONSULT_ENDPOINT, "consult copied");
+      });
+    }
+  }
+
+  // ── Copy menu (dropdown) ────────────────────────────────────────────────
+  // One trigger, one panel holding both copy choices (see the CSS comment
+  // above .gn-copy-menu for why they're grouped this way instead of two peer
+  // buttons). Open/close/outside-click/Escape mirrors _wireProfileMenu below;
+  // kept as its own function because selecting an item fires a network
+  // request and closes the panel, rather than navigating to a destination.
+  var _closeCopyDropdown = function () {};
+
+  function _wireCopyMenu(nav) {
+    var trigger = document.getElementById("gn-copy-trigger");
+    var dropdown = document.getElementById("gn-copy-dropdown");
+    if (!trigger || !dropdown) return;
+
+    function close() {
+      dropdown.classList.remove("is-open");
+      trigger.setAttribute("aria-expanded", "false");
+    }
+    // Exposed so _wireCopyForClaude's item click handlers (wired separately,
+    // after this function runs) can close the panel once a choice is made.
+    _closeCopyDropdown = close;
+
+    function open() {
+      // Mutually exclusive with the profile menu and the mobile links panel —
+      // the same rule _wireProfileMenu/_wireMobileMenu already apply to each
+      // other, so at most one floating panel is open at a time.
+      var profileMenu = document.getElementById("gn-profile-menu");
+      var avatar = document.getElementById("nav-avatar");
+      if (profileMenu) profileMenu.classList.remove("is-open");
+      if (avatar) avatar.setAttribute("aria-expanded", "false");
+      var links = document.getElementById("gn-links");
+      var menuBtn = document.getElementById("gn-menu-btn");
+      var backdrop = document.getElementById("gn-menu-backdrop");
+      if (links && links.classList.contains("is-open")) {
+        links.classList.remove("is-open");
+        if (menuBtn) menuBtn.setAttribute("aria-expanded", "false");
+        if (backdrop) {
+          backdrop.classList.remove("is-open");
+          backdrop.hidden = true;
+        }
+        document.body.style.overflow = "";
+      }
+      dropdown.classList.add("is-open");
+      trigger.setAttribute("aria-expanded", "true");
+    }
+
+    trigger.addEventListener("click", function (e) {
+      e.stopPropagation();
+      if (dropdown.classList.contains("is-open")) close();
+      else open();
+    });
+
+    document.addEventListener("click", function (e) {
+      if (!nav.contains(e.target)) close();
+    });
+
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") close();
+    });
   }
 
   /**
@@ -382,6 +787,7 @@
       var right = Math.max(0, document.documentElement.clientWidth - (rect.right - pr));
       gnav.style.paddingLeft = left + "px";
       gnav.style.paddingRight = right + "px";
+      _shrinkNavInsetIfClipped(gnav);
       return;
     }
 
@@ -391,6 +797,57 @@
     var inset = Math.max(0, (vw - CONTENT_MAX) / 2) + PAD;
     gnav.style.paddingLeft = inset + "px";
     gnav.style.paddingRight = inset + "px";
+    _shrinkNavInsetIfClipped(gnav);
+  }
+
+  // The page-column inset above is cosmetic (lines the nav up with the page's
+  // own content edges) — it must never win over the nav's OWN links actually
+  // fitting. A narrow centered column (e.g. Decisions' 760px page, centered
+  // at 1440px) or a page with no `.page` wrapper at all (the CONTENT_MAX
+  // fallback, e.g. Trends/Habits/Log) can compute an inset that leaves
+  // `.gn-links` narrower than its own content. Because that row scrolls
+  // (`overflow-x:auto`) with no visible scrollbar (`scrollbar-width:none`),
+  // the overflow doesn't look like a scrollable list — it looks like the
+  // last link got cut off mid-word ("Trends" rendering as "Tren"). Re-measure
+  // after applying the inset and back off symmetrically, down to a 16px
+  // floor, until the links row actually fits.
+  var _NAV_PAD_FLOOR = 16;
+  var _NAV_PAD_STEP = 8;
+
+  function _shrinkNavInsetIfClipped(gnav) {
+    var links = gnav.querySelector(".gn-links");
+    if (!links) return;
+    // Bounded, not unconditional: on the common case (nothing clipped) this
+    // reads layout once and exits without writing a second style.
+    for (var guard = 0; guard < 40 && links.scrollWidth > links.clientWidth + 1; guard++) {
+      var pl = parseFloat(gnav.style.paddingLeft) || 0;
+      var pr = parseFloat(gnav.style.paddingRight) || 0;
+      if (pl <= _NAV_PAD_FLOOR && pr <= _NAV_PAD_FLOOR) break;
+      gnav.style.paddingLeft = Math.max(_NAV_PAD_FLOOR, pl - _NAV_PAD_STEP) + "px";
+      gnav.style.paddingRight = Math.max(_NAV_PAD_FLOOR, pr - _NAV_PAD_STEP) + "px";
+    }
+  }
+
+  // `_positionGlobalNav` runs once at build time (and again on resize/load),
+  // but `.gn-right` keeps changing size AFTER that: env.js fetches /api/env
+  // and pops the UAT/LOCAL badge in asynchronously, the avatar swaps from a
+  // text initial to an <img> once it loads, and the copy buttons' label
+  // toggles ("Copy for Claude" ↔ "Building…"). None of those fire a resize
+  // event, so the padding computed at build time can go stale and the links
+  // row silently clips (this is what produced "Tren" instead of "Trends" on
+  // /log, /habits, /trends — .gn-env was still empty/width:0 when the padding
+  // was first computed). A ResizeObserver on `.gn-right` reacts to exactly
+  // the content that can drift, without polling and without the feedback
+  // loop a `.gn-links` observer would risk (nav padding doesn't feed back
+  // into .gn-right's own size).
+  function _observeNavRightWidth(nav) {
+    if (!window.ResizeObserver) return;
+    var right = nav.querySelector(".gn-right");
+    if (!right) return;
+    var ro = new ResizeObserver(function () {
+      _positionGlobalNav();
+    });
+    ro.observe(right);
   }
 
   function _wireProfileMenu(nav) {
@@ -670,6 +1127,17 @@
       }
       if (data.status === "success") _ssbSuccess(data);
       else _ssbError(data);
+    } else {
+      // Anything else — "idle" (job aged out of the registry, e.g. a
+      // server restart mid-sync per docs/sync.md "Status lost on restart"),
+      // "cancelled", "pending", or any status this bar doesn't render a
+      // dedicated state for. SyncPoller stops polling as soon as status
+      // leaves "running" (see lib/sync-poller.js), so without this branch
+      // the bar was left frozen on its last "Syncing…" spinner forever —
+      // found live during the S1 UX review by stubbing exactly this
+      // transition. Hiding is the safe default: it matches what the athlete
+      // actually knows (no sync is running right now).
+      _ssbHide();
     }
   }
 

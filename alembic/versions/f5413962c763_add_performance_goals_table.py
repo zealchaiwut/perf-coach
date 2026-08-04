@@ -65,5 +65,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_performance_goals_user_id", table_name="performance_goals")
+    if not table_exists("performance_goals"):
+        return
+    if index_exists("performance_goals", "ix_performance_goals_user_id"):
+        op.drop_index("ix_performance_goals_user_id", table_name="performance_goals")
     op.drop_table("performance_goals")

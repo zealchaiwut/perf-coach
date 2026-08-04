@@ -84,3 +84,44 @@ One-shot backfill for historical readiness scores.
 ```bash
 python scripts/backfill_readiness.py --user-id <UUID> [--env uat|prd]
 ```
+
+---
+
+## seed_mock_user.py — Disposable athlete for manual UI review
+
+Creates one new user with synthetic-but-plausible history, so the app can be
+driven in a browser without going anywhere near a real account. It reads no
+other user's rows and copies no credentials — everything is generated.
+
+```bash
+ENVIRONMENT=uat python scripts/seed_mock_user.py --name uxmock
+ENVIRONMENT=uat python scripts/seed_mock_user.py --name uxmock --drop  # rebuild
+```
+
+Generates ~20 weeks of runs (easy / tempo / intervals / long / strength, with a
+down week every fourth and ~8% of sessions missed), 120 days of wellness
+metrics with a few gaps, ~3 weigh-ins a week on a downward trend, an active
+weight target, fuel settings, and five habits with logs. Deliberately imperfect:
+a seed where every habit is 100% and no session is ever skipped hides exactly
+the states the UI is worst at.
+
+### Then
+
+```bash
+ENVIRONMENT=uat python scripts/set_user_password.py uxmock
+ENVIRONMENT=uat PYTHONPATH=. python scripts/backfill_training_load.py --user_id <UUID> --env uat
+ENVIRONMENT=uat PYTHONPATH=. python scripts/backfill_readiness.py --user-id <UUID> --env uat
+```
+
+The two backfills are not optional if you care about the pages that read
+CTL/ATL/TSB or readiness — without them those panels render empty and you will
+mistake missing seed data for a UI bug.
+
+### Why it is a script and not a fixture
+
+CLAUDE.md requires using a frontend change in a real browser before calling it
+done, and an empty account cannot show you a crowded week, a stale weigh-in, or
+a habit at 3/7. This exists so that requirement is cheap to meet.
+
+`--drop` only ever deletes the user it was asked to create, and refuses the
+names used by real accounts.

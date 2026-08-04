@@ -262,6 +262,15 @@
       box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 18%, transparent);
     }
 
+    .profile-hint {
+      margin-top: 5px;
+      font-size: 12px;
+      line-height: 1.45;
+      color: var(--text-sub);
+    }
+    #profile-athlete-context-count { white-space: nowrap; font-variant-numeric: tabular-nums; }
+    textarea.profile-input { resize: vertical; min-height: 62px; }
+
     /* Copyable User ID row */
     .profile-id-row { display: flex; gap: 8px; align-items: stretch; }
     .profile-id-row .profile-input { flex: 1; min-width: 0; }
@@ -1193,6 +1202,7 @@
   </style>
 </head>
 <body>
+  <script src="/js/lib/app-common.js"></script>
   <script src="/js/lib/sync-poller.js"></script>
   <script src="/js/nav.js"></script>
   <script src="/js/env.js"></script>
@@ -1264,6 +1274,32 @@
             <option value="7">Sunday</option>
           </select>
           <div class="profile-field-error" id="profile-week-start-error" aria-live="polite"></div>
+        </div>
+
+        <div class="profile-form-group">
+          <label class="profile-label" for="profile-birth-date">Date of birth</label>
+          <input type="date" id="profile-birth-date" class="profile-input">
+          <div class="profile-hint">Used for your age in the coach export.</div>
+          <div class="profile-field-error" id="profile-birth-date-error" aria-live="polite"></div>
+        </div>
+
+        <div class="profile-form-group">
+          <label class="profile-label" for="profile-height-cm">Height (cm)</label>
+          <input type="number" id="profile-height-cm" class="profile-input" min="80" max="250" step="0.1" inputmode="decimal">
+          <div class="profile-field-error" id="profile-height-cm-error" aria-live="polite"></div>
+        </div>
+
+        <div class="profile-form-group">
+          <label class="profile-label" for="profile-athlete-context">Athlete context</label>
+          <textarea id="profile-athlete-context" class="profile-input" rows="3" maxlength="200"
+            placeholder="e.g. 6 years running, returning from a calf strain, 5–7 h/week, hates track work"></textarea>
+          <div class="profile-hint">
+            Who you are as an athlete — history, constraints, what you're actually
+            training for. Sent with the coach export so a fresh chat doesn't have to ask.
+            Scheduling instructions belong in Plan → Preferences instead.
+            <span id="profile-athlete-context-count">0/200</span>
+          </div>
+          <div class="profile-field-error" id="profile-athlete-context-error" aria-live="polite"></div>
         </div>
 
         <div class="profile-actions-row">
@@ -1751,10 +1787,14 @@
       }
 
       function _currentValues() {
+        var h = document.getElementById('profile-height-cm').value.trim();
         return {
           display_name: document.getElementById('profile-display-name').value,
           timezone: document.getElementById('profile-timezone').value,
           week_start_day: parseInt(document.getElementById('profile-week-start').value, 10),
+          birth_date: document.getElementById('profile-birth-date').value || null,
+          height_cm: h === '' ? null : parseFloat(h),
+          athlete_context: document.getElementById('profile-athlete-context').value.trim(),
         };
       }
 
@@ -1762,7 +1802,16 @@
         var cur = _currentValues();
         return cur.display_name !== (_baseline.display_name || '')
           || cur.timezone !== (_baseline.timezone || 'Asia/Bangkok')
-          || cur.week_start_day !== (_baseline.week_start_day || 1);
+          || cur.week_start_day !== (_baseline.week_start_day || 1)
+          || cur.birth_date !== (_baseline.birth_date || null)
+          || cur.height_cm !== (_baseline.height_cm === undefined ? null : _baseline.height_cm)
+          || cur.athlete_context !== (_baseline.athlete_context || '');
+      }
+
+      function _updateContextCount() {
+        var el = document.getElementById('profile-athlete-context');
+        var out = document.getElementById('profile-athlete-context-count');
+        if (el && out) out.textContent = el.value.length + '/200';
       }
 
       function _updateSaveBtn() {
@@ -1771,7 +1820,8 @@
       }
 
       function _clearFieldErrors() {
-        ['profile-display-name-error', 'profile-timezone-error', 'profile-week-start-error']
+        ['profile-display-name-error', 'profile-timezone-error', 'profile-week-start-error',
+          'profile-birth-date-error', 'profile-height-cm-error', 'profile-athlete-context-error']
           .forEach(window._settingsClearFieldError);
       }
 
@@ -1791,7 +1841,20 @@
               display_name: row.display_name || '',
               timezone: row.timezone || 'Asia/Bangkok',
               week_start_day: row.week_start_day || 1,
+              birth_date: row.birth_date || null,
+              height_cm: row.height_cm === undefined ? null : row.height_cm,
+              athlete_context: row.athlete_context || '',
             };
+
+            var bdEl = document.getElementById('profile-birth-date');
+            if (bdEl) bdEl.value = _baseline.birth_date || '';
+
+            var hEl = document.getElementById('profile-height-cm');
+            if (hEl) hEl.value = _baseline.height_cm === null ? '' : String(_baseline.height_cm);
+
+            var acEl = document.getElementById('profile-athlete-context');
+            if (acEl) acEl.value = _baseline.athlete_context;
+            _updateContextCount();
 
             var dnEl = document.getElementById('profile-display-name');
             if (dnEl) {
@@ -1852,6 +1915,12 @@
         if (cur.display_name !== (_baseline.display_name || '')) patch.display_name = cur.display_name;
         if (cur.timezone !== (_baseline.timezone || 'Asia/Bangkok')) patch.timezone = cur.timezone;
         if (cur.week_start_day !== (_baseline.week_start_day || 1)) patch.week_start_day = cur.week_start_day;
+        if (cur.birth_date !== (_baseline.birth_date || null)) patch.birth_date = cur.birth_date;
+        var baseHeight = _baseline.height_cm === undefined ? null : _baseline.height_cm;
+        if (cur.height_cm !== baseHeight) patch.height_cm = cur.height_cm;
+        if (cur.athlete_context !== (_baseline.athlete_context || '')) {
+          patch.athlete_context = cur.athlete_context;
+        }
 
         if (!Object.keys(patch).length) return;
 
@@ -1872,6 +1941,9 @@
               display_name: saved.display_name || '',
               timezone: saved.timezone || 'Asia/Bangkok',
               week_start_day: saved.week_start_day || 1,
+              birth_date: saved.birth_date || null,
+              height_cm: saved.height_cm === undefined ? null : saved.height_cm,
+              athlete_context: saved.athlete_context || '',
             };
             var initialsEl = document.getElementById('settings-avatar-initials');
             if (initialsEl) {
@@ -1896,11 +1968,15 @@
           });
       }
 
-      ['profile-display-name', 'profile-timezone', 'profile-week-start'].forEach(function (id) {
+      ['profile-display-name', 'profile-timezone', 'profile-week-start',
+        'profile-birth-date', 'profile-height-cm', 'profile-athlete-context'].forEach(function (id) {
         var el = document.getElementById(id);
         if (el) el.addEventListener('input', _updateSaveBtn);
         if (el) el.addEventListener('change', _updateSaveBtn);
       });
+
+      var acInput = document.getElementById('profile-athlete-context');
+      if (acInput) acInput.addEventListener('input', _updateContextCount);
 
       var saveBtn = document.getElementById('profile-save-btn');
       if (saveBtn) saveBtn.addEventListener('click', _handleSave);
@@ -3017,6 +3093,8 @@
         var _dq = document.getElementById('stryd-data-quality'); if (_dq) _dq.style.display = 'none';
 
         document.getElementById('stryd-form-wrap').innerHTML =
+          '<p class="u-muted-13" style="margin:0 0 10px;">Stryd has no OAuth, so this app signs in on your ' +
+          'behalf: your password is encrypted before it’s stored and used only to refresh your Stryd session.</p>' +
           '<div class="stryd-form" id="stryd-cred-form">' +
           '<input type="email" id="stryd-email" placeholder="Stryd email" autocomplete="username">' +
           '<input type="password" id="stryd-password" placeholder="Stryd password" autocomplete="current-password">' +

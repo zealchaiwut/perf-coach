@@ -24,17 +24,15 @@
 
   // -- Helpers -----------------------------------------------------------------
 
+  // Delegates to the shared escaper (issue #1603). The local copies
+  // disagreed about the apostrophe, so identical content was safe on
+  // some pages and attribute-injectable on others.
   function esc(s) {
-    if (s == null) return "";
-    return String(s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+    return window.AppCommon.escapeHtml(s);
   }
 
   function today() {
-    var d = new Date();
+    var d = window.AppCommon.nowBangkok();
     var mm = String(d.getMonth() + 1).padStart(2, "0");
     var dd = String(d.getDate()).padStart(2, "0");
     return d.getFullYear() + "-" + mm + "-" + dd;

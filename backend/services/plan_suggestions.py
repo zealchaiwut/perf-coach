@@ -899,22 +899,14 @@ def _call_llm(facts: dict, feedback: str = "") -> dict | None:
 
 # ── Orchestration ─────────────────────────────────────────────────────────────
 #
-# The same feature — LLM plan → validate → retry-with-feedback → template
-# fallback — implemented three ways so their outputs can be A/B'd on real data.
-# All share the domain primitives above; they differ only in HOW the retry loop
-# is expressed. Selected per-request via the PLAN_ORCH env var; unset keeps the
-# original single-shot behaviour so nothing changes by default. Every path is
-# fallback-safe: any failure (LLM off, network, missing optional dependency,
-# retries exhausted) returns the deterministic template.
-
-_MAX_PLAN_ATTEMPTS = 3
-_VALID_ORCH = {"single", "plain", "langgraph", "pydantic_ai"}
-
-
-def _plan_orch() -> str:
-    orch = os.getenv("PLAN_ORCH", "").strip().lower()
-    return orch if orch in _VALID_ORCH else "single"
-
+# LLM plan → validate → template fallback, one implementation. There were once
+# four, switched per-request by PLAN_ORCH so their outputs could be A/B'd on
+# real data: single-shot, a plain retry loop, LangGraph, and Pydantic AI. The
+# comparison is over — the single-shot path won and the rest were deleted with
+# the env var, so there is nothing left to switch between.
+#
+# Still fallback-safe: any failure (LLM off, network, invalid output) returns
+# the deterministic template.
 
 def _template_result(facts: dict, attempts: int, orch: str) -> dict:
     return {
@@ -925,8 +917,16 @@ def _template_result(facts: dict, attempts: int, orch: str) -> dict:
     }
 
 
-# 1. Single-shot (original behaviour) — one call, one validation, no retry.
-def _orch_single(facts: dict) -> dict:
+def get_suggestions_from_facts(facts: dict) -> dict:
+    """Attempt LLM suggestions; fall back to the deterministic template if the
+    LLM is disabled, unreachable, or returns something that fails validation.
+
+    Single-shot: one call, one validation, no retry. Returns
+    {'suggestions': [...], 'source': 'llm'|'fallback', 'attempts': int,
+    'orch': str}. ``orch`` is always "single" — it survives in the payload
+    because callers and tests read the response shape, not because there is
+    anything to choose.
+    """
     raw = _call_llm(facts)
     if raw is not None:
         suggestions = raw.get("suggestions", [])
@@ -934,76 +934,6 @@ def _orch_single(facts: dict) -> dict:
             return {"suggestions": suggestions, "source": "llm", "attempts": 1, "orch": "single"}
         _log.warning("LLM plan_suggestion output failed validation — using fallback")
     return _template_result(facts, attempts=1 if raw is not None else 0, orch="single")
-
-
-# 2. Plain Python — an explicit while loop with reflection feedback.
-def _orch_plain(facts: dict) -> dict:
-    feedback = ""
-    attempt = 0
-    for attempt in range(1, _MAX_PLAN_ATTEMPTS + 1):
-        raw = _call_llm(facts, feedback)
-        if raw is None:
-            # A None here isn't necessarily a dead LLM — Groq's own strict-mode
-            # validator rejects the whole call (400) if a single generation
-            # forgets a required-but-nullable key (e.g. omits `blocks` on a
-            # strength entry). That's a transient generation slip, exactly
-            # what the retry loop exists for — don't give up on attempt 1.
-            _log.warning("plan(plain) attempt %d: LLM call failed/unavailable", attempt)
-            continue
-        suggestions = raw.get("suggestions", [])
-        errs = validation_errors(suggestions, facts)
-        if not errs:
-            return {"suggestions": suggestions, "source": "llm", "attempts": attempt, "orch": "plain"}
-        _log.warning("plan(plain) retry %d rejected: %s", attempt, errs)
-        feedback = _feedback_block(errs)
-    return _template_result(facts, attempts=attempt, orch="plain")
-
-
-# 3. LangGraph — the loop as nodes + a conditional edge (validate → generate).
-def _orch_langgraph(facts: dict) -> dict:
-    try:
-        from backend.services.plan_orch_langgraph import run as _run
-    except Exception as exc:  # dependency missing / import error → fallback-safe
-        _log.warning("plan(langgraph) unavailable (%s) — using fallback", exc)
-        return _template_result(facts, attempts=0, orch="langgraph")
-    try:
-        return _run(facts, _MAX_PLAN_ATTEMPTS)
-    except Exception as exc:
-        _log.warning("plan(langgraph) failed (%s) — using fallback", exc)
-        return _template_result(facts, attempts=0, orch="langgraph")
-
-
-# 4. Pydantic AI — a typed agent whose output_validator raises ModelRetry.
-def _orch_pydantic_ai(facts: dict) -> dict:
-    try:
-        from backend.services.plan_orch_pydantic_ai import run as _run
-    except Exception as exc:
-        _log.warning("plan(pydantic_ai) unavailable (%s) — using fallback", exc)
-        return _template_result(facts, attempts=0, orch="pydantic_ai")
-    try:
-        return _run(facts, _MAX_PLAN_ATTEMPTS)
-    except Exception as exc:
-        _log.warning("plan(pydantic_ai) failed (%s) — using fallback", exc)
-        return _template_result(facts, attempts=0, orch="pydantic_ai")
-
-
-_ORCHESTRATORS = {
-    "single": _orch_single,
-    "plain": _orch_plain,
-    "langgraph": _orch_langgraph,
-    "pydantic_ai": _orch_pydantic_ai,
-}
-
-
-def get_suggestions_from_facts(facts: dict) -> dict:
-    """Attempt LLM suggestions via the selected orchestrator; fall back to the
-    deterministic template if disabled or invalid.
-
-    Returns {'suggestions': [...], 'source': 'llm'|'fallback', 'attempts': int,
-    'orch': str}. Orchestrator chosen by PLAN_ORCH (default 'single').
-    """
-    orch = _plan_orch()
-    return _ORCHESTRATORS[orch](facts)
 
 
 # ── DB-calling layer ──────────────────────────────────────────────────────────
@@ -1042,7 +972,7 @@ def assemble_facts(
 
     # BKK-local "today" — matches the app-wide convention (workout_date, week
     # windows) fixed in the reconcile.py timezone bug. Using server-local
-    # date.today() here would misjudge which day_offset is "today" whenever
+    # today_bangkok() here would misjudge which day_offset is "today" whenever
     # the server clock isn't BKK, silently re-opening or closing the wrong day.
     today = today_bangkok()
 
@@ -1538,9 +1468,9 @@ def get_suggestions(
     """Full entry point: assemble facts → cache-aware LLM call → fallback.
 
     Returns {'facts': {...}, 'suggestions': [...], 'source': 'llm' | 'fallback',
-    'attempts': int, 'orch': str}. The cache is keyed per-orchestrator (surface
-    carries the PLAN_ORCH value) so switching orchestrators to A/B compare on the
-    same facts returns each one's own result instead of colliding on the cache.
+    'attempts': int, 'orch': str}. One surface, one orchestrator — the cache key
+    used to carry the PLAN_ORCH value so an A/B switch wouldn't collide on it,
+    which stopped mattering when the alternatives were deleted.
     week_start/preferred_rest_days/strength_emphasis/notes are the athlete's
     scoping + preference input (see assemble_facts) — they flow into facts and
     therefore into the cache signature, so different input never collides.
@@ -1592,8 +1522,7 @@ def get_suggestions(
             "orch": "none",
         }
     sig = build_signature(facts)
-    orch = _plan_orch()
-    surface = _SURFACE if orch == "single" else _SURFACE + ":" + orch
+    surface = _SURFACE
 
     # Cache lookup via get_or_generate.
     def _generate():
@@ -1701,43 +1630,29 @@ def build_single_session_prompt(
     workout_type: str | None,
     note: str,
     current_session: dict | None = None,
-    target_tss: float | None = None,
-    duration_minutes: int | None = None,
     subtype: str | None = None,
 ) -> tuple[str, str]:
     """Build (system_prompt, user_prompt) for a ONE-session generate/refine call.
 
-    target_tss/duration_minutes are the schedule rail's slot budget (two-rail
-    flow, issue #1417): when given, the session must land on those numbers —
-    the athlete owns the schedule; the LLM only fills content within it.
-    subtype is the slot's optional flavor tag (SESSION_SUBTYPES) — e.g. a run
-    is "easy" vs "intervals", a strength day is "upper" vs "light"."""
+    This is the freeform path: no schedule-rail budget is pinned, so the LLM
+    proposes target_tss/duration_minutes itself, bounded by the rules below
+    and checked by validation_errors (range + weekly ACWR ceiling). When the
+    schedule rail HAS pinned a budget (two-rail flow, issue #1417),
+    generate_single_session takes the plan_slot.py content-only path instead
+    — this prompt is never reached with a budget to honour, so it does not
+    build one. subtype is the slot's optional flavor tag (SESSION_SUBTYPES)
+    — e.g. a run is "easy" vs "intervals", a strength day is "upper" vs
+    "light"."""
     trailing = facts.get("trailing_28d_weekly_avg_tss", 0.0)
     max_weekly = round(max(float(trailing), FALLBACK_MIN_WEEKLY_TSS) * ACWR_HIGH_BOUND)
     day_name = _DAY_NAMES[day_offset]
-
-    budget_rule = ""
-    if target_tss is not None or duration_minutes is not None:
-        parts = []
-        if target_tss is not None:
-            parts.append(f"target_tss MUST be {round(float(target_tss))} (±10%)")
-        if duration_minutes is not None:
-            parts.append(f"duration_minutes MUST be {int(duration_minutes)} (±10%)")
-        budget_rule = (
-            "6. The athlete fixed this session's budget on their schedule: "
-            + " and ".join(parts)
-            + " — size the exercises/blocks to fill exactly that, do not resize the slot. "
-            "If the note mentions a gap preset / min duration / min TSS, treat those as "
-            "hard floors (never go below them).\n"
-        )
 
     subtype_rule = ""
     ui_subtype = coerce_ui_subtype(workout_type, subtype) if subtype else None
     subtype_desc = SESSION_SUBTYPES.get(workout_type or "", {}).get(ui_subtype or "")
     if subtype_desc:
-        n = 7 if budget_rule else 6
         subtype_rule = (
-            f"{n}. The athlete tagged this session \"{ui_subtype}\": build {subtype_desc}. "
+            f"6. The athlete tagged this session \"{ui_subtype}\": build {subtype_desc}. "
             "The tag is binding — do not build a different kind of session.\n"
         )
 
@@ -1782,7 +1697,6 @@ def build_single_session_prompt(
         + "5. `intent` = a short session TITLE, 4-5 words max (e.g. \"Full body strength, glute focus\") "
         "— it becomes the saved session's name, so no full sentences. "
         "`notes` = terse coach rationale for this session, or null for rest.\n"
-        f"{budget_rule}"
         f"{subtype_rule}"
     )
 
@@ -1820,7 +1734,19 @@ def generate_single_session(
     When the schedule rail has pinned the slot (target_tss / duration_minutes),
     content is produced via plan_slot.generate_slot_content — LLM never emits
     pins; Python stamps them; exhausted retries fall back to day templates.
-    Without pins, keeps the legacy whole-session schema path for older callers.
+    This is the sanctioned Ask-AI shape per CLAUDE.md: "fills ONE session's
+    content once the skeleton has fixed the day/type/TSS."
+
+    Without pins (the suggestion-row "Refine" action, and any caller that
+    hasn't fixed a budget yet), the LLM proposes target_tss/duration_minutes
+    itself, bounded by validation_errors' range + weekly-ACWR checks; a
+    session that never validates after 2 tries returns None (422, no
+    template fallback — a templated session isn't a stand-in for a specific
+    request). This freeform branch used to also carry a second, shadowed
+    attempt at budget-pinning (issue #1417, superseded a week later by the
+    plan_slot path above without being removed) — that dead code is gone;
+    it never ran once the pinned branch started intercepting every call with
+    a budget, since that branch returns before this one is reached.
     """
     from backend.services.plan_prefs_accessor import get_plan_prefs
 
@@ -1902,14 +1828,18 @@ def generate_single_session(
         )
         return stamp_session(slot, content)
 
-    # Legacy path (no pins) — keep prior behaviour
+    # Legacy path (no pins) — freeform generate/refine, kept for callers with
+    # no schedule-rail budget to hand it (e.g. the suggestion-row "Refine"
+    # action). The LLM proposes its own target_tss/duration_minutes here;
+    # validation_errors bounds them (range + weekly ACWR ceiling) same as the
+    # whole-week path. No deterministic-template fallback — see the endpoint
+    # docstring in routers/projection.py for why.
     validation_facts = {**facts, "allowed_offsets": [day_offset]}
 
     feedback = ""
     for _attempt in range(2):
         system, user = build_single_session_prompt(
             facts, day_offset, workout_type, note, current_session,
-            target_tss=target_tss, duration_minutes=duration_minutes,
             subtype=subtype,
         )
         raw = llm_svc.complete_structured(
@@ -1929,42 +1859,7 @@ def generate_single_session(
         if not isinstance(session, dict):
             continue
         errs = validation_errors([session], validation_facts)
-        errs.extend(_budget_errors(session, target_tss, duration_minutes))
         if not errs:
-            return session
-        if _attempt == 1 and not validation_errors([session], validation_facts):
-            if target_tss is not None:
-                session["target_tss"] = round(float(target_tss))
-            if duration_minutes is not None:
-                session["duration_minutes"] = int(duration_minutes)
             return session
         feedback = _feedback_block(errs)
     return None
-
-
-# Tolerance for the slot-budget contract — matches the ±10% the prompt
-# states, with a small absolute floor so tiny budgets don't reject rounding.
-_BUDGET_TOLERANCE_FRAC = 0.10
-_BUDGET_TOLERANCE_ABS = 5.0
-
-
-def _budget_errors(session: dict, target_tss, duration_minutes) -> list[str]:
-    errs: list[str] = []
-
-    def _off(got, want) -> bool:
-        if got is None:
-            return True
-        tol = max(_BUDGET_TOLERANCE_ABS, abs(float(want)) * _BUDGET_TOLERANCE_FRAC)
-        return abs(float(got) - float(want)) > tol
-
-    if target_tss is not None and _off(session.get("target_tss"), target_tss):
-        errs.append(
-            f"target_tss must be {round(float(target_tss))} (±10%) — got "
-            f"{session.get('target_tss')}; do not resize the slot."
-        )
-    if duration_minutes is not None and _off(session.get("duration_minutes"), duration_minutes):
-        errs.append(
-            f"duration_minutes must be {int(duration_minutes)} (±10%) — got "
-            f"{session.get('duration_minutes')}; do not resize the slot."
-        )
-    return errs

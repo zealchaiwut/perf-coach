@@ -38,10 +38,17 @@ def _run_js(snippet: str) -> object:
         safe_lines.append(line)
     safe_js = "\n".join(safe_lines)
 
+    # weight.js now calls window.AppCommon (issue #1603), so load the real
+    # shared lib rather than stubbing it — the page loads it first for the same
+    # reason, and a fake here would let the two drift.
+    lib_path = JS_DIR / "lib" / "app-common.js"
     script = textwrap.dedent(f"""
         'use strict';
         // Stub browser globals
         const document = {{ getElementById: () => null, querySelectorAll: () => [] }};
+        const window = {{}};
+        globalThis.window = window;
+        require({str(lib_path)!r});
         {safe_js}
         {snippet}
     """)

@@ -124,10 +124,12 @@ class TestWeightRollup:
         assert result["current_kg"] == expected_avg
         # Not equal to any single day's raw value.
         assert result["current_kg"] not in daily
+        # basis truthfully reports the trailing-7d branch fired.
+        assert result["basis"] == "avg_7d"
 
     def test_zero_entries_all_none(self):
         result = _weight_rollup([], datetime.date(2026, 7, 15))
-        assert result == {"current_kg": None, "trend_7d": None, "trend_28d": None}
+        assert result == {"current_kg": None, "basis": None, "trend_7d": None, "trend_28d": None}
 
     def test_single_entry_in_7d_window_falls_back_to_wider_lookback_average(self):
         """Fewer than 2 entries in the trailing 7 days -> average of whatever
@@ -143,16 +145,37 @@ class TestWeightRollup:
         assert result["current_kg"] != 80.0
         # ...it must be the average of every row supplied.
         assert result["current_kg"] == round((80.0 + 76.0 + 74.0) / 3, 2)
+        # basis truthfully reports the wide-lookback branch fired, not avg_7d.
+        assert result["basis"] == "avg_wide"
 
     def test_single_row_total_does_not_crash(self):
         """A single row anywhere in the lookback (and nowhere else) must not
-        raise — current_kg becomes that row's value via the "average of
-        what's available" fallback, trends stay None (no prior window)."""
+        raise — current_kg becomes that row's value because there is nothing
+        else to average against, trends stay None (no prior window). This is
+        the exact shape of the live user's current data (tracking paused,
+        one weigh-in inside the lookback, none in the trailing 7 days) —
+        see docs/pre-production-review-status.md §1: last weigh-in 2026-07-22.
+        basis must say 'single_entry', NOT 'avg_wide' — no averaging happened,
+        and mislabeling it 'avg_wide' would be less truthful than the retired
+        compute_gap rule's 'latest_entry', which this replaces."""
         as_of = datetime.date(2026, 7, 15)
         rows = [(as_of - datetime.timedelta(days=30), 82.5)]
         result = _weight_rollup(rows, as_of)
         assert result["current_kg"] == 82.5
+        assert result["basis"] == "single_entry"
         assert result["trend_7d"] is None
+
+    def test_single_row_current_kg_unchanged_only_label_is_honest(self):
+        """The fix for the mislabeling above must NOT blank current_kg to
+        None for the single-reading case — that would be a behaviour change
+        beyond the agreed decision (unify on _weight_rollup's rule; never
+        silently pass one reading off as an average) and would blank the
+        live user's Weight page. Only the label changes, not the number."""
+        as_of = datetime.date(2026, 8, 1)
+        rows = [(as_of - datetime.timedelta(days=10), 78.4)]  # 2026-07-22
+        result = _weight_rollup(rows, as_of)
+        assert result["current_kg"] == 78.4
+        assert result["basis"] == "single_entry"
         assert result["trend_28d"] is None
 
     def test_trend_7d_is_window_average_delta_not_day_over_day(self):

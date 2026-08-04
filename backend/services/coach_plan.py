@@ -15,6 +15,7 @@ from __future__ import annotations
 import math
 from datetime import date, timedelta
 from typing import Any
+from backend.utils.time import today_bangkok
 
 # ── Module constants ───────────────────────────────────────────────────────────
 ACWR_LOCK_THRESHOLD: float = 1.30
@@ -359,7 +360,7 @@ def build_plan_state(
     dict with keys ``levers``, ``timeline``, ``constraints``, ``lever_ranking``.
     Each section degrades to ``{"state": "unavailable"}`` when inputs are None.
     """
-    today = _today if _today is not None else date.today()
+    today = _today if _today is not None else today_bangkok()
 
     if goal is None:
         return {
@@ -423,7 +424,7 @@ def get_training_habit_adherence(
     if not training_habits or days <= 0:
         return 0.0
 
-    today = _today if _today is not None else date.today()
+    today = _today if _today is not None else today_bangkok()
     window_start = today - timedelta(days=days - 1)
 
     training_ids = {_attr(h, "id") for h in training_habits}

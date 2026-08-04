@@ -13,6 +13,7 @@ Acceptance Criteria covered:
 
 import pytest
 import unittest.mock as mock
+import uuid
 
 
 # ── Helper: build typical fetch_and_detect_records outputs ───────────────────
@@ -468,7 +469,7 @@ class TestEndpointCallsEnrichment:
         }
 
         mock_user = mock.MagicMock()
-        mock_user.id = 1
+        mock_user.id = uuid.uuid4()
 
         mock_session = mock.MagicMock()
         mock_session.__enter__ = mock.MagicMock(return_value=mock_session)
@@ -481,7 +482,11 @@ class TestEndpointCallsEnrichment:
                  "backend.services.pr_detection.fetch_and_detect_records",
                  return_value=dict(fake_raw),
              ):
-            response = main_mod.get_athlete_run_personal_records(user=mock_user)
+            # athlete_id is a required path param (/api/athletes/{athlete_id}/...);
+            # the endpoint 404s unless it matches user.id (#1606).
+            response = main_mod.get_athlete_run_personal_records(
+                athlete_id=str(mock_user.id), user=mock_user
+            )
 
         import json
         return json.loads(response.body)

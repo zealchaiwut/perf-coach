@@ -27,6 +27,7 @@ from backend.services.fuel import (
 )
 from backend.services.weight_ewma import compute_ewma
 from backend.services.weight_ewma_rate import compute_weekly_pct_bw_rate_of_change
+from backend.utils.time import today_bangkok
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
 
@@ -36,8 +37,28 @@ ON_TRACK_TOLERANCE_KG: float = 0.10
 # kg/wk lead beyond which the user is going too fast — recommend ease_off
 EASE_OFF_THRESHOLD_KG: float = 0.15
 
-# Fuel-logging adherence floor; below this we can't diagnose intake vs deficit
+# Fuel-logging adherence floor; below this we can't diagnose intake vs deficit.
+# Only consulted in "managed" mode — see DEFICIT_MODE_STRUCTURAL below.
 MIN_ADHERENCE_PCT: float = 70.0
+
+# ── Deficit mode (lean program, spec §7) ─────────────────────────────────────
+# The deficit that failed five times was MANAGED: a daily budget, daily
+# decisions, daily chances to quit. The lean program's deficit is STRUCTURAL —
+# set once (two swaps, calorie cycling, protein at every meal) and verified
+# weekly by the weight trend, with no daily food logging at all.
+#
+# That makes every fuel-log gate below a permanent dead end in structural mode:
+# a non-logger has 0% adherence forever, so `check_logging` fires forever and
+# the review never says anything useful. In structural mode the diagnosis runs
+# off the WEIGHT TREND alone, and `check_logging` keys on weigh-in coverage —
+# the one input the athlete actually provides — instead of food logs.
+DEFICIT_MODE_STRUCTURAL = "structural"
+DEFICIT_MODE_MANAGED = "managed"
+
+# Weigh-ins in the trailing 14 days below which the trend can't be trusted, in
+# structural mode. Above MIN_WEIGH_INS_14D but sparse enough that a rate claim
+# would be noise.
+STRUCTURAL_MIN_WEIGH_INS_14D: int = 6
 
 # Minimum weigh-ins in the last 14 days to produce a reliable recommendation
 MIN_WEIGH_INS_14D: int = 4
@@ -58,6 +79,24 @@ PLATEAU_MIN_DAYS: int = 21
 
 # ── Pure recommendation function ──────────────────────────────────────────────
 
+# Guardrail-triggered copy. Held to deficit_guard's tone contract — "eat more",
+# never "try harder" — and checked at import so a drifted string fails here
+# rather than in front of the athlete. Only the GUARDRAIL message is bound by
+# this: `ease_off` below is a pace adjustment, not a guardrail trip, and is
+# deliberately outside the contract.
+SLOW_DOWN_COPY = (
+    "Eat more — add back 100-200 kcal. Losing at this pace risks muscle "
+    "loss and performance."
+)
+
+try:  # pragma: no cover - import-time contract check
+    from backend.services.deficit_guard import assert_eat_more_copy as _assert_eat_more
+
+    _assert_eat_more(SLOW_DOWN_COPY)
+except ImportError:  # deficit_guard is optional at import time in some contexts
+    pass
+
+
 def compute_cut_recommendation(
     *,
     weigh_in_count_14d: int,
@@ -73,15 +112,18 @@ def compute_cut_recommendation(
     current_deficit_kcal: int,
     plateau_days: int = 0,
     pct_at_or_under_budget_21d: float = 0.0,
+    deficit_mode: str = DEFICIT_MODE_STRUCTURAL,
 ) -> dict:
     """Return recommendation, action text, and optional deficit step.
 
     Parameters
     ----------
     actual_rate_kg_per_week:
-        Signed: negative = losing weight (matches WeightPlan.target_rate_kg_per_week convention).
+        Signed: negative = losing weight (matches WeightTarget.target_rate_kg_per_week
+        convention — this column lived on a separate weight_plans table before #1604
+        merged it onto WeightTarget).
     plan_rate_kg_per_week:
-        Signed: negative = losing weight (from WeightPlan.target_rate_kg_per_week).
+        Signed: negative = losing weight (from WeightTarget.target_rate_kg_per_week).
     weekly_pct_bw_rate:
         Signed: negative = losing (%BW/wk), same convention as body_modifier inputs.
     ea_proxy:
@@ -102,15 +144,50 @@ def compute_cut_recommendation(
         0 = no plateau. >= PLATEAU_MIN_DAYS (21) + adherence >= 70% triggers plateau.
     pct_at_or_under_budget_21d:
         % of logged days in the trailing 21-day window where eaten_kcal <= budget.
+    deficit_mode:
+        ``"structural"`` (default) diagnoses from the weight trend alone and
+        ignores every fuel-log gate — the lean program's deficit is set once and
+        never logged, so demanding food logs returns `check_logging` forever.
+        ``"managed"`` keeps the original daily-budget behaviour.
     """
-    # 1. Insufficient data — no reliable recommendation possible
-    if weigh_in_count_14d < MIN_WEIGH_INS_14D or not has_active_plan:
+    structural = deficit_mode == DEFICIT_MODE_STRUCTURAL
+
+    # 1. Insufficient data — no reliable recommendation possible.
+    #
+    # Structural mode does NOT require an active plan. It used to, and that
+    # made this the only verdict a lean-program athlete could ever see (issue
+    # #1600): `structural` was computed on the line above and then ignored
+    # here, so the gate demanded an active plan regardless of mode. At the
+    # time "a plan" meant a separate weight_plans row that no UI ever created
+    # (`grep -rn "weight-plans" frontend/` returned nothing) — that table was
+    # later merged onto WeightTarget (#1604), so "a plan" now means an active
+    # WeightTarget, which the real Weight-page flow does create. The
+    # structural-mode carve-out below stays regardless, since a WeightTarget
+    # still doesn't guarantee target_rate_kg_per_week is set (nothing in the
+    # UI sets it either) and structural mode must not depend on that field.
+    #
+    # That last part is why this could not be fixed by "just set a plan": a hard
+    # target weight is precisely the concept weight_hypothesis.py and
+    # body_composition.py were built to eliminate ("no target, no goal line").
+    # The single documented way to unblock the weekly verdict reintroduced the
+    # framing the rest of the feature set exists to remove.
+    #
+    # The weight trend is sufficient on its own, which is the whole premise of
+    # structural mode.
+    needs_active_plan = not structural
+    if weigh_in_count_14d < MIN_WEIGH_INS_14D or (needs_active_plan and not has_active_plan):
+        action = (
+            f"Log at least {MIN_WEIGH_INS_14D} weigh-ins over 14 days to get a "
+            "weekly review."
+        )
+        if needs_active_plan and not has_active_plan:
+            action = (
+                f"Log at least {MIN_WEIGH_INS_14D} weigh-ins over 14 days and set "
+                "an active plan to get a weekly review."
+            )
         return {
             "recommendation": "insufficient_data",
-            "action": (
-                "Log at least 4 weigh-ins over 14 days and set an active plan "
-                "to get a weekly review."
-            ),
+            "action": action,
             "suggested_deficit_delta_kcal": None,
             "plateau_days": None,
         }
@@ -123,23 +200,31 @@ def compute_cut_recommendation(
     if guardrail["guardrail_state"] == "warn":
         return {
             "recommendation": "slow_down",
-            "action": (
-                "Reduce your deficit by 100-200 kcal — losing at this pace "
-                "risks muscle loss and performance."
-            ),
+            # Guardrail-triggered, so it obeys the same tone contract as
+            # deficit_guard.PAUSE_COPY: say EAT MORE, blame nobody (#1608).
+            # This is the same advice a deficit pause gives; it read in a
+            # different voice only because it lived in a different module and
+            # sat outside assert_eat_more_copy's coverage.
+            "action": SLOW_DOWN_COPY,
             "suggested_deficit_delta_kcal": -DEFICIT_STEP_KCAL,
             "plateau_days": None,
         }
 
     # 2.5. Plateau — stalled >= 21 days despite staying within budget
-    if (
-        plateau_days >= PLATEAU_MIN_DAYS
-        and pct_at_or_under_budget_21d >= MIN_ADHERENCE_PCT
+    # Structural mode has no budget adherence to check — a 21-day stall in the
+    # trend IS the finding, and the swaps either held or they didn't.
+    if plateau_days >= PLATEAU_MIN_DAYS and (
+        structural or pct_at_or_under_budget_21d >= MIN_ADHERENCE_PCT
     ):
+        stalled_because = (
+            "with the swaps in place"
+            if structural
+            else "despite logging within budget"
+        )
         return {
             "recommendation": "plateau",
             "action": (
-                f"Weight has stalled for {plateau_days} days despite logging within budget. "
+                f"Weight has stalled for {plateau_days} days {stalled_because}. "
                 "Consider recalibrating your maintenance estimate "
                 "(Fuel: Calibrate from history) "
                 "or take a 14-day diet break: set deficit to 0 kcal for 14 days."
@@ -163,8 +248,22 @@ def compute_cut_recommendation(
     # ahead = losing more than planned (actual is more negative than plan)
     ahead = actual_rate_kg_per_week < plan_rate_kg_per_week
 
-    # 4. Check logging — behind plan but can't diagnose without sufficient logs
-    if behind and logging_adherence_pct < MIN_ADHERENCE_PCT:
+    # 4. Check logging — the gap can't be diagnosed without enough input.
+    # In structural mode the missing input is WEIGH-INS, not food logs: the
+    # weight trend is the only measurement this program asks for, so that is the
+    # only one it can ask for more of.
+    if structural:
+        if behind and weigh_in_count_14d < STRUCTURAL_MIN_WEIGH_INS_14D:
+            return {
+                "recommendation": "check_logging",
+                "action": (
+                    "Step on the scale most mornings for a week — the trend is "
+                    "too sparse to tell whether the swaps are working."
+                ),
+                "suggested_deficit_delta_kcal": None,
+                "plateau_days": None,
+            }
+    elif behind and logging_adherence_pct < MIN_ADHERENCE_PCT:
         return {
             "recommendation": "check_logging",
             "action": (
@@ -176,10 +275,13 @@ def compute_cut_recommendation(
         }
 
     # 5. Recalibrate maintenance — persistently behind despite eating at budget
+    # Structurally, "same swaps for three weeks and still behind" IS the
+    # evidence that the maintenance estimate is wrong — there is no intake log
+    # to corroborate it with, and demanding one blocks the finding forever.
     if (
         behind
         and consecutive_weeks_behind >= RECALIBRATE_WEEKS_THRESHOLD
-        and pct_logged_days_at_or_under_budget >= MIN_ADHERENCE_PCT
+        and (structural or pct_logged_days_at_or_under_budget >= MIN_ADHERENCE_PCT)
     ):
         return {
             "recommendation": "recalibrate_maintenance",
@@ -193,7 +295,11 @@ def compute_cut_recommendation(
 
     # 6. Increase deficit — behind plan, adherence OK, eating at budget
     if behind:
-        at_budget = avg_intake_vs_budget_kcal >= -AT_BUDGET_TOLERANCE_KCAL
+        # Without food logs there is no intake-vs-budget comparison to make; the
+        # trend being behind is itself the signal that the structure needs more.
+        at_budget = structural or (
+            avg_intake_vs_budget_kcal >= -AT_BUDGET_TOLERANCE_KCAL
+        )
         if at_budget:
             new_deficit = current_deficit_kcal + DEFICIT_STEP_KCAL
             clamped = min(new_deficit, DEFICIT_KCAL_MAX)
@@ -241,10 +347,10 @@ def get_weekly_review(
 
     Returns a dict suitable for direct JSON serialisation.
     """
-    from backend.models import FuelEntry, WeightEntry, WeightPlan
+    from backend.models import FuelEntry, WeightEntry, WeightTarget
     from sqlalchemy import text
 
-    today = as_of_date or _date.today()
+    today = as_of_date or today_bangkok()
     window_7d_start = today - timedelta(days=7)
     window_14d_start = today - timedelta(days=14)
     window_21d_start = today - timedelta(days=21)
@@ -253,9 +359,12 @@ def get_weekly_review(
     db = db or Session(engine)
     try:
         # ── Active plan ───────────────────────────────────────────────────────
+        # weight_plans was merged into weight_targets (#1604); "the active
+        # plan" is now the user's active WeightTarget, read for its
+        # phase/target_rate_kg_per_week columns.
         plan = (
-            db.query(WeightPlan)
-            .filter(WeightPlan.user_id == user_id, WeightPlan.active.is_(True))
+            db.query(WeightTarget)
+            .filter(WeightTarget.user_id == user_id, WeightTarget.status == "active")
             .first()
         )
         has_plan = plan is not None

@@ -65,12 +65,11 @@
     return _segments.reduce(function (a, s) { return a + (parseInt(s.duration_seconds, 10) || 0); }, 0);
   }
 
+  // Delegates to the shared formatter (issue #531). The local copy lacked the
+  // minute-carry guard and could render "5:60 /km" (issue #1603).
   function avgPaceFmt(dist, dur) {
-    if (!dist || !dur) return '—';
-    var sPerKm = dur / dist;
-    var m = Math.floor(sPerKm / 60);
-    var s = Math.round(sPerKm % 60);
-    return m + ':' + pad(s) + ' /km';
+    var p = window.TrainingFormat && window.TrainingFormat.formatPace(dur, dist);
+    return p ? p + ' /km' : '—';
   }
 
   // ── Segment bar ────────────────────────────────────────────────────────────
@@ -509,7 +508,7 @@
     // Set today's date by default
     var dateInput = document.getElementById('rb-date');
     if (dateInput && !dateInput.value) {
-      var d = new Date();
+      var d = window.AppCommon.nowBangkok();
       dateInput.value = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
     }
 

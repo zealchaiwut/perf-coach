@@ -13,6 +13,7 @@ from __future__ import annotations
 import datetime
 
 from backend.services.goal_arrival import ARRIVAL_WINDOW_DAYS, project_arrival
+from backend.utils.time import today_bangkok
 
 
 def build_arrival_projection_response(
@@ -111,7 +112,7 @@ def resolve_arrival_projection(
     from backend.models import WeightEntry, WeightTarget  # local — caller owns DB
 
     if today is None:
-        today = datetime.date.today()
+        today = today_bangkok()
 
     active_target = (
         session.query(WeightTarget)

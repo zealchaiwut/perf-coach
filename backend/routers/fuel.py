@@ -6,26 +6,27 @@ formulas live here. See docs/calculations/fuel.md.
 from __future__ import annotations
 
 from datetime import date as _date
+from backend.utils.time import today_bangkok as _today_bangkok
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, validator
 from sqlalchemy.orm import Session
 
 from backend.auth import resolve_user
 from backend.db import engine
-from backend.models import FuelEntry, WeightEntry
+from backend.models import FuelEntry, User, WeightEntry
 from backend.services import cut_review as _cut_review
 from backend.services import fuel as _svc
-from backend.services import weight_plans_repo as _wp_repo
+from backend.services import weight_plan as _weight_plan_svc
 
 router = APIRouter()
 
 
 def _parse_date(value: Optional[str], *, param: str) -> _date:
     if not value:
-        return _date.today()
+        return _today_bangkok()
     try:
         return _date.fromisoformat(value)
     except ValueError:
@@ -86,30 +87,27 @@ class _SettingsBody(BaseModel):
 def _settings_payload(user_id, db) -> dict:
     """Build the full fuel settings payload including plan linkage fields."""
     settings_row = _svc.get_or_create_settings(user_id, db=db)
-    active_plan = _wp_repo.get_active_plan(db, user_id)
+    active_plan = _weight_plan_svc.get_active_target(db, user_id)
     payload = _svc.settings_to_dict(settings_row)
     payload.update(_svc.plan_linkage(active_plan, settings_row.deficit_kcal))
     return payload
 
 
 @router.get("/api/fuel/settings")
-async def get_fuel_settings(request: Request):
-    user = await resolve_user(request)
+async def get_fuel_settings(user: User = Depends(resolve_user)):
     with Session(engine) as db:
         return JSONResponse(_settings_payload(user.id, db))
 
 
 @router.get("/api/fuel/today")
-async def get_fuel_today(request: Request, date: Optional[str] = None):
-    user = await resolve_user(request)
+async def get_fuel_today(date: Optional[str] = None, user: User = Depends(resolve_user)):
     target_date = _parse_date(date, param="date")
     with Session(engine) as db:
         return JSONResponse(_svc.get_today_payload(user.id, target_date, db=db))
 
 
 @router.put("/api/fuel/entry")
-async def put_fuel_entry(body: _EntryBody, request: Request):
-    user = await resolve_user(request)
+async def put_fuel_entry(body: _EntryBody, user: User = Depends(resolve_user)):
     entry_date = _parse_date(body.entry_date, param="entry_date")
     fields = body.dict(exclude={"entry_date"}, exclude_unset=True)
     with Session(engine) as db:
@@ -118,26 +116,24 @@ async def put_fuel_entry(body: _EntryBody, request: Request):
 
 
 @router.put("/api/fuel/settings")
-async def put_fuel_settings(body: _SettingsBody, request: Request):
-    user = await resolve_user(request)
+async def put_fuel_settings(body: _SettingsBody, user: User = Depends(resolve_user)):
     fields = body.dict(exclude_unset=True)
     with Session(engine) as db:
         try:
             _svc.update_settings(user.id, db=db, **fields)
         except _svc.SettingsValidationError as e:
             raise HTTPException(status_code=422, detail=str(e))
-        return JSONResponse(_svc.get_today_payload(user.id, _date.today(), db=db))
+        return JSONResponse(_svc.get_today_payload(user.id, _today_bangkok(), db=db))
 
 
 @router.post("/api/fuel/settings/sync-deficit")
-async def post_fuel_sync_deficit(request: Request):
+async def post_fuel_sync_deficit(user: User = Depends(resolve_user)):
     """AC3: set deficit_kcal to the implied value from the active weight plan.
 
     Returns 409 when no active plan exists.
     """
-    user = await resolve_user(request)
     with Session(engine) as db:
-        active_plan = _wp_repo.get_active_plan(db, user.id)
+        active_plan = _weight_plan_svc.get_active_target(db, user.id)
         if active_plan is None or active_plan.target_rate_kg_per_week is None:
             raise HTTPException(status_code=409, detail="no_active_plan")
         new_deficit = _svc.implied_deficit_kcal(float(active_plan.target_rate_kg_per_week))
@@ -146,11 +142,10 @@ async def post_fuel_sync_deficit(request: Request):
 
 
 @router.post("/api/fuel/calibrate")
-async def post_fuel_calibrate(request: Request):
-    user = await resolve_user(request)
+async def post_fuel_calibrate(user: User = Depends(resolve_user)):
     with Session(engine) as db:
         from datetime import timedelta
-        window_start = _date.today() - timedelta(days=_svc.CALIBRATE_MIN_DAYS + 7)
+        window_start = _today_bangkok() - timedelta(days=_svc.CALIBRATE_MIN_DAYS + 7)
 
         weight_rows = (
             db.query(WeightEntry)
@@ -176,7 +171,7 @@ async def post_fuel_calibrate(request: Request):
             eaten = _svc.compute_food_totals(e)["kcal"]
             burn_info = _svc.training_burn_kcal(
                 user.id, e.entry_date, settings["weight_kg"], settings["run_kcal_per_kg_per_km"],
-                today=_date.today(), db=db,
+                today=_today_bangkok(), db=db,
             )
             fuel_entries_and_burn.append(
                 (e.entry_date, eaten, settings["base_kcal"], burn_info["burn"])
@@ -205,8 +200,7 @@ async def post_fuel_calibrate(request: Request):
 # ── Fuel week ────────────────────────────────────────────────────────────────
 
 @router.get("/api/fuel/week")
-async def get_fuel_week(request: Request, week_start: Optional[str] = None):
-    user = await resolve_user(request)
+async def get_fuel_week(week_start: Optional[str] = None, user: User = Depends(resolve_user)):
     ws = _parse_date(week_start, param="week_start")
     with Session(engine) as db:
         return JSONResponse(_svc.get_week_payload(user.id, ws, db=db))
@@ -215,7 +209,6 @@ async def get_fuel_week(request: Request, week_start: Optional[str] = None):
 # ── Weekly cut review ─────────────────────────────────────────────────────────
 
 @router.get("/api/fuel/weekly-review")
-async def get_fuel_weekly_review(request: Request):
-    user = await resolve_user(request)
+async def get_fuel_weekly_review(user: User = Depends(resolve_user)):
     with Session(engine) as db:
         return JSONResponse(_cut_review.get_weekly_review(user.id, db=db))
