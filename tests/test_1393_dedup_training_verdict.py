@@ -9,10 +9,8 @@ AC items:
 from __future__ import annotations
 
 import ast
-import inspect
 import pathlib
 
-import pytest
 
 import backend.services.training_verdict as tv
 from backend.services.training_verdict import (
