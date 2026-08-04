@@ -1989,11 +1989,16 @@
 
   // ── Event wiring ──────────────────────────────────────────────────────────
   function wireEvents() {
-    // Single "+ Add" button opens the modal defaulting to the Race tab.
-    var addBtn = document.getElementById("plan-add-btn");
-    if (addBtn)
-      addBtn.addEventListener("click", function () {
+    // "+ Add Race" and "+ Add Checkpoint" buttons open modal with pre-selected type.
+    var addRaceBtn = document.getElementById("plan-add-race-btn");
+    if (addRaceBtn)
+      addRaceBtn.addEventListener("click", function () {
         openModal(null, "race");
+      });
+    var addCpBtn = document.getElementById("plan-add-checkpoint-btn");
+    if (addCpBtn)
+      addCpBtn.addEventListener("click", function () {
+        openModal(null, "checkpoint");
       });
 
     // Recalculate: force a fresh server-side compute of the bundle.
