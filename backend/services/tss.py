@@ -10,6 +10,7 @@ IF method precedence (highest quality to lowest):
 # Audit: rows where tss IS NULL AND duration_seconds IS NOT NULL in the workouts
 # table are candidates for future backfill using estimate_tss_for_workout().
 """
+import json
 import logging
 
 from sqlalchemy import text
@@ -1190,7 +1191,8 @@ def compute_strength_tss(workout, exercises, prefs) -> dict:
         "tss": None,
         "method": "none",
         "partial": False,
-        "debug": {"reason": reason},    }
+        "debug": {"reason": reason},
+    }
 
 
 def persist_running_tss(workout_id, session) -> dict:
@@ -1389,7 +1391,7 @@ def get_strength_tss_per_set_for_workout(workout_id, user_id, db) -> dict:
         sets_json_raw = getattr(ex, "sets_json", None)
         if sets_json_raw is not None:
             try:
-                parsed = _json.loads(sets_json_raw) if isinstance(sets_json_raw, str) else sets_json_raw
+                parsed = json.loads(sets_json_raw) if isinstance(sets_json_raw, str) else sets_json_raw
                 if isinstance(parsed, list):
                     for s in parsed:
                         sets.append({
