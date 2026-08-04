@@ -76,7 +76,7 @@
       --amber-tint-1: #fffaf0;
       --amber-tint-2: #fdecc8;
       /* Amber-family consolidation (re-audit #8) — .bm-guardrail and the
-         threshold banner (home.js) each reinvented their own raw-hex amber
+         threshold banner each reinvented their own raw-hex amber
          ramp (orange-50/400/700/900 and amber-50/300/700/800/900
          respectively) instead of this file's own --amber/--amber-soft.
          Both now use --amber/--amber-soft for text/background; --gold
@@ -1601,9 +1601,8 @@
 
   <!-- Dashboard grid — gridstack.js engine (js/home-grid.js). Each widget is a
        .grid-stack-item wrapping the SAME container id it always used; the
-       renderers (home.js / home-readiness-training-sleep.js /
-       home-strip-habits.js / home-today-plan-card.js) fill those ids
-       unchanged. gridstack owns width + position from home-grid.js's registry
+       page renderers fill those ids unchanged. gridstack owns width + position
+       from home-grid.js's registry
        (this DOM order = the fixed widget order: Readiness → Today's plan +
        Performance → Coach digest + Week plan → Training → Recent workouts →
        Personal records → Habits → Weight → Sleep → Goal) and auto-fits each

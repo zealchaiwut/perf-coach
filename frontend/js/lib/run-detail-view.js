@@ -9,9 +9,11 @@
   /** Run-subtype display labels for the header subtype tag (run_subtype column). */
   var RD4_SUBTYPE_LABELS = { interval: "interval", longrun: "long run", easy: "easy", tempo: "tempo" };
 
-  /** Zone-2 HR band — becomes user preference later (issue #598). */
-  var RUN_DETAIL_ZONE2_HR_MIN = 130;
-  var RUN_DETAIL_ZONE2_HR_MAX = 155;
+  // Zone-2 HR band defaults — read from window.Zone2 (zone2-constants.js)
+  // so the same values and the same preference-fetch are shared with run-view
+  // and run-builder (issue #1603). Fallback to 130/155 if the lib hasn't
+  // loaded (defensive, should not happen in production).
+  var _Z2 = (win.Zone2 || { ZONE2_HR_MIN: 130, ZONE2_HR_MAX: 155 });
 
   var BAND_COLORS = {
     threshold: "#f97316",
@@ -731,11 +733,11 @@
     var z2min =
       prefsRow.zone2_hr_min != null
         ? prefsRow.zone2_hr_min
-        : RUN_DETAIL_ZONE2_HR_MIN;
+        : _Z2.ZONE2_HR_MIN;
     var z2max =
       prefsRow.zone2_hr_max != null
         ? prefsRow.zone2_hr_max
-        : RUN_DETAIL_ZONE2_HR_MAX;
+        : _Z2.ZONE2_HR_MAX;
 
     var srcStrava =
       (w.source || "").indexOf("strava") >= 0 || !!(full.field_coverage && full.field_coverage.strava);
@@ -2208,8 +2210,6 @@
   }
 
   win.RunDetailView = {
-    RUN_DETAIL_ZONE2_HR_MIN: RUN_DETAIL_ZONE2_HR_MIN,
-    RUN_DETAIL_ZONE2_HR_MAX: RUN_DETAIL_ZONE2_HR_MAX,
     buildShareCard: buildShareCard,
     buildSimpleShareCard: buildSimpleShareCard,
     render: function (contentEl, full, prefs, syncMeta) {

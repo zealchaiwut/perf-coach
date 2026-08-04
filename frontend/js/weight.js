@@ -3,6 +3,7 @@
 // ── Utilities ──────────────────────────────────────────────────────────────
 
 function todayISO() {
+  // Delegates to AppCommon.todayISO() — Bangkok (Asia/Bangkok) timezone, en-CA locale
   return window.AppCommon.todayISO();
 }
 

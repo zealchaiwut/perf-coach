@@ -533,6 +533,9 @@ async function loadAndRender() {
   const weekFrom = dates[0];
   const weekTo = dates[6];
 
+  const gridEl = document.getElementById('day-grid-content');
+  if (typeof UIStates !== 'undefined' && gridEl) UIStates.setLoading(gridEl);
+
   try {
     const weekUrl = currentWeekStart
       ? `/api/habits/week?week_start=${currentWeekStart}`

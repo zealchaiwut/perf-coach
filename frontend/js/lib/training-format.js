@@ -58,6 +58,20 @@
     return m + ':' + pad(s);
   }
 
+  // ── Duration compact ────────────────────────────────────────────────────
+  // "3h 3m", "45m", "2h", "0m" — for rollup tiles and digest cards where
+  // h:mm:ss is too wide. Uses a space between the h and m parts so it reads
+  // naturally alongside the delta label ("+1h 5m"). Month headers used "3h3m"
+  // (no space) before this consolidated; both call sites now get "3h 3m".
+  function formatDurationCompact(secs) {
+    if (!secs) return '0m';
+    var h = Math.floor(secs / 3600);
+    var m = Math.floor((secs % 3600) / 60);
+    if (h > 0 && m > 0) return h + 'h ' + m + 'm';
+    if (h > 0) return h + 'h';
+    return m + 'm';
+  }
+
   // ── Run segments ────────────────────────────────────────────────────────
   // Canonical run-segment definitions. `label` is what gets stored as the
   // exercise name; `intensity` drives the log timeline colors. Both pages
@@ -135,6 +149,7 @@
     normalizeType: normalizeType,
     formatPace: formatPace,
     formatDuration: formatDuration,
+    formatDurationCompact: formatDurationCompact,
     mapSegmentsToExercises: mapSegmentsToExercises,
     // supporting data/utilities shared by the two pages
     segmentDims: segmentDims,

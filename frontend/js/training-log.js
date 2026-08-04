@@ -105,14 +105,10 @@
     return m + "min";
   }
 
-  // Compact rollup for month headers: 3h3m, 45m, 2h.
+  // Compact rollup for month headers: 3h 3m, 45m, 2h — delegates to the
+  // shared formatter so both call sites in this file agree (issue #1603).
   function fmtDurationCompact(secs) {
-    if (!secs) return "0m";
-    var h = Math.floor(secs / 3600),
-      m = Math.floor((secs % 3600) / 60);
-    if (h > 0 && m > 0) return h + "h" + m + "m";
-    if (h > 0) return h + "h";
-    return m + "m";
+    return TF.formatDurationCompact(secs);
   }
 
   // issue #531: render an already-computed seconds-per-km via the shared
@@ -569,7 +565,7 @@
       source: source,
       strava_activity_url: w.strava_activity_url,
       is_stryd_synced: !!w.stryd_activity_pk,
-      has_strava: source.indexOf("strava") !== -1 || !!w.strava_activity_pk,
+      has_strava: isStravaWorkout(w),
       has_stryd: source.indexOf("stryd") !== -1 || !!w.stryd_activity_pk,
       notes: w.remarks || "",
       weight_context: w.remarks,
@@ -3604,10 +3600,10 @@
   }
 
   // ── Run VIEW (read-only, mock-matched) ─────────────────────────────────────
-  // Zone-2 HR band. Module constants are the fallback; user-saved values from
-  // GET /api/user-preferences take precedence when present (issue #598).
-  var ZONE2_HR_MIN = 130;
-  var ZONE2_HR_MAX = 155;
+  // Zone-2 fallbacks are now owned by zone2-constants.js (window.Zone2) and
+  // consumed by run-detail-view.js; the local constants here were dead
+  // (renderRunView passes prefs straight through to window.RunDetailView.render,
+  // which reads zone2_hr_min/max from prefs.row and falls back to window.Zone2).
 
   // Fetch user preferences once per page load and cache the promise.
   // renderRunView reads zone2_hr_min/max from the resolved value.
@@ -6655,6 +6651,8 @@
 (function () {
   "use strict";
 
+  var TF = window.TrainingFormat;
+
   var _athleteId = null;
   var _activePeriod = "week";
   var _when = "last"; // "last" (default) | "this"
@@ -6726,18 +6724,10 @@
   }
 
   // Compact rollup for the summary-digest Duration tile: 3h 3m, 45m, 2h.
-  // Local copy — this file's other top-level module (fmtDurationCompact at
-  // line ~107) lives in a SEPARATE closure and is out of scope here; this
-  // module already keeps its own local _esc() rather than reaching across
-  // IIFEs, so follow the same convention instead of introducing a shared
-  // global.
+  // Delegates to the shared formatter (issue #1603) — same implementation as
+  // the month-header call site in the other IIFE above.
   function fmtDurationCompact(secs) {
-    if (!secs) return "0m";
-    var h = Math.floor(secs / 3600),
-      m = Math.floor((secs % 3600) / 60);
-    if (h > 0 && m > 0) return h + "h " + m + "m";
-    if (h > 0) return h + "h";
-    return m + "m";
+    return TF.formatDurationCompact(secs);
   }
 
   function _fmtDelta(val, unit) {
