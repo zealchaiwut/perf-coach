@@ -31,6 +31,8 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
+import backend.services.daily_brief as _svc_mod
+
 # ── path to the script under test ─────────────────────────────────────────────
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 _SCRIPT = _ROOT / "scripts" / "export_brief.py"
@@ -275,10 +277,13 @@ def test_build_brief_envelope_keys(m):
         "adherence": 0.0, "load_trend": 0.0, "highlights_md": "Rest week.",
     }
 
-    with patch.object(m, "_fetch_plan", return_value=fake_plan), \
-         patch.object(m, "_assemble_form", return_value=fake_form), \
-         patch.object(m, "_assemble_recent_wrap", return_value=fake_wrap), \
-         patch.object(m, "_assemble_advisories", return_value=[]):
+    with patch.object(_svc_mod, "_get_plan_for_date", return_value=fake_plan), \
+         patch.object(_svc_mod, "_assemble_form", return_value=fake_form), \
+         patch.object(_svc_mod, "_assemble_recent_wrap", return_value=fake_wrap), \
+         patch.object(_svc_mod, "_assemble_weight", return_value={}), \
+         patch.object(_svc_mod, "_assemble_advisories", return_value=[]), \
+         patch.object(_svc_mod, "_assemble_week_plan", return_value=[]), \
+         patch.object(_svc_mod, "_assemble_coach", return_value=None):
 
         brief = m._build_brief(
             date(2026, 7, 14), "http://localhost:9100", "user-id-1", None
@@ -303,10 +308,13 @@ def test_generated_at_has_bangkok_offset(m):
     fake_wrap = {"window_days": 14, "sessions_planned": 0, "sessions_completed": 0,
                  "adherence": 0.0, "load_trend": 0.0, "highlights_md": "ok"}
 
-    with patch.object(m, "_fetch_plan", return_value=fake_plan), \
-         patch.object(m, "_assemble_form", return_value=fake_form), \
-         patch.object(m, "_assemble_recent_wrap", return_value=fake_wrap), \
-         patch.object(m, "_assemble_advisories", return_value=[]):
+    with patch.object(_svc_mod, "_get_plan_for_date", return_value=fake_plan), \
+         patch.object(_svc_mod, "_assemble_form", return_value=fake_form), \
+         patch.object(_svc_mod, "_assemble_recent_wrap", return_value=fake_wrap), \
+         patch.object(_svc_mod, "_assemble_weight", return_value={}), \
+         patch.object(_svc_mod, "_assemble_advisories", return_value=[]), \
+         patch.object(_svc_mod, "_assemble_week_plan", return_value=[]), \
+         patch.object(_svc_mod, "_assemble_coach", return_value=None):
 
         brief = m._build_brief(date(2026, 7, 14), "http://localhost:9100", "u", None)
 
@@ -354,18 +362,21 @@ def test_today_tomorrow_correct_dates(m):
     """AC6: today uses for_date, tomorrow uses for_date + 1 day."""
     calls_made = []
 
-    def fake_fetch(worker_url, date_str, username):
-        calls_made.append(date_str)
+    def fake_get_plan(user_id, for_date):
+        calls_made.append(for_date.isoformat())
         return {"planned": False, "sessions": []}
 
     fake_form = {"ctl": 1.0, "atl": 1.0, "tsb": 0.0, "ramp": 0.0, "flags": {}, "interpretation": "Neutral"}
     fake_wrap = {"window_days": 14, "sessions_planned": 0, "sessions_completed": 0,
                  "adherence": 0.0, "load_trend": 0.0, "highlights_md": "ok"}
 
-    with patch.object(m, "_fetch_plan", side_effect=fake_fetch), \
-         patch.object(m, "_assemble_form", return_value=fake_form), \
-         patch.object(m, "_assemble_recent_wrap", return_value=fake_wrap), \
-         patch.object(m, "_assemble_advisories", return_value=[]):
+    with patch.object(_svc_mod, "_get_plan_for_date", side_effect=fake_get_plan), \
+         patch.object(_svc_mod, "_assemble_form", return_value=fake_form), \
+         patch.object(_svc_mod, "_assemble_recent_wrap", return_value=fake_wrap), \
+         patch.object(_svc_mod, "_assemble_weight", return_value={}), \
+         patch.object(_svc_mod, "_assemble_advisories", return_value=[]), \
+         patch.object(_svc_mod, "_assemble_week_plan", return_value=[]), \
+         patch.object(_svc_mod, "_assemble_coach", return_value=None):
 
         brief = m._build_brief(date(2026, 7, 14), "http://w:9100", "u", None)
 
@@ -384,10 +395,13 @@ def test_today_has_required_keys(m):
     fake_wrap = {"window_days": 14, "sessions_planned": 0, "sessions_completed": 0,
                  "adherence": 0.0, "load_trend": 0.0, "highlights_md": "x"}
 
-    with patch.object(m, "_fetch_plan", return_value=fake_plan), \
-         patch.object(m, "_assemble_form", return_value=fake_form), \
-         patch.object(m, "_assemble_recent_wrap", return_value=fake_wrap), \
-         patch.object(m, "_assemble_advisories", return_value=[]):
+    with patch.object(_svc_mod, "_get_plan_for_date", return_value=fake_plan), \
+         patch.object(_svc_mod, "_assemble_form", return_value=fake_form), \
+         patch.object(_svc_mod, "_assemble_recent_wrap", return_value=fake_wrap), \
+         patch.object(_svc_mod, "_assemble_weight", return_value={}), \
+         patch.object(_svc_mod, "_assemble_advisories", return_value=[]), \
+         patch.object(_svc_mod, "_assemble_week_plan", return_value=[]), \
+         patch.object(_svc_mod, "_assemble_coach", return_value=None):
 
         brief = m._build_brief(date(2026, 7, 14), "http://w:9100", "u", None)
 
@@ -411,10 +425,13 @@ def test_form_has_required_keys(m):
     fake_wrap = {"window_days": 14, "sessions_planned": 0, "sessions_completed": 0,
                  "adherence": 0.0, "load_trend": 0.0, "highlights_md": "x"}
 
-    with patch.object(m, "_fetch_plan", return_value=fake_plan), \
-         patch.object(m, "_assemble_form", return_value=fake_form), \
-         patch.object(m, "_assemble_recent_wrap", return_value=fake_wrap), \
-         patch.object(m, "_assemble_advisories", return_value=[]):
+    with patch.object(_svc_mod, "_get_plan_for_date", return_value=fake_plan), \
+         patch.object(_svc_mod, "_assemble_form", return_value=fake_form), \
+         patch.object(_svc_mod, "_assemble_recent_wrap", return_value=fake_wrap), \
+         patch.object(_svc_mod, "_assemble_weight", return_value={}), \
+         patch.object(_svc_mod, "_assemble_advisories", return_value=[]), \
+         patch.object(_svc_mod, "_assemble_week_plan", return_value=[]), \
+         patch.object(_svc_mod, "_assemble_coach", return_value=None):
 
         brief = m._build_brief(date(2026, 7, 14), "http://w:9100", "u", None)
 
@@ -464,10 +481,13 @@ def test_recent_wrap_has_required_keys(m):
         "highlights_md": "Strong week.",
     }
 
-    with patch.object(m, "_fetch_plan", return_value=fake_plan), \
-         patch.object(m, "_assemble_form", return_value=fake_form), \
-         patch.object(m, "_assemble_recent_wrap", return_value=fake_wrap), \
-         patch.object(m, "_assemble_advisories", return_value=[]):
+    with patch.object(_svc_mod, "_get_plan_for_date", return_value=fake_plan), \
+         patch.object(_svc_mod, "_assemble_form", return_value=fake_form), \
+         patch.object(_svc_mod, "_assemble_recent_wrap", return_value=fake_wrap), \
+         patch.object(_svc_mod, "_assemble_weight", return_value={}), \
+         patch.object(_svc_mod, "_assemble_advisories", return_value=[]), \
+         patch.object(_svc_mod, "_assemble_week_plan", return_value=[]), \
+         patch.object(_svc_mod, "_assemble_coach", return_value=None):
 
         brief = m._build_brief(date(2026, 7, 14), "http://w:9100", "u", None)
 
@@ -483,10 +503,13 @@ def test_adherence_is_between_0_and_1(m):
         "adherence": 0.6, "load_trend": 0.0, "highlights_md": "ok",
     }
 
-    with patch.object(m, "_fetch_plan", return_value=fake_plan), \
-         patch.object(m, "_assemble_form", return_value=fake_form), \
-         patch.object(m, "_assemble_recent_wrap", return_value=fake_wrap), \
-         patch.object(m, "_assemble_advisories", return_value=[]):
+    with patch.object(_svc_mod, "_get_plan_for_date", return_value=fake_plan), \
+         patch.object(_svc_mod, "_assemble_form", return_value=fake_form), \
+         patch.object(_svc_mod, "_assemble_recent_wrap", return_value=fake_wrap), \
+         patch.object(_svc_mod, "_assemble_weight", return_value={}), \
+         patch.object(_svc_mod, "_assemble_advisories", return_value=[]), \
+         patch.object(_svc_mod, "_assemble_week_plan", return_value=[]), \
+         patch.object(_svc_mod, "_assemble_coach", return_value=None):
 
         brief = m._build_brief(date(2026, 7, 14), "http://w:9100", "u", None)
 
@@ -503,10 +526,13 @@ def test_advisories_is_list(m):
     fake_wrap = {"window_days": 14, "sessions_planned": 0, "sessions_completed": 0,
                  "adherence": 0.0, "load_trend": 0.0, "highlights_md": "ok"}
 
-    with patch.object(m, "_fetch_plan", return_value=fake_plan), \
-         patch.object(m, "_assemble_form", return_value=fake_form), \
-         patch.object(m, "_assemble_recent_wrap", return_value=fake_wrap), \
-         patch.object(m, "_assemble_advisories", return_value=[]):
+    with patch.object(_svc_mod, "_get_plan_for_date", return_value=fake_plan), \
+         patch.object(_svc_mod, "_assemble_form", return_value=fake_form), \
+         patch.object(_svc_mod, "_assemble_recent_wrap", return_value=fake_wrap), \
+         patch.object(_svc_mod, "_assemble_weight", return_value={}), \
+         patch.object(_svc_mod, "_assemble_advisories", return_value=[]), \
+         patch.object(_svc_mod, "_assemble_week_plan", return_value=[]), \
+         patch.object(_svc_mod, "_assemble_coach", return_value=None):
 
         brief = m._build_brief(date(2026, 7, 14), "http://w:9100", "u", None)
 
@@ -524,10 +550,13 @@ def test_advisories_item_keys(m):
     fake_wrap = {"window_days": 14, "sessions_planned": 0, "sessions_completed": 0,
                  "adherence": 0.0, "load_trend": 0.0, "highlights_md": "ok"}
 
-    with patch.object(m, "_fetch_plan", return_value=fake_plan), \
-         patch.object(m, "_assemble_form", return_value=fake_form), \
-         patch.object(m, "_assemble_recent_wrap", return_value=fake_wrap), \
-         patch.object(m, "_assemble_advisories", return_value=advisories):
+    with patch.object(_svc_mod, "_get_plan_for_date", return_value=fake_plan), \
+         patch.object(_svc_mod, "_assemble_form", return_value=fake_form), \
+         patch.object(_svc_mod, "_assemble_recent_wrap", return_value=fake_wrap), \
+         patch.object(_svc_mod, "_assemble_weight", return_value={}), \
+         patch.object(_svc_mod, "_assemble_advisories", return_value=advisories), \
+         patch.object(_svc_mod, "_assemble_week_plan", return_value=[]), \
+         patch.object(_svc_mod, "_assemble_coach", return_value=None):
 
         brief = m._build_brief(date(2026, 7, 14), "http://w:9100", "u", None)
 
@@ -575,10 +604,13 @@ def test_actions_is_empty_list(m):
     fake_wrap = {"window_days": 14, "sessions_planned": 0, "sessions_completed": 0,
                  "adherence": 0.0, "load_trend": 0.0, "highlights_md": "ok"}
 
-    with patch.object(m, "_fetch_plan", return_value=fake_plan), \
-         patch.object(m, "_assemble_form", return_value=fake_form), \
-         patch.object(m, "_assemble_recent_wrap", return_value=fake_wrap), \
-         patch.object(m, "_assemble_advisories", return_value=[]):
+    with patch.object(_svc_mod, "_get_plan_for_date", return_value=fake_plan), \
+         patch.object(_svc_mod, "_assemble_form", return_value=fake_form), \
+         patch.object(_svc_mod, "_assemble_recent_wrap", return_value=fake_wrap), \
+         patch.object(_svc_mod, "_assemble_weight", return_value={}), \
+         patch.object(_svc_mod, "_assemble_advisories", return_value=[]), \
+         patch.object(_svc_mod, "_assemble_week_plan", return_value=[]), \
+         patch.object(_svc_mod, "_assemble_coach", return_value=None):
 
         brief = m._build_brief(date(2026, 7, 14), "http://w:9100", "u", None)
 
@@ -688,10 +720,13 @@ def test_date_arg_in_brief_output_for_date(m):
     fake_wrap = {"window_days": 14, "sessions_planned": 0, "sessions_completed": 0,
                  "adherence": 0.0, "load_trend": 0.0, "highlights_md": "ok"}
 
-    with patch.object(m, "_fetch_plan", return_value=fake_plan), \
-         patch.object(m, "_assemble_form", return_value=fake_form), \
-         patch.object(m, "_assemble_recent_wrap", return_value=fake_wrap), \
-         patch.object(m, "_assemble_advisories", return_value=[]):
+    with patch.object(_svc_mod, "_get_plan_for_date", return_value=fake_plan), \
+         patch.object(_svc_mod, "_assemble_form", return_value=fake_form), \
+         patch.object(_svc_mod, "_assemble_recent_wrap", return_value=fake_wrap), \
+         patch.object(_svc_mod, "_assemble_weight", return_value={}), \
+         patch.object(_svc_mod, "_assemble_advisories", return_value=[]), \
+         patch.object(_svc_mod, "_assemble_week_plan", return_value=[]), \
+         patch.object(_svc_mod, "_assemble_coach", return_value=None):
 
         brief = m._build_brief(date(2026, 7, 20), "http://w:9100", "u", None)
 

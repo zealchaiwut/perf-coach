@@ -18,11 +18,10 @@ import sys
 import tempfile
 from datetime import date, datetime, timedelta
 
-# All assembly logic lives in the service.  Helper names are re-imported into
-# this module's namespace so that existing test patches such as
-#   patch.object(m, "_assemble_form", fake_form)
-# continue to work: _build_brief below looks up these names from this module's
-# globals, so patching them here takes effect.
+# All assembly logic — including _build_brief and _assemble_coach — lives in
+# the service module.  Re-importing names into this module's namespace keeps
+# existing test patches (patch.object(m, "_assemble_form", ...)) working for
+# helpers that the service's _build_brief looks up in its own globals.
 from backend.services.daily_brief import (  # noqa: F401
     SCHEMA_VERSION,
     BANGKOK_TZ,
@@ -33,6 +32,7 @@ from backend.services.daily_brief import (  # noqa: F401
     _assemble_advisories,
     _assemble_recent_wrap,
     _assemble_week_plan,
+    _assemble_coach,
     _compute_weight_advisory,
     _load_interpretation,
     _plan_to_session,
@@ -50,10 +50,9 @@ def _today_bkk() -> date:
 def _fetch_plan(worker_url: str, date_str: str, user_id: str | None) -> dict:
     """Bridge to the service's direct DB query.
 
-    Previously this made an HTTP call to the worker's /api/plan/today; it now
-    queries PlannedSession directly so the script works without the worker process
-    running.  The function signature is preserved so existing test patches
-    (patch.object(m, "_fetch_plan", ...)) intercept calls from _build_brief.
+    Previously this made an HTTP call to the worker's /api/plan/today.  The
+    function signature is preserved so existing test patches
+    (patch.object(m, "_fetch_plan", ...)) continue to intercept calls.
     worker_url is accepted but ignored.
     """
     for_date = date.fromisoformat(date_str)
@@ -61,48 +60,13 @@ def _fetch_plan(worker_url: str, date_str: str, user_id: str | None) -> dict:
 
 
 def _build_brief(for_date: date, worker_url=None, user_id=None, username=None) -> dict:
-    """Assemble and return the complete brief payload.
+    """Thin wrapper — delegates to backend.services.daily_brief._build_brief.
 
-    Defined in this module (in addition to the service) so that
-    patch.object(m, "_assemble_form", ...) / patch.object(m, "_fetch_plan", ...)
-    in existing tests affect the lookups inside this function.
-    worker_url and username are accepted for backward compatibility; they are not used.
+    Keeping the four-argument signature preserves backward compatibility with
+    call sites that pass worker_url and username; the service ignores them.
     """
-    tomorrow = for_date + timedelta(days=1)
-
-    today_plan = _fetch_plan(worker_url or "", for_date.isoformat(), user_id)
-    tomorrow_plan = _fetch_plan(worker_url or "", tomorrow.isoformat(), user_id)
-
-    today_session = _plan_to_session(today_plan, for_date)
-    tomorrow_session = _plan_to_session(tomorrow_plan, tomorrow)
-
-    form = _assemble_form(user_id, for_date)
-    recent_wrap = _assemble_recent_wrap(user_id, for_date)
-    weight = _assemble_weight(user_id, for_date)
-    advisories = _assemble_advisories(user_id, for_date, weight)
-    week_plan = _assemble_week_plan(user_id, for_date)
-    coach = _assemble_coach(user_id, for_date)
-    advisories_degraded = any(a.get("severity") == "error" for a in advisories)
-
-    generated_at = datetime.now(BANGKOK_TZ).isoformat()
-
-    payload = {
-        "schema_version": SCHEMA_VERSION,
-        "for_date": for_date.isoformat(),
-        "generated_at": generated_at,
-        "today": today_session,
-        "tomorrow": tomorrow_session,
-        "form": form,
-        "recent_wrap": recent_wrap,
-        "weight": weight,
-        "advisories": advisories,
-        "advisories_degraded": advisories_degraded,
-        "actions": [],
-        "week_plan": week_plan,
-    }
-    if coach is not None:
-        payload["coach"] = coach
-    return payload
+    import backend.services.daily_brief as _svc
+    return _svc._build_brief(for_date, user_id=user_id)
 
 
 def _write_atomic(path: str, data: dict) -> None:
@@ -146,156 +110,6 @@ def _resolve_user(username: str | None) -> str:
         raise RuntimeError(
             "Multiple active users found — pass --user to specify one"
         )
-
-
-def _load_goal_for_user(user_id: str):
-    """Return coach goal for user_id — A-race first, else active PerformanceGoal."""
-    from sqlalchemy.orm import Session
-    import uuid as _uuid
-    from datetime import date as _date
-
-    from backend.db import engine
-    from backend.services.weekly_coach_message import _goal_from_a_race, _load_inputs_for_user
-
-    try:
-        uid = _uuid.UUID(str(user_id))
-    except (ValueError, TypeError):
-        # username — resolve via inputs helper after user lookup
-        from backend.models import User
-        with Session(engine) as db:
-            u = db.query(User).filter(User.name == user_id, User.is_active.is_(True)).first()
-            if u is None:
-                return None
-            goal, _, _, _ = _load_inputs_for_user(u.id, db, _date.today())
-            return goal
-
-    with Session(engine) as db:
-        goal = _goal_from_a_race(uid, db)
-        if goal is not None:
-            return goal
-        goal, _, _, _ = _load_inputs_for_user(uid, db, _date.today())
-        return goal
-
-
-def _build_plan_state_for_user(goal, for_date: date) -> tuple:
-    """Build (plan_state, projection_info) from an active goal.
-
-    Returns a 2-tuple: (plan_state dict, projection_info dict).
-    Delegates entirely to the weekly_coach_message service helpers so the
-    brief and the weekly message share the same computation.
-    """
-    from backend.services.weekly_coach_message import (
-        _build_projection_info,
-        _load_inputs_for_user,
-    )
-    from backend.services.coach_plan import build_plan_state
-    from sqlalchemy.orm import Session
-
-    from backend.db import engine
-
-    with Session(engine) as db:
-        _, snapshot, weight_status, log_consistency = _load_inputs_for_user(
-            goal.user_id, db, for_date
-        )
-
-    acwr_val = float(getattr(snapshot, "acwr", 0) or 0) if snapshot else 0.0
-    acwr_state = "high_risk" if acwr_val > 1.30 else "productive"
-
-    plan_state = build_plan_state(
-        goal=goal,
-        training_load_snapshot=snapshot,
-        acwr_state=acwr_state,
-        guardrail_state="ok",
-        weight_status=weight_status or {"current_kg": None, "goal_kg": None, "gap_kg": 0.0},
-        log_consistency=log_consistency or {"logged_days": 0, "total_days": 14},
-        _today=for_date,
-    )
-    projection_info = _build_projection_info(goal, snapshot, for_date)
-    return plan_state, projection_info
-
-
-def _coach_lever_strings(levers: dict) -> list[str]:
-    """Compact pill text for each lever."""
-    result: list[str] = []
-
-    load = levers.get("load") or {}
-    load_state = load.get("state", "unavailable")
-    if load_state == "locked":
-        unlock_date = load.get("unlock_date")
-        if unlock_date and isinstance(unlock_date, date):
-            date_str = unlock_date.strftime("%-d %b")
-        else:
-            date_str = "soon"
-        result.append(f"load: locked until {date_str}")
-    elif load_state == "available":
-        result.append("load: available to ramp")
-    else:
-        result.append("load: unavailable")
-
-    weight = levers.get("weight") or {}
-    logged = weight.get("logged_days")
-    total = weight.get("total_days", 14)
-    if logged is not None:
-        result.append(f"weight: measurement {logged}/{total} days")
-    else:
-        result.append("weight: no data")
-
-    return result
-
-
-def _assemble_coach(user_id: str, for_date: date) -> dict | None:
-    """Assemble the coach block for the daily brief (same SoT as Home).
-
-    Uses get_coach_payload_for_user — never the legacy compose_deterministic_message.
-    """
-    try:
-        from sqlalchemy.orm import Session
-        from backend.db import engine
-        from backend.services.weekly_coach_message import get_coach_payload_for_user
-
-        uid = user_id
-        # Resolve UUID if username was passed
-        try:
-            import uuid as _uuid
-            _uuid.UUID(str(user_id))
-        except (ValueError, TypeError):
-            goal = _load_goal_for_user(user_id)
-            if goal is None:
-                return None
-            uid = getattr(goal, "user_id", user_id)
-
-        with Session(engine) as db:
-            payload = get_coach_payload_for_user(uid, today=for_date, db=db)
-        if not payload:
-            return None
-
-        sections = payload.get("sections") or {}
-        nudge = payload.get("nudge") or {}
-        chosen = payload.get("chosen_preset")
-
-        out = {
-            "as_of": payload.get("as_of"),
-            "source": payload.get("source"),
-            "sections": sections,
-            "text": payload.get("text") or "",
-            # Compact Hermes fields derived from shared sections
-            "directive": (sections.get("now") or "").split("\n\n")[0][:400],
-            "projection": (sections.get("dream") or "").split("\n\n")[0][:400],
-            "levers": [],
-        }
-        if isinstance(nudge, dict) and (nudge.get("focus_label") or nudge.get("next_action")):
-            out.update({
-                "focus_id": nudge.get("focus_id"),
-                "focus_label": nudge.get("focus_label"),
-                "next_action": nudge.get("next_action"),
-                "why": nudge.get("why"),
-            })
-        if chosen:
-            out["chosen_preset"] = chosen
-        return out
-    except Exception as exc:
-        print(f"WARNING: coach block unavailable: {exc}", file=sys.stderr)
-        return None
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

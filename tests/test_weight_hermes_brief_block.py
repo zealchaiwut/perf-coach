@@ -46,6 +46,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session as _OrmSess
 
 from backend.models import Base, User, WeightEntry, WeightTarget
+import backend.services.daily_brief as _svc_mod
 from backend.services.weight_plan import (
     _weight_rollup,
     compute_current_pace_kg_per_week,
@@ -956,13 +957,13 @@ class TestAssembleWeightErrorHandling:
             "window_days": 14, "sessions_planned": 0, "sessions_completed": 0,
             "adherence": 0.0, "load_trend": 0.0, "highlights_md": "ok",
         }
-        with patch.object(eb, "_fetch_plan", return_value=fake_plan), \
-             patch.object(eb, "_assemble_form", return_value=fake_form), \
-             patch.object(eb, "_assemble_recent_wrap", return_value=fake_wrap), \
-             patch.object(eb, "_assemble_weight", return_value=dict(eb._NULL_WEIGHT_BLOCK)), \
-             patch.object(eb, "_assemble_advisories", return_value=[]), \
-             patch.object(eb, "_assemble_week_plan", return_value=[]), \
-             patch.object(eb, "_assemble_coach", return_value=None):
+        with patch.object(_svc_mod, "_get_plan_for_date", return_value=fake_plan), \
+             patch.object(_svc_mod, "_assemble_form", return_value=fake_form), \
+             patch.object(_svc_mod, "_assemble_recent_wrap", return_value=fake_wrap), \
+             patch.object(_svc_mod, "_assemble_weight", return_value=dict(eb._NULL_WEIGHT_BLOCK)), \
+             patch.object(_svc_mod, "_assemble_advisories", return_value=[]), \
+             patch.object(_svc_mod, "_assemble_week_plan", return_value=[]), \
+             patch.object(_svc_mod, "_assemble_coach", return_value=None):
 
             brief = eb._build_brief(datetime.date(2026, 7, 15), user_id="u")
 
@@ -986,13 +987,13 @@ class TestSchemaVersionBump:
             "window_days": 14, "sessions_planned": 0, "sessions_completed": 0,
             "adherence": 0.0, "load_trend": 0.0, "highlights_md": "ok",
         }
-        with patch.object(eb, "_fetch_plan", return_value=fake_plan), \
-             patch.object(eb, "_assemble_form", return_value=fake_form), \
-             patch.object(eb, "_assemble_recent_wrap", return_value=fake_wrap), \
-             patch.object(eb, "_assemble_weight", return_value=dict(eb._NULL_WEIGHT_BLOCK)), \
-             patch.object(eb, "_assemble_advisories", return_value=[]), \
-             patch.object(eb, "_assemble_week_plan", return_value=[]), \
-             patch.object(eb, "_assemble_coach", return_value=None):
+        with patch.object(_svc_mod, "_get_plan_for_date", return_value=fake_plan), \
+             patch.object(_svc_mod, "_assemble_form", return_value=fake_form), \
+             patch.object(_svc_mod, "_assemble_recent_wrap", return_value=fake_wrap), \
+             patch.object(_svc_mod, "_assemble_weight", return_value=dict(eb._NULL_WEIGHT_BLOCK)), \
+             patch.object(_svc_mod, "_assemble_advisories", return_value=[]), \
+             patch.object(_svc_mod, "_assemble_week_plan", return_value=[]), \
+             patch.object(_svc_mod, "_assemble_coach", return_value=None):
 
             brief = eb._build_brief(datetime.date(2026, 7, 15), user_id="u")
 
