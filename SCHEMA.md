@@ -1073,9 +1073,126 @@ week-only uniqueness).
 |--------|------|-------|
 | id | UUID PK | `gen_random_uuid()` |
 | user_id | UUID FK→users | CASCADE |
-| for_week | varchar(8) | NOT NULL — ISO week string `YYYY-Www` |
+| for_week | varchar(8) | NOT NULL — ISO week string `YYYY-Www`; denormalized for display |
+| for_date | date | NOT NULL — calendar date (Asia/Bangkok) the message was generated for; added by migration `d35f3915950e` |
 | generated_at | timestamptz | NOT NULL, server default now() |
 | text | text | NOT NULL — composed weekly coaching message |
 | plan_state_snapshot | jsonb | nullable — engine plan-state snapshot the message was built from |
 
-Unique: `(user_id, for_week)` (`uq_weekly_coach_messages_user_week`). Index: `ix_weekly_coach_messages_user_generated_at` on `(user_id, generated_at)`. Migration: `5b2f59e19e14_add_weekly_coach_messages_table`.
+Unique: `(user_id, for_date)` (`uq_weekly_coach_messages_user_date`). Indexes: `ix_weekly_coach_messages_user_generated_at` on `(user_id, generated_at)`; `ix_weekly_coach_messages_user_for_date` on `(user_id, for_date)`. Migrations: `5b2f59e19e14_add_weekly_coach_messages_table` (initial); `d35f3915950e_add_for_date_to_weekly_coach_messages` (adds `for_date`, drops old `uq_weekly_coach_messages_user_week`, creates `uq_weekly_coach_messages_user_date`).
+
+**Migration d35f3915950e is effectively one-way.** The downgrade drops `for_date` and attempts to re-create the per-week unique constraint `(user_id, for_week)`. Once multiple rows exist for the same ISO week (which is normal after upgrading — one row per day), the constraint creation fails and the downgrade aborts. Do not attempt to downgrade this migration on any environment that has been used after the upgrade. Additionally, the upgrade's dedup DELETE (`DELETE … WHERE generated_at < b.generated_at`) is unaudited: it silently discards the older of any two rows sharing the same `(user_id, for_date)` without writing a tombstone or log entry.
+
+---
+
+## daily_briefs _(added 2026-07-18 / Sprint 123; migration `a384a3b4727d`)_
+
+Coach brief v4 JSON — one structured brief per `(user_id, brief_date)`. Written by the brief-generation pipeline; read by the coaching UI. Model: `DailyBrief` in `backend/models.py`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | `gen_random_uuid()` |
+| user_id | UUID FK→users | CASCADE |
+| brief_date | date | NOT NULL |
+| payload | jsonb | NOT NULL — full v4 brief JSON |
+| source | varchar(32) | NOT NULL, default `'fallback'` — generation path used |
+| created_at | timestamptz | NOT NULL, server default now() |
+
+Unique: `(user_id, brief_date)` (`uq_daily_briefs_user_date`). Index: `ix_daily_briefs_user_date` on `(user_id, brief_date)`. Migration: `a384a3b4727d_add_daily_briefs_table`.
+
+---
+
+## plan_drafts _(added 2026-07-20 / Sprint 123; migration `71b8f0d766c0`)_
+
+Worker-generated week draft for Plan pipeline v2. The athlete reviews the draft before applying. One draft per `(user_id, week_start)`; status tracks its lifecycle. Model: `PlanDraft` in `backend/models.py`. Backed by `GET/POST /api/plan/draft*` routes; loaded by `frontend/js/training-plan.js` and `frontend/js/home-coach-strip.js`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | `gen_random_uuid()` |
+| user_id | UUID FK→users | CASCADE |
+| week_start | date | NOT NULL — Monday of the planned week |
+| payload | jsonb | NOT NULL — draft sessions array |
+| facts_signature | varchar(64) | NOT NULL — SHA-256 of the input facts; used to detect staleness |
+| status | varchar(20) | NOT NULL, default `'fresh'` — `fresh` / `outdated` / `applied` / `expired`; check constraint `ck_plan_drafts_status` |
+| created_at | timestamptz | NOT NULL, server default now() |
+| updated_at | timestamptz | NOT NULL, server default now() |
+
+Unique: `(user_id, week_start)` (`uq_plan_drafts_user_week`). Index: `ix_plan_drafts_user_week` on `(user_id, week_start)`. Migration: `71b8f0d766c0_add_plan_drafts`.
+
+---
+
+## training_preferences _(added 2026-07-20 / Sprint 123; migration `fbd9a848c17f`)_
+
+Versioned training-preferences payload (plan preferences). The latest version per user is the active set. Each accepted change inserts a new row, giving a full audit trail. Model: `TrainingPreference` in `backend/models.py`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | `gen_random_uuid()` |
+| user_id | UUID FK→users | CASCADE |
+| version | int | NOT NULL — monotonically increasing per user |
+| effective_from | date | NOT NULL |
+| payload | jsonb | NOT NULL — preferences dict |
+| source | varchar(32) | NOT NULL — `user` / `user_import` / `coach_proposal` / `carried_forward`; check constraint `ck_training_preferences_source` |
+| origin_gap_code | varchar(80) | nullable — gap-analysis code that triggered this version |
+| origin_proposal_id | UUID | nullable — `preference_proposals.id` that was accepted |
+| confirmed_at | timestamptz | nullable — when the athlete explicitly confirmed the change |
+| created_at | timestamptz | NOT NULL, server default now() |
+
+Unique: `(user_id, version)` (`uq_training_preferences_user_version`). Index: `ix_training_preferences_user_version` on `(user_id, version)`. Migration: `fbd9a848c17f_add_training_preferences_and_proposals`.
+
+---
+
+## preference_proposals _(added 2026-07-20 / Sprint 123; migration `fbd9a848c17f`)_
+
+Coach-proposed preference delta driven by gap findings. The LLM never authors proposals — they are generated deterministically from gap-analysis rules and reviewed by the athlete. Model: `PreferenceProposal` in `backend/models.py`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | `gen_random_uuid()` |
+| user_id | UUID FK→users | CASCADE |
+| gap_code | varchar(80) | NOT NULL — gap-analysis rule code that produced the proposal |
+| finding_ref | varchar(128) | nullable — reference string linking to the originating gap finding |
+| delta | jsonb | NOT NULL — the preference changes being proposed |
+| status | varchar(20) | NOT NULL, default `'proposed'` — `proposed` / `accepted` / `declined` / `expired` / `reverted`; check constraint `ck_preference_proposals_status` |
+| proposed_at | timestamptz | NOT NULL, server default now() |
+| decided_at | timestamptz | nullable — when the athlete accepted or declined |
+| expires_at | timestamptz | NOT NULL — after this timestamp the proposal is stale |
+| review_at | timestamptz | nullable — scheduled follow-up review timestamp |
+| review_outcome | varchar(32) | nullable — `gap_closed` / `gap_persists` / `reverted` (check constraint `ck_preference_proposals_review_outcome`; NULL allowed) |
+| dismissed_severity | int | nullable — severity at the time the proposal was dismissed |
+| created_at | timestamptz | NOT NULL, server default now() |
+
+Index: `ix_preference_proposals_user_status` on `(user_id, status)`. Migration: `fbd9a848c17f_add_training_preferences_and_proposals`.
+
+---
+
+## user_custom_presets _(added 2026-07-20 / Sprint 123; migration `fbd9a848c17f`)_
+
+User-imported session presets. Codes must be prefixed `user:*` to avoid collision with system presets. Model: `UserCustomPreset` in `backend/models.py`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | `gen_random_uuid()` |
+| user_id | UUID FK→users | CASCADE |
+| code | varchar(80) | NOT NULL — preset identifier, must be `user:*` |
+| payload | jsonb | NOT NULL — full preset definition |
+| created_at | timestamptz | NOT NULL, server default now() |
+| updated_at | timestamptz | NOT NULL, server default now() |
+
+Unique: `(user_id, code)` (`uq_user_custom_presets_user_code`). Migration: `fbd9a848c17f_add_training_preferences_and_proposals`.
+
+---
+
+## preference_import_audits _(added 2026-07-20 / Sprint 123; migration `fbd9a848c17f`)_
+
+Raw JSON audit trail for preference imports. One row per import attempt; the raw input is preserved so any parsing bugs can be diagnosed post-hoc. Model: `PreferenceImportAudit` in `backend/models.py`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | `gen_random_uuid()` |
+| user_id | UUID FK→users | CASCADE |
+| raw_json | jsonb | NOT NULL — the JSON payload as received |
+| prefs_version | int | nullable — `training_preferences.version` produced by this import, if successful |
+| created_at | timestamptz | NOT NULL, server default now() |
+
+Migration: `fbd9a848c17f_add_training_preferences_and_proposals`. (Note: `3e1c0945a812_merge_prefs_and_plan_drafts` is the merge node that joins `71b8f0d766c0` and `fbd9a848c17f` into a single head.)

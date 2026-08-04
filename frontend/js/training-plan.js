@@ -938,6 +938,7 @@ information about.
       .then(function (res) {
         var n = (res && res.created) ? res.created.length : 0;
         _toast(n ? ('Applied ' + n + ' session' + (n === 1 ? '' : 's')) : 'Draft applied');
+        if (btn) btn.disabled = false;
         _draft = null;
         _loadWeek(function () { _loadDraft(); });
         _updatePlanTabBadge(false);
@@ -992,6 +993,7 @@ information about.
       })
       .catch(function () {
         if (host) host.innerHTML = '<div class="pl-loading">Could not load the week.</div>';
+        if (onDone) onDone();
       });
   }
 

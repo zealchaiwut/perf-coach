@@ -217,6 +217,8 @@ def move(
     confirm_warnings: bool = False,
 ) -> dict[str, Any]:
     """Move slot to to_day; content travels. Swap if target occupied."""
+    if not (0 <= int(to_day) <= 6):
+        return {"slots": sessions, "warnings": [], "blocked": True, "block_reason": "day out of range 0-6", "affected_slot_ids": []}
     ensure_slot_ids(sessions)
     sessions = copy.deepcopy(sessions)
     sess = _find(sessions, slot_id=slot_id)
@@ -280,6 +282,8 @@ def swap(
     today_offset: int | None = None,
     confirm_warnings: bool = False,
 ) -> dict[str, Any]:
+    if not (0 <= int(day_a) <= 6) or not (0 <= int(day_b) <= 6):
+        return {"slots": sessions, "warnings": [], "blocked": True, "block_reason": "day out of range 0-6", "affected_slot_ids": []}
     ensure_slot_ids(sessions)
     sessions = copy.deepcopy(sessions)
     a = _find(sessions, day=day_a)
@@ -368,10 +372,10 @@ def remove(
                     placed += add
                 old = float(s.get("target_tss") or 0)
                 new = min(_PER_SLOT_TSS_CAP, max(_PER_SLOT_TSS_FLOOR, old + add))
-                # Cap by remaining room
+                # Cap by remaining room; re-apply floor so ceiling never overrides it
                 if ceiling is not None:
-                    # rough: don't exceed cap individually beyond room share
                     new = min(new, old + max(0.0, add))
+                    new = max(_PER_SLOT_TSS_FLOOR, new)
                 new_pin = _round_tss_pin(new)
                 old_pin = _round_tss_pin(old)
                 s["target_tss"] = new_pin
@@ -411,6 +415,14 @@ def add(
     confirm_warnings: bool = False,
 ) -> dict[str, Any]:
     """Add a session on day. Rest-day additions warn; ACWR / past block."""
+    if not (0 <= int(day) <= 6):
+        return {
+            "slots": sessions,
+            "warnings": [],
+            "blocked": True,
+            "block_reason": "day out of range 0-6",
+            "affected_slot_ids": [],
+        }
     ensure_slot_ids(sessions)
     sessions = copy.deepcopy(sessions)
     day = int(day)

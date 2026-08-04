@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import cast as _sa_cast, exc as sa_exc, func, or_, select, text
 from sqlalchemy.types import DateTime as _sa_DateTime
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
-from sqlalchemy.orm import Session, joinedload, load_only, selectinload
+from sqlalchemy.orm import Session, joinedload, load_only
 from zoneinfo import ZoneInfo
 
 from backend.auth import require_admin
@@ -282,6 +282,36 @@ def health():
         "db": check_db(),
         "uptime_seconds": int(time.monotonic() - _start_time),
     })
+
+
+@app.get("/api/health/schema")
+def health_schema():
+    """Return alembic drift info for the smoke suite (issue #1580).
+
+    Compares the repo's expected migration head (from the bundled alembic
+    migration files) with the version currently stamped in the live DB.
+    No auth required — the revision IDs carry no sensitive info.
+
+    Response shape:
+        { "repo_head": "<hex>", "db_head": "<hex>" | null }
+    """
+    from alembic.config import Config as _AlembicConfig
+    from alembic.script import ScriptDirectory as _ScriptDirectory
+
+    _ini_path = Path(__file__).parent.parent / "alembic.ini"
+    _cfg = _AlembicConfig(str(_ini_path))
+    _script = _ScriptDirectory.from_config(_cfg)
+    heads = _script.get_heads()
+    repo_head = heads[0] if len(heads) == 1 else ",".join(sorted(heads))
+
+    try:
+        with engine.connect() as _conn:
+            row = _conn.execute(text("SELECT version_num FROM alembic_version LIMIT 1")).fetchone()
+            db_head = row[0] if row else None
+    except Exception:
+        db_head = None
+
+    return JSONResponse({"repo_head": repo_head, "db_head": db_head})
 
 
 @app.get("/api/healthz")
@@ -1117,7 +1147,6 @@ def _compute_weight_target_active(t: WeightTarget, session) -> dict:
 
     today = _today_bkk()
     target_date = t.target_date if isinstance(t.target_date, _date) else _date.fromisoformat(str(t.target_date))
-    start_date = t.start_date if isinstance(t.start_date, _date) else _date.fromisoformat(str(t.start_date))
 
     days_remaining = (target_date - today).days
     total_kg = float(t.start_weight_kg) - float(t.target_weight_kg)
@@ -4002,7 +4031,7 @@ class HabitLogUpsertIn(BaseModel):
 @app.get("/api/habits/summary")
 def get_habits_summary(user: User = Depends(resolve_user)):
     """Return each active habit with streak and 30-day consistency stats."""
-    from datetime import date as _date_cls, timedelta as _td
+    from datetime import timedelta as _td
     today = _today_bkk()
     window_start = today - _td(days=29)
 
@@ -5296,7 +5325,7 @@ def get_adherence_nudges(user: User = Depends(resolve_user)):
     All computation is delegated to compute_adherence_breakdown,
     detect_slipping_habits, and build_nudges.
     """
-    from datetime import date as _date_cls, timedelta as _td
+    from datetime import timedelta as _td
 
     uid = user.id
     today = _today_bkk()
@@ -16244,29 +16273,6 @@ def get_athlete_detected_prs(athlete_id: str, user: User = Depends(resolve_user)
     return JSONResponse(records)
 
 
-def _trigger_curve_rebuild_background(user_id) -> None:
-    """Fire-and-forget: rebuild the athlete's duration curve in a daemon thread.
-
-    Used after threshold saves so the duration curve reflects the latest data
-    without blocking the HTTP response.  Errors are logged but do not propagate.
-    """
-    _curve_log = _logging.getLogger(__name__)
-
-    def _rebuild():
-        try:
-            from sqlalchemy.orm import Session as _Session
-            with _Session(engine) as _db:
-                _rebuild_athlete_duration_curve(user_id, _db)
-        except Exception as _exc:
-            _curve_log.warning(
-                "background curve rebuild failed for user %s: %s",
-                user_id, _exc, exc_info=True,
-            )
-
-    t = _threading.Thread(target=_rebuild, daemon=True)
-    t.start()
-
-
 # ── Athlete performance scores ────────────────────────────────────────────────
 
 _performance_log = _logging.getLogger(__name__)
@@ -16775,10 +16781,16 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
                 _performance_log.info("performance cache hit for %s", uid)
                 return JSONResponse(_perf_cached)
 
-            # Load all run workouts in chronological order (oldest first)
+            # Load run workouts within the scoring window (issue #1578: cap
+            # history to bound in-request memory on cache miss).
+            _history_cutoff = _datetime.now(_timezone.utc).date() - _timedelta(days=_RUN_HISTORY_CAP_DAYS)
             run_workouts = (
                 session.query(Workout)
-                .filter(Workout.user_id == uid, Workout.workout_type == "run")
+                .filter(
+                    Workout.user_id == uid,
+                    Workout.workout_type == "run",
+                    Workout.workout_date >= _history_cutoff,
+                )
                 .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
                 .all()
             )
@@ -16786,15 +16798,25 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
             prefs_dict = preferences or {}
             _ml_map_perf = _classified_manual_laps_map(session, run_workouts, prefs_dict)
 
-            runs = []
-            for workout in run_workouts:
-                # Load per-lap splits ordered by split_index
-                splits = (
+            # Batch-load all splits for the qualifying runs in one query
+            # (issue #1578: replaces N sequential per-workout queries → 1 query).
+            _run_ids = [w.id for w in run_workouts]
+            if _run_ids:
+                _all_splits = (
                     session.query(WorkoutSplit)
-                    .filter(WorkoutSplit.workout_id == workout.id)
-                    .order_by(WorkoutSplit.split_index)
+                    .filter(WorkoutSplit.workout_id.in_(_run_ids))
+                    .order_by(WorkoutSplit.workout_id, WorkoutSplit.split_index)
                     .all()
                 )
+            else:
+                _all_splits = []
+            _splits_by_workout: dict = {}
+            for _s in _all_splits:
+                _splits_by_workout.setdefault(_s.workout_id, []).append(_s)
+
+            runs = []
+            for workout in run_workouts:
+                splits = _splits_by_workout.get(workout.id, [])
 
                 # Classify lap intensity bands using user thresholds
                 classifications = classify_laps(splits, prefs_dict)
@@ -17182,6 +17204,15 @@ def _summary_cache_put(user_id, key, sig, payload):
 # block; v10 = race_floor_now + floor_binding; v11 = manual-lap reps;
 # v12 = aborted-session guard (MIN_ENDURANCE_QUALIFYING_SESSION_SECONDS).
 _PERF_FORMULA_VERSION = "vdot-v12"
+
+# History window cap for the cold-cache run load (issue #1578).
+# trailing_window_days=90: only runs within 90d of the most-recent run affect
+# scores. Adding a 310d buffer handles users who last ran up to 400 days ago;
+# beyond that all runs are outside the scoring window and the endpoint returns
+# building_baseline regardless.  Peak memory on a 512 MB dyno with this cap:
+# ≤ ~400 runs × ~2 KB/run dict ≈ 0.8 MB for the runs list, well under the OOM
+# threshold observed in the 2026-07-22 incident (PR #1576 follow-up #1578).
+_RUN_HISTORY_CAP_DAYS = 400
 
 
 def _performance_signature(session, user_id, prefs_row) -> str:
