@@ -1,4 +1,4 @@
-# Code State — sprint-123
+# Code State — sprint-123.1
 
 _Deterministic snapshot generated at sprint finish. Do not hand-edit — regenerated each sprint._
 
@@ -10,24 +10,26 @@ _Deterministic snapshot generated at sprint finish. Do not hand-edit — regener
 - **`docs/`** — Project documentation
 - **`alembic/`** — Database migration scripts
 
-## Recent Deltas (sprint-123)
+## Recent Deltas (sprint-123.1)
 
-Files changed: **7**
+Files changed: **22**
 
-- `tests/` — 4 file(s)
-- `backend/` — 2 file(s)
-- `(root)/` — 1 file(s)
+- `tests/` — 10 file(s)
+- `backend/` — 7 file(s)
+- `(root)/` — 2 file(s)
+- `frontend/` — 2 file(s)
+- `docs/` — 1 file(s)
 
 ## Hot Files (last 90 days)
 
 | File | Commits |
 |------|---------|
-| `backend/main.py` | 489 |
+| `backend/main.py` | 490 |
 | `frontend/pages/training-log.html` | 228 |
 | `backend/models.py` | 145 |
-| `frontend/js/training-log.js` | 140 |
-| `CHANGELOG.md` | 107 |
-| `frontend/js/training-plan.js` | 96 |
+| `frontend/js/training-log.js` | 141 |
+| `CHANGELOG.md` | 108 |
+| `frontend/js/training-plan.js` | 97 |
 | `README.md` | 89 |
 | `frontend/pages/home.html` | 74 |
 | `frontend/pages/weight.html` | 64 |
@@ -45,6 +47,6 @@ Files changed: **7**
 
 ## Generated
 
-Sprint: `sprint-123`  
-Timestamp: `2026-08-03T14:23:31Z`  
+Sprint: `sprint-123.1`  
+Timestamp: `2026-08-04T02:07:45Z`  
 _Generated deterministically — no LLM required._
