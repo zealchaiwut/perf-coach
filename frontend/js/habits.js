@@ -2734,8 +2734,17 @@ async function _refreshHabitCal() {
   const year = hcalMonth ? hcalMonth.getFullYear() : window.AppCommon.nowBangkok().getFullYear();
   const month = hcalMonth ? hcalMonth.getMonth() : window.AppCommon.nowBangkok().getMonth();
   const lastDay = new Date(year, month + 1, 0).getDate();
-  const from = year + '-' + _hcalPad(month + 1) + '-01';
-  const to = year + '-' + _hcalPad(month + 1) + '-' + _hcalPad(lastDay);
+  let from = year + '-' + _hcalPad(month + 1) + '-01';
+  let to = year + '-' + _hcalPad(month + 1) + '-' + _hcalPad(lastDay);
+
+  // Expand range to cover the week strip when it crosses the month boundary
+  if (hcalWeekStart) {
+    const weekEnd = new Date(hcalWeekStart.getFullYear(), hcalWeekStart.getMonth(), hcalWeekStart.getDate() + 6);
+    const weekFrom = _hcalISO(hcalWeekStart);
+    const weekTo = _hcalISO(weekEnd);
+    if (weekFrom < from) from = weekFrom;
+    if (weekTo > to) to = weekTo;
+  }
 
   await _fetchCalendarRange(from, to);
   renderHcalFilter();

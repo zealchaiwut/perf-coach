@@ -164,6 +164,8 @@ def compute_plan_line(plan, today: datetime.date) -> list:
     linearly interpolated between plan.start_weight_kg and plan.goal_weight_kg
     over the full period from plan.start_date to plan.goal_date.
     """
+    if getattr(plan, "goal_date", None) is None:
+        return []
     start_d = _as_date(plan.start_date)
     goal_d = _as_date(plan.goal_date)
     yesterday = today - datetime.timedelta(days=1)
