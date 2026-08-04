@@ -16,7 +16,6 @@ from backend.services.plan_extras import apply_prefs_extras
 from backend.services.plan_skeleton import assemble_week, build_skeleton
 from backend.services.plan_slot import (
     build_week_ctx,
-    fill_week_slots,
     generate_slot_content,
     stamp_session,
 )
@@ -25,7 +24,7 @@ from backend.services.plan_slot_cache import (
     content_ctx_from_week,
     slot_cache_key,
 )
-from backend.services.plan_suggestions import assemble_facts, build_signature, _load_history_rows
+from backend.services.plan_suggestions import assemble_facts, _load_history_rows
 from backend.utils.log import get_logger
 
 _log = get_logger(__name__)
@@ -991,7 +990,6 @@ def regenerate_partial_slots(db: Session, user_id, week_start: date, slot_ids: l
     """Regenerate ONLY listed slot_ids; clear pending flags."""
     from backend.models import PlanDraft
     from backend.services.plan_skeleton_ops import ensure_slot_ids, sync_slots_from_sessions
-    from backend.services.plan_slot import stamp_session
 
     row = (
         db.query(PlanDraft)

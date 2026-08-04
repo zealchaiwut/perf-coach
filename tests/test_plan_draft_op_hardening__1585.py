@@ -11,10 +11,9 @@ AC3 and AC4 use a real Postgres DB (DATABASE_URL_UAT); they are auto-marked
 `integration` by tests/conftest.py and skipped when Postgres is unavailable.
 """
 import uuid
-from datetime import date, timedelta, datetime, timezone
+from datetime import date, datetime, timezone
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from backend.services import plan_skeleton_ops as ops
 from backend.services.plan_draft import draft_version_token
