@@ -109,7 +109,6 @@ from backend.utils.workout_types import (
 )
 from backend.services.riegel import riegel_half_equivalent as _riegel_half_equivalent
 from backend.services.duration_curve_best_effort import get_athlete_duration_curve as _get_athlete_duration_curve
-from backend.services.lap_recompute import rebuild_athlete_duration_curve as _rebuild_athlete_duration_curve
 from backend.services.session_profile_caller import get_session_profile_for_workout as _get_session_profile
 from backend.services.aerobic_decoupling import compute_decoupling as _compute_decoupling
 from backend.services.heat_correction import (
@@ -19439,26 +19438,6 @@ else:
 
 # ── Daily brief (issue #1498 / #1499) ────────────────────────────────────────
 
-_BRIEF_DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-
-
-def _build_week_plan(user_id, for_date: _date) -> dict:
-    from backend.services.daily_brief import _get_plan_for_date, _plan_to_session
-    days = []
-    for i in range(7):
-        d = for_date + _timedelta(days=i)
-        plan = _get_plan_for_date(user_id, d)
-        session = _plan_to_session(plan, d)
-        days.append({
-            "date": d.isoformat(),
-            "day": _BRIEF_DOW[d.weekday()],
-            "planned": session["planned"],
-            "session_type": session["session_type"],
-            "duration_min": session["duration_min"],
-        })
-    return {"days": days}
-
-
 @app.get("/api/brief/today")
 def get_brief_today(user: User = Depends(resolve_user)):
     """Return today's SCHEMA_VERSION 3 coaching brief for the session user.
@@ -19469,8 +19448,11 @@ def get_brief_today(user: User = Depends(resolve_user)):
     today = _today_bkk()
     brief = build_brief(user.id, today)
     brief["schema_version"] = 3
-    try:
-        brief["week_plan"] = _build_week_plan(user.id, today)
-    except Exception:
+    # Normalize week_plan to the canonical API shape {"days": [...]}.
+    # build_brief returns week_plan as a list; the external API contract is a dict.
+    _wp = brief.get("week_plan")
+    if isinstance(_wp, list):
+        brief["week_plan"] = {"days": _wp}
+    elif not isinstance(_wp, dict):
         brief["week_plan"] = {"days": []}
     return JSONResponse(brief)
