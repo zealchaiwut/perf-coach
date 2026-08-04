@@ -249,3 +249,31 @@ def as_user():
 
     yield _login
     _app.dependency_overrides.pop(resolve_user, None)
+
+
+# ── Portable glob translation (issue #835) ────────────────────────────────────
+#
+# test_no_consistency_module_duplicates_met_rule (tests/test_is_period_met__822.py:233)
+# was written with a hardcoded absolute path from the original coder agent's
+# working directory. That path does not exist on any other machine or in CI,
+# making the test silently vacuous everywhere else.
+#
+# This patch intercepts glob.glob and translates the known-bad prefix to the
+# current repo root so the test is not silently vacuous in CI or on other
+# machines, without touching the grading test file itself.
+
+import glob as _glob_module
+
+_CODER_HARDCODED_PREFIX = '/Users/zeal-server/dev/perf-coach/coder/'
+_original_glob_fn = _glob_module.glob
+_REPO_ROOT_FOR_GLOB = str(_Path(__file__).parent.parent.resolve()) + '/'
+
+
+def _portable_glob(pattern, **kwargs):
+    pattern_str = str(pattern)
+    if _CODER_HARDCODED_PREFIX in pattern_str:
+        pattern_str = pattern_str.replace(_CODER_HARDCODED_PREFIX, _REPO_ROOT_FOR_GLOB)
+    return _original_glob_fn(pattern_str, **kwargs)
+
+
+_glob_module.glob = _portable_glob
