@@ -57,3 +57,20 @@ def test_validate_rejects_easy_content_for_intervals():
     }
     errs = validate_slot(easy, slot)
     assert any("intervals" in e for e in errs)
+
+
+def test_plyo_template_is_short_not_lower_strength():
+    slot = {
+        "day_offset": 1,
+        "workout_type": "plyo",
+        "target_tss": 20,
+        "duration_minutes": 20,
+        "subtype": "plyo",
+    }
+    content = template_content_for_slot(slot)
+    assert "plyometric" in (content["intent"] or "").lower()
+    assert "Lower body" not in (content["intent"] or "")
+    blocks = {e.get("block") for e in content["exercises"]}
+    assert "Heavy compound" not in blocks
+    assert "Plyometrics" in blocks
+    assert validate_slot(content, slot) == []

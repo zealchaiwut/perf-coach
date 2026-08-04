@@ -1043,6 +1043,8 @@ def regenerate_partial_slots(db: Session, user_id, week_start: date, slot_ids: l
             stamped["_muscle_footprint"] = content["_muscle_footprint"]
         if content.get("pattern_name"):
             stamped["pattern_name"] = content["pattern_name"]
+        if content.get("fill_log"):
+            stamped["fill_log"] = content["fill_log"]
         results[sid] = stamped
         regenerated += 1
 

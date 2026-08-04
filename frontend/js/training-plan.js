@@ -157,10 +157,6 @@ information about.
       _wireLoadPlanSettings();
       _loadLoadPlan();
       _loadWeekLoad(_iso(_weekStart));
-      // What to improve panel (moved from Performance → Plan)
-      if (window.TrainingPerformance && window.TrainingPerformance.loadGapPanel) {
-        window.TrainingPerformance.loadGapPanel();
-      }
       if (window.location.hash === '#prefs') {
         setTimeout(function () {
           var t = document.getElementById('plan-suggestions-trigger');
@@ -1061,8 +1057,8 @@ information about.
       if (_lpData.warning) msgs.push(_lpData.warning);
       if (_lpData.baseline_capped) {
         msgs.push(
-          'Baseline capped: last week (' + Math.round(_lpData.baseline_tss) +
-          ') exceeded chronic load; using ' + Math.round(_lpData.capped_baseline_tss) + '.'
+          'Baseline capped: seed (' + Math.round(_lpData.baseline_tss) +
+          ') exceeded ACWR band vs chronic; using ' + Math.round(_lpData.capped_baseline_tss) + '.'
         );
       }
       if (msgs.length) { warnEl.hidden = false; warnEl.textContent = msgs.join(' '); }
@@ -1128,9 +1124,8 @@ information about.
       var cls = 'lp-bar actual' + (p.deload ? ' is-deload' : '');
       barsHtml += '<div class="lp-bar-col"><div class="' + cls + '" style="height:' + h + '%"' +
         (p.deload ? ' title="Deload week"' : '') + '>' +
-        '<span class="lp-bar-value">' + Math.round(p.actual_tss) +
-        (p.deload ? '<span class="lp-deload-mark">▼</span>' : '') +
-        '</span></div></div>';
+        (p.deload ? '<span class="lp-deload-arrow" aria-hidden="true">▼</span>' : '') +
+        '<span class="lp-bar-value">' + Math.round(p.actual_tss) + '</span></div></div>';
       axisHtml += axisCol(p.week_start);
     });
 
@@ -1150,7 +1145,8 @@ information about.
       barsHtml += '<div class="' + colCls + '"><div class="' + cls + '" style="height:' + h + '%" title="' +
         esc(PHASE_LABEL[w.phase] || w.phase) + (w.deload ? ' — deload week (cut 30%)' : '') +
         (w.clamped ? ' — ACWR-clamped' : '') + '">' +
-        '<span class="lp-bar-value">' + Math.round(w.target_tss) + (w.deload ? '<span class="lp-deload-mark">▼</span>' : '') + '</span></div></div>';
+        (w.deload ? '<span class="lp-deload-arrow" aria-hidden="true">▼</span>' : '') +
+        '<span class="lp-bar-value">' + Math.round(w.target_tss) + '</span></div></div>';
       axisHtml += axisCol(w.week_start);
     });
 
@@ -1411,8 +1407,8 @@ information about.
       // (docs/calculations/load-plan.md "Baseline cap") rather than just
       // showing the lower capped number with no explanation.
       if (d.baseline_capped) {
-        baselineEl.innerHTML = Math.round(d.capped_baseline_tss) + ' TSS <span class="wl-baseline-capped" title="Last week (' +
-          Math.round(d.baseline_tss) + ' TSS) exceeded chronic load — capped to ' +
+        baselineEl.innerHTML = Math.round(d.capped_baseline_tss) + ' TSS <span class="wl-baseline-capped" title="Seed (' +
+          Math.round(d.baseline_tss) + ' TSS = max(logged, planned)) exceeded ACWR band vs chronic — capped to ' +
           Math.round(d.capped_baseline_tss) + ' TSS so the ramp does not compound the spike.">(capped)</span>';
       } else {
         baselineEl.textContent = Math.round(d.baseline_tss) + ' TSS';
@@ -1452,7 +1448,8 @@ information about.
     }
     _setText(
       'wl-baseline-compare',
-      'planned ' + Math.round(d.baseline_planned_tss) + ' · logged ' + Math.round(d.baseline_tss),
+      'planned ' + Math.round(d.baseline_planned_tss) + ' · logged ' +
+        Math.round(d.baseline_logged_tss != null ? d.baseline_logged_tss : d.baseline_tss),
     );
 
     if (d.acwr_ceiling != null) {
@@ -2480,8 +2477,9 @@ information about.
   }
 
   function _blockRowHtml(b, i) {
-    var cls = b.phase === 'warmup' ? 'warm' : (b.phase === 'main' ? 'main' : 'cool');
-    var label = b.phase === 'warmup' ? 'Warmup' : (b.phase === 'main' ? 'Main set' : (b.phase === 'cooldown' ? 'Cooldown' : b.phase));
+    var ph = String(b.phase || '').toLowerCase();
+    var cls = ph === 'warmup' ? 'warm' : (ph === 'main' || ph === 'mp' || ph === 'marathon_pace' ? 'main' : 'cool');
+    var label = _phaseLabel(b.phase);
     return '<div class="pl-block" data-bi="' + i + '"><span class="pl-btag ' + cls + '">' + label + '</span>' +
       '<input class="pl-bdur" data-f="duration_min" aria-label="' + label + ' duration in minutes" value="' + esc(b.duration_min != null ? b.duration_min : '') + '" placeholder="min"/>' +
       '<input class="pl-btgt" data-f="repeat" aria-label="' + label + ' repeat count" value="' + esc(b.repeat != null ? b.repeat : '') + '" placeholder="×reps"/>' +
@@ -3074,10 +3072,19 @@ information about.
   }
 
   // ── Single session — Ask AI (generate one day from date/type/note) ──────────
-  // Shares the backend's single-session generator with the suggestion-row
-  // "Refine" action below — same endpoint, same session shape, this side just
-  // starts from a blank date/type instead of an existing suggestion.
+  // Shares the backend's single-session generator with suggestion-row Update
+  // (POST /api/plan/suggestions/session → pattern fill). This side starts from
+  // a blank date/type; Update re-fills an existing suggestion from duration/subtype.
   var _aiSessionResult = null; // the last generated session, pending Save
+
+  function _phaseLabel(ph) {
+    var p = String(ph || '').toLowerCase();
+    if (p === 'warmup') return 'Warmup';
+    if (p === 'cooldown') return 'Cooldown';
+    if (p === 'main') return 'Main set';
+    if (p === 'mp' || p === 'marathon_pace') return 'MP segment';
+    return ph || 'Block';
+  }
 
   function _singleAIHtml() {
     _aiSessionResult = null;
@@ -3530,7 +3537,7 @@ information about.
         var dur = b.duration_min != null ? b.duration_min + ' min' : '';
         var rep = (b.repeat && b.repeat > 1) ? (' ×' + b.repeat) : '';
         var tgt = b.target || '';
-        var lab = b.phase === 'warmup' ? 'Warmup' : (b.phase === 'cooldown' ? 'Cooldown' : 'Main');
+        var lab = _phaseLabel(b.phase);
         return '<div class="pl-sm-brow"><span class="pl-sm-ph">' + lab + '</span>' +
           '<span class="pl-sm-bt">' + esc(tgt || lab) + '</span>' +
           '<span class="pl-sm-bm">' + esc(dur + rep) + '</span></div>';
@@ -4027,7 +4034,7 @@ information about.
         out.push('  Work    ' + pad(mmss(dur)) + tgt);
         if (b.rest_min) out.push('  Rest    ' + pad(mmss(Number(b.rest_min))) + 'easy jog');
       } else {
-        var label = b.phase === 'warmup' ? 'Warmup' : (b.phase === 'cooldown' ? 'Cooldown' : 'Work');
+        var label = b.phase === 'warmup' ? 'Warmup' : (b.phase === 'cooldown' ? 'Cooldown' : (b.phase === 'mp' || b.phase === 'marathon_pace' ? 'MP' : 'Work'));
         out.push(pad(label) + ' ' + pad(mmss(dur)) + tgt);
       }
     });
@@ -4049,7 +4056,7 @@ information about.
 
   // ── Scoped styles (injected once) ───────────────────────────────────────────
   function _injectStyles() {
-    var VER = '20260731import1';
+    var VER = '20260804plyo1';
     var existing = document.getElementById('plan-tab-styles');
     if (existing) {
       if (existing.getAttribute('data-ver') === VER) return;
@@ -4413,30 +4420,38 @@ information about.
     '.pl-sug-add{font-size:11px;font-weight:700;background:var(--accent);color:#1b2340;border:none;border-radius:7px;padding:5px 11px;cursor:pointer;flex-shrink:0;}',
     '.pl-sug-add:disabled{opacity:0.5;cursor:default;}',
     '.pl-sug-add.added{background:#d1fae5;color:#065f46;}',
-    '.pl-sug-refine-toggle{font-size:10.5px;font-weight:600;background:none;border:1px solid var(--border);border-radius:6px;padding:4px 7px;cursor:pointer;color:var(--info-dark);}',
-    '.pl-sug-refine-toggle:hover{background:var(--tile);}',
-    '.pl-sug-refine-panel{display:flex;align-items:center;gap:6px;margin:4px 0 6px 46px;flex-wrap:wrap;}',
-    '.pl-sug-refine-input{flex:1;min-width:180px;font-size:11.5px;border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-family:inherit;}',
-    '.pl-sug-refine-status{font-size:10.5px;color:var(--text-sub);}',
+    '.pl-sug-update{font-size:10.5px;font-weight:600;background:none;border:1px solid var(--border);border-radius:6px;padding:4px 7px;cursor:pointer;color:var(--info-dark);}',
+    '.pl-sug-update:hover{background:var(--tile);}',
+    '.pl-sug-update:disabled{opacity:0.4;cursor:not-allowed;}',
+    '.pl-sug-fill-log{margin:6px 0 2px 46px;font-size:11px;color:var(--text-sub);}',
+    '.pl-sug-fill-log>summary{cursor:pointer;font-weight:600;color:var(--text-sub);list-style:none;}',
+    '.pl-sug-fill-log>summary::-webkit-details-marker{display:none;}',
+    '.pl-sug-fill-log>summary::before{content:"▸ ";font-size:10px;}',
+    '.pl-sug-fill-log[open]>summary::before{content:"▾ ";}',
+    '.pl-sug-fill-log-pre{margin:6px 0 0;padding:8px 10px;background:var(--tile);border:1px solid var(--border);border-radius:8px;font-family:var(--mono);font-size:10.5px;line-height:1.45;white-space:pre-wrap;word-break:break-word;color:var(--ink);max-height:220px;overflow:auto;}',
     '.pl-sug-trigger-row{margin:10px 0 4px;display:flex;justify-content:flex-start;}',
     '.pl-sug-trigger-btn{font-size:12px;font-weight:700;color:var(--info-dark);background:none;border:1px dashed #c7d2fe;border-radius:8px;padding:7px 13px;cursor:pointer;}',
     // ── Pre-generation preferences form ─────────────────────────────────────
-    '.pl-sug-prefs{display:flex;flex-direction:column;gap:12px;}',
-    '.pl-sug-prefs-row{display:flex;flex-direction:column;gap:6px;}',
-    '.pl-sug-prefs-label{font-size:11px;font-weight:700;color:var(--text-sub);text-transform:uppercase;letter-spacing:0.03em;}',
-    '.pl-sug-daychks{display:flex;gap:6px;flex-wrap:wrap;}',
-    '.pl-sug-daychk{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:var(--ink);background:#fff;border:1px solid var(--border);border-radius:8px;padding:5px 10px;cursor:pointer;}',
+    '.pl-sug-prefs{display:flex;flex-direction:column;gap:10px;}',
+    '.pl-sug-prefs-row{display:flex;flex-direction:column;gap:5px;}',
+    '.pl-sug-prefs-row--inline{flex-direction:row;align-items:center;justify-content:space-between;gap:10px;}',
+    '.pl-sug-prefs-row--inline .pl-sug-prefs-label{flex:1 1 auto;min-width:0;margin:0;}',
+    '.pl-sug-prefs-label{font-size:10.5px;font-weight:700;color:var(--text-sub);text-transform:uppercase;letter-spacing:0.03em;}',
+    '.pl-sug-daychks{display:flex;gap:5px;flex-wrap:wrap;}',
+    '.pl-sug-daychk{display:flex;align-items:center;gap:4px;font-size:11.5px;font-weight:600;color:var(--ink);background:#fff;border:1px solid var(--border);border-radius:7px;padding:4px 8px;cursor:pointer;}',
     '.pl-sug-daychk input{margin:0;}',
     '.pl-sug-daychk.is-closed{opacity:0.4;cursor:not-allowed;}',
     '.pl-sug-daychk.is-past{opacity:0.45;cursor:not-allowed;background:var(--tile);}',
     '.pl-sug-daychk.has-session{border-color:#c7d2fe;background:#eef2ff;}',
     '.pl-sug-daychk .pl-sug-sess-tag{font-size:9.5px;font-weight:800;letter-spacing:0.03em;text-transform:uppercase;color:var(--primary);background:var(--primary-soft);border-radius:4px;padding:1px 5px;}',
-    '.pl-sug-prefs-extra{margin-top:4px;padding-top:10px;border-top:1px dashed var(--border);}',
-    '.pl-sug-prefs-row select,.pl-sug-prefs-row input[type=number]{font:inherit;font-size:12.5px;padding:5px 8px;border-radius:7px;border:1px solid var(--border);background:#fff;min-width:100px;}',
-    '.pl-sug-prefs-notes{width:100%;min-height:48px;font:inherit;font-size:12.5px;padding:7px 9px;border-radius:8px;border:1px solid var(--border);box-sizing:border-box;}',
-    '.pl-sug-habits{font-size:11.5px;color:var(--text-sub);margin-top:8px;line-height:1.4;}',
+    '.pl-sug-prefs-extra{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;margin-top:2px;padding-top:10px;border-top:1px dashed var(--border);}',
+    '@media (max-width:520px){.pl-sug-prefs-extra{grid-template-columns:1fr;}}',
+    '.pl-sug-prefs-row select,.pl-sug-prefs-row input[type=number]{font:inherit;font-size:12px;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:#fff;width:auto;max-width:100%;min-width:0;align-self:flex-start;box-sizing:border-box;}',
+    '.pl-sug-prefs-row--inline select{min-width:7.5rem;flex:0 0 auto;}',
+    '.pl-sug-prefs-row--inline input[type=number]{width:4.5rem;flex:0 0 auto;text-align:right;font-family:var(--mono);}',
+    '.pl-sug-habits{font-size:11.5px;color:var(--text-sub);margin-top:4px;line-height:1.4;}',
     '.pl-sug-habits a{color:var(--primary);font-weight:600;}',
-    '.pl-sug-prefs-err{color:#b91c1c;font-size:12px;margin-top:8px;white-space:pre-wrap;}',
+    '.pl-sug-prefs-err{color:#b91c1c;font-size:12px;margin-top:6px;white-space:pre-wrap;}',
     // Preference proposals ledger — moved out of the coach brief (D6).
     '.pl-prop-block{margin-top:14px;padding-top:12px;border-top:1px solid var(--border);}',
     '.pl-prop-count{display:inline-block;margin-left:6px;padding:0 6px;border-radius:9px;background:var(--primary);color:#fff;font-size:10.5px;font-weight:700;line-height:16px;vertical-align:middle;}',
@@ -4448,21 +4463,10 @@ information about.
     '.pl-prop-life{font-size:11px;color:var(--text-sub);margin-top:3px;opacity:.85;}',
     '.pl-prop-actions{display:flex;gap:6px;flex-wrap:wrap;}',
     '.pl-prop-actions .pl-btn{font-size:12px;padding:5px 10px;}',
-    // Prefs importer — the consult's change list, pasted back in (#1608).
-    '.pl-import-block{margin-top:14px;padding-top:12px;border-top:1px solid var(--border);}',
-    '.pl-import{display:flex;flex-direction:column;gap:8px;}',
-    '.pl-import-ta{width:100%;min-height:56px;font:inherit;font-size:12.5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;padding:8px 10px;border-radius:8px;border:1px solid var(--border);box-sizing:border-box;}',
-    '.pl-import-actions{display:flex;gap:6px;flex-wrap:wrap;}',
-    '.pl-import-out{font-size:12px;padding:9px 11px;border-radius:8px;background:var(--surface-2,#fafafa);border:1px solid var(--border);}',
-    '.pl-import-out.is-error{border-color:#e08c8c;color:#b91c1c;white-space:pre-wrap;}',
-    '.pl-import-title{font-weight:700;margin-bottom:5px;}',
-    '.pl-import-row{font-size:12px;line-height:1.7;}',
-    '.pl-import-row code{font-size:11.5px;background:var(--chip-bg,#eef1f5);padding:1px 5px;border-radius:4px;}',
-    '.pl-sug-select{font-size:13px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--ink);width:auto;align-self:flex-start;}',
-    '.pl-sug-notes{font-size:13px;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:#fff;color:var(--ink);min-height:52px;resize:vertical;font-family:inherit;}',
-    '.pl-sug-count-wrap{display:flex;align-items:center;gap:8px;}',
-    '.pl-sug-count{width:70px;font-size:13px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--ink);font-family:var(--mono);}',
-    '.pl-sug-count-hint{font-size:11px;color:var(--text-sub);}',
+    '.pl-sug-select{font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:#fff;color:var(--ink);width:auto;max-width:100%;flex:0 0 auto;}',
+    '.pl-sug-count-wrap{display:flex;align-items:center;gap:8px;flex:0 1 auto;min-width:0;}',
+    '.pl-sug-count{width:56px;font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:#fff;color:var(--ink);font-family:var(--mono);}',
+    '.pl-sug-count-hint{font-size:10.5px;color:var(--text-sub);white-space:nowrap;}',
     // ── Two-rail suggestions (issue #1417): rail 1 schedule grid ─────────────
     '#plan-suggestions-sched{margin-bottom:12px;}',
     '.pl-rail-head{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;}',
@@ -4541,9 +4545,11 @@ information about.
     '.pl-sug-day-select{font-size:10px;font-weight:800;color:var(--text-sub);text-transform:uppercase;border:1px solid var(--border);border-radius:6px;padding:3px 4px;background:#fff;cursor:pointer;flex-shrink:0;}',
     '.pl-sug-meta-edit{display:inline-flex;align-items:center;gap:3px;}',
     '.pl-sug-tss-input,.pl-sug-dur-input{width:52px;font-size:11.5px;font-family:var(--mono);border:1px solid var(--border);border-radius:6px;padding:3px 5px;color:var(--ink);}',
+    '.pl-sug-tss-label{font-size:11.5px;font-family:var(--mono);color:var(--text-sub);}',
     '.pl-sug-gen{font-size:10.5px;font-weight:700;background:none;border:1px solid #c7d2fe;border-radius:6px;padding:4px 8px;cursor:pointer;color:var(--info-dark);}',
     '.pl-sug-gen:hover{background:var(--primary-soft);}',
     '.pl-sug-gen:disabled{opacity:0.6;cursor:default;}',
+    '.pl-sug-adj:disabled{opacity:0.4;cursor:not-allowed;}',
     '.pl-sug-intent-empty{color:var(--text-sub);font-style:italic;}',
     '.pl-rail-note{font-size:11.5px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:6px 10px;margin-bottom:8px;}',
     '.pl-sug-type-select.stretch{background:#ccfbf1;color:#0f766e;}',
@@ -4631,15 +4637,14 @@ information about.
   // lose what the athlete already told it.
   // Rest days + optional exact strength-session count ('' = auto from the
   // athlete's own last-3-weeks history). No free-text — the schedule rail is
-  // rule-based (zero LLM); per-slot Refine carries any free-form asks.
+  // rule-based (zero LLM); Update re-fills a slot from duration/subtype.
   var _lastPrefs = {
     restDays: [],
     strengthSessions: '',
     strengthEmphasis: 'same',
-    plyoMode: 'off',
+    plyoMode: 'standalone',
     plyoSessions: 0,
     mpSegmentMin: 0,
-    notes: '',
   };
   var _habitTargets = null;
   // Pending preference proposals, rendered as a ledger in the prefs panel.
@@ -4685,19 +4690,56 @@ information about.
     return _fmtISO(d);
   }
 
-  // ── Per-session adjust: type override + lighter/harder ──────────────────────
-  // Lighter/Harder used to touch only the summary target_tss/duration numbers
-  // — the actual exercises/blocks never changed, so "harder" didn't translate
-  // into anything the athlete could act on at the gym. Now it also nudges the
-  // real prescription: exercise sets (and numeric reps, when parseable) for
-  // strength/plyo, and block duration/repeat for run.
+  // ── Per-session adjust: lighter / harder ───────────────────────────────────
+  // Softens or stiffens the prescription itself — load ladder + sets for
+  // strength/plyo; interval repeats (or main duration) for run. TSS/duration
+  // summary numbers still move a little so the week budget stays coherent.
+
+  var _LOAD_LADDER = [
+    'bodyweight',
+    'light band',
+    'bodyweight or light DB',
+    'light DB',
+    'moderate',
+    'moderate DB',
+    'working weight',
+    'heavy',
+    'heavy DB',
+  ];
+
+  function _loadLadderIndex(load) {
+    var s = String(load || '').toLowerCase().trim();
+    if (!s) return -1;
+    for (var i = 0; i < _LOAD_LADDER.length; i++) {
+      if (s === _LOAD_LADDER[i]) return i;
+    }
+    if (/body\s*weight|\bbw\b/.test(s)) return 0;
+    if (/band/.test(s)) return 1;
+    if (/light/.test(s) && /db|dumb/.test(s)) return 3;
+    if (/light/.test(s)) return 2;
+    if (/moderate|med/.test(s)) return 5;
+    if (/working|rpe\s*[6-7]/.test(s)) return 6;
+    if (/heavy|max|rpe\s*[8-9]/.test(s)) return 7;
+    return 4;
+  }
+
+  function _stepLoad(load, harder) {
+    var i = _loadLadderIndex(load);
+    if (i < 0) return harder ? 'light DB' : 'bodyweight';
+    var next = harder ? Math.min(_LOAD_LADDER.length - 1, i + 1) : Math.max(0, i - 1);
+    return _LOAD_LADDER[next];
+  }
+
+  function _isWarmCoolBlock(name) {
+    var b = String(name || '').toLowerCase();
+    return /warm|cool/.test(b);
+  }
 
   function _adjustSession(s, harder) {
-    var factor = harder ? 1.2 : 0.8;
+    var factor = harder ? 1.15 : 0.85;
     var nextTss = Math.max(0, Math.min(400, Math.round((s.target_tss || 0) * factor)));
     var nextDur = Math.max(0, Math.round((s.duration_minutes || 0) * factor));
 
-    // Clamp to preset constraints when present (from gap / coach rule base)
     var c = s.preset_constraints || (s.structure && s.structure._preset_constraints) || null;
     if (!c && s._preset_constraints) c = s._preset_constraints;
     if (c) {
@@ -4710,7 +4752,6 @@ information about.
       }
     }
 
-    // Disable-at-bounds: if no movement possible, leave as-is
     if (!harder && c && c.min_duration_min != null && (s.duration_minutes || 0) <= c.min_duration_min
         && c.min_tss != null && (s.target_tss || 0) <= c.min_tss) {
       return;
@@ -4721,27 +4762,37 @@ information about.
 
     if (Array.isArray(s.exercises)) {
       s.exercises.forEach(function (ex) {
+        if (_isWarmCoolBlock(ex.block)) return;
         if (ex.sets != null) {
           ex.sets = Math.max(1, Math.min(8, ex.sets + (harder ? 1 : -1)));
         }
-        // reps is a freeform string ("10", "30s hold", "per side") — only
-        // scale it when it's a plain integer; leave hold-durations/text alone.
+        if (ex.load != null && String(ex.load).trim()) {
+          ex.load = _stepLoad(ex.load, harder);
+        } else if (!harder) {
+          ex.load = 'bodyweight';
+        } else {
+          ex.load = 'light DB';
+        }
+        // Plain integer reps only — leave "30s hold" / "per side" alone.
         if (typeof ex.reps === 'string' && /^\d+$/.test(ex.reps.trim())) {
           var n = parseInt(ex.reps, 10);
-          ex.reps = String(Math.max(1, Math.round(n * factor)));
+          ex.reps = String(Math.max(1, Math.round(n * (harder ? 1.1 : 0.9))));
         }
       });
     }
     if (Array.isArray(s.blocks)) {
       s.blocks.forEach(function (b) {
+        var ph = String(b.phase || '').toLowerCase();
+        if (ph === 'warmup' || ph === 'cooldown') return;
+        if (b.repeat != null && Number(b.repeat) > 1) {
+          // Interval / tempo sets: fewer or more repeats
+          b.repeat = Math.max(1, Math.min(20, Number(b.repeat) + (harder ? 1 : -1)));
+          return;
+        }
         if (b.duration_min != null) {
           b.duration_min = Math.max(1, Math.round(b.duration_min * factor));
         }
-        if (b.repeat != null && b.repeat > 0) {
-          b.repeat = Math.max(1, Math.min(20, b.repeat + (harder ? 1 : -1)));
-        }
       });
-      // Re-sum block durations toward clamped duration when preset floor applies
       if (c && c.min_duration_min != null) {
         var sum = 0;
         s.blocks.forEach(function (b) {
@@ -4750,7 +4801,7 @@ information about.
         if (sum > 0 && sum < c.min_duration_min) {
           var scale = c.min_duration_min / sum;
           s.blocks.forEach(function (b) {
-            if (b.duration_min != null) {
+            if (b.duration_min != null && String(b.phase || '').toLowerCase() === 'main') {
               b.duration_min = Math.max(1, Math.round(b.duration_min * scale));
             }
           });
@@ -4788,7 +4839,14 @@ information about.
   // PlannedSession.structure.blocks stores (see _runDetailHtml's segment
   // rendering). Without this a run suggestion was just target_tss/duration —
   // no warmup/main/cooldown structure, no repeat/target for a workout.
-  function _phaseLabel(ph) { return ph === 'warmup' ? 'Warmup' : (ph === 'cooldown' ? 'Cooldown' : (ph === 'main' ? 'Main set' : (ph || 'Block'))); }
+  function _phaseLabel(ph) {
+    var p = String(ph || '').toLowerCase();
+    if (p === 'warmup') return 'Warmup';
+    if (p === 'cooldown') return 'Cooldown';
+    if (p === 'main') return 'Main set';
+    if (p === 'mp' || p === 'marathon_pace') return 'MP segment';
+    return ph || 'Block';
+  }
   function _sugBlocksHtml(blocks) {
     if (!blocks || !blocks.length) return '';
     var segs = blocks.map(function (b) {
@@ -4803,6 +4861,81 @@ information about.
     return '<div class="pl-sug-exercises"><div class="pl-sug-ex-block">' + segs + '</div></div>';
   }
 
+  function _formatFillStep(step) {
+    var op = step.op || '?';
+    if (op === 'normalize_subtype') {
+      return op + ': ' + (step.from || '∅') + ' → ' + (step.to || '∅') +
+        ' · ' + (step.duration_minutes || 0) + ' min · TSS ' +
+        (step.target_tss != null ? step.target_tss : '—');
+    }
+    if (op === 'select_pattern') {
+      if (step.picked === null) {
+        return op + ': none (' + (step.reason || '') + ')';
+      }
+      var band = step.duration_band || [];
+      return op + ': "' + (step.name || '') + '" subtype=' + (step.subtype || '') +
+        ' [' + (band[0] != null ? band[0] : '?') + '–' +
+        (band[1] != null ? band[1] : '?') + ' min]';
+    }
+    if (op === 'fill_strength') {
+      var head = op + (step.attempt ? ' attempt ' + step.attempt : '') +
+        ' · ' + (step.exercise_count || 0) + ' exercises' +
+        (step.blocks && step.blocks.length ? ' · blocks: ' + step.blocks.join(', ') : '');
+      var groups = (step.groups || []).map(function (g) {
+        return '  ' + (g.label || '') + ' ← [' + (g.from_tags || []).join(', ') +
+          '] n=' + g.n + ': ' + (g.picked || []).join(', ');
+      }).join('\n');
+      return groups ? head + '\n' + groups : head;
+    }
+    if (op === 'fill_run') {
+      var phases = (step.phases || []).map(function (p) {
+        var bit = (p.phase || '') + ' ' + (p.duration_min != null ? p.duration_min + 'm' : '');
+        if (p.repeat && p.repeat > 1) bit += ' ×' + p.repeat;
+        if (p.target) bit += ' (' + p.target + ')';
+        return '  ' + bit;
+      }).join('\n');
+      return op + (phases ? '\n' + phases : '');
+    }
+    if (op === 'validate') {
+      if (step.ok) return op + ': ok';
+      return op + ': FAILED' + (step.retry ? ' (will retry)' : '') +
+        ((step.errors && step.errors.length) ? '\n  ' + step.errors.join('\n  ') : '');
+    }
+    if (op === 'fallback' || op === 'template') {
+      return op + (step.to ? ' → ' + step.to : '') +
+        (step.reason ? ' (' + step.reason + ')' : '') +
+        (step.intent ? ' intent="' + step.intent + '"' : '') +
+        ((step.errors && step.errors.length) ? '\n  ' + step.errors.join('\n  ') : '');
+    }
+    if (op === 'keep_user') return op + ': ' + (step.reason || '');
+    try { return op + ': ' + JSON.stringify(step); }
+    catch (e) { return op; }
+  }
+
+  function _sugFillLogHtml(s) {
+    var log = s && s.fill_log;
+    if (!log || !log.steps || !log.steps.length) return '';
+    var lines = log.steps.map(_formatFillStep).join('\n');
+    var meta = [];
+    if (s.pattern_name) meta.push(s.pattern_name);
+    if (s.source) meta.push(s.source);
+    return '<details class="pl-sug-fill-log">' +
+      '<summary>Fill log' + (meta.length ? ' · ' + esc(meta.join(' · ')) : '') + '</summary>' +
+      '<pre class="pl-sug-fill-log-pre">' + esc(lines) + '</pre>' +
+      '</details>';
+  }
+
+  function _sugHasDetail(s) {
+    if (!s) return false;
+    var wt = (s.workout_type || '').toLowerCase();
+    if (wt === 'rest') return false;
+    if (Array.isArray(s.exercises) && s.exercises.length) return true;
+    if (Array.isArray(s.blocks) && s.blocks.length) return true;
+    // Stretch / simple pattern fills may set intent without exercise rows.
+    if (s._ai && s.intent) return true;
+    return false;
+  }
+
   function _buildSugRow(s, idx) {
     var wrap = document.createElement('div');
     wrap.className = 'pl-sug-row-wrap';
@@ -4811,6 +4944,8 @@ information about.
     var wt = (s.workout_type || 'rest').toLowerCase();
     var types = ['run', 'strength', 'plyo', 'stretch', 'rest'];
     var allowed = (_suggestionsData && _suggestionsData.facts && _suggestionsData.facts.allowed_offsets) || [0, 1, 2, 3, 4, 5, 6];
+    var hasDetail = _sugHasDetail(s);
+    var tssLabel = (s.target_tss != null && s.target_tss !== '') ? (s.target_tss + ' TSS') : '— TSS';
 
     wrap.innerHTML =
       '<div class="pl-sug-row">' +
@@ -4824,45 +4959,40 @@ information about.
           types.map(function (t) { return '<option value="' + t + '"' + (t === wt ? ' selected' : '') + '>' + t + '</option>'; }).join('') +
         '</select>' +
         (_SLOT_SUBTYPES[wt]
-          ? '<select class="pl-sug-subtype-select" data-idx="' + idx + '" title="Optional flavor — binding when the slot is filled with AI">' +
+          ? '<select class="pl-sug-subtype-select" data-idx="' + idx + '" title="Optional flavor — binding when the slot is filled from patterns">' +
               '<option value="">any</option>' +
               _SLOT_SUBTYPES[wt].map(function (t) { return '<option value="' + t + '"' + (t === s.subtype ? ' selected' : '') + '>' + t + '</option>'; }).join('') +
             '</select>'
           : '') +
         '<span class="pl-sug-meta pl-sug-meta-edit">' +
-          '<input type="number" class="pl-sug-tss-input" data-idx="' + idx + '" min="0" max="400" value="' + (s.target_tss || 0) + '" title="Slot TSS budget — AI fills content to match"/> TSS · ' +
-          '<input type="number" class="pl-sug-dur-input" data-idx="' + idx + '" min="0" max="600" step="5" value="' + (s.duration_minutes || 0) + '" title="Slot duration — AI fills content to match"/> min' +
+          '<span class="pl-sug-tss-label" title="Set by the week schedule / pattern fill">' + tssLabel + '</span> · ' +
+          '<input type="number" class="pl-sug-dur-input" data-idx="' + idx + '" min="0" max="600" step="5" value="' + (s.duration_minutes || 0) + '" title="Slot duration"/> min' +
         '</span>' +
-        '<span class="pl-sug-intent">' + (s.intent ? esc(s.intent) : '<span class="pl-sug-intent-empty">Not filled yet — ✨ generates the session</span>') + '</span>' +
+        '<span class="pl-sug-intent">' + (s.intent ? esc(s.intent) : '<span class="pl-sug-intent-empty">Not filled yet — use Fill from patterns</span>') + '</span>' +
         (wt !== 'rest'
           ? '<span class="pl-sug-adjust">' +
-              '<button type="button" class="pl-sug-gen" data-idx="' + idx + '" title="Generate this session’s content with AI — day/type/TSS/duration stay as set">✨ ' + (s._ai ? 'Regenerate' : 'Fill with AI') + '</button>' +
-              '<button type="button" class="pl-sug-adj" data-adj="lighter" data-idx="' + idx + '" title="Fewer sets/reps or shorter — not just a lower TSS number">▾ Lighter</button>' +
-              '<button type="button" class="pl-sug-adj" data-adj="harder" data-idx="' + idx + '" title="More sets/reps or longer — not just a higher TSS number">▴ Harder</button>' +
-              '<button type="button" class="pl-sug-refine-toggle" title="Regenerate this session with a note — e.g. change focus, faster intervals">✎ Refine</button>' +
+              '<button type="button" class="pl-sug-adj" data-adj="lighter" data-idx="' + idx + '" title="Lighter loads / fewer sets, or fewer interval repeats"' + (hasDetail ? '' : ' disabled') + '>▾ Lighter</button>' +
+              '<button type="button" class="pl-sug-adj" data-adj="harder" data-idx="' + idx + '" title="Heavier loads / more sets, or more interval repeats"' + (hasDetail ? '' : ' disabled') + '>▴ Harder</button>' +
+              '<button type="button" class="pl-sug-update" data-idx="' + idx + '" title="Re-fill from patterns using the current duration and subtype">↻ Update</button>' +
             '</span>' +
             (s._added
               ? '<button class="pl-sug-add added" type="button" disabled>✓ Added</button>'
-              : '<button class="pl-sug-add" type="button" data-idx="' + idx + '">Add</button>')
+              : '<button class="pl-sug-add" type="button" data-idx="' + idx + '"' +
+                  (hasDetail ? '' : ' disabled') +
+                  ' title="' + (hasDetail ? 'Add this session to the week draft' : 'Fill the session from patterns first') + '">Add</button>')
           : '') +
       '</div>' +
-      (wt !== 'rest'
-        ? '<div class="pl-sug-refine-panel" style="display:none;">' +
-            '<input type="text" class="pl-sug-refine-input" placeholder="e.g. change focus to posterior chain, faster intervals..."/>' +
-            '<button type="button" class="pl-sug-refine-go pl-btn pl-ghost">Regenerate</button>' +
-            '<span class="pl-sug-refine-status"></span>' +
-          '</div>'
-        : '') +
       (s.notes ? '<div class="pl-sug-notes-line">' + esc(s.notes) + '</div>' : '') +
       _sugExercisesHtml(wt !== 'rest' ? s.exercises : null) +
-      _sugBlocksHtml(wt === 'run' ? s.blocks : null);
+      _sugBlocksHtml(wt === 'run' ? s.blocks : null) +
+      _sugFillLogHtml(s);
 
     var typeSel = wrap.querySelector('.pl-sug-type-select');
     typeSel.addEventListener('change', function () {
       var prev = s.workout_type;
       s.workout_type = typeSel.value;
       if (typeSel.value === 'rest') { s.target_tss = 0; s.duration_minutes = 0; }
-      if (prev !== typeSel.value) { s.exercises = null; s.blocks = null; s._ai = false; s.subtype = null; }
+      if (prev !== typeSel.value) { s.exercises = null; s.blocks = null; s._ai = false; s.subtype = null; s.fill_log = null; s.pattern_name = null; s.source = null; }
       _renderSuggestions(_suggestionsData); // small list — cheap full re-render
     });
 
@@ -4870,6 +5000,9 @@ information about.
     if (subSel) {
       subSel.addEventListener('change', function () {
         s.subtype = subSel.value || null;
+        // Duration/subtype drive pattern fill — clear stale content until Update.
+        s.exercises = null; s.blocks = null; s._ai = false; s.intent = null; s.notes = null;
+        s.fill_log = null; s.pattern_name = null; s.source = null;
         _renderSuggestions(_suggestionsData);
       });
     }
@@ -4880,91 +5013,44 @@ information about.
       _renderSuggestions(_suggestionsData);
     });
 
-    var tssIn = wrap.querySelector('.pl-sug-tss-input');
-    tssIn.addEventListener('change', function () {
-      s.target_tss = Math.max(0, Math.min(400, parseInt(tssIn.value, 10) || 0));
-      _renderSuggestions(_suggestionsData);
-    });
     var durIn = wrap.querySelector('.pl-sug-dur-input');
     durIn.addEventListener('change', function () {
       s.duration_minutes = Math.max(0, Math.min(600, parseInt(durIn.value, 10) || 0));
+      s.exercises = null; s.blocks = null; s._ai = false; s.intent = null; s.notes = null;
+      s.fill_log = null; s.pattern_name = null; s.source = null;
       _renderSuggestions(_suggestionsData);
     });
 
-    var genBtn = wrap.querySelector('.pl-sug-gen');
-    if (genBtn) {
-      genBtn.addEventListener('click', function () {
-        genBtn.disabled = true;
-        genBtn.textContent = '… generating';
-        _generateSlot(s)
-          .then(function () { _renderSuggestions(_suggestionsData); })
-          .catch(function (e) {
-            genBtn.disabled = false;
-            genBtn.textContent = '✨ Retry';
-            genBtn.title = (e && e.message) || 'Could not generate — try again.';
-          });
-      });
-    }
-
     wrap.querySelectorAll('.pl-sug-adj').forEach(function (btn) {
       btn.addEventListener('click', function () {
+        if (!_sugHasDetail(s)) return;
         _adjustSession(s, btn.getAttribute('data-adj') === 'harder');
         _renderSuggestions(_suggestionsData);
       });
     });
 
     var addBtn = wrap.querySelector('.pl-sug-add');
-    if (addBtn) {
+    if (addBtn && !addBtn.disabled) {
       addBtn.addEventListener('click', function () {
+        if (!_sugHasDetail(s)) return;
         _addSuggestion(s, addBtn);
       });
     }
 
-    var refineToggle = wrap.querySelector('.pl-sug-refine-toggle');
-    var refinePanel = wrap.querySelector('.pl-sug-refine-panel');
-    if (refineToggle && refinePanel) {
-      refineToggle.addEventListener('click', function () {
-        var open = refinePanel.style.display === 'none';
-        refinePanel.style.display = open ? '' : 'none';
-        if (open) refinePanel.querySelector('.pl-sug-refine-input').focus();
-      });
-      var goBtn = refinePanel.querySelector('.pl-sug-refine-go');
-      var statusEl = refinePanel.querySelector('.pl-sug-refine-status');
-      goBtn.addEventListener('click', function () {
-        var note = refinePanel.querySelector('.pl-sug-refine-input').value.trim();
-        if (!note) { statusEl.textContent = 'Add a note first'; return; }
-        goBtn.disabled = true; statusEl.textContent = 'Regenerating…';
-        // Raw fetch, not _api() — that helper lives in the OTHER closure (the
-        // main Plan-tab module above) and isn't reachable from here; this
-        // closure's own convention is plain fetch (see _addSuggestion).
-        fetch('/api/plan/suggestions/session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            date: _formatSugDate(s.day_offset),
-            workout_type: s.workout_type,
-            note: note,
-            current_session: s,
-            target_tss: s.target_tss || null,
-            duration_minutes: s.duration_minutes || null,
-            subtype: s.subtype || null,
-          }),
-        })
-          .then(function (r) {
-            return r.json().then(function (d) {
-              if (!r.ok) throw new Error((d && d.detail) || ('HTTP ' + r.status));
-              return d;
-            });
-          })
-          .then(function (data) {
-            data.session._ai = true;
-            _suggestionsData.suggestions[idx] = data.session;
-            _renderSuggestions(_suggestionsData); // small list — cheap full re-render
-          })
-          .catch(function (e) {
-            statusEl.textContent = e.message || 'Could not regenerate — try again.';
-            goBtn.disabled = false;
-          });
+    var updateBtn = wrap.querySelector('.pl-sug-update');
+    if (updateBtn) {
+      updateBtn.addEventListener('click', function () {
+        updateBtn.disabled = true;
+        updateBtn.textContent = '…';
+        _generateSlot(s).then(function () {
+          _renderSuggestions(_suggestionsData);
+        }).catch(function (e) {
+          updateBtn.disabled = false;
+          updateBtn.textContent = '↻ Update';
+          if (window.UIStates && window.UIStates.showToast) {
+            window.UIStates.showToast(e.message || 'Update failed', true);
+          }
+        });
       });
     }
     return wrap;
@@ -5485,8 +5571,9 @@ information about.
   }
 
   // ── Rail 2: per-slot content generation ─────────────────────────────────────
-  // Keeps the slot's own day/type/TSS/duration authoritative — only the
-  // content fields (intent/notes/exercises/blocks) come from the LLM.
+  // Keeps the slot's own day/type/TSS/duration authoritative — content
+  // (intent/notes/exercises/blocks) comes from deterministic pattern fill
+  // (POST /api/plan/suggestions/session → plan_pattern_fill). No LLM.
   function _generateSlot(s, statusEl) {
     return fetch('/api/plan/suggestions/session', {
       method: 'POST',
@@ -5512,33 +5599,19 @@ information about.
         s.notes = g.notes || s.notes;
         s.exercises = g.exercises || null;
         s.blocks = g.blocks || null;
-        s._ai = true;
+        s.source = g.source || s.source || null;
+        s.pattern_name = g.pattern_name || null;
+        s.fill_log = g.fill_log || null;
+        s._ai = true; // "filled" flag (name is historical; content is pattern-based)
       });
   }
 
-  // Sequential, not parallel — Groq's free tier enforces a per-minute token
-  // budget that a burst of slots blows through instantly (observed: first
-  // slot fills, every later one 429s). The backend now sleeps out Groq's
-  // "try again in Ns" hint once per call, so each slot can take up to a
-  // minute or so — the progress label carries that.
-  // True while a fill-all chain is in flight: the fill button renders
-  // disabled (no duplicate concurrent chains against the rate-limited
-  // provider) and _renderSuggestions leaves the progress overlay alone (any
-  // unrelated re-render used to hide it mid-chain).
+  // True while a fill-all chain is in flight: the fill button renders disabled
+  // and _renderSuggestions leaves the progress overlay alone.
   var _fillAllRunning = false;
-  // Persists across re-renders within the session (not saved) — lets the
-  // athlete exclude 'run' slots from the AI fill chain, since they're the
-  // most numerous slot type and the first to exhaust a per-minute LLM budget.
+  // Persists across re-renders within the session (not saved) — exclude run
+  // slots from bulk pattern fill when the athlete only wants strength/plyo.
   var _skipRunFill = false;
-  // Extra pause between slots, on TOP of the backend's own 429 sleep-retry —
-  // spaces out the burst pre-emptively instead of reacting to it after the
-  // fact, so a small provider budget (e.g. Cerebras trial tier) is less
-  // likely to be exhausted mid-chain.
-  var _FILL_SLOT_DELAY_MS = 3000;
-
-  function _delay(ms) {
-    return new Promise(function (resolve) { setTimeout(resolve, ms); });
-  }
 
   function _fillableSlots() {
     return (_suggestionsData.suggestions || []).filter(function (s) {
@@ -5555,29 +5628,23 @@ information about.
     var loading = _el('plan-suggestions-loading');
     var label = loading ? loading.querySelector('span') : null;
     if (loading) loading.style.display = '';
+    if (label) {
+      label.textContent = 'Filling ' + slots.length + ' session' +
+        (slots.length === 1 ? '' : 's') + ' from patterns…';
+    }
     var done = 0, failed = 0;
-    var chain = Promise.resolve();
-    slots.forEach(function (s, i) {
-      chain = chain.then(function () {
-        return i > 0 ? _delay(_FILL_SLOT_DELAY_MS) : Promise.resolve();
-      }).then(function () {
-        if (loading) loading.style.display = ''; // survive interim re-renders
-        if (label) {
-          label.textContent = 'Filling session ' + (done + failed + 1) + ' of ' + slots.length +
-            '… (the AI provider rate-limits — a slot can take up to a minute)';
-        }
-        return _generateSlot(s).then(
-          function () { done++; },
-          function () { failed++; /* keep going; row keeps its blank slot */ }
-        );
-      });
-    });
-    chain.then(function () {
+    // Pattern fill is sync DB work — no provider rate limit. Run in parallel.
+    Promise.all(slots.map(function (s) {
+      return _generateSlot(s).then(
+        function () { done++; },
+        function () { failed++; }
+      );
+    })).then(function () {
       _fillAllRunning = false;
       if (loading) loading.style.display = 'none';
       _suggestionsData._fillNote = failed
-        ? 'Filled ' + done + ' of ' + slots.length + ' — the AI provider rate-limited the rest. ' +
-          'Wait a minute and press Fill from patterns again; already-filled sessions are kept.'
+        ? 'Filled ' + done + ' of ' + slots.length +
+          ' — ' + failed + ' failed. Already-filled sessions are kept; try Fill from patterns again.'
         : '';
       _renderSuggestions(_suggestionsData);
     });
@@ -5661,10 +5728,9 @@ information about.
     var days = _nestedGet(p, 'rest_days') || [];
     _lastPrefs.restDays = days.map(Number).filter(function (d) { return d >= 0 && d <= 6; });
     _lastPrefs.strengthEmphasis = _nestedGet(p, 'strength_emphasis') || 'same';
-    _lastPrefs.plyoMode = _nestedGet(p, 'plyo_mode') || 'off';
+    _lastPrefs.plyoMode = _nestedGet(p, 'plyo_mode') || 'standalone';
     _lastPrefs.plyoSessions = Number(_nestedGet(p, 'plyo_sessions_per_week') || 0);
     _lastPrefs.mpSegmentMin = Number(_nestedGet(p, 'long_run.mp_segment_min') || 0);
-    _lastPrefs.notes = _nestedGet(p, 'notes') || '';
     _habitTargets = data.habit_targets || null;
     // Pending proposals only. GET /api/preferences returns settled ones too
     // (include_settled=True); accepted/declined are history, and a decision
@@ -5681,7 +5747,7 @@ information about.
       plyo_mode: _lastPrefs.plyoMode || 'off',
       plyo_sessions_per_week: Number(_lastPrefs.plyoSessions) || 0,
       long_run: { mp_segment_min: Number(_lastPrefs.mpSegmentMin) || 0 },
-      notes: _lastPrefs.notes || '',
+      notes: '',
     };
   }
 
@@ -5696,8 +5762,6 @@ information about.
     if (ps) _lastPrefs.plyoSessions = Number(ps.value) || 0;
     var mp = _el('pl-sug-mp-segment');
     if (mp) _lastPrefs.mpSegmentMin = Number(mp.value) || 0;
-    var notes = _el('pl-sug-notes');
-    if (notes) _lastPrefs.notes = notes.value || '';
   }
 
   function _saveTrainingPrefs() {
@@ -5758,180 +5822,6 @@ information about.
       return field + ': ' + d.from + ' → ' + d.to;
     }
     return field || JSON.stringify(d);
-  }
-
-  // ── Prefs importer ─────────────────────────────────────────────────────────
-  //
-  // The consult prompt (coach_export.CONSULT_TEMPLATE) tells the pasted-into
-  // Claude session: "If a prefs change is involved, also give me the JSON patch
-  // to paste into the prefs importer." No importer existed (issue #1608), so
-  // every consult touching a preference handed the athlete instructions for a
-  // feature that wasn't there — and they hand-translated it into Settings.
-  //
-  // MERGE, NOT REPLACE. This is the safety property of the whole feature.
-  // training_prefs.write_version stores `payload=normalized` wholesale with no
-  // merge against the previous version, so PUTting a partial patch would wipe
-  // every field the patch omits. A consult produces a PATCH ("plyo 0 -> 1"),
-  // never a full document. So the patch is merged onto the current payload here
-  // and the merged result is sent.
-
-  var _importPreview = null;   // {patch, merged, changes:[{key, from, to}]}
-
-  function _flatten(obj, prefix, out) {
-    out = out || {};
-    prefix = prefix || '';
-    Object.keys(obj || {}).forEach(function (k) {
-      var v = obj[k];
-      var key = prefix ? prefix + '.' + k : k;
-      if (v && typeof v === 'object' && !Array.isArray(v)) _flatten(v, key, out);
-      else out[key] = v;
-    });
-    return out;
-  }
-
-  function _deepMerge(base, patch) {
-    var out = JSON.parse(JSON.stringify(base || {}));
-    Object.keys(patch || {}).forEach(function (k) {
-      var v = patch[k];
-      if (v && typeof v === 'object' && !Array.isArray(v) &&
-          out[k] && typeof out[k] === 'object' && !Array.isArray(out[k])) {
-        out[k] = _deepMerge(out[k], v);
-      } else {
-        out[k] = v;
-      }
-    });
-    return out;
-  }
-
-  function _diffPayloads(before, after) {
-    var a = _flatten(before), b = _flatten(after), changes = [];
-    Object.keys(b).forEach(function (k) {
-      var was = JSON.stringify(a[k]), now = JSON.stringify(b[k]);
-      if (was !== now) changes.push({ key: k, from: a[k], to: b[k] });
-    });
-    return changes;
-  }
-
-  function _fmtVal(v) {
-    if (v === undefined) return 'unset';
-    if (Array.isArray(v)) return v.length ? v.join(', ') : 'none';
-    return String(v);
-  }
-
-  function _importerHtml() {
-    return (
-      '<div class="pl-sug-prefs-row pl-import-block" style="align-items:start;">' +
-        '<label class="pl-sug-prefs-label" for="pl-import-json">From a consult</label>' +
-        '<div class="pl-import">' +
-          '<textarea id="pl-import-json" class="pl-import-ta" rows="3" ' +
-            'placeholder=\'Paste the JSON patch from your consult, e.g. {"plyo_sessions_per_week": 1}\'></textarea>' +
-          '<div class="pl-import-actions">' +
-            '<button type="button" class="pl-btn pl-ghost" id="pl-import-preview">Preview change</button>' +
-            '<button type="button" class="pl-btn pl-lime" id="pl-import-apply" hidden>Apply</button>' +
-            '<button type="button" class="pl-btn pl-ghost" id="pl-import-cancel" hidden>Cancel</button>' +
-          '</div>' +
-          '<div class="pl-import-out" id="pl-import-out" hidden></div>' +
-        '</div>' +
-      '</div>'
-    );
-  }
-
-  function _bindImporter(host) {
-    var ta = _el('pl-import-json');
-    var previewBtn = _el('pl-import-preview');
-    var applyBtn = _el('pl-import-apply');
-    var cancelBtn = _el('pl-import-cancel');
-    var out = _el('pl-import-out');
-    if (!ta || !previewBtn || !out) return;
-
-    function show(html, isError) {
-      out.hidden = false;
-      out.className = 'pl-import-out' + (isError ? ' is-error' : '');
-      out.innerHTML = html;
-    }
-
-    function reset() {
-      _importPreview = null;
-      applyBtn.hidden = true;
-      cancelBtn.hidden = true;
-      out.hidden = true;
-      out.innerHTML = '';
-    }
-
-    cancelBtn.addEventListener('click', function () { reset(); ta.value = ''; });
-
-    previewBtn.addEventListener('click', function () {
-      var raw = (ta.value || '').trim();
-      if (!raw) { show('Paste the JSON patch first.', true); return; }
-      var patch;
-      try {
-        patch = JSON.parse(raw);
-      } catch (e) {
-        show('That is not valid JSON — ' + esc(e.message) + '.', true);
-        return;
-      }
-      if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
-        show('Expected a JSON object, e.g. {"plyo_sessions_per_week": 1}.', true);
-        return;
-      }
-      // Merge onto CURRENT prefs. Never send the patch alone — the API replaces
-      // the whole payload, so a bare patch would erase everything it omits.
-      var current = _collectTrainingPrefsPayload();
-      var merged = _deepMerge(current, patch);
-      var changes = _diffPayloads(current, merged);
-      if (!changes.length) {
-        show('Nothing to change — those values are already set.', false);
-        applyBtn.hidden = true;
-        cancelBtn.hidden = false;
-        return;
-      }
-      _importPreview = { patch: patch, merged: merged, changes: changes };
-      show(
-        '<div class="pl-import-title">' + changes.length +
-          ' change' + (changes.length === 1 ? '' : 's') + ' to apply</div>' +
-        changes.map(function (c) {
-          return '<div class="pl-import-row"><code>' + esc(c.key) + '</code> ' +
-            esc(_fmtVal(c.from)) + ' → <b>' + esc(_fmtVal(c.to)) + '</b></div>';
-        }).join(''),
-        false
-      );
-      applyBtn.hidden = false;
-      cancelBtn.hidden = false;
-    });
-
-    applyBtn.addEventListener('click', function () {
-      if (!_importPreview) return;
-      applyBtn.disabled = true;
-      fetch('/api/preferences', {
-        method: 'PUT',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ payload: _importPreview.merged }),
-      })
-        .then(function (r) {
-          return r.json().then(function (body) {
-            if (!r.ok) return Promise.reject(body);
-            return body;
-          });
-        })
-        .then(function () {
-          ta.value = '';
-          reset();
-          // Re-fetch so the form shows what the server actually stored, not
-          // what we hoped it would store.
-          _renderPrefsForm();
-          _toast('Preferences updated from consult');
-        })
-        .catch(function (body) {
-          applyBtn.disabled = false;
-          var msg = 'Apply failed';
-          if (body && body.detail) {
-            msg = typeof body.detail === 'string'
-              ? body.detail : JSON.stringify(body.detail, null, 2);
-          }
-          show(esc(msg), true);
-        });
-    });
   }
 
   // "Adjust..." asks for a custom value via window.prompt() and both the
@@ -6084,43 +5974,38 @@ information about.
             '<label class="pl-sug-prefs-label">Rest days</label>' +
             '<div class="pl-sug-daychks">' + dayChecks + '</div>' +
           '</div>' +
-          '<div class="pl-sug-prefs-row">' +
+          '<div class="pl-sug-prefs-row pl-sug-prefs-row--inline">' +
             '<label class="pl-sug-prefs-label" for="pl-sug-strength-count">Strength sessions</label>' +
             '<span class="pl-sug-count-wrap"><input id="pl-sug-strength-count" class="pl-sug-count" type="number" min="0" max="7" step="1" placeholder="auto" value="' + esc(_lastPrefs.strengthSessions) + '"/>' +
-            '<span class="pl-sug-count-hint">blank = match your recent weeks</span></span>' +
+            '<span class="pl-sug-count-hint">blank = recent weeks</span></span>' +
           '</div>' +
           '<div class="pl-sug-prefs-extra">' +
-            '<div class="pl-sug-prefs-row">' +
+            '<div class="pl-sug-prefs-row pl-sug-prefs-row--inline">' +
               '<label class="pl-sug-prefs-label" for="pl-sug-strength-emphasis">Strength emphasis</label>' +
-              '<select id="pl-sug-strength-emphasis">' +
+              '<select id="pl-sug-strength-emphasis" class="pl-sug-select">' +
                 ['less', 'same', 'more'].map(function (v) {
                   return '<option value="' + v + '"' + (_lastPrefs.strengthEmphasis === v ? ' selected' : '') + '>' + v + '</option>';
                 }).join('') +
               '</select>' +
             '</div>' +
-            '<div class="pl-sug-prefs-row">' +
+            '<div class="pl-sug-prefs-row pl-sug-prefs-row--inline">' +
               '<label class="pl-sug-prefs-label" for="pl-sug-plyo-mode">Plyo mode</label>' +
-              '<select id="pl-sug-plyo-mode">' +
+              '<select id="pl-sug-plyo-mode" class="pl-sug-select">' +
                 ['standalone', 'superset', 'off'].map(function (v) {
                   return '<option value="' + v + '"' + (_lastPrefs.plyoMode === v ? ' selected' : '') + '>' + v + '</option>';
                 }).join('') +
               '</select>' +
             '</div>' +
-            '<div class="pl-sug-prefs-row">' +
-              '<label class="pl-sug-prefs-label" for="pl-sug-plyo-sessions">Plyo sessions / week</label>' +
+            '<div class="pl-sug-prefs-row pl-sug-prefs-row--inline">' +
+              '<label class="pl-sug-prefs-label" for="pl-sug-plyo-sessions">Plyo / week</label>' +
               '<input id="pl-sug-plyo-sessions" type="number" min="0" max="2" step="1" value="' + esc(_lastPrefs.plyoSessions) + '"/>' +
             '</div>' +
-            '<div class="pl-sug-prefs-row">' +
-              '<label class="pl-sug-prefs-label" for="pl-sug-mp-segment">Long-run MP segment (min)</label>' +
+            '<div class="pl-sug-prefs-row pl-sug-prefs-row--inline">' +
+              '<label class="pl-sug-prefs-label" for="pl-sug-mp-segment">Long-run MP (min)</label>' +
               '<input id="pl-sug-mp-segment" type="number" min="0" max="30" step="10" value="' + esc(_lastPrefs.mpSegmentMin) + '"/>' +
-            '</div>' +
-            '<div class="pl-sug-prefs-row" style="align-items:start;">' +
-              '<label class="pl-sug-prefs-label" for="pl-sug-notes">Notes</label>' +
-              '<textarea id="pl-sug-notes" class="pl-sug-prefs-notes" maxlength="200">' + esc(_lastPrefs.notes) + '</textarea>' +
             '</div>' +
           '</div>' +
           _proposalsHtml() +
-          _importerHtml() +
           '<div class="pl-sug-habits">' + habitsLine + '</div>' +
           '<div class="pl-sug-prefs-err" id="pl-sug-prefs-err" hidden></div>' +
           '<div class="pl-btnrow" style="margin-top:12px;">' +
@@ -6135,8 +6020,6 @@ information about.
       '</div>';
 
     _bindProposalActions(host);
-    _bindImporter(host);
-
     host.querySelectorAll('[data-restday]').forEach(function (chk) {
       chk.addEventListener('change', function () {
         var off = +chk.getAttribute('data-restday');

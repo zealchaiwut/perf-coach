@@ -102,31 +102,6 @@
         border-bottom: none;
       }
 
-      .log-page-header-info {
-        min-width: 0;
-      }
-
-      .log-page-title {
-        margin: 0 0 2px;
-        font-size: 18px;
-        font-weight: 700;
-        letter-spacing: -0.02em;
-        line-height: 1.1;
-        color: #fff;
-        text-shadow: 0 1px 8px rgba(0, 0, 0, 0.15);
-      }
-
-      .log-subtitle {
-        margin: 0;
-        font-size: 11px;
-        color: rgba(255, 255, 255, 0.72);
-      }
-
-      .log-subtitle strong {
-        color: #fff;
-        font-weight: 600;
-      }
-
       .log-page-header-actions {
         display: flex;
         align-items: center;
@@ -194,19 +169,12 @@
         cursor: not-allowed;
       }
 
-      /* ── Mobile: keep the action buttons on the title row (icon-only). ── */
+      /* ── Mobile: keep the action buttons on the same row (icon-only). ── */
       @media (max-width: 640px) {
         .log-page-header {
           flex-wrap: nowrap;
           align-items: center;
           gap: 8px;
-        }
-        .log-page-title {
-          font-size: 20px;
-          margin-bottom: 2px;
-        }
-        .log-subtitle {
-          font-size: 12px;
         }
         .log-page-header-actions {
           flex-wrap: nowrap;
@@ -1742,16 +1710,12 @@
 
       /* ── Responsive: list ≤ 1023px (tablet/desktop boundary) ── */
       @media (max-width: 1023px) {
-        /* Keep the action buttons on the title row, pushed to the right. */
+        /* Keep the action buttons on the same row, pushed to the right. */
         .log-page-header {
           flex-direction: row;
           align-items: center;
           flex-wrap: nowrap;
           gap: 8px;
-        }
-        .log-page-header-info {
-          flex: 1;
-          min-width: 0;
         }
         .log-page-header-actions {
           margin-left: auto;
@@ -4075,13 +4039,9 @@
   </head>
   <body>
     <main class="log-page">
-      <!-- Page header: title, stats subtitle, action buttons -->
+      <!-- Page header: sub-tabs + action buttons -->
       <header class="log-page-header">
         <div class="log-page-header-inner">
-        <div class="log-page-header-info">
-          <h1 class="log-page-title">Training</h1>
-          <p id="log-subtitle" class="log-subtitle"></p>
-        </div>
         <nav
           class="training-sub-tabs"
           id="training-sub-tabs"
@@ -4196,15 +4156,6 @@
               </div>
             </div>
           </div>
-          <button
-            id="log-export-btn"
-            class="btn-secondary"
-            type="button"
-            title="Export the visible training log as CSV"
-          >
-            <i class="ti ti-download" aria-hidden="true"></i>
-            <span class="btn-label">Export CSV</span>
-          </button>
           <button
             id="log-removed-btn"
             class="btn-secondary"
@@ -4479,25 +4430,6 @@
           </div>
 
           <p class="lp-empty" id="wl-empty" hidden>Set a goal race to generate a weekly target.</p>
-        </div>
-      </div>
-      <!-- What to improve — above the week schedule -->
-      <div class="plan-merged">
-        <div class="pm-card" id="gap-panel">
-          <div class="pm-ckhead">
-            <h2 class="pm-sectitle">What to improve</h2>
-            <span class="perf-tag" id="gap-panel-week"></span>
-          </div>
-          <div id="gap-panel-loading" class="gap-loading">Loading…</div>
-          <div id="gap-panel-findings" hidden></div>
-          <div id="gap-panel-empty" class="gap-empty" hidden>
-            No gaps flagged this week.
-          </div>
-          <div id="gap-panel-error" class="gap-error" hidden>
-            Could not load recommendations.
-          </div>
-          <div id="gap-panel-skipped" class="gap-skipped" hidden></div>
-          <div id="gap-panel-muted" hidden></div>
         </div>
       </div>
       <div id="plan-week-section"></div>
@@ -4878,190 +4810,6 @@
         align-items: stretch;
       }
       .plan-merged .pm-row2 > .pm-card { min-width: 0; }
-
-      /* ── What to improve panel (issue #1374) ──────────────────────────── */
-      .gap-loading {
-        font-size: 13px;
-        color: var(--text-sub);
-        padding: 8px 0 4px;
-      }
-      .gap-empty {
-        font-size: 13px;
-        color: var(--text-sub);
-        padding: 8px 0 4px;
-      }
-      .gap-error {
-        font-size: 13px;
-        color: var(--danger);
-        padding: 8px 0 4px;
-      }
-      .gap-skipped {
-        font-size: 11px;
-        color: var(--text-sub);
-        margin-top: 12px;
-        padding-top: 10px;
-        border-top: 1px solid var(--border);
-      }
-      #gap-panel-findings {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        margin-top: 10px;
-      }
-      .gap-finding {
-        border-radius: 10px;
-        padding: 12px 14px;
-        background: var(--tile);
-      }
-      .gap-finding--sev3 { --gap-accent: var(--danger); background: var(--danger-soft); }
-      .gap-finding--sev2 { --gap-accent: var(--warning); background: var(--warning-soft); }
-      .gap-finding--sev1 { --gap-accent: var(--border); }
-      .gap-finding-headline {
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--ink);
-        margin: 0 0 4px;
-        line-height: 1.35;
-      }
-      /* Severity indicator: a small dot ahead of the headline instead of a
-         border-left stripe on the whole card. */
-      .gap-finding-headline::before {
-        content: "";
-        display: inline-block;
-        width: 7px;
-        height: 7px;
-        margin-right: 7px;
-        margin-top: -2px;
-        border-radius: 50%;
-        background: var(--gap-accent, var(--border));
-        vertical-align: middle;
-      }
-      .gap-finding--sev1 .gap-finding-headline { color: var(--text-sub); }
-      .gap-finding-evidence {
-        font-size: 12px;
-        color: var(--text-sub);
-        margin: 0;
-        line-height: 1.45;
-      }
-      .gap-finding-preset {
-        font-size: 11px;
-        font-weight: 600;
-        color: #047857;
-        margin: 4px 0 0;
-      }
-      /* Add-to-plan footer (issue #1376) */
-      .gap-finding-footer {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        flex-wrap: wrap;
-        margin-top: 8px;
-      }
-      .gap-finding-footer .gap-feedback-controls {
-        margin-top: 0;
-        margin-left: auto;
-      }
-      .gap-atp-btn {
-        font-size: 11px;
-        font-weight: 600;
-        color: var(--ink);
-        background: transparent;
-        border: 1px solid var(--gap-accent, var(--border));
-        border-radius: 6px;
-        padding: 4px 10px;
-        cursor: pointer;
-        white-space: nowrap;
-        transition: background 0.12s, opacity 0.12s;
-      }
-      .gap-atp-btn:hover:not(:disabled) { background: rgba(0,0,0,0.05); }
-      .gap-atp-btn:disabled, .gap-atp-btn--disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-      }
-      .gap-atp-status {
-        font-size: 11px;
-        color: var(--text-sub);
-      }
-      .gap-atp-picker {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        margin-left: 4px;
-      }
-      .gap-atp-date {
-        font-size: 11px;
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        padding: 3px 6px;
-        background: var(--tile);
-        color: var(--ink);
-      }
-      .gap-atp-confirm {
-        font-size: 11px;
-        font-weight: 600;
-        background: var(--primary);
-        color: #fff;
-        border: none;
-        border-radius: 6px;
-        padding: 4px 10px;
-        cursor: pointer;
-      }
-      .gap-atp-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
-
-      /* Accept / dismiss feedback controls (issue #1377) */
-      .gap-feedback-controls {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        margin-top: 8px;
-      }
-      .gap-fb-btn {
-        font-size: 11px;
-        font-weight: 500;
-        background: transparent;
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        padding: 3px 9px;
-        cursor: pointer;
-        color: var(--text-sub);
-        transition: background 0.12s, color 0.12s;
-      }
-      .gap-fb-btn:hover:not(:disabled) { background: rgba(0,0,0,0.05); color: var(--ink); }
-      .gap-fb-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-      .gap-fb-accept { border-color: var(--success); color: var(--success); }
-      .gap-fb-restore { font-size: 10px; }
-      .gap-finding--accepted { opacity: 0.72; }
-      .gap-no-active { font-size: 12px; color: var(--text-sub); margin: 6px 0 0; }
-      /* Muted section */
-      #gap-panel-muted { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
-      .gap-muted-toggle {
-        font-size: 11px;
-        font-weight: 600;
-        color: var(--text-sub);
-        background: transparent;
-        border: none;
-        cursor: pointer;
-        padding: 2px 0;
-      }
-      .gap-muted-toggle:hover { color: var(--ink); }
-      .gap-muted-list { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
-      .gap-muted-row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 5px 8px;
-        border-radius: 6px;
-        background: var(--tile);
-      }
-      .gap-muted-label {
-        font-size: 12px;
-        color: var(--text-sub);
-        flex: 1;
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
 
       /* ── Muscle balance card (issue #1382) ──────────────────────────────── */
       .mbal-loading, .mbal-empty, .mbal-error {
@@ -6000,6 +5748,8 @@
         align-items: flex-end;
         gap: 3px;
         height: 170px;
+        padding-top: 16px; /* room for ▼ sitting on top of tall deload bars */
+        box-sizing: content-box;
         border-bottom: 1px solid var(--border);
       }
       .plan-merged .lp-bar-col {
@@ -6010,6 +5760,7 @@
         justify-content: flex-end;
         align-items: stretch;
         height: 100%;
+        overflow: visible;
       }
       .plan-merged .lp-bar {
         min-height: 34px;
@@ -6076,21 +5827,38 @@
       .plan-merged .lp-bar.is-clamped {
         border-top: 3px solid var(--warning) !important;
       }
-      /* Deload week ("cut 30% every 4th week"): a dashed outline so it reads
-         as an intentional down week, not a data gap or a clamp. Applies to
-         both future target bars and prior actual bars on the same cycle. */
+      /* Deload week: greyscale bar + large ▼ above the column (not inline
+         with the TSS number). Reads as intentional recovery, not a clamp. */
       .plan-merged .lp-bar.is-deload {
-        outline: 2px dashed var(--text-sub);
-        outline-offset: -2px;
+        outline: none;
+        border-color: #9ca3af !important;
+        background: #e5e7eb !important;
+        border-style: solid;
+        position: relative;
+        overflow: visible;
       }
-      .plan-merged .lp-bar.actual.is-deload .lp-deload-mark {
-        color: #fff;
-        opacity: 0.9;
+      .plan-merged .lp-bar.target.is-deload .lp-bar-value,
+      .plan-merged .lp-bar.actual.is-deload .lp-bar-value {
+        color: #4b5563 !important;
       }
-      .plan-merged .lp-deload-mark {
-        margin-left: 2px;
-        font-size: 8px;
-        opacity: 0.75;
+      .plan-merged .lp-bar.actual.is-deload {
+        background: #9ca3af !important;
+      }
+      .plan-merged .lp-bar.actual.is-deload .lp-bar-value {
+        color: #fff !important;
+      }
+      .plan-merged .lp-deload-arrow {
+        position: absolute;
+        top: -15px;
+        left: 0;
+        right: 0;
+        font-size: 15px;
+        line-height: 1;
+        font-weight: 800;
+        color: #6b7280;
+        text-align: center;
+        pointer-events: none;
+        letter-spacing: -0.02em;
       }
       .plan-merged .lp-bar-col.is-this-week .lp-bar {
         box-shadow: 0 0 0 2px var(--ink);
@@ -7655,19 +7423,6 @@
       gap: 22px;
       flex-wrap: wrap;
     }
-    .log-page-header-info .log-page-title {
-      font-size: 17px;
-      font-weight: 800;
-      color: #fff;
-      letter-spacing: -0.02em;
-      margin: 0;
-    }
-    .log-page-header-info .log-subtitle {
-      font-size: 11px;
-      color: rgba(255, 255, 255, 0.6);
-      font-family: var(--mono);
-      margin: 0;
-    }
     .log-page-header .training-sub-tabs {
       display: flex;
       gap: 4px;
@@ -8224,12 +7979,6 @@
         padding: 12px 14px 14px;
         column-gap: 10px;
         row-gap: 14px;
-      }
-      .log-page-header-info {
-        order: 1;
-        flex: 1 1 0;
-        min-width: 0;
-        padding-right: 6px;
       }
       .log-nav-spacer {
         display: none;
@@ -9438,7 +9187,7 @@
     <script src="js/training-log.js?v=20260717ae"></script>
     <script src="js/training-performance.js?v=20260720draft1"></script>
     <script src="js/lib/plan-session-helpers.js?v=20260720sm1"></script>
-    <script src="js/training-plan.js?v=20260720draft6"></script>
+    <script src="js/training-plan.js?v=20260804deload2"></script>
     <script src="js/user.js"></script>
     <script src="js/env.js"></script>
     <script>

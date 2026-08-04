@@ -87,6 +87,15 @@ def default_strength_patterns() -> list[dict[str, Any]]:
         {"key": "accessories", "label": "Accessories", "time_share": 0.10, "tss_share": 0.08, "pick": {"n": 2, "from_tags": ["accessories"]}},
         {"key": "cooldown", "label": "Stretch", "time_share": 0.08, "tss_share": 0.04, "pick": {"n": 1, "from_tags": ["cooldown"]}},
     ]
+    # Light = maintenance / recovery-friendly: no heavy compound. Bodyweight,
+    # low-impact plyo, and isometrics keep the session useful without loading.
+    groups_light = [
+        {"key": "warmup", "label": "Warm-up", "time_share": 0.15, "tss_share": 0.10, "pick": {"n": 2, "from_tags": ["warmup"]}},
+        {"key": "bodyweight", "label": "Bodyweight", "time_share": 0.28, "tss_share": 0.30, "pick": {"n": 2, "from_tags": ["bodyweight"]}},
+        {"key": "plyo", "label": "Plyometrics", "time_share": 0.22, "tss_share": 0.25, "pick": {"n": 2, "from_tags": ["plyo"]}},
+        {"key": "isometric", "label": "Isometrics", "time_share": 0.22, "tss_share": 0.25, "pick": {"n": 2, "from_tags": ["isometric"]}},
+        {"key": "cooldown", "label": "Stretch", "time_share": 0.13, "tss_share": 0.10, "pick": {"n": 1, "from_tags": ["cooldown"]}},
+    ]
     out = []
     for subtype, primary, name in (
         ("strength_lower", "lower", "Lower body strength"),
@@ -95,8 +104,10 @@ def default_strength_patterns() -> list[dict[str, Any]]:
         ("strength_light", "full", "Light strength / maintenance"),
     ):
         bias = {"primary": 0.8, "accessory": 0.2, "primary_tag": primary}
+        groups = groups_std
         if subtype == "strength_light":
-            bias = {"primary": 0.6, "accessory": 0.4, "primary_tag": "full"}
+            bias = {"primary": 0.5, "accessory": 0.5, "primary_tag": "full"}
+            groups = groups_light
         out.append({
             "kind": "strength",
             "subtype": subtype,
@@ -106,8 +117,11 @@ def default_strength_patterns() -> list[dict[str, Any]]:
             "priority": 10,
             "recipe": {
                 "intent_template": name,
-                "notes_template": None,
-                "groups": groups_std,
+                "notes_template": (
+                    "Keep loads easy — bodyweight, light plyo, and holds only."
+                    if subtype == "strength_light" else None
+                ),
+                "groups": groups,
                 "focus_bias": bias,
             },
         })
@@ -130,12 +144,12 @@ def default_exercises() -> list[dict[str, Any]]:
 
     return [
         # warmups
-        ex("Bodyweight squat", ["warmup"], ["lower", "full"], [{"part": "quad", "ratio": 0.6}, {"part": "glute", "ratio": 0.4}], 2, "15", "bodyweight", 0.5),
+        ex("Bodyweight squat", ["warmup", "bodyweight"], ["lower", "full"], [{"part": "quad", "ratio": 0.6}, {"part": "glute", "ratio": 0.4}], 2, "15", "bodyweight", 0.5),
         ex("Spiderman lunge w/ rotation", ["warmup"], ["lower", "full"], [{"part": "hip_flexor", "ratio": 0.5}, {"part": "glute", "ratio": 0.5}], 1, "8", "bodyweight", 0.4),
         ex("Lateral band walk", ["warmup"], ["lower"], [{"part": "glute", "ratio": 0.8}, {"part": "hip", "ratio": 0.2}], 2, "15", "light band", 0.5),
         ex("Arm circles + band pull-apart", ["warmup"], ["upper", "full"], [{"part": "shoulder", "ratio": 0.7}, {"part": "upper_back", "ratio": 0.3}], 1, "15", "light band", 0.4),
-        ex("Scapular push-up", ["warmup"], ["upper"], [{"part": "chest", "ratio": 0.4}, {"part": "shoulder", "ratio": 0.6}], 2, "10", "bodyweight", 0.4),
-        # heavy compounds
+        ex("Scapular push-up", ["warmup", "bodyweight"], ["upper"], [{"part": "chest", "ratio": 0.4}, {"part": "shoulder", "ratio": 0.6}], 2, "10", "bodyweight", 0.4),
+        # heavy compounds (full / lower / upper — never used by strength_light)
         ex("Back squat", ["heavy_compound"], ["lower", "full"], [{"part": "quad", "ratio": 0.55}, {"part": "glute", "ratio": 0.35}, {"part": "core", "ratio": 0.1}], 4, "8", "moderate", 1.5),
         ex("Romanian deadlift", ["heavy_compound", "superset"], ["lower", "full"], [{"part": "hamstring", "ratio": 0.5}, {"part": "glute", "ratio": 0.35}, {"part": "lower_back", "ratio": 0.15}], 3, "10", "moderate", 1.3),
         ex("Dumbbell bench press", ["heavy_compound"], ["upper", "full"], [{"part": "chest", "ratio": 0.55}, {"part": "triceps", "ratio": 0.25}, {"part": "shoulder", "ratio": 0.2}], 4, "8", "moderate", 1.4),
@@ -143,15 +157,25 @@ def default_exercises() -> list[dict[str, Any]]:
         # supersets
         ex("Dumbbell overhead press", ["superset"], ["upper", "full"], [{"part": "shoulder", "ratio": 0.6}, {"part": "triceps", "ratio": 0.3}, {"part": "core", "ratio": 0.1}], 3, "10", "moderate", 1.1),
         ex("Dumbbell bent-over row", ["superset"], ["upper", "full"], [{"part": "upper_back", "ratio": 0.55}, {"part": "biceps", "ratio": 0.25}, {"part": "core", "ratio": 0.2}], 3, "10", "moderate", 1.1),
-        ex("Walking lunge", ["superset"], ["lower", "full"], [{"part": "quad", "ratio": 0.45}, {"part": "glute", "ratio": 0.45}, {"part": "hamstring", "ratio": 0.1}], 3, "10", "bodyweight or light DB", 1.1),
+        ex("Walking lunge", ["superset", "bodyweight"], ["lower", "full"], [{"part": "quad", "ratio": 0.45}, {"part": "glute", "ratio": 0.45}, {"part": "hamstring", "ratio": 0.1}], 3, "10", "bodyweight or light DB", 1.1),
         ex("Hip thrust", ["standalone", "superset"], ["lower", "full"], [{"part": "glute", "ratio": 0.75}, {"part": "hamstring", "ratio": 0.25}], 3, "10", "moderate", 1.2),
         # standalone / accessories
         ex("Farmer's carry", ["standalone"], ["full", "upper", "core"], [{"part": "grip", "ratio": 0.3}, {"part": "core", "ratio": 0.4}, {"part": "trapezius", "ratio": 0.3}], 3, "30m", "moderate DB", 1.0),
-        ex("Plank", ["accessories", "cooldown"], ["core", "full"], [{"part": "core", "ratio": 1.0}], 3, "40s hold", "bodyweight", 0.6),
-        ex("Side plank", ["accessories"], ["core", "full"], [{"part": "core", "ratio": 0.8}, {"part": "oblique", "ratio": 0.2}], 2, "25-30s hold", "bodyweight", 0.5),
-        ex("Dead bug", ["accessories"], ["core", "full"], [{"part": "core", "ratio": 1.0}], 3, "10", "bodyweight", 0.5),
-        ex("Bird dog", ["accessories", "cooldown"], ["core", "full", "lower"], [{"part": "core", "ratio": 0.5}, {"part": "glute", "ratio": 0.3}, {"part": "lower_back", "ratio": 0.2}], 3, "10", "bodyweight", 0.5),
+        ex("Plank", ["accessories", "cooldown", "isometric"], ["core", "full"], [{"part": "core", "ratio": 1.0}], 3, "40s hold", "bodyweight", 0.6),
+        ex("Side plank", ["accessories", "isometric"], ["core", "full"], [{"part": "core", "ratio": 0.8}, {"part": "oblique", "ratio": 0.2}], 2, "25-30s hold", "bodyweight", 0.5),
+        ex("Dead bug", ["accessories", "bodyweight"], ["core", "full"], [{"part": "core", "ratio": 1.0}], 3, "10", "bodyweight", 0.5),
+        ex("Bird dog", ["accessories", "cooldown", "bodyweight"], ["core", "full", "lower"], [{"part": "core", "ratio": 0.5}, {"part": "glute", "ratio": 0.3}, {"part": "lower_back", "ratio": 0.2}], 3, "10", "bodyweight", 0.5),
         ex("World's greatest stretch", ["cooldown"], ["full", "lower"], [{"part": "hip_flexor", "ratio": 0.5}, {"part": "hamstring", "ratio": 0.5}], 1, "5/side", "bodyweight", 0.3),
+        # light-session pool — bodyweight / plyo / isometric only
+        ex("Push-up", ["bodyweight"], ["upper", "full"], [{"part": "chest", "ratio": 0.5}, {"part": "triceps", "ratio": 0.3}, {"part": "core", "ratio": 0.2}], 3, "8-12", "bodyweight", 0.8),
+        ex("Glute bridge", ["bodyweight"], ["lower", "full"], [{"part": "glute", "ratio": 0.7}, {"part": "hamstring", "ratio": 0.3}], 3, "12", "bodyweight", 0.7),
+        ex("Reverse lunge", ["bodyweight"], ["lower", "full"], [{"part": "quad", "ratio": 0.45}, {"part": "glute", "ratio": 0.45}, {"part": "hamstring", "ratio": 0.1}], 3, "10/side", "bodyweight", 0.8),
+        ex("Pogo jumps", ["plyo"], ["lower", "full"], [{"part": "calf", "ratio": 0.6}, {"part": "achilles", "ratio": 0.4}], 3, "20", "bodyweight", 0.7),
+        ex("Squat jump", ["plyo"], ["lower", "full"], [{"part": "quad", "ratio": 0.45}, {"part": "glute", "ratio": 0.4}, {"part": "calf", "ratio": 0.15}], 3, "8", "bodyweight — soft landings", 0.9),
+        ex("Low box step-off", ["plyo"], ["lower", "full"], [{"part": "quad", "ratio": 0.4}, {"part": "calf", "ratio": 0.35}, {"part": "glute", "ratio": 0.25}], 3, "6/side", "bodyweight — stick the landing", 0.8),
+        ex("Wall sit", ["isometric"], ["lower", "full"], [{"part": "quad", "ratio": 0.7}, {"part": "glute", "ratio": 0.3}], 3, "30-40s hold", "bodyweight", 0.6),
+        ex("Hollow hold", ["isometric"], ["core", "full"], [{"part": "core", "ratio": 1.0}], 3, "20-30s hold", "bodyweight", 0.6),
+        ex("Calf raise hold", ["isometric"], ["lower", "full"], [{"part": "calf", "ratio": 0.85}, {"part": "achilles", "ratio": 0.15}], 3, "25-30s hold", "bodyweight", 0.5),
     ]
 
 

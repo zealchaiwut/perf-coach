@@ -84,6 +84,7 @@ from backend.services.load_plan import (
     DELOAD_CUT_FRACTION,
     is_deload_cycle_week,
     resolve_baseline_weeks_ago,
+    resolve_baseline_seed,
 )
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
@@ -13166,486 +13167,6 @@ def get_structural_dose(
     return JSONResponse(result)
 
 
-# ── Gap analysis endpoint (issue #1370) ───────────────────────────────────────
-
-@app.get("/api/training/gap-analysis")
-def get_gap_analysis(user: User = Depends(resolve_user)):
-    """Compute (or refresh) this week's training gap findings for the session user.
-
-    Runs the rules engine against available inputs (structural dose, etc.),
-    upserts findings into gap_findings preserving status, and returns:
-    {
-      "week_start":    "YYYY-MM-DD",
-      "computed_at":   "ISO datetime",
-      "findings": [
-        {
-          "code":           str,
-          "severity":       1|2|3,
-          "recommendation": str,
-          "evidence":       [{metric, value, threshold, window}],
-          "evidence_text":  str,   // deterministic sentence (issue #1374)
-          "target":         str | null
-        }, ...
-      ],  // ordered severity desc, code asc (issue #1374)
-      "skipped_rules": [str, ...]
-    }
-    """
-    from backend.services.gap_analysis.engine import run_gap_analysis
-    from backend.services.gap_analysis.evidence_text import (
-        render_evidence_text,
-        sort_findings_for_panel,
-    )
-    from backend.services.gap_analysis.phrasing import get_finding_phrasing
-    from backend.utils.time import today_bangkok
-
-    today = today_bangkok()
-    week_start_date = today - _timedelta(days=today.weekday())
-    week_start = week_start_date.isoformat()
-    with Session(engine) as db:
-        result = run_gap_analysis(db, user.id, today)
-
-        # Enrich each finding with evidence text (issue #1374), LLM phrasing (issue #1375),
-        # and add-to-plan template flags (issue #1376).
-        from backend.services.gap_analysis.templates import get_template, is_load_adding as _is_load_adding
-        from backend.services.gap_analysis.session_presets import (
-            get_preset_for_code,
-            is_incomplete_gap_session,
-        )
-
-        week_end_date = week_start_date + _timedelta(days=6)
-        on_plan_by_code: dict = {}
-        try:
-            plan_rows = (
-                db.query(PlannedSession)
-                .filter(
-                    PlannedSession.user_id == user.id,
-                    PlannedSession.planned_date >= week_start_date,
-                    PlannedSession.planned_date <= week_end_date,
-                    PlannedSession.structure.op("->>")("_gap_code").isnot(None),
-                )
-                .all()
-            )
-            for ps in plan_rows:
-                struct = ps.structure if isinstance(ps.structure, dict) else {}
-                gcode = struct.get("_gap_code")
-                if not gcode or gcode in on_plan_by_code:
-                    continue
-                on_plan_by_code[gcode] = {
-                    "planned_date": ps.planned_date.isoformat() if ps.planned_date else None,
-                    "session_id": str(ps.id),
-                    "incomplete": is_incomplete_gap_session(
-                        struct, get_preset_for_code(gcode, priority=2)
-                    ),
-                }
-        except Exception:
-            on_plan_by_code = {}
-
-        enriched = []
-        for f in result["findings"]:
-            phrasing_result = get_finding_phrasing(
-                f,
-                user_id=user.id,
-                week_start=week_start,
-                db=db,
-            )
-            code = f["code"]
-            try:
-                tmpl = get_template(code)
-                has_tmpl = tmpl is not None
-            except KeyError:
-                has_tmpl = False
-            preset = get_preset_for_code(code, priority=f.get("severity"))
-            item = {
-                **f,
-                "evidence_text": render_evidence_text(code, f["evidence"], f.get("target")),
-                "phrasing": phrasing_result["phrasing"],
-                "phrasing_source": phrasing_result["phrasing_source"],
-                "has_template": has_tmpl,
-                "load_adding": _is_load_adding(code),
-                "preset": preset,
-            }
-            if code in on_plan_by_code:
-                item["on_plan"] = on_plan_by_code[code]
-            enriched.append(item)
-
-        # Apply suppression filter (issue #1377): partition into visible / muted
-        from backend.services.gap_analysis.suppression import apply_suppression
-        partitioned = apply_suppression(db, user.id, week_start_date, enriched)
-
-        # De-dup against open preference proposals: a finding whose gap code
-        # maps to a field that already has an open ("proposed") proposal is
-        # actionable elsewhere (the Plan Accept/Adjust/Decline UI) — no need
-        # to show it twice. Only suppress when a proposal is actually open,
-        # never just because the code is proposal-eligible — a finding that
-        # hasn't persisted long enough to become a proposal yet must still
-        # show here, or its pre-proposal visibility disappears for weeks.
-        from backend.services.gap_analysis.pref_proposals import has_open_proposal_for_code
-        partitioned["findings"] = [
-            item for item in partitioned["findings"]
-            if not has_open_proposal_for_code(db, user.id, item["code"])
-        ]
-
-    sorted_visible = sort_findings_for_panel(partitioned["findings"])
-    sorted_muted = sort_findings_for_panel(partitioned["muted"])
-
-    return JSONResponse({
-        **result,
-        "findings": sorted_visible,
-        "muted": sorted_muted,
-        "verdict": _gap_get_verdict_for_user(user.id, today),
-    })
-
-
-# ── Finding feedback: accept / dismiss (issue #1377) ─────────────────────────
-
-_GAP_STATUS_VALID = frozenset({"active", "accepted", "dismissed"})
-
-
-class _GapStatusBody(BaseModel):
-    status: str
-
-
-@app.post("/api/training/gap-analysis/{code}/status")
-def gap_update_status(
-    code: str,
-    body: _GapStatusBody,
-    user: User = Depends(resolve_user),
-):
-    """Update the feedback status of this week's gap-finding.
-
-    Path param:
-        code   Gap-analysis rule code (e.g. 'cadence_drift')
-
-    Body:
-        status   "accepted" | "dismissed" | "active" (restores)
-
-    Responses:
-        200  Updated finding dict with new status
-        404  No gap_findings row for this user/week/code
-        422  Invalid status value
-    """
-    from backend.utils.time import today_bangkok
-    from backend.services.gap_analysis.suppression import evidence_hash as _ev_hash
-
-    if body.status not in _GAP_STATUS_VALID:
-        raise HTTPException(
-            status_code=422,
-            detail=f"status must be one of: {sorted(_GAP_STATUS_VALID)}",
-        )
-
-    today = today_bangkok()
-    week_start = (today - _timedelta(days=today.weekday())).isoformat()
-    now_dt = _datetime.now(tz=_timezone.utc)
-
-    with Session(engine) as db:
-        row = db.execute(
-            text("""
-                SELECT id, severity, evidence, status
-                FROM gap_findings
-                WHERE user_id = :uid AND week_start = :ws AND code = :code
-            """),
-            {"uid": str(user.id), "ws": week_start, "code": code},
-        ).fetchone()
-
-        if row is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No gap finding for code={code!r} this week",
-            )
-
-        row_id, severity, evidence, current_status = row
-        new_status = body.status
-
-        import json as _json
-        evidence_list = evidence if isinstance(evidence, list) else (_json.loads(evidence) if evidence else [])
-        ev_hash = _ev_hash(evidence_list)
-
-        if new_status == "dismissed":
-            db.execute(
-                text("""
-                    UPDATE gap_findings
-                    SET status = 'dismissed',
-                        dismissed_at = :now,
-                        dismissed_severity = :sev,
-                        accepted_at = NULL,
-                        accepted_evidence_hash = NULL
-                    WHERE id = :rid
-                """),
-                {"now": now_dt, "sev": severity, "rid": str(row_id)},
-            )
-        elif new_status == "accepted":
-            db.execute(
-                text("""
-                    UPDATE gap_findings
-                    SET status = 'accepted',
-                        accepted_at = :now,
-                        accepted_evidence_hash = :evh,
-                        dismissed_at = NULL,
-                        dismissed_severity = NULL
-                    WHERE id = :rid
-                """),
-                {"now": now_dt, "evh": ev_hash, "rid": str(row_id)},
-            )
-        else:  # active — restore
-            db.execute(
-                text("""
-                    UPDATE gap_findings
-                    SET status = 'active',
-                        dismissed_at = NULL,
-                        dismissed_severity = NULL,
-                        accepted_at = NULL,
-                        accepted_evidence_hash = NULL
-                    WHERE id = :rid
-                """),
-                {"rid": str(row_id)},
-            )
-        db.commit()
-
-    return JSONResponse({"code": code, "status": new_status, "week_start": week_start})
-
-
-# ── Add-to-plan helper (issue #1376) ─────────────────────────────────────────
-
-def _gap_get_verdict_for_user(user_id, today) -> Optional[str]:
-    """Return the current training verdict (back_off/hold/build) or None on failure."""
-    try:
-        from backend.services.gap_analysis.engine import _gather_training_verdict
-        return _gather_training_verdict(user_id, today)
-    except Exception:
-        return None
-
-
-class _GapAddToPlanBody(BaseModel):
-    date: str
-
-
-@app.post("/api/training/gap-analysis/{code}/add-to-plan", status_code=201)
-def gap_add_to_plan(
-    code: str,
-    body: _GapAddToPlanBody,
-    user: User = Depends(resolve_user),
-):
-    """Add a gap-analysis session preset into the week *draft* (not planned yet).
-
-    Path param:
-        code   Gap-analysis rule code (e.g. 'plyo_deficit')
-
-    Body:
-        date   ISO date (YYYY-MM-DD) for the draft slot
-
-    On success the finding is auto-marked ``accepted`` (added). Apply week
-    (or apply-slot) commits the draft to planned_sessions.
-    """
-    from backend.models import GapFinding, PlanDraft
-    from backend.services.gap_analysis.session_presets import (
-        get_preset_for_code,
-        materialize_planned_fields,
-    )
-    from backend.services.gap_analysis.templates import is_load_adding
-    from backend.services.plan_draft import (
-        apply_structure_op,
-        ensure_draft_shell,
-        get_draft,
-    )
-    from backend.utils.time import today_bangkok
-
-    preset = get_preset_for_code(code)
-    if preset is None:
-        raise HTTPException(status_code=404, detail=f"No add-to-plan action for rule: {code!r}")
-
-    target_date = _validate_planned_date(body.date)
-
-    if is_load_adding(code):
-        today = today_bangkok()
-        verdict = _gap_get_verdict_for_user(user.id, today)
-        if verdict == "back_off":
-            raise HTTPException(
-                status_code=409,
-                detail={"code": "back_off", "message": "Training verdict is back_off — load-adding sessions are disabled."},
-            )
-        if verdict is None:
-            raise HTTPException(
-                status_code=409,
-                detail={"code": "verdict_unavailable", "message": "Training verdict could not be computed — load-adding sessions are disabled until load data is available."},
-            )
-
-    week_start = target_date - _timedelta(days=target_date.weekday())
-    week_end = week_start + _timedelta(days=6)
-    day_offset = (target_date - week_start).days
-
-    # Optional load ceiling for materialize clamp
-    load_ceiling = None
-    try:
-        from backend.services.load_plan import ACWR_CEILING_MULT
-        from backend.models import TrainingLoadSnapshot
-        with Session(engine) as _db:
-            snap = (
-                _db.query(TrainingLoadSnapshot)
-                .filter(
-                    TrainingLoadSnapshot.user_id == user.id,
-                    TrainingLoadSnapshot.snapshot_date <= target_date,
-                )
-                .order_by(TrainingLoadSnapshot.snapshot_date.desc())
-                .first()
-            )
-            if snap is not None:
-                ctl = float(getattr(snap, "ctl", 0) or 0)
-                if ctl > 0:
-                    load_ceiling = round(ctl * 7 * float(ACWR_CEILING_MULT), 1)
-    except Exception:
-        load_ceiling = None
-
-    fields = materialize_planned_fields(preset, load_ceiling_tss=load_ceiling)
-    session_type = _validate_planned_type(fields["session_type"])
-    structure = dict(fields.get("structure") or {})
-    structure["_gap_code"] = code
-    structure["_preset_code"] = code
-
-    with Session(engine) as db:
-        # Duplicate: already planned this week with this gap code
-        existing_planned = (
-            db.query(PlannedSession)
-            .filter(
-                PlannedSession.user_id == user.id,
-                PlannedSession.planned_date >= week_start,
-                PlannedSession.planned_date <= week_end,
-                PlannedSession.structure.op("->>")("_gap_code") == code,
-            )
-            .first()
-        )
-        if existing_planned is not None:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "already_planned_this_week",
-                    "message": f"A {code!r} session is already planned this week.",
-                    "planned_date": existing_planned.planned_date.isoformat()
-                    if existing_planned.planned_date
-                    else None,
-                    "session_id": str(existing_planned.id),
-                },
-            )
-
-        ensure_draft_shell(db, user.id, week_start)
-        draft = get_draft(db, user.id, week_start) or {}
-        sessions = list((draft.get("payload") or {}).get("sessions") or [])
-
-        # Duplicate: already in this week's draft with this gap code
-        existing_draft = next(
-            (
-                s for s in sessions
-                if isinstance(s, dict) and (
-                    s.get("_gap_code") == code
-                    or (isinstance(s.get("structure"), dict) and s["structure"].get("_gap_code") == code)
-                )
-            ),
-            None,
-        )
-        if existing_draft is not None:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "already_planned_this_week",
-                    "message": f"A {code!r} session is already on this week's draft.",
-                    "planned_date": (
-                        week_start + _timedelta(days=int(existing_draft.get("day_offset") or 0))
-                    ).isoformat(),
-                    "slot_id": existing_draft.get("slot_id"),
-                    "draft": True,
-                },
-            )
-
-        result = apply_structure_op(
-            db, user.id, week_start,
-            op="add",
-            confirm_warnings=True,
-            inline=False,
-            day=day_offset,
-            kind="custom",
-            custom={
-                "workout_type": session_type,
-                "subtype": session_type,
-                "duration_minutes": int(fields.get("duration_min") or 30),
-                "target_tss": float(fields.get("target_tss") or 0),
-                "intent": fields.get("name") or "",
-                "notes": fields.get("notes"),
-                "structure": structure,
-                "_gap_code": code,
-            },
-        )
-        if not result.get("ok"):
-            code_http = result.get("status_code") or 400
-            detail = result.get("block_reason") or result.get("error") or result
-            if result.get("needs_confirm"):
-                raise HTTPException(status_code=409, detail=result)
-            raise HTTPException(status_code=code_http if code_http >= 400 else 400, detail=detail)
-
-        draft_out = result.get("draft") or get_draft(db, user.id, week_start) or {}
-        added_id = None
-        for s in ((draft_out.get("payload") or {}).get("sessions") or []):
-            if isinstance(s, dict) and int(s.get("day_offset", -1)) == day_offset:
-                added_id = s.get("slot_id")
-                s["_gap_code"] = code
-                if structure:
-                    s["structure"] = structure
-                break
-        if added_id:
-            row = db.query(PlanDraft).filter(
-                PlanDraft.user_id == user.id, PlanDraft.week_start == week_start
-            ).first()
-            if row and draft_out.get("payload"):
-                row.payload = draft_out["payload"]
-                db.flush()
-        slot_id = added_id
-        out_day = day_offset
-        upgraded = False
-
-        # Auto-mark finding accepted/added
-        finding = (
-            db.query(GapFinding)
-            .filter(
-                GapFinding.user_id == user.id,
-                GapFinding.week_start == week_start,
-                GapFinding.code == code,
-            )
-            .first()
-        )
-        if finding is not None and finding.status == "active":
-            from datetime import datetime, timezone as _tz
-            finding.status = "accepted"
-            finding.accepted_at = datetime.now(tz=_tz.utc)
-
-        db.commit()
-        fresh = get_draft(db, user.id, week_start) or {}
-        sess = None
-        for s in ((fresh.get("payload") or {}).get("sessions") or []):
-            if isinstance(s, dict) and (
-                (slot_id and s.get("slot_id") == slot_id)
-                or int(s.get("day_offset", -1)) == out_day
-            ):
-                sess = s
-                break
-
-        out = {
-            "draft": True,
-            "week_start": week_start.isoformat(),
-            "day_offset": out_day,
-            "slot_id": slot_id or (sess or {}).get("slot_id"),
-            "planned_date": target_date.isoformat(),
-            "session_type": session_type,
-            "session": sess,
-            "structure": (sess or {}).get("structure") or structure,
-            "preset": {
-                "code": code,
-                "summary": preset.get("summary"),
-                "constraints": preset.get("constraints"),
-            },
-            "marked_accepted": finding is not None,
-            "upgraded": upgraded,
-        }
-        return JSONResponse(status_code=201, content=out)
-
-
 @app.get("/api/training/muscle-load")
 def get_muscle_load(
     weeks: int = Query(default=8, ge=1, le=52),
@@ -13755,6 +13276,23 @@ def admin_entry(request: Request):
         try:
             read_admin_cookie(token)
             return FileResponse(str(_static_root / "frontend" / "pages" / "admin.html"))
+        except ValueError:
+            pass
+    return FileResponse(str(_static_root / "frontend" / "pages" / "admin-login.html"))
+
+
+@app.get("/admin/exercises", include_in_schema=False)
+@app.get("/admin/plan-library", include_in_schema=False)
+def admin_plan_library_page(request: Request):
+    """Plan library — patterns + exercise pool for pattern fill. Same admin cookie gate as /admin."""
+    secret = get_admin_secret()
+    if not secret:
+        raise HTTPException(status_code=403, detail="Admin access is disabled on this instance")
+    token = request.cookies.get(ADMIN_COOKIE_NAME)
+    if token:
+        try:
+            read_admin_cookie(token)
+            return FileResponse(str(_static_root / "frontend" / "pages" / "admin-plan-library.html"))
         except ValueError:
             pass
     return FileResponse(str(_static_root / "frontend" / "pages" / "admin-login.html"))
@@ -14309,6 +13847,50 @@ def admin_delete_plan_exercise(exercise_id: str):
         db.delete(row)
         db.commit()
     return Response(status_code=204)
+
+
+class AdminPlanExercisePreviewIn(BaseModel):
+    subtype: str = "strength_light"
+    duration_minutes: int = 45
+    target_tss: float = 40
+
+
+@app.post("/api/admin/plan-exercises/preview", dependencies=[Depends(require_admin)])
+def admin_preview_plan_exercise_fill(body: AdminPlanExercisePreviewIn):
+    """Dry-run pattern fill for one strength subtype — uses the live exercise pool."""
+    import random
+
+    from backend.services.plan_pattern_fill import fill_slot
+    from backend.services.plan_slot import normalize_slot_subtype
+
+    subtype = normalize_slot_subtype("strength", body.subtype) or "strength_light"
+    slot = {
+        "day_offset": 0,
+        "workout_type": "strength",
+        "target_tss": float(body.target_tss),
+        "duration_minutes": int(body.duration_minutes),
+        "subtype": subtype,
+        "structure_hints": {},
+        "locked": False,
+    }
+    with Session(engine) as db:
+        # Seed by duration so different minutes reshuffle picks (still deterministic).
+        content = fill_slot(
+            slot,
+            db=db,
+            week_ctx={"skeleton_slots": [slot]},
+            rng=random.Random((hash((subtype, int(body.duration_minutes))) & 0xFFFFFFFF) or 1),
+        )
+    return JSONResponse({
+        "subtype": subtype,
+        "intent": content.get("intent"),
+        "notes": content.get("notes"),
+        "exercises": content.get("exercises") or [],
+        "source": content.get("source"),
+        "pattern_name": content.get("pattern_name"),
+        "fill_log": content.get("fill_log"),
+        "duration_minutes": int(body.duration_minutes),
+    })
 
 
 @app.post("/api/admin/plan-patterns/seed", dependencies=[Depends(require_admin)])
@@ -18478,7 +18060,15 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
         baseline_week_start = this_week_start - _timedelta(weeks=baseline_weeks_ago)
         baseline_week_end = baseline_week_start + _timedelta(days=6)
         baseline_volume = _get_weekly_volume(str(user.id), baseline_week_start, baseline_week_end)
-        baseline = baseline_volume["total_tss"]
+        baseline_logged = baseline_volume["total_tss"]
+        from backend.services.training_load import estimate_historical_pace_and_tss as _est_baseline
+        estimate_baseline = _est_baseline(str(user.id), db)
+        baseline_planned = _week_planned_tss(
+            db, user.id, baseline_week_start, baseline_week_end, estimate_baseline, today,
+            require_still_achievable=False,
+            include_all=True,
+        )
+        baseline = resolve_baseline_seed(baseline_logged, baseline_planned)
 
         start_28 = today - _timedelta(days=27)
         series_28 = daily_tss_series(str(user.id), start_28, today)
@@ -18539,11 +18129,11 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
             "ramp_weeks": result["ramp_weeks"],
             "peak": result["peak"],
             "baseline_tss": baseline,
+            "baseline_logged_tss": baseline_logged,
+            "baseline_planned_tss": baseline_planned,
             # The ramp/peak math above already used the CAPPED baseline
-            # internally when last week's actual TSS spiked well above
-            # chronic load — these three surface that plainly (never
-            # silently) rather than leaving the athlete to wonder why the
-            # ramp looks lower than their own logged week. See
+            # internally when the seed exceeded the ACWR band vs chronic —
+            # these three surface that plainly (never silently). See
             # docs/calculations/load-plan.md "Baseline cap".
             "capped_baseline_tss": result["baseline"],
             "chronic_weekly_tss": result["chronic_weekly"],
@@ -18587,38 +18177,48 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
 # See docs/calculations/load-plan.md. target_tss is read from the SAME
 # compute_load_plan series get_plan_load_plan builds — never recomputed here.
 
-def _week_planned_tss(db, user_id, week_start, week_end, estimate_baseline, today, require_still_achievable=True):
-    """Sum estimated_tss across planned sessions in a week that never became
-    a real logged workout (matched is None, not missed — those are covered
-    by baseline_tss/logged_tss instead).
+def _week_planned_tss(
+    db,
+    user_id,
+    week_start,
+    week_end,
+    estimate_baseline,
+    today,
+    require_still_achievable=True,
+    *,
+    include_all: bool = False,
+):
+    """Sum estimated_tss across planned sessions in a week.
 
-    require_still_achievable=True (the default, for the CURRENT/future
-    "planned_tss" component of projected_tss) additionally excludes sessions
-    whose date has already passed — same achievability rule
-    _planned_session_dict uses, since a past, never-logged session is
-    effectively missed even before the reconcile sweep flips its status.
+    Default (include_all=False): only sessions that never became a real
+    logged workout (matched is None, not missed) — the remaining "planned"
+    component of projected_tss. require_still_achievable=True additionally
+    excludes sessions whose date has already passed.
 
-    require_still_achievable=False is for baseline_planned_tss: the
-    retrospective "what did I plan for last week" comparison is ALWAYS about
-    a past week by definition, so excluding past dates there would zero out
-    every result — the whole point is comparing hindsight plan vs actual.
+    include_all=True: every planned session in the week (matched and missed
+    included) — the retrospective full planned week used for
+    ``resolve_baseline_seed(logged, planned)`` so a miss does not reset the
+    ramp. require_still_achievable is ignored in this mode.
     """
     from backend.services.training_load import estimate_planned_session_metrics as _est
 
-    rows = (
+    q = (
         db.query(PlannedSession)
         .filter(
             PlannedSession.user_id == user_id,
             PlannedSession.planned_date >= week_start,
             PlannedSession.planned_date <= week_end,
+        )
+    )
+    if not include_all:
+        q = q.filter(
             PlannedSession.matched_workout_id.is_(None),
             PlannedSession.status != "missed",
         )
-        .all()
-    )
+    rows = q.all()
     total = 0.0
     for p in rows:
-        if require_still_achievable and p.planned_date < today:
+        if (not include_all) and require_still_achievable and p.planned_date < today:
             continue
         est = _est(estimate_baseline, p.session_type, p.structure)
         if est.get("estimated_tss"):
@@ -18672,7 +18272,7 @@ def get_plan_week_load(
         )
         baseline_week_start = this_week_start - _timedelta(weeks=baseline_weeks_ago)
         baseline_week_end = baseline_week_start + _timedelta(days=6)
-        baseline_tss = _get_weekly_volume(str(user.id), baseline_week_start, baseline_week_end)["total_tss"]
+        baseline_logged_tss = _get_weekly_volume(str(user.id), baseline_week_start, baseline_week_end)["total_tss"]
 
         start_28 = today - _timedelta(days=27)
         series_28 = daily_tss_series(str(user.id), start_28, today)
@@ -18688,6 +18288,16 @@ def get_plan_week_load(
         _static_acwr_ceiling = round(ACWR_CEILING_MULT * trailing_28d_avg, 1) if trailing_28d_avg else None
 
         verdict = _resolve_current_verdict(user.id, today, trailing_28d_avg=trailing_28d_avg)
+
+        estimate_baseline = _est_baseline(str(user.id), db)
+
+        # Full planned week (matched + missed) for seed floor + UI compare.
+        baseline_planned_tss = _week_planned_tss(
+            db, user.id, baseline_week_start, baseline_week_end, estimate_baseline, today,
+            require_still_achievable=False,
+            include_all=True,
+        )
+        baseline_tss = resolve_baseline_seed(baseline_logged_tss, baseline_planned_tss)
 
         result = compute_load_plan(
             baseline=baseline_tss,
@@ -18707,17 +18317,6 @@ def get_plan_week_load(
         target_tss = target_week["target_tss"] if target_week else None
         clamped = target_week["clamped"] if target_week else False
         acwr_ceiling = target_week["ceiling"] if target_week else _static_acwr_ceiling
-
-        estimate_baseline = _est_baseline(str(user.id), db)
-
-        # baseline_planned_tss: what was PLANNED for the same completed week
-        # baseline_tss covers — showing "planned 340 · logged 316"
-        # alongside the actual is the argument for ramping off actuals, not
-        # optimistic plans (see docs/calculations/load-plan.md).
-        baseline_planned_tss = _week_planned_tss(
-            db, user.id, baseline_week_start, baseline_week_end, estimate_baseline, today,
-            require_still_achievable=False,
-        )
 
         logged_tss = _get_weekly_volume(str(user.id), query_week_start, query_week_end)["total_tss"]
         planned_tss = _week_planned_tss(
@@ -18754,9 +18353,10 @@ def get_plan_week_load(
             "week_start": query_week_start.isoformat(),
             "target_tss": target_tss,
             "baseline_tss": baseline_tss,
+            "baseline_logged_tss": baseline_logged_tss,
             # See docs/calculations/load-plan.md "Baseline cap" — target_tss
-            # above already reflects the capped baseline when last week
-            # spiked above chronic load; these surface that on the
+            # above already reflects the capped baseline when the seed
+            # exceeded the ACWR band; these surface that on the
             # Baseline×Ramp=Target chain instead of leaving it silent.
             "capped_baseline_tss": result["baseline"],
             "baseline_capped": result["baseline_capped"],

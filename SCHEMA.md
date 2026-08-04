@@ -1020,7 +1020,7 @@ Unique: `(user_id, load_date, muscle_group, source)` (`uq_muscle_load_daily_user
 
 ## gap_findings _(added Sprint 107 / #1370)_
 
-One persistent row per `(user_id, week_start, code)` emitted by the gap-analyzer rules engine (`backend/services/gap_analysis/`). Each row is a prioritized "what to improve" finding for a given ISO week. Written by `run_gap_analysis` on every call to `GET /api/training/gap-analysis`, which **upserts** on the unique key — `severity` / `recommendation` / `evidence` / `target` / `computed_at` are refreshed, but `status` is **preserved** so an athlete-accepted or dismissed finding survives recomputes. Athlete feedback (`POST /api/training/gap-analysis/{code}/status`, Sprint 108 / #1377) sets `status` and stamps the suppression columns below; the GET then partitions findings into visible / `muted` via `backend/services/gap_analysis/suppression.py`. Model: `GapFinding` in `backend/models.py`. Contract/formula reference: `docs/calculations/gap-analysis.md`.
+One persistent row per `(user_id, week_start, code)` emitted by the gap-analyzer rules engine (`backend/services/gap_analysis/`). Each row is a prioritized training-gap finding for a given ISO week. Written by `run_gap_analysis` (called from coach export and other services — the Plan-tab HTTP surface was removed), which **upserts** on the unique key — `severity` / `recommendation` / `evidence` / `target` / `computed_at` are refreshed, but `status` is **preserved** so an accepted or dismissed finding survives recomputes. Suppression columns below feed `backend/services/gap_analysis/suppression.py` when partitioning visible vs muted findings for coach export. Model: `GapFinding` in `backend/models.py`. Contract/formula reference: `docs/calculations/gap-analysis.md`.
 
 | column | type | notes |
 |--------|------|-------|
@@ -1082,7 +1082,7 @@ Unique: `(user_id, for_week)` (`uq_weekly_coach_messages_user_week`). Index: `ix
 
 ## plan_patterns _(pattern plan fill)_
 
-Global (not per-user) run/strength session recipes keyed by subtype + duration band. Used by `plan_pattern_fill` for deterministic draft content (no planning LLM). Admin CRUD: `/api/admin/plan-patterns`. Migration: `25a16908c6b4_add_plan_patterns_and_plan_exercises`.
+Global (not per-user) run/strength session recipes keyed by subtype + duration band. Used by `plan_pattern_fill` for deterministic draft content (no planning LLM). Admin UI: `/admin/plan-library` (Patterns tab). API CRUD: `/api/admin/plan-patterns`. Migration: `25a16908c6b4_add_plan_patterns_and_plan_exercises`.
 
 | column | type | notes |
 |--------|------|-------|
@@ -1102,7 +1102,8 @@ Indexes: `(kind, subtype)`, `active`.
 
 ## plan_exercises _(pattern plan fill)_
 
-Global strength exercise pool for pattern fill. Admin CRUD: `/api/admin/plan-exercises`. Same migration as `plan_patterns`.
+Global strength exercise pool for pattern fill. Admin UI: `/admin/plan-library`
+(Exercises tab). API CRUD: `/api/admin/plan-exercises`. Same migration as `plan_patterns`.
 
 | column | type | notes |
 |--------|------|-------|

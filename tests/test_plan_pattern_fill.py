@@ -161,9 +161,108 @@ def test_fill_slot_ignores_llm_call_callable():
     assert out["source"] in ("pattern", "template")
 
 
+def test_strength_light_has_no_heavy_compound():
+    """Light = bodyweight / plyo / isometrics — never a loaded heavy compound."""
+    pat = next(p for p in default_strength_patterns() if p["subtype"] == "strength_light")
+    group_keys = [g["key"] for g in pat["recipe"]["groups"]]
+    assert "heavy_compound" not in group_keys
+    assert {"bodyweight", "plyo", "isometric"} <= set(group_keys)
+
+    pool = default_exercises()
+    content = fill_strength(
+        pat,
+        {"duration_minutes": 45, "target_tss": 50, "subtype": "strength_light"},
+        pool,
+        rng=random.Random(11),
+    )
+    names = {e["name"] for e in content["exercises"]}
+    # Any exercise whose primary role is heavy_compound must be absent
+    heavy_only = {
+        e["name"] for e in pool
+        if "heavy_compound" in e["groups"] and "bodyweight" not in e["groups"]
+        and "plyo" not in e["groups"] and "isometric" not in e["groups"]
+        and "warmup" not in e["groups"]
+    }
+    assert not (names & heavy_only), f"light session picked heavy work: {names & heavy_only}"
+    blocks = {e.get("block") for e in content["exercises"]}
+    assert "Heavy compound" not in blocks
+    assert names  # filled something
+
+
+def test_strength_fill_scales_exercise_count_with_duration():
+    """Short slots drop volume; long slots add — not the same roster + more reps."""
+    pat = next(p for p in default_strength_patterns() if p["subtype"] == "strength_light")
+    pool = default_exercises()
+    short = fill_strength(
+        pat,
+        {"duration_minutes": 25, "target_tss": 30, "subtype": "strength_light"},
+        pool,
+        rng=random.Random(3),
+    )
+    long = fill_strength(
+        pat,
+        {"duration_minutes": 70, "target_tss": 55, "subtype": "strength_light"},
+        pool,
+        rng=random.Random(3),
+    )
+    assert len(short["exercises"]) < len(long["exercises"]), (
+        f"expected fewer exercises at 25 min than 70: "
+        f"{len(short['exercises'])} vs {len(long['exercises'])}"
+    )
+    short_n = [g for g in short["_pick_log"] if not g.get("skipped")]
+    long_n = [g for g in long["_pick_log"] if not g.get("skipped")]
+    assert sum(g["n"] for g in short_n) < sum(g["n"] for g in long_n)
+
+
+def test_fill_slot_light_keeps_pattern_not_lower_template():
+    """Regression: light block labels must validate so we don't fall back to
+    lower-body Heavy compound template (the bug behind the 40-min light UI)."""
+    content = fill_slot(
+        {
+            "day_offset": 2,
+            "workout_type": "strength",
+            "subtype": "light",
+            "target_tss": 50,
+            "duration_minutes": 40,
+        },
+        db=None,
+    )
+    assert content["source"] == "pattern"
+    blocks = {e.get("block") for e in (content.get("exercises") or [])}
+    assert "Heavy compound" not in blocks
+    assert "Lower body" not in (content.get("intent") or "")
+    assert content.get("fill_log")
+    ops = [s["op"] for s in content["fill_log"]["steps"]]
+    assert "select_pattern" in ops
+    assert "fill_strength" in ops
+    assert "fallback" not in ops
+    assert any(s.get("op") == "validate" and s.get("ok") for s in content["fill_log"]["steps"])
+
+
 def test_seed_run_patterns_cover_core_subtypes():
     subs = {p["subtype"] for p in default_run_patterns()}
     assert {"easy_run", "tempo", "intervals", "long_run"} <= subs
+
+
+def test_long_run_mp_segment_before_cooldown():
+    pat = select_pattern(None, workout_type="run", subtype="long_run", duration_min=120)
+    assert pat is not None
+    content = fill_run(
+        pat,
+        {
+            "duration_minutes": 120,
+            "subtype": "long_run",
+            "mp_segment_min": 20,
+        },
+    )
+    phases = [b["phase"] for b in content["blocks"]]
+    assert phases[-2:] == ["mp", "cooldown"]
+    mp = content["blocks"][-2]
+    assert mp["duration_min"] == 20
+    assert "marathon" in (mp.get("target") or "").lower()
+    assert "20" in (content["intent"] or "")
+    total = sum(int(b["duration_min"]) for b in content["blocks"])
+    assert abs(total - 120) <= 2
 
 
 @pytest.mark.parametrize(

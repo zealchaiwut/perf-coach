@@ -312,77 +312,12 @@ Returns planned sessions for a date range or the current week.
 
 ---
 
-## `GET /api/training/gap-analysis`
+## Gap analysis (engine only — no HTTP surface)
 
-**Method:** GET  
-**Path:** `/api/training/gap-analysis`  
-**Auth:** Session cookie (main app)  
-**Port:** 9000
-
-Returns gaps between current training profile and athlete's stated training goals, with recommendations to close each gap.
-
-**Query Parameters:** None
-
-**Response (HTTP 200):**
-
-```json
-{
-  "user_id": "550e8400-e29b-41d4-a716-446655440001",
-  "evaluated_at": "2026-07-17T12:00:00Z",
-  "gaps": [
-    {
-      "code": "gap_001",
-      "category": "volume",
-      "title": "Insufficient easy-run volume",
-      "description": "Current easy-run mileage is 25 km/week; goal is 30 km/week.",
-      "severity": "info",
-      "recommended_action": "Add 5 km of easy running per week",
-      "estimated_weeks_to_close": 2,
-      "progress": 0.8
-    },
-    {
-      "code": "gap_002",
-      "category": "intensity",
-      "title": "Missing tempo work",
-      "description": "No tempo sessions in the past 4 weeks.",
-      "severity": "warning",
-      "recommended_action": "Schedule 1 tempo session per week (8–12 km)",
-      "estimated_weeks_to_close": 1,
-      "progress": 0.0
-    }
-  ]
-}
-```
-
-**Response Fields:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `user_id` | string (UUID) | User being evaluated |
-| `evaluated_at` | string (ISO 8601 UTC) | Timestamp of evaluation |
-| `gaps` | array | List of detected gaps between current state and goals |
-
-**Gap Object Fields:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `code` | string | Unique identifier for this gap (e.g., `gap_001`) |
-| `category` | string | Gap category: `volume`, `intensity`, `frequency`, `specificity`, etc. |
-| `title` | string | Short human-readable title |
-| `description` | string | Detailed explanation of the gap and current vs. goal state |
-| `severity` | string | One of: `info`, `warning`, `critical` |
-| `recommended_action` | string | Specific action to close the gap |
-| `estimated_weeks_to_close` | integer or null | Estimated weeks needed to close this gap, or null if unknown |
-| `progress` | number (0–1) | Current progress toward closing the gap (0 = not started, 1 = closed) |
-
-**Error Responses:**
-- `401` — Not authenticated
-- `404` — User not found or no training goals configured
-
-**Notes:**
-- Gap analysis is computed against user-configured training goals (typically set in Settings).
-- Each gap includes a severity level and recommended action suitable for AI coaching.
-- Progress field helps prioritize which gaps to address first.
+The Plan-tab **What to improve** panel and its routes
+(`GET/POST /api/training/gap-analysis…`) were removed. The rules engine under
+`backend/services/gap_analysis/` remains for coach export and preference
+proposals. Contract: `docs/calculations/gap-analysis.md`.
 
 ---
 

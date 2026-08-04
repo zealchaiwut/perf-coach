@@ -1169,7 +1169,28 @@ def assemble_facts(
                 )
                 baseline_week_start = current_week_start - timedelta(weeks=baseline_weeks_ago)
                 baseline_week_end = baseline_week_start + timedelta(days=6)
-                baseline_tss = _get_weekly_volume(str(user_id), baseline_week_start, baseline_week_end)["total_tss"]
+                baseline_logged = _get_weekly_volume(str(user_id), baseline_week_start, baseline_week_end)["total_tss"]
+                from backend.services.load_plan import resolve_baseline_seed as _resolve_baseline_seed
+                from backend.services.training_load import (
+                    estimate_historical_pace_and_tss as _est_baseline,
+                    estimate_planned_session_metrics as _est_planned,
+                )
+                from backend.models import PlannedSession as _PlannedSession
+                _est_b = _est_baseline(str(user_id), db)
+                baseline_planned = 0.0
+                for _p in (
+                    db.query(_PlannedSession)
+                    .filter(
+                        _PlannedSession.user_id == user_id,
+                        _PlannedSession.planned_date >= baseline_week_start,
+                        _PlannedSession.planned_date <= baseline_week_end,
+                    )
+                    .all()
+                ):
+                    _e = _est_planned(_est_b, _p.session_type, _p.structure)
+                    if _e.get("estimated_tss"):
+                        baseline_planned += float(_e["estimated_tss"])
+                baseline_tss = _resolve_baseline_seed(baseline_logged, baseline_planned)
 
                 race_week_start = next_race_date - timedelta(days=next_race_date.weekday())
                 weeks_to_race = ((race_week_start - current_week_start).days // 7) + 1
@@ -1514,6 +1535,23 @@ def get_suggestions(
                 )
                 slots.sort(key=lambda s: s["day_offset"])
             source = "skeleton"
+        # Prefs-driven plyo / stretch / MP / benchmark — same post-pass as
+        # plan_draft. Without this, Build schedule ignored plyo / week.
+        from backend.services.plan_extras import apply_prefs_extras
+        week_start_d = date.fromisoformat(facts["week_start"])
+        extras_prefs = {
+            "plyo_mode": facts.get("plyo_mode") or "off",
+            "plyo_sessions_per_week": int(facts.get("plyo_sessions_per_week") or 0),
+            "stretch_daily_min": int(facts.get("stretch_daily_min") or 0),
+            "long_run_mp_segment_min": int(facts.get("long_run_mp_segment_min") or 0),
+        }
+        decorated = apply_prefs_extras(
+            {"slots": slots, "week_start": facts["week_start"]},
+            prefs=extras_prefs,
+            week_start=week_start_d,
+            rest_days=set(facts.get("preferred_rest_days") or []),
+        )
+        slots = decorated.get("slots") or slots
         return {
             "facts": facts,
             "suggestions": slots,
@@ -1768,6 +1806,10 @@ def generate_single_session(
         "structure_hints": {},
         "locked": False,
     }
+    mp_min = int(prefs.get("long_run_mp_segment_min") or 0)
+    if mp_min > 0 and slot["subtype"] == "long_run":
+        slot["mp_segment_min"] = mp_min
+        slot["structure_hints"] = {"mp_segment_min": mp_min}
     week_ctx = build_week_ctx(
         facts=facts,
         skeleton_slots=[slot],
@@ -1785,8 +1827,13 @@ def generate_single_session(
         }
     content = fill_slot(slot, db=db, week_ctx=week_ctx, current=current)
     footprint = content.pop("_muscle_footprint", None)
+    fill_log = content.pop("fill_log", None)
     stamped = stamp_session(slot, content)
     stamped["source"] = content.get("source") or "pattern"
     if footprint:
         stamped["_muscle_footprint"] = footprint
+    if content.get("pattern_name"):
+        stamped["pattern_name"] = content["pattern_name"]
+    if fill_log:
+        stamped["fill_log"] = fill_log
     return stamped

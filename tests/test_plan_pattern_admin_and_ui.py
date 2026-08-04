@@ -114,3 +114,55 @@ def test_admin_plan_patterns_crud_smoke(admin_client):
     assert ec.status_code == 201, ec.text
     eid = ec.json()["id"]
     assert c.delete(f"/api/admin/plan-exercises/{eid}").status_code == 204
+
+
+def test_admin_plan_library_page_shell():
+    root = Path(__file__).resolve().parents[1]
+    html = (root / "frontend" / "pages" / "admin-plan-library.html").read_text(encoding="utf-8")
+    js = (root / "frontend" / "js" / "admin-plan-library.js").read_text(encoding="utf-8")
+    assert 'src="/js/admin-plan-library.js"' in html
+    assert "Plan library" in html
+    assert 'id="tab-exercises"' in html
+    assert 'id="tab-patterns"' in html
+    assert 'id="tab-preview"' in html
+    assert 'id="panel-patterns"' in html
+    assert 'id="panel-preview"' in html
+    assert 'id="pat-preview-out"' not in html
+    assert "/api/admin/plan-exercises" in js
+    assert "/api/admin/plan-patterns" in js
+    assert "/api/admin/plan-exercises/preview" in js
+    assert "setTab('preview')" in js
+    assert "Seed defaults" in html
+    admin = (root / "frontend" / "pages" / "admin.html").read_text(encoding="utf-8")
+    assert 'href="/admin/plan-library"' in admin
+    assert "pe-edit-groups" not in admin
+    assert "pp-edit-recipe" not in admin
+
+
+def test_admin_plan_library_page_route(admin_client):
+    c = admin_client
+    for path in ("/admin/plan-library", "/admin/exercises"):
+        r = c.get(path)
+        if r.status_code == 401:
+            pytest.skip("admin cookie rejected")
+        assert r.status_code == 200, path
+        assert "Plan library" in r.text
+        assert "admin-plan-library.js" in r.text
+        assert "tab-patterns" in r.text
+
+
+def test_admin_plan_exercises_preview_smoke(admin_client):
+    c = admin_client
+    seed = c.post("/api/admin/plan-patterns/seed")
+    if seed.status_code == 401:
+        pytest.skip("admin cookie rejected")
+    assert seed.status_code == 200
+    r = c.post(
+        "/api/admin/plan-exercises/preview",
+        json={"subtype": "strength_light", "duration_minutes": 45, "target_tss": 40},
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data.get("subtype") == "strength_light"
+    assert isinstance(data.get("exercises"), list)
+    assert len(data["exercises"]) >= 1

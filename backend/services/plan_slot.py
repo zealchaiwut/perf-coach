@@ -24,6 +24,8 @@ SLOT_PROMPT_VERSION = "2026-07-20.2"
 
 _STRENGTH_BLOCKS = frozenset({
     "Warm-up", "Heavy compound", "Superset 1", "Superset 2", "Standalone", "Accessories",
+    # light / maintenance pattern labels (plan_pattern_seeds.groups_light)
+    "Bodyweight", "Plyometrics", "Isometrics", "Stretch", "Cooldown",
 })
 
 _PIN_FIELDS = frozenset({
@@ -216,6 +218,41 @@ def validate_slot(content: dict, slot: dict, week_ctx: dict | None = None) -> li
     return errs
 
 
+def insert_mp_segment(blocks: list[dict], mp_min: int) -> list[dict]:
+    """Carve ``mp_min`` from the last non-cooldown block; insert MP before cooldown."""
+    mp_min = max(0, int(mp_min))
+    if mp_min <= 0 or not blocks:
+        return blocks
+    out = [dict(b) for b in blocks]
+    cooldown_i = next(
+        (i for i, b in enumerate(out) if (b.get("phase") or "") == "cooldown"),
+        len(out),
+    )
+    donor_i = cooldown_i - 1 if cooldown_i > 0 else 0
+    donor = out[donor_i]
+    if donor.get("repeat") and int(donor.get("repeat") or 0) > 1 and donor_i > 0:
+        donor_i = donor_i - 1
+        donor = out[donor_i]
+    donor_mins = int(donor.get("duration_min") or 0)
+    take = min(mp_min, max(0, donor_mins - 10))  # leave ≥10 min in donor when possible
+    if take <= 0:
+        take = min(mp_min, max(1, donor_mins // 2))
+    if take <= 0:
+        return out
+    donor["duration_min"] = max(1, donor_mins - take)
+    out.insert(
+        cooldown_i,
+        {
+            "phase": "mp",
+            "duration_min": take,
+            "repeat": None,
+            "rest_min": None,
+            "target": "marathon pace (MP)",
+        },
+    )
+    return out
+
+
 def template_content_for_slot(slot: dict) -> dict:
     """Day template scaled to pins — used when LLM retries are exhausted."""
     wt = str(slot.get("workout_type") or "").lower()
@@ -246,6 +283,7 @@ def template_content_for_slot(slot: dict) -> dict:
         scale = (pinned_dur / base) if pinned_dur else 1.0
         for b in blocks:
             b["duration_min"] = max(1, int(round(float(b["duration_min"]) * scale)))
+        notes = None
         if subtype == "long_run" and pinned_dur >= 90:
             intent = "Aerobic long run — fuel mid-run"
             for b in blocks:
@@ -255,21 +293,62 @@ def template_content_for_slot(slot: dict) -> dict:
             for b in blocks:
                 if b.get("phase") == "main":
                     b["target"] = "tempo — comfortably hard"
+        if subtype == "long_run":
+            mp_min = int(
+                slot.get("mp_segment_min")
+                or (slot.get("structure_hints") or {}).get("mp_segment_min")
+                or 0
+            )
+            if mp_min > 0:
+                blocks = insert_mp_segment(blocks, mp_min)
+                intent = f"Aerobic long run — {mp_min} min MP before cooldown"
+                notes = f"Finish with {mp_min} min at marathon pace before cooldown."
         return {
             "intent": intent[:140],
-            "notes": None,
+            "notes": notes,
             "blocks": blocks,
             "exercises": None,
             "source": "template",
         }
 
-    if wt in ("strength", "plyo"):
-        if subtype == "strength_upper":
+    if wt == "plyo":
+        exercises = [
+            {"block": "Warm-up", "name": "Bodyweight squat", "sets": 2, "reps": "10",
+             "load": "easy pace"},
+            {"block": "Plyometrics", "name": "Pogo jumps", "sets": 3, "reps": "20",
+             "load": "bodyweight — soft landings"},
+            {"block": "Plyometrics", "name": "Squat jump", "sets": 3, "reps": "8",
+             "load": "bodyweight — soft landings"},
+            {"block": "Plyometrics", "name": "Low box step-off", "sets": 2, "reps": "6/side",
+             "load": "bodyweight — stick the landing"},
+        ]
+        return {
+            "intent": "Short plyometric session",
+            "notes": "Keep contacts crisp; stop short of fatigue.",
+            "blocks": None,
+            "exercises": exercises,
+            "source": "template",
+        }
+
+    if wt == "strength":
+        if subtype == "strength_light":
+            exercises = [
+                {"block": "Bodyweight", "name": "Bodyweight squat", "sets": 2, "reps": "15",
+                 "load": "bodyweight, easy pace"},
+                {"block": "Bodyweight", "name": "Push-up", "sets": 2, "reps": "10",
+                 "load": "bodyweight or knees"},
+                {"block": "Isometrics", "name": "Plank", "sets": 2, "reps": "30s hold",
+                 "load": "bodyweight"},
+                {"block": "Stretch", "name": "World's greatest stretch", "sets": 1, "reps": "5/side",
+                 "load": "mobility"},
+            ]
+            intent = "Light strength / maintenance"
+        elif subtype == "strength_upper":
             exercises = [dict(e) for e in _UPPER_BODY_STRENGTH_EXERCISES]
             intent = "Upper body strength"
         else:
             exercises = [dict(e) for e in _LOWER_BODY_STRENGTH_EXERCISES]
-            intent = "Lower body strength" if wt == "strength" else "Plyometric power"
+            intent = "Lower body strength"
         # Trim to 4–10
         if len(exercises) > 10:
             exercises = exercises[:10]

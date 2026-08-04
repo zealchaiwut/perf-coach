@@ -44,33 +44,8 @@ def test_training_log_page_shell__top_nav_links_resolve(client):
         assert r_nav.status_code == 200, f"Nav link {href} returned {r_nav.status_code}"
 
 
-def test_training_log_page_shell__page_header_title_and_subtitle(client):
-    """AC: Page header displays title "Training log" and a subtitle with stats (workouts count · TSS · active time) fetched from /api/training-log"""
-    r = client.get("/log")
-    assert r.status_code == 200
-
-    html = r.text
-
-    # Check for title "Training log"
-    assert "Training log" in html, "Title 'Training log' not found"
-
-    # Check that API data is fetched (the subtitle is populated by JS)
-    assert "log-subtitle" in html, "Subtitle element not found"
-
-
-def test_training_log_page_shell__export_csv_button(client):
-    """AC: Export CSV button is present with id="log-export-btn" """
-    r = client.get("/log")
-    assert r.status_code == 200
-
-    html = r.text
-
-    # Check for button with id log-export-btn
-    assert 'id="log-export-btn"' in html, "Export CSV button with id='log-export-btn' not found"
-
-
 def test_training_log_page_shell__log_workout_button_disabled(client):
-    """AC: Log workout button is present with id="log-new-btn", is disabled, and has title="Coming soon — modal not built yet" """
+    """AC: Log workout button is present with id="log-new-btn" """
     r = client.get("/log")
     assert r.status_code == 200
 
@@ -79,9 +54,6 @@ def test_training_log_page_shell__log_workout_button_disabled(client):
     # Check for button with id log-new-btn or log-workout-btn (implementation might vary slightly)
     assert ('id="log-workout-btn"' in html or 'id="log-new-btn"' in html), \
         "Log workout button not found"
-
-    # Check that button is present and has "Log workout" text
-    assert "Log workout" in html, "Log workout button text not found"
 
 
 def test_training_log_page_shell__week_strip_renders_seven_day_pills(client):
@@ -301,16 +273,6 @@ def test_uat_step_1__navigate_to_log(client):
     html = r.text
     assert "Training log" in html, "Page title not found"
     assert "home.html" in html, "Top nav brand/links not found"
-
-
-def test_uat_step_3__page_header_subtitle_from_api(client):
-    """UAT Step 3: Observe the page header on load. Expected: Title reads "Training log"; subtitle shows stats from /api/training-log"""
-    r = client.get("/log")
-    assert r.status_code == 200
-
-    html = r.text
-    assert "Training log" in html, "Title 'Training log' not found"
-    assert "log-subtitle" in html, "Subtitle element not found"
 
 
 def test_uat_step_4__week_strip_initial_load(client):

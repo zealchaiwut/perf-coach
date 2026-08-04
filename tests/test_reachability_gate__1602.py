@@ -606,8 +606,9 @@ _BASELINE_ORPHANS_API: dict[str, str] = {
     "/api/training-load/recompute": "No frontend caller (see cluster note above).",
     "/api/training-load/refresh": "No frontend caller (see cluster note above). The one 'refresh' hit anywhere in frontend is an unrelated <meta http-equiv=\"refresh\"> tag in preferences.html.",
 
-    # training-performance.js and training-plan.js use /api/training/gap-analysis,
-    # /api/training/muscle-load and /api/training/plan-check — not these five.
+    # training-performance.js / training-plan.js use /api/training/muscle-load
+    # and /api/training/plan-check — not these five. (gap-analysis HTTP surface
+    # was removed with the Plan-tab What-to-improve panel.)
     "/api/training/daily-load": "No frontend caller; distinct from /api/athletes/{id}/daily-load, which IS called (training-log.js, lib/load-readiness-tiles.js).",
     "/api/training/form-metrics": "No frontend caller (see cluster note above).",
     "/api/training/structural-dose": "No frontend caller (see cluster note above).",
