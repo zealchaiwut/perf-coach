@@ -217,7 +217,11 @@ def _build_highlights_md(user_id, for_date: date) -> str:
             "workout_type": w.workout_type or "",
         }
 
-    uid = _uuid.UUID(str(user_id))
+    try:
+        uid = _uuid.UUID(str(user_id))
+    except (ValueError, AttributeError):
+        return ""
+
     with Session(engine) as s:
         curr_workouts = [_w_dict(w) for w in s.query(Workout).filter(
             Workout.user_id == uid,
