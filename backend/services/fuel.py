@@ -939,6 +939,7 @@ def get_today_payload(user_id, target_date: _date, db: Optional[Session] = None)
             "deficit_reduced": budget_info["deficit_reduced"],
             "ea": budget_info["ea"],
             "ea_floor_kcal": budget_info["ea_floor_kcal"],
+            "auto_periodize": settings["auto_periodize"],
             "week_phase": week_phase,
             "week_phase_reason": week_phase_reason,
             "effective_deficit_kcal": budget_info["effective_deficit_kcal"],
