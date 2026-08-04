@@ -16,7 +16,6 @@ from backend.services.plan_extras import apply_prefs_extras
 from backend.services.plan_skeleton import assemble_week, build_skeleton
 from backend.services.plan_slot import (
     build_week_ctx,
-    fill_week_slots,
     generate_slot_content,
     stamp_session,
 )
@@ -25,7 +24,7 @@ from backend.services.plan_slot_cache import (
     content_ctx_from_week,
     slot_cache_key,
 )
-from backend.services.plan_suggestions import assemble_facts, build_signature, _load_history_rows
+from backend.services.plan_suggestions import assemble_facts, _load_history_rows
 from backend.utils.log import get_logger
 
 _log = get_logger(__name__)
@@ -499,6 +498,7 @@ def _session_to_planned_body(week_start: date, session: dict) -> dict | None:
 def apply_draft(db: Session, user_id, week_start: date, *, today: date | None = None) -> dict:
     """Create planned sessions for open/future draft days; mark draft applied."""
     from backend.models import PlanDraft, PlannedSession
+    from backend.utils.time import today_bangkok
 
     today = today or today_bangkok()
     row = (
@@ -604,6 +604,7 @@ def apply_draft_slot(
     """Apply one draft session → PlannedSession; leave the rest of the draft open."""
     from backend.models import PlanDraft, PlannedSession
     from backend.services import plan_skeleton_ops as ops
+    from backend.utils.time import today_bangkok
 
     today = today or today_bangkok()
     row = (
@@ -781,6 +782,7 @@ def update_draft_slot(
     *,
     patch: dict | None = None,
     remove: bool = False,
+    draft_version: str | None = None,
 ) -> dict | None:
     """Edit or remove one draft slot. Any edit stamps source=user (pinned)."""
     from backend.models import PlanDraft
@@ -792,6 +794,8 @@ def update_draft_slot(
     )
     if row is None:
         return None
+    if draft_version is not None and draft_version != draft_version_token(row):
+        return {"ok": False, "error": "stale_draft", "status_code": 409, "draft_version": draft_version_token(row)}
     payload = dict(row.payload or {})
     sessions = list(payload.get("sessions") or [])
     idx = next(
@@ -846,6 +850,7 @@ def update_draft_slot(
 def draft_status_for_badge(db: Session, user_id, *, today: date | None = None) -> dict:
     """In-app badge/chip: fresh or outdated draft awaiting review."""
     from backend.models import PlanDraft
+    from backend.utils.time import today_bangkok
 
     today = today or today_bangkok()
     ws = today - timedelta(days=today.weekday())
@@ -944,6 +949,7 @@ def hermes_draft_notify(
         "combine_with_prefs_reconfirm": today.weekday() == 6,  # Sunday
     }
 
+
 def draft_version_token(row) -> str:
     """Client sends this back; reject ops if mismatched (stale draft)."""
     if row is None:
@@ -988,7 +994,6 @@ def regenerate_partial_slots(db: Session, user_id, week_start: date, slot_ids: l
     """Regenerate ONLY listed slot_ids; clear pending flags."""
     from backend.models import PlanDraft
     from backend.services.plan_skeleton_ops import ensure_slot_ids, sync_slots_from_sessions
-    from backend.services.plan_slot import stamp_session
 
     row = (
         db.query(PlanDraft)
@@ -1323,7 +1328,7 @@ def replan_remaining_budget(
         offset = (p.planned_date - week_start).days
         if p.status in ("done_auto", "done_manual") and p.matched_workout_id:
             w = db.get(Workout, p.matched_workout_id)
-            if w and w.tss is not None:
+            if w and w.user_id == user_id and w.tss is not None:
                 matched_actual += float(w.tss)
             occupied.add(offset)
         elif p.status in ("done_auto", "done_manual", "needs_review"):
@@ -1350,7 +1355,7 @@ def replan_remaining_budget(
         day = week_start + timedelta(days=d)
         if day < today:
             continue
-        if d not in { (p.planned_date - week_start).days for p in rows }:
+        if d not in {(p.planned_date - week_start).days for p in rows}:
             open_offsets.append(d)
     open_offsets = sorted(set(open_offsets))
 
