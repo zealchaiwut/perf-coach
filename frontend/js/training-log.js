@@ -1587,7 +1587,10 @@
         loadOlderEl.textContent = "Load older workouts";
         loadOlderEl.setAttribute("role", "button");
         loadOlderEl.tabIndex = 0;
+        var _loadOlderFired = false;
         var triggerLoadOlder = function () {
+          if (_loadOlderFired) return;
+          _loadOlderFired = true;
           loadOlderEl.removeEventListener("click", triggerLoadOlder);
           loadOlderEl.textContent = "Loading…";
           fetchAndRender(true);
