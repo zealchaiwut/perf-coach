@@ -6,13 +6,11 @@ AC: When the worker_job_runs DB query in get_sync_status raises an exception,
     and the endpoint must still return {"status": "idle"} to the caller.
 """
 import logging
-import pytest
 from unittest.mock import patch, MagicMock
 
 
 def test_db_error_is_logged_as_warning(caplog):
     """AC: exception from worker_job_runs query is logged at WARNING level."""
-    import importlib
     import backend.main as main_mod
 
     fake_user = MagicMock()
