@@ -14190,8 +14190,10 @@ async def get_sync_status(user: User = Depends(resolve_user)):
                 "started_at": wjr.started_at.isoformat() if wjr.started_at else None,
                 "finished_at": wjr.finished_at.isoformat() if wjr.finished_at else None,
             })
-    except Exception:
-        pass
+    except Exception as _wjr_exc:
+        _logging.getLogger(__name__).warning(
+            "sync_status: worker_job_runs query failed: %s", _wjr_exc
+        )
 
     # Phase 3: a queued/running job in the pull queue (e.g. a full sync waiting
     # for the worker to claim it) surfaces as "pending" so the nav bar reflects
