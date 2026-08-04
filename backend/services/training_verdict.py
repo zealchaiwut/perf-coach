@@ -89,12 +89,6 @@ _CONVERGENCE_TARGET_RATIO: float = ACWR_HOLD_THRESHOLD
 # converge within 2 years has a data problem, not a projection problem).
 _MAX_CONVERGENCE_WEEKS: int = 104
 
-# ── Wellness / readiness downgrade thresholds ────────────────────────────────
-# Today's readiness score below this triggers a one-step downgrade.
-READINESS_LOW_TODAY: float = 40.0
-# 7-day mean readiness below this triggers a one-step downgrade.
-READINESS_LOW_TREND: float = 50.0
-
 # Internal severity ordering — lower number = more restrictive.
 _VERDICT_SEVERITY: dict[Verdict, int] = {"back_off": 0, "hold": 1, "build": 2}
 
@@ -165,13 +159,6 @@ def _project_convergence(ctl: float, atl: float, today: date) -> tuple[Optional[
             return expected_ctl_in_3w, n, (today + timedelta(weeks=n)).isoformat()
 
     return expected_ctl_in_3w, _MAX_CONVERGENCE_WEEKS, (today + timedelta(weeks=_MAX_CONVERGENCE_WEEKS)).isoformat()
-
-
-_VERDICT_ORDER = {"build": 0, "hold": 1, "back_off": 2}
-
-
-def _downgrade_one(v: Verdict) -> Verdict:
-    return {"build": "hold", "hold": "back_off", "back_off": "back_off"}[v]
 
 
 def compute_verdict(

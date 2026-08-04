@@ -6297,13 +6297,37 @@ def _strava_source_dict(sa, prebuilt_streams: dict | None = None) -> dict | None
     """
     if sa is None:
         return None
-    detail = sa.detail_payload or {}
-    raw = sa.raw_payload or {}
     if prebuilt_streams is not None:
         streams = prebuilt_streams
     else:
         streams = sa.streams_payload if isinstance(sa.streams_payload, dict) else {}
+
+    # For rows synced after issue #1307 the four most-accessed detail scalars live
+    # in promoted columns (laps, splits_metric, best_efforts, calories) so we never
+    # need to load the full detail_payload blob for them.  For older rows all four
+    # promoted columns are NULL; fall back to detail_payload in that case.
+    has_promoted = sa.laps is not None
+    if has_promoted:
+        laps = sa.laps or []
+        splits_metric = sa.splits_metric or []
+        best_efforts = sa.best_efforts or []
+        calories = sa.calories
+        detail = {}  # only accessed below for the un-promoted fields
+    else:
+        detail = sa.detail_payload or {}
+        laps = detail.get("laps") or []
+        splits_metric = detail.get("splits_metric") or []
+        best_efforts = detail.get("best_efforts") or []
+        calories = detail.get("calories")
+
+    # Remaining detail fields that are not yet promoted — needs detail_payload
+    # for both old and new rows (segment_efforts, description, gear, map polyline).
+    if not has_promoted:
+        raw = sa.raw_payload or {}
+    else:
+        raw = {}
     map_obj = detail.get("map") or raw.get("map") or {}
+
     return {
         "strava_activity_id": sa.strava_activity_id,
         "name": sa.name,
@@ -6322,11 +6346,11 @@ def _strava_source_dict(sa, prebuilt_streams: dict | None = None) -> dict | None
         "external_id": sa.external_id,
         "is_stryd_synced": sa.is_stryd_synced,
         # full nested capture (Tier 2 detail)
-        "laps": detail.get("laps") or [],
-        "splits_metric": detail.get("splits_metric") or [],
-        "best_efforts": detail.get("best_efforts") or [],
+        "laps": laps,
+        "splits_metric": splits_metric,
+        "best_efforts": best_efforts,
         "segment_efforts": detail.get("segment_efforts") or [],
-        "calories": detail.get("calories"),
+        "calories": calories,
         "description": detail.get("description"),
         "gear": detail.get("gear"),
         "map_polyline": map_obj.get("polyline") or map_obj.get("summary_polyline"),

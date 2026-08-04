@@ -211,14 +211,11 @@ def test_debug_log_emitted_on_value_error():
     session, _ = _make_mock_session_for_ramp_block()
     uid = uuid.uuid4()
 
-    # Capture logging output at debug level
     with patch("backend.services.fuel.daily_tss_series", side_effect=ValueError("missing data")):
-        with patch("logging.Logger.debug") as _:
+        with patch("backend.services.fuel._log") as mock_log:
             _resolve_week_phase_from_db(uid, today, session)
 
-    # The debug log should have been called somewhere in the exception handler
-    # Since we patched daily_tss_series to raise, the except ValueError block runs
-    # and logs via _log.debug. We can verify this by checking the logger was invoked.
+    mock_log.debug.assert_called_once()
 
 
 def test_value_error_does_not_raise():
