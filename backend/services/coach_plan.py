@@ -249,6 +249,9 @@ def _compute_timeline(goal: Any, unlock_date: date, today: date) -> list[dict]:
         },
     ]
 
+    # Drop phases where start_date > end_date (inverted / zero-length).
+    phases = [p for p in phases if p["start_date"] <= p["end_date"]]
+
     # Sort chronologically by start_date.
     phases.sort(key=lambda p: p["start_date"])
     return phases

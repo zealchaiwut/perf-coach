@@ -186,8 +186,8 @@ def test_simulate_acwr_convergence_cap_respected():
 
 # ── AC11: Periodization from December race ─────────────────────────────────────
 
-def _get_timeline(today=_TODAY, snapshot=_SNAPSHOT_OK):
-    result = _make_state(snapshot=snapshot, today=today)
+def _get_timeline(today=_TODAY, snapshot=_SNAPSHOT_LOCKED):
+    result = _make_state(snapshot=snapshot, acwr_state="high_risk", today=today)
     return result["timeline"]
 
 
@@ -406,3 +406,64 @@ def test_goal_none_returns_required_structure():
         log_consistency=None,
     )
     assert set(result.keys()) >= {"levers", "timeline", "constraints", "lever_ranking"}
+
+
+# ── Issue #1523: phase-inversion guard ────────────────────────────────────────
+
+# With available load, unlock_date == today, so hold_end = today-1 < today = hold_start.
+# The hold phase must be dropped.
+
+def test_all_phases_have_valid_date_range_available_load():
+    """#1523: available ACWR → every returned phase has start_date <= end_date."""
+    result = _make_state(snapshot=_SNAPSHOT_OK, acwr_state="productive")
+    for p in result["timeline"]:
+        assert p["start_date"] <= p["end_date"], (
+            f"Phase '{p['name']}' is inverted: {p['start_date']} > {p['end_date']}"
+        )
+
+
+def test_available_load_hold_phase_absent():
+    """#1523: unlock_date == today → hold phase dropped (it would have start > end)."""
+    result = _make_state(snapshot=_SNAPSHOT_OK, acwr_state="productive")
+    names = {p["name"] for p in result["timeline"]}
+    assert "hold" not in names, (
+        f"hold phase must be dropped for available load, but got phases: {names}"
+    )
+
+
+def test_near_term_race_no_inverted_phases():
+    """#1523: race 8 weeks out → no phase has start_date > end_date."""
+    near_goal = {"race_date": _TODAY + timedelta(weeks=8), "race_distance": "half"}
+    result = _make_state(goal=near_goal, snapshot=_SNAPSHOT_OK, acwr_state="productive")
+    for p in result["timeline"]:
+        assert p["start_date"] <= p["end_date"], (
+            f"Phase '{p['name']}' is inverted: {p['start_date']} > {p['end_date']}"
+        )
+
+
+def test_near_term_race_drops_hold_and_ramp():
+    """#1523: 8-week race + available load → inverted hold and ramp phases are absent."""
+    near_goal = {"race_date": _TODAY + timedelta(weeks=8), "race_distance": "half"}
+    result = _make_state(goal=near_goal, snapshot=_SNAPSHOT_OK, acwr_state="productive")
+    names = {p["name"] for p in result["timeline"]}
+    assert "hold" not in names, f"hold should be dropped, got: {names}"
+    assert "ramp" not in names, f"ramp should be dropped, got: {names}"
+
+
+def test_near_term_race_remaining_phases_chronologically_ordered():
+    """#1523: near-term race timeline is still sorted after phase drops."""
+    near_goal = {"race_date": _TODAY + timedelta(weeks=8), "race_distance": "half"}
+    result = _make_state(goal=near_goal, snapshot=_SNAPSHOT_OK, acwr_state="productive")
+    starts = [p["start_date"] for p in result["timeline"]]
+    assert starts == sorted(starts)
+
+
+def test_near_term_race_remaining_phases_non_overlapping():
+    """#1523: near-term race phases don't overlap after inverted phases are dropped."""
+    near_goal = {"race_date": _TODAY + timedelta(weeks=8), "race_distance": "half"}
+    result = _make_state(goal=near_goal, snapshot=_SNAPSHOT_OK, acwr_state="productive")
+    timeline = result["timeline"]
+    for i in range(len(timeline) - 1):
+        assert timeline[i]["end_date"] < timeline[i + 1]["start_date"], (
+            f"Phase '{timeline[i]['name']}' overlaps '{timeline[i+1]['name']}'"
+        )
