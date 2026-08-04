@@ -6498,7 +6498,7 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "remarks": w.remarks,
         "tss": w.tss,
         "tss_source": w.tss_source,
-        "source": w.source,
+        "source": w.source or w.tss_source or "manual",
         "has_strava": "strava" in src or w.strava_activity_pk is not None,
         "has_stryd": "stryd" in src or w.stryd_activity_pk is not None,
         "strava_activity_url": w.strava_activity_url,
