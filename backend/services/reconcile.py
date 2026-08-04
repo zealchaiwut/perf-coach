@@ -196,8 +196,7 @@ def _ingest_streams(session, all_acts, existing_workouts) -> None:
             if power_samples:
                 sample_interval = row_data.get("sample_interval_seconds", 1)
                 np_val, _ = compute_normalized_power(power_samples, sample_interval)
-                if np_val is not None:
-                    workout.np = np_val
+                workout.np = np_val  # None when samples are present but insufficient
             else:
                 workout.np = None
 
