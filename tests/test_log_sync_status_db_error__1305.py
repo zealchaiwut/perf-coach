@@ -26,7 +26,7 @@ def test_db_error_is_logged_as_warning(caplog):
             with patch("backend.services.job_queue.pending_for_user", return_value=None):
                 with caplog.at_level(logging.WARNING, logger="backend.main"):
                     import asyncio
-                    response = asyncio.get_event_loop().run_until_complete(
+                    asyncio.get_event_loop().run_until_complete(
                         main_mod.get_sync_status(user=fake_user)
                     )
 
