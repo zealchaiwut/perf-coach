@@ -447,6 +447,70 @@ def _assemble_week_plan(user_id, for_date: date) -> list[dict]:
     return result
 
 
+# ── Coach block ───────────────────────────────────────────────────────────────
+
+def _assemble_coach(user_id, for_date: date) -> dict | None:
+    """Assemble the coach block for the daily brief.
+
+    Calls get_coach_payload_for_user from weekly_coach_message — the same
+    source-of-truth used by the Home page coach strip.  Returns None on any
+    error or when no payload is available so callers can omit the key cleanly.
+    """
+    import sys
+    import uuid as _uuid
+
+    try:
+        from sqlalchemy.orm import Session as _Session
+
+        from backend.db import engine
+        from backend.services.weekly_coach_message import get_coach_payload_for_user
+
+        uid = user_id
+        try:
+            _uuid.UUID(str(user_id))
+        except (ValueError, TypeError):
+            from backend.models import User
+            with _Session(engine) as db:
+                u = db.query(User).filter(
+                    User.name == str(user_id), User.is_active.is_(True)
+                ).first()
+            if u is None:
+                return None
+            uid = u.id
+
+        with _Session(engine) as db:
+            payload = get_coach_payload_for_user(uid, today=for_date, db=db)
+        if not payload:
+            return None
+
+        sections = payload.get("sections") or {}
+        nudge = payload.get("nudge") or {}
+        chosen = payload.get("chosen_preset")
+
+        out: dict = {
+            "as_of": payload.get("as_of"),
+            "source": payload.get("source"),
+            "sections": sections,
+            "text": payload.get("text") or "",
+            "directive": (sections.get("now") or "").split("\n\n")[0][:400],
+            "projection": (sections.get("dream") or "").split("\n\n")[0][:400],
+            "levers": [],
+        }
+        if isinstance(nudge, dict) and (nudge.get("focus_label") or nudge.get("next_action")):
+            out.update({
+                "focus_id": nudge.get("focus_id"),
+                "focus_label": nudge.get("focus_label"),
+                "next_action": nudge.get("next_action"),
+                "why": nudge.get("why"),
+            })
+        if chosen:
+            out["chosen_preset"] = chosen
+        return out
+    except Exception as exc:
+        print(f"WARNING: coach block unavailable: {exc}", file=sys.stderr)
+        return None
+
+
 # ── Core assembly ─────────────────────────────────────────────────────────────
 
 def _build_brief(for_date: date, worker_url=None, user_id=None, username=None) -> dict:
@@ -468,11 +532,12 @@ def _build_brief(for_date: date, worker_url=None, user_id=None, username=None) -
     weight = _assemble_weight(user_id, for_date)
     advisories = _assemble_advisories(user_id, for_date, weight)
     week_plan = _assemble_week_plan(user_id, for_date)
+    coach = _assemble_coach(user_id, for_date)
     advisories_degraded = any(a.get("severity") == "error" for a in advisories)
 
     generated_at = datetime.now(BANGKOK_TZ).isoformat()
 
-    return {
+    payload = {
         "schema_version": SCHEMA_VERSION,
         "for_date": for_date.isoformat(),
         "generated_at": generated_at,
@@ -486,6 +551,9 @@ def _build_brief(for_date: date, worker_url=None, user_id=None, username=None) -
         "actions": [],
         "week_plan": week_plan,
     }
+    if coach is not None:
+        payload["coach"] = coach
+    return payload
 
 
 def build_brief(user_id, for_date: date) -> dict:
