@@ -19679,14 +19679,14 @@ else:
 
 @app.get("/api/brief/today")
 def get_brief_today(user: User = Depends(resolve_user)):
-    """Return today's SCHEMA_VERSION 3 coaching brief for the session user.
+    """Return the current coaching brief for the session user.
 
     Calls build_brief() directly — no worker process required.
     for_date is today in Asia/Bangkok timezone.
+    schema_version is set by build_brief() via daily_brief.SCHEMA_VERSION.
     """
     today = _today_bkk()
     brief = build_brief(user.id, today)
-    brief["schema_version"] = 3
     # Normalize week_plan to the canonical API shape {"days": [...]}.
     # build_brief returns week_plan as a list; the external API contract is a dict.
     _wp = brief.get("week_plan")
