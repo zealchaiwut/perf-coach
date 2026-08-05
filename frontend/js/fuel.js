@@ -591,7 +591,7 @@ function _fuelRenderWeeklyReview(d) {
   }
 
   const adherenceEl = document.getElementById('cut-review-adherence');
-  if (adherenceEl) adherenceEl.textContent = Math.round(d.logging_adherence_pct) + '%';
+  if (adherenceEl) adherenceEl.textContent = '';
 
   if (badge) {
     badge.textContent = rec.replace(/_/g, ' ');

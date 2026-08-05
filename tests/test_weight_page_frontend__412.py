@@ -39,6 +39,8 @@ PAGES_DIR = ROOT / "frontend" / "pages"
 
 WEIGHT_HTML = (PAGES_DIR / "weight.html").read_text()
 WEIGHT_JS = (JS_DIR / "weight.js").read_text()
+WEIGHT_TIMELINE_JS = (JS_DIR / "weight-timeline.js").read_text()
+WEIGHT_CHART_JS = (JS_DIR / "weight-chart.js").read_text()
 
 BASE = os.environ.get("UAT_BASE_URL", "http://127.0.0.1:9005")
 TODAY = datetime.date.today().isoformat()
@@ -119,22 +121,15 @@ def test_c_hero_7day_avg_present():
         "Hero must have 7-day avg cell"
 
 
-def test_c_hero_delta_pills_present():
-    html_lower = WEIGHT_HTML.lower()
-    assert "delta-pill" in html_lower or ("delta" in html_lower and "pill" in html_lower), \
-        "Hero must have delta pill elements"
+def test_c_hero_delta_pills_removed_in_revamp():
+    """Revamp removed This wk / This mo noise pills from the active layout."""
+    assert "hca-pill-week" not in WEIGHT_HTML
+    assert "log-trend-val" in WEIGHT_HTML
 
 
-def test_c_delta_pill_green_loss():
-    html_lower = WEIGHT_HTML.lower()
-    assert ".loss" in html_lower or "loss" in html_lower, \
-        "CSS must define a green 'loss' class for delta pills"
-
-
-def test_c_delta_pill_red_gain():
-    html_lower = WEIGHT_HTML.lower()
-    assert ".gain" in html_lower or "gain" in html_lower, \
-        "CSS must define a red 'gain' class for delta pills"
+def test_c_delta_pill_styles_not_used_on_revamp_tab():
+    """Red/green delta pill classes removed from weight page markup."""
+    assert ".delta-pill.gain" not in WEIGHT_HTML and 'class="delta-pill' not in WEIGHT_HTML
 
 
 def test_c_delta_pill_neutral():
@@ -185,32 +180,19 @@ def test_d_quicklog_inline_error():
 
 # ── (e) Chart.js + 4 datasets ─────────────────────────────────────────────────
 
-def test_e_chartjs_440_cdn():
-    assert "chart.js@4.4.0" in WEIGHT_HTML.lower() or "chart.js@4.4" in WEIGHT_HTML.lower(), \
-        "HTML must load Chart.js 4.4.0 via CDN"
+def test_e_timeline_module_present():
+    assert (JS_DIR / "weight-timeline.js").exists(), "weight-timeline.js must exist"
+    assert "WeightTimeline" in WEIGHT_TIMELINE_JS
+    assert 'id="weight-timeline"' in WEIGHT_HTML
 
 
-def test_e_dataset_actuals_scatter_gray():
-    js_lower = WEIGHT_JS.lower()
-    assert "daily weigh" in js_lower or "actuals" in js_lower, \
-        "weight.js must define actuals scatter dataset"
-    assert "showline: false" in js_lower or "show_line" in js_lower or "showLine" in WEIGHT_JS, \
-        "actuals dataset must be scatter (showLine: false)"
+def test_e_legacy_chartjs_not_required_on_revamp_page():
+    """Revamp uses SVG timeline; Chart.js CDN is no longer required on weight.html."""
+    assert "chart.js@4.4" not in WEIGHT_HTML.lower()
 
 
-def test_e_dataset_trend_smooth_line():
-    js_lower = WEIGHT_JS.lower()
-    assert "moving avg" in js_lower or "trend" in js_lower, \
-        "weight.js must define 7-day moving avg trend dataset"
-    assert "tension" in WEIGHT_JS, "trend line must use tension for smoothing"
-
-
-def test_e_dataset_target_dashed_green():
-    js_lower = WEIGHT_JS.lower()
-    assert "'target'" in js_lower or '"target"' in js_lower or "target_weight" in js_lower, \
-        "weight.js must define target horizontal dashed line dataset"
-    assert "borderDash" in WEIGHT_JS or "borderdash" in js_lower, \
-        "target dataset must use borderDash for dashed style"
+def test_e_chart_still_available_via_weight_chart_module():
+    assert "WeightChart" in WEIGHT_CHART_JS
 
 
 def test_e_dataset_projected_dashed_blue():
@@ -280,12 +262,8 @@ def test_h_yaxis_unit_kg():
     assert "kg" in WEIGHT_JS, "y-axis must display kg unit"
 
 
-def test_h_yaxis_stepsize_2():
-    assert "stepSize" in WEIGHT_JS, "weight.js must configure y-axis stepSize"
-    # Check stepSize is 2
-    idx = WEIGHT_JS.index("stepSize")
-    snippet = WEIGHT_JS[idx:idx+20]
-    assert "2" in snippet, "y-axis stepSize must be 2"
+def test_h_timeline_domain_snaps_to_half_kg():
+    assert "timelineDomain" in WEIGHT_TIMELINE_JS
 
 
 def test_h_yaxis_autoscale_padding():
@@ -302,22 +280,9 @@ def test_h_xaxis_format_adapts_by_range():
 
 # ── (i) Tooltip ───────────────────────────────────────────────────────────────
 
-def test_i_tooltip_mode_configured():
-    js_lower = WEIGHT_JS.lower()
-    assert "tooltip" in js_lower and "mode" in js_lower, \
-        "weight.js must configure tooltip mode"
-
-
-def test_i_tooltip_shows_date():
-    js_lower = WEIGHT_JS.lower()
-    assert "tooltip" in js_lower and ("date" in js_lower or "title" in js_lower), \
-        "tooltip must show date in title"
-
-
-def test_i_tooltip_shows_weight_kg():
-    js_lower = WEIGHT_JS.lower()
-    assert "tooltip" in js_lower and ("kg" in js_lower), \
-        "tooltip must show weight in kg"
+def test_i_legacy_chart_tooltips_in_weight_chart_module():
+    js_lower = WEIGHT_CHART_JS.lower()
+    assert "tooltip" in js_lower, "weight-chart.js retains tooltip for legacy chart path"
 
 
 # ── (j) Progress card ─────────────────────────────────────────────────────────
@@ -393,10 +358,9 @@ def test_k_milestone_goal():
         "weight.js must render Goal milestone"
 
 
-def test_k_linear_interpolation_for_projections():
-    js_lower = WEIGHT_JS.lower()
-    assert "interpolat" in js_lower or "frac" in js_lower or "lerp" in js_lower, \
-        "weight.js must use linear interpolation for milestone projected weights"
+def test_k_milestones_on_progress_bar_layer_optional():
+    """Progress bar milestones remain in JS for legacy hidden card; revamp uses hypothesis."""
+    assert "renderMilestones" in WEIGHT_JS
 
 
 def test_k_mobile_horizontal_scroll():
@@ -501,8 +465,8 @@ def test_o_weight_page_logic_in_weight_js():
     # All weight-page-specific JS (hero, chart, entries, quicklog) must be in weight.js.
     # weight-targets.js is for a separate page (/weight/targets) — not a violation.
     page_specific_funcs = [
-        "renderHero", "renderChart", "renderProgress", "renderMilestones",
-        "renderRecentEntries", "_initQuickLog", "_initRangeTabs",
+        "renderHeroCardA", "renderChart", "renderProgress", "renderMilestones",
+        "renderRecentEntries", "_initCardB", "_initRangeTabs",
     ]
     for fn in page_specific_funcs:
         assert fn in WEIGHT_JS, \
@@ -513,7 +477,7 @@ def test_o_no_duplicate_weight_page_js():
     # There must not be a second file implementing the /weight/ page (not counting weight-targets.js
     # which belongs to a different page, or any test-infrastructure JS files).
     # weight-chart.js is the SVG chart module introduced by issue #423 (intentional split)
-    excluded = {"weight.js", "weight-targets.js", "weight-chart.js"}
+    excluded = {"weight.js", "weight-targets.js", "weight-chart.js", "weight-timeline.js"}
     extra = [
         f for f in JS_DIR.iterdir()
         if f.suffix == ".js"

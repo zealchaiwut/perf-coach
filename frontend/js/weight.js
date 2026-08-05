@@ -113,45 +113,106 @@ async function fetchTargetHistorySummary() {
   return apiFetch(`/api/weight-targets/history-summary`);
 }
 
-// ── Streak & Adherence ────────────────────────────────────────────────────────
+// ── Coverage (replaces streak / adherence) ───────────────────────────────────
 
-function _computeStreak(entries) {
-  if (!entries || !entries.length) return 0;
-  const dates = new Set(entries.map(e => e.entry_date));
-  const today = todayISO();
-  if (!dates.has(today)) return 0;
-  let streak = 0;
-  let cursor = today;
-  while (dates.has(cursor)) {
-    streak++;
-    cursor = addDays(cursor, -1);
-  }
-  return streak;
+const COVERAGE_THRESHOLD = 70;
+const COVERAGE_WINDOW = 30;
+
+function _coverageFromChart(stats) {
+  if (!stats) return { pct: 0, logged: 0, window: COVERAGE_WINDOW };
+  const pct = stats.coverage_pct != null ? stats.coverage_pct : 0;
+  const logged = stats.rate && stats.rate.entries_used != null
+    ? stats.rate.entries_used
+    : Math.round((pct / 100) * COVERAGE_WINDOW);
+  return { pct, logged, window: COVERAGE_WINDOW };
 }
 
-function _computeAdherence(entries) {
-  if (!entries || !entries.length) return 0;
-  const today = todayISO();
-  const cutoff = addDays(today, -13); // 14-day window: cutoff to today inclusive
-  const dates = new Set(
-    entries.filter(e => e.entry_date >= cutoff && e.entry_date <= today).map(e => e.entry_date)
-  );
-  return dates.size;
+function _isGated(stats) {
+  const rate = stats && stats.rate;
+  return !(rate && rate.readable);
 }
 
-function renderStreakAndAdherence(entries) {
-  const streakEl = document.getElementById('streak-value');
-  const adherenceEl = document.getElementById('adherence-value');
-  if (!streakEl && !adherenceEl) return;
-
-  const streak = _computeStreak(entries);
-  const adherence = _computeAdherence(entries);
-
-  if (streakEl) {
-    streakEl.textContent = streak === 0 ? 'No streak yet' : streak === 1 ? '1-day streak' : `${streak}-day streak`;
+function _morningCoverageCells(entries) {
+  const today = todayISO();
+  const cells = [];
+  for (let i = COVERAGE_WINDOW - 1; i >= 0; i--) {
+    const d = addDays(today, -i);
+    const has = (entries || []).some(e => e.entry_date === d && e.weight_kg != null);
+    cells.push({ date: d, has, isToday: d === today });
   }
-  if (adherenceEl) {
-    adherenceEl.textContent = `${adherence} / 14 days`;
+  return cells;
+}
+
+function renderCoverageGating(chartData, entries) {
+  const stats = chartData ? chartData.stats : null;
+  const gated = _isGated(stats);
+  const cov = _coverageFromChart(stats);
+  const cells = _morningCoverageCells(entries);
+  const needed = Math.max(0, Math.ceil((COVERAGE_THRESHOLD / 100) * COVERAGE_WINDOW) - cov.logged);
+
+  const gateCard = document.getElementById('gate-card');
+  if (gateCard) gateCard.hidden = !gated;
+
+  const gateCount = document.getElementById('gate-morning-count');
+  if (gateCount) gateCount.textContent = `${cov.logged} of last ${cov.window} mornings`;
+
+  const gateBar = document.getElementById('gate-cov-fill');
+  if (gateBar) gateBar.style.width = `${Math.min(100, cov.pct)}%`;
+
+  const gatePct = document.getElementById('gate-cov-pct');
+  if (gatePct) gatePct.textContent = `${Math.round(cov.pct)}% · need ${COVERAGE_THRESHOLD}%`;
+
+  const gateNeeded = document.getElementById('gate-mornings-needed');
+  if (gateNeeded) {
+    gateNeeded.textContent = needed > 0
+      ? `~${needed} more morning${needed === 1 ? '' : 's'} unlocks everything below`
+      : '';
+  }
+
+  ['rate-card', 'hypothesis-card', 'cut-review-card'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('w-locked', gated);
+  });
+
+  document.querySelectorAll('.w-lockmsg').forEach(el => {
+    el.hidden = !gated;
+  });
+
+  const strip = document.getElementById('cov-strip');
+  if (strip) {
+    strip.innerHTML = cells.map(c => {
+      let cls = 'w-cd';
+      if (!c.has) cls += ' miss';
+      if (c.isToday) cls += ' today';
+      return `<span class="${cls}" title="${c.date}"></span>`;
+    }).join('');
+  }
+
+  const covChip = document.getElementById('cov-chip');
+  if (covChip) {
+    covChip.textContent = `${Math.round(cov.pct)}%`;
+    covChip.className = 'w-chip ' + (cov.pct >= COVERAGE_THRESHOLD ? 'ok' : 'warn');
+  }
+
+  const covText = document.getElementById('cov-text');
+  if (covText) covText.textContent = `${cov.logged} of last ${cov.window} mornings`;
+
+  const covVerdict = document.getElementById('cov-verdict');
+  if (covVerdict) {
+    if (cov.pct >= COVERAGE_THRESHOLD) {
+      covVerdict.textContent = '✓ enough for a reliable rate';
+      covVerdict.style.color = 'var(--success, #16a34a)';
+    } else {
+      covVerdict.textContent = `below the ${COVERAGE_THRESHOLD}% needed`;
+      covVerdict.style.color = 'var(--warning, #d97706)';
+    }
+  }
+
+  const headerPill = document.getElementById('header-cov-pill');
+  if (headerPill) {
+    headerPill.hidden = false;
+    headerPill.textContent = `${cov.logged} of last ${cov.window} mornings`;
+    headerPill.className = 'covpill ' + (cov.pct >= COVERAGE_THRESHOLD ? 'ok' : 'low');
   }
 }
 
@@ -174,17 +235,22 @@ function renderSubtitle(summary, stats, tracking) {
   }
 
   const count = summary ? summary.entries_logged : 0;
-  const last14Count = _recentEntries.filter(e => e.weight_kg != null).length;
+  const since = summary && summary.first_entry_date
+    ? _fmtShortDate(summary.first_entry_date)
+    : null;
+  const sinceStr = since ? ` · since ${since}` : '';
 
-  let trendStr = '';
-  if (stats && stats.delta_7d_kg != null) {
-    const d = stats.delta_7d_kg;
-    const isFlat = Math.abs(d) < 0.05;
-    const arrow = isFlat ? '→' : (d < 0 ? '↓' : '↑');
-    trendStr = ` · trending ${arrow} ${Math.abs(d).toFixed(1)} kg/wk`;
+  const rate = stats && stats.rate;
+  let rateStr = '';
+  if (rate && rate.readable && rate.rate_kg_wk != null) {
+    const r = rate.rate_kg_wk;
+    const sign = r > 0 ? '+' : '';
+    rateStr = ` · ${sign}${r.toFixed(2)} kg/wk`;
+  } else if (stats && stats.coverage_pct != null) {
+    rateStr = ` · ${Math.round(stats.coverage_pct)}% coverage (rate provisional)`;
   }
 
-  el.textContent = `${count} entries · ${last14Count} of last 14 days${trendStr}`;
+  el.textContent = `${count} entries${sinceStr}${rateStr}`;
 }
 
 // ── Hero: Card A (Current Weight) + Coach strip ───────────────────────────
@@ -194,19 +260,306 @@ function renderSubtitle(summary, stats, tracking) {
 // the existing call sites below.
 
 function renderHeroCardA(chartData, activeTarget) {
-  WeightCurrentCard.renderStats(chartData, activeTarget);
+  renderLogTodayTiles(chartData);
 }
 
-function renderCoachStrip(chartData, activeTarget) {
-  WeightCurrentCard.renderCoachStrip(chartData, activeTarget);
+function renderCoachStrip(_chartData, _activeTarget) {
+  /* Coach strip removed from weight tab — noise vs trend. */
+}
+
+function renderLogTodayTiles(chartData) {
+  const stats = chartData ? chartData.stats : null;
+  const rate = stats && stats.rate;
+  const actuals = chartData ? (chartData.actuals || []) : [];
+  const trendKg = (rate && rate.trend_kg != null) ? rate.trend_kg
+    : (stats && stats.current_avg_kg != null ? stats.current_avg_kg : null);
+
+  const trendEl = document.getElementById('log-trend-val');
+  const trendSub = document.getElementById('log-trend-sub');
+  if (trendEl) {
+    trendEl.innerHTML = trendKg != null
+      ? `${trendKg.toFixed(1)} <span>${unitLabel()}</span>`
+      : `-- <span>${unitLabel()}</span>`;
+  }
+  if (trendSub) {
+    trendSub.textContent = rate && rate.readable
+      ? 'EWMA · 30-day'
+      : 'EWMA · sparse input';
+    trendSub.className = 'w-sub mute';
+  }
+
+  let lastKg = null;
+  let lastDate = null;
+  for (let i = actuals.length - 1; i >= 0; i--) {
+    if (actuals[i].weight_kg != null) {
+      lastKg = actuals[i].weight_kg;
+      lastDate = actuals[i].date;
+      break;
+    }
+  }
+  const lastEl = document.getElementById('log-last-val');
+  const lastSub = document.getElementById('log-last-sub');
+  if (lastEl) {
+    lastEl.innerHTML = lastKg != null
+      ? `${lastKg.toFixed(1)} <span style="font-size:11px;color:var(--text-tertiary)">${unitLabel()}</span>`
+      : '—';
+  }
+  if (lastSub && lastDate) {
+    const d = new Date(lastDate + 'T00:00:00');
+    lastSub.textContent = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  }
 }
 
 // ── Chart ──────────────────────────────────────────────────────────────────
 
 function renderChart(chartData, range) {
   _chartData = chartData;
-  WeightChart.render(chartData, range);
-  _syncLegend(chartData);
+  if (document.getElementById('weight-timeline')) {
+    _renderTimeline(chartData);
+  } else if (typeof WeightChart !== 'undefined') {
+    WeightChart.render(chartData, range);
+    _syncLegend(chartData);
+  }
+}
+
+let _timelineComposition = false;
+let _decisionsCache = null;
+let _sprintCache = null;
+
+async function _fetchDecisions() {
+  if (_decisionsCache !== null) return _decisionsCache;
+  try {
+    const data = await apiFetch('/api/decisions?limit=25');
+    _decisionsCache = data.decisions || [];
+    return _decisionsCache;
+  } catch (e) {
+    _decisionsCache = [];
+    return [];
+  }
+}
+
+async function _fetchSprintBands() {
+  if (_sprintCache !== null) return _sprintCache;
+  try {
+    const data = await apiFetch('/api/calibration-sprint');
+    if (data && data.status === 'running' && data.start_date && data.end_date) {
+      _sprintCache = [{ start: data.start_date, end: data.end_date }];
+    } else {
+      _sprintCache = [];
+    }
+    return _sprintCache;
+  } catch (_) {
+    _sprintCache = [];
+    return [];
+  }
+}
+
+async function _renderTimeline(chartData) {
+  if (typeof WeightTimeline === 'undefined') return;
+  const [decisions, sprints] = await Promise.all([_fetchDecisions(), _fetchSprintBands()]);
+  WeightTimeline.render(chartData, {
+    showComposition: _timelineComposition,
+    decisions: decisions,
+    sprints: sprints,
+  });
+}
+
+function renderDecisionsList(decisions) {
+  const list = document.getElementById('decisions-list');
+  if (!list) return;
+  if (!decisions || !decisions.length) {
+    list.innerHTML = '<div class="w-verdict flat">No decisions logged yet — paste from a consult to track what changed.</div>';
+    return;
+  }
+  list.innerHTML = decisions.slice(0, 8).map(d => {
+    const day = d.decided_on || '';
+    const dObj = day ? new Date(day + 'T00:00:00') : null;
+    const dLbl = dObj && !isNaN(dObj)
+      ? dObj.toLocaleDateString('en-US', { day: 'numeric', month: 'short' }).toUpperCase()
+      : '—';
+    let chip = 'w-chip';
+    let chipText = 'ACTIVE';
+    if (d.applied === false) { chipText = 'REVERTED'; }
+    else if (d.outcome_note) { chip += ' ok'; chipText = 'WORKING'; }
+    else if (d.review_on && d.review_on <= todayISO() && !d.outcome_note) { chip += ' warn'; chipText = 'REVIEW'; }
+    const sub = d.review_on ? `review ${d.review_on}` : (d.outcome_note || '');
+    const text = (d.raw_text || '').split('\n')[0].slice(0, 120);
+    return `<div class="w-tlrow">
+      <span class="w-tld">${window.AppCommon.escapeHtml(dLbl)}</span>
+      <span class="w-tlt">${window.AppCommon.escapeHtml(text)}${sub ? `<small>${window.AppCommon.escapeHtml(sub)}</small>` : ''}</span>
+      <span class="${chip}">${chipText}</span>
+    </div>`;
+  }).join('');
+}
+
+async function renderDecisions() {
+  const decisions = await _fetchDecisions();
+  renderDecisionsList(decisions);
+}
+
+function renderComposition(composition) {
+  const body = document.getElementById('composition-body');
+  const chip = document.getElementById('composition-chip');
+  if (!body) return;
+
+  if (!composition || !composition.readable) {
+    if (chip) chip.textContent = 'needs 4 weekly readings';
+    body.innerHTML = `<div class="w-verdict flat">${composition && composition.readable_note
+      ? window.AppCommon.escapeHtml(composition.readable_note)
+      : 'No composition data yet. Log body fat % weekly and this fills in after four readings — it\'s the only thing that can tell you whether you\'re losing fat or muscle.'}</div>`;
+    return;
+  }
+
+  const latest = composition.latest || {};
+  const lean = latest.lean_mass_kg;
+  const fat = latest.fat_mass_kg;
+  const bf = latest.body_fat_pct;
+  if (chip) chip.textContent = `${composition.readings_count || 4} readings · direction only`;
+
+  const leanPct = lean != null && fat != null ? (lean / (lean + fat)) * 100 : 50;
+  body.innerHTML = `
+    <div class="w-compbar">
+      <i class="lean" style="width:${leanPct.toFixed(1)}%">LEAN ${lean != null ? lean.toFixed(1) : '—'} kg</i>
+      <i class="fat" style="width:${(100 - leanPct).toFixed(1)}%">${fat != null ? fat.toFixed(1) : '—'}</i>
+    </div>
+    <div class="w-clegend">
+      <span><span class="w-sq" style="background:#4f6ef7"></span>lean — protect this</span>
+      <span><span class="w-sq" style="background:#f0a878"></span>fat — lose this</span>
+    </div>
+    <div class="w-t3" style="margin-top:11px">
+      <div class="w-tile"><div class="w-tile-lbl">Fat mass</div><div class="w-mid">${fat != null ? fat.toFixed(1) : '—'} <span>kg</span></div></div>
+      <div class="w-tile"><div class="w-tile-lbl">Lean mass</div><div class="w-mid">${lean != null ? lean.toFixed(1) : '—'} <span>kg</span></div></div>
+      <div class="w-tile"><div class="w-tile-lbl">Body fat</div><div class="w-mid">${bf != null ? bf.toFixed(1) : '—'}<span>%</span></div></div>
+    </div>
+    ${composition.verdict ? `<div class="w-verdict good" style="margin-top:10px"><b>${window.AppCommon.escapeHtml(composition.verdict)}</b></div>` : ''}`;
+}
+
+function renderRateCard(chartData, activeTarget) {
+  const stats = chartData ? chartData.stats : null;
+  const rate = stats && stats.rate;
+  const readable = rate && rate.readable;
+
+  const rTrend = document.getElementById('rate-trend-val');
+  const rTrendSub = document.getElementById('rate-trend-sub');
+  const rRate = document.getElementById('rate-val');
+  const rRateSub = document.getElementById('rate-val-sub');
+  const rBar = document.getElementById('rate-bar');
+  const rVerdict = document.getElementById('rate-verdict');
+
+  const trendKg = rate && rate.trend_kg != null ? rate.trend_kg : (stats && stats.current_avg_kg);
+  if (rTrend) {
+    rTrend.innerHTML = trendKg != null
+      ? `${trendKg.toFixed(1)} <span>kg</span>`
+      : `-- <span>kg</span>`;
+  }
+
+  const todayMarker = chartData && chartData.today_marker;
+  if (rTrendSub && todayMarker) {
+    const raw = todayMarker.actual_kg;
+    const gap = todayMarker.gap_kg;
+    if (raw != null && gap != null) {
+      const sign = gap >= 0 ? '+' : '';
+      rTrendSub.textContent = `raw today ${raw.toFixed(1)} · ${sign}${gap.toFixed(1)} vs trend`;
+    } else {
+      rTrendSub.textContent = '';
+    }
+  }
+
+  if (rRate) {
+    if (readable && rate.rate_kg_wk != null) {
+      const r = rate.rate_kg_wk;
+      const sign = r > 0 ? '+' : '';
+      rRate.innerHTML = `${sign}${r.toFixed(2)} <span>kg/wk</span>`;
+      rRate.style.color = '';
+    } else {
+      rRate.innerHTML = '—.— <span>kg/wk</span>';
+      rRate.style.color = 'var(--text-tertiary, #9ca3af)';
+    }
+  }
+
+  if (rRateSub) {
+    if (readable && rate.ci_kg_wk != null) {
+      rRateSub.textContent = `± ${Math.abs(rate.ci_kg_wk).toFixed(2)} · clear of zero`;
+      rRateSub.className = 'w-sub ok';
+    } else {
+      rRateSub.textContent = rate && rate.readable_note ? rate.readable_note : 'interval too wide to read';
+      rRateSub.className = 'w-sub mute';
+    }
+  }
+
+  if (rBar) {
+    const cap = -0.5;
+    const needed = rate && rate.needed_rate_kg_wk;
+    const lo = cap;
+    const hi = 0.5;
+    const span = hi - lo;
+    const toPct = v => `${((v - lo) / span) * 100}%`;
+    if (!readable) {
+      rBar.innerHTML = `<span class="w-rline"></span><span class="w-rci wide" style="left:8%;width:78%"></span>
+        <span class="w-rz" style="left:64%"></span><span class="w-rlab" style="left:64%">0 flat</span>`;
+    } else {
+      const pt = rate.rate_kg_wk != null ? rate.rate_kg_wk : 0;
+      const ci = rate.ci_kg_wk != null ? Math.abs(rate.ci_kg_wk) : 0.15;
+      const ciL = Math.max(lo, pt - ci);
+      const ciR = Math.min(hi, pt + ci);
+      rBar.innerHTML = `<span class="w-rline"></span>
+        <span class="w-rci" style="left:${toPct(ciL)};width:${Math.max(2, ((ciR - ciL) / span) * 100)}%"></span>
+        <span class="w-rpt" style="left:${toPct(pt)}"></span>
+        ${needed != null ? `<span class="w-rn" style="left:${toPct(needed)}"></span>` : ''}
+        <span class="w-rz" style="left:${toPct(0)}"></span>
+        <span class="w-rlab" style="left:8%">${cap} cap</span>
+        ${needed != null ? `<span class="w-rlab" style="left:${toPct(needed)}">needed ${needed.toFixed(2)}</span>` : ''}
+        <span class="w-rlab" style="left:${toPct(0)}">0 flat</span>`;
+    }
+  }
+
+  if (rVerdict) {
+    rVerdict.className = 'w-verdict ' + (readable ? 'good' : 'flat');
+    if (!readable) {
+      const cov = _coverageFromChart(stats);
+      rVerdict.textContent = `With ${cov.logged} of ${cov.window} mornings the confidence interval spans the whole plausible range. No conclusion possible.`;
+    } else if (rate.rate_kg_wk != null) {
+      rVerdict.innerHTML = `<b>Rate ${rate.rate_kg_wk.toFixed(2)} kg/wk</b> — single canonical value from weight_stats, shared with header and cut review.`;
+    } else {
+      rVerdict.textContent = 'Needs more coverage for a readable rate.';
+    }
+  }
+}
+
+async function renderHypothesis() {
+  const body = document.getElementById('hypothesis-body');
+  const verdict = document.getElementById('hypothesis-verdict');
+  if (!body) return;
+  try {
+    const data = await apiFetch('/api/weight-hypothesis');
+    if (!data.readable || !data.buckets || !data.buckets.length) {
+      body.innerHTML = '';
+      if (verdict) {
+        verdict.className = 'w-verdict flat';
+        verdict.textContent = data.sentence || data.reason || 'Too early to say where performance peaks — track weight against endurance and speed and let the curve show it.';
+      }
+      return;
+    }
+    const current = data.current_weight_kg;
+    body.innerHTML = data.buckets.map(b => {
+      const isNow = current != null && Math.abs(b.weight_kg - current) < 0.3;
+      const isPeak = data.peak_estimate_kg != null && Math.abs(b.weight_kg - data.peak_estimate_kg) < 0.3;
+      const pct = Math.min(100, Math.max(8, (b.mean_score / (data.buckets[0].mean_score || 1)) * 66));
+      const projected = b.weight_kg > (current || 0) + 2;
+      return `<div class="w-hrow${isNow ? ' w-hnow' : ''}">
+        <span class="w-hw">${b.weight_kg.toFixed(1)}</span>
+        <span class="w-htrack"><i style="width:${pct}%;background:${isNow ? 'var(--primary,#4f6ef7)' : '#c9d2fb'}"></i></span>
+        <span class="w-hval">${projected ? 'projected' : `score ${b.mean_score.toFixed(0)}`}</span>
+      </div>`;
+    }).join('');
+    if (verdict) {
+      verdict.className = 'w-verdict flat';
+      verdict.textContent = data.sentence || 'Hypothesis from paired weight and performance — not a target.';
+    }
+  } catch (_) {
+    body.innerHTML = '';
+    if (verdict) verdict.textContent = 'Hypothesis unavailable yet.';
+  }
 }
 
 // Plan / gap / milestone legend chips are Advanced-only AND require a target.
@@ -258,14 +611,8 @@ function _fmtShortDate(dateStr) {
 
 function renderProgress(target) {
   const card = document.getElementById('progress-card');
-  if (!card) return;
-
-  if (!target) {
-    card.hidden = true;
-    return;
-  }
-
-  card.hidden = false;
+  if (card) card.hidden = true;
+  return;
 
   const pct       = Math.max(0, Math.min(100, target.progress_pct || 0));
   const startW    = target.start_weight_kg || 0;
@@ -482,11 +829,23 @@ function renderRecentEntries(entries, activeTarget, totalEntries) {
     arr.sort((a, b) => (b.entry_time || '').localeCompare(a.entry_time || ''))
   );
 
-  // Build 5-day list: today → today-4 (older dates are reached via the calendar)
+  // Build 14-day list: today → today-13
   const today = todayISO();
   const days = [];
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 14; i++) {
     days.push(addDays(today, -i));
+  }
+
+  const trendByDate = {};
+  if (_chartData && _chartData.trend) {
+    _chartData.trend.forEach(p => {
+      if (p.weight_kg != null) trendByDate[p.date] = p.weight_kg;
+    });
+  }
+  if (_chartData && _chartData.ewma) {
+    _chartData.ewma.forEach(p => {
+      if (p.weight_kg != null) trendByDate[p.date] = p.weight_kg;
+    });
   }
 
   // Compute deltas: compare each entry to the previous logged day (across gaps)
@@ -541,16 +900,13 @@ function renderRecentEntries(entries, activeTarget, totalEntries) {
 
     // One or more entries on this day — show the first (most recent) entry
     return dayEntries.map((e, idx) => {
-      const delta = prevWeight[e.id];
-      let deltaCls = 'neu', deltaArrow = '—', deltaVal = '';
-      if (delta != null) {
-        const isFlat = Math.abs(delta) < 0.05;
-        const isLoss = delta < 0;
-        const isTowardTarget = losingIsGoal ? isLoss : !isLoss;
-        if (!isFlat) {
-          deltaCls = isTowardTarget ? 'dn' : 'up';
-          deltaArrow = isLoss ? '↓' : '↑';
-          deltaVal = ' ' + Math.abs(delta).toFixed(1);
+      const trend = trendByDate[date];
+      let deltaNote = 'on trend';
+      if (trend != null && e.weight_kg != null) {
+        const d = e.weight_kg - trend;
+        if (Math.abs(d) >= 0.05) {
+          const sign = d >= 0 ? '+' : '−';
+          deltaNote = `${sign}${Math.abs(d).toFixed(1)} vs trend`;
         }
       }
       const noteText = e.notes ? _esc(e.notes) : '';
@@ -560,7 +916,7 @@ function renderRecentEntries(entries, activeTarget, totalEntries) {
           <div class="re-d">${idx === 0 ? dateLabel : ''}${isToday && idx === 0 ? '<span class="re-d-sub">Today</span>' : ''}</div>
           <div class="re-note">${noteText}</div>
           <div class="re-w">${e.weight_kg.toFixed(1)}<span class="re-u"> kg</span></div>
-          <div class="re-delta ${deltaCls}">${deltaArrow}${deltaVal}</div>
+          <div class="re-delta neu">${deltaNote}</div>
           <div class="re-actions">
             <button class="entry-menu-btn" data-entry-id="${e.id}" data-weight="${e.weight_kg}" data-date="${e.entry_date}" type="button"
               aria-label="Actions for entry ${e.id}" aria-expanded="false">⋯</button>
@@ -1747,7 +2103,7 @@ async function _reloadEntries() {
     const entriesRes = await fetchRecentEntries();
     _recentEntries = entriesRes.entries || [];
     renderRecentEntries(_recentEntries, _activeTarget, _historySummary ? _historySummary.total_entries : null);
-    renderStreakAndAdherence(_recentEntries);
+    renderCoverageGating(_chartData, _recentEntries);
   } catch (e) {
     if (e.message !== 'auth') showPageError('Entries reload failed: ' + e.message);
   }
@@ -1980,7 +2336,11 @@ async function _reload() {
     renderProgress(_activeTarget);
     renderMilestones(_activeTarget, chartData.stats);
     renderRecentEntries(_recentEntries, _activeTarget, histSummary ? histSummary.total_entries : null);
-    renderStreakAndAdherence(_recentEntries);
+    renderCoverageGating(chartData, _recentEntries);
+    renderComposition(chartData.composition);
+    renderRateCard(chartData, _activeTarget);
+    renderDecisions();
+    await renderHypothesis();
     renderTargetHistory(histSummary);
     _cardBSetLoggedState(_recentEntries, chartData.stats ? chartData.stats.current_weight_kg : null);
     await renderBackfillCalendar();
@@ -2015,10 +2375,8 @@ function _renderWaistSparkline(measurements) {
   }));
 
   if (!pts.length) {
-    wrap.hidden = false;
-    svg.setAttribute('width', '0');
-    svg.setAttribute('height', '0');
-    if (empty) empty.hidden = false;
+    wrap.hidden = true;
+    if (empty) empty.hidden = true;
     return;
   }
 
@@ -2178,6 +2536,48 @@ function _initBodyMeasurements() {
   });
 }
 
+function _initTimelineToggle() {
+  const seg = document.getElementById('timeline-mode-seg');
+  if (!seg) return;
+  seg.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === btn));
+      _timelineComposition = btn.dataset.mode === 'composition';
+      if (_chartData) _renderTimeline(_chartData);
+    });
+  });
+}
+
+function _initRateRangeTabs() {
+  const tabs = document.querySelectorAll('#rate-range-tabs .range-tab');
+  if (!tabs.length) return;
+  tabs.forEach(btn => {
+    btn.addEventListener('click', async () => {
+      _currentRange = btn.dataset.range;
+      tabs.forEach(b => b.classList.toggle('active', b === btn));
+      document.querySelectorAll('.chart-controls .range-tab').forEach(b => {
+        b.classList.toggle('active', b.dataset.range === _currentRange);
+      });
+      if (_rangeAbortController) _rangeAbortController.abort();
+      _rangeAbortController = new AbortController();
+      const seq = ++_rangeFetchSeq;
+      try {
+        const data = await fetchChartData(_currentRange, _rangeAbortController.signal);
+        if (seq !== _rangeFetchSeq) return;
+        _chartData = data;
+        renderChart(data, _currentRange);
+        renderLogTodayTiles(data);
+        renderCoverageGating(data, _recentEntries);
+        renderComposition(data.composition);
+        renderRateCard(data, _activeTarget);
+        _renderP2WCard(_currentRange);
+      } catch (e) {
+        if (e.name !== 'AbortError') showPageError('Chart load failed: ' + e.message);
+      }
+    });
+  });
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────
 
 let _chartResizeTimer = null;
@@ -2186,7 +2586,11 @@ function _onChartResize() {
   if (!_chartData) return;
   clearTimeout(_chartResizeTimer);
   _chartResizeTimer = setTimeout(function () {
-    renderChart(_chartData, _currentRange);
+    if (document.getElementById('weight-timeline')) {
+      _renderTimeline(_chartData);
+    } else {
+      renderChart(_chartData, _currentRange);
+    }
   }, 150);
 }
 
@@ -2209,6 +2613,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   _initTargetHistoryFilters();
   _initBackfillCalendar();
   _initBodyMeasurements();
+  _initTimelineToggle();
+  _initRateRangeTabs();
 
   const exportBtn = document.getElementById('export-csv-btn');
   if (exportBtn) {
