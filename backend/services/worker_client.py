@@ -113,7 +113,7 @@ def delegate_sync(
         return _post(
             "/internal/sync/run",
             {"user_id": user_id, "sources": sources, "full": full, "triggered_by": triggered_by},
-            timeout=timeout if timeout is not None else get_worker_timeout(),
+            timeout=timeout,
         )
 
     from backend.services import job_queue
@@ -174,7 +174,7 @@ def delegate_backfill(user_id: str, timeout: int | None = None) -> dict:
         return _post(
             "/internal/performance/backfill",
             {"user_id": user_id},
-            timeout=timeout if timeout is not None else get_worker_timeout(),
+            timeout=timeout,
         )
 
     from backend.services import job_queue

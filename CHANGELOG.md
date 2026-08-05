@@ -1,5 +1,17 @@
 # Changelog
 
+## Sprint 128 — code-review follow-up cleanup (dead-code & unused-parameter removal)
+
+- #1519: remove the unused `atl` parameter from `_load_interpretation` in `daily_brief.py` — the interpretation label is derived only from `tsb` (and `ctl`), so the signature is now `_load_interpretation(ctl, tsb)` and `_assemble_form` no longer passes `atl`
+- #1565: drop the private-prefixed `_REGISTRY` and `_RUN_FILTER` names from `gap_analysis/engine.py`'s `__all__` — a leading-underscore name marked private should not be re-exported, so `__all__` is now just `["GapAnalysisFinding", "run_gap_analysis"]`
+- #1590: remove the redundant timeout resolution in `worker_client.delegate_sync` / `delegate_backfill` — the `_post` helper already resolves the default, so both now pass `timeout=timeout` directly instead of the `timeout if timeout is not None else get_worker_timeout()` ternary (the env-configurable default from #1306 is unchanged)
+- #1531: remove the unused `todayStr` parameter from `_buildHabitRow` in `frontend/js/habits.js` and its call site in `renderDailyGrid`
+- #1511: remove the dead `worker_url` plumbing from `scripts/export_brief.py` — the CLI no longer computes or threads a worker URL (the daily brief is assembled in-process); `_build_brief` is called with just `for_date`/`user_id`, and `--worker-url` remains an accepted no-op kept for backward compatibility
+- #1309: trim the multi-paragraph docstring on `activity_streams_to_strava_dict` to a single summary line
+- #1301: document the private SQLAlchemy attributes referenced in `tests/test_memory_config_hardening__1292.py` (test-only clarifying comment)
+- #1552: remove the unused `import pytest` from `tests/test_curve_data_non_emptiness_check__993.py` (guarded by regression test `test_remove_unused_import_pytest__1552.py`)
+- #1564: replace the hardcoded `/Users/zeal-server` absolute path in `tests/test_1466_consistent_run_matching.py`'s subprocess `cwd=` arguments with a dynamic `pathlib.Path(__file__).resolve().parents[1]`, so its five `subprocess.run` calls are portable across clone directories (guarded by regression test `test_1564_fix_hardcoded_cwd_in_test_1466.py`)
+
 ## Sprint 127 — code-review follow-up hardening (strava detail promotion, per-set strength TSS prefs, migration reversibility, observability)
 
 - #1307: promote the four most-accessed Strava detail scalars to columns on `strava_activities` — `sync_strava_activities` now writes `laps`, `splits_metric`, `best_efforts`, and `calories` alongside `detail_payload` at sync time, and `_strava_source_dict` reads them from the promoted columns (falling back to `detail_payload` only for rows synced before the columns existed, detected via `laps IS NULL`). Avoids loading the large deferred `detail_payload` blob for these fields on new rows. Migration `ad22fdb94551`
