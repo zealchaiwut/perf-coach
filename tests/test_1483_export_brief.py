@@ -27,7 +27,7 @@ import pathlib
 import sys
 import tempfile
 from datetime import date
-from unittest.mock import patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -423,23 +423,23 @@ def test_form_has_required_keys(m):
 
 def test_load_interpretation_fresh(m):
     """AC7: _load_interpretation returns 'Fresh' for positive TSB."""
-    assert "Fresh" in m._load_interpretation(50.0, 10.0)
+    assert "Fresh" in m._load_interpretation(50.0, 40.0, 10.0)
 
 
 def test_load_interpretation_overreached(m):
     """AC7: _load_interpretation returns overreached label for very negative TSB."""
-    assert "Overreached" in m._load_interpretation(50.0, -20.0)
+    assert "Overreached" in m._load_interpretation(50.0, 70.0, -20.0)
 
 
 def test_load_interpretation_well_trained(m):
     """AC7: _load_interpretation appends 'well-trained' when CTL > 60."""
-    result = m._load_interpretation(65.0, 5.0)
+    result = m._load_interpretation(65.0, 60.0, 5.0)
     assert "well-trained" in result
 
 
 def test_load_interpretation_undertrained(m):
     """AC7: _load_interpretation appends 'undertrained' when CTL < 30."""
-    result = m._load_interpretation(20.0, 5.0)
+    result = m._load_interpretation(20.0, 15.0, 5.0)
     assert "undertrained" in result
 
 
