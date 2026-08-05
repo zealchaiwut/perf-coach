@@ -143,7 +143,7 @@ Everything is read from the service that owns it. Nothing is recomputed.
 | `training.skipped_planned` | `planned_sessions.status` — the `missed*` states `plan_matching` already assigned |
 | `plan.*` | `PlannedSession` + `training_load.estimate_planned_session_metrics` |
 | `habits.*` | `habit_adherence.build_adherence_payload` |
-| `findings` | `get_gap_analysis`, **visible only** — muted/suppressed items are excluded |
+| `findings` | `run_gap_analysis` via `_assemble_findings`, **visible only** — muted/suppressed items are excluded |
 
 ### Derived, not stated
 

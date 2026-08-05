@@ -27,7 +27,7 @@ _TODAY = date(2026, 7, 9)
 # ── B.1: baseline cap ────────────────────────────────────────────────────────
 
 def test_baseline_capped_when_spike_above_chronic():
-    # raw=316, chronic=224 -> cap = 1.15*224 = 257.6
+    # raw=316, chronic=224 -> cap = 1.3*224 = 291.2
     result = compute_load_plan(
         baseline=316, ramp_rate=0.05, hold_weeks=4, taper_weeks=3, weeks_to_race=19,
         trailing_28d_avg=224,
@@ -38,8 +38,32 @@ def test_baseline_capped_when_spike_above_chronic():
     assert result["chronic_weekly"] == 224.0
 
 
+def test_baseline_uncapped_when_inside_acwr_band():
+    # raw=292, chronic=232 -> cap = 1.3*232 = 301.6; 292 is under it (was
+    # capped under the old 1.15× rule — the screenshot bug).
+    result = compute_load_plan(
+        baseline=292, ramp_rate=0.05, hold_weeks=4, taper_weeks=3, weeks_to_race=15,
+        trailing_28d_avg=232,
+    )
+    assert result["raw_baseline"] == 292.0
+    assert result["baseline"] == 292.0
+    assert result["baseline_capped"] is False
+    # Week 1 raw = 292*1.05 ≈ 306.6 may still hit the *moving* ACWR ceiling
+    # (1.3×232 ≈ 301.6) — that's a separate guard from the seed cap.
+    week1 = next(w for w in result["weeks"] if w["week_index"] == 1)
+    assert week1["target_tss"] == pytest.approx(min(292 * 1.05, 1.3 * 232), abs=0.5)
+
+
+def test_resolve_baseline_seed_takes_max_of_logged_and_planned():
+    from backend.services.load_plan import resolve_baseline_seed
+    assert resolve_baseline_seed(201, 300) == 300.0
+    assert resolve_baseline_seed(292, 280) == 292.0
+    assert resolve_baseline_seed(0, 250) == 250.0
+    assert resolve_baseline_seed(180, None) == 180.0
+
+
 def test_baseline_uncapped_when_close_to_chronic():
-    # raw=240, chronic=224 -> cap ceiling = 1.15*224 = 257.6, raw is under it
+    # raw=240, chronic=224 -> cap ceiling = 1.3*224 = 291.2, raw is under it
     result = compute_load_plan(
         baseline=240, ramp_rate=0.05, hold_weeks=4, taper_weeks=3, weeks_to_race=19,
         trailing_28d_avg=224,

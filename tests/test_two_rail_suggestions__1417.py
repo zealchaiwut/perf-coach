@@ -169,21 +169,28 @@ def test_run_prompt_is_a_compact_three_block_estimation():
 
 
 def test_run_fill_uses_the_small_token_cap():
-    captured = {}
-
-    def _fake_complete(system, user, **kw):
-        captured.update(kw)
-        return None
-
+    """Planning LLM removed — pinned fills go through fill_slot, not
+    complete_structured, so there is no token-cap path to assert anymore."""
     with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)), \
-         mock.patch.object(ps.llm_svc, "complete_structured", side_effect=_fake_complete):
-        ps.generate_single_session("someone", 1, "", workout_type="run")
-    assert captured["max_tokens"] == ps._RUN_SESSION_MAX_COMPLETION_TOKENS
-
-    with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)), \
-         mock.patch.object(ps.llm_svc, "complete_structured", side_effect=_fake_complete):
-        ps.generate_single_session("someone", 1, "", workout_type="strength")
-    assert captured["max_tokens"] == ps._SINGLE_SESSION_MAX_COMPLETION_TOKENS
+         mock.patch("backend.services.plan_pattern_fill.fill_slot",
+                    return_value={
+                        "intent": "Easy", "notes": None,
+                        "blocks": [{"phase": "warmup", "duration_min": 10},
+                                   {"phase": "main", "duration_min": 25},
+                                   {"phase": "cooldown", "duration_min": 10}],
+                        "exercises": None, "source": "pattern",
+                    }) as fill, \
+         mock.patch.object(ps.llm_svc, "complete_structured") as llm:
+        ps.generate_single_session(
+            "someone", 1, "", workout_type="run",
+            target_tss=40, duration_minutes=45,
+        )
+        ps.generate_single_session(
+            "someone", 1, "", workout_type="strength",
+            target_tss=45, duration_minutes=45,
+        )
+    assert fill.call_count == 2
+    llm.assert_not_called()
 
 
 def test_strength_prompt_pins_canonical_block_names():
@@ -340,9 +347,9 @@ def test_generate_single_session_with_pins_never_reaches_the_freeform_prompt():
 
 def test_generate_single_session_with_pins_stamps_the_exact_numbers():
     """Guardrail: the LLM never produces a number. Python stamps the
-    athlete's own target_tss/duration_minutes regardless of what the model
+    athlete's own target_tss/duration_minutes regardless of what content
     volunteers (here it tries to sneak in 999/999) — pins always win."""
-    llm_content = {
+    pattern_content = {
         "intent": "Heavy day", "notes": None, "blocks": None,
         "exercises": [
             {"block": "Warm-up", "name": "Band walk", "sets": 2, "reps": "10", "load": "band"},
@@ -350,33 +357,33 @@ def test_generate_single_session_with_pins_stamps_the_exact_numbers():
             {"block": "Superset 1", "name": "Bench", "sets": 3, "reps": "8", "load": "moderate"},
             {"block": "Superset 2", "name": "Row", "sets": 3, "reps": "8", "load": "moderate"},
         ],
-        # A careless/malicious model volunteers its own numbers — discarded.
+        # Content must not override pins — stamp_session discards these.
         "target_tss": 999, "duration_minutes": 999,
+        "source": "pattern",
     }
     with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)), \
-         mock.patch.object(ps.llm_svc, "complete_structured", return_value=llm_content):
+         mock.patch("backend.services.plan_pattern_fill.fill_slot",
+                    return_value=pattern_content):
         session = ps.generate_single_session(
             "someone", 4, "", workout_type="strength",
             target_tss=63.0, duration_minutes=45,
         )
     assert session["target_tss"] == 63
     assert session["duration_minutes"] == 45
-    assert session["source"] == "llm"
+    assert session["source"] == "pattern"
 
 
 def test_generate_single_session_with_pins_falls_back_to_template_on_provider_failure():
-    """Guardrail: every path falls back. Provider disabled / network error /
-    malformed response all surface as complete_structured returning None —
-    a pinned request must still return a usable, exact-budget session
-    (never 422, never block), via the day template on exhausted retries."""
-    with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)), \
-         mock.patch.object(ps.llm_svc, "complete_structured", return_value=None):
+    """Guardrail: every path falls back. With no DB / no matching pattern,
+    fill_slot returns the day template — still a usable, exact-budget
+    session (never 422, never block)."""
+    with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)):
         session = ps.generate_single_session(
             "someone", 4, "", workout_type="run",
             target_tss=63.0, duration_minutes=45,
         )
     assert session is not None
-    assert session["source"] == "template"
+    assert session["source"] in ("template", "pattern")
     assert session["target_tss"] == 63
     assert session["duration_minutes"] == 45
 

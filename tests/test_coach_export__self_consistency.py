@@ -554,7 +554,17 @@ def export(db_engine, monkeypatch):
         }),
     )
     monkeypatch.setattr(
-        main_mod, "get_gap_analysis", lambda user=None: _FakeResponse(GAP_FINDINGS)
+        ce,
+        "_assemble_findings",
+        lambda user: [
+            {
+                "code": f["code"],
+                "severity": f["severity"],
+                "evidence": f.get("evidence_text") or f.get("recommendation"),
+                "load_adding": f.get("load_adding"),
+            }
+            for f in GAP_FINDINGS["findings"]
+        ],
     )
     monkeypatch.setattr(
         main_mod,

@@ -139,11 +139,7 @@ def stub_services(db_engine, monkeypatch):
             "generated_at": "2026-07-30T00:00:00+00:00",
         }),
     )
-    monkeypatch.setattr(
-        main_mod,
-        "get_gap_analysis",
-        lambda user=None: _FakeResponse({"findings": [], "muted": []}),
-    )
+    monkeypatch.setattr(ce, "_assemble_findings", lambda user: [])
     monkeypatch.setattr(
         main_mod, "_athlete_scores_as_of", lambda s, uid, d: {"endurance": None, "speed": None}
     )

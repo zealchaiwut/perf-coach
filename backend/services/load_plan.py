@@ -80,13 +80,14 @@ ceiling down a little — a real down week does lower rolling chronic load.
 
 Baseline week (skip deload)
 ---------------------------
-``baseline`` is the most recent *completed* week's actual TSS that is **not**
-on the athlete's 4-week deload cycle. Plan ``week_index`` 1 is this week;
+``baseline`` is the most recent *completed* week's seed TSS that is **not**
+on the athlete's 4-week deload cycle — ``max(logged, planned)`` for that
+week (see ``resolve_baseline_seed``). Plan ``week_index`` 1 is this week;
 last week is index 0, two weeks ago is −1, etc. The same
 ``is_deload_cycle_week`` rule used for future ramp cuts flags those prior
 weeks, so a just-finished deload (e.g. week 0 when ``deload_start_week=4``)
 does not seed the next ramp — callers walk back via
-``resolve_baseline_weeks_ago`` and pass that week's logged TSS here.
+``resolve_baseline_weeks_ago`` and pass that week's seed here.
 
 Baseline cap
 ------------
@@ -97,12 +98,17 @@ overshoot that already exists before the plan even starts.
 
 The baseline actually used for the ramp/peak math is capped against chronic
 load: ``min(raw_baseline, BASELINE_CAP_MULT * chronic_weekly)``, where
-``chronic_weekly`` is the SAME ``trailing_28d_avg`` already passed in for the
-moving ceiling above (one number, two uses — never a second independent
-"chronic load" estimate). When the cap binds, ``baseline_capped`` is True and
-callers MUST surface that plainly (a silent cap reads as "the ramp is
-broken," not as the safety feature it is) — see
-``docs/calculations/load-plan.md``.
+``BASELINE_CAP_MULT`` equals ``ACWR_CEILING_MULT`` (1.3) — the same band as
+the moving weekly ACWR ceiling — and ``chronic_weekly`` is the SAME
+``trailing_28d_avg`` already passed in for the moving ceiling above (one
+number, two uses — never a second independent "chronic load" estimate).
+When the cap binds, ``baseline_capped`` is True and callers MUST surface
+that plainly (a silent cap reads as "the ramp is broken," not as the safety
+feature it is) — see ``docs/calculations/load-plan.md``.
+
+Callers should pass ``resolve_baseline_seed(actual, planned)`` so a missed
+week does not reset the ramp: seed = max(logged TSS, planned TSS) for the
+resolved baseline week, then the ACWR-aligned cap may still pull that down.
 
 This is a different guard from the moving ACWR ceiling above: the cap fixes
 the ramp's STARTING POINT (once, from ``raw_baseline``); the ceiling limits
@@ -200,10 +206,10 @@ _CEILING_WINDOW_WEEKS: int = 4
 DELOAD_CUT_FRACTION: float = 0.30
 _DELOAD_EVERY_N_WEEKS: int = 4
 
-# Baseline cap — see the module docstring's "Baseline cap" section. A spike
-# week (last week's actual TSS well above chronic load) must not seed the
-# ramp at the spike's own level; cap it against chronic load instead.
-BASELINE_CAP_MULT: float = 1.15
+# Baseline cap — same band as the moving ACWR ceiling. A seed week may run
+# up to ACWR_CEILING_MULT × chronic before we pull it down; tighter than that
+# (the old 1.15×) capped weeks that were still inside the weekly ACWR guardrail.
+BASELINE_CAP_MULT: float = ACWR_CEILING_MULT
 
 # Consolidation block (verdict-aware, see module docstring's "Verdict
 # consolidation" section) — the back_off target as a fraction of baseline.
@@ -256,6 +262,18 @@ def resolve_baseline_weeks_ago(
         ):
             return weeks_ago
     return 1
+
+
+def resolve_baseline_seed(actual_tss: float, planned_tss: float | None = None) -> float:
+    """Ramp seed = max(logged, planned) for the resolved baseline week.
+
+    A soft/missed week must not reset the build — keep the planned floor when
+    it exceeds what was logged. Cap against ACWR still runs inside
+    ``compute_load_plan``.
+    """
+    actual = max(0.0, float(actual_tss or 0.0))
+    planned = max(0.0, float(planned_tss or 0.0))
+    return max(actual, planned)
 
 
 class WeekTarget(TypedDict):
@@ -324,12 +342,10 @@ def compute_load_plan(
     """Compute the per-week target-TSS series from now to an A race.
 
     Args:
-        baseline: ACTUAL TSS of the resolved baseline week (never planned
-            TSS — a missed week must lower future targets, not silently
-            inflate them). Callers should pass the week chosen by
-            ``resolve_baseline_weeks_ago`` so a just-finished deload does
-            not seed the ramp. Capped against chronic load before use —
-            see the module docstring's "Baseline cap" section; the
+        baseline: Seed TSS for the ramp — callers should pass
+            ``resolve_baseline_seed(logged, planned)`` so a missed week keeps
+            the planned floor. Capped against chronic×ACWR_CEILING_MULT before
+            use — see the module docstring's "Baseline cap" section; the
             raw/capped/chronic values are all returned so callers can
             surface the cap.
         ramp_rate: fractional weekly increase, e.g. 0.05 for 5%/week.

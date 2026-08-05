@@ -110,13 +110,13 @@ def test_ac2_zone2_detection_references_prefs_max():
 
 
 def test_ac2_zone2_detection_falls_back_to_constants():
-    """The fallback to RUN_DETAIL_ZONE2_HR_MIN / MAX must still be present."""
+    """The fallback to Zone2.ZONE2_HR_MIN / MAX must still be present."""
     src = _run_view_src()
-    assert "RUN_DETAIL_ZONE2_HR_MIN" in src, (
-        "run-detail-view.js must keep RUN_DETAIL_ZONE2_HR_MIN as the fallback constant"
+    assert "ZONE2_HR_MIN" in src, (
+        "run-detail-view.js must keep ZONE2_HR_MIN as the fallback constant"
     )
-    assert "RUN_DETAIL_ZONE2_HR_MAX" in src, (
-        "run-detail-view.js must keep RUN_DETAIL_ZONE2_HR_MAX as the fallback constant"
+    assert "ZONE2_HR_MAX" in src, (
+        "run-detail-view.js must keep ZONE2_HR_MAX as the fallback constant"
     )
 
 

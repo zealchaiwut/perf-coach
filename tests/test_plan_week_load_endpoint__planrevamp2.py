@@ -186,20 +186,22 @@ def test_baseline_actual_vs_planned_are_distinct(bare_client):
     # Actual: only 150 TSS logged last week...
     _add_workout(client, last_monday + timedelta(days=1), tss=150, duration_seconds=1800)
     # ...but 60 minutes was PLANNED that week (never logged/matched) — this
-    # is the "planned 340 (proxy: nonzero) vs logged 316" gap the UI shows.
+    # is the "planned X · logged Y" gap the UI shows; seed = max(logged, planned).
     _add_planned(client, last_monday + timedelta(days=3), duration_min=60)
 
     r = client.get("/api/plan/week-load")
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["baseline_tss"] == pytest.approx(150.0, abs=0.1)
+    assert body["baseline_logged_tss"] == pytest.approx(150.0, abs=0.1)
     assert body["baseline_planned_tss"] > 0, "planned TSS estimate should be nonzero given seeded history"
-    assert body["baseline_planned_tss"] != body["baseline_tss"]
+    assert body["baseline_tss"] == pytest.approx(
+        max(body["baseline_logged_tss"], body["baseline_planned_tss"]), abs=0.1
+    )
 
 
-def test_baseline_planned_ignores_matched_or_missed_sessions(bare_client):
-    """A planned session that's already been matched to a real workout, or
-    marked missed, must not double-count toward baseline_planned_tss."""
+def test_baseline_planned_includes_matched_and_missed_for_seed_floor(bare_client):
+    """Full planned week (matched + missed) feeds the seed floor so a miss
+    does not reset the ramp — unlike the current-week remaining planned sum."""
     client, user_id = bare_client
     _add_a_race(client, _race_date_in_week(19))
     _seed_pace_history(client)
@@ -213,7 +215,11 @@ def test_baseline_planned_ignores_matched_or_missed_sessions(bare_client):
 
     r2 = client.get("/api/plan/week-load")
     assert r2.status_code == 200, r2.text
-    assert r2.json()["baseline_planned_tss"] == 0.0
+    body = r2.json()
+    assert body["baseline_planned_tss"] > 0
+    assert body["baseline_tss"] == pytest.approx(
+        max(body.get("baseline_logged_tss") or 0, body["baseline_planned_tss"]), abs=0.1
+    )
 
 
 # ── AC4: projected_tss = logged_tss + planned_tss ────────────────────────────

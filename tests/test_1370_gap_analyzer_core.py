@@ -5,7 +5,7 @@ AC coverage:
        computed_at, week_start, user_id, status
 - AC2: New Alembic migration (random hex id, idempotent) creating gap_findings table
 - AC3: Rules registry — pure function interface, skip on missing inputs, skipped_rules in payload
-- AC4: GET /api/training/gap-analysis computes findings, upserts, recompute preserves status
+- AC4: run_gap_analysis computes findings, upserts, recompute preserves status
 - AC5: Reference rule no_recent_plyo — no plyo in 28 days → severity 1 finding
 - AC7: Tests: engine skip semantics, upsert preserves status, reference rule, payload shape
 """
@@ -279,18 +279,17 @@ def _tc_create_and_login(tc):
     return user_id
 
 
-def test_ac4_endpoint_returns_401_for_anonymous():
-    """AC4: GET /api/training/gap-analysis returns 401 for unauthenticated request."""
-    from fastapi.testclient import TestClient
-    from backend.main import app
 
-    with TestClient(app, raise_server_exceptions=False) as tc:
-        r = tc.get("/api/training/gap-analysis")
-    assert r.status_code == 401
+def _run_gap(user_id: str) -> dict:
+    from backend.services.gap_analysis.engine import run_gap_analysis
+    from backend.utils.time import today_bangkok
+
+    with _OrmSess(_engine) as db:
+        return run_gap_analysis(db, uuid.UUID(user_id), today_bangkok())
 
 
-def test_ac4_endpoint_returns_200_for_authenticated():
-    """AC4: GET /api/training/gap-analysis returns 200 for authenticated user."""
+def _create_user_for_engine() -> str:
+    """Create a user via TestClient admin path; return user_id (no session needed)."""
     if _engine is None:
         pytest.skip("DATABASE_URL_UAT not set")
 
@@ -298,69 +297,50 @@ def test_ac4_endpoint_returns_200_for_authenticated():
     from backend.main import app
 
     with TestClient(app) as tc:
-        user_id = _tc_create_and_login(tc)
-        try:
-            r = tc.get("/api/training/gap-analysis")
-            assert r.status_code == 200, r.text
-        finally:
-            _delete_user(user_id)
+        return _tc_create_and_login(tc)
 
 
 def test_ac4_payload_shape():
-    """AC4: Response payload has week_start, computed_at, findings, skipped_rules."""
+    """AC4: Engine payload has week_start, computed_at, findings, skipped_rules."""
     if _engine is None:
         pytest.skip("DATABASE_URL_UAT not set")
 
-    from fastapi.testclient import TestClient
-    from backend.main import app
-
-    with TestClient(app) as tc:
-        user_id = _tc_create_and_login(tc)
-        try:
-            r = tc.get("/api/training/gap-analysis")
-            assert r.status_code == 200, r.text
-            data = r.json()
-            for key in ("week_start", "computed_at", "findings", "skipped_rules"):
-                assert key in data, f"Missing key: {key}"
-            assert isinstance(data["findings"], list)
-            assert isinstance(data["skipped_rules"], list)
-        finally:
-            _delete_user(user_id)
+    user_id = _create_user_for_engine()
+    try:
+        data = _run_gap(user_id)
+        for key in ("week_start", "computed_at", "findings", "skipped_rules"):
+            assert key in data, f"Missing key: {key}"
+        assert isinstance(data["findings"], list)
+        assert isinstance(data["skipped_rules"], list)
+    finally:
+        _delete_user(user_id)
 
 
 def test_ac4_upsert_no_duplicate_rows():
-    """AC4: Calling gap-analysis twice same week produces one row per (user, week, code)."""
+    """AC4: Running gap analysis twice same week produces one row per (user, week, code)."""
     if _engine is None:
         pytest.skip("DATABASE_URL_UAT not set")
 
-    from fastapi.testclient import TestClient
-    from backend.main import app
+    user_id = _create_user_for_engine()
+    try:
+        _run_gap(user_id)
+        _run_gap(user_id)
 
-    with TestClient(app) as tc:
-        user_id = _tc_create_and_login(tc)
-        try:
-            r1 = tc.get("/api/training/gap-analysis")
-            assert r1.status_code == 200, r1.text
-
-            r2 = tc.get("/api/training/gap-analysis")
-            assert r2.status_code == 200, r2.text
-
-            with _OrmSess(_engine) as sess:
-                count = sess.execute(
-                    text("SELECT COUNT(*) FROM gap_findings WHERE user_id = :uid"),
-                    {"uid": user_id},
-                ).scalar()
-            with _OrmSess(_engine) as sess:
-                distinct_count = sess.execute(
-                    text(
-                        "SELECT COUNT(DISTINCT (user_id::text, week_start::text, code)) "
-                        "FROM gap_findings WHERE user_id = :uid"
-                    ),
-                    {"uid": user_id},
-                ).scalar()
-            assert count == distinct_count, "Duplicate (user, week, code) rows found"
-        finally:
-            _delete_user(user_id)
+        with _OrmSess(_engine) as sess:
+            count = sess.execute(
+                text("SELECT COUNT(*) FROM gap_findings WHERE user_id = :uid"),
+                {"uid": user_id},
+            ).scalar()
+            distinct_count = sess.execute(
+                text(
+                    "SELECT COUNT(DISTINCT (user_id::text, week_start::text, code)) "
+                    "FROM gap_findings WHERE user_id = :uid"
+                ),
+                {"uid": user_id},
+            ).scalar()
+        assert count == distinct_count, "Duplicate (user, week, code) rows found"
+    finally:
+        _delete_user(user_id)
 
 
 def test_ac4_recompute_preserves_status():
@@ -368,35 +348,29 @@ def test_ac4_recompute_preserves_status():
     if _engine is None:
         pytest.skip("DATABASE_URL_UAT not set")
 
-    from fastapi.testclient import TestClient
-    from backend.main import app
+    user_id = _create_user_for_engine()
+    try:
+        _run_gap(user_id)
 
-    with TestClient(app) as tc:
-        user_id = _tc_create_and_login(tc)
-        try:
-            r1 = tc.get("/api/training/gap-analysis")
-            assert r1.status_code == 200, r1.text
+        with _OrmSess(_engine) as sess:
+            sess.execute(
+                text("UPDATE gap_findings SET status = 'accepted' WHERE user_id = :uid"),
+                {"uid": user_id},
+            )
+            sess.commit()
 
-            with _OrmSess(_engine) as sess:
-                sess.execute(
-                    text("UPDATE gap_findings SET status = 'accepted' WHERE user_id = :uid"),
-                    {"uid": user_id},
-                )
-                sess.commit()
+        _run_gap(user_id)
 
-            r2 = tc.get("/api/training/gap-analysis")
-            assert r2.status_code == 200, r2.text
-
-            with _OrmSess(_engine) as sess:
-                rows = sess.execute(
-                    text("SELECT status FROM gap_findings WHERE user_id = :uid"),
-                    {"uid": user_id},
-                ).fetchall()
-            assert len(rows) > 0, "No gap_findings rows for user"
-            for row in rows:
-                assert row[0] == "accepted", f"Status was overwritten: {row[0]}"
-        finally:
-            _delete_user(user_id)
+        with _OrmSess(_engine) as sess:
+            rows = sess.execute(
+                text("SELECT status FROM gap_findings WHERE user_id = :uid"),
+                {"uid": user_id},
+            ).fetchall()
+        assert len(rows) > 0, "No gap_findings rows for user"
+        for row in rows:
+            assert row[0] == "accepted", f"Status was overwritten: {row[0]}"
+    finally:
+        _delete_user(user_id)
 
 
 def test_ac4_no_recent_plyo_finding_persisted():
@@ -404,26 +378,21 @@ def test_ac4_no_recent_plyo_finding_persisted():
     if _engine is None:
         pytest.skip("DATABASE_URL_UAT not set")
 
-    from fastapi.testclient import TestClient
-    from backend.main import app
+    user_id = _create_user_for_engine()
+    try:
+        _run_gap(user_id)
 
-    with TestClient(app) as tc:
-        user_id = _tc_create_and_login(tc)
-        try:
-            r = tc.get("/api/training/gap-analysis")
-            assert r.status_code == 200, r.text
-
-            with _OrmSess(_engine) as sess:
-                row = sess.execute(
-                    text(
-                        "SELECT code, severity, status FROM gap_findings "
-                        "WHERE user_id = :uid AND code = 'no_recent_plyo'"
-                    ),
-                    {"uid": user_id},
-                ).fetchone()
-            assert row is not None, "no_recent_plyo row not found in gap_findings"
-            assert row[0] == "no_recent_plyo"
-            assert row[1] == 1
-            assert row[2] == "active"
-        finally:
-            _delete_user(user_id)
+        with _OrmSess(_engine) as sess:
+            row = sess.execute(
+                text(
+                    "SELECT code, severity, status FROM gap_findings "
+                    "WHERE user_id = :uid AND code = 'no_recent_plyo'"
+                ),
+                {"uid": user_id},
+            ).fetchone()
+        assert row is not None, "no_recent_plyo row not found in gap_findings"
+        assert row[0] == "no_recent_plyo"
+        assert row[1] == 1
+        assert row[2] == "active"
+    finally:
+        _delete_user(user_id)

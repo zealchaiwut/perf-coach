@@ -20,6 +20,7 @@ from backend.services.plan_extras import (
     PLYO_STANDALONE_TSS,
     apply_prefs_extras,
     attach_benchmark,
+    attach_mp_segment,
     attach_plyo,
     attach_stretch,
     is_benchmark_week,
@@ -173,6 +174,26 @@ def test_plyo_placement_is_capped_at_the_requested_count():
     assert sum(1 for s in slots if s["workout_type"] == "plyo") == 2
 
 
+def test_standalone_invents_slot_when_weekday_missing():
+    """Sparse history skeletons omit empty days — still place short plyo."""
+    sparse = [_slot(5, "run", "long_run", 90)]
+    slots = attach_plyo(sparse, plyo_mode="standalone", plyo_sessions_per_week=1)
+    plyo = [s for s in slots if s["workout_type"] == "plyo"]
+    assert len(plyo) == 1
+    assert plyo[0]["day_offset"] == 1  # first preferred day
+    assert plyo[0]["duration_minutes"] == 20
+
+
+def test_apply_prefs_extras_plyo_week_alone_creates_standalone():
+    """mode=off + plyo_sessions>0 used to no-op; Build schedule needs sessions."""
+    out = apply_prefs_extras(
+        _skeleton(),
+        prefs={"plyo_mode": "off", "plyo_sessions_per_week": 2},
+        week_start=ORDINARY_WEEK,
+    )
+    assert planned_extras_summary(out["slots"])["plyo_sessions_planned"] == 2
+
+
 # ── Monthly benchmark ────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize(
@@ -241,3 +262,21 @@ def test_superset_plyo_counts_in_the_summary():
         week_start=ORDINARY_WEEK,
     )
     assert planned_extras_summary(out["slots"])["plyo_sessions_planned"] == 1
+
+
+def test_mp_segment_pref_stamps_long_run_slot():
+    slots = attach_mp_segment(_week(), 15)
+    long = next(s for s in slots if s["subtype"] == "long_run")
+    assert long["mp_segment_min"] == 15
+    assert long["structure_hints"]["mp_segment_min"] == 15
+    assert all(s.get("mp_segment_min") is None for s in slots if s["subtype"] != "long_run")
+
+
+def test_apply_prefs_extras_passes_mp_segment():
+    out = apply_prefs_extras(
+        _skeleton(),
+        prefs={"long_run_mp_segment_min": 20},
+        week_start=ORDINARY_WEEK,
+    )
+    long = next(s for s in out["slots"] if s["subtype"] == "long_run")
+    assert long["mp_segment_min"] == 20
