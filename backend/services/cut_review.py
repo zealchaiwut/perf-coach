@@ -5,7 +5,7 @@ Exposes:
   get_weekly_review(user_id, as_of_date, db)     — DB-backed computation for the endpoint
 
 The recommendation enum (first match wins):
-  insufficient_data | slow_down | plateau | on_track | check_logging |
+  insufficient_data | insufficient_coverage | slow_down | plateau | on_track | check_logging |
   recalibrate_maintenance | increase_deficit | ease_off
 """
 from __future__ import annotations
@@ -25,8 +25,10 @@ from backend.services.fuel import (
     settings_to_dict,
     training_burn_kcal,
 )
-from backend.services.weight_ewma import compute_ewma
-from backend.services.weight_ewma_rate import compute_weekly_pct_bw_rate_of_change
+from backend.services.weight_stats import (
+    MIN_N_DAYS as _WEIGHT_STATS_MIN_DAYS,
+    weight_stats,
+)
 from backend.utils.time import today_bangkok
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
@@ -375,12 +377,11 @@ def get_weekly_review(
         settings = settings_to_dict(settings_row)
         current_deficit_kcal = settings["deficit_kcal"]
 
-        # ── Weight entries (21-day window for EWMA + 3-week check) ────────────
+        # ── Weight entries (enough history for canonical rate) ────────────────
         weight_rows = (
             db.query(WeightEntry)
             .filter(
                 WeightEntry.user_id == user_id,
-                WeightEntry.entry_date >= window_21d_start,
                 WeightEntry.entry_date <= today,
             )
             .order_by(WeightEntry.entry_date.asc())
@@ -398,20 +399,44 @@ def get_weekly_review(
             1 for d, _ in sorted_entries if d >= window_14d_start
         )
 
-        # ── EWMA over 21d and weekly rate computation ─────────────────────────
-        ewma_entries = [{"date": d, "weight_kg": w} for d, w in sorted_entries]
-        ewma_values = compute_ewma(ewma_entries) if ewma_entries else []
-
-        # 7-day actual rate: use all EWMA values (seeded from full 21d window)
-        pct_rate_7d: Optional[float] = None
-        actual_rate_kg_per_week: Optional[float] = None
+        # ── Canonical OLS-on-EWMA rate (same source as weight-chart stats) ───
+        rate_stats = weight_stats(
+            db,
+            user_id,
+            window_days=21,
+            as_of=today,
+            needed_rate_kg_wk=plan_rate,
+        )
+        actual_rate_kg_per_week: Optional[float] = rate_stats["rate_kg_wk"]
         weekly_pct_bw_rate: float = 0.0
+        if actual_rate_kg_per_week is not None and sorted_entries:
+            ref_weight = sorted_entries[-1][1]
+            if ref_weight > 0:
+                weekly_pct_bw_rate = (actual_rate_kg_per_week / ref_weight) * 100.0
 
-        if len(ewma_values) >= 2:
-            pct_rate_7d = compute_weekly_pct_bw_rate_of_change(ewma_values)
-            if pct_rate_7d is not None:
-                weekly_pct_bw_rate = pct_rate_7d
-                actual_rate_kg_per_week = (pct_rate_7d / 100.0) * ewma_entries[0]["weight_kg"]
+        if not rate_stats["readable"]:
+            days_needed = max(0, _WEIGHT_STATS_MIN_DAYS - rate_stats["entries_used"])
+            return {
+                "actual_rate_kg_per_week": (
+                    round(actual_rate_kg_per_week, 3)
+                    if actual_rate_kg_per_week is not None else None
+                ),
+                "plan_rate_kg_per_week": (
+                    round(plan_rate, 3) if plan_rate is not None else None
+                ),
+                "logging_adherence_pct": 0.0,
+                "avg_intake_vs_budget_kcal": None,
+                "recommendation": "insufficient_coverage",
+                "action": (
+                    f"Weigh-in coverage is {rate_stats['coverage_pct']}% — "
+                    f"log {days_needed or _WEIGHT_STATS_MIN_DAYS} more morning "
+                    "weigh-ins to unlock a weekly rate."
+                ),
+                "suggested_deficit_delta_kcal": None,
+                "plateau_days": None,
+                "coverage_pct": rate_stats["coverage_pct"],
+                "days_needed": days_needed or _WEIGHT_STATS_MIN_DAYS,
+            }
 
         # ── 3-week consecutive behind check ───────────────────────────────────
         consecutive_weeks_behind = 0
@@ -424,18 +449,16 @@ def get_weekly_review(
             ]
             streak = 0
             for w_start, w_end in week_buckets:
-                week_entries = [
-                    {"date": d, "weight_kg": w}
-                    for d, w in sorted_entries
-                    if w_start <= d <= w_end
-                ]
-                if len(week_entries) < 2:
-                    break  # can't assess this week — stop counting streak
-                week_ewma = compute_ewma(week_entries)
-                week_pct = compute_weekly_pct_bw_rate_of_change(week_ewma)
-                if week_pct is None:
+                week_rate = weight_stats(
+                    db,
+                    user_id,
+                    window_days=7,
+                    as_of=w_end,
+                    needed_rate_kg_wk=plan_rate,
+                )
+                week_rate_kg = week_rate["rate_kg_wk"]
+                if week_rate_kg is None:
                     break
-                week_rate_kg = (week_pct / 100.0) * week_entries[0]["weight_kg"]
                 # behind = losing less than planned (actual less negative than plan)
                 if week_rate_kg > plan_rate:
                     streak += 1
@@ -505,17 +528,13 @@ def get_weekly_review(
             pct_at_or_under_21d = at_under_21d / len(fuel_rows_21d) * 100.0
 
         # ── Plateau detection ─────────────────────────────────────────────────
-        # Count calendar days of the EWMA window where rate > -0.1 kg/wk (not losing)
         plateau_days: int = 0
-        if len(sorted_entries) >= 2 and len(ewma_values) >= 2:
-            pct_rate_full = compute_weekly_pct_bw_rate_of_change(ewma_values)
-            if pct_rate_full is not None:
-                rate_kg_full = (pct_rate_full / 100.0) * sorted_entries[0][1]
-                if rate_kg_full > PLATEAU_RATE_THRESHOLD_KG:
-                    span_days = (
-                        sorted_entries[-1][0] - sorted_entries[0][0]
-                    ).days + 1
-                    plateau_days = span_days
+        if actual_rate_kg_per_week is not None and len(sorted_entries) >= 2:
+            if actual_rate_kg_per_week > PLATEAU_RATE_THRESHOLD_KG:
+                span_days = (
+                    sorted_entries[-1][0] - sorted_entries[0][0]
+                ).days + 1
+                plateau_days = min(span_days, 21)
 
         # ── EA proxy from daily_metrics.energy ───────────────────────────────
         energy_sql = text(
