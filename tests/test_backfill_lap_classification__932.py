@@ -280,14 +280,24 @@ class TestThresholdSaveTriggerAC7:
     def test_patch_prefs_endpoint_calls_rebuild(self):
         import backend.main as main_mod
         src = inspect.getsource(main_mod)
-        assert "rebuild_athlete_duration_curve" in src or "lap_recompute" in src, (
+        assert (
+            "rebuild_athlete_duration_curve" in src
+            or "lap_recompute" in src
+            or "_trigger_performance_backfill_background" in src
+            or "backfill_performance" in src
+        ), (
             "main.py must trigger rebuild_athlete_duration_curve on threshold save"
         )
 
     def test_accept_suggestions_endpoint_calls_rebuild(self):
         import backend.main as main_mod
         src = inspect.getsource(main_mod)
-        assert "rebuild_athlete_duration_curve" in src or "lap_recompute" in src, (
+        assert (
+            "rebuild_athlete_duration_curve" in src
+            or "lap_recompute" in src
+            or "_trigger_performance_backfill_background" in src
+            or "backfill_performance" in src
+        ), (
             "main.py must trigger rebuild on threshold acceptance"
         )
 

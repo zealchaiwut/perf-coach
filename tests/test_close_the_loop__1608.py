@@ -55,7 +55,7 @@ def test_write_version_really_does_replace():
 def test_style_version_bumped(plan_js):
     """PLAN_CSS only re-applies when its version changes; new rules without a
     bump are invisible on a warm page."""
-    assert "20260804sugrow2" in plan_js
+    assert "20260804plyo1" in plan_js
 
 
 # ── 2. Paused tracking is visible in the app ──────────────────────────────────

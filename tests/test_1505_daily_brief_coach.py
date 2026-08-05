@@ -18,6 +18,7 @@ import importlib
 import importlib.util
 import pathlib
 from datetime import date
+from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -250,31 +251,48 @@ def test_assemble_coach_weight_lever_contains_measurement_count(m):
 # ── AC14: No active goal → _assemble_coach returns None ──────────────────────
 
 def test_assemble_coach_returns_none_when_no_goal(m):
-    """AC14: _assemble_coach returns None when no active goal exists."""
-    with patch.object(m, "_load_goal_for_user", return_value=None):
-        result = m._assemble_coach("user-id-1", date(2026, 7, 17))
+    """AC14: _assemble_coach returns None when no coach payload is available."""
+    uid = "00000000-0000-0000-0000-000000000001"
+    with patch(
+        "backend.services.weekly_coach_message.get_coach_payload_for_user",
+        return_value=None,
+    ):
+        result = m._assemble_coach(uid, date(2026, 7, 17))
     assert result is None
 
 
 # ── AC13: _build_brief includes "coach" key when goal active ─────────────────
 
-def _base_patches(m):
-    """Return the common patches for _build_brief without a real DB."""
-    fake_plan = {"planned": False, "sessions": [], "plan_date": "2026-07-17"}
-    fake_form = {
-        "ctl": 42.0, "atl": 38.0, "tsb": 4.0,
-        "ramp": 1.0, "flags": {}, "interpretation": "Neutral",
+def _patch_build_brief(coach):
+    """Patch daily_brief helpers used by export_brief._build_brief."""
+    from datetime import timedelta
+
+    from backend.services import daily_brief as svc
+
+    for_date = date(2026, 7, 17)
+    fake_cache = {
+        for_date + timedelta(days=i): {
+            "plan_date": (for_date + timedelta(days=i)).isoformat(),
+            "planned": False,
+            "sessions": [],
+        }
+        for i in range(7)
     }
-    fake_wrap = {
-        "window_days": 14, "sessions_planned": 8, "sessions_completed": 6,
-        "adherence": 0.75, "load_trend": 0.5, "highlights_md": "Good week.",
-    }
-    return {
-        "_fetch_plan": fake_plan,
-        "_assemble_form": fake_form,
-        "_assemble_recent_wrap": fake_wrap,
-        "_assemble_advisories": [],
-    }
+    return (
+        patch.object(svc, "_get_plans_for_date_range", return_value=fake_cache),
+        patch.object(svc, "_assemble_form", return_value={
+            "ctl": 42.0, "atl": 38.0, "tsb": 4.0,
+            "ramp": 1.0, "flags": {}, "interpretation": "Neutral",
+        }),
+        patch.object(svc, "_assemble_recent_wrap", return_value={
+            "window_days": 14, "sessions_planned": 8, "sessions_completed": 6,
+            "adherence": 0.75, "load_trend": 0.5, "highlights_md": "Good week.",
+        }),
+        patch.object(svc, "_assemble_weight", return_value={"ewma": None, "entries": []}),
+        patch.object(svc, "_assemble_advisories", return_value=[]),
+        patch.object(svc, "_assemble_week_plan", return_value={"days": []}),
+        patch.object(svc, "_assemble_coach", return_value=coach),
+    )
 
 
 def test_build_brief_includes_coach_when_goal_active(m):
@@ -284,15 +302,11 @@ def test_build_brief_includes_coach_when_goal_active(m):
         "projection": "plan → ~1:45 by mid-Dec · now ~1:52",
         "levers": ["load: locked until 31 Jul", "weight: measurement 9/14 days"],
     }
-    bp = _base_patches(m)
-
-    with patch.object(m, "_fetch_plan", return_value=bp["_fetch_plan"]), \
-         patch.object(m, "_assemble_form", return_value=bp["_assemble_form"]), \
-         patch.object(m, "_assemble_recent_wrap", return_value=bp["_assemble_recent_wrap"]), \
-         patch.object(m, "_assemble_advisories", return_value=bp["_assemble_advisories"]), \
-         patch.object(m, "_assemble_coach", return_value=fake_coach):
-
-        brief = m._build_brief(date(2026, 7, 17), "http://localhost:9100", "user-id-1", None)
+    uid = "00000000-0000-0000-0000-000000000001"
+    with ExitStack() as stack:
+        for p in _patch_build_brief(fake_coach):
+            stack.enter_context(p)
+        brief = m._build_brief(date(2026, 7, 17), "http://localhost:9100", uid, None)
 
     assert "coach" in brief
     assert brief["coach"]["directive"] == fake_coach["directive"]
@@ -302,15 +316,11 @@ def test_build_brief_includes_coach_when_goal_active(m):
 
 def test_build_brief_omits_coach_when_no_goal(m):
     """AC14: 'coach' key is absent (not null) when _assemble_coach returns None."""
-    bp = _base_patches(m)
-
-    with patch.object(m, "_fetch_plan", return_value=bp["_fetch_plan"]), \
-         patch.object(m, "_assemble_form", return_value=bp["_assemble_form"]), \
-         patch.object(m, "_assemble_recent_wrap", return_value=bp["_assemble_recent_wrap"]), \
-         patch.object(m, "_assemble_advisories", return_value=bp["_assemble_advisories"]), \
-         patch.object(m, "_assemble_coach", return_value=None):
-
-        brief = m._build_brief(date(2026, 7, 17), "http://localhost:9100", "user-id-1", None)
+    uid = "00000000-0000-0000-0000-000000000001"
+    with ExitStack() as stack:
+        for p in _patch_build_brief(None):
+            stack.enter_context(p)
+        brief = m._build_brief(date(2026, 7, 17), "http://localhost:9100", uid, None)
 
     assert "coach" not in brief, "'coach' key must be absent, not null, when no goal"
 
@@ -323,16 +333,13 @@ _EXISTING_KEYS = {"schema_version", "for_date", "generated_at", "today", "tomorr
 
 def test_existing_brief_fields_still_present(m):
     """AC12: All pre-existing top-level fields are present regardless of coach presence."""
-    bp = _base_patches(m)
     fake_coach = {"directive": "Hold.", "projection": "1:45", "levers": ["load: locked"]}
+    uid = "00000000-0000-0000-0000-000000000001"
 
-    with patch.object(m, "_fetch_plan", return_value=bp["_fetch_plan"]), \
-         patch.object(m, "_assemble_form", return_value=bp["_assemble_form"]), \
-         patch.object(m, "_assemble_recent_wrap", return_value=bp["_assemble_recent_wrap"]), \
-         patch.object(m, "_assemble_advisories", return_value=bp["_assemble_advisories"]), \
-         patch.object(m, "_assemble_coach", return_value=fake_coach):
-
-        brief = m._build_brief(date(2026, 7, 17), "http://localhost:9100", "user-id-1", None)
+    with ExitStack() as stack:
+        for p in _patch_build_brief(fake_coach):
+            stack.enter_context(p)
+        brief = m._build_brief(date(2026, 7, 17), "http://localhost:9100", uid, None)
 
     missing = _EXISTING_KEYS - set(brief.keys())
     assert not missing, f"Missing pre-existing fields: {missing}"
@@ -340,15 +347,12 @@ def test_existing_brief_fields_still_present(m):
 
 def test_existing_fields_present_without_coach_too(m):
     """AC12: Pre-existing fields are still all present when no active goal (no coach key)."""
-    bp = _base_patches(m)
+    uid = "00000000-0000-0000-0000-000000000001"
 
-    with patch.object(m, "_fetch_plan", return_value=bp["_fetch_plan"]), \
-         patch.object(m, "_assemble_form", return_value=bp["_assemble_form"]), \
-         patch.object(m, "_assemble_recent_wrap", return_value=bp["_assemble_recent_wrap"]), \
-         patch.object(m, "_assemble_advisories", return_value=bp["_assemble_advisories"]), \
-         patch.object(m, "_assemble_coach", return_value=None):
-
-        brief = m._build_brief(date(2026, 7, 17), "http://localhost:9100", "user-id-1", None)
+    with ExitStack() as stack:
+        for p in _patch_build_brief(None):
+            stack.enter_context(p)
+        brief = m._build_brief(date(2026, 7, 17), "http://localhost:9100", uid, None)
 
     missing = _EXISTING_KEYS - set(brief.keys())
     assert not missing, f"Missing pre-existing fields: {missing}"
@@ -427,6 +431,10 @@ def test_assemble_coach_projection_contains_times(m):
 
 def test_assemble_coach_error_returns_none(m):
     """AC10: _assemble_coach returns None (not raises) on internal error."""
-    with patch.object(m, "_load_goal_for_user", side_effect=RuntimeError("DB down")):
-        result = m._assemble_coach("user-id-1", date(2026, 7, 17))
+    uid = "00000000-0000-0000-0000-000000000001"
+    with patch(
+        "backend.services.weekly_coach_message.get_coach_payload_for_user",
+        side_effect=RuntimeError("DB down"),
+    ):
+        result = m._assemble_coach(uid, date(2026, 7, 17))
     assert result is None

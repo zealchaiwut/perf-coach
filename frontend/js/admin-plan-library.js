@@ -74,11 +74,7 @@
   var _patFilterKind = '';
 
   function esc(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+    return window.AppCommon.escapeHtml(s);
   }
 
   function api(path, opts) {
@@ -929,8 +925,16 @@
 
   function refreshPoolSummary() {
     var cfg = readPreviewConfig();
-    var url = '/api/admin/plan-library/pool-counts?subtype=' +
-      encodeURIComponent(cfg.subtype) + '&duration_min=' + cfg.duration_minutes;
+    // Prefer the selected pattern's id when on Patterns (exact matcher);
+    // otherwise resolve by subtype via the library-level endpoint.
+    var url;
+    if (_patSelectedId) {
+      url = '/api/admin/plan-patterns/' + encodeURIComponent(_patSelectedId) +
+        '/pool-counts?duration_min=' + cfg.duration_minutes;
+    } else {
+      url = '/api/admin/plan-library/pool-counts?subtype=' +
+        encodeURIComponent(cfg.subtype) + '&duration_min=' + cfg.duration_minutes;
+    }
     api(url).then(function (res) {
       if (!res.ok) {
         renderPoolSummary(null);

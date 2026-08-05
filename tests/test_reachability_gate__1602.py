@@ -430,6 +430,11 @@ _PERMANENT_EXEMPT_API: dict[str, str] = {
         "render.yaml's healthCheckPath for both services — Render's own "
         "prober is the caller, not the frontend or another backend process."
     ),
+    "/api/health/schema": (
+        "Ops/smoke probe for alembic head drift (issue #1580). Called by "
+        "external smoke scripts and humans, never by the app frontend — "
+        "same class of caller as /api/health."
+    ),
     "/api/plan/draft/ops/add": (
         "Reachable: training-plan.js's _draftOp(op, body) fetches "
         "'/api/plan/draft/ops/' + op at line 452, and _draftOp('add', ...) "

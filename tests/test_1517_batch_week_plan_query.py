@@ -218,37 +218,25 @@ def test_assemble_week_plan_falls_back_without_cache():
     assert isinstance(result, list)
 
 
-# ── AC4: _build_week_plan in main.py uses batch query ────────────────────────
+# ── AC4: week-plan builder lives in the service, not main.py ─────────────────
 
-def test_build_week_plan_in_main_uses_batch_query():
-    """AC4: _build_week_plan must call _get_plans_for_date_range, not _get_plan_for_date 7 times."""
+def test_build_week_plan_not_duplicated_in_main():
+    """AC4 (updated): `_build_week_plan` was removed from backend.main — the
+    single batch-query path lives in daily_brief._assemble_week_plan /
+    _get_plans_for_date_range. Re-introducing a main.py copy would regress
+    the #1517 consolidation (see also test_week_plan_convergence)."""
     from backend import main as main_mod
+    from backend.services import daily_brief as svc
 
-    assert hasattr(main_mod, "_build_week_plan"), "_build_week_plan not found in backend.main"
-
-    for_date = date(2026, 7, 14)
-    user_id = "00000000-0000-0000-0000-000000000001"
-
-    fake_cache = {
-        for_date + timedelta(days=i): {
-            "plan_date": (for_date + timedelta(days=i)).isoformat(),
-            "planned": False,
-            "sessions": [],
-        }
-        for i in range(7)
-    }
-
-    with patch.object(svc, "_get_plans_for_date_range", return_value=fake_cache) as mock_range, \
-         patch.object(svc, "_get_plan_for_date") as mock_single:
-        result = main_mod._build_week_plan(user_id, for_date)
-
-    mock_range.assert_called_once()
-    assert mock_single.call_count == 0, (
-        f"_build_week_plan still calls _get_plan_for_date {mock_single.call_count} times; "
-        "it must use _get_plans_for_date_range instead"
+    assert not hasattr(main_mod, "_build_week_plan"), (
+        "_build_week_plan reappeared in backend.main — remove the duplicate"
     )
-    assert "days" in result
-    assert len(result["days"]) == 7
+    assert hasattr(svc, "_get_plans_for_date_range"), (
+        "batch helper _get_plans_for_date_range must live in daily_brief"
+    )
+    assert hasattr(svc, "_assemble_week_plan"), (
+        "week assembly must live in daily_brief, not main"
+    )
 
 
 # ── AC5: Behaviour equivalence ────────────────────────────────────────────────

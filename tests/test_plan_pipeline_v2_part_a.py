@@ -284,9 +284,10 @@ def test_validate_intent_max_140():
     assert any("140" in e for e in errs)
 
 
-# ── Retry ─────────────────────────────────────────────────────────────────────
+# ── Pattern fill (planning LLM removed) ───────────────────────────────────────
 
 def test_retry_bad_then_good_is_llm():
+    """llm_call is ignored — fill_slot owns content (template without a DB)."""
     slot = {
         "day_offset": 2,
         "workout_type": "run",
@@ -306,8 +307,9 @@ def test_retry_bad_then_good_is_llm():
         return {"intent": "Easy aerobic", "blocks": _good_easy_blocks(45)}
 
     out = generate_slot_content(week_ctx, slot, llm_call=llm)
-    assert out["source"] == "llm"
-    assert calls["n"] == 2
+    assert out["source"] in ("pattern", "template")
+    assert calls["n"] == 0
+    assert out.get("blocks")
 
 
 def test_retry_two_bad_is_template():
@@ -326,7 +328,8 @@ def test_retry_two_bad_is_template():
         return {"intent": "Intervals VO2", "blocks": _good_easy_blocks(45)}
 
     out = generate_slot_content(week_ctx, slot, llm_call=llm)
-    assert out["source"] == "template"
+    assert out["source"] in ("pattern", "template")
+    assert out.get("blocks")
 
 
 def test_failed_call_burns_a_try():
@@ -349,8 +352,9 @@ def test_failed_call_burns_a_try():
         return {"intent": "Easy aerobic", "blocks": _good_easy_blocks(45)}
 
     out = generate_slot_content(week_ctx, slot, llm_call=llm)
-    assert out["source"] == "llm"
-    assert calls["n"] == 2
+    assert out["source"] in ("pattern", "template")
+    assert calls["n"] == 0
+    assert out.get("blocks")
 
 
 def test_two_failed_calls_template():
@@ -369,7 +373,7 @@ def test_two_failed_calls_template():
         return None
 
     out = generate_slot_content(week_ctx, slot, llm_call=llm)
-    assert out["source"] == "template"
+    assert out["source"] in ("pattern", "template")
     assert out.get("blocks")
 
 

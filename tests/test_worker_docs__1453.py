@@ -29,23 +29,21 @@ def test_training_load_endpoint_documented():
     assert "CTL" in doc and "ATL" in doc and "TSB" in doc
 
 
-def test_scores_endpoint_is_not_documented_because_it_does_not_exist():
-    """REVERSED (#1601).
+def test_scores_endpoint_is_documented_and_implemented():
+    """AC1: GET /api/scores is both documented and implemented.
 
-    AC1 required `GET /api/scores` to be documented. It was — with a worked
-    request and response — but it was never implemented, and git shows no commit
-    that added it. The documentation described an endpoint that has never
-    existed, and this test was what kept the description in place.
-
-    Asserting its ABSENCE is the honest inversion: if someone documents it
-    again, they have to build it too.
+    #1601 struck the docs when the route was missing. The route now exists in
+    worker_app.py — docs and code must agree (see also
+    test_worker_docs_do_not_document_a_phantom_endpoint).
     """
     import backend.worker_app as worker
 
-    assert '"/api/scores"' not in inspect.getsource(worker), (
-        "the route now exists — restore the docs section and this test's original form"
+    assert '"/api/scores"' in inspect.getsource(worker), (
+        "GET /api/scores must remain implemented in worker_app"
     )
-    assert "### `GET /api/scores`" not in _doc()
+    assert "### `GET /api/scores`" in _doc(), (
+        "docs/worker.md must document GET /api/scores while the route exists"
+    )
 
 
 def test_plan_today_endpoint_documented():
