@@ -382,8 +382,11 @@ def test_l_covers_14_days():
 
 
 def test_l_no_entry_text_for_missing_days():
-    assert "No entry" in WEIGHT_JS, \
-        "weight.js must display 'No entry' for days without weight entries"
+    assert (
+        "No entry" in WEIGHT_JS
+        or "not logged" in WEIGHT_JS
+        or "w-gap" in WEIGHT_JS
+    ), "weight.js must collapse or label days without weight entries"
 
 
 def test_l_plus_button_for_missing_days():

@@ -52,6 +52,18 @@ def test_fuel_collapsed_to_budget_and_week():
     assert 'class="fuel-chain"' not in body
 
 
+def test_compact_top_layout():
+    """Compact 2-col: log+composition left; coverage calendar + recent values right."""
+    assert "w-logstrip" in WEIGHT_HTML
+    assert "Coverage &amp; backfill" in WEIGHT_HTML or "Coverage & backfill" in WEIGHT_HTML
+    assert "Recent values" in WEIGHT_HTML
+    assert 'id="cov-bar-fill"' in WEIGHT_HTML
+    assert "w-gap" in WEIGHT_JS or "not logged" in WEIGHT_JS
+    # Body measurements folded into log card
+    assert 'id="bm-waist-input"' in WEIGHT_HTML
+    assert "Body measurements" not in WEIGHT_HTML.split("<body", 1)[-1]
+
+
 def test_one_rate_uses_stats_rate():
     assert "stats.rate" in WEIGHT_JS or "stats && stats.rate" in WEIGHT_JS
     assert "rate.rate_kg_wk" in WEIGHT_JS or "rate_kg_wk" in WEIGHT_JS

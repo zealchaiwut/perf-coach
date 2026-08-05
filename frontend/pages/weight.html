@@ -3112,6 +3112,7 @@
       </div>
 
       <div class="w-revamp-cols">
+        <!-- LEFT · log &amp; measure -->
         <div class="w-revamp-stack">
           <div class="card" id="log-today-card">
             <div class="w-card-hdr">
@@ -3121,19 +3122,23 @@
                 <button class="unit-btn" data-unit="lb" type="button">lb</button>
               </div>
             </div>
-            <div class="w-t2">
-              <div class="w-tile">
-                <div class="w-tile-lbl">Trend</div>
-                <div class="w-big" id="log-trend-val">-- <span>kg</span></div>
-                <div class="w-sub mute" id="log-trend-sub">EWMA · sparse input</div>
+            <div class="w-logstrip">
+              <div class="w-num">
+                <span class="w-num-k">Trend</span>
+                <span class="w-num-row"><span class="w-num-v" id="log-trend-val">--</span><span class="w-num-u" id="log-trend-unit">kg</span></span>
               </div>
-              <div class="w-tile">
-                <div class="w-tile-lbl">Last entry</div>
-                <div class="w-mid" id="log-last-val">—</div>
-                <div class="w-sub mute" id="log-last-sub"></div>
+              <span class="w-vdiv" aria-hidden="true"></span>
+              <div class="w-num">
+                <span class="w-num-k">Today</span>
+                <span class="w-num-row"><span class="w-num-v s" id="log-last-val">—</span><span class="w-num-u" id="log-last-sub"></span></span>
               </div>
+              <span class="w-grow"></span>
+              <span class="w-okpill" id="logged-strip" hidden>
+                <span id="logged-text">✓ Logged</span>
+                <button class="edit-link" id="edit-link" type="button">Edit</button>
+              </span>
             </div>
-            <div id="stepper-wrap" style="margin-top:12px">
+            <div id="stepper-wrap" class="w-stepper-compact" style="margin-top:12px">
               <div class="et-field" style="margin-bottom:8px">
                 <input type="date" id="log-date-input" aria-label="Entry date" style="width:100%;box-sizing:border-box" />
               </div>
@@ -3147,33 +3152,21 @@
               <div class="hcb-error" id="hcb-error" role="alert"></div>
               <div id="quicklog-error" hidden></div>
             </div>
-            <div class="logged-strip" id="logged-strip" hidden>
-              <span id="logged-text">✓ Logged today · -- kg · </span>
-              <button class="edit-link" id="edit-link" type="button">Edit</button>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="bm-section" id="bm-section">
-              <div class="w-card-hdr">
-                <span class="w-lbl">Body measurements</span>
-                <span class="w-chip">weekly is enough</span>
-              </div>
-              <p class="bm-hint" id="bm-hint"></p>
-              <div class="bm-row">
-                <div class="bm-field">
-                  <label for="bm-waist-input">Waist (cm)</label>
-                  <input type="number" id="bm-waist-input" step="0.1" min="40" max="200" inputmode="decimal" placeholder="e.g. 88.5" />
-                </div>
-                <div class="bm-field">
-                  <label for="bm-bf-input">Body fat %</label>
-                  <input type="number" id="bm-bf-input" step="0.1" min="3" max="60" inputmode="decimal" placeholder="e.g. 18.5" />
-                </div>
-                <button class="bm-save-btn" id="bm-save-btn" type="button">Save</button>
-              </div>
+            <!-- measurements inline (mock mrow) -->
+            <div class="bm-section w-mrow" id="bm-section">
+              <span class="w-minp">
+                <label for="bm-waist-input">waist</label>
+                <input type="number" id="bm-waist-input" step="0.1" min="40" max="200" inputmode="decimal" placeholder="88.5" />
+              </span>
+              <span class="w-minp">
+                <label for="bm-bf-input">body fat</label>
+                <input type="number" id="bm-bf-input" step="0.1" min="3" max="60" inputmode="decimal" placeholder="18.5" />
+              </span>
+              <button class="bm-save-btn w-btn-ghost" id="bm-save-btn" type="button">Save</button>
+              <span class="w-mnote">weekly is enough</span>
               <p class="bm-error" id="bm-error" role="alert"></p>
+              <p class="bm-hint" id="bm-hint" hidden></p>
               <div id="waist-sparkline-wrap" hidden>
-                <p class="waist-trend-label">Waist trend</p>
                 <svg id="waist-sparkline" role="img" aria-label="Waist trend"></svg>
               </div>
             </div>
@@ -3182,41 +3175,31 @@
           <div class="card" id="composition-card">
             <div class="w-card-hdr">
               <span class="w-lbl">Composition · 4-week trend</span>
-              <span class="w-chip" id="composition-chip">needs 4 weekly readings</span>
+              <span class="mono w-comp-count" id="composition-chip">0 of 4 readings</span>
             </div>
             <div id="composition-body"></div>
           </div>
-
-          <div class="card" id="coverage-card">
-            <div class="w-card-hdr">
-              <span class="w-lbl">Coverage · the metric you control</span>
-              <span class="w-chip warn" id="cov-chip">—</span>
-            </div>
-            <div class="w-cov-strip" id="cov-strip"></div>
-            <div class="w-cov-foot">
-              <span id="cov-text">—</span>
-              <span id="cov-verdict">—</span>
-            </div>
-          </div>
         </div>
 
+        <!-- RIGHT · coverage calendar + recent values -->
         <div class="w-revamp-stack">
-          <div class="card">
+          <div class="card" id="coverage-cal-card">
             <div class="w-card-hdr">
-              <span class="w-lbl">Recent entries · last 14 days</span>
-              <a href="/weight/entries" class="view-all-link link" id="view-all-link">View all →</a>
+              <span class="w-lbl">Coverage &amp; backfill</span>
+              <span class="wcal-nav-group">
+                <button class="wcal-nav" id="wcal-prev" type="button" aria-label="Earlier months">‹</button>
+                <button class="wcal-nav" id="wcal-next" type="button" aria-label="Later months">›</button>
+              </span>
             </div>
-            <div class="entries-table" id="recent-entries"></div>
-          </div>
-          <div class="card">
+            <div class="w-cov-head" id="coverage-card">
+              <span class="w-hbig" id="cov-chip">—</span>
+              <span class="w-hsub" id="cov-text">—</span>
+              <span class="w-hbar"><i id="cov-bar-fill" style="width:0%"></i><b style="left:70%"></b></span>
+              <span class="w-hsub" id="cov-verdict">—</span>
+            </div>
+            <!-- legacy strip stub (calendar absorbed it) -->
+            <div id="cov-strip" hidden></div>
             <div class="wcal" id="wcal">
-              <div class="wcal-head">
-                <span class="wcal-kicker">Backfill any date</span>
-                <span class="wcal-nav-group">
-                  <button class="wcal-nav" id="wcal-prev" type="button" aria-label="Earlier months">‹</button>
-                  <button class="wcal-nav" id="wcal-next" type="button" aria-label="Later months">›</button>
-                </span>
-              </div>
               <div class="wcal-months">
                 <div class="wcal-month wcal-month-left">
                   <div class="wcal-mtitle" id="wcal-mtitle-left"></div>
@@ -3229,8 +3212,21 @@
                   <div class="wcal-grid" id="wcal-grid-right"></div>
                 </div>
               </div>
+              <div class="wcal-legend">
+                <span class="wcal-lg"><span class="wcal-lgs has"></span>logged · tap to edit</span>
+                <span class="wcal-lg"><span class="wcal-lgs miss"></span>missed · tap to backfill</span>
+                <span class="wcal-lg"><span class="wcal-lgs today"></span>today</span>
+              </div>
               <div class="wcal-editor" id="wcal-editor" hidden></div>
             </div>
+          </div>
+
+          <div class="card" id="recent-entries-card">
+            <div class="w-card-hdr">
+              <span class="w-lbl">Recent values</span>
+              <a href="/weight/entries" class="view-all-link link" id="view-all-link">View all →</a>
+            </div>
+            <div class="entries-table w-elist" id="recent-entries"></div>
           </div>
         </div>
       </div>

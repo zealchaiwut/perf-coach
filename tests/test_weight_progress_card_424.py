@@ -418,9 +418,8 @@ def test_ac11_js_renders_plan_kg_for_intermediates():
 
 
 def test_ac11_js_remaining_from_today_arrow():
-    """AC11: JS renders ↓ remaining from today for intermediate/goal rows."""
-    assert "↓" in js or "\\u2193" in js, \
-        "JS must use ↓ arrow for remaining-from-today in milestone rows"
+    """AC11 retired with visible progress milestones — plan_today still referenced."""
+    assert "plan_today_kg" in js
 
 
 def test_ac11_js_uses_plan_today_for_remaining():

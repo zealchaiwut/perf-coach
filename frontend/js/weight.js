@@ -146,8 +146,12 @@ function _morningCoverageCells(entries) {
 function renderCoverageGating(chartData, entries) {
   const stats = chartData ? chartData.stats : null;
   const gated = _isGated(stats);
-  const cov = _coverageFromChart(stats);
+  // Display count from the same 30-day cell window as the calendar so the
+  // percentage and filled cells never disagree (compact-mock fix).
   const cells = _morningCoverageCells(entries);
+  const cellLogged = cells.filter(c => c.has).length;
+  const cellPct = (cellLogged / COVERAGE_WINDOW) * 100;
+  const cov = { pct: cellPct, logged: cellLogged, window: COVERAGE_WINDOW };
   const needed = Math.max(0, Math.ceil((COVERAGE_THRESHOLD / 100) * COVERAGE_WINDOW) - cov.logged);
 
   const gateCard = document.getElementById('gate-card');
@@ -188,22 +192,29 @@ function renderCoverageGating(chartData, entries) {
     }).join('');
   }
 
+  const ok = cov.pct >= COVERAGE_THRESHOLD;
   const covChip = document.getElementById('cov-chip');
   if (covChip) {
     covChip.textContent = `${Math.round(cov.pct)}%`;
-    covChip.className = 'w-chip ' + (cov.pct >= COVERAGE_THRESHOLD ? 'ok' : 'warn');
+    covChip.className = 'w-hbig ' + (ok ? 'ok' : 'warn');
   }
 
   const covText = document.getElementById('cov-text');
   if (covText) covText.textContent = `${cov.logged} of last ${cov.window} mornings`;
 
+  const barFill = document.getElementById('cov-bar-fill');
+  if (barFill) {
+    barFill.style.width = `${Math.min(100, cov.pct)}%`;
+    barFill.className = ok ? 'ok' : '';
+  }
+
   const covVerdict = document.getElementById('cov-verdict');
   if (covVerdict) {
-    if (cov.pct >= COVERAGE_THRESHOLD) {
-      covVerdict.textContent = '✓ enough for a reliable rate';
+    if (ok) {
+      covVerdict.textContent = 'enough for a reliable rate';
       covVerdict.style.color = 'var(--success, #16a34a)';
     } else {
-      covVerdict.textContent = `below the ${COVERAGE_THRESHOLD}% needed`;
+      covVerdict.textContent = `need ${COVERAGE_THRESHOLD}%`;
       covVerdict.style.color = 'var(--warning, #d97706)';
     }
   }
@@ -212,7 +223,7 @@ function renderCoverageGating(chartData, entries) {
   if (headerPill) {
     headerPill.hidden = false;
     headerPill.textContent = `${cov.logged} of last ${cov.window} mornings`;
-    headerPill.className = 'covpill ' + (cov.pct >= COVERAGE_THRESHOLD ? 'ok' : 'low');
+    headerPill.className = 'covpill ' + (ok ? 'ok' : 'low');
   }
 }
 
@@ -275,21 +286,15 @@ function renderLogTodayTiles(chartData) {
     : (stats && stats.current_avg_kg != null ? stats.current_avg_kg : null);
 
   const trendEl = document.getElementById('log-trend-val');
-  const trendSub = document.getElementById('log-trend-sub');
+  const trendUnit = document.getElementById('log-trend-unit');
   if (trendEl) {
-    trendEl.innerHTML = trendKg != null
-      ? `${trendKg.toFixed(1)} <span>${unitLabel()}</span>`
-      : `-- <span>${unitLabel()}</span>`;
+    trendEl.textContent = trendKg != null ? trendKg.toFixed(1) : '--';
   }
-  if (trendSub) {
-    trendSub.textContent = rate && rate.readable
-      ? 'EWMA · 30-day'
-      : 'EWMA · sparse input';
-    trendSub.className = 'w-sub mute';
-  }
+  if (trendUnit) trendUnit.textContent = unitLabel();
 
   let lastKg = null;
   let lastDate = null;
+  const today = todayISO();
   for (let i = actuals.length - 1; i >= 0; i--) {
     if (actuals[i].weight_kg != null) {
       lastKg = actuals[i].weight_kg;
@@ -297,16 +302,33 @@ function renderLogTodayTiles(chartData) {
       break;
     }
   }
+  // Prefer today's weigh-in when present
+  const todayPt = actuals.find(a => a.date === today && a.weight_kg != null);
+  if (todayPt) {
+    lastKg = todayPt.weight_kg;
+    lastDate = today;
+  }
+
   const lastEl = document.getElementById('log-last-val');
   const lastSub = document.getElementById('log-last-sub');
   if (lastEl) {
-    lastEl.innerHTML = lastKg != null
-      ? `${lastKg.toFixed(1)} <span style="font-size:11px;color:var(--text-tertiary)">${unitLabel()}</span>`
-      : '—';
+    lastEl.textContent = lastKg != null ? lastKg.toFixed(1) : '—';
   }
-  if (lastSub && lastDate) {
-    const d = new Date(lastDate + 'T00:00:00');
-    lastSub.textContent = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  if (lastSub) {
+    if (lastKg != null && trendKg != null) {
+      const d = lastKg - trendKg;
+      if (Math.abs(d) < 0.05) {
+        lastSub.textContent = 'on trend';
+      } else {
+        const sign = d >= 0 ? '+' : '−';
+        lastSub.textContent = `${sign}${Math.abs(d).toFixed(1)} vs trend`;
+      }
+    } else if (lastDate) {
+      const d = new Date(lastDate + 'T00:00:00');
+      lastSub.textContent = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    } else {
+      lastSub.textContent = '';
+    }
   }
 }
 
@@ -402,11 +424,19 @@ function renderComposition(composition) {
   const chip = document.getElementById('composition-chip');
   if (!body) return;
 
+  const count = composition && composition.readings_count != null ? composition.readings_count : 0;
+  if (chip) chip.textContent = `${count} of 4 readings`;
+
   if (!composition || !composition.readable) {
-    if (chip) chip.textContent = 'needs 4 weekly readings';
-    body.innerHTML = `<div class="w-verdict flat">${composition && composition.readable_note
+    const note = composition && composition.readable_note
       ? window.AppCommon.escapeHtml(composition.readable_note)
-      : 'No composition data yet. Log body fat % weekly and this fills in after four readings — it\'s the only thing that can tell you whether you\'re losing fat or muscle.'}</div>`;
+      : 'Log body fat % weekly and this fills in after four readings — it\'s the only thing that can tell you whether you\'re losing fat or muscle.';
+    body.innerHTML = `<div class="w-empty">${note}</div>
+      <div class="w-t3" style="opacity:.4;margin-top:9px">
+        <div class="w-tile"><div class="w-tile-lbl">Fat mass</div><div class="w-mid">— <span>kg</span></div></div>
+        <div class="w-tile"><div class="w-tile-lbl">Lean mass</div><div class="w-mid">— <span>kg</span></div></div>
+        <div class="w-tile"><div class="w-tile-lbl">Body fat</div><div class="w-mid">—<span>%</span></div></div>
+      </div>`;
     return;
   }
 
@@ -414,19 +444,9 @@ function renderComposition(composition) {
   const lean = latest.lean_mass_kg;
   const fat = latest.fat_mass_kg;
   const bf = latest.body_fat_pct;
-  if (chip) chip.textContent = `${composition.readings_count || 4} readings · direction only`;
 
-  const leanPct = lean != null && fat != null ? (lean / (lean + fat)) * 100 : 50;
   body.innerHTML = `
-    <div class="w-compbar">
-      <i class="lean" style="width:${leanPct.toFixed(1)}%">LEAN ${lean != null ? lean.toFixed(1) : '—'} kg</i>
-      <i class="fat" style="width:${(100 - leanPct).toFixed(1)}%">${fat != null ? fat.toFixed(1) : '—'}</i>
-    </div>
-    <div class="w-clegend">
-      <span><span class="w-sq" style="background:#4f6ef7"></span>lean — protect this</span>
-      <span><span class="w-sq" style="background:#f0a878"></span>fat — lose this</span>
-    </div>
-    <div class="w-t3" style="margin-top:11px">
+    <div class="w-t3">
       <div class="w-tile"><div class="w-tile-lbl">Fat mass</div><div class="w-mid">${fat != null ? fat.toFixed(1) : '—'} <span>kg</span></div></div>
       <div class="w-tile"><div class="w-tile-lbl">Lean mass</div><div class="w-mid">${lean != null ? lean.toFixed(1) : '—'} <span>kg</span></div></div>
       <div class="w-tile"><div class="w-tile-lbl">Body fat</div><div class="w-mid">${bf != null ? bf.toFixed(1) : '—'}<span>%</span></div></div>
@@ -813,13 +833,11 @@ function renderRecentEntries(entries, activeTarget, totalEntries) {
   const viewAllLink = document.getElementById('view-all-link');
   if (!container) return;
 
-  // Use total_entries from history-summary for the "View all N" count
   const displayCount = totalEntries != null ? totalEntries : entries.length;
   if (viewAllLink) {
     viewAllLink.textContent = `View all ${displayCount} →`;
   }
 
-  // Build a map: date → sorted entries (newest time first)
   const byDate = {};
   entries.forEach(e => {
     if (!byDate[e.entry_date]) byDate[e.entry_date] = [];
@@ -829,7 +847,6 @@ function renderRecentEntries(entries, activeTarget, totalEntries) {
     arr.sort((a, b) => (b.entry_time || '').localeCompare(a.entry_time || ''))
   );
 
-  // Build 14-day list: today → today-13
   const today = todayISO();
   const days = [];
   for (let i = 0; i < 14; i++) {
@@ -848,26 +865,20 @@ function renderRecentEntries(entries, activeTarget, totalEntries) {
     });
   }
 
-  // Compute deltas: compare each entry to the previous logged day (across gaps)
-  const allSorted = entries.slice().sort((a, b) => a.entry_date.localeCompare(b.entry_date));
-  const prevWeight = {};
-  allSorted.forEach((e, idx) => {
-    const prev = allSorted.slice(0, idx).filter(x => x.entry_date < e.entry_date).pop();
-    prevWeight[e.id] = prev ? e.weight_kg - prev.weight_kg : null;
-  });
-
-  // Delta direction: ↓ green when toward target, ↑ red when away from target
-  const losingIsGoal = !activeTarget ||
-    activeTarget.target_weight_kg == null ||
-    activeTarget.start_weight_kg == null ||
-    activeTarget.target_weight_kg < activeTarget.start_weight_kg;
-
-  // Delegates to the shared escaper (issue #1603).
   function _esc(s) {
     return window.AppCommon.escapeHtml(s);
   }
 
-  // empty state: if no entries exist at all, show prompt instead of 14 blank rows
+  function _fmtDay(date) {
+    const d = new Date(date + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  }
+
+  function _fmtShort(date) {
+    const d = new Date(date + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' });
+  }
+
   if (!entries.length) {
     container.innerHTML = `<div style="text-align:center;padding:24px;color:var(--text-tertiary);font-size:13px;">
       No weight entries yet — log your first weigh-in above
@@ -875,67 +886,78 @@ function renderRecentEntries(entries, activeTarget, totalEntries) {
     return;
   }
 
-  container.innerHTML = days.map(date => {
+  // Collapse consecutive missing days into one gap row (compact mock).
+  const parts = [];
+  let gapStart = null;
+  let gapDates = [];
+
+  function flushGap() {
+    if (!gapDates.length) return;
+    const n = gapDates.length;
+    const newest = gapDates[0];
+    const oldest = gapDates[gapDates.length - 1];
+    let rangeLbl;
+    if (n === 1) {
+      rangeLbl = _fmtShort(newest);
+    } else {
+      rangeLbl = `${_fmtShort(oldest)}–${_fmtShort(newest)}`;
+    }
+    parts.push(`
+      <div class="w-gap" data-gap-dates="${gapDates.join(',')}">
+        <span>${n} day${n === 1 ? '' : 's'} not logged · ${rangeLbl}</span>
+        <button type="button" class="gap-backfill-btn" data-date="${newest}">+ backfill</button>
+      </div>`);
+    gapStart = null;
+    gapDates = [];
+  }
+
+  days.forEach(date => {
+    const dayEntries = byDate[date];
+    if (!dayEntries || !dayEntries.length) {
+      gapDates.push(date);
+      return;
+    }
+    flushGap();
     const isToday = date === today;
     const todayCls = isToday ? 'entry-row-today' : '';
-    const dayEntries = byDate[date];
-    const d = new Date(date + 'T00:00:00');
-    const weekday = d.toLocaleDateString('en-US', { weekday: 'short' });
-    const dayStr  = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const dateLabel = `${weekday}, ${dayStr}`;
-
-    if (!dayEntries || !dayEntries.length) {
-      return `
-        <div class="re-row ${todayCls} missing-day-row" data-date="${date}">
-          <div class="re-d">${dateLabel}${isToday ? '<span class="re-d-sub">Today</span>' : ''}</div>
-          <div class="re-note">
-            <button class="add-chip backfill-add-btn" data-date="${date}" data-is-today="${isToday}" type="button"
-              aria-label="No entry for ${date} — click to add">＋ Add</button>
-          </div>
-          <div class="re-w"></div>
-          <div class="re-delta"></div>
-          <div class="re-actions"></div>
-        </div>`;
-    }
-
-    // One or more entries on this day — show the first (most recent) entry
-    return dayEntries.map((e, idx) => {
-      const trend = trendByDate[date];
-      let deltaNote = 'on trend';
-      if (trend != null && e.weight_kg != null) {
-        const d = e.weight_kg - trend;
-        if (Math.abs(d) >= 0.05) {
-          const sign = d >= 0 ? '+' : '−';
-          deltaNote = `${sign}${Math.abs(d).toFixed(1)} vs trend`;
-        }
+    const e = dayEntries[0];
+    const trend = trendByDate[date];
+    let deltaNote = '';
+    if (trend != null && e.weight_kg != null) {
+      const dlt = e.weight_kg - trend;
+      if (Math.abs(dlt) < 0.05) deltaNote = '0.0';
+      else {
+        const sign = dlt >= 0 ? '+' : '−';
+        deltaNote = `${sign}${Math.abs(dlt).toFixed(1)}`;
       }
-      const noteText = e.notes ? _esc(e.notes) : '';
-
-      return `
-        <div class="re-row ${todayCls}" data-entry-id="${e.id}">
-          <div class="re-d">${idx === 0 ? dateLabel : ''}${isToday && idx === 0 ? '<span class="re-d-sub">Today</span>' : ''}</div>
-          <div class="re-note">${noteText}</div>
-          <div class="re-w">${e.weight_kg.toFixed(1)}<span class="re-u"> kg</span></div>
-          <div class="re-delta neu">${deltaNote}</div>
-          <div class="re-actions">
-            <button class="entry-menu-btn" data-entry-id="${e.id}" data-weight="${e.weight_kg}" data-date="${e.entry_date}" type="button"
-              aria-label="Actions for entry ${e.id}" aria-expanded="false">⋯</button>
-          </div>
-        </div>`;
-    }).join('');
-  }).join('');
-
-  // Wire ＋ Add chip buttons
-  container.querySelectorAll('.backfill-add-btn').forEach(btn => {
-    const date = btn.dataset.date;
-    const isToday = btn.dataset.isToday === 'true';
-    btn.addEventListener('click', () => _openMiniStepper(btn, date));
-    if (isToday) {
-      _openMiniStepper(btn, date);
     }
+    const noteText = e.notes ? _esc(e.notes) : '';
+    parts.push(`
+      <div class="re-row ${todayCls}" data-entry-id="${e.id}">
+        <div class="re-d">${_fmtDay(date)}${isToday ? '<span class="re-d-sub">Today</span>' : ''}</div>
+        <div class="re-note">${noteText}</div>
+        <div class="re-w">${e.weight_kg.toFixed(1)}</div>
+        <div class="re-delta neu">${deltaNote}</div>
+        <div class="re-actions">
+          <button class="entry-menu-btn" data-entry-id="${e.id}" data-weight="${e.weight_kg}" data-date="${e.entry_date}" type="button"
+            aria-label="Actions for entry ${e.id}" aria-expanded="false">⋯</button>
+        </div>
+      </div>`);
+  });
+  flushGap();
+
+  container.innerHTML = parts.join('');
+
+  container.querySelectorAll('.gap-backfill-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const date = btn.dataset.date;
+      // Jump calendar editor / focus that date via existing backfill calendar
+      const cell = document.querySelector(`.wcal-cell[data-date="${date}"]`);
+      if (cell) cell.click();
+      else _openMiniStepper(btn, date);
+    });
   });
 
-  // Wire entry menu buttons
   container.querySelectorAll('.entry-menu-btn').forEach(btn => {
     btn.addEventListener('click', (ev) => {
       ev.stopPropagation();
@@ -943,7 +965,6 @@ function renderRecentEntries(entries, activeTarget, totalEntries) {
     });
   });
 
-  // Close open menus on outside click
   document.addEventListener('click', _closeAllMenus);
 }
 
@@ -1362,7 +1383,7 @@ function _showLoggedMode(weightKg) {
   const loggedTxt = document.getElementById('logged-text');
   if (wrap)   wrap.hidden   = true;
   if (logged) logged.hidden = false;
-  if (loggedTxt) loggedTxt.textContent = `✓ Logged today · ${kgToDisplay(weightKg).toFixed(1)} ${unitLabel()} · `;
+  if (loggedTxt) loggedTxt.textContent = `✓ Logged`;
 }
 
 async function _submitCardB(displayVal) {

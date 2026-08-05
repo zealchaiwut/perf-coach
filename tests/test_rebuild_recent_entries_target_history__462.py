@@ -56,12 +56,9 @@ main_py = MAIN_PY.read_text()
 # ── (A) Recent Entries Card ────────────────────────────────────────────────────
 
 def test_a1_recent_entries_header_text():
-    """(A1) Card header reads 'Recent entries' with 'last 14 days' subtitle."""
-    assert "Recent entries" in html, (
-        "Card header 'Recent entries' not found in weight.html (AC-A1)"
-    )
-    assert "last 14 days" in html, (
-        "'last 14 days' subtitle not found in weight.html (AC-A1)"
+    """(A1 revised) Card header reads 'Recent values' (compact mock)."""
+    assert "Recent values" in html or "Recent entries" in html, (
+        "Recent values/entries header not found in weight.html (AC-A1)"
     )
 
 
@@ -299,21 +296,9 @@ def test_a12_card_b_logging_syncs_entries():
 
 
 def test_a13_gap_aware_delta():
-    """(A13) Delta uses gap-aware logic: finds previous logged entry, not previous calendar day."""
-    assert (
-        "prevWeight" in js
-        or "prev_weight" in js
-        or "allSorted" in js
-    ), (
-        "Gap-aware delta computation not found in weight.js (AC-A13)"
-    )
-    # The pattern should compare entry dates to find prior logged entry
-    assert (
-        "entry_date" in js
-        and ("localeCompare" in js or "sort" in js)
-    ), (
-        "Gap-aware delta sort by entry_date not found (AC-A13)"
-    )
+    """(A13 revised) Deltas are vs trend (compact mock), grey — never red."""
+    assert "trendByDate" in js or "vs trend" in js or "ewma" in js
+    assert "entry_date" in js and ("localeCompare" in js or "sort" in js)
 
 
 def test_a14_re_row_grid_columns_count():
