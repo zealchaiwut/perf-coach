@@ -812,7 +812,18 @@ def fill_strength(
     *,
     rng: random.Random | None = None,
     avoid_parts: set[str] | None = None,
+    pre_placed: list[dict] | None = None,
 ) -> dict:
+    """Fill a strength/plyo slot. Optional ``pre_placed`` pinned rows reduce
+    per-block pick counts and remaining budget; scoring is unchanged.
+    """
+    from backend.services.session_pins import (
+        count_pinned_in_block,
+        ensure_exercise_pin_fields,
+        exercise_spend,
+        spend_pinned_in_block,
+    )
+
     rng = rng or random.Random()
     recipe = pattern.get("recipe") or {}
     bias = recipe.get("focus_bias") or {}
@@ -822,19 +833,38 @@ def fill_strength(
     target_tss = float(slot.get("target_tss") or 40)
     groups, band_meta = resolve_groups_for_duration(recipe, duration_min)
     banded = band_meta.get("source") in ("bands", "bands_fallback")
-    used: set[str] = set()
-    exercises: list[dict] = []
+
+    placed = [ensure_exercise_pin_fields(e) for e in (pre_placed or []) if isinstance(e, dict)]
+    exercises: list[dict] = [copy.deepcopy(e) for e in placed]
+    used: set[str] = {
+        str(e.get("name") or "").strip()
+        for e in exercises if e.get("name")
+    }
     pick_log: list[dict] = []
     budget_trace: list[dict] = []
 
-    remain_tss = float(target_tss)
-    remain_min = float(duration_min)
+    pinned_tss = 0.0
+    pinned_min = 0.0
+    for e in exercises:
+        st, sm = exercise_spend(e)
+        if e.get("spend_tss") is None:
+            e["spend_tss"] = round(st, 1)
+        if e.get("spend_min") is None:
+            e["spend_min"] = round(sm, 1)
+        pinned_tss += float(e["spend_tss"])
+        pinned_min += float(e["spend_min"])
+
+    remain_tss = float(target_tss) - pinned_tss
+    remain_min = float(duration_min) - pinned_min
     budget_trace.append({
         "op": "budget_start",
-        "remain_tss": round(remain_tss, 1),
-        "remain_min": round(remain_min, 1),
+        "remain_tss": round(max(0.0, remain_tss), 1),
+        "remain_min": round(max(0.0, remain_min), 1),
         "target_tss": round(target_tss, 1),
         "duration_min": duration_min,
+        "pre_placed": len(placed),
+        "pinned_tss": round(pinned_tss, 1),
+        "pinned_min": round(pinned_min, 1),
         "band": band_meta.get("band"),
         "groups_source": band_meta.get("source"),
     })
@@ -848,10 +878,15 @@ def fill_strength(
         pick = g.get("pick") or {}
         tags = _format_tags(fmt, _as_list(pick.get("from_tags")) or [key or "standalone"])
         n, scale_meta = _scale_group_pick_n(g, duration_min, banded=banded)
+        pre_n = count_pinned_in_block(placed, key, label)
+        n = max(0, n - pre_n)
         tss_share = float(g.get("tss_share") or 0)
         time_share = float(g.get("time_share") or 0)
         group_tss_left = target_tss * tss_share if tss_share > 0 else (target_tss / max(len(groups), 1))
         group_min_left = duration_min * time_share if time_share > 0 else (duration_min / max(len(groups), 1))
+        pre_tss, pre_min = spend_pinned_in_block(placed, key, label)
+        group_tss_left = max(0.0, group_tss_left - pre_tss)
+        group_min_left = max(0.0, group_min_left - pre_min)
         block_min_budget = float(group_min_left)
 
         if n <= 0:
@@ -862,6 +897,7 @@ def fill_strength(
                 "n": 0,
                 "picked": [],
                 "skipped": True,
+                "pre_placed": pre_n,
                 **scale_meta,
             })
             budget_trace.append({
@@ -869,7 +905,8 @@ def fill_strength(
                 "key": key,
                 "label": label,
                 "format": fmt,
-                "reason": scale_meta.get("reason"),
+                "reason": scale_meta.get("reason") or ("pre_placed_covers" if pre_n else None),
+                "pre_placed": pre_n,
             })
             continue
 
@@ -879,6 +916,7 @@ def fill_strength(
             "label": label,
             "format": fmt,
             "n": n,
+            "pre_placed": pre_n,
             "group_tss": round(group_tss_left, 1),
             "group_min": round(group_min_left, 1),
             "from_tags": tags,
@@ -924,8 +962,8 @@ def fill_strength(
                 key=spend_key or key,
                 sets=int(row["sets"] or 3),
                 tss_weight=float(row.get("_tss_weight") or 1.0),
-                remain_tss=remain_tss,
-                remain_min=remain_min,
+                remain_tss=max(remain_tss, 0.0),
+                remain_min=max(remain_min, 0.0),
                 picks_left_in_group=picks_left,
                 group_tss_left=group_tss_left,
                 group_min_left=group_min_left,
@@ -938,6 +976,9 @@ def fill_strength(
             row["block"] = label
             row["spend_tss"] = spend_tss
             row["spend_min"] = spend_min
+            row["source"] = "generated"
+            row["pinned"] = False
+            row["state"] = "done"
             exercises.append(row)
             picked_names.append(row["name"])
             pick_details.append({
@@ -972,14 +1013,18 @@ def fill_strength(
             "format": fmt,
             "from_tags": tags,
             "n": n,
+            "pre_placed": pre_n,
             "picked": picked_names,
             "picks": pick_details,
             **scale_meta,
         })
 
-    # Clamp to validator 4–12
+    # Clamp to validator 4–12 — never drop pre-placed pinned rows.
     if len(exercises) > 12:
-        exercises = exercises[:12]
+        pinned_part = exercises[:len(placed)]
+        generated_part = exercises[len(placed):]
+        keep_gen = max(0, 12 - len(pinned_part))
+        exercises = pinned_part + generated_part[:keep_gen]
     while len(exercises) < 4 and pool:
         budget_trace.append({
             "op": "budget_remain",
@@ -1014,6 +1059,9 @@ def fill_strength(
         row["block"] = row.get("block") or "Accessories"
         row["spend_tss"] = spend_tss
         row["spend_min"] = spend_min
+        row["source"] = "generated"
+        row["pinned"] = False
+        row["state"] = "done"
         exercises.append(row)
         budget_trace.append({
             "op": "budget_pick",
@@ -1077,8 +1125,16 @@ def fill_slot(
     current: dict | None = None,
     rng: random.Random | None = None,
     avoid_parts: set[str] | None = None,
+    respect_exercise_pins: bool = False,
 ) -> dict:
-    """Fill one slot from patterns. Falls back to template_content_for_slot."""
+    """Fill one slot from patterns. Falls back to template_content_for_slot.
+
+    When ``respect_exercise_pins`` is True (session-modal Refill), pinned
+    exercise rows are pre-placed and only unpinned rows are replaced. The
+    whole-session ``source=user`` keep is skipped so Refill can run.
+    """
+    from backend.services.session_pins import refill_contract, split_pinned_exercises
+
     log: dict = {"steps": []}
     raw_sub = slot.get("subtype")
     slot = dict(slot)
@@ -1096,7 +1152,7 @@ def fill_slot(
     if wt == "rest" or slot.get("locked"):
         out = template_content_for_slot(slot)
         out["source"] = "template" if wt == "rest" else (current or {}).get("source") or "user"
-        if current and current.get("source") == "user":
+        if current and current.get("source") == "user" and not respect_exercise_pins:
             kept = {**current, "source": "user"}
             kept["fill_log"] = {
                 "steps": log["steps"] + [{"op": "keep_user", "reason": "source=user"}],
@@ -1106,12 +1162,36 @@ def fill_slot(
         out["fill_log"] = log
         return out
 
-    if current and current.get("source") == "user":
+    if current and current.get("source") == "user" and not respect_exercise_pins:
         kept = {**current, "source": "user"}
         kept["fill_log"] = {
             "steps": log["steps"] + [{"op": "keep_user", "reason": "source=user"}],
         }
         return kept
+
+    pre_placed: list[dict] = []
+    if respect_exercise_pins and current:
+        contract = refill_contract(
+            target_tss=slot.get("target_tss"),
+            duration_minutes=slot.get("duration_minutes"),
+            exercises=current.get("exercises"),
+        )
+        log["steps"].append({"op": "refill_contract", **contract})
+        if not contract["ok"]:
+            # Surface as a soft failure — callers map refill_blocked → 422.
+            blocked = {
+                "intent": current.get("intent"),
+                "notes": current.get("notes"),
+                "blocks": current.get("blocks"),
+                "exercises": current.get("exercises"),
+                "source": current.get("source") or "user",
+                "refill_blocked": True,
+                "refill_reason": contract["reason"],
+                "refill_contract": contract,
+                "fill_log": log,
+            }
+            return blocked
+        pre_placed, _unpinned = split_pinned_exercises(current.get("exercises"))
 
     pattern = select_pattern(
         db,
@@ -1157,7 +1237,10 @@ def fill_slot(
         })
     elif pattern and wt in ("strength", "plyo"):
         pool = _load_exercise_pool(db)
-        content = fill_strength(pattern, slot, pool, rng=rng, avoid_parts=avoid_parts)
+        content = fill_strength(
+            pattern, slot, pool, rng=rng, avoid_parts=avoid_parts,
+            pre_placed=pre_placed or None,
+        )
         pick_log = content.pop("_pick_log", None) or []
         budget_trace = content.pop("_budget_trace", None) or []
         band_meta = content.pop("_band", None) or {}
@@ -1170,6 +1253,7 @@ def fill_slot(
             "groups": pick_log,
             "budget_trace": budget_trace,
             "exercise_count": len(content.get("exercises") or []),
+            "pre_placed": len(pre_placed),
             "blocks": sorted({
                 str(e.get("block") or "") for e in (content.get("exercises") or [])
             }),
@@ -1192,6 +1276,7 @@ def fill_slot(
             pattern, slot, _load_exercise_pool(db),
             rng=random.Random(rng.random()),
             avoid_parts=avoid_parts,
+            pre_placed=pre_placed or None,
         )
         pick_log = content.pop("_pick_log", None) or []
         budget_trace = content.pop("_budget_trace", None) or []

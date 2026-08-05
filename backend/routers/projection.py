@@ -978,6 +978,12 @@ def generate_plan_session(
         db.close()
     if session is None:
         raise HTTPException(status_code=422, detail="Could not fill session from patterns — check subtype and duration.")
+    if session.get("refill_blocked"):
+        raise HTTPException(
+            status_code=422,
+            detail=session.get("refill_reason")
+            or "pinned rows already exceed the budget — unpin one or raise the pin",
+        )
     return JSONResponse({"session": session})
 
 

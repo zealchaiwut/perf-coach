@@ -1830,7 +1830,26 @@ def generate_single_session(
             "source": current_session.get("source"),
         }
     rng = random.Random(int(seed) & 0xFFFFFFFF) if seed is not None else None
-    content = fill_slot(slot, db=db, week_ctx=week_ctx, current=current, rng=rng)
+    # Session-modal Refill: keep pinned exercise rows; refill the rest.
+    # (Draft pipeline still uses fill_slot without respect_exercise_pins.)
+    content = fill_slot(
+        slot, db=db, week_ctx=week_ctx, current=current, rng=rng,
+        respect_exercise_pins=True,
+    )
+    if content.get("refill_blocked"):
+        return {
+            "refill_blocked": True,
+            "refill_reason": content.get("refill_reason"),
+            "refill_contract": content.get("refill_contract"),
+            "exercises": content.get("exercises"),
+            "blocks": content.get("blocks"),
+            "intent": content.get("intent"),
+            "notes": content.get("notes"),
+            "workout_type": slot["workout_type"],
+            "target_tss": slot["target_tss"],
+            "duration_minutes": slot["duration_minutes"],
+            "subtype": slot.get("subtype"),
+        }
     footprint = content.pop("_muscle_footprint", None)
     fill_log = content.pop("fill_log", None)
     stamped = stamp_session(slot, content)
