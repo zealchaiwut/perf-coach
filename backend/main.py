@@ -5881,6 +5881,33 @@ def _classified_manual_laps_map(session, run_workouts, prefs_dict) -> dict:
     return out
 
 
+def _planned_duration_map(session, workout_ids: list) -> dict:
+    """Map workout_id → planned_duration_seconds from matched PlannedSession rows.
+
+    Queries PlannedSession rows whose matched_workout_id is in workout_ids and
+    returns a dict keyed by workout_id.  Workouts not matched to any session, or
+    matched to a session whose structure has no parseable block durations, are
+    absent from the result (the caller treats a missing key as None, which
+    leaves the absolute-only guard in running_performance.py intact — issue #1479).
+    """
+    if not workout_ids:
+        return {}
+    from backend.services.plan_matching import _planned_duration_seconds as _pds
+    rows = (
+        session.query(PlannedSession)
+        .filter(PlannedSession.matched_workout_id.in_(workout_ids))
+        .all()
+    )
+    out = {}
+    for r in rows:
+        if r.matched_workout_id is None:
+            continue
+        dur = _pds(r.structure)
+        if dur is not None:
+            out[r.matched_workout_id] = dur
+    return out
+
+
 def _workout_signal_scores(session, workout) -> dict:
     """Per-session endurance/speed scores for the signal card.
 
@@ -5958,6 +5985,7 @@ def _workout_signal_scores(session, workout) -> dict:
             splits_by_wk.setdefault(s.workout_id, []).append(s)
 
     _ml_map = _classified_manual_laps_map(session, run_workouts, prefs_dict)
+    _pdc_map = _planned_duration_map(session, wids)
 
     def _build(max_date):
         runs = []
@@ -6017,6 +6045,7 @@ def _workout_signal_scores(session, workout) -> dict:
                     "speed_signal_window_seconds": wk.speed_signal_window_seconds,
                     "manual_laps": _ml_map.get(wk.id, []),
                     "ftp_w": (prefs_dict or {}).get("ftp_w"),
+                    "planned_duration_seconds": _pdc_map.get(wk.id),
                 }
             )
         return runs
@@ -6131,6 +6160,7 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
             splits_by_wk.setdefault(s.workout_id, []).append(s)
 
     _ml_map_asof = _classified_manual_laps_map(session, run_workouts, prefs_dict)
+    _pdc_map_asof = _planned_duration_map(session, wids)
 
     runs = []
     for wk in run_workouts:
@@ -6187,6 +6217,7 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
                 "speed_signal_window_seconds": wk.speed_signal_window_seconds,
                 "manual_laps": _ml_map_asof.get(wk.id, []),
                 "ftp_w": (prefs_dict or {}).get("ftp_w"),
+                "planned_duration_seconds": _pdc_map_asof.get(wk.id),
             }
         )
 
@@ -16983,6 +17014,7 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
             # Batch-load all splits for the qualifying runs in one query
             # (issue #1578: replaces N sequential per-workout queries → 1 query).
             _run_ids = [w.id for w in run_workouts]
+            _pdc_map_perf = _planned_duration_map(session, _run_ids)
             if _run_ids:
                 _all_splits = (
                     session.query(WorkoutSplit)
@@ -17058,6 +17090,7 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
                     # extraction (short reps are invisible in 1 km auto-splits).
                     "manual_laps": _ml_map_perf.get(workout.id, []),
                     "ftp_w": (prefs_dict or {}).get("ftp_w"),
+                    "planned_duration_seconds": _pdc_map_perf.get(workout.id),
                 })
 
         # All DB access is finished above.  The pure functions below perform no I/O.
@@ -17562,6 +17595,7 @@ def get_athlete_weekly_summary(
         prefs_dict = preferences or {}
         zone_constants = make_zone_constants()
         _ml_map_weekly = _classified_manual_laps_map(session, run_workouts, prefs_dict)
+        _pdc_map_weekly = _planned_duration_map(session, [w.id for w in run_workouts])
 
         try:
             compute_decoupling = _compute_decoupling
@@ -17627,6 +17661,7 @@ def get_athlete_weekly_summary(
                     "duration_seconds": workout.duration_seconds,
                     "speed_signal": workout.speed_signal,
                     "manual_laps": _ml_map_weekly.get(workout.id, []),
+                    "planned_duration_seconds": _pdc_map_weekly.get(workout.id),
                 })
             return runs
 
@@ -18973,6 +19008,8 @@ def get_projection(user: User = Depends(resolve_user)):
                         .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
                         .all()
                     )
+                    _proj_run_ids = [w.id for w in run_workouts]
+                    _pdc_map_proj = _planned_duration_map(db, _proj_run_ids)
 
                     runs = []
                     for workout in run_workouts:
@@ -18999,6 +19036,7 @@ def get_projection(user: User = Depends(resolve_user)):
                             "duration_seconds": workout.duration_seconds,
                             "avg_hr": workout.avg_hr,
                             "laps": laps,
+                            "planned_duration_seconds": _pdc_map_proj.get(workout.id),
                         })
 
                     from backend.services.body_modifier import get_body_modifier_for_user as _get_bm_proj
