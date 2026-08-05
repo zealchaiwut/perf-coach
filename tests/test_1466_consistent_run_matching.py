@@ -6,6 +6,7 @@ mixed-case variants, preventing false-negative suppression of ramp signals.
 """
 import subprocess
 import re
+import pathlib
 
 
 # --- Acceptance Criteria ---
@@ -21,7 +22,7 @@ def test_1466__consistent_predicates_all_locations():
         ["git", "show", "HEAD:backend/services/gap_analysis/engine.py"],
         capture_output=True,
         text=True,
-        cwd="/Users/zeal-server/dev/perf-coach/tester"
+        cwd=str(pathlib.Path(__file__).resolve().parents[1])
     )
     assert result.returncode == 0, "Failed to read engine.py from git"
 
@@ -54,7 +55,7 @@ def test_1466__canonical_constant_defined():
         ["git", "show", "HEAD:backend/services/gap_analysis/engine.py"],
         capture_output=True,
         text=True,
-        cwd="/Users/zeal-server/dev/perf-coach/tester"
+        cwd=str(pathlib.Path(__file__).resolve().parents[1])
     )
     assert result.returncode == 0, "Failed to read engine.py"
 
@@ -86,7 +87,7 @@ def test_1466__run_filter_used_in_gather_queries():
         ["git", "show", "HEAD:backend/services/gap_analysis/engine.py"],
         capture_output=True,
         text=True,
-        cwd="/Users/zeal-server/dev/perf-coach/tester"
+        cwd=str(pathlib.Path(__file__).resolve().parents[1])
     )
     assert result.returncode == 0, "Failed to read engine.py"
 
@@ -118,7 +119,7 @@ def test_1466__no_exact_match_predicate_mixing():
         ["git", "show", "HEAD:backend/services/gap_analysis/engine.py"],
         capture_output=True,
         text=True,
-        cwd="/Users/zeal-server/dev/perf-coach/tester"
+        cwd=str(pathlib.Path(__file__).resolve().parents[1])
     )
     assert result.returncode == 0, "Failed to read engine.py"
 
@@ -155,7 +156,7 @@ def test_1466__predicate_consistency_across_locations():
         ["git", "show", "HEAD:backend/services/gap_analysis/engine.py"],
         capture_output=True,
         text=True,
-        cwd="/Users/zeal-server/dev/perf-coach/tester"
+        cwd=str(pathlib.Path(__file__).resolve().parents[1])
     )
     assert result.returncode == 0, "Failed to read engine.py"
 
