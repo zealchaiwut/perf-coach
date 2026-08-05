@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 
 from backend.db import engine
 from backend.services import job_queue
+from backend.services.daily_brief import extract_session_target as _extract_target
 
 logger = logging.getLogger("backend.worker_app")
 
@@ -735,9 +736,6 @@ def _resolve_read_user(user_param: str | None):
         if len(active) == 1:
             return active[0]
         raise HTTPException(status_code=400, detail="?user= required: multiple or zero active users")
-
-
-from backend.services.daily_brief import extract_session_target as _extract_target
 
 
 def _session_to_dict(row) -> dict:
