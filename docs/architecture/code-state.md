@@ -1,4 +1,4 @@
-# Code State — sprint-128.2
+# Code State — sprint-129
 
 _Deterministic snapshot generated at sprint finish. Do not hand-edit — regenerated each sprint._
 
@@ -10,45 +10,42 @@ _Deterministic snapshot generated at sprint finish. Do not hand-edit — regener
 - **`docs/`** — Project documentation
 - **`alembic/`** — Database migration scripts
 
-## Recent Deltas (sprint-128.2)
+## Recent Deltas (sprint-129)
 
-Files changed: **100**
+Files changed: **16**
 
-- `tests/` — 57 file(s)
-- `backend/` — 20 file(s)
-- `frontend/` — 9 file(s)
-- `docs/` — 7 file(s)
-- `(root)/` — 4 file(s)
-- `alembic/` — 2 file(s)
-- `scripts/` — 1 file(s)
+- `tests/` — 9 file(s)
+- `backend/` — 5 file(s)
+- `docs/` — 1 file(s)
+- `frontend/` — 1 file(s)
 
 ## Hot Files (last 90 days)
 
 | File | Commits |
 |------|---------|
-| `backend/main.py` | 501 |
-| `frontend/pages/training-log.html` | 234 |
-| `backend/models.py` | 148 |
-| `frontend/js/training-log.js` | 143 |
+| `backend/main.py` | 511 |
+| `frontend/pages/training-log.html` | 236 |
+| `backend/models.py` | 149 |
+| `frontend/js/training-log.js` | 144 |
 | `CHANGELOG.md` | 116 |
-| `frontend/js/training-plan.js` | 97 |
-| `README.md` | 92 |
+| `frontend/js/training-plan.js` | 101 |
+| `README.md` | 93 |
 | `frontend/pages/home.html` | 75 |
 | `frontend/pages/weight.html` | 64 |
-| `frontend/js/training-performance.js` | 57 |
+| `frontend/js/training-performance.js` | 58 |
 | `frontend/js/home.js` | 54 |
 | `frontend/js/weight.js` | 49 |
 | `frontend/js/nav.js` | 47 |
-| `SCHEMA.md` | 43 |
+| `SCHEMA.md` | 45 |
 | `frontend/pages/habits.html` | 41 |
+| `backend/services/plan_suggestions.py` | 39 |
 | `frontend/pages/settings.html` | 39 |
 | `frontend/js/habits.js` | 38 |
 | `frontend/js/training.js` | 36 |
-| `backend/services/plan_suggestions.py` | 36 |
 | `frontend/pages/training.html` | 33 |
 
 ## Generated
 
-Sprint: `sprint-128.2`  
-Timestamp: `2026-08-05T14:59:51Z`  
+Sprint: `sprint-129`  
+Timestamp: `2026-08-05T17:38:11Z`  
 _Generated deterministically — no LLM required._
