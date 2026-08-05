@@ -22,7 +22,7 @@ from __future__ import annotations
 import importlib
 import uuid
 from datetime import date
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 
