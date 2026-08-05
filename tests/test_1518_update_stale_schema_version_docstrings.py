@@ -1,5 +1,4 @@
 """Tests for issue #1518: stale 'SCHEMA_VERSION 2' docstrings in daily_brief.py."""
-import inspect
 
 import backend.services.daily_brief as daily_brief_module
 from backend.services.daily_brief import build_brief
