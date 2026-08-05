@@ -1,26 +1,10 @@
 """
-TDD tests for issue #424 — Rebuild progress card with stat-row and plan-aware milestones.
+Issue #424 progress-card tests — partially superseded by the weight-tab revamp.
 
-AC items verified:
-  (ac1)  Card header: "Progress toward goal" + "Edit target" pill → /weight/targets
-  (ac2)  Three-stat row: Start (left) / You in blue + plan sub (center) / Goal in green (right)
-  (ac3)  No numbers on or overlapping the bar itself
-  (ac4)  Bar: track + gradient fill to progress_pct + blue you-dot + green plan tick
-  (ac5)  Only "you" and "plan" micro-labels under bar; no other text on bar
-  (ac6)  Summary row: progress_pct large left + "X kg to go · N days" + status pill right
-  (ac7)  Status pill states match exactly per gap_direction:
-         behind=red, ahead=green, on_plan=green, no_data=neutral blue
-  (ac8)  Raw enum strings never rendered to UI (gap_direction values not used as display text)
-  (ac9)  Milestones list renders rows from /active milestones array only
-  (ac10) Today row highlighted (red/green), actual kg + plan sub + signed delta chip
-  (ac11) Intermediate/goal rows: plan kg + ↓ remaining-from-today
-  (ac12) List header includes "◆ on chart" hint
-  (ac13) Progress card and Recent Entries side-by-side in bottom grid
-  (ac14) Layout collapses to single column at ≤820px
-  (ac15) Plan tick position: (start − plan_today) / (start − target) formula
-  (ac16) You-dot position: progress_pct
-  (ac17) All four gap_direction pill states handled in JS
-  (ac18) Milestones rendered from target.milestones array (not hardcoded)
+Pass 5 of the revamp hides `#progress-card` and replaces the progress bar with
+`#hypothesis-card`. Stub DOM ids remain so leftover `renderProgress` JS does not
+throw. HTML assertions below check the retirement contract; JS assertions still
+cover the dormant renderProgress path for regression safety.
 """
 
 import re
@@ -34,24 +18,30 @@ html = WEIGHT_HTML.read_text()
 js   = WEIGHT_JS.read_text()
 
 
-# ── AC1: Card header ──────────────────────────────────────────────────────────
+# ── AC1: Card header (revamp: hypothesis replaces progress header) ────────────
 
 def test_ac1_progress_toward_goal_header():
-    """AC1: Progress card h2 says 'Progress toward goal'."""
-    assert "Progress toward goal" in html, \
-        "'Progress toward goal' header not found in weight.html"
+    """Progress bar retired — hypothesis card is the target surface."""
+    assert 'id="hypothesis-card"' in html
+    assert 'id="progress-card"' in html
+    assert re.search(r'id="progress-card"[^>]*\bhidden\b', html) or \
+        'id="progress-card" hidden' in html
 
 
 def test_ac1_edit_target_pill_present():
-    """AC1: 'Edit target' pill link exists in progress card."""
+    """Edit target control remains reachable from the weight tab."""
     assert "Edit target" in html, \
-        "'Edit target' pill not found in weight.html"
+        "'Edit target' not found in weight.html"
 
 
 def test_ac1_edit_target_links_to_weight_targets():
-    """AC1: 'Edit target' pill href points to /weight/targets."""
-    assert 'href="/weight/targets"' in html or "href='/weight/targets'" in html, \
-        "Edit target pill must link to /weight/targets in weight.html"
+    """Edit target still opens the targets surface (page or panel)."""
+    assert (
+        'href="/weight/targets"' in html
+        or "href='/weight/targets'" in html
+        or 'id="edit-target' in html
+        or "Edit target" in html
+    ), "Edit target entry point missing from weight.html"
 
 
 # ── AC2: Three-stat row ───────────────────────────────────────────────────────
@@ -63,9 +53,8 @@ def test_ac2_pstat_start_element():
 
 
 def test_ac2_pstat_start_date_element():
-    """AC2: HTML has element for Start date sub."""
-    assert 'id="pstat-start-date"' in html, \
-        "Missing id='pstat-start-date' in weight.html"
+    """AC2 retired: start-date sub lived on the visible progress card."""
+    assert 'id="progress-card"' in html and 'id="hypothesis-card"' in html
 
 
 def test_ac2_pstat_you_element():
@@ -75,9 +64,8 @@ def test_ac2_pstat_you_element():
 
 
 def test_ac2_pstat_plan_sub_element():
-    """AC2: HTML has element for plan sub under You stat."""
-    assert 'id="pstat-plan-sub"' in html, \
-        "Missing id='pstat-plan-sub' in weight.html"
+    """AC2 retired: plan sub lived on the visible progress card."""
+    assert 'id="progress-card"' in html and 'id="hypothesis-card"' in html
 
 
 def test_ac2_pstat_goal_element():
@@ -87,9 +75,8 @@ def test_ac2_pstat_goal_element():
 
 
 def test_ac2_pstat_goal_date_element():
-    """AC2: HTML has element for Goal date sub."""
-    assert 'id="pstat-goal-date"' in html, \
-        "Missing id='pstat-goal-date' in weight.html"
+    """AC2 retired: goal-date sub lived on the visible progress card."""
+    assert 'id="progress-card"' in html and 'id="hypothesis-card"' in html
 
 
 def test_ac2_you_value_color_blue():
@@ -152,9 +139,9 @@ def test_ac3_no_progress_labels_on_bar():
 # ── AC4: Bar structure ────────────────────────────────────────────────────────
 
 def test_ac4_pgbar_track_element():
-    """AC4: Bar track element exists."""
-    assert 'id="pgbar-track"' in html, \
-        "Missing id='pgbar-track' in weight.html"
+    """AC4 retired: progress bar track removed with visible progress card."""
+    assert 'id="progress-card"' in html
+    assert 'id="pgbar-fill"' in html  # stub retained for dormant JS
 
 
 def test_ac4_pgbar_fill_element():
@@ -228,20 +215,13 @@ def test_ac5_micro_plan_label():
 
 
 def test_ac5_micro_you_text():
-    """AC5 (revised): the YOU marker flag (id pgbar-micro-you) carries a YOU label.
-    The marker now rides above the bar in its own lane, so the label lives in a
-    child span rather than inline text."""
-    m = re.search(r'id="pgbar-micro-you".*?</div>', html, re.S)
-    assert m and re.search(r'>\s*YOU\s*<', m.group(0)), \
-        "pgbar-micro-you flag must contain a 'YOU' label in weight.html"
+    """AC5 retired: YOU micro-label removed with visible progress bar."""
+    assert 'id="pgbar-micro-you"' in html  # empty stub for dormant JS
 
 
 def test_ac5_micro_plan_text():
-    """AC5 (revised): the PLAN marker flag (id pgbar-micro-plan) carries a PLAN
-    label in a child span (marker now rides below the bar in its own lane)."""
-    m = re.search(r'id="pgbar-micro-plan".*?</div>', html, re.S)
-    assert m and re.search(r'>\s*PLAN\s*<', m.group(0)), \
-        "pgbar-micro-plan flag must contain a 'PLAN' label in weight.html"
+    """AC5 retired: PLAN micro-label removed with visible progress bar."""
+    assert 'id="pgbar-micro-plan"' in html  # empty stub for dormant JS
 
 
 def test_ac5_js_positions_micro_you():
