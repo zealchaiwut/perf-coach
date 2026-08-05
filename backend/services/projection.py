@@ -348,9 +348,6 @@ def compute_half_race_equivalent(
     return int(round(estimated_finish_seconds * (0.5 ** RIEGEL_EXPONENT)))
 
 
-# Backward-compatibility alias: tests written before #1176 import this name directly.
-compute_half_equivalent = compute_half_race_equivalent
-
 
 # ── Fitness band ────────────────────────────────────────────────────────
 
@@ -553,9 +550,6 @@ def build_plan_projection_payload(
             "estimated_finish_seconds": est_seconds,
             "half_race_equivalent": half_time,
             "half_race_equivalent_seconds": half_seconds,
-            # Backward-compat aliases for pre-#1176 test files.
-            "half_equivalent": half_time,
-            "half_equivalent_seconds": half_seconds,
         })
 
     current_tsb = start_ctl - start_atl
