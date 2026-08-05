@@ -40,6 +40,18 @@ def test_legacy_chart_p2w_and_target_history_hidden():
     assert "Your weight journey" not in body
 
 
+def test_fuel_collapsed_to_budget_and_week():
+    """Fuel today shows kcal budget only; week chart kept; food log/macros hidden."""
+    assert 'id="fuel-budget-num"' in WEIGHT_HTML
+    assert 'id="fuel-week-bars"' in WEIGHT_HTML
+    assert "kcal budget" in WEIGHT_HTML
+    body = WEIGHT_HTML.split("<body", 1)[-1]
+    assert "What you've eaten today" not in body
+    assert "Lean meat" not in body
+    assert 'class="fuel-macros"' not in body
+    assert 'class="fuel-chain"' not in body
+
+
 def test_one_rate_uses_stats_rate():
     assert "stats.rate" in WEIGHT_JS or "stats && stats.rate" in WEIGHT_JS
     assert "rate.rate_kg_wk" in WEIGHT_JS or "rate_kg_wk" in WEIGHT_JS

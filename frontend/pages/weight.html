@@ -3385,20 +3385,18 @@
         </div>
       </section>
 
-      <!-- ── Fuel section: Fuel today + Fuel week ─────────────────────────────── -->
+      <!-- ── Fuel section (collapsed: today kcal budget + week chart) ───────── -->
       <section id="fuel-section" class="fuel-section">
         <div class="target-history-hdr" style="background-color: #1f3b8a">
           <h2>Fuel</h2>
         </div>
-        <!-- Plan-mismatch banner — shown only when consistency === 'mismatch' (AC4) -->
         <div class="fuel-plan-mismatch" id="fuel-plan-mismatch" hidden>
           <span class="fuel-plan-mismatch-dot"></span>
           <span class="fuel-plan-mismatch-text" id="fuel-plan-mismatch-text"></span>
           <button type="button" class="fuel-plan-sync-btn" id="fuel-plan-sync-btn">Sync</button>
         </div>
 
-        <div class="fuel-grid">
-          <!-- Fuel today -->
+        <div class="fuel-grid fuel-grid--compact">
           <div class="card" id="fuel-today-card">
             <div class="fuel-hdr-top">
               <div class="fuel-title-row">
@@ -3406,56 +3404,40 @@
                 <span class="fuel-daytype-pill" id="fuel-daytype-pill">REST</span>
                 <span class="fuel-phase-chip phase-base" id="fuel-phase-chip" title="" hidden></span>
               </div>
-              <button type="button" class="fuel-cog-btn" id="fuel-settings-toggle" aria-label="Fuel settings" title="Fuel settings">
-                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                  <path fill="currentColor" d="M19.14 12.94a7.14 7.14 0 0 0 .05-.94 7.14 7.14 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.3 7.3 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54a7.3 7.3 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.7 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.14 7.14 0 0 0-.05.94 7.14 7.14 0 0 0 .05.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.39 1.05.71 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.23 1.13-.55 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64Zm-7.14 2.43a3.37 3.37 0 1 1 0-6.74 3.37 3.37 0 0 1 0 6.74Z"/>
-                </svg>
-              </button>
             </div>
-            <div class="fuel-subline" id="fuel-subline">&nbsp;</div>
+            <div class="fuel-subline" id="fuel-subline" hidden>&nbsp;</div>
 
-            <div class="fuel-settings-panel" id="fuel-settings-panel" hidden>
-              <div class="fuel-settings-field">
-                <label for="fs-weight_kg">Weight (kg)</label>
-                <input type="number" step="0.1" id="fs-weight_kg" />
+            <!-- Settings / detail UI retired from the tab — stubs for fuel.js -->
+            <div hidden aria-hidden="true">
+              <button type="button" id="fuel-settings-toggle"></button>
+              <div id="fuel-settings-panel">
+                <input id="fs-weight_kg" /><input id="fs-lean_mass_kg" />
+                <input id="fs-base_kcal" /><input id="fs-deficit_kcal" />
+                <input id="fs-protein_g_per_kg" /><input id="fs-fat_g" />
+                <input id="fs-ea_floor" /><input id="fs-run_kcal_per_kg_per_km" />
+                <input type="checkbox" id="fs-auto_periodize" />
+                <button type="button" id="fuel-settings-save"></button>
+                <button type="button" id="fuel-calibrate-btn"></button>
+                <span id="fuel-settings-error" hidden></span>
               </div>
-              <div class="fuel-settings-field">
-                <label for="fs-lean_mass_kg">Lean mass (kg)</label>
-                <input type="number" step="0.1" id="fs-lean_mass_kg" placeholder="auto: weight × 0.76" />
+              <div id="fuel-chain">
+                <span id="fuel-chain-base"></span><span id="fuel-chain-burn"></span>
+                <span id="fuel-chain-deficit"></span><span id="fuel-chain-budget"></span>
+                <span id="fuel-reduced-note" hidden></span>
               </div>
-              <div class="fuel-settings-field">
-                <label for="fs-base_kcal">Base kcal (rest-day maintenance)</label>
-                <input type="number" step="1" id="fs-base_kcal" />
-              </div>
-              <div class="fuel-settings-field">
-                <label for="fs-deficit_kcal">Deficit target (kcal)</label>
-                <input type="number" step="10" id="fs-deficit_kcal" />
-              </div>
-              <div class="fuel-settings-field">
-                <label for="fs-protein_g_per_kg">Protein (g/kg)</label>
-                <input type="number" step="0.1" id="fs-protein_g_per_kg" />
-              </div>
-              <div class="fuel-settings-field">
-                <label for="fs-fat_g">Fat (g)</label>
-                <input type="number" step="1" id="fs-fat_g" />
-              </div>
-              <div class="fuel-settings-field">
-                <label for="fs-ea_floor">EA floor (kcal/kg)</label>
-                <input type="number" step="0.5" id="fs-ea_floor" />
-              </div>
-              <div class="fuel-settings-field">
-                <label for="fs-run_kcal_per_kg_per_km">Run kcal/kg/km</label>
-                <input type="number" step="0.05" id="fs-run_kcal_per_kg_per_km" />
-              </div>
-              <div class="fuel-settings-toggle-row">
-                <label for="fs-auto_periodize">Adjust deficit for training phase</label>
-                <input type="checkbox" id="fs-auto_periodize" title="Race/taper weeks → maintenance; ramp weeks → half deficit" />
-              </div>
-              <div class="fuel-settings-actions">
-                <button type="button" class="log-submit-btn" id="fuel-settings-save" style="width:auto;margin-top:0;padding:8px 16px;">Save settings</button>
-                <button type="button" class="fuel-preset-btn" id="fuel-calibrate-btn">Calibrate from history</button>
-                <span class="fuel-settings-error" id="fuel-settings-error" hidden></span>
-              </div>
+              <span id="fuel-eaten-label"></span><span id="fuel-remaining-label"></span>
+              <div id="fuel-bar-fill"></div><div id="fuel-bar-floor-tick"></div>
+              <span id="fuel-protein-eaten"></span><span id="fuel-protein-target"></span><div id="fuel-protein-bar"></div>
+              <span id="fuel-carbs-eaten"></span><span id="fuel-carbs-target"></span><div id="fuel-carbs-bar"></div>
+              <span id="fuel-fat-eaten"></span><span id="fuel-fat-target"></span><div id="fuel-fat-bar"></div>
+              <input id="fuel-meat_g" value="0" /><span id="fuel-meat_g-kcal"></span>
+              <input id="fuel-rice_g" value="0" /><span id="fuel-rice_g-kcal"></span>
+              <input id="fuel-eggs" value="0" /><span id="fuel-eggs-kcal"></span>
+              <input id="fuel-fruit_g" value="0" /><span id="fuel-fruit_g-kcal"></span>
+              <input id="fuel-oil_tsp" value="0" /><span id="fuel-oil_tsp-kcal"></span>
+              <span id="fuel-other-kcal-label"></span>
+              <div id="fuel-suggestion" hidden></div>
+              <div id="fuel-ea-guard" hidden><span id="fuel-ea-guard-text"></span></div>
             </div>
 
             <div class="fuel-budget-row">
@@ -3465,155 +3447,13 @@
               </div>
               <span class="fuel-deficit-chip on-target" id="fuel-deficit-chip"></span>
             </div>
-
-            <div class="fuel-chain" id="fuel-chain">
-              <div class="fuel-chain-cell">
-                <div class="fuel-chain-lbl">Base</div>
-                <div class="fuel-chain-val" id="fuel-chain-base">—</div>
-              </div>
-              <div class="fuel-chain-op">+</div>
-              <div class="fuel-chain-cell">
-                <div class="fuel-chain-lbl">Training burn</div>
-                <div class="fuel-chain-val" id="fuel-chain-burn">—</div>
-              </div>
-              <div class="fuel-chain-op">−</div>
-              <div class="fuel-chain-cell deficit">
-                <div class="fuel-chain-lbl">Deficit</div>
-                <div class="fuel-chain-val" id="fuel-chain-deficit">—</div>
-              </div>
-              <div class="fuel-chain-op">=</div>
-              <div class="fuel-chain-cell">
-                <div class="fuel-chain-lbl">Budget</div>
-                <div class="fuel-chain-val" id="fuel-chain-budget">—</div>
-              </div>
-              <div class="fuel-chain-cell reduced-note" id="fuel-reduced-note" hidden></div>
-            </div>
-
-            <div class="fuel-bar-labels">
-              <span>eaten <b id="fuel-eaten-label">0</b></span>
-              <span>remaining <b id="fuel-remaining-label">0</b> kcal</span>
-            </div>
-            <div class="fuel-bar-track">
-              <div class="fuel-bar-fill" id="fuel-bar-fill"></div>
-              <div class="fuel-bar-floor-tick" id="fuel-bar-floor-tick" style="display:none"></div>
-            </div>
-
-            <div class="fuel-macros">
-              <div class="fuel-macro-tile protein">
-                <div class="fuel-macro-lbl">Protein</div>
-                <div class="fuel-macro-val"><span id="fuel-protein-eaten">0</span> <small>/ <span id="fuel-protein-target">0</span> g</small></div>
-                <div class="fuel-macro-bar"><div class="fuel-macro-bar-fill" id="fuel-protein-bar" style="width:0%"></div></div>
-                <div class="fuel-macro-sub">fixed · 2 g/kg</div>
-              </div>
-              <div class="fuel-macro-tile carbs">
-                <div class="fuel-macro-lbl">Carbs</div>
-                <div class="fuel-macro-val"><span id="fuel-carbs-eaten">0</span> <small>/ <span id="fuel-carbs-target">0</span> g</small></div>
-                <div class="fuel-macro-bar"><div class="fuel-macro-bar-fill" id="fuel-carbs-bar" style="width:0%"></div></div>
-                <div class="fuel-macro-sub">the dial · scales with load</div>
-              </div>
-              <div class="fuel-macro-tile fat">
-                <div class="fuel-macro-lbl">Fat</div>
-                <div class="fuel-macro-val"><span id="fuel-fat-eaten">0</span> <small>/ <span id="fuel-fat-target">0</span> g</small></div>
-                <div class="fuel-macro-bar"><div class="fuel-macro-bar-fill" id="fuel-fat-bar" style="width:0%"></div></div>
-                <div class="fuel-macro-sub">where the deficit comes from</div>
-              </div>
-            </div>
-
-            <div class="fuel-log-card">
-              <div class="fuel-log-hdr">
-                <span>What you've eaten today</span>
-                <span>meat &amp; rice = cooked weight</span>
-              </div>
-              <div class="fuel-log-row" data-food="meat">
-                <div class="fuel-log-swatch" style="background:#c2410c"></div>
-                <div class="fuel-log-name-col">
-                  <span class="fuel-log-name">Lean meat<span class="fuel-log-sub">165 kcal · 31 g P per 100 g</span></span>
-                </div>
-                <div class="fuel-stepper">
-                  <button type="button" class="fuel-stepper-btn" data-step="-25">−</button>
-                  <input type="number" class="fuel-stepper-input" id="fuel-meat_g" value="0" />
-                  <button type="button" class="fuel-stepper-btn" data-step="25">+</button>
-                </div>
-                <span class="fuel-log-unit">g</span>
-                <span class="fuel-log-kcal" id="fuel-meat_g-kcal">0</span>
-              </div>
-              <div class="fuel-log-row" data-food="rice">
-                <div class="fuel-log-swatch" style="background:#15803d"></div>
-                <div class="fuel-log-name-col">
-                  <span class="fuel-log-name">Rice<span class="fuel-log-sub">130 kcal · 28 g C per 100 g</span></span>
-                </div>
-                <div class="fuel-stepper">
-                  <button type="button" class="fuel-stepper-btn" data-step="-25">−</button>
-                  <input type="number" class="fuel-stepper-input" id="fuel-rice_g" value="0" />
-                  <button type="button" class="fuel-stepper-btn" data-step="25">+</button>
-                </div>
-                <span class="fuel-log-unit">g</span>
-                <span class="fuel-log-kcal" id="fuel-rice_g-kcal">0</span>
-              </div>
-              <div class="fuel-log-row" data-food="eggs">
-                <div class="fuel-log-swatch" style="background:#ca8a04"></div>
-                <div class="fuel-log-name-col">
-                  <span class="fuel-log-name">Eggs<span class="fuel-log-sub">70 kcal · 6.3 g P each · 1 egg ≈ 50 g</span></span>
-                </div>
-                <div class="fuel-stepper">
-                  <button type="button" class="fuel-stepper-btn" data-step="-1">−</button>
-                  <input type="number" class="fuel-stepper-input" id="fuel-eggs" value="0" />
-                  <button type="button" class="fuel-stepper-btn" data-step="1">+</button>
-                </div>
-                <span class="fuel-log-unit">ea</span>
-                <span class="fuel-log-kcal" id="fuel-eggs-kcal">0</span>
-              </div>
-              <div class="fuel-log-row" data-food="fruit">
-                <div class="fuel-log-swatch" style="background:#7c3aed"></div>
-                <div class="fuel-log-name-col">
-                  <span class="fuel-log-name">Fruit + veg<span class="fuel-log-sub">60 kcal · 15 g C per 100 g</span></span>
-                </div>
-                <div class="fuel-stepper">
-                  <button type="button" class="fuel-stepper-btn" data-step="-25">−</button>
-                  <input type="number" class="fuel-stepper-input" id="fuel-fruit_g" value="0" />
-                  <button type="button" class="fuel-stepper-btn" data-step="25">+</button>
-                </div>
-                <span class="fuel-log-unit">g</span>
-                <span class="fuel-log-kcal" id="fuel-fruit_g-kcal">0</span>
-              </div>
-              <div class="fuel-log-row" data-food="oil">
-                <div class="fuel-log-swatch" style="background:#c2410c"></div>
-                <div class="fuel-log-name-col">
-                  <span class="fuel-log-name">Cooking oil<span class="fuel-log-sub">45 kcal per tsp — cap it, this is the deficit</span></span>
-                </div>
-                <div class="fuel-stepper">
-                  <button type="button" class="fuel-stepper-btn" data-step="-1">−</button>
-                  <input type="number" class="fuel-stepper-input" id="fuel-oil_tsp" value="0" />
-                  <button type="button" class="fuel-stepper-btn" data-step="1">+</button>
-                </div>
-                <span class="fuel-log-unit">tsp</span>
-                <span class="fuel-log-kcal" id="fuel-oil_tsp-kcal">0</span>
-              </div>
-              <div class="fuel-presets">
-                <button type="button" class="fuel-preset-btn" data-preset="standard">+ Standard meal</button>
-                <button type="button" class="fuel-preset-btn" data-preset="postrun">+ Post-run feed</button>
-                <button type="button" class="fuel-preset-btn" data-preset="snack">+ Snack / dessert</button>
-                <button type="button" class="fuel-preset-btn" data-preset="reset">Reset</button>
-                <span class="fuel-other-kcal">other: <span id="fuel-other-kcal-label">0</span> kcal</span>
-              </div>
-            </div>
-
-            <div class="fuel-suggestion" id="fuel-suggestion" hidden></div>
-
-            <div class="fuel-ea-guard" id="fuel-ea-guard" hidden>
-              <span class="fuel-ea-guard-dot"></span>
-              <span id="fuel-ea-guard-text"></span>
-            </div>
           </div>
 
-          <!-- Fuel week -->
           <div class="card" id="fuel-week-card">
             <div class="fuel-hdr-top">
               <h2 style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-tertiary);">Fuel week</h2>
             </div>
-            <div class="fuel-week-note" id="fuel-week-note">
-              Budget follows the plan. Past days use logged workouts; future days use planned sessions.
-            </div>
+            <div class="fuel-week-note" id="fuel-week-note" hidden></div>
             <div class="fuel-week-bars" id="fuel-week-bars"></div>
             <div class="fuel-week-legend">
               <span><b style="background:var(--w-tile);border:1px solid var(--w-line)"></b>Rest</span>
@@ -3624,7 +3464,6 @@
             </div>
           </div>
         </div>
-
       </section>
 
     </main>
