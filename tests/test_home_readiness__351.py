@@ -112,11 +112,12 @@ def test_home_readiness__no_data_contributor_values_null(client):
 # ── AC 12: rolling_baseline fields present ────────────────────────────────────
 
 def test_home_readiness__rolling_baseline_fields(client):
-    # AC: rolling_baseline contains hrv_7d_avg, rhr_7d_avg, sleep_7d_avg_hours
+    # AC: rolling_baseline contains hrv_7d_avg, rhr_30d_avg, sleep_7d_avg_hours
+    # rhr_30d_avg uses the 30-day window that the canonical score uses (issue #1390)
     r = client.get(f"/api/home/readiness?user_id={VALID_UID}&date={DATA_DATE}")
     assert r.status_code == 200
     rb = r.json()["rolling_baseline"]
-    for key in ("hrv_7d_avg", "rhr_7d_avg", "sleep_7d_avg_hours"):
+    for key in ("hrv_7d_avg", "rhr_30d_avg", "sleep_7d_avg_hours"):
         assert key in rb, f"rolling_baseline missing: {key}"
 
 

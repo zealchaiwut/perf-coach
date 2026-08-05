@@ -2776,12 +2776,12 @@ def get_home_readiness(
     hrv_baseline_vals = [float(r.hrv) for r in baseline_rows if r.hrv is not None and r.metric_date >= hrv_baseline_start]
     rhr_baseline_vals = [float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None]
     hrv_7d_avg = _avg(hrv_baseline_vals) if hrv_baseline_vals else None
-    rhr_7d_avg = _avg([float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None and r.metric_date >= hrv_baseline_start])
+    rhr_30d_avg = _avg(rhr_baseline_vals)
     sleep_7d_avg_hours = _avg([float(r.sleep_hours) for r in baseline_rows if r.sleep_hours is not None and r.metric_date >= hrv_baseline_start])
 
     rolling_baseline = {
         "hrv_7d_avg": hrv_7d_avg,
-        "rhr_7d_avg": rhr_7d_avg,
+        "rhr_30d_avg": rhr_30d_avg,
         "sleep_7d_avg_hours": sleep_7d_avg_hours,
     }
 
@@ -2857,7 +2857,7 @@ def get_home_readiness(
         "mood": float(metrics.mood) if metrics.mood is not None else None,
         "sleep_hours_baseline": rolling_baseline["sleep_7d_avg_hours"],
         "hrv_baseline": rolling_baseline["hrv_7d_avg"],
-        "rhr_baseline": rolling_baseline["rhr_7d_avg"],
+        "rhr_baseline": rolling_baseline["rhr_30d_avg"],
     }
     from backend.services.readiness_explanation import get_readiness_explanation
     explanation = get_readiness_explanation(
@@ -3473,7 +3473,7 @@ def _build_readiness_block(uid, today_bkk):
     hrv_baseline_vals = [float(r.hrv) for r in baseline_rows if r.hrv is not None and r.metric_date >= hrv_baseline_start]
     rhr_baseline_vals = [float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None]
     hrv_7d_avg = _avg(hrv_baseline_vals) if hrv_baseline_vals else None
-    rhr_7d_avg = _avg([float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None and r.metric_date >= hrv_baseline_start])
+    rhr_30d_avg = _avg(rhr_baseline_vals)
     sleep_7d_avg = _avg([float(r.sleep_hours) for r in baseline_rows if r.sleep_hours is not None and r.metric_date >= hrv_baseline_start])
 
     result = _canonical_readiness(
@@ -3523,7 +3523,7 @@ def _build_readiness_block(uid, today_bkk):
         "mood": float(metrics.mood) if metrics.mood is not None else None,
         "sleep_hours_baseline": sleep_7d_avg,
         "hrv_baseline": hrv_7d_avg,
-        "rhr_baseline": rhr_7d_avg,
+        "rhr_baseline": rhr_30d_avg,
     }
     from backend.services.readiness_explanation import get_readiness_explanation
     explanation = get_readiness_explanation(
