@@ -57,7 +57,7 @@ def _emit_startup_info() -> None:
     if _startup_logged:
         return
     _startup_logged = True
-    if not os.getenv("LLM_COACH_ENABLED", "").lower() in ("1", "true", "yes"):
+    if os.getenv("LLM_COACH_ENABLED", "").lower() not in ("1", "true", "yes"):
         _log.info("LLM coaching disabled (LLM_COACH_ENABLED not set)")
     elif not _api_key():
         _log.info("LLM coaching enabled but no API key for provider %s — all calls return None", _provider())
@@ -220,6 +220,9 @@ def complete_structured(
             )
             return None
     return None
+
+
+_emit_startup_info()
 
 
 def get_or_generate(
