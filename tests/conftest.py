@@ -201,7 +201,7 @@ def _on_sqlite_fallback() -> bool:
 def pytest_runtest_call(item):
     try:
         return (yield)
-    except _sa_exc.OperationalError as exc:
+    except (_sa_exc.OperationalError, _sa_exc.InvalidRequestError) as exc:
         if _on_sqlite_fallback() and _SQLITE_SCHEMA_GAP_RE.search(str(exc)):
             _pytest.skip(
                 "requires_postgres: hits backend.db.engine on the SQLite fallback, "

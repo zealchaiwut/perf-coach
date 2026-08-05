@@ -9,6 +9,8 @@
 - #1511: remove the dead `worker_url` plumbing from `scripts/export_brief.py` — the CLI no longer computes or threads a worker URL (the daily brief is assembled in-process); `_build_brief` is called with just `for_date`/`user_id`, and `--worker-url` remains an accepted no-op kept for backward compatibility
 - #1309: trim the multi-paragraph docstring on `activity_streams_to_strava_dict` to a single summary line
 - #1301: document the private SQLAlchemy attributes referenced in `tests/test_memory_config_hardening__1292.py` (test-only clarifying comment)
+- #1552: remove the unused `import pytest` from `tests/test_curve_data_non_emptiness_check__993.py` (guarded by regression test `test_remove_unused_import_pytest__1552.py`)
+- #1564: replace the hardcoded `/Users/zeal-server` absolute path in `tests/test_1466_consistent_run_matching.py`'s subprocess `cwd=` arguments with a dynamic `pathlib.Path(__file__).resolve().parents[1]`, so its five `subprocess.run` calls are portable across clone directories (guarded by regression test `test_1564_fix_hardcoded_cwd_in_test_1466.py`)
 
 ## Sprint 127 — code-review follow-up hardening (strava detail promotion, per-set strength TSS prefs, migration reversibility, observability)
 
