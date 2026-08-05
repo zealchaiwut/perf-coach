@@ -222,6 +222,9 @@ def complete_structured(
     return None
 
 
+_emit_startup_info()
+
+
 def get_or_generate(
     user_id: str,
     surface: str,
