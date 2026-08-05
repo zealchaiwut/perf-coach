@@ -25,7 +25,7 @@ _BANGKOK_TZ = ZoneInfo("Asia/Bangkok")
 _USER_ID = "00000000-0000-0000-0000-000000001498"
 
 _FAKE_BRIEF = {
-    "schema_version": 3,
+    "schema_version": 2,
     "for_date": "2026-07-17",
     "generated_at": "2026-07-17T08:00:00+07:00",
     "today": {

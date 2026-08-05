@@ -142,11 +142,6 @@ def test_ac2_no_hardcoded_schema_version_assignment():
             if not isinstance(target, ast.Subscript):
                 continue
             slice_node = target.slice
-            key_val = (
-                slice_node.value
-                if isinstance(slice_node, ast.Constant)
-                else (slice_node.value if hasattr(slice_node, "value") else None)
-            )
             if isinstance(slice_node, ast.Constant) and slice_node.value == "schema_version":
                 if isinstance(node.value, ast.Constant):
                     raise AssertionError(
