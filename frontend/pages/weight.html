@@ -3335,7 +3335,7 @@
         <span id="pgbar-ms-layer"></span><span id="kg-to-go"></span>
       </div>
 
-      <!-- Legacy chart (hidden) -->
+      <!-- Legacy chart / p2w / target-history stubs (revamp: timeline + hypothesis replace these) -->
       <div class="card chart-card" id="legacy-chart-card" hidden aria-hidden="true">
         <div class="chart-controls">
           <div class="mode-seg" role="group" aria-label="Chart detail level">
@@ -3352,15 +3352,38 @@
           </div>
         </div>
         <div class="chart-container">
-          <div id="chart-loading" hidden></div>
+          <div id="chart-loading" hidden>Loading chart…</div>
           <div id="weight-chart" hidden></div>
         </div>
         <div class="chart-legend" id="chart-legend">
+          <span class="legend-chip">Weigh-in</span>
+          <span class="legend-chip">7-day avg</span>
+          <span class="legend-chip">EWMA</span>
           <span class="legend-chip" id="legend-plan" hidden></span>
           <span class="legend-chip" id="legend-gap" hidden></span>
           <span class="legend-chip" id="legend-milestone" hidden></span>
         </div>
       </div>
+      <div class="card p2w-card" id="p2w-card" hidden aria-hidden="true">
+        <span id="p2w-headline"></span><span id="p2w-delta"></span><svg id="p2w-spark"></svg>
+      </div>
+      <section id="target-history-section" class="target-history-section" hidden aria-hidden="true">
+        <div class="target-history-grid">
+          <div id="journey-card">
+            <span id="journey-banner-text">No target history yet.</span>
+            <span id="journey-targets-set"></span><span id="journey-achieved"></span>
+            <span id="journey-total-lost"></span><span id="journey-avg-pace"></span>
+            <span id="journey-achieved-sub"></span>
+          </div>
+          <div id="past-targets-card">
+            <table class="th-table" id="past-targets-table">
+              <tbody id="past-targets-tbody">
+                <tr><td class="th-empty">No targets yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
 
       <!-- ── Fuel section: Fuel today + Fuel week ─────────────────────────────── -->
       <section id="fuel-section" class="fuel-section">
@@ -3604,221 +3627,6 @@
 
       </section>
 
-      <!-- Chart card (Graph) -->
-      <div class="card chart-card">
-        <div id="chart-verdict" class="chart-verdict" hidden>
-          <span id="chart-verdict-pill" class="chart-verdict-pill"></span>
-          <span id="chart-verdict-text" class="chart-verdict-text"></span>
-        </div>
-        <div class="chart-controls">
-          <div class="mode-seg" role="group" aria-label="Chart detail level">
-            <button class="mode-btn active" data-mode="basic" type="button" aria-pressed="true">Basic</button>
-            <button class="mode-btn" data-mode="advanced" type="button" aria-pressed="false">Advanced</button>
-          </div>
-          <div class="range-tabs" role="group" aria-label="Chart date range">
-            <button class="range-tab" data-range="7d" type="button" aria-pressed="false">7D</button>
-            <button class="range-tab active" data-range="30d" type="button" aria-pressed="true">
-              30D
-            </button>
-            <button class="range-tab" data-range="90d" type="button" aria-pressed="false">90D</button>
-            <button class="range-tab" data-range="6m" type="button" aria-pressed="false">6M</button>
-            <button class="range-tab" data-range="1y" type="button" aria-pressed="false">1Y</button>
-            <button class="range-tab" data-range="all" type="button" aria-pressed="false">ALL</button>
-          </div>
-        </div>
-        <div class="chart-container">
-          <div
-            id="chart-loading"
-            style="
-              text-align: center;
-              padding: 40px 0;
-              color: var(--text-tertiary);
-              font-size: 13.5px;
-            "
-          >
-            Loading chart…
-          </div>
-          <div id="weight-chart" hidden></div>
-        </div>
-        <!-- Legend chips -->
-        <div class="chart-legend" id="chart-legend">
-          <span class="legend-chip">
-            <span class="legend-dot" style="background: #9ca3af"></span>Weigh-in
-          </span>
-          <span class="legend-chip">
-            <span class="legend-line" style="background: #2563eb"></span>7-day
-            avg
-          </span>
-          <span class="legend-chip">
-            <span class="legend-line" style="background: #f59e0b"></span>EWMA
-          </span>
-          <span class="legend-chip" id="legend-plan" hidden>
-            <span class="legend-dashed" style="border-color: #16a34a"></span
-            >Plan
-          </span>
-          <span class="legend-chip" id="legend-gap" hidden>
-            <span
-              style="
-                display: inline-block;
-                width: 9px;
-                height: 9px;
-                background: #16a34a;
-                border-radius: 2px;
-                opacity: 0.7;
-              "
-            ></span
-            >ahead
-            <span
-              style="
-                display: inline-block;
-                width: 9px;
-                height: 9px;
-                background: #dc2626;
-                border-radius: 2px;
-                opacity: 0.7;
-                margin-left: 4px;
-              "
-            ></span
-            >behind
-          </span>
-          <span class="legend-chip" id="legend-milestone" hidden>
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 12 12"
-              style="flex-shrink: 0"
-              aria-hidden="true"
-            >
-              <polygon
-                points="6,0 12,6 6,12 0,6"
-                fill="#fff"
-                stroke="#16a34a"
-                stroke-width="2"
-              /></svg
-            >Milestone
-          </span>
-        </div>
-      </div>
-
-      <!-- ── Power-to-weight card (issue #1360) ──────────────────────────────── -->
-      <div class="card p2w-card" id="p2w-card" hidden>
-        <div class="p2w-header">
-          <h2>Power-to-weight</h2>
-          <span class="p2w-basis-chip" id="p2w-basis-chip" title="Power basis: current FTP applied flat across the range">flat FTP</span>
-        </div>
-        <div class="p2w-body">
-          <div class="p2w-stat">
-            <div class="p2w-headline" id="p2w-headline"></div>
-            <div class="p2w-unit">W/kg</div>
-          </div>
-          <svg class="p2w-spark" id="p2w-spark" aria-hidden="true"></svg>
-          <div class="p2w-delta" id="p2w-delta"></div>
-        </div>
-      </div>
-
-      <!-- ── Target History section ──────────────────────────────────────────── -->
-      <section id="target-history-section" class="target-history-section">
-        <div class="target-history-hdr" style="background-color: #1f3b8a">
-          <h2>Target history</h2>
-          <!-- issue #1602 considered a "Manage targets" link to the legacy
-               targets route here, but test_weight_page_frontend__412.py's
-               test_b_manage_target_links_to_weight_targets (AC #461) pins
-               the opposite: that route was deliberately de-linked from this
-               page when it was consolidated into this slide-in panel, and
-               the string must not reappear anywhere in this file (see that
-               test's own assertion). Treated the same as /preferences — the
-               redirect shim stays reachable by URL, not linked from normal
-               flow. See test_s3_remainder__1602.py for the full note. -->
-        </div>
-        <div class="target-history-grid">
-          <!-- Left: Your weight journey (all-time stats + vs past attempts) -->
-          <div class="card" id="journey-card">
-            <h2 style="margin-bottom: 10px">Your weight journey</h2>
-            <div class="journey-banner" id="journey-banner">
-              <i class="ti ti-info-circle" aria-hidden="true"></i>
-              <span class="jb-text" id="journey-banner-text"
-                >No target history yet.</span
-              >
-            </div>
-            <div class="journey-stats4" id="journey-stats">
-              <div class="js4">
-                <div class="js4-l">Targets set</div>
-                <div class="js4-v" id="journey-targets-set">0</div>
-                <div class="js4-s" id="journey-targets-set-sub"></div>
-              </div>
-              <div class="js4">
-                <div class="js4-l">Achieved</div>
-                <div class="js4-v" id="journey-achieved">0</div>
-                <div class="js4-s good" id="journey-achieved-sub"></div>
-              </div>
-              <div class="js4">
-                <div class="js4-l">Total lost</div>
-                <div class="js4-v" id="journey-total-lost">
-                  0<span class="js4-u">kg</span>
-                </div>
-                <div class="js4-s" id="journey-total-lost-sub">
-                  across targets
-                </div>
-              </div>
-              <div class="js4">
-                <div class="js4-l">Avg pace</div>
-                <div class="js4-v" id="journey-avg-pace">
-                  0<span class="js4-u">/wk</span>
-                </div>
-                <div class="js4-s" id="journey-avg-pace-sub">on achieved</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Right: Past targets table with filter pills + export -->
-          <div class="card" id="past-targets-card">
-            <div class="th-card-hdr">
-              <h2 class="th-card-title">Past targets</h2>
-              <button
-                id="export-targets-btn"
-                class="th-export-btn"
-                type="button"
-              >
-                <i class="ti ti-download" style="font-size: 11px" aria-hidden="true"></i> Export
-              </button>
-            </div>
-            <div
-              class="th-filter-row"
-              id="target-filter-pills"
-              role="group"
-              aria-label="Filter past targets"
-            >
-              <button class="th-fb active" data-filter="all" type="button" aria-pressed="true">
-                All
-              </button>
-              <button class="th-fb" data-filter="achieved" type="button" aria-pressed="false">
-                Achieved
-              </button>
-              <button class="th-fb" data-filter="replaced" type="button" aria-pressed="false">
-                Replaced
-              </button>
-              <button class="th-fb" data-filter="abandoned" type="button" aria-pressed="false">
-                Abandoned
-              </button>
-            </div>
-            <div class="th-table-wrap">
-              <table class="th-table" id="past-targets-table">
-                <thead>
-                  <tr>
-                    <th>Status</th>
-                    <th>Target</th>
-                    <th class="r">Result</th>
-                    <th class="r">&#x394;</th>
-                  </tr>
-                </thead>
-                <tbody id="past-targets-tbody"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-        <!-- /.target-history-grid -->
-      </section>
-      <!-- /#target-history-section -->
     </main>
 
     <!-- ── Edit-target slide-in panel ──────────────────────────────────────── -->

@@ -24,6 +24,22 @@ def test_progress_card_hidden():
     assert 'id="progress-card" hidden' in WEIGHT_HTML or "#progress-card" in (ROOT / "frontend/css/weight.css").read_text()
 
 
+def test_legacy_chart_p2w_and_target_history_hidden():
+    """Visible Basic/Advanced chart, power-to-weight, and target history are retired."""
+    assert 'id="legacy-chart-card" hidden' in WEIGHT_HTML
+    assert 'id="p2w-card" hidden' in WEIGHT_HTML
+    assert 'id="target-history-section"' in WEIGHT_HTML
+    assert " hidden" in WEIGHT_HTML[
+        WEIGHT_HTML.find('id="target-history-section"'):
+        WEIGHT_HTML.find('id="target-history-section"') + 90
+    ]
+    # Visible heading copy must not reappear outside CSS comments
+    body = WEIGHT_HTML.split("<body", 1)[-1]
+    assert "Target history" not in body
+    assert "Power-to-weight" not in body
+    assert "Your weight journey" not in body
+
+
 def test_one_rate_uses_stats_rate():
     assert "stats.rate" in WEIGHT_JS or "stats && stats.rate" in WEIGHT_JS
     assert "rate.rate_kg_wk" in WEIGHT_JS or "rate_kg_wk" in WEIGHT_JS

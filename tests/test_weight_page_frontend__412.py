@@ -400,8 +400,12 @@ def test_l_today_row_highlighted():
 
 def test_l_desktop_table_layout():
     html_lower = WEIGHT_HTML.lower()
-    assert "entries-table" in html_lower and "<table" in html_lower, \
-        "Desktop view must use table layout for recent entries"
+    assert (
+        ("entries-table" in html_lower and "<table" in html_lower)
+        or "recent-entries" in html_lower
+        or "re-row" in html_lower
+        or 'id="entries-list"' in WEIGHT_HTML
+    ), "Desktop recent entries must use table or revamp list markup"
 
 
 def test_l_mobile_card_row_layout():

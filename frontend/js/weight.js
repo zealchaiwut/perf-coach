@@ -2317,12 +2317,11 @@ async function _renderP2WCard(range) {
 
 async function _reload() {
   try {
-    const [chartData, entriesRes, targetRes, summaryRes, histSummary] = await Promise.all([
+    const [chartData, entriesRes, targetRes, summaryRes] = await Promise.all([
       fetchChartData(_currentRange),
       fetchRecentEntries(),
       fetchActiveTarget(),
       fetchAllEntriesSummary(),
-      fetchTargetHistorySummary(),
     ]);
 
     _chartData = chartData;
@@ -2335,16 +2334,14 @@ async function _reload() {
     renderChart(chartData, _currentRange);
     renderProgress(_activeTarget);
     renderMilestones(_activeTarget, chartData.stats);
-    renderRecentEntries(_recentEntries, _activeTarget, histSummary ? histSummary.total_entries : null);
+    renderRecentEntries(_recentEntries, _activeTarget, null);
     renderCoverageGating(chartData, _recentEntries);
     renderComposition(chartData.composition);
     renderRateCard(chartData, _activeTarget);
     renderDecisions();
     await renderHypothesis();
-    renderTargetHistory(histSummary);
     _cardBSetLoggedState(_recentEntries, chartData.stats ? chartData.stats.current_weight_kg : null);
     await renderBackfillCalendar();
-    _renderP2WCard(_currentRange);
   } catch (e) {
     if (e.message !== 'auth') showPageError('Load error: ' + e.message);
   }

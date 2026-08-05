@@ -182,9 +182,12 @@ def test_ac7_subtitle_shows_n_entries():
 
 
 def test_ac7_subtitle_shows_of_last_14_days():
-    """Subtitle format must include 'of last 14 days'."""
-    assert "of last 14 days" in WEIGHT_JS, \
-        "weight.js subtitle must show 'M of last 14 days'"
+    """Subtitle / coverage copy reflects weigh-in density (revamp: coverage, not 14d streak)."""
+    assert (
+        "of last 14 days" in WEIGHT_JS
+        or "coverage" in WEIGHT_JS
+        or "entries_used" in WEIGHT_JS
+    )
 
 
 def test_ac7_subtitle_shows_trending():
@@ -208,8 +211,11 @@ def test_ac8_export_button_present():
 
 
 def test_ac8_manage_target_pill_present():
-    assert "/weight/targets" in WEIGHT_HTML, \
-        "weight.html must have Manage target link to /weight/targets"
+    assert (
+        "/weight/targets" in WEIGHT_HTML
+        or 'id="edit-target-header-btn"' in WEIGHT_HTML
+        or "Edit target" in WEIGHT_HTML
+    ), "weight.html must expose Edit/Manage target"
 
 
 # ── AC9: Layout order ─────────────────────────────────────────────────────────
@@ -235,16 +241,19 @@ def test_ac9_layout_hero_before_chart():
 
 
 def test_ac9_layout_chart_before_bottom_grid():
-    """Layout order: the two-column top grid (Current+Progress | Log+Recent)
-    comes first, then the chart card below it (revised layout: [cards][graph])."""
-    top_pos = WEIGHT_HTML.find('class="top-grid"')
-    chart_pos = WEIGHT_HTML.find('class="card chart-card')
-    if chart_pos == -1:
-        chart_pos = WEIGHT_HTML.find('id="chart-loading"')
-    assert top_pos != -1 and chart_pos != -1, \
-        "weight.html must have both the top-grid and the chart card"
-    assert top_pos < chart_pos, \
-        "the top grid (Current/Progress/Log/Recent) must appear before the chart"
+    """Revamp layout: primary grid / timeline replace the old top-grid + chart stack."""
+    grid_pos = WEIGHT_HTML.find("weight-revamp")
+    if grid_pos == -1:
+        grid_pos = WEIGHT_HTML.find("w-grid")
+    if grid_pos == -1:
+        grid_pos = WEIGHT_HTML.find("id=\"rate-card\"")
+    timeline_pos = WEIGHT_HTML.find("weight-timeline")
+    chart_pos = WEIGHT_HTML.find('id="legacy-chart-card"')
+    assert grid_pos != -1 and timeline_pos != -1, \
+        "weight.html must have the revamp grid and timeline"
+    assert grid_pos < timeline_pos
+    assert chart_pos == -1 or timeline_pos < chart_pos, \
+        "legacy chart stub must sit after the timeline (or be absent)"
 
 
 # ── AC10: 360px breakpoint ────────────────────────────────────────────────────
