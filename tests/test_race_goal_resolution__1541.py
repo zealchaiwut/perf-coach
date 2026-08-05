@@ -411,7 +411,10 @@ def test_goal_resolution__weekly_message_integration():
 def test_goal_resolution__export_brief_integration():
     """AC 10: scripts/export_brief.py::_load_goal_for_user is replaced with resolve_active_goal call"""
     import sys
-    sys.path.insert(0, '/Users/zeal-server/dev/perf-coach/tester')
+    from pathlib import Path
+    _repo_root = str(Path(__file__).resolve().parent.parent)
+    if _repo_root not in sys.path:
+        sys.path.insert(0, _repo_root)
     from scripts import export_brief
     import inspect
 
@@ -444,7 +447,10 @@ def test_goal_resolution__export_brief_with_a_race():
     from backend.models import User, Race
     from datetime import date, timedelta
     import sys
-    sys.path.insert(0, '/Users/zeal-server/dev/perf-coach/tester')
+    from pathlib import Path
+    _repo_root = str(Path(__file__).resolve().parent.parent)
+    if _repo_root not in sys.path:
+        sys.path.insert(0, _repo_root)
     from scripts import export_brief
     from uuid import uuid4
 
