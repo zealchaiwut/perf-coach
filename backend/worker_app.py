@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 
 from backend.db import engine
 from backend.services import job_queue
+from backend.services.daily_brief import extract_session_target as _extract_target
 
 logger = logging.getLogger("backend.worker_app")
 
@@ -737,9 +738,6 @@ def _resolve_read_user(user_param: str | None):
         raise HTTPException(status_code=400, detail="?user= required: multiple or zero active users")
 
 
-from backend.services.daily_brief import extract_session_target as _extract_target
-
-
 def _session_to_dict(row) -> dict:
     return {
         "session_type": row.session_type,
@@ -848,11 +846,14 @@ def plan_today(date: str | None = None, user: str | None = None):
         )
 
     planned = len(rows) > 0
-    return {
+    response = {
         "plan_date": plan_date.isoformat(),
         "planned": planned,
         "sessions": [_session_to_dict(r) for r in rows],
     }
+    if not planned:
+        response["session_type"] = None
+    return response
 
 
 @app.get("/api/plan/draft-notify", dependencies=[Depends(_require_worker_api_token)])
