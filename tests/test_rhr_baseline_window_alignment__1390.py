@@ -14,7 +14,6 @@ import uuid
 from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from services.readiness.calculator import HRV_WINDOW, RHR_WINDOW
 
