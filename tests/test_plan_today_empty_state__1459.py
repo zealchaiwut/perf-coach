@@ -121,7 +121,6 @@ def test_planned_state_does_not_gain_spurious_top_level_session_type():
 
 def test_worker_md_empty_state_example_includes_session_type_null():
     """AC(#1459): docs/worker.md empty-state JSON example must include session_type:null."""
-    import re
     from pathlib import Path
 
     doc = Path("docs/worker.md").read_text()
