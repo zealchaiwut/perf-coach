@@ -28,7 +28,7 @@ _REGISTRY = RuleRegistry()
 # (e.g. lower(w.workout_type) LIKE '%run%') directly.
 _RUN_FILTER = "lower(workout_type) LIKE '%run%'"
 
-__all__ = ["GapAnalysisFinding", "run_gap_analysis", "_REGISTRY", "_RUN_FILTER"]
+__all__ = ["GapAnalysisFinding", "run_gap_analysis"]
 
 
 # ── Input gathering ───────────────────────────────────────────────────────────

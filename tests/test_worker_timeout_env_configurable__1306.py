@@ -111,7 +111,7 @@ def test_delegate_sync_accepts_timeout_kwarg(monkeypatch):
 
 
 def test_delegate_sync_uses_env_timeout_by_default(monkeypatch):
-    """delegate_sync without explicit timeout uses WORKER_TIMEOUT_SECONDS."""
+    """delegate_sync without explicit timeout uses WORKER_TIMEOUT_SECONDS end-to-end."""
     monkeypatch.setenv("WORKER_TRIGGER_MODE", "http")
     monkeypatch.setenv("WORKER_BASE_URL", "http://worker:9100")
     monkeypatch.setenv("WORKER_SHARED_SECRET", "sec")
@@ -120,12 +120,16 @@ def test_delegate_sync_uses_env_timeout_by_default(monkeypatch):
 
     captured = {}
 
-    def fake_post(path, payload, timeout=None):
+    def fake_urlopen(req, timeout=None):
         captured["timeout"] = timeout
-        return {"started": True}
+        ctx = MagicMock()
+        ctx.__enter__ = lambda s: s
+        ctx.__exit__ = MagicMock(return_value=False)
+        ctx.read = MagicMock(return_value=b'{"ok": true}')
+        return ctx
 
     user_id = str(uuid.uuid4())
-    with patch.object(worker_client, "_post", side_effect=fake_post):
+    with patch("backend.services.worker_client._urllib_request.urlopen", side_effect=fake_urlopen):
         worker_client.delegate_sync(user_id, ["strava"], full=True)
 
     assert captured["timeout"] == 45
@@ -155,7 +159,7 @@ def test_delegate_backfill_accepts_timeout_kwarg(monkeypatch):
 
 
 def test_delegate_backfill_uses_env_timeout_by_default(monkeypatch):
-    """delegate_backfill without explicit timeout uses WORKER_TIMEOUT_SECONDS."""
+    """delegate_backfill without explicit timeout uses WORKER_TIMEOUT_SECONDS end-to-end."""
     monkeypatch.setenv("WORKER_TRIGGER_MODE", "http")
     monkeypatch.setenv("WORKER_BASE_URL", "http://worker:9100")
     monkeypatch.setenv("WORKER_SHARED_SECRET", "sec")
@@ -164,12 +168,16 @@ def test_delegate_backfill_uses_env_timeout_by_default(monkeypatch):
 
     captured = {}
 
-    def fake_post(path, payload, timeout=None):
+    def fake_urlopen(req, timeout=None):
         captured["timeout"] = timeout
-        return {"started": True}
+        ctx = MagicMock()
+        ctx.__enter__ = lambda s: s
+        ctx.__exit__ = MagicMock(return_value=False)
+        ctx.read = MagicMock(return_value=b'{"ok": true}')
+        return ctx
 
     user_id = str(uuid.uuid4())
-    with patch.object(worker_client, "_post", side_effect=fake_post):
+    with patch("backend.services.worker_client._urllib_request.urlopen", side_effect=fake_urlopen):
         worker_client.delegate_backfill(user_id)
 
     assert captured["timeout"] == 55

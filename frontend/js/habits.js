@@ -891,7 +891,7 @@ function _setCellState(btn, state, logId) {
   }
 }
 
-function _buildHabitRow(habit, weekDatesArr, streaksPerHabit, todayStr, logSet) {
+function _buildHabitRow(habit, weekDatesArr, streaksPerHabit, logSet) {
   const iconHTML = habitIconHTML(habit.icon, habit.color, 28);
   const target = habit.total ? habit.total.target : 7;
   const done = habit.total ? habit.total.done : 0;
@@ -1014,7 +1014,7 @@ function renderDailyGrid(logSet) {
 
   function _buildSectionTable(habits) {
     let h = `<table class="day-grid-table" role="grid">${theadHTML}<tbody>`;
-    habits.forEach(habit => { h += _buildHabitRow(habit, weekDatesArr, streaksPerHabit, todayStr, logSet); });
+    habits.forEach(habit => { h += _buildHabitRow(habit, weekDatesArr, streaksPerHabit, logSet); });
     h += '</tbody></table>';
     return h;
   }

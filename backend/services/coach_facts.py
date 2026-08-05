@@ -167,7 +167,6 @@ def _thin_focus_from_ranking(plan_state: dict, weight: dict, load: dict) -> list
     ranking = plan_state.get("lever_ranking") or {}
     bigger = ranking.get("bigger_lever") or "load"
     tractable = ranking.get("more_tractable") or "weight"
-    rationale = ranking.get("rationale") or ""
     out: list[dict] = []
 
     load_state = load.get("state")
@@ -1326,7 +1325,7 @@ def _reflection_block(
     return reflection
 
 
-def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | None:
+def build_coach_facts(user_id, today: date | None = None, db=None, goal=None) -> dict | None:
     """Return coach_facts dict, or None when no A-race / PerformanceGoal exists."""
     from backend.services.coach_plan import build_plan_state
     from backend.services.weekly_coach_message import (
