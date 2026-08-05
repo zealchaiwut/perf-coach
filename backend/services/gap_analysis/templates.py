@@ -161,6 +161,8 @@ _EXACT: dict[str, Optional[dict]] = {
     # ── Overuse / reduction rules → explicit None (no load-adding action) ────
     "recurrent_niggle_area": None,
     "intensity_too_hard": None,
+    # Injured variant of undertrained_area_under_ramp: defers to recovery, not loading
+    "undertrained_area_under_ramp_deferred": None,
 }
 
 # ── Prefix templates (for dynamic codes like muscle_untrained.<group>) ───────

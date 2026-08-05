@@ -141,6 +141,17 @@ def render_evidence_text(
             )
         return f"{group.capitalize() if group else 'Muscle group'} strength is low while running load is rising."
 
+    if code == "undertrained_area_under_ramp_deferred":
+        weeks = _v(ev, "zero_volume_weeks")
+        ramp = _v(ev, "tss_ramp_pct")
+        group = target or "muscle group"
+        if weeks is not None and ramp is not None:
+            return (
+                f"Active {group} injury while running TSS rose {float(ramp):.0f}% "
+                f"and strength has been zero for {int(weeks)} weeks — defer loading, prioritize recovery."
+            )
+        return f"Active {group} injury detected while running load is rising — defer {group} strength work."
+
     if code == "strength_lapsed":
         days = _v(ev, "days_since_strength")
         if days is None:

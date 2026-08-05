@@ -154,7 +154,7 @@ def undertrained_area_under_ramp(inputs: dict) -> Optional[GapAnalysisFinding]:
 
         if is_injured:
             return GapAnalysisFinding(
-                code="undertrained_area_under_ramp",
+                code="undertrained_area_under_ramp_deferred",
                 severity=2,
                 recommendation=(
                     f"Active {grp} injury detected while running load is rising — "
