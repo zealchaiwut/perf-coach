@@ -848,11 +848,14 @@ def plan_today(date: str | None = None, user: str | None = None):
         )
 
     planned = len(rows) > 0
-    return {
+    response = {
         "plan_date": plan_date.isoformat(),
         "planned": planned,
         "sessions": [_session_to_dict(r) for r in rows],
     }
+    if not planned:
+        response["session_type"] = None
+    return response
 
 
 @app.get("/api/plan/draft-notify", dependencies=[Depends(_require_worker_api_token)])
