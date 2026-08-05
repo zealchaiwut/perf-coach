@@ -2000,8 +2000,10 @@ def get_weight_chart(
             else None
         )
 
-        # Canonical OLS-on-EWMA rate for all headline stat consumers.
-        _rate = _weight_stats(session, uid, window_days=num_days, as_of=to_d)
+        # Canonical OLS-on-EWMA rate — always the 30-day gate window so switching
+        # chart range cannot unlock/lock conclusions independently of coverage.
+        from backend.services.weight_stats import DEFAULT_WINDOW_DAYS as _RATE_WINDOW
+        _rate = _weight_stats(session, uid, window_days=_RATE_WINDOW, as_of=to_d)
         weekly_rate_ewma_kg: float | None = _rate["rate_kg_wk"]
         if weekly_rate_ewma_kg is not None:
             weekly_rate_ewma_kg = round(weekly_rate_ewma_kg, 3)
@@ -2022,6 +2024,9 @@ def get_weight_chart(
             "ci_kg_wk": _rate["ci_kg_wk"],
             "state": _rate["state"],
             "readable": _rate["readable"],
+            "gated": _rate["gated"],
+            "gate_reason": _rate["gate_reason"],
+            "days_needed": _rate["days_needed"],
             "coverage_pct": _rate["coverage_pct"],
             "needed_rate_kg_wk": _rate["needed_rate_kg_wk"],
         }

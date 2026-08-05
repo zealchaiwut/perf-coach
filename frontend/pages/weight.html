@@ -3091,8 +3091,8 @@
         </div>
       </div>
 
-      <!-- Gate banner (low coverage) -->
-      <div class="card" id="gate-card" hidden>
+      <!-- Gate banner superseded by #lock-group -->
+      <div class="card" id="gate-card" hidden aria-hidden="true">
         <div class="w-gate">
           <div class="w-gate-h">
             <span class="w-gate-ic">!</span>
@@ -3231,9 +3231,53 @@
         </div>
       </div>
 
+      <div class="w-lockgrp" id="lock-group" hidden>
+        <div class="w-lg-head">
+          <span class="w-lg-ic" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+          </span>
+          <span class="w-lg-t">
+            <span class="w-lg-n" id="lg-title">3 sections need more weigh-ins</span>
+            <span class="w-lg-s">rate · target hypothesis · weekly cut review</span>
+          </span>
+          <span class="w-lg-cov">
+            <span class="w-lg-bar"><i id="lg-cov-fill" style="width:0%"></i><b style="left:70%"></b></span>
+            <span class="w-lg-pct" id="lg-pct">— · need 70%</span>
+          </span>
+          <button type="button" class="w-lg-toggle" id="lg-toggle">What's in here ▾</button>
+        </div>
+        <div class="w-lg-body" id="lg-peek">
+          <div class="w-lg-list">
+            <div class="w-lg-row">
+              <span class="w-lg-k">1</span>
+              <span class="w-lg-b"><span class="w-lg-bt">Rate</span>
+                <span class="w-lg-bd">How fast you're moving, with its confidence interval.</span></span>
+              <span class="w-lg-need">21 days</span>
+            </div>
+            <div class="w-lg-row">
+              <span class="w-lg-k">2</span>
+              <span class="w-lg-b"><span class="w-lg-bt">Target as a hypothesis</span>
+                <span class="w-lg-bd">Where performance peaks — weight bands vs endurance/speed.</span></span>
+              <span class="w-lg-need">30 paired days</span>
+            </div>
+            <div class="w-lg-row">
+              <span class="w-lg-k">3</span>
+              <span class="w-lg-b"><span class="w-lg-bt">Weekly cut review</span>
+                <span class="w-lg-bd">Hold / ease off / recalibrate. Reads the rate, so it can't run first.</span></span>
+              <span class="w-lg-need">needs rate</span>
+            </div>
+          </div>
+          <div class="w-lg-foot">
+            <span>Nothing is computed while locked — <b>no partial numbers, no provisional verdicts.</b></span>
+            <span style="margin-left:auto" id="lg-mornings"></span>
+          </div>
+        </div>
+      </div>
+
       <div class="w-revamp-full">
         <div class="card" id="rate-card">
-          <div class="w-lockmsg">🔒 UNLOCKS AT 70% COVERAGE</div>
           <div class="w-card-hdr">
             <span class="w-lbl">Rate · the only rate on this page</span>
             <div class="range-tabs" id="rate-range-tabs" role="group" aria-label="Rate date range">
@@ -3285,7 +3329,6 @@
         </div>
 
         <div class="card" id="hypothesis-card">
-          <div class="w-lockmsg">🔒 UNLOCKS AT 70% COVERAGE</div>
           <div class="w-card-hdr">
             <span class="w-lbl">Target as a hypothesis</span>
             <span class="w-chip">weight × performance</span>
@@ -3295,7 +3338,6 @@
         </div>
 
         <div class="card" id="cut-review-card">
-          <div class="w-lockmsg">🔒 UNLOCKS AT 70% COVERAGE</div>
           <div class="w-card-hdr">
             <span class="w-lbl">Weekly cut review</span>
             <span class="w-chip ok" id="cut-review-badge" hidden>FROM WEIGHT ALONE</span>

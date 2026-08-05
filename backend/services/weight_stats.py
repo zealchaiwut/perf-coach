@@ -74,10 +74,19 @@ def weight_stats(
 
     return {
         "trend_kg": trend["trend_kg"],
-        "rate_kg_wk": trend["rate_kg_per_week"],
-        "ci_kg_wk": trend["ci_kg_per_week"],
-        "state": trend["state"],
+        "rate_kg_wk": trend["rate_kg_per_week"] if trend["readable"] else None,
+        "ci_kg_wk": trend["ci_kg_per_week"] if trend["readable"] else None,
+        "state": trend["state"] if trend["readable"] else "unknown",
         "readable": trend["readable"],
+        "gated": not trend["readable"],
+        "gate_reason": (
+            None if trend["readable"]
+            else (trend["readable_note"] or "insufficient_coverage")
+        ),
+        "days_needed": (
+            0 if trend["readable"]
+            else max(0, MIN_N_DAYS - int(trend["entries_used"] or 0))
+        ),
         "coverage_pct": trend["coverage_pct"],
         "needed_rate_kg_wk": needed_rate_kg_wk,
         "entries_used": trend["entries_used"],

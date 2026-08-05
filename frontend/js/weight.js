@@ -146,16 +146,29 @@ function _morningCoverageCells(entries) {
 function renderCoverageGating(chartData, entries) {
   const stats = chartData ? chartData.stats : null;
   const gated = _isGated(stats);
-  // Display count from the same 30-day cell window as the calendar so the
-  // percentage and filled cells never disagree (compact-mock fix).
-  const cells = _morningCoverageCells(entries);
+  // Prefer chart actuals (full window) over the 14-day recent-entries fetch so
+  // the % matches the calendar and the backend coverage gate.
+  const covEntries = (chartData && chartData.actuals && chartData.actuals.length)
+    ? chartData.actuals.map(a => ({ entry_date: a.date, weight_kg: a.weight_kg }))
+    : (entries || []);
+  const cells = _morningCoverageCells(covEntries);
   const cellLogged = cells.filter(c => c.has).length;
-  const cellPct = (cellLogged / COVERAGE_WINDOW) * 100;
-  const cov = { pct: cellPct, logged: cellLogged, window: COVERAGE_WINDOW };
-  const needed = Math.max(0, Math.ceil((COVERAGE_THRESHOLD / 100) * COVERAGE_WINDOW) - cov.logged);
+  // Prefer backend coverage when present; fall back to cell count.
+  const cov = (stats && stats.coverage_pct != null)
+    ? {
+        pct: stats.coverage_pct,
+        logged: (stats.rate && stats.rate.entries_used != null)
+          ? stats.rate.entries_used
+          : cellLogged,
+        window: (stats.rate && stats.rate.window_days) || COVERAGE_WINDOW,
+      }
+    : { pct: (cellLogged / COVERAGE_WINDOW) * 100, logged: cellLogged, window: COVERAGE_WINDOW };
+  const daysNeeded = (stats && stats.days_needed != null)
+    ? stats.days_needed
+    : Math.max(0, Math.ceil((COVERAGE_THRESHOLD / 100) * COVERAGE_WINDOW) - cov.logged);
 
   const gateCard = document.getElementById('gate-card');
-  if (gateCard) gateCard.hidden = !gated;
+  if (gateCard) gateCard.hidden = true; // superseded by lock-group
 
   const gateCount = document.getElementById('gate-morning-count');
   if (gateCount) gateCount.textContent = `${cov.logged} of last ${cov.window} mornings`;
@@ -168,19 +181,12 @@ function renderCoverageGating(chartData, entries) {
 
   const gateNeeded = document.getElementById('gate-mornings-needed');
   if (gateNeeded) {
-    gateNeeded.textContent = needed > 0
-      ? `~${needed} more morning${needed === 1 ? '' : 's'} unlocks everything below`
+    gateNeeded.textContent = daysNeeded > 0
+      ? `~${daysNeeded} more morning${daysNeeded === 1 ? '' : 's'} unlocks everything below`
       : '';
   }
 
-  ['rate-card', 'hypothesis-card', 'cut-review-card'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.classList.toggle('w-locked', gated);
-  });
-
-  document.querySelectorAll('.w-lockmsg').forEach(el => {
-    el.hidden = !gated;
-  });
+  _renderLockGroup(gated, cov, daysNeeded);
 
   const strip = document.getElementById('cov-strip');
   if (strip) {
@@ -225,6 +231,60 @@ function renderCoverageGating(chartData, entries) {
     headerPill.textContent = `${cov.logged} of last ${cov.window} mornings`;
     headerPill.className = 'covpill ' + (ok ? 'ok' : 'low');
   }
+}
+
+const LOCK_GROUP_STORAGE_KEY = 'weight-lock-group-peek';
+const GATED_SECTION_IDS = ['rate-card', 'hypothesis-card', 'cut-review-card'];
+
+function _renderLockGroup(gated, cov, daysNeeded) {
+  const group = document.getElementById('lock-group');
+  GATED_SECTION_IDS.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.hidden = !!gated;
+    el.classList.remove('w-locked');
+  });
+  document.querySelectorAll('.w-lockmsg').forEach(el => { el.hidden = true; });
+
+  if (!group) return;
+  if (!gated) {
+    group.hidden = true;
+    return;
+  }
+
+  group.hidden = false;
+  const pctEl = document.getElementById('lg-pct');
+  if (pctEl) pctEl.textContent = `${Math.round(cov.pct)}% · need ${COVERAGE_THRESHOLD}%`;
+  const bar = document.getElementById('lg-cov-fill');
+  if (bar) bar.style.width = `${Math.min(100, cov.pct)}%`;
+  const title = document.getElementById('lg-title');
+  if (title) title.textContent = '3 sections need more weigh-ins';
+  const foot = document.getElementById('lg-mornings');
+  if (foot) {
+    foot.innerHTML = daysNeeded > 0
+      ? `≈ <b>${daysNeeded} more morning${daysNeeded === 1 ? '' : 's'}</b> unlocks all three`
+      : `<b>Almost there</b> — keep logging mornings`;
+  }
+
+  const peek = document.getElementById('lg-peek');
+  const btn = document.getElementById('lg-toggle');
+  const open = sessionStorage.getItem(LOCK_GROUP_STORAGE_KEY) === '1';
+  if (peek) peek.classList.toggle('open', open);
+  if (btn) btn.textContent = open ? "What's in here ▴" : "What's in here ▾";
+}
+
+function _initLockGroupToggle() {
+  const btn = document.getElementById('lg-toggle');
+  if (!btn || btn.dataset.wired) return;
+  btn.dataset.wired = '1';
+  btn.addEventListener('click', () => {
+    const peek = document.getElementById('lg-peek');
+    if (!peek) return;
+    const open = !peek.classList.contains('open');
+    peek.classList.toggle('open', open);
+    sessionStorage.setItem(LOCK_GROUP_STORAGE_KEY, open ? '1' : '0');
+    btn.textContent = open ? "What's in here ▴" : "What's in here ▾";
+  });
 }
 
 // ── Subtitle ─────────────────────────────────────────────────────────────
@@ -455,6 +515,9 @@ function renderComposition(composition) {
 }
 
 function renderRateCard(chartData, activeTarget) {
+  const card = document.getElementById('rate-card');
+  if (card && card.hidden) return;
+
   const stats = chartData ? chartData.stats : null;
   const rate = stats && stats.rate;
   const readable = rate && rate.readable;
@@ -476,10 +539,18 @@ function renderRateCard(chartData, activeTarget) {
   const todayMarker = chartData && chartData.today_marker;
   if (rTrendSub && todayMarker) {
     const raw = todayMarker.actual_kg;
-    const gap = todayMarker.gap_kg;
-    if (raw != null && gap != null) {
-      const sign = gap >= 0 ? '+' : '';
-      rTrendSub.textContent = `raw today ${raw.toFixed(1)} · ${sign}${gap.toFixed(1)} vs trend`;
+    // Delta vs the displayed trend weight — never plan gap (gap_kg is vs plan).
+    const trendForDelta = (rate && rate.trend_kg != null)
+      ? rate.trend_kg
+      : (todayMarker.trend_kg != null ? todayMarker.trend_kg : trendKg);
+    if (raw != null && trendForDelta != null) {
+      const dlt = raw - trendForDelta;
+      if (Math.abs(dlt) < 0.05) {
+        rTrendSub.textContent = `raw today ${raw.toFixed(1)} · on trend`;
+      } else {
+        const sign = dlt >= 0 ? '+' : '−';
+        rTrendSub.textContent = `raw today ${raw.toFixed(1)} · ${sign}${Math.abs(dlt).toFixed(1)} vs trend`;
+      }
     } else {
       rTrendSub.textContent = '';
     }
@@ -549,7 +620,14 @@ function renderRateCard(chartData, activeTarget) {
 async function renderHypothesis() {
   const body = document.getElementById('hypothesis-body');
   const verdict = document.getElementById('hypothesis-verdict');
+  const card = document.getElementById('hypothesis-card');
   if (!body) return;
+  // When the lock group owns this card, leave the DOM empty — no ghost numbers.
+  if (card && card.hidden) {
+    body.innerHTML = '';
+    if (verdict) verdict.textContent = '';
+    return;
+  }
   try {
     const data = await apiFetch('/api/weight-hypothesis');
     if (!data.readable || !data.buckets || !data.buckets.length) {
@@ -2623,6 +2701,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   _initUnitToggle();
+  _initLockGroupToggle();
   _initCardB();
   _initRangeTabs();
   _initModeToggle();

@@ -15,9 +15,10 @@ def test_no_compute_streak_in_weight_js():
 
 
 def test_gate_unlock_copy_present():
-    assert "gate-card" in WEIGHT_HTML
-    assert "UNLOCKS AT 70% COVERAGE" in WEIGHT_HTML
-    assert "renderCoverageGating" in WEIGHT_JS
+    assert "lock-group" in WEIGHT_HTML
+    assert "3 sections need more weigh-ins" in WEIGHT_HTML
+    assert "_renderLockGroup" in WEIGHT_JS
+    assert "UNLOCKS AT 70% COVERAGE" not in WEIGHT_HTML
 
 
 def test_progress_card_hidden():

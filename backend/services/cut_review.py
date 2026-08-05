@@ -400,10 +400,12 @@ def get_weekly_review(
         )
 
         # ── Canonical OLS-on-EWMA rate (same source as weight-chart stats) ───
+        # Always use the same 30-day window / gates as the weight tab so cut
+        # review cannot unlock a rate the Rate card still considers unreadable.
         rate_stats = weight_stats(
             db,
             user_id,
-            window_days=21,
+            window_days=30,
             as_of=today,
             needed_rate_kg_wk=plan_rate,
         )
@@ -415,23 +417,21 @@ def get_weekly_review(
                 weekly_pct_bw_rate = (actual_rate_kg_per_week / ref_weight) * 100.0
 
         if not rate_stats["readable"]:
-            days_needed = max(0, _WEIGHT_STATS_MIN_DAYS - rate_stats["entries_used"])
+            days_needed = max(
+                0,
+                rate_stats.get("days_needed")
+                or (_WEIGHT_STATS_MIN_DAYS - rate_stats["entries_used"]),
+            )
+            # Locked means not computed — no rate, no verdict prose, no plateau.
             return {
-                "actual_rate_kg_per_week": (
-                    round(actual_rate_kg_per_week, 3)
-                    if actual_rate_kg_per_week is not None else None
-                ),
-                "plan_rate_kg_per_week": (
-                    round(plan_rate, 3) if plan_rate is not None else None
-                ),
-                "logging_adherence_pct": 0.0,
+                "gated": True,
+                "gate_reason": "insufficient_coverage",
+                "actual_rate_kg_per_week": None,
+                "plan_rate_kg_per_week": None,
+                "logging_adherence_pct": None,
                 "avg_intake_vs_budget_kcal": None,
                 "recommendation": "insufficient_coverage",
-                "action": (
-                    f"Weigh-in coverage is {rate_stats['coverage_pct']}% — "
-                    f"log {days_needed or _WEIGHT_STATS_MIN_DAYS} more morning "
-                    "weigh-ins to unlock a weekly rate."
-                ),
+                "action": None,
                 "suggested_deficit_delta_kcal": None,
                 "plateau_days": None,
                 "coverage_pct": rate_stats["coverage_pct"],
@@ -580,6 +580,8 @@ def get_weekly_review(
         )
 
         return {
+            "gated": False,
+            "gate_reason": None,
             "actual_rate_kg_per_week": (
                 round(actual_rate_kg_per_week, 3)
                 if actual_rate_kg_per_week is not None else None
@@ -596,6 +598,8 @@ def get_weekly_review(
             "action": rec["action"],
             "suggested_deficit_delta_kcal": rec["suggested_deficit_delta_kcal"],
             "plateau_days": rec["plateau_days"],
+            "coverage_pct": rate_stats["coverage_pct"],
+            "days_needed": 0,
         }
 
     finally:

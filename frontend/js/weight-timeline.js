@@ -69,7 +69,16 @@
     var plotW = width - PAD.left - PAD.right;
     var plotH = height - PAD.top - PAD.bottom;
 
-    var trendVals = trend.map(function (p) { return p.weight_kg; }).filter(function (v) { return v != null; });
+    // Domain from the plotted EWMA line (fallback: 7-day MA) — never from raw weigh-ins.
+    var ewmaByDate = {};
+    ewma.forEach(function (p) {
+      if (p.weight_kg != null) ewmaByDate[p.date] = p.weight_kg;
+    });
+    var trendVals = [];
+    trend.forEach(function (p) {
+      var v = ewmaByDate[p.date] != null ? ewmaByDate[p.date] : p.weight_kg;
+      if (v != null) trendVals.push(v);
+    });
     var domain = timelineDomain(trendVals);
     var lo = domain.lo;
     var hi = domain.hi;
@@ -151,13 +160,11 @@
       var clipped = _clip(p.weight_kg, lo, hi);
       svg.appendChild(_el("circle", {
         cx: px, cy: yVal(clipped), r: "2.6", fill: C.dot, opacity: "0.26",
+        "data-raw": String(p.weight_kg),
+        "data-clipped": String(clipped),
       }));
     });
 
-    var ewmaByDate = {};
-    ewma.forEach(function (p) {
-      if (p.weight_kg != null) ewmaByDate[p.date] = p.weight_kg;
-    });
     var pts = [];
     trend.forEach(function (p, i) {
       var v = ewmaByDate[p.date] != null ? ewmaByDate[p.date] : p.weight_kg;

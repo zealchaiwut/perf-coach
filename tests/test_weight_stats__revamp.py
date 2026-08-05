@@ -215,9 +215,11 @@ def test_cut_review_below_coverage_returns_insufficient_coverage(_today):
             review = get_weekly_review(user.id, as_of_date=AS_OF, db=session)
 
     assert review["recommendation"] == "insufficient_coverage"
-    assert "coverage" in review["action"].lower()
-    assert "weigh" in review["action"].lower()
-    assert "food" not in review["action"].lower()
+    assert review["gated"] is True
+    assert review["actual_rate_kg_per_week"] is None
+    assert review["action"] is None
+    assert review["coverage_pct"] is not None
+    assert review["days_needed"] is not None
 
 
 # ── composition on weight-chart payload shape ────────────────────────────────
