@@ -293,10 +293,12 @@ class TestThresholdSaveTriggerAC7:
 
     def test_trigger_background_rebuild_function_exists(self):
         import backend.main as main_mod
-        assert hasattr(main_mod, "_trigger_curve_rebuild_background"), (
-            "main.py must expose _trigger_curve_rebuild_background"
+        # _trigger_curve_rebuild_background was replaced by _trigger_performance_backfill_background
+        # (issue #1588 dead-code cleanup); the new function covers the same AC.
+        assert hasattr(main_mod, "_trigger_performance_backfill_background"), (
+            "main.py must expose a background backfill trigger function"
         )
-        assert callable(main_mod._trigger_curve_rebuild_background)
+        assert callable(main_mod._trigger_performance_backfill_background)
 
 
 # ---------------------------------------------------------------------------

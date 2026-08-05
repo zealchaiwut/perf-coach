@@ -7,6 +7,7 @@ projection payload module; no domain logic lives in this router.
 """
 from __future__ import annotations
 
+import logging
 import uuid as _uuid
 from datetime import date as _date, timedelta as _timedelta
 from backend.utils.time import today_bangkok as _today_bangkok
@@ -33,6 +34,8 @@ from backend.services.training_load import (
     current_load as _current_load,
     daily_tss_series as _daily_tss_series,
 )
+
+_log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
@@ -463,8 +466,11 @@ def refresh_plan_draft(
     user: User = Depends(resolve_user),
 ):
     """Synchronously refill draft content from patterns (no worker enqueue)."""
-    from backend.services.plan_draft import refresh_draft_sync
+    from backend.services.plan_draft import refresh_draft_sync, pipeline_enabled
     from backend.utils.time import today_bangkok
+
+    if not pipeline_enabled():
+        raise HTTPException(status_code=400, detail="plan pipeline not enabled; set PLAN_PIPELINE=skeleton_v2")
 
     ws = None
     if body is not None and body.week_start:
@@ -491,6 +497,7 @@ class PlanDraftApplyRequest(BaseModel):
 class PlanDraftSlotPatch(BaseModel):
     week_start: Optional[str] = None
     day_offset: int
+    draft_version: Optional[str] = None
     workout_type: Optional[str] = None
     target_tss: Optional[float] = None
     duration_minutes: Optional[int] = None
@@ -579,8 +586,10 @@ def draft_op_regen(
     user: User = Depends(resolve_user),
 ):
     """Sync pattern-refill one draft slot (Generate details)."""
-    from backend.services.plan_draft import request_slot_regen
+    from backend.services.plan_draft import request_slot_regen, pipeline_enabled
 
+    if not pipeline_enabled():
+        raise HTTPException(status_code=400, detail="plan pipeline not enabled; set PLAN_PIPELINE=skeleton_v2")
     if not body.slot_id:
         raise HTTPException(status_code=422, detail="slot_id required")
     ws = _parse_week_start(body.week_start)
@@ -636,9 +645,12 @@ def patch_plan_draft_slot(
         draft = update_draft_slot(
             db, user.id, ws, body.day_offset,
             patch=patch, remove=bool(body.remove),
+            draft_version=body.draft_version,
         )
         if draft is None:
             raise HTTPException(status_code=404, detail="no draft for this week")
+        if isinstance(draft, dict) and not draft.get("ok", True) and draft.get("error") == "stale_draft":
+            raise HTTPException(status_code=409, detail=draft)
         db.commit()
         return JSONResponse(draft)
     finally:
@@ -1095,11 +1107,10 @@ async def get_plan_projection(
             ctl_series=payload.get("ctl", []),
             start_date=start_date,
             races_meta=races,
-            formula_version="1",
         )
         _write_snap(user.id, today, snap_payload)
     except Exception:
-        pass  # snapshot failures must never break the projection response
+        _log.warning("prediction-snapshot write failed", exc_info=True)
 
     return JSONResponse(payload)
 

@@ -229,6 +229,7 @@ const WeightChart = (() => {
 
   function _hideTooltip() {
     if (_tooltip) _tooltip.style.display = "none";
+    _activeTapDate = null;
   }
 
   function _isLossGoal(data) {

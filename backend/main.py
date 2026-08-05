@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import cast as _sa_cast, exc as sa_exc, func, or_, select, text
 from sqlalchemy.types import DateTime as _sa_DateTime
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
-from sqlalchemy.orm import Session, joinedload, load_only, selectinload
+from sqlalchemy.orm import Session, joinedload, load_only
 from zoneinfo import ZoneInfo
 
 from backend.auth import require_admin
@@ -110,7 +110,6 @@ from backend.utils.workout_types import (
 )
 from backend.services.riegel import riegel_half_equivalent as _riegel_half_equivalent
 from backend.services.duration_curve_best_effort import get_athlete_duration_curve as _get_athlete_duration_curve
-from backend.services.lap_recompute import rebuild_athlete_duration_curve as _rebuild_athlete_duration_curve
 from backend.services.session_profile_caller import get_session_profile_for_workout as _get_session_profile
 from backend.services.aerobic_decoupling import compute_decoupling as _compute_decoupling
 from backend.services.heat_correction import (
@@ -283,6 +282,36 @@ def health():
         "db": check_db(),
         "uptime_seconds": int(time.monotonic() - _start_time),
     })
+
+
+@app.get("/api/health/schema")
+def health_schema():
+    """Return alembic drift info for the smoke suite (issue #1580).
+
+    Compares the repo's expected migration head (from the bundled alembic
+    migration files) with the version currently stamped in the live DB.
+    No auth required — the revision IDs carry no sensitive info.
+
+    Response shape:
+        { "repo_head": "<hex>", "db_head": "<hex>" | null }
+    """
+    from alembic.config import Config as _AlembicConfig
+    from alembic.script import ScriptDirectory as _ScriptDirectory
+
+    _ini_path = Path(__file__).parent.parent / "alembic.ini"
+    _cfg = _AlembicConfig(str(_ini_path))
+    _script = _ScriptDirectory.from_config(_cfg)
+    heads = _script.get_heads()
+    repo_head = heads[0] if len(heads) == 1 else ",".join(sorted(heads))
+
+    try:
+        with engine.connect() as _conn:
+            row = _conn.execute(text("SELECT version_num FROM alembic_version LIMIT 1")).fetchone()
+            db_head = row[0] if row else None
+    except Exception:
+        db_head = None
+
+    return JSONResponse({"repo_head": repo_head, "db_head": db_head})
 
 
 @app.get("/api/healthz")
@@ -1118,7 +1147,6 @@ def _compute_weight_target_active(t: WeightTarget, session) -> dict:
 
     today = _today_bkk()
     target_date = t.target_date if isinstance(t.target_date, _date) else _date.fromisoformat(str(t.target_date))
-    start_date = t.start_date if isinstance(t.start_date, _date) else _date.fromisoformat(str(t.start_date))
 
     days_remaining = (target_date - today).days
     total_kg = float(t.start_weight_kg) - float(t.target_weight_kg)
@@ -4003,7 +4031,7 @@ class HabitLogUpsertIn(BaseModel):
 @app.get("/api/habits/summary")
 def get_habits_summary(user: User = Depends(resolve_user)):
     """Return each active habit with streak and 30-day consistency stats."""
-    from datetime import date as _date_cls, timedelta as _td
+    from datetime import timedelta as _td
     today = _today_bkk()
     window_start = today - _td(days=29)
 
@@ -5177,11 +5205,13 @@ def get_habits_adherence(user: User = Depends(resolve_user)):
 
         logs_by_habit: dict = {}
         if habit_ids:
+            log_cutoff = today - _timedelta(days=60)
             all_logs = (
                 session.query(HabitLog)
                 .filter(
                     HabitLog.habit_id.in_(habit_ids),
                     HabitLog.user_id == uid,
+                    HabitLog.log_date >= log_cutoff,
                 )
                 .all()
             )
@@ -5297,7 +5327,7 @@ def get_adherence_nudges(user: User = Depends(resolve_user)):
     All computation is delegated to compute_adherence_breakdown,
     detect_slipping_habits, and build_nudges.
     """
-    from datetime import date as _date_cls, timedelta as _td
+    from datetime import timedelta as _td
 
     uid = user.id
     today = _today_bkk()
@@ -6268,13 +6298,37 @@ def _strava_source_dict(sa, prebuilt_streams: dict | None = None) -> dict | None
     """
     if sa is None:
         return None
-    detail = sa.detail_payload or {}
-    raw = sa.raw_payload or {}
     if prebuilt_streams is not None:
         streams = prebuilt_streams
     else:
         streams = sa.streams_payload if isinstance(sa.streams_payload, dict) else {}
+
+    # For rows synced after issue #1307 the four most-accessed detail scalars live
+    # in promoted columns (laps, splits_metric, best_efforts, calories) so we never
+    # need to load the full detail_payload blob for them.  For older rows all four
+    # promoted columns are NULL; fall back to detail_payload in that case.
+    has_promoted = sa.laps is not None
+    if has_promoted:
+        laps = sa.laps or []
+        splits_metric = sa.splits_metric or []
+        best_efforts = sa.best_efforts or []
+        calories = sa.calories
+        detail = {}  # only accessed below for the un-promoted fields
+    else:
+        detail = sa.detail_payload or {}
+        laps = detail.get("laps") or []
+        splits_metric = detail.get("splits_metric") or []
+        best_efforts = detail.get("best_efforts") or []
+        calories = detail.get("calories")
+
+    # Remaining detail fields that are not yet promoted — needs detail_payload
+    # for both old and new rows (segment_efforts, description, gear, map polyline).
+    if not has_promoted:
+        raw = sa.raw_payload or {}
+    else:
+        raw = {}
     map_obj = detail.get("map") or raw.get("map") or {}
+
     return {
         "strava_activity_id": sa.strava_activity_id,
         "name": sa.name,
@@ -6293,11 +6347,11 @@ def _strava_source_dict(sa, prebuilt_streams: dict | None = None) -> dict | None
         "external_id": sa.external_id,
         "is_stryd_synced": sa.is_stryd_synced,
         # full nested capture (Tier 2 detail)
-        "laps": detail.get("laps") or [],
-        "splits_metric": detail.get("splits_metric") or [],
-        "best_efforts": detail.get("best_efforts") or [],
+        "laps": laps,
+        "splits_metric": splits_metric,
+        "best_efforts": best_efforts,
         "segment_efforts": detail.get("segment_efforts") or [],
-        "calories": detail.get("calories"),
+        "calories": calories,
         "description": detail.get("description"),
         "gear": detail.get("gear"),
         "map_polyline": map_obj.get("polyline") or map_obj.get("summary_polyline"),
@@ -6471,7 +6525,7 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "remarks": w.remarks,
         "tss": w.tss,
         "tss_source": w.tss_source,
-        "source": w.source,
+        "source": w.source or w.tss_source or "manual",
         "has_strava": "strava" in src or w.strava_activity_pk is not None,
         "has_stryd": "stryd" in src or w.stryd_activity_pk is not None,
         "strava_activity_url": w.strava_activity_url,
@@ -13033,15 +13087,32 @@ _FORM_METRICS_ROLLING_DAYS = 28
 
 
 def _rolling_mean(values: list, window: int = _FORM_METRICS_ROLLING_DAYS) -> list:
-    """Return a trailing-window simple mean for each position in values.
+    """Return a date-based trailing-window simple mean for each position in values.
 
     values is a list of (run_date, float|None) tuples sorted ascending.
-    Returns a list of float|None — None when no non-null values exist in window.
+    run_date may be a datetime.date or an ISO-format string.
+    For each row, includes only entries whose date is within (window - 1) calendar
+    days of that row's date (i.e. the inclusive [date - 27d, date] window for a
+    28-day window). Returns a list of float|None — None when no non-null values
+    exist in window.
     """
+    import datetime as _dt
+
+    def _as_date(d):
+        if isinstance(d, _dt.date):
+            return d
+        return _dt.date.fromisoformat(d)
+
     out = []
-    for i, (_, v) in enumerate(values):
-        start = max(0, i - window + 1)
-        window_vals = [v2 for _, v2 in values[start : i + 1] if v2 is not None]
+    cutoff_delta = _dt.timedelta(days=window - 1)
+    for i, (rd, _) in enumerate(values):
+        current_date = _as_date(rd)
+        earliest = current_date - cutoff_delta
+        window_vals = [
+            v2
+            for rd2, v2 in values[: i + 1]
+            if v2 is not None and _as_date(rd2) >= earliest
+        ]
         out.append(round(sum(window_vals) / len(window_vals), 4) if window_vals else None)
     return out
 
@@ -13052,7 +13123,7 @@ def get_run_form_metrics(
     to_date: Optional[str] = Query(default=None, alias="to"),
     user: User = Depends(resolve_user),
 ):
-    """Per-run Stryd running-dynamics series with 28-day rolling means.
+    """Per-run Stryd running-dynamics series with 28-calendar-day rolling means.
 
     Query params (both optional):
         from  YYYY-MM-DD  start of range (default: 90 days ago)
@@ -13060,7 +13131,8 @@ def get_run_form_metrics(
 
     Response:
         runs           list of per-run objects sorted by run_date asc
-        rolling_means  28-day trailing means for each metric at each date position
+        rolling_means  28-calendar-day trailing means for each metric at each date
+                       position (only entries within the preceding 27 days are included)
     """
     today = _today_bkk()
     if from_date is None and to_date is None:
@@ -14275,8 +14347,10 @@ async def get_sync_status(user: User = Depends(resolve_user)):
                 "started_at": wjr.started_at.isoformat() if wjr.started_at else None,
                 "finished_at": wjr.finished_at.isoformat() if wjr.finished_at else None,
             })
-    except Exception:
-        pass
+    except Exception as _wjr_exc:
+        _logging.getLogger(__name__).warning(
+            "sync_status: worker_job_runs query failed: %s", _wjr_exc
+        )
 
     # Phase 3: a queued/running job in the pull queue (e.g. a full sync waiting
     # for the worker to claim it) surfaces as "pending" so the nav bar reflects
@@ -15097,7 +15171,12 @@ def accept_calibration(
         ctl_days = prefs.ctl_days
         atl_days = prefs.atl_days
 
-    snapshots_recomputed = recompute_user_snapshots(str(user.id))
+    # Recompute is best-effort: prefs are already committed, and stale snapshots
+    # self-heal on next read via the ctl_days/atl_days mismatch guard.
+    try:
+        snapshots_recomputed = recompute_user_snapshots(str(user.id))
+    except Exception:
+        snapshots_recomputed = 0
 
     return JSONResponse({
         "ctl_days": ctl_days,
@@ -16372,29 +16451,6 @@ def get_athlete_detected_prs(athlete_id: str, user: User = Depends(resolve_user)
     return JSONResponse(records)
 
 
-def _trigger_curve_rebuild_background(user_id) -> None:
-    """Fire-and-forget: rebuild the athlete's duration curve in a daemon thread.
-
-    Used after threshold saves so the duration curve reflects the latest data
-    without blocking the HTTP response.  Errors are logged but do not propagate.
-    """
-    _curve_log = _logging.getLogger(__name__)
-
-    def _rebuild():
-        try:
-            from sqlalchemy.orm import Session as _Session
-            with _Session(engine) as _db:
-                _rebuild_athlete_duration_curve(user_id, _db)
-        except Exception as _exc:
-            _curve_log.warning(
-                "background curve rebuild failed for user %s: %s",
-                user_id, _exc, exc_info=True,
-            )
-
-    t = _threading.Thread(target=_rebuild, daemon=True)
-    t.start()
-
-
 # ── Athlete performance scores ────────────────────────────────────────────────
 
 _performance_log = _logging.getLogger(__name__)
@@ -16903,10 +16959,16 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
                 _performance_log.info("performance cache hit for %s", uid)
                 return JSONResponse(_perf_cached)
 
-            # Load all run workouts in chronological order (oldest first)
+            # Load run workouts within the scoring window (issue #1578: cap
+            # history to bound in-request memory on cache miss).
+            _history_cutoff = _datetime.now(_timezone.utc).date() - _timedelta(days=_RUN_HISTORY_CAP_DAYS)
             run_workouts = (
                 session.query(Workout)
-                .filter(Workout.user_id == uid, Workout.workout_type == "run")
+                .filter(
+                    Workout.user_id == uid,
+                    Workout.workout_type == "run",
+                    Workout.workout_date >= _history_cutoff,
+                )
                 .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
                 .all()
             )
@@ -16914,15 +16976,25 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
             prefs_dict = preferences or {}
             _ml_map_perf = _classified_manual_laps_map(session, run_workouts, prefs_dict)
 
-            runs = []
-            for workout in run_workouts:
-                # Load per-lap splits ordered by split_index
-                splits = (
+            # Batch-load all splits for the qualifying runs in one query
+            # (issue #1578: replaces N sequential per-workout queries → 1 query).
+            _run_ids = [w.id for w in run_workouts]
+            if _run_ids:
+                _all_splits = (
                     session.query(WorkoutSplit)
-                    .filter(WorkoutSplit.workout_id == workout.id)
-                    .order_by(WorkoutSplit.split_index)
+                    .filter(WorkoutSplit.workout_id.in_(_run_ids))
+                    .order_by(WorkoutSplit.workout_id, WorkoutSplit.split_index)
                     .all()
                 )
+            else:
+                _all_splits = []
+            _splits_by_workout: dict = {}
+            for _s in _all_splits:
+                _splits_by_workout.setdefault(_s.workout_id, []).append(_s)
+
+            runs = []
+            for workout in run_workouts:
+                splits = _splits_by_workout.get(workout.id, [])
 
                 # Classify lap intensity bands using user thresholds
                 classifications = classify_laps(splits, prefs_dict)
@@ -16999,14 +17071,14 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
                 "state": "needs_thresholds",
                 "reason": _NEEDS_THRESHOLDS_REASON,
             }
-            if _performance_log.isEnabledFor(_logging.DEBUG):
+            if _performance_log.isEnabledFor(_logging.INFO):
                 log_entry = _build_performance_log_entry(
                     preferences=preferences,
                     runs=runs,
                     endurance=_needs_thresholds_obj,
                     speed=_needs_thresholds_obj,
                 )
-                _performance_log.debug("performance score request", extra=log_entry)
+                _performance_log.info("performance score request", extra=log_entry)
             return JSONResponse(
                 _build_performance_response(
                     state="needs_thresholds",
@@ -17025,14 +17097,14 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
         endurance = compute_endurance_score(runs, preferences, zone_constants, race_perf=_race_perf, body_modifier=_bm)
         speed = compute_speed_score(runs, preferences, zone_constants, race_perf=_race_perf, body_modifier=_bm)
 
-        if _performance_log.isEnabledFor(_logging.DEBUG):
+        if _performance_log.isEnabledFor(_logging.INFO):
             log_entry = _build_performance_log_entry(
                 preferences=preferences,
                 runs=runs,
                 endurance=endurance,
                 speed=speed,
             )
-            _performance_log.debug("performance score request", extra=log_entry)
+            _performance_log.info("performance score request", extra=log_entry)
 
         # Endurance requires threshold_hr (HR extrapolation); surface its
         # needs_thresholds sub-state as the top-level state.
@@ -17308,8 +17380,18 @@ def _summary_cache_put(user_id, key, sig, payload):
 # v6 = run_contributions + model + consistency bonus + improve hint;
 # v7 = power-fallback guards; v8 = implausible-lap filter; v9 = breakdown
 # block; v10 = race_floor_now + floor_binding; v11 = manual-lap reps;
-# v12 = aborted-session guard (MIN_ENDURANCE_QUALIFYING_SESSION_SECONDS).
-_PERF_FORMULA_VERSION = "vdot-v12"
+# v12 = aborted-session guard (MIN_ENDURANCE_QUALIFYING_SESSION_SECONDS);
+# v13 = endurance calibration: exponent 1.5→2.5, durability /50→/100 (#1331).
+_PERF_FORMULA_VERSION = "vdot-v13"
+
+# History window cap for the cold-cache run load (issue #1578).
+# trailing_window_days=90: only runs within 90d of the most-recent run affect
+# scores. Adding a 310d buffer handles users who last ran up to 400 days ago;
+# beyond that all runs are outside the scoring window and the endpoint returns
+# building_baseline regardless.  Peak memory on a 512 MB dyno with this cap:
+# ≤ ~400 runs × ~2 KB/run dict ≈ 0.8 MB for the runs list, well under the OOM
+# threshold observed in the 2026-07-22 incident (PR #1576 follow-up #1578).
+_RUN_HISTORY_CAP_DAYS = 400
 
 
 def _performance_signature(session, user_id, prefs_row) -> str:
@@ -19553,26 +19635,6 @@ else:
 
 # ── Daily brief (issue #1498 / #1499) ────────────────────────────────────────
 
-_BRIEF_DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-
-
-def _build_week_plan(user_id, for_date: _date) -> dict:
-    from backend.services.daily_brief import _get_plan_for_date, _plan_to_session
-    days = []
-    for i in range(7):
-        d = for_date + _timedelta(days=i)
-        plan = _get_plan_for_date(user_id, d)
-        session = _plan_to_session(plan, d)
-        days.append({
-            "date": d.isoformat(),
-            "day": _BRIEF_DOW[d.weekday()],
-            "planned": session["planned"],
-            "session_type": session["session_type"],
-            "duration_min": session["duration_min"],
-        })
-    return {"days": days}
-
-
 @app.get("/api/brief/today")
 def get_brief_today(user: User = Depends(resolve_user)):
     """Return today's SCHEMA_VERSION 3 coaching brief for the session user.
@@ -19583,8 +19645,11 @@ def get_brief_today(user: User = Depends(resolve_user)):
     today = _today_bkk()
     brief = build_brief(user.id, today)
     brief["schema_version"] = 3
-    try:
-        brief["week_plan"] = _build_week_plan(user.id, today)
-    except Exception:
+    # Normalize week_plan to the canonical API shape {"days": [...]}.
+    # build_brief returns week_plan as a list; the external API contract is a dict.
+    _wp = brief.get("week_plan")
+    if isinstance(_wp, list):
+        brief["week_plan"] = {"days": _wp}
+    elif not isinstance(_wp, dict):
         brief["week_plan"] = {"days": []}
     return JSONResponse(brief)

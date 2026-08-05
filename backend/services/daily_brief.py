@@ -37,7 +37,16 @@ _NULL_WEIGHT_BLOCK: dict = {
 
 # ── Plan helpers ──────────────────────────────────────────────────────────────
 
-def _extract_target(structure: dict | None) -> dict:
+def extract_session_target(structure: dict | None) -> dict:
+    """Extract distance_km, duration_min, intensity from a planned_sessions structure blob.
+
+    Tries top-level keys first, then the first block in structure["blocks"].
+    Returns nulls for any field not found.
+
+    Shared between worker_app.py (Hermes read API) and this module so a schema
+    change only has to be applied once. Formerly duplicated as ``_extract_target``
+    in both files; issue #1601 moved it here as the canonical home.
+    """
     out: dict = {"distance_km": None, "duration_min": None, "intensity": None}
     if not structure or not isinstance(structure, dict):
         return out
@@ -52,11 +61,15 @@ def _extract_target(structure: dict | None) -> dict:
     return out
 
 
+# Backward-compat alias; internal callers use the public name.
+_extract_target = extract_session_target
+
+
 def _session_row_to_dict(row) -> dict:
     return {
         "session_type": row.session_type,
         "name": row.name,
-        "target": _extract_target(row.structure),
+        "target": extract_session_target(row.structure),
         "note": row.notes,
         "status": row.status,
     }
@@ -93,6 +106,46 @@ def _get_plan_for_date(user_id, for_date: date) -> dict:
         "planned": len(rows) > 0,
         "sessions": [_session_row_to_dict(r) for r in rows],
     }
+
+
+def _get_plans_for_date_range(user_id, start_date: date, end_date: date) -> dict:
+    """Fetch all PlannedSession rows for [start_date, end_date] in one query.
+
+    Returns a dict mapping each date in the range to its plan dict (same shape
+    as _get_plan_for_date).  Non-UUID user_id returns empty-plan dicts without
+    touching the DB.
+    """
+    import uuid as _uuid
+
+    from backend.models import PlannedSession
+
+    num_days = (end_date - start_date).days + 1
+    dates = [start_date + timedelta(days=i) for i in range(num_days)]
+    empty = {d: {"plan_date": d.isoformat(), "planned": False, "sessions": []} for d in dates}
+
+    try:
+        uid = _uuid.UUID(str(user_id))
+    except (ValueError, AttributeError):
+        return empty
+
+    with Session(engine) as s:
+        rows = (
+            s.query(PlannedSession)
+            .filter(
+                PlannedSession.user_id == uid,
+                PlannedSession.planned_date >= start_date,
+                PlannedSession.planned_date <= end_date,
+            )
+            .all()
+        )
+
+    result = empty
+    for row in rows:
+        d = row.planned_date
+        if d in result:
+            result[d]["sessions"].append(_session_row_to_dict(row))
+            result[d]["planned"] = True
+    return result
 
 
 def _plan_to_session(plan_resp: dict, for_date: date) -> dict:
@@ -204,7 +257,11 @@ def _build_highlights_md(user_id, for_date: date) -> str:
             "workout_type": w.workout_type or "",
         }
 
-    uid = _uuid.UUID(str(user_id))
+    try:
+        uid = _uuid.UUID(str(user_id))
+    except (ValueError, AttributeError):
+        return ""
+
     with Session(engine) as s:
         curr_workouts = [_w_dict(w) for w in s.query(Workout).filter(
             Workout.user_id == uid,
@@ -367,7 +424,7 @@ def _assemble_advisories(user_id, for_date: date, weight: dict) -> list[dict]:
         advisories.append({
             "key": "gap_analysis_error",
             "severity": "error",
-            "text": f"Gap analysis unavailable: {exc}",
+            "text": "Gap analysis temporarily unavailable.",
         })
 
     verdict_str: str | None = None
@@ -387,7 +444,7 @@ def _assemble_advisories(user_id, for_date: date, weight: dict) -> list[dict]:
         advisories.append({
             "key": "training_verdict_error",
             "severity": "error",
-            "text": f"Training verdict unavailable: {exc}",
+            "text": "Training verdict temporarily unavailable.",
         })
 
     try:
@@ -402,12 +459,15 @@ def _assemble_advisories(user_id, for_date: date, weight: dict) -> list[dict]:
 
 # ── Week plan ─────────────────────────────────────────────────────────────────
 
-def _assemble_week_plan(user_id, for_date: date) -> list[dict]:
+def _assemble_week_plan(user_id, for_date: date, plan_cache: dict | None = None) -> list[dict]:
     """Return remaining days this Bangkok week after tomorrow.
 
     Covers tomorrow through the Sunday of for_date's week (Monday=0 … Sunday=6).
     Returns [] when tomorrow falls on a weekend (Sat/Sun) or is past this week's
     Sunday (i.e. today is Sunday and tomorrow is already next week's Monday).
+
+    plan_cache: optional dict[date, plan_dict] from _get_plans_for_date_range.
+    When provided, no additional DB queries are issued.
     """
     tomorrow = for_date + timedelta(days=1)
     days_until_sunday = 6 - for_date.weekday()
@@ -419,7 +479,14 @@ def _assemble_week_plan(user_id, for_date: date) -> list[dict]:
     result: list[dict] = []
     current = tomorrow
     while current <= sunday:
-        plan = _get_plan_for_date(user_id, current)
+        if plan_cache is not None:
+            plan = plan_cache.get(current, {
+                "plan_date": current.isoformat(),
+                "planned": False,
+                "sessions": [],
+            })
+        else:
+            plan = _get_plan_for_date(user_id, current)
         session = _plan_to_session(plan, current)
         result.append({
             "date": current.isoformat(),
@@ -434,6 +501,70 @@ def _assemble_week_plan(user_id, for_date: date) -> list[dict]:
     return result
 
 
+# ── Coach block ───────────────────────────────────────────────────────────────
+
+def _assemble_coach(user_id, for_date: date) -> dict | None:
+    """Assemble the coach block for the daily brief.
+
+    Calls get_coach_payload_for_user from weekly_coach_message — the same
+    source-of-truth used by the Home page coach strip.  Returns None on any
+    error or when no payload is available so callers can omit the key cleanly.
+    """
+    import sys
+    import uuid as _uuid
+
+    try:
+        from sqlalchemy.orm import Session as _Session
+
+        from backend.db import engine
+        from backend.services.weekly_coach_message import get_coach_payload_for_user
+
+        uid = user_id
+        try:
+            _uuid.UUID(str(user_id))
+        except (ValueError, TypeError):
+            from backend.models import User
+            with _Session(engine) as db:
+                u = db.query(User).filter(
+                    User.name == str(user_id), User.is_active.is_(True)
+                ).first()
+            if u is None:
+                return None
+            uid = u.id
+
+        with _Session(engine) as db:
+            payload = get_coach_payload_for_user(uid, today=for_date, db=db)
+        if not payload:
+            return None
+
+        sections = payload.get("sections") or {}
+        nudge = payload.get("nudge") or {}
+        chosen = payload.get("chosen_preset")
+
+        out: dict = {
+            "as_of": payload.get("as_of"),
+            "source": payload.get("source"),
+            "sections": sections,
+            "text": payload.get("text") or "",
+            "directive": (sections.get("now") or "").split("\n\n")[0][:400],
+            "projection": (sections.get("dream") or "").split("\n\n")[0][:400],
+            "levers": [],
+        }
+        if isinstance(nudge, dict) and (nudge.get("focus_label") or nudge.get("next_action")):
+            out.update({
+                "focus_id": nudge.get("focus_id"),
+                "focus_label": nudge.get("focus_label"),
+                "next_action": nudge.get("next_action"),
+                "why": nudge.get("why"),
+            })
+        if chosen:
+            out["chosen_preset"] = chosen
+        return out
+    except Exception as exc:
+        print(f"WARNING: coach block unavailable: {exc}", file=sys.stderr)
+        return None
+
+
 # ── Core assembly ─────────────────────────────────────────────────────────────
 
 def _build_brief(for_date: date, worker_url=None, user_id=None, username=None) -> dict:
@@ -443,9 +574,18 @@ def _build_brief(for_date: date, worker_url=None, user_id=None, username=None) -
     that still pass the old four-argument signature; they are not used.
     """
     tomorrow = for_date + timedelta(days=1)
+    days_until_sunday = 6 - for_date.weekday()
+    sunday = for_date + timedelta(days=days_until_sunday)
 
-    today_plan = _get_plan_for_date(user_id, for_date)
-    tomorrow_plan = _get_plan_for_date(user_id, tomorrow)
+    # Single query covers today, tomorrow, and the rest of the week.
+    plan_cache = _get_plans_for_date_range(user_id, for_date, sunday)
+
+    today_plan = plan_cache.get(for_date, {
+        "plan_date": for_date.isoformat(), "planned": False, "sessions": [],
+    })
+    tomorrow_plan = plan_cache.get(tomorrow, {
+        "plan_date": tomorrow.isoformat(), "planned": False, "sessions": [],
+    })
 
     today_session = _plan_to_session(today_plan, for_date)
     tomorrow_session = _plan_to_session(tomorrow_plan, tomorrow)
@@ -454,12 +594,13 @@ def _build_brief(for_date: date, worker_url=None, user_id=None, username=None) -
     recent_wrap = _assemble_recent_wrap(user_id, for_date)
     weight = _assemble_weight(user_id, for_date)
     advisories = _assemble_advisories(user_id, for_date, weight)
-    week_plan = _assemble_week_plan(user_id, for_date)
+    week_plan = _assemble_week_plan(user_id, for_date, plan_cache=plan_cache)
+    coach = _assemble_coach(user_id, for_date)
     advisories_degraded = any(a.get("severity") == "error" for a in advisories)
 
     generated_at = datetime.now(BANGKOK_TZ).isoformat()
 
-    return {
+    payload = {
         "schema_version": SCHEMA_VERSION,
         "for_date": for_date.isoformat(),
         "generated_at": generated_at,
@@ -473,6 +614,9 @@ def _build_brief(for_date: date, worker_url=None, user_id=None, username=None) -
         "actions": [],
         "week_plan": week_plan,
     }
+    if coach is not None:
+        payload["coach"] = coach
+    return payload
 
 
 def build_brief(user_id, for_date: date) -> dict:
