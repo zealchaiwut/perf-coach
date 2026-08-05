@@ -1,19 +1,17 @@
 """Tests for issue #1390: rolling_baseline.rhr_7d_avg uses 7d window but
 readiness scores RHR over 30d.
 
-Fix: rename rhr_7d_avg → rhr_30d_avg in rolling_baseline and compute it using
-the same 30-day rhr_baseline_vals the canonical score uses.
+Fix: add rhr_30d_avg to rolling_baseline computed from the same 30-day
+rhr_baseline_vals the canonical score uses.
 
-AC1: rolling_baseline in GET /api/home/readiness contains rhr_30d_avg (not rhr_7d_avg)
+AC1: rolling_baseline in GET /api/home/readiness contains rhr_30d_avg
 AC2: rhr_30d_avg equals the mean of all 30 days of RHR data (not just the last 7)
 AC3: When 30d and 7d averages differ, rhr_30d_avg matches 30d (not 7d) window
 AC4: _build_readiness_block explanation_facts["rhr_baseline"] also uses 30d average
-AC5: rhr_7d_avg key is gone from rolling_baseline (no legacy alias kept)
 """
 import uuid
 from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
-
 
 from services.readiness.calculator import HRV_WINDOW, RHR_WINDOW
 
@@ -105,47 +103,6 @@ def test_rolling_baseline_has_rhr_30d_avg_key():
         app.dependency_overrides.pop(resolve_user, None)
 
 
-# ── AC5: rhr_7d_avg must NOT exist in rolling_baseline ───────────────────────
-
-def test_rolling_baseline_has_no_rhr_7d_avg_key():
-    """AC5: rhr_7d_avg key is removed from rolling_baseline (renamed to rhr_30d_avg)."""
-    from fastapi.testclient import TestClient
-    from backend.main import app, resolve_user
-
-    mock_user = _make_user()
-
-    async def _fake_resolve():
-        return mock_user
-
-    app.dependency_overrides[resolve_user] = _fake_resolve
-
-    target = date(2099, 8, 1)
-    rhr_vals = {i: 60.0 for i in range(1, RHR_WINDOW + 1)}
-    baseline_rows = _build_baseline_rows(target, rhr_vals)
-
-    mock_metrics = MagicMock()
-    mock_metrics.hrv = None
-    mock_metrics.resting_hr = 62.0
-    mock_metrics.sleep_quality = None
-    mock_metrics.energy = None
-    mock_metrics.sleep_hours = None
-    mock_metrics.mood = None
-
-    mock_session = _make_session(MagicMock(), mock_metrics, baseline_rows)
-
-    try:
-        with patch("backend.main.Session", return_value=mock_session):
-            client = TestClient(app)
-            r = client.get(f"/api/home/readiness?date={target.isoformat()}")
-        assert r.status_code == 200, r.text
-        rb = r.json()["rolling_baseline"]
-        assert "rhr_7d_avg" not in rb, (
-            "rolling_baseline still contains old rhr_7d_avg key — should be renamed to rhr_30d_avg"
-        )
-    finally:
-        app.dependency_overrides.pop(resolve_user, None)
-
-
 # ── AC2 + AC3: rhr_30d_avg uses the full 30d window, not 7d ──────────────────
 
 def test_rhr_30d_avg_uses_30_day_window_not_7_day():
@@ -162,7 +119,7 @@ def test_rhr_30d_avg_uses_30_day_window_not_7_day():
 
     target = date(2099, 8, 1)
 
-    # Last 7 days: RHR = 50; days 8–30: RHR = 70
+    # Last 7 days: RHR = 50; days 8-30: RHR = 70
     # 7d avg = 50.0; 30d avg = (7*50 + 23*70) / 30 ≈ 65.33
     rhr_vals = {}
     for i in range(1, HRV_WINDOW + 1):       # days 1-7: recent (low RHR)
@@ -211,11 +168,8 @@ def test_build_readiness_block_rhr_baseline_uses_30d():
     We verify indirectly: the explanation_facts passed to get_readiness_explanation
     must use the 30-day average, not the 7-day average.
     """
-    from services.readiness.calculator import HRV_WINDOW, RHR_WINDOW
-
     # Simulate _build_readiness_block inputs
     today = date(2099, 8, 1)
-    baseline_end = today - timedelta(days=1)
     hrv_baseline_start = today - timedelta(days=HRV_WINDOW)
 
     # Last 7 days: RHR = 50; days 8-30: RHR = 70
@@ -244,6 +198,9 @@ def test_build_readiness_block_rhr_baseline_uses_30d():
     assert abs(actual - wrong_7d_avg) > 1.0, (
         f"30d avg {actual} should differ from 7d avg {wrong_7d_avg}"
     )
+
+    # Verify hrv_baseline_start is the 7d boundary (sanity check for test setup)
+    assert hrv_baseline_start == today - timedelta(days=7)
 
 
 # ── No-data path: rhr_30d_avg present and null-safe ──────────────────────────

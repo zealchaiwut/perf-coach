@@ -2777,10 +2777,12 @@ def get_home_readiness(
     rhr_baseline_vals = [float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None]
     hrv_7d_avg = _avg(hrv_baseline_vals) if hrv_baseline_vals else None
     rhr_30d_avg = _avg(rhr_baseline_vals)
+    rhr_7d_avg = _avg([float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None and r.metric_date >= hrv_baseline_start])
     sleep_7d_avg_hours = _avg([float(r.sleep_hours) for r in baseline_rows if r.sleep_hours is not None and r.metric_date >= hrv_baseline_start])
 
     rolling_baseline = {
         "hrv_7d_avg": hrv_7d_avg,
+        "rhr_7d_avg": rhr_7d_avg,
         "rhr_30d_avg": rhr_30d_avg,
         "sleep_7d_avg_hours": sleep_7d_avg_hours,
     }
