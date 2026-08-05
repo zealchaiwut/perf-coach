@@ -1326,7 +1326,7 @@ def _reflection_block(
     return reflection
 
 
-def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | None:
+def build_coach_facts(user_id, today: date | None = None, db=None, goal=None) -> dict | None:
     """Return coach_facts dict, or None when no A-race / PerformanceGoal exists."""
     from backend.services.coach_plan import build_plan_state
     from backend.services.weekly_coach_message import (
