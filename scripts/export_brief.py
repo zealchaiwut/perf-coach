@@ -83,6 +83,16 @@ def _write_atomic(path: str, data: dict) -> None:
         raise
 
 
+def _load_goal_for_user(user_id: str):
+    """Return the active PerformanceGoal or Race adapter for user_id, or None."""
+    from sqlalchemy.orm import Session
+    from backend.db import engine
+    from backend.services.goal_resolution import resolve_active_goal
+
+    with Session(engine) as db:
+        return resolve_active_goal(user_id, db)
+
+
 def _resolve_user(username: str | None) -> str:
     from sqlalchemy import text
 
