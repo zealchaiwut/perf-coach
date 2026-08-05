@@ -14104,10 +14104,11 @@ def admin_seed_plan_patterns(reset: bool = False):
 
 
 class AdminPlanLibraryImportIn(BaseModel):
-    """Bulk create/upsert from a Claude-authored (or downloaded) catalog JSON.
+    """Bulk create/upsert from Claude-authored (or downloaded) catalog JSON.
 
-    Accepts either a full catalog ``{exercises, patterns}`` or a bare list
-    under one of those keys. ``mode=upsert`` updates by name (exercises) or
+    Clients send ``exercises`` and/or ``patterns`` as lists of row objects
+    (the admin UI also accepts a bare array or a single object and normalizes
+    client-side). ``mode=upsert`` updates by name (exercises) or
     kind+subtype+name (patterns); ``mode=create`` skips existing rows.
     """
     exercises: list[dict] = []

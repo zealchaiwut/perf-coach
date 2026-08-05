@@ -1765,14 +1765,18 @@ def generate_single_session(
     target_tss: float | None = None,
     duration_minutes: int | None = None,
     subtype: str | None = None,
+    seed: int | None = None,
     db=None,
 ) -> dict | None:
     """Fill ONE session from DB patterns using pinned type/TSS/duration.
 
     Planning LLM removed — `note` is ignored for content generation.
     Requires pins (target_tss and/or duration_minutes); without pins returns None.
+    Pass ``seed`` to reshuffle strength/plyo picks; omit for the stable hash.
     """
     del note  # unused — no freeform LLM refine
+    import random
+
     from backend.services.plan_prefs_accessor import get_plan_prefs
     from backend.services.plan_slot import (
         build_week_ctx,
@@ -1825,7 +1829,8 @@ def generate_single_session(
             "exercises": current_session.get("exercises"),
             "source": current_session.get("source"),
         }
-    content = fill_slot(slot, db=db, week_ctx=week_ctx, current=current)
+    rng = random.Random(int(seed) & 0xFFFFFFFF) if seed is not None else None
+    content = fill_slot(slot, db=db, week_ctx=week_ctx, current=current, rng=rng)
     footprint = content.pop("_muscle_footprint", None)
     fill_log = content.pop("fill_log", None)
     stamped = stamp_session(slot, content)
@@ -1836,4 +1841,6 @@ def generate_single_session(
         stamped["pattern_name"] = content["pattern_name"]
     if fill_log:
         stamped["fill_log"] = fill_log
+    if seed is not None:
+        stamped["seed"] = int(seed) & 0xFFFFFFFF
     return stamped

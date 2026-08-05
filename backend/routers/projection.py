@@ -907,6 +907,9 @@ class SingleSessionRequest(BaseModel):
     # Optional slot flavor (run: easy/long/intervals/tempo; strength:
     # upper/lower/full/light — see plan_suggestions.SESSION_SUBTYPES).
     subtype: Optional[str] = None
+    # Optional RNG seed for strength/plyo picks. Omit for the stable
+    # day/subtype/TSS hash; pass a fresh int to reshuffle exercise choices.
+    seed: Optional[int] = None
 
 
 @router.post("/plan/suggestions/session")
@@ -968,6 +971,7 @@ def generate_plan_session(
             target_tss=body.target_tss,
             duration_minutes=body.duration_minutes,
             subtype=body.subtype,
+            seed=body.seed,
             db=db,
         )
     finally:

@@ -146,6 +146,10 @@ def test_admin_plan_library_page_shell():
     assert "downloadPatternsJson" in js
     assert "openImportModal('exercises')" in js
     assert "openImportModal('patterns')" in js
+    assert "Bulk import JSON" in html
+    assert "normalizeImportItems" in js
+    assert "Bulk import exercises" in js
+    assert "Bulk import patterns" in js
     # Variation C — Exercises grouped card grid
     assert 'id="ex-grid"' in html
     assert 'id="ex-list"' not in html

@@ -3104,8 +3104,8 @@ information about.
       '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-ai-save" disabled>Save session</button><button class="pl-btn pl-ghost" id="pl-ai-cancel">Cancel</button></div>';
   }
 
-  // Local, read-only preview rows — _sugExercisesHtml/_sugBlocksHtml live in
-  // the separate Plan Suggestions closure below and aren't reachable here.
+  // Local, read-only preview rows for the Ask-AI modal.
+  // Pattern-fill session pane is PlanFillPreview (js/lib/plan-fill-preview.js).
   function _aiPreviewExRow(x) {
     var sr = (x.sets != null && x.reps != null) ? (x.sets + ' × ' + x.reps) : (x.sets != null ? x.sets + ' sets' : '');
     return '<div class="pl-exd"><span class="pl-en">' + esc(x.name || 'Exercise') + '</span>' +
@@ -3526,7 +3526,6 @@ information about.
       if (!_sfBlocks.length && !_smHasStructure(p)) {
         return '<div class="pl-sm-empty-s">No structure yet — Generate above, or add blocks in Detailed.</div>';
       }
-      // Simple view: phase rows; Detailed reuses block builder
       if (_sm.structTab === 'json') {
         return '<textarea class="pl-jsonta" id="pl-sm-json" aria-label="Structure JSON" spellcheck="false">' +
           esc(JSON.stringify({ blocks: _sfBlocks }, null, 2)) + '</textarea>';
@@ -3534,17 +3533,7 @@ information about.
       if (_sm.structTab === 'detailed') {
         return '<div id="pl-sm-struct-host"></div>';
       }
-      // simple rows
-      var rows = _sfBlocks.map(function (b) {
-        var dur = b.duration_min != null ? b.duration_min + ' min' : '';
-        var rep = (b.repeat && b.repeat > 1) ? (' ×' + b.repeat) : '';
-        var tgt = b.target || '';
-        var lab = _phaseLabel(b.phase);
-        return '<div class="pl-sm-brow"><span class="pl-sm-ph">' + lab + '</span>' +
-          '<span class="pl-sm-bt">' + esc(tgt || lab) + '</span>' +
-          '<span class="pl-sm-bm">' + esc(dur + rep) + '</span></div>';
-      }).join('');
-      return '<div class="pl-sm-blocks">' + (rows || '<div class="pl-sm-empty-s">No blocks yet.</div>') + '</div>';
+      return _smPreviewPaneHtml(p, type);
     }
     // strength / plyo / stretch
     if (_sm.structTab === 'json') {
@@ -3553,15 +3542,34 @@ information about.
     }
     if (_sm.structTab === 'simple') {
       if (!_sfFocus && !_sfExercises.length) {
-        return '<div class="pl-sm-empty-s">No structure yet — Generate above, or switch to Detailed to build it by hand.</div>' +
+        return '<div class="pl-sm-empty-s">No structure yet — Fill from patterns above, or switch to Detailed to build it by hand.</div>' +
           '<div class="pl-fld" style="margin-top:10px;"><label>Focus</label>' +
           '<input type="text" id="pl-sm-focus" aria-label="Focus" value="' + esc(_sfFocus) + '" placeholder="e.g. posterior chain"/></div>';
       }
       return '<div class="pl-fld"><label>Focus</label>' +
-        '<input type="text" id="pl-sm-focus" aria-label="Focus" value="' + esc(_sfFocus) + '"/></div>';
+        '<input type="text" id="pl-sm-focus" aria-label="Focus" value="' + esc(_sfFocus) + '"/></div>' +
+        _smPreviewPaneHtml(p, type);
     }
     // detailed
     return '<div id="pl-sm-struct-host"></div>';
+  }
+
+  /** Read-only preview pane (same as admin / plan suggestions) for Simple tab. */
+  function _smPreviewPaneHtml(p, type) {
+    var P = window.PlanFillPreview;
+    if (!P || !P.sessionPaneHtml) return '';
+    var s = (p && p.structure) || {};
+    var exs = type === 'run' ? [] : (_sfExercises || []);
+    var blocks = type === 'run' ? (_sfBlocks || []) : [];
+    if (!exs.length && !blocks.length) return '';
+    return '<div class="pl-sm-preview">' + P.sessionPaneHtml({
+      exercises: exs,
+      blocks: blocks,
+      workout_type: type,
+      muscle_footprint: s._muscle_footprint || s.muscle_footprint || null,
+      muscle_summary: s.muscle_summary || null,
+      fill_log: null,
+    }, { showBudget: false }) + '</div>';
   }
 
   function _smUnifiedHtml(p) {
@@ -3708,6 +3716,9 @@ information about.
           var dmin = H.durationMinutesFromBlocks(structure.blocks);
           if (dmin) structure.duration_minutes = dmin;
         }
+        if (s._muscle_footprint) structure._muscle_footprint = s._muscle_footprint;
+        else if (s.muscle_footprint) structure._muscle_footprint = s.muscle_footprint;
+        if (s.subtype) structure.subtype = s.subtype;
         if (H.stampSourceUser) structure = H.stampSourceUser(structure);
 
         p.name = s.intent ? String(s.intent).substring(0, 80) : (draft.name || p.name);
@@ -4058,7 +4069,7 @@ information about.
 
   // ── Scoped styles (injected once) ───────────────────────────────────────────
   function _injectStyles() {
-    var VER = '20260804plyo1';
+    var VER = '20260805simple1';
     var existing = document.getElementById('plan-tab-styles');
     if (existing) {
       if (existing.getAttribute('data-ver') === VER) return;
@@ -4408,6 +4419,17 @@ information about.
     '.pl-sug-ex-detail{font-family:var(--mono);color:var(--text-sub);}',
     '.pl-sug-ex-load{color:var(--text-sub);font-size:11.5px;}',
     '.pl-sug-rep{font-size:10.5px;font-weight:800;color:var(--primary);background:var(--primary-soft);border-radius:5px;padding:1px 5px;}',
+    /* Shared PlanFillPreview pane sits under the suggestion header */
+    '.pl-sug-preview-wrap{margin:8px 0 4px 46px;padding-top:8px;border-top:1px dashed var(--border);min-width:0;}',
+    '.pl-sug-collapsed{margin:6px 0 2px 46px;font-size:12px;color:var(--text-sub);}',
+    '.pl-sug-collapsed>summary{cursor:pointer;font-weight:600;color:var(--text-sub);list-style:none;user-select:none;}',
+    '.pl-sug-collapsed>summary::-webkit-details-marker{display:none;}',
+    '.pl-sug-collapsed>summary::before{content:"▸ ";font-size:10px;}',
+    '.pl-sug-collapsed[open]>summary::before{content:"▾ ";}',
+    '.pl-sug-collapsed .pl-sug-preview-wrap{margin-left:0;}',
+    '.pl-sug-collapsed .pl-sug-notes-line{margin-left:0;}',
+    '.pl-sug-collapsed .pl-sug-fill-log{margin-left:0;}',
+    '.pl-sug-row-wrap.is-added{opacity:0.92;}',
     '.pl-sug-day{font-size:10px;font-weight:800;color:var(--text-sub);text-transform:uppercase;width:36px;flex-shrink:0;}',
     '.pl-sug-type-select{font-size:10px;font-weight:800;padding:3px 6px;border-radius:6px;text-transform:uppercase;flex-shrink:0;border:1px solid transparent;cursor:pointer;}',
     '.pl-sug-type-select:hover{border-color:currentColor;}',
@@ -4425,12 +4447,14 @@ information about.
     '.pl-sug-update{font-size:10.5px;font-weight:600;background:none;border:1px solid var(--border);border-radius:6px;padding:4px 7px;cursor:pointer;color:var(--info-dark);}',
     '.pl-sug-update:hover{background:var(--tile);}',
     '.pl-sug-update:disabled{opacity:0.4;cursor:not-allowed;}',
+    '.pl-sug-reshuffle{font-size:10.5px;font-weight:600;background:none;border:1px solid var(--border);border-radius:6px;padding:4px 7px;cursor:pointer;color:var(--text-sub);}',
+    '.pl-sug-reshuffle:hover{background:var(--tile);color:var(--ink);}',
+    '.pl-sug-reshuffle:disabled{opacity:0.4;cursor:not-allowed;}',
     '.pl-sug-fill-log{margin:6px 0 2px 46px;font-size:11px;color:var(--text-sub);}',
     '.pl-sug-fill-log>summary{cursor:pointer;font-weight:600;color:var(--text-sub);list-style:none;}',
     '.pl-sug-fill-log>summary::-webkit-details-marker{display:none;}',
     '.pl-sug-fill-log>summary::before{content:"▸ ";font-size:10px;}',
     '.pl-sug-fill-log[open]>summary::before{content:"▾ ";}',
-    '.pl-sug-budget-h{margin:8px 0 4px 46px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-sub);}',
     '.pl-sug-fill-log-pre{margin:6px 0 0 46px;padding:8px 10px;background:var(--tile);border:1px solid var(--border);border-radius:8px;font-family:var(--mono);font-size:10.5px;line-height:1.45;white-space:pre-wrap;word-break:break-word;color:var(--ink);max-height:280px;overflow:auto;}',
     '.pl-sug-fill-log .pl-sug-fill-log-pre{margin-left:0;}',
     '.pl-sug-trigger-row{margin:10px 0 4px;display:flex;justify-content:flex-start;}',
@@ -4610,6 +4634,8 @@ information about.
     '.plan-panel .pl-sm-bt{flex:1;font-size:12.5px;}',
     '.plan-panel .pl-sm-bm{font-family:var(--mono);font-size:10.5px;color:var(--text-sub);}',
     '.plan-panel .pl-sm-empty-s{border:1.5px dashed var(--border);border-radius:12px;padding:16px;text-align:center;color:var(--text-sub);font-size:12.5px;font-style:italic;}',
+    '.plan-panel .pl-sm-preview{margin-top:12px;min-width:0;}',
+    '.plan-panel .pl-sm-preview .preview-layout{margin-top:0;}',
     '.plan-panel .pl-sm-notes{margin-top:15px;}',
     '.plan-panel .pl-sm-notes textarea{width:100%;border:1px solid var(--border);border-radius:11px;padding:11px 13px;font-family:inherit;font-size:12.5px;color:var(--ink);background:var(--tile);resize:vertical;min-height:52px;box-sizing:border-box;}',
     '.plan-panel .pl-sm-stryd{margin-top:13px;font-family:var(--mono);font-size:10.5px;color:var(--text-sub);cursor:pointer;}',
@@ -4814,115 +4840,24 @@ information about.
     }
   }
 
-  // Block-grouped exercise breakdown under a strength/plyo suggestion row —
-  // same shape PlannedSession.structure.exercises stores, same grouping the
-  // detail modal renders (see _liftDetailHtml). Without this the suggestion
-  // was a bare TSS/duration/intent line and "Add" produced an empty-shell
-  // planned session with nothing to actually do at the gym.
-  function _sugExercisesHtml(exercises) {
-    if (!exercises || !exercises.length) return '';
-    var order = [];
-    exercises.forEach(function (x) {
-      var b = (x && x.block) ? x.block : 'Exercises';
-      if (order.indexOf(b) === -1) order.push(b);
-    });
-    var blocks = order.map(function (b) {
-      var rows = exercises.filter(function (x) { return ((x && x.block) ? x.block : 'Exercises') === b; })
-        .map(function (x) {
-          var sr = (x.sets != null && x.reps != null) ? (x.sets + ' × ' + x.reps) : (x.sets != null ? x.sets + ' sets' : '');
-          return '<div class="pl-sug-ex-row"><span class="pl-sug-ex-name">' + esc(x.name || 'Exercise') + '</span>' +
-            '<span class="pl-sug-ex-detail">' + esc(sr) + '</span>' +
-            '<span class="pl-sug-ex-load">' + esc(x.load || '') + '</span></div>';
-        }).join('');
-      return '<div class="pl-sug-ex-block"><div class="pl-sug-ex-block-h">' + esc(b) + '</div>' + rows + '</div>';
-    }).join('');
-    return '<div class="pl-sug-exercises">' + blocks + '</div>';
-  }
-
-  // Phase-structured breakdown under a run suggestion row — same shape
-  // PlannedSession.structure.blocks stores (see _runDetailHtml's segment
-  // rendering). Without this a run suggestion was just target_tss/duration —
-  // no warmup/main/cooldown structure, no repeat/target for a workout.
-  function _phaseLabel(ph) {
-    var p = String(ph || '').toLowerCase();
-    if (p === 'warmup') return 'Warmup';
-    if (p === 'cooldown') return 'Cooldown';
-    if (p === 'main') return 'Main set';
-    if (p === 'mp' || p === 'marathon_pace') return 'MP segment';
-    return ph || 'Block';
-  }
-  function _sugBlocksHtml(blocks) {
-    if (!blocks || !blocks.length) return '';
-    var segs = blocks.map(function (b) {
-      var dur = b.duration_min != null ? b.duration_min + ' min' : '';
-      var rep = (b.repeat && b.repeat > 1) ? (' <span class="pl-sug-rep">×' + b.repeat + '</span>') : '';
-      var main = (b.repeat && b.repeat > 1) ? (b.repeat + ' × ' + dur) : dur;
-      var tgt = (b.target || '') + (b.rest_min ? ' · ' + b.rest_min + 'min rest between' : '');
-      return '<div class="pl-sug-ex-row"><span class="pl-sug-ex-name">' + esc(_phaseLabel(b.phase)) + '</span>' +
-        '<span class="pl-sug-ex-detail">' + esc(main) + '</span>' + rep +
-        '<span class="pl-sug-ex-load">' + esc(tgt) + '</span></div>';
-    }).join('');
-    return '<div class="pl-sug-exercises"><div class="pl-sug-ex-block">' + segs + '</div></div>';
-  }
-
-  function _formatBudgetTrace(trace) {
-    if (!trace || !trace.length) return '';
-    var lines = [];
-    var lastWasRemain = false;
-    function pushRemain(tss, mins, note) {
-      var line = 'Remained ' + tss + ' TSS, ' + mins + ' mins' +
-        (note ? ' [' + note + ']' : '');
-      if (lastWasRemain && lines.length && lines[lines.length - 1].indexOf('Remained ') === 0) {
-        lines[lines.length - 1] = line;
-      } else {
-        lines.push(line);
-      }
-      lastWasRemain = true;
-    }
-    trace.forEach(function (ev) {
-      var op = ev.op || '';
-      if (op === 'budget_start') {
-        pushRemain(ev.remain_tss, ev.remain_min, null);
-        return;
-      }
-      if (op === 'group_open') {
-        lines.push('');
-        lines.push('— ' + (ev.label || 'Group') + ' (aim ' + ev.n + ') —');
-        lastWasRemain = false;
-        return;
-      }
-      if (op === 'group_skip') {
-        lines.push('— skip ' + (ev.label || '') + ' —');
-        lastWasRemain = false;
-        return;
-      }
-      if (op === 'budget_remain') {
-        if (ev.note) pushRemain(ev.remain_tss, ev.remain_min, ev.note);
-        return;
-      }
-      if (op === 'budget_pick') {
-        var detail = (ev.sets != null ? ev.sets : '?') + ' × ' + (ev.reps || '?') +
-          (ev.load ? ' · ' + ev.load : '');
-        lines.push((ev.name || '?') + '  ' + detail +
-          '  →  spending ' + ev.spend_min + ' mins, ' + ev.spend_tss + ' TSS');
-        lines.push('    score ' + ev.score + ' = bias ' + ev.bias + ' × random ' + ev.random);
-        lastWasRemain = false;
-        pushRemain(ev.remain_tss_after, ev.remain_min_after, ev.note || null);
-        return;
-      }
-      if (op === 'budget_exhausted') {
-        lines.push('Budget exhausted');
-        lastWasRemain = false;
-        return;
-      }
-      if (op === 'budget_end') {
-        lines.push('');
-        lines.push('Done · ' + ev.exercise_count + ' exercises · leftover ' +
-          ev.remain_tss + ' TSS, ' + ev.remain_min + ' mins');
-        lastWasRemain = false;
-      }
-    });
-    return lines.join('\n');
+  // Session detail pane — shared with admin Plan library live preview.
+  function _sugSessionPaneHtml(s, wt) {
+    var P = window.PlanFillPreview;
+    if (!P || !P.sessionPaneHtml) return '';
+    var hasEx = Array.isArray(s.exercises) && s.exercises.length;
+    var hasBlocks = Array.isArray(s.blocks) && s.blocks.length;
+    var hasMuscle = !!(s._muscle_footprint || s.muscle_footprint);
+    var hasLog = !!(s.fill_log && (s.fill_log.budget_trace || []).length);
+    if (!hasEx && !hasBlocks && !hasMuscle && !hasLog) return '';
+    P.ensureStyles();
+    return '<div class="pl-sug-preview-wrap">' + P.sessionPaneHtml({
+      exercises: wt !== 'rest' ? (s.exercises || []) : [],
+      blocks: wt === 'run' ? (s.blocks || []) : [],
+      workout_type: wt,
+      muscle_footprint: s._muscle_footprint || s.muscle_footprint || null,
+      fill_log: s.fill_log || null,
+      pool_counts: s.pool_counts || null,
+    }) + '</div>';
   }
 
   function _formatFillStep(step) {
@@ -4971,26 +4906,37 @@ information about.
     catch (e) { return op; }
   }
 
-  function _sugFillLogHtml(s) {
+  function _sugPipelineLogHtml(s) {
     var log = s && s.fill_log;
-    if (!log) return '';
-    var parts = [];
-    var budgetText = _formatBudgetTrace(log.budget_trace || []);
-    if (budgetText) {
-      parts.push('<div class="pl-sug-budget-h">Pick-by-pick budget</div>' +
-        '<pre class="pl-sug-fill-log-pre">' + esc(budgetText) + '</pre>');
+    if (!log || !log.steps || !log.steps.length) return '';
+    var lines = log.steps.map(_formatFillStep).join('\n');
+    var meta = [];
+    if (s.pattern_name) meta.push(s.pattern_name);
+    if (s.source) meta.push(s.source);
+    return '<details class="pl-sug-fill-log">' +
+      '<summary>Pipeline log' + (meta.length ? ' · ' + esc(meta.join(' · ')) : '') + '</summary>' +
+      '<pre class="pl-sug-fill-log-pre">' + esc(lines) + '</pre>' +
+      '</details>';
+  }
+
+  function _sugDetailSectionHtml(s, wt) {
+    var body =
+      (s.notes ? '<div class="pl-sug-notes-line">' + esc(s.notes) + '</div>' : '') +
+      _sugSessionPaneHtml(s, wt) +
+      _sugPipelineLogHtml(s);
+    if (!body) return '';
+    // Added sessions stay compact — expand to re-check the fill.
+    if (s._added) {
+      var bits = [];
+      if (Array.isArray(s.exercises) && s.exercises.length) bits.push(s.exercises.length + ' exercises');
+      else if (Array.isArray(s.blocks) && s.blocks.length) bits.push(s.blocks.length + ' blocks');
+      var meta = bits.length ? ' · ' + bits.join(' · ') : '';
+      return '<details class="pl-sug-collapsed">' +
+        '<summary>Session detail (added)' + meta + '</summary>' +
+        body +
+        '</details>';
     }
-    if (log.steps && log.steps.length) {
-      var lines = log.steps.map(_formatFillStep).join('\n');
-      var meta = [];
-      if (s.pattern_name) meta.push(s.pattern_name);
-      if (s.source) meta.push(s.source);
-      parts.push('<details class="pl-sug-fill-log">' +
-        '<summary>Pipeline log' + (meta.length ? ' · ' + esc(meta.join(' · ')) : '') + '</summary>' +
-        '<pre class="pl-sug-fill-log-pre">' + esc(lines) + '</pre>' +
-        '</details>');
-    }
-    return parts.join('');
+    return body;
   }
 
   function _sugHasDetail(s) {
@@ -5006,7 +4952,7 @@ information about.
 
   function _buildSugRow(s, idx) {
     var wrap = document.createElement('div');
-    wrap.className = 'pl-sug-row-wrap';
+    wrap.className = 'pl-sug-row-wrap' + (s._added ? ' is-added' : '');
     wrap.dataset.idx = idx;
 
     var wt = (s.workout_type || 'rest').toLowerCase();
@@ -5041,6 +4987,7 @@ information about.
           ? '<span class="pl-sug-adjust">' +
               '<button type="button" class="pl-sug-adj" data-adj="lighter" data-idx="' + idx + '" title="Lighter loads / fewer sets, or fewer interval repeats"' + (hasDetail ? '' : ' disabled') + '>▾ Lighter</button>' +
               '<button type="button" class="pl-sug-adj" data-adj="harder" data-idx="' + idx + '" title="Heavier loads / more sets, or more interval repeats"' + (hasDetail ? '' : ' disabled') + '>▴ Harder</button>' +
+              '<button type="button" class="pl-sug-reshuffle" data-idx="' + idx + '" title="Re-roll exercise picks (same duration &amp; subtype)"' + (hasDetail ? '' : ' disabled') + '>⟳ Reshuffle</button>' +
               '<button type="button" class="pl-sug-update" data-idx="' + idx + '" title="Re-fill from patterns using the current duration and subtype">↻ Update</button>' +
             '</span>' +
             (s._added
@@ -5050,17 +4997,14 @@ information about.
                   ' title="' + (hasDetail ? 'Add this session to the week draft' : 'Fill the session from patterns first') + '">Add</button>')
           : '') +
       '</div>' +
-      (s.notes ? '<div class="pl-sug-notes-line">' + esc(s.notes) + '</div>' : '') +
-      _sugExercisesHtml(wt !== 'rest' ? s.exercises : null) +
-      _sugBlocksHtml(wt === 'run' ? s.blocks : null) +
-      _sugFillLogHtml(s);
+      _sugDetailSectionHtml(s, wt);
 
     var typeSel = wrap.querySelector('.pl-sug-type-select');
     typeSel.addEventListener('change', function () {
       var prev = s.workout_type;
       s.workout_type = typeSel.value;
       if (typeSel.value === 'rest') { s.target_tss = 0; s.duration_minutes = 0; }
-      if (prev !== typeSel.value) { s.exercises = null; s.blocks = null; s._ai = false; s.subtype = null; s.fill_log = null; s.pattern_name = null; s.source = null; }
+      if (prev !== typeSel.value) { s.exercises = null; s.blocks = null; s._ai = false; s.subtype = null; s.fill_log = null; s.pattern_name = null; s.source = null; s._muscle_footprint = null; }
       _renderSuggestions(_suggestionsData); // small list — cheap full re-render
     });
 
@@ -5070,7 +5014,7 @@ information about.
         s.subtype = subSel.value || null;
         // Duration/subtype drive pattern fill — clear stale content until Update.
         s.exercises = null; s.blocks = null; s._ai = false; s.intent = null; s.notes = null;
-        s.fill_log = null; s.pattern_name = null; s.source = null;
+        s.fill_log = null; s.pattern_name = null; s.source = null; s._muscle_footprint = null;
         _renderSuggestions(_suggestionsData);
       });
     }
@@ -5085,7 +5029,7 @@ information about.
     durIn.addEventListener('change', function () {
       s.duration_minutes = Math.max(0, Math.min(600, parseInt(durIn.value, 10) || 0));
       s.exercises = null; s.blocks = null; s._ai = false; s.intent = null; s.notes = null;
-      s.fill_log = null; s.pattern_name = null; s.source = null;
+      s.fill_log = null; s.pattern_name = null; s.source = null; s._muscle_footprint = null;
       _renderSuggestions(_suggestionsData);
     });
 
@@ -5121,6 +5065,25 @@ information about.
         });
       });
     }
+
+    var reshuffleBtn = wrap.querySelector('.pl-sug-reshuffle');
+    if (reshuffleBtn) {
+      reshuffleBtn.addEventListener('click', function () {
+        if (!_sugHasDetail(s)) return;
+        reshuffleBtn.disabled = true;
+        reshuffleBtn.textContent = '…';
+        // Fresh seed → strength/plyo re-picks; runs stay deterministic.
+        _generateSlot(s, null, { reshuffle: true }).then(function () {
+          _renderSuggestions(_suggestionsData);
+        }).catch(function (e) {
+          reshuffleBtn.disabled = false;
+          reshuffleBtn.textContent = '⟳ Reshuffle';
+          if (window.UIStates && window.UIStates.showToast) {
+            window.UIStates.showToast(e.message || 'Reshuffle failed', true);
+          }
+        });
+      });
+    }
     return wrap;
   }
 
@@ -5151,6 +5114,12 @@ information about.
       body.structure = { exercises: s.exercises };
     } else if (Array.isArray(s.blocks) && s.blocks.length) {
       body.structure = { blocks: s.blocks };
+    }
+    if (body.structure) {
+      if (s.target_tss != null) body.structure.target_tss = s.target_tss;
+      if (s.duration_minutes != null) body.structure.duration_minutes = s.duration_minutes;
+      if (s._muscle_footprint) body.structure._muscle_footprint = s._muscle_footprint;
+      if (s.subtype) body.structure.subtype = s.subtype;
     }
 
     function _doAdd() {
@@ -5642,18 +5611,24 @@ information about.
   // Keeps the slot's own day/type/TSS/duration authoritative — content
   // (intent/notes/exercises/blocks) comes from deterministic pattern fill
   // (POST /api/plan/suggestions/session → plan_pattern_fill). No LLM.
-  function _generateSlot(s, statusEl) {
+  function _generateSlot(s, statusEl, opts) {
+    opts = opts || {};
+    var body = {
+      date: _formatSugDate(s.day_offset),
+      workout_type: s.workout_type,
+      note: null,
+      target_tss: s.target_tss || null,
+      duration_minutes: s.duration_minutes || null,
+      subtype: s.subtype || null,
+    };
+    if (opts.reshuffle) {
+      // New seed each click so strength/plyo picks re-roll. Runs ignore RNG.
+      body.seed = (Date.now() ^ Math.floor(Math.random() * 0xFFFFFFFF)) >>> 0;
+    }
     return fetch('/api/plan/suggestions/session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        date: _formatSugDate(s.day_offset),
-        workout_type: s.workout_type,
-        note: null,
-        target_tss: s.target_tss || null,
-        duration_minutes: s.duration_minutes || null,
-        subtype: s.subtype || null,
-      }),
+      body: JSON.stringify(body),
     })
       .then(function (r) {
         return r.json().then(function (d) {
@@ -5670,6 +5645,8 @@ information about.
         s.source = g.source || s.source || null;
         s.pattern_name = g.pattern_name || null;
         s.fill_log = g.fill_log || null;
+        s._muscle_footprint = g._muscle_footprint || null;
+        s.seed = g.seed != null ? g.seed : (body.seed != null ? body.seed : null);
         s._ai = true; // "filled" flag (name is historical; content is pattern-based)
       });
   }

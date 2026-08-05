@@ -99,49 +99,19 @@ def test_run_budget_trace_no_strength_fields():
     assert pick.get("score") is None
 
 
-def test_preview_ui_shell_has_reshuffle_and_pool_summary():
-    root = Path(__file__).resolve().parents[1]
-    html = (root / "frontend" / "pages" / "admin-plan-library.html").read_text(encoding="utf-8")
-    js = (root / "frontend" / "js" / "admin-plan-library.js").read_text(encoding="utf-8")
-    assert 'id="btn-reshuffle"' in html
-    assert 'id="pool-summary"' in html
-    assert "Live fill preview" in html
-    assert "slice(1, 3)" in js
-    assert "/api/admin/plan-library/pool-counts" in js
-    assert "reshuffle: true" in js
-    assert "__planLibraryPreview" in js
-
-
 def test_budget_trace_html_runners_up_via_node():
     """Render every op type; runners-up shows at most 2."""
-    import json
     import shutil
     import subprocess
 
     if not shutil.which("node"):
         pytest.skip("node not available")
     root = Path(__file__).resolve().parents[1]
-    js_path = root / "frontend" / "js" / "admin-plan-library.js"
-    # Minimal harness: load esc+budgetTraceHtml by evaluating exported hook needs DOM.
-    # Instead, replicate the runners-up slice contract and op coverage with a stub.
-    harness = r"""
-function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-"""
-    # Pull budgetTraceHtml + helpers from file between markers
+    js_path = root / "frontend" / "js" / "lib" / "plan-fill-preview.js"
     src = js_path.read_text(encoding="utf-8")
-    # Use the window export path via vm — call functions by evaling excerpt
-    start = src.index("  function budgetRemainHtml")
-    end = src.index("  function formatFillStep")
-    body = src[start:end]
-    # Strip leading 2-space indent to top-level
-    lines = []
-    for line in body.splitlines():
-        if line.startswith("  "):
-            lines.append(line[2:])
-        else:
-            lines.append(line)
-    body = "\n".join(lines)
-    script = harness + "\n" + body + "\n" + r"""
+    # Evaluate the IIFE and call PlanFillPreview.budgetTraceHtml
+    script = src + r"""
+const budgetTraceHtml = PlanFillPreview.budgetTraceHtml;
 const trace = [
   {op:'budget_start', remain_tss:50, remain_min:45},
   {op:'group_open', key:'warmup', label:'Warm-up', n:2, group_tss:5, group_min:6},
@@ -165,13 +135,11 @@ if (html.includes('D 0.7')) throw new Error('runners-up leaked 3rd');
 if (!html.includes('skip Accessories')) throw new Error('skip');
 if (!html.includes('Budget exhausted')) throw new Error('exhausted');
 if (!html.includes('Done · 2')) throw new Error('end');
-// no top → no runners-up
 const html2 = budgetTraceHtml([
   {op:'budget_pick', name:'Solo', sets:1, reps:'5', load:'bw', spend_min:1, spend_tss:1,
    score:1, bias:1, random:1, remain_tss_after:0, remain_min_after:0}
 ], null);
 if (html2.includes('runners-up')) throw new Error('empty top');
-// run pick — no sets×reps
 const html3 = budgetTraceHtml([
   {op:'budget_pick', kind:'run', name:'main', duration_min:10, repeat:3, rest_min:2,
    target:'tempo', pace_mult:1.02, spend_min:34, spend_tss:30,
@@ -188,6 +156,23 @@ console.log('ok');
         timeout=10,
     )
     assert r.returncode == 0, r.stderr or r.stdout
+
+
+def test_preview_ui_shell_has_reshuffle_and_pool_summary():
+    root = Path(__file__).resolve().parents[1]
+    html = (root / "frontend" / "pages" / "admin-plan-library.html").read_text(encoding="utf-8")
+    js = (root / "frontend" / "js" / "admin-plan-library.js").read_text(encoding="utf-8")
+    shared = (root / "frontend" / "js" / "lib" / "plan-fill-preview.js").read_text(encoding="utf-8")
+    assert 'id="btn-reshuffle"' in html
+    assert 'id="pool-summary"' in html
+    assert "Live fill preview" in html
+    assert "plan-fill-preview.js" in html
+    assert "slice(1, 3)" in shared
+    assert "sessionPaneHtml" in shared
+    assert "/api/admin/plan-library/pool-counts" in js
+    assert "reshuffle: true" in js
+    assert "__planLibraryPreview" in js
+    assert "PlanFillPreview" in js
 
 
 @pytest.fixture

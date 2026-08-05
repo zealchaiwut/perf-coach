@@ -667,195 +667,19 @@
   var _lastPoolCounts = null;
   var _lastPreviewBody = '';
 
-  function budgetRemainHtml(tss, mins, note) {
-    return '<div class="bt-remain">remaining ' + esc(tss) + ' TSS · ' + esc(mins) + ' min' +
-      (note ? ' <span class="bt-note">[' + esc(note) + ']</span>' : '') +
-      '</div>';
+  // Preview pane HTML — shared with Plan suggestions (js/lib/plan-fill-preview.js)
+  var _PFP = window.PlanFillPreview;
+  if (!_PFP) {
+    console.error('PlanFillPreview missing — load js/lib/plan-fill-preview.js first');
+    _PFP = {
+      sessionPaneHtml: function () { return '<div class="preview-error">Preview module missing</div>'; },
+      budgetTraceHtml: function () { return ''; },
+      poolCountIndex: function () { return { byKey: {}, byLabel: {} }; },
+      ensureStyles: function () {},
+    };
   }
-
-  function poolCountIndex(poolCounts) {
-    var byKey = {};
-    var byLabel = {};
-    ((poolCounts && poolCounts.blocks) || []).forEach(function (b) {
-      if (b.key) byKey[b.key] = b;
-      if (b.label) byLabel[b.label] = b;
-    });
-    return { byKey: byKey, byLabel: byLabel };
-  }
-
-  function poolInCount(idx, ev) {
-    var b = null;
-    if (ev.key && idx.byKey[ev.key]) b = idx.byKey[ev.key];
-    else if (ev.label && idx.byLabel[ev.label]) b = idx.byLabel[ev.label];
-    return b && b.matched_count != null ? b.matched_count : null;
-  }
-
-  function pickSpendLine(ev) {
-    var spend = '<span class="bt-spend-val">' + esc(ev.spend_min) + ' min, ' +
-      esc(ev.spend_tss) + ' TSS</span>';
-    var isRun = ev.kind === 'run' || (ev.sets == null && (ev.pace_mult != null || ev.duration_min != null));
-    if (isRun) {
-      var bits = [];
-      var rep = ev.repeat != null ? Number(ev.repeat) : 0;
-      var per = ev.duration_min != null ? Number(ev.duration_min) : null;
-      if (rep > 1 && per != null) bits.push(rep + ' × ' + per + ' min');
-      else if (per != null) bits.push(per + ' min');
-      else if (ev.block_min != null) bits.push(ev.block_min + ' min');
-      if (ev.target) bits.push(String(ev.target));
-      if (ev.rest_min != null && rep > 1) bits.push(ev.rest_min + ' min rest');
-      return bits.join(' · ') + ' → ' + spend;
-    }
-    return (ev.sets != null ? ev.sets : '?') + ' × ' + (ev.reps || '?') +
-      (ev.load ? ' · ' + ev.load : '') + ' → ' + spend;
-  }
-
-  function pickScoreLine(ev) {
-    if (ev.score != null && ev.bias != null && ev.random != null) {
-      return '<div class="bt-score-line">score <span class="bt-score">' + esc(ev.score) +
-        '</span> = bias ' + esc(ev.bias) + ' × random ' + esc(ev.random) + '</div>';
-    }
-    if (ev.pace_mult != null) {
-      var pace = Number(ev.pace_mult);
-      var line = 'pace ×' + (isFinite(pace) ? pace.toFixed(2) : esc(ev.pace_mult)) + ' threshold';
-      if (ev.target) line += ' · ' + ev.target;
-      return '<div class="bt-score-line">' + esc(line) + '</div>';
-    }
-    return '';
-  }
-
-  function budgetTraceHtml(trace, poolCounts) {
-    if (!trace || !trace.length) return '';
-    var idx = poolCountIndex(poolCounts);
-    var html = [];
-    var groupOpen = false;
-    var pickBuf = [];
-
-    function flushPicks() {
-      if (!pickBuf.length) return;
-      html.push('<div class="bt-picks">' + pickBuf.join('') + '</div>');
-      pickBuf = [];
-    }
-    function closeGroup() {
-      flushPicks();
-      if (groupOpen) {
-        html.push('</div>');
-        groupOpen = false;
-      }
-    }
-
-    trace.forEach(function (ev) {
-      var op = ev.op || '';
-      if (op === 'budget_start') {
-        html.push('<div class="bt-start">session ' + esc(ev.remain_tss) + ' TSS · ' +
-          esc(ev.remain_min) + ' min</div>');
-        return;
-      }
-      if (op === 'group_open') {
-        closeGroup();
-        var inPool = poolInCount(idx, ev);
-        var meta = esc(ev.group_tss) + ' TSS / ' + esc(ev.group_min) + ' min';
-        if (inPool != null) meta += ' · ' + inPool + ' in pool';
-        html.push('<div class="bt-group">' +
-          '<div class="bt-group-h">' +
-          '<span class="bt-group-label">' + esc(ev.label || 'Group') +
-          ' · pick ' + esc(ev.n) + '</span>' +
-          '<span class="bt-group-meta">' + meta + '</span>' +
-          '</div>');
-        groupOpen = true;
-        return;
-      }
-      if (op === 'group_skip') {
-        closeGroup();
-        html.push('<div class="bt-group bt-group-skip">' +
-          '<div class="bt-group-h"><span class="bt-group-label">skip ' +
-          esc(ev.label || '') + '</span>' +
-          (ev.reason ? '<span class="bt-group-meta">' + esc(ev.reason) + '</span>' : '') +
-          '</div></div>');
-        return;
-      }
-      if (op === 'budget_remain') {
-        if (ev.note) {
-          pickBuf.push('<div class="bt-inline">' + budgetRemainHtml(ev.remain_tss, ev.remain_min, ev.note) + '</div>');
-        }
-        return;
-      }
-      if (op === 'budget_pick') {
-        var alts = '';
-        if (ev.top && ev.top.length > 1) {
-          alts = '<div class="bt-alts">runners-up: ' +
-            ev.top.slice(1, 3).map(function (t) {
-              return esc(t.name) + ' ' + esc(t.score);
-            }).join(', ') + '</div>';
-        }
-        pickBuf.push(
-          '<div class="bt-pick">' +
-            '<span class="bt-name">' + esc(ev.name || '?') + '</span>' +
-            '<span class="bt-rx">' + pickSpendLine(ev) + '</span>' +
-            pickScoreLine(ev) +
-            alts +
-            budgetRemainHtml(ev.remain_tss_after, ev.remain_min_after, ev.note || null) +
-          '</div>'
-        );
-        return;
-      }
-      if (op === 'budget_exhausted') {
-        flushPicks();
-        html.push('<div class="bt-exhausted">Budget exhausted · ' +
-          esc(ev.remain_tss) + ' TSS, ' + esc(ev.remain_min) + ' min left</div>');
-        return;
-      }
-      if (op === 'budget_end') {
-        closeGroup();
-        var nLabel = ev.kind === 'run' ? 'blocks' : 'exercises';
-        html.push('<div class="bt-end">Done · ' + esc(ev.exercise_count) + ' ' + nLabel +
-          ' · leftover ' + esc(ev.remain_tss) + ' TSS, ' + esc(ev.remain_min) + ' min</div>');
-      }
-    });
-    closeGroup();
-    return html.join('');
-  }
-
-  function formatFillStep(step) {
-    var op = step.op || '?';
-    if (op === 'normalize_subtype') {
-      return op + ': ' + (step.from || '∅') + ' → ' + (step.to || '∅') +
-        ' · ' + (step.duration_minutes || 0) + ' min · TSS ' +
-        (step.target_tss != null ? step.target_tss : '—');
-    }
-    if (op === 'select_pattern') {
-      if (step.picked === null) {
-        return op + ': none (' + (step.reason || '') + ')';
-      }
-      var band = step.duration_band || [];
-      return op + ': "' + (step.name || '') + '" [' +
-        (band[0] != null ? band[0] : '?') + '–' +
-        (band[1] != null ? band[1] : '?') + ' min]';
-    }
-    if (op === 'fill_strength') {
-      return op + ' · ' + (step.exercise_count || 0) + ' exercises' +
-        (step.blocks && step.blocks.length ? ' · ' + step.blocks.join(', ') : '');
-    }
-    if (op === 'validate') {
-      if (step.ok) return op + ': ok';
-      return op + ': FAILED' +
-        ((step.errors && step.errors.length) ? '\n  ' + step.errors.join('\n  ') : '');
-    }
-    if (op === 'fallback' || op === 'template') {
-      return op + (step.to ? ' → ' + step.to : '') +
-        (step.reason ? ' (' + step.reason + ')' : '');
-    }
-    try { return op + ': ' + JSON.stringify(step); }
-    catch (e) { return op; }
-  }
-
-  function fillLogHtml(log, poolCounts) {
-    if (!log) return '';
-    var trace = log.budget_trace || [];
-    var budgetBody = budgetTraceHtml(trace, poolCounts);
-    if (!budgetBody) return '';
-    return '<div class="budget-trace-block">' +
-      '<div class="budget-trace-list">' + budgetBody + '</div></div>';
-  }
+  function budgetTraceHtml(trace, poolCounts) { return _PFP.budgetTraceHtml(trace, poolCounts); }
+  function poolCountIndex(poolCounts) { return _PFP.poolCountIndex(poolCounts); }
 
   function renderPoolSummary(poolCounts, subtype) {
     var el = document.getElementById('pool-summary');
@@ -945,120 +769,6 @@
     }).catch(function () { renderPoolSummary(null); });
   }
 
-  function muscleSummaryHtml(summary, footprint) {
-    var rows = summary && summary.length
-      ? summary
-      : Object.keys(footprint || {}).map(function (p) {
-          return { part: p, tss: footprint[p] };
-        }).sort(function (a, b) { return b.tss - a.tss; });
-    if (!rows.length) {
-      return '<div class="muted">No muscle TSS yet — exercises need body_parts.</div>';
-    }
-    var max = rows.reduce(function (m, r) { return Math.max(m, Number(r.tss) || 0); }, 0);
-    var total = rows.reduce(function (s, r) { return s + (Number(r.tss) || 0); }, 0);
-    var PART_LABEL = {
-      calf: 'calf / shin',
-      quad: 'quad',
-      hamstring: 'hamstring',
-      glute: 'glute',
-      hip: 'hip',
-      core: 'core',
-      back: 'back',
-      shoulder: 'shoulder',
-      chest: 'chest',
-      arm: 'arm',
-      other: 'other',
-    };
-
-    var table = '<table class="muscle-tss-table"><thead><tr>' +
-      '<th>Muscle</th><th class="num">TSS</th><th class="num">%</th></tr></thead><tbody>' +
-      rows.map(function (r) {
-        var tss = Number(r.tss) || 0;
-        var pct = total > 0 ? Math.round(tss / total * 100) : 0;
-        var w = max > 0 ? Math.round(tss / max * 100) : 0;
-        var label = PART_LABEL[r.part] || r.part;
-        return '<tr><td>' + esc(label) +
-          '<span class="muscle-bar" style="width:' + w + '%"></span></td>' +
-          '<td class="num">' + tss.toFixed(1) + '</td>' +
-          '<td class="num">' + pct + '%</td></tr>';
-      }).join('') +
-      '</tbody><tfoot><tr><td>Total</td><td class="num">' + total.toFixed(1) +
-      '</td><td class="num">100%</td></tr></tfoot></table>';
-
-    return table;
-  }
-
-  function exerciseTableHtml(exs) {
-    var totalTss = 0;
-    var totalMin = 0;
-    var rows = exs.map(function (x) {
-      var tss = x.spend_tss != null ? Number(x.spend_tss) : null;
-      var mins = x.spend_min != null ? Number(x.spend_min) : null;
-      if (tss != null) totalTss += tss;
-      if (mins != null) totalMin += mins;
-      var sr = (x.sets != null && x.reps != null) ? (x.sets + ' × ' + x.reps) : '';
-      return '<tr><td>' + esc(x.name || '') + '</td>' +
-        '<td class="muted">' + esc(x.block || '') + '</td>' +
-        '<td>' + esc(sr + (x.load ? ' · ' + x.load : '')) + '</td>' +
-        '<td class="num">' + (mins != null ? mins.toFixed(1) : '—') + '</td>' +
-        '<td class="num">' + (tss != null ? tss.toFixed(1) : '—') + '</td></tr>';
-    }).join('');
-    return '<table class="preview-ex-table"><thead><tr>' +
-      '<th>Exercise</th><th>Block</th><th>Prescription</th>' +
-      '<th class="num">Min</th><th class="num">TSS</th></tr></thead><tbody>' + rows +
-      '</tbody><tfoot><tr><td colspan="3">Session spend</td>' +
-      '<td class="num">' + totalMin.toFixed(1) + '</td>' +
-      '<td class="num">' + totalTss.toFixed(1) + '</td></tr></tfoot></table>';
-  }
-
-  function runBlockPrescription(b) {
-    var bits = [];
-    var rep = b.repeat != null ? Number(b.repeat) : 0;
-    var per = b.duration_min != null ? Number(b.duration_min) : null;
-    var rest = b.rest_min != null ? Number(b.rest_min) : null;
-    var pace = b.pace_mult != null ? Number(b.pace_mult) : null;
-    if (rep > 1 && per != null) {
-      bits.push(rep + ' × ' + per + ' min');
-    } else if (per != null) {
-      bits.push(per + ' min');
-    }
-    if (b.target) bits.push(String(b.target));
-    if (pace != null && isFinite(pace)) {
-      bits.push('@ ×' + pace.toFixed(2) + ' threshold');
-    }
-    if (rep > 1 && rest != null) bits.push(rest + ' min rest');
-    return bits.join(' · ');
-  }
-
-  function blocksTableHtml(blocks) {
-    var totalTss = 0;
-    var totalMin = 0;
-    var rows = (blocks || []).map(function (b) {
-      var tss = b.spend_tss != null ? Number(b.spend_tss) : null;
-      var mins = b.block_min != null ? Number(b.block_min) : (
-        b.duration_min != null ? Number(b.duration_min) : null
-      );
-      // Wall time for repeats: work×rep + rest×(rep−1)
-      var rep = b.repeat != null ? Number(b.repeat) : 0;
-      if (rep > 1 && b.duration_min != null) {
-        var rest = b.rest_min != null ? Number(b.rest_min) : 0;
-        mins = Number(b.duration_min) * rep + rest * Math.max(0, rep - 1);
-      }
-      if (tss != null) totalTss += tss;
-      if (mins != null) totalMin += mins;
-      return '<tr><td>' + esc(b.phase || '') + '</td>' +
-        '<td>' + esc(runBlockPrescription(b)) + '</td>' +
-        '<td class="num">' + (mins != null ? mins.toFixed(0) : '—') + '</td>' +
-        '<td class="num">' + (tss != null ? tss.toFixed(1) : '—') + '</td></tr>';
-    }).join('');
-    return '<table class="preview-ex-table"><thead><tr>' +
-      '<th>Phase</th><th>Prescription</th>' +
-      '<th class="num">Min</th><th class="num">TSS</th></tr></thead><tbody>' + rows +
-      '</tbody><tfoot><tr><td colspan="2">Session spend</td>' +
-      '<td class="num">' + totalMin.toFixed(0) + '</td>' +
-      '<td class="num">' + totalTss.toFixed(1) + '</td></tr></tfoot></table>';
-  }
-
   function previewFill(opts) {
     opts = opts || {};
     var reshuffle = !!opts.reshuffle;
@@ -1118,25 +828,15 @@
         return;
       }
 
-      var main = '';
-      if (isRun && blocks.length) {
-        main = blocksTableHtml(blocks);
-      } else if (exs.length) {
-        main = exerciseTableHtml(exs);
-      } else {
-        main = '<div class="muted">No content returned — check patterns / pool.</div>';
-      }
-      html += '<div class="preview-layout">' +
-        '<div class="preview-pane preview-pane-ex">' +
-          '<div class="preview-pane-h">' + (isRun ? 'Session blocks' : 'Exercises') + '</div>' +
-          main +
-        '</div>' +
-        '<aside class="preview-pane preview-side">' +
-          '<div class="preview-pane-h">Muscle TSS</div>' +
-          muscleSummaryHtml(d.muscle_summary, d.muscle_footprint) +
-        '</aside></div>';
-
-      html += fillLogHtml(d.fill_log || { budget_trace: d.budget_trace }, d.pool_counts || _lastPoolCounts);
+      html += _PFP.sessionPaneHtml({
+        exercises: exs,
+        blocks: blocks,
+        workout_type: d.workout_type || (isRun ? 'run' : 'strength'),
+        muscle_summary: d.muscle_summary,
+        muscle_footprint: d.muscle_footprint,
+        fill_log: d.fill_log || { budget_trace: d.budget_trace },
+        pool_counts: d.pool_counts || _lastPoolCounts,
+      }, { alwaysMuscle: true });
       _lastPreviewBody = html;
       out.innerHTML = html;
       _previewHasRun = true;
@@ -1756,6 +1456,31 @@
 
   var _importScope = 'exercises';
 
+  /** Normalize paste/file JSON into a list of row objects for the active scope. */
+  function normalizeImportItems(parsed, scope) {
+    if (Array.isArray(parsed)) return parsed;
+    if (!parsed || typeof parsed !== 'object') return [];
+    if (scope === 'patterns') {
+      if (Array.isArray(parsed.patterns)) return parsed.patterns;
+      if (parsed.catalog && Array.isArray(parsed.catalog.patterns)) {
+        return parsed.catalog.patterns;
+      }
+      // Single pattern object (has kind + subtype + recipe)
+      if (parsed.kind && parsed.subtype && parsed.recipe) return [parsed];
+      return [];
+    }
+    if (Array.isArray(parsed.exercises)) return parsed.exercises;
+    if (parsed.catalog && Array.isArray(parsed.catalog.exercises)) {
+      return parsed.catalog.exercises;
+    }
+    // Single exercise object
+    if (parsed.name && (parsed.groups || parsed.body_parts || parsed.focus_tags)) {
+      return [parsed];
+    }
+    if (parsed.name && !parsed.patterns && !parsed.exercises) return [parsed];
+    return [];
+  }
+
   function openImportModal(scope) {
     _importScope = scope === 'patterns' ? 'patterns' : 'exercises';
     var el = document.getElementById('import-modal');
@@ -1763,19 +1488,19 @@
     var help = document.getElementById('import-help');
     var ta = document.getElementById('import-json');
     if (_importScope === 'patterns') {
-      title.textContent = 'Import patterns JSON';
+      title.textContent = 'Bulk import patterns';
       help.innerHTML =
-        'Paste Claude output (or a downloaded template). Shape: ' +
-        '<code>{ "patterns": [ … ] }</code> or a bare array. ' +
+        'Paste a JSON <strong>array</strong> of patterns, or ' +
+        '<code>{ "patterns": [ … ] }</code>. A single object is fine too. ' +
         'Upsert matches by <strong>kind + subtype + name</strong>.';
-      ta.placeholder = '{ "patterns": [ … ] }';
+      ta.placeholder = '[ { "kind": "strength", "subtype": "…", "name": "…" }, … ]';
     } else {
-      title.textContent = 'Import exercises JSON';
+      title.textContent = 'Bulk import exercises';
       help.innerHTML =
-        'Paste Claude output (or a downloaded template). Shape: ' +
-        '<code>{ "exercises": [ … ] }</code> or a bare array. ' +
+        'Paste a JSON <strong>array</strong> of exercises, or ' +
+        '<code>{ "exercises": [ … ] }</code>. A single object is fine too. ' +
         'Upsert matches by <strong>name</strong>.';
-      ta.placeholder = '{ "exercises": [ … ] }';
+      ta.placeholder = '[ { "name": "…" }, { "name": "…" } ]';
     }
     el.hidden = false;
     el.classList.add('open');
@@ -1806,33 +1531,20 @@
       resultEl.textContent = 'Invalid JSON: ' + e.message;
       return;
     }
-    var payload = { exercises: [], patterns: [], mode: 'upsert' };
-    if (Array.isArray(parsed)) {
-      if (_importScope === 'patterns') payload.patterns = parsed;
-      else payload.exercises = parsed;
-    } else if (parsed && typeof parsed === 'object') {
-      if (_importScope === 'patterns') {
-        if (Array.isArray(parsed.patterns)) payload.patterns = parsed.patterns;
-        else if (parsed.catalog && Array.isArray(parsed.catalog.patterns)) {
-          payload.patterns = parsed.catalog.patterns;
-        }
-      } else {
-        if (Array.isArray(parsed.exercises)) payload.exercises = parsed.exercises;
-        else if (parsed.catalog && Array.isArray(parsed.catalog.exercises)) {
-          payload.exercises = parsed.catalog.exercises;
-        }
-      }
-    }
-    var items = _importScope === 'patterns' ? payload.patterns : payload.exercises;
+    var items = normalizeImportItems(parsed, _importScope);
     if (!items.length) {
       resultEl.className = 'import-meta err';
       resultEl.textContent = _importScope === 'patterns'
-        ? 'No patterns found in JSON.'
-        : 'No exercises found in JSON.';
+        ? 'No patterns found — use an array, { "patterns": […] }, or one pattern object.'
+        : 'No exercises found — use an array, { "exercises": […] }, or one exercise object.';
       return;
     }
-    payload.mode = document.getElementById('import-upsert').checked ? 'upsert' : 'create';
-    resultEl.textContent = 'Importing…';
+    var payload = {
+      exercises: _importScope === 'exercises' ? items : [],
+      patterns: _importScope === 'patterns' ? items : [],
+      mode: document.getElementById('import-upsert').checked ? 'upsert' : 'create',
+    };
+    resultEl.textContent = 'Importing ' + items.length + '…';
     api('/api/admin/plan-library/import', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
