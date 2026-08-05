@@ -84,23 +84,7 @@ def test_ac_top_nav_avatar(log_html):
     assert 'header-avatar' in log_html, "Avatar element (id='header-avatar') should be in the top nav"
 
 
-# ── AC: Page header — title, subtitle, Export CSV button, Log workout button ──
-
-def test_ac_page_header_title(log_html):
-    """Page header displays 'Training log' as the h1 title."""
-    assert "<h1" in log_html and "Training log" in log_html, \
-        "Page header should contain an h1 with 'Training log'"
-
-
-def test_ac_page_header_subtitle_element(log_html):
-    """Page header has a subtitle element with id='log-subtitle' for stats display."""
-    assert 'id="log-subtitle"' in log_html, "Subtitle element with id='log-subtitle' should be present"
-
-
-def test_ac_export_csv_button_id(log_html):
-    """Export CSV button has id='log-export-btn'."""
-    assert 'id="log-export-btn"' in log_html, "Export button should have id='log-export-btn'"
-
+# ── AC: Page header — Log workout button ──
 
 def test_ac_log_new_btn_id(log_html):
     """Log workout button has id='log-new-btn'."""
@@ -271,29 +255,6 @@ def test_ac_page_loads_with_all_filter_params(client):
     res = client.get("/log?type=run&search=test&from=2026-05-01&to=2026-05-29&week=2026-05-26")
     assert res.status_code == 200
     assert "Training log" in res.text
-
-
-# ── AC: Header stats subtitle ─────────────────────────────────────────────────
-
-def test_ac_header_stats_update_fn_exists(log_js):
-    """JS has updateHeaderStats function to populate the subtitle from API data."""
-    assert 'updateHeaderStats' in log_js, "JS should have an updateHeaderStats function"
-
-
-def test_ac_header_stats_uses_log_subtitle_el(log_js):
-    """updateHeaderStats targets the #log-subtitle element."""
-    assert 'log-subtitle' in log_js, "JS should reference 'log-subtitle' element for stats"
-
-
-def test_ac_header_stats_shows_workout_count(log_js):
-    """Stats subtitle includes workout count."""
-    assert 'workout_count' in log_js or "workout" in log_js, \
-        "JS should include workout count in stats subtitle"
-
-
-def test_ac_header_stats_shows_tss(log_js):
-    """Stats subtitle includes total TSS."""
-    assert 'total_tss' in log_js, "JS should include total_tss in stats subtitle"
 
 
 # ── AC: Responsive ≤ 880 px ───────────────────────────────────────────────────

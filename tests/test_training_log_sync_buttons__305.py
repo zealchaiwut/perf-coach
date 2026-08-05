@@ -117,10 +117,6 @@ def test_stryd_title_attribute():
 
 # ── AC8: No layout regressions ───────────────────────────────────────────────
 
-def test_export_button_still_present():
-    assert 'id="log-export-btn"' in HTML
-
-
 def test_new_workout_button_still_present():
     assert 'id="log-new-btn"' in HTML
 

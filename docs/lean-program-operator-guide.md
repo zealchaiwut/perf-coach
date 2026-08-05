@@ -415,7 +415,7 @@ Working today over HTTP, no UI:
 | `body_fat_pct` on the weigh-in | accepted on create / upsert / patch, and by Hermes |
 | the consult blob | icon button beside **Copy for Claude** |
 | `/decisions` | a nav item (now `/coach` — the whole consult loop, one page) |
-| applying a consult's prefs change by hand | the **From a consult** paste box in Preferences |
+| applying a consult's prefs change | Plan → Suggest sessions → edit the prefs fields, then Save preferences |
 | paused weight tracking | stated on the Weight page |
 | habit correlation evidence | rendered on the Habits page |
 

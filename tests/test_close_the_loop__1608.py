@@ -1,14 +1,12 @@
 """Closing the consult loop — issue #1608.
 
 The paste loop is: app exports data → you paste it into Claude → Claude proposes
-a change list → you record the decision → the next export carries it back. Five
-things stopped that cycle closing.
+a change list → you record the decision → the next export carries it back.
 
-The first is the one that mattered: the consult prompt told Claude to hand over
-"the JSON patch to paste into the prefs importer", and there was no importer.
-Every consult touching a preference produced instructions for a feature that did
-not exist, and the athlete hand-translated it into Settings — silent manual work
-the app never admitted to.
+The Plan-tab "From a consult" JSON prefs importer (added so the consult prompt
+had somewhere to send patches) was later removed — prefs changes from a consult
+are applied in the Plan preferences form fields directly. Section 1 below pins
+that the prompt no longer promises a dead importer.
 """
 from __future__ import annotations
 
@@ -28,86 +26,36 @@ def plan_js() -> str:
     return PLAN_JS.read_text()
 
 
-# ── 1. The prefs importer exists ──────────────────────────────────────────────
+# ── 1. Consult no longer promises a prefs JSON importer ───────────────────────
 
-def test_the_importer_the_prompt_promises_exists(plan_js):
+def test_consult_template_does_not_promise_prefs_importer():
     from backend.services.coach_export import CONSULT_TEMPLATE
 
-    assert "prefs importer" in CONSULT_TEMPLATE, (
-        "the consult prompt no longer mentions an importer — if that promise was "
-        "removed instead, delete this test with it"
-    )
-    assert "pl-import-json" in plan_js, "the prompt promises an importer that does not exist"
+    assert "prefs importer" not in CONSULT_TEMPLATE
+    assert "JSON patch" not in CONSULT_TEMPLATE
 
 
-def test_importer_merges_rather_than_replaces(plan_js):
-    """THE safety property.
-
-    training_prefs.write_version stores `payload=normalized` wholesale with no
-    merge against the previous version, so PUTting a bare patch would erase
-    every field the patch omits. A consult produces a PATCH ("plyo 0 -> 1"),
-    never a full document — so applying one naively would silently wipe rest
-    days, notes and everything else.
-    """
-    assert "_deepMerge" in plan_js
-    body = plan_js[plan_js.index("previewBtn.addEventListener") :]
-    body = body[: body.index("applyBtn.addEventListener")]
-    assert "_collectTrainingPrefsPayload()" in body, "patch is not merged onto current prefs"
-    assert "_deepMerge(current, patch)" in body
-
-
-def test_the_merged_payload_is_what_gets_sent(plan_js):
-    """Merging and then sending the patch anyway would be worse than not
-    merging, because the preview would look right."""
-    body = plan_js[plan_js.index("applyBtn.addEventListener") :]
-    body = body[: body.index("function _paintPrefsForm") if "function _paintPrefsForm" in body else len(body)]
-    assert "_importPreview.merged" in body
-    assert "payload: _importPreview.patch" not in body
+def test_plan_prefs_has_no_consult_importer(plan_js):
+    assert "pl-import-json" not in plan_js
+    assert "_importerHtml" not in plan_js
+    assert "From a consult" not in plan_js
 
 
 def test_write_version_really_does_replace():
-    """Pins the assumption the merge exists for. If this ever starts merging
-    server-side, the client-side merge becomes redundant rather than wrong —
-    but someone should know."""
+    """Prefs PUT replaces the whole payload — partial patches would wipe omitted
+    fields. The removed consult importer existed to merge for that reason; the
+    Plan form still collects a full payload before save."""
     from backend.services import training_prefs
 
     src = inspect.getsource(training_prefs.write_version)
     assert "payload=normalized" in src
-    assert "prev.payload" not in src, "write_version now merges; revisit the importer"
-
-
-def test_importer_previews_before_applying(plan_js):
-    """A change list from an LLM is not something to apply sight-unseen."""
-    assert "_diffPayloads" in plan_js
-    assert 'id="pl-import-preview"' in plan_js
-    assert 'id="pl-import-apply"' in plan_js
-
-
-def test_invalid_json_is_reported_not_swallowed(plan_js):
-    body = plan_js[plan_js.index("previewBtn.addEventListener") :]
-    body = body[: body.index("applyBtn.addEventListener")]
-    assert "JSON.parse" in body
-    assert "not valid JSON" in body
-
-
-def test_a_non_object_patch_is_rejected(plan_js):
-    """A pasted array or string would merge into nonsense."""
-    body = plan_js[plan_js.index("previewBtn.addEventListener") :]
-    body = body[: body.index("applyBtn.addEventListener")]
-    assert "Array.isArray(patch)" in body
-
-
-def test_importer_refetches_after_applying(plan_js):
-    """Show what the server stored, not what we hoped it would store — the API
-    normalises payloads on write."""
-    body = plan_js[plan_js.index("applyBtn.addEventListener") :]
-    assert "_renderPrefsForm()" in body
+    assert "prev.payload" not in src, "write_version now merges; revisit prefs save paths"
 
 
 def test_style_version_bumped(plan_js):
     """PLAN_CSS only re-applies when its version changes; new rules without a
     bump are invisible on a warm page."""
-    assert "20260731import1" in plan_js
+    assert "20260805simple1" in plan_js
 
 
 # ── 2. Paused tracking is visible in the app ──────────────────────────────────

@@ -465,8 +465,8 @@ def refresh_plan_draft(
     body: PlanSuggestionsRequest = Body(default=None),
     user: User = Depends(resolve_user),
 ):
-    """Enqueue a plan_draft job (debounced). Does not wait for generation."""
-    from backend.services.plan_draft import enqueue_plan_draft, pipeline_enabled
+    """Synchronously refill draft content from patterns (no worker enqueue)."""
+    from backend.services.plan_draft import refresh_draft_sync, pipeline_enabled
     from backend.utils.time import today_bangkok
 
     if not pipeline_enabled():
@@ -481,8 +481,13 @@ def refresh_plan_draft(
     if ws is None:
         today = today_bangkok()
         ws = today - _timedelta(days=today.weekday())
-    job_id = enqueue_plan_draft(user.id, ws, enqueued_by="web")
-    return JSONResponse({"job_id": job_id, "week_start": ws.isoformat()}, status_code=202)
+    db = _Session(_engine)
+    try:
+        draft = refresh_draft_sync(db, user.id, ws, refresh_untouched_only=True)
+        db.commit()
+        return JSONResponse({"ok": True, "week_start": ws.isoformat(), "draft": draft})
+    finally:
+        db.close()
 
 
 class PlanDraftApplyRequest(BaseModel):
@@ -580,7 +585,7 @@ def draft_op_regen(
     body: PlanDraftRegenRequest,
     user: User = Depends(resolve_user),
 ):
-    """Enqueue async content generation for one draft slot (Generate details)."""
+    """Sync pattern-refill one draft slot (Generate details)."""
     from backend.services.plan_draft import request_slot_regen, pipeline_enabled
 
     if not pipeline_enabled():
@@ -595,12 +600,12 @@ def draft_op_regen(
             slot_id=body.slot_id,
             draft_version=body.draft_version,
         )
-        code = result.get("status_code") or 202
+        code = result.get("status_code") or 200
         if not result.get("ok"):
             db.rollback()
             raise HTTPException(status_code=code if code >= 400 else 400, detail=result)
         db.commit()
-        return JSONResponse(result, status_code=202)
+        return JSONResponse(result)
     finally:
         db.close()
 
@@ -761,8 +766,12 @@ def draft_replan_remaining(
     body: PlanDraftApplyRequest = Body(default=None),
     user: User = Depends(resolve_user),
 ):
-    """Compute replan budget from matched actual TSS + partial skeleton for open days."""
-    from backend.services.plan_draft import replan_remaining_budget, upsert_draft, enqueue_plan_draft
+    """Compute replan budget from matched actual TSS + pattern-fill open days."""
+    from backend.services.plan_draft import (
+        replan_remaining_budget,
+        upsert_draft,
+        regenerate_partial_slots,
+    )
     from backend.services.plan_skeleton_ops import ensure_slot_ids, sync_slots_from_sessions
     from backend.services.plan_slot import template_content_for_slot, stamp_session
 
@@ -793,9 +802,8 @@ def draft_replan_remaining(
             "matched_actual_tss": plan["matched_actual_tss"],
             "open_offsets": plan["open_offsets"],
             "version": 1,
-            "notify_pending": True,
+            "notify_pending": False,
         }
-        # Fill facts_signature properly
         from backend.services.plan_draft import facts_signature_for_draft
         from backend.services.plan_prefs_accessor import get_plan_prefs as _gpp
         from backend.services.plan_suggestions import assemble_facts
@@ -808,21 +816,21 @@ def draft_replan_remaining(
         )
         payload["facts_signature"] = facts_signature_for_draft(facts)
         upsert_draft(db, user.id, ws, payload, status="fresh")
-        # Enqueue content fill for non-rest / non-stretch
         need = [
             s["slot_id"] for s in sessions
             if s.get("workout_type") not in ("rest", "stretch") and s.get("source") != "user"
         ]
-        job_id = enqueue_plan_draft(user.id, ws, slot_ids=need, enqueued_by="web") if need else None
+        if need:
+            regenerate_partial_slots(db, user.id, ws, need)
         db.commit()
         return JSONResponse({
             "ok": True,
             "budget": plan["budget"],
             "matched_actual_tss": plan["matched_actual_tss"],
             "open_offsets": plan["open_offsets"],
-            "job_id": job_id,
+            "job_id": None,
             "week_start": ws.isoformat(),
-        }, status_code=202)
+        })
     finally:
         db.close()
 
@@ -899,6 +907,9 @@ class SingleSessionRequest(BaseModel):
     # Optional slot flavor (run: easy/long/intervals/tempo; strength:
     # upper/lower/full/light — see plan_suggestions.SESSION_SUBTYPES).
     subtype: Optional[str] = None
+    # Optional RNG seed for strength/plyo picks. Omit for the stable
+    # day/subtype/TSS hash; pass a fresh int to reshuffle exercise choices.
+    seed: Optional[int] = None
 
 
 @router.post("/plan/suggestions/session")
@@ -906,19 +917,10 @@ def generate_plan_session(
     body: SingleSessionRequest,
     user: User = Depends(resolve_user),
 ):
-    """Generate or refine ONE session for a single day via the LLM — shared by
-    the Add-session "Ask AI" mode (fresh session from date/type/note) and a
-    suggestion row's "Refine" action (revise an existing suggestion with a
-    note, e.g. "change strength focus" or "faster intervals").
+    """Pattern-fill ONE session from pins (subtype / TSS / duration). No LLM.
 
-    No deterministic-template fallback here (unlike the whole-week endpoint
-    above) — a single templated session isn't a meaningful substitute for a
-    specific athlete request. Returns 422 if the LLM is unavailable or
-    couldn't produce a valid session after 2 tries; the caller keeps
-    whatever it had before.
-
-    Response: {"session": {day_offset, workout_type, target_tss,
-    duration_minutes, intent, notes, exercises, blocks}}.
+    Requires target_tss and/or duration_minutes. Returns 422 without pins or
+    when pattern fill fails.
     """
     from backend.services.plan_suggestions import generate_single_session as _generate_single_session
 
@@ -937,6 +939,11 @@ def generate_plan_session(
         raise HTTPException(status_code=422, detail="target_tss must be between 0 and 400")
     if body.duration_minutes is not None and not (0 <= body.duration_minutes <= 600):
         raise HTTPException(status_code=422, detail="duration_minutes must be between 0 and 600")
+    if body.target_tss is None and body.duration_minutes is None:
+        raise HTTPException(
+            status_code=422,
+            detail="target_tss or duration_minutes required for pattern fill",
+        )
     if body.subtype is not None:
         from backend.services.plan_suggestions import (
             SESSION_SUBTYPES as _SUBTYPES,
@@ -952,19 +959,25 @@ def generate_plan_session(
             )
         body.subtype = ui_sub
 
-    session = _generate_single_session(
-        str(user.id),
-        day_offset,
-        (body.note or "").strip(),
-        workout_type=body.workout_type,
-        current_session=body.current_session,
-        week_start=week_start,
-        target_tss=body.target_tss,
-        duration_minutes=body.duration_minutes,
-        subtype=body.subtype,
-    )
+    db = _Session(_engine)
+    try:
+        session = _generate_single_session(
+            str(user.id),
+            day_offset,
+            (body.note or "").strip(),
+            workout_type=body.workout_type,
+            current_session=body.current_session,
+            week_start=week_start,
+            target_tss=body.target_tss,
+            duration_minutes=body.duration_minutes,
+            subtype=body.subtype,
+            seed=body.seed,
+            db=db,
+        )
+    finally:
+        db.close()
     if session is None:
-        raise HTTPException(status_code=422, detail="Could not generate a session for this request — try again or adjust the note.")
+        raise HTTPException(status_code=422, detail="Could not fill session from patterns — check subtype and duration.")
     return JSONResponse({"session": session})
 
 

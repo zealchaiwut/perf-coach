@@ -106,15 +106,35 @@ def attach_plyo(
         return slots
 
     # Standalone: claim a day the skeleton left rest or easy, preferring midweek
-    # so the session is fresh and far from the long run.
+    # so the session is fresh and far from the long run. If that weekday has no
+    # slot at all (sparse history skeleton), invent a short plyo day there.
     by_day = {int(s["day_offset"]): s for s in slots}
     for day in _PLYO_PREFERRED_DAYS:
         if placed >= sessions:
             break
-        slot = by_day.get(day)
-        if slot is None or _is_locked(slot) or day in rest:
+        if day in rest:
             continue
-        if not _is_rest(slot) and slot.get("subtype") != "easy_run":
+        slot = by_day.get(day)
+        if slot is None:
+            new_slot = {
+                "day_offset": day,
+                "workout_type": "plyo",
+                "subtype": "plyo",
+                "target_tss": PLYO_STANDALONE_TSS,
+                "duration_minutes": PLYO_DURATION_MIN,
+                "intent": "",
+                "notes": None,
+                "exercises": None,
+                "blocks": None,
+                "source": "prefs.plyo_mode=standalone",
+            }
+            slots.append(new_slot)
+            by_day[day] = new_slot
+            placed += 1
+            continue
+        if _is_locked(slot):
+            continue
+        if not _is_rest(slot) and not _is_easy_run_claimable(slot):
             continue
         slot.update({
             "workout_type": "plyo",
@@ -122,9 +142,23 @@ def attach_plyo(
             "target_tss": PLYO_STANDALONE_TSS,
             "duration_minutes": PLYO_DURATION_MIN,
             "source": "prefs.plyo_mode=standalone",
+            # Clear stale run content so Fill/Update builds plyo exercises.
+            "intent": "",
+            "notes": None,
+            "exercises": None,
+            "blocks": None,
         })
         placed += 1
+    slots.sort(key=lambda s: int(s.get("day_offset") or 0))
     return slots
+
+
+def _is_easy_run_claimable(slot: dict) -> bool:
+    """Standalone plyo may replace rest or an easy/untagged run — never quality."""
+    if (slot.get("workout_type") or "") != "run":
+        return False
+    sub = str(slot.get("subtype") or "").lower()
+    return sub in ("", "easy", "easy_run")
 
 
 def is_benchmark_week(week_start: _date) -> bool:
@@ -176,18 +210,40 @@ def apply_prefs_extras(
         week_start = _date.fromisoformat(raw) if isinstance(raw, str) else raw
 
     attach_stretch(slots, int(prefs.get("stretch_daily_min") or 0))
+    plyo_mode = prefs.get("plyo_mode", "off")
+    plyo_sessions = int(prefs.get("plyo_sessions_per_week") or 0)
+    # Plyo / week alone should create short sessions. Mode=off with a positive
+    # count used to no-op and left the UI looking broken; treat as standalone.
+    if plyo_sessions > 0 and (plyo_mode or "off").lower() == "off":
+        plyo_mode = "standalone"
     attach_plyo(
         slots,
-        plyo_mode=prefs.get("plyo_mode", "off"),
-        plyo_sessions_per_week=int(prefs.get("plyo_sessions_per_week") or 0),
+        plyo_mode=plyo_mode,
+        plyo_sessions_per_week=plyo_sessions,
         rest_days=rest_days,
     )
     if week_start is not None:
         attach_benchmark(slots, week_start)
+    attach_mp_segment(slots, int(prefs.get("long_run_mp_segment_min") or 0))
 
     out = dict(skeleton)
     out["slots"] = slots
     return out
+
+
+def attach_mp_segment(slots: list[dict], mp_min: int) -> list[dict]:
+    """Stamp long_run.mp_segment_min onto the week's long-run slot for pattern fill."""
+    mp_min = int(mp_min or 0)
+    if mp_min <= 0:
+        return slots
+    for slot in slots:
+        if slot.get("subtype") == "long_run" and not _is_locked(slot):
+            hints = dict(slot.get("structure_hints") or {})
+            hints["mp_segment_min"] = mp_min
+            slot["structure_hints"] = hints
+            slot["mp_segment_min"] = mp_min
+            break
+    return slots
 
 
 def planned_extras_summary(slots: list[dict]) -> dict:

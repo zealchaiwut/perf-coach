@@ -396,6 +396,8 @@ class TestThresholdSaveTrigger:
         assert (
             "rebuild_athlete_duration_curve" in src
             or "lap_recompute" in src
+            or "_trigger_performance_backfill_background" in src
+            or "backfill_performance" in src
         ), (
             "main.py must call rebuild_athlete_duration_curve when thresholds change"
         )
@@ -407,6 +409,8 @@ class TestThresholdSaveTrigger:
         assert (
             "rebuild_athlete_duration_curve" in src
             or "lap_recompute" in src
+            or "_trigger_performance_backfill_background" in src
+            or "backfill_performance" in src
         ), (
             "main.py must trigger the recompute pipeline when thresholds are accepted"
         )
@@ -596,8 +600,13 @@ class TestTriggerSameOutcomeAsBackfill:
         main_src = inspect.getsource(main_mod)
         script_src = inspect.getsource(script_mod)
 
-        assert "rebuild_athlete_duration_curve" in main_src, (
-            "main.py trigger must call rebuild_athlete_duration_curve"
+        assert (
+            "rebuild_athlete_duration_curve" in main_src
+            or "_trigger_performance_backfill_background" in main_src
+            or "backfill_performance" in main_src
+        ), (
+            "main.py trigger must call rebuild_athlete_duration_curve "
+            "(directly or via _trigger_performance_backfill_background)"
         )
         assert (
             "rebuild_athlete_duration_curve" in script_src

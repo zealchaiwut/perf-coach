@@ -430,6 +430,11 @@ _PERMANENT_EXEMPT_API: dict[str, str] = {
         "render.yaml's healthCheckPath for both services — Render's own "
         "prober is the caller, not the frontend or another backend process."
     ),
+    "/api/health/schema": (
+        "Ops/smoke probe for alembic head drift (issue #1580). Called by "
+        "external smoke scripts and humans, never by the app frontend — "
+        "same class of caller as /api/health."
+    ),
     "/api/plan/draft/ops/add": (
         "Reachable: training-plan.js's _draftOp(op, body) fetches "
         "'/api/plan/draft/ops/' + op at line 452, and _draftOp('add', ...) "
@@ -606,8 +611,9 @@ _BASELINE_ORPHANS_API: dict[str, str] = {
     "/api/training-load/recompute": "No frontend caller (see cluster note above).",
     "/api/training-load/refresh": "No frontend caller (see cluster note above). The one 'refresh' hit anywhere in frontend is an unrelated <meta http-equiv=\"refresh\"> tag in preferences.html.",
 
-    # training-performance.js and training-plan.js use /api/training/gap-analysis,
-    # /api/training/muscle-load and /api/training/plan-check — not these five.
+    # training-performance.js / training-plan.js use /api/training/muscle-load
+    # and /api/training/plan-check — not these five. (gap-analysis HTTP surface
+    # was removed with the Plan-tab What-to-improve panel.)
     "/api/training/daily-load": "No frontend caller; distinct from /api/athletes/{id}/daily-load, which IS called (training-log.js, lib/load-readiness-tiles.js).",
     "/api/training/form-metrics": "No frontend caller (see cluster note above).",
     "/api/training/structural-dose": "No frontend caller (see cluster note above).",

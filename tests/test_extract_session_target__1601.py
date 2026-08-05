@@ -50,15 +50,23 @@ def test_daily_brief_exports_the_shared_function():
 
 def test_both_callers_resolve_to_the_same_function_object():
     """Identity check: importing from worker_app and from daily_brief yields
-    the same callable — not two copies that happen to look alike."""
+    the same callable — not two copies that happen to look alike.
+
+    Compare by origin (module + qualname) rather than ``is``: a full suite
+    can reload ``daily_brief`` between imports, which produces two function
+    objects with identical source and would flake a pure identity assert.
+    """
     import backend.worker_app as worker
     from backend.services.daily_brief import extract_session_target
 
     # worker uses the alias _extract_target; grab the underlying function.
     worker_fn = getattr(worker, "_extract_target", None)
     assert worker_fn is not None, "worker_app has no _extract_target at module level"
-    assert worker_fn is extract_session_target, (
-        "_extract_target in worker_app is a different object from "
+    assert worker_fn.__module__ == extract_session_target.__module__, (
+        "_extract_target in worker_app is not from daily_brief — the duplication is back"
+    )
+    assert worker_fn.__qualname__ == extract_session_target.__qualname__, (
+        "_extract_target in worker_app is a different function from "
         "extract_session_target in daily_brief — the duplication is back"
     )
 

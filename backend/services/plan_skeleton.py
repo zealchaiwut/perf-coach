@@ -521,6 +521,10 @@ def assemble_week(
             "structure_hints": slot.get("structure_hints") or {},
             "locked": bool(slot.get("locked")),
         }
+        if isinstance(c.get("_muscle_footprint"), dict):
+            sess["_muscle_footprint"] = c["_muscle_footprint"]
+        if c.get("pattern_name"):
+            sess["pattern_name"] = c["pattern_name"]
         sessions.append(sess)
 
     sanity_errors: list[str] = []

@@ -82,16 +82,22 @@ def test_refresh_endpoint_400_when_pipeline_off(monkeypatch):
 
 
 def test_refresh_endpoint_202_when_pipeline_on(monkeypatch):
-    """Inverse sanity: POST /api/plan/draft/refresh succeeds (202) when pipeline is on."""
+    """Inverse sanity: POST /api/plan/draft/refresh succeeds when pipeline is on.
+
+    Sync pattern-fill refresh returns 200 (no worker enqueue / 202).
+    """
     monkeypatch.setattr(pd, "PLAN_PIPELINE", "skeleton_v2")
     user = _make_user()
     app.dependency_overrides[resolve_user] = lambda: user
     try:
         client = TestClient(app, raise_server_exceptions=False)
-        with mock.patch("backend.services.plan_draft.enqueue_plan_draft", return_value="fake-job"):
+        with mock.patch(
+            "backend.services.plan_draft.refresh_draft_sync",
+            return_value={"week_start": "2026-07-13", "payload": {}, "status": "fresh"},
+        ):
             res = client.post("/api/plan/draft/refresh")
-        assert res.status_code == 202, (
-            f"Expected 202 when pipeline is on, got {res.status_code}: {res.text}"
+        assert res.status_code == 200, (
+            f"Expected 200 when pipeline is on, got {res.status_code}: {res.text}"
         )
     finally:
         app.dependency_overrides.pop(resolve_user, None)

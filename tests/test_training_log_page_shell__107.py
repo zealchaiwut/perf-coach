@@ -41,17 +41,16 @@ def test_training_log_page_shell__get_log_html_route(client):
     assert "Training log" in res.text, "Page should contain 'Training log' title"
 
 
-# ── AC 2: Page header displays title, subtitle, Export button, Log workout button ─
+# ── AC 2: Page header displays Log button ─
 
 def test_training_log_page_shell__page_header_elements(client):
-    """AC: Page header displays title, subtitle, Export button, and Log workout button"""
+    """AC: Page header displays Log button and training sub-tabs"""
     res = client.get("/log")
     assert res.status_code == 200
     
-    # Check all header elements
-    assert 'Training log' in res.text, "Page should contain title 'Training log'"
-    assert 'id="log-export-btn"' in res.text, "Export button with id='log-export-btn' should exist"
-    assert 'Log workout' in res.text, "Page should contain 'Log workout' button"
+    assert 'id="log-new-btn"' in res.text, "Log button with id='log-new-btn' should exist"
+    assert 'id="training-sub-tabs"' in res.text, "Training sub-tabs should exist"
+
 
 
 # ── AC 3: Week strip shows 7 day pills ────────────────────────────────────────
@@ -200,8 +199,7 @@ def test_training_log_page_shell__uat_step_1_page_loads(client):
     res = client.get("/log")
     assert res.status_code == 200
     assert 'Training log' in res.text
-    assert 'id="log-export-btn"' in res.text
-    assert 'Log workout' in res.text
+    assert 'id="log-new-btn"' in res.text
 
 
 def test_training_log_page_shell__uat_step_2_week_strip(client):

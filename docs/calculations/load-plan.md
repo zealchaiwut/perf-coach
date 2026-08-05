@@ -10,11 +10,12 @@ Single pure function, `compute_load_plan(baseline, ramp_rate, hold_weeks,
 taper_weeks, weeks_to_race, trailing_28d_avg, deload_enabled=False,
 deload_start_week=4)`. No SQL,
 no dates — the calling endpoint resolves the A race, `weeks_to_race`,
-`baseline` (actual TSS of the week chosen by `resolve_baseline_weeks_ago` —
+`baseline` (seed TSS for the week chosen by `resolve_baseline_weeks_ago` —
 the most recent completed ISO week that is **not** on the athlete's deload
-cycle when `deload_enabled`; never planned TSS — a missed week must lower
-future targets, not silently inflate them — capped against chronic load,
-see "Baseline cap" below), and `trailing_28d_avg`.
+cycle when `deload_enabled`; seed = `max(logged, planned)` via
+`resolve_baseline_seed` so a missed week keeps the planned floor — then
+capped against chronic×ACWR band, see "Baseline cap" below), and
+`trailing_28d_avg`.
 
 ```
 build_weeks = weeks_to_race - taper_weeks
@@ -104,34 +105,34 @@ before cut" behaviour a real deload week is supposed to have. (The moving
 ceiling above still sees the cut value in its rolling window, which is
 correct — it's real load history, even if intentionally reduced.)
 
-### Baseline cap (2026-07-10 fix)
+### Baseline cap (aligned to ACWR band)
 
-`baseline` (the resolved completed week's actual TSS) is wrong when that week was
-itself a spike — the ramp would then compound an overshoot that already
-exists before the plan even starts. Example from a real report: CTL ≈ 32
-implies chronic load ≈ 224 TSS/week, but the seeding week ran 316 TSS —
-roughly 40% above chronic. Ramping 5%/week off 316 keeps that overshoot
-alive for the whole build.
+`baseline` is the seed for the resolved completed week:
+`max(logged TSS, full planned-week TSS)`. That seed is wrong when it was
+itself a spike above the ACWR guardrail — the ramp would then compound an
+overshoot that already exists before the plan even starts.
 
-`compute_load_plan` now caps the baseline actually used for the ramp/peak
+`compute_load_plan` caps the baseline actually used for the ramp/peak
 math: `baseline = min(raw_baseline, BASELINE_CAP_MULT * chronic_weekly)`,
 where `chronic_weekly` is the SAME `trailing_28d_avg` already passed in for
 the moving ceiling above — one number, two uses, never a second independent
-"chronic load" estimate. `BASELINE_CAP_MULT = 1.15`, a named constant (not a
-literal). The result exposes all four values so callers can render the cap
-instead of hiding it:
+"chronic load" estimate. `BASELINE_CAP_MULT` equals `ACWR_CEILING_MULT`
+(**1.3**), the same band as the weekly moving ACWR ceiling — so a week that
+stays inside the guardrail (e.g. +26% over chronic) is **not** pulled down,
+while a true spike still is. The result exposes all four values so callers
+can render the cap instead of hiding it:
 
 ```
-raw_baseline     — last week's actual TSS, uncapped
+raw_baseline     — seed = max(logged, planned), uncapped
 baseline         — the value actually used for ramp/peak (may equal raw_baseline)
 chronic_weekly   — == trailing_28d_avg; None if not enough history
 baseline_capped  — True when baseline < raw_baseline
 ```
 
 **The Session Load Plan card must say so plainly when `baseline_capped` is
-true** — e.g. *"Baseline capped: last week (316) exceeded chronic load;
-using 258."* A silent cap is worse than no cap: the athlete sees a lower
-number than their own logged week and, without an explanation, reads it as
+true** — e.g. *"Baseline capped: seed (316) exceeded ACWR band vs chronic;
+using 291."* A silent cap is worse than no cap: the athlete sees a lower
+number than their own seed and, without an explanation, reads it as
 the ramp being broken rather than as a safety feature working as intended.
 
 This is a **different guard** from the moving ACWR ceiling: the cap fixes

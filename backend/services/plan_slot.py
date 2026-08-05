@@ -24,6 +24,10 @@ SLOT_PROMPT_VERSION = "2026-07-20.2"
 
 _STRENGTH_BLOCKS = frozenset({
     "Warm-up", "Heavy compound", "Superset 1", "Superset 2", "Standalone", "Accessories",
+    # light / maintenance pattern labels (plan_pattern_seeds.groups_light)
+    "Bodyweight", "Plyometrics", "Isometrics", "Stretch", "Cooldown",
+    # duration-band finishers (plan_pattern_fill format_choices)
+    "Finisher", "EMOM", "40/20",
 })
 
 _PIN_FIELDS = frozenset({
@@ -92,7 +96,7 @@ def stamp_session(slot: dict, content: dict) -> dict:
         "notes": clean.get("notes"),
         "blocks": clean.get("blocks"),
         "exercises": clean.get("exercises"),
-        "source": clean.get("source") or "llm",
+        "source": clean.get("source") or "pattern",
         "structure_hints": slot.get("structure_hints") or {},
         "locked": bool(slot.get("locked")),
     }
@@ -193,8 +197,8 @@ def validate_slot(content: dict, slot: dict, week_ctx: dict | None = None) -> li
             errs.append(f"{wt} slot requires exercises")
         else:
             n = len(exercises)
-            if n < 4 or n > 10:
-                errs.append(f"{wt} needs 4–10 exercises, got {n}")
+            if n < 4 or n > 12:
+                errs.append(f"{wt} needs 4–12 exercises, got {n}")
             for ex in exercises:
                 if not isinstance(ex, dict) or not str(ex.get("name") or "").strip():
                     errs.append(f"exercise missing name: {ex!r}")
@@ -214,6 +218,41 @@ def validate_slot(content: dict, slot: dict, week_ctx: dict | None = None) -> li
                 errs.append("strength_emphasis=less expects ≤6 exercises")
 
     return errs
+
+
+def insert_mp_segment(blocks: list[dict], mp_min: int) -> list[dict]:
+    """Carve ``mp_min`` from the last non-cooldown block; insert MP before cooldown."""
+    mp_min = max(0, int(mp_min))
+    if mp_min <= 0 or not blocks:
+        return blocks
+    out = [dict(b) for b in blocks]
+    cooldown_i = next(
+        (i for i, b in enumerate(out) if (b.get("phase") or "") == "cooldown"),
+        len(out),
+    )
+    donor_i = cooldown_i - 1 if cooldown_i > 0 else 0
+    donor = out[donor_i]
+    if donor.get("repeat") and int(donor.get("repeat") or 0) > 1 and donor_i > 0:
+        donor_i = donor_i - 1
+        donor = out[donor_i]
+    donor_mins = int(donor.get("duration_min") or 0)
+    take = min(mp_min, max(0, donor_mins - 10))  # leave ≥10 min in donor when possible
+    if take <= 0:
+        take = min(mp_min, max(1, donor_mins // 2))
+    if take <= 0:
+        return out
+    donor["duration_min"] = max(1, donor_mins - take)
+    out.insert(
+        cooldown_i,
+        {
+            "phase": "mp",
+            "duration_min": take,
+            "repeat": None,
+            "rest_min": None,
+            "target": "marathon pace (MP)",
+        },
+    )
+    return out
 
 
 def template_content_for_slot(slot: dict) -> dict:
@@ -246,6 +285,7 @@ def template_content_for_slot(slot: dict) -> dict:
         scale = (pinned_dur / base) if pinned_dur else 1.0
         for b in blocks:
             b["duration_min"] = max(1, int(round(float(b["duration_min"]) * scale)))
+        notes = None
         if subtype == "long_run" and pinned_dur >= 90:
             intent = "Aerobic long run — fuel mid-run"
             for b in blocks:
@@ -255,24 +295,65 @@ def template_content_for_slot(slot: dict) -> dict:
             for b in blocks:
                 if b.get("phase") == "main":
                     b["target"] = "tempo — comfortably hard"
+        if subtype == "long_run":
+            mp_min = int(
+                slot.get("mp_segment_min")
+                or (slot.get("structure_hints") or {}).get("mp_segment_min")
+                or 0
+            )
+            if mp_min > 0:
+                blocks = insert_mp_segment(blocks, mp_min)
+                intent = f"Aerobic long run — {mp_min} min MP before cooldown"
+                notes = f"Finish with {mp_min} min at marathon pace before cooldown."
         return {
             "intent": intent[:140],
-            "notes": None,
+            "notes": notes,
             "blocks": blocks,
             "exercises": None,
             "source": "template",
         }
 
-    if wt in ("strength", "plyo"):
-        if subtype == "strength_upper":
+    if wt == "plyo":
+        exercises = [
+            {"block": "Warm-up", "name": "Bodyweight squat", "sets": 2, "reps": "10",
+             "load": "easy pace"},
+            {"block": "Plyometrics", "name": "Pogo jumps", "sets": 3, "reps": "20",
+             "load": "bodyweight — soft landings"},
+            {"block": "Plyometrics", "name": "Squat jump", "sets": 3, "reps": "8",
+             "load": "bodyweight — soft landings"},
+            {"block": "Plyometrics", "name": "Low box step-off", "sets": 2, "reps": "6/side",
+             "load": "bodyweight — stick the landing"},
+        ]
+        return {
+            "intent": "Short plyometric session",
+            "notes": "Keep contacts crisp; stop short of fatigue.",
+            "blocks": None,
+            "exercises": exercises,
+            "source": "template",
+        }
+
+    if wt == "strength":
+        if subtype == "strength_light":
+            exercises = [
+                {"block": "Bodyweight", "name": "Bodyweight squat", "sets": 2, "reps": "15",
+                 "load": "bodyweight, easy pace"},
+                {"block": "Bodyweight", "name": "Push-up", "sets": 2, "reps": "10",
+                 "load": "bodyweight or knees"},
+                {"block": "Isometrics", "name": "Plank", "sets": 2, "reps": "30s hold",
+                 "load": "bodyweight"},
+                {"block": "Stretch", "name": "World's greatest stretch", "sets": 1, "reps": "5/side",
+                 "load": "mobility"},
+            ]
+            intent = "Light strength / maintenance"
+        elif subtype == "strength_upper":
             exercises = [dict(e) for e in _UPPER_BODY_STRENGTH_EXERCISES]
             intent = "Upper body strength"
         else:
             exercises = [dict(e) for e in _LOWER_BODY_STRENGTH_EXERCISES]
-            intent = "Lower body strength" if wt == "strength" else "Plyometric power"
-        # Trim to 4–10
-        if len(exercises) > 10:
-            exercises = exercises[:10]
+            intent = "Lower body strength"
+        # Trim to validator max
+        if len(exercises) > 12:
+            exercises = exercises[:12]
         return {
             "intent": intent[:140],
             "notes": None,
@@ -324,8 +405,9 @@ def build_slot_prompt(
         "    put the prescription in main.target, e.g. \"6×3min hard, 2min jog\").\n"
         "  · tempo: sustained comfortably-hard / threshold blocks (not easy continuous).\n"
         "  · long / long_run: steady aerobic; if ≥90 min include a fueling cue.\n"
-        "- strength/plyo: 4–10 named exercises; strength blocks ⊆ "
-        "{Warm-up, Heavy compound, Superset 1, Superset 2, Standalone, Accessories}.\n"
+        "- strength/plyo: 4–12 named exercises; strength blocks ⊆ "
+        "{Warm-up, Heavy compound, Superset 1, Superset 2, Standalone, Accessories, "
+        "Finisher, EMOM, 40/20, Bodyweight, Plyometrics, Isometrics, Stretch}.\n"
         "- intent ≤ 140 characters; title should reflect the subtype "
         "(e.g. \"6x3min intervals\", not \"Easy aerobic run\" for an intervals slot).\n"
     )
@@ -360,72 +442,24 @@ def generate_slot_content(
     current: dict | None = None,
     llm_call: Callable[[str, str], dict | None] | None = None,
     max_tries: int = _MAX_SLOT_TRIES,
+    db=None,
+    avoid_parts: set | None = None,
 ) -> dict:
-    """Fill one slot. Retry ≤2 with slot-local feedback; exhausted ⇒ template.
+    """Fill one slot from DB patterns (no LLM).
 
-    `llm_call(system, user) -> dict | None` — None / unparseable burns a try.
-    Slots are independent: week_ctx never includes other slots' generated content.
+    `llm_call` / `instruction` / `max_tries` are retained for call-site
+    compatibility but ignored — planning LLM is removed.
     """
-    slot = dict(slot)
-    slot["subtype"] = normalize_slot_subtype(slot.get("workout_type"), slot.get("subtype"))
-    wt = str(slot.get("workout_type") or "").lower()
-    if wt == "rest" or slot.get("locked"):
-        out = template_content_for_slot(slot)
-        out["source"] = "template" if wt == "rest" else (current or {}).get("source") or "user"
-        if current and current.get("source") == "user":
-            return {**strip_volunteered_pins(current), "source": "user"}
-        return out
+    del instruction, llm_call, max_tries  # unused — no planning LLM
+    from backend.services.plan_pattern_fill import fill_slot
 
-    # User-pinned content skips LLM
-    if current and current.get("source") == "user" and not instruction:
-        return {**strip_volunteered_pins(current), "source": "user"}
-
-    errors: list[str] = []
-    attempts = 0
-    last: dict | None = None
-
-    while attempts < max_tries:
-        attempts += 1
-        content: dict | None = None
-        if llm_call is not None:
-            feedback = ""
-            if errors:
-                feedback = (
-                    "\n\nPrevious draft rejected:\n- "
-                    + "\n- ".join(errors)
-                    + "\nFix these only; return content JSON again."
-                )
-            system, user = build_slot_prompt(
-                week_ctx, slot, instruction=instruction, current=current or last
-            )
-            user = user + feedback
-            try:
-                raw = llm_call(system, user)
-            except Exception:
-                _log.warning("slot LLM call raised (burns try)", exc_info=True)
-                raw = None
-            if raw is None:
-                # Failed/unparseable burns a try (transient-slip semantics)
-                errors = ["llm call failed or unparseable"]
-                continue
-            if "session" in raw and isinstance(raw["session"], dict):
-                raw = raw["session"]
-            content = strip_volunteered_pins(raw)
-        else:
-            # No LLM wired — use template immediately
-            break
-
-        errs = validate_slot(content, slot, week_ctx)
-        if not errs:
-            content["source"] = "llm"
-            return content
-        errors = errs
-        last = content
-        _log.info("slot %s try %d rejected: %s", slot.get("day_offset"), attempts, errs)
-
-    tmpl = template_content_for_slot(slot)
-    tmpl["source"] = "template"
-    return tmpl
+    return fill_slot(
+        slot,
+        db=db,
+        week_ctx=week_ctx,
+        current=current,
+        avoid_parts=avoid_parts,
+    )
 
 
 def build_week_ctx(

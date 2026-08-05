@@ -110,8 +110,11 @@ def test_worker_docs_do_not_document_a_phantom_endpoint():
 
 
 def test_the_removal_is_explained_rather_than_silent():
-    """A section that simply vanishes invites someone to re-add it."""
+    """When docs and code disagreed, the strike-through left a paper trail.
+    With the route restored, the live section must still mention that history
+    so nobody re-strikes it as 'phantom' by mistake."""
     doc = (REPO / "docs" / "worker.md").read_text()
+    assert "### `GET /api/scores`" in doc
     assert "never implemented" in doc
 
 

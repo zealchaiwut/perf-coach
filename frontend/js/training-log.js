@@ -77,19 +77,6 @@
     return window.AppCommon.escapeHtml(s);
   }
 
-  function csvField(val) {
-    var s = val == null ? "" : String(val);
-    if (
-      s.indexOf(",") !== -1 ||
-      s.indexOf('"') !== -1 ||
-      s.indexOf("\n") !== -1 ||
-      s.indexOf("\r") !== -1
-    ) {
-      return '"' + s.replace(/"/g, '""') + '"';
-    }
-    return s;
-  }
-
   // issue #531: empty for falsy/non-positive, else the shared h:mm:ss/m:ss form.
   function fmtDurationRow(secs) {
     if (!secs || secs <= 0) return "";
@@ -334,25 +321,6 @@
         }, 400);
       });
     });
-  }
-
-  // ── Header stats subtitle ─────────────────────────────────────────────────
-  function updateHeaderStats(data) {
-    var subtitleEl = document.getElementById("log-subtitle");
-    if (!subtitleEl) return;
-    var weeks = data.weeks || [];
-    var totalCount = 0,
-      totalTSS = 0,
-      totalMinutes = 0;
-    weeks.forEach(function (week) {
-      var s = week.summary || {};
-      totalCount += s.workout_count || 0;
-      totalTSS += s.total_tss || 0;
-      totalMinutes += s.total_time_minutes || 0;
-    });
-    // Total TSS / total hours intentionally hidden — keep just the count.
-    var parts = [totalCount + " workout" + (totalCount !== 1 ? "s" : "")];
-    subtitleEl.textContent = parts.join(" · ");
   }
 
   // ── Build filter bar (issue #637: type pills + search, client-side) ─────────
@@ -627,7 +595,7 @@
   }
 
   // Re-render the list from the in-memory lastWeeks without re-fetching.
-  // Deliberately skips renderVolumeChart()/updateHeaderStats()/updateCalendar()/
+  // Deliberately skips renderVolumeChart()/updateCalendar()/
   // fetchReadinessWidget() — those depend on server-computed aggregates a
   // single-workout patch can't cheaply reproduce; they refresh on the next
   // full fetchAndRender() (sync completion, restore, or page load).
@@ -689,7 +657,6 @@
         buildFlatWorkouts();
         var listEl = document.getElementById("log-list");
         renderList(listEl, lastWeeks);
-        updateHeaderStats(data);
         // issue #528: volume chart re-renders on every fetch; readiness is #640 widget only.
         renderVolumeChart();
         // issue #638: update month calendar with newly loaded data
@@ -1846,50 +1813,6 @@
       activeRowEl = row;
       row.classList.add("is-active");
     }
-  }
-
-  // ── CSV Export ────────────────────────────────────────────────────────────
-  function exportCSV() {
-    var today = todayISO();
-    var fromDate = filters.from || today;
-    var toDate = filters.to || today;
-    var filename = "training-log-" + fromDate + "-to-" + toDate + ".csv";
-
-    var rows = [
-      "date,type,title,distance_km,duration_minutes,avg_hr,tss,source",
-    ];
-    lastWeeks.forEach(function (week) {
-      (week.entries || []).forEach(function (entry) {
-        if (entry.type === "rest") return;
-        rows.push(
-          [
-            csvField(entry.date),
-            csvField(entry.type),
-            csvField(entry.title),
-            csvField(entry.distance_km != null ? entry.distance_km : ""),
-            csvField(
-              entry.duration_seconds != null
-                ? Math.round((entry.duration_seconds / 60) * 10) / 10
-                : "",
-            ),
-            csvField(entry.avg_hr != null ? entry.avg_hr : ""),
-            csvField(entry.tss != null ? entry.tss : ""),
-            csvField(entry.source),
-          ].join(","),
-        );
-      });
-    });
-
-    var csv = rows.join("\r\n");
-    var blob = new Blob([csv], { type: "text/csv" });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
   }
 
   // ── Detail panel position helpers ─────────────────────────────────────────
@@ -5625,9 +5548,6 @@
 
     _initSyncWidget();
     _loadSyncChip();
-
-    var exportBtn = document.getElementById("log-export-btn");
-    if (exportBtn) exportBtn.addEventListener("click", exportCSV);
 
     var closeBtn = document.getElementById("dp-close-btn");
     if (closeBtn)

@@ -74,6 +74,8 @@ MUSCLE_GROUP_MAP: dict[str, str] = {
     "hip": "hip",
     "hip flexors": "hip",
     "hip flexor": "hip",
+    "hip_flexor": "hip",
+    "hip_flexors": "hip",
     # core
     "core": "core",
     "abs": "core",
@@ -90,6 +92,9 @@ MUSCLE_GROUP_MAP: dict[str, str] = {
     "traps": "back",
     "trapezius": "back",
     "lower back": "back",
+    "lower_back": "back",
+    "upper back": "back",
+    "upper_back": "back",
     "erector spinae": "back",
     # shoulder
     "shoulders": "shoulder",
@@ -110,6 +115,7 @@ MUSCLE_GROUP_MAP: dict[str, str] = {
     "arms": "arm",
     "arm": "arm",
     "brachialis": "arm",
+    "grip": "arm",
 }
 
 # Maps injury-log body_area strings → canonical muscle group (issue #1373).

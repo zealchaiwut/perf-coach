@@ -76,7 +76,7 @@ and a daily **readiness** score is computed from the wellness metrics.
   `workout_exercises`, `workout_splits`, `daily_metrics`, `daily_readiness`,
   `personal_records`, `workout_feel`, `sleep_imports`, `training_load_snapshots`,
   `strava_tokens`, `strava_activities`, `stryd_credentials`, `stryd_activities`,
-  `google_oauth_credentials`.
+  `google_oauth_credentials`, `plan_patterns`, `plan_exercises`.
 - `users` has `name`, `is_admin`, `is_active`, `password_hash`, `avatar`,
   `avatar_mime`, `created_at`.
 - `workouts` DOES now have distance/duration/HR/elevation and source links:
@@ -150,16 +150,20 @@ the first is false and the second is how this codebase ended up with three
 planning paths and three coach-message producers for two jobs (see the
 Priority 2 consolidation, PR #1597).
 
-**Exactly two surfaces are sanctioned:**
+**Exactly one in-app LLM surface is sanctioned:**
 
 | Surface | Where | What it does |
 |---|---|---|
-| **Ask-AI single session** | webapp, interactive | fills ONE session's content once the skeleton has fixed the day/type/TSS |
 | **Daily coach message warmth rephrase** | worker, `weekly_coach_message._call_llm_narrative` | rewrites the prose around the deterministic message |
 
-Adding a third needs a decision, not a convenient import.
+**Planning has no LLM.** Week draft fill, Generate details, and single-session
+content come from DB `plan_patterns` / `plan_exercises` via
+`plan_pattern_fill` (+ `plan_week_balance`). The former Ask-AI Plan UI surface
+is removed.
 
-**Rules that apply to both:**
+Adding another LLM surface needs a decision, not a convenient import.
+
+**Rules that apply:**
 
 - **The LLM never produces a number.** Every figure comes from the engines
   (`training_load`, `tss`, `coach_plan`, `coach_projection`). The rephrase is
@@ -181,13 +185,9 @@ after a quiet release. Between them they carried atom validators, retry loops,
 a `claude -p` transport, and a second cache — that sprawl is what "minimal"
 exists to prevent.
 
-`plan_draft` and `plan_slot_cache` are a different case — **parked from the
-worker only, still live in the webapp.** `backend/worker_app.py`'s dispatch
-table explicitly does not route to `plan_draft`, but `backend/main.py` and
-`backend/routers/projection.py` import it directly, backing the live
-`/api/plan/draft*` routes that `frontend/js/training-plan.js` and
-`frontend/js/home-coach-strip.js` actually call. Do not delete either module —
-they're load-bearing for the Training → Plan draft-review feature.
+`plan_draft` is still live in the webapp for draft storage/ops, but content
+fill is synchronous pattern-based — do not re-enqueue worker `plan_draft` for
+content. `plan_slot_cache` is parked/unused for planning LLM.
 
 `tests/test_consolidation__worker_has_no_llm.py` enforces the parked list by
 importing `backend.worker_app` in a clean interpreter and inspecting
