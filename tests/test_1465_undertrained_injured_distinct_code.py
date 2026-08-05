@@ -20,7 +20,6 @@ from __future__ import annotations
 import datetime
 from typing import Optional
 
-import pytest
 
 from backend.services.gap_analysis.rules.undertrained_area_under_ramp import (
     undertrained_area_under_ramp,
