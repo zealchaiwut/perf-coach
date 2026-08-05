@@ -177,7 +177,7 @@ def _plan_to_session(plan_resp: dict, for_date: date) -> dict:
 
 # ── Load interpretation ───────────────────────────────────────────────────────
 
-def _load_interpretation(ctl: float, tsb: float) -> str:
+def _load_interpretation(ctl: float, _atl: float, tsb: float) -> str:  # noqa: ARG001
     if tsb >= 5:
         label = "Fresh"
     elif tsb >= -5:
@@ -226,7 +226,7 @@ def _assemble_form(user_id, for_date: date) -> dict:
         "acwr": acwr,
         "ramp": ramp,
         "flags": flags,
-        "interpretation": _load_interpretation(ctl, tsb),
+        "interpretation": _load_interpretation(ctl, atl, tsb),
     }
 
 

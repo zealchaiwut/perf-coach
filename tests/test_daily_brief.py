@@ -22,7 +22,7 @@ from __future__ import annotations
 import importlib
 import uuid
 from datetime import date
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, call
 
 import pytest
 
@@ -259,16 +259,16 @@ def test_compute_weight_advisory_build_phase(svc):
 
 def test_load_interpretation_all_labels(svc):
     """AC8: _load_interpretation returns correct label for each TSB band."""
-    assert "Fresh" in svc._load_interpretation(50.0, 10.0)
-    assert "Neutral" in svc._load_interpretation(50.0, 2.0)
-    assert "Productive" in svc._load_interpretation(50.0, -8.0)
-    assert "Overreached" in svc._load_interpretation(50.0, -22.0)
+    assert "Fresh" in svc._load_interpretation(50.0, 40.0, 10.0)
+    assert "Neutral" in svc._load_interpretation(50.0, 48.0, 2.0)
+    assert "Productive" in svc._load_interpretation(50.0, 55.0, -8.0)
+    assert "Overreached" in svc._load_interpretation(50.0, 72.0, -22.0)
 
 
 def test_load_interpretation_ctl_modifiers(svc):
     """AC8: CTL > 60 appends 'well-trained'; CTL < 30 appends 'undertrained'."""
-    assert "well-trained" in svc._load_interpretation(65.0, 5.0)
-    assert "undertrained" in svc._load_interpretation(20.0, 5.0)
+    assert "well-trained" in svc._load_interpretation(65.0, 60.0, 5.0)
+    assert "undertrained" in svc._load_interpretation(20.0, 15.0, 5.0)
 
 
 # ── AC7 / AC1: build_brief happy path ────────────────────────────────────────
