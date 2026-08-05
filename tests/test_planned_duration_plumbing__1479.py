@@ -39,14 +39,14 @@ try:
 except Exception:
     pass
 
-from backend.main import _planned_duration_map
-from backend.models import Base, PlannedSession, User, Workout
-from backend.services.running_performance import (
+from backend.main import _planned_duration_map  # noqa: E402
+from backend.models import Base, PlannedSession, User, Workout  # noqa: E402
+from backend.services.running_performance import (  # noqa: E402
     compute_endurance_score,
     MIN_ENDURANCE_QUALIFYING_SESSION_SECONDS,
     PLAN_SHORT_CUT_RATIO,
 )
-from backend.services.zone_constants import make_zone_constants
+from backend.services.zone_constants import make_zone_constants  # noqa: E402
 
 # ── In-memory SQLite DB for unit-level helper tests ──────────────────────────
 
