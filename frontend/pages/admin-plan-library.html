@@ -1111,8 +1111,8 @@
                 <button class="btn" type="button" id="btn-ex-download" title="Download exercise template + current pool for Claude">
                   Download JSON
                 </button>
-                <button class="btn" type="button" id="btn-ex-import" title="Bulk create / upsert exercises from Claude JSON">
-                  Import JSON
+                <button class="btn" type="button" id="btn-ex-import" title="Bulk create / upsert exercises from Claude JSON (array or wrapped)">
+                  Bulk import JSON
                 </button>
               </div>
             </div>
@@ -1186,8 +1186,8 @@
                 <button class="btn" type="button" id="btn-pat-download" title="Download pattern template + current recipes for Claude">
                   Download JSON
                 </button>
-                <button class="btn" type="button" id="btn-pat-import" title="Bulk create / upsert patterns from Claude JSON">
-                  Import JSON
+                <button class="btn" type="button" id="btn-pat-import" title="Bulk create / upsert patterns from Claude JSON (array or wrapped)">
+                  Bulk import JSON
                 </button>
               </div>
             </div>
@@ -1304,10 +1304,10 @@
   <div class="modal-backdrop" id="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title" hidden>
     <div class="modal">
       <div class="modal-h">
-        <h2 id="import-title">Import exercises JSON</h2>
+        <h2 id="import-title">Bulk import exercises</h2>
         <p id="import-help">
-          Paste Claude output (or a downloaded template). Shape:
-          <code>{ "exercises": [ … ] }</code> or a bare array.
+          Paste a JSON <strong>array</strong> of exercises, or
+          <code>{ "exercises": [ … ] }</code>. A single object is fine too.
           Upsert matches by <strong>name</strong>.
         </p>
       </div>
@@ -1322,14 +1322,14 @@
             Upsert existing (uncheck = create-only, skip duplicates)
           </label>
         </div>
-        <textarea id="import-json" spellcheck="false" placeholder='{ "exercises": [ … ] }'></textarea>
+        <textarea id="import-json" spellcheck="false" placeholder='[ { "name": "…" }, { "name": "…" } ]'></textarea>
         <div class="import-meta" id="import-result" aria-live="polite"></div>
       </div>
       <div class="modal-foot">
         <button class="btn" type="button" id="import-cancel">Cancel</button>
         <div class="actions">
           <button class="btn btn-primary" type="button" id="import-run">
-            <i class="ti ti-upload" aria-hidden="true"></i> Import
+            <i class="ti ti-upload" aria-hidden="true"></i> Bulk import
           </button>
         </div>
       </div>
@@ -1337,6 +1337,7 @@
   </div>
 
   <script src="/js/lib/app-common.js"></script>
+  <script src="/js/lib/plan-fill-preview.js?v=20260805blocks1"></script>
   <script src="/js/admin-plan-library.js"></script>
 </body>
 </html>
