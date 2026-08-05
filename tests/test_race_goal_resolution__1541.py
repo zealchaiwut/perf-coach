@@ -1,8 +1,9 @@
 """Tests for issue #1541: Add Race-based fallback to active-goal resolution (runs against UAT)"""
 import os
+import json
 import pytest
 import httpx
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from uuid import uuid4
 
 
@@ -40,6 +41,7 @@ def test_goal_resolution__performance_goal_returns_unchanged():
     from backend.db import engine
     from backend.models import User, PerformanceGoal
     from backend.services.goal_resolution import resolve_active_goal
+    from uuid import uuid4
 
     user_id = uuid4()
 
@@ -84,6 +86,7 @@ def test_goal_resolution__race_query_correct_filters():
     from backend.db import engine
     from backend.models import User, Race
     from backend.services.goal_resolution import resolve_active_goal
+    from uuid import uuid4
     from datetime import date, timedelta
 
     user_id = uuid4()
@@ -171,6 +174,7 @@ def test_goal_resolution__adapter_has_required_attributes():
     from backend.db import engine
     from backend.models import User, Race
     from backend.services.goal_resolution import resolve_active_goal
+    from uuid import uuid4
     from datetime import date, timedelta
 
     user_id = uuid4()
@@ -221,6 +225,7 @@ def test_goal_resolution__distance_bucket_mapping():
     from backend.db import engine
     from backend.models import User, Race
     from backend.services.goal_resolution import resolve_active_goal
+    from uuid import uuid4
     from datetime import date, timedelta
 
     user_id = uuid4()
@@ -281,6 +286,7 @@ def test_goal_resolution__skip_null_goal_time():
     from backend.db import engine
     from backend.models import User, Race
     from backend.services.goal_resolution import resolve_active_goal
+    from uuid import uuid4
     from datetime import date, timedelta
 
     user_id = uuid4()
@@ -340,6 +346,7 @@ def test_goal_resolution__returns_none_when_no_goal():
     from backend.db import engine
     from backend.models import User
     from backend.services.goal_resolution import resolve_active_goal
+    from uuid import uuid4
 
     user_id = uuid4()
 
@@ -404,10 +411,7 @@ def test_goal_resolution__weekly_message_integration():
 def test_goal_resolution__export_brief_integration():
     """AC 10: scripts/export_brief.py::_load_goal_for_user is replaced with resolve_active_goal call"""
     import sys
-    from pathlib import Path
-    _repo_root = str(Path(__file__).resolve().parent.parent)
-    if _repo_root not in sys.path:
-        sys.path.insert(0, _repo_root)
+    sys.path.insert(0, '/Users/zeal-server/dev/perf-coach/tester')
     from scripts import export_brief
     import inspect
 
@@ -440,11 +444,9 @@ def test_goal_resolution__export_brief_with_a_race():
     from backend.models import User, Race
     from datetime import date, timedelta
     import sys
-    from pathlib import Path
-    _repo_root = str(Path(__file__).resolve().parent.parent)
-    if _repo_root not in sys.path:
-        sys.path.insert(0, _repo_root)
+    sys.path.insert(0, '/Users/zeal-server/dev/perf-coach/tester')
     from scripts import export_brief
+    from uuid import uuid4
 
     user_id = uuid4()
 

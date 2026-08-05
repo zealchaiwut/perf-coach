@@ -167,7 +167,6 @@ def _thin_focus_from_ranking(plan_state: dict, weight: dict, load: dict) -> list
     ranking = plan_state.get("lever_ranking") or {}
     bigger = ranking.get("bigger_lever") or "load"
     tractable = ranking.get("more_tractable") or "weight"
-    rationale = ranking.get("rationale") or ""
     out: list[dict] = []
 
     load_state = load.get("state")
