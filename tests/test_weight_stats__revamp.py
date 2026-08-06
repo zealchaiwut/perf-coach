@@ -259,3 +259,80 @@ def test_composition_emits_no_target_keys():
     assert forbidden.isdisjoint(result.keys())
     for item in result.get("readings", []):
         assert forbidden.isdisjoint(item.keys())
+
+
+# ── composition frontend shape: latest / verdict (issue #1692) ───────────────
+
+
+def test_composition_latest_absent_when_not_readable():
+    """When fewer than 4 readings exist, latest must be None (card stays in empty state)."""
+    readings = [_reading(i * 7, 80.0, 20.0) for i in range(3)]
+    result = compute_composition_trend(readings, AS_OF)
+    assert result["readable"] is False
+    assert result["latest"] is None
+
+
+def test_composition_latest_present_when_readable():
+    """When readable, latest must expose lean_mass_kg, fat_mass_kg, body_fat_pct."""
+    readings = [_reading(i * 7, 80.0, 20.0) for i in range(5)]
+    result = compute_composition_trend(readings, AS_OF)
+    assert result["readable"] is True
+    latest = result["latest"]
+    assert latest is not None
+    assert "lean_mass_kg" in latest
+    assert "fat_mass_kg" in latest
+    assert "body_fat_pct" in latest
+    assert latest["lean_mass_kg"] is not None
+    assert latest["fat_mass_kg"] is not None
+    assert latest["body_fat_pct"] is not None
+
+
+def test_composition_latest_matches_trend_values():
+    """latest values must equal the 4-week rolling means already in the payload."""
+    readings = [_reading(i * 7, 80.0 - i * 0.1, 20.0 - i * 0.1) for i in range(6)]
+    result = compute_composition_trend(readings, AS_OF)
+    assert result["readable"] is True
+    latest = result["latest"]
+    assert latest["lean_mass_kg"] == result["lean_mass_kg_trend"]
+    assert latest["fat_mass_kg"] == result["fat_mass_kg_trend"]
+    assert latest["body_fat_pct"] == result["body_fat_pct_trend"]
+
+
+def test_composition_verdict_none_when_not_readable():
+    """verdict must be None when there is not enough data to form a trend."""
+    readings = [_reading(i * 7, 80.0, 20.0) for i in range(3)]
+    result = compute_composition_trend(readings, AS_OF)
+    assert result["verdict"] is None
+
+
+def test_composition_verdict_present_when_lean_mass_stable():
+    """A non-None verdict string is returned when lean mass is not falling."""
+    # Stable weight + stable body fat → no lean-mass decline
+    readings = [_reading(i * 7, 80.0, 20.0) for i in range(8)]
+    result = compute_composition_trend(readings, AS_OF)
+    assert result["readable"] is True
+    assert result["lean_mass_falling"] is False
+    assert isinstance(result["verdict"], str)
+    assert len(result["verdict"]) > 0
+
+
+def test_composition_verdict_none_when_lean_mass_falling():
+    """verdict is None when lean mass is genuinely falling — the card shows no 'good' banner."""
+    # Weight dropping fast with body fat stable → lean mass loss > LEAN_MASS_FALL_DELTA_KG
+    # Build two 4-week blocks: prev block ~64.0 kg lean, recent block ~63.1 kg lean → delta ≈ -0.9
+    prev_readings = [_reading((7 + i) * 7, 80.0, 20.0) for i in range(4)]  # lean ≈ 64.0
+    recent_readings = [_reading(i * 7, 78.9, 20.0) for i in range(4)]      # lean ≈ 63.12
+    result = compute_composition_trend(prev_readings + recent_readings, AS_OF)
+    assert result["readable"] is True
+    assert result["lean_mass_falling"] is True
+    assert result["verdict"] is None
+
+
+def test_composition_timeline_overlay_shape():
+    """latest.lean_mass_kg and .fat_mass_kg must both be non-None so the timeline overlay renders."""
+    readings = [_reading(i * 7, 80.0, 20.0) for i in range(5)]
+    result = compute_composition_trend(readings, AS_OF)
+    latest = result["latest"]
+    assert latest is not None
+    assert latest["lean_mass_kg"] is not None
+    assert latest["fat_mass_kg"] is not None
