@@ -1218,6 +1218,30 @@ def fill_slot(
         except Exception:
             _log.warning("homework pre_place failed", exc_info=True)
 
+    # Guard: if the assembled pinned rows alone exceed validate_slot's hard cap
+    # (4–12), no RNG seed will ever produce a valid result — short-circuit now
+    # rather than silently falling through to a template that discards all pins.
+    _SLOT_MAX_EXERCISES = 12
+    if wt in ("strength", "plyo") and len(pre_placed) > _SLOT_MAX_EXERCISES:
+        log["steps"].append({
+            "op": "pinned_count_exceeds_max",
+            "pinned": len(pre_placed),
+            "max": _SLOT_MAX_EXERCISES,
+        })
+        return {
+            "intent": (current or {}).get("intent"),
+            "notes": (current or {}).get("notes"),
+            "blocks": (current or {}).get("blocks"),
+            "exercises": (current or {}).get("exercises"),
+            "source": (current or {}).get("source") or "user",
+            "refill_blocked": True,
+            "refill_reason": (
+                f"pinned rows ({len(pre_placed)}) exceed the slot maximum of "
+                f"{_SLOT_MAX_EXERCISES} — unpin some rows before refilling"
+            ),
+            "fill_log": log,
+        }
+
     pattern = select_pattern(
         db,
         workout_type=wt,
