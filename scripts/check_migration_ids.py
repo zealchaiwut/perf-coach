@@ -129,9 +129,6 @@ def check_directory(versions_dir: Path) -> list[str]:
             if m:
                 prefix = m.group(1)
                 if prefix != rev_id:
-                    is_both_grandfathered = (
-                        rev_id in GRANDFATHERED_IDS and prefix in GRANDFATHERED_IDS
-                    )
                     # Also allow if the revision is grandfathered (the file may
                     # have a typo in the filename that predates this check).
                     is_rev_grandfathered = rev_id in GRANDFATHERED_IDS
