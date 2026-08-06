@@ -11105,6 +11105,8 @@ def strava_sync_latest(
     Without user_id: returns legacy summary dict for session user (backwards-compatible).
     """
     if user_id is not None:
+        if user_id != user.id and not bool(user.is_admin):
+            raise HTTPException(status_code=403, detail="Forbidden")
         # New path: full SyncJob dict, any status
         with Session(engine) as session:
             job = session.execute(
@@ -11235,6 +11237,8 @@ def stryd_sync_latest(
     """Most recent Stryd sync. With user_id: full latest SyncJob (any status);
     without: completed-only summary for the session user."""
     from sqlalchemy import select
+    if user_id is not None and user_id != user.id and not bool(user.is_admin):
+        raise HTTPException(status_code=403, detail="Forbidden")
     target = user_id if user_id is not None else user.id
     with Session(engine) as session:
         if user_id is not None:
