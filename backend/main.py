@@ -89,6 +89,8 @@ from backend.services.load_plan import (
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
 from backend.services.weight_ewma import compute_ewma as _compute_ewma, DEFAULT_SPAN as _EWMA_DEFAULT_SPAN
+from backend.services.weight_stats import weight_stats as _weight_stats
+from backend.services.body_composition import compute_composition_trend as _compute_composition_trend
 from backend.services.weight_plan import compute_gap as _compute_weight_gap, generate_milestones as _generate_weight_milestones, plan_at as _weight_plan_at, project_hit_date as _project_hit_date
 # _weight_rollup / _ROLLUP_LOOKBACK_DAYS: the canonical "current weight" rule
 # (>=2 entries in the trailing 7 days else a wider-lookback average, never a
@@ -1960,19 +1962,7 @@ def get_weight_chart(
                 _last_ewma = round(_ewma_by_date[day], 4)
             ewma_series.append({"date": str(day), "weight_kg": _last_ewma})
 
-        # Weekly rate derived from EWMA slope: ewma at to_d minus ewma 7 days earlier.
-        # This reflects trend momentum, not a raw entry-to-entry delta.
-        _ewma_non_null = [(i, p["weight_kg"]) for i, p in enumerate(ewma_series) if p["weight_kg"] is not None]
-        weekly_rate_ewma_kg: float | None = None
-        if len(_ewma_non_null) >= 2:
-            _last_ewma_idx, _last_ewma_val = _ewma_non_null[-1]
-            _target_earlier_idx = _last_ewma_idx - 7
-            _earlier_candidates = [(i, v) for i, v in _ewma_non_null if i <= max(_target_earlier_idx, 0)]
-            if _earlier_candidates and _target_earlier_idx >= 0:
-                _, _earlier_ewma_val = _earlier_candidates[-1]
-                weekly_rate_ewma_kg = round(_last_ewma_val - _earlier_ewma_val, 3)
-
-        # Stats
+        # Stats: current weight and raw deltas (legacy fallback when rate unreadable)
         in_range = [e for e in all_entries if (
             from_d
             <= (e.entry_date if isinstance(e.entry_date, _date) else _date.fromisoformat(str(e.entry_date)))
@@ -1986,7 +1976,6 @@ def get_weight_chart(
                 current_avg_kg = t["weight_kg"]
                 break
 
-        # delta: compare current weight to most recent entry on/before the pivot date
         pivot_7d = to_d - _timedelta(days=7)
         pivot_30d = to_d - _timedelta(days=30)
         entry_at_7d = None
@@ -2011,14 +2000,38 @@ def get_weight_chart(
             else None
         )
 
+        # Canonical OLS-on-EWMA rate — always the 30-day gate window so switching
+        # chart range cannot unlock/lock conclusions independently of coverage.
+        from backend.services.weight_stats import DEFAULT_WINDOW_DAYS as _RATE_WINDOW
+        _rate = _weight_stats(session, uid, window_days=_RATE_WINDOW, as_of=to_d)
+        weekly_rate_ewma_kg: float | None = _rate["rate_kg_wk"]
+        if weekly_rate_ewma_kg is not None:
+            weekly_rate_ewma_kg = round(weekly_rate_ewma_kg, 3)
+
         stats = {
             "current_weight_kg": current_weight_kg,
             "current_avg_kg": current_avg_kg,
-            "delta_7d_kg": delta_7d_kg,
+            "delta_7d_kg": (
+                weekly_rate_ewma_kg if _rate["readable"] and weekly_rate_ewma_kg is not None
+                else delta_7d_kg
+            ),
             "delta_30d_kg": delta_30d_kg,
             "weekly_rate_ewma_kg": weekly_rate_ewma_kg,
             "ewma_alpha": round(2.0 / (_EWMA_DEFAULT_SPAN + 1), 4),
+            "rate": _rate,
+            "trend_kg": _rate["trend_kg"],
+            "rate_kg_wk": _rate["rate_kg_wk"],
+            "ci_kg_wk": _rate["ci_kg_wk"],
+            "state": _rate["state"],
+            "readable": _rate["readable"],
+            "gated": _rate["gated"],
+            "gate_reason": _rate["gate_reason"],
+            "days_needed": _rate["days_needed"],
+            "coverage_pct": _rate["coverage_pct"],
+            "needed_rate_kg_wk": _rate["needed_rate_kg_wk"],
         }
+        if _rate["readable"] and weekly_rate_ewma_kg is not None:
+            stats["delta_7d_kg"] = weekly_rate_ewma_kg
 
         # Always fetch active target (needed for plan_series / milestones / today_marker)
         active_target = (
@@ -2116,6 +2129,19 @@ def get_weight_chart(
         ]
 
         # plan_series is omitted (key absent) when no active target
+        _composition_readings = [
+            {
+                "date": (
+                    e.entry_date if isinstance(e.entry_date, _date)
+                    else _date.fromisoformat(str(e.entry_date))
+                ),
+                "weight_kg": float(e.weight_kg),
+                "body_fat_pct": float(e.body_fat_pct) if e.body_fat_pct is not None else None,
+            }
+            for e in all_entries
+        ]
+        composition = _compute_composition_trend(_composition_readings, to_d)
+
         result = {
             "range": {"from": str(from_d), "to": str(to_d)},
             "actuals": actuals,
@@ -2123,6 +2149,7 @@ def get_weight_chart(
             "trend": trend,
             "ewma": ewma_series,
             "stats": stats,
+            "composition": composition,
             "future_milestones": future_milestones,
             "today_marker": today_marker,
             "logged_today": logged_today,

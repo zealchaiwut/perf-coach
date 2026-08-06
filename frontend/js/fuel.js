@@ -546,6 +546,14 @@ function _fuelRenderWeeklyReview(d) {
   const badge = document.getElementById('cut-review-badge');
   if (!body) return;
 
+  // Locked payload: no conclusions — leave the card empty (lock-group covers it).
+  if (d.gated || d.recommendation === 'insufficient_coverage') {
+    if (loading) loading.hidden = true;
+    body.hidden = true;
+    if (badge) badge.hidden = true;
+    return;
+  }
+
   if (loading) loading.hidden = true;
   body.hidden = false;
 
@@ -591,7 +599,7 @@ function _fuelRenderWeeklyReview(d) {
   }
 
   const adherenceEl = document.getElementById('cut-review-adherence');
-  if (adherenceEl) adherenceEl.textContent = Math.round(d.logging_adherence_pct) + '%';
+  if (adherenceEl) adherenceEl.textContent = '';
 
   if (badge) {
     badge.textContent = rec.replace(/_/g, ' ');

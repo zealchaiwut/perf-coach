@@ -17,7 +17,7 @@ WEIGHT_JS   = Path(__file__).parent.parent / "frontend" / "js" / "weight.js"
 CARD_JS  = Path(__file__).parent.parent / "frontend" / "js" / "lib" / "weight-current-card.js"
 CARD_CSS = Path(__file__).parent.parent / "frontend" / "css" / "weight-current-card.css"
 
-html = WEIGHT_HTML.read_text() + "\n" + CARD_CSS.read_text()
+html = WEIGHT_HTML.read_text() + "\n" + CARD_CSS.read_text() + "\n" + CARD_JS.read_text()
 js   = WEIGHT_JS.read_text() + "\n" + CARD_JS.read_text()
 
 

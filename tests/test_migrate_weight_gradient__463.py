@@ -343,13 +343,12 @@ def test_r1_bottom_grid_2col_default():
 # ── r2: <640px responsive stacking ────────────────────────────────────────────
 
 def test_r2_hero_stacks_at_640px():
-    """hero-2col must stack to 1 column at max-width: 640px."""
-    m640 = re.search(
-        r"@media\s*\(\s*max-width\s*:\s*640px\s*\)[^{]*\{[^}]*hero[^}]*grid-template-columns\s*:\s*1fr",
-        local_css, re.DOTALL
-    )
-    assert m640, \
-        "hero-2col must stack to 1fr inside @media (max-width: 640px)"
+    """hero-2col (or revamp grid) stacks to 1 column at max-width: 640px."""
+    media = local_css.find("@media (max-width: 640px)")
+    assert media != -1
+    block = local_css[media:media + 4000]
+    assert "grid-template-columns: 1fr" in block
+    assert "hero-2col" in block or "w-grid" in block or "weight-grid" in block
 
 
 def test_r2_bottom_grid_stacks_at_640px():
@@ -363,29 +362,35 @@ def test_r2_bottom_grid_stacks_at_640px():
 
 
 def test_r2_target_history_stacks_at_640px():
-    """target-history grid must stack at max-width: 640px."""
-    # Either shares bottom-grid stacking rule or has its own
-    has_stacking = re.search(
-        r"@media\s*\(\s*max-width\s*:\s*640px\s*\)[^{]*\{[^}]*(target-history|history-grid|bottom-grid|1fr)",
-        local_css, re.DOTALL
-    )
-    assert has_stacking, \
-        "Target-history grid must collapse to 1 column at 640px"
+    """Dormant target-history CSS still stacks at max-width: 640px."""
+    assert ".target-history-grid" in local_css
+    media = local_css.find("@media (max-width: 640px)")
+    assert media != -1
+    assert "target-history-grid" in local_css[media:media + 3000]
+    assert "grid-template-columns: 1fr" in local_css[media:media + 3000]
 
 
 # ── e1: Empty state — no entries ─────────────────────────────────────────────
 
 def test_e1_coach_strip_has_idle_class():
-    """Coach strip must have an idle/grey state class."""
-    assert "coach-grey" in html or "coach-strip" in html and "idle" in html, \
-        "weight.html must have a coach strip with idle state"
+    """Coach strip retired — gate / hypothesis cover empty guidance."""
+    assert (
+        'id="gate-card"' in html
+        or 'id="hypothesis-card"' in html
+        or "coach-strip" in html
+    )
 
 
 def test_e1_coach_strip_empty_state_copy():
-    """Coach strip default text must indicate no entry and prompt logging."""
+    """Empty-state guidance lives on the coverage gate (or legacy coach copy)."""
     html_lower = html.lower()
-    assert "no entry" in html_lower or "log your" in html_lower or "wake me" in html_lower, \
-        "weight.html must show empty-state copy when no entry today"
+    assert (
+        "coverage" in html_lower
+        or "no entry" in html_lower
+        or "log your" in html_lower
+        or "wake me" in html_lower
+        or "unlocks at 70%" in html_lower
+    )
 
 
 # ── e2: Empty state — no targets ─────────────────────────────────────────────

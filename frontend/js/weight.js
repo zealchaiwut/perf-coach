@@ -113,46 +113,178 @@ async function fetchTargetHistorySummary() {
   return apiFetch(`/api/weight-targets/history-summary`);
 }
 
-// ── Streak & Adherence ────────────────────────────────────────────────────────
+// ── Coverage (replaces streak / adherence) ───────────────────────────────────
 
-function _computeStreak(entries) {
-  if (!entries || !entries.length) return 0;
-  const dates = new Set(entries.map(e => e.entry_date));
-  const today = todayISO();
-  if (!dates.has(today)) return 0;
-  let streak = 0;
-  let cursor = today;
-  while (dates.has(cursor)) {
-    streak++;
-    cursor = addDays(cursor, -1);
-  }
-  return streak;
+const COVERAGE_THRESHOLD = 70;
+const COVERAGE_WINDOW = 30;
+
+function _coverageFromChart(stats) {
+  if (!stats) return { pct: 0, logged: 0, window: COVERAGE_WINDOW };
+  const pct = stats.coverage_pct != null ? stats.coverage_pct : 0;
+  const logged = stats.rate && stats.rate.entries_used != null
+    ? stats.rate.entries_used
+    : Math.round((pct / 100) * COVERAGE_WINDOW);
+  return { pct, logged, window: COVERAGE_WINDOW };
 }
 
-function _computeAdherence(entries) {
-  if (!entries || !entries.length) return 0;
-  const today = todayISO();
-  const cutoff = addDays(today, -13); // 14-day window: cutoff to today inclusive
-  const dates = new Set(
-    entries.filter(e => e.entry_date >= cutoff && e.entry_date <= today).map(e => e.entry_date)
-  );
-  return dates.size;
+function _isGated(stats) {
+  const rate = stats && stats.rate;
+  return !(rate && rate.readable);
 }
 
-function renderStreakAndAdherence(entries) {
-  const streakEl = document.getElementById('streak-value');
-  const adherenceEl = document.getElementById('adherence-value');
-  if (!streakEl && !adherenceEl) return;
-
-  const streak = _computeStreak(entries);
-  const adherence = _computeAdherence(entries);
-
-  if (streakEl) {
-    streakEl.textContent = streak === 0 ? 'No streak yet' : streak === 1 ? '1-day streak' : `${streak}-day streak`;
+function _morningCoverageCells(entries) {
+  const today = todayISO();
+  const cells = [];
+  for (let i = COVERAGE_WINDOW - 1; i >= 0; i--) {
+    const d = addDays(today, -i);
+    const has = (entries || []).some(e => e.entry_date === d && e.weight_kg != null);
+    cells.push({ date: d, has, isToday: d === today });
   }
-  if (adherenceEl) {
-    adherenceEl.textContent = `${adherence} / 14 days`;
+  return cells;
+}
+
+function renderCoverageGating(chartData, entries) {
+  const stats = chartData ? chartData.stats : null;
+  const gated = _isGated(stats);
+  // Prefer chart actuals (full window) over the 14-day recent-entries fetch so
+  // the % matches the calendar and the backend coverage gate.
+  const covEntries = (chartData && chartData.actuals && chartData.actuals.length)
+    ? chartData.actuals.map(a => ({ entry_date: a.date, weight_kg: a.weight_kg }))
+    : (entries || []);
+  const cells = _morningCoverageCells(covEntries);
+  const cellLogged = cells.filter(c => c.has).length;
+  // Prefer backend coverage when present; fall back to cell count.
+  const cov = (stats && stats.coverage_pct != null)
+    ? {
+        pct: stats.coverage_pct,
+        logged: (stats.rate && stats.rate.entries_used != null)
+          ? stats.rate.entries_used
+          : cellLogged,
+        window: (stats.rate && stats.rate.window_days) || COVERAGE_WINDOW,
+      }
+    : { pct: (cellLogged / COVERAGE_WINDOW) * 100, logged: cellLogged, window: COVERAGE_WINDOW };
+  const daysNeeded = (stats && stats.days_needed != null)
+    ? stats.days_needed
+    : Math.max(0, Math.ceil((COVERAGE_THRESHOLD / 100) * COVERAGE_WINDOW) - cov.logged);
+
+  const gateCard = document.getElementById('gate-card');
+  if (gateCard) gateCard.hidden = true; // superseded by lock-group
+
+  const gateCount = document.getElementById('gate-morning-count');
+  if (gateCount) gateCount.textContent = `${cov.logged} of last ${cov.window} mornings`;
+
+  const gateBar = document.getElementById('gate-cov-fill');
+  if (gateBar) gateBar.style.width = `${Math.min(100, cov.pct)}%`;
+
+  const gatePct = document.getElementById('gate-cov-pct');
+  if (gatePct) gatePct.textContent = `${Math.round(cov.pct)}% · need ${COVERAGE_THRESHOLD}%`;
+
+  const gateNeeded = document.getElementById('gate-mornings-needed');
+  if (gateNeeded) {
+    gateNeeded.textContent = daysNeeded > 0
+      ? `~${daysNeeded} more morning${daysNeeded === 1 ? '' : 's'} unlocks everything below`
+      : '';
   }
+
+  _renderLockGroup(gated, cov, daysNeeded);
+
+  const strip = document.getElementById('cov-strip');
+  if (strip) {
+    strip.innerHTML = cells.map(c => {
+      let cls = 'w-cd';
+      if (!c.has) cls += ' miss';
+      if (c.isToday) cls += ' today';
+      return `<span class="${cls}" title="${c.date}"></span>`;
+    }).join('');
+  }
+
+  const ok = cov.pct >= COVERAGE_THRESHOLD;
+  const covChip = document.getElementById('cov-chip');
+  if (covChip) {
+    covChip.textContent = `${Math.round(cov.pct)}%`;
+    covChip.className = 'w-hbig ' + (ok ? 'ok' : 'warn');
+  }
+
+  const covText = document.getElementById('cov-text');
+  if (covText) covText.textContent = `${cov.logged} of last ${cov.window} mornings`;
+
+  const barFill = document.getElementById('cov-bar-fill');
+  if (barFill) {
+    barFill.style.width = `${Math.min(100, cov.pct)}%`;
+    barFill.className = ok ? 'ok' : '';
+  }
+
+  const covVerdict = document.getElementById('cov-verdict');
+  if (covVerdict) {
+    if (ok) {
+      covVerdict.textContent = 'enough for a reliable rate';
+      covVerdict.style.color = 'var(--success, #16a34a)';
+    } else {
+      covVerdict.textContent = `need ${COVERAGE_THRESHOLD}%`;
+      covVerdict.style.color = 'var(--warning, #d97706)';
+    }
+  }
+
+  const headerPill = document.getElementById('header-cov-pill');
+  if (headerPill) {
+    headerPill.hidden = false;
+    headerPill.textContent = `${cov.logged} of last ${cov.window} mornings`;
+    headerPill.className = 'covpill ' + (ok ? 'ok' : 'low');
+  }
+}
+
+const LOCK_GROUP_STORAGE_KEY = 'weight-lock-group-peek';
+const GATED_SECTION_IDS = ['rate-card', 'hypothesis-card', 'cut-review-card'];
+
+function _renderLockGroup(gated, cov, daysNeeded) {
+  const group = document.getElementById('lock-group');
+  GATED_SECTION_IDS.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.hidden = !!gated;
+    el.classList.remove('w-locked');
+  });
+  document.querySelectorAll('.w-lockmsg').forEach(el => { el.hidden = true; });
+
+  if (!group) return;
+  if (!gated) {
+    group.hidden = true;
+    return;
+  }
+
+  group.hidden = false;
+  const pctEl = document.getElementById('lg-pct');
+  if (pctEl) pctEl.textContent = `${Math.round(cov.pct)}% · need ${COVERAGE_THRESHOLD}%`;
+  const bar = document.getElementById('lg-cov-fill');
+  if (bar) bar.style.width = `${Math.min(100, cov.pct)}%`;
+  const title = document.getElementById('lg-title');
+  if (title) title.textContent = '3 sections need more weigh-ins';
+  const foot = document.getElementById('lg-mornings');
+  if (foot) {
+    foot.innerHTML = daysNeeded > 0
+      ? `≈ <b>${daysNeeded} more morning${daysNeeded === 1 ? '' : 's'}</b> unlocks all three`
+      : `<b>Almost there</b> — keep logging mornings`;
+  }
+
+  const peek = document.getElementById('lg-peek');
+  const btn = document.getElementById('lg-toggle');
+  const open = sessionStorage.getItem(LOCK_GROUP_STORAGE_KEY) === '1';
+  if (peek) peek.classList.toggle('open', open);
+  if (btn) btn.textContent = open ? "What's in here ▴" : "What's in here ▾";
+}
+
+function _initLockGroupToggle() {
+  const btn = document.getElementById('lg-toggle');
+  if (!btn || btn.dataset.wired) return;
+  btn.dataset.wired = '1';
+  btn.addEventListener('click', () => {
+    const peek = document.getElementById('lg-peek');
+    if (!peek) return;
+    const open = !peek.classList.contains('open');
+    peek.classList.toggle('open', open);
+    sessionStorage.setItem(LOCK_GROUP_STORAGE_KEY, open ? '1' : '0');
+    btn.textContent = open ? "What's in here ▴" : "What's in here ▾";
+  });
 }
 
 // ── Subtitle ─────────────────────────────────────────────────────────────
@@ -174,17 +306,24 @@ function renderSubtitle(summary, stats, tracking) {
   }
 
   const count = summary ? summary.entries_logged : 0;
-  const last14Count = _recentEntries.filter(e => e.weight_kg != null).length;
+  const since = summary && summary.first_entry_date
+    ? _fmtShortDate(summary.first_entry_date)
+    : null;
+  const sinceStr = since ? ` · since ${since}` : '';
 
-  let trendStr = '';
-  if (stats && stats.delta_7d_kg != null) {
-    const d = stats.delta_7d_kg;
-    const isFlat = Math.abs(d) < 0.05;
-    const arrow = isFlat ? '→' : (d < 0 ? '↓' : '↑');
-    trendStr = ` · trending ${arrow} ${Math.abs(d).toFixed(1)} kg/wk`;
+  const rate = stats && stats.rate;
+  let rateStr = '';
+  if (rate && rate.readable && rate.rate_kg_wk != null) {
+    const r = rate.rate_kg_wk;
+    const arrow = Math.abs(r) < 0.005 ? '→' : (r < 0 ? '↓' : '↑');
+    const sign = r > 0 ? '+' : '';
+    rateStr = ` · ${arrow} ${sign}${r.toFixed(2)} kg/wk`;
+  } else if (stats && stats.coverage_pct != null) {
+    rateStr = ` · ${Math.round(stats.coverage_pct)}% coverage (rate provisional)`;
   }
 
-  el.textContent = `${count} entries · ${last14Count} of last 14 days${trendStr}`;
+  // empty state: zero entries still shows the count line (no special hero)
+  el.textContent = `${count} entries${sinceStr}${rateStr}`;
 }
 
 // ── Hero: Card A (Current Weight) + Coach strip ───────────────────────────
@@ -194,19 +333,333 @@ function renderSubtitle(summary, stats, tracking) {
 // the existing call sites below.
 
 function renderHeroCardA(chartData, activeTarget) {
-  WeightCurrentCard.renderStats(chartData, activeTarget);
+  renderLogTodayTiles(chartData);
 }
 
-function renderCoachStrip(chartData, activeTarget) {
-  WeightCurrentCard.renderCoachStrip(chartData, activeTarget);
+function renderCoachStrip(_chartData, _activeTarget) {
+  /* Coach strip removed from weight tab — noise vs trend. */
+}
+
+function renderLogTodayTiles(chartData) {
+  const stats = chartData ? chartData.stats : null;
+  const rate = stats && stats.rate;
+  const actuals = chartData ? (chartData.actuals || []) : [];
+  const trendKg = (rate && rate.trend_kg != null) ? rate.trend_kg
+    : (stats && stats.current_avg_kg != null ? stats.current_avg_kg : null);
+
+  const trendEl = document.getElementById('log-trend-val');
+  const trendUnit = document.getElementById('log-trend-unit');
+  if (trendEl) {
+    trendEl.textContent = trendKg != null ? trendKg.toFixed(1) : '--';
+  }
+  if (trendUnit) trendUnit.textContent = unitLabel();
+
+  let lastKg = null;
+  let lastDate = null;
+  const today = todayISO();
+  for (let i = actuals.length - 1; i >= 0; i--) {
+    if (actuals[i].weight_kg != null) {
+      lastKg = actuals[i].weight_kg;
+      lastDate = actuals[i].date;
+      break;
+    }
+  }
+  // Prefer today's weigh-in when present
+  const todayPt = actuals.find(a => a.date === today && a.weight_kg != null);
+  if (todayPt) {
+    lastKg = todayPt.weight_kg;
+    lastDate = today;
+  }
+
+  const lastEl = document.getElementById('log-last-val');
+  const lastSub = document.getElementById('log-last-sub');
+  if (lastEl) {
+    lastEl.textContent = lastKg != null ? lastKg.toFixed(1) : '—';
+  }
+  if (lastSub) {
+    if (lastKg != null && trendKg != null) {
+      const d = lastKg - trendKg;
+      if (Math.abs(d) < 0.05) {
+        lastSub.textContent = 'on trend';
+      } else {
+        const sign = d >= 0 ? '+' : '−';
+        lastSub.textContent = `${sign}${Math.abs(d).toFixed(1)} vs trend`;
+      }
+    } else if (lastDate) {
+      const d = new Date(lastDate + 'T00:00:00');
+      lastSub.textContent = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    } else {
+      lastSub.textContent = '';
+    }
+  }
 }
 
 // ── Chart ──────────────────────────────────────────────────────────────────
 
 function renderChart(chartData, range) {
   _chartData = chartData;
-  WeightChart.render(chartData, range);
-  _syncLegend(chartData);
+  if (document.getElementById('weight-timeline')) {
+    _renderTimeline(chartData);
+  } else if (typeof WeightChart !== 'undefined') {
+    WeightChart.render(chartData, range);
+    _syncLegend(chartData);
+  }
+}
+
+let _timelineComposition = false;
+let _decisionsCache = null;
+let _sprintCache = null;
+
+async function _fetchDecisions() {
+  if (_decisionsCache !== null) return _decisionsCache;
+  try {
+    const data = await apiFetch('/api/decisions?limit=25');
+    _decisionsCache = data.decisions || [];
+    return _decisionsCache;
+  } catch (e) {
+    _decisionsCache = [];
+    return [];
+  }
+}
+
+async function _fetchSprintBands() {
+  if (_sprintCache !== null) return _sprintCache;
+  try {
+    const data = await apiFetch('/api/calibration-sprint');
+    if (data && data.status === 'running' && data.start_date && data.end_date) {
+      _sprintCache = [{ start: data.start_date, end: data.end_date }];
+    } else {
+      _sprintCache = [];
+    }
+    return _sprintCache;
+  } catch (_) {
+    _sprintCache = [];
+    return [];
+  }
+}
+
+async function _renderTimeline(chartData) {
+  if (typeof WeightTimeline === 'undefined') return;
+  const [decisions, sprints] = await Promise.all([_fetchDecisions(), _fetchSprintBands()]);
+  WeightTimeline.render(chartData, {
+    showComposition: _timelineComposition,
+    decisions: decisions,
+    sprints: sprints,
+  });
+}
+
+function renderDecisionsList(decisions) {
+  const list = document.getElementById('decisions-list');
+  if (!list) return;
+  if (!decisions || !decisions.length) {
+    list.innerHTML = '<div class="w-verdict flat">No decisions logged yet — paste from a consult to track what changed.</div>';
+    return;
+  }
+  list.innerHTML = decisions.slice(0, 8).map(d => {
+    const day = d.decided_on || '';
+    const dObj = day ? new Date(day + 'T00:00:00') : null;
+    const dLbl = dObj && !isNaN(dObj)
+      ? dObj.toLocaleDateString('en-US', { day: 'numeric', month: 'short' }).toUpperCase()
+      : '—';
+    let chip = 'w-chip';
+    let chipText = 'ACTIVE';
+    if (d.applied === false) { chipText = 'REVERTED'; }
+    else if (d.outcome_note) { chip += ' ok'; chipText = 'WORKING'; }
+    else if (d.review_on && d.review_on <= todayISO() && !d.outcome_note) { chip += ' warn'; chipText = 'REVIEW'; }
+    const sub = d.review_on ? `review ${d.review_on}` : (d.outcome_note || '');
+    const text = (d.raw_text || '').split('\n')[0].slice(0, 120);
+    return `<div class="w-tlrow">
+      <span class="w-tld">${window.AppCommon.escapeHtml(dLbl)}</span>
+      <span class="w-tlt">${window.AppCommon.escapeHtml(text)}${sub ? `<small>${window.AppCommon.escapeHtml(sub)}</small>` : ''}</span>
+      <span class="${chip}">${chipText}</span>
+    </div>`;
+  }).join('');
+}
+
+async function renderDecisions() {
+  const decisions = await _fetchDecisions();
+  renderDecisionsList(decisions);
+}
+
+function renderComposition(composition) {
+  const body = document.getElementById('composition-body');
+  const chip = document.getElementById('composition-chip');
+  if (!body) return;
+
+  const count = composition && composition.readings_count != null ? composition.readings_count : 0;
+  if (chip) chip.textContent = `${count} of 4 readings`;
+
+  if (!composition || !composition.readable) {
+    const note = composition && composition.readable_note
+      ? window.AppCommon.escapeHtml(composition.readable_note)
+      : 'Log body fat % weekly and this fills in after four readings — it\'s the only thing that can tell you whether you\'re losing fat or muscle.';
+    body.innerHTML = `<div class="w-empty">${note}</div>
+      <div class="w-t3" style="opacity:.4;margin-top:9px">
+        <div class="w-tile"><div class="w-tile-lbl">Fat mass</div><div class="w-mid">— <span>kg</span></div></div>
+        <div class="w-tile"><div class="w-tile-lbl">Lean mass</div><div class="w-mid">— <span>kg</span></div></div>
+        <div class="w-tile"><div class="w-tile-lbl">Body fat</div><div class="w-mid">—<span>%</span></div></div>
+      </div>`;
+    return;
+  }
+
+  const latest = composition.latest || {};
+  const lean = latest.lean_mass_kg;
+  const fat = latest.fat_mass_kg;
+  const bf = latest.body_fat_pct;
+
+  body.innerHTML = `
+    <div class="w-t3">
+      <div class="w-tile"><div class="w-tile-lbl">Fat mass</div><div class="w-mid">${fat != null ? fat.toFixed(1) : '—'} <span>kg</span></div></div>
+      <div class="w-tile"><div class="w-tile-lbl">Lean mass</div><div class="w-mid">${lean != null ? lean.toFixed(1) : '—'} <span>kg</span></div></div>
+      <div class="w-tile"><div class="w-tile-lbl">Body fat</div><div class="w-mid">${bf != null ? bf.toFixed(1) : '—'}<span>%</span></div></div>
+    </div>
+    ${composition.verdict ? `<div class="w-verdict good" style="margin-top:10px"><b>${window.AppCommon.escapeHtml(composition.verdict)}</b></div>` : ''}`;
+}
+
+function renderRateCard(chartData, activeTarget) {
+  const card = document.getElementById('rate-card');
+  if (card && card.hidden) return;
+
+  const stats = chartData ? chartData.stats : null;
+  const rate = stats && stats.rate;
+  const readable = rate && rate.readable;
+
+  const rTrend = document.getElementById('rate-trend-val');
+  const rTrendSub = document.getElementById('rate-trend-sub');
+  const rRate = document.getElementById('rate-val');
+  const rRateSub = document.getElementById('rate-val-sub');
+  const rBar = document.getElementById('rate-bar');
+  const rVerdict = document.getElementById('rate-verdict');
+
+  const trendKg = rate && rate.trend_kg != null ? rate.trend_kg : (stats && stats.current_avg_kg);
+  if (rTrend) {
+    rTrend.innerHTML = trendKg != null
+      ? `${trendKg.toFixed(1)} <span>kg</span>`
+      : `-- <span>kg</span>`;
+  }
+
+  const todayMarker = chartData && chartData.today_marker;
+  if (rTrendSub && todayMarker) {
+    const raw = todayMarker.actual_kg;
+    // Delta vs the displayed trend weight — never plan gap (gap_kg is vs plan).
+    const trendForDelta = (rate && rate.trend_kg != null)
+      ? rate.trend_kg
+      : (todayMarker.trend_kg != null ? todayMarker.trend_kg : trendKg);
+    if (raw != null && trendForDelta != null) {
+      const dlt = raw - trendForDelta;
+      if (Math.abs(dlt) < 0.05) {
+        rTrendSub.textContent = `raw today ${raw.toFixed(1)} · on trend`;
+      } else {
+        const sign = dlt >= 0 ? '+' : '−';
+        rTrendSub.textContent = `raw today ${raw.toFixed(1)} · ${sign}${Math.abs(dlt).toFixed(1)} vs trend`;
+      }
+    } else {
+      rTrendSub.textContent = '';
+    }
+  }
+
+  if (rRate) {
+    if (readable && rate.rate_kg_wk != null) {
+      const r = rate.rate_kg_wk;
+      const sign = r > 0 ? '+' : '';
+      rRate.innerHTML = `${sign}${r.toFixed(2)} <span>kg/wk</span>`;
+      rRate.style.color = '';
+    } else {
+      rRate.innerHTML = '—.— <span>kg/wk</span>';
+      rRate.style.color = 'var(--text-tertiary, #9ca3af)';
+    }
+  }
+
+  if (rRateSub) {
+    if (readable && rate.ci_kg_wk != null) {
+      rRateSub.textContent = `± ${Math.abs(rate.ci_kg_wk).toFixed(2)} · clear of zero`;
+      rRateSub.className = 'w-sub ok';
+    } else {
+      rRateSub.textContent = rate && rate.readable_note ? rate.readable_note : 'interval too wide to read';
+      rRateSub.className = 'w-sub mute';
+    }
+  }
+
+  if (rBar) {
+    const cap = -0.5;
+    const needed = rate && rate.needed_rate_kg_wk;
+    const lo = cap;
+    const hi = 0.5;
+    const span = hi - lo;
+    const toPct = v => `${((v - lo) / span) * 100}%`;
+    if (!readable) {
+      rBar.innerHTML = `<span class="w-rline"></span><span class="w-rci wide" style="left:8%;width:78%"></span>
+        <span class="w-rz" style="left:64%"></span><span class="w-rlab" style="left:64%">0 flat</span>`;
+    } else {
+      const pt = rate.rate_kg_wk != null ? rate.rate_kg_wk : 0;
+      const ci = rate.ci_kg_wk != null ? Math.abs(rate.ci_kg_wk) : 0.15;
+      const ciL = Math.max(lo, pt - ci);
+      const ciR = Math.min(hi, pt + ci);
+      rBar.innerHTML = `<span class="w-rline"></span>
+        <span class="w-rci" style="left:${toPct(ciL)};width:${Math.max(2, ((ciR - ciL) / span) * 100)}%"></span>
+        <span class="w-rpt" style="left:${toPct(pt)}"></span>
+        ${needed != null ? `<span class="w-rn" style="left:${toPct(needed)}"></span>` : ''}
+        <span class="w-rz" style="left:${toPct(0)}"></span>
+        <span class="w-rlab" style="left:8%">${cap} cap</span>
+        ${needed != null ? `<span class="w-rlab" style="left:${toPct(needed)}">needed ${needed.toFixed(2)}</span>` : ''}
+        <span class="w-rlab" style="left:${toPct(0)}">0 flat</span>`;
+    }
+  }
+
+  if (rVerdict) {
+    rVerdict.className = 'w-verdict ' + (readable ? 'good' : 'flat');
+    if (!readable) {
+      const cov = _coverageFromChart(stats);
+      rVerdict.textContent = `With ${cov.logged} of ${cov.window} mornings the confidence interval spans the whole plausible range. No conclusion possible.`;
+    } else if (rate.rate_kg_wk != null) {
+      rVerdict.innerHTML = `<b>Rate ${rate.rate_kg_wk.toFixed(2)} kg/wk</b> — single canonical value from weight_stats, shared with header and cut review.`;
+    } else {
+      rVerdict.textContent = 'Needs more coverage for a readable rate.';
+    }
+  }
+}
+
+async function renderHypothesis() {
+  const body = document.getElementById('hypothesis-body');
+  const verdict = document.getElementById('hypothesis-verdict');
+  const card = document.getElementById('hypothesis-card');
+  if (!body) return;
+  // When the lock group owns this card, leave the DOM empty — no ghost numbers.
+  if (card && card.hidden) {
+    body.innerHTML = '';
+    if (verdict) verdict.textContent = '';
+    return;
+  }
+  try {
+    const data = await apiFetch('/api/weight-hypothesis');
+    if (!data.readable || !data.buckets || !data.buckets.length) {
+      body.innerHTML = '';
+      if (verdict) {
+        verdict.className = 'w-verdict flat';
+        verdict.textContent = data.sentence || data.reason || 'Too early to say where performance peaks — track weight against endurance and speed and let the curve show it.';
+      }
+      return;
+    }
+    const current = data.current_weight_kg;
+    body.innerHTML = data.buckets.map(b => {
+      const isNow = current != null && Math.abs(b.weight_kg - current) < 0.3;
+      const isPeak = data.peak_estimate_kg != null && Math.abs(b.weight_kg - data.peak_estimate_kg) < 0.3;
+      const pct = Math.min(100, Math.max(8, (b.mean_score / (data.buckets[0].mean_score || 1)) * 66));
+      const projected = b.weight_kg > (current || 0) + 2;
+      return `<div class="w-hrow${isNow ? ' w-hnow' : ''}">
+        <span class="w-hw">${b.weight_kg.toFixed(1)}</span>
+        <span class="w-htrack"><i style="width:${pct}%;background:${isNow ? 'var(--primary,#4f6ef7)' : '#c9d2fb'}"></i></span>
+        <span class="w-hval">${projected ? 'projected' : `score ${b.mean_score.toFixed(0)}`}</span>
+      </div>`;
+    }).join('');
+    if (verdict) {
+      verdict.className = 'w-verdict flat';
+      verdict.textContent = data.sentence || 'Hypothesis from paired weight and performance — not a target.';
+    }
+  } catch (_) {
+    body.innerHTML = '';
+    if (verdict) verdict.textContent = 'Hypothesis unavailable yet.';
+  }
 }
 
 // Plan / gap / milestone legend chips are Advanced-only AND require a target.
@@ -258,14 +711,8 @@ function _fmtShortDate(dateStr) {
 
 function renderProgress(target) {
   const card = document.getElementById('progress-card');
-  if (!card) return;
-
-  if (!target) {
-    card.hidden = true;
-    return;
-  }
-
-  card.hidden = false;
+  if (card) card.hidden = true;
+  return;
 
   const pct       = Math.max(0, Math.min(100, target.progress_pct || 0));
   const startW    = target.start_weight_kg || 0;
@@ -466,13 +913,11 @@ function renderRecentEntries(entries, activeTarget, totalEntries) {
   const viewAllLink = document.getElementById('view-all-link');
   if (!container) return;
 
-  // Use total_entries from history-summary for the "View all N" count
   const displayCount = totalEntries != null ? totalEntries : entries.length;
   if (viewAllLink) {
     viewAllLink.textContent = `View all ${displayCount} →`;
   }
 
-  // Build a map: date → sorted entries (newest time first)
   const byDate = {};
   entries.forEach(e => {
     if (!byDate[e.entry_date]) byDate[e.entry_date] = [];
@@ -482,33 +927,38 @@ function renderRecentEntries(entries, activeTarget, totalEntries) {
     arr.sort((a, b) => (b.entry_time || '').localeCompare(a.entry_time || ''))
   );
 
-  // Build 5-day list: today → today-4 (older dates are reached via the calendar)
   const today = todayISO();
   const days = [];
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 14; i++) {
     days.push(addDays(today, -i));
   }
 
-  // Compute deltas: compare each entry to the previous logged day (across gaps)
-  const allSorted = entries.slice().sort((a, b) => a.entry_date.localeCompare(b.entry_date));
-  const prevWeight = {};
-  allSorted.forEach((e, idx) => {
-    const prev = allSorted.slice(0, idx).filter(x => x.entry_date < e.entry_date).pop();
-    prevWeight[e.id] = prev ? e.weight_kg - prev.weight_kg : null;
-  });
+  const trendByDate = {};
+  if (_chartData && _chartData.trend) {
+    _chartData.trend.forEach(p => {
+      if (p.weight_kg != null) trendByDate[p.date] = p.weight_kg;
+    });
+  }
+  if (_chartData && _chartData.ewma) {
+    _chartData.ewma.forEach(p => {
+      if (p.weight_kg != null) trendByDate[p.date] = p.weight_kg;
+    });
+  }
 
-  // Delta direction: ↓ green when toward target, ↑ red when away from target
-  const losingIsGoal = !activeTarget ||
-    activeTarget.target_weight_kg == null ||
-    activeTarget.start_weight_kg == null ||
-    activeTarget.target_weight_kg < activeTarget.start_weight_kg;
-
-  // Delegates to the shared escaper (issue #1603).
   function _esc(s) {
     return window.AppCommon.escapeHtml(s);
   }
 
-  // empty state: if no entries exist at all, show prompt instead of 14 blank rows
+  function _fmtDay(date) {
+    const d = new Date(date + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  }
+
+  function _fmtShort(date) {
+    const d = new Date(date + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' });
+  }
+
   if (!entries.length) {
     container.innerHTML = `<div style="text-align:center;padding:24px;color:var(--text-tertiary);font-size:13px;">
       No weight entries yet — log your first weigh-in above
@@ -516,70 +966,78 @@ function renderRecentEntries(entries, activeTarget, totalEntries) {
     return;
   }
 
-  container.innerHTML = days.map(date => {
+  // Collapse consecutive missing days into one gap row (compact mock).
+  const parts = [];
+  let gapStart = null;
+  let gapDates = [];
+
+  function flushGap() {
+    if (!gapDates.length) return;
+    const n = gapDates.length;
+    const newest = gapDates[0];
+    const oldest = gapDates[gapDates.length - 1];
+    let rangeLbl;
+    if (n === 1) {
+      rangeLbl = _fmtShort(newest);
+    } else {
+      rangeLbl = `${_fmtShort(oldest)}–${_fmtShort(newest)}`;
+    }
+    parts.push(`
+      <div class="w-gap" data-gap-dates="${gapDates.join(',')}">
+        <span>${n} day${n === 1 ? '' : 's'} not logged · ${rangeLbl}</span>
+        <button type="button" class="gap-backfill-btn" data-date="${newest}">+ backfill</button>
+      </div>`);
+    gapStart = null;
+    gapDates = [];
+  }
+
+  days.forEach(date => {
+    const dayEntries = byDate[date];
+    if (!dayEntries || !dayEntries.length) {
+      gapDates.push(date);
+      return;
+    }
+    flushGap();
     const isToday = date === today;
     const todayCls = isToday ? 'entry-row-today' : '';
-    const dayEntries = byDate[date];
-    const d = new Date(date + 'T00:00:00');
-    const weekday = d.toLocaleDateString('en-US', { weekday: 'short' });
-    const dayStr  = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const dateLabel = `${weekday}, ${dayStr}`;
-
-    if (!dayEntries || !dayEntries.length) {
-      return `
-        <div class="re-row ${todayCls} missing-day-row" data-date="${date}">
-          <div class="re-d">${dateLabel}${isToday ? '<span class="re-d-sub">Today</span>' : ''}</div>
-          <div class="re-note">
-            <button class="add-chip backfill-add-btn" data-date="${date}" data-is-today="${isToday}" type="button"
-              aria-label="No entry for ${date} — click to add">＋ Add</button>
-          </div>
-          <div class="re-w"></div>
-          <div class="re-delta"></div>
-          <div class="re-actions"></div>
-        </div>`;
-    }
-
-    // One or more entries on this day — show the first (most recent) entry
-    return dayEntries.map((e, idx) => {
-      const delta = prevWeight[e.id];
-      let deltaCls = 'neu', deltaArrow = '—', deltaVal = '';
-      if (delta != null) {
-        const isFlat = Math.abs(delta) < 0.05;
-        const isLoss = delta < 0;
-        const isTowardTarget = losingIsGoal ? isLoss : !isLoss;
-        if (!isFlat) {
-          deltaCls = isTowardTarget ? 'dn' : 'up';
-          deltaArrow = isLoss ? '↓' : '↑';
-          deltaVal = ' ' + Math.abs(delta).toFixed(1);
-        }
+    const e = dayEntries[0];
+    const trend = trendByDate[date];
+    let deltaNote = '';
+    if (trend != null && e.weight_kg != null) {
+      const dlt = e.weight_kg - trend;
+      if (Math.abs(dlt) < 0.05) deltaNote = '0.0';
+      else {
+        const sign = dlt >= 0 ? '+' : '−';
+        deltaNote = `${sign}${Math.abs(dlt).toFixed(1)}`;
       }
-      const noteText = e.notes ? _esc(e.notes) : '';
-
-      return `
-        <div class="re-row ${todayCls}" data-entry-id="${e.id}">
-          <div class="re-d">${idx === 0 ? dateLabel : ''}${isToday && idx === 0 ? '<span class="re-d-sub">Today</span>' : ''}</div>
-          <div class="re-note">${noteText}</div>
-          <div class="re-w">${e.weight_kg.toFixed(1)}<span class="re-u"> kg</span></div>
-          <div class="re-delta ${deltaCls}">${deltaArrow}${deltaVal}</div>
-          <div class="re-actions">
-            <button class="entry-menu-btn" data-entry-id="${e.id}" data-weight="${e.weight_kg}" data-date="${e.entry_date}" type="button"
-              aria-label="Actions for entry ${e.id}" aria-expanded="false">⋯</button>
-          </div>
-        </div>`;
-    }).join('');
-  }).join('');
-
-  // Wire ＋ Add chip buttons
-  container.querySelectorAll('.backfill-add-btn').forEach(btn => {
-    const date = btn.dataset.date;
-    const isToday = btn.dataset.isToday === 'true';
-    btn.addEventListener('click', () => _openMiniStepper(btn, date));
-    if (isToday) {
-      _openMiniStepper(btn, date);
     }
+    const noteText = e.notes ? _esc(e.notes) : '';
+    parts.push(`
+      <div class="re-row ${todayCls}" data-entry-id="${e.id}">
+        <div class="re-d">${_fmtDay(date)}${isToday ? '<span class="re-d-sub">Today</span>' : ''}</div>
+        <div class="re-note">${noteText}</div>
+        <div class="re-w">${e.weight_kg.toFixed(1)}</div>
+        <div class="re-delta neu">${deltaNote}</div>
+        <div class="re-actions">
+          <button class="entry-menu-btn" data-entry-id="${e.id}" data-weight="${e.weight_kg}" data-date="${e.entry_date}" type="button"
+            aria-label="Actions for entry ${e.id}" aria-expanded="false">⋯</button>
+        </div>
+      </div>`);
+  });
+  flushGap();
+
+  container.innerHTML = parts.join('');
+
+  container.querySelectorAll('.gap-backfill-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const date = btn.dataset.date;
+      // Jump calendar editor / focus that date via existing backfill calendar
+      const cell = document.querySelector(`.wcal-cell[data-date="${date}"]`);
+      if (cell) cell.click();
+      else _openMiniStepper(btn, date);
+    });
   });
 
-  // Wire entry menu buttons
   container.querySelectorAll('.entry-menu-btn').forEach(btn => {
     btn.addEventListener('click', (ev) => {
       ev.stopPropagation();
@@ -587,7 +1045,6 @@ function renderRecentEntries(entries, activeTarget, totalEntries) {
     });
   });
 
-  // Close open menus on outside click
   document.addEventListener('click', _closeAllMenus);
 }
 
@@ -1006,7 +1463,7 @@ function _showLoggedMode(weightKg) {
   const loggedTxt = document.getElementById('logged-text');
   if (wrap)   wrap.hidden   = true;
   if (logged) logged.hidden = false;
-  if (loggedTxt) loggedTxt.textContent = `✓ Logged today · ${kgToDisplay(weightKg).toFixed(1)} ${unitLabel()} · `;
+  if (loggedTxt) loggedTxt.textContent = `✓ Logged today`;
 }
 
 async function _submitCardB(displayVal) {
@@ -1747,7 +2204,7 @@ async function _reloadEntries() {
     const entriesRes = await fetchRecentEntries();
     _recentEntries = entriesRes.entries || [];
     renderRecentEntries(_recentEntries, _activeTarget, _historySummary ? _historySummary.total_entries : null);
-    renderStreakAndAdherence(_recentEntries);
+    renderCoverageGating(_chartData, _recentEntries);
   } catch (e) {
     if (e.message !== 'auth') showPageError('Entries reload failed: ' + e.message);
   }
@@ -1961,12 +2418,11 @@ async function _renderP2WCard(range) {
 
 async function _reload() {
   try {
-    const [chartData, entriesRes, targetRes, summaryRes, histSummary] = await Promise.all([
+    const [chartData, entriesRes, targetRes, summaryRes] = await Promise.all([
       fetchChartData(_currentRange),
       fetchRecentEntries(),
       fetchActiveTarget(),
       fetchAllEntriesSummary(),
-      fetchTargetHistorySummary(),
     ]);
 
     _chartData = chartData;
@@ -1979,12 +2435,14 @@ async function _reload() {
     renderChart(chartData, _currentRange);
     renderProgress(_activeTarget);
     renderMilestones(_activeTarget, chartData.stats);
-    renderRecentEntries(_recentEntries, _activeTarget, histSummary ? histSummary.total_entries : null);
-    renderStreakAndAdherence(_recentEntries);
-    renderTargetHistory(histSummary);
+    renderRecentEntries(_recentEntries, _activeTarget, null);
+    renderCoverageGating(chartData, _recentEntries);
+    renderComposition(chartData.composition);
+    renderRateCard(chartData, _activeTarget);
+    renderDecisions();
+    await renderHypothesis();
     _cardBSetLoggedState(_recentEntries, chartData.stats ? chartData.stats.current_weight_kg : null);
     await renderBackfillCalendar();
-    _renderP2WCard(_currentRange);
   } catch (e) {
     if (e.message !== 'auth') showPageError('Load error: ' + e.message);
   }
@@ -2015,10 +2473,8 @@ function _renderWaistSparkline(measurements) {
   }));
 
   if (!pts.length) {
-    wrap.hidden = false;
-    svg.setAttribute('width', '0');
-    svg.setAttribute('height', '0');
-    if (empty) empty.hidden = false;
+    wrap.hidden = true;
+    if (empty) empty.hidden = true;
     return;
   }
 
@@ -2178,6 +2634,48 @@ function _initBodyMeasurements() {
   });
 }
 
+function _initTimelineToggle() {
+  const seg = document.getElementById('timeline-mode-seg');
+  if (!seg) return;
+  seg.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === btn));
+      _timelineComposition = btn.dataset.mode === 'composition';
+      if (_chartData) _renderTimeline(_chartData);
+    });
+  });
+}
+
+function _initRateRangeTabs() {
+  const tabs = document.querySelectorAll('#rate-range-tabs .range-tab');
+  if (!tabs.length) return;
+  tabs.forEach(btn => {
+    btn.addEventListener('click', async () => {
+      _currentRange = btn.dataset.range;
+      tabs.forEach(b => b.classList.toggle('active', b === btn));
+      document.querySelectorAll('.chart-controls .range-tab').forEach(b => {
+        b.classList.toggle('active', b.dataset.range === _currentRange);
+      });
+      if (_rangeAbortController) _rangeAbortController.abort();
+      _rangeAbortController = new AbortController();
+      const seq = ++_rangeFetchSeq;
+      try {
+        const data = await fetchChartData(_currentRange, _rangeAbortController.signal);
+        if (seq !== _rangeFetchSeq) return;
+        _chartData = data;
+        renderChart(data, _currentRange);
+        renderLogTodayTiles(data);
+        renderCoverageGating(data, _recentEntries);
+        renderComposition(data.composition);
+        renderRateCard(data, _activeTarget);
+        _renderP2WCard(_currentRange);
+      } catch (e) {
+        if (e.name !== 'AbortError') showPageError('Chart load failed: ' + e.message);
+      }
+    });
+  });
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────
 
 let _chartResizeTimer = null;
@@ -2186,7 +2684,11 @@ function _onChartResize() {
   if (!_chartData) return;
   clearTimeout(_chartResizeTimer);
   _chartResizeTimer = setTimeout(function () {
-    renderChart(_chartData, _currentRange);
+    if (document.getElementById('weight-timeline')) {
+      _renderTimeline(_chartData);
+    } else {
+      renderChart(_chartData, _currentRange);
+    }
   }, 150);
 }
 
@@ -2201,6 +2703,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   _initUnitToggle();
+  _initLockGroupToggle();
   _initCardB();
   _initRangeTabs();
   _initModeToggle();
@@ -2209,6 +2712,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   _initTargetHistoryFilters();
   _initBackfillCalendar();
   _initBodyMeasurements();
+  _initTimelineToggle();
+  _initRateRangeTabs();
 
   const exportBtn = document.getElementById('export-csv-btn');
   if (exportBtn) {

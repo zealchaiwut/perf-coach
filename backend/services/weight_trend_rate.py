@@ -84,6 +84,8 @@ def compute_trend_rate(
     *,
     window_days: int = DEFAULT_WINDOW_DAYS,
     ewma_values: Optional[list] = None,
+    min_coverage_pct: float = MIN_COVERAGE_PCT,
+    min_entries: int = MIN_ENTRIES,
 ) -> dict:
     """Fit the EWMA trend over the trailing window and report slope ± CI.
 
@@ -155,14 +157,14 @@ def compute_trend_rate(
 
     readable = True
     readable_note: Optional[str] = None
-    if n < MIN_ENTRIES:
+    if n < min_entries:
         readable = False
-        readable_note = f"only {n} weigh-in days in the window (need {MIN_ENTRIES})"
-    elif coverage_pct < MIN_COVERAGE_PCT:
+        readable_note = f"only {n} weigh-in days in the window (need {min_entries})"
+    elif coverage_pct < min_coverage_pct:
         readable = False
         readable_note = (
             f"weigh-in coverage {coverage_pct}% is below the "
-            f"{MIN_COVERAGE_PCT}% the rate needs to be readable"
+            f"{min_coverage_pct}% the rate needs to be readable"
         )
 
     if n < 3:
