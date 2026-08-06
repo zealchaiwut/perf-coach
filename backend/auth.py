@@ -56,6 +56,13 @@ _secret_raw = os.getenv("SESSION_SECRET")
 if _secret_raw:
     SESSION_SECRET: bytes = _secret_raw.encode()
 else:
+    _env = os.getenv("ENVIRONMENT", "local")
+    if _env not in ("local", "test"):
+        raise RuntimeError(
+            f"SESSION_SECRET env var must be set when ENVIRONMENT='{_env}'. "
+            "Refusing to start with an ephemeral secret — set SESSION_SECRET "
+            "to a stable random value (e.g. `openssl rand -hex 32`)."
+        )
     SESSION_SECRET = secrets.token_bytes(32)
     _log.warning(
         "SESSION_SECRET env var is not set; using ephemeral random secret. "
