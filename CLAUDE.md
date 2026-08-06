@@ -150,25 +150,32 @@ the first is false and the second is how this codebase ended up with three
 planning paths and three coach-message producers for two jobs (see the
 Priority 2 consolidation, PR #1597).
 
-**Exactly one in-app LLM surface is sanctioned:**
+**Five in-app LLM surfaces are sanctioned** — each individually follows the
+hygiene rules below (gated by `llm_enabled()`, deterministic fallback, numeral
+guard, never 500s):
 
 | Surface | Where | What it does |
 |---|---|---|
-| **Daily coach message warmth rephrase** | worker, `weekly_coach_message._call_llm_narrative` | rewrites the prose around the deterministic message |
+| **Daily coach message warmth rephrase** | worker, `weekly_coach_message._call_llm_narrative` | rewrites the prose around the deterministic weekly coach message |
+| **Weekly training summary narrative** | webapp, `weekly_summary.get_narrative` | prose summary of the week's TSS/distance/load facts; gated, cached, validated by `validate_summary` |
+| **Readiness explanation** | webapp, `readiness_explanation.get_readiness_explanation` | 1-2 sentence explanation of the readiness score for the day; numeral-guarded, rule-based fallback |
+| **Habit insight coaching lines** | webapp, `habit_insights.apply_llm_insights` | rewrites deterministic `coaching_voice` insight lines as prose; returns originals on any failure |
+| **Habit nudge coaching lines** | webapp, `habit_nudges.apply_llm_nudges` | rewrites deterministic nudge strings as warm coaching prose; returns originals on any failure |
 
 **Planning has no LLM.** Week draft fill, Generate details, and single-session
 content come from DB `plan_patterns` / `plan_exercises` via
 `plan_pattern_fill` (+ `plan_week_balance`). The former Ask-AI Plan UI surface
-is removed.
+is removed. (`plan_suggestions.py` carries an LLM path that is separately tracked
+as a policy decision — do not add new plan LLM surfaces without a decision.)
 
 Adding another LLM surface needs a decision, not a convenient import.
 
-**Rules that apply:**
+**Rules that apply to all sanctioned surfaces:**
 
 - **The LLM never produces a number.** Every figure comes from the engines
-  (`training_load`, `tss`, `coach_plan`, `coach_projection`). The rephrase is
-  guarded by `_numbers_preserved()`, which discards any output whose numerals
-  differ from the deterministic text — a warm sentence is not worth a wrong one.
+  (`training_load`, `tss`, `coach_plan`, `coach_projection`). Each surface is
+  guarded by a numeral check that discards output whose numerals differ from the
+  deterministic input — a warm sentence is not worth a wrong one.
 - **Every path falls back.** Disabled provider, network error, malformed
   response, failed validation — all return the deterministic text. The athlete
   always gets a message; an LLM surface must never 500 or block.
