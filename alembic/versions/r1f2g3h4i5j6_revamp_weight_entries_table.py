@@ -11,7 +11,6 @@ Create Date: 2026-06-08
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy import inspect
 
 from helpers import table_exists, column_exists, index_exists, fk_exists
 

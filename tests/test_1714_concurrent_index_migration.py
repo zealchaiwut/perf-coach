@@ -14,7 +14,6 @@ Acceptance criteria verified:
 import pathlib
 import re
 
-import pytest
 
 _VERSIONS = pathlib.Path(__file__).parents[1] / "alembic" / "versions"
 
