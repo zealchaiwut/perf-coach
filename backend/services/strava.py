@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from backend.db import engine
 from backend.models import StravaToken
+from backend.services.crypto import decrypt_oauth_token as _decrypt, encrypt_oauth_token as _encrypt
 
 _STRAVA_TOKEN_URL = "https://www.strava.com/oauth/token"
 _REFRESH_BUFFER_SECONDS = 300  # 5 minutes
@@ -38,21 +39,21 @@ def refresh_token_if_needed(user_id: str) -> str | None:
         now = datetime.now(tz=timezone.utc)
 
         if token_row.expires_at > now + timedelta(seconds=_REFRESH_BUFFER_SECONDS):
-            return token_row.access_token
+            return _decrypt(token_row.access_token_encrypted)
 
         resp = _call_strava_refresh(
             os.getenv("STRAVA_CLIENT_ID"),
             os.getenv("STRAVA_CLIENT_SECRET"),
-            token_row.refresh_token,
+            _decrypt(token_row.refresh_token_encrypted),
         )
 
-        token_row.access_token = resp["access_token"]
-        token_row.refresh_token = resp["refresh_token"]
+        token_row.access_token_encrypted = _encrypt(resp["access_token"])
+        token_row.refresh_token_encrypted = _encrypt(resp["refresh_token"])
         token_row.expires_at = datetime.fromtimestamp(resp["expires_at"], tz=timezone.utc)
         token_row.updated_at = now
         session.commit()
 
-        return token_row.access_token
+        return _decrypt(token_row.access_token_encrypted)
 
 
 def detect_stryd_origin(strava_activity_dict: dict) -> bool:

@@ -10431,15 +10431,18 @@ def _upsert_strava_token(
     scope: Optional[str],
     athlete_data: dict,
 ) -> None:
+    from backend.services.crypto import encrypt_oauth_token as _enc_oauth  # noqa: E402
     now = _datetime.now(tz=_timezone.utc)
+    enc_at = _enc_oauth(access_token)
+    enc_rt = _enc_oauth(refresh_token)
     with Session(engine) as session:
         stmt = (
             _pg_insert(StravaToken)
             .values(
                 user_id=user_id,
                 athlete_id=athlete_id,
-                access_token=access_token,
-                refresh_token=refresh_token,
+                access_token_encrypted=enc_at,
+                refresh_token_encrypted=enc_rt,
                 expires_at=expires_at,
                 scope=scope,
                 athlete_data=athlete_data,
@@ -10448,8 +10451,8 @@ def _upsert_strava_token(
                 index_elements=["user_id"],
                 set_={
                     "athlete_id": athlete_id,
-                    "access_token": access_token,
-                    "refresh_token": refresh_token,
+                    "access_token_encrypted": enc_at,
+                    "refresh_token_encrypted": enc_rt,
                     "expires_at": expires_at,
                     "scope": scope,
                     "athlete_data": athlete_data,
@@ -10527,7 +10530,7 @@ def strava_callback(
 # ── Stryd ──────────────────────────────────────────────────────────────────────
 
 from backend.services.stryd import _call_stryd_signin as _stryd_signin  # noqa: E402
-from backend.services.crypto import encrypt_value as _encrypt_value  # noqa: E402
+from backend.services.crypto import encrypt_value as _encrypt_value, encrypt_oauth_token as _encrypt_oauth_token, decrypt_oauth_token as _decrypt_oauth_token  # noqa: E402
 from backend.services.strava import refresh_token_if_needed  # noqa: E402
 from backend.services.stryd import refresh_stryd_session_if_needed  # noqa: E402
 
@@ -10674,7 +10677,7 @@ def strava_disconnect(user: User = Depends(resolve_user)):
     with Session(engine) as session:
         token_row = session.query(StravaToken).filter(StravaToken.user_id == user_id).first()
         if token_row is not None:
-            access_token = token_row.access_token
+            access_token = _decrypt_oauth_token(token_row.access_token_encrypted)
             session.delete(token_row)
             session.commit()
 
@@ -11591,27 +11594,30 @@ def _upsert_google_credentials(
     expires_at: _datetime,
     id_token_payload: dict,
 ) -> None:
+    from backend.services.crypto import encrypt_oauth_token as _enc_oauth  # noqa: E402
     now = _datetime.now(tz=_timezone.utc)
+    enc_at = _enc_oauth(access_token)
+    enc_rt = _enc_oauth(refresh_token) if refresh_token is not None else None
     with Session(engine) as session:
         set_values: dict = {
             "google_sub": google_sub,
             "email": email,
             "email_verified": email_verified,
-            "access_token": access_token,
+            "access_token_encrypted": enc_at,
             "expires_at": expires_at,
             "id_token_payload": id_token_payload,
             "updated_at": now,
         }
-        if refresh_token is not None:
-            set_values["refresh_token"] = refresh_token
+        if enc_rt is not None:
+            set_values["refresh_token_encrypted"] = enc_rt
 
         insert_values = {
             "user_id": user_id,
             "google_sub": google_sub,
             "email": email,
             "email_verified": email_verified,
-            "access_token": access_token,
-            "refresh_token": refresh_token,
+            "access_token_encrypted": enc_at,
+            "refresh_token_encrypted": enc_rt,
             "expires_at": expires_at,
             "id_token_payload": id_token_payload,
         }
