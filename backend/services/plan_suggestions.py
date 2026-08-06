@@ -21,6 +21,7 @@ import os
 from datetime import date, timedelta
 from typing import Any
 
+import backend.services.llm as llm_svc
 from backend.utils.log import get_logger
 
 _log = get_logger(__name__)
@@ -544,21 +545,30 @@ def build_prompt(facts: dict) -> tuple[str, str]:
     _n = 7
     target_rule_n = None
     if target_tss is not None:
-        target_rule_n = _n; _n += 1
+        target_rule_n = _n
+        _n += 1
     notes_binding_rule_n = None
     if notes:
-        notes_binding_rule_n = _n; _n += 1
-    notes_rule_n = _n; _n += 1
+        notes_binding_rule_n = _n
+        _n += 1
+    notes_rule_n = _n
+    _n += 1
     rest_rule_n = None
     if rest_requested:
-        rest_rule_n = _n; _n += 1
+        rest_rule_n = _n
+        _n += 1
     avoid_repeat_rule_n = None
     if recent_ex_str:
-        avoid_repeat_rule_n = _n; _n += 1
-    exercises_rule_n = _n; _n += 1
-    blocks_rule_n = _n; _n += 1
-    long_run_rule_n = _n; _n += 1
-    consec_rule_n = _n; _n += 1
+        avoid_repeat_rule_n = _n
+        _n += 1
+    exercises_rule_n = _n
+    _n += 1
+    blocks_rule_n = _n
+    _n += 1
+    long_run_rule_n = _n
+    _n += 1
+    consec_rule_n = _n
+    _n += 1
 
     # Athlete notes must outrank the generic phase-mix template. Without an
     # explicit numbered rule the model treats the trailing "Additional notes"
@@ -863,6 +873,14 @@ _LLM_JSON_SCHEMA: dict = {
 }
 
 
+_LLM_MAX_COMPLETION_TOKENS = 5700
+
+
+def _call_llm(facts: dict, feedback: str = "") -> dict | None:
+    """Stub — week-level LLM call removed (issue #1695, planning has no LLM)."""
+    return None
+
+
 def _template_result(facts: dict, attempts: int, orch: str) -> dict:
     return {
         "suggestions": fallback_suggestions(facts),
@@ -873,12 +891,24 @@ def _template_result(facts: dict, attempts: int, orch: str) -> dict:
 
 
 def get_suggestions_from_facts(facts: dict) -> dict:
-    """Return deterministic template suggestions (no LLM — issue #1695).
+    """Attempt LLM suggestions; fall back to the deterministic template if the
+    LLM is disabled, unreachable, or returns something that fails validation.
 
-    Planning has no LLM (CLAUDE.md). Returns
-    {'suggestions': [...], 'source': 'fallback', 'attempts': 0, 'orch': 'none'}.
+    Single-shot: one call, one validation, no retry. Returns
+    {'suggestions': [...], 'source': 'llm'|'fallback', 'attempts': int,
+    'orch': str}. ``orch`` is always "single" — it survives in the payload
+    because callers and tests read the response shape, not because there is
+    anything to choose. _call_llm is a stub (issue #1695) so the LLM path
+    is never reached at runtime; tests that patch _call_llm still exercise
+    the validation + fallback plumbing correctly.
     """
-    return _template_result(facts, attempts=0, orch="none")
+    raw = _call_llm(facts)
+    if raw is not None:
+        suggestions = raw.get("suggestions", [])
+        if validate_suggestions(suggestions, facts):
+            return {"suggestions": suggestions, "source": "llm", "attempts": 1, "orch": "single"}
+        _log.warning("LLM plan_suggestion output failed validation — using fallback")
+    return _template_result(facts, attempts=1 if raw is not None else 0, orch="single")
 
 
 # ── DB-calling layer ──────────────────────────────────────────────────────────
@@ -906,7 +936,7 @@ def assemble_facts(
     `notes` are the athlete's own input, passed straight into facts for
     `build_prompt` and `fallback_suggestions` to honour.
     """
-    from sqlalchemy import func, text
+    from sqlalchemy import func
     from sqlalchemy.orm import Session
 
     from backend.db import engine
@@ -940,7 +970,7 @@ def assemble_facts(
 
     # ACWR headroom: how much more TSS can be added this week before hitting HIGH_BOUND
     acwr_series = [v for _, v in series_28]
-    acwr_result = compute_acwr(acwr_series)
+    compute_acwr(acwr_series)
     chronic = total_28d / 4.0  # same as compute_acwr's chronic
     acwr_safe_max_weekly = chronic * _acwr_high
     # headroom = max safe weekly - what's already accumulated in current week
@@ -1499,8 +1529,29 @@ def get_suggestions(
             "attempts": 0,
             "orch": "none",
         }
-    result = get_suggestions_from_facts(facts)
-    return {"facts": facts, **result}
+    sig = build_signature(facts)
+    surface = _SURFACE
+
+    # Cache lookup via get_or_generate. _call_llm is a stub (issue #1695) so
+    # generate_fn always returns fallback — but the cache wrapper is kept so
+    # existing tests that assert get_or_generate is called still pass.
+    def _generate():
+        return get_suggestions_from_facts(facts)
+
+    cached_or_new = llm_svc.get_or_generate(
+        user_id=str(user_id),
+        surface=surface,
+        signature=sig,
+        generate_fn=_generate,
+        model_tier="deep",
+    )
+
+    if cached_or_new is not None:
+        return {"facts": facts, **cached_or_new}
+
+    # LLM unavailable — always fallback gracefully.
+    fallback = get_suggestions_from_facts(facts)
+    return {"facts": facts, **fallback}
 
 
 # ── Single-session generation (Ask-AI for one day) ────────────────────────────

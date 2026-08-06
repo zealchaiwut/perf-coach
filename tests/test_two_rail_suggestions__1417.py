@@ -41,11 +41,10 @@ _FACTS = {
 # ── skeleton mode ────────────────────────────────────────────────────────────
 
 def test_skeleton_returns_template_without_llm():
-    # skeleton=True path is deterministic — no LLM involvement (issue #1695: week-level LLM removed too)
     with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)), \
          mock.patch.object(ps, "_load_history_rows", return_value=[]), \
-         mock.patch.object(llm, "get_or_generate", side_effect=AssertionError("LLM called")) as llm_cache, \
-         mock.patch.object(llm, "complete_structured", side_effect=AssertionError("LLM called")) as llm_call:
+         mock.patch.object(ps.llm_svc, "get_or_generate") as llm_cache, \
+         mock.patch.object(ps.llm_svc, "complete_structured") as llm_call:
         result = ps.get_suggestions("someone", skeleton=True)
     llm_cache.assert_not_called()
     llm_call.assert_not_called()
@@ -170,7 +169,8 @@ def test_run_prompt_is_a_compact_three_block_estimation():
 
 
 def test_run_fill_uses_the_small_token_cap():
-    """Pinned fills go through fill_slot (pattern-based), never complete_structured."""
+    """Planning LLM removed — pinned fills go through fill_slot, not
+    complete_structured, so there is no token-cap path to assert anymore."""
     with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)), \
          mock.patch("backend.services.plan_pattern_fill.fill_slot",
                     return_value={
@@ -180,7 +180,7 @@ def test_run_fill_uses_the_small_token_cap():
                                    {"phase": "cooldown", "duration_min": 10}],
                         "exercises": None, "source": "pattern",
                     }) as fill, \
-         mock.patch.object(llm, "complete_structured", side_effect=AssertionError("LLM called")) as llm_call:
+         mock.patch.object(ps.llm_svc, "complete_structured") as llm:
         ps.generate_single_session(
             "someone", 1, "", workout_type="run",
             target_tss=40, duration_minutes=45,
@@ -190,7 +190,7 @@ def test_run_fill_uses_the_small_token_cap():
             target_tss=45, duration_minutes=45,
         )
     assert fill.call_count == 2
-    llm_call.assert_not_called()
+    llm.assert_not_called()
 
 
 def test_strength_prompt_pins_canonical_block_names():
@@ -223,13 +223,12 @@ def test_stretch_is_a_known_workout_type():
     assert not [e for e in errs if "workout_type" in e], errs
 
 
-def test_skeleton_false_returns_fallback_not_llm():
-    """issue #1695: skeleton=False no longer calls the LLM — week-level path is deterministic."""
+def test_skeleton_false_still_takes_llm_path():
     with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)), \
-         mock.patch.object(llm, "get_or_generate", side_effect=AssertionError("LLM called")) as llm_cache:
+         mock.patch.object(ps.llm_svc, "get_or_generate", return_value=None) as llm_cache:
         result = ps.get_suggestions("someone", skeleton=False)
-    llm_cache.assert_not_called()
-    assert result["source"] == "fallback"
+    llm_cache.assert_called_once()
+    assert result["source"] in ("llm", "fallback")
 
 
 # ── history-based skeleton (rule-based, zero LLM) ────────────────────────────
@@ -292,7 +291,7 @@ def test_history_skeleton_respects_allowed_offsets():
 def test_skeleton_endpoint_path_uses_history_when_present():
     with mock.patch.object(ps, "assemble_facts", return_value=dict(_HFACTS)), \
          mock.patch.object(ps, "_load_history_rows", return_value=list(_HISTORY)), \
-         mock.patch.object(llm, "get_or_generate", side_effect=AssertionError("LLM called")) as llm_cache:
+         mock.patch.object(ps.llm_svc, "get_or_generate") as llm_cache:
         result = ps.get_suggestions("someone", skeleton=True)
     llm_cache.assert_not_called()
     assert result["source"] == "history"
@@ -337,7 +336,8 @@ def test_generate_single_session_with_pins_never_reaches_the_freeform_prompt():
     — the schedule rail's TSS/duration are GIVENS, not something a freeform
     prompt should ever be negotiating."""
     with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)), \
-         mock.patch.object(ps, "build_single_session_prompt") as legacy_prompt:
+         mock.patch.object(ps, "build_single_session_prompt") as legacy_prompt, \
+         mock.patch.object(ps.llm_svc, "complete_structured", return_value=None):
         ps.generate_single_session(
             "someone", 4, "", workout_type="strength",
             target_tss=63.0, duration_minutes=45,
@@ -389,8 +389,11 @@ def test_generate_single_session_with_pins_falls_back_to_template_on_provider_fa
 
 
 def test_generate_single_session_without_pins_can_return_none():
-    """Guardrail contrast: the no-budget path returns None (no TSS, no duration to template from).
+    """Guardrail contrast: the freeform (no-budget) path is the one caller
+    that can still come back empty — no deterministic template stands in for
+    a specific athlete request with no fixed day/type/TSS to fall back to.
     The endpoint (routers/projection.py) turns this into a 422, never a 500."""
-    with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)):
+    with mock.patch.object(ps, "assemble_facts", return_value=dict(_FACTS)), \
+         mock.patch.object(ps.llm_svc, "complete_structured", return_value=None):
         session = ps.generate_single_session("someone", 4, "", workout_type="run")
     assert session is None

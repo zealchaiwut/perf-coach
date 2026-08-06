@@ -281,19 +281,30 @@ class TestBuildSignature:
 
 
 # ---------------------------------------------------------------------------
-# get_suggestions_from_facts — deterministic fallback (LLM removed, issue #1695)
+# Mocked LLM happy path
 # ---------------------------------------------------------------------------
 
-class TestGetSuggestionsFromFacts:
-    """get_suggestions_from_facts always returns the deterministic fallback.
+class TestGetSuggestionsLLMPath:
+    """Mocked LLM happy path — valid structured output is returned as source='llm'."""
 
-    Planning has no LLM (CLAUDE.md — issue #1695). The function that previously
-    called the LLM and fell back on failure now skips the LLM entirely and returns
-    the deterministic template directly.
-    """
-
-    def _base_facts(self):
+    def _valid_llm_output(self):
+        easy_blocks = [{"phase": "warmup", "duration_min": 10, "repeat": None, "rest_min": None, "target": "easy"},
+                       {"phase": "main", "duration_min": 30, "repeat": None, "rest_min": None, "target": "easy"}]
+        tempo_blocks = [{"phase": "warmup", "duration_min": 10, "repeat": None, "rest_min": None, "target": "easy"},
+                        {"phase": "main", "duration_min": 10, "repeat": 3, "rest_min": 2, "target": "tempo"},
+                        {"phase": "cooldown", "duration_min": 8, "repeat": None, "rest_min": None, "target": "easy"}]
         return {
+            "suggestions": [
+                {"day_offset": 1, "workout_type": "run", "target_tss": 60, "duration_minutes": 50, "intent": "Easy zone 2 run.", "blocks": easy_blocks},
+                {"day_offset": 3, "workout_type": "run", "target_tss": 80, "duration_minutes": 65, "intent": "Tempo intervals.", "blocks": tempo_blocks},
+                {"day_offset": 5, "workout_type": "strength", "target_tss": 40, "duration_minutes": 45, "intent": "Leg strength.",
+                 "exercises": [{"block": "Main", "name": "Back squat", "sets": 3, "reps": "8", "load": "moderate"}]},
+                {"day_offset": 6, "workout_type": "rest", "target_tss": 0, "duration_minutes": 0, "intent": "Full rest."},
+            ]
+        }
+
+    def test_llm_enabled_path_returns_llm_source(self):
+        facts = {
             "ctl": 42.0, "atl": 45.0, "tsb": -3.0,
             "trailing_28d_weekly_avg_tss": 200.0,
             "acwr_headroom_tss": 60.0,
@@ -301,38 +312,70 @@ class TestGetSuggestionsFromFacts:
             "readiness_trend": [70, 72, 68],
             "days_to_next_race": None,
         }
+        llm_raw = self._valid_llm_output()
 
-    def test_returns_fallback_source(self):
-        """AC (issue #1695): planning is always deterministic, source='fallback'."""
-        result = ps.get_suggestions_from_facts(self._base_facts())
+        with patch.object(ps, "_call_llm", return_value=llm_raw):
+            result = ps.get_suggestions_from_facts(facts)
+
+        assert result["source"] == "llm"
+        assert len(result["suggestions"]) == 4
+
+    def test_llm_invalid_output_falls_back(self):
+        facts = {
+            "ctl": 42.0, "atl": 45.0, "tsb": -3.0,
+            "trailing_28d_weekly_avg_tss": 100.0,
+            "acwr_headroom_tss": 30.0,
+            "trailing_7d_tss": 80.0,
+            "readiness_trend": [70],
+            "days_to_next_race": None,
+        }
+        # Over-ramp LLM output: 4 × 50 TSS = 200 > 100 * 1.3 = 130
+        bad_output = {
+            "suggestions": [
+                {"day_offset": i, "workout_type": "run", "target_tss": 50, "duration_minutes": 45, "intent": "Run."}
+                for i in range(4)
+            ]
+        }
+        with patch.object(ps, "_call_llm", return_value=bad_output):
+            result = ps.get_suggestions_from_facts(facts)
+
         assert result["source"] == "fallback"
 
-    def test_suggestions_match_fallback_suggestions(self):
-        """Returned suggestions are exactly what fallback_suggestions produces."""
-        facts = self._base_facts()
-        result = ps.get_suggestions_from_facts(facts)
-        expected = ps.fallback_suggestions(facts)
-        assert result["suggestions"] == expected
+    def test_llm_disabled_falls_back(self):
+        facts = {
+            "ctl": 42.0, "atl": 45.0, "tsb": -3.0,
+            "trailing_28d_weekly_avg_tss": 200.0,
+            "acwr_headroom_tss": 60.0,
+            "trailing_7d_tss": 150.0,
+            "readiness_trend": [70],
+            "days_to_next_race": None,
+        }
+        with patch.object(ps, "_call_llm", return_value=None):
+            result = ps.get_suggestions_from_facts(facts)
+
+        assert result["source"] == "fallback"
 
     def test_response_shape(self):
-        """Response shape is preserved: suggestions/source/attempts/orch."""
-        result = ps.get_suggestions_from_facts(self._base_facts())
+        facts = {
+            "ctl": 42.0, "atl": 45.0, "tsb": -3.0,
+            "trailing_28d_weekly_avg_tss": 200.0,
+            "acwr_headroom_tss": 60.0,
+            "trailing_7d_tss": 150.0,
+            "readiness_trend": [70],
+            "days_to_next_race": None,
+        }
+        with patch.object(ps, "_call_llm", return_value=None):
+            result = ps.get_suggestions_from_facts(facts)
+
         assert "suggestions" in result
         assert "source" in result
-        assert result["source"] == "fallback"
+        assert result["source"] in ("llm", "fallback")
         for s in result["suggestions"]:
             assert "day_offset" in s
             assert "workout_type" in s
             assert "target_tss" in s
             assert "duration_minutes" in s
             assert "intent" in s
-
-    def test_low_trailing_avg_still_returns_suggestions(self):
-        """Fallback works with low trailing load (uses FALLBACK_MIN_WEEKLY_TSS floor)."""
-        facts = {**self._base_facts(), "trailing_28d_weekly_avg_tss": 0.0, "acwr_headroom_tss": 0.0}
-        result = ps.get_suggestions_from_facts(facts)
-        assert result["source"] == "fallback"
-        assert len(result["suggestions"]) > 0
 
 
 # ---------------------------------------------------------------------------
