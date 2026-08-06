@@ -9,7 +9,6 @@ import uuid
 
 import httpx
 import pytest
-from starlette.datastructures import Headers
 from starlette.requests import Request
 from starlette.types import Scope
 
