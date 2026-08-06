@@ -98,7 +98,7 @@ def sum_spend(exercises: list | None, *, only_done: bool = False) -> tuple[float
     tss = 0.0
     mins = 0.0
     for ex in exercises or []:
-        if only_done and str((ex or {}).get("state") or "done") == "skipped":
+        if only_done and str((ex or {}).get("state") or "done") != "done":
             continue
         st, sm = exercise_spend(ex)
         tss += st
@@ -127,6 +127,14 @@ def structure_actual_spend(structure: Any) -> dict[str, Any] | None:
             has_spend = True
             break
     if not has_spend:
+        return None
+    # Only report actual spend when at least one row is explicitly done —
+    # all-pending generated sessions should fall back to baseline estimates.
+    has_done = any(
+        isinstance(ex, dict) and str(ex.get("state") or "done") == "done"
+        for ex in exercises
+    )
+    if not has_done:
         return None
     tss, mins = sum_spend(exercises, only_done=True)
     planned = _num(structure.get("target_tss"), default=-1.0)
