@@ -8,15 +8,10 @@
   var STYLE_ID = 'plan-fill-preview-css';
   var STYLE_VER = '20260805blocks1';
 
+  // AppCommon.escapeHtml is a hard dependency — load js/lib/app-common.js first.
+  // Do not re-implement entity substitution here (test_frontend_shared_lib__1603).
   function esc(s) {
-    if (global.AppCommon && typeof global.AppCommon.escapeHtml === 'function') {
-      return global.AppCommon.escapeHtml(s);
-    }
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+    return global.AppCommon.escapeHtml(s);
   }
 
   var CSS = [
