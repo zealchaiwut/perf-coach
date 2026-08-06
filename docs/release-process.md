@@ -107,6 +107,32 @@ See `docs/worker.md § Live PRD runbook` for full setup instructions.
 
 ---
 
+### Step 3c — Pre-deploy DB snapshot (required for large migration batches)
+
+> **Required whenever the release includes destructive schema changes — column
+> renames, column drops, or table drops.**
+>
+> This release carries column renames in `weight_entries` (`recorded_date` →
+> `entry_date`) and `habit_logs` (`logged_date` → `log_date`). A code-only
+> rollback against the already-migrated PRD schema is **unsafe**; if a deploy
+> fails after migrations run, a DB restore is required.
+
+Take a snapshot of PRD immediately before deploying:
+
+```bash
+# Source your .env to get DATABASE_URL_PRD
+source .env
+DATABASE_URL=$DATABASE_URL_PRD python scripts/db_snapshot.py
+```
+
+Note the snapshot filename printed (e.g. `snapshots/perf_coach_prd-<date>.sql.gz`).
+If you need to roll back, follow `docs/backup-restore.md § 3` to restore it.
+
+**Only skip this step if you have verified that no migration in this batch renames
+or drops any column.** If uncertain, take the snapshot — it costs under 15 seconds.
+
+---
+
 ### Step 4 — Trigger Manual Deploy on Render
 
 1. Open [Render dashboard](https://dashboard.render.com) → service **perf-coach-prd**.
@@ -157,11 +183,44 @@ confirm pages load without errors and the nav badge reads **PRD** in red.
 
 If smoke tests fail or PRD is unhealthy after deploy:
 
+> ⚠ **Read this before clicking "Rollback".**
+>
+> A Render image rollback re-deploys the previous Docker image — it does **not**
+> roll back already-applied Alembic migrations. If `alembic upgrade head` already
+> ran as the `preDeployCommand`, the PRD database schema is already at the new
+> head. Rolling back the code image while the DB is at the new head can break
+> things further if any applied migration renamed or dropped a column the old
+> code still reads.
+>
+> **Column renames are specifically unsafe.** For example, this release renamed
+> `weight_entries.recorded_date` → `entry_date` and `habit_logs.logged_date` →
+> `log_date`. The old code image references the old column names; running it
+> against the migrated schema will produce 500 errors or silent data corruption,
+> not a clean rollback.
+
+**Decision tree:**
+
+- If `alembic upgrade head` **did not run** (build failed before the preDeployCommand
+  completed): a Render image rollback is safe — the DB schema is unchanged.
+- If `alembic upgrade head` **ran successfully** before the failure: a code-only
+  rollback is **unsafe for releases with destructive migrations**. You must restore
+  the DB from the pre-deploy snapshot taken in Step 3c, then redeploy the old image.
+
+**Code-only rollback (safe when migrations did not run or were non-destructive):**
+
 1. Render dashboard → **perf-coach-prd** → **Deploys** tab.
 2. Find the last known-good deploy.
 3. Click **Rollback to this deploy**.
 
-Render re-deploys the previous image immediately — no code changes needed.
+**Full DB restore (required when destructive migrations already ran):**
+
+1. Restore the pre-deploy snapshot per `docs/backup-restore.md § 3`:
+   ```bash
+   gunzip -c snapshots/<pre-deploy-snapshot>.sql.gz | psql "$DATABASE_URL_PRD"
+   ```
+2. Then perform the Render image rollback (steps 1–3 above).
+3. Verify the restored DB is consistent with the old code before considering
+   the rollback complete.
 
 After rolling back:
 - Open a hotfix branch off `master`, fix the issue, merge via PR, and repeat
