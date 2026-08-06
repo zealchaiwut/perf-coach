@@ -188,6 +188,16 @@ app.mount("/js", StaticFiles(directory=str(_static_root / "frontend" / "js")), n
 
 
 @app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+
+@app.middleware("http")
 async def _no_cache_frontend(request, call_next):
     """Force browsers to revalidate HTML/JS/CSS instead of using heuristic
     caching. Without this, UAT keeps serving a stale page/script after a fix
