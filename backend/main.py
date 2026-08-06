@@ -535,6 +535,7 @@ from backend.auth import (  # noqa: E402
     CSRF_COOKIE_NAME,
     generate_csrf_token,
     get_admin_secret,
+    get_client_ip,
     get_current_user,
     hash_password,
     MIN_PASSWORD_LENGTH,
@@ -590,7 +591,7 @@ class LoginIn(BaseModel):
 
 @app.post("/api/auth/login")
 def login(body: LoginIn, request: Request):
-    ip = request.client.host if request.client else "unknown"
+    ip = get_client_ip(request)
     _check_lockout(body.username, ip)
     try:
         with Session(engine) as session:
@@ -13430,7 +13431,7 @@ def admin_plan_library_page(request: Request):
 
 @app.post("/api/admin/login")
 def admin_login(body: AdminLoginIn, request: Request):
-    ip = request.client.host if request.client else "unknown"
+    ip = get_client_ip(request)
     admin_lockout_check(ip)
 
     admin_secret = get_admin_secret()
