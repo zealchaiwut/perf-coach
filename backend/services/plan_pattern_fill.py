@@ -978,7 +978,7 @@ def fill_strength(
             row["spend_min"] = spend_min
             row["source"] = "generated"
             row["pinned"] = False
-            row["state"] = "done"
+            row["state"] = "pending"
             exercises.append(row)
             picked_names.append(row["name"])
             pick_details.append({
@@ -1061,7 +1061,7 @@ def fill_strength(
         row["spend_min"] = spend_min
         row["source"] = "generated"
         row["pinned"] = False
-        row["state"] = "done"
+        row["state"] = "pending"
         exercises.append(row)
         budget_trace.append({
             "op": "budget_pick",
