@@ -1,11 +1,18 @@
-"""Guard: the worker's LLM surface stays exactly two calls wide.
+"""Guard: the worker's parked LLM cluster stays unreachable.
 
-The rule is **minimal LLM**, not no LLM (see CLAUDE.md). Two surfaces earn a
-provider call:
+The rule is **minimal LLM**, not no LLM (see CLAUDE.md). The worker has exactly
+one sanctioned LLM surface:
 
-1. **Ask-AI single session** — interactive, in the webapp.
-2. **The daily coach message** — the warmth rephrase in ``weekly_coach_message``,
-   which runs on the worker.
+1. **The daily coach message** — the warmth rephrase in ``weekly_coach_message``,
+   which runs on the worker (``_call_llm_narrative``).
+
+There are four additional webapp-side surfaces (``habit_insights``,
+``habit_nudges``, ``readiness_explanation``, ``weekly_summary``) — all documented
+in CLAUDE.md and tested separately. They are NOT loaded by the worker.
+
+Ask-AI single-session plan generation is **not** an LLM surface — it is
+pattern-fill-only (``plan_pattern_fill`` / ``plan_week_balance``); that call path
+was removed in the Priority 2 consolidation (PR #1597).
 
 Everything else Priority 2 parked stays parked: ``coach_narrative`` and its
 LangGraph orchestrator, ``coach_claude_cli``, ``plan_draft`` and its slot cache,
