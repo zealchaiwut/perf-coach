@@ -2051,9 +2051,6 @@ def get_weight_chart(
             "coverage_pct": _rate["coverage_pct"],
             "needed_rate_kg_wk": _rate["needed_rate_kg_wk"],
         }
-        if _rate["readable"] and weekly_rate_ewma_kg is not None:
-            stats["delta_7d_kg"] = weekly_rate_ewma_kg
-
         # Always fetch active target (needed for plan_series / milestones / today_marker)
         active_target = (
             session.query(WeightTarget)
