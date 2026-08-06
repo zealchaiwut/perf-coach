@@ -1193,6 +1193,31 @@ def fill_slot(
             return blocked
         pre_placed, _unpinned = split_pinned_exercises(current.get("exercises"))
 
+    # Homework ladder: always pre-place active weekly_focus / required_exercises
+    # that match this session type (Pass 5). Merged into whatever pins Refill
+    # already kept — does not change fill scoring.
+    if wt in ("strength", "plyo"):
+        try:
+            from backend.services.session_homework import pre_place_for_slot
+            prefs_payload = (week_ctx or {}).get("prefs_payload") or (week_ctx or {}).get("prefs")
+            as_of = (week_ctx or {}).get("as_of")
+            hw_rows = pre_place_for_slot(
+                prefs_payload,
+                wt,
+                as_of=as_of,
+                pool=_load_exercise_pool(db) if db is not None else None,
+                existing=pre_placed,
+            )
+            if hw_rows:
+                pre_placed = list(pre_placed) + hw_rows
+                log["steps"].append({
+                    "op": "homework_pre_place",
+                    "count": len(hw_rows),
+                    "names": [r.get("name") for r in hw_rows],
+                })
+        except Exception:
+            _log.warning("homework pre_place failed", exc_info=True)
+
     pattern = select_pattern(
         db,
         workout_type=wt,

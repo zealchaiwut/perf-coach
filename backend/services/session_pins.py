@@ -106,6 +106,41 @@ def sum_spend(exercises: list | None, *, only_done: bool = False) -> tuple[float
     return tss, mins
 
 
+def structure_actual_spend(structure: Any) -> dict[str, Any] | None:
+    """Actual session spend from exercise rows (non-skipped).
+
+    Returns None when the structure has no exercise-level spend to read —
+    callers then fall back to duration×baseline estimates / planned pin.
+    """
+    if not isinstance(structure, dict):
+        return None
+    exercises = structure.get("exercises")
+    if not isinstance(exercises, list) or not exercises:
+        return None
+    # Only treat as "has spend" when at least one row carries spend_tss /
+    # spend_min / _tss_weight — empty skeletons shouldn't zero out estimates.
+    has_spend = False
+    for ex in exercises:
+        if not isinstance(ex, dict):
+            continue
+        if ex.get("spend_tss") is not None or ex.get("spend_min") is not None or ex.get("_tss_weight") is not None:
+            has_spend = True
+            break
+    if not has_spend:
+        return None
+    tss, mins = sum_spend(exercises, only_done=True)
+    planned = _num(structure.get("target_tss"), default=-1.0)
+    return {
+        "actual_tss": round(tss, 1),
+        "actual_duration_min": round(mins, 1),
+        "planned_tss": round(planned, 1) if planned >= 0 else None,
+        "skipped_count": sum(
+            1 for ex in exercises
+            if isinstance(ex, dict) and str(ex.get("state") or "done") == "skipped"
+        ),
+    }
+
+
 def block_key(label: str | None) -> str:
     return str(label or "").strip().lower().replace(" ", "_").replace("-", "_")
 

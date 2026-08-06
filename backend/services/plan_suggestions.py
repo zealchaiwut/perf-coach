@@ -1820,6 +1820,14 @@ def generate_single_session(
         strength_emphasis=prefs["strength_emphasis"],
         notes=prefs["notes"],
     )
+    # Homework pre-place reads full prefs payload (weekly_focus / required_exercises).
+    try:
+        from backend.services.training_prefs import get_active
+        active = get_active(db, user_id)
+        if active and active.payload:
+            week_ctx["prefs_payload"] = dict(active.payload)
+    except Exception:
+        pass
     current = None
     if current_session and isinstance(current_session, dict):
         current = {

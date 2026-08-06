@@ -7456,6 +7456,16 @@ def _planned_session_dict(p, matched=None, estimate_baseline=None) -> dict:
         "created_at": p.created_at.isoformat() if p.created_at else None,
         "updated_at": p.updated_at.isoformat() if p.updated_at else None,
     }
+    # Exercise-level actual spend (non-skipped) — planned pin stays on structure.
+    try:
+        from backend.services.session_pins import structure_actual_spend
+        spend = structure_actual_spend(p.structure)
+        if spend:
+            d["actual_tss"] = spend["actual_tss"]
+            d["actual_duration_min"] = spend["actual_duration_min"]
+            d["planned_tss"] = spend.get("planned_tss")
+    except Exception:
+        pass
     # Rough, formula-only (no LLM) estimated TSS/distance for a still-open,
     # still-ACHIEVABLE session, so a "what's coming this week" progress view
     # isn't blind to planned-but-not-logged work — see training_load.

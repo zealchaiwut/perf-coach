@@ -987,6 +987,108 @@ def generate_plan_session(
     return JSONResponse({"session": session})
 
 
+class SwapCandidatesRequest(BaseModel):
+    block: str
+    current_name: Optional[str] = None
+    current_tss: Optional[float] = None
+    current_body_parts: Optional[list] = None
+    # name.lower() → block label for already-in-session disable
+    session_names: Optional[dict] = None
+    avoid_parts: Optional[list[str]] = None
+    query: Optional[str] = None
+    search_all_blocks: bool = False
+
+
+@router.get("/plan/exercises")
+def list_plan_exercises(user: User = Depends(resolve_user)):
+    """Active plan-library exercises for the session-modal swap picker (athlete auth)."""
+    from backend.services.plan_pattern_fill import _load_exercise_pool
+
+    db = _Session(_engine)
+    try:
+        pool = _load_exercise_pool(db)
+    finally:
+        db.close()
+    return JSONResponse({"exercises": pool, "count": len(pool)})
+
+
+@router.get("/plan/exercises/avoid-parts")
+def list_avoid_parts(user: User = Depends(resolve_user)):
+    """Body-part chips for the swap picker — active injury areas pre-selected."""
+    from backend.models import InjuryLog
+
+    chips: list[dict] = []
+    seen: set[str] = set()
+    db = _Session(_engine)
+    try:
+        rows = (
+            db.query(InjuryLog.body_area)
+            .filter(
+                InjuryLog.user_id == user.id,
+                InjuryLog.ended_on.is_(None),
+                InjuryLog.body_area.isnot(None),
+            )
+            .all()
+        )
+        for (area,) in rows:
+            key = str(area or "").strip().lower().replace(" ", "_")
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            chips.append({"part": key, "label": str(area).strip(), "active": True})
+    finally:
+        db.close()
+    # Always offer common avoid chips even with no injury log
+    for part, label in (
+        ("lower_back", "lower back"),
+        ("knee", "knee"),
+        ("shoulder", "shoulder"),
+        ("hip", "hip"),
+    ):
+        if part not in seen:
+            chips.append({"part": part, "label": label, "active": False})
+    return JSONResponse({"parts": chips})
+
+
+@router.post("/plan/exercises/swap-candidates")
+def swap_candidates(
+    body: SwapCandidatesRequest,
+    user: User = Depends(resolve_user),
+):
+    """Rank swap/add candidates for one block in the session modal."""
+    from backend.services.plan_pattern_fill import _load_exercise_pool
+    from backend.services.session_swap import rank_swap_candidates
+
+    if not (body.block or "").strip():
+        raise HTTPException(status_code=422, detail="block is required")
+
+    db = _Session(_engine)
+    try:
+        pool = _load_exercise_pool(db)
+    finally:
+        db.close()
+
+    session_names: dict[str, str] = {}
+    for k, v in (body.session_names or {}).items():
+        if k is None:
+            continue
+        session_names[str(k).strip().lower()] = str(v)
+
+    avoid = {str(p).strip().lower() for p in (body.avoid_parts or []) if p}
+    result = rank_swap_candidates(
+        pool=pool,
+        block=body.block.strip(),
+        current_name=body.current_name,
+        current_body_parts=body.current_body_parts,
+        current_tss=float(body.current_tss or 0),
+        session_names=session_names,
+        avoid_parts=avoid,
+        query=body.query or "",
+        search_all_blocks=bool(body.search_all_blocks),
+    )
+    return JSONResponse(result)
+
+
 @router.get("/plans/{plan_id}/projection")
 async def get_plan_projection(
     plan_id: str,
