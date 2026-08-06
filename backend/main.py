@@ -241,10 +241,17 @@ _CSRF_EXEMPT_PATHS = frozenset({"/api/auth/login"})
 
 @app.middleware("http")
 async def _csrf_protect(request: Request, call_next):
-    """Require X-CSRF-Token header on all mutating requests that carry a session cookie."""
+    """Require X-CSRF-Token header on all mutating requests that carry an auth cookie.
+
+    Both the regular session cookie (COOKIE_NAME) and the admin session cookie
+    (ADMIN_COOKIE_NAME) trigger the double-submit CSRF check, providing
+    defense-in-depth on top of SameSite=Strict for admin-only endpoints.
+    """
     if request.method not in _CSRF_SAFE_METHODS and request.url.path not in _CSRF_EXEMPT_PATHS:
-        session_cookie = request.cookies.get(COOKIE_NAME)
-        if session_cookie:
+        has_auth_cookie = (
+            request.cookies.get(COOKIE_NAME) or request.cookies.get(ADMIN_COOKIE_NAME)
+        )
+        if has_auth_cookie:
             expected = request.cookies.get(CSRF_COOKIE_NAME)
             actual = request.headers.get("X-CSRF-Token")
             if not expected or not actual or not _hmac.compare_digest(expected, actual):
@@ -10530,7 +10537,7 @@ def strava_callback(
 # ── Stryd ──────────────────────────────────────────────────────────────────────
 
 from backend.services.stryd import _call_stryd_signin as _stryd_signin  # noqa: E402
-from backend.services.crypto import encrypt_value as _encrypt_value, encrypt_oauth_token as _encrypt_oauth_token, decrypt_oauth_token as _decrypt_oauth_token  # noqa: E402
+from backend.services.crypto import encrypt_value as _encrypt_value, decrypt_oauth_token as _decrypt_oauth_token  # noqa: E402
 from backend.services.strava import refresh_token_if_needed  # noqa: E402
 from backend.services.stryd import refresh_stryd_session_if_needed  # noqa: E402
 
@@ -13437,6 +13444,7 @@ def admin_login(body: AdminLoginIn, request: Request):
     admin_lockout_clear(ip)
     resp = JSONResponse({"ok": True})
     set_admin_cookie(resp)
+    set_csrf_cookie(resp, generate_csrf_token())
     return resp
 
 
@@ -13444,6 +13452,7 @@ def admin_login(body: AdminLoginIn, request: Request):
 def admin_logout():
     resp = Response(status_code=204)
     clear_admin_cookie(resp)
+    resp.delete_cookie(key=CSRF_COOKIE_NAME, path="/")
     return resp
 
 
