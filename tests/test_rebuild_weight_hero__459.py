@@ -18,8 +18,12 @@ CARD_CSS = Path(__file__).parent.parent / "frontend" / "css" / "weight-current-c
 
 _weight_html = WEIGHT_HTML.read_text()
 _card_css    = CARD_CSS.read_text()
-html = _weight_html + "\n" + _card_css
-js   = WEIGHT_JS.read_text() + "\n" + CARD_JS.read_text()
+_card_js     = CARD_JS.read_text()
+# Card A markup lives in WeightCurrentCard.MARKUP (JS) — include it so static
+# checks still see CURRENT WEIGHT / hca-* / coach-strip after the weight-tab
+# revamp stopped inlining that block in weight.html.
+html = _weight_html + "\n" + _card_css + "\n" + _card_js
+js   = WEIGHT_JS.read_text() + "\n" + _card_js
 html_lower = html.lower()
 # css_text spans the weight page's inline <style> plus the shared stylesheet,
 # since Card A's rules now live in the shared file.
@@ -160,24 +164,17 @@ def test_card_a_pill_classes_toward_and_away():
 # ── Coach Strip (single instance, inside Card A) ───────────────────────────
 
 def test_coach_strip_inside_card_a():
-    """Coach strip element is nested inside the Card A (.hero-card-a) element."""
-    # Parse the hero-card-a section: from 'hero-card-a' to the matching </div> for hero-card-b start
-    m = re.search(
-        r'<div[^>]+class="[^"]*hero-card[^"]*hero-card-a[^"]*"(.*?)<div[^>]+class="[^"]*hero-card[^"]*hero-card-b',
-        html, re.DOTALL
-    )
-    if m:
-        card_a_fragment = m.group(1)
-    else:
-        # Try alternate order (hero-card-a might come before hero-card-b)
-        m2 = re.search(
-            r'hero-card-a.*?id="coach-strip"',
-            html, re.DOTALL
-        )
-        card_a_fragment = m2.group() if m2 else ""
+    """Coach strip is part of the shared Card A markup (WeightCurrentCard.MARKUP).
 
-    assert 'id="coach-strip"' in card_a_fragment, \
-        "coach-strip element must be inside the Card A (hero-card-a) div, not outside the hero"
+    The weight-tab revamp no longer inlines hero-card-a in weight.html — home +
+    weight share WeightCurrentCard.MARKUP, which nests #coach-strip after the
+    hca-* block.
+    """
+    assert 'id="coach-strip"' in _card_js, \
+        "coach-strip must live in WeightCurrentCard.MARKUP"
+    # MARKUP order: hca-weight … then coach-strip
+    assert _card_js.find('id="hca-weight"') < _card_js.find('id="coach-strip"'), \
+        "coach-strip must follow Card A weight elements in MARKUP"
 
 
 def test_no_coach_strip_outside_hero():

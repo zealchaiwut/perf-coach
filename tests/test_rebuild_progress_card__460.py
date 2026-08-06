@@ -281,12 +281,18 @@ def test_layout_bottom_grid_stacks_at_640px():
 
 
 def test_layout_progress_card_precedes_recent_entries():
-    """Layout: Progress card appears before recent entries in DOM (stacks on top at mobile)."""
+    """Layout: progress-card is a hidden legacy stub; recent-entries is visible.
+
+    Weight-tab revamp moved the visible list into the right column and retired
+    the progress card (hypothesis replaces it). DOM order is no longer the
+    stacking contract — hidden + presence is.
+    """
     progress_idx = html.find('id="progress-card"')
     entries_idx  = html.find('id="recent-entries"')
     assert progress_idx != -1 and entries_idx != -1, (
         "Both progress-card and recent-entries must be present in weight.html"
     )
-    assert progress_idx < entries_idx, (
-        "progress-card must appear before recent-entries in HTML so it stacks on top at mobile (Layout AC)"
+    card_open = html[progress_idx:progress_idx + 80]
+    assert "hidden" in card_open, (
+        "progress-card must remain hidden after the weight-tab revamp"
     )

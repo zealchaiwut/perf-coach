@@ -315,12 +315,14 @@ function renderSubtitle(summary, stats, tracking) {
   let rateStr = '';
   if (rate && rate.readable && rate.rate_kg_wk != null) {
     const r = rate.rate_kg_wk;
+    const arrow = Math.abs(r) < 0.005 ? '→' : (r < 0 ? '↓' : '↑');
     const sign = r > 0 ? '+' : '';
-    rateStr = ` · ${sign}${r.toFixed(2)} kg/wk`;
+    rateStr = ` · ${arrow} ${sign}${r.toFixed(2)} kg/wk`;
   } else if (stats && stats.coverage_pct != null) {
     rateStr = ` · ${Math.round(stats.coverage_pct)}% coverage (rate provisional)`;
   }
 
+  // empty state: zero entries still shows the count line (no special hero)
   el.textContent = `${count} entries${sinceStr}${rateStr}`;
 }
 
@@ -1461,7 +1463,7 @@ function _showLoggedMode(weightKg) {
   const loggedTxt = document.getElementById('logged-text');
   if (wrap)   wrap.hidden   = true;
   if (logged) logged.hidden = false;
-  if (loggedTxt) loggedTxt.textContent = `✓ Logged`;
+  if (loggedTxt) loggedTxt.textContent = `✓ Logged today`;
 }
 
 async function _submitCardB(displayVal) {

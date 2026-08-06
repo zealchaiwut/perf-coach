@@ -3375,11 +3375,24 @@
 
       <!-- Legacy progress card (hidden — hypothesis replaces progress bar) -->
       <div id="progress-card" hidden aria-hidden="true">
+        <button type="button" class="edit-target-pill" id="edit-target-pill-btn">Edit target</button>
         <span id="pstat-start-val"></span><span id="pstat-you-val"></span><span id="pstat-goal-val"></span>
         <span id="pgbar-fill"></span><span id="pgbar-you-dot"></span><span id="pgbar-plan-tick"></span>
         <span id="pgbar-micro-you"></span><span id="pgbar-micro-plan"></span>
         <span id="progress-pct-big"></span><span id="progress-detail"></span><span id="pgstatus-pill"></span>
         <span id="pgbar-ms-layer"></span><span id="kg-to-go"></span>
+        <!-- Projected arrival + what-if (issue #1602) — kept mounted so JS
+             callers still resolve; visible UI lives on the hypothesis card. -->
+        <div id="arrival-projection" class="arrival-projection" hidden>
+          <i class="ti ti-flag-3" aria-hidden="true"></i>
+          <span id="arrival-projection-text"></span>
+        </div>
+        <div id="whatif-prompt" class="whatif-prompt" hidden>
+          <span id="whatif-headline" class="whatif-headline"></span>
+          <button id="whatif-open-btn" type="button" class="edit-target-pill whatif-open-btn">
+            What if?
+          </button>
+        </div>
       </div>
 
       <!-- Legacy chart / p2w / target-history stubs (revamp: timeline + hypothesis replace these) -->

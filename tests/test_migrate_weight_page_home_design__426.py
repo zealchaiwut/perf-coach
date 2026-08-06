@@ -285,8 +285,9 @@ def test_ac11_768px_breakpoint_present():
 # ── AC12: Empty state — no entries ────────────────────────────────────────────
 
 def test_ac12_coach_idle_state_shown_when_no_entries():
-    """weight.js must render coach idle state when no entries."""
-    js_lower = WEIGHT_JS.lower()
+    """Idle coach copy lives on the shared WeightCurrentCard (home + weight)."""
+    card_js = (ROOT / "frontend" / "js" / "lib" / "weight-current-card.js").read_text().lower()
+    js_lower = WEIGHT_JS.lower() + "\n" + card_js
     assert "coach" in js_lower and ("idle" in js_lower or "no entry" in js_lower or
            "wake me up" in js_lower or "log your weight" in js_lower), \
         "weight.js must show coach idle state when no entries"

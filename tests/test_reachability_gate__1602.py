@@ -624,7 +624,8 @@ _BASELINE_ORPHANS_API: dict[str, str] = {
 
     "/api/weekly-summary": "No frontend caller anywhere.",
 
-    "/api/weight-hypothesis": "No frontend caller; cut_review.py's comments describe weight_hypothesis.py as internal to the deficit-mode computation, not a route the UI calls directly.",
+    # /api/weight-hypothesis — formerly orphaned; weight.js now fetches it for
+    # the hypothesis card (weight-tab revamp). Removed from this table.
 
     # /api/weight-plans, /active, /{plan_id} — formerly listed here as known
     # orphans (see git history) — were removed outright by #1604's S5 schema
@@ -634,7 +635,7 @@ _BASELINE_ORPHANS_API: dict[str, str] = {
     "/api/workouts/recent-type": "No frontend caller anywhere.",
     "/api/workouts/{workout_id}/exercises/reorder": "No frontend caller; the other workout-exercises verbs (replace, the base collection) are used, but not reorder.",
 
-    "/api/calibration-sprint": "No frontend caller; race calibration UI (training-performance.js) uses /api/races/{id}/calibrate instead (also unused — see races cluster above).",
+    # /api/calibration-sprint — formerly orphaned; weight.js now fetches it.
     "/api/calibration-sprint/close": "No frontend caller (see cluster note above).",
     "/api/calibration/status": "No frontend caller (see cluster note above).",
 
