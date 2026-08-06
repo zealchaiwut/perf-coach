@@ -11977,7 +11977,6 @@ def drive_sleep_disconnect(user: User = Depends(resolve_user)):
 # ── Imports ───────────────────────────────────────────────────────────────────
 
 class _SleepImportBody(BaseModel):
-    user_id: str
     import_date: str
     source: str
     data: dict
