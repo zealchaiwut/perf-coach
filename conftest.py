@@ -13,6 +13,7 @@ if os.getenv("ENVIRONMENT") != "uat":
 
 os.environ.setdefault("SESSION_SECRET", "test-secret-key-for-testing-only-xxxxxxxxxxx")
 os.environ.setdefault("STRYD_FERNET_KEY", "dGVzdC1mZXJuZXQta2V5LWZvci10ZXN0aW5nLW9ubHk=")
+os.environ.setdefault("OAUTH_FERNET_KEY", "3ttWJuuQgVohOaEfabmb4WkB7VKPkh9z5zELJUyeFjY=")
 
 # Auto-discover UAT server URL for integration tests.
 # The pytest gate inherits the shell's UAT_BASE_URL which may point to the
