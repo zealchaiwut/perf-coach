@@ -163,16 +163,15 @@ def test_gap_to_pref_delta_has_strength_emphasis_mappings():
     assert GAP_TO_PREF_DELTA["muscle_overused"] == {
         "field": "strength_emphasis", "step": -1,
     }
-    assert GAP_TO_PREF_DELTA["muscle_untrained"] == {
-        "field": "strength_emphasis", "step": +1,
-    }
-    # muscle_overused/muscle_untrained findings carry a dynamic per-group
+    # Pass 6: muscle_untrained → add_to_set homework, not strength_emphasis.
+    assert "muscle_untrained" not in GAP_TO_PREF_DELTA
+    # muscle_overused findings carry a dynamic per-group
     # code ("muscle_overused.calf") — resolved by prefix, not exact match.
     assert mapping_for_gap_code("muscle_overused.calf") == {
         "field": "strength_emphasis", "step": -1,
     }
     assert mapping_for_gap_code("muscle_untrained.hamstring") == {
-        "field": "strength_emphasis", "step": +1,
+        "field": "weekly_focus", "kind": "add_to_set",
     }
     assert mapping_for_gap_code("strength_lapsed") == {
         "field": "strength_emphasis", "step": +1,
@@ -478,7 +477,7 @@ def test_muscle_overused_group_code_creates_strength_emphasis_proposal(db_sessio
     assert created[0].delta == {"field": "strength_emphasis", "from": "more", "to": "same"}
 
 
-def test_muscle_untrained_group_code_creates_strength_emphasis_proposal(db_session, test_user):
+def test_muscle_untrained_group_code_creates_add_to_set_proposal(db_session, test_user, monkeypatch):
     from backend.services.gap_analysis import pref_proposals as pp
     from backend.services import training_prefs as tp
     from sqlalchemy import text
@@ -494,20 +493,33 @@ def test_muscle_untrained_group_code_creates_strength_emphasis_proposal(db_sessi
     week = date.today() - timedelta(days=date.today().weekday())
     code = "muscle_untrained.hamstring"
 
-    _seed_consecutive_gap_weeks(db_session, uid, code, 3, week)
+    monkeypatch.setattr(
+        "backend.services.plan_pattern_fill._load_exercise_pool",
+        lambda db: [{
+            "id": "h1",
+            "name": "Romanian deadlift",
+            "groups": ["heavy_compound"],
+            "body_parts": [{"part": "hamstring", "ratio": 0.7}],
+            "default_sets": 3,
+            "default_reps": "10",
+            "default_load": "moderate",
+        }],
+    )
+
+    _seed_consecutive_gap_weeks(db_session, uid, code, 2, week)
     created = pp.maybe_create_proposals_from_findings(
         db_session, uid, [{"code": code, "severity": 2, "evidence": []}], week
     )
     assert len(created) == 1
     assert created[0].gap_code == "muscle_untrained.hamstring"
-    assert created[0].delta == {"field": "strength_emphasis", "from": "same", "to": "more"}
+    assert created[0].delta["kind"] == "add_to_set"
+    assert created[0].delta["field"] == "weekly_focus"
+    assert created[0].delta["to"]["exercise_name"] == "Romanian deadlift"
 
 
-def test_muscle_and_strength_lapsed_share_field_dedup(db_session, test_user):
-    """strength_lapsed, muscle_overused.* and muscle_untrained.* all map to
-    strength_emphasis. When two fire in the same window, whichever hits its
-    persistence threshold first creates the proposal; the other waits — the
-    existing field-level dedup in _open_proposal_for_field, unchanged here."""
+def test_muscle_and_strength_lapsed_can_both_propose(db_session, test_user, monkeypatch):
+    """strength_lapsed → strength_emphasis; muscle_untrained → weekly_focus
+    homework. Different fields, so both may open in the same window."""
     from backend.services.gap_analysis import pref_proposals as pp
     from backend.services import training_prefs as tp
     from sqlalchemy import text
@@ -522,16 +534,31 @@ def test_muscle_and_strength_lapsed_share_field_dedup(db_session, test_user):
     )
     week = date.today() - timedelta(days=date.today().weekday())
 
+    monkeypatch.setattr(
+        "backend.services.plan_pattern_fill._load_exercise_pool",
+        lambda db: [{
+            "id": "c1",
+            "name": "Calf raise",
+            "groups": ["accessories"],
+            "body_parts": [{"part": "calf", "ratio": 0.9}],
+            "default_sets": 3,
+            "default_reps": "15",
+            "default_load": "bodyweight",
+        }],
+    )
+
     _seed_consecutive_gap_weeks(db_session, uid, "strength_lapsed", 3, week)
-    _seed_consecutive_gap_weeks(db_session, uid, "muscle_untrained.calf", 3, week)
+    _seed_consecutive_gap_weeks(db_session, uid, "muscle_untrained.calf", 2, week)
 
     findings = [
         {"code": "strength_lapsed", "severity": 1, "evidence": []},
         {"code": "muscle_untrained.calf", "severity": 2, "evidence": []},
     ]
     created = pp.maybe_create_proposals_from_findings(db_session, uid, findings, week)
-    assert len(created) == 1
-    assert created[0].gap_code == "strength_lapsed"  # processed first, wins the field
+    codes = {c.gap_code for c in created}
+    assert "strength_lapsed" in codes
+    assert "muscle_untrained.calf" in codes
+    assert len(created) == 2
 
 
 def test_has_open_proposal_for_code(db_session, test_user):
@@ -573,7 +600,9 @@ def test_has_open_proposal_for_code(db_session, test_user):
     # Different gap code, same mapped field (strength_emphasis) — also
     # suppressed, matching _open_proposal_for_field's field-level dedup grain.
     assert has_open_proposal_for_code(db_session, uid, "strength_lapsed") is True
-    assert has_open_proposal_for_code(db_session, uid, "muscle_untrained.hamstring") is True
+    # Pass 6: muscle_untrained maps to weekly_focus (add_to_set), not
+    # strength_emphasis — so an open strength_emphasis proposal does not hide it.
+    assert has_open_proposal_for_code(db_session, uid, "muscle_untrained.hamstring") is False
     # A code with no mapping is still never suppressed.
     assert has_open_proposal_for_code(db_session, uid, "cadence_drift") is False
 
