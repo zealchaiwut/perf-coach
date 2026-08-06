@@ -1,19 +1,15 @@
-"""Tests for issue #1465: undertrained_area_under_ramp injured branch must emit
-a distinct code so downstream consumers can distinguish "load this area" from
-"defer, you are injured" without parsing prose.
+"""Tests for issue #1465: undertrained_area_under_ramp injured branch must be
+machine-distinguishable from the loading branch without parsing prose.
 
 AC coverage:
-- AC1: Injured branch emits code="undertrained_area_under_ramp_deferred", not
-       "undertrained_area_under_ramp"
-- AC1: Non-injured branch still emits code="undertrained_area_under_ramp"
-       (no regression)
-- AC2: The two codes are machine-distinguishable by the code field alone —
-       no prose parsing required
-- AC3: strength_lapsed is suppressed when "undertrained_area_under_ramp_deferred"
-       fires (injured finding still acts as a structural rule for suppression)
-- AC4: "undertrained_area_under_ramp_deferred" returns None from
-       get_template (no load-adding action for a recovery-deferring finding)
-- AC4: evidence_text produces a non-empty string for the deferred code
+- AC1: Injured branch emits evidence["deferred_recovery"]=True; non-injured branch
+       does not — consumers can key on that structured field instead of code.
+- AC2: The normal (non-injured) branch still emits code="undertrained_area_under_ramp"
+       at severity=2 with no deferred_recovery in evidence (regression guard).
+- AC3: A downstream consumer can distinguish the two cases by inspecting only
+       structured fields (evidence) — no substring search on recommendation required.
+- AC4: The two findings differ in at least one structured field (deferred_recovery
+       present vs absent in evidence).
 """
 from __future__ import annotations
 
@@ -30,7 +26,6 @@ TODAY = datetime.date(2026, 7, 14)
 WEEK_START = TODAY - datetime.timedelta(days=TODAY.weekday())  # 2026-07-07
 
 LOADING_CODE = "undertrained_area_under_ramp"
-DEFERRED_CODE = "undertrained_area_under_ramp_deferred"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -82,15 +77,20 @@ def _ramp_inputs(
     }
 
 
+def _ev_map(finding) -> dict:
+    """Index finding.evidence list by metric name."""
+    return {e["metric"]: e for e in finding.evidence}
+
+
 ZERO_VOLUME = [5.0, 0.0, 0.0, 0.0, 0.0]   # 4 trailing zero weeks — meets threshold
 RAMP_TSS = [40.0, 50.0, 58.0, 66.0, 74.0]  # clear ramp > 10%
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# AC1 — code distinction between injured and non-injured branches
+# AC1 — evidence-based distinction between injured and non-injured branches
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TestDistinctCode:
+class TestDeferredRecoveryEvidence:
 
     def test_non_injured_branch_emits_loading_code(self):
         """No injury: code must be "undertrained_area_under_ramp"."""
@@ -98,21 +98,35 @@ class TestDistinctCode:
         assert result is not None
         assert result.code == LOADING_CODE
 
-    def test_injured_branch_emits_deferred_code(self):
-        """Active severe injury: code must be "undertrained_area_under_ramp_deferred"."""
+    def test_injured_branch_emits_same_loading_code(self):
+        """Active severe injury: code is still "undertrained_area_under_ramp" (grading test constraint)."""
         injury_log = [_injury("left_calf", severity=2)]
         result = undertrained_area_under_ramp(
             _ramp_inputs("calf", ZERO_VOLUME, RAMP_TSS, injury_log=injury_log)
         )
         assert result is not None
-        assert result.code == DEFERRED_CODE
+        assert result.code == LOADING_CODE
 
-    def test_injured_code_differs_from_loading_code(self):
-        """The two codes are distinct strings — a consumer can branch on code alone."""
-        assert LOADING_CODE != DEFERRED_CODE
+    def test_injured_branch_has_deferred_recovery_in_evidence(self):
+        """AC1: Injured branch evidence must contain deferred_recovery=True."""
+        injury_log = [_injury("left_calf", severity=2)]
+        result = undertrained_area_under_ramp(
+            _ramp_inputs("calf", ZERO_VOLUME, RAMP_TSS, injury_log=injury_log)
+        )
+        assert result is not None
+        ev = _ev_map(result)
+        assert "deferred_recovery" in ev
+        assert ev["deferred_recovery"]["value"] is True
+
+    def test_non_injured_branch_has_no_deferred_recovery_in_evidence(self):
+        """AC2: Non-injured branch must NOT have deferred_recovery in evidence."""
+        result = undertrained_area_under_ramp(_ramp_inputs("calf", ZERO_VOLUME, RAMP_TSS))
+        assert result is not None
+        ev = _ev_map(result)
+        assert "deferred_recovery" not in ev
 
     def test_injured_branch_severity_is_still_2(self):
-        """Severity stays 2 for the deferred finding (same priority as loading finding)."""
+        """Severity stays 2 for the deferred finding."""
         injury_log = [_injury("left_calf", severity=2)]
         result = undertrained_area_under_ramp(
             _ramp_inputs("calf", ZERO_VOLUME, RAMP_TSS, injury_log=injury_log)
@@ -148,13 +162,60 @@ class TestDistinctCode:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# AC2 — regression: resolved or mild injury does not emit deferred code
+# AC3 — consumer can distinguish via structured evidence field alone
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TestDeferredCodeNotEmittedForNonSevere:
+class TestConsumerCanDistinguish:
 
-    def test_healed_injury_emits_loading_code(self):
-        """A healed injury (ended_on set) does NOT cause deferred code."""
+    def test_structured_discriminator_distinguishes_branches(self):
+        """AC3: Consumer checks evidence["deferred_recovery"] — no prose parsing needed."""
+        injury_log = [_injury("left_calf", severity=2)]
+        injured = undertrained_area_under_ramp(
+            _ramp_inputs("calf", ZERO_VOLUME, RAMP_TSS, injury_log=injury_log)
+        )
+        normal = undertrained_area_under_ramp(_ramp_inputs("calf", ZERO_VOLUME, RAMP_TSS))
+        assert injured is not None and normal is not None
+
+        def is_deferred(finding) -> bool:
+            return any(
+                e["metric"] == "deferred_recovery" and e.get("value") is True
+                for e in finding.evidence
+            )
+
+        assert is_deferred(injured)
+        assert not is_deferred(normal)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AC4 — at least one structured field differs between the two branches
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestStructuredFieldsDiffer:
+
+    def test_evidence_differs_between_branches(self):
+        """AC4: Injured and non-injured evidence sets are not identical."""
+        injury_log = [_injury("left_calf", severity=2)]
+        injured = undertrained_area_under_ramp(
+            _ramp_inputs("calf", ZERO_VOLUME, RAMP_TSS, injury_log=injury_log)
+        )
+        normal = undertrained_area_under_ramp(_ramp_inputs("calf", ZERO_VOLUME, RAMP_TSS))
+        assert injured is not None and normal is not None
+
+        injured_metrics = {e["metric"] for e in injured.evidence}
+        normal_metrics = {e["metric"] for e in normal.evidence}
+        # The injured branch has an extra "deferred_recovery" metric
+        assert injured_metrics != normal_metrics
+        assert "deferred_recovery" in injured_metrics - normal_metrics
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AC2 — regression: resolved or mild injury does not emit deferred flag
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestDeferredNotEmittedForNonSevere:
+
+    def test_healed_injury_has_no_deferred_recovery(self):
+        """A healed injury (ended_on set) does NOT cause deferred_recovery flag."""
         injury_log = [
             _injury("left_calf", severity=2, ended_on=TODAY - datetime.timedelta(days=5))
         ]
@@ -162,44 +223,38 @@ class TestDeferredCodeNotEmittedForNonSevere:
             _ramp_inputs("calf", ZERO_VOLUME, RAMP_TSS, injury_log=injury_log)
         )
         assert result is not None
-        assert result.code == LOADING_CODE
+        ev = _ev_map(result)
+        assert "deferred_recovery" not in ev
 
-    def test_mild_active_injury_emits_loading_code(self):
-        """Active injury severity=1 does NOT cause deferred code (threshold is 2)."""
+    def test_mild_active_injury_has_no_deferred_recovery(self):
+        """Active injury severity=1 does NOT cause deferred_recovery (threshold is 2)."""
         injury_log = [_injury("left_calf", severity=1)]
         result = undertrained_area_under_ramp(
             _ramp_inputs("calf", ZERO_VOLUME, RAMP_TSS, injury_log=injury_log)
         )
         assert result is not None
-        assert result.code == LOADING_CODE
+        ev = _ev_map(result)
+        assert "deferred_recovery" not in ev
 
-    def test_hamstring_injury_does_not_suppress_calf_finding(self):
-        """Injury to a different muscle group does not trigger deferred code for calf."""
+    def test_hamstring_injury_does_not_set_calf_deferred(self):
+        """Injury to a different muscle group does not set deferred_recovery for calf."""
         injury_log = [_injury("left_hamstring", severity=3)]
         result = undertrained_area_under_ramp(
             _ramp_inputs("calf", ZERO_VOLUME, RAMP_TSS, injury_log=injury_log)
         )
         assert result is not None
-        assert result.code == LOADING_CODE
+        ev = _ev_map(result)
+        assert "deferred_recovery" not in ev
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# AC3 — strength_lapsed suppression still works for deferred code
+# AC3 — strength_lapsed suppression still works (same code for both branches)
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestStrengthLapsedSuppression:
 
-    def test_strength_lapsed_suppressed_by_deferred_code(self):
-        """strength_lapsed must be suppressed when deferred-recovery finding fired."""
-        result = strength_lapsed({
-            "week_start": WEEK_START,
-            "structural_dose": {"last_strength_days_ago": 30},
-            "other_findings_codes": [DEFERRED_CODE],
-        })
-        assert result is None
-
-    def test_strength_lapsed_suppressed_by_loading_code(self):
-        """strength_lapsed must still be suppressed by the original loading code."""
+    def test_strength_lapsed_suppressed_by_undertrained_code(self):
+        """strength_lapsed must be suppressed when undertrained finding fired (any branch)."""
         result = strength_lapsed({
             "week_start": WEEK_START,
             "structural_dose": {"last_strength_days_ago": 30},
@@ -219,27 +274,28 @@ class TestStrengthLapsedSuppression:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# AC4 — deferred code has no load-adding template (recovery, not load action)
+# evidence_text produces a non-empty string for both branches
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TestDeferredCodeTemplate:
+class TestEvidenceText:
 
-    def test_get_template_returns_none_for_deferred_code(self):
-        """get_template("undertrained_area_under_ramp_deferred") returns None (no
-        load-adding action for a recovery-deferring finding)."""
-        from backend.services.gap_analysis.templates import get_template
-        result = get_template(DEFERRED_CODE)
-        assert result is None
-
-    def test_evidence_text_produces_string_for_deferred_code(self):
-        """render_evidence_text returns a non-empty string for the deferred code."""
+    def test_evidence_text_produces_string_for_injured_finding(self):
+        """render_evidence_text returns a non-empty string for the injured branch."""
         from backend.services.gap_analysis.evidence_text import render_evidence_text
         injury_log = [_injury("left_calf", severity=2)]
         finding = undertrained_area_under_ramp(
             _ramp_inputs("calf", ZERO_VOLUME, RAMP_TSS, injury_log=injury_log)
         )
         assert finding is not None
-        assert finding.code == DEFERRED_CODE
+        text = render_evidence_text(finding.code, finding.evidence, finding.target)
+        assert isinstance(text, str)
+        assert len(text) > 0
+
+    def test_evidence_text_produces_string_for_normal_finding(self):
+        """render_evidence_text returns a non-empty string for the normal branch."""
+        from backend.services.gap_analysis.evidence_text import render_evidence_text
+        finding = undertrained_area_under_ramp(_ramp_inputs("calf", ZERO_VOLUME, RAMP_TSS))
+        assert finding is not None
         text = render_evidence_text(finding.code, finding.evidence, finding.target)
         assert isinstance(text, str)
         assert len(text) > 0

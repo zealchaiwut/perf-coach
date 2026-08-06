@@ -25,7 +25,6 @@ STRENGTH_LAPSED_DAYS: int = 21
 _SUPPRESSING_RULES: frozenset[str] = frozenset({
     "recurrent_niggle_area",
     "undertrained_area_under_ramp",
-    "undertrained_area_under_ramp_deferred",
 })
 
 

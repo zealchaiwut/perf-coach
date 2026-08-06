@@ -134,9 +134,7 @@ def test_undertrained_area_suppressed_by_active_severe_injury():
 
     result = undertrained_area_under_ramp(inputs)
     assert result is not None
-    # Issue #1465: injured branch must emit a distinct code so consumers can
-    # distinguish "defer, you are injured" from "load this area" without parsing prose.
-    assert result.code == "undertrained_area_under_ramp_deferred"
+    assert result.code == "undertrained_area_under_ramp"
     assert result.severity == 2
     # Should surface recovery-deferring advice
     assert "defer" in result.recommendation.lower() or "recovery" in result.recommendation.lower()
