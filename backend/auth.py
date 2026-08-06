@@ -18,6 +18,21 @@ from backend.models import User
 
 _log = logging.getLogger(__name__)
 
+
+def get_client_ip(request: Request) -> str:
+    """Return the real client IP, accounting for Render's reverse-proxy hop.
+
+    Render appends the connecting client's IP to X-Forwarded-For, so the
+    rightmost entry is authoritative and cannot be spoofed by the client
+    (they can only prepend, not modify what Render appends).
+    Falls back to request.client.host when the header is absent.
+    """
+    xff = request.headers.get("x-forwarded-for", "").strip()
+    if xff:
+        return xff.split(",")[-1].strip()
+    return request.client.host if request.client else "unknown"
+
+
 COOKIE_NAME = "session"
 
 # Declared purely so the session requirement is visible in the OpenAPI schema.
