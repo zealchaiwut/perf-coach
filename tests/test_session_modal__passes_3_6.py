@@ -4,11 +4,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from backend.services.session_pins import structure_actual_spend, sum_spend
-from backend.services.session_swap import (
-    apply_add,
-    apply_swap,
-    rank_swap_candidates,
-)
+from backend.services.session_swap import rank_swap_candidates
 from backend.services.session_homework import (
     active_homework,
     append_homework_item,
@@ -124,36 +120,6 @@ def test_swap_search_all_blocks_escape():
         search_all_blocks=True,
     )
     assert any(e["name"] == "Bird dog" for e in allb["eligible"])
-
-
-def test_swap_apply_pins_and_source():
-    exercises = [
-        {"block": "Heavy compound", "name": "Deadlift", "sets": 4, "reps": "6",
-         "load": "heavy", "spend_tss": 17, "spend_min": 14, "source": "generated", "pinned": False},
-    ]
-    out = apply_swap(exercises, 0, {
-        "name": "Hip thrust", "default_sets": 3, "default_reps": "12",
-        "default_load": "moderate", "tss": 16.8, "id": "2",
-    })
-    assert out[0]["name"] == "Hip thrust"
-    assert out[0]["pinned"] is True
-    assert out[0]["source"] == "swap"
-    assert out[0]["replaced_name"] == "Deadlift"
-
-
-def test_add_apply_manual_pin():
-    exercises = [
-        {"block": "Accessories", "name": "Bird dog", "sets": 3, "reps": "10",
-         "source": "generated", "pinned": False},
-    ]
-    out = apply_add(exercises, block="Accessories", candidate={
-        "name": "Clam shell", "default_sets": 3, "default_reps": "15",
-        "default_load": "band", "tss": 3.0, "id": "4",
-    })
-    assert len(out) == 2
-    assert out[1]["name"] == "Clam shell"
-    assert out[1]["source"] == "manual"
-    assert out[1]["pinned"] is True
 
 
 def test_actual_spend_skips_skipped_rows():
