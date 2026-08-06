@@ -3394,7 +3394,8 @@ information about.
           if (row.pinned == null) {
             row.pinned = row.source !== 'generated' && row.source !== 'pattern';
           }
-          if (!row.state) row.state = 'done';
+          // Legacy "done" meant "not skipped". Gym checklist uses "completed".
+          if (row.state === 'done') row.state = '';
           return row;
         });
         _sfFocus = s.focus || '';
@@ -3712,10 +3713,12 @@ information about.
       var old = _sfExercises[i];
       if (!old) return;
       var oldSp = SB && SB.spendOf ? SB.spendOf(old) : { tss: Number(old.spend_tss) || 0, min: Number(old.spend_min) || 0 };
+      // Keep the block's shared set count (not the library default).
+      var keepSets = old.sets != null ? old.sets : (_smBlockSetsByName(old.block) || 3);
       _sfExercises[i] = {
         block: old.block,
         name: cand.name,
-        sets: cand.default_sets != null ? cand.default_sets : (old.sets || 3),
+        sets: keepSets,
         reps: cand.default_reps || old.reps || '10',
         load: cand.default_load || old.load || 'moderate',
         spend_tss: cand.tss != null ? cand.tss : oldSp.tss,
@@ -3723,18 +3726,23 @@ information about.
         pinned: true,
         source: 'swap',
         replaced_name: old.name,
-        state: old.state || 'done',
+        state: old.state || '',
         exercise_id: cand.id || undefined,
       };
       if (_sm.swap.searchAll) _sfExercises[i].swap_left_block = true;
     } else {
       var block = _sm.swap.block || 'Accessories';
+      var sets = _smBlockSetsByName(block);
+      if (sets == null) sets = 3;
+      var replaceIdx = -1;
       var insertAt = _sfExercises.length;
       for (var k = 0; k < _sfExercises.length; k++) {
-        if (String(_sfExercises[k].block || '') === block) insertAt = k + 1;
+        if (String(_sfExercises[k].block || '') === block) {
+          insertAt = k + 1;
+          if (!_sfExercises[k].name) replaceIdx = k;
+        }
       }
-      var sets = cand.default_sets != null ? cand.default_sets : 3;
-      _sfExercises.splice(insertAt, 0, {
+      var row = {
         block: block,
         name: cand.name,
         sets: sets,
@@ -3744,9 +3752,11 @@ information about.
         spend_min: Math.max(2, sets * 2.5),
         pinned: true,
         source: 'manual',
-        state: 'done',
+        state: '',
         exercise_id: cand.id || undefined,
-      });
+      };
+      if (replaceIdx >= 0) _sfExercises[replaceIdx] = row;
+      else _sfExercises.splice(insertAt, 0, row);
     }
     _sm.swap = null;
     _smMarkDirty();
@@ -3756,6 +3766,9 @@ information about.
   function _smMountSwapPicker(host) {
     if (!host || !_sm.swap) return;
     var swap = _sm.swap;
+    // Search the whole library — no block scope / avoid-part chips.
+    swap.searchAll = true;
+    swap.avoid = [];
     var cur = swap.mode === 'swap' ? _sfExercises[swap.index] : null;
     var block = swap.mode === 'swap' ? ((cur && cur.block) || 'Exercises') : (swap.block || 'Exercises');
     var title = swap.mode === 'swap'
@@ -3770,12 +3783,11 @@ information about.
       '<div class="pl-sm-pickh"><span class="t">' + esc(title) + '</span>' +
         '<span class="s" id="pl-sm-pick-count"></span>' +
         '<button type="button" class="cx" id="pl-sm-pick-close" aria-label="Close">✕</button></div>' +
-      '<div class="pl-sm-srch"><input type="search" id="pl-sm-pick-q" placeholder="Search ' +
-        esc(block) + ' exercises…" value="' + esc(swap.query || '') + '"/>' +
+      '<div class="pl-sm-srch"><input type="search" id="pl-sm-pick-q" placeholder="Search exercises…" value="' +
+        esc(swap.query || '') + '"/>' +
         '<button type="button" class="clr" id="pl-sm-pick-clr"' +
           ((swap.query) ? '' : ' hidden') + '>✕</button></div>' +
       '<div class="pl-sm-scope" id="pl-sm-pick-scope">loading…</div>' +
-      '<div class="pl-sm-filters" id="pl-sm-pick-filters"></div>' +
       '<div class="pl-sm-clist" id="pl-sm-pick-list"></div>' +
       '<div class="pl-sm-picknote" id="pl-sm-pick-note"></div>';
 
@@ -3798,37 +3810,8 @@ information about.
       qEl.focus();
     };
 
-    _smEnsureAvoidParts().then(function (parts) {
-      if (!_sm.swap) return;
-      if (_sm.swap.avoid == null) {
-        _sm.swap.avoid = parts.filter(function (p) { return p.active; }).map(function (p) { return p.part; });
-      }
-      var filters = document.getElementById('pl-sm-pick-filters');
-      if (filters) {
-        filters.innerHTML = parts.map(function (p) {
-          var on = (_sm.swap.avoid || []).indexOf(p.part) >= 0;
-          return '<button type="button" class="pl-sm-fchip' + (on ? ' on' : '') +
-            '" data-avoid="' + esc(p.part) + '">avoid ' + esc(p.label) + (on ? ' ✓' : '') + '</button>';
-        }).join('');
-        filters.querySelectorAll('[data-avoid]').forEach(function (chip) {
-          chip.addEventListener('click', function () {
-            var part = chip.getAttribute('data-avoid');
-            var list = (_sm.swap.avoid || []).slice();
-            var ix = list.indexOf(part);
-            if (ix >= 0) list.splice(ix, 1);
-            else list.push(part);
-            _sm.swap.avoid = list;
-            var nowOn = list.indexOf(part) >= 0;
-            chip.classList.toggle('on', nowOn);
-            chip.textContent = 'avoid ' + (parts.filter(function (p) { return p.part === part; })[0] || {}).label +
-              (nowOn ? ' ✓' : '');
-            _smFetchSwapCandidates();
-          });
-        });
-      }
-      _smFetchSwapCandidates();
-      qEl.focus();
-    });
+    _smFetchSwapCandidates();
+    qEl.focus();
   }
 
   function _smFetchSwapCandidates() {
@@ -3875,14 +3858,12 @@ information about.
     }
     var scope = document.getElementById('pl-sm-pick-scope');
     if (scope) {
-      scope.innerHTML = _sm.swap.searchAll
-        ? ('searching <b>all blocks</b> · ' + (data.library_count || 0) + ' in library → <b>' + ok.length + '</b> eligible')
-        : ('searching <b>' + esc(data.scope || block) + '</b> only · ' +
-          (data.library_count || 0) + ' in library → <b>' + (data.scoped_count || 0) + '</b> in block');
+      scope.innerHTML = (data.library_count || 0) + ' in library · <b>' + ok.length + '</b> match' +
+        (no.length ? (' · ' + no.length + ' already in session') : '');
     }
     var note = document.getElementById('pl-sm-pick-note');
     if (note) {
-      note.innerHTML = 'scoped to <b>' + esc(data.scope || block) + '</b> · ranked by body-part overlap then TSS' +
+      note.innerHTML = 'searching all exercises · ranked by body-part overlap then TSS' +
         (curTss ? (' proximity to ' + curTss.toFixed(1)) : '') +
         ' · a swap arrives <b>pinned</b> — refill won\'t undo it';
     }
@@ -3908,11 +3889,7 @@ information about.
     } else {
       h = '<div class="pl-sm-none">No ' +
         (_sm.swap.query ? ('match for "' + esc(_sm.swap.query) + '"') : 'candidate') +
-        ' in ' + esc(block) + '.<br>' +
-        (!_sm.swap.searchAll
-          ? '<a href="#" id="pl-sm-pick-all">Search all blocks →</a>'
-          : '') +
-        '</div>';
+        '.</div>';
     }
     if (no.length) {
       h += '<div class="pl-sm-sec">not available</div>' + no.map(function (e) { return rowHtml(e, true); }).join('');
@@ -3920,14 +3897,6 @@ information about.
     var list = document.getElementById('pl-sm-pick-list');
     if (!list) return;
     list.innerHTML = h;
-    var allLink = document.getElementById('pl-sm-pick-all');
-    if (allLink) {
-      allLink.onclick = function (ev) {
-        ev.preventDefault();
-        _sm.swap.searchAll = true;
-        _smFetchSwapCandidates();
-      };
-    }
     list.querySelectorAll('.pl-sm-cand:not(.dis)').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var name = btn.getAttribute('data-cand-name');
@@ -3946,6 +3915,64 @@ information about.
       else last.idxs.push(i);
     });
     return groups;
+  }
+
+  function _smBlockSetsFromIdxs(idxs) {
+    for (var i = 0; i < idxs.length; i++) {
+      var ex = _sfExercises[idxs[i]];
+      if (ex && ex.sets != null && isFinite(Number(ex.sets))) return Math.round(Number(ex.sets));
+    }
+    return 3;
+  }
+
+  function _smBlockSetsByName(block) {
+    for (var i = 0; i < _sfExercises.length; i++) {
+      if (String(_sfExercises[i].block || '') === String(block || '') &&
+          _sfExercises[i].sets != null && isFinite(Number(_sfExercises[i].sets))) {
+        return Math.round(Number(_sfExercises[i].sets));
+      }
+    }
+    return null;
+  }
+
+  function _smApplyBlockSets(gi, sets) {
+    var groups = _smExGroups();
+    var g = groups[gi];
+    if (!g) return;
+    var n = Math.max(1, Math.min(12, Math.round(Number(sets)) || 3));
+    g.idxs.forEach(function (i) {
+      if (_sfExercises[i]) _sfExercises[i].sets = n;
+    });
+  }
+
+  function _smNewBlockName() {
+    var used = {};
+    _sfExercises.forEach(function (x) { used[String(x.block || '')] = true; });
+    for (var i = 0; i < _SM_BLOCK_OPTIONS.length; i++) {
+      if (!used[_SM_BLOCK_OPTIONS[i]]) return _SM_BLOCK_OPTIONS[i];
+    }
+    var n = 2;
+    while (used['Block ' + n]) n += 1;
+    return 'Block ' + n;
+  }
+
+  function _smAddBlock() {
+    var name = _smNewBlockName();
+    _sfExercises.push({
+      block: name,
+      name: '',
+      sets: 3,
+      reps: '10',
+      load: 'moderate',
+      spend_tss: 3,
+      spend_min: 7.5,
+      pinned: false,
+      source: 'manual',
+      state: '',
+    });
+    _sm.swap = { mode: 'add', block: name, query: '', searchAll: true, avoid: [] };
+    _smMarkDirty();
+    _renderDetailSection();
   }
 
   function _smBlockSelectHtml(current, gi) {
@@ -3996,14 +4023,40 @@ information about.
 
   function _smInteractiveExercisesHtml() {
     var groups = _smExGroups();
-    if (!groups.length) return '';
     var edit = _smIsEdit();
     var SB = window.SessionBudget;
     var swap = (_sm && _sm.swap) || null;
+
+    function spendFooter() {
+      var planned = (_detail && _detail.structure && _detail.structure.target_tss) || null;
+      var actualTss = 0;
+      var actualMin = 0;
+      _sfExercises.forEach(function (ex) {
+        if (String(ex.state || 'done') === 'skipped') return;
+        var sp = SB && SB.spendOf ? SB.spendOf(ex) : { tss: 0, min: 0 };
+        actualTss += sp.tss;
+        actualMin += sp.min;
+      });
+      return '<div class="pl-sm-spend"><span>Session spend</span><span class="pl-sm-sv">' +
+        (planned != null ? ('<s>planned ' + Math.round(planned) + ' TSS</s> ') : '') +
+        'actual ' + (Math.round(actualMin * 10) / 10) + ' min · ' + (Math.round(actualTss * 10) / 10) + ' TSS' +
+        '</span></div>';
+    }
+
+    var addBlkBtn = edit
+      ? '<button type="button" class="pl-sm-addblk" data-blk-add="1">+ block</button>'
+      : '';
+
+    if (!groups.length) {
+      if (!edit) return '';
+      return '<div class="pl-sm-exlist" id="pl-sm-exlist">' + addBlkBtn + spendFooter() + '</div>';
+    }
+
     var html = groups.map(function (g, gi) {
       var tss = 0;
       var mins = 0;
       var skipped = 0;
+      var blockSets = _smBlockSetsFromIdxs(g.idxs);
       g.idxs.forEach(function (i) {
         var ex = _sfExercises[i];
         if (String(ex.state || 'done') === 'skipped') { skipped += 1; return; }
@@ -4016,15 +4069,19 @@ information about.
       var rows = g.idxs.map(function (i, pos) {
         var ex = _sfExercises[i];
         var pinned = _smExIsPinned(ex);
-        var skippedRow = String(ex.state || 'done') === 'skipped';
+        var skippedRow = String(ex.state || '') === 'skipped';
+        var doneRow = String(ex.state || '') === 'completed';
         var sp = SB && SB.spendOf ? SB.spendOf(ex) : { tss: Number(ex.spend_tss) || 0, min: Number(ex.spend_min) || 0 };
-        var rx = (ex.sets != null && ex.reps != null) ? (ex.sets + ' × ' + ex.reps) : '';
-        if (ex.load) rx += (rx ? ' · ' : '') + ex.load;
-        if (ex.replaced_name) {
-          rx = '<s>' + esc(ex.replaced_name) + '</s> → ' + esc(rx) +
+        // Sets live on the block — row shows reps · load only.
+        var rxPlain = '';
+        if (ex.reps != null && String(ex.reps).trim() !== '') rxPlain = String(ex.reps);
+        if (ex.load) rxPlain += (rxPlain ? ' · ' : '') + ex.load;
+        var rx;
+        if (edit && ex.replaced_name) {
+          rx = '<s>' + esc(ex.replaced_name) + '</s> → ' + esc(rxPlain) +
             (ex.substitute_reason ? (' · ' + esc(ex.substitute_reason)) : '');
         } else {
-          rx = esc(rx);
+          rx = esc(rxPlain);
         }
         var minLab = (Math.round(sp.min * 10) / 10) + ' min';
         var tssLab = (Math.round(sp.tss * 10) / 10) + ' TSS';
@@ -4057,15 +4114,15 @@ information about.
             '</div>' +
             (swapOn ? '<div class="pl-sm-pick" id="pl-sm-pick" data-pick-host="1"></div>' : '');
         }
-        // View — check off as you go
-        leftCtl = '<button type="button" class="pl-sm-chk' + (skippedRow ? '' : ' on') + '" data-ex-skip="' + i + '" aria-label="Toggle done">' +
-          (skippedRow ? '' : '✓') + '</button>';
-        return '<div class="pl-sm-ex' + (skippedRow ? ' skipped' : '') + '" data-ex-i="' + i + '">' +
+        // View: empty checkbox until tapped at the gym; no per-row min/TSS; no swap strike.
+        leftCtl = '<button type="button" class="pl-sm-chk' + (doneRow ? ' on' : '') + '" data-ex-skip="' + i + '"' +
+          ' aria-label="' + (doneRow ? 'Mark not done' : 'Mark done') + '" aria-pressed="' +
+          (doneRow ? 'true' : 'false') + '">' + (doneRow ? '✓' : '') + '</button>';
+        return '<div class="pl-sm-ex' + (skippedRow ? ' skipped' : '') + (doneRow ? ' done' : '') +
+          '" data-ex-i="' + i + '">' +
           leftCtl +
           '<span class="pl-sm-exb"><span class="pl-sm-en">' + esc(ex.name || 'Exercise') + '</span>' +
-            '<span class="pl-sm-erx">' + rx + '</span></span>' +
-          '<span class="pl-sm-enum ro">' + minLab + '</span>' +
-          '<span class="pl-sm-enum ro">' + tssLab + '</span>' +
+            '<span class="pl-sm-erx">' + esc(String(blockSets) + ' × ') + rx + '</span></span>' +
         '</div>';
       }).join('');
       var head;
@@ -4080,6 +4137,9 @@ information about.
                 (gi === groups.length - 1 ? ' disabled' : '') + ' aria-label="Move block down">▼</button>' +
             '</span>' +
             _smBlockSelectHtml(g.block, gi) +
+            '<label class="pl-sm-bsets-lab" title="Sets for every exercise in this block">Sets ' +
+              '<input type="number" class="pl-sm-bsets" data-blk-sets="' + gi + '" min="1" max="12" step="1" value="' +
+              blockSets + '"/></label>' +
             '<button type="button" class="pl-sm-blkdel" data-blk-del="' + gi + '" title="Remove block" aria-label="Remove block">✕</button>' +
           '</span>' +
           '<span style="display:flex;gap:8px;align-items:center">' +
@@ -4091,24 +4151,11 @@ information about.
         '</div>';
       }
       head = '<div class="pl-sm-blkh"><span class="pl-sm-bn">' + esc(g.block) + '</span>' +
-        '<span class="pl-sm-bm">' + meta + '</span></div>';
+        '<span class="pl-sm-bm">' + blockSets + ' sets · ' + meta + '</span></div>';
       return '<div class="pl-sm-blk">' + head + rows + '</div>';
     }).join('');
 
-    var planned = (_detail && _detail.structure && _detail.structure.target_tss) || null;
-    var actualTss = 0;
-    var actualMin = 0;
-    _sfExercises.forEach(function (ex) {
-      if (String(ex.state || 'done') === 'skipped') return;
-      var sp = SB && SB.spendOf ? SB.spendOf(ex) : { tss: 0, min: 0 };
-      actualTss += sp.tss;
-      actualMin += sp.min;
-    });
-    var spendLine = '<div class="pl-sm-spend"><span>Session spend</span><span class="pl-sm-sv">' +
-      (planned != null ? ('<s>planned ' + Math.round(planned) + ' TSS</s> ') : '') +
-      'actual ' + (Math.round(actualMin * 10) / 10) + ' min · ' + (Math.round(actualTss * 10) / 10) + ' TSS' +
-      '</span></div>';
-    return '<div class="pl-sm-exlist" id="pl-sm-exlist">' + html + spendLine + '</div>';
+    return '<div class="pl-sm-exlist" id="pl-sm-exlist">' + html + addBlkBtn + spendFooter() + '</div>';
   }
 
   /** Read-only preview pane (same as admin / plan suggestions) for Simple tab. */
@@ -4728,7 +4775,12 @@ information about.
           var i = +btn.getAttribute('data-ex-skip');
           var ex = _sfExercises[i];
           if (!ex) return;
-          ex.state = String(ex.state || 'done') === 'skipped' ? 'done' : 'skipped';
+          // View checklist: tap to mark done at the gym (empty → completed → empty).
+          if (String(ex.state || '') === 'completed') {
+            ex.state = '';
+          } else {
+            ex.state = 'completed';
+          }
           _smMarkDirty();
           _renderDetailSection();
         });
@@ -4815,7 +4867,7 @@ information about.
           if (_sm.swap && _sm.swap.mode === 'swap' && _sm.swap.index === i) {
             _sm.swap = null;
           } else {
-            _sm.swap = { mode: 'swap', index: i, query: '', searchAll: false, avoid: null };
+            _sm.swap = { mode: 'swap', index: i, query: '', searchAll: true, avoid: [] };
           }
           _renderDetailSection();
         });
@@ -4826,8 +4878,19 @@ information about.
           if (_sm.swap && _sm.swap.mode === 'add' && _sm.swap.block === block) {
             _sm.swap = null;
           } else {
-            _sm.swap = { mode: 'add', block: block, query: '', searchAll: false, avoid: null };
+            _sm.swap = { mode: 'add', block: block, query: '', searchAll: true, avoid: [] };
           }
+          _renderDetailSection();
+        });
+      });
+      exList.querySelectorAll('[data-blk-add]').forEach(function (btn) {
+        btn.addEventListener('click', function () { _smAddBlock(); });
+      });
+      exList.querySelectorAll('[data-blk-sets]').forEach(function (inp) {
+        inp.addEventListener('change', function () {
+          var gi = +inp.getAttribute('data-blk-sets');
+          _smApplyBlockSets(gi, inp.value);
+          _smMarkDirty();
           _renderDetailSection();
         });
       });
@@ -5529,16 +5592,20 @@ information about.
     '.plan-panel .pl-sm-sk{color:var(--warning,#d97706);}',
     '.plan-panel .pl-sm-addex{border:1px dashed var(--border);background:none;border-radius:6px;padding:2px 9px;font-family:var(--mono);font-size:9.5px;color:var(--text-sub);cursor:pointer;}',
     '.plan-panel .pl-sm-addex:hover{border-color:var(--primary);color:var(--primary);}',
+    '.plan-panel .pl-sm-addblk{display:block;width:100%;margin:8px 0 4px;border:1px dashed var(--border);background:none;border-radius:8px;padding:8px 10px;font-family:var(--mono);font-size:11px;color:var(--text-sub);cursor:pointer;text-align:center;}',
+    '.plan-panel .pl-sm-addblk:hover{border-color:var(--primary);color:var(--primary);}',
+    '.plan-panel .pl-sm-bsets-lab{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;color:var(--text-sub);margin-left:4px;}',
+    '.plan-panel .pl-sm-bsets{width:44px;border:1px solid var(--border);border-radius:5px;padding:2px 4px;font-family:var(--mono);font-size:11px;text-align:right;}',
     '.plan-panel .pl-sm-ex{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border);}',
     '.plan-panel .pl-sm-ex:last-child{border-bottom:none;}',
     '.plan-panel .pl-sm-ex.pinned{background:#fbfaff;}',
     '.plan-panel .pl-sm-ex.skipped{background:#fafafa;}',
     '.plan-panel .pl-sm-ex.skipped .pl-sm-en,.plan-panel .pl-sm-ex.skipped .pl-sm-erx{text-decoration:line-through;color:var(--text-sub);}',
-    '.plan-panel .pl-sm-chk{width:19px;height:19px;border-radius:6px;border:1.5px solid #cfd5e2;background:#fff;cursor:pointer;flex-shrink:0;display:grid;place-items:center;font-size:11px;color:#fff;padding:0;}',
+    '.plan-panel .pl-sm-chk{width:22px;height:22px;border-radius:6px;border:1.5px solid #cfd5e2;background:#fff;cursor:pointer;flex-shrink:0;display:grid;place-items:center;font-size:12px;color:#fff;padding:0;}',
     '.plan-panel .pl-sm-chk.on{background:var(--success,#16a34a);border-color:var(--success,#16a34a);}',
     '.plan-panel .pl-sm-exb{flex:1;min-width:0;}',
-    '.plan-panel .pl-sm-en{font-size:12.5px;font-weight:600;display:block;}',
-    '.plan-panel .pl-sm-erx{font-family:var(--mono);font-size:10.5px;color:var(--text-sub);margin-top:2px;display:block;}',
+    '.plan-panel .pl-sm-en{font-size:15.5px;font-weight:650;display:block;line-height:1.25;}',
+    '.plan-panel .pl-sm-erx{font-family:var(--mono);font-size:11.5px;color:var(--text-sub);margin-top:3px;display:block;}',
     '.plan-panel .pl-sm-erx s{color:#9ca3af;}',
     '.plan-panel .pl-sm-prov{font-family:var(--mono);font-size:8px;font-weight:700;padding:2px 6px;border-radius:4px;letter-spacing:.04em;white-space:nowrap;}',
     '.plan-panel .pl-sm-prov.swap{background:#fef3c7;color:#92400e;}',

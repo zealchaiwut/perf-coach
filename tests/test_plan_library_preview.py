@@ -167,6 +167,8 @@ def test_preview_ui_shell_has_reshuffle_and_pool_summary():
     assert 'id="pool-summary"' in html
     assert "Live fill preview" in html
     assert "plan-fill-preview.js" in html
+    assert "table-layout:fixed" in shared
+    assert 'class="rx"' in shared
     assert "slice(1, 3)" in shared
     assert "sessionPaneHtml" in shared
     assert "/api/admin/plan-library/pool-counts" in js

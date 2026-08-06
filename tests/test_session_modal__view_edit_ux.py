@@ -26,7 +26,9 @@ def test_edit_has_delete_and_view_has_checkmark():
     assert 'data-ex-del="' in TP
     assert "pl-sm-delx" in TP
     assert 'data-ex-skip="' in TP
-    # Edit path uses delete; view path keeps checkmark — both present, gated by edit flag
+    assert "pl-sm-chk" in TP
+    assert "completed" in TP  # gym checklist state
+    # Edit path uses delete; view path keeps checkbox — both present, gated by edit flag
     assert "_smIsEdit()" in TP
 
 
@@ -35,9 +37,20 @@ def test_block_edit_controls_present():
     assert "data-blk-del" in TP
     assert "data-blk-up" in TP
     assert "data-ex-up" in TP
+    assert "data-blk-add" in TP
+    assert "data-blk-sets" in TP
+    assert "_smAddBlock" in TP
+    assert "_smApplyBlockSets" in TP
     assert "_SM_BLOCK_OPTIONS" in TP
     assert "EMOM" in TP and "40/20" in TP
     assert "Heavy compound" in TP
+
+
+def test_swap_search_has_no_filters():
+    assert "Search exercises…" in TP or 'Search exercises' in TP
+    assert "pl-sm-pick-filters" not in TP.split("function _smMountSwapPicker")[1].split("function _smFetchSwapCandidates")[0]
+    assert "searchAll: true" in TP
+    assert "swap.avoid = []" in TP
 
 
 def test_pin_label_and_spend_units():
@@ -48,5 +61,13 @@ def test_pin_label_and_spend_units():
     assert " TSS'" in TP or ' TSS"' in TP or "+ ' TSS'" in TP
 
 
+def test_simple_view_hides_row_spend_and_swap_strike():
+    # View rows omit per-exercise min/TSS (block header keeps them)
+    assert "Math.round(mins * 10)" in TP  # block meta still uses mins
+    # replaced_name strike only when edit
+    assert "edit && ex.replaced_name" in TP
+    assert 'font-size:15.5px' in TP  # larger exercise name in view
+
+
 def test_cache_bust_updated():
-    assert "training-plan.js?v=20260806smux1" in PAGE
+    assert "training-plan.js?v=20260806smview1" in PAGE

@@ -120,7 +120,7 @@ def test_admin_plan_library_page_shell():
     root = Path(__file__).resolve().parents[1]
     html = (root / "frontend" / "pages" / "admin-plan-library.html").read_text(encoding="utf-8")
     js = (root / "frontend" / "js" / "admin-plan-library.js").read_text(encoding="utf-8")
-    assert 'src="/js/admin-plan-library.js"' in html
+    assert 'src="/js/admin-plan-library.js' in html
     assert "Plan library" in html
     assert 'id="tab-exercises"' in html
     assert 'id="tab-patterns"' in html
@@ -137,19 +137,27 @@ def test_admin_plan_library_page_shell():
     assert 'id="btn-import"' not in html
     assert 'id="btn-ex-download"' in html
     assert 'id="btn-ex-import"' in html
+    assert 'id="btn-ex-body-parts"' in html
+    assert 'id="body-parts-modal"' in html
+    assert 'id="body-parts-normalize"' in html
     assert 'id="btn-pat-download"' in html
     assert 'id="btn-pat-import"' in html
     assert 'id="import-modal"' in html
     assert "/api/admin/plan-library/export" in js
     assert "/api/admin/plan-library/import" in js
-    assert "downloadExercisesJson" in js
-    assert "downloadPatternsJson" in js
-    assert "openImportModal('exercises')" in js
-    assert "openImportModal('patterns')" in js
+    assert "/api/admin/plan-library/body-parts" in js
+    assert "/api/admin/plan-library/normalize-body-parts" in js
+    assert "normalizeBodyPart" in js
+    assert "openBodyPartsModal" in js
+    assert "PART_ALIASES" in js
+    assert "downloadLlmPrompt" in js
+    assert "buildPlanLibraryLlmPrompt" in js
     assert "Bulk import JSON" in html
-    assert "normalizeImportItems" in js
-    assert "Bulk import exercises" in js
-    assert "Bulk import patterns" in js
+    assert "normalizeImportBundle" in js
+    assert "validateExerciseDraft" in js
+    assert "openImportModal" in js
+    assert "Bulk import JSON" in js
+    assert "invalid groups" in js or "Validation failed" in js
     # Variation C — Exercises grouped card grid
     assert 'id="ex-grid"' in html
     assert 'id="ex-list"' not in html
@@ -198,7 +206,7 @@ def test_exercise_json_validate_via_node():
     chunks = []
     for start_marker, end_marker in (
         ("  var GROUPS = [", "  var FOCUS = ["),
-        ("  var FOCUS = [", "  var PART_COLORS = {"),
+        ("  var FOCUS = [", "  var RUN_PHASES = ["),
         ("  function unwrapExerciseJson", "  function renderExerciseEditorPreview"),
     ):
         start = src.index(start_marker)
@@ -242,6 +250,7 @@ def test_pattern_json_validate_via_node():
     src = (root / "frontend" / "js" / "admin-plan-library.js").read_text(encoding="utf-8")
     chunks = []
     for start_marker, end_marker in (
+        ("  var GROUPS = [", "  var FOCUS = ["),
         ("  var FOCUS = [", "  var PART_COLORS = {"),
         ("  var RUN_PHASES = [", "  var PAT_KINDS = ["),
         ("  function intish(v)", "  function parsePatternEditor"),
@@ -401,14 +410,59 @@ def test_admin_plan_library_export_import_roundtrip(admin_client):
                 "name": name,
                 "groups": ["standalone"],
                 "focus_tags": ["full"],
-                "body_parts": [],
+                "body_parts": [{"part": "core", "ratio": 1.0}],
                 "tss_weight": 1.0,
+                "default_sets": 3,
+                "default_reps": "10",
+                "default_load": "bodyweight",
                 "active": True,
             }],
         },
     )
     assert skipped.status_code == 200
     assert skipped.json()["exercises"]["skipped"] == 1
+
+    rejected = c.post(
+        "/api/admin/plan-library/import",
+        json={
+            "mode": "upsert",
+            "exercises": [{
+                "name": "pytest-bad-group-zzz",
+                "groups": ["not_a_real_group"],
+                "focus_tags": ["full"],
+                "body_parts": [{"part": "core", "ratio": 1.0}],
+                "tss_weight": 1.0,
+                "default_sets": 3,
+                "default_reps": "10",
+                "default_load": "bodyweight",
+                "active": True,
+            }],
+            "patterns": [{
+                "kind": "strength",
+                "subtype": "full",
+                "name": "pytest-bad-from-tags",
+                "duration_min_lo": 30,
+                "duration_min_hi": 60,
+                "priority": 10,
+                "recipe": {
+                    "intent_template": "Bad tags",
+                    "groups": [{
+                        "key": "main",
+                        "pick": {"n": 1, "from_tags": ["bogus_tag"]},
+                    }],
+                },
+                "active": True,
+            }],
+        },
+    )
+    assert rejected.status_code == 200, rejected.text
+    rej = rejected.json()
+    assert rej["exercises"]["created"] == 0
+    assert rej["exercises"]["errors"], rej
+    assert "invalid groups" in rej["exercises"]["errors"][0]["detail"]
+    assert rej["patterns"]["created"] == 0
+    assert rej["patterns"]["errors"], rej
+    assert "from_tags" in rej["patterns"]["errors"][0]["detail"]
 
     # Cleanup
     er2 = c.get("/api/admin/plan-exercises")
