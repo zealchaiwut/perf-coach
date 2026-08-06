@@ -2015,7 +2015,10 @@ def get_weight_chart(
                 weekly_rate_ewma_kg if _rate["readable"] and weekly_rate_ewma_kg is not None
                 else delta_7d_kg
             ),
-            "delta_30d_kg": delta_30d_kg,
+            "delta_30d_kg": (
+                round(weekly_rate_ewma_kg * 4, 2) if _rate["readable"] and weekly_rate_ewma_kg is not None
+                else delta_30d_kg
+            ),
             "weekly_rate_ewma_kg": weekly_rate_ewma_kg,
             "ewma_alpha": round(2.0 / (_EWMA_DEFAULT_SPAN + 1), 4),
             "rate": _rate,
