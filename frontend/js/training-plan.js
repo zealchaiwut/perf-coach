@@ -3341,6 +3341,7 @@ information about.
   var _sm = {
     baseline: null,
     dirty: false,
+    mode: 'view', // view (in-gym) | edit (structure)
     strydOpen: false,
     aiForcedOpen: false,
     aiBusy: false,
@@ -3350,6 +3351,13 @@ information about.
     swap: null, // { mode: 'swap'|'add', index?, block?, query, searchAll, avoid[] }
     avoidParts: null, // cached from /api/plan/exercises/avoid-parts
   };
+
+  // Strength/plyo block labels — same catalog as plan_slot._STRENGTH_BLOCKS.
+  var _SM_BLOCK_OPTIONS = [
+    'Warm-up', 'Heavy compound', 'Superset 1', 'Superset 2', 'Standalone',
+    'Accessories', 'Bodyweight', 'Plyometrics', 'Isometrics', 'Stretch',
+    'Cooldown', 'Finisher', 'EMOM', '40/20',
+  ];
 
   var _H = function () { return window.PlanSessionHelpers || {}; };
 
@@ -3432,7 +3440,26 @@ information about.
     if (distEl && !distEl.disabled && distEl.value !== '' && distEl.value !== '—' && isFinite(Number(distEl.value))) {
       out.distance_km = Number(distEl.value);
     }
+    var subEl = document.getElementById('pl-sm-subtype');
+    if (subEl && subEl.value) {
+      out.subtype = subEl.value;
+    } else if (prev.subtype != null && out.subtype == null) {
+      out.subtype = prev.subtype;
+    }
     return out;
+  }
+
+  function _smUiSubtype(type, p) {
+    var raw = String(((p && p.structure && p.structure.subtype) || (p && p.subtype) || '')).trim().toLowerCase();
+    if (!raw) return '';
+    if (raw.indexOf('strength_') === 0) raw = raw.slice('strength_'.length);
+    if (raw.indexOf('easy_') === 0) raw = 'easy';
+    if (raw === 'long_run') raw = 'long';
+    var list = _ADD_SUBTYPES[type] || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].v === raw) return raw;
+    }
+    return raw;
   }
 
   function _smReadDraftFromDom(p) {
@@ -3448,6 +3475,10 @@ information about.
       session_type: type,
       structure: _smCollectStructure(type),
     };
+  }
+
+  function _smIsEdit() {
+    return _sm.mode === 'edit';
   }
 
   function _smMarkDirty() {
@@ -3480,6 +3511,7 @@ information about.
   }
 
   function _smBudgetHtml(p) {
+    if (!_smIsEdit()) return _smTilesHtml(p);
     var SB = window.SessionBudget;
     if (!SB || !SB.html) return _smTilesHtml(p) + _smAiBarHtml(p);
     if ((p.session_type || '') === 'rest') return '';
@@ -3570,38 +3602,48 @@ information about.
 
   function _smStructureBodyHtml(p) {
     var type = (p.session_type || 'run').toLowerCase();
+    var edit = _smIsEdit();
     if (type === 'rest') {
       return '<div class="pl-sm-empty-s">Rest day — no structure.</div>';
     }
     if (type === 'run') {
       if (!_sfBlocks.length && !_smHasStructure(p)) {
-        return '<div class="pl-sm-empty-s">No structure yet — Fill from patterns above, or open advanced › Detailed.</div>';
+        return '<div class="pl-sm-empty-s">' +
+          (edit ? 'No structure yet — Fill from patterns above, or open advanced › Detailed.'
+            : 'No structure yet — tap Edit to fill this session.') +
+          '</div>';
       }
-      if (_sm.structTab === 'json') {
+      if (edit && _sm.structTab === 'json') {
         return '<textarea class="pl-jsonta" id="pl-sm-json" aria-label="Structure JSON" spellcheck="false">' +
           esc(JSON.stringify({ blocks: _sfBlocks }, null, 2)) + '</textarea>';
       }
-      if (_sm.structTab === 'detailed') {
+      if (edit && _sm.structTab === 'detailed') {
         return '<div id="pl-sm-struct-host"></div>';
       }
       return _smPreviewPaneHtml(p, type);
     }
     // strength / plyo / stretch
-    if (_sm.structTab === 'json') {
+    if (edit && _sm.structTab === 'json') {
       return '<textarea class="pl-jsonta" id="pl-sm-json" aria-label="Structure JSON" spellcheck="false">' +
         esc(JSON.stringify({ exercises: _sfExercises, focus: _sfFocus }, null, 2)) + '</textarea>';
     }
-    if (_sm.structTab === 'detailed') {
+    if (edit && _sm.structTab === 'detailed') {
       return '<div id="pl-sm-struct-host"></div>';
     }
-    // Simple — interactive pin/skip list
     if (!_sfFocus && !_sfExercises.length) {
-      return '<div class="pl-sm-empty-s">No structure yet — Fill from patterns above, or open advanced › Detailed.</div>';
+      return '<div class="pl-sm-empty-s">' +
+        (edit ? 'No structure yet — Fill from patterns above, or open advanced › Detailed.'
+          : 'No structure yet — tap Edit to fill this session.') +
+        '</div>';
     }
-    return (_sfFocus
-      ? '<div class="pl-fld" style="margin-bottom:10px;"><label>Focus</label>' +
-        '<input type="text" id="pl-sm-focus" aria-label="Focus" value="' + esc(_sfFocus) + '"/></div>'
-      : '') + _smInteractiveExercisesHtml();
+    var focusHtml = '';
+    if (_sfFocus) {
+      focusHtml = edit
+        ? '<div class="pl-fld" style="margin-bottom:10px;"><label>Focus</label>' +
+          '<input type="text" id="pl-sm-focus" aria-label="Focus" value="' + esc(_sfFocus) + '"/></div>'
+        : '<div class="pl-sm-focus-ro">' + esc(_sfFocus) + '</div>';
+    }
+    return focusHtml + _smInteractiveExercisesHtml();
   }
 
   function _smProvChip(ex) {
@@ -3895,7 +3937,7 @@ information about.
     });
   }
 
-  function _smInteractiveExercisesHtml() {
+  function _smExGroups() {
     var groups = [];
     _sfExercises.forEach(function (x, i) {
       var b = (x && x.block) ? x.block : 'Exercises';
@@ -3903,10 +3945,62 @@ information about.
       if (!last || last.block !== b) groups.push({ block: b, idxs: [i] });
       else last.idxs.push(i);
     });
+    return groups;
+  }
+
+  function _smBlockSelectHtml(current, gi) {
+    var cur = current || 'Exercises';
+    var opts = _SM_BLOCK_OPTIONS.slice();
+    if (opts.indexOf(cur) < 0) opts.unshift(cur);
+    return '<select class="pl-sm-bnsel" data-blk-rename="' + gi + '" aria-label="Block type">' +
+      opts.map(function (o) {
+        return '<option value="' + esc(o) + '"' + (o === cur ? ' selected' : '') + '>' + esc(o) + '</option>';
+      }).join('') +
+    '</select>';
+  }
+
+  function _smMoveExInBlock(i, dir) {
+    var j = i + dir;
+    if (j < 0 || j >= _sfExercises.length) return false;
+    var a = _sfExercises[i];
+    var b = _sfExercises[j];
+    if ((a.block || '') !== (b.block || '')) return false;
+    _sfExercises[i] = b;
+    _sfExercises[j] = a;
+    return true;
+  }
+
+  function _smMoveBlockGroup(gi, dir) {
+    var groups = _smExGroups();
+    var gj = gi + dir;
+    if (gj < 0 || gj >= groups.length) return false;
+    var rebuilt = [];
+    var order = groups.map(function (_, k) { return k; });
+    var tmp = order[gi];
+    order[gi] = order[gj];
+    order[gj] = tmp;
+    order.forEach(function (k) {
+      groups[k].idxs.forEach(function (i) { rebuilt.push(_sfExercises[i]); });
+    });
+    _sfExercises = rebuilt;
+    return true;
+  }
+
+  function _smDeleteBlockGroup(gi) {
+    var groups = _smExGroups();
+    if (!groups[gi]) return;
+    var drop = {};
+    groups[gi].idxs.forEach(function (i) { drop[i] = true; });
+    _sfExercises = _sfExercises.filter(function (_, i) { return !drop[i]; });
+  }
+
+  function _smInteractiveExercisesHtml() {
+    var groups = _smExGroups();
     if (!groups.length) return '';
+    var edit = _smIsEdit();
     var SB = window.SessionBudget;
     var swap = (_sm && _sm.swap) || null;
-    var html = groups.map(function (g) {
+    var html = groups.map(function (g, gi) {
       var tss = 0;
       var mins = 0;
       var skipped = 0;
@@ -3919,7 +4013,7 @@ information about.
       });
       var meta = (Math.round(mins * 10) / 10) + ' min · ' + (Math.round(tss * 10) / 10) + ' TSS' +
         (skipped ? (' · <span class="pl-sm-sk">' + skipped + ' skipped</span>') : '');
-      var rows = g.idxs.map(function (i) {
+      var rows = g.idxs.map(function (i, pos) {
         var ex = _sfExercises[i];
         var pinned = _smExIsPinned(ex);
         var skippedRow = String(ex.state || 'done') === 'skipped';
@@ -3932,33 +4026,73 @@ information about.
         } else {
           rx = esc(rx);
         }
-        var swapOn = swap && swap.mode === 'swap' && swap.index === i;
-        return '<div class="pl-sm-ex' + (pinned ? ' pinned' : '') + (skippedRow ? ' skipped' : '') +
-          (swapOn ? ' active' : '') + '" data-ex-i="' + i + '">' +
-          '<button type="button" class="pl-sm-chk' + (skippedRow ? '' : ' on') + '" data-ex-skip="' + i + '" aria-label="Toggle done">' +
-            (skippedRow ? '' : '✓') + '</button>' +
+        var minLab = (Math.round(sp.min * 10) / 10) + ' min';
+        var tssLab = (Math.round(sp.tss * 10) / 10) + ' TSS';
+        var leftCtl;
+        var rightCtl;
+        if (edit) {
+          var swapOn = swap && swap.mode === 'swap' && swap.index === i;
+          leftCtl = '<button type="button" class="pl-sm-delx" data-ex-del="' + i + '" title="Remove exercise" aria-label="Remove exercise">✕</button>' +
+            '<span class="pl-sm-mv">' +
+              '<button type="button" class="pl-sm-mbtn" data-ex-up="' + i + '"' +
+                (pos === 0 ? ' disabled' : '') + ' aria-label="Move up">▲</button>' +
+              '<button type="button" class="pl-sm-mbtn" data-ex-dn="' + i + '"' +
+                (pos === g.idxs.length - 1 ? ' disabled' : '') + ' aria-label="Move down">▼</button>' +
+            '</span>';
+          rightCtl = '<span class="pl-sm-enum" data-ex-edit="min" data-ex-i="' + i + '" title="Minutes">' + minLab + '</span>' +
+            '<span class="pl-sm-enum" data-ex-edit="tss" data-ex-i="' + i + '" title="TSS">' + tssLab + '</span>' +
+            '<span class="pl-sm-exact">' +
+              '<button type="button" class="pl-sm-pinbtn' + (pinned ? ' on' : '') + '" data-ex-pin="' + i + '"' +
+                ' aria-pressed="' + (pinned ? 'true' : 'false') + '" title="Keep on refill">' +
+                (pinned ? 'Pinned' : 'Pin') + '</button>' +
+              '<button type="button" class="pl-sm-ib' + (swapOn ? ' on' : '') + '" data-ex-swap="' + i + '" title="Swap" aria-label="Swap">⇄</button>' +
+            '</span>';
+          return '<div class="pl-sm-ex' + (pinned ? ' pinned' : '') + (skippedRow ? ' skipped' : '') +
+            (swapOn ? ' active' : '') + '" data-ex-i="' + i + '">' +
+            leftCtl +
+            '<span class="pl-sm-exb"><span class="pl-sm-en">' + esc(ex.name || 'Exercise') + '</span>' +
+              '<span class="pl-sm-erx">' + rx + '</span></span>' +
+            _smProvChip(ex) +
+            rightCtl +
+            '</div>' +
+            (swapOn ? '<div class="pl-sm-pick" id="pl-sm-pick" data-pick-host="1"></div>' : '');
+        }
+        // View — check off as you go
+        leftCtl = '<button type="button" class="pl-sm-chk' + (skippedRow ? '' : ' on') + '" data-ex-skip="' + i + '" aria-label="Toggle done">' +
+          (skippedRow ? '' : '✓') + '</button>';
+        return '<div class="pl-sm-ex' + (skippedRow ? ' skipped' : '') + '" data-ex-i="' + i + '">' +
+          leftCtl +
           '<span class="pl-sm-exb"><span class="pl-sm-en">' + esc(ex.name || 'Exercise') + '</span>' +
             '<span class="pl-sm-erx">' + rx + '</span></span>' +
-          _smProvChip(ex) +
-          '<span class="pl-sm-enum" data-ex-edit="min" data-ex-i="' + i + '" title="Minutes">' +
-            (Math.round(sp.min * 10) / 10) + '</span>' +
-          '<span class="pl-sm-enum" data-ex-edit="tss" data-ex-i="' + i + '" title="TSS">' +
-            (Math.round(sp.tss * 10) / 10) + '</span>' +
-          '<span class="pl-sm-exact">' +
-            '<button type="button" class="pl-sm-ib' + (pinned ? ' on' : '') + '" data-ex-pin="' + i + '" title="Pin" aria-label="Pin">📌</button>' +
-            '<button type="button" class="pl-sm-ib' + (swapOn ? ' on' : '') + '" data-ex-swap="' + i + '" title="Swap" aria-label="Swap">⇄</button>' +
-          '</span></div>' +
-          (swapOn ? '<div class="pl-sm-pick" id="pl-sm-pick" data-pick-host="1"></div>' : '');
+          '<span class="pl-sm-enum ro">' + minLab + '</span>' +
+          '<span class="pl-sm-enum ro">' + tssLab + '</span>' +
+        '</div>';
       }).join('');
-      var addOn = swap && swap.mode === 'add' && swap.block === g.block;
-      return '<div class="pl-sm-blk">' +
-        '<div class="pl-sm-blkh"><span class="pl-sm-bn">' + esc(g.block) + '</span>' +
+      var head;
+      if (edit) {
+        var addOn = swap && swap.mode === 'add' && swap.block === g.block;
+        head = '<div class="pl-sm-blkh">' +
+          '<span class="pl-sm-bhleft">' +
+            '<span class="pl-sm-bmv">' +
+              '<button type="button" class="pl-sm-mbtn" data-blk-up="' + gi + '"' +
+                (gi === 0 ? ' disabled' : '') + ' aria-label="Move block up">▲</button>' +
+              '<button type="button" class="pl-sm-mbtn" data-blk-dn="' + gi + '"' +
+                (gi === groups.length - 1 ? ' disabled' : '') + ' aria-label="Move block down">▼</button>' +
+            '</span>' +
+            _smBlockSelectHtml(g.block, gi) +
+            '<button type="button" class="pl-sm-blkdel" data-blk-del="' + gi + '" title="Remove block" aria-label="Remove block">✕</button>' +
+          '</span>' +
           '<span style="display:flex;gap:8px;align-items:center">' +
             '<span class="pl-sm-bm">' + meta + '</span>' +
             '<button type="button" class="pl-sm-addex" data-ex-add="' + esc(g.block) + '">+ exercise</button>' +
-          '</span></div>' + rows +
+          '</span></div>';
+        return '<div class="pl-sm-blk">' + head + rows +
           (addOn ? '<div class="pl-sm-pick" id="pl-sm-pick" data-pick-host="1"></div>' : '') +
         '</div>';
+      }
+      head = '<div class="pl-sm-blkh"><span class="pl-sm-bn">' + esc(g.block) + '</span>' +
+        '<span class="pl-sm-bm">' + meta + '</span></div>';
+      return '<div class="pl-sm-blk">' + head + rows + '</div>';
     }).join('');
 
     var planned = (_detail && _detail.structure && _detail.structure.target_tss) || null;
@@ -4000,15 +4134,34 @@ information about.
     var fam = _famClass(type);
     var tagCls = (type === 'strength' || type === 'plyo') ? 'lift' : '';
     var statusRow = _detailStatusActionsHtml(p);
-    var advOpen = _sm.structTab === 'detailed' || _sm.structTab === 'json';
-    var advHtml = '<span class="pl-sm-adv">' +
-        '<button type="button" class="pl-sm-adv-tog" id="pl-sm-adv-tog">' +
-          (advOpen ? 'advanced ▾' : 'advanced ›') + '</button>' +
-        (advOpen
-          ? '<button type="button" class="pl-sm-tab' + (_sm.structTab === 'detailed' ? ' on' : '') + '" data-stab="detailed">Detailed</button>' +
-            '<button type="button" class="pl-sm-tab' + (_sm.structTab === 'json' ? ' on' : '') + '" data-stab="json">JSON</button>'
-          : '') +
-      '</span>';
+    var edit = _smIsEdit();
+    var advOpen = edit && (_sm.structTab === 'detailed' || _sm.structTab === 'json');
+    var advHtml = edit
+      ? ('<span class="pl-sm-adv">' +
+          '<button type="button" class="pl-sm-adv-tog" id="pl-sm-adv-tog">' +
+            (advOpen ? 'advanced ▾' : 'advanced ›') + '</button>' +
+          (advOpen
+            ? '<button type="button" class="pl-sm-tab' + (_sm.structTab === 'detailed' ? ' on' : '') + '" data-stab="detailed">Detailed</button>' +
+              '<button type="button" class="pl-sm-tab' + (_sm.structTab === 'json' ? ' on' : '') + '" data-stab="json">JSON</button>'
+            : '') +
+        '</span>')
+      : '';
+
+    var subSelected = _smUiSubtype(type, p);
+    var subtypeOpts = _ADD_SUBTYPES[type] || [];
+    var subtypeHtml = '';
+    if (subtypeOpts.length) {
+      if (edit) {
+        subtypeHtml = '<select id="pl-sm-subtype" aria-label="Session subtype">' +
+          '<option value="">Subtype</option>' +
+          _addSubtypeOptions(type, subSelected) +
+        '</select>';
+      } else if (subSelected) {
+        var subLab = subSelected;
+        subtypeOpts.forEach(function (o) { if (o.v === subSelected) subLab = o.l; });
+        subtypeHtml = '<span class="pl-sm-subtag">' + esc(subLab) + '</span>';
+      }
+    }
 
     var stryd = '';
     if (type === 'run') {
@@ -4020,36 +4173,64 @@ information about.
         '</div>';
     }
 
-    return '<div class="pl-sm-pad">' +
-      '<div class="pl-sm-top"><span class="pl-sm-lbl">Session</span>' +
-        '<button type="button" class="pl-sm-x" id="pl-detclose" aria-label="Close">✕</button></div>' +
-      '<div class="pl-sm-meta">' +
-        '<span class="pl-sm-tag ' + tagCls + '">' + _smTypeLabel(type) + '</span>' +
-        '<select id="pl-sm-type" aria-label="Session type">' +
+    var modeBtn = edit
+      ? '<button type="button" class="pl-sm-mode" id="pl-sm-done-edit">Done editing</button>'
+      : '<button type="button" class="pl-sm-mode on" id="pl-sm-enter-edit">Edit</button>';
+
+    var metaType = edit
+      ? ('<select id="pl-sm-type" aria-label="Session type">' +
           ['run', 'strength', 'plyo', 'stretch', 'rest'].map(function (t) {
             return '<option value="' + t + '"' + (type === t ? ' selected' : '') + '>' +
               (t.charAt(0).toUpperCase() + t.slice(1)) + '</option>';
           }).join('') +
-        '</select>' +
-        '<input class="pl-sm-datef" type="date" id="pl-sm-date" aria-label="Session date" value="' + esc(p.planned_date || '') + '"/>' +
+        '</select>')
+      : ('<span class="pl-sm-typero">' + esc(type.charAt(0).toUpperCase() + type.slice(1)) + '</span>');
+
+    var dateHtml = edit
+      ? '<input class="pl-sm-datef" type="date" id="pl-sm-date" aria-label="Session date" value="' + esc(p.planned_date || '') + '"/>'
+      : '<span class="pl-sm-date-ro">' + esc(p.planned_date || '') + '</span>';
+
+    var nameHtml = edit
+      ? '<input class="pl-sm-name" id="pl-sm-name" aria-label="Session name" value="' + esc(p.name || '') + '" placeholder="Session name"/>'
+      : '<div class="pl-sm-name-ro">' + esc(p.name || 'Session') + '</div>';
+
+    var sech = edit
+      ? ('<div class="pl-sm-sech"><span class="pl-sm-lbl">Exercises</span>' +
+          '<div class="pl-sm-tabs">' +
+            '<button type="button" class="pl-sm-tab' + (_sm.structTab === 'simple' || !advOpen ? ' on' : '') + '" data-stab="simple">Simple</button>' +
+            advHtml +
+          '</div></div>')
+      : '<div class="pl-sm-sech"><span class="pl-sm-lbl">Exercises</span></div>';
+
+    var notesHtml = edit
+      ? ('<div class="pl-sm-notes"><span class="pl-sm-lbl">Coach notes</span>' +
+          '<textarea id="pl-sm-notes" rows="3" aria-label="Coach notes">' + esc(p.notes || '') + '</textarea></div>')
+      : (p.notes
+        ? '<div class="pl-sm-notes"><span class="pl-sm-lbl">Coach notes</span><div class="pl-sm-notes-ro">' + esc(p.notes) + '</div></div>'
+        : '');
+
+    return '<div class="pl-sm-pad' + (edit ? ' is-edit' : ' is-view') + '" data-sm-mode="' + (edit ? 'edit' : 'view') + '">' +
+      '<div class="pl-sm-top"><span class="pl-sm-lbl">Session</span>' +
+        '<span class="pl-sm-topr">' + modeBtn +
+        '<button type="button" class="pl-sm-x" id="pl-detclose" aria-label="Close">✕</button></span></div>' +
+      '<div class="pl-sm-meta">' +
+        '<span class="pl-sm-tag ' + tagCls + '">' + _smTypeLabel(type) + '</span>' +
+        metaType +
+        subtypeHtml +
+        dateHtml +
         _smMatchedLine(p) +
       '</div>' +
-      '<input class="pl-sm-name" id="pl-sm-name" aria-label="Session name" value="' + esc(p.name || '') + '" placeholder="Session name"/>' +
+      nameHtml +
       _detailIdRowHtml(p) +
       statusRow +
       _smBudgetHtml(p) +
-      '<div class="pl-sm-sech"><span class="pl-sm-lbl">Exercises</span>' +
-        '<div class="pl-sm-tabs">' +
-          '<button type="button" class="pl-sm-tab' + (_sm.structTab === 'simple' || !advOpen ? ' on' : '') + '" data-stab="simple">Simple</button>' +
-          advHtml +
-        '</div></div>' +
+      sech +
       '<div id="pl-sm-struct-body">' + _smStructureBodyHtml(p) + '</div>' +
-      '<div class="pl-sm-notes"><span class="pl-sm-lbl">Coach notes</span>' +
-        '<textarea id="pl-sm-notes" rows="3" aria-label="Coach notes">' + esc(p.notes || '') + '</textarea></div>' +
-      stryd +
+      notesHtml +
+      (edit ? stryd : '') +
     '</div>' +
     '<div class="pl-sm-foot">' +
-      '<button type="button" class="pl-sm-del" id="pl-det-delete">Delete</button>' +
+      (edit ? '<button type="button" class="pl-sm-del" id="pl-det-delete">Delete</button>' : '') +
       '<span class="pl-sm-sp"></span>' +
       '<span class="pl-sm-dirty" id="pl-sm-dirty" aria-live="polite"></span>' +
       '<button type="button" class="pl-sm-ghost" id="pl-sm-discard" hidden>Discard</button>' +
@@ -4288,6 +4469,8 @@ information about.
     _sm.aiBusy = false;
     _sm.aiError = '';
     _sm.dirty = false;
+    _sm.mode = 'view';
+    _sm.swap = null;
     _smSeedBuilders(found);
     _sm.suppressDomSync = true;
     _renderDetailSection(); _renderAddSection();
@@ -4339,6 +4522,31 @@ information about.
     var saveBtn = document.getElementById('pl-sm-save');
     if (saveBtn) saveBtn.onclick = _smSave;
 
+    var enterEdit = document.getElementById('pl-sm-enter-edit');
+    if (enterEdit) enterEdit.onclick = function () {
+      _sm.mode = 'edit';
+      if (_sm.structTab !== 'simple' && _sm.structTab !== 'detailed' && _sm.structTab !== 'json') {
+        _sm.structTab = 'simple';
+      }
+      _sm.suppressDomSync = true;
+      _renderDetailSection();
+    };
+    var doneEdit = document.getElementById('pl-sm-done-edit');
+    if (doneEdit) doneEdit.onclick = function () {
+      if (_detail && document.getElementById('pl-sm-name')) {
+        var live = _smReadDraftFromDom(_detail);
+        _detail.name = live.name;
+        _detail.notes = live.notes;
+        _detail.planned_date = live.planned_date;
+        _detail.session_type = live.session_type;
+        if (live.structure) _detail.structure = live.structure;
+      }
+      _sm.mode = 'view';
+      _sm.swap = null;
+      _sm.suppressDomSync = true;
+      _renderDetailSection();
+    };
+
     var delBtn = document.getElementById('pl-det-delete');
     if (delBtn) delBtn.onclick = function () {
       _plConfirm(
@@ -4367,7 +4575,7 @@ information about.
       } else { _fallbackCopy(p.id); flash(); }
     };
 
-    ['pl-sm-name', 'pl-sm-notes', 'pl-sm-date', 'pl-sm-focus'].forEach(function (id) {
+    ['pl-sm-name', 'pl-sm-notes', 'pl-sm-date', 'pl-sm-focus', 'pl-sm-subtype'].forEach(function (id) {
       var el = document.getElementById(id);
       if (!el) return;
       el.addEventListener('input', function () {
@@ -4376,6 +4584,10 @@ information about.
       });
       el.addEventListener('change', function () {
         if (id === 'pl-sm-focus') _sfFocus = el.value;
+        if (id === 'pl-sm-subtype' && _detail) {
+          if (!_detail.structure) _detail.structure = {};
+          _detail.structure.subtype = el.value || null;
+        }
         _smMarkDirty();
       });
     });
@@ -4493,7 +4705,7 @@ information about.
       });
     }
 
-    // Exercise pin / skip / swap (Simple interactive list)
+    // Exercise pin / skip / swap / delete / reorder (Simple interactive list)
     var exList = document.getElementById('pl-sm-exlist');
     if (exList) {
       exList.querySelectorAll('[data-ex-pin]').forEach(function (btn) {
@@ -4519,6 +4731,82 @@ information about.
           ex.state = String(ex.state || 'done') === 'skipped' ? 'done' : 'skipped';
           _smMarkDirty();
           _renderDetailSection();
+        });
+      });
+      exList.querySelectorAll('[data-ex-del]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var i = +btn.getAttribute('data-ex-del');
+          if (!_sfExercises[i]) return;
+          _sfExercises.splice(i, 1);
+          _sm.swap = null;
+          _smMarkDirty();
+          _renderDetailSection();
+        });
+      });
+      exList.querySelectorAll('[data-ex-up]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          if (_smMoveExInBlock(+btn.getAttribute('data-ex-up'), -1)) {
+            _smMarkDirty();
+            _renderDetailSection();
+          }
+        });
+      });
+      exList.querySelectorAll('[data-ex-dn]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          if (_smMoveExInBlock(+btn.getAttribute('data-ex-dn'), 1)) {
+            _smMarkDirty();
+            _renderDetailSection();
+          }
+        });
+      });
+      exList.querySelectorAll('[data-blk-up]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          if (_smMoveBlockGroup(+btn.getAttribute('data-blk-up'), -1)) {
+            _smMarkDirty();
+            _renderDetailSection();
+          }
+        });
+      });
+      exList.querySelectorAll('[data-blk-dn]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          if (_smMoveBlockGroup(+btn.getAttribute('data-blk-dn'), 1)) {
+            _smMarkDirty();
+            _renderDetailSection();
+          }
+        });
+      });
+      exList.querySelectorAll('[data-blk-rename]').forEach(function (sel) {
+        sel.addEventListener('change', function () {
+          var gi = +sel.getAttribute('data-blk-rename');
+          var groups = _smExGroups();
+          var g = groups[gi];
+          if (!g) return;
+          var name = sel.value;
+          g.idxs.forEach(function (i) {
+            if (_sfExercises[i]) _sfExercises[i].block = name;
+          });
+          _smMarkDirty();
+          _renderDetailSection();
+        });
+      });
+      exList.querySelectorAll('[data-blk-del]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var gi = +btn.getAttribute('data-blk-del');
+          var groups = _smExGroups();
+          var g = groups[gi];
+          if (!g) return;
+          var n = g.idxs.length;
+          function go() {
+            _smDeleteBlockGroup(gi);
+            _sm.swap = null;
+            _smMarkDirty();
+            _renderDetailSection();
+          }
+          if (n > 1) {
+            _plConfirm('Remove block "' + (g.block || 'Block') + '" and its ' + n + ' exercises?', go, { okLabel: 'Remove' });
+          } else {
+            go();
+          }
         });
       });
       exList.querySelectorAll('[data-ex-swap]').forEach(function (btn) {
@@ -5156,9 +5444,10 @@ information about.
     /* ── Unified session modal (view = edit = AI) ── */
     '.plan-panel .pl-sm-modal{padding:0;overflow:hidden;}',
     '.plan-panel .pl-sm-pad{padding:18px 22px;}',
-    '.plan-panel .pl-sm-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}',
+    '.plan-panel .pl-sm-top{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px;}',
+    '.plan-panel .pl-sm-topr{display:flex;align-items:center;gap:8px;margin-left:auto;}',
     '.plan-panel .pl-sm-lbl{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--text-sub);}',
-    '.plan-panel .pl-sm-x{margin-left:auto;width:30px;height:30px;border-radius:8px;border:none;background:var(--tile);color:var(--text-sub);font-size:15px;cursor:pointer;}',
+    '.plan-panel .pl-sm-x{width:30px;height:30px;border-radius:8px;border:none;background:var(--tile);color:var(--text-sub);font-size:15px;cursor:pointer;}',
     // Bump to the file's established 44px touch target under a coarse
     // (touch) pointer — matches .pl-closepanel/.pl-arw/.pl-detid-copy, which
     // are 44px outright; this one stays compact for mouse users and only
@@ -5210,7 +5499,28 @@ information about.
     '.plan-panel .pl-sm-empty-s{border:1.5px dashed var(--border);border-radius:12px;padding:16px;text-align:center;color:var(--text-sub);font-size:12.5px;font-style:italic;}',
     '.plan-panel .pl-sm-preview{margin-top:12px;min-width:0;}',
     '.plan-panel .pl-sm-preview .preview-layout{margin-top:0;}',
-    /* Interactive Simple exercise list (pins / skip / swap) */
+    '.plan-panel .pl-sm-mode{border:1px solid var(--border);background:#fff;border-radius:8px;padding:5px 12px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;color:var(--ink,#1b2340);}',
+    '.plan-panel .pl-sm-mode.on{background:var(--accent,#cff245);border-color:transparent;}',
+    '.plan-panel .pl-sm-mode:hover{border-color:var(--primary);}',
+    '.plan-panel .pl-sm-subtag,.plan-panel .pl-sm-typero,.plan-panel .pl-sm-date-ro{font-family:var(--mono);font-size:11.5px;color:var(--text-sub);padding:4px 8px;background:var(--tile);border-radius:7px;}',
+    '.plan-panel .pl-sm-subtag{color:#3b4bb8;background:#eef0ff;font-weight:700;}',
+    '.plan-panel .pl-sm-name-ro{font-size:22px;font-weight:800;margin:6px 0 8px;line-height:1.2;}',
+    '.plan-panel .pl-sm-focus-ro{font-size:12.5px;color:var(--text-sub);margin-bottom:10px;font-style:italic;}',
+    '.plan-panel .pl-sm-notes-ro{font-size:13px;line-height:1.45;white-space:pre-wrap;}',
+    '.plan-panel #pl-sm-subtype{border:1px solid var(--border);border-radius:8px;padding:5px 8px;font:inherit;font-size:12.5px;background:#fff;}',
+    '.plan-panel .pl-sm-bhleft{display:flex;align-items:center;gap:6px;min-width:0;flex:1;}',
+    '.plan-panel .pl-sm-bnsel{border:1px solid var(--border);border-radius:6px;padding:3px 6px;font:inherit;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-sub);background:#fff;max-width:160px;}',
+    '.plan-panel .pl-sm-blkdel,.plan-panel .pl-sm-delx{width:22px;height:22px;border-radius:6px;border:1px solid var(--border);background:#fff;color:var(--text-sub);cursor:pointer;font-size:12px;display:grid;place-items:center;padding:0;flex-shrink:0;}',
+    '.plan-panel .pl-sm-blkdel:hover,.plan-panel .pl-sm-delx:hover{border-color:#fca5a5;color:#b91c1c;background:#fef2f2;}',
+    '.plan-panel .pl-sm-mv,.plan-panel .pl-sm-bmv{display:flex;flex-direction:column;gap:1px;}',
+    '.plan-panel .pl-sm-mbtn{width:18px;height:14px;border:none;background:#eef1f7;border-radius:3px;color:#6b7280;font-size:8px;line-height:1;cursor:pointer;padding:0;}',
+    '.plan-panel .pl-sm-mbtn:hover:not(:disabled){background:#e4e8fd;color:#3b4bb8;}',
+    '.plan-panel .pl-sm-mbtn:disabled{opacity:.35;cursor:default;}',
+    '.plan-panel .pl-sm-pinbtn{border:1px solid var(--border);background:#fff;border-radius:7px;padding:4px 8px;font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-sub);cursor:pointer;white-space:nowrap;}',
+    '.plan-panel .pl-sm-pinbtn.on{background:#ede9fe;border-color:#c4b5fd;color:#6d28d9;}',
+    '.plan-panel .pl-sm-pinbtn:hover{border-color:var(--primary);}',
+    '.plan-panel .pl-sm-enum.ro{cursor:default;}',
+    '.plan-panel .pl-sm-enum.ro:hover{background:none;box-shadow:none;}',
     '.plan-panel .pl-sm-exlist{margin-top:4px;}',
     '.plan-panel .pl-sm-blk{border:1px solid var(--border);border-radius:11px;overflow:hidden;margin-bottom:9px;}',
     '.plan-panel .pl-sm-blkh{background:var(--tile);padding:7px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px;}',
@@ -5235,9 +5545,9 @@ information about.
     '.plan-panel .pl-sm-prov.hwweek{background:#f3e8ff;color:#7e22ce;}',
     '.plan-panel .pl-sm-prov.hwstand{background:#ede9fe;color:#5b21b6;}',
     '.plan-panel .pl-sm-prov.manual{background:#e4e8fd;color:#3b4bb8;}',
-    '.plan-panel .pl-sm-enum{font-family:var(--mono);font-size:11.5px;text-align:right;min-width:42px;color:var(--text-sub);cursor:text;border-radius:5px;padding:2px 4px;}',
+    '.plan-panel .pl-sm-enum{font-family:var(--mono);font-size:11.5px;text-align:right;min-width:58px;color:var(--text-sub);cursor:text;border-radius:5px;padding:2px 4px;white-space:nowrap;}',
     '.plan-panel .pl-sm-enum:hover{background:#eef2ff;box-shadow:inset 0 0 0 1px #c7d2fe;}',
-    '.plan-panel .pl-sm-exact{display:flex;gap:3px;flex-shrink:0;}',
+    '.plan-panel .pl-sm-exact{display:flex;gap:3px;flex-shrink:0;align-items:center;}',
     '.plan-panel .pl-sm-ib{width:26px;height:26px;border-radius:7px;border:1px solid var(--border);background:#fff;color:var(--text-sub);cursor:pointer;font-size:12px;display:grid;place-items:center;padding:0;}',
     '.plan-panel .pl-sm-ib:hover{border-color:var(--primary);color:var(--primary);}',
     '.plan-panel .pl-sm-ib.on{background:#ede9fe;border-color:#c4b5fd;color:#6d28d9;}',
