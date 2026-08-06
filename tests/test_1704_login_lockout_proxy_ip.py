@@ -120,8 +120,12 @@ def test_lockout_keyed_on_xff_ip(client):
 
 def test_admin_lockout_keyed_on_xff_ip(client):
     """Admin lockout: after 5 failures from XFF IP C, XFF IP D is not locked out."""
-    ip_c = "198.51.100.30"
-    ip_d = "198.51.100.40"
+    # Use a random octet so this test is isolated from prior runs — the admin
+    # lockout store is keyed on IP alone (no username), so a fixed IP accumulates
+    # failures across runs if the server isn't restarted between them.
+    _u = uuid.uuid4().hex
+    ip_c = f"10.{int(_u[0:2], 16)}.{int(_u[2:4], 16)}.1"
+    ip_d = f"10.{int(_u[0:2], 16)}.{int(_u[2:4], 16)}.2"
 
     for i in range(5):
         res = client.post(
