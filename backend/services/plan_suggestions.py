@@ -4,13 +4,13 @@ Exposes:
   KNOWN_WORKOUT_TYPES         — set of valid session types (mirrors PlannedSession)
   ACWR_HIGH_BOUND             — max safe ACWR ratio (from acwr.py HIGH_BOUND)
   FALLBACK_MIN_WEEKLY_TSS     — floor for fallback weekly target when base is near-zero
-  validate_suggestions(...)   — pure function: True iff LLM output passes all rules
+  validate_suggestions(...)   — pure function: True iff suggestion output passes all rules
   fallback_suggestions(...)   — pure function: template week from trailing load + ramp cap
-  build_prompt(...)           — (system, user) strings for LLM
+  build_prompt(...)           — (system, user) strings (kept for reference; LLM removed)
   build_signature(...)        — sha256 signature over facts dict
-  get_suggestions_from_facts(...)  — LLM (DEEP tier) + validation + fallback, no DB
+  get_suggestions_from_facts(...)  — deterministic fallback only (LLM removed, issue #1695)
   assemble_facts(...)         — DB caller: builds the facts dict for a user
-  get_suggestions(...)        — full entry point: assemble → cache → LLM/fallback
+  get_suggestions(...)        — full entry point: assemble → deterministic fallback
 """
 
 from __future__ import annotations
@@ -21,7 +21,6 @@ import os
 from datetime import date, timedelta
 from typing import Any
 
-import backend.services.llm as llm_svc
 from backend.utils.log import get_logger
 
 _log = get_logger(__name__)
@@ -864,50 +863,6 @@ _LLM_JSON_SCHEMA: dict = {
 }
 
 
-# Worst case: 7 sessions, each up to 14 exercises (~40 tokens/entry) or 5
-# blocks, plus a 600-char notes field — needs comfortably more than Groq's
-# implicit completion default, which otherwise truncates the JSON mid-object
-# (surfaces as an opaque 400 "max completion tokens reached").
-#
-# Also bounded from above: this org's Groq on_demand tier caps openai/gpt-oss-*
-# models at 8000 tokens/minute TOTAL (input + this budget) — confirmed via a
-# live 413 ("Request too large ... tokens per minute (TPM): Limit 8000") that
-# silently fell back to the deterministic template (which never reads the
-# athlete's free-text notes) on every retry. Input runs ~1650-1750 tokens for
-# a typical request post-prompt-trim (see build_prompt), so 5700 leaves ~550
-# tokens (~7%) of headroom under the cap while still exceeding the ~5200-5500
-# token worst case above by a real margin.
-_LLM_MAX_COMPLETION_TOKENS = 5700
-
-
-def _call_llm(facts: dict, feedback: str = "") -> dict | None:
-    """Call LLM; return raw dict (not yet validated) or None.
-
-    `feedback` (non-empty on a retry) is appended to the user prompt so the model
-    sees exactly which rules its previous answer broke.
-    """
-    system, user = build_prompt(facts)
-    return llm_svc.complete_structured(
-        system=system,
-        user=user + feedback,
-        schema_name="plan_suggestion",
-        json_schema=_LLM_JSON_SCHEMA,
-        model_tier="deep",
-        max_tokens=_LLM_MAX_COMPLETION_TOKENS,
-    )
-
-
-# ── Orchestration ─────────────────────────────────────────────────────────────
-#
-# LLM plan → validate → template fallback, one implementation. There were once
-# four, switched per-request by PLAN_ORCH so their outputs could be A/B'd on
-# real data: single-shot, a plain retry loop, LangGraph, and Pydantic AI. The
-# comparison is over — the single-shot path won and the rest were deleted with
-# the env var, so there is nothing left to switch between.
-#
-# Still fallback-safe: any failure (LLM off, network, invalid output) returns
-# the deterministic template.
-
 def _template_result(facts: dict, attempts: int, orch: str) -> dict:
     return {
         "suggestions": fallback_suggestions(facts),
@@ -918,22 +873,12 @@ def _template_result(facts: dict, attempts: int, orch: str) -> dict:
 
 
 def get_suggestions_from_facts(facts: dict) -> dict:
-    """Attempt LLM suggestions; fall back to the deterministic template if the
-    LLM is disabled, unreachable, or returns something that fails validation.
+    """Return deterministic template suggestions (no LLM — issue #1695).
 
-    Single-shot: one call, one validation, no retry. Returns
-    {'suggestions': [...], 'source': 'llm'|'fallback', 'attempts': int,
-    'orch': str}. ``orch`` is always "single" — it survives in the payload
-    because callers and tests read the response shape, not because there is
-    anything to choose.
+    Planning has no LLM (CLAUDE.md). Returns
+    {'suggestions': [...], 'source': 'fallback', 'attempts': 0, 'orch': 'none'}.
     """
-    raw = _call_llm(facts)
-    if raw is not None:
-        suggestions = raw.get("suggestions", [])
-        if validate_suggestions(suggestions, facts):
-            return {"suggestions": suggestions, "source": "llm", "attempts": 1, "orch": "single"}
-        _log.warning("LLM plan_suggestion output failed validation — using fallback")
-    return _template_result(facts, attempts=1 if raw is not None else 0, orch="single")
+    return _template_result(facts, attempts=0, orch="none")
 
 
 # ── DB-calling layer ──────────────────────────────────────────────────────────
@@ -1486,21 +1431,16 @@ def get_suggestions(
     skeleton: bool = False,
     strength_sessions: int | None = None,
 ) -> dict:
-    """Full entry point: assemble facts → cache-aware LLM call → fallback.
+    """Full entry point: assemble facts → deterministic fallback (no LLM — issue #1695).
 
-    Returns {'facts': {...}, 'suggestions': [...], 'source': 'llm' | 'fallback',
-    'attempts': int, 'orch': str}. One surface, one orchestrator — the cache key
-    used to carry the PLAN_ORCH value so an A/B switch wouldn't collide on it,
-    which stopped mattering when the alternatives were deleted.
-    week_start/preferred_rest_days/strength_emphasis/notes are the athlete's
-    scoping + preference input (see assemble_facts) — they flow into facts and
-    therefore into the cache signature, so different input never collides.
+    Returns {'facts': {...}, 'suggestions': [...], 'source': 'fallback'|'history'|'skeleton',
+    'attempts': int, 'orch': str}. Planning has no LLM (CLAUDE.md). week_start/
+    preferred_rest_days/strength_emphasis/notes are the athlete's scoping + preference
+    input (see assemble_facts).
 
-    skeleton=True (two-rail flow, issue #1417) skips the LLM entirely and
-    returns the deterministic template — day/type/TSS/duration slots the
-    athlete then rearranges on the schedule rail before per-slot content is
-    generated via generate_single_session. Instant, zero LLM cost, never
-    cached (the template is pure computation over facts).
+    skeleton=True (two-rail flow, issue #1417) returns history-based or template slots —
+    day/type/TSS/duration frames the athlete rearranges before per-slot content is
+    generated via generate_single_session.
     """
     facts = assemble_facts(
         user_id, db=db, week_start=week_start,
@@ -1559,27 +1499,8 @@ def get_suggestions(
             "attempts": 0,
             "orch": "none",
         }
-    sig = build_signature(facts)
-    surface = _SURFACE
-
-    # Cache lookup via get_or_generate.
-    def _generate():
-        return get_suggestions_from_facts(facts)
-
-    cached_or_new = llm_svc.get_or_generate(
-        user_id=str(user_id),
-        surface=surface,
-        signature=sig,
-        generate_fn=_generate,
-        model_tier="deep",  # matches _call_llm's model_tier — see llm.get_or_generate
-    )
-
-    if cached_or_new is not None:
-        return {"facts": facts, **cached_or_new}
-
-    # LLM unavailable — always fallback gracefully.
-    fallback = get_suggestions_from_facts(facts)
-    return {"facts": facts, **fallback}
+    result = get_suggestions_from_facts(facts)
+    return {"facts": facts, **result}
 
 
 # ── Single-session generation (Ask-AI for one day) ────────────────────────────
