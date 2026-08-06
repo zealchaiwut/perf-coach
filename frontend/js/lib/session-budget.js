@@ -94,12 +94,12 @@
     var filledTss = 0;
     var pinnedCount = 0;
     exercises.forEach(function (ex) {
-      if (String(ex.state || 'done') === 'skipped') return;
+      var skipped = String(ex.state || 'done') === 'skipped';
       var s = spendOf(ex);
       if (isPinned(ex)) {
         pinnedTss += s.tss;
         pinnedCount += 1;
-      } else {
+      } else if (!skipped) {
         filledTss += s.tss;
       }
     });
