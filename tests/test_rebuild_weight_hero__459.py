@@ -178,13 +178,15 @@ def test_coach_strip_inside_card_a():
 
 
 def test_no_coach_strip_outside_hero():
-    """Coach strip does not appear AFTER the closing hero-2col div."""
-    # Find position of closing hero div and coach strip
-    hero_end_pos = html.find('</div>', html.find('hero-2col'))
-    coach_pos = html.find('id="coach-strip"')
-    assert coach_pos < hero_end_pos or hero_end_pos == -1 or coach_pos == -1 or \
-        html.find('id="coach-strip"', html.find('hero-card-a')) < html.find('hero-card-b'), \
-        "coach-strip must be inside Card A, not after the hero-2col container"
+    """Coach strip lives only in WeightCurrentCard.MARKUP, not after hero markup.
+
+    Weight-tab revamp dropped the inlined hero-2col Card A; the strip is part of
+    the shared MARKUP string (already checked by test_coach_strip_inside_card_a).
+    """
+    assert 'id="coach-strip"' in _card_js
+    # Must not appear as a second copy in the weight page HTML itself.
+    assert 'id="coach-strip"' not in _weight_html, \
+        "coach-strip must not be duplicated in weight.html outside WeightCurrentCard"
 
 
 def test_no_demo_states_row():
