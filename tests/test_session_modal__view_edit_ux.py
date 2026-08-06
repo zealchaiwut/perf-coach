@@ -69,5 +69,12 @@ def test_simple_view_hides_row_spend_and_swap_strike():
     assert 'font-size:15.5px' in TP  # larger exercise name in view
 
 
+def test_session_export_json_button():
+    assert "pl-sm-export-json" in TP
+    assert "_smExportSessionPayload" in TP
+    assert "_smDownloadSessionJson" in TP
+    assert "Export JSON" in TP
+
+
 def test_cache_bust_updated():
-    assert "training-plan.js?v=20260806smview1" in PAGE
+    assert "training-plan.js?v=20260807export1" in PAGE

@@ -3021,10 +3021,26 @@ information about.
 
   // Map a template object {date,type,name,notes,blocks|exercises} → API payload.
   function _tplToPayload(o) {
-    var p = { planned_date: o.date, session_type: (o.type || '').toLowerCase(), name: o.name || null, notes: o.notes || null, structure: null };
-    if (o.blocks) p.structure = { blocks: o.blocks };
-    else if (o.exercises) p.structure = { exercises: o.exercises };
-    else if (o.focus) p.structure = { focus: o.focus };
+    var p = {
+      planned_date: o.date,
+      session_type: (o.type || '').toLowerCase(),
+      name: o.name || null,
+      notes: o.notes || null,
+      structure: null,
+    };
+    var structure = {};
+    if (o.structure && typeof o.structure === 'object' && !Array.isArray(o.structure)) {
+      Object.keys(o.structure).forEach(function (k) {
+        if (o.structure[k] != null) structure[k] = o.structure[k];
+      });
+    }
+    if (o.blocks) structure.blocks = o.blocks;
+    if (o.exercises) structure.exercises = o.exercises;
+    if (o.focus) structure.focus = o.focus;
+    ['target_tss', 'duration_minutes', 'distance_km', 'subtype'].forEach(function (k) {
+      if (o[k] != null && structure[k] == null) structure[k] = o[k];
+    });
+    if (Object.keys(structure).length) p.structure = structure;
     return p;
   }
 
@@ -3480,6 +3496,69 @@ information about.
 
   function _smIsEdit() {
     return _sm.mode === 'edit';
+  }
+
+  /** Portable session JSON for sharing / later import (Add session → JSON). */
+  function _smExportExerciseRow(ex) {
+    if (!ex || typeof ex !== 'object') return null;
+    var row = {};
+    if (ex.block) row.block = ex.block;
+    row.name = ex.name || 'Exercise';
+    if (ex.sets != null && ex.sets !== '') row.sets = ex.sets;
+    if (ex.reps != null && String(ex.reps).trim() !== '') row.reps = ex.reps;
+    if (ex.load != null && String(ex.load).trim() !== '') row.load = ex.load;
+    if (ex.spend_tss != null && isFinite(Number(ex.spend_tss))) row.spend_tss = Number(ex.spend_tss);
+    if (ex.spend_min != null && isFinite(Number(ex.spend_min))) row.spend_min = Number(ex.spend_min);
+    return row;
+  }
+
+  function _smExportSessionPayload(p) {
+    p = p || _detail || {};
+    var draft = _smReadDraftFromDom(p);
+    var type = (draft.session_type || p.session_type || 'run').toLowerCase();
+    var structure = draft.structure || p.structure || {};
+    var out = {
+      date: draft.planned_date || p.planned_date || '',
+      type: type,
+      name: draft.name || p.name || '',
+    };
+    var notes = draft.notes != null ? draft.notes : (p.notes || '');
+    if (notes) out.notes = notes;
+    if (structure.subtype) out.subtype = structure.subtype;
+    if (structure.focus) out.focus = structure.focus;
+    if (structure.target_tss != null) out.target_tss = structure.target_tss;
+    if (structure.duration_minutes != null) out.duration_minutes = structure.duration_minutes;
+    if (structure.distance_km != null) out.distance_km = structure.distance_km;
+    if (type === 'run' && Array.isArray(structure.blocks)) {
+      out.blocks = structure.blocks.map(function (b) { return Object.assign({}, b); });
+    } else if (Array.isArray(structure.exercises) && structure.exercises.length) {
+      out.exercises = structure.exercises.map(_smExportExerciseRow).filter(Boolean);
+    } else if (Array.isArray(_sfExercises) && _sfExercises.length && type !== 'run') {
+      out.exercises = _sfExercises.map(_smExportExerciseRow).filter(Boolean);
+    } else if (Array.isArray(_sfBlocks) && _sfBlocks.length && type === 'run') {
+      out.blocks = _sfBlocks.map(function (b) { return Object.assign({}, b); });
+    }
+    return out;
+  }
+
+  function _smExportFilename(payload) {
+    var date = (payload.date || 'session').replace(/[^\d-]/g, '');
+    var slug = String(payload.name || payload.type || 'session')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 48) || 'session';
+    return 'perf-coach-session-' + date + '-' + slug + '.json';
+  }
+
+  function _smDownloadSessionJson(p) {
+    var payload = _smExportSessionPayload(p);
+    _downloadFile(
+      _smExportFilename(payload),
+      JSON.stringify(payload, null, 2),
+      'application/json'
+    );
+    _toast('Session JSON downloaded — share or paste into Add → JSON');
   }
 
   function _smMarkDirty() {
@@ -4223,6 +4302,9 @@ information about.
     var modeBtn = edit
       ? '<button type="button" class="pl-sm-mode" id="pl-sm-done-edit">Done editing</button>'
       : '<button type="button" class="pl-sm-mode on" id="pl-sm-enter-edit">Edit</button>';
+    var exportBtn =
+      '<button type="button" class="pl-sm-mode" id="pl-sm-export-json" title="Download shareable session JSON">' +
+      'Export JSON</button>';
 
     var metaType = edit
       ? ('<select id="pl-sm-type" aria-label="Session type">' +
@@ -4258,7 +4340,7 @@ information about.
 
     return '<div class="pl-sm-pad' + (edit ? ' is-edit' : ' is-view') + '" data-sm-mode="' + (edit ? 'edit' : 'view') + '">' +
       '<div class="pl-sm-top"><span class="pl-sm-lbl">Session</span>' +
-        '<span class="pl-sm-topr">' + modeBtn +
+        '<span class="pl-sm-topr">' + exportBtn + modeBtn +
         '<button type="button" class="pl-sm-x" id="pl-detclose" aria-label="Close">✕</button></span></div>' +
       '<div class="pl-sm-meta">' +
         '<span class="pl-sm-tag ' + tagCls + '">' + _smTypeLabel(type) + '</span>' +
@@ -4578,6 +4660,8 @@ information about.
       _sm.suppressDomSync = true;
       _renderDetailSection();
     };
+    var exportJson = document.getElementById('pl-sm-export-json');
+    if (exportJson) exportJson.onclick = function () { _smDownloadSessionJson(p); };
     var doneEdit = document.getElementById('pl-sm-done-edit');
     if (doneEdit) doneEdit.onclick = function () {
       if (_detail && document.getElementById('pl-sm-name')) {
@@ -5508,7 +5592,7 @@ information about.
     '.plan-panel .pl-sm-modal{padding:0;overflow:hidden;}',
     '.plan-panel .pl-sm-pad{padding:18px 22px;}',
     '.plan-panel .pl-sm-top{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px;}',
-    '.plan-panel .pl-sm-topr{display:flex;align-items:center;gap:8px;margin-left:auto;}',
+    '.plan-panel .pl-sm-topr{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap;justify-content:flex-end;}',
     '.plan-panel .pl-sm-lbl{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--text-sub);}',
     '.plan-panel .pl-sm-x{width:30px;height:30px;border-radius:8px;border:none;background:var(--tile);color:var(--text-sub);font-size:15px;cursor:pointer;}',
     // Bump to the file's established 44px touch target under a coarse
