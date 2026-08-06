@@ -49,7 +49,7 @@ def match_exercises_for_tags(
     used = used_names or set()
     return [
         e for e in pool
-        if e.get("name") not in used
+        if (e.get("name") or "").lower() not in used
         and any(g in _as_list(e.get("groups")) for g in keys)
     ]
 
@@ -688,7 +688,7 @@ def _pick_one_exercise(
     """Pick a single exercise; return (row_or_None, pick_meta with scores)."""
     candidates = match_exercises_for_tags(pool, group_keys, used_names=used_names)
     if not candidates:
-        candidates = [e for e in pool if e.get("name") not in used_names] or list(pool)
+        candidates = [e for e in pool if (e.get("name") or "").lower() not in used_names] or list(pool)
     if not candidates:
         return None, {"candidates": 0}
 
@@ -701,7 +701,7 @@ def _pick_one_exercise(
         scored.append((e, final, bias, jitter))
     scored.sort(key=lambda t: t[1], reverse=True)
     e, final, bias, jitter = scored[0]
-    used_names.add(e["name"])
+    used_names.add(e["name"].lower())
     sets = e.get("default_sets") or 3
     if duration_min is not None:
         sets = _scale_sets(int(sets), duration_min)
@@ -837,7 +837,7 @@ def fill_strength(
     placed = [ensure_exercise_pin_fields(e) for e in (pre_placed or []) if isinstance(e, dict)]
     exercises: list[dict] = [copy.deepcopy(e) for e in placed]
     used: set[str] = {
-        str(e.get("name") or "").strip()
+        str(e.get("name") or "").strip().lower()
         for e in exercises if e.get("name")
     }
     pick_log: list[dict] = []
