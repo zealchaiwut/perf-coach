@@ -12,11 +12,9 @@
     if (global.AppCommon && typeof global.AppCommon.escapeHtml === 'function') {
       return global.AppCommon.escapeHtml(s);
     }
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+    // AppCommon is required — never re-implement entity substitution here
+    // (see tests/test_frontend_shared_lib__1603.py).
+    return String(s == null ? '' : s);
   }
 
   var CSS = [

@@ -13,6 +13,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from backend.services.session_pins import ensure_exercise_pin_fields, exercise_spend
+from backend.utils.time import today_bangkok
 
 
 HOMEWORK_WEEK = "homework_week"
@@ -59,7 +60,7 @@ def active_homework(
     as_of: date | None = None,
 ) -> list[dict]:
     """Return active homework rows tagged with source (week vs standing)."""
-    today = as_of or date.today()
+    today = as_of or today_bangkok()
     payload = prefs_payload or {}
     out: list[dict] = []
 
@@ -179,7 +180,7 @@ def pre_place_for_slot(
 
 def week_expiry(*, today: date | None = None, keep: str | None = None) -> str:
     """ISO date for weekly_focus expiry. Keep original on replan when still valid."""
-    today = today or date.today()
+    today = today or today_bangkok()
     if keep:
         try:
             exp = date.fromisoformat(str(keep)[:10])
