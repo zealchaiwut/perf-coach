@@ -10,7 +10,6 @@ Acceptance Criteria verified here:
 """
 import time
 
-import pytest
 from fastapi.testclient import TestClient
 
 from backend.auth import (

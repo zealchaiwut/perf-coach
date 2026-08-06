@@ -10537,7 +10537,7 @@ def strava_callback(
 # ── Stryd ──────────────────────────────────────────────────────────────────────
 
 from backend.services.stryd import _call_stryd_signin as _stryd_signin  # noqa: E402
-from backend.services.crypto import encrypt_value as _encrypt_value, encrypt_oauth_token as _encrypt_oauth_token, decrypt_oauth_token as _decrypt_oauth_token  # noqa: E402
+from backend.services.crypto import encrypt_value as _encrypt_value, decrypt_oauth_token as _decrypt_oauth_token  # noqa: E402
 from backend.services.strava import refresh_token_if_needed  # noqa: E402
 from backend.services.stryd import refresh_stryd_session_if_needed  # noqa: E402
 
