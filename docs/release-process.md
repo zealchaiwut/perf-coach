@@ -73,6 +73,40 @@ blocked — the PR is the only path.
 
 ---
 
+### Step 3b — Verify the PRD compute worker is running
+
+The PRD compute worker runs on zeal-server (`~/dev/perf-coach/prd`, port 9101)
+and is responsible for the weekly Banister parameter refit. If it is not running
+and `BANISTER_REFIT_ENABLED` is `"0"` in the Render dashboard, the refit silently
+stops for production athletes — a regression from current behavior.
+
+Before deploying, confirm one of the following:
+
+**Option A — PRD worker is running (preferred):**
+
+```bash
+ssh zeal-server@100.103.104.41
+curl -s http://127.0.0.1:9101/internal/health
+# Expected: {"status": "ok", ...}
+```
+
+If healthy, verify the Render dashboard shows `BANISTER_REFIT_ENABLED=0` for
+`perf-coach-prd` (so the web dyno does not double-run the refit).
+
+**Option B — PRD worker is NOT running:**
+
+Confirm `BANISTER_REFIT_ENABLED=1` (or the key is absent) in the Render
+dashboard for `perf-coach-prd`. The in-process fallback on the web dyno keeps
+the refit running until the PRD worker is stood up.
+
+See `docs/worker.md § Live PRD runbook` for full setup instructions.
+
+> **Do not skip this step.** An unguarded flag flip (`BANISTER_REFIT_ENABLED=0`
+> with no PRD worker running) silently disables Banister refit for all production
+> athletes.
+
+---
+
 ### Step 4 — Trigger Manual Deploy on Render
 
 1. Open [Render dashboard](https://dashboard.render.com) → service **perf-coach-prd**.
