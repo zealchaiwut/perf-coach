@@ -589,7 +589,25 @@ def _scale_group_pick_n(
     pinned = max(15, int(duration_min or _STRENGTH_REF_MIN))
 
     if banded:
-        n = min(4, base_n)
+        # Warm-up / stretch / rotating finishers (EMOM·40/20·plyo): allow 2–4.
+        # Authored pick.n is the target; clamp into that band so short recipes
+        # stay modest and long ones can land a fuller circuit.
+        flex = (
+            key in ("warmup", "cooldown", "finisher")
+            or bool(_as_list(group.get("format_choices")))
+        )
+        if flex:
+            if pinned < 55:
+                floor = 2
+            elif pinned < 90:
+                floor = 3
+            else:
+                floor = 4 if (
+                    key == "finisher" or bool(_as_list(group.get("format_choices")))
+                ) else 3
+            n = min(4, max(floor, base_n))
+        else:
+            n = min(4, base_n)
         return n, {
             "base_n": base_n,
             "scaled_n": n,
@@ -627,6 +645,11 @@ def _scale_group_pick_n(
         reason = "time_budget"
 
     n = min(4, int(n))
+    # Warm-up / stretch / finishers: keep at least 2–3 even when time-budget scales down.
+    if key in ("warmup", "cooldown", "finisher") or bool(_as_list(group.get("format_choices"))):
+        floor = 2 if pinned < 55 else 3
+        if n > 0:
+            n = min(4, max(floor, n))
     return n, {
         "base_n": base_n,
         "scaled_n": n,
@@ -1019,11 +1042,11 @@ def fill_strength(
             **scale_meta,
         })
 
-    # Clamp to validator 4–12 — never drop pre-placed pinned rows.
-    if len(exercises) > 12:
+    # Clamp to validator 4–16 — never drop pre-placed pinned rows.
+    if len(exercises) > 16:
         pinned_part = exercises[:len(placed)]
         generated_part = exercises[len(placed):]
-        keep_gen = max(0, 12 - len(pinned_part))
+        keep_gen = max(0, 16 - len(pinned_part))
         exercises = pinned_part + generated_part[:keep_gen]
     while len(exercises) < 4 and pool:
         budget_trace.append({
