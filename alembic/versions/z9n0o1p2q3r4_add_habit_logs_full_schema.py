@@ -162,10 +162,12 @@ def upgrade() -> None:
 
     # 5. Composite index
     if not index_exists("habit_logs", "ix_habit_logs_habit_id_log_week_start"):
-        op.create_index(
-            "ix_habit_logs_habit_id_log_week_start",
-            "habit_logs", ["habit_id", "log_week_start"],
-        )
+        with op.get_context().autocommit_block():
+            op.create_index(
+                "ix_habit_logs_habit_id_log_week_start",
+                "habit_logs", ["habit_id", "log_week_start"],
+                postgresql_concurrently=True,
+            )
 
 
 def downgrade() -> None:

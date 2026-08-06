@@ -11,7 +11,6 @@ Create Date: 2026-06-08
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy import inspect
 
 from helpers import table_exists, column_exists, index_exists, fk_exists
 
@@ -157,11 +156,13 @@ def upgrade():
 
     # ── Add index ─────────────────────────────────────────────────────────────
     if not index_exists("weight_entries", "ix_weight_entries_user_entry_date"):
-        op.create_index(
-            "ix_weight_entries_user_entry_date",
-            "weight_entries",
-            ["user_id", "entry_date"],
-        )
+        with op.get_context().autocommit_block():
+            op.create_index(
+                "ix_weight_entries_user_entry_date",
+                "weight_entries",
+                ["user_id", "entry_date"],
+                postgresql_concurrently=True,
+            )
 
     # ── Add source check constraint ───────────────────────────────────────────
     if not _check_constraint_exists("weight_entries", "ck_weight_entries_source_values"):
