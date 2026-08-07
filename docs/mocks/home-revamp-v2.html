@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Home — revamp v2</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#1b2340; --blue:#4f6ef7; --green:#16a34a; --amber:#d97706; --red:#dc2626; --violet:#8b5cf6;
+    --surface:#fff; --s2:#f1f4fa; --s3:#f7f9fd; --border:#e8eaf0; --sub:#6b7280; --faint:#9ca3af;
+    --lime:#cff245; --mono:'JetBrains Mono',ui-monospace,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Inter Tight',-apple-system,system-ui,sans-serif;
+    background:linear-gradient(170deg,#4257c4,#2d3a94);color:var(--ink);font-size:14px}
+  .mono{font-family:var(--mono)}
+  .lbl{font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+  .link{color:var(--blue);font-weight:600;font-size:12px;cursor:pointer}
+
+  .nav{display:flex;align-items:center;gap:9px;padding:11px 24px;background:#fff;
+    border-bottom:1px solid var(--border)}
+  .navlinks{display:flex;gap:2px;flex:1}
+  .navlinks a{padding:8px 14px;border-radius:9px;font-size:13px;font-weight:600;color:var(--sub);
+    text-decoration:none;cursor:pointer}
+  .navlinks a.on{background:var(--ink);color:#fff}
+  .navbtn{border:1px solid var(--border);background:#fff;border-radius:99px;padding:7px 14px;
+    font-family:inherit;font-size:12.5px;font-weight:600;color:var(--sub);cursor:pointer}
+  .envpill{font-family:var(--mono);font-size:10px;font-weight:700;padding:5px 10px;border-radius:99px;
+    background:#fef3c7;color:#92400e}
+  .avatar{width:29px;height:29px;border-radius:99px;background:#f97316;color:#fff;
+    display:grid;place-items:center;font-size:12px;font-weight:700}
+
+  .hero{padding:20px 24px 0}
+  .hero h1{font-size:25px;font-weight:700;color:#fff;letter-spacing:-.02em}
+  .hero .d{font-family:var(--mono);font-size:11.5px;color:rgba(255,255,255,.7);margin-top:5px}
+
+  main{max-width:1300px;margin:0 auto;padding:14px 24px 46px;display:flex;flex-direction:column;gap:13px}
+
+  .alert{display:flex;align-items:center;gap:11px;background:#fef2f2;border:1px solid #fecaca;
+    border-radius:12px;padding:11px 15px;font-size:13px;color:#7f1d1d}
+  .alert b{font-weight:700}
+  .alert button{margin-left:auto;border:1px solid #fca5a5;background:#fff;color:#b91c1c;
+    border-radius:8px;padding:6px 13px;font-family:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
+
+  .morning{background:#fff;border-radius:15px;overflow:hidden;box-shadow:0 3px 14px rgba(10,16,50,.12)}
+  .mhead{display:flex;align-items:center;gap:11px;padding:11px 18px;
+    background:linear-gradient(90deg,#eafaf0,#f4fbf7);border-bottom:1px solid #d6f0df}
+  .mhead .k{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.08em;
+    text-transform:uppercase;color:#15803d}
+  .mhead .prog{margin-left:auto;display:flex;align-items:center;gap:9px}
+  .mhead .cnt{font-family:var(--mono);font-size:10.5px;font-weight:700;color:#15803d}
+  .pdots{display:flex;gap:4px}
+  .pd{width:8px;height:8px;border-radius:99px;background:#cdead9}
+  .pd.on{background:var(--green)}
+  .mrow{display:flex;align-items:center;gap:13px;padding:13px 18px;border-bottom:1px solid var(--border)}
+  .mrow:last-child{border-bottom:none}
+  .mrow.done{display:none}
+  /* rows stay white — the icon chip carries the colour */
+  .mic{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;
+    font-size:14px;flex-shrink:0;background:var(--s3)}
+  .mrow[data-k="weight"] .mic{background:#fed7aa;color:#9a3412}
+  .mrow[data-k="session"] .mic{background:#dbe2fd;color:#3b4bb8}
+  .mrow[data-k="habits"] .mic{background:#bbf7d0;color:#15803d}
+  .mtx{flex:1;min-width:0}
+  .mtx .t{font-size:14px;font-weight:650}
+  .mtx .s{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-top:3px}
+  .mtx .s .warn{color:var(--amber);font-weight:700}
+  .mact{display:flex;align-items:center;gap:8px;flex-shrink:0}
+  .step{display:flex;align-items:center;border:1px solid var(--border);border-radius:9px;overflow:hidden}
+  .step button{width:32px;height:36px;border:none;background:var(--s3);font-size:15px;
+    color:var(--sub);cursor:pointer}
+  .step input{width:64px;height:36px;border:none;text-align:center;font-family:var(--mono);
+    font-size:15px;font-weight:700;color:var(--ink)}
+  .step input:focus{outline:none}
+  .btn{padding:9px 15px;border-radius:9px;border:none;font-size:12.5px;font-weight:700;
+    cursor:pointer;font-family:inherit}
+  .btn.lime{background:var(--lime);color:var(--ink)}
+  .btn.blue{background:var(--blue);color:#fff}
+  .btn.ghost{background:#fff;color:var(--sub);border:1px solid var(--border);font-weight:600}
+  .btn.s{padding:6px 11px;font-size:11.5px}
+  .habs{display:flex;gap:6px}
+  .hab{display:flex;align-items:center;gap:7px;border:1px solid var(--border);background:#fff;
+    border-radius:9px;padding:6px 11px;cursor:pointer;font-family:inherit;font-size:12px;
+    font-weight:600;color:var(--sub)}
+  .hab:hover{border-color:var(--green)}
+  .hab.on{background:#f0fdf4;border-color:#bbf7d0;color:#166534}
+  .hab .bx{width:15px;height:15px;border-radius:5px;border:1.5px solid #cfd5e2;display:grid;
+    place-items:center;font-size:9px;color:#fff}
+  .hab.on .bx{background:var(--green);border-color:var(--green)}
+  .mdone{display:none;align-items:center;gap:11px;padding:13px 18px}
+  .morning.allDone .mrows{display:none}
+  .morning.allDone .mdone{display:flex}
+  .mdone .ic{width:30px;height:30px;border-radius:99px;background:#dcfce7;color:#15803d;
+    display:grid;place-items:center;font-size:14px;font-weight:700}
+  .mdone .t{font-size:13.5px;font-weight:650}
+  .mdone .s{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-top:2px}
+
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:13px;align-items:start}
+  @media(max-width:900px){.cols{grid-template-columns:1fr}}
+  .col{display:flex;flex-direction:column;gap:13px}
+
+  .card{background:#fff;border-radius:14px;padding:15px 17px;border:1px solid var(--border)}
+  .ch{display:flex;align-items:center;justify-content:space-between;gap:9px;margin-bottom:12px;flex-wrap:wrap}
+  .ct{font-size:13.5px;font-weight:700;display:flex;align-items:center;gap:8px}
+  .chip{font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.05em;padding:3px 7px;
+    border-radius:4px;flex-shrink:0}
+  .chip.run{background:#e4e8fd;color:#3b4bb8}
+  .chip.lift{background:#efe9fd;color:#6d3fd1}
+
+  .cverdict{font-size:15px;font-weight:700;line-height:1.45}
+  .csub{font-size:12.5px;color:var(--sub);line-height:1.55;margin-top:5px}
+  .cfoc{display:flex;flex-direction:column;gap:7px;margin-top:12px}
+  .cf{display:flex;align-items:center;gap:10px;background:var(--s3);border-radius:10px;padding:9px 11px}
+  .cf .n{width:19px;height:19px;border-radius:6px;background:var(--ink);color:#fff;display:grid;
+    place-items:center;font-family:var(--mono);font-size:10px;font-weight:700;flex-shrink:0}
+  .cf .t{flex:1;font-size:12.5px;font-weight:600}
+  .cf .p{font-family:var(--mono);font-size:10.5px;font-weight:700;color:var(--amber)}
+  .cf .p.ok{color:var(--green)}
+  .cfoot{display:flex;align-items:center;justify-content:space-between;margin-top:12px;
+    padding-top:11px;border-top:1px solid var(--border)}
+  .cfoot .m{font-family:var(--mono);font-size:10px;color:var(--faint)}
+
+  .t2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .tile{background:var(--s3);border-radius:11px;padding:12px 13px}
+  .t-l{font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.07em;
+    text-transform:uppercase;color:var(--faint);margin-bottom:6px}
+  .t-v{font-family:var(--mono);font-size:26px;font-weight:700;line-height:1}
+  .t-s{font-family:var(--mono);font-size:9.5px;font-weight:700;margin-top:7px}
+  .t-s.ok{color:var(--green)} .t-s.warn{color:var(--amber)} .t-s.mute{color:var(--faint)}
+  .more{display:flex;align-items:center;gap:9px;margin-top:10px;padding-top:10px;
+    border-top:1px solid var(--border);font-family:var(--mono);font-size:10px;color:var(--faint);cursor:pointer}
+  .more b{color:var(--sub)}
+  .moreexp{display:none;margin-top:9px}
+  .moreexp.open{display:block}
+
+  .perf{display:flex;gap:11px}
+  .pf{flex:1;background:var(--s3);border-radius:11px;padding:12px 13px}
+  .pf .k{font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.07em;
+    text-transform:uppercase;color:var(--faint);margin-bottom:6px}
+  .pf .v{font-family:var(--mono);font-size:28px;font-weight:700;line-height:1}
+  .pf .d{font-family:var(--mono);font-size:10px;font-weight:700;margin-top:6px}
+  .pf .d.dn{color:var(--red)} .pf .d.up{color:var(--green)}
+
+  .race{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .rdays{text-align:center;background:#fef2f2;border-radius:12px;padding:10px 15px;min-width:84px}
+  .rdays .n{font-family:var(--mono);font-size:26px;font-weight:700;color:var(--red);line-height:1}
+  .rdays .k{font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.06em;
+    text-transform:uppercase;color:#b91c1c;margin-top:4px}
+  .rinfo{flex:1;min-width:150px}
+  .rinfo .t{font-size:14px;font-weight:700}
+  .rinfo .m{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-top:3px}
+  .rest2{display:flex;gap:9px;margin-top:12px}
+  .re{flex:1;background:var(--s3);border-radius:10px;padding:9px 11px}
+  .re .k{font-family:var(--mono);font-size:8px;font-weight:700;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--faint);margin-bottom:4px}
+  .re .v{font-family:var(--mono);font-size:16px;font-weight:700}
+  .re .s{font-family:var(--mono);font-size:9px;color:var(--faint);margin-top:3px}
+  .seasonbar{height:8px;border-radius:99px;background:var(--s2);overflow:hidden;margin-top:12px;display:flex}
+  .seasonbar i{height:100%}
+  .seasonf{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;
+    color:var(--faint);margin-top:5px}
+
+  .wtop{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap}
+  .wbig{font-family:var(--mono);font-size:30px;font-weight:700;line-height:1}
+  .wu{font-family:var(--mono);font-size:11px;color:var(--faint)}
+  .wrate{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--green)}
+  .wrate small{color:var(--faint);font-weight:400}
+  .wcov{margin-left:auto;font-family:var(--mono);font-size:10px;font-weight:700;
+    padding:4px 9px;border-radius:99px;background:#fef3c7;color:#92400e}
+  .spark{margin-top:11px}
+  .wfoot{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9.5px;
+    color:var(--faint);margin-top:6px}
+
+  .tw{border:1px solid #dfe5fd;border-radius:14px;overflow:hidden;background:#fff}
+  .twtop{display:flex;align-items:center;gap:8px;padding:9px 15px;
+    background:linear-gradient(90deg,#eef2ff,#f7f9ff);border-bottom:1px solid #e2e8fd}
+  .twtop .k{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.08em;
+    text-transform:uppercase;color:#3b4bb8}
+  .twtop .d{font-family:var(--mono);font-size:9.5px;color:#7b87c9;margin-left:auto}
+  .twb{padding:15px 17px}
+  .twname{font-size:17px;font-weight:700;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  .twmeta{font-family:var(--mono);font-size:10.5px;color:var(--sub);margin-top:5px}
+  .twcue{display:flex;align-items:flex-start;gap:7px;margin-top:10px;background:#f7f8fe;
+    border:1px solid #dfe3fb;border-radius:9px;padding:9px 11px;font-size:12.5px;color:#3b4bb8;line-height:1.5}
+  .twstats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px}
+  .tws{background:var(--s3);border-radius:10px;padding:9px 10px;text-align:center}
+  .tws .k{font-family:var(--mono);font-size:7.5px;font-weight:700;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--faint);margin-bottom:4px}
+  .tws .v{font-family:var(--mono);font-size:16px;font-weight:700}
+  .twacts{display:flex;gap:8px;margin-top:12px}
+  .twacts .btn{flex:1}
+  .twfoot{display:flex;align-items:center;gap:8px;padding:10px 15px;background:var(--s3);
+    border-top:1px solid var(--border);font-family:var(--mono);font-size:9.5px;color:var(--faint)}
+
+  .tstats{display:flex;gap:11px;margin-bottom:12px}
+  .ts{flex:1}
+  .ts .v{font-family:var(--mono);font-size:20px;font-weight:700;line-height:1}
+  .ts .k{font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--faint);margin-top:5px}
+  .ts .d{font-family:var(--mono);font-size:9.5px;font-weight:700;margin-top:5px}
+  .ts .d.dn{color:var(--red)}
+  .bars{display:flex;gap:6px;align-items:flex-end;height:56px}
+  .bar{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;height:100%;justify-content:flex-end}
+  .bar i{display:block;width:100%;background:#c9d2fb;border-radius:4px 4px 0 0}
+  .bar.today i{background:var(--blue)}
+  .bar b{font-family:var(--mono);font-size:8.5px;font-weight:600;color:var(--faint)}
+
+  .wrow{display:flex;gap:11px;padding:7px 0;border-bottom:1px solid var(--border);align-items:center}
+  .wrow:last-child{border-bottom:none}
+  .wrow.today{background:#f7f9ff;margin:0 -17px;padding-left:17px;padding-right:17px}
+  .wd{font-family:var(--mono);font-size:9px;font-weight:700;color:var(--faint);min-width:34px;line-height:1.25}
+  .wd b{display:block;font-size:13px;color:var(--sub)}
+  .wrow.today .wd,.wrow.today .wd b{color:var(--blue)}
+  .wn{flex:1;min-width:0;font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .wn small{display:block;font-family:var(--mono);font-size:9.5px;color:var(--faint);font-weight:500;margin-top:2px}
+  .wt{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--sub)}
+  .wrest{font-family:var(--mono);font-size:10.5px;color:var(--faint);font-style:italic;flex:1}
+
+  .rw{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)}
+  .rw:last-child{border-bottom:none}
+  .rw .b{flex:1;min-width:0}
+  .rw .t{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rw .m{font-family:var(--mono);font-size:9.5px;color:var(--faint);margin-top:2px}
+
+  .note{background:rgba(255,255,255,.94);border-radius:12px;padding:13px 16px;font-size:12px;
+    line-height:1.65;color:var(--ink)}
+  .note b{font-weight:700}
+  .note code{font-family:var(--mono);font-size:10.5px;background:var(--s2);padding:1px 4px;border-radius:3px}
+  .noteh{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.07em;
+    text-transform:uppercase;color:var(--faint);margin-bottom:6px}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <span class="navlinks">
+    <a class="on">&#8962; Home</a><a>Training</a><a>Weight</a><a>Habits</a><a>Coach</a>
+  </span>
+  <button class="navbtn">Copy &#8964;</button>
+  <span class="envpill">UAT</span>
+  <span class="avatar">Z</span>
+</div>
+
+<div class="hero">
+  <h1>Good morning, zeal</h1>
+  <div class="d">Friday, 7 Aug</div>
+</div>
+
+<main>
+
+  <div class="alert">
+    <span>&#9888;</span>
+    <span><b>Strava hasn't synced in 22 days.</b> Every load number below is stale until it does.</span>
+    <button>Sync now</button>
+  </div>
+
+  <div class="morning" id="morning">
+    <div class="mhead">
+      <span class="k">This morning</span>
+      <span class="prog"><span class="pdots" id="pdots"></span>
+        <span class="cnt" id="cnt">0 of 3 done</span></span>
+    </div>
+    <div class="mrows">
+      <div class="mrow" data-k="weight">
+        <span class="mic">&#9878;</span>
+        <span class="mtx"><span class="t">Weigh in</span>
+          <span class="s">trend 87.9 kg &middot; <span class="warn">6 of last 14 mornings</span></span></span>
+        <span class="mact">
+          <span class="step"><button>&minus;</button><input value="87.6"><button>+</button></span>
+          <button class="btn lime" onclick="done('weight')">Log</button>
+        </span>
+      </div>
+      <div class="mrow" data-k="session">
+        <span class="mic">&#127947;</span>
+        <span class="mtx"><span class="t">Light strength / maintenance</span>
+          <span class="s">14 exercises &middot; ~36 TSS &middot; keep loads easy, holds only</span></span>
+        <span class="mact">
+          <button class="btn blue">Open</button>
+          <button class="btn ghost" onclick="done('session')">Mark done</button>
+        </span>
+      </div>
+      <div class="mrow" data-k="habits">
+        <span class="mic">&#10003;</span>
+        <span class="mtx"><span class="t">Habits</span>
+          <span class="s">tap to tick today</span></span>
+        <span class="mact habs">
+          <button class="hab" onclick="hab(this)"><span class="bx">&#10003;</span>Stretch</button>
+          <button class="hab" onclick="hab(this)"><span class="bx">&#10003;</span>Protein</button>
+          <button class="hab" onclick="hab(this)"><span class="bx">&#10003;</span>Journal</button>
+        </span>
+      </div>
+    </div>
+    <div class="mdone">
+      <span class="ic">&#10003;</span>
+      <span><span class="t">Morning done &mdash; weight, session and habits all logged.</span>
+        <span class="s">next: Sat 8 Aug &middot; Aerobic long run &middot; 130 min</span></span>
+      <span style="margin-left:auto"><button class="btn ghost s" onclick="reset()">Undo</button></span>
+    </div>
+  </div>
+
+  <div class="cols">
+
+    <div class="col">
+
+      <div class="card">
+        <div class="ch"><span class="ct">Coach &middot; this week</span><span class="link">Full brief &rarr;</span></div>
+        <div class="cverdict">Deload is doing its job. Don't refill it.</div>
+        <div class="csub">Load is down on purpose. Resume the ramp Monday at 5%/week &mdash; no catching up.</div>
+        <div class="cfoc">
+          <div class="cf"><span class="n">1</span>
+            <span class="t">Weigh-ins are the gate to the food conversation</span>
+            <span class="p">6 / 12</span></div>
+          <div class="cf"><span class="n">2</span>
+            <span class="t">Hold the deload &mdash; don't refill the week</span>
+            <span class="p ok">on track</span></div>
+        </div>
+        <div class="cfoot"><span class="m">6 sections changed since yesterday</span>
+          <span class="link">Read &rarr;</span></div>
+      </div>
+
+      <div class="card">
+        <div class="ch"><span class="ct">Weight trend</span><span class="link">Open &rarr;</span></div>
+        <div class="wtop">
+          <span><span class="wbig">87.9</span> <span class="wu">kg trend</span></span>
+          <span class="wrate">&minus;0.28 <small>&plusmn; 0.11 kg/wk</small></span>
+          <span class="wcov">6 / 14 &middot; need 10/14</span>
+        </div>
+        <div class="spark">
+          <svg viewBox="0 0 320 54" width="100%" height="54">
+            <g id="wdots"></g>
+            <path id="wtrend" fill="none" stroke="#4f6ef7" stroke-width="2.2" stroke-linecap="round"/>
+            <circle id="wlast" r="3.6" fill="#4f6ef7"/>
+          </svg>
+        </div>
+        <div class="wfoot"><span>30 days</span><span>rate readable &middot; clear of zero</span></div>
+      </div>
+
+      <div class="card">
+        <div class="ch"><span class="ct">Race</span><span class="link">Performance &rarr;</span></div>
+        <div class="race">
+          <div class="rdays"><div class="n">100</div><div class="k">days</div></div>
+          <div class="rinfo">
+            <div class="t">Bangsaen42</div>
+            <div class="m">Sun 15 Nov 2026 &middot; 42.2 km &middot; A-priority &middot; 15 weeks out</div>
+          </div>
+        </div>
+        <div class="rest2">
+          <div class="re"><div class="k">Goal</div><div class="v">4:15:00</div><div class="s">6:03 /km</div></div>
+          <div class="re"><div class="k">Estimate</div><div class="v" style="color:var(--green)">4:14:49</div>
+            <div class="s">&plusmn; 14 min</div></div>
+          <div class="re"><div class="k">Gap</div><div class="v">&minus;0:11</div><div class="s">inside goal</div></div>
+        </div>
+        <div class="seasonbar">
+          <i style="width:26%;background:var(--blue)"></i>
+          <i style="width:32%;background:#c9d2fb"></i>
+          <i style="width:21%;background:#e8edfe"></i>
+          <i style="width:16%;background:#fff0dc"></i>
+          <i style="width:5%;background:#fee2e2"></i>
+        </div>
+        <div class="seasonf"><span>build &middot; week 5 of 11</span><span>peak</span><span>taper</span><span>race</span></div>
+      </div>
+
+      <div class="card">
+        <div class="ch"><span class="ct">Performance</span><span class="link">View trends &rarr;</span></div>
+        <div class="perf">
+          <div class="pf"><div class="k">Endurance</div>
+            <div class="v" style="color:var(--green)">44</div><div class="d dn">&darr; &minus;1 this block</div></div>
+          <div class="pf"><div class="k">Speed</div>
+            <div class="v" style="color:#c2410c">48</div><div class="d dn">&darr; &minus;5 this block</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="ch"><span class="ct">Readiness &middot; today</span><span class="link">Log metrics &rarr;</span></div>
+        <div class="t2">
+          <div class="tile"><div class="t-l">TSB &middot; freshness</div><div class="t-v">&minus;1.3</div>
+            <div class="t-s ok">OPTIMAL</div></div>
+          <div class="tile"><div class="t-l">ACWR &middot; load ratio</div>
+            <div class="t-v" style="color:var(--amber)">1.31</div>
+            <div class="t-s warn">ABOVE 1.3 GUARDRAIL &middot; HOLD</div></div>
+        </div>
+        <div class="more" onclick="tog('moreexp')">
+          <span>CTL <b>33.6</b> &middot; ATL <b>34.9</b></span>
+          <span style="margin-left:auto">details &#9662;</span>
+        </div>
+        <div class="moreexp" id="moreexp">
+          <div class="t2">
+            <div class="tile"><div class="t-l">CTL &middot; fitness</div>
+              <div class="t-v" style="font-size:20px">33.6</div><div class="t-s mute">STEADY &middot; +0.4/wk</div></div>
+            <div class="tile"><div class="t-l">ATL &middot; fatigue</div>
+              <div class="t-v" style="font-size:20px">34.9</div><div class="t-s mute">MODERATE</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+
+      <div class="tw">
+        <div class="twtop"><span class="k">Today's workout</span><span class="d">Fri 7 Aug</span></div>
+        <div class="twb">
+          <div class="twname"><span class="chip lift">LIFT</span> Light strength / maintenance</div>
+          <div class="twmeta">14 exercises &middot; ~36 TSS &middot; planned</div>
+          <div class="twcue">&#128161; <span><b>Keep loads easy</b> &mdash; bodyweight, light plyo and holds only.</span></div>
+          <div class="twstats">
+            <div class="tws"><div class="k">Exercises</div><div class="v">14</div></div>
+            <div class="tws"><div class="k">TSS</div><div class="v">~36</div></div>
+            <div class="tws"><div class="k">Of week</div><div class="v">12%</div></div>
+          </div>
+          <div class="twacts">
+            <button class="btn blue">Open session</button>
+            <button class="btn ghost">Mark done</button>
+          </div>
+        </div>
+        <div class="twfoot">
+          <span class="chip run" style="opacity:.6">RUN</span>
+          <span>then Sat 8 &middot; Aerobic long run &middot; 130 min &middot; fuel from min 40</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="ch"><span class="ct">Training &middot; this week</span><span class="link">Training log &rarr;</span></div>
+        <div class="tstats">
+          <div class="ts"><div class="v">2</div><div class="k">Workouts</div><div class="d dn">&minus;2 wk</div></div>
+          <div class="ts"><div class="v">19.4</div><div class="k">Distance km</div><div class="d dn">&minus;19.8</div></div>
+          <div class="ts"><div class="v">79</div><div class="k">Zone 2 min</div><div class="d dn">&minus;210</div></div>
+        </div>
+        <div class="bars">
+          <div class="bar"><i style="height:5%"></i><b>M</b></div>
+          <div class="bar"><i style="height:72%"></i><b>T</b></div>
+          <div class="bar"><i style="height:5%"></i><b>W</b></div>
+          <div class="bar"><i style="height:60%"></i><b>T</b></div>
+          <div class="bar today"><i style="height:30%"></i><b>F</b></div>
+          <div class="bar"><i style="height:5%"></i><b>S</b></div>
+          <div class="bar"><i style="height:5%"></i><b>S</b></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="ch"><span class="ct">Week plan</span><span class="link">Full plan &rarr;</span></div>
+        <div class="wrow"><span class="wd">MON<b>3</b></span><span class="wrest">rest</span></div>
+        <div class="wrow"><span class="wd">TUE<b>4</b></span><span class="chip run">RUN</span>
+          <span class="wn">Easy aerobic run<small>90 min</small></span><span class="wt">54</span></div>
+        <div class="wrow"><span class="wd">WED<b>5</b></span><span class="wrest">rest</span></div>
+        <div class="wrow"><span class="wd">THU<b>6</b></span><span class="chip run">RUN</span>
+          <span class="wn">Threshold intervals<small>90 min</small></span><span class="wt">65</span></div>
+        <div class="wrow today"><span class="wd">FRI<b>7</b></span><span class="chip lift">LIFT</span>
+          <span class="wn">Light strength / maintenance<small>14 exercises &middot; today</small></span><span class="wt">36</span></div>
+        <div class="wrow"><span class="wd">SAT<b>8</b></span><span class="chip run">RUN</span>
+          <span class="wn">Aerobic long run &mdash; fuel mid-run<small>130 min &middot; easy</small></span><span class="wt">140</span></div>
+        <div class="wrow"><span class="wd">SUN<b>9</b></span><span class="wrest">rest</span></div>
+      </div>
+
+      <div class="card">
+        <div class="ch"><span class="ct">Recent workouts</span><span class="link">View all &rarr;</span></div>
+        <div class="rw"><span class="chip run">RUN</span>
+          <span class="b"><span class="t">Easy 4 km + Intervals &times; 8</span>
+            <span class="m">yesterday &middot; 8.8 km &middot; 75 min</span></span></div>
+        <div class="rw"><span class="chip run">RUN</span>
+          <span class="b"><span class="t">Afternoon Run</span>
+            <span class="m">3 days ago &middot; 10.6 km &middot; 90 min</span></span></div>
+        <div class="rw"><span class="chip lift">LIFT</span>
+          <span class="b"><span class="t">Evening Workout</span>
+            <span class="m">4 days ago &middot; 50 min</span></span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <div class="noteh">Changes</div>
+    <b>Uniform gaps.</b> The old layout was gridstack packing 12 widgets across three columns, which
+    left an unequal hole between Readiness and Training. Now two plain columns with a single 13 px gap
+    everywhere &mdash; columns end at different heights, but nothing floats.
+    <br><br>
+    <b>Column order.</b> Left: coach &rarr; weight trend &rarr; race &rarr; performance &rarr; readiness.
+    Right: today's workout &rarr; training &rarr; week plan &rarr; recent. Left now runs from most
+    actionable to most reference; readiness sits last because it changes least by the hour.
+    <br><br>
+    <b>Morning rows are white; the icon chip carries the colour</b> &mdash; amber for weight, indigo for
+    the session, green for habits. Enough to tell three different asks apart without turning the block
+    into a stack of coloured bands.
+    <br><br>
+    <b>Log metrics removed</b> from This morning &mdash; three items now: weigh in, session, habits.
+    Readiness still works, since CTL/ATL/TSB/ACWR come from workouts rather than the metrics form.
+    <br><br>
+    <b>Today's workout added</b> top-right, same component as the plan tab's Next up: cue callout,
+    three stats including share of week, both actions, tomorrow as a footer. It appears twice on
+    purpose &mdash; as a task in the morning block, and as the detail card you return to.
+    <br><br>
+    <b>Two new cards from other tabs.</b> <b>Race</b> &mdash; 100-day countdown, goal vs estimate with
+    the gap called out, and a season bar showing build week 5 of 11 &rarr; peak &rarr; taper &rarr; race.
+    <b>Weight trend</b> &mdash; trend, rate &plusmn; CI, coverage warning, 30-day sparkline. It's here
+    because the morning asks you to weigh in; the trend is what makes that ask mean something.
+    <br><br>
+    <b>Considered and left off:</b> a fuel/deficit card (not built yet), the decision log (belongs on
+    Coach), gap findings (already surface through the coach card).
+  </div>
+</main>
+
+<script>
+var state={weight:false,session:false,habits:false};
+function paint(){
+  var n=Object.values(state).filter(Boolean).length;
+  document.getElementById('cnt').textContent=n+' of 3 done';
+  document.getElementById('pdots').innerHTML=
+    [0,1,2].map(function(i){return '<span class="pd'+(i<n?' on':'')+'"></span>'}).join('');
+  document.getElementById('morning').classList.toggle('allDone',n===3);
+}
+function done(k){
+  state[k]=true;
+  document.querySelector('.mrow[data-k="'+k+'"]').classList.add('done');
+  paint();
+}
+function hab(btn){
+  btn.classList.toggle('on');
+  var all=[].slice.call(document.querySelectorAll('.hab'));
+  if(all.every(function(b){return b.classList.contains('on')})) done('habits');
+}
+function reset(){
+  state={weight:false,session:false,habits:false};
+  document.querySelectorAll('.mrow').forEach(function(r){r.classList.remove('done')});
+  document.querySelectorAll('.hab').forEach(function(b){b.classList.remove('on')});
+  paint();
+}
+function tog(id){document.getElementById(id).classList.toggle('open')}
+
+(function(){
+  var raw=[88.9,88.6,88.8,88.4,88.7,88.3,88.5,88.2,88.4,88.0,88.3,87.9,88.1,87.8,
+           88.0,87.7,87.9,87.6,87.8,87.5,87.7,87.6,87.4,87.7,87.5,87.3,87.6,87.4,87.6,87.5];
+  var x=function(i){return 6+i*(308/(raw.length-1))};
+  var y=function(v){return 8+((88.9-v)/1.6)*38};
+  var t=raw[0],pts=[],dots='';
+  raw.forEach(function(v,i){
+    t=0.18*v+0.82*t;
+    pts.push(x(i).toFixed(1)+','+y(t).toFixed(1));
+    dots+='<circle cx="'+x(i).toFixed(1)+'" cy="'+y(v).toFixed(1)+'" r="1.9" fill="#4f6ef7" opacity=".26"/>';
+  });
+  document.getElementById('wdots').innerHTML=dots;
+  document.getElementById('wtrend').setAttribute('d','M'+pts.join(' L'));
+  var l=pts[pts.length-1].split(',');
+  document.getElementById('wlast').setAttribute('cx',l[0]);
+  document.getElementById('wlast').setAttribute('cy',l[1]);
+})();
+paint();
+</script>
+</body>
+</html>

@@ -46,91 +46,10 @@
     return window.AppCommon.todayISO();
   }
 
-  /* ---- Personal records card helpers (home v3, Task 6) ----
-     Pulls the SAME auto-computed run PRs the Performance tab shows (10K /
-     Half marathon / Marathon), via /api/athletes/{id}/run-personal-records
-     — NOT the old /api/personal-records + TRACK_CONFIGS custom-track
-     widget this replaced (that was user-configured "which tracks do you
-     care about" data, a different concept, and had drifted from what the
-     Performance tab actually surfaces). athleteId === userId in this app
-     (single athlete per user), matching the convention already used by
-     renderPerformanceCard's own /api/athletes/{userId}/performance call. */
-  var PR_TILES = [
-    { key: '10km', label: '10K' },
-    { key: 'half_marathon', label: 'Half' },
-    { key: 'marathon', label: 'Marathon' }
-  ];
-
-  function formatRunPrValue(value) {
-    if (value == null) return '—';
-    var s = Math.round(value);
-    var h = Math.floor(s / 3600);
-    var m = Math.floor((s % 3600) / 60);
-    var sec = s % 60;
-    if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
-    return m + ':' + String(sec).padStart(2, '0');
-  }
-
-  async function loadPerformanceCard(userId) {
-    var row2 = document.getElementById('home-perf-container') ||
-               document.getElementById('row-2');
-    if (!row2) return;
-
-    var card = document.getElementById('perf-card');
-    if (!card) {
-      card = document.createElement('div');
-      card.id = 'perf-card';
-      card.className = 'card grp-training';
-      row2.insertBefore(card, row2.firstChild);
-    }
-
-    var header =
-      '<div class="card-head">' +
-        '<h2 class="ttl"><a href="/log#performance" style="color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:7px;"><i class="ti ti-trophy" style="color:var(--gold);"></i>Personal records</a></h2>' +
-        '<a href="/log#performance">All PRs &#8594;</a>' +
-      '</div>';
-    card.innerHTML = header + UIStates.loadingHTML();
-
-    var data = null;
-    try {
-      var r = await fetch('/api/athletes/' + userId + '/run-personal-records');
-      if (r.ok) data = await r.json();
-    } catch (_) { data = null; }
-
-    var speed = data && data.speedRecords && !data.speedRecords.reason ? data.speedRecords : null;
-    var tiles = PR_TILES
-      .map(function (t) { return { label: t.label, rec: speed ? speed[t.key] : null }; })
-      .filter(function (t) { return t.rec && t.rec.value != null; });
-
-    var loadingEl = card.querySelector('.ui-loading');
-    if (loadingEl) loadingEl.remove();
-
-    if (!tiles.length) {
-      var emptyEl = document.createElement('div');
-      emptyEl.className = 'perf-empty';
-      emptyEl.innerHTML = '<a href="/log#performance">Set your personal records &#8594;</a>';
-      card.appendChild(emptyEl);
-      return;
-    }
-
-    var grid = document.createElement('div');
-    grid.className = 'pr-grid';
-    grid.innerHTML = tiles.map(function (t) {
-      return '<div class="pr-tile">' +
-        '<div class="pr-lbl">' + esc(t.label) + '</div>' +
-        '<div class="pr-val">' + esc(formatRunPrValue(t.rec.value)) + '</div>' +
-        '<div class="pr-date">' + esc(t.rec.date || '—') + '</div>' +
-      '</div>';
-    }).join('');
-    card.appendChild(grid);
-  }
-
-
   /* Recent workouts are rendered by home-readiness-training-sleep.js's
-     renderRecentWorkoutsCard, into #home-recent-workouts-card (below Training —
-     see the Home today-focal-point UX review: that slot used to sit in the top
-     row, but the top row is now home-today-plan-card.js's forward-looking
-     "what should I do today" card instead). home.js passes
+     renderRecentWorkoutsCard, into #home-recent-workouts-card (bottom of the
+     right column — the top of that column is #home-next-up's forward-looking
+     "what should I do today" card instead, see NextUpCard). home.js passes
      summary.recent_workouts in via HomeRTS.render(summary, userId); it no
      longer fills the section here. */
 
@@ -389,25 +308,28 @@
     // attribute, so every call hit this guard and returned immediately.
     if (!container) return;
     container.hidden = false;
-    var h = Math.round(hoursAgo);
+    var days = Math.floor(hoursAgo / 24);
+    var staleText = hoursAgo > 48
+      ? (days + ' day' + (days === 1 ? '' : 's'))
+      : (Math.round(hoursAgo) + ' hour' + (Math.round(hoursAgo) === 1 ? '' : 's'));
     container.innerHTML =
       '<div class="strava-stale-banner" id="strava-stale-banner-inner">' +
-        '<span class="strava-stale-msg">Last Strava sync was ' + h + ' hours ago. ' +
-          '<a href="#" id="strava-stale-refresh">Refresh?</a>' +
-        '</span>' +
+        '<span aria-hidden="true">&#9888;</span>' +
+        '<span class="strava-stale-msg"><b>Strava hasn\'t synced in ' + staleText + '.</b> ' +
+          'Every load number below is stale until it does.</span>' +
+        '<button type="button" id="strava-stale-refresh">Sync now</button>' +
       '</div>';
-    var link = document.getElementById('strava-stale-refresh');
-    if (link) {
-      link.addEventListener('click', function (e) {
-        e.preventDefault();
-        link.textContent = 'Syncing…';
-        link.style.pointerEvents = 'none';
+    var btn = document.getElementById('strava-stale-refresh');
+    if (btn) {
+      btn.addEventListener('click', function () {
+        btn.disabled = true;
+        btn.textContent = 'Syncing…';
         fetch('/api/strava/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
           .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
           .then(function () {
             container.innerHTML = '<div class="strava-stale-banner strava-stale-banner--syncing">Sync started…</div>';
           })
-          .catch(function () { container.innerHTML = ''; });
+          .catch(function () { container.innerHTML = ''; container.hidden = true; });
       });
     }
   }
@@ -431,122 +353,12 @@
   }
 
   /* ---- Home Weight Widget ----
-     The "current weight" stat block is rendered by the shared component
-     js/lib/weight-current-card.js (same one the weight tab uses). This file
-     only owns the quick-log stepper below. */
-
-  function _hwwInitStepper(el, summary, userId) {
-    var stepperArea = el.querySelector('#hww-stepper-area');
-    if (!stepperArea) return;
-
-    var prefill = summary && summary.last_entry_kg != null ? Number(summary.last_entry_kg).toFixed(1) : '';
-    var loggedEntryId = null;
-
-    function _renderStepper(currentVal) {
-      stepperArea.innerHTML =
-        '<div class="hww-stepper-label">Log today</div>' +
-        '<div class="hww-step-row">' +
-          '<button type="button" class="hww-step-btn" id="hww-minus" aria-label="Decrease weight">−</button>' +
-          '<input id="hww-input" class="hww-step-input" type="number"' +
-            ' inputmode="decimal" step="0.1" min="20" max="300"' +
-            ' value="' + (currentVal != null ? currentVal : '') + '"' +
-            ' placeholder="—">' +
-          '<button type="button" class="hww-step-btn" id="hww-plus" aria-label="Increase weight">+</button>' +
-        '</div>' +
-        '<button type="button" class="hww-log-btn" id="hww-log-btn">' +
-          'Log ' + (currentVal != null ? currentVal + ' kg' : '—') +
-        '</button>';
-
-      var input = stepperArea.querySelector('#hww-input');
-      var logBtn = stepperArea.querySelector('#hww-log-btn');
-      var minusBtn = stepperArea.querySelector('#hww-minus');
-      var plusBtn = stepperArea.querySelector('#hww-plus');
-
-      function _updateLabel() {
-        var v = parseFloat(input.value);
-        logBtn.textContent = (!isNaN(v) && v >= 20 && v <= 300) ? 'Log ' + v.toFixed(1) + ' kg' : 'Log —';
-      }
-
-      function _step(delta) {
-        var cur = input.value === '' ? NaN : parseFloat(input.value);
-        var next;
-        if (isNaN(cur)) {
-          next = delta > 0 ? 20 : 300;
-        } else {
-          next = Math.min(300, Math.max(20, Math.round((cur + delta) * 10) / 10));
-        }
-        input.value = next.toFixed(1);
-        _updateLabel();
-      }
-
-      minusBtn.addEventListener('click', function () { _step(-0.1); });
-      plusBtn.addEventListener('click',  function () { _step( 0.1); });
-      input.addEventListener('input', _updateLabel);
-
-      logBtn.addEventListener('click', async function () {
-        var raw = input.value.trim();
-        if (raw === '' || isNaN(parseFloat(raw))) return;
-        var val = parseFloat(raw);
-        if (val < 20 || val > 300) return;
-        logBtn.disabled = true;
-        var todayStr = bangkokTodayStr();
-        try {
-          var res = await fetch('/api/weight-entries', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              user_id: userId,
-              entry_date: todayStr,
-              weight_kg: val
-            })
-          });
-          var entryId = null;
-          if (res.status === 409) {
-            var conflictData = null;
-            try { conflictData = await res.json(); } catch (_) {}
-            entryId = conflictData && conflictData.existing_id ? conflictData.existing_id : null;
-            if (entryId) {
-              var patchRes = await fetch('/api/weight-entries/' + entryId, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ weight_kg: val })
-              });
-              if (!patchRes.ok) { logBtn.disabled = false; return; }
-            }
-          } else if (res.ok) {
-            var created = null;
-            try { created = await res.json(); } catch (_) {}
-            entryId = created && created.id ? created.id : null;
-          } else {
-            logBtn.disabled = false;
-            return;
-          }
-          loggedEntryId = entryId;
-          _renderCompact(val.toFixed(1));
-          // Refresh the shared current-weight block after logging.
-          _hwwLoadCurrentCard();
-        } catch (_) {
-          logBtn.disabled = false;
-        }
-      });
-    }
-
-    function _renderCompact(kgStr) {
-      stepperArea.innerHTML =
-        '<div class="hww-compact">' +
-          '<span>✓ Logged today · ' + kgStr + ' kg</span>' +
-          '<button type="button" class="hww-compact-edit">edit</button>' +
-        '</div>';
-      var editBtn = stepperArea.querySelector('.hww-compact-edit');
-      if (editBtn) {
-        editBtn.addEventListener('click', function () {
-          _renderStepper(parseFloat(kgStr));
-        });
-      }
-    }
-
-    _renderStepper(prefill !== '' ? parseFloat(prefill) : null);
-  }
+     The old full-width "current weight + stepper" card (#home-weight-widget,
+     built on the shared weight-current-card.js component used elsewhere) is
+     retired in home revamp v2 — its two jobs split into #home-morning's
+     weigh-in row (quick-log stepper, same POST /api/weight-entries +
+     PATCH-on-409 logic, now in home-morning.js) and the new
+     #home-weight-trend card (trend/rate/coverage, home-weight-trend.js). */
 
   async function _renderBodyModifierGuardrail() {
     var el = document.getElementById('body-modifier-guardrail');
@@ -576,179 +388,41 @@
     return window.AppCommon.escapeHtml(s);
   }
 
-  function _weightSummaryAdapter(wBlock) {
-    if (!wBlock) return null;
-    return {
-      current_weight: wBlock.current_kg,
-      avg_7d:         wBlock.seven_day_avg,
-      weekly_rate_kg: wBlock.weekly_rate_kg,
-      sparkline:      wBlock.sparkline,
-      plan:           wBlock.plan_sparkline,
-      status_label:   wBlock.gap_direction,
-      gap_kg:         wBlock.gap_kg,
-      last_entry_kg:  wBlock.last_entry_kg,
-      logged_today:   wBlock.logged_today,
-      target: (wBlock.target_kg != null ? {
-        weight_kg:    wBlock.target_kg,
-        date:         wBlock.target_date,
-        progress_pct: wBlock.progress_pct,
-        direction:    wBlock.gap_direction === 'below' ? 'down' : 'up',
-      } : null),
-    };
+  /* ---- Weekly planned-sessions fetch (shared) ----
+     One GET /api/planned-sessions for the current Mon–Sun week, distributed
+     to #home-morning's session row, #home-next-up (NextUpCard), and
+     #home-brief-week-plan-card — per the revamp v2 spec, no widget fetches
+     its own copy of this week's plan. */
+
+  function _mondayOf(d) {
+    var day = d.getDay(); // 0=Sun..6=Sat
+    var diff = (day === 0 ? -6 : 1 - day);
+    var m = new Date(d);
+    m.setDate(d.getDate() + diff);
+    m.setHours(0, 0, 0, 0);
+    return m;
   }
 
-  function _renderHomeWeightWidget(weightBlock, userId) {
-    var container = document.getElementById('home-weight-widget');
-    if (!container) return;
-
-    var card = container.querySelector('.card.hww-card');
-    if (!card) {
-      card = document.createElement('div');
-      card.className = 'card hww-card grp-weight';
-      container.appendChild(card);
-    }
-
-    // Left: shared "current weight" block (same component as the weight tab,
-    // js/lib/weight-current-card.js). Right: home's own quick-log stepper.
-    var header =
-      '<div class="card-head">' +
-        '<h2 class="ttl"><i class="ti ti-scale" style="color:var(--blue-text);font-size:16px;"></i>Weight</h2>' +
-        '<a href="/weight">Open →</a>' +
-      '</div>';
-    card.innerHTML = header +
-      '<div class="hww-layout">' +
-        '<div class="hww-main">' + WeightCurrentCard.MARKUP + '</div>' +
-        '<div class="hww-stepper" id="hww-stepper-area"></div>' +
-      '</div>';
-
-    _hwwInitStepper(card, _weightSummaryAdapter(weightBlock), userId);
-    _hwwLoadCurrentCard();
+  function _isoDate(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   }
 
-  // Populate the shared current-weight block from the SAME endpoints the
-  // weight tab uses, so the two widgets stay byte-for-byte identical.
-  function _hwwLoadCurrentCard() {
-    if (!window.WeightCurrentCard) return;
-    var to = window.AppCommon.todayISO();
-    // Bangkok, and via the ISO helper: toISOString() is UTC, so during Bangkok
-    // early mornings this window started a day early (issue #1603).
-    var from = window.AppCommon.addDaysISO(to, -90);
-    Promise.all([
-      fetch('/api/weight-chart?from=' + from + '&to=' + to + '&include_target=true')
-        .then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }),
-      fetch('/api/weight-targets/active')
-        .then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; })
-    ]).then(function (res) {
-      WeightCurrentCard.render(res[0], res[1]);
-    });
-  }
-
-  /* ---- Daily brief widget cards ---- */
-
-  function _initBriefCards() {
-    var weekEl = document.getElementById('home-brief-week-plan-card');
-    if (window.HomeBriefWeekPlanCard && weekEl) HomeBriefWeekPlanCard.render(weekEl);
-
-    var todayPlanEl = document.getElementById('home-today-plan-card');
-    if (window.HomeTodayPlanCard && todayPlanEl) HomeTodayPlanCard.render(todayPlanEl);
-  }
-
-  /* ---- Race goal — same A-race as Training > Performance (no separate form) ---- */
-
-  function _fmtRaceTime(secs) {
-    if (secs == null || !isFinite(secs)) return '—';
-    secs = Math.round(secs);
-    var h = Math.floor(secs / 3600);
-    var m = Math.floor((secs % 3600) / 60);
-    var s = secs % 60;
-    if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-    return m + ':' + String(s).padStart(2, '0');
-  }
-
-  function _fmtRacePace(secPerKm) {
-    if (secPerKm == null || !isFinite(secPerKm) || secPerKm <= 0) return '';
-    var m = Math.floor(secPerKm / 60);
-    var s = Math.round(secPerKm % 60);
-    return m + ':' + String(s).padStart(2, '0') + '/km';
-  }
-
-  function _fmtRaceDate(iso) {
-    if (!iso) return '—';
-    var d = new Date(iso + (iso.length === 10 ? 'T12:00:00' : ''));
-    if (isNaN(d.getTime())) return iso;
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  }
-
-  function _renderGoalCard() {
-    var card = document.getElementById('home-goal-card');
-    if (!card) return;
-    if (window.UIStates) card.innerHTML = UIStates.loadingHTML();
-    else card.innerHTML = '<div class="card-head"><h2 class="ttl"><i class="ti ti-flag-2"></i>Race goal</h2></div>';
-
-    fetch('/api/plan/computed')
+  function _fetchWeekPlannedSessions() {
+    // Anchor the week on Bangkok "today" (same clock as AppCommon.todayISO /
+    // the morning session filter), not the browser's local Date — otherwise
+    // a laptop in UTC-5 can ask for the wrong Mon–Sun window near midnight.
+    var todayIso = window.AppCommon.todayISO();
+    var parts = todayIso.split('-');
+    var today = new Date(+parts[0], +parts[1] - 1, +parts[2]);
+    var monday = _mondayOf(today);
+    var sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    var from = _isoDate(monday);
+    var to = _isoDate(sunday);
+    return fetch('/api/planned-sessions?from=' + from + '&to=' + to)
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (bundle) {
-        var races = (bundle && Array.isArray(bundle.races)) ? bundle.races : [];
-        var primary =
-          races.find(function (r) {
-            return r.type === 'race' && r.priority === 'A' && r.status !== 'done';
-          }) ||
-          races.find(function (r) {
-            return r.type === 'race' && r.status !== 'done';
-          }) ||
-          null;
-
-        var head =
-          '<div class="card-head">' +
-            '<h2 class="ttl"><i class="ti ti-flag-2" style="color:var(--bg-1);font-size:16px;"></i>Race goal</h2>' +
-            '<a href="/log#performance">Performance &#8594;</a>' +
-          '</div>';
-
-        if (!primary) {
-          card.innerHTML =
-            head +
-            '<div class="goal-card__prompt">' +
-              '<div class="goal-card__sub">No A-priority race set yet.</div>' +
-              '<a class="goal-card__cta" href="/log#performance">Set race on Performance &#8594;</a>' +
-            '</div>';
-          return;
-        }
-
-        var distKm = parseFloat(primary.distance || 0);
-        var goalTime = _fmtRaceTime(primary.goal_time_seconds);
-        var paceSec =
-          primary.goal_time_seconds && distKm
-            ? primary.goal_time_seconds / distKm
-            : null;
-        var pace = _fmtRacePace(paceSec);
-
-        card.innerHTML =
-          head +
-          '<div class="hg-race">' +
-            '<span class="hg-race-let">A</span>' +
-            '<div class="hg-race-id">' +
-              '<div class="hg-race-name">' + esc(primary.name || 'Unnamed') + '</div>' +
-              '<div class="hg-race-meta">' +
-                esc(_fmtRaceDate(primary.date)) +
-                (distKm ? ' · ' + distKm.toFixed(2) + ' km' : '') +
-                ' · A-priority' +
-              '</div>' +
-            '</div>' +
-            '<div class="hg-race-goal">' +
-              '<div class="hg-race-glab">Goal</div>' +
-              '<div class="hg-race-gval">' + esc(goalTime) + '</div>' +
-              (pace ? '<div class="hg-race-gsub">' + esc(pace) + ' · target pace</div>' : '') +
-            '</div>' +
-          '</div>';
-      })
-      .catch(function () {
-        card.innerHTML =
-          '<div class="card-head">' +
-            '<h2 class="ttl"><i class="ti ti-flag-2"></i>Race goal</h2>' +
-            '<a href="/log#performance">Performance &#8594;</a>' +
-          '</div>' +
-          '<div class="brief-unavail">Could not load race</div>';
-      });
+      .then(function (data) { return (data && data.days) || []; })
+      .catch(function () { return []; });
   }
 
   /* ---- Init ---- */
@@ -779,40 +453,100 @@
       _checkThresholdBanner();
       _checkStravaStaleBanner();
 
-      /* Single summary fetch — distribute to all widget renderers */
+      /* Single summary fetch — distribute to all widget renderers. One more
+         GET /api/planned-sessions for the current week, shared across the
+         morning session row, Today's workout (NextUpCard), and Week plan —
+         per the revamp v2 spec, no widget below fetches its own copy. */
       var summary = await summaryPromise;
+      var weekDays = await _fetchWeekPlannedSessions();
 
-      /* Habits strip + log-today strip */
-      if (window.HomeStripHabits) {
-        HomeStripHabits.render(summary);
-      }
-
-      /* Readiness tile + training card + sleep card + next-workout +
-         performance widget (home v2) */
+      /* Readiness tile + training card + recent-workouts + performance
+         widget + coach digest (home v2 / revamp v2) */
       if (window.HomeRTS) {
         HomeRTS.render(summary, userId);
       }
 
+      /* This morning — weigh-in, today's session, habits (home-morning.js).
+         Re-render after a weight/habit log so the "N of 3 done" progress
+         and all-done state reflect the just-saved change; the session row's
+         own optimistic UI handles itself without a re-render. */
+      var morningEl = document.getElementById('home-morning');
+      var nextUpEl = document.getElementById('home-next-up');
+      var weekPlanEl = document.getElementById('home-brief-week-plan-card');
+
+      function _renderNextUpCard() {
+        if (window.NextUpCard && nextUpEl) {
+          NextUpCard.render(nextUpEl, {
+            days: weekDays,
+            title: "Today's workout",
+            onOpen: function () { window.location.href = '/log#plan'; },
+            onMarkDone: function (sessionId) {
+              fetch('/api/planned-sessions/' + sessionId + '/mark-done', { method: 'POST' })
+                .then(function (r) {
+                  if (!r.ok) return;
+                  return _fetchWeekPlannedSessions().then(function (fresh) {
+                    weekDays = fresh;
+                    _renderMorning();
+                    _renderNextUpCard();
+                    if (window.HomeBriefWeekPlanCard && weekPlanEl) {
+                      HomeBriefWeekPlanCard.render(weekPlanEl, weekDays);
+                    }
+                  });
+                })
+                .catch(function () {});
+            },
+            onSuggest: function () { window.location.href = '/log#plan'; }
+          });
+        }
+      }
+
+      function _renderMorning() {
+        if (window.HomeMorning && morningEl) {
+          HomeMorning.render(morningEl, {
+            summary: summary,
+            weekDays: weekDays,
+            onOpenSession: function () { window.location.href = '/log#plan'; },
+            onMarkDone: function (sessionId) {
+              fetch('/api/planned-sessions/' + sessionId + '/mark-done', { method: 'POST' })
+                .then(function (r) {
+                  if (!r.ok) return;
+                  return _fetchWeekPlannedSessions().then(function (fresh) {
+                    weekDays = fresh;
+                    _renderNextUpCard();
+                    if (window.HomeBriefWeekPlanCard && weekPlanEl) {
+                      HomeBriefWeekPlanCard.render(weekPlanEl, weekDays);
+                    }
+                  });
+                })
+                .catch(function () {});
+            },
+            onWeightLogged: function () {
+              fetch('/api/home/summary').then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (fresh) { if (fresh) { summary = fresh; _renderMorning(); } })
+                .catch(function () {});
+              if (window.HomeWeightTrend) HomeWeightTrend.render(document.getElementById('home-weight-trend'));
+            },
+            onHabitToggle: function () {}
+          });
+        }
+      }
+      _renderMorning();
+      _renderNextUpCard();
+
+      /* Week plan teaser — same shared week fetch. */
+      if (window.HomeBriefWeekPlanCard && weekPlanEl) HomeBriefWeekPlanCard.render(weekPlanEl, weekDays);
+
+      /* Weight trend + Race — home revamp v2 (each fetches its own data). */
+      if (window.HomeWeightTrend) HomeWeightTrend.render(document.getElementById('home-weight-trend'));
+      if (window.HomeRaceCard) HomeRaceCard.render(document.getElementById('home-race-card'));
+
       /* Body-modifier guardrail warning (issue #1161) */
       _renderBodyModifierGuardrail();
 
-      /* Weight widget (using summary.weight block) */
-      _renderHomeWeightWidget(summary.weight, userId);
-
-      /* Personal records card (fetches its own data — see loadPerformanceCard) */
-      loadPerformanceCard(userId);
-
       /* Recent workouts (#home-recent-workouts-card) are rendered by
-         HomeRTS.render (called just above with summary.recent_workouts). */
+         HomeRTS.render (called above with summary.recent_workouts). */
 
       initFastLogForm(userId);
-
-      /* Today's plan + Week plan — same PlannedSessions data as Training > Plan */
-      _initBriefCards();
-
-      /* Race goal — same A-race as Training > Performance */
-      _renderGoalCard();
-
     }
   }
 

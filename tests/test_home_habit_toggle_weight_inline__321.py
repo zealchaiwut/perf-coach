@@ -205,7 +205,11 @@ def test_weight_non_numeric_rejected():
 
 
 def test_weight_range_validated():
-    assert "val < 20 || val > 300" in _HOME_JS, (
+    # The inline weigh-in stepper (and its 20-300kg range guard) moved from
+    # home.js into home-morning.js's weigh-in row in home revamp v2 — see
+    # that file's module docstring.
+    morning_js = (_ROOT / "frontend" / "js" / "home-morning.js").read_text()
+    assert "val < 20 || val > 300" in morning_js, (
         "Weight save must reject values outside 20–300 kg range"
     )
 
