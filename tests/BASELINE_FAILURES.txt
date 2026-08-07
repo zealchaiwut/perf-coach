@@ -8,11 +8,6 @@
 # `integration` marker, applied automatically in tests/conftest.py. Everything
 # here fails without any live service, so each line is a stale test asserting
 # deleted behaviour, or a real bug nobody has triaged yet.
-tests/test_1466_consistent_run_matching.py::test_1466__canonical_constant_defined
-tests/test_1466_consistent_run_matching.py::test_1466__consistent_predicates_all_locations
-tests/test_1466_consistent_run_matching.py::test_1466__no_exact_match_predicate_mixing
-tests/test_1466_consistent_run_matching.py::test_1466__predicate_consistency_across_locations
-tests/test_1466_consistent_run_matching.py::test_1466__run_filter_used_in_gather_queries
 tests/test_1505_daily_brief_coach.py::test_assemble_coach_directive_is_string
 tests/test_1505_daily_brief_coach.py::test_assemble_coach_directive_references_locked_load
 tests/test_1505_daily_brief_coach.py::test_assemble_coach_levers_is_list

@@ -840,7 +840,7 @@ def get_plan_suggestions(
     body: PlanSuggestionsRequest = Body(default=None),
     user: User = Depends(resolve_user),
 ):
-    """Return LLM-proposed training suggestions for the OPEN remainder of a week,
+    """Return deterministic training suggestions for the OPEN remainder of a week,
     with facts and source tag.
 
     Only day_offsets not already covered by a logged workout or an existing

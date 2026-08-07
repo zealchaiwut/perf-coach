@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from backend.services.session_pins import block_key, exercise_spend
+from backend.services.session_pins import block_key
 
 
 # Map display block labels → plan_exercises.groups keys.
@@ -198,69 +198,3 @@ def rank_swap_candidates(
         "disabled": disabled,
         "offer_all_blocks": (not search_all_blocks) and len(eligible) == 0 and bool(keys),
     }
-
-
-def apply_swap(
-    exercises: list[dict],
-    index: int,
-    candidate: dict,
-    *,
-    all_blocks: bool = False,
-) -> list[dict]:
-    """Replace exercises[index] with candidate; mark pinned source=swap."""
-    if index < 0 or index >= len(exercises):
-        raise IndexError("exercise index out of range")
-    out = [dict(e) for e in exercises]
-    old = out[index]
-    old_name = old.get("name")
-    stss, smin = exercise_spend(old)
-    new_row = {
-        "block": old.get("block"),
-        "name": candidate["name"],
-        "sets": candidate.get("default_sets") or old.get("sets") or 3,
-        "reps": candidate.get("default_reps") or old.get("reps") or "10",
-        "load": candidate.get("default_load") or old.get("load") or "moderate",
-        "spend_tss": candidate.get("tss") if candidate.get("tss") is not None else stss,
-        "spend_min": smin,
-        "pinned": True,
-        "source": "swap",
-        "replaced_name": old_name,
-        "state": old.get("state") or "done",
-    }
-    if all_blocks:
-        new_row["swap_left_block"] = True
-    if candidate.get("id"):
-        new_row["exercise_id"] = candidate["id"]
-    out[index] = new_row
-    return out
-
-
-def apply_add(
-    exercises: list[dict],
-    *,
-    block: str,
-    candidate: dict,
-) -> list[dict]:
-    """Append a manual pinned exercise into ``block``."""
-    out = [dict(e) for e in exercises]
-    # Insert after last row of this block, else append
-    insert_at = len(out)
-    for i, e in enumerate(out):
-        if block_key(e.get("block")) == block_key(block):
-            insert_at = i + 1
-    row = {
-        "block": block,
-        "name": candidate["name"],
-        "sets": candidate.get("default_sets") or 3,
-        "reps": candidate.get("default_reps") or "10",
-        "load": candidate.get("default_load") or "moderate",
-        "spend_tss": candidate.get("tss") or estimate_row_tss(candidate),
-        "spend_min": max(2.0, float(candidate.get("default_sets") or 3) * 2.5),
-        "pinned": True,
-        "source": "manual",
-        "state": "done",
-    }
-    if candidate.get("id"):
-        row["exercise_id"] = candidate["id"]
-    out.insert(insert_at, row)
-    return out

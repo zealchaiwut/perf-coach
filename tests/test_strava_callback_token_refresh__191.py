@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.main import app, _make_strava_state_token
+from backend.services.crypto import decrypt_oauth_token as _dec, encrypt_oauth_token as _enc
 from backend.services.strava import refresh_token_if_needed
 
 TEST_SECRET = "test-strava-state-secret-191"
@@ -136,8 +137,8 @@ def test_refresh_token_if_needed_refreshes_expired():
 
     mock_token = MagicMock()
     mock_token.expires_at = expired_at
-    mock_token.refresh_token = "old-rt"
-    mock_token.access_token = "old-at"
+    mock_token.refresh_token_encrypted = _enc("old-rt")
+    mock_token.access_token_encrypted = _enc("old-at")
 
     mock_session = MagicMock()
     mock_session.__enter__ = MagicMock(return_value=mock_session)
@@ -155,8 +156,8 @@ def test_refresh_token_if_needed_refreshes_expired():
         result = refresh_token_if_needed(TEST_USER_ID)
 
     assert result == "refreshed-at"
-    assert mock_token.access_token == "refreshed-at"
-    assert mock_token.refresh_token == "refreshed-rt"
+    assert _dec(mock_token.access_token_encrypted) == "refreshed-at"
+    assert _dec(mock_token.refresh_token_encrypted) == "refreshed-rt"
     mock_refresh.assert_called_once()
     mock_session.commit.assert_called_once()
 
@@ -169,7 +170,7 @@ def test_refresh_token_if_needed_skips_when_fresh():
 
     mock_token = MagicMock()
     mock_token.expires_at = fresh_at
-    mock_token.access_token = "still-valid-at"
+    mock_token.access_token_encrypted = _enc("still-valid-at")
 
     mock_session = MagicMock()
     mock_session.__enter__ = MagicMock(return_value=mock_session)

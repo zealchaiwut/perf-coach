@@ -42,15 +42,16 @@ def test_legacy_chart_p2w_and_target_history_hidden():
 
 
 def test_fuel_collapsed_to_budget_and_week():
-    """Fuel today shows kcal budget only; week chart kept; food log/macros hidden."""
+    """Fuel today shows the kcal budget and week chart.
+
+    Food log/macros were hidden by the original revamp, then intentionally
+    unhidden again by issue #1691 (pre-prd-review: the panel was completely
+    inaccessible) — so this only asserts the budget/week markup still exists,
+    not that the food log is absent.
+    """
     assert 'id="fuel-budget-num"' in WEIGHT_HTML
     assert 'id="fuel-week-bars"' in WEIGHT_HTML
     assert "kcal budget" in WEIGHT_HTML
-    body = WEIGHT_HTML.split("<body", 1)[-1]
-    assert "What you've eaten today" not in body
-    assert "Lean meat" not in body
-    assert 'class="fuel-macros"' not in body
-    assert 'class="fuel-chain"' not in body
 
 
 def test_compact_top_layout():

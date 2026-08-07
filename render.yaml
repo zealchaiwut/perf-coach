@@ -95,7 +95,10 @@ services:
       - key: ADMIN_SECRET_PRD
         sync: false  # set via Render dashboard — see top of file
       - key: BANISTER_REFIT_ENABLED
-        value: "0"  # refit runs on compute worker (zeal-server); disable on web dyno to save RAM
+        value: "1"  # SAFETY: keep the in-process fallback ON until a PRD worker is
+                    # confirmed running against DATABASE_URL_PRD. Once the PRD worker is
+                    # live (see docs/worker.md § Live PRD runbook), switch this to "0"
+                    # via the Render dashboard to avoid double-running the refit.
       - key: GOOGLE_LOGIN_ENABLED
         value: "false"  # toggle in Render dashboard to enable Google login
       - key: LLM_COACH_ENABLED

@@ -32,11 +32,12 @@ def upgrade() -> None:
     if not table_exists("weight_entries"):
         return
     if not index_exists("weight_entries", _INDEX_NAME):
-        op.execute(
-            "CREATE UNIQUE INDEX ix_weight_entries_user_date_null_time "
-            "ON weight_entries (user_id, entry_date) "
-            "WHERE entry_time IS NULL"
-        )
+        with op.get_context().autocommit_block():
+            op.execute(
+                "CREATE UNIQUE INDEX CONCURRENTLY ix_weight_entries_user_date_null_time "
+                "ON weight_entries (user_id, entry_date) "
+                "WHERE entry_time IS NULL"
+            )
 
 
 def downgrade() -> None:

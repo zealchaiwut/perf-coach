@@ -60,13 +60,20 @@ def weight_stats(
     entries = _load_weight_entries(db, user_id, as_of)
     ewma = compute_ewma(entries, alpha=EWMA_ALPHA) if entries else []
 
+    # Window-proportional minimum: ~70% of window length, floored at 3 (OLS
+    # needs n >= 3), capped at MIN_N_DAYS so callers with >=30-day windows keep
+    # the strict 21-entry gate. Without this, every window_days call would pass
+    # min_entries=21 — a 7-day window can never satisfy 21, permanently blocking
+    # consecutive_weeks_behind from incrementing in cut_review.py (issue #1697).
+    _min_entries = max(3, min(MIN_N_DAYS, round(window_days * COVERAGE_THRESHOLD / 100)))
+
     trend = compute_trend_rate(
         entries,
         as_of,
         window_days=window_days,
         ewma_values=ewma,
         min_coverage_pct=COVERAGE_THRESHOLD,
-        min_entries=MIN_N_DAYS,
+        min_entries=_min_entries,
     )
 
     if needed_rate_kg_wk is None:
@@ -85,7 +92,7 @@ def weight_stats(
         ),
         "days_needed": (
             0 if trend["readable"]
-            else max(0, MIN_N_DAYS - int(trend["entries_used"] or 0))
+            else max(0, _min_entries - int(trend["entries_used"] or 0))
         ),
         "coverage_pct": trend["coverage_pct"],
         "needed_rate_kg_wk": needed_rate_kg_wk,

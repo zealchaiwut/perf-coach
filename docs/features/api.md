@@ -535,8 +535,8 @@ Returns weight-entry chart data for a date range, including entries, trend (EWMA
 |-------|------|-------------|
 | `current_weight_kg` | number or null | Most recent weight in the range |
 | `current_avg_kg` | number or null | Most recent trend value |
-| `delta_7d_kg` | number or null | Change from 7 days ago |
-| `delta_30d_kg` | number or null | Change from 30 days ago |
+| `delta_7d_kg` | number or null | When the EWMA rate is readable, this is the EWMA weekly rate (`weekly_rate_ewma_kg`) so the 7-day figure matches the rate pill; otherwise the raw change from 7 days ago |
+| `delta_30d_kg` | number or null | When the EWMA rate is readable, this is `weekly_rate_ewma_kg × 4` (4-week projection of the same rate, for pill consistency — #1698); otherwise the raw change from 30 days ago |
 | `weekly_rate_ewma_kg` | number or null | EWMA weekly rate of change |
 | `ewma_alpha` | number | Smoothing factor (2 / (span + 1), default span = 13) |
 
