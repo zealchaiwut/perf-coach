@@ -65,14 +65,7 @@ def facts_signature_for_draft(facts: dict) -> str:
 
 def _llm_call_for_transport() -> Callable[[str, str], dict | None]:
     """Resolve LLM_TRANSPORT: claude_cli | groq_api."""
-    transport = os.getenv("LLM_TRANSPORT", "").strip().lower()
-    if not transport:
-        # Default: worker → claude_cli when available, else groq
-        try:
-            from backend.services.coach_claude_cli import claude_cli_enabled
-            transport = "claude_cli" if claude_cli_enabled() else "groq_api"
-        except Exception:
-            transport = "groq_api"
+    transport = os.getenv("LLM_TRANSPORT", "groq_api").strip().lower()
 
     def _call(system: str, user: str) -> dict | None:
         if transport in ("claude_cli", "claude", "cli"):
