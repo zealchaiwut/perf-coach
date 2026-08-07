@@ -18,7 +18,7 @@ PR, reviews it, merges it, then clicks "Manual Deploy" in the Render dashboard.
 
 ---
 
-## Release Flow
+## 7-Step Release Flow
 
 ### Step 1 — Verify UAT is green
 
@@ -73,76 +73,78 @@ blocked — the PR is the only path.
 
 ---
 
-### Step 4 — (Large-batch releases only) Create a Neon DB branch snapshot
+### Step 3b — Verify the PRD compute worker is running
 
-> **When does this apply?** Any release where `alembic history -r current:head`
-> shows more than ~20 pending migrations. Run the count before deploying:
->
-> ```bash
-> # Count migrations pending on PRD (requires DATABASE_URL_PRD in .env)
-> DATABASE_URL=$(grep DATABASE_URL_PRD .env | cut -d= -f2-) \
->   alembic history -r current:head | grep -c "^Rev:"
-> ```
->
-> If the count is high (e.g. ≥ 20), take a Neon snapshot **before** clicking
-> Manual Deploy in Step 5. Skipping this step for small releases is fine; for a
-> large accumulated batch it gives you a fast, no-data-loss rollback path that
-> the Render image rollback (Step 8) cannot provide — Render restores the app
-> binary but **does not undo schema changes** applied by Alembic.
+The PRD compute worker runs on zeal-server (`~/dev/perf-coach/prd`, port 9101)
+and is responsible for the weekly Banister parameter refit. If it is not running
+and `BANISTER_REFIT_ENABLED` is `"0"` in the Render dashboard, the refit silently
+stops for production athletes — a regression from current behavior.
 
-#### 4a — Create a Neon branch (point-in-time snapshot)
+Before deploying, confirm one of the following:
 
-1. Open the [Neon console](https://console.neon.tech) and select the **perf-coach-prd** project.
-2. Click **Branches** → **New Branch**.
-3. Set:
-   - **Branch name:** `pre-release-<YYYY-MM-DD>` (e.g. `pre-release-2026-08-07`)
-   - **Branch from:** the PRD primary branch (`main` or `br-xxx`)
-   - **Point in time:** leave as **Now** (captures the current schema + data)
-4. Click **Create Branch**. The branch is ready in a few seconds.
+**Option A — PRD worker is running (preferred):**
 
-Keep the branch for at least 48 hours after the release. Delete it once PRD
-smoke tests have been stable for that window.
+```bash
+ssh zeal-server@100.103.104.41
+curl -s http://127.0.0.1:9101/internal/health
+# Expected: {"status": "ok", ...}
+```
 
-#### 4b — Record the branch ID
+If healthy, verify the Render dashboard shows `BANISTER_REFIT_ENABLED=0` for
+`perf-coach-prd` (so the web dyno does not double-run the refit).
 
-Copy the Neon branch connection string for the snapshot branch from the
-console and save it somewhere temporary (e.g. a local note). You will need
-it only if you must restore.
+**Option B — PRD worker is NOT running:**
 
-#### 4c — Restore from snapshot (if migrations go wrong)
+Confirm `BANISTER_REFIT_ENABLED=1` (or the key is absent) in the Render
+dashboard for `perf-coach-prd`. The in-process fallback on the web dyno keeps
+the refit running until the PRD worker is stood up.
 
-If `alembic upgrade head` partially completes and leaves the PRD schema in an
-inconsistent state:
+See `docs/worker.md § Live PRD runbook` for full setup instructions.
 
-1. Roll back the Render deploy (Step 8) first so the app stops writing to PRD.
-2. In the Neon console, navigate to the snapshot branch (`pre-release-<date>`).
-3. Click **Restore** → **Restore branch to another branch** (Neon PITR restore).
-   Target the PRD primary branch.
-4. Confirm the restore. The PRD branch is reset to the pre-migration state.
-5. Re-run `alembic current` (against the restored DB) to confirm the head
-   revision reverted, then fix the offending migration on `develop` before
-   attempting another release.
-
-> **Note:** Neon PITR is scoped to the Neon Free/Pro plan's retention window
-> (typically 7 days on Pro). Prefer the explicit branch snapshot above over
-> relying solely on the timeline slider, as the branch is an intentional,
-> named checkpoint that is easy to find under pressure.
+> **Do not skip this step.** An unguarded flag flip (`BANISTER_REFIT_ENABLED=0`
+> with no PRD worker running) silently disables Banister refit for all production
+> athletes.
 
 ---
 
-### Step 5 — Trigger Manual Deploy on Render
+### Step 3c — Pre-deploy DB snapshot (required for large migration batches)
+
+> **Required whenever the release includes destructive schema changes — column
+> renames, column drops, or table drops.**
+>
+> This release carries column renames in `weight_entries` (`recorded_date` →
+> `entry_date`) and `habit_logs` (`logged_date` → `log_date`). A code-only
+> rollback against the already-migrated PRD schema is **unsafe**; if a deploy
+> fails after migrations run, a DB restore is required.
+
+Take a snapshot of PRD immediately before deploying:
+
+```bash
+# Source your .env to get DATABASE_URL_PRD
+source .env
+DATABASE_URL=$DATABASE_URL_PRD python scripts/db_snapshot.py
+```
+
+Note the snapshot filename printed (e.g. `snapshots/perf_coach_prd-<date>.sql.gz`).
+If you need to roll back, follow `docs/backup-restore.md § 3` to restore it.
+
+**Only skip this step if you have verified that no migration in this batch renames
+or drops any column.** If uncertain, take the snapshot — it costs under 15 seconds.
+
+---
+
+### Step 4 — Trigger Manual Deploy on Render
 
 1. Open [Render dashboard](https://dashboard.render.com) → service **perf-coach-prd**.
 2. Click **Manual Deploy → Deploy latest commit**.
 3. Confirm the commit SHA matches the merge commit from Step 3.
-   (If you took a Neon snapshot in Step 4, double-check it was created **before** clicking here.)
 
 > Auto-deploy is intentionally disabled for PRD (`autoDeploy: no` in
 > `render.yaml`). Never enable it.
 
 ---
 
-### Step 6 — Watch the build log
+### Step 5 — Watch the build log
 
 Monitor the Render build log in real time. Confirm all three stages complete
 without errors:
@@ -157,7 +159,7 @@ live. See [Troubleshooting](#troubleshooting) below.
 
 ---
 
-### Step 7 — Smoke-test PRD
+### Step 6 — Smoke-test PRD
 
 Once the deploy is marked **Live** in Render, verify:
 
@@ -177,23 +179,48 @@ confirm pages load without errors and the nav badge reads **PRD** in red.
 
 ---
 
-### Step 8 — Rollback if broken
+### Step 7 — Rollback if broken
 
 If smoke tests fail or PRD is unhealthy after deploy:
+
+> ⚠ **Read this before clicking "Rollback".**
+>
+> A Render image rollback re-deploys the previous Docker image — it does **not**
+> roll back already-applied Alembic migrations. If `alembic upgrade head` already
+> ran as the `preDeployCommand`, the PRD database schema is already at the new
+> head. Rolling back the code image while the DB is at the new head can break
+> things further if any applied migration renamed or dropped a column the old
+> code still reads.
+>
+> **Column renames are specifically unsafe.** For example, this release renamed
+> `weight_entries.recorded_date` → `entry_date` and `habit_logs.logged_date` →
+> `log_date`. The old code image references the old column names; running it
+> against the migrated schema will produce 500 errors or silent data corruption,
+> not a clean rollback.
+
+**Decision tree:**
+
+- If `alembic upgrade head` **did not run** (build failed before the preDeployCommand
+  completed): a Render image rollback is safe — the DB schema is unchanged.
+- If `alembic upgrade head` **ran successfully** before the failure: a code-only
+  rollback is **unsafe for releases with destructive migrations**. You must restore
+  the DB from the pre-deploy snapshot taken in Step 3c, then redeploy the old image.
+
+**Code-only rollback (safe when migrations did not run or were non-destructive):**
 
 1. Render dashboard → **perf-coach-prd** → **Deploys** tab.
 2. Find the last known-good deploy.
 3. Click **Rollback to this deploy**.
 
-Render re-deploys the previous image immediately — no code changes needed.
+**Full DB restore (required when destructive migrations already ran):**
 
-> **Important — schema changes are NOT rolled back by Render.** If `alembic
-> upgrade head` ran (even partially) before the failure, the Render image
-> rollback restores the app binary but leaves the PRD DB schema at whatever
-> revision Alembic reached. For large-batch releases where you took a Neon
-> snapshot in Step 4, use that branch to restore the DB schema (see
-> Step 4c above). For small releases with no schema changes, the Render
-> rollback alone is sufficient.
+1. Restore the pre-deploy snapshot per `docs/backup-restore.md § 3`:
+   ```bash
+   gunzip -c snapshots/<pre-deploy-snapshot>.sql.gz | psql "$DATABASE_URL_PRD"
+   ```
+2. Then perform the Render image rollback (steps 1–3 above).
+3. Verify the restored DB is consistent with the old code before considering
+   the rollback complete.
 
 After rolling back:
 - Open a hotfix branch off `master`, fix the issue, merge via PR, and repeat
@@ -235,19 +262,3 @@ Migration is missing an idempotency guard. Add `IF NOT EXISTS` to the offending
 ### Nav badge shows wrong environment
 `ENVIRONMENT` env var in Render must be exactly `prd` (lowercase). Verify in
 Render dashboard → **perf-coach-prd** → **Environment**.
-
-### Partial migration failure on a large batch (PRD schema inconsistent)
-If `alembic upgrade head` fails mid-batch and the PRD DB is in a partially-migrated
-state:
-
-1. Roll back the Render deploy (Step 8) so the app stops writing.
-2. If you took a Neon branch snapshot in Step 4, restore it (see Step 4c).
-3. If you did **not** take a snapshot, use Neon's PITR timeline slider:
-   - Neon console → **Branches** → primary branch → **Restore** → pick a
-     timestamp from before the deploy. Neon Free retains 7 days; Pro retains
-     30 days.
-4. Verify `alembic current` against the restored DB shows the pre-release head.
-5. Fix the offending migration on `develop`, run it through UAT, and re-release.
-
-**Prevention:** for batches ≥ 20 migrations, always take the Neon snapshot
-(Step 4) so recovery is a named branch restore rather than a timeline guess.

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from backend.db import engine
 from backend.models import GoogleOAuthCredentials
+from backend.services.crypto import decrypt_oauth_token as _decrypt, encrypt_oauth_token as _encrypt
 from backend.utils.errors import ExternalServiceError
 
 _GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -32,9 +33,9 @@ def refresh_token_if_needed(user_id: str) -> str:
         now = datetime.now(tz=timezone.utc)
 
         if cred.expires_at > now + timedelta(seconds=_REFRESH_BUFFER_SECONDS):
-            return cred.access_token
+            return _decrypt(cred.access_token_encrypted)
 
-        if cred.refresh_token is None:
+        if cred.refresh_token_encrypted is None:
             raise ExternalServiceError(
                 user_message="Google refresh token is missing — user must re-authorize",
                 details={"user_id": user_id},
@@ -45,7 +46,7 @@ def refresh_token_if_needed(user_id: str) -> str:
             data={
                 "client_id": os.getenv("GOOGLE_CLIENT_ID", ""),
                 "client_secret": os.getenv("GOOGLE_CLIENT_SECRET", ""),
-                "refresh_token": cred.refresh_token,
+                "refresh_token": _decrypt(cred.refresh_token_encrypted),
                 "grant_type": "refresh_token",
             },
         )
@@ -58,11 +59,11 @@ def refresh_token_if_needed(user_id: str) -> str:
 
         token_resp = resp.json()
 
-        cred.access_token = token_resp["access_token"]
+        cred.access_token_encrypted = _encrypt(token_resp["access_token"])
         cred.expires_at = now + timedelta(seconds=token_resp.get("expires_in", 3600))
         if token_resp.get("refresh_token"):
-            cred.refresh_token = token_resp["refresh_token"]
+            cred.refresh_token_encrypted = _encrypt(token_resp["refresh_token"])
         cred.updated_at = now
         session.commit()
 
-        return cred.access_token
+        return _decrypt(cred.access_token_encrypted)

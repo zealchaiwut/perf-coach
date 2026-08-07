@@ -4243,12 +4243,13 @@
       tabindex="0"
       hidden
     >
-      <!-- ── Session Load Plan — race-anchored ramp/hold/taper weekly TSS
-           targets (Plan-tab revamp, Part 1). Pinned to the top of the Plan
-           tab; wrapped in .plan-merged to pick up the shared .pm-* card
-           styling (see docs/calculations/load-plan.md). ─────────────────── -->
-      <div class="plan-merged">
-        <div class="pm-card lp-card" id="load-plan-section">
+      <!-- Plan tab layout (v3): Next up → chart → this week → week list.
+           Single column at all breakpoints (desktop sidebar dropped). -->
+      <div class="plan-merged pl-v3">
+        <div id="plan-next-up" class="pl-v3-next"></div>
+
+        <div class="pl-v3-grid">
+        <div class="pm-card lp-card pl-v3-chart" id="load-plan-section">
           <div class="lp-head">
             <div>
               <h2 class="pm-sectitle">Session load plan</h2>
@@ -4269,6 +4270,11 @@
               </svg>
             </button>
           </div>
+
+          <button type="button" class="lp-setline" id="lp-setline" hidden aria-expanded="false">
+            <span id="lp-setline-text">Plan settings</span>
+            <span class="lp-setline-cv" aria-hidden="true">▾</span>
+          </button>
 
           <div class="lp-rules-strip" id="lp-rules-strip" hidden>
             <div class="lp-rule">
@@ -4369,6 +4375,8 @@
           <p class="lp-warning" id="lp-warning" hidden></p>
         </div>
 
+
+        <div class="pl-v3-side">
         <!-- ── Session load · this week (Plan-tab revamp, Part 2) — where the
              target comes from, and how logged + planned sessions add up to
              it. No separate Load History card; history is just the
@@ -4376,6 +4384,7 @@
         <div class="pm-card wl-card" id="week-load-section">
           <div class="pm-ckhead">
             <h2 class="pm-sectitle">Session load &middot; this week</h2>
+            <span class="wl-range-sub" id="wl-range-sub"></span>
           </div>
           <p class="pm-csub">Where the target comes from, and how your sessions add up to it.</p>
 
@@ -4431,8 +4440,10 @@
 
           <p class="lp-empty" id="wl-empty" hidden>Set a goal race to generate a weekly target.</p>
         </div>
-      </div>
-      <div id="plan-week-section"></div>
+        </div><!-- /.pl-v3-side -->
+        <div id="plan-week-section" class="pl-v3-week"></div>
+        </div><!-- /.pl-v3-grid -->
+      </div><!-- /.plan-merged.pl-v3 -->
       <div id="plan-add-section"></div>
       <div id="plan-detail-section"></div>
       <!-- ── AI suggestions panel (issue #1315) ─────────────────────────── -->
@@ -5865,6 +5876,18 @@
       }
       .plan-merged .lp-bar-col.is-this-week .lp-bar {
         box-shadow: 0 0 0 2px var(--ink);
+      }
+      .plan-merged .lp-bar-d {
+        font-family: var(--mono);
+        font-size: 8px;
+        color: var(--text-sub);
+        margin-top: 4px;
+        white-space: nowrap;
+        text-align: center;
+      }
+      .plan-merged .lp-bar-col.is-this-week .lp-bar-d {
+        color: var(--ink);
+        font-weight: 700;
       }
 
       .plan-merged .lp-axis {
@@ -9192,8 +9215,8 @@
     <script src="js/training-performance.js?v=20260720draft1"></script>
     <script src="js/lib/plan-session-helpers.js?v=20260720sm1"></script>
     <script src="js/lib/session-budget.js?v=20260805sb1"></script>
-    <script src="js/lib/plan-fill-preview.js?v=20260805blocks1"></script>
-    <script src="js/training-plan.js?v=20260806smux1"></script>
+    <script src="js/lib/plan-fill-preview.js?v=20260806align1"></script>
+    <script src="js/training-plan.js?v=20260807planv3g"></script>
     <script src="js/user.js"></script>
     <script src="js/env.js"></script>
     <script>

@@ -153,6 +153,17 @@ def undertrained_area_under_ramp(inputs: dict) -> Optional[GapAnalysisFinding]:
         ]
 
         if is_injured:
+            # AC #1465: add deferred_recovery=True to evidence so consumers can
+            # distinguish "defer, you are injured" from "load this area" via a
+            # structured field without parsing the recommendation text.
+            injured_evidence = evidence + [
+                {
+                    "metric": "deferred_recovery",
+                    "value": True,
+                    "threshold": None,
+                    "window": "0d",
+                },
+            ]
             return GapAnalysisFinding(
                 code="undertrained_area_under_ramp",
                 severity=2,
@@ -161,7 +172,7 @@ def undertrained_area_under_ramp(inputs: dict) -> Optional[GapAnalysisFinding]:
                     f"defer reintroducing {grp} strength work and prioritize recovery "
                     f"before adding volume to the area."
                 ),
-                evidence=evidence,
+                evidence=injured_evidence,
                 target=grp,
                 week_start=week_start,
             )

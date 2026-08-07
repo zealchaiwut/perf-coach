@@ -303,7 +303,7 @@ Unique: `(user_id, date)`.
 | id | UUID PK | |
 | user_id | UUID FK→users | CASCADE, unique |
 | athlete_id | bigint | |
-| access_token / refresh_token | text | |
+| access_token_encrypted / refresh_token_encrypted | text | Fernet-encrypted at rest via `OAUTH_FERNET_KEY` (Sprint 130.1 / #1702; renamed from plaintext `access_token`/`refresh_token`) |
 | expires_at | timestamptz | |
 | scope | varchar(255) | nullable |
 | athlete_data | jsonb | nullable |
@@ -453,7 +453,7 @@ Unique: `(user_id, snapshot_date)`. `ctl_days`/`atl_days` record the calibration
 
 ---
 
-## google_oauth_credentials _(last_sync_at added Sprint 89)_
+## google_oauth_credentials _(last_sync_at added Sprint 89; token columns encrypted Sprint 130.1 / #1702)_
 
 | column | type | notes |
 |--------|------|-------|
@@ -462,8 +462,8 @@ Unique: `(user_id, snapshot_date)`. `ctl_days`/`atl_days` record the calibration
 | google_sub | varchar(255) | |
 | email | varchar(255) | |
 | email_verified | bool | |
-| access_token | text | |
-| refresh_token | text | nullable |
+| access_token_encrypted | text | Fernet-encrypted at rest via `OAUTH_FERNET_KEY` (renamed from plaintext `access_token`) |
+| refresh_token_encrypted | text | nullable — Fernet-encrypted at rest (renamed from plaintext `refresh_token`) |
 | expires_at | timestamptz | |
 | id_token_payload | jsonb | nullable |
 | last_sync_at | timestamptz | nullable — stamped after each Drive sleep sync run |

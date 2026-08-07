@@ -98,7 +98,7 @@ def sum_spend(exercises: list | None, *, only_done: bool = False) -> tuple[float
     tss = 0.0
     mins = 0.0
     for ex in exercises or []:
-        if only_done and str((ex or {}).get("state") or "done") == "skipped":
+        if only_done and str((ex or {}).get("state") or "done") != "done":
             continue
         st, sm = exercise_spend(ex)
         tss += st
@@ -127,6 +127,14 @@ def structure_actual_spend(structure: Any) -> dict[str, Any] | None:
             has_spend = True
             break
     if not has_spend:
+        return None
+    # Only report actual spend when at least one row is explicitly done —
+    # all-pending generated sessions should fall back to baseline estimates.
+    has_done = any(
+        isinstance(ex, dict) and str(ex.get("state") or "done") == "done"
+        for ex in exercises
+    )
+    if not has_done:
         return None
     tss, mins = sum_spend(exercises, only_done=True)
     planned = _num(structure.get("target_tss"), default=-1.0)
@@ -244,18 +252,3 @@ def stamp_generated(exercises: list | None) -> list[dict]:
             row["state"] = "done"
         out.append(row)
     return out
-
-
-def merge_pinned_and_filled(pinned: list[dict], filled: list[dict]) -> list[dict]:
-    """Pinned first (stable order), then newly filled (stamped generated)."""
-    kept = [ensure_exercise_pin_fields(e) for e in pinned]
-    # Drop filled rows that collide on name with a pinned row.
-    used = {str(e.get("name") or "").strip().lower() for e in kept if e.get("name")}
-    for ex in stamp_generated(filled):
-        name = str(ex.get("name") or "").strip().lower()
-        if name and name in used:
-            continue
-        kept.append(ex)
-        if name:
-            used.add(name)
-    return kept

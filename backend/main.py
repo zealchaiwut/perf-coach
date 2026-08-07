@@ -146,6 +146,7 @@ from services.readiness.calculator import (
 )
 from services.readiness.job import compute_and_store as _readiness_compute_and_store
 from backend.services.daily_brief import build_brief
+import backend.services.daily_brief as _daily_brief_svc
 
 # Ceiling TSB used when computing expressible scores from historical/projected TSB.
 # 20.0 matches the representative value established in issue #1107.
@@ -185,6 +186,16 @@ def _today_bkk() -> _date:
 _static_root = Path(__file__).parent.parent
 app.mount("/css", StaticFiles(directory=str(_static_root / "frontend" / "css")), name="css")
 app.mount("/js", StaticFiles(directory=str(_static_root / "frontend" / "js")), name="js")
+
+
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
 
 
 @app.middleware("http")
@@ -241,10 +252,17 @@ _CSRF_EXEMPT_PATHS = frozenset({"/api/auth/login"})
 
 @app.middleware("http")
 async def _csrf_protect(request: Request, call_next):
-    """Require X-CSRF-Token header on all mutating requests that carry a session cookie."""
+    """Require X-CSRF-Token header on all mutating requests that carry an auth cookie.
+
+    Both the regular session cookie (COOKIE_NAME) and the admin session cookie
+    (ADMIN_COOKIE_NAME) trigger the double-submit CSRF check, providing
+    defense-in-depth on top of SameSite=Strict for admin-only endpoints.
+    """
     if request.method not in _CSRF_SAFE_METHODS and request.url.path not in _CSRF_EXEMPT_PATHS:
-        session_cookie = request.cookies.get(COOKIE_NAME)
-        if session_cookie:
+        has_auth_cookie = (
+            request.cookies.get(COOKIE_NAME) or request.cookies.get(ADMIN_COOKIE_NAME)
+        )
+        if has_auth_cookie:
             expected = request.cookies.get(CSRF_COOKIE_NAME)
             actual = request.headers.get("X-CSRF-Token")
             if not expected or not actual or not _hmac.compare_digest(expected, actual):
@@ -528,6 +546,7 @@ from backend.auth import (  # noqa: E402
     CSRF_COOKIE_NAME,
     generate_csrf_token,
     get_admin_secret,
+    get_client_ip,
     get_current_user,
     hash_password,
     MIN_PASSWORD_LENGTH,
@@ -583,7 +602,7 @@ class LoginIn(BaseModel):
 
 @app.post("/api/auth/login")
 def login(body: LoginIn, request: Request):
-    ip = request.client.host if request.client else "unknown"
+    ip = get_client_ip(request)
     _check_lockout(body.username, ip)
     try:
         with Session(engine) as session:
@@ -2015,7 +2034,10 @@ def get_weight_chart(
                 weekly_rate_ewma_kg if _rate["readable"] and weekly_rate_ewma_kg is not None
                 else delta_7d_kg
             ),
-            "delta_30d_kg": delta_30d_kg,
+            "delta_30d_kg": (
+                round(weekly_rate_ewma_kg * 4, 2) if _rate["readable"] and weekly_rate_ewma_kg is not None
+                else delta_30d_kg
+            ),
             "weekly_rate_ewma_kg": weekly_rate_ewma_kg,
             "ewma_alpha": round(2.0 / (_EWMA_DEFAULT_SPAN + 1), 4),
             "rate": _rate,
@@ -2030,9 +2052,6 @@ def get_weight_chart(
             "coverage_pct": _rate["coverage_pct"],
             "needed_rate_kg_wk": _rate["needed_rate_kg_wk"],
         }
-        if _rate["readable"] and weekly_rate_ewma_kg is not None:
-            stats["delta_7d_kg"] = weekly_rate_ewma_kg
-
         # Always fetch active target (needed for plan_series / milestones / today_marker)
         active_target = (
             session.query(WeightTarget)
@@ -2803,12 +2822,14 @@ def get_home_readiness(
     hrv_baseline_vals = [float(r.hrv) for r in baseline_rows if r.hrv is not None and r.metric_date >= hrv_baseline_start]
     rhr_baseline_vals = [float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None]
     hrv_7d_avg = _avg(hrv_baseline_vals) if hrv_baseline_vals else None
+    rhr_30d_avg = _avg(rhr_baseline_vals)
     rhr_7d_avg = _avg([float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None and r.metric_date >= hrv_baseline_start])
     sleep_7d_avg_hours = _avg([float(r.sleep_hours) for r in baseline_rows if r.sleep_hours is not None and r.metric_date >= hrv_baseline_start])
 
     rolling_baseline = {
         "hrv_7d_avg": hrv_7d_avg,
         "rhr_7d_avg": rhr_7d_avg,
+        "rhr_30d_avg": rhr_30d_avg,
         "sleep_7d_avg_hours": sleep_7d_avg_hours,
     }
 
@@ -2884,7 +2905,7 @@ def get_home_readiness(
         "mood": float(metrics.mood) if metrics.mood is not None else None,
         "sleep_hours_baseline": rolling_baseline["sleep_7d_avg_hours"],
         "hrv_baseline": rolling_baseline["hrv_7d_avg"],
-        "rhr_baseline": rolling_baseline["rhr_7d_avg"],
+        "rhr_baseline": rolling_baseline["rhr_30d_avg"],
     }
     from backend.services.readiness_explanation import get_readiness_explanation
     explanation = get_readiness_explanation(
@@ -3500,7 +3521,7 @@ def _build_readiness_block(uid, today_bkk):
     hrv_baseline_vals = [float(r.hrv) for r in baseline_rows if r.hrv is not None and r.metric_date >= hrv_baseline_start]
     rhr_baseline_vals = [float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None]
     hrv_7d_avg = _avg(hrv_baseline_vals) if hrv_baseline_vals else None
-    rhr_7d_avg = _avg([float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None and r.metric_date >= hrv_baseline_start])
+    rhr_30d_avg = _avg(rhr_baseline_vals)
     sleep_7d_avg = _avg([float(r.sleep_hours) for r in baseline_rows if r.sleep_hours is not None and r.metric_date >= hrv_baseline_start])
 
     result = _canonical_readiness(
@@ -3550,7 +3571,7 @@ def _build_readiness_block(uid, today_bkk):
         "mood": float(metrics.mood) if metrics.mood is not None else None,
         "sleep_hours_baseline": sleep_7d_avg,
         "hrv_baseline": hrv_7d_avg,
-        "rhr_baseline": rhr_7d_avg,
+        "rhr_baseline": rhr_30d_avg,
     }
     from backend.services.readiness_explanation import get_readiness_explanation
     explanation = get_readiness_explanation(
@@ -5906,6 +5927,33 @@ def _classified_manual_laps_map(session, run_workouts, prefs_dict) -> dict:
     return out
 
 
+def _planned_duration_map(session, workout_ids: list) -> dict:
+    """Map workout_id → planned_duration_seconds from matched PlannedSession rows.
+
+    Queries PlannedSession rows whose matched_workout_id is in workout_ids and
+    returns a dict keyed by workout_id.  Workouts not matched to any session, or
+    matched to a session whose structure has no parseable block durations, are
+    absent from the result (the caller treats a missing key as None, which
+    leaves the absolute-only guard in running_performance.py intact — issue #1479).
+    """
+    if not workout_ids:
+        return {}
+    from backend.services.plan_matching import _planned_duration_seconds as _pds
+    rows = (
+        session.query(PlannedSession)
+        .filter(PlannedSession.matched_workout_id.in_(workout_ids))
+        .all()
+    )
+    out = {}
+    for r in rows:
+        if r.matched_workout_id is None:
+            continue
+        dur = _pds(r.structure)
+        if dur is not None:
+            out[r.matched_workout_id] = dur
+    return out
+
+
 def _workout_signal_scores(session, workout) -> dict:
     """Per-session endurance/speed scores for the signal card.
 
@@ -5983,6 +6031,7 @@ def _workout_signal_scores(session, workout) -> dict:
             splits_by_wk.setdefault(s.workout_id, []).append(s)
 
     _ml_map = _classified_manual_laps_map(session, run_workouts, prefs_dict)
+    _pdc_map = _planned_duration_map(session, wids)
 
     def _build(max_date):
         runs = []
@@ -6042,6 +6091,7 @@ def _workout_signal_scores(session, workout) -> dict:
                     "speed_signal_window_seconds": wk.speed_signal_window_seconds,
                     "manual_laps": _ml_map.get(wk.id, []),
                     "ftp_w": (prefs_dict or {}).get("ftp_w"),
+                    "planned_duration_seconds": _pdc_map.get(wk.id),
                 }
             )
         return runs
@@ -6156,6 +6206,7 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
             splits_by_wk.setdefault(s.workout_id, []).append(s)
 
     _ml_map_asof = _classified_manual_laps_map(session, run_workouts, prefs_dict)
+    _pdc_map_asof = _planned_duration_map(session, wids)
 
     runs = []
     for wk in run_workouts:
@@ -6212,6 +6263,7 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
                 "speed_signal_window_seconds": wk.speed_signal_window_seconds,
                 "manual_laps": _ml_map_asof.get(wk.id, []),
                 "ftp_w": (prefs_dict or {}).get("ftp_w"),
+                "planned_duration_seconds": _pdc_map_asof.get(wk.id),
             }
         )
 
@@ -10428,15 +10480,18 @@ def _upsert_strava_token(
     scope: Optional[str],
     athlete_data: dict,
 ) -> None:
+    from backend.services.crypto import encrypt_oauth_token as _enc_oauth  # noqa: E402
     now = _datetime.now(tz=_timezone.utc)
+    enc_at = _enc_oauth(access_token)
+    enc_rt = _enc_oauth(refresh_token)
     with Session(engine) as session:
         stmt = (
             _pg_insert(StravaToken)
             .values(
                 user_id=user_id,
                 athlete_id=athlete_id,
-                access_token=access_token,
-                refresh_token=refresh_token,
+                access_token_encrypted=enc_at,
+                refresh_token_encrypted=enc_rt,
                 expires_at=expires_at,
                 scope=scope,
                 athlete_data=athlete_data,
@@ -10445,8 +10500,8 @@ def _upsert_strava_token(
                 index_elements=["user_id"],
                 set_={
                     "athlete_id": athlete_id,
-                    "access_token": access_token,
-                    "refresh_token": refresh_token,
+                    "access_token_encrypted": enc_at,
+                    "refresh_token_encrypted": enc_rt,
                     "expires_at": expires_at,
                     "scope": scope,
                     "athlete_data": athlete_data,
@@ -10524,7 +10579,7 @@ def strava_callback(
 # ── Stryd ──────────────────────────────────────────────────────────────────────
 
 from backend.services.stryd import _call_stryd_signin as _stryd_signin  # noqa: E402
-from backend.services.crypto import encrypt_value as _encrypt_value  # noqa: E402
+from backend.services.crypto import encrypt_value as _encrypt_value, decrypt_oauth_token as _decrypt_oauth_token  # noqa: E402
 from backend.services.strava import refresh_token_if_needed  # noqa: E402
 from backend.services.stryd import refresh_stryd_session_if_needed  # noqa: E402
 
@@ -10671,7 +10726,7 @@ def strava_disconnect(user: User = Depends(resolve_user)):
     with Session(engine) as session:
         token_row = session.query(StravaToken).filter(StravaToken.user_id == user_id).first()
         if token_row is not None:
-            access_token = token_row.access_token
+            access_token = _decrypt_oauth_token(token_row.access_token_encrypted)
             session.delete(token_row)
             session.commit()
 
@@ -11105,6 +11160,8 @@ def strava_sync_latest(
     Without user_id: returns legacy summary dict for session user (backwards-compatible).
     """
     if user_id is not None:
+        if user_id != user.id and not bool(user.is_admin):
+            raise HTTPException(status_code=403, detail="Forbidden")
         # New path: full SyncJob dict, any status
         with Session(engine) as session:
             job = session.execute(
@@ -11235,6 +11292,8 @@ def stryd_sync_latest(
     """Most recent Stryd sync. With user_id: full latest SyncJob (any status);
     without: completed-only summary for the session user."""
     from sqlalchemy import select
+    if user_id is not None and user_id != user.id and not bool(user.is_admin):
+        raise HTTPException(status_code=403, detail="Forbidden")
     target = user_id if user_id is not None else user.id
     with Session(engine) as session:
         if user_id is not None:
@@ -11584,27 +11643,30 @@ def _upsert_google_credentials(
     expires_at: _datetime,
     id_token_payload: dict,
 ) -> None:
+    from backend.services.crypto import encrypt_oauth_token as _enc_oauth  # noqa: E402
     now = _datetime.now(tz=_timezone.utc)
+    enc_at = _enc_oauth(access_token)
+    enc_rt = _enc_oauth(refresh_token) if refresh_token is not None else None
     with Session(engine) as session:
         set_values: dict = {
             "google_sub": google_sub,
             "email": email,
             "email_verified": email_verified,
-            "access_token": access_token,
+            "access_token_encrypted": enc_at,
             "expires_at": expires_at,
             "id_token_payload": id_token_payload,
             "updated_at": now,
         }
-        if refresh_token is not None:
-            set_values["refresh_token"] = refresh_token
+        if enc_rt is not None:
+            set_values["refresh_token_encrypted"] = enc_rt
 
         insert_values = {
             "user_id": user_id,
             "google_sub": google_sub,
             "email": email,
             "email_verified": email_verified,
-            "access_token": access_token,
-            "refresh_token": refresh_token,
+            "access_token_encrypted": enc_at,
+            "refresh_token_encrypted": enc_rt,
             "expires_at": expires_at,
             "id_token_payload": id_token_payload,
         }
@@ -11946,7 +12008,6 @@ def drive_sleep_disconnect(user: User = Depends(resolve_user)):
 # ── Imports ───────────────────────────────────────────────────────────────────
 
 class _SleepImportBody(BaseModel):
-    user_id: str
     import_date: str
     source: str
     data: dict
@@ -13410,7 +13471,7 @@ def admin_plan_library_page(request: Request):
 
 @app.post("/api/admin/login")
 def admin_login(body: AdminLoginIn, request: Request):
-    ip = request.client.host if request.client else "unknown"
+    ip = get_client_ip(request)
     admin_lockout_check(ip)
 
     admin_secret = get_admin_secret()
@@ -13424,6 +13485,7 @@ def admin_login(body: AdminLoginIn, request: Request):
     admin_lockout_clear(ip)
     resp = JSONResponse({"ok": True})
     set_admin_cookie(resp)
+    set_csrf_cookie(resp, generate_csrf_token())
     return resp
 
 
@@ -13431,6 +13493,7 @@ def admin_login(body: AdminLoginIn, request: Request):
 def admin_logout():
     resp = Response(status_code=204)
     clear_admin_cookie(resp)
+    resp.delete_cookie(key=CSRF_COOKIE_NAME, path="/")
     return resp
 
 
@@ -13894,15 +13957,20 @@ def admin_list_plan_exercises():
 @app.post("/api/admin/plan-exercises", status_code=201, dependencies=[Depends(require_admin)])
 def admin_create_plan_exercise(body: AdminPlanExerciseIn):
     from backend.models import PlanExercise
+    from backend.services.plan_body_parts import normalize_body_parts_list
     from datetime import datetime, timezone
     from sqlalchemy.exc import IntegrityError
+
+    cleaned, bp_err = normalize_body_parts_list(body.body_parts or [])
+    if bp_err:
+        raise HTTPException(status_code=422, detail=bp_err)
 
     with Session(engine) as db:
         row = PlanExercise(
             name=body.name.strip(),
             groups=body.groups or [],
             focus_tags=body.focus_tags or [],
-            body_parts=body.body_parts or [],
+            body_parts=cleaned or [],
             tss_weight=body.tss_weight,
             default_sets=body.default_sets,
             default_reps=body.default_reps,
@@ -13923,8 +13991,13 @@ def admin_create_plan_exercise(body: AdminPlanExerciseIn):
 @app.patch("/api/admin/plan-exercises/{exercise_id}", dependencies=[Depends(require_admin)])
 def admin_patch_plan_exercise(exercise_id: str, body: AdminPlanExerciseIn):
     from backend.models import PlanExercise
+    from backend.services.plan_body_parts import normalize_body_parts_list
     from datetime import datetime, timezone
     from uuid import UUID
+
+    cleaned, bp_err = normalize_body_parts_list(body.body_parts or [])
+    if bp_err:
+        raise HTTPException(status_code=422, detail=bp_err)
 
     with Session(engine) as db:
         row = db.query(PlanExercise).filter(PlanExercise.id == UUID(exercise_id)).first()
@@ -13933,7 +14006,7 @@ def admin_patch_plan_exercise(exercise_id: str, body: AdminPlanExerciseIn):
         row.name = body.name.strip()
         row.groups = body.groups or []
         row.focus_tags = body.focus_tags or []
-        row.body_parts = body.body_parts or []
+        row.body_parts = cleaned or []
         row.tss_weight = body.tss_weight
         row.default_sets = body.default_sets
         row.default_reps = body.default_reps
@@ -14153,6 +14226,146 @@ class AdminPlanLibraryImportIn(BaseModel):
     mode: str = "upsert"  # upsert | create
 
 
+# Catalog allow-lists — keep groups/focus in sync with frontend/js/admin-plan-library.js
+_PLAN_EXERCISE_GROUPS = frozenset({
+    "warmup", "heavy_compound", "superset", "standalone", "accessories",
+    "cooldown", "bodyweight", "plyo", "isometric", "emom",
+})
+_PLAN_FOCUS_TAGS = frozenset({"lower", "upper", "full", "core"})
+_PLAN_RUN_PHASES = frozenset({"warmup", "main", "cooldown", "mp"})
+
+
+def _validate_plan_exercise_import(raw: dict) -> str | None:
+    """Return an error detail string, or None if the exercise row is ok.
+
+    Normalizes body_parts in-place (plurals → canonical keys) on success.
+    """
+    from backend.services.plan_body_parts import normalize_body_parts_list
+
+    name = str(raw.get("name") or "").strip()
+    if not name:
+        return "name required"
+    groups = raw.get("groups")
+    if not isinstance(groups, list) or not groups:
+        return "groups must be a non-empty list"
+    bad_g = [g for g in groups if not isinstance(g, str) or g not in _PLAN_EXERCISE_GROUPS]
+    if bad_g:
+        return f"invalid groups: {bad_g!r} (allowed: {sorted(_PLAN_EXERCISE_GROUPS)})"
+    focus_tags = raw.get("focus_tags")
+    if not isinstance(focus_tags, list) or not focus_tags:
+        return "focus_tags must be a non-empty list"
+    bad_f = [f for f in focus_tags if not isinstance(f, str) or f not in _PLAN_FOCUS_TAGS]
+    if bad_f:
+        return f"invalid focus_tags: {bad_f!r} (allowed: {sorted(_PLAN_FOCUS_TAGS)})"
+    cleaned, bp_err = normalize_body_parts_list(raw.get("body_parts"))
+    if bp_err:
+        return bp_err
+    raw["body_parts"] = cleaned
+    try:
+        tss_weight = float(raw.get("tss_weight") if raw.get("tss_weight") is not None else 1.0)
+    except (TypeError, ValueError):
+        return "bad tss_weight"
+    if not (0 < tss_weight <= 3):
+        return "tss_weight must be 0 < n ≤ 3"
+    if raw.get("default_sets") is not None:
+        try:
+            sets = int(raw.get("default_sets"))
+        except (TypeError, ValueError):
+            return "bad default_sets"
+        if sets < 1 or sets > 12:
+            return "default_sets must be 1–12"
+    return None
+
+
+def _validate_strength_pick_group(g: dict) -> str | None:
+    if not isinstance(g, dict):
+        return "strength group must be an object"
+    if not str(g.get("key") or "").strip():
+        return "strength group.key required"
+    pick = g.get("pick")
+    if not isinstance(pick, dict):
+        return "strength group.pick required"
+    try:
+        n = int(pick.get("n"))
+    except (TypeError, ValueError):
+        return "strength group.pick.n must be an integer"
+    if n < 1:
+        return "strength group.pick.n must be ≥ 1"
+    tags = pick.get("from_tags")
+    if not isinstance(tags, list) or not tags:
+        return "strength group.pick.from_tags must be a non-empty list"
+    bad = [t for t in tags if not isinstance(t, str) or t not in _PLAN_EXERCISE_GROUPS]
+    if bad:
+        return f"invalid from_tags: {bad!r} (allowed groups: {sorted(_PLAN_EXERCISE_GROUPS)})"
+    return None
+
+
+def _validate_plan_pattern_import(raw: dict) -> str | None:
+    """Return an error detail string, or None if the pattern row is ok."""
+    kind = str(raw.get("kind") or "").strip()
+    subtype = str(raw.get("subtype") or "").strip()
+    name = str(raw.get("name") or "").strip()
+    if kind not in ("run", "strength"):
+        return "kind must be run or strength"
+    if not subtype or not name:
+        return "subtype and name required"
+    recipe = raw.get("recipe")
+    if not isinstance(recipe, dict):
+        return "recipe must be an object"
+    if not str(recipe.get("intent_template") or "").strip():
+        return "recipe.intent_template required"
+    if kind == "run":
+        blocks = recipe.get("blocks")
+        if not isinstance(blocks, list) or not blocks:
+            return "run recipe.blocks must be a non-empty list"
+        share_sum = 0.0
+        for b in blocks:
+            if not isinstance(b, dict):
+                return "run blocks must be objects"
+            phase = b.get("phase")
+            if phase not in _PLAN_RUN_PHASES:
+                return f"invalid block.phase: {phase!r} (allowed: {sorted(_PLAN_RUN_PHASES)})"
+            try:
+                share = float(b.get("duration_share"))
+            except (TypeError, ValueError):
+                return "block.duration_share must be a number"
+            if share <= 0:
+                return "block.duration_share must be > 0"
+            share_sum += share
+        if abs(share_sum - 1.0) > 0.05:
+            return f"block duration_share must sum ≈ 1.0 (got {share_sum:.2f})"
+    else:
+        groups = recipe.get("groups") if isinstance(recipe.get("groups"), list) else []
+        bands = recipe.get("bands") if isinstance(recipe.get("bands"), list) else []
+        if not groups and not bands:
+            return "strength recipe needs groups and/or bands"
+        for g in groups:
+            err = _validate_strength_pick_group(g)
+            if err:
+                return err
+        for band in bands:
+            if not isinstance(band, dict):
+                return "band must be an object"
+            bg = band.get("groups")
+            if not isinstance(bg, list) or not bg:
+                return "band.groups must be a non-empty list"
+            for g in bg:
+                err = _validate_strength_pick_group(g)
+                if err:
+                    return err
+        bias = recipe.get("focus_bias")
+        if bias is not None:
+            if not isinstance(bias, dict):
+                return "recipe.focus_bias must be an object"
+            primary_tag = bias.get("primary_tag")
+            if primary_tag not in _PLAN_FOCUS_TAGS:
+                return (
+                    f"invalid focus_bias.primary_tag: {primary_tag!r} "
+                    f"(allowed: {sorted(_PLAN_FOCUS_TAGS)})"
+                )
+    return None
+
+
 def _export_exercise_row(r) -> dict:
     return {
         "name": r.name,
@@ -14205,6 +14418,42 @@ def admin_export_plan_library():
     })
 
 
+@app.get("/api/admin/plan-library/body-parts", dependencies=[Depends(require_admin)])
+def admin_plan_library_body_parts():
+    """Known body-part keys, colors, and accepted aliases (plural/singular)."""
+    from backend.services.plan_body_parts import catalog_payload
+    return JSONResponse(catalog_payload())
+
+
+@app.post("/api/admin/plan-library/normalize-body-parts", dependencies=[Depends(require_admin)])
+def admin_normalize_plan_body_parts():
+    """Rewrite stored exercise body_parts through the alias map (glutes→glute, …)."""
+    from backend.models import PlanExercise
+    from backend.services.plan_body_parts import normalize_body_parts_list
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    updated = 0
+    skipped = 0
+    errors = []
+    with Session(engine) as db:
+        rows = db.query(PlanExercise).all()
+        for row in rows:
+            cleaned, err = normalize_body_parts_list(row.body_parts or [])
+            if err or cleaned is None:
+                skipped += 1
+                errors.append({"name": row.name, "detail": err or "empty"})
+                continue
+            if cleaned == (row.body_parts or []):
+                skipped += 1
+                continue
+            row.body_parts = cleaned
+            row.updated_at = now
+            updated += 1
+        db.commit()
+    return JSONResponse({"updated": updated, "skipped": skipped, "errors": errors[:20]})
+
+
 @app.post("/api/admin/plan-library/import", dependencies=[Depends(require_admin)])
 def admin_import_plan_library(body: AdminPlanLibraryImportIn):
     """Bulk create / upsert exercises and patterns from catalog JSON."""
@@ -14228,17 +14477,20 @@ def admin_import_plan_library(body: AdminPlanLibraryImportIn):
                 summary["exercises"]["errors"].append({"index": i, "detail": "not an object"})
                 continue
             name = str(raw.get("name") or "").strip()
-            if not name:
-                summary["exercises"]["errors"].append({"index": i, "detail": "name required"})
+            verr = _validate_plan_exercise_import(raw)
+            if verr:
+                summary["exercises"]["errors"].append({
+                    "index": i, "name": name, "detail": verr,
+                })
                 continue
             try:
                 tss_weight = float(raw.get("tss_weight") if raw.get("tss_weight") is not None else 1.0)
             except (TypeError, ValueError):
                 summary["exercises"]["errors"].append({"index": i, "name": name, "detail": "bad tss_weight"})
                 continue
-            groups = raw.get("groups") if isinstance(raw.get("groups"), list) else []
-            focus_tags = raw.get("focus_tags") if isinstance(raw.get("focus_tags"), list) else []
-            body_parts = raw.get("body_parts") if isinstance(raw.get("body_parts"), list) else []
+            groups = list(raw.get("groups") or [])
+            focus_tags = list(raw.get("focus_tags") or [])
+            body_parts = list(raw.get("body_parts") or [])
             default_sets = raw.get("default_sets")
             if default_sets is not None:
                 try:
@@ -14283,22 +14535,13 @@ def admin_import_plan_library(body: AdminPlanLibraryImportIn):
             kind = str(raw.get("kind") or "").strip()
             subtype = str(raw.get("subtype") or "").strip()
             name = str(raw.get("name") or "").strip()
-            if kind not in ("run", "strength"):
+            verr = _validate_plan_pattern_import(raw)
+            if verr:
                 summary["patterns"]["errors"].append({
-                    "index": i, "name": name, "detail": "kind must be run or strength",
-                })
-                continue
-            if not subtype or not name:
-                summary["patterns"]["errors"].append({
-                    "index": i, "detail": "subtype and name required",
+                    "index": i, "name": name, "detail": verr,
                 })
                 continue
             recipe = raw.get("recipe")
-            if not isinstance(recipe, dict):
-                summary["patterns"]["errors"].append({
-                    "index": i, "name": name, "detail": "recipe must be an object",
-                })
-                continue
             try:
                 duration_min_lo = int(raw.get("duration_min_lo") if raw.get("duration_min_lo") is not None else 0)
                 duration_min_hi = int(raw.get("duration_min_hi") if raw.get("duration_min_hi") is not None else 120)
@@ -17018,6 +17261,7 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
             # Batch-load all splits for the qualifying runs in one query
             # (issue #1578: replaces N sequential per-workout queries → 1 query).
             _run_ids = [w.id for w in run_workouts]
+            _pdc_map_perf = _planned_duration_map(session, _run_ids)
             if _run_ids:
                 _all_splits = (
                     session.query(WorkoutSplit)
@@ -17093,6 +17337,7 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
                     # extraction (short reps are invisible in 1 km auto-splits).
                     "manual_laps": _ml_map_perf.get(workout.id, []),
                     "ftp_w": (prefs_dict or {}).get("ftp_w"),
+                    "planned_duration_seconds": _pdc_map_perf.get(workout.id),
                 })
 
         # All DB access is finished above.  The pure functions below perform no I/O.
@@ -17597,6 +17842,7 @@ def get_athlete_weekly_summary(
         prefs_dict = preferences or {}
         zone_constants = make_zone_constants()
         _ml_map_weekly = _classified_manual_laps_map(session, run_workouts, prefs_dict)
+        _pdc_map_weekly = _planned_duration_map(session, [w.id for w in run_workouts])
 
         try:
             compute_decoupling = _compute_decoupling
@@ -17662,6 +17908,7 @@ def get_athlete_weekly_summary(
                     "duration_seconds": workout.duration_seconds,
                     "speed_signal": workout.speed_signal,
                     "manual_laps": _ml_map_weekly.get(workout.id, []),
+                    "planned_duration_seconds": _pdc_map_weekly.get(workout.id),
                 })
             return runs
 
@@ -19008,6 +19255,8 @@ def get_projection(user: User = Depends(resolve_user)):
                         .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
                         .all()
                     )
+                    _proj_run_ids = [w.id for w in run_workouts]
+                    _pdc_map_proj = _planned_duration_map(db, _proj_run_ids)
 
                     runs = []
                     for workout in run_workouts:
@@ -19034,6 +19283,7 @@ def get_projection(user: User = Depends(resolve_user)):
                             "duration_seconds": workout.duration_seconds,
                             "avg_hr": workout.avg_hr,
                             "laps": laps,
+                            "planned_duration_seconds": _pdc_map_proj.get(workout.id),
                         })
 
                     from backend.services.body_modifier import get_body_modifier_for_user as _get_bm_proj
@@ -19676,14 +19926,15 @@ else:
 
 @app.get("/api/brief/today")
 def get_brief_today(user: User = Depends(resolve_user)):
-    """Return today's SCHEMA_VERSION 3 coaching brief for the session user.
+    """Return the current coaching brief for the session user.
 
     Calls build_brief() directly — no worker process required.
     for_date is today in Asia/Bangkok timezone.
+    schema_version is set by build_brief() via daily_brief.SCHEMA_VERSION.
     """
     today = _today_bkk()
     brief = build_brief(user.id, today)
-    brief["schema_version"] = 3
+    brief["schema_version"] = _daily_brief_svc.SCHEMA_VERSION
     # Normalize week_plan to the canonical API shape {"days": [...]}.
     # build_brief returns week_plan as a list; the external API contract is a dict.
     _wp = brief.get("week_plan")

@@ -1,5 +1,44 @@
 # Changelog
 
+## Sprint 130.1 — pre-PRD review hardening (security, LLM policy, migrations, session/weight fixes)
+
+- #1702: encrypt Strava and Google OAuth tokens at rest — `strava_tokens` and `google_oauth_credentials` now store `access_token_encrypted` / `refresh_token_encrypted` (Fernet via new `OAUTH_FERNET_KEY`, separate from `STRYD_FERNET_KEY` so keys rotate independently). New `encrypt_oauth_token` / `decrypt_oauth_token` in `crypto.py`; `strava.py`, `google.py`, and the `_upsert_*` writers encrypt on write and decrypt on read. Migration `b1be92b4c4ff`; `OAUTH_FERNET_KEY` must be set in Render before applying
+- #1705: add baseline HTTP security headers on every response via new middleware — `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`, `Strict-Transport-Security: max-age=31536000; includeSubDomains`
+- #1703: extend the CSRF double-submit check to admin-only endpoints — the admin session cookie (`ADMIN_COOKIE_NAME`) now also triggers the `X-CSRF-Token` requirement on mutating requests; `admin_login` sets the CSRF cookie and `admin_logout` clears it
+- #1704: key login/admin lockout on the proxy-aware client IP — new `get_client_ip` reads the rightmost `X-Forwarded-For` entry (authoritative behind Render's reverse proxy, un-spoofable), falling back to `request.client.host`
+- #1717: fail closed on missing `SESSION_SECRET` — the app now raises at startup instead of generating an ephemeral secret when `ENVIRONMENT` is not `local`/`test`
+- #1696: fix IDOR on `GET /api/sync/strava/latest` and `/api/sync/stryd/latest` — a non-admin user passing another user's `user_id` now gets 403 instead of that user's sync history
+- #1718: drop the unused client-supplied `user_id` from `POST /api/imports/sleep` — the endpoint derives the user from the session only
+- #1695: remove the week-level LLM call from `plan_suggestions.py` (enforces "planning has no LLM") — `_call_llm` is now a stub returning `None`; `get_suggestions` / `get_suggestions_from_facts` always use the deterministic template/history fallback. `projection.py` docstring updated accordingly
+- #1706 / #1714: migration hygiene — add `scripts/check_migration_ids.py` lint (blocks hand-authored sequential-letter revision ids) wired into the CI migrations-check gate, and add `CREATE INDEX CONCURRENTLY` for indexes on pre-existing live tables in the affected migrations
+- #1701: document the already-applied-column-rename case in the migration rollback story (`docs/release-process.md`)
+- #1694: document the PRD compute-worker deployment (`docs/worker.md` § Live PRD runbook); `render.yaml` keeps `BANISTER_REFIT_ENABLED=1` (in-process fallback ON) until a PRD worker is confirmed running
+- #1697: window-proportional minimum-entry gate in `weight_stats()` — `min_entries` is now `max(3, min(MIN_N_DAYS, round(window_days × coverage_threshold / 100)))` instead of a hardcoded 21, so the 7-day "recalibrate maintenance" window can become readable
+- #1698 / #1713: fix `get_weight_chart` deltas — remove the duplicate post-assignment that computed `delta_7d_kg` twice, and derive `delta_30d_kg` from `weekly_rate_ewma_kg × 4` when the EWMA rate is readable so the 7-day and 30-day figures stay consistent with the rate pill
+- #1692: restore the Body Composition card — `compute_composition_trend` now emits the `latest` (lean/fat/body-fat trend means) and `verdict` keys the frontend card and timeline overlay expect
+- #1693: block session refill that would silently destroy pinned rows — `fill_slot` short-circuits with `refill_blocked` / `refill_reason` when pinned rows exceed the slot maximum of 12 instead of falling through to a template that discards all pins
+- #1699: generated session rows are stamped `state:"pending"` (not `"done"`) at creation, so `actual_tss` no longer populates before the athlete marks anything done; `structure_actual_spend` returns `None` until at least one row is explicitly done
+- #1700: align frontend session-budget math with the backend refill contract on skipped-but-pinned rows — `sum_spend(only_done=True)` now counts only rows whose state is exactly `done`
+- #1712: case-insensitive dedup in `fill_strength`'s `used` set (and `plan_pattern_fill` helpers) so a differently-cased name can't produce a duplicate exercise
+- #1691: unhide the fuel food-logging panel (was wrapped in hidden markup, completely inaccessible)
+- #1709: restore the proper HTML-escaping fallback in `plan-fill-preview.js` (previously weakened to satisfy a CI string-match)
+- #1719: remove the orphaned adherence write in `fuel.js` targeting a DOM element that no longer exists
+- #1711: delete dead code never called in production — `apply_swap` / `apply_add` (`session_swap.py`) and `merge_pinned_and_filled` (`session_pins.py`)
+- #1707: sign-off note on the `weight_plans` table drop (historical non-active rows) — see `tests/test_1707_weight_plans_drop_sign_off.py`
+
+## Sprint 129.1 — code-review follow-up fixes (readiness baseline, plan-duration plumbing, projection/schema cleanups)
+
+- #1390: readiness `rhr_baseline` now uses a 30-**day** RHR window instead of 7 days, matching how readiness scores RHR — `get_home_readiness` and `_build_readiness_block` compute `rhr_30d_avg` and pass it as `rhr_baseline`, and `rolling_baseline` gains an `rhr_30d_avg` field alongside the existing `rhr_7d_avg`
+- #1479: populate `planned_duration_seconds` on run payloads — new `_planned_duration_map` helper in `main.py` maps each run workout to its matched `PlannedSession`'s parsed block duration (via `plan_matching._planned_duration_seconds`), wired into the signal-scores, as-of, athlete-performance, weekly-summary, and projection run payloads. This activates the previously-inert endurance plan-short guard in `running_performance.py`; a workout with no matched session (or no parseable block duration) is absent from the map, so the guard's absolute-only fallback is unchanged
+- #1465: give the injured branch of `undertrained_area_under_ramp` a structured `deferred_recovery: true` evidence entry so consumers can distinguish "defer, you are injured" from "load this area" without parsing the recommendation text (the code and severity stay the same; only the evidence gains the flag)
+- #1277: drop the legacy `half_equivalent` / `half_equivalent_seconds` keys from the projection payload and the `compute_half_equivalent` module alias in `projection.py` — only the `half_race_equivalent*` names remain after the #1176 rename
+- #1515: `/api/brief/today` reads `schema_version` from `daily_brief.SCHEMA_VERSION` instead of hardcoding `3`, so the endpoint tracks the constant automatically
+- #1518: update the stale "SCHEMA_VERSION 2" docstrings in `daily_brief.py` (module and `build_brief`) to "SCHEMA_VERSION 3" to match the shipped schema
+- #1459: `/api/plan/today` (worker) empty-state response now includes the AC-specified `session_type: null` field when no session is planned
+- #1319: call `_emit_startup_info()` at `llm.py` import time (and fix the negated `not ... in` env check) so the LLM-coaching startup log actually fires
+- #1560: deduplicate the Half-Equivalent column block in `training-performance.js` into a shared `_halfEquivCol(r)` helper used by both the planned and completed race cards
+- #1415: refresh the weekly fuel card after a sync-deficit — `fuel.js` now also calls `_fuelLoadWeek()` (in addition to `_fuelLoadToday()`) so the weekly projection reflects the new deficit
+
 ## Sprint 128 — code-review follow-up cleanup (dead-code & unused-parameter removal)
 
 - #1519: remove the unused `atl` parameter from `_load_interpretation` in `daily_brief.py` — the interpretation label is derived only from `tsb` (and `ctl`), so the signature is now `_load_interpretation(ctl, tsb)` and `_assemble_form` no longer passes `atl`

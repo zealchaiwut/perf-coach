@@ -23,7 +23,7 @@ import pytest
 
 # ── Pure-unit imports (no server required) ────────────────────────────────────
 from backend.services.projection import (
-    compute_half_race_equivalent as compute_half_equivalent,  # renamed in #1176
+    compute_half_race_equivalent,
     fitness_band_from_tsb,
     build_plan_projection_payload,
     RIEGEL_EXPONENT,
@@ -78,33 +78,33 @@ def test_ac7_projection_module_compiles():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Pure unit tests: compute_half_equivalent
+# Pure unit tests: compute_half_race_equivalent
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_half_equivalent_none_on_none_seconds():
-    """compute_half_equivalent returns None when estimated_finish_seconds is None."""
-    assert compute_half_equivalent(None, 42.195) is None
+    """compute_half_race_equivalent returns None when estimated_finish_seconds is None."""
+    assert compute_half_race_equivalent(None, 42.195) is None
 
 
 def test_half_equivalent_none_on_none_distance():
-    """compute_half_equivalent returns None when distance_km is None."""
-    assert compute_half_equivalent(13500, None) is None
+    """compute_half_race_equivalent returns None when distance_km is None."""
+    assert compute_half_race_equivalent(13500, None) is None
 
 
 def test_half_equivalent_none_on_zero_distance():
-    """compute_half_equivalent returns None when distance_km is 0."""
-    assert compute_half_equivalent(13500, 0.0) is None
+    """compute_half_race_equivalent returns None when distance_km is 0."""
+    assert compute_half_race_equivalent(13500, 0.0) is None
 
 
 def test_half_equivalent_none_on_negative_distance():
-    """compute_half_equivalent returns None for negative distance."""
-    assert compute_half_equivalent(13500, -5.0) is None
+    """compute_half_race_equivalent returns None for negative distance."""
+    assert compute_half_race_equivalent(13500, -5.0) is None
 
 
 def test_half_equivalent_uses_riegel_formula():
-    """compute_half_equivalent uses 0.5^RIEGEL_EXPONENT multiplier."""
+    """compute_half_race_equivalent uses 0.5^RIEGEL_EXPONENT multiplier."""
     seconds = 14400  # 4h marathon
-    result = compute_half_equivalent(seconds, 42.195)
+    result = compute_half_race_equivalent(seconds, 42.195)
     expected = int(round(seconds * (0.5 ** RIEGEL_EXPONENT)))
     assert result == expected
 
@@ -112,14 +112,14 @@ def test_half_equivalent_uses_riegel_formula():
 def test_half_equivalent_shorter_than_full():
     """Half-equivalent finish time must be less than the full finish time."""
     full_seconds = 14400
-    half_equiv = compute_half_equivalent(full_seconds, 42.195)
+    half_equiv = compute_half_race_equivalent(full_seconds, 42.195)
     assert half_equiv is not None
     assert half_equiv < full_seconds
 
 
 def test_half_equivalent_returns_int():
-    """compute_half_equivalent returns an int (not float)."""
-    result = compute_half_equivalent(10000, 21.0975)
+    """compute_half_race_equivalent returns an int (not float)."""
+    result = compute_half_race_equivalent(10000, 21.0975)
     assert result is not None
     assert isinstance(result, int)
 

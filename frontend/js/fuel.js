@@ -503,8 +503,9 @@ function _fuelInitPlanMismatch() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const updated = await res.json();
       _fuelRenderPlanMismatch(updated);
-      // Refresh today card so budget reflects new deficit
+      // Refresh both cards so budget and weekly projection reflect new deficit
       await _fuelLoadToday();
+      await _fuelLoadWeek();
     } catch (e) {
       console.error('Sync deficit failed:', e);
     } finally {
@@ -597,9 +598,6 @@ function _fuelRenderWeeklyReview(d) {
       planEl.textContent = '—';
     }
   }
-
-  const adherenceEl = document.getElementById('cut-review-adherence');
-  if (adherenceEl) adherenceEl.textContent = '';
 
   if (badge) {
     badge.textContent = rec.replace(/_/g, ' ');

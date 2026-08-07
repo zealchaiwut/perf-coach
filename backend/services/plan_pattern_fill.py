@@ -49,7 +49,7 @@ def match_exercises_for_tags(
     used = used_names or set()
     return [
         e for e in pool
-        if e.get("name") not in used
+        if (e.get("name") or "").lower() not in used
         and any(g in _as_list(e.get("groups")) for g in keys)
     ]
 
@@ -589,7 +589,25 @@ def _scale_group_pick_n(
     pinned = max(15, int(duration_min or _STRENGTH_REF_MIN))
 
     if banded:
-        n = min(4, base_n)
+        # Warm-up / stretch / rotating finishers (EMOM·40/20·plyo): allow 2–4.
+        # Authored pick.n is the target; clamp into that band so short recipes
+        # stay modest and long ones can land a fuller circuit.
+        flex = (
+            key in ("warmup", "cooldown", "finisher")
+            or bool(_as_list(group.get("format_choices")))
+        )
+        if flex:
+            if pinned < 55:
+                floor = 2
+            elif pinned < 90:
+                floor = 3
+            else:
+                floor = 4 if (
+                    key == "finisher" or bool(_as_list(group.get("format_choices")))
+                ) else 3
+            n = min(4, max(floor, base_n))
+        else:
+            n = min(4, base_n)
         return n, {
             "base_n": base_n,
             "scaled_n": n,
@@ -627,6 +645,11 @@ def _scale_group_pick_n(
         reason = "time_budget"
 
     n = min(4, int(n))
+    # Warm-up / stretch / finishers: keep at least 2–3 even when time-budget scales down.
+    if key in ("warmup", "cooldown", "finisher") or bool(_as_list(group.get("format_choices"))):
+        floor = 2 if pinned < 55 else 3
+        if n > 0:
+            n = min(4, max(floor, n))
     return n, {
         "base_n": base_n,
         "scaled_n": n,
@@ -688,7 +711,7 @@ def _pick_one_exercise(
     """Pick a single exercise; return (row_or_None, pick_meta with scores)."""
     candidates = match_exercises_for_tags(pool, group_keys, used_names=used_names)
     if not candidates:
-        candidates = [e for e in pool if e.get("name") not in used_names] or list(pool)
+        candidates = [e for e in pool if (e.get("name") or "").lower() not in used_names] or list(pool)
     if not candidates:
         return None, {"candidates": 0}
 
@@ -701,7 +724,7 @@ def _pick_one_exercise(
         scored.append((e, final, bias, jitter))
     scored.sort(key=lambda t: t[1], reverse=True)
     e, final, bias, jitter = scored[0]
-    used_names.add(e["name"])
+    used_names.add(e["name"].lower())
     sets = e.get("default_sets") or 3
     if duration_min is not None:
         sets = _scale_sets(int(sets), duration_min)
@@ -837,7 +860,7 @@ def fill_strength(
     placed = [ensure_exercise_pin_fields(e) for e in (pre_placed or []) if isinstance(e, dict)]
     exercises: list[dict] = [copy.deepcopy(e) for e in placed]
     used: set[str] = {
-        str(e.get("name") or "").strip()
+        str(e.get("name") or "").strip().lower()
         for e in exercises if e.get("name")
     }
     pick_log: list[dict] = []
@@ -978,7 +1001,7 @@ def fill_strength(
             row["spend_min"] = spend_min
             row["source"] = "generated"
             row["pinned"] = False
-            row["state"] = "done"
+            row["state"] = "pending"
             exercises.append(row)
             picked_names.append(row["name"])
             pick_details.append({
@@ -1019,11 +1042,11 @@ def fill_strength(
             **scale_meta,
         })
 
-    # Clamp to validator 4–12 — never drop pre-placed pinned rows.
-    if len(exercises) > 12:
+    # Clamp to validator 4–16 — never drop pre-placed pinned rows.
+    if len(exercises) > 16:
         pinned_part = exercises[:len(placed)]
         generated_part = exercises[len(placed):]
-        keep_gen = max(0, 12 - len(pinned_part))
+        keep_gen = max(0, 16 - len(pinned_part))
         exercises = pinned_part + generated_part[:keep_gen]
     while len(exercises) < 4 and pool:
         budget_trace.append({
@@ -1061,7 +1084,7 @@ def fill_strength(
         row["spend_min"] = spend_min
         row["source"] = "generated"
         row["pinned"] = False
-        row["state"] = "done"
+        row["state"] = "pending"
         exercises.append(row)
         budget_trace.append({
             "op": "budget_pick",
@@ -1217,6 +1240,30 @@ def fill_slot(
                 })
         except Exception:
             _log.warning("homework pre_place failed", exc_info=True)
+
+    # Guard: if the assembled pinned rows alone exceed validate_slot's hard cap
+    # (4–12), no RNG seed will ever produce a valid result — short-circuit now
+    # rather than silently falling through to a template that discards all pins.
+    _SLOT_MAX_EXERCISES = 12
+    if wt in ("strength", "plyo") and len(pre_placed) > _SLOT_MAX_EXERCISES:
+        log["steps"].append({
+            "op": "pinned_count_exceeds_max",
+            "pinned": len(pre_placed),
+            "max": _SLOT_MAX_EXERCISES,
+        })
+        return {
+            "intent": (current or {}).get("intent"),
+            "notes": (current or {}).get("notes"),
+            "blocks": (current or {}).get("blocks"),
+            "exercises": (current or {}).get("exercises"),
+            "source": (current or {}).get("source") or "user",
+            "refill_blocked": True,
+            "refill_reason": (
+                f"pinned rows ({len(pre_placed)}) exceed the slot maximum of "
+                f"{_SLOT_MAX_EXERCISES} — unpin some rows before refilling"
+            ),
+            "fill_log": log,
+        }
 
     pattern = select_pattern(
         db,

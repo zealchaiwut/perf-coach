@@ -1,6 +1,6 @@
 """Daily-brief assembly service.
 
-Single source of truth for building the SCHEMA_VERSION 2 Hermes coaching
+Single source of truth for building the SCHEMA_VERSION 3 Hermes coaching
 brief. Both the CLI exporter (scripts/export_brief.py) and any future API
 endpoint should call build_brief() from here instead of duplicating logic.
 
@@ -620,5 +620,5 @@ def _build_brief(for_date: date, worker_url=None, user_id=None, username=None) -
 
 
 def build_brief(user_id, for_date: date) -> dict:
-    """Public API: assemble the SCHEMA_VERSION 2 Hermes brief for a user and date."""
+    """Public API: assemble the SCHEMA_VERSION 3 Hermes brief for a user and date."""
     return _build_brief(for_date, user_id=user_id)
