@@ -707,6 +707,7 @@ Example — no session planned:
 {
   "plan_date": "2026-07-13",
   "planned": false,
+  "session_type": null,
   "sessions": []
 }
 ```

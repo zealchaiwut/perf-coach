@@ -146,6 +146,7 @@ from services.readiness.calculator import (
 )
 from services.readiness.job import compute_and_store as _readiness_compute_and_store
 from backend.services.daily_brief import build_brief
+import backend.services.daily_brief as _daily_brief_svc
 
 # Ceiling TSB used when computing expressible scores from historical/projected TSB.
 # 20.0 matches the representative value established in issue #1107.
@@ -2821,12 +2822,14 @@ def get_home_readiness(
     hrv_baseline_vals = [float(r.hrv) for r in baseline_rows if r.hrv is not None and r.metric_date >= hrv_baseline_start]
     rhr_baseline_vals = [float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None]
     hrv_7d_avg = _avg(hrv_baseline_vals) if hrv_baseline_vals else None
+    rhr_30d_avg = _avg(rhr_baseline_vals)
     rhr_7d_avg = _avg([float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None and r.metric_date >= hrv_baseline_start])
     sleep_7d_avg_hours = _avg([float(r.sleep_hours) for r in baseline_rows if r.sleep_hours is not None and r.metric_date >= hrv_baseline_start])
 
     rolling_baseline = {
         "hrv_7d_avg": hrv_7d_avg,
         "rhr_7d_avg": rhr_7d_avg,
+        "rhr_30d_avg": rhr_30d_avg,
         "sleep_7d_avg_hours": sleep_7d_avg_hours,
     }
 
@@ -2902,7 +2905,7 @@ def get_home_readiness(
         "mood": float(metrics.mood) if metrics.mood is not None else None,
         "sleep_hours_baseline": rolling_baseline["sleep_7d_avg_hours"],
         "hrv_baseline": rolling_baseline["hrv_7d_avg"],
-        "rhr_baseline": rolling_baseline["rhr_7d_avg"],
+        "rhr_baseline": rolling_baseline["rhr_30d_avg"],
     }
     from backend.services.readiness_explanation import get_readiness_explanation
     explanation = get_readiness_explanation(
@@ -3518,7 +3521,7 @@ def _build_readiness_block(uid, today_bkk):
     hrv_baseline_vals = [float(r.hrv) for r in baseline_rows if r.hrv is not None and r.metric_date >= hrv_baseline_start]
     rhr_baseline_vals = [float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None]
     hrv_7d_avg = _avg(hrv_baseline_vals) if hrv_baseline_vals else None
-    rhr_7d_avg = _avg([float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None and r.metric_date >= hrv_baseline_start])
+    rhr_30d_avg = _avg(rhr_baseline_vals)
     sleep_7d_avg = _avg([float(r.sleep_hours) for r in baseline_rows if r.sleep_hours is not None and r.metric_date >= hrv_baseline_start])
 
     result = _canonical_readiness(
@@ -3568,7 +3571,7 @@ def _build_readiness_block(uid, today_bkk):
         "mood": float(metrics.mood) if metrics.mood is not None else None,
         "sleep_hours_baseline": sleep_7d_avg,
         "hrv_baseline": hrv_7d_avg,
-        "rhr_baseline": rhr_7d_avg,
+        "rhr_baseline": rhr_30d_avg,
     }
     from backend.services.readiness_explanation import get_readiness_explanation
     explanation = get_readiness_explanation(
@@ -5924,6 +5927,33 @@ def _classified_manual_laps_map(session, run_workouts, prefs_dict) -> dict:
     return out
 
 
+def _planned_duration_map(session, workout_ids: list) -> dict:
+    """Map workout_id → planned_duration_seconds from matched PlannedSession rows.
+
+    Queries PlannedSession rows whose matched_workout_id is in workout_ids and
+    returns a dict keyed by workout_id.  Workouts not matched to any session, or
+    matched to a session whose structure has no parseable block durations, are
+    absent from the result (the caller treats a missing key as None, which
+    leaves the absolute-only guard in running_performance.py intact — issue #1479).
+    """
+    if not workout_ids:
+        return {}
+    from backend.services.plan_matching import _planned_duration_seconds as _pds
+    rows = (
+        session.query(PlannedSession)
+        .filter(PlannedSession.matched_workout_id.in_(workout_ids))
+        .all()
+    )
+    out = {}
+    for r in rows:
+        if r.matched_workout_id is None:
+            continue
+        dur = _pds(r.structure)
+        if dur is not None:
+            out[r.matched_workout_id] = dur
+    return out
+
+
 def _workout_signal_scores(session, workout) -> dict:
     """Per-session endurance/speed scores for the signal card.
 
@@ -6001,6 +6031,7 @@ def _workout_signal_scores(session, workout) -> dict:
             splits_by_wk.setdefault(s.workout_id, []).append(s)
 
     _ml_map = _classified_manual_laps_map(session, run_workouts, prefs_dict)
+    _pdc_map = _planned_duration_map(session, wids)
 
     def _build(max_date):
         runs = []
@@ -6060,6 +6091,7 @@ def _workout_signal_scores(session, workout) -> dict:
                     "speed_signal_window_seconds": wk.speed_signal_window_seconds,
                     "manual_laps": _ml_map.get(wk.id, []),
                     "ftp_w": (prefs_dict or {}).get("ftp_w"),
+                    "planned_duration_seconds": _pdc_map.get(wk.id),
                 }
             )
         return runs
@@ -6174,6 +6206,7 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
             splits_by_wk.setdefault(s.workout_id, []).append(s)
 
     _ml_map_asof = _classified_manual_laps_map(session, run_workouts, prefs_dict)
+    _pdc_map_asof = _planned_duration_map(session, wids)
 
     runs = []
     for wk in run_workouts:
@@ -6230,6 +6263,7 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
                 "speed_signal_window_seconds": wk.speed_signal_window_seconds,
                 "manual_laps": _ml_map_asof.get(wk.id, []),
                 "ftp_w": (prefs_dict or {}).get("ftp_w"),
+                "planned_duration_seconds": _pdc_map_asof.get(wk.id),
             }
         )
 
@@ -17227,6 +17261,7 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
             # Batch-load all splits for the qualifying runs in one query
             # (issue #1578: replaces N sequential per-workout queries → 1 query).
             _run_ids = [w.id for w in run_workouts]
+            _pdc_map_perf = _planned_duration_map(session, _run_ids)
             if _run_ids:
                 _all_splits = (
                     session.query(WorkoutSplit)
@@ -17302,6 +17337,7 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
                     # extraction (short reps are invisible in 1 km auto-splits).
                     "manual_laps": _ml_map_perf.get(workout.id, []),
                     "ftp_w": (prefs_dict or {}).get("ftp_w"),
+                    "planned_duration_seconds": _pdc_map_perf.get(workout.id),
                 })
 
         # All DB access is finished above.  The pure functions below perform no I/O.
@@ -17806,6 +17842,7 @@ def get_athlete_weekly_summary(
         prefs_dict = preferences or {}
         zone_constants = make_zone_constants()
         _ml_map_weekly = _classified_manual_laps_map(session, run_workouts, prefs_dict)
+        _pdc_map_weekly = _planned_duration_map(session, [w.id for w in run_workouts])
 
         try:
             compute_decoupling = _compute_decoupling
@@ -17871,6 +17908,7 @@ def get_athlete_weekly_summary(
                     "duration_seconds": workout.duration_seconds,
                     "speed_signal": workout.speed_signal,
                     "manual_laps": _ml_map_weekly.get(workout.id, []),
+                    "planned_duration_seconds": _pdc_map_weekly.get(workout.id),
                 })
             return runs
 
@@ -19217,6 +19255,8 @@ def get_projection(user: User = Depends(resolve_user)):
                         .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
                         .all()
                     )
+                    _proj_run_ids = [w.id for w in run_workouts]
+                    _pdc_map_proj = _planned_duration_map(db, _proj_run_ids)
 
                     runs = []
                     for workout in run_workouts:
@@ -19243,6 +19283,7 @@ def get_projection(user: User = Depends(resolve_user)):
                             "duration_seconds": workout.duration_seconds,
                             "avg_hr": workout.avg_hr,
                             "laps": laps,
+                            "planned_duration_seconds": _pdc_map_proj.get(workout.id),
                         })
 
                     from backend.services.body_modifier import get_body_modifier_for_user as _get_bm_proj
@@ -19885,14 +19926,15 @@ else:
 
 @app.get("/api/brief/today")
 def get_brief_today(user: User = Depends(resolve_user)):
-    """Return today's SCHEMA_VERSION 3 coaching brief for the session user.
+    """Return the current coaching brief for the session user.
 
     Calls build_brief() directly — no worker process required.
     for_date is today in Asia/Bangkok timezone.
+    schema_version is set by build_brief() via daily_brief.SCHEMA_VERSION.
     """
     today = _today_bkk()
     brief = build_brief(user.id, today)
-    brief["schema_version"] = 3
+    brief["schema_version"] = _daily_brief_svc.SCHEMA_VERSION
     # Normalize week_plan to the canonical API shape {"days": [...]}.
     # build_brief returns week_plan as a list; the external API contract is a dict.
     _wp = brief.get("week_plan")

@@ -9,6 +9,7 @@
   var STYLE_VER = '20260806align1';
 
   // AppCommon.escapeHtml is a hard dependency — load js/lib/app-common.js first.
+  // Do not re-implement entity substitution here (test_frontend_shared_lib__1603).
   function esc(s) {
     return global.AppCommon.escapeHtml(s);
   }

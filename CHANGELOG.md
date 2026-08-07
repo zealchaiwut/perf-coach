@@ -26,6 +26,19 @@
 - #1711: delete dead code never called in production — `apply_swap` / `apply_add` (`session_swap.py`) and `merge_pinned_and_filled` (`session_pins.py`)
 - #1707: sign-off note on the `weight_plans` table drop (historical non-active rows) — see `tests/test_1707_weight_plans_drop_sign_off.py`
 
+## Sprint 129.1 — code-review follow-up fixes (readiness baseline, plan-duration plumbing, projection/schema cleanups)
+
+- #1390: readiness `rhr_baseline` now uses a 30-**day** RHR window instead of 7 days, matching how readiness scores RHR — `get_home_readiness` and `_build_readiness_block` compute `rhr_30d_avg` and pass it as `rhr_baseline`, and `rolling_baseline` gains an `rhr_30d_avg` field alongside the existing `rhr_7d_avg`
+- #1479: populate `planned_duration_seconds` on run payloads — new `_planned_duration_map` helper in `main.py` maps each run workout to its matched `PlannedSession`'s parsed block duration (via `plan_matching._planned_duration_seconds`), wired into the signal-scores, as-of, athlete-performance, weekly-summary, and projection run payloads. This activates the previously-inert endurance plan-short guard in `running_performance.py`; a workout with no matched session (or no parseable block duration) is absent from the map, so the guard's absolute-only fallback is unchanged
+- #1465: give the injured branch of `undertrained_area_under_ramp` a structured `deferred_recovery: true` evidence entry so consumers can distinguish "defer, you are injured" from "load this area" without parsing the recommendation text (the code and severity stay the same; only the evidence gains the flag)
+- #1277: drop the legacy `half_equivalent` / `half_equivalent_seconds` keys from the projection payload and the `compute_half_equivalent` module alias in `projection.py` — only the `half_race_equivalent*` names remain after the #1176 rename
+- #1515: `/api/brief/today` reads `schema_version` from `daily_brief.SCHEMA_VERSION` instead of hardcoding `3`, so the endpoint tracks the constant automatically
+- #1518: update the stale "SCHEMA_VERSION 2" docstrings in `daily_brief.py` (module and `build_brief`) to "SCHEMA_VERSION 3" to match the shipped schema
+- #1459: `/api/plan/today` (worker) empty-state response now includes the AC-specified `session_type: null` field when no session is planned
+- #1319: call `_emit_startup_info()` at `llm.py` import time (and fix the negated `not ... in` env check) so the LLM-coaching startup log actually fires
+- #1560: deduplicate the Half-Equivalent column block in `training-performance.js` into a shared `_halfEquivCol(r)` helper used by both the planned and completed race cards
+- #1415: refresh the weekly fuel card after a sync-deficit — `fuel.js` now also calls `_fuelLoadWeek()` (in addition to `_fuelLoadToday()`) so the weekly projection reflects the new deficit
+
 ## Sprint 128 — code-review follow-up cleanup (dead-code & unused-parameter removal)
 
 - #1519: remove the unused `atl` parameter from `_load_interpretation` in `daily_brief.py` — the interpretation label is derived only from `tsb` (and `ctl`), so the signature is now `_load_interpretation(ctl, tsb)` and `_assemble_form` no longer passes `atl`

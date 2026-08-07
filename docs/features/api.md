@@ -678,6 +678,7 @@ Returns today's planned session details, used by Hermes to assemble the daily br
 {
   "plan_date": "2026-07-17",
   "planned": false,
+  "session_type": null,
   "sessions": []
 }
 ```
@@ -688,6 +689,7 @@ Returns today's planned session details, used by Hermes to assemble the daily br
 |-------|------|-------------|
 | `plan_date` | string (ISO 8601) | Date queried |
 | `planned` | boolean | Whether any sessions are planned for this date |
+| `session_type` | string or null | Present only in the empty-state (`planned: false`) response, where it is always `null`; when sessions exist, read `session_type` from each entry in `sessions`. |
 | `sessions` | array | Array of planned sessions (empty if none) |
 
 **Session Object Fields:**
