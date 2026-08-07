@@ -189,6 +189,16 @@ app.mount("/js", StaticFiles(directory=str(_static_root / "frontend" / "js")), n
 
 
 @app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+
+@app.middleware("http")
 async def _no_cache_frontend(request, call_next):
     """Force browsers to revalidate HTML/JS/CSS instead of using heuristic
     caching. Without this, UAT keeps serving a stale page/script after a fix
@@ -242,10 +252,17 @@ _CSRF_EXEMPT_PATHS = frozenset({"/api/auth/login"})
 
 @app.middleware("http")
 async def _csrf_protect(request: Request, call_next):
-    """Require X-CSRF-Token header on all mutating requests that carry a session cookie."""
+    """Require X-CSRF-Token header on all mutating requests that carry an auth cookie.
+
+    Both the regular session cookie (COOKIE_NAME) and the admin session cookie
+    (ADMIN_COOKIE_NAME) trigger the double-submit CSRF check, providing
+    defense-in-depth on top of SameSite=Strict for admin-only endpoints.
+    """
     if request.method not in _CSRF_SAFE_METHODS and request.url.path not in _CSRF_EXEMPT_PATHS:
-        session_cookie = request.cookies.get(COOKIE_NAME)
-        if session_cookie:
+        has_auth_cookie = (
+            request.cookies.get(COOKIE_NAME) or request.cookies.get(ADMIN_COOKIE_NAME)
+        )
+        if has_auth_cookie:
             expected = request.cookies.get(CSRF_COOKIE_NAME)
             actual = request.headers.get("X-CSRF-Token")
             if not expected or not actual or not _hmac.compare_digest(expected, actual):
@@ -529,6 +546,7 @@ from backend.auth import (  # noqa: E402
     CSRF_COOKIE_NAME,
     generate_csrf_token,
     get_admin_secret,
+    get_client_ip,
     get_current_user,
     hash_password,
     MIN_PASSWORD_LENGTH,
@@ -584,7 +602,7 @@ class LoginIn(BaseModel):
 
 @app.post("/api/auth/login")
 def login(body: LoginIn, request: Request):
-    ip = request.client.host if request.client else "unknown"
+    ip = get_client_ip(request)
     _check_lockout(body.username, ip)
     try:
         with Session(engine) as session:
@@ -2016,7 +2034,10 @@ def get_weight_chart(
                 weekly_rate_ewma_kg if _rate["readable"] and weekly_rate_ewma_kg is not None
                 else delta_7d_kg
             ),
-            "delta_30d_kg": delta_30d_kg,
+            "delta_30d_kg": (
+                round(weekly_rate_ewma_kg * 4, 2) if _rate["readable"] and weekly_rate_ewma_kg is not None
+                else delta_30d_kg
+            ),
             "weekly_rate_ewma_kg": weekly_rate_ewma_kg,
             "ewma_alpha": round(2.0 / (_EWMA_DEFAULT_SPAN + 1), 4),
             "rate": _rate,
@@ -2031,9 +2052,6 @@ def get_weight_chart(
             "coverage_pct": _rate["coverage_pct"],
             "needed_rate_kg_wk": _rate["needed_rate_kg_wk"],
         }
-        if _rate["readable"] and weekly_rate_ewma_kg is not None:
-            stats["delta_7d_kg"] = weekly_rate_ewma_kg
-
         # Always fetch active target (needed for plan_series / milestones / today_marker)
         active_target = (
             session.query(WeightTarget)
@@ -10462,15 +10480,18 @@ def _upsert_strava_token(
     scope: Optional[str],
     athlete_data: dict,
 ) -> None:
+    from backend.services.crypto import encrypt_oauth_token as _enc_oauth  # noqa: E402
     now = _datetime.now(tz=_timezone.utc)
+    enc_at = _enc_oauth(access_token)
+    enc_rt = _enc_oauth(refresh_token)
     with Session(engine) as session:
         stmt = (
             _pg_insert(StravaToken)
             .values(
                 user_id=user_id,
                 athlete_id=athlete_id,
-                access_token=access_token,
-                refresh_token=refresh_token,
+                access_token_encrypted=enc_at,
+                refresh_token_encrypted=enc_rt,
                 expires_at=expires_at,
                 scope=scope,
                 athlete_data=athlete_data,
@@ -10479,8 +10500,8 @@ def _upsert_strava_token(
                 index_elements=["user_id"],
                 set_={
                     "athlete_id": athlete_id,
-                    "access_token": access_token,
-                    "refresh_token": refresh_token,
+                    "access_token_encrypted": enc_at,
+                    "refresh_token_encrypted": enc_rt,
                     "expires_at": expires_at,
                     "scope": scope,
                     "athlete_data": athlete_data,
@@ -10558,7 +10579,7 @@ def strava_callback(
 # ── Stryd ──────────────────────────────────────────────────────────────────────
 
 from backend.services.stryd import _call_stryd_signin as _stryd_signin  # noqa: E402
-from backend.services.crypto import encrypt_value as _encrypt_value  # noqa: E402
+from backend.services.crypto import encrypt_value as _encrypt_value, decrypt_oauth_token as _decrypt_oauth_token  # noqa: E402
 from backend.services.strava import refresh_token_if_needed  # noqa: E402
 from backend.services.stryd import refresh_stryd_session_if_needed  # noqa: E402
 
@@ -10705,7 +10726,7 @@ def strava_disconnect(user: User = Depends(resolve_user)):
     with Session(engine) as session:
         token_row = session.query(StravaToken).filter(StravaToken.user_id == user_id).first()
         if token_row is not None:
-            access_token = token_row.access_token
+            access_token = _decrypt_oauth_token(token_row.access_token_encrypted)
             session.delete(token_row)
             session.commit()
 
@@ -11139,6 +11160,8 @@ def strava_sync_latest(
     Without user_id: returns legacy summary dict for session user (backwards-compatible).
     """
     if user_id is not None:
+        if user_id != user.id and not bool(user.is_admin):
+            raise HTTPException(status_code=403, detail="Forbidden")
         # New path: full SyncJob dict, any status
         with Session(engine) as session:
             job = session.execute(
@@ -11269,6 +11292,8 @@ def stryd_sync_latest(
     """Most recent Stryd sync. With user_id: full latest SyncJob (any status);
     without: completed-only summary for the session user."""
     from sqlalchemy import select
+    if user_id is not None and user_id != user.id and not bool(user.is_admin):
+        raise HTTPException(status_code=403, detail="Forbidden")
     target = user_id if user_id is not None else user.id
     with Session(engine) as session:
         if user_id is not None:
@@ -11618,27 +11643,30 @@ def _upsert_google_credentials(
     expires_at: _datetime,
     id_token_payload: dict,
 ) -> None:
+    from backend.services.crypto import encrypt_oauth_token as _enc_oauth  # noqa: E402
     now = _datetime.now(tz=_timezone.utc)
+    enc_at = _enc_oauth(access_token)
+    enc_rt = _enc_oauth(refresh_token) if refresh_token is not None else None
     with Session(engine) as session:
         set_values: dict = {
             "google_sub": google_sub,
             "email": email,
             "email_verified": email_verified,
-            "access_token": access_token,
+            "access_token_encrypted": enc_at,
             "expires_at": expires_at,
             "id_token_payload": id_token_payload,
             "updated_at": now,
         }
-        if refresh_token is not None:
-            set_values["refresh_token"] = refresh_token
+        if enc_rt is not None:
+            set_values["refresh_token_encrypted"] = enc_rt
 
         insert_values = {
             "user_id": user_id,
             "google_sub": google_sub,
             "email": email,
             "email_verified": email_verified,
-            "access_token": access_token,
-            "refresh_token": refresh_token,
+            "access_token_encrypted": enc_at,
+            "refresh_token_encrypted": enc_rt,
             "expires_at": expires_at,
             "id_token_payload": id_token_payload,
         }
@@ -11980,7 +12008,6 @@ def drive_sleep_disconnect(user: User = Depends(resolve_user)):
 # ── Imports ───────────────────────────────────────────────────────────────────
 
 class _SleepImportBody(BaseModel):
-    user_id: str
     import_date: str
     source: str
     data: dict
@@ -13444,7 +13471,7 @@ def admin_plan_library_page(request: Request):
 
 @app.post("/api/admin/login")
 def admin_login(body: AdminLoginIn, request: Request):
-    ip = request.client.host if request.client else "unknown"
+    ip = get_client_ip(request)
     admin_lockout_check(ip)
 
     admin_secret = get_admin_secret()
@@ -13458,6 +13485,7 @@ def admin_login(body: AdminLoginIn, request: Request):
     admin_lockout_clear(ip)
     resp = JSONResponse({"ok": True})
     set_admin_cookie(resp)
+    set_csrf_cookie(resp, generate_csrf_token())
     return resp
 
 
@@ -13465,6 +13493,7 @@ def admin_login(body: AdminLoginIn, request: Request):
 def admin_logout():
     resp = Response(status_code=204)
     clear_admin_cookie(resp)
+    resp.delete_cookie(key=CSRF_COOKIE_NAME, path="/")
     return resp
 
 

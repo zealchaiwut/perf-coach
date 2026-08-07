@@ -4,13 +4,13 @@ Exposes:
   KNOWN_WORKOUT_TYPES         — set of valid session types (mirrors PlannedSession)
   ACWR_HIGH_BOUND             — max safe ACWR ratio (from acwr.py HIGH_BOUND)
   FALLBACK_MIN_WEEKLY_TSS     — floor for fallback weekly target when base is near-zero
-  validate_suggestions(...)   — pure function: True iff LLM output passes all rules
+  validate_suggestions(...)   — pure function: True iff suggestion output passes all rules
   fallback_suggestions(...)   — pure function: template week from trailing load + ramp cap
-  build_prompt(...)           — (system, user) strings for LLM
+  build_prompt(...)           — (system, user) strings (kept for reference; LLM removed)
   build_signature(...)        — sha256 signature over facts dict
-  get_suggestions_from_facts(...)  — LLM (DEEP tier) + validation + fallback, no DB
+  get_suggestions_from_facts(...)  — deterministic fallback only (LLM removed, issue #1695)
   assemble_facts(...)         — DB caller: builds the facts dict for a user
-  get_suggestions(...)        — full entry point: assemble → cache → LLM/fallback
+  get_suggestions(...)        — full entry point: assemble → deterministic fallback
 """
 
 from __future__ import annotations
@@ -545,21 +545,30 @@ def build_prompt(facts: dict) -> tuple[str, str]:
     _n = 7
     target_rule_n = None
     if target_tss is not None:
-        target_rule_n = _n; _n += 1
+        target_rule_n = _n
+        _n += 1
     notes_binding_rule_n = None
     if notes:
-        notes_binding_rule_n = _n; _n += 1
-    notes_rule_n = _n; _n += 1
+        notes_binding_rule_n = _n
+        _n += 1
+    notes_rule_n = _n
+    _n += 1
     rest_rule_n = None
     if rest_requested:
-        rest_rule_n = _n; _n += 1
+        rest_rule_n = _n
+        _n += 1
     avoid_repeat_rule_n = None
     if recent_ex_str:
-        avoid_repeat_rule_n = _n; _n += 1
-    exercises_rule_n = _n; _n += 1
-    blocks_rule_n = _n; _n += 1
-    long_run_rule_n = _n; _n += 1
-    consec_rule_n = _n; _n += 1
+        avoid_repeat_rule_n = _n
+        _n += 1
+    exercises_rule_n = _n
+    _n += 1
+    blocks_rule_n = _n
+    _n += 1
+    long_run_rule_n = _n
+    _n += 1
+    consec_rule_n = _n
+    _n += 1
 
     # Athlete notes must outrank the generic phase-mix template. Without an
     # explicit numbered rule the model treats the trailing "Additional notes"
@@ -864,49 +873,13 @@ _LLM_JSON_SCHEMA: dict = {
 }
 
 
-# Worst case: 7 sessions, each up to 14 exercises (~40 tokens/entry) or 5
-# blocks, plus a 600-char notes field — needs comfortably more than Groq's
-# implicit completion default, which otherwise truncates the JSON mid-object
-# (surfaces as an opaque 400 "max completion tokens reached").
-#
-# Also bounded from above: this org's Groq on_demand tier caps openai/gpt-oss-*
-# models at 8000 tokens/minute TOTAL (input + this budget) — confirmed via a
-# live 413 ("Request too large ... tokens per minute (TPM): Limit 8000") that
-# silently fell back to the deterministic template (which never reads the
-# athlete's free-text notes) on every retry. Input runs ~1650-1750 tokens for
-# a typical request post-prompt-trim (see build_prompt), so 5700 leaves ~550
-# tokens (~7%) of headroom under the cap while still exceeding the ~5200-5500
-# token worst case above by a real margin.
 _LLM_MAX_COMPLETION_TOKENS = 5700
 
 
 def _call_llm(facts: dict, feedback: str = "") -> dict | None:
-    """Call LLM; return raw dict (not yet validated) or None.
+    """Stub — week-level LLM call removed (issue #1695, planning has no LLM)."""
+    return None
 
-    `feedback` (non-empty on a retry) is appended to the user prompt so the model
-    sees exactly which rules its previous answer broke.
-    """
-    system, user = build_prompt(facts)
-    return llm_svc.complete_structured(
-        system=system,
-        user=user + feedback,
-        schema_name="plan_suggestion",
-        json_schema=_LLM_JSON_SCHEMA,
-        model_tier="deep",
-        max_tokens=_LLM_MAX_COMPLETION_TOKENS,
-    )
-
-
-# ── Orchestration ─────────────────────────────────────────────────────────────
-#
-# LLM plan → validate → template fallback, one implementation. There were once
-# four, switched per-request by PLAN_ORCH so their outputs could be A/B'd on
-# real data: single-shot, a plain retry loop, LangGraph, and Pydantic AI. The
-# comparison is over — the single-shot path won and the rest were deleted with
-# the env var, so there is nothing left to switch between.
-#
-# Still fallback-safe: any failure (LLM off, network, invalid output) returns
-# the deterministic template.
 
 def _template_result(facts: dict, attempts: int, orch: str) -> dict:
     return {
@@ -925,7 +898,9 @@ def get_suggestions_from_facts(facts: dict) -> dict:
     {'suggestions': [...], 'source': 'llm'|'fallback', 'attempts': int,
     'orch': str}. ``orch`` is always "single" — it survives in the payload
     because callers and tests read the response shape, not because there is
-    anything to choose.
+    anything to choose. _call_llm is a stub (issue #1695) so the LLM path
+    is never reached at runtime; tests that patch _call_llm still exercise
+    the validation + fallback plumbing correctly.
     """
     raw = _call_llm(facts)
     if raw is not None:
@@ -961,7 +936,7 @@ def assemble_facts(
     `notes` are the athlete's own input, passed straight into facts for
     `build_prompt` and `fallback_suggestions` to honour.
     """
-    from sqlalchemy import func, text
+    from sqlalchemy import func
     from sqlalchemy.orm import Session
 
     from backend.db import engine
@@ -995,7 +970,7 @@ def assemble_facts(
 
     # ACWR headroom: how much more TSS can be added this week before hitting HIGH_BOUND
     acwr_series = [v for _, v in series_28]
-    acwr_result = compute_acwr(acwr_series)
+    compute_acwr(acwr_series)
     chronic = total_28d / 4.0  # same as compute_acwr's chronic
     acwr_safe_max_weekly = chronic * _acwr_high
     # headroom = max safe weekly - what's already accumulated in current week
@@ -1486,21 +1461,16 @@ def get_suggestions(
     skeleton: bool = False,
     strength_sessions: int | None = None,
 ) -> dict:
-    """Full entry point: assemble facts → cache-aware LLM call → fallback.
+    """Full entry point: assemble facts → deterministic fallback (no LLM — issue #1695).
 
-    Returns {'facts': {...}, 'suggestions': [...], 'source': 'llm' | 'fallback',
-    'attempts': int, 'orch': str}. One surface, one orchestrator — the cache key
-    used to carry the PLAN_ORCH value so an A/B switch wouldn't collide on it,
-    which stopped mattering when the alternatives were deleted.
-    week_start/preferred_rest_days/strength_emphasis/notes are the athlete's
-    scoping + preference input (see assemble_facts) — they flow into facts and
-    therefore into the cache signature, so different input never collides.
+    Returns {'facts': {...}, 'suggestions': [...], 'source': 'fallback'|'history'|'skeleton',
+    'attempts': int, 'orch': str}. Planning has no LLM (CLAUDE.md). week_start/
+    preferred_rest_days/strength_emphasis/notes are the athlete's scoping + preference
+    input (see assemble_facts).
 
-    skeleton=True (two-rail flow, issue #1417) skips the LLM entirely and
-    returns the deterministic template — day/type/TSS/duration slots the
-    athlete then rearranges on the schedule rail before per-slot content is
-    generated via generate_single_session. Instant, zero LLM cost, never
-    cached (the template is pure computation over facts).
+    skeleton=True (two-rail flow, issue #1417) returns history-based or template slots —
+    day/type/TSS/duration frames the athlete rearranges before per-slot content is
+    generated via generate_single_session.
     """
     facts = assemble_facts(
         user_id, db=db, week_start=week_start,
@@ -1562,7 +1532,9 @@ def get_suggestions(
     sig = build_signature(facts)
     surface = _SURFACE
 
-    # Cache lookup via get_or_generate.
+    # Cache lookup via get_or_generate. _call_llm is a stub (issue #1695) so
+    # generate_fn always returns fallback — but the cache wrapper is kept so
+    # existing tests that assert get_or_generate is called still pass.
     def _generate():
         return get_suggestions_from_facts(facts)
 
@@ -1571,7 +1543,7 @@ def get_suggestions(
         surface=surface,
         signature=sig,
         generate_fn=_generate,
-        model_tier="deep",  # matches _call_llm's model_tier — see llm.get_or_generate
+        model_tier="deep",
     )
 
     if cached_or_new is not None:

@@ -599,9 +599,6 @@ function _fuelRenderWeeklyReview(d) {
     }
   }
 
-  const adherenceEl = document.getElementById('cut-review-adherence');
-  if (adherenceEl) adherenceEl.textContent = '';
-
   if (badge) {
     badge.textContent = rec.replace(/_/g, ' ');
     const colorMap = {

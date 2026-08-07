@@ -171,6 +171,10 @@ def compute_composition_trend(readings: Iterable[dict], today: _date) -> dict:
         "readings_count": len(rows),
         "readable": False,
         "readable_note": None,
+        # frontend-facing fields: composition card (weight.js) and timeline overlay
+        # (weight-timeline.js) expect these keys — see issue #1692
+        "latest": None,
+        "verdict": None,
         "readings": [
             {
                 "date": r["date"].isoformat(),
@@ -216,6 +220,19 @@ def compute_composition_trend(readings: Iterable[dict], today: _date) -> dict:
     # carry the guard: see LEAN_MASS_FALL_DELTA_KG for the measurements.
     delta = out["lean_mass_4wk_delta"]
     out["lean_mass_falling"] = delta is not None and delta <= -LEAN_MASS_FALL_DELTA_KG
+
+    # Frontend shape: composition card reads .latest and .verdict (issue #1692).
+    # Expose the 4-week rolling means under the key the card renderer expects.
+    out["latest"] = {
+        "lean_mass_kg": out["lean_mass_kg_trend"],
+        "fat_mass_kg": out["fat_mass_kg_trend"],
+        "body_fat_pct": out["body_fat_pct_trend"],
+    }
+    # verdict is shown in a "good" styled banner — only emit it when lean mass
+    # is not falling; a falling-lean-mass state needs the card to stay neutral.
+    if not out["lean_mass_falling"]:
+        out["verdict"] = "Lean mass stable — deficit isn't costing muscle"
+
     return out
 
 
