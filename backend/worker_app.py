@@ -8,8 +8,8 @@ IMPORTANT: this module must NEVER import backend.main — that module starts
 daemon threads (sleep sync, banister refit) at import time. Only import
 backend.db, backend.models, and backend.services.* here.
 
-Also owns the daily Home Coach narrative job (`daily_coach`) — Claude CLI
-(`COACH_LLM=claude_cli`) runs here on zeal-server, never on the Render webapp.
+Also owns the daily Home Coach narrative job (`daily_coach`); the warmth
+rephrase uses `LLM_COACH_ENABLED` + provider API keys (see docs/llm-coaching.md).
 The legacy job name `weekly_coach` remains as a dispatch alias.
 """
 

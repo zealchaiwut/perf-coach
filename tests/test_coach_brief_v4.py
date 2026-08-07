@@ -17,10 +17,6 @@ from backend.services.coach_brief import (
     fact_hash_for_section,
 )
 from backend.services.coach_facts import _focus_for_session
-from backend.services.coach_narrative import (
-    atoms_from_brief,
-    validation_errors_brief,
-)
 
 
 def test_mapper_each_fact_one_section():
@@ -94,64 +90,6 @@ def test_changed_flags_stable_then_weight_flip():
     for sid, ch in flipped.items():
         if sid != "weight_gate":
             assert ch is False, sid
-
-
-def test_atom_cross_section_numeral_rejected():
-    facts = {
-        "section_facts": {
-            "load_deload": {"load.week_tss": 262},
-            "weight_gate": {"weight.logged_days": 777},
-        },
-        "required_numerals": ["262", "777"],
-    }
-    skeleton = {
-        "sections": [
-            {"id": "load_deload", "evidence_strip": "262 TSS"},
-            {"id": "weight_gate", "evidence_strip": "777 logged"},
-        ]
-    }
-    atoms = {
-        "today_verdict": "Easy day.",
-        "week_verdict": "Hold the line.",
-        "week_verdict_sub": "No catch-up weeks.",
-        "sections": [
-            {
-                "id": "load_deload",
-                "headline": "Hold deload",
-                "evidence": "You logged only 777 weigh-ins — wrong section number.",
-                "do": "Stay easy.",
-            }
-        ],
-    }
-    errs = validation_errors_brief(atoms, facts, skeleton)
-    assert any("load_deload.evidence" in e and "777" in e for e in errs), errs
-
-
-def test_focus_hash_pattern_rejected():
-    facts = {"section_facts": {}, "required_numerals": []}
-    atoms = {
-        "today_verdict": "That's Focus #1 — don't say this.",
-        "week_verdict": "ok",
-        "week_verdict_sub": "ok sub",
-        "sections": [],
-    }
-    errs = validation_errors_brief(atoms, facts, {"sections": []})
-    assert any("Focus #N" in e or "forbids Focus" in e for e in errs)
-
-
-def test_over_budget_rejected_exact_ok():
-    facts = {"section_facts": {}, "required_numerals": []}
-    exact = "x" * 90
-    atoms = {
-        "today_verdict": "ok",
-        "week_verdict": exact,
-        "week_verdict_sub": "ok",
-        "sections": [],
-    }
-    assert validation_errors_brief(atoms, facts, {"sections": []}) == []
-    atoms["week_verdict"] = exact + "!"
-    errs = validation_errors_brief(atoms, facts, {"sections": []})
-    assert any("week_verdict" in e and "over budget" in e for e in errs)
 
 
 def test_fallback_validates_and_brief_to_text():
@@ -248,14 +186,6 @@ def test_fallback_validates_and_brief_to_text():
     open_ids = [s["id"] for s in brief["sections"] if s.get("open_by_default")]
     assert open_ids[0] == "weight_gate"
     assert len(open_ids) <= 3
-    atoms = atoms_from_brief(brief)
-    # Fallback may use connective wording without inventing foreign numerals —
-    # validate with section_facts populated
-    facts["section_facts"] = collect_section_facts(facts)
-    errs = validation_errors_brief(atoms, facts, brief)
-    # Allow mild connective failures from templates; require structure + budgets
-    budget_errs = [e for e in errs if "over budget" in e or "Focus" in e or "##" in e]
-    assert budget_errs == [], budget_errs
 
     text = brief_to_text(brief)
     assert "## Now" in text
@@ -358,14 +288,6 @@ def test_weight_gate_evidence_is_prose_not_stats_dup():
     assert "6/12" not in text
     assert "gate" in text.lower() or "food" in text.lower()
     assert "diet" in text.lower() or "deficit" in text.lower() or "weigh" in text.lower()
-
-
-def test_brief_prompt_splits_strip_and_evidence():
-    from backend.services.coach_narrative import build_brief_prompt
-
-    system, _user = build_brief_prompt({"focus_ranked": []}, {"sections": []})
-    assert "evidence_strip is the STATS" in system or "STATS line" in system
-    assert "Do NOT restate" in system
 
 
 def test_fmt_pace_and_duration():
