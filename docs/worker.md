@@ -294,12 +294,12 @@ Timed schedules:
   back to legacy `WORKER_WEEKLY_COACH_ENABLED`), the scheduler enqueues a
   `daily_coach` job (dedupe key `daily_coach:YYYY-MM-DD`) at the same wake
   times as the sync sweep. The handler runs
-  `weekly_coach_message.generate_for_user` for every active user — using
-  `claude -p` when `COACH_LLM=claude_cli` (set by `start_worker.sh`). After
-  each per-user Strava/Stryd sync the worker also enqueues
-  `daily_coach` for that user (dedupe per day+user). Render webapps only
-  **read** `GET /api/coach/daily-message` (weekly-message is a compat
-  alias); they default `COACH_LLM=off` and never invoke Claude. Manual:
+  `weekly_coach_message.generate_for_user` for every active user — the warmth
+  rephrase uses `LLM_COACH_ENABLED` and the provider API keys in `.env`
+  (see `docs/llm-coaching.md`). After each per-user Strava/Stryd sync the
+  worker also enqueues `daily_coach` for that user (dedupe per day+user).
+  Render webapps only **read** `GET /api/coach/daily-message`
+  (weekly-message is a compat alias). Manual:
   `POST /internal/daily-coach/run` with `X-Worker-Secret`
   (`/internal/weekly-coach/run` remains an alias).
 

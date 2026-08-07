@@ -23,22 +23,17 @@ for both services (UAT + PRD). Override in the Render dashboard to enable.
 | Readiness explanation | `readiness_explanation.py` | Fast tier |
 | Plan session suggest | `plan_suggestions.py` | Deep tier. Single-shot — the `PLAN_ORCH` switch and its LangGraph / Pydantic-AI alternatives were deleted once the comparison ended. |
 | **Daily coach message** | `coach_facts` + `weekly_coach_message._call_llm_narrative` + worker `daily_coach` job | **Worker only.** Fast tier. Rewrites the prose around a deterministic message; `_numbers_preserved()` discards any rephrase whose numerals drift. Falls back to the deterministic text on any failure. `weekly_coach` is a dispatch alias. |
-| ~~Coach brief atoms~~ | ~~`coach_narrative` + `coach_orch_langgraph` + `coach_claude_cli`~~ | **PARKED** (Priority 2, D4). `GET /api/coach/brief` is served by `coach_brief.build_brief_deterministic` — no LLM. These modules are unreferenced, pending deletion. |
 
-### Daily Home Coach (`COACH_LLM` / worker schedule)
+### Daily Home Coach (worker schedule)
 
-Specialist engines assemble facts (including `active_presets` from gap findings);
-LangGraph (or plain) validates; Claude picks `chosen_preset_code` from the
-allowlist and writes Now/Focus/Dream/Reflection. Default provider on the
-**compute worker** is `claude -p`. Render webapps leave `COACH_LLM` unset →
-`off` → no Claude/API calls if generation is ever invoked there by mistake.
+`weekly_coach_message.generate_for_user` runs on the compute worker (`daily_coach`
+job). The warmth rephrase (`_call_llm_narrative`) is gated by `LLM_COACH_ENABLED`
+and routes to whichever provider API key is set (GLM → Cerebras → Groq). Render
+webapps only read `GET /api/coach/daily-message`; they never invoke the rephrase.
 
 | Variable | Default | Description |
 |---|---|---|
-| `PERFCOACH_ROLE` | _(unset on web)_ / `worker` via `start_worker.sh` | When `worker` and `COACH_LLM` unset → `claude_cli`. |
-| `COACH_LLM` | `off` (web) / `claude_cli` (worker) | `claude_cli` \| `api` \| `off`. |
-| `COACH_ORCH` | `langgraph` | `langgraph` or `plain`. |
-| `COACH_CLAUDE_MODEL` | `sonnet` | Passed to `claude --model`. |
+| `PERFCOACH_ROLE` | _(unset on web)_ / `worker` via `start_worker.sh` | Worker identity flag — determines which scheduled jobs run. |
 | `WORKER_DAILY_COACH_ENABLED` | `1` | Scheduler enqueues once per calendar day (Bangkok). Falls back to `WORKER_WEEKLY_COACH_ENABLED` if unset. |
 
 Manual: `POST /internal/daily-coach/run` on the worker (`/internal/weekly-coach/run` alias). Details: `docs/worker.md`.

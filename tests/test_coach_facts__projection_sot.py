@@ -10,8 +10,6 @@ from backend.services.coach_facts import (
     _estimate_for_a_race,
     _focus_for_session,
 )
-from backend.services.coach_narrative import compose_coach_narrative, parse_sections_from_text
-
 
 def test_focus_for_session_maps_long_run_not_always_first():
     focus = [
@@ -140,78 +138,3 @@ def test_dream_skips_trend_when_unavailable():
     assert not any(s["id"] == "current_trend" for s in dream["scenarios"])
 
 
-def test_compose_uses_performance_estimate_not_six_hour_fiction():
-    facts = {
-        "load": {"state": "available", "acwr": 0.36, "unlock_date": "2026-07-17"},
-        "weight": {"phase": "measurement", "logged_days": 7, "window_days": 14, "gap_kg": 6},
-        "timeline": [
-            {
-                "date": "2026-07-17",
-                "end_date": "2026-09-05",
-                "phase": "ramp",
-                "directive": "Ramp 5%/week",
-            }
-        ],
-        "lever_ranking": {},
-        "projection": {
-            "goal_label": "4:15",
-            "full_compliance_label": "4:15",
-            "current_trend_label": "2:30:00",
-            "current_trend_sec": 9000,
-            "uncertainty_min": 5,
-            "source": "performance_time_curve",
-            "unavailable": False,
-            "target_date": "2026-11-15",
-            "distance_label": "marathon",
-        },
-        "focus_ranked": [
-            {
-                "id": "weight_measurement",
-                "rank": 1,
-                "label": "Weight measurement",
-                "rationale": "Build weigh-in consistency",
-                "tracking": {"current": 7, "target": 12, "unit": "weigh_ins_14d"},
-            },
-            {
-                "id": "long_run",
-                "rank": 2,
-                "label": "Long run",
-                "rationale": "One easy long run with fuel practice",
-                "tracking": {},
-            },
-        ],
-        "focus_noise": ["intervals", "plyo"],
-        "dream": {
-            "a_race": {
-                "name": "Bangsaen42",
-                "date": "2026-11-15",
-                "goal_time_label": "4:15",
-            },
-            "scenarios": [
-                {
-                    "id": "weight_cut",
-                    "cut_kg": 6.0,
-                    "finish_label": "4:00",
-                }
-            ],
-            "sell_line_facts": {},
-        },
-        "reflection": {
-            "sessions_planned": 4,
-            "sessions_completed": 4,
-            "adherence_pct": 100,
-            "benchmarks": [],
-            "next_session": {
-                "name": "Long run",
-                "date": "2026-07-18",
-                "why_focus": "Serves Focus #2: long_run",
-            },
-        },
-        "goal": {"name": "Bangsaen42", "target_time_label": "4:15", "race_date": "2026-11-15"},
-    }
-    text = compose_coach_narrative(facts)
-    secs = parse_sections_from_text(text)
-    assert "2:30:00" in secs["dream"]
-    assert "6:00" not in text
-    assert "Focus #2" in secs["focus"]
-    assert "Two things this week" in secs["focus"]
