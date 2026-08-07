@@ -16,6 +16,7 @@
   var _initialized = false;
   var _weekStart = null;          // Date (Monday) of the visible week
   var _bundle = null;             // last GET bundle
+  var _nextUpBundle = null;       // today→+20d for Next-up hero
   var _panel = { open: null };    // null | 'add' | 'detail'
   var _addState = { top: 'single', sub: 'form', delim: 'pipe' };
   // Create-mode draft-first: optional AI/manual content before Save draft.
@@ -936,6 +937,7 @@ information about.
       .then(function (data) {
         _bundle = data;
         _renderWeekList();
+        _loadNextUpRange();
         // Keep an open detail panel in sync with the freshly loaded bundle
         // (a mutation triggered from inside the panel doesn't otherwise
         // refresh it, since it renders from _detail, not _bundle).
@@ -1027,6 +1029,8 @@ information about.
       if (emptyEl) emptyEl.hidden = false;
       if (subtitle) subtitle.innerHTML = '&nbsp;';
       if (cogBtn) cogBtn.hidden = true;
+      var setlineEmpty = document.getElementById('lp-setline');
+      if (setlineEmpty) setlineEmpty.hidden = true;
       return;
     }
 
@@ -1048,6 +1052,16 @@ information about.
       _setText('lp-rule-ramp', '+' + _fmtPct1(_lpData.ramp_rate) + ' / week');
       _setText('lp-rule-hold', _lpData.hold_weeks + ' wks · ' + Math.round(_lpData.peak) + ' TSS');
       _setText('lp-rule-taper', _lpData.taper_weeks + ' weeks');
+    }
+
+    var setline = document.getElementById('lp-setline');
+    var setlineText = document.getElementById('lp-setline-text');
+    if (setline && setlineText) {
+      setline.hidden = false;
+      setlineText.innerHTML =
+        '<b>' + esc(String(_lpData.weeks_to_race)) + ' wks</b> to ' + esc(_lpData.race.name) +
+        ' <span>·</span> ramp <b>+' + esc(_fmtPct1(_lpData.ramp_rate)) + '</b>' +
+        ' <span>·</span> peak <b>' + Math.round(_lpData.peak) + '</b>';
     }
 
     if (warnEl) {
@@ -1094,6 +1108,85 @@ information about.
     if (el) el.textContent = text;
   }
 
+  function _isMobilePlanLayout() {
+    return typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 1039.98px)').matches;
+  }
+
+  function _barKind(w, isPrior) {
+    if (isPrior) return 'actual' + (w.deload ? ' is-deload' : '');
+    var cls = 'target phase-' + (w.phase || 'ramp');
+    if (w.clamped) cls += ' is-clamped';
+    if (w.deload) cls += ' is-deload';
+    return cls;
+  }
+
+  function _phaseStripHtml(series) {
+    // Collapse consecutive same-phase weeks into strips (desktop full chart).
+    var segs = [];
+    series.forEach(function (item) {
+      var phase = item.isPrior ? 'prior' : (item.w.phase || 'ramp');
+      var last = segs[segs.length - 1];
+      if (last && last.phase === phase) { last.w += 1; return; }
+      segs.push({ phase: phase, w: 1 });
+    });
+    return '<div class="lp-phasebar">' + segs.map(function (s) {
+      if (s.phase === 'prior') return '<div class="lp-ph lp-ph-prior" style="flex:' + s.w + '"></div>';
+      var lab = s.phase === 'hold' ? ('PEAK HOLD · ' + s.w + ' WKS')
+        : s.phase === 'taper' ? 'TAPER'
+        : s.phase === 'race' ? 'RACE'
+        : s.phase === 'consolidation' ? 'HOLD'
+        : 'BUILD';
+      var cls = s.phase === 'hold' ? 'peakp' : s.phase === 'taper' ? 'taperp'
+        : s.phase === 'race' ? 'racep' : 'build';
+      return '<div class="lp-ph ' + cls + '" style="flex:' + s.w + '">' + lab + '</div>';
+    }).join('') + '</div>';
+  }
+
+  function _mobileAheadChips(weeks, race) {
+    var hold = weeks.filter(function (w) { return w.phase === 'hold'; });
+    var taper = weeks.filter(function (w) { return w.phase === 'taper' || w.phase === 'race'; });
+    var chips = [];
+    if (hold.length) {
+      chips.push('<div class="lp-amini peak"><div class="k">Peak hold</div><div class="v">' +
+        Math.round(hold[0].target_tss) + '</div><div class="s">' + hold.length + ' wks · ' +
+        _fmtShortDate(hold[0].week_start) + '</div></div>');
+    }
+    if (taper.length) {
+      var first = taper[0], last = taper[taper.length - 1];
+      chips.push('<div class="lp-amini tap"><div class="k">Taper</div><div class="v">' +
+        Math.round(first.target_tss) + '→' + Math.round(last.target_tss) +
+        '</div><div class="s">' + taper.length + ' wks · ' + _fmtShortDate(first.week_start) + '</div></div>');
+    }
+    if (race) {
+      chips.push('<div class="lp-amini race"><div class="k">Race day</div><div class="v">' +
+        esc(_fmtShortDate(race.date)) + '</div><div class="s">' + esc(race.name) + '</div></div>');
+    }
+    return chips.length ? ('<div class="lp-ahead">' + chips.join('') + '</div>') : '';
+  }
+
+  function _currentPhaseLabel(weeks) {
+    var cur = null, idx = 0, total = 0;
+    for (var i = 0; i < weeks.length; i++) {
+      if (weeks[i].week_index === 1) { cur = weeks[i]; break; }
+    }
+    if (!cur) cur = weeks[0];
+    if (!cur) return '';
+    var phase = cur.phase || 'ramp';
+    weeks.forEach(function (w) {
+      if (w.phase === phase) total += 1;
+    });
+    // Position within phase: count weeks of this phase up to and including current
+    var pos = 0;
+    for (var j = 0; j < weeks.length; j++) {
+      if (weeks[j].phase !== phase) continue;
+      pos += 1;
+      if (weeks[j].week_start === cur.week_start) break;
+    }
+    var name = phase === 'hold' ? 'PEAK HOLD' : phase === 'taper' ? 'TAPER'
+      : phase === 'race' ? 'RACE' : phase === 'consolidation' ? 'HOLD' : 'BUILD';
+    return '<div class="lp-phasenow"><div class="lp-ph">' + name + ' · WEEK ' + pos + ' OF ' + total + '</div></div>';
+  }
+
   function _renderLoadPlanChart() {
     var host = document.getElementById('lp-chart-wrap');
     if (!host) return;
@@ -1101,102 +1194,99 @@ information about.
 
     var prior = _lpData.prior_weeks || [];
     var weeks = _lpData.weeks || [];
-    var totalCols = prior.length + weeks.length;
-    if (totalCols === 0) { host.innerHTML = ''; return; }
+    if (!prior.length && !weeks.length) { host.innerHTML = ''; return; }
 
-    var allValues = prior.map(function (p) { return p.actual_tss; })
-      .concat(weeks.map(function (w) { return w.target_tss; }));
+    var series = prior.map(function (p) { return { w: p, isPrior: true }; })
+      .concat(weeks.map(function (w) { return { w: w, isPrior: false }; }));
+
+    var mobile = _isMobilePlanLayout();
+    var view = series;
+    var thisIdx = -1;
+    series.forEach(function (item, i) {
+      if (!item.isPrior && item.w.week_index === 1) thisIdx = i;
+    });
+    if (mobile && thisIdx >= 0) {
+      var from = Math.max(0, thisIdx - 2);
+      var to = Math.min(series.length, thisIdx + 3);
+      view = series.slice(from, to);
+    }
+
+    var allValues = view.map(function (item) {
+      return item.isPrior ? item.w.actual_tss : item.w.target_tss;
+    });
     var maxVal = Math.max.apply(null, allValues.concat([1]));
 
-    var barsHtml = '';
-    var axisHtml = '';
-    var prevMonth = null;
+    var barsHtml = view.map(function (item) {
+      var val = item.isPrior ? item.w.actual_tss : item.w.target_tss;
+      var h = Math.max(6, (val / maxVal) * 100);
+      var kind = _barKind(item.w, item.isPrior);
+      var isNow = !item.isPrior && item.w.week_index === 1;
+      var d = _parseISO(item.w.week_start);
+      var dLab = d.getDate() + ' ' + MON[d.getMonth()];
+      var tip = dLab + ' · ' + Math.round(val) + ' TSS';
+      return '<div class="lp-bar-col' + (isNow ? ' is-this-week' : '') + '" title="' + esc(tip) + '">' +
+        '<div class="lp-bar ' + kind + '" style="height:' + h + '%">' +
+        (item.w.deload ? '<span class="lp-deload-arrow" aria-hidden="true">▼</span>' : '') +
+        '<span class="lp-bar-value">' + Math.round(val) + '</span></div>' +
+        '<span class="lp-bar-d">' + esc(dLab) + '</span></div>';
+    }).join('');
 
-    function axisCol(iso) {
-      var d = _parseISO(iso);
-      var m = d.getMonth();
-      var showMonth = m !== prevMonth;
-      prevMonth = m;
-      return '<div class="lp-axis-col">' + d.getDate() +
-        (showMonth ? '<span class="mon">' + MON[m] + '</span>' : '') + '</div>';
+    var mobileExtra = '';
+    if (mobile) {
+      var weeksAhead = Math.max(0, weeks.length - 1);
+      mobileExtra =
+        _currentPhaseLabel(weeks) +
+        (weeksAhead > 0 ? '<div class="lp-divider"><span>' + weeksAhead + ' weeks ahead</span></div>' : '') +
+        _mobileAheadChips(weeks, _lpData.race) +
+        '<button type="button" class="lp-fullink" id="lp-full-chart-btn">Full season chart →</button>';
     }
-
-    prior.forEach(function (p) {
-      var h = Math.max(6, (p.actual_tss / maxVal) * 100);
-      var cls = 'lp-bar actual' + (p.deload ? ' is-deload' : '');
-      barsHtml += '<div class="lp-bar-col"><div class="' + cls + '" style="height:' + h + '%"' +
-        (p.deload ? ' title="Deload week"' : '') + '>' +
-        (p.deload ? '<span class="lp-deload-arrow" aria-hidden="true">▼</span>' : '') +
-        '<span class="lp-bar-value">' + Math.round(p.actual_tss) + '</span></div></div>';
-      axisHtml += axisCol(p.week_start);
-    });
-
-    var thisWeekCol = -1, raceCol = -1;
-    var holdFirst = -1, holdLast = -1;
-
-    weeks.forEach(function (w, i) {
-      var col = prior.length + i;
-      if (w.phase === 'ramp' && w.week_index === 1) thisWeekCol = col;
-      if (w.phase === 'hold') { if (holdFirst < 0) holdFirst = col; holdLast = col; }
-      if (w.phase === 'race') raceCol = col;
-      if (w.week_index === 1) thisWeekCol = col; // week_index 1 is always "this week", any phase
-
-      var h = Math.max(6, (w.target_tss / maxVal) * 100);
-      var cls = 'lp-bar target phase-' + w.phase + (w.clamped ? ' is-clamped' : '') + (w.deload ? ' is-deload' : '');
-      var colCls = 'lp-bar-col' + (w.week_index === 1 ? ' is-this-week' : '');
-      barsHtml += '<div class="' + colCls + '"><div class="' + cls + '" style="height:' + h + '%" title="' +
-        esc(PHASE_LABEL[w.phase] || w.phase) + (w.deload ? ' — deload week (cut 30%)' : '') +
-        (w.clamped ? ' — ACWR-clamped' : '') + '">' +
-        (w.deload ? '<span class="lp-deload-arrow" aria-hidden="true">▼</span>' : '') +
-        '<span class="lp-bar-value">' + Math.round(w.target_tss) + '</span></div></div>';
-      axisHtml += axisCol(w.week_start);
-    });
-
-    var bracketHtml = '';
-    if (holdFirst >= 0 && holdLast >= 0) {
-      var left = (holdFirst / totalCols) * 100;
-      var width = ((holdLast - holdFirst + 1) / totalCols) * 100;
-      bracketHtml = '<div class="lp-bracket" style="left:' + left + '%;width:' + width + '%">' +
-        '<span class="lp-bracket-lab">PEAK HOLD · ' + _lpData.hold_weeks + ' WKS</span></div>';
-    }
-
-    var flagHtml = '';
-    if (thisWeekCol >= 0) {
-      var twLeft = ((thisWeekCol + 0.5) / totalCols) * 100;
-      flagHtml += '<div class="lp-flag-this-week" style="left:' + twLeft + '%">THIS WEEK</div>';
-    }
-    if (raceCol >= 0) {
-      var rLeft = ((raceCol + 0.5) / totalCols) * 100;
-      flagHtml += '<div class="lp-flag-race" style="left:' + rLeft + '%">' +
-        '<div class="caret">▲</div><div class="lp-flag-race-badge">RACE DAY<br>' +
-        esc(_fmtRaceDayLabel(_lpData.race.date)) + '</div></div>';
-    }
-
-    // Other races / checkpoints in the window — small carets under their
-    // week's bar (the A race keeps the big RACE DAY flag).
-    (_lpData.markers || []).forEach(function (m) {
-      var col = -1;
-      var md = m.date;
-      prior.forEach(function (p, i) {
-        if (md >= p.week_start && md < _isoAddDays(p.week_start, 7)) col = i;
-      });
-      weeks.forEach(function (w, i) {
-        if (md >= w.week_start && md < _isoAddDays(w.week_start, 7)) col = prior.length + i;
-      });
-      if (col < 0 || col === raceCol) return;
-      var mLeft = ((col + 0.5) / totalCols) * 100;
-      var isCp = (m.race_type || '') === 'checkpoint';
-      var lab = isCp ? 'CP' : (m.priority || 'B');
-      flagHtml += '<div class="lp-flag-marker' + (isCp ? ' is-cp' : '') + '" style="left:' + mLeft + '%" title="' +
-        esc(m.name + ' \u00b7 ' + m.date) + '">' +
-        '<div class="caret">▲</div><div class="lp-flag-marker-badge">' + esc(lab) + '</div></div>';
-    });
 
     host.innerHTML =
-      '<div class="lp-bracket-row" style="position:relative;height:14px;">' + bracketHtml + '</div>' +
-      '<div class="lp-bars">' + barsHtml + '</div>' +
-      '<div class="lp-axis">' + axisHtml + '</div>' +
-      '<div class="lp-flag-row">' + flagHtml + '</div>';
+      '<div class="lp-bars' + (mobile ? ' is-windowed' : '') + '">' + barsHtml + '</div>' +
+      (mobile ? '' : _phaseStripHtml(series)) +
+      mobileExtra;
+
+    var fullBtn = document.getElementById('lp-full-chart-btn');
+    if (fullBtn) fullBtn.onclick = function () { _openFullSeasonSheet(); };
+  }
+
+  function _openFullSeasonSheet() {
+    if (!_lpData) return;
+    var existing = document.getElementById('lp-full-sheet');
+    if (existing) existing.remove();
+    var prior = _lpData.prior_weeks || [];
+    var weeks = _lpData.weeks || [];
+    var series = prior.map(function (p) { return { w: p, isPrior: true }; })
+      .concat(weeks.map(function (w) { return { w: w, isPrior: false }; }));
+    var allValues = series.map(function (item) {
+      return item.isPrior ? item.w.actual_tss : item.w.target_tss;
+    });
+    var maxVal = Math.max.apply(null, allValues.concat([1]));
+    var bars = series.map(function (item) {
+      var val = item.isPrior ? item.w.actual_tss : item.w.target_tss;
+      var h = Math.max(6, (val / maxVal) * 100);
+      var d = _parseISO(item.w.week_start);
+      var dLab = d.getDate() + ' ' + MON[d.getMonth()];
+      var isNow = !item.isPrior && item.w.week_index === 1;
+      return '<div class="lp-bar-col' + (isNow ? ' is-this-week' : '') + '" title="' + esc(dLab + ' · ' + Math.round(val) + ' TSS') + '">' +
+        '<div class="lp-bar ' + _barKind(item.w, item.isPrior) + '" style="height:' + h + '%">' +
+        '<span class="lp-bar-value">' + Math.round(val) + '</span></div>' +
+        '<span class="lp-bar-d">' + esc(dLab) + '</span></div>';
+    }).join('');
+    var sheet = document.createElement('div');
+    sheet.id = 'lp-full-sheet';
+    sheet.className = 'lp-full-sheet';
+    sheet.innerHTML =
+      '<div class="lp-full-sheet-card" role="dialog" aria-modal="true" aria-label="Full season chart">' +
+        '<div class="lp-full-sheet-head"><span>Full season chart</span>' +
+          '<button type="button" class="lp-full-sheet-close" id="lp-full-sheet-close" aria-label="Close">✕</button></div>' +
+        '<div class="lp-bars">' + bars + '</div>' +
+        _phaseStripHtml(series) +
+      '</div>';
+    document.body.appendChild(sheet);
+    function close() { sheet.remove(); }
+    sheet.addEventListener('click', function (e) { if (e.target === sheet) close(); });
+    document.getElementById('lp-full-sheet-close').onclick = close;
   }
 
   function _isoAddDays(iso, n) {
@@ -1314,11 +1404,29 @@ information about.
     var rampInput = document.getElementById('lp-ramp-input');
     var saveBtn = document.getElementById('lp-save-btn');
     var deloadToggle = document.getElementById('lp-recovery-toggle');
+    var setline = document.getElementById('lp-setline');
     if (cogBtn) cogBtn.onclick = _toggleLoadPlanSettings;
     if (deloadToggle) deloadToggle.onchange = _syncDeloadWeekRow;
     if (rampSlider) rampSlider.oninput = function () { if (rampInput) rampInput.value = rampSlider.value; };
     if (rampInput) rampInput.oninput = function () { if (rampSlider) rampSlider.value = rampInput.value; };
     if (saveBtn) saveBtn.onclick = _saveLoadPlanRules;
+    if (setline) setline.onclick = function () {
+      var strip = document.getElementById('lp-rules-strip');
+      if (!strip) return;
+      var open = strip.classList.toggle('is-open');
+      setline.setAttribute('aria-expanded', open ? 'true' : 'false');
+      setline.classList.toggle('is-open', open);
+    };
+    if (!window.__plChartResizeWired) {
+      window.__plChartResizeWired = true;
+      var t = null;
+      window.addEventListener('resize', function () {
+        clearTimeout(t);
+        t = setTimeout(function () {
+          if (_lpData) _renderLoadPlanChart();
+        }, 150);
+      });
+    }
   }
 
   // ── Session load · this week (Plan-tab revamp, Part 2) ──────────────────────
@@ -1360,6 +1468,7 @@ information about.
 
     var d = _wlData;
     _setText('wl-target-val', '/' + Math.round(d.target_tss));
+    _renderNextUp(); // Of-week share uses target_tss
 
     var projEl = document.getElementById('wl-target-projected');
     if (projEl) {
@@ -1499,10 +1608,244 @@ information about.
   }
 
   // ── Render shell ────────────────────────────────────────────────────────────
+
+  // ── Next up hero (§1) ───────────────────────────────────────────────────────
+  function _isOpenPlanned(p) {
+    if (!p || p.session_type === 'rest') return false;
+    var s = p.status || 'planned';
+    if (s === 'done_auto' || s === 'done_manual') return false;
+    if (s === 'missed' || s === 'missed_auto' || s === 'missed_manual') return false;
+    return true;
+  }
+
+  function _fmtHeroDate(iso) {
+    var d = _parseISO(iso);
+    var dow = DOW[(d.getDay() + 6) % 7];
+    var short = dow.charAt(0) + dow.slice(1).toLowerCase() + ' ' + d.getDate() + ' ' + MON[d.getMonth()];
+    if (iso === _todayISO()) return short + ' · today';
+    return short;
+  }
+
+  function _fmtThenDate(iso) {
+    var d = _parseISO(iso);
+    var dow = DOW[(d.getDay() + 6) % 7];
+    return dow.charAt(0) + dow.slice(1).toLowerCase() + ' ' + d.getDate();
+  }
+
+  function _sessionCue(p) {
+    if (!p) return null;
+    if (p.notes && String(p.notes).trim()) {
+      var n = String(p.notes).trim().replace(/\s+/g, ' ');
+      if (n.length > 140) n = n.slice(0, 137) + '…';
+      return n;
+    }
+    var s = p.structure || {};
+    if (s.cue && String(s.cue).trim()) return String(s.cue).trim();
+    if (s.key_instruction && String(s.key_instruction).trim()) return String(s.key_instruction).trim();
+    if (Array.isArray(s.blocks)) {
+      for (var i = 0; i < s.blocks.length; i++) {
+        var b = s.blocks[i];
+        if (b && b.notes && String(b.notes).trim()) return String(b.notes).trim();
+        if (b && b.cue && String(b.cue).trim()) return String(b.cue).trim();
+      }
+    }
+    return null;
+  }
+
+  function _pickNextUp(days) {
+    var today = _todayISO();
+    var best = null;
+    (days || []).forEach(function (day) {
+      if (day.date < today) return;
+      (day.planned || []).forEach(function (p) {
+        if (!_isOpenPlanned(p)) return;
+        if (!best || day.date < best.day.date) best = { p: p, day: day };
+      });
+    });
+    return best;
+  }
+
+  function _pickThenAfter(days, current) {
+    if (!current) return null;
+    var afterDate = current.day.date;
+    var afterId = current.p.id;
+    var passed = false;
+    for (var i = 0; i < (days || []).length; i++) {
+      var day = days[i];
+      if (day.date < afterDate) continue;
+      var planned = day.planned || [];
+      for (var j = 0; j < planned.length; j++) {
+        var p = planned[j];
+        if (!passed) {
+          if (p.id === afterId) { passed = true; continue; }
+          if (day.date === afterDate) continue;
+        }
+        if (_isOpenPlanned(p)) {
+          return {
+            fam: _famClass(p.session_type),
+            chip: _sessionTypeChipLabel(p),
+            text: 'then ' + _fmtThenDate(day.date) + ' · ' + _sessionDisplayName(p)
+          };
+        }
+      }
+      if (passed && day.date > afterDate && !planned.length) {
+        return {
+          fam: null,
+          chip: null,
+          text: 'then ' + _fmtThenDate(day.date) + ' · rest day — nothing scheduled'
+        };
+      }
+    }
+    return null;
+  }
+
+  function _loadNextUpRange() {
+    var today = _todayISO();
+    var to = _iso(_addDays(_parseISO(today), 20));
+    _api('GET', '/api/planned-sessions?from=' + today + '&to=' + to)
+      .then(function (data) {
+        _nextUpBundle = data;
+        _renderNextUp();
+      })
+      .catch(function () {
+        _nextUpBundle = null;
+        _renderNextUp();
+      });
+  }
+
+  function _renderNextUp() {
+    var host = document.getElementById('plan-next-up');
+    if (!host) return;
+    var days = (_nextUpBundle && _nextUpBundle.days) || (_bundle && _bundle.days) || [];
+    var next = _pickNextUp(days);
+    if (!next) {
+      host.innerHTML =
+        '<div class="pl-hero pl-hero--empty">' +
+          '<div class="pl-hero-top"><span class="pl-hero-k">Next up</span></div>' +
+          '<div class="pl-hero-body">' +
+            '<div class="pl-hero-empty-msg">Nothing scheduled from today forward.</div>' +
+            '<button type="button" class="pl-hero-btn" id="pl-hero-suggest">Suggest sessions</button>' +
+          '</div>' +
+        '</div>';
+      var sug = document.getElementById('pl-hero-suggest');
+      if (sug) sug.onclick = _openSuggestPanel;
+      return;
+    }
+    var p = next.p;
+    var fam = _famClass(p.session_type);
+    var cue = _sessionCue(p);
+    var dur = _plannedDurationMin(p);
+    var tss = _sessionTss(p) || (function () {
+      var pt = _plannedTargetTss(p);
+      return pt != null ? { value: pt, estimated: true } : null;
+    })();
+    var weekT = (_wlData && _wlData.target_tss != null) ? Number(_wlData.target_tss) : null;
+    var share = (tss && weekT) ? Math.round((tss.value / weekT) * 100) + '%' : '—';
+    var metaBits = [];
+    if (dur != null) metaBits.push(dur + ' min');
+    var soft = _plannedMeta(p);
+    if (soft) metaBits.push(soft);
+    metaBits.push('planned');
+    var then = _pickThenAfter(days, next);
+    var cueHtml = cue
+      ? '<div class="pl-hero-cue"><span aria-hidden="true">⛽</span><span>' + esc(cue) + '</span></div>'
+      : '';
+    var thenHtml = then
+      ? '<div class="pl-hero-foot">' +
+          (then.chip ? '<span class="pl-stypetag ' + (then.fam || '') + '" style="opacity:.55">' + esc(then.chip) + '</span>' : '') +
+          '<span class="pl-hero-then">' + esc(then.text) + '</span></div>'
+      : '';
+
+    host.innerHTML =
+      '<div class="pl-hero">' +
+        '<div class="pl-hero-top"><span class="pl-hero-k">Next up</span>' +
+          '<span class="pl-hero-d">' + esc(_fmtHeroDate(next.day.date)) + '</span></div>' +
+        '<div class="pl-hero-body">' +
+          '<div class="pl-hero-left">' +
+            '<div class="pl-hero-name"><span class="pl-stypetag ' + fam + '">' + esc(_sessionTypeChipLabel(p)) + '</span> ' +
+              esc(_sessionDisplayName(p)) + '</div>' +
+            '<div class="pl-hero-meta">' + esc(metaBits.join(' · ')) + '</div>' +
+            cueHtml +
+          '</div>' +
+          '<div class="pl-hero-stats">' +
+            '<div class="pl-hero-stat"><div class="k">Duration</div><div class="v">' + (dur != null ? dur : '—') + '</div></div>' +
+            '<div class="pl-hero-stat"><div class="k">TSS</div><div class="v">' +
+              (tss ? ((tss.estimated ? '~' : '') + Math.round(tss.value)) : '—') + '</div></div>' +
+            '<div class="pl-hero-stat"><div class="k">Of week</div><div class="v">' + esc(share) + '</div></div>' +
+          '</div>' +
+          '<div class="pl-hero-acts">' +
+            '<button type="button" class="pl-hero-btn" id="pl-hero-open">Open session</button>' +
+            '<button type="button" class="pl-hero-btn ghost" id="pl-hero-done">Mark done</button>' +
+          '</div>' +
+        '</div>' + thenHtml +
+      '</div>';
+
+    var openBtn = document.getElementById('pl-hero-open');
+    if (openBtn) openBtn.onclick = function () { _openDetailById(p.id); };
+    var doneBtn = document.getElementById('pl-hero-done');
+    if (doneBtn) doneBtn.onclick = function () {
+      _mutate('POST', '/api/planned-sessions/' + p.id + '/mark-done');
+    };
+  }
+
   function _renderAll() {
+    _renderNextUp();
     _renderWeekSection();
     _renderAddSection();
     _renderDetailSection();
+  }
+
+  function _openSuggestPanel() {
+    var t = document.getElementById('plan-suggestions-trigger');
+    if (t) t.click();
+    setTimeout(function () {
+      var panel = document.getElementById('plan-suggestions-panel');
+      if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+  }
+
+  function _defaultNewSessionDate() {
+    var today = _todayISO();
+    var weekEnd = _iso(_addDays(_weekStart, 6));
+    if (today >= _iso(_weekStart) && today <= weekEnd) return today;
+    return _iso(_weekStart);
+  }
+
+  function _exportWeekSessions() {
+    if (!_bundle || !(_bundle.days || []).length) {
+      _toast('Nothing to export this week', true);
+      return;
+    }
+    var out = [];
+    (_bundle.days || []).forEach(function (day) {
+      (day.planned || []).forEach(function (p) {
+        if (p.session_type === 'rest') return;
+        var type = (p.session_type || 'run').toLowerCase();
+        var structure = p.structure || {};
+        var row = {
+          date: p.planned_date || day.date,
+          type: type,
+          name: _sessionDisplayName(p)
+        };
+        if (p.notes) row.notes = p.notes;
+        if (Array.isArray(structure.blocks) && structure.blocks.length) row.blocks = structure.blocks;
+        if (Array.isArray(structure.exercises) && structure.exercises.length) {
+          row.exercises = structure.exercises.map(function (ex) {
+            return _smExportExerciseRow(ex);
+          }).filter(Boolean);
+        }
+        if (structure.target_tss != null) row.target_tss = structure.target_tss;
+        if (structure.duration_minutes != null) row.duration_minutes = structure.duration_minutes;
+        out.push(row);
+      });
+    });
+    if (!out.length) {
+      _toast('No sessions to export', true);
+      return;
+    }
+    var ws = _iso(_weekStart);
+    _downloadFile('week-plan-' + ws + '.json', JSON.stringify(out, null, 2), 'application/json');
+    _toast('Exported ' + out.length + ' session' + (out.length === 1 ? '' : 's'));
   }
 
   function _renderWeekSection() {
@@ -1510,24 +1853,31 @@ information about.
     if (!host) return;
     host.innerHTML =
       '<div class="pl-card">' +
-        '<div class="pl-chead"><div class="pl-wknav">' +
+        '<div class="pl-wknav">' +
           '<button class="pl-arw" id="pl-prev" aria-label="Previous week">‹</button>' +
           '<span class="pl-wktitle" id="pl-wktitle">' + esc(_fmtWeekTitle(_weekStart)) + '</span>' +
           '<button class="pl-arw" id="pl-next" aria-label="Next week">›</button>' +
           '<span class="pl-weektotal" id="pl-weektotal" hidden></span>' +
+          '<span class="pl-wknav-right">' +
+            '<button type="button" class="pl-btn pl-ghost pl-tiny" id="pl-new-session">+ New session</button>' +
+            '<button type="button" class="pl-btn pl-ghost pl-tiny" id="pl-export-week">Export ↗</button>' +
+          '</span>' +
         '</div>' +
-        '<div class="pl-btnrow">' +
+        '<div class="pl-btnrow" style="display:none">' +
           '<button class="pl-btn pl-lime" id="pl-apply-draft" hidden title="Create planned sessions from this draft">Apply week</button>' +
           '<button class="pl-btn pl-ghost" id="pl-refresh-draft" hidden title="Regenerate untouched draft slots">Refresh draft</button>' +
-          /* hidden with the other two draft buttons — drafts are parked (D1),
-             so this would queue a job the worker no longer dispatches. */
           '<button class="pl-btn pl-ghost" id="pl-replan-remaining" hidden title="Replan open days from remaining budget">Replan remaining</button>' +
-          /* Opens the suggestions panel (prefs + build schedule live there). */
-          '<button class="pl-btn pl-ghost" id="pl-suggest" title="AI-suggested sessions for this week">✨ Suggest sessions</button>' +
-        '</div></div>' +
+        '</div>' +
         '<div class="pl-draft-banner" id="pl-draft-banner" aria-live="polite" hidden></div>' +
         '<div class="pl-draft-pending" id="pl-draft-pending" hidden></div>' +
-        '<div class="pl-infobanner" id="pl-infobanner" style="margin-bottom:12px;">Sessions are generated to hit your weekly target, respecting the ramp rule and your rest days.</div>' +
+        '<button type="button" class="pl-suggest" id="pl-suggest" title="Suggest sessions for this week">' +
+          '<span class="pl-suggest-ic" aria-hidden="true">✨</span>' +
+          '<span class="pl-suggest-tx">' +
+            '<span class="pl-suggest-t">Suggest sessions</span>' +
+            '<span class="pl-suggest-s" id="pl-suggest-sub">deterministic · respects rest days and the ramp rule</span>' +
+          '</span>' +
+          '<span class="pl-suggest-ar" aria-hidden="true">›</span>' +
+        '</button>' +
         '<div class="pl-weeklist" id="plan-week-list"></div>' +
         '<div class="pl-legend">' +
           '<span><b style="background:var(--primary)"></b>Run</span><span><b style="background:var(--workout-lift)"></b>Strength</span><span><b style="background:var(--warning)"></b>Plyo</span>' +
@@ -1543,8 +1893,6 @@ information about.
     document.getElementById('pl-next').onclick = function () {
       _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(function () { if (_draftVisible) _loadDraft(); }); _loadWeekLoad(_iso(_weekStart));
     };
-    // Header "+ Add" removed — use Suggest sessions or each day's "+ add"
-    // (bulk JSON still live in the Add panel opened from a day).
     var applyBtn = document.getElementById('pl-apply-draft');
     if (applyBtn) applyBtn.onclick = _applyDraftWeek;
     var refreshBtn = document.getElementById('pl-refresh-draft');
@@ -1560,14 +1908,11 @@ information about.
         .catch(function () { _toast('Replan failed', true); });
     };
     var sugBtn = document.getElementById('pl-suggest');
-    if (sugBtn) sugBtn.onclick = function () {
-      var t = document.getElementById('plan-suggestions-trigger');
-      if (t) t.click();
-      setTimeout(function () {
-        var panel = document.getElementById('plan-suggestions-panel');
-        if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 50);
-    };
+    if (sugBtn) sugBtn.onclick = _openSuggestPanel;
+    var newBtn = document.getElementById('pl-new-session');
+    if (newBtn) newBtn.onclick = function () { _openAdd('single', _defaultNewSessionDate()); };
+    var expBtn = document.getElementById('pl-export-week');
+    if (expBtn) expBtn.onclick = _exportWeekSessions;
     _updateWeekTargetUI();
     _renderDraftChrome();
     if (_bundle) _renderWeekList();
@@ -1587,21 +1932,18 @@ information about.
         totalEl.hidden = false;
         var stateLabel = d.state === 'on_track' ? 'on track' : d.state === 'under' ? 'under' :
           d.state === 'over' ? 'over' : '—';
-        totalEl.innerHTML = 'week total <b>' + Math.round(d.projected_tss) + '</b> / ' + target +
+        totalEl.innerHTML = '<b>' + Math.round(d.projected_tss) + '</b> / ' + target +
           ' TSS &middot; ' + esc(stateLabel);
       } else {
         totalEl.hidden = true;
       }
     }
 
-    var sugBtn = document.getElementById('pl-suggest');
-    if (sugBtn) sugBtn.textContent = target != null ? '✨ Suggest sessions · fill to ' + target : '✨ Suggest sessions';
-
-    var bannerEl = document.getElementById('pl-infobanner');
-    if (bannerEl) {
-      bannerEl.innerHTML = target != null
-        ? 'Sessions are generated to hit <b>' + target + ' TSS</b>, respecting the ramp rule and your rest days.'
-        : 'Sessions are generated to hit your weekly target, respecting the ramp rule and your rest days.';
+    var sugSub = document.getElementById('pl-suggest-sub');
+    if (sugSub) {
+      sugSub.textContent = target != null
+        ? 'fill to ' + target + ' TSS · deterministic · respects rest days and the ramp rule'
+        : 'deterministic · respects rest days and the ramp rule';
     }
   }
 
@@ -1613,7 +1955,7 @@ information about.
       ? _draftSessionsByOffset() : {};
     host.innerHTML = (_bundle.days || []).map(function (day, di) {
       var isPast = day.date < todayStr;
-      var cls = day.date === todayStr ? 'today' : (isPast ? 'past' : '');
+      var isToday = day.date === todayStr;
       var cards = (day.planned || []).map(function (p) { return _plannedCardHtml(p, day); }).join('');
       var ghosts = (day.unplanned || []).filter(function (u) { return !_dismissedGhosts[u.id]; })
         .map(function (u) { return _ghostCardHtml(u, day); }).join('');
@@ -1631,22 +1973,36 @@ information about.
           '<button type="button" class="pl-btn pl-ghost pl-tiny" data-draft-add="' + di + '" data-kind="stretch">Quick stretch</button>' +
         '</div>';
       }
-      var hasContent = (day.planned || []).length || ghosts || draftHtml || addDraft;
-      var rest = !hasContent ? '<div class="pl-restday">Rest day</div>' : '';
-      // A past day is done — no NEW session should be added to it. Existing
-      // cards keep every action (match/change match/mark missed/delete); only
-      // the "+ add" trigger for a fresh session is disabled.
-      var addDay = isPast
-        ? '<div class="pl-addday is-disabled" title="This day has passed — nothing new can be added">+ add</div>'
-        : '<button type="button" class="pl-addday" data-add-date="' + day.date + '" aria-label="Add a session on ' + esc(day.date) + '">+ add</button>';
+      var hasSessions = !!(cards || ghosts || draftHtml || addDraft);
       var dayTotal = _dayTotalTss(day);
-      var dayWarn = _dayHasWarning(day) ? '<span class="pl-day-guard-badge" title="A session this day loads an overused or injured muscle group">⚠</span>' : '';
-      return '<div class="pl-dayrow ' + cls + '" data-date="' + day.date + '" data-day-offset="' + di + '">' +
-        '<div class="pl-daylabel"><span class="pl-dname">' + day.dow + dayWarn + '</span><span class="pl-dnum">' + _parseISO(day.date).getDate() + '</span></div>' +
-        '<div class="pl-daybody">' + cards + draftHtml + addDraft + ghosts + rest + addDay +
-        '</div>' +
-        (dayTotal != null ? '<span class="pl-dtotal">' + Math.round(dayTotal) + ' TSS</span>' : '') +
-      '</div>';
+      var dayWarn = _dayHasWarning(day)
+        ? '<span class="pl-day-guard-badge" title="A session this day loads an overused or injured muscle group">⚠</span>'
+        : '';
+      var gutTot = (hasSessions && dayTotal != null)
+        ? '<span class="pl-gut-tot">' + Math.round(dayTotal) + ' TSS</span>'
+        : '';
+      var gut = '<span class="pl-gut"><span class="pl-gut-dw">' + esc(day.dow) + dayWarn +
+        '</span><span class="pl-gut-dn">' + _parseISO(day.date).getDate() + '</span>' +
+        gutTot + '</span>';
+
+      var addRight = isPast
+        ? ''
+        : '<button type="button" class="pl-day-add" data-add-date="' + day.date +
+          '" aria-label="Add a session on ' + esc(day.date) + '">+ add session</button>';
+
+      var content;
+      if (!hasSessions) {
+        content = '<span class="pl-day-content"><span class="pl-day-sessions">' +
+          '<div class="pl-rest-lab">rest day — nothing scheduled</div></span>' + addRight + '</span>';
+      } else {
+        content = '<span class="pl-day-content"><span class="pl-day-sessions">' +
+          cards + draftHtml + addDraft + ghosts + '</span>' + addRight + '</span>';
+      }
+
+      var cls = 'pl-dayrow' + (isToday ? ' today' : '') + (isPast ? ' past' : '') +
+        (!hasSessions ? ' rest' : '');
+      return '<div class="' + cls + '" data-date="' + day.date + '" data-day-offset="' + di + '">' +
+        gut + content + '</div>';
     }).join('');
     _wireWeekEvents();
   }
@@ -1697,6 +2053,109 @@ information about.
       ? '<span class="pl-stat-tag done">MANUALLY LINKED</span>'
       : '<span class="pl-stat-tag done">COMPLETED (no data)</span>';
     return '';
+  }
+
+  /** Never render empty session identity (Part 0.1). */
+  function _sessionDisplayName(p) {
+    var n = (p && p.name) ? String(p.name).trim() : '';
+    if (n) return n;
+    if (p && p.actual && p.actual.name) {
+      n = String(p.actual.name).trim();
+      if (n) return n;
+    }
+    var t = ((p && p.session_type) || 'run').toLowerCase();
+    if (t === 'strength' || t === 'plyo') return 'Strength session';
+    if (t === 'stretch') return 'Stretch session';
+    if (t === 'rest') return 'Rest day';
+    return 'Easy run';
+  }
+
+  function _sessionTypeChipLabel(p) {
+    var t = ((p && p.session_type) || 'run').toLowerCase();
+    if (t === 'strength') return 'LIFT';
+    if (t === 'plyo') return 'PLYO';
+    if (t === 'stretch') return 'STRETCH';
+    if (t === 'rest') return 'REST';
+    return 'RUN';
+  }
+
+  function _plannedTargetTss(p) {
+    if (!p) return null;
+    if (p.planned_tss != null && isFinite(Number(p.planned_tss))) return Number(p.planned_tss);
+    var s = p.structure || {};
+    if (s.target_tss != null && isFinite(Number(s.target_tss))) return Number(s.target_tss);
+    if (p.estimated_tss != null && isFinite(Number(p.estimated_tss))) return Number(p.estimated_tss);
+    return null;
+  }
+
+  function _actualDurationMin(p) {
+    if (p && p.actual && p.actual.duration_seconds != null) {
+      return Math.round(Number(p.actual.duration_seconds) / 60);
+    }
+    if (p && p.actual_duration_min != null) return Math.round(Number(p.actual_duration_min));
+    return null;
+  }
+
+  function _plannedDurationMin(p) {
+    var s = (p && p.structure) || {};
+    if (s.duration_minutes != null && isFinite(Number(s.duration_minutes))) {
+      return Math.round(Number(s.duration_minutes));
+    }
+    if (Array.isArray(s.blocks) && s.blocks.length) {
+      var tot = 0;
+      s.blocks.forEach(function (b) {
+        var d = Number(b.duration_min) || 0;
+        var r = Math.max(1, Number(b.repeat) || 1);
+        tot += d * r + (Number(b.rest_min) || 0) * (r - 1);
+      });
+      return tot || null;
+    }
+    return null;
+  }
+
+  /**
+   * One compact derivation line (Part 0.2) — never repeat TSS four ways.
+   * Matched: `91 min · planned 54 → 70 · auto-matched`
+   * Planned: `130 min · easy · planned` or `14 exercises · planned`
+   */
+  function _sessionCompactMeta(p) {
+    var bits = [];
+    var done = p.status === 'done_auto' || p.status === 'done_manual';
+    var actMin = _actualDurationMin(p);
+    var planMin = _plannedDurationMin(p);
+    var planTss = _plannedTargetTss(p);
+    var actTss = _sessionTss(p);
+    var matchLab = p.status === 'done_auto' ? 'auto-matched'
+      : (p.status === 'done_manual' ? 'manually linked' : '');
+
+    if (done && (actMin != null || actTss)) {
+      if (actMin != null) bits.push(actMin + ' min');
+      if (planTss != null && actTss) {
+        var deltaCls = actTss.value > planTss ? 'over' : 'delta';
+        bits.push('planned ' + Math.round(planTss) + ' → <span class="pl-sdelta ' + deltaCls + '">' +
+          Math.round(actTss.value) + ' TSS</span>');
+      } else if (actTss) {
+        bits.push(Math.round(actTss.value) + ' TSS');
+      }
+      if (matchLab) bits.push(matchLab);
+      return bits.join(' · ');
+    }
+
+    var soft = _plannedMeta(p);
+    if (planMin != null && !(soft && soft.indexOf('min') !== -1)) bits.push(planMin + ' min');
+    if (soft) bits.push(esc(soft));
+    else if (planTss != null) bits.push('~' + Math.round(planTss) + ' TSS');
+    if (p.status === 'needs_review') bits.push('needs review');
+    else if (p.status === 'missed' || p.status === 'missed_auto' || p.status === 'missed_manual') bits.push('missed');
+    else bits.push('planned');
+    return bits.join(' · ');
+  }
+
+  function _statusDotClass(status) {
+    if (status === 'done_auto' || status === 'done_manual') return 'done';
+    if (status === 'needs_review') return 'review';
+    if (status === 'missed' || status === 'missed_auto' || status === 'missed_manual') return 'missed';
+    return 'draft';
   }
 
   function _plannedMeta(p) {
@@ -1759,41 +2218,54 @@ information about.
 
   function _plannedCardHtml(p, day) {
     var fam = _famClass(p.session_type);
+    var chip = _sessionTypeChipLabel(p).toLowerCase();
+    var displayName = _sessionDisplayName(p);
     var generating = !!(p.id && _generatingIds[p.id]);
     var draggable = !generating && (p.status === 'planned' || p.status === 'missed' || p.status === 'missed_auto' || p.status === 'missed_manual');
     var clickable = (p.status !== 'needs_review');
-    var acts = '<div class="pl-sess-acts">' +
-      (generating ? '' :
-        '<button type="button" class="pl-sess-del" data-sess-del="' + p.id + '" title="Delete session" aria-label="Delete session">🗑</button>') +
-      (draggable ? '<span class="pl-dhandle" title="Drag to move">⠿⠿</span>' : '') +
-      '</div>';
-    var meta = p.actual && (p.status === 'done_auto' || p.status === 'done_manual')
-      ? _plannedMeta(p) : _plannedMeta(p);
-    var dayLate = '';
-    if ((p.status === 'done_auto' || p.status === 'done_manual') && p.actual && p.actual.date && p.planned_date && p.actual.date !== p.planned_date) {
-      dayLate = '<div class="pl-diffline">done · a day late</div>';
+    var todayStr = _todayISO();
+    var compact = generating ? 'content updating for the new budget…' : _sessionCompactMeta(p);
+    if (!generating && day && day.date === todayStr && (p.status === 'planned' || !p.status)) {
+      if (compact.indexOf('today') === -1) compact = compact.replace(/ · planned$/, ' · today');
     }
-    var body = '';
-    if (p.status === 'done_auto' || p.status === 'done_manual') {
-      var actMeta = p.actual ? p.actual.meta : '';
+    var tss = _sessionTss(p);
+    var tssHtml = tss
+      ? '<span class="pl-stss' + (tss.estimated ? ' is-est' : '') + '">' + (tss.estimated ? '~' : '') + Math.round(tss.value) + '</span>'
+      : '<span class="pl-stss"></span>';
+    var warn = generating ? '' : _planWarnBadge(p);
+
+    var expandBody = '';
+    if (generating) {
+      expandBody = '';
+    } else if (p.status === 'done_auto' || p.status === 'done_manual') {
       var mwid = p.matched_workout_id || (p.actual && p.actual.id) || '';
       var feel = p.actual ? p.actual.feeling : null;
-      var diffLine = p.actual
-        ? '<div class="pl-diffline">Planned ' + esc((_plannedMeta(p) || '').split('·')[0].trim() || p.session_type) +
-          ' → Actual ' + esc(actMeta) + '</div>'
-        : '<div class="pl-diffline pl-diffline--manual">Marked complete manually — no workout data attached</div>';
-      body = diffLine +
+      var matchLine = '';
+      if (p.actual) {
+        var srcLab = p.status === 'done_auto' ? '✓ matched' : '↔ linked by you';
+        matchLine = '<div class="pl-matchline' + (p.status === 'done_manual' ? ' manual' : '') + '">' +
+          esc(srcLab) + (p.actual.name ? ' · ' + esc(p.actual.name) : '') +
+          (p.actual.meta ? ' · ' + esc(p.actual.meta) : '') + '</div>';
+      } else {
+        matchLine = '<div class="pl-matchline manual">Marked complete manually — no workout data attached</div>';
+      }
+      if (p.actual && p.actual.date && p.planned_date && p.actual.date !== p.planned_date) {
+        matchLine += '<div class="pl-diffline">done · a day late</div>';
+      }
+      expandBody = matchLine +
         _viewFullLinkHtml(mwid) +
         _feelRowHtml(mwid, feel) +
-        '<div class="pl-matchbtns">' +
-          '<button class="pl-unlink" data-unlink="' + p.id + '">' + (mwid ? 'unlink match' : 'revert to planned') + '</button>' +
-          '<button class="pl-pickbtn" data-pick="' + p.id + '" data-pick-mode="override">' + (mwid ? 'Change matched workout' : 'Attach a workout') + '</button>' +
+        '<div class="pl-sexp-acts">' +
+          '<button type="button" class="pl-abtn" data-open-sess="' + p.id + '">Open session</button>' +
+          '<button type="button" class="pl-abtn" data-pick="' + p.id + '" data-pick-mode="override">' +
+            (mwid ? 'Change match' : 'Attach a workout') + '</button>' +
+          '<button type="button" class="pl-abtn warn" data-unlink="' + p.id + '">' +
+            (mwid ? 'Unlink' : 'Revert') + '</button>' +
         '</div>' +
         '<div class="pl-picker" data-pickerfor="' + p.id + '" hidden></div>';
     } else if (p.status === 'needs_review') {
-      var day2 = day;
-      var cands = _reviewCandidates(p, day2);
-      body = '<div class="pl-candlist">' + cands.map(function (c, ci) {
+      var cands = _reviewCandidates(p, day);
+      expandBody = '<div class="pl-candlist">' + cands.map(function (c, ci) {
           return '<label class="pl-candrow"><input type="radio" name="pl-cand-' + p.id + '" value="' + c.id + '"' + (ci === 0 ? ' checked' : '') + '/>' +
             '<span class="pl-cn">' + esc(c.name) + '</span><span class="pl-cm">' + esc(c.meta) + '</span></label>';
         }).join('') +
@@ -1801,45 +2273,45 @@ information about.
           (cands.length ? '<button class="pl-btn pl-lime pl-tiny" data-confirm="' + p.id + '">Confirm match</button>' : '') +
           '<button class="pl-btn pl-ghost pl-tiny" data-missed="' + p.id + '">None → missed</button>' +
         '</div></div>';
-    }
-    // Keyboard/screen-reader access: the card is the only way to open the
-    // detail panel (no separate "open" control), so when it's clickable it
-    // needs a real button role + tabindex + a descriptive label — not just
-    // "button" with no context.
-    var typeLabel = fam === 'lift' ? 'Strength' : (fam.charAt(0).toUpperCase() + fam.slice(1));
-    var statusLabel = (p.status === 'needs_review') ? 'needs review'
-      : (p.status === 'missed' || p.status === 'missed_auto' || p.status === 'missed_manual') ? 'missed'
-      : (p.status === 'done_auto' || p.status === 'done_manual') ? 'completed'
-      : 'planned';
-    var ariaLabel = typeLabel + ' session, ' + (p.name || '(untitled)') + ', ' +
-      day.dow + ' ' + _parseISO(day.date).getDate() + ', ' + statusLabel;
-    var a11yAttrs = clickable
-      ? ' role="button" tabindex="0" aria-label="' + esc(ariaLabel) + '"'
-      : '';
-    // Keyboard-operable alternative to the drag-and-drop reschedule (drag has
-    // no keyboard path at all) — only offered where drag itself is offered.
-    var moveHtml = '';
-    if (draggable && !generating) {
+    } else {
       var moveOpts = ((_bundle && _bundle.days) || []).filter(function (d) {
         return d.date !== day.date;
       }).map(function (d) {
         return '<option value="' + d.date + '">' + d.dow + ' ' + _parseISO(d.date).getDate() + '</option>';
       }).join('');
-      moveHtml = '<div class="pl-sess-move"><select data-sess-move="' + p.id + '" title="Move to…" aria-label="Move this session to a different day"><option value="">Move to ▾</option>' + moveOpts + '</select></div>';
+      expandBody = '<div class="pl-sexp-acts">' +
+        '<button type="button" class="pl-abtn" data-open-sess="' + p.id + '">Open session</button>' +
+        (draggable
+          ? '<label class="pl-abtn pl-abtn-sel">Move to… <select data-sess-move="' + p.id + '" aria-label="Move session"><option value="">…</option>' + moveOpts + '</select></label>'
+          : '') +
+        '<button type="button" class="pl-abtn warn" data-sess-del="' + p.id + '">Remove</button>' +
+      '</div>';
     }
-    return '<div class="pl-sess ' + fam + ' status-' + p.status + (generating ? ' is-generating' : '') + '"' +
+
+    var typeLabel = fam === 'lift' ? 'Strength' : (fam.charAt(0).toUpperCase() + fam.slice(1));
+    var statusLabel = (p.status === 'needs_review') ? 'needs review'
+      : (p.status === 'missed' || p.status === 'missed_auto' || p.status === 'missed_manual') ? 'missed'
+      : (p.status === 'done_auto' || p.status === 'done_manual') ? 'completed'
+      : 'planned';
+    var ariaLabel = typeLabel + ' session, ' + displayName + ', ' +
+      day.dow + ' ' + _parseISO(day.date).getDate() + ', ' + statusLabel;
+    var a11yAttrs = clickable
+      ? ' role="button" tabindex="0" aria-expanded="false" aria-label="' + esc(ariaLabel) + '"'
+      : '';
+
+    var forceOpen = (p.status === 'needs_review');
+    return '<div class="pl-sess ' + fam + ' status-' + p.status + (generating ? ' is-generating' : '') + (forceOpen ? ' open' : '') + '"' +
         (draggable && !generating ? ' draggable="true"' : '') +
         ' data-sess="' + p.id + '"' + (clickable ? ' data-click="1"' : '') + a11yAttrs + '>' +
-      acts +
-      '<div class="pl-sesstop"><span class="pl-sesstop-left"><span class="pl-stypetag ' + fam + '">' + fam + '</span>' +
-        (generating ? '' : _sessionTssBadge(p) + _planWarnBadge(p)) +
-      '</span>' +
-        (generating ? _generatingChipHtml() : _statusTag(p.status, !!p.actual)) +
+      '<div class="pl-srow">' +
+        '<span class="pl-stypetag ' + fam + '">' + esc(_sessionTypeChipLabel(p)) + '</span>' +
+        '<span class="pl-sn">' + esc(displayName) + warn + '</span>' +
+        '<span class="pl-smeta2">' + (generating ? esc(compact) : compact) + '</span>' +
+        tssHtml +
+        '<span class="pl-sdot ' + _statusDotClass(p.status) + '" aria-hidden="true"></span>' +
       '</div>' +
-      '<div class="pl-sn">' + esc(p.name || '(untitled)') + '</div>' +
-      '<div class="pl-sm' + (generating ? ' pl-sm-generating' : '') + '">' +
-        (generating ? 'content updating for the new budget…' : esc(meta)) +
-      '</div>' + dayLate + (generating ? '' : body) + (generating ? '' : moveHtml) +
+      '<div class="pl-smeta-m">' + (generating ? esc(compact) : compact) + '</div>' +
+      (expandBody ? '<div class="pl-sexp">' + expandBody + '</div>' : '') +
     '</div>';
   }
 
@@ -1908,7 +2380,7 @@ information about.
       return acc.concat((d.planned || []).filter(function (p) {
         return p.status !== 'done_auto' && p.status !== 'done_manual' && p.session_type !== 'rest';
       }).map(function (p) {
-        var label = (p.name || '(untitled)') + (d.date !== u.date ? ' — ' + d.dow + ' ' + _parseISO(d.date).getDate() : '');
+        var label = _sessionDisplayName(p) + (d.date !== u.date ? ' — ' + d.dow + ' ' + _parseISO(d.date).getDate() : '');
         return '<option value="' + p.id + '">' + esc(label) + '</option>';
       }));
     }, []).join('');
@@ -1917,7 +2389,7 @@ information about.
         '<div class="pl-candbtns"><button class="pl-btn pl-ghost pl-tiny" data-map="' + u.id + '">Map</button><button class="pl-btn pl-ghost pl-tiny" data-ignore="' + u.id + '">Ignore</button></div>'
       : '<div class="pl-candbtns"><button class="pl-btn pl-ghost pl-tiny" data-ignore="' + u.id + '">Ignore</button></div>';
     return '<div class="pl-ghost"><div class="pl-gtop"><span class="pl-gtag">UNPLANNED</span></div>' +
-      '<div class="pl-sn" style="font-style:italic;">' + esc(u.name) + '</div><div class="pl-sm">' + esc(u.meta) + '</div>' + mapper +
+      '<div class="pl-sn" style="font-style:italic;">' + esc(u.name || 'Unplanned workout') + '</div><div class="pl-sm">' + esc(u.meta) + '</div>' + mapper +
     '</div>';
   }
 
@@ -2014,22 +2486,30 @@ information about.
     });
 
     host.querySelectorAll('.pl-sess[data-click="1"]').forEach(function (el) {
-      el.addEventListener('click', function () { _openDetailById(el.getAttribute('data-sess')); });
-      // Keyboard equivalent for the click above (role="button"/tabindex are
-      // set at render time — see _plannedCardHtml). Only fire when the card
-      // itself is focused; nested controls (buttons, selects, radios) handle
-      // their own Enter/Space natively and stop propagation on click.
+      el.addEventListener('click', function (e) {
+        if (e.target.closest('button, select, input, label, a, .pl-picker, .pl-sexp-acts, .pl-candlist')) return;
+        var open = el.classList.toggle('open');
+        el.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
       el.addEventListener('keydown', function (e) {
         if (e.target !== el) return;
         if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
           e.preventDefault();
-          _openDetailById(el.getAttribute('data-sess'));
+          var open = el.classList.toggle('open');
+          el.setAttribute('aria-expanded', open ? 'true' : 'false');
         }
       });
     });
+    host.querySelectorAll('[data-open-sess]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        _openDetailById(b.getAttribute('data-open-sess'));
+      });
+    });
     // Keyboard-operable reschedule (parity with the "Move to…" dropdown
-    // already used for draft slots) — lives inside the clickable card above,
-    // so stop the click from also opening the detail panel.
+    // already used for draft slots) — lives inside the expandable card,
+    // so stop the click from also toggling the row.
     host.querySelectorAll('[data-sess-move]').forEach(function (sel) {
       sel.addEventListener('click', function (e) { e.stopPropagation(); });
       sel.addEventListener('change', function (e) {
@@ -2110,8 +2590,9 @@ information about.
         _renderWeekList();
       });
     });
-    host.querySelectorAll('.pl-addday[data-add-date]').forEach(function (el) {
-      el.addEventListener('click', function () {
+    host.querySelectorAll('[data-add-date]').forEach(function (el) {
+      el.addEventListener('click', function (e) {
+        e.stopPropagation();
         _openAdd('single', el.getAttribute('data-add-date'));
       });
     });
@@ -5075,7 +5556,7 @@ information about.
 
   // ── Scoped styles (injected once) ───────────────────────────────────────────
   function _injectStyles() {
-    var VER = '20260805simple1';
+    var VER = '20260807planv3g';
     var existing = document.getElementById('plan-tab-styles');
     if (existing) {
       if (existing.getAttribute('data-ver') === VER) return;
@@ -5131,26 +5612,80 @@ information about.
     '.plan-panel .pl-panelhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;}',
     '.plan-panel .pl-closepanel{width:44px;height:44px;flex-shrink:0;border:1px solid var(--border);background:var(--tile);border-radius:8px;cursor:pointer;color:var(--text-sub);font-size:13px;}',
     '.plan-panel .pl-closepanel:hover{color:var(--danger);border-color:#fecaca;}',
-    '.plan-panel .pl-wknav{display:flex;align-items:center;gap:10px;}',
+    '.plan-panel .pl-wknav{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px;}',
+    '.plan-panel .pl-wknav-right{margin-left:auto;display:flex;gap:7px;align-items:center;}',
+    '.plan-panel .pl-suggest{display:flex;align-items:center;gap:12px;width:100%;margin:13px 0 4px;background:linear-gradient(100deg,#4f6ef7,#6d5cf0);border:none;border-radius:12px;padding:13px 16px;cursor:pointer;text-align:left;box-shadow:0 4px 14px rgba(79,110,247,.30);font-family:inherit;}',
+    '.plan-panel .pl-suggest:hover{filter:brightness(1.04);}',
+    '.plan-panel .pl-suggest-ic{width:32px;height:32px;border-radius:9px;background:rgba(255,255,255,.2);display:grid;place-items:center;font-size:15px;flex-shrink:0;}',
+    '.plan-panel .pl-suggest-tx{flex:1;color:#fff;min-width:0;}',
+    '.plan-panel .pl-suggest-t{display:block;font-size:14px;font-weight:700;color:#fff;}',
+    '.plan-panel .pl-suggest-s{display:block;font-family:var(--mono);font-size:10px;opacity:.85;margin-top:2px;color:#fff;}',
+    '.plan-panel .pl-suggest-ar{color:rgba(255,255,255,.8);font-size:17px;flex-shrink:0;}',
+
     '.plan-panel .pl-arw{width:44px;height:44px;border:1px solid var(--border);background:var(--tile);border-radius:8px;cursor:pointer;font-size:14px;color:var(--text-sub);}',
     '.plan-panel .pl-wktitle{font-size:13px;font-weight:800;}',
     '.plan-panel .pl-weektotal{font-size:11px;color:var(--text-sub);font-family:var(--mono);margin-left:6px;}',
     '.plan-panel .pl-weektotal b{color:var(--ink);font-weight:800;}',
-    '.plan-panel .pl-weeklist{display:flex;flex-direction:column;gap:6px;margin-top:14px;}',
-    '.plan-panel .pl-dayrow{display:flex;gap:12px;padding:7px 12px;border:1px solid var(--border);border-radius:12px;background:var(--tile);align-items:flex-start;}',
-    '.plan-panel .pl-dayrow.today{border-color:#c7d2fe;background:#f4f6ff;}',
+    '.plan-panel .pl-weeklist{display:flex;flex-direction:column;margin-top:14px;}',
+    '.plan-panel .pl-dayrow{display:flex;gap:14px;padding:10px 0;border-bottom:1px solid var(--border);align-items:flex-start;}',
+    '.plan-panel .pl-dayrow:last-child{border-bottom:none;}',
+    '.plan-panel .pl-dayrow.today{background:#f7f9ff;margin:0 -18px;padding-left:18px;padding-right:18px;}',
     '.plan-panel .pl-dayrow.past{opacity:0.94;}',
     '.plan-panel .pl-dayrow.dragover{outline:2px dashed var(--info);outline-offset:-2px;background:#eef2ff;}',
-    '.plan-panel .pl-daylabel{width:58px;flex-shrink:0;padding-top:2px;}',
-    '.plan-panel .pl-daylabel .pl-dname{font-size:10px;font-weight:800;color:var(--text-sub);text-transform:uppercase;display:block;}',
-    '.plan-panel .pl-daylabel .pl-dnum{font-size:20px;font-family:var(--mono);color:var(--ink);font-weight:700;display:block;margin-top:2px;}',
-    '.plan-panel .pl-dtotal{flex-shrink:0;align-self:center;font-size:10.5px;font-weight:700;font-family:var(--mono);color:var(--text-sub);white-space:nowrap;padding-left:8px;}',
-    '.plan-panel .pl-daybody{flex:1;display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;min-width:0;}',
-    '.plan-panel .pl-daybody .pl-sess,.plan-panel .pl-daybody .pl-ghost{flex:1 1 250px;max-width:360px;}',
-    '.plan-panel .pl-sess{position:relative;border-radius:8px;padding:7px 9px;font-size:11px;cursor:pointer;background:#fff;box-shadow:0 1px 2px rgba(20,28,70,0.06);}',
+    '.plan-panel .pl-dayrow.rest{align-items:flex-start;}',
+    '.plan-panel .pl-gut{width:52px;flex-shrink:0;padding-top:2px;}',
+    '.plan-panel .pl-gut-dw{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.05em;color:var(--text-sub);line-height:1;display:block;}',
+    '.plan-panel .pl-gut-dn{font-family:var(--mono);font-size:17px;font-weight:700;color:var(--text-sub);line-height:1.15;display:block;}',
+    '.plan-panel .pl-dayrow.today .pl-gut-dw,.plan-panel .pl-dayrow.today .pl-gut-dn{color:var(--primary);}',
+    '.plan-panel .pl-gut-tot{font-family:var(--mono);font-size:9px;color:var(--text-sub);margin-top:4px;display:block;}',
+    '.plan-panel .pl-day-content{flex:1;min-width:0;display:flex;align-items:flex-start;gap:10px;}',
+    '.plan-panel .pl-day-sessions{flex:1;min-width:0;}',
+    /* Rest day — same pill footprint as a session card so the row aligns */
+    '.plan-panel .pl-rest-lab{display:flex;align-items:center;min-height:42px;padding:9px 12px;border-radius:10px;background:#f8fafc;border:1px dashed #d1d5db;font-family:var(--mono);font-size:11px;color:#94a3b8;font-style:italic;box-sizing:border-box;}',
+    '.plan-panel .pl-dayrow.today .pl-rest-lab{background:#f1f5ff;border-color:#c7d2fe;color:#7b87c9;}',
+    '.plan-panel .pl-day-add,.plan-panel .pl-rest-add{border:1px dashed var(--border);background:none;border-radius:6px;padding:3px 10px;font-family:var(--mono);font-size:9.5px;color:var(--text-sub);cursor:pointer;flex-shrink:0;margin-left:auto;white-space:nowrap;align-self:center;}',
+    '.plan-panel .pl-day-add:hover,.plan-panel .pl-rest-add:hover{border-color:var(--primary);color:var(--primary);}',
+    '.plan-panel .pl-day-content .pl-sess,.plan-panel .pl-day-content .pl-ghost{max-width:none;}',
+    '.plan-panel .pl-sess{position:relative;border-radius:10px;padding:9px 12px;font-size:11px;cursor:pointer;background:transparent;box-shadow:none;}',
+    '.plan-panel .pl-sess+.pl-sess{margin-top:8px;}',
     '.plan-panel .pl-sess.dragging{opacity:0.4;}',
     '.plan-panel .pl-sess[draggable="true"]{cursor:grab;}',
-    '.plan-panel .pl-sess .pl-sn{font-weight:700;font-size:11.5px;}.plan-panel .pl-sess .pl-sm{color:var(--text-sub);font-family:var(--mono);font-size:10px;margin-top:2px;}',
+    /* Planned — tinted by type (not greyscale) */
+    '.plan-panel .pl-sess.status-planned.run{background:#e4e8fd;border:1px solid #c7d2fe;}',
+    '.plan-panel .pl-sess.status-planned.run .pl-sn{color:#1e2a5a;}',
+    '.plan-panel .pl-sess.status-planned.lift{background:#efe9fd;border:1px solid #ddd6fe;}',
+    '.plan-panel .pl-sess.status-planned.lift .pl-sn{color:#4c1d95;}',
+    '.plan-panel .pl-sess.status-planned.plyo{background:#ffedd5;border:1px solid #fdba74;}',
+    '.plan-panel .pl-sess.status-planned.plyo .pl-sn{color:#9a3412;}',
+    '.plan-panel .pl-sess.status-planned.stretch{background:#e6f7ef;border:1px solid #a7f3d0;}',
+    '.plan-panel .pl-sess.status-planned.stretch .pl-sn{color:#065f46;}',
+    '.plan-panel .pl-sess.status-planned .pl-smeta2,.plan-panel .pl-sess.status-planned .pl-smeta-m,.plan-panel .pl-sess.status-planned .pl-stss{color:var(--text-sub);}',
+    /* Matched / linked — green (finished) */
+    '.plan-panel .pl-sess.status-done_auto,.plan-panel .pl-sess.status-done_manual{background:#dcfce7;border:1px solid #86efac;}',
+    '.plan-panel .pl-sess.status-done_auto .pl-sn,.plan-panel .pl-sess.status-done_manual .pl-sn{color:#14532d;}',
+    '.plan-panel .pl-sess.status-done_auto .pl-stss,.plan-panel .pl-sess.status-done_manual .pl-stss{color:#14532d;}',
+    '.plan-panel .pl-srow{display:flex;align-items:center;gap:10px;}',
+    '.plan-panel .pl-sess .pl-sn{font-weight:650;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;}',
+    '.plan-panel .pl-smeta2{font-family:var(--mono);font-size:10px;color:var(--text-sub);margin-left:auto;white-space:nowrap;}',
+    '.plan-panel .pl-smeta-m{display:none;font-family:var(--mono);font-size:10px;color:var(--text-sub);margin-top:4px;}',
+    '@media(max-width:1039.98px){.plan-panel .pl-smeta2{display:none;}.plan-panel .pl-smeta-m{display:block;}}',
+    '.plan-panel .pl-sdelta.delta{color:var(--success);font-weight:700;}',
+    '.plan-panel .pl-sdelta.over{color:var(--warning);font-weight:700;}',
+    '.plan-panel .pl-stss{font-family:var(--mono);font-size:13px;font-weight:700;min-width:44px;text-align:right;}',
+    '.plan-panel .pl-stss.is-est{font-style:italic;color:var(--text-sub);}',
+    '.plan-panel .pl-sdot{width:8px;height:8px;border-radius:99px;flex-shrink:0;background:#c3c9d6;}',
+    '.plan-panel .pl-sdot.done{background:var(--success);}.plan-panel .pl-sdot.review{background:var(--warning);}.plan-panel .pl-sdot.missed{background:var(--danger);}',
+    '.plan-panel .pl-sexp{display:none;margin-top:9px;padding-top:9px;border-top:1px dashed var(--border);}',
+    '.plan-panel .pl-sess.open .pl-sexp{display:block;}',
+    '.plan-panel .pl-matchline{font-family:var(--mono);font-size:10px;color:var(--success);margin-bottom:8px;}',
+    '.plan-panel .pl-matchline.manual{color:var(--primary);}',
+    '.plan-panel .pl-sexp-acts{display:flex;gap:6px;flex-wrap:wrap;}',
+    '.plan-panel .pl-abtn{border:1px solid var(--border);background:#fff;border-radius:7px;padding:5px 11px;font-family:var(--mono);font-size:10px;font-weight:700;color:var(--text-sub);cursor:pointer;}',
+    '.plan-panel .pl-abtn:hover{border-color:var(--primary);color:var(--primary);}',
+    '.plan-panel .pl-abtn.warn{color:var(--warning);border-color:#fde68a;}',
+    '.plan-panel .pl-abtn-sel{display:inline-flex;align-items:center;gap:4px;}',
+    '.plan-panel .pl-abtn-sel select{font:inherit;border:none;background:transparent;color:inherit;cursor:pointer;}',
+    '.plan-panel .pl-sess .pl-sm{color:var(--text-sub);font-family:var(--mono);font-size:10px;margin-top:2px;}',
     // .pl-stypetag base + variant colors were fully re-declared further down
     // (re-audit #14) and that later, un-tokenized block always won the
     // cascade — this tokenized version was dead. Removed rather than kept,
@@ -5180,9 +5715,77 @@ information about.
     '.plan-panel .pl-stat-tag.missed{background:var(--danger-soft);color:var(--danger);}',
     '.plan-panel .pl-stat-tag.review{background:var(--warning-soft);color:var(--warning);}',
     '.plan-panel .pl-stat-tag.done{background:var(--success-soft);color:var(--success);}',
-    '.plan-panel .pl-sess.status-missed{opacity:0.55;}',
-    '.plan-panel .pl-sess.status-done_auto,.plan-panel .pl-sess.status-done_manual{background:#f4fbf6;}',
-    '.plan-panel .pl-sess.status-needs_review{background:#fffaf0;cursor:default;}',
+    '.plan-panel .pl-sess.status-missed,.plan-panel .pl-sess.status-missed_auto,.plan-panel .pl-sess.status-missed_manual{opacity:0.55;background:#f9fafb;border:1px solid #e5e7eb;}',
+    '.plan-panel .pl-sess.status-needs_review{background:#fffaf0;border:1px solid #fde68a;cursor:default;}',
+    /* v3 layout / next-up / chart window */
+    '.plan-panel.pl-v3,.plan-panel .pl-v3{display:flex;flex-direction:column;gap:14px;}',
+    /* Single column at all breakpoints: chart → this week → week list. */
+    '.pl-v3-grid{display:flex;flex-direction:column;gap:14px;align-items:stretch;}',
+    '.pl-v3-chart,.pl-v3-side,.pl-v3-week{min-width:0;width:100%;}',
+    '.pl-v3-side{position:static;}',
+    '.pl-hero{background:#fff;border-radius:14px;border:1px solid var(--border);overflow:hidden;box-shadow:0 2px 8px rgba(20,28,70,.07);}',
+    '.pl-hero-top{display:flex;align-items:center;gap:9px;padding:9px 18px;background:linear-gradient(90deg,#eef2ff,#f7f9ff);border-bottom:1px solid #e2e8fd;}',
+    '.pl-hero-k{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#3b4bb8;}',
+    '.pl-hero-d{font-family:var(--mono);font-size:9.5px;color:#7b87c9;margin-left:auto;}',
+    '.pl-hero-body{display:flex;align-items:center;gap:20px;padding:15px 18px;flex-wrap:wrap;}',
+    '.pl-hero-left{flex:1;min-width:250px;}',
+    '.pl-hero-name{font-size:19px;font-weight:700;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}',
+    '@media(max-width:1039.98px){.pl-hero-name{font-size:17px;}}',
+    '.pl-hero-meta{font-family:var(--mono);font-size:11px;color:var(--text-sub);margin-top:6px;}',
+    '.pl-hero-cue{display:inline-flex;align-items:center;gap:7px;margin-top:9px;background:#f7f8fe;border:1px solid #dfe3fb;border-radius:9px;padding:7px 11px;font-size:12.5px;color:#3b4bb8;}',
+    '.pl-hero-stats{display:flex;gap:9px;flex-wrap:wrap;}',
+    '@media(max-width:1039.98px){.pl-hero-stats{display:grid;grid-template-columns:repeat(3,1fr);width:100%;}}',
+    '.pl-hero-stat{background:var(--tile);border-radius:10px;padding:9px 13px;min-width:78px;text-align:center;}',
+    '.pl-hero-stat .k{font-family:var(--mono);font-size:8px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-sub);margin-bottom:4px;}',
+    '.pl-hero-stat .v{font-family:var(--mono);font-size:17px;font-weight:700;}',
+    '.pl-hero-acts{display:flex;gap:8px;flex-wrap:wrap;}',
+    '@media(max-width:1039.98px){.pl-hero-acts{width:100%;}.pl-hero-acts .pl-hero-btn{flex:1;}}',
+    '.pl-hero-btn{border:none;border-radius:10px;padding:11px 18px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;background:var(--primary);color:#fff;}',
+    '.pl-hero-btn.ghost{background:#fff;color:var(--text-sub);border:1px solid var(--border);font-weight:600;}',
+    '.pl-hero-foot{display:flex;align-items:center;gap:9px;padding:9px 18px;background:var(--tile);border-top:1px solid var(--border);}',
+    '.pl-hero-then{font-family:var(--mono);font-size:10px;color:var(--text-sub);}',
+    '.pl-hero-empty-msg{font-size:14px;color:var(--text-sub);margin-bottom:10px;}',
+    '.lp-setline{display:none;width:100%;text-align:left;border:1px solid var(--border);background:var(--tile);border-radius:10px;padding:10px 12px;font-family:var(--mono);font-size:11px;color:var(--text-sub);cursor:pointer;margin-bottom:12px;align-items:center;gap:6px;flex-wrap:wrap;}',
+    '.lp-setline b{color:var(--ink);}',
+    '.lp-setline-cv{margin-left:auto;}',
+    '.lp-setline.is-open .lp-setline-cv{transform:rotate(180deg);}',
+    '@media(max-width:1039.98px){.lp-setline{display:flex;}.lp-rules-strip{display:none;}.lp-rules-strip.is-open{display:grid;}}',
+    '.lp-bars{display:flex;align-items:flex-end;gap:4px;height:150px;padding-top:16px;}',
+    '.lp-bars .lp-bar-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:3px;min-width:0;}',
+    '.lp-bars .lp-bar{width:100%;border-radius:3px 3px 0 0;}',
+    '.lp-bars .lp-bar.actual{background:var(--primary);}',
+    '.lp-bars .lp-bar.deload{background:#c3c9d6;}',
+    '.lp-bars .lp-bar.target{background:#dfe5fd;border:1.5px solid var(--primary);border-bottom:none;}',
+    '.lp-bars .lp-bar.peak{background:#e8edfe;border:1.5px solid #8fa5f9;border-bottom:none;}',
+    '.lp-bars .lp-bar.taperb{background:#fff0dc;border:1.5px solid #f3b96b;border-bottom:none;}',
+    '.lp-bars .lp-bar.raceb{background:#fee2e2;border:1.5px solid #f8a3a3;border-bottom:none;}',
+    '.lp-bars .lp-bar-value{font-family:var(--mono);font-size:8.5px;font-weight:700;color:var(--text-sub);}',
+    '.lp-bars .lp-bar-d{font-family:var(--mono);font-size:8px;color:var(--text-sub);margin-top:4px;white-space:nowrap;}',
+    '.lp-bars .lp-bar-col.is-this-week .lp-bar{box-shadow:0 0 0 2px var(--ink);}',
+    '.lp-phasebar{display:flex;gap:4px;margin-top:9px;}',
+    '.lp-ph{border-radius:5px;padding:4px 0;text-align:center;font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.04em;}',
+    '.lp-ph.build{background:#e4e8fd;color:#3b4bb8;}',
+    '.lp-ph.peakp{background:#e8edfe;color:#4055c9;}',
+    '.lp-ph.taperp{background:#fff0dc;color:#a16207;}',
+    '.lp-ph.racep{background:#fee2e2;color:#b91c1c;}',
+    '.lp-ph-prior{background:transparent;}',
+    '.lp-phasenow{margin-top:9px;}',
+    '.lp-phasenow .lp-ph{width:100%;}',
+    '.lp-divider{display:flex;align-items:center;gap:10px;margin:14px 0 10px;font-family:var(--mono);font-size:9.5px;color:var(--text-sub);}',
+    '.lp-divider::before,.lp-divider::after{content:\"\";flex:1;height:1px;background:var(--border);}',
+    '.lp-ahead{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}',
+    '.lp-amini{border-radius:10px;padding:9px 10px;}',
+    '.lp-amini .k{font-family:var(--mono);font-size:8px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:3px;}',
+    '.lp-amini .v{font-family:var(--mono);font-size:14px;font-weight:700;}',
+    '.lp-amini .s{font-family:var(--mono);font-size:9px;margin-top:2px;opacity:.85;}',
+    '.lp-amini.peak{background:#e8edfe;color:#4055c9;}',
+    '.lp-amini.tap{background:#fff0dc;color:#a16207;}',
+    '.lp-amini.race{background:#fee2e2;color:#b91c1c;}',
+    '.lp-fullink{display:inline-block;margin-top:12px;font-family:var(--mono);font-size:11px;font-weight:700;color:var(--primary);background:none;border:none;cursor:pointer;padding:0;}',
+    '.lp-full-sheet{position:fixed;inset:0;background:rgba(15,20,50,.45);z-index:80;display:flex;align-items:flex-end;justify-content:center;padding:12px;}',
+    '.lp-full-sheet-card{background:#fff;border-radius:16px 16px 12px 12px;padding:14px 16px 20px;width:min(960px,100%);max-height:85vh;overflow:auto;}',
+    '.lp-full-sheet-head{display:flex;align-items:center;justify-content:space-between;font-weight:700;margin-bottom:10px;}',
+    '.lp-full-sheet-close{border:1px solid var(--border);background:#fff;border-radius:8px;width:32px;height:32px;cursor:pointer;}',
     '.plan-panel .pl-diffline{font-size:10.5px;color:var(--text-sub);font-family:var(--mono);margin-top:6px;line-height:1.4;}',
     '.plan-panel .pl-diffline--manual{font-style:italic;}',
     '.plan-panel .pl-unlink{margin-top:4px;font-size:10.5px;color:var(--text-sub);background:none;border:none;cursor:pointer;padding:0;}',
@@ -5399,7 +6002,7 @@ information about.
     '.plan-panel .pl-exblock{margin-bottom:18px;padding:12px 12px 4px;border-radius:12px;background:rgba(13,30,67,0.03);}',
     '.plan-panel .pl-exblock:last-child{margin-bottom:0;}',
     '.plan-panel .pl-exblock-h{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-sub);margin-bottom:9px;padding-bottom:7px;border-bottom:1px solid var(--border);}',
-    '@media(max-width:640px){.plan-panel .pl-dayrow{flex-direction:column;gap:8px;}.plan-panel .pl-daylabel{width:auto;display:flex;align-items:baseline;gap:6px;padding-top:0;}}',
+    '@media(max-width:640px){.plan-panel .pl-dayrow{/* gutter stays horizontal */}.plan-panel .pl-hero-acts{width:100%;}}',
     // ── Suggestions panel (issue #1315) ─────────────────────────────────────
     '.pl-suggestions-panel{background:var(--tile);border:1px solid var(--border);border-radius:13px;padding:14px 16px;margin:14px 0;position:relative;}',
     '.pl-sug-header{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;}',
