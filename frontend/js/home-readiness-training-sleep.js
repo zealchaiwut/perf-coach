@@ -100,16 +100,38 @@
   }
 
   /* ── CTL/ATL/TSB/ACWR load tiles (shared with Training Log) ───────────────
-     Uses window.LoadReadinessTiles — same 2×2 design as the Log readiness
-     widget (number / label / band / status + async ACWR). No home-only
-     sparkline fork. */
+     Uses window.LoadReadinessTiles's individual card builders (rcard /
+     acwrTileHtml — same markup as its own buildGridHtml 2×2 grid) rather than
+     buildGridHtml itself: home revamp v2 promotes TSB + ACWR (the two
+     "what should I do right now" signals) to a headline row and tucks
+     CTL/ATL (slower-moving fitness/fatigue trend) behind a <details> toggle,
+     instead of showing all four at equal weight. Does not touch
+     LoadReadinessTiles itself — that lib is shared with the Training Log
+     readiness widget, which still wants the flat 2×2 grid. */
   function _rdLoadTilesHtml(trainingLoad) {
     if (!trainingLoad || !window.LoadReadinessTiles) return '';
-    return (
-      '<div class="rd-load-tiles">' +
-      LoadReadinessTiles.buildGridHtml(trainingLoad) +
-      '</div>'
-    );
+    if (trainingLoad.building_baseline) {
+      return '<div class="rd-load-tiles"><p class="lrx-load-baseline">Building baseline — log more workouts to unlock Fitness, Fatigue, Freshness, and ACWR.</p></div>';
+    }
+      var L = window.LoadReadinessTiles;
+      var ctlTxt = L.fmtLoadNum(trainingLoad.ctl);
+      var atlTxt = L.fmtLoadNum(trainingLoad.atl);
+      return (
+        '<div class="rd-load-tiles rd-load-tiles--headline">' +
+          '<div class="lrx-readfull rd-load-headline">' +
+            L.rcard('tsb', trainingLoad.tsb, 'TSB', 'Freshness') +
+            L.acwrTileHtml() +
+          '</div>' +
+          '<details class="rd-load-more">' +
+            '<summary>CTL ' + ctlTxt + ' · ATL ' + atlTxt +
+              ' <span class="rd-load-more-arrow">&#9662;</span></summary>' +
+            '<div class="lrx-readfull rd-load-expand">' +
+              L.rcard('ctl', trainingLoad.ctl, 'CTL', 'Fitness') +
+              L.rcard('atl', trainingLoad.atl, 'ATL', 'Fatigue') +
+            '</div>' +
+          '</details>' +
+        '</div>'
+      );
   }
 
   function renderReadinessTile(el, readiness, trainingLoad) {
@@ -348,16 +370,15 @@
       '</div>';
   }
 
-  /* ── Recent workouts (retrospective, below Training) ─────────────────────
+  /* ── Recent workouts (retrospective, bottom of the right column) ─────────
      Used to live in the top-row slot beside Performance/Readiness; moved down
-     so that slot could become home-today-plan-card.js's forward-looking
-     "what should I do today" focal card instead (Home today-focal-point UX
-     review). Function/CSS-class names below keep the old "nw-" (next
-     workout) prefix — it was never accurate even before this move (this
-     widget only ever rendered *recent*, not *next*, workouts; see the
-     historical comment on renderRecentWorkoutsCard below) — renaming the
-     shared .nw-* CSS classes isn't worth the diff for a page-internal
-     prefix nobody reads as an acronym. */
+     so that slot could become NextUpCard's forward-looking "what should I do
+     today" focal card instead (Home today-focal-point UX review, carried
+     into revamp v2 as #home-next-up). Function/CSS-class names below keep
+     the old "nw-" (next workout) prefix — it was never accurate even before
+     this move (this widget only ever rendered *recent*, not *next*,
+     workouts) — renaming the shared .nw-* CSS classes isn't worth the diff
+     for a page-internal prefix nobody reads as an acronym. */
 
   function _nwBadgeCls(sessionType) {
     return (sessionType === 'strength' || sessionType === 'plyo') ? 'lift' : 'run';
@@ -368,9 +389,11 @@
     return 'Run';
   }
 
-  /* Recent workouts — 3–5 rows, sized to roughly match Performance next door. */
+  /* Recent workouts — capped at 3 (home revamp v2: Recent workouts is now its
+     own compact card in the right column rather than paired tall-for-tall
+     with Performance, so it no longer needs to stretch to 4-5 rows). */
   var NW_RECENT_MIN = 3;
-  var NW_RECENT_MAX = 5;
+  var NW_RECENT_MAX = 3;
 
   function _nwSkeletonHtml() {
     return (
@@ -412,8 +435,7 @@
         '<a href="/training?return=/home">Log your first</a>.</div>';
       return;
     }
-    // Cap at 5; prefer 4 to sit near Performance height (2 score tiles).
-    var n = Math.min(NW_RECENT_MAX, Math.max(NW_RECENT_MIN, 4), recent.length);
+    var n = Math.min(NW_RECENT_MAX, recent.length);
     recentSection.innerHTML = recent.slice(0, n).map(_nwRecentRowHtml).join('');
   }
 
@@ -506,8 +528,12 @@
         var state = data && typeof data === 'object' ? data.state : null;
 
         if (state === 'scored') {
+          // Side-by-side (home revamp v2): Performance now sits in a
+          // half-width column card rather than a full-width top-row slot, so
+          // the two tiles are shown as a compact pair instead of stacked
+          // full-width rows.
           el.innerHTML = header +
-            '<div class="hperf-grid">' +
+            '<div class="hperf-grid hperf-grid--side">' +
               _hpfTileHtml('Endurance', 'e', data.endurance) +
               _hpfTileHtml('Speed', 's', data.speed) +
             '</div>';

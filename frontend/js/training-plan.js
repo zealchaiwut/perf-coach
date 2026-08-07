@@ -1717,6 +1717,25 @@ information about.
     var host = document.getElementById('plan-next-up');
     if (!host) return;
     var days = (_nextUpBundle && _nextUpBundle.days) || (_bundle && _bundle.days) || [];
+
+    // home revamp v2 extracted this hero into a standalone, reusable
+    // component (frontend/js/lib/next-up-card.js) so Home's "Today's
+    // workout" card can share it. Prefer it here too when loaded, so there
+    // is one implementation instead of two that can drift apart; fall back
+    // to the local render below if the script isn't on the page for some
+    // reason.
+    if (window.NextUpCard) {
+      window.NextUpCard.render(host, {
+        days: days,
+        weekTargetTss: (_wlData && _wlData.target_tss != null) ? Number(_wlData.target_tss) : null,
+        title: 'Next up',
+        onOpen: function (id) { _openDetailById(id); },
+        onMarkDone: function (id) { _mutate('POST', '/api/planned-sessions/' + id + '/mark-done'); },
+        onSuggest: _openSuggestPanel
+      });
+      return;
+    }
+
     var next = _pickNextUp(days);
     if (!next) {
       host.innerHTML =

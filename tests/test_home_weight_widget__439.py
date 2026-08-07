@@ -1,6 +1,21 @@
 """
 TDD tests for issue #439: Add home weight widget with stepper quick-log.
 
+Home revamp v2 (docs/mocks/home-revamp-v2.html) retired the original
+full-width #home-weight-widget (and its shared-component reuse of
+frontend/js/lib/weight-current-card.js) from Home. Its two jobs split in
+two: the quick weigh-in stepper moved into #home-morning's weigh-in row
+(frontend/js/home-morning.js — same POST /api/weight-entries + PATCH-on-409
+logic, ported), and the trend/rate/coverage display became its own slim
+#home-weight-trend card (frontend/js/home-weight-trend.js, sourced from
+/api/weight-chart). The goal-gap pill and progress bar (F3/F11's original
+scope) were dropped from Home entirely — that detail now lives only on the
+full /weight page. The (F1/F2/F3/F4/F5/F6/F7/F8/F9/F10/F11/F12) anchors below
+have been updated in place to describe that split; anchor numbering is kept
+stable so this docstring still matches its own test names. The API section
+(A1-A7, GET /api/home/weight-summary) is untouched — that backend endpoint
+still exists and is unaffected by this frontend-only refactor.
+
 AC anchors:
   (A1)  API: sparkline field present — 7-day actual data points
   (A2)  API: plan field present when target exists, empty when no target
@@ -9,18 +24,21 @@ AC anchors:
   (A5)  API: last_entry_kg mirrors current_weight
   (A6)  API: weekly_rate_kg present
   (A7)  API: target.kg_to_go present when target exists
-  (F1)  HTML: weight widget container element present in home.html
-  (F2)  JS: function to load home weight widget exists in home.js
-  (F3)  JS: gap pill — "behind", "ahead", "on plan", hidden for no_data/null
-  (F4)  JS: stepper POSTs to /api/weight-entries with today's date
-  (F5)  JS: 409 path — PATCH sent to /api/weight-entries/{id}
-  (F6)  JS: compact state "Logged today" shown after successful log
-  (F7)  JS: edit link in compact state re-opens stepper
-  (F8)  JS: empty state shows "Log your first weigh-in" placeholder
-  (F9)  JS: widget header "Weight" and "Open →" link to /weight
-  (F10) JS: goal foot line with edit target link to /weight/targets
-  (F11) JS: progress bar rendered when target exists
-  (F12) JS: sparkline includes dashed plan line when plan data present
+  (F1)  HTML: #home-weight-trend container present (superseded #home-weight-widget)
+  (F2)  JS: HomeWeightTrend + home-morning.js's weigh-in row are wired from home.js
+  (F3)  JS: gap pill retired from Home — behind/ahead now render only on race gap
+        (home-race-card.js), not weight; weight coverage warning is its replacement
+  (F4)  JS: home-morning.js's stepper POSTs to /api/weight-entries with today's date
+  (F5)  JS: 409 path — home-morning.js PATCHes /api/weight-entries/{id}
+  (F6)  JS: the weigh-in row is marked done (hm-row--done) after a successful log
+  (F7)  JS: retired — the always-visible stepper (prefilled from last_entry_kg) has
+        no separate compact/edit states to toggle between
+  (F8)  JS: home-weight-trend.js's empty state links to /weight to log a first entry
+  (F9)  JS: home-weight-trend.js header "Weight trend" and "Open →" link to /weight
+  (F10) JS: home-weight-trend.js links out to /weight for full goal/target detail
+  (F11) JS: home-weight-trend.js renders trend kg + rate ± CI (replaces the shared
+        current/7-day-avg stat pair)
+  (F12) JS: home-weight-trend.js sources its data from /api/weight-chart
 """
 import contextlib
 import datetime
@@ -38,8 +56,14 @@ from backend.main import app, resolve_user
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 _HOME_JS = (_ROOT / "frontend" / "js" / "home.js").read_text()
 _HOME_HTML = (_ROOT / "frontend" / "pages" / "home.html").read_text()
-# Shared "current weight" component reused by both the home page and weight tab.
+# Shared "current weight" component — still used by weight.html, but no
+# longer by Home (see module docstring); kept here only for the reader who
+# wants to compare the old shared-block approach to the new split below.
 _CARD_JS = (_ROOT / "frontend" / "js" / "lib" / "weight-current-card.js").read_text()
+# The two modules that now split the old weight widget's jobs on Home.
+_MORNING_JS = (_ROOT / "frontend" / "js" / "home-morning.js").read_text()
+_TREND_JS = (_ROOT / "frontend" / "js" / "home-weight-trend.js").read_text()
+_RACE_JS = (_ROOT / "frontend" / "js" / "home-race-card.js").read_text()
 
 client = TestClient(app)
 _TODAY = datetime.date.today()
@@ -280,147 +304,156 @@ def test_a7_kg_to_go_equals_gap_to_target():
 # FRONTEND TESTS
 # ════════════════════════════════════════════════════════════════════════════════
 
-# ── F1: HTML widget container ─────────────────────────────────────────────────
+# ── F1: HTML container ────────────────────────────────────────────────────────
 
 def test_f1_weight_widget_container_in_html():
-    """AC (F1): home.html has a weight widget container element."""
-    assert (
-        'id="home-weight-widget"' in _HOME_HTML
-        or 'id="weight-widget-row"' in _HOME_HTML
-    ), "home.html must include a weight widget container div (home-weight-widget or weight-widget-row)"
+    """AC (F1): home.html has the #home-weight-trend container that superseded
+    #home-weight-widget (the quick-log row itself is rendered inside
+    #home-morning, not a separate host div — see home-morning.js)."""
+    assert 'id="home-weight-trend"' in _HOME_HTML, \
+        "home.html must include the #home-weight-trend container"
+    assert 'id="home-weight-widget"' not in _HOME_HTML, \
+        "the old #home-weight-widget container must be removed"
 
 
-# ── F2: JS load function ──────────────────────────────────────────────────────
-# The home "current weight" stat block now reuses the shared component
-# (frontend/js/lib/weight-current-card.js, WeightCurrentCard) so the home page
-# and weight tab share one implementation. home.js owns the entry point that
-# mounts the shared block + the quick-log stepper.
+# ── F2: JS entry points ────────────────────────────────────────────────────────
+# The home "current weight" stat block no longer reuses the shared
+# weight-current-card.js component — it split into HomeWeightTrend (trend
+# card) + home-morning.js's weigh-in row (quick-log stepper).
 
-def test_f2_render_home_weight_widget_function():
-    """AC (F2): home.js defines the weight-widget entry point."""
-    assert "_renderHomeWeightWidget" in _HOME_JS, \
-        "home.js must define _renderHomeWeightWidget"
-
-
-def test_f2_render_home_weight_widget_called_in_init():
-    """AC (F2): the weight widget is rendered from init()."""
-    init_idx = _HOME_JS.find("async function init(")
-    assert init_idx != -1
-    init_body = _HOME_JS[init_idx:]
-    assert "_renderHomeWeightWidget" in init_body, \
-        "_renderHomeWeightWidget must be called in init()"
+def test_f2_home_weight_trend_wired_from_home_js():
+    """AC (F2): home.js renders HomeWeightTrend into #home-weight-trend."""
+    assert "HomeWeightTrend" in _HOME_JS, \
+        "home.js must reference window.HomeWeightTrend"
+    assert "home-weight-trend" in _HOME_JS, \
+        "home.js must look up the #home-weight-trend container"
 
 
-def test_f2_uses_shared_current_weight_component():
-    """AC (F2): home reuses the shared WeightCurrentCard component."""
-    assert "WeightCurrentCard" in _HOME_JS, \
-        "home.js must render via the shared WeightCurrentCard component"
+def test_f2_home_morning_renders_weighin_row():
+    """AC (F2): home.js renders HomeMorning (which owns the weigh-in row) into
+    #home-morning."""
+    assert "HomeMorning" in _HOME_JS
+    assert "home-morning" in _HOME_JS
 
 
-# ── F3: Gap pill logic ────────────────────────────────────────────────────────
-
-def test_f3_gap_pill_behind():
-    """AC (F3): JS shows 'behind' text for behind status."""
-    assert "behind" in _HOME_JS
-
-
-def test_f3_gap_pill_ahead():
-    """AC (F3): JS shows 'ahead' text for ahead status."""
-    assert "ahead" in _HOME_JS
+def test_f2_no_longer_uses_shared_current_weight_component():
+    """AC (F2, revised): Home no longer reuses WeightCurrentCard — that
+    component is retired from Home's JS (still used by weight.html)."""
+    assert "WeightCurrentCard" not in _HOME_JS, \
+        "home.js must not reference WeightCurrentCard — Home split into " \
+        "HomeWeightTrend + home-morning.js's own stepper"
 
 
-def test_f3_change_pills_via_shared_block():
-    """AC (F3, revised): the shared current-weight block renders week/month
-    change pills (the home-only gap pill was replaced by the shared component)."""
-    assert "hca-pill-week" in _CARD_JS and "hca-pill-month" in _CARD_JS, \
-        "shared current-weight block must render week/month change pills"
+# ── F3: Gap pill — retired from Home ──────────────────────────────────────────
+
+def test_f3_weight_gap_pill_retired_from_home():
+    """AC (F3, revised): the weight goal-gap pill (behind/ahead/on plan) is
+    retired from Home — that comparison now lives only on the full /weight
+    page. Home's weight card shows a coverage warning instead (see A6/A7's
+    backend fields, still exposed for /weight to use)."""
+    assert "behind" not in _TREND_JS and "ahead" not in _TREND_JS, \
+        "home-weight-trend.js must not render a weight goal-gap pill"
+    assert "gated" in _TREND_JS or "coverage" in _TREND_JS, \
+        "home-weight-trend.js must surface a coverage warning instead"
 
 
-def test_f3_gap_pill_hidden_no_data():
-    """AC (F3): JS hides gap pill for no_data."""
-    assert "no_data" in _HOME_JS
+def test_f3_race_card_owns_behind_ahead_language_now():
+    """The only 'behind'/'ahead' language left on Home describes the RACE
+    goal-vs-estimate gap (home-race-card.js), not weight."""
+    assert "behind" in _RACE_JS and "ahead" in _RACE_JS
 
 
-# ── F4: POST to /api/weight-entries ──────────────────────────────────────────
+# ── F4: POST to /api/weight-entries (now in home-morning.js) ─────────────────
 
 def test_f4_posts_to_weight_entries():
-    """AC (F4): JS POSTs to /api/weight-entries."""
-    assert "/api/weight-entries" in _HOME_JS
+    """AC (F4): home-morning.js's weigh-in row POSTs to /api/weight-entries."""
+    assert "/api/weight-entries" in _MORNING_JS
 
 
 def test_f4_includes_entry_date():
-    """AC (F4): POST body includes entry_date."""
-    assert "entry_date" in _HOME_JS
+    """AC (F4): POST body includes entry_date (via AppCommon.todayISO())."""
+    assert "entry_date" in _MORNING_JS
 
 
-# ── F5: 409 path — PATCH ─────────────────────────────────────────────────────
+# ── F5: 409 path — PATCH (now in home-morning.js) ─────────────────────────────
 
 def test_f5_handles_409():
-    """AC (F5): JS handles 409 conflict response."""
-    assert "409" in _HOME_JS
+    """AC (F5): home-morning.js handles the 409 conflict response."""
+    assert "409" in _MORNING_JS
 
 
 def test_f5_patch_with_existing_id():
-    """AC (F5): PATCH uses existing_id from 409 response."""
-    assert "existing_id" in _HOME_JS
-    assert "PATCH" in _HOME_JS
+    """AC (F5): PATCH uses existing_id from the 409 response body."""
+    assert "existing_id" in _MORNING_JS
+    assert "PATCH" in _MORNING_JS
 
 
-# ── F6: Compact state ─────────────────────────────────────────────────────────
+# ── F6: Row marked done after a successful log ────────────────────────────────
 
-def test_f6_logged_today_compact_state():
-    """AC (F6): JS renders 'Logged today' compact state."""
-    assert "Logged today" in _HOME_JS
+def test_f6_weight_row_marked_done_after_log():
+    """AC (F6, revised): after a successful log, home-morning.js marks the
+    weigh-in row done (hm-row--done, via the shared `done.weight` +
+    `_paint()` state machine) — replaces the old standalone 'Logged today'
+    compact-card copy, which had no equivalent in the three-row morning
+    strip's design."""
+    assert "hm-row--done" in _MORNING_JS
+    assert "done.weight = true" in _MORNING_JS
 
 
-# ── F7: Edit re-opens stepper ─────────────────────────────────────────────────
+# ── F7: Edit re-opens stepper — retired ───────────────────────────────────────
 
-def test_f7_edit_reopens_stepper():
-    """AC (F7): compact 'edit' re-opens stepper prefilled."""
-    assert "edit" in _HOME_JS.lower()
+def test_f7_stepper_always_visible_no_edit_toggle():
+    """AC (F7, retired): home-morning.js's weigh-in stepper is always visible
+    and prefilled from last_entry_kg — there is no separate compact/edit
+    state to toggle between (unlike the old widget's post-log collapse)."""
+    assert "_renderStepper" in _MORNING_JS
+    assert "prefill" in _MORNING_JS
 
 
 # ── F8: Empty state ───────────────────────────────────────────────────────────
 
-def test_f8_empty_state_via_shared_block():
-    """AC (F8, revised): with no data the shared current-weight block shows the
-    placeholder weight ('--') and the idle coach prompt (the home-only
-    'Log your first weigh-in' copy was replaced by the shared component)."""
-    assert "--" in _CARD_JS, "shared block must show '--' placeholder weight"
-    assert "No entry yet today" in _CARD_JS, \
-        "shared block must show the idle coach prompt when nothing is logged"
+def test_f8_empty_state_links_to_weight_tab():
+    """AC (F8, revised): with no weight data, home-weight-trend.js's empty
+    state links to /weight to log a first entry (the standalone home widget's
+    'Log your first weigh-in' placeholder moved there)."""
+    assert "No weight data yet" in _TREND_JS
+    assert "/weight" in _TREND_JS
 
 
 # ── F9: Widget header ────────────────────────────────────────────────────────
 
 def test_f9_header_open_link():
-    """AC (F9): 'Open →' link to /weight in header."""
-    assert "Open" in _HOME_JS
+    """AC (F9): home-weight-trend.js's header reads 'Weight trend' with an
+    'Open →' link."""
+    assert "Weight trend" in _TREND_JS
+    assert "Open" in _TREND_JS
 
 
 # ── F10: Open-in-weight-tab link ──────────────────────────────────────────────
-# The goal foot line / progress bar / sparkline were intentionally removed from
-# the home widget (scope: "current-weight block only"). Those live on the full
-# weight tab now; the home widget links out to it via the header "Open →".
+# The goal foot line / progress bar were intentionally dropped from Home
+# (revamp v2 scope: trend + rate + coverage only). Full goal/target detail
+# lives on the full weight tab; the card links out to it via "Open →".
 
 def test_f10_links_out_to_weight_tab():
-    """AC (F10, revised): the home widget header links to the full weight tab."""
-    assert '"/weight"' in _HOME_JS or "/weight'" in _HOME_JS, \
-        "home weight widget must link to /weight for full detail (goal/progress/trend)"
+    """AC (F10, revised): home-weight-trend.js's header links to the full
+    weight tab for goal/target/progress detail."""
+    assert '"/weight"' in _TREND_JS, \
+        "home-weight-trend.js must link to /weight for full detail (goal/progress/trend)"
 
 
-# ── F11: Shared current-weight stats ──────────────────────────────────────────
+# ── F11: Trend + rate stats (replaces the shared current/7-day-avg pair) ─────
 
-def test_f11_shared_block_renders_current_and_avg():
-    """AC (F11, revised): the shared block renders current weight + 7-day avg."""
-    assert "hca-weight" in _CARD_JS and "hca-avg" in _CARD_JS, \
-        "shared current-weight block must render current weight and 7-day avg"
+def test_f11_renders_trend_and_rate():
+    """AC (F11, revised): home-weight-trend.js renders the 30-day trend kg
+    value and rate ± CI (kg/wk) — the shared block's current+7-day-avg pair
+    doesn't apply to Home anymore since WeightCurrentCard is retired here."""
+    assert "hwt-big" in _TREND_JS, "must render the headline trend value"
+    assert "hwt-rate" in _TREND_JS, "must render the rate ± CI"
 
 
-# ── F12: Data sourced from the same endpoints as the weight tab ───────────────
+# ── F12: Data sourced from the same endpoint as the weight tab ────────────────
 
 def test_f12_sources_from_weight_chart_endpoint():
-    """AC (F12, revised): home populates the shared block from the same
-    /api/weight-chart endpoint the weight tab uses, so the two stay identical."""
-    assert "/api/weight-chart" in _HOME_JS, \
-        "home must source the current-weight block from /api/weight-chart"
+    """AC (F12): home-weight-trend.js populates itself from the same
+    /api/weight-chart endpoint the weight tab uses, so the two never disagree."""
+    assert "/api/weight-chart" in _TREND_JS
