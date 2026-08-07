@@ -6,7 +6,7 @@
   'use strict';
 
   var STYLE_ID = 'plan-fill-preview-css';
-  var STYLE_VER = '20260805blocks1';
+  var STYLE_VER = '20260806align1';
 
   // AppCommon.escapeHtml is a hard dependency — load js/lib/app-common.js first.
   // Do not re-implement entity substitution here (test_frontend_shared_lib__1603).
@@ -19,10 +19,16 @@
     '@media (max-width:900px){.preview-layout{grid-template-columns:1fr;}}',
     '.preview-pane{background:#fff;border:1px solid var(--border);border-radius:12px;padding:12px 14px 14px;min-width:0;}',
     '.preview-pane-h{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-sub);margin:0 0 10px;}',
-    '.preview-ex-table{width:100%;border-collapse:collapse;font-size:12.5px;}',
+    '.preview-ex-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12.5px;}',
     '.preview-ex-table th,.preview-ex-table td{text-align:left;padding:8px 10px;border-bottom:1px solid rgba(0,0,0,0.06);vertical-align:top;}',
     '.preview-ex-table th{font-size:10px;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-sub);font-weight:800;}',
-    '.preview-ex-table td.num,.preview-ex-table th.num{text-align:right;white-space:nowrap;}',
+    /* Col widths: keep Prescription/Min/TSS from drifting to the far right */
+    '.preview-ex-table th:nth-child(1),.preview-ex-table td:nth-child(1){width:38%;}',
+    '.preview-ex-table th:nth-child(2),.preview-ex-table td:nth-child(2){width:34%;}',
+    '.preview-ex-table th:nth-child(3),.preview-ex-table td:nth-child(3){width:14%;}',
+    '.preview-ex-table th:nth-child(4),.preview-ex-table td:nth-child(4){width:14%;}',
+    '.preview-ex-table td.rx{overflow-wrap:anywhere;}',
+    '.preview-ex-table td.num,.preview-ex-table th.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;}',
     '.preview-ex-table tfoot td{font-weight:700;border-bottom:none;padding-top:10px;}',
     '.preview-block-sec{margin:0 0 12px;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:#fff;}',
     '.preview-block-sec:last-of-type{margin-bottom:8px;}',
@@ -291,7 +297,7 @@
         var mins = x.spend_min != null ? Number(x.spend_min) : null;
         var sr = (x.sets != null && x.reps != null) ? (x.sets + ' × ' + x.reps) : '';
         return '<tr><td>' + esc(x.name || '') + '</td>' +
-          '<td>' + esc(sr + (x.load ? ' · ' + x.load : '')) + '</td>' +
+          '<td class="rx">' + esc(sr + (x.load ? ' · ' + x.load : '')) + '</td>' +
           '<td class="num">' + (mins != null ? mins.toFixed(1) : '—') + '</td>' +
           '<td class="num">' + (tss != null ? tss.toFixed(1) : '—') + '</td></tr>';
       }).join('');
@@ -337,7 +343,7 @@
       if (tss != null) totalTss += tss;
       if (mins != null) totalMin += mins;
       return '<tr><td>' + esc(b.phase || '') + '</td>' +
-        '<td>' + esc(runBlockPrescription(b)) + '</td>' +
+        '<td class="rx">' + esc(runBlockPrescription(b)) + '</td>' +
         '<td class="num">' + (mins != null ? mins.toFixed(0) : '—') + '</td>' +
         '<td class="num">' + (tss != null ? tss.toFixed(1) : '—') + '</td></tr>';
     }).join('');

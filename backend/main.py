@@ -89,6 +89,8 @@ from backend.services.load_plan import (
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
 from backend.services.weight_ewma import compute_ewma as _compute_ewma, DEFAULT_SPAN as _EWMA_DEFAULT_SPAN
+from backend.services.weight_stats import weight_stats as _weight_stats
+from backend.services.body_composition import compute_composition_trend as _compute_composition_trend
 from backend.services.weight_plan import compute_gap as _compute_weight_gap, generate_milestones as _generate_weight_milestones, plan_at as _weight_plan_at, project_hit_date as _project_hit_date
 # _weight_rollup / _ROLLUP_LOOKBACK_DAYS: the canonical "current weight" rule
 # (>=2 entries in the trailing 7 days else a wider-lookback average, never a
@@ -1961,19 +1963,7 @@ def get_weight_chart(
                 _last_ewma = round(_ewma_by_date[day], 4)
             ewma_series.append({"date": str(day), "weight_kg": _last_ewma})
 
-        # Weekly rate derived from EWMA slope: ewma at to_d minus ewma 7 days earlier.
-        # This reflects trend momentum, not a raw entry-to-entry delta.
-        _ewma_non_null = [(i, p["weight_kg"]) for i, p in enumerate(ewma_series) if p["weight_kg"] is not None]
-        weekly_rate_ewma_kg: float | None = None
-        if len(_ewma_non_null) >= 2:
-            _last_ewma_idx, _last_ewma_val = _ewma_non_null[-1]
-            _target_earlier_idx = _last_ewma_idx - 7
-            _earlier_candidates = [(i, v) for i, v in _ewma_non_null if i <= max(_target_earlier_idx, 0)]
-            if _earlier_candidates and _target_earlier_idx >= 0:
-                _, _earlier_ewma_val = _earlier_candidates[-1]
-                weekly_rate_ewma_kg = round(_last_ewma_val - _earlier_ewma_val, 3)
-
-        # Stats
+        # Stats: current weight and raw deltas (legacy fallback when rate unreadable)
         in_range = [e for e in all_entries if (
             from_d
             <= (e.entry_date if isinstance(e.entry_date, _date) else _date.fromisoformat(str(e.entry_date)))
@@ -1987,7 +1977,6 @@ def get_weight_chart(
                 current_avg_kg = t["weight_kg"]
                 break
 
-        # delta: compare current weight to most recent entry on/before the pivot date
         pivot_7d = to_d - _timedelta(days=7)
         pivot_30d = to_d - _timedelta(days=30)
         entry_at_7d = None
@@ -2012,14 +2001,38 @@ def get_weight_chart(
             else None
         )
 
+        # Canonical OLS-on-EWMA rate — always the 30-day gate window so switching
+        # chart range cannot unlock/lock conclusions independently of coverage.
+        from backend.services.weight_stats import DEFAULT_WINDOW_DAYS as _RATE_WINDOW
+        _rate = _weight_stats(session, uid, window_days=_RATE_WINDOW, as_of=to_d)
+        weekly_rate_ewma_kg: float | None = _rate["rate_kg_wk"]
+        if weekly_rate_ewma_kg is not None:
+            weekly_rate_ewma_kg = round(weekly_rate_ewma_kg, 3)
+
         stats = {
             "current_weight_kg": current_weight_kg,
             "current_avg_kg": current_avg_kg,
-            "delta_7d_kg": delta_7d_kg,
+            "delta_7d_kg": (
+                weekly_rate_ewma_kg if _rate["readable"] and weekly_rate_ewma_kg is not None
+                else delta_7d_kg
+            ),
             "delta_30d_kg": delta_30d_kg,
             "weekly_rate_ewma_kg": weekly_rate_ewma_kg,
             "ewma_alpha": round(2.0 / (_EWMA_DEFAULT_SPAN + 1), 4),
+            "rate": _rate,
+            "trend_kg": _rate["trend_kg"],
+            "rate_kg_wk": _rate["rate_kg_wk"],
+            "ci_kg_wk": _rate["ci_kg_wk"],
+            "state": _rate["state"],
+            "readable": _rate["readable"],
+            "gated": _rate["gated"],
+            "gate_reason": _rate["gate_reason"],
+            "days_needed": _rate["days_needed"],
+            "coverage_pct": _rate["coverage_pct"],
+            "needed_rate_kg_wk": _rate["needed_rate_kg_wk"],
         }
+        if _rate["readable"] and weekly_rate_ewma_kg is not None:
+            stats["delta_7d_kg"] = weekly_rate_ewma_kg
 
         # Always fetch active target (needed for plan_series / milestones / today_marker)
         active_target = (
@@ -2117,6 +2130,19 @@ def get_weight_chart(
         ]
 
         # plan_series is omitted (key absent) when no active target
+        _composition_readings = [
+            {
+                "date": (
+                    e.entry_date if isinstance(e.entry_date, _date)
+                    else _date.fromisoformat(str(e.entry_date))
+                ),
+                "weight_kg": float(e.weight_kg),
+                "body_fat_pct": float(e.body_fat_pct) if e.body_fat_pct is not None else None,
+            }
+            for e in all_entries
+        ]
+        composition = _compute_composition_trend(_composition_readings, to_d)
+
         result = {
             "range": {"from": str(from_d), "to": str(to_d)},
             "actuals": actuals,
@@ -2124,6 +2150,7 @@ def get_weight_chart(
             "trend": trend,
             "ewma": ewma_series,
             "stats": stats,
+            "composition": composition,
             "future_milestones": future_milestones,
             "today_marker": today_marker,
             "logged_today": logged_today,
@@ -7490,6 +7517,16 @@ def _planned_session_dict(p, matched=None, estimate_baseline=None) -> dict:
         "created_at": p.created_at.isoformat() if p.created_at else None,
         "updated_at": p.updated_at.isoformat() if p.updated_at else None,
     }
+    # Exercise-level actual spend (non-skipped) — planned pin stays on structure.
+    try:
+        from backend.services.session_pins import structure_actual_spend
+        spend = structure_actual_spend(p.structure)
+        if spend:
+            d["actual_tss"] = spend["actual_tss"]
+            d["actual_duration_min"] = spend["actual_duration_min"]
+            d["planned_tss"] = spend.get("planned_tss")
+    except Exception:
+        pass
     # Rough, formula-only (no LLM) estimated TSS/distance for a still-open,
     # still-ACHIEVABLE session, so a "what's coming this week" progress view
     # isn't blind to planned-but-not-logged work — see training_load.
@@ -13891,15 +13928,20 @@ def admin_list_plan_exercises():
 @app.post("/api/admin/plan-exercises", status_code=201, dependencies=[Depends(require_admin)])
 def admin_create_plan_exercise(body: AdminPlanExerciseIn):
     from backend.models import PlanExercise
+    from backend.services.plan_body_parts import normalize_body_parts_list
     from datetime import datetime, timezone
     from sqlalchemy.exc import IntegrityError
+
+    cleaned, bp_err = normalize_body_parts_list(body.body_parts or [])
+    if bp_err:
+        raise HTTPException(status_code=422, detail=bp_err)
 
     with Session(engine) as db:
         row = PlanExercise(
             name=body.name.strip(),
             groups=body.groups or [],
             focus_tags=body.focus_tags or [],
-            body_parts=body.body_parts or [],
+            body_parts=cleaned or [],
             tss_weight=body.tss_weight,
             default_sets=body.default_sets,
             default_reps=body.default_reps,
@@ -13920,8 +13962,13 @@ def admin_create_plan_exercise(body: AdminPlanExerciseIn):
 @app.patch("/api/admin/plan-exercises/{exercise_id}", dependencies=[Depends(require_admin)])
 def admin_patch_plan_exercise(exercise_id: str, body: AdminPlanExerciseIn):
     from backend.models import PlanExercise
+    from backend.services.plan_body_parts import normalize_body_parts_list
     from datetime import datetime, timezone
     from uuid import UUID
+
+    cleaned, bp_err = normalize_body_parts_list(body.body_parts or [])
+    if bp_err:
+        raise HTTPException(status_code=422, detail=bp_err)
 
     with Session(engine) as db:
         row = db.query(PlanExercise).filter(PlanExercise.id == UUID(exercise_id)).first()
@@ -13930,7 +13977,7 @@ def admin_patch_plan_exercise(exercise_id: str, body: AdminPlanExerciseIn):
         row.name = body.name.strip()
         row.groups = body.groups or []
         row.focus_tags = body.focus_tags or []
-        row.body_parts = body.body_parts or []
+        row.body_parts = cleaned or []
         row.tss_weight = body.tss_weight
         row.default_sets = body.default_sets
         row.default_reps = body.default_reps
@@ -14150,6 +14197,146 @@ class AdminPlanLibraryImportIn(BaseModel):
     mode: str = "upsert"  # upsert | create
 
 
+# Catalog allow-lists — keep groups/focus in sync with frontend/js/admin-plan-library.js
+_PLAN_EXERCISE_GROUPS = frozenset({
+    "warmup", "heavy_compound", "superset", "standalone", "accessories",
+    "cooldown", "bodyweight", "plyo", "isometric", "emom",
+})
+_PLAN_FOCUS_TAGS = frozenset({"lower", "upper", "full", "core"})
+_PLAN_RUN_PHASES = frozenset({"warmup", "main", "cooldown", "mp"})
+
+
+def _validate_plan_exercise_import(raw: dict) -> str | None:
+    """Return an error detail string, or None if the exercise row is ok.
+
+    Normalizes body_parts in-place (plurals → canonical keys) on success.
+    """
+    from backend.services.plan_body_parts import normalize_body_parts_list
+
+    name = str(raw.get("name") or "").strip()
+    if not name:
+        return "name required"
+    groups = raw.get("groups")
+    if not isinstance(groups, list) or not groups:
+        return "groups must be a non-empty list"
+    bad_g = [g for g in groups if not isinstance(g, str) or g not in _PLAN_EXERCISE_GROUPS]
+    if bad_g:
+        return f"invalid groups: {bad_g!r} (allowed: {sorted(_PLAN_EXERCISE_GROUPS)})"
+    focus_tags = raw.get("focus_tags")
+    if not isinstance(focus_tags, list) or not focus_tags:
+        return "focus_tags must be a non-empty list"
+    bad_f = [f for f in focus_tags if not isinstance(f, str) or f not in _PLAN_FOCUS_TAGS]
+    if bad_f:
+        return f"invalid focus_tags: {bad_f!r} (allowed: {sorted(_PLAN_FOCUS_TAGS)})"
+    cleaned, bp_err = normalize_body_parts_list(raw.get("body_parts"))
+    if bp_err:
+        return bp_err
+    raw["body_parts"] = cleaned
+    try:
+        tss_weight = float(raw.get("tss_weight") if raw.get("tss_weight") is not None else 1.0)
+    except (TypeError, ValueError):
+        return "bad tss_weight"
+    if not (0 < tss_weight <= 3):
+        return "tss_weight must be 0 < n ≤ 3"
+    if raw.get("default_sets") is not None:
+        try:
+            sets = int(raw.get("default_sets"))
+        except (TypeError, ValueError):
+            return "bad default_sets"
+        if sets < 1 or sets > 12:
+            return "default_sets must be 1–12"
+    return None
+
+
+def _validate_strength_pick_group(g: dict) -> str | None:
+    if not isinstance(g, dict):
+        return "strength group must be an object"
+    if not str(g.get("key") or "").strip():
+        return "strength group.key required"
+    pick = g.get("pick")
+    if not isinstance(pick, dict):
+        return "strength group.pick required"
+    try:
+        n = int(pick.get("n"))
+    except (TypeError, ValueError):
+        return "strength group.pick.n must be an integer"
+    if n < 1:
+        return "strength group.pick.n must be ≥ 1"
+    tags = pick.get("from_tags")
+    if not isinstance(tags, list) or not tags:
+        return "strength group.pick.from_tags must be a non-empty list"
+    bad = [t for t in tags if not isinstance(t, str) or t not in _PLAN_EXERCISE_GROUPS]
+    if bad:
+        return f"invalid from_tags: {bad!r} (allowed groups: {sorted(_PLAN_EXERCISE_GROUPS)})"
+    return None
+
+
+def _validate_plan_pattern_import(raw: dict) -> str | None:
+    """Return an error detail string, or None if the pattern row is ok."""
+    kind = str(raw.get("kind") or "").strip()
+    subtype = str(raw.get("subtype") or "").strip()
+    name = str(raw.get("name") or "").strip()
+    if kind not in ("run", "strength"):
+        return "kind must be run or strength"
+    if not subtype or not name:
+        return "subtype and name required"
+    recipe = raw.get("recipe")
+    if not isinstance(recipe, dict):
+        return "recipe must be an object"
+    if not str(recipe.get("intent_template") or "").strip():
+        return "recipe.intent_template required"
+    if kind == "run":
+        blocks = recipe.get("blocks")
+        if not isinstance(blocks, list) or not blocks:
+            return "run recipe.blocks must be a non-empty list"
+        share_sum = 0.0
+        for b in blocks:
+            if not isinstance(b, dict):
+                return "run blocks must be objects"
+            phase = b.get("phase")
+            if phase not in _PLAN_RUN_PHASES:
+                return f"invalid block.phase: {phase!r} (allowed: {sorted(_PLAN_RUN_PHASES)})"
+            try:
+                share = float(b.get("duration_share"))
+            except (TypeError, ValueError):
+                return "block.duration_share must be a number"
+            if share <= 0:
+                return "block.duration_share must be > 0"
+            share_sum += share
+        if abs(share_sum - 1.0) > 0.05:
+            return f"block duration_share must sum ≈ 1.0 (got {share_sum:.2f})"
+    else:
+        groups = recipe.get("groups") if isinstance(recipe.get("groups"), list) else []
+        bands = recipe.get("bands") if isinstance(recipe.get("bands"), list) else []
+        if not groups and not bands:
+            return "strength recipe needs groups and/or bands"
+        for g in groups:
+            err = _validate_strength_pick_group(g)
+            if err:
+                return err
+        for band in bands:
+            if not isinstance(band, dict):
+                return "band must be an object"
+            bg = band.get("groups")
+            if not isinstance(bg, list) or not bg:
+                return "band.groups must be a non-empty list"
+            for g in bg:
+                err = _validate_strength_pick_group(g)
+                if err:
+                    return err
+        bias = recipe.get("focus_bias")
+        if bias is not None:
+            if not isinstance(bias, dict):
+                return "recipe.focus_bias must be an object"
+            primary_tag = bias.get("primary_tag")
+            if primary_tag not in _PLAN_FOCUS_TAGS:
+                return (
+                    f"invalid focus_bias.primary_tag: {primary_tag!r} "
+                    f"(allowed: {sorted(_PLAN_FOCUS_TAGS)})"
+                )
+    return None
+
+
 def _export_exercise_row(r) -> dict:
     return {
         "name": r.name,
@@ -14202,6 +14389,42 @@ def admin_export_plan_library():
     })
 
 
+@app.get("/api/admin/plan-library/body-parts", dependencies=[Depends(require_admin)])
+def admin_plan_library_body_parts():
+    """Known body-part keys, colors, and accepted aliases (plural/singular)."""
+    from backend.services.plan_body_parts import catalog_payload
+    return JSONResponse(catalog_payload())
+
+
+@app.post("/api/admin/plan-library/normalize-body-parts", dependencies=[Depends(require_admin)])
+def admin_normalize_plan_body_parts():
+    """Rewrite stored exercise body_parts through the alias map (glutes→glute, …)."""
+    from backend.models import PlanExercise
+    from backend.services.plan_body_parts import normalize_body_parts_list
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    updated = 0
+    skipped = 0
+    errors = []
+    with Session(engine) as db:
+        rows = db.query(PlanExercise).all()
+        for row in rows:
+            cleaned, err = normalize_body_parts_list(row.body_parts or [])
+            if err or cleaned is None:
+                skipped += 1
+                errors.append({"name": row.name, "detail": err or "empty"})
+                continue
+            if cleaned == (row.body_parts or []):
+                skipped += 1
+                continue
+            row.body_parts = cleaned
+            row.updated_at = now
+            updated += 1
+        db.commit()
+    return JSONResponse({"updated": updated, "skipped": skipped, "errors": errors[:20]})
+
+
 @app.post("/api/admin/plan-library/import", dependencies=[Depends(require_admin)])
 def admin_import_plan_library(body: AdminPlanLibraryImportIn):
     """Bulk create / upsert exercises and patterns from catalog JSON."""
@@ -14225,17 +14448,20 @@ def admin_import_plan_library(body: AdminPlanLibraryImportIn):
                 summary["exercises"]["errors"].append({"index": i, "detail": "not an object"})
                 continue
             name = str(raw.get("name") or "").strip()
-            if not name:
-                summary["exercises"]["errors"].append({"index": i, "detail": "name required"})
+            verr = _validate_plan_exercise_import(raw)
+            if verr:
+                summary["exercises"]["errors"].append({
+                    "index": i, "name": name, "detail": verr,
+                })
                 continue
             try:
                 tss_weight = float(raw.get("tss_weight") if raw.get("tss_weight") is not None else 1.0)
             except (TypeError, ValueError):
                 summary["exercises"]["errors"].append({"index": i, "name": name, "detail": "bad tss_weight"})
                 continue
-            groups = raw.get("groups") if isinstance(raw.get("groups"), list) else []
-            focus_tags = raw.get("focus_tags") if isinstance(raw.get("focus_tags"), list) else []
-            body_parts = raw.get("body_parts") if isinstance(raw.get("body_parts"), list) else []
+            groups = list(raw.get("groups") or [])
+            focus_tags = list(raw.get("focus_tags") or [])
+            body_parts = list(raw.get("body_parts") or [])
             default_sets = raw.get("default_sets")
             if default_sets is not None:
                 try:
@@ -14280,22 +14506,13 @@ def admin_import_plan_library(body: AdminPlanLibraryImportIn):
             kind = str(raw.get("kind") or "").strip()
             subtype = str(raw.get("subtype") or "").strip()
             name = str(raw.get("name") or "").strip()
-            if kind not in ("run", "strength"):
+            verr = _validate_plan_pattern_import(raw)
+            if verr:
                 summary["patterns"]["errors"].append({
-                    "index": i, "name": name, "detail": "kind must be run or strength",
-                })
-                continue
-            if not subtype or not name:
-                summary["patterns"]["errors"].append({
-                    "index": i, "detail": "subtype and name required",
+                    "index": i, "name": name, "detail": verr,
                 })
                 continue
             recipe = raw.get("recipe")
-            if not isinstance(recipe, dict):
-                summary["patterns"]["errors"].append({
-                    "index": i, "name": name, "detail": "recipe must be an object",
-                })
-                continue
             try:
                 duration_min_lo = int(raw.get("duration_min_lo") if raw.get("duration_min_lo") is not None else 0)
                 duration_min_hi = int(raw.get("duration_min_hi") if raw.get("duration_min_hi") is not None else 120)

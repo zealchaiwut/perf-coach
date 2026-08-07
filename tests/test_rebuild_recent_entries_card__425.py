@@ -192,8 +192,13 @@ def test_ac7_missing_row_has_faded_class():
 
 
 def test_ac7_add_chip_uses_plus_add_text():
-    assert "＋ Add" in WEIGHT_JS or "+ Add" in WEIGHT_JS or "＋&nbsp;Add" in WEIGHT_JS, \
-        "Missing-day chip must show '＋ Add' text"
+    # Revamp: gap rows use "+ backfill" (calendar coverage) instead of "＋ Add".
+    assert (
+        "＋ Add" in WEIGHT_JS
+        or "+ Add" in WEIGHT_JS
+        or "＋&nbsp;Add" in WEIGHT_JS
+        or "+ backfill" in WEIGHT_JS
+    ), "Missing-day chip must show '＋ Add' or '+ backfill' text"
 
 
 def test_ac7_add_chip_has_dashed_border():

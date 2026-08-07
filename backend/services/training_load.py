@@ -1556,12 +1556,28 @@ def estimate_planned_session_metrics(baseline: dict, workout_type: str, structur
     """Apply an estimate_historical_pace_and_tss() baseline to ONE planned
     session's structure. Returns {"estimated_tss": int|None,
     "estimated_distance_km": float|None} — both None when there's nothing to
-    estimate from (no duration derivable, or no matching history)."""
+    estimate from (no duration derivable, or no matching history).
+
+    Strength/plyo sessions with per-exercise ``spend_tss`` use the sum of
+    non-skipped rows as estimated_tss (session actual for training load) —
+    the planned pin on ``structure.target_tss`` is left untouched.
+    """
     out = {"estimated_tss": None, "estimated_distance_km": None}
+    wt = (workout_type or "").lower()
+
+    if wt in ("strength", "plyo"):
+        try:
+            from backend.services.session_pins import structure_actual_spend
+            actual = structure_actual_spend(structure)
+        except Exception:
+            actual = None
+        if actual is not None and actual.get("actual_tss") is not None:
+            out["estimated_tss"] = int(round(float(actual["actual_tss"])))
+            return out
+
     dur_min = _planned_duration_minutes(workout_type, structure)
     if not dur_min:
         return out
-    wt = (workout_type or "").lower()
 
     if wt == "run":
         for name, lo, hi in _RUN_DURATION_BUCKETS:

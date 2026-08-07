@@ -3021,10 +3021,26 @@ information about.
 
   // Map a template object {date,type,name,notes,blocks|exercises} → API payload.
   function _tplToPayload(o) {
-    var p = { planned_date: o.date, session_type: (o.type || '').toLowerCase(), name: o.name || null, notes: o.notes || null, structure: null };
-    if (o.blocks) p.structure = { blocks: o.blocks };
-    else if (o.exercises) p.structure = { exercises: o.exercises };
-    else if (o.focus) p.structure = { focus: o.focus };
+    var p = {
+      planned_date: o.date,
+      session_type: (o.type || '').toLowerCase(),
+      name: o.name || null,
+      notes: o.notes || null,
+      structure: null,
+    };
+    var structure = {};
+    if (o.structure && typeof o.structure === 'object' && !Array.isArray(o.structure)) {
+      Object.keys(o.structure).forEach(function (k) {
+        if (o.structure[k] != null) structure[k] = o.structure[k];
+      });
+    }
+    if (o.blocks) structure.blocks = o.blocks;
+    if (o.exercises) structure.exercises = o.exercises;
+    if (o.focus) structure.focus = o.focus;
+    ['target_tss', 'duration_minutes', 'distance_km', 'subtype'].forEach(function (k) {
+      if (o[k] != null && structure[k] == null) structure[k] = o[k];
+    });
+    if (Object.keys(structure).length) p.structure = structure;
     return p;
   }
 
@@ -3341,13 +3357,23 @@ information about.
   var _sm = {
     baseline: null,
     dirty: false,
+    mode: 'view', // view (in-gym) | edit (structure)
     strydOpen: false,
     aiForcedOpen: false,
     aiBusy: false,
     aiError: '',
     structTab: 'simple', // simple | detailed | json
     suppressDomSync: false,
+    swap: null, // { mode: 'swap'|'add', index?, block?, query, searchAll, avoid[] }
+    avoidParts: null, // cached from /api/plan/exercises/avoid-parts
   };
+
+  // Strength/plyo block labels — same catalog as plan_slot._STRENGTH_BLOCKS.
+  var _SM_BLOCK_OPTIONS = [
+    'Warm-up', 'Heavy compound', 'Superset 1', 'Superset 2', 'Standalone',
+    'Accessories', 'Bodyweight', 'Plyometrics', 'Isometrics', 'Stretch',
+    'Cooldown', 'Finisher', 'EMOM', '40/20',
+  ];
 
   var _H = function () { return window.PlanSessionHelpers || {}; };
 
@@ -3377,8 +3403,17 @@ information about.
       _sfBlocks = [];
       if (Array.isArray(s.exercises) && s.exercises.length) {
         _sfStrengthMode = 'detailed';
-        _sm.structTab = 'detailed';
-        _sfExercises = s.exercises.map(function (x) { return Object.assign({}, x); });
+        if (!_sm.structTab || _sm.structTab === 'detailed') _sm.structTab = 'simple';
+        _sfExercises = s.exercises.map(function (x) {
+          var row = Object.assign({}, x);
+          if (!row.source) row.source = 'generated';
+          if (row.pinned == null) {
+            row.pinned = row.source !== 'generated' && row.source !== 'pattern';
+          }
+          // Legacy "done" meant "not skipped". Gym checklist uses "completed".
+          if (row.state === 'done') row.state = '';
+          return row;
+        });
         _sfFocus = s.focus || '';
       } else {
         _sfStrengthMode = 'simple';
@@ -3409,7 +3444,39 @@ information about.
     ['target_tss', 'duration_minutes', 'distance_km', 'source'].forEach(function (k) {
       if (prev[k] != null && out[k] == null) out[k] = prev[k];
     });
+    // Session budget pins (editable) override structure pins.
+    var tssEl = document.getElementById('pl-sm-pin-tss');
+    var durEl = document.getElementById('pl-sm-pin-dur');
+    var distEl = document.getElementById('pl-sm-pin-dist');
+    if (tssEl && tssEl.value !== '' && isFinite(Number(tssEl.value))) {
+      out.target_tss = Number(tssEl.value);
+    }
+    if (durEl && durEl.value !== '' && isFinite(Number(durEl.value))) {
+      out.duration_minutes = Number(durEl.value);
+    }
+    if (distEl && !distEl.disabled && distEl.value !== '' && distEl.value !== '—' && isFinite(Number(distEl.value))) {
+      out.distance_km = Number(distEl.value);
+    }
+    var subEl = document.getElementById('pl-sm-subtype');
+    if (subEl && subEl.value) {
+      out.subtype = subEl.value;
+    } else if (prev.subtype != null && out.subtype == null) {
+      out.subtype = prev.subtype;
+    }
     return out;
+  }
+
+  function _smUiSubtype(type, p) {
+    var raw = String(((p && p.structure && p.structure.subtype) || (p && p.subtype) || '')).trim().toLowerCase();
+    if (!raw) return '';
+    if (raw.indexOf('strength_') === 0) raw = raw.slice('strength_'.length);
+    if (raw.indexOf('easy_') === 0) raw = 'easy';
+    if (raw === 'long_run') raw = 'long';
+    var list = _ADD_SUBTYPES[type] || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].v === raw) return raw;
+    }
+    return raw;
   }
 
   function _smReadDraftFromDom(p) {
@@ -3425,6 +3492,73 @@ information about.
       session_type: type,
       structure: _smCollectStructure(type),
     };
+  }
+
+  function _smIsEdit() {
+    return _sm.mode === 'edit';
+  }
+
+  /** Portable session JSON for sharing / later import (Add session → JSON). */
+  function _smExportExerciseRow(ex) {
+    if (!ex || typeof ex !== 'object') return null;
+    var row = {};
+    if (ex.block) row.block = ex.block;
+    row.name = ex.name || 'Exercise';
+    if (ex.sets != null && ex.sets !== '') row.sets = ex.sets;
+    if (ex.reps != null && String(ex.reps).trim() !== '') row.reps = ex.reps;
+    if (ex.load != null && String(ex.load).trim() !== '') row.load = ex.load;
+    if (ex.spend_tss != null && isFinite(Number(ex.spend_tss))) row.spend_tss = Number(ex.spend_tss);
+    if (ex.spend_min != null && isFinite(Number(ex.spend_min))) row.spend_min = Number(ex.spend_min);
+    return row;
+  }
+
+  function _smExportSessionPayload(p) {
+    p = p || _detail || {};
+    var draft = _smReadDraftFromDom(p);
+    var type = (draft.session_type || p.session_type || 'run').toLowerCase();
+    var structure = draft.structure || p.structure || {};
+    var out = {
+      date: draft.planned_date || p.planned_date || '',
+      type: type,
+      name: draft.name || p.name || '',
+    };
+    var notes = draft.notes != null ? draft.notes : (p.notes || '');
+    if (notes) out.notes = notes;
+    if (structure.subtype) out.subtype = structure.subtype;
+    if (structure.focus) out.focus = structure.focus;
+    if (structure.target_tss != null) out.target_tss = structure.target_tss;
+    if (structure.duration_minutes != null) out.duration_minutes = structure.duration_minutes;
+    if (structure.distance_km != null) out.distance_km = structure.distance_km;
+    if (type === 'run' && Array.isArray(structure.blocks)) {
+      out.blocks = structure.blocks.map(function (b) { return Object.assign({}, b); });
+    } else if (Array.isArray(structure.exercises) && structure.exercises.length) {
+      out.exercises = structure.exercises.map(_smExportExerciseRow).filter(Boolean);
+    } else if (Array.isArray(_sfExercises) && _sfExercises.length && type !== 'run') {
+      out.exercises = _sfExercises.map(_smExportExerciseRow).filter(Boolean);
+    } else if (Array.isArray(_sfBlocks) && _sfBlocks.length && type === 'run') {
+      out.blocks = _sfBlocks.map(function (b) { return Object.assign({}, b); });
+    }
+    return out;
+  }
+
+  function _smExportFilename(payload) {
+    var date = (payload.date || 'session').replace(/[^\d-]/g, '');
+    var slug = String(payload.name || payload.type || 'session')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 48) || 'session';
+    return 'perf-coach-session-' + date + '-' + slug + '.json';
+  }
+
+  function _smDownloadSessionJson(p) {
+    var payload = _smExportSessionPayload(p);
+    _downloadFile(
+      _smExportFilename(payload),
+      JSON.stringify(payload, null, 2),
+      'application/json'
+    );
+    _toast('Session JSON downloaded — share or paste into Add → JSON');
   }
 
   function _smMarkDirty() {
@@ -3454,6 +3588,35 @@ information about.
     var bits = [p.actual.name || 'Matched workout'];
     if (p.actual.meta) bits.push(p.actual.meta);
     return '<span class="pl-sm-matched">✓ matched · ' + esc(bits.join(' ')) + '</span>';
+  }
+
+  function _smBudgetHtml(p) {
+    if (!_smIsEdit()) return _smTilesHtml(p);
+    var SB = window.SessionBudget;
+    if (!SB || !SB.html) return _smTilesHtml(p) + _smAiBarHtml(p);
+    if ((p.session_type || '') === 'rest') return '';
+    if (_smAiDormant(p) && !_sm.aiForcedOpen) {
+      return '<div class="pl-sm-ai pl-sm-ai-dormant" id="pl-sm-ai">' +
+        '<div class="pl-sm-ai-h"><b>Session completed — nothing left to plan</b>' +
+        '<button type="button" class="pl-sm-ai-expand" id="pl-sm-ai-expand">add structure anyway</button></div>' +
+      '</div>';
+    }
+    var s = p.structure || {};
+    var live = _smCollectStructure(p.session_type) || s;
+    var type = (p.session_type || 'run').toLowerCase();
+    var has = _smHasStructure(p);
+    return SB.html({
+      duration: live.duration_minutes != null ? live.duration_minutes : s.duration_minutes,
+      tss: live.target_tss != null ? live.target_tss : s.target_tss,
+      distance: live.distance_km != null ? live.distance_km : s.distance_km,
+      distanceDisabled: type !== 'run',
+      exercises: type === 'run' ? [] : (_sfExercises || []),
+      hasStructure: has,
+      refillBusy: _sm.aiBusy,
+      refillLabel: has ? 'Refill unpinned' : 'Fill from patterns',
+      showRefill: true,
+      error: _sm.aiError || '',
+    });
   }
 
   function _smTilesHtml(p) {
@@ -3519,39 +3682,559 @@ information about.
 
   function _smStructureBodyHtml(p) {
     var type = (p.session_type || 'run').toLowerCase();
+    var edit = _smIsEdit();
     if (type === 'rest') {
       return '<div class="pl-sm-empty-s">Rest day — no structure.</div>';
     }
     if (type === 'run') {
       if (!_sfBlocks.length && !_smHasStructure(p)) {
-        return '<div class="pl-sm-empty-s">No structure yet — Generate above, or add blocks in Detailed.</div>';
+        return '<div class="pl-sm-empty-s">' +
+          (edit ? 'No structure yet — Fill from patterns above, or open advanced › Detailed.'
+            : 'No structure yet — tap Edit to fill this session.') +
+          '</div>';
       }
-      if (_sm.structTab === 'json') {
+      if (edit && _sm.structTab === 'json') {
         return '<textarea class="pl-jsonta" id="pl-sm-json" aria-label="Structure JSON" spellcheck="false">' +
           esc(JSON.stringify({ blocks: _sfBlocks }, null, 2)) + '</textarea>';
       }
-      if (_sm.structTab === 'detailed') {
+      if (edit && _sm.structTab === 'detailed') {
         return '<div id="pl-sm-struct-host"></div>';
       }
       return _smPreviewPaneHtml(p, type);
     }
     // strength / plyo / stretch
-    if (_sm.structTab === 'json') {
+    if (edit && _sm.structTab === 'json') {
       return '<textarea class="pl-jsonta" id="pl-sm-json" aria-label="Structure JSON" spellcheck="false">' +
         esc(JSON.stringify({ exercises: _sfExercises, focus: _sfFocus }, null, 2)) + '</textarea>';
     }
-    if (_sm.structTab === 'simple') {
-      if (!_sfFocus && !_sfExercises.length) {
-        return '<div class="pl-sm-empty-s">No structure yet — Fill from patterns above, or switch to Detailed to build it by hand.</div>' +
-          '<div class="pl-fld" style="margin-top:10px;"><label>Focus</label>' +
-          '<input type="text" id="pl-sm-focus" aria-label="Focus" value="' + esc(_sfFocus) + '" placeholder="e.g. posterior chain"/></div>';
-      }
-      return '<div class="pl-fld"><label>Focus</label>' +
-        '<input type="text" id="pl-sm-focus" aria-label="Focus" value="' + esc(_sfFocus) + '"/></div>' +
-        _smPreviewPaneHtml(p, type);
+    if (edit && _sm.structTab === 'detailed') {
+      return '<div id="pl-sm-struct-host"></div>';
     }
-    // detailed
-    return '<div id="pl-sm-struct-host"></div>';
+    if (!_sfFocus && !_sfExercises.length) {
+      return '<div class="pl-sm-empty-s">' +
+        (edit ? 'No structure yet — Fill from patterns above, or open advanced › Detailed.'
+          : 'No structure yet — tap Edit to fill this session.') +
+        '</div>';
+    }
+    var focusHtml = '';
+    if (_sfFocus) {
+      focusHtml = edit
+        ? '<div class="pl-fld" style="margin-bottom:10px;"><label>Focus</label>' +
+          '<input type="text" id="pl-sm-focus" aria-label="Focus" value="' + esc(_sfFocus) + '"/></div>'
+        : '<div class="pl-sm-focus-ro">' + esc(_sfFocus) + '</div>';
+    }
+    return focusHtml + _smInteractiveExercisesHtml();
+  }
+
+  function _smProvChip(ex) {
+    var src = String(ex.source || 'generated').toLowerCase();
+    if (src === 'generated' || src === 'pattern') return '';
+    var lab = '';
+    var cls = 'manual';
+    if (src === 'swap') { lab = 'SUBSTITUTED'; cls = 'swap'; }
+    else if (src === 'substituted') { lab = 'SUBSTITUTED'; cls = 'swap'; }
+    else if (src === 'homework_standing') { lab = 'HOMEWORK · STANDING'; cls = 'hwstand'; }
+    else if (src === 'homework_week') {
+      var days = ex.homework_days_left;
+      lab = days != null ? ('HOMEWORK · ' + days + 'd LEFT') : 'HOMEWORK · WEEK';
+      cls = 'hwweek';
+    } else if (src === 'coach') { lab = 'COACH'; cls = 'hwstand'; }
+    else if (src === 'manual') { lab = 'MANUAL'; cls = 'manual'; }
+    else { lab = src.toUpperCase(); cls = 'manual'; }
+    var tip = ex.replaced_name ? (' title="replaced ' + esc(ex.replaced_name) + '"') : '';
+    return '<span class="pl-sm-prov ' + cls + '"' + tip + '>' + esc(lab) + '</span>';
+  }
+
+  function _smExIsPinned(ex) {
+    if (window.SessionBudget && window.SessionBudget.isPinned) return window.SessionBudget.isPinned(ex);
+    if (ex.pinned === true) return true;
+    if (ex.pinned === false) return false;
+    var src = String(ex.source || 'generated').toLowerCase();
+    return src && src !== 'generated' && src !== 'pattern';
+  }
+
+  function _smSessionNameMap() {
+    var map = {};
+    _sfExercises.forEach(function (ex) {
+      if (!ex || !ex.name) return;
+      map[String(ex.name).trim().toLowerCase()] = ex.block || 'session';
+    });
+    return map;
+  }
+
+  function _smHlName(name, q) {
+    if (!q) return esc(name);
+    var i = String(name).toLowerCase().indexOf(String(q).toLowerCase());
+    if (i < 0) return esc(name);
+    return esc(name.slice(0, i)) + '<mark>' + esc(name.slice(i, i + q.length)) + '</mark>' +
+      esc(name.slice(i + q.length));
+  }
+
+  function _smEnsureAvoidParts() {
+    if (_sm.avoidParts) return Promise.resolve(_sm.avoidParts);
+    return fetch('/api/plan/exercises/avoid-parts', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : { parts: [] }; })
+      .then(function (j) {
+        _sm.avoidParts = (j && j.parts) || [];
+        return _sm.avoidParts;
+      })
+      .catch(function () {
+        _sm.avoidParts = [];
+        return _sm.avoidParts;
+      });
+  }
+
+  function _smApplyCandidate(cand) {
+    if (!_sm.swap || !cand) return;
+    var SB = window.SessionBudget;
+    if (_sm.swap.mode === 'swap') {
+      var i = _sm.swap.index;
+      var old = _sfExercises[i];
+      if (!old) return;
+      var oldSp = SB && SB.spendOf ? SB.spendOf(old) : { tss: Number(old.spend_tss) || 0, min: Number(old.spend_min) || 0 };
+      // Keep the block's shared set count (not the library default).
+      var keepSets = old.sets != null ? old.sets : (_smBlockSetsByName(old.block) || 3);
+      _sfExercises[i] = {
+        block: old.block,
+        name: cand.name,
+        sets: keepSets,
+        reps: cand.default_reps || old.reps || '10',
+        load: cand.default_load || old.load || 'moderate',
+        spend_tss: cand.tss != null ? cand.tss : oldSp.tss,
+        spend_min: oldSp.min,
+        pinned: true,
+        source: 'swap',
+        replaced_name: old.name,
+        state: old.state || '',
+        exercise_id: cand.id || undefined,
+      };
+      if (_sm.swap.searchAll) _sfExercises[i].swap_left_block = true;
+    } else {
+      var block = _sm.swap.block || 'Accessories';
+      var sets = _smBlockSetsByName(block);
+      if (sets == null) sets = 3;
+      var replaceIdx = -1;
+      var insertAt = _sfExercises.length;
+      for (var k = 0; k < _sfExercises.length; k++) {
+        if (String(_sfExercises[k].block || '') === block) {
+          insertAt = k + 1;
+          if (!_sfExercises[k].name) replaceIdx = k;
+        }
+      }
+      var row = {
+        block: block,
+        name: cand.name,
+        sets: sets,
+        reps: cand.default_reps || '10',
+        load: cand.default_load || 'moderate',
+        spend_tss: cand.tss != null ? cand.tss : Math.max(1, sets),
+        spend_min: Math.max(2, sets * 2.5),
+        pinned: true,
+        source: 'manual',
+        state: '',
+        exercise_id: cand.id || undefined,
+      };
+      if (replaceIdx >= 0) _sfExercises[replaceIdx] = row;
+      else _sfExercises.splice(insertAt, 0, row);
+    }
+    _sm.swap = null;
+    _smMarkDirty();
+    _renderDetailSection();
+  }
+
+  function _smMountSwapPicker(host) {
+    if (!host || !_sm.swap) return;
+    var swap = _sm.swap;
+    // Search the whole library — no block scope / avoid-part chips.
+    swap.searchAll = true;
+    swap.avoid = [];
+    var cur = swap.mode === 'swap' ? _sfExercises[swap.index] : null;
+    var block = swap.mode === 'swap' ? ((cur && cur.block) || 'Exercises') : (swap.block || 'Exercises');
+    var title = swap.mode === 'swap'
+      ? ('Swap ' + ((cur && cur.name) || 'exercise'))
+      : ('Add to ' + block);
+    var SB = window.SessionBudget;
+    var curTss = cur
+      ? ((SB && SB.spendOf ? SB.spendOf(cur).tss : Number(cur.spend_tss)) || 0)
+      : 0;
+
+    host.innerHTML =
+      '<div class="pl-sm-pickh"><span class="t">' + esc(title) + '</span>' +
+        '<span class="s" id="pl-sm-pick-count"></span>' +
+        '<button type="button" class="cx" id="pl-sm-pick-close" aria-label="Close">✕</button></div>' +
+      '<div class="pl-sm-srch"><input type="search" id="pl-sm-pick-q" placeholder="Search exercises…" value="' +
+        esc(swap.query || '') + '"/>' +
+        '<button type="button" class="clr" id="pl-sm-pick-clr"' +
+          ((swap.query) ? '' : ' hidden') + '>✕</button></div>' +
+      '<div class="pl-sm-scope" id="pl-sm-pick-scope">loading…</div>' +
+      '<div class="pl-sm-clist" id="pl-sm-pick-list"></div>' +
+      '<div class="pl-sm-picknote" id="pl-sm-pick-note"></div>';
+
+    document.getElementById('pl-sm-pick-close').onclick = function () {
+      _sm.swap = null;
+      _renderDetailSection();
+    };
+    var qEl = document.getElementById('pl-sm-pick-q');
+    var clr = document.getElementById('pl-sm-pick-clr');
+    qEl.oninput = function () {
+      _sm.swap.query = qEl.value;
+      clr.hidden = !qEl.value;
+      _smFetchSwapCandidates();
+    };
+    clr.onclick = function () {
+      qEl.value = '';
+      _sm.swap.query = '';
+      clr.hidden = true;
+      _smFetchSwapCandidates();
+      qEl.focus();
+    };
+
+    _smFetchSwapCandidates();
+    qEl.focus();
+  }
+
+  function _smFetchSwapCandidates() {
+    if (!_sm.swap) return;
+    var swap = _sm.swap;
+    var cur = swap.mode === 'swap' ? _sfExercises[swap.index] : null;
+    var block = swap.mode === 'swap' ? ((cur && cur.block) || 'Exercises') : (swap.block || 'Exercises');
+    var SB = window.SessionBudget;
+    var curTss = cur
+      ? ((SB && SB.spendOf ? SB.spendOf(cur).tss : Number(cur.spend_tss)) || 0)
+      : 0;
+    var body = {
+      block: block,
+      current_name: cur ? cur.name : null,
+      current_tss: curTss,
+      current_body_parts: (cur && cur.body_parts) || null,
+      session_names: _smSessionNameMap(),
+      avoid_parts: swap.avoid || [],
+      query: swap.query || '',
+      search_all_blocks: !!swap.searchAll,
+    };
+    fetch('/api/plan/exercises/swap-candidates', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(function (r) {
+      return r.ok ? r.json() : Promise.reject(new Error('swap candidates failed'));
+    }).then(function (data) {
+      if (!_sm.swap) return;
+      _smRenderSwapList(data, curTss, block);
+    }).catch(function () {
+      var list = document.getElementById('pl-sm-pick-list');
+      if (list) list.innerHTML = '<div class="pl-sm-none">Could not load candidates</div>';
+    });
+  }
+
+  function _smRenderSwapList(data, curTss, block) {
+    var ok = data.eligible || [];
+    var no = data.disabled || [];
+    var count = document.getElementById('pl-sm-pick-count');
+    if (count) {
+      count.textContent = ok.length + ' available' + (no.length ? (' · ' + no.length + ' blocked') : '');
+    }
+    var scope = document.getElementById('pl-sm-pick-scope');
+    if (scope) {
+      scope.innerHTML = (data.library_count || 0) + ' in library · <b>' + ok.length + '</b> match' +
+        (no.length ? (' · ' + no.length + ' already in session') : '');
+    }
+    var note = document.getElementById('pl-sm-pick-note');
+    if (note) {
+      note.innerHTML = 'searching all exercises · ranked by body-part overlap then TSS' +
+        (curTss ? (' proximity to ' + curTss.toFixed(1)) : '') +
+        ' · a swap arrives <b>pinned</b> — refill won\'t undo it';
+    }
+    function rowHtml(e, dis) {
+      var d = Number(e.tss_delta != null ? e.tss_delta : ((e.tss || 0) - curTss));
+      d = Math.round(d * 10) / 10;
+      var cls = d > 0.5 ? 'up' : (d < -0.5 ? 'dn' : 'eq');
+      var why = '';
+      if (dis) {
+        why = '<span class="pl-sm-why ' + esc(e.why_cls || '') + '">' + esc(e.why || '') +
+          (e.where ? (' · ' + esc(e.where)) : '') + '</span>';
+      }
+      return '<button type="button" class="pl-sm-cand' + (dis ? ' dis' : '') + '"' +
+        (dis ? ' disabled' : '') + ' data-cand-name="' + esc(e.name) + '">' +
+        '<span class="cb"><span class="cn">' + _smHlName(e.name, _sm.swap.query || '') + '</span>' +
+          '<span class="cr">' + esc(e.prescription || '') + '</span></span>' +
+        why +
+        '<span class="pl-sm-cd ' + cls + '">' + (d > 0 ? '+' : '') + d + ' TSS</span></button>';
+    }
+    var h = '';
+    if (ok.length) {
+      h = ok.map(function (e) { return rowHtml(e, false); }).join('');
+    } else {
+      h = '<div class="pl-sm-none">No ' +
+        (_sm.swap.query ? ('match for "' + esc(_sm.swap.query) + '"') : 'candidate') +
+        '.</div>';
+    }
+    if (no.length) {
+      h += '<div class="pl-sm-sec">not available</div>' + no.map(function (e) { return rowHtml(e, true); }).join('');
+    }
+    var list = document.getElementById('pl-sm-pick-list');
+    if (!list) return;
+    list.innerHTML = h;
+    list.querySelectorAll('.pl-sm-cand:not(.dis)').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var name = btn.getAttribute('data-cand-name');
+        var cand = (ok.concat(no)).filter(function (c) { return c.name === name; })[0];
+        if (cand) _smApplyCandidate(cand);
+      });
+    });
+  }
+
+  function _smExGroups() {
+    var groups = [];
+    _sfExercises.forEach(function (x, i) {
+      var b = (x && x.block) ? x.block : 'Exercises';
+      var last = groups[groups.length - 1];
+      if (!last || last.block !== b) groups.push({ block: b, idxs: [i] });
+      else last.idxs.push(i);
+    });
+    return groups;
+  }
+
+  function _smBlockSetsFromIdxs(idxs) {
+    for (var i = 0; i < idxs.length; i++) {
+      var ex = _sfExercises[idxs[i]];
+      if (ex && ex.sets != null && isFinite(Number(ex.sets))) return Math.round(Number(ex.sets));
+    }
+    return 3;
+  }
+
+  function _smBlockSetsByName(block) {
+    for (var i = 0; i < _sfExercises.length; i++) {
+      if (String(_sfExercises[i].block || '') === String(block || '') &&
+          _sfExercises[i].sets != null && isFinite(Number(_sfExercises[i].sets))) {
+        return Math.round(Number(_sfExercises[i].sets));
+      }
+    }
+    return null;
+  }
+
+  function _smApplyBlockSets(gi, sets) {
+    var groups = _smExGroups();
+    var g = groups[gi];
+    if (!g) return;
+    var n = Math.max(1, Math.min(12, Math.round(Number(sets)) || 3));
+    g.idxs.forEach(function (i) {
+      if (_sfExercises[i]) _sfExercises[i].sets = n;
+    });
+  }
+
+  function _smNewBlockName() {
+    var used = {};
+    _sfExercises.forEach(function (x) { used[String(x.block || '')] = true; });
+    for (var i = 0; i < _SM_BLOCK_OPTIONS.length; i++) {
+      if (!used[_SM_BLOCK_OPTIONS[i]]) return _SM_BLOCK_OPTIONS[i];
+    }
+    var n = 2;
+    while (used['Block ' + n]) n += 1;
+    return 'Block ' + n;
+  }
+
+  function _smAddBlock() {
+    var name = _smNewBlockName();
+    _sfExercises.push({
+      block: name,
+      name: '',
+      sets: 3,
+      reps: '10',
+      load: 'moderate',
+      spend_tss: 3,
+      spend_min: 7.5,
+      pinned: false,
+      source: 'manual',
+      state: '',
+    });
+    _sm.swap = { mode: 'add', block: name, query: '', searchAll: true, avoid: [] };
+    _smMarkDirty();
+    _renderDetailSection();
+  }
+
+  function _smBlockSelectHtml(current, gi) {
+    var cur = current || 'Exercises';
+    var opts = _SM_BLOCK_OPTIONS.slice();
+    if (opts.indexOf(cur) < 0) opts.unshift(cur);
+    return '<select class="pl-sm-bnsel" data-blk-rename="' + gi + '" aria-label="Block type">' +
+      opts.map(function (o) {
+        return '<option value="' + esc(o) + '"' + (o === cur ? ' selected' : '') + '>' + esc(o) + '</option>';
+      }).join('') +
+    '</select>';
+  }
+
+  function _smMoveExInBlock(i, dir) {
+    var j = i + dir;
+    if (j < 0 || j >= _sfExercises.length) return false;
+    var a = _sfExercises[i];
+    var b = _sfExercises[j];
+    if ((a.block || '') !== (b.block || '')) return false;
+    _sfExercises[i] = b;
+    _sfExercises[j] = a;
+    return true;
+  }
+
+  function _smMoveBlockGroup(gi, dir) {
+    var groups = _smExGroups();
+    var gj = gi + dir;
+    if (gj < 0 || gj >= groups.length) return false;
+    var rebuilt = [];
+    var order = groups.map(function (_, k) { return k; });
+    var tmp = order[gi];
+    order[gi] = order[gj];
+    order[gj] = tmp;
+    order.forEach(function (k) {
+      groups[k].idxs.forEach(function (i) { rebuilt.push(_sfExercises[i]); });
+    });
+    _sfExercises = rebuilt;
+    return true;
+  }
+
+  function _smDeleteBlockGroup(gi) {
+    var groups = _smExGroups();
+    if (!groups[gi]) return;
+    var drop = {};
+    groups[gi].idxs.forEach(function (i) { drop[i] = true; });
+    _sfExercises = _sfExercises.filter(function (_, i) { return !drop[i]; });
+  }
+
+  function _smInteractiveExercisesHtml() {
+    var groups = _smExGroups();
+    var edit = _smIsEdit();
+    var SB = window.SessionBudget;
+    var swap = (_sm && _sm.swap) || null;
+
+    function spendFooter() {
+      var planned = (_detail && _detail.structure && _detail.structure.target_tss) || null;
+      var actualTss = 0;
+      var actualMin = 0;
+      _sfExercises.forEach(function (ex) {
+        if (String(ex.state || 'done') === 'skipped') return;
+        var sp = SB && SB.spendOf ? SB.spendOf(ex) : { tss: 0, min: 0 };
+        actualTss += sp.tss;
+        actualMin += sp.min;
+      });
+      return '<div class="pl-sm-spend"><span>Session spend</span><span class="pl-sm-sv">' +
+        (planned != null ? ('<s>planned ' + Math.round(planned) + ' TSS</s> ') : '') +
+        'actual ' + (Math.round(actualMin * 10) / 10) + ' min · ' + (Math.round(actualTss * 10) / 10) + ' TSS' +
+        '</span></div>';
+    }
+
+    var addBlkBtn = edit
+      ? '<button type="button" class="pl-sm-addblk" data-blk-add="1">+ block</button>'
+      : '';
+
+    if (!groups.length) {
+      if (!edit) return '';
+      return '<div class="pl-sm-exlist" id="pl-sm-exlist">' + addBlkBtn + spendFooter() + '</div>';
+    }
+
+    var html = groups.map(function (g, gi) {
+      var tss = 0;
+      var mins = 0;
+      var skipped = 0;
+      var blockSets = _smBlockSetsFromIdxs(g.idxs);
+      g.idxs.forEach(function (i) {
+        var ex = _sfExercises[i];
+        if (String(ex.state || 'done') === 'skipped') { skipped += 1; return; }
+        var sp = SB && SB.spendOf ? SB.spendOf(ex) : { tss: Number(ex.spend_tss) || 0, min: Number(ex.spend_min) || 0 };
+        tss += sp.tss;
+        mins += sp.min;
+      });
+      var meta = (Math.round(mins * 10) / 10) + ' min · ' + (Math.round(tss * 10) / 10) + ' TSS' +
+        (skipped ? (' · <span class="pl-sm-sk">' + skipped + ' skipped</span>') : '');
+      var rows = g.idxs.map(function (i, pos) {
+        var ex = _sfExercises[i];
+        var pinned = _smExIsPinned(ex);
+        var skippedRow = String(ex.state || '') === 'skipped';
+        var doneRow = String(ex.state || '') === 'completed';
+        var sp = SB && SB.spendOf ? SB.spendOf(ex) : { tss: Number(ex.spend_tss) || 0, min: Number(ex.spend_min) || 0 };
+        // Sets live on the block — row shows reps · load only.
+        var rxPlain = '';
+        if (ex.reps != null && String(ex.reps).trim() !== '') rxPlain = String(ex.reps);
+        if (ex.load) rxPlain += (rxPlain ? ' · ' : '') + ex.load;
+        var rx;
+        if (edit && ex.replaced_name) {
+          rx = '<s>' + esc(ex.replaced_name) + '</s> → ' + esc(rxPlain) +
+            (ex.substitute_reason ? (' · ' + esc(ex.substitute_reason)) : '');
+        } else {
+          rx = esc(rxPlain);
+        }
+        var minLab = (Math.round(sp.min * 10) / 10) + ' min';
+        var tssLab = (Math.round(sp.tss * 10) / 10) + ' TSS';
+        var leftCtl;
+        var rightCtl;
+        if (edit) {
+          var swapOn = swap && swap.mode === 'swap' && swap.index === i;
+          leftCtl = '<button type="button" class="pl-sm-delx" data-ex-del="' + i + '" title="Remove exercise" aria-label="Remove exercise">✕</button>' +
+            '<span class="pl-sm-mv">' +
+              '<button type="button" class="pl-sm-mbtn" data-ex-up="' + i + '"' +
+                (pos === 0 ? ' disabled' : '') + ' aria-label="Move up">▲</button>' +
+              '<button type="button" class="pl-sm-mbtn" data-ex-dn="' + i + '"' +
+                (pos === g.idxs.length - 1 ? ' disabled' : '') + ' aria-label="Move down">▼</button>' +
+            '</span>';
+          rightCtl = '<span class="pl-sm-enum" data-ex-edit="min" data-ex-i="' + i + '" title="Minutes">' + minLab + '</span>' +
+            '<span class="pl-sm-enum" data-ex-edit="tss" data-ex-i="' + i + '" title="TSS">' + tssLab + '</span>' +
+            '<span class="pl-sm-exact">' +
+              '<button type="button" class="pl-sm-pinbtn' + (pinned ? ' on' : '') + '" data-ex-pin="' + i + '"' +
+                ' aria-pressed="' + (pinned ? 'true' : 'false') + '" title="Keep on refill">' +
+                (pinned ? 'Pinned' : 'Pin') + '</button>' +
+              '<button type="button" class="pl-sm-ib' + (swapOn ? ' on' : '') + '" data-ex-swap="' + i + '" title="Swap" aria-label="Swap">⇄</button>' +
+            '</span>';
+          return '<div class="pl-sm-ex' + (pinned ? ' pinned' : '') + (skippedRow ? ' skipped' : '') +
+            (swapOn ? ' active' : '') + '" data-ex-i="' + i + '">' +
+            leftCtl +
+            '<span class="pl-sm-exb"><span class="pl-sm-en">' + esc(ex.name || 'Exercise') + '</span>' +
+              '<span class="pl-sm-erx">' + rx + '</span></span>' +
+            _smProvChip(ex) +
+            rightCtl +
+            '</div>' +
+            (swapOn ? '<div class="pl-sm-pick" id="pl-sm-pick" data-pick-host="1"></div>' : '');
+        }
+        // View: empty checkbox until tapped at the gym; no per-row min/TSS; no swap strike.
+        leftCtl = '<button type="button" class="pl-sm-chk' + (doneRow ? ' on' : '') + '" data-ex-skip="' + i + '"' +
+          ' aria-label="' + (doneRow ? 'Mark not done' : 'Mark done') + '" aria-pressed="' +
+          (doneRow ? 'true' : 'false') + '">' + (doneRow ? '✓' : '') + '</button>';
+        return '<div class="pl-sm-ex' + (skippedRow ? ' skipped' : '') + (doneRow ? ' done' : '') +
+          '" data-ex-i="' + i + '">' +
+          leftCtl +
+          '<span class="pl-sm-exb"><span class="pl-sm-en">' + esc(ex.name || 'Exercise') + '</span>' +
+            '<span class="pl-sm-erx">' + esc(String(blockSets) + ' × ') + rx + '</span></span>' +
+        '</div>';
+      }).join('');
+      var head;
+      if (edit) {
+        var addOn = swap && swap.mode === 'add' && swap.block === g.block;
+        head = '<div class="pl-sm-blkh">' +
+          '<span class="pl-sm-bhleft">' +
+            '<span class="pl-sm-bmv">' +
+              '<button type="button" class="pl-sm-mbtn" data-blk-up="' + gi + '"' +
+                (gi === 0 ? ' disabled' : '') + ' aria-label="Move block up">▲</button>' +
+              '<button type="button" class="pl-sm-mbtn" data-blk-dn="' + gi + '"' +
+                (gi === groups.length - 1 ? ' disabled' : '') + ' aria-label="Move block down">▼</button>' +
+            '</span>' +
+            _smBlockSelectHtml(g.block, gi) +
+            '<label class="pl-sm-bsets-lab" title="Sets for every exercise in this block">Sets ' +
+              '<input type="number" class="pl-sm-bsets" data-blk-sets="' + gi + '" min="1" max="12" step="1" value="' +
+              blockSets + '"/></label>' +
+            '<button type="button" class="pl-sm-blkdel" data-blk-del="' + gi + '" title="Remove block" aria-label="Remove block">✕</button>' +
+          '</span>' +
+          '<span style="display:flex;gap:8px;align-items:center">' +
+            '<span class="pl-sm-bm">' + meta + '</span>' +
+            '<button type="button" class="pl-sm-addex" data-ex-add="' + esc(g.block) + '">+ exercise</button>' +
+          '</span></div>';
+        return '<div class="pl-sm-blk">' + head + rows +
+          (addOn ? '<div class="pl-sm-pick" id="pl-sm-pick" data-pick-host="1"></div>' : '') +
+        '</div>';
+      }
+      head = '<div class="pl-sm-blkh"><span class="pl-sm-bn">' + esc(g.block) + '</span>' +
+        '<span class="pl-sm-bm">' + blockSets + ' sets · ' + meta + '</span></div>';
+      return '<div class="pl-sm-blk">' + head + rows + '</div>';
+    }).join('');
+
+    return '<div class="pl-sm-exlist" id="pl-sm-exlist">' + html + addBlkBtn + spendFooter() + '</div>';
   }
 
   /** Read-only preview pane (same as admin / plan suggestions) for Simple tab. */
@@ -3577,12 +4260,34 @@ information about.
     var fam = _famClass(type);
     var tagCls = (type === 'strength' || type === 'plyo') ? 'lift' : '';
     var statusRow = _detailStatusActionsHtml(p);
-    var tabs = type === 'run'
-      ? [['simple', 'Simple'], ['detailed', 'Detailed'], ['json', 'JSON']]
-      : [['simple', 'Simple'], ['detailed', 'Detailed'], ['json', 'JSON']];
-    var tabHtml = tabs.map(function (t) {
-      return '<button type="button" class="pl-sm-tab' + (_sm.structTab === t[0] ? ' on' : '') + '" data-stab="' + t[0] + '">' + t[1] + '</button>';
-    }).join('');
+    var edit = _smIsEdit();
+    var advOpen = edit && (_sm.structTab === 'detailed' || _sm.structTab === 'json');
+    var advHtml = edit
+      ? ('<span class="pl-sm-adv">' +
+          '<button type="button" class="pl-sm-adv-tog" id="pl-sm-adv-tog">' +
+            (advOpen ? 'advanced ▾' : 'advanced ›') + '</button>' +
+          (advOpen
+            ? '<button type="button" class="pl-sm-tab' + (_sm.structTab === 'detailed' ? ' on' : '') + '" data-stab="detailed">Detailed</button>' +
+              '<button type="button" class="pl-sm-tab' + (_sm.structTab === 'json' ? ' on' : '') + '" data-stab="json">JSON</button>'
+            : '') +
+        '</span>')
+      : '';
+
+    var subSelected = _smUiSubtype(type, p);
+    var subtypeOpts = _ADD_SUBTYPES[type] || [];
+    var subtypeHtml = '';
+    if (subtypeOpts.length) {
+      if (edit) {
+        subtypeHtml = '<select id="pl-sm-subtype" aria-label="Session subtype">' +
+          '<option value="">Subtype</option>' +
+          _addSubtypeOptions(type, subSelected) +
+        '</select>';
+      } else if (subSelected) {
+        var subLab = subSelected;
+        subtypeOpts.forEach(function (o) { if (o.v === subSelected) subLab = o.l; });
+        subtypeHtml = '<span class="pl-sm-subtag">' + esc(subLab) + '</span>';
+      }
+    }
 
     var stryd = '';
     if (type === 'run') {
@@ -3594,34 +4299,67 @@ information about.
         '</div>';
     }
 
-    return '<div class="pl-sm-pad">' +
-      '<div class="pl-sm-top"><span class="pl-sm-lbl">Session</span>' +
-        '<button type="button" class="pl-sm-x" id="pl-detclose" aria-label="Close">✕</button></div>' +
-      '<div class="pl-sm-meta">' +
-        '<span class="pl-sm-tag ' + tagCls + '">' + _smTypeLabel(type) + '</span>' +
-        '<select id="pl-sm-type" aria-label="Session type">' +
+    var modeBtn = edit
+      ? '<button type="button" class="pl-sm-mode" id="pl-sm-done-edit">Done editing</button>'
+      : '<button type="button" class="pl-sm-mode on" id="pl-sm-enter-edit">Edit</button>';
+    var exportBtn =
+      '<button type="button" class="pl-sm-mode" id="pl-sm-export-json" title="Download shareable session JSON">' +
+      'Export JSON</button>';
+
+    var metaType = edit
+      ? ('<select id="pl-sm-type" aria-label="Session type">' +
           ['run', 'strength', 'plyo', 'stretch', 'rest'].map(function (t) {
             return '<option value="' + t + '"' + (type === t ? ' selected' : '') + '>' +
               (t.charAt(0).toUpperCase() + t.slice(1)) + '</option>';
           }).join('') +
-        '</select>' +
-        '<input class="pl-sm-datef" type="date" id="pl-sm-date" aria-label="Session date" value="' + esc(p.planned_date || '') + '"/>' +
+        '</select>')
+      : ('<span class="pl-sm-typero">' + esc(type.charAt(0).toUpperCase() + type.slice(1)) + '</span>');
+
+    var dateHtml = edit
+      ? '<input class="pl-sm-datef" type="date" id="pl-sm-date" aria-label="Session date" value="' + esc(p.planned_date || '') + '"/>'
+      : '<span class="pl-sm-date-ro">' + esc(p.planned_date || '') + '</span>';
+
+    var nameHtml = edit
+      ? '<input class="pl-sm-name" id="pl-sm-name" aria-label="Session name" value="' + esc(p.name || '') + '" placeholder="Session name"/>'
+      : '<div class="pl-sm-name-ro">' + esc(p.name || 'Session') + '</div>';
+
+    var sech = edit
+      ? ('<div class="pl-sm-sech"><span class="pl-sm-lbl">Exercises</span>' +
+          '<div class="pl-sm-tabs">' +
+            '<button type="button" class="pl-sm-tab' + (_sm.structTab === 'simple' || !advOpen ? ' on' : '') + '" data-stab="simple">Simple</button>' +
+            advHtml +
+          '</div></div>')
+      : '<div class="pl-sm-sech"><span class="pl-sm-lbl">Exercises</span></div>';
+
+    var notesHtml = edit
+      ? ('<div class="pl-sm-notes"><span class="pl-sm-lbl">Coach notes</span>' +
+          '<textarea id="pl-sm-notes" rows="3" aria-label="Coach notes">' + esc(p.notes || '') + '</textarea></div>')
+      : (p.notes
+        ? '<div class="pl-sm-notes"><span class="pl-sm-lbl">Coach notes</span><div class="pl-sm-notes-ro">' + esc(p.notes) + '</div></div>'
+        : '');
+
+    return '<div class="pl-sm-pad' + (edit ? ' is-edit' : ' is-view') + '" data-sm-mode="' + (edit ? 'edit' : 'view') + '">' +
+      '<div class="pl-sm-top"><span class="pl-sm-lbl">Session</span>' +
+        '<span class="pl-sm-topr">' + exportBtn + modeBtn +
+        '<button type="button" class="pl-sm-x" id="pl-detclose" aria-label="Close">✕</button></span></div>' +
+      '<div class="pl-sm-meta">' +
+        '<span class="pl-sm-tag ' + tagCls + '">' + _smTypeLabel(type) + '</span>' +
+        metaType +
+        subtypeHtml +
+        dateHtml +
         _smMatchedLine(p) +
       '</div>' +
-      '<input class="pl-sm-name" id="pl-sm-name" aria-label="Session name" value="' + esc(p.name || '') + '" placeholder="Session name"/>' +
+      nameHtml +
       _detailIdRowHtml(p) +
       statusRow +
-      _smAiBarHtml(p) +
-      '<div class="pl-sm-sech"><span class="pl-sm-lbl">Structure</span>' +
-        '<div class="pl-sm-tabs">' + tabHtml + '</div></div>' +
-      _smTilesHtml(p) +
+      _smBudgetHtml(p) +
+      sech +
       '<div id="pl-sm-struct-body">' + _smStructureBodyHtml(p) + '</div>' +
-      '<div class="pl-sm-notes"><span class="pl-sm-lbl">Coach notes</span>' +
-        '<textarea id="pl-sm-notes" rows="3" aria-label="Coach notes">' + esc(p.notes || '') + '</textarea></div>' +
-      stryd +
+      notesHtml +
+      (edit ? stryd : '') +
     '</div>' +
     '<div class="pl-sm-foot">' +
-      '<button type="button" class="pl-sm-del" id="pl-det-delete">Delete</button>' +
+      (edit ? '<button type="button" class="pl-sm-del" id="pl-det-delete">Delete</button>' : '') +
       '<span class="pl-sm-sp"></span>' +
       '<span class="pl-sm-dirty" id="pl-sm-dirty" aria-live="polite"></span>' +
       '<button type="button" class="pl-sm-ghost" id="pl-sm-discard" hidden>Discard</button>' +
@@ -3667,21 +4405,36 @@ information about.
     if (!p || _sm.aiBusy) return;
     var H = _H();
     var draft = _smReadDraftFromDom(p);
+    var st = draft.structure || {};
     var current = {
       day_offset: 0,
       workout_type: draft.session_type,
       intent: draft.name,
       notes: draft.notes,
-      exercises: (draft.structure && draft.structure.exercises) || null,
-      blocks: (draft.structure && draft.structure.blocks) || null,
-      target_tss: (p.structure && p.structure.target_tss) || 0,
-      duration_minutes: (p.structure && p.structure.duration_minutes) ||
-        (H.durationMinutesFromBlocks && H.durationMinutesFromBlocks((p.structure || {}).blocks)) || 0,
+      exercises: st.exercises || null,
+      blocks: st.blocks || null,
+      source: (p.structure && p.structure.source) || null,
+      target_tss: st.target_tss || 0,
+      duration_minutes: st.duration_minutes ||
+        (H.durationMinutesFromBlocks && H.durationMinutesFromBlocks(st.blocks || (p.structure || {}).blocks)) || 0,
     };
     if (!(current.target_tss > 0) && !(current.duration_minutes > 0)) {
       _sm.aiError = 'Set TSS or duration before filling from patterns.';
       _renderDetailSection();
       return;
+    }
+    var SB = window.SessionBudget;
+    if (SB && SB.analyze && Array.isArray(current.exercises)) {
+      var contract = SB.analyze({
+        budgetTss: current.target_tss,
+        budgetMin: current.duration_minutes,
+        exercises: current.exercises,
+      });
+      if (contract.blocked) {
+        _sm.aiError = contract.note;
+        _renderDetailSection();
+        return;
+      }
     }
     var body = {
       date: draft.planned_date || p.planned_date,
@@ -3709,17 +4462,21 @@ information about.
         } else {
           throw new Error('Pattern fill returned no exercises or run structure.');
         }
-        if (s.target_tss != null) structure.target_tss = s.target_tss;
-        else if (p.structure && p.structure.target_tss != null) structure.target_tss = p.structure.target_tss;
-        if (s.duration_minutes != null) structure.duration_minutes = s.duration_minutes;
-        else if (structure.blocks && H.durationMinutesFromBlocks) {
+        // Keep budget pins from the UI / prior session.
+        structure.target_tss = current.target_tss > 0 ? current.target_tss
+          : (s.target_tss != null ? s.target_tss : (p.structure && p.structure.target_tss));
+        structure.duration_minutes = current.duration_minutes > 0 ? current.duration_minutes
+          : (s.duration_minutes != null ? s.duration_minutes : null);
+        if (structure.duration_minutes == null && structure.blocks && H.durationMinutesFromBlocks) {
           var dmin = H.durationMinutesFromBlocks(structure.blocks);
           if (dmin) structure.duration_minutes = dmin;
         }
         if (s._muscle_footprint) structure._muscle_footprint = s._muscle_footprint;
         else if (s.muscle_footprint) structure._muscle_footprint = s.muscle_footprint;
         if (s.subtype) structure.subtype = s.subtype;
-        if (H.stampSourceUser) structure = H.stampSourceUser(structure);
+        // Do NOT stamp whole structure source=user — that blocked Refill.
+        // Exercise rows carry their own pinned/source from the fill engine.
+        structure.source = 'pattern';
 
         p.name = s.intent ? String(s.intent).substring(0, 80) : (draft.name || p.name);
         p.notes = s.notes != null ? s.notes : draft.notes;
@@ -3841,6 +4598,8 @@ information about.
     _sm.aiBusy = false;
     _sm.aiError = '';
     _sm.dirty = false;
+    _sm.mode = 'view';
+    _sm.swap = null;
     _smSeedBuilders(found);
     _sm.suppressDomSync = true;
     _renderDetailSection(); _renderAddSection();
@@ -3892,6 +4651,33 @@ information about.
     var saveBtn = document.getElementById('pl-sm-save');
     if (saveBtn) saveBtn.onclick = _smSave;
 
+    var enterEdit = document.getElementById('pl-sm-enter-edit');
+    if (enterEdit) enterEdit.onclick = function () {
+      _sm.mode = 'edit';
+      if (_sm.structTab !== 'simple' && _sm.structTab !== 'detailed' && _sm.structTab !== 'json') {
+        _sm.structTab = 'simple';
+      }
+      _sm.suppressDomSync = true;
+      _renderDetailSection();
+    };
+    var exportJson = document.getElementById('pl-sm-export-json');
+    if (exportJson) exportJson.onclick = function () { _smDownloadSessionJson(p); };
+    var doneEdit = document.getElementById('pl-sm-done-edit');
+    if (doneEdit) doneEdit.onclick = function () {
+      if (_detail && document.getElementById('pl-sm-name')) {
+        var live = _smReadDraftFromDom(_detail);
+        _detail.name = live.name;
+        _detail.notes = live.notes;
+        _detail.planned_date = live.planned_date;
+        _detail.session_type = live.session_type;
+        if (live.structure) _detail.structure = live.structure;
+      }
+      _sm.mode = 'view';
+      _sm.swap = null;
+      _sm.suppressDomSync = true;
+      _renderDetailSection();
+    };
+
     var delBtn = document.getElementById('pl-det-delete');
     if (delBtn) delBtn.onclick = function () {
       _plConfirm(
@@ -3920,7 +4706,7 @@ information about.
       } else { _fallbackCopy(p.id); flash(); }
     };
 
-    ['pl-sm-name', 'pl-sm-notes', 'pl-sm-date', 'pl-sm-focus'].forEach(function (id) {
+    ['pl-sm-name', 'pl-sm-notes', 'pl-sm-date', 'pl-sm-focus', 'pl-sm-subtype'].forEach(function (id) {
       var el = document.getElementById(id);
       if (!el) return;
       el.addEventListener('input', function () {
@@ -3929,6 +4715,10 @@ information about.
       });
       el.addEventListener('change', function () {
         if (id === 'pl-sm-focus') _sfFocus = el.value;
+        if (id === 'pl-sm-subtype' && _detail) {
+          if (!_detail.structure) _detail.structure = {};
+          _detail.structure.subtype = el.value || null;
+        }
         _smMarkDirty();
       });
     });
@@ -3997,6 +4787,222 @@ information about.
     };
     var aiGo = document.getElementById('pl-sm-ai-go');
     if (aiGo) aiGo.onclick = function () { _smRunAi(); };
+
+    var advTog = document.getElementById('pl-sm-adv-tog');
+    if (advTog) advTog.onclick = function () {
+      if (_sm.structTab === 'detailed' || _sm.structTab === 'json') {
+        _sm.structTab = 'simple';
+      } else {
+        _sm.structTab = 'detailed';
+        _sfStrengthMode = 'detailed';
+      }
+      _renderDetailSection();
+    };
+
+    // Session budget steppers / pin inputs
+    var budgetRoot = document.getElementById('pl-sm-budget');
+    function _applyBudgetBump(kind, delta) {
+      if (!_detail) return;
+      if (!_detail.structure) _detail.structure = {};
+      var key = kind === 'dur' ? 'duration_minutes' : 'target_tss';
+      var el = document.getElementById(kind === 'dur' ? 'pl-sm-pin-dur' : 'pl-sm-pin-tss');
+      var cur = el && el.value !== '' ? Number(el.value) : Number(_detail.structure[key] || 0);
+      if (!isFinite(cur)) cur = 0;
+      var next = Math.max(0, cur + delta);
+      _detail.structure[key] = next;
+      _smMarkDirty();
+      _renderDetailSection();
+    }
+    function _applyBudgetChange(id, val) {
+      if (!_detail) return;
+      if (!_detail.structure) _detail.structure = {};
+      var n = val === '' || val === '—' ? null : Number(val);
+      if (id === 'pl-sm-pin-dur') _detail.structure.duration_minutes = (n != null && isFinite(n)) ? n : null;
+      if (id === 'pl-sm-pin-tss') _detail.structure.target_tss = (n != null && isFinite(n)) ? n : null;
+      if (id === 'pl-sm-pin-dist' && n != null && isFinite(n)) _detail.structure.distance_km = n;
+      _smMarkDirty();
+      _renderDetailSection();
+    }
+    if (window.SessionBudget && window.SessionBudget.wire && budgetRoot) {
+      window.SessionBudget.wire(budgetRoot, {
+        onBump: _applyBudgetBump,
+        onChange: _applyBudgetChange,
+      });
+    } else if (budgetRoot) {
+      budgetRoot.querySelectorAll('[data-sb-bump]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          _applyBudgetBump(btn.getAttribute('data-sb-bump'), Number(btn.getAttribute('data-d')) || 0);
+        });
+      });
+    }
+
+    // Exercise pin / skip / swap / delete / reorder (Simple interactive list)
+    var exList = document.getElementById('pl-sm-exlist');
+    if (exList) {
+      exList.querySelectorAll('[data-ex-pin]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var i = +btn.getAttribute('data-ex-pin');
+          var ex = _sfExercises[i];
+          if (!ex) return;
+          var next = !_smExIsPinned(ex);
+          ex.pinned = next;
+          if (next && (!ex.source || ex.source === 'generated' || ex.source === 'pattern')) {
+            ex.source = 'manual';
+          }
+          if (!next) ex.source = 'generated';
+          _smMarkDirty();
+          _renderDetailSection();
+        });
+      });
+      exList.querySelectorAll('[data-ex-skip]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var i = +btn.getAttribute('data-ex-skip');
+          var ex = _sfExercises[i];
+          if (!ex) return;
+          // View checklist: tap to mark done at the gym (empty → completed → empty).
+          if (String(ex.state || '') === 'completed') {
+            ex.state = '';
+          } else {
+            ex.state = 'completed';
+          }
+          _smMarkDirty();
+          _renderDetailSection();
+        });
+      });
+      exList.querySelectorAll('[data-ex-del]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var i = +btn.getAttribute('data-ex-del');
+          if (!_sfExercises[i]) return;
+          _sfExercises.splice(i, 1);
+          _sm.swap = null;
+          _smMarkDirty();
+          _renderDetailSection();
+        });
+      });
+      exList.querySelectorAll('[data-ex-up]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          if (_smMoveExInBlock(+btn.getAttribute('data-ex-up'), -1)) {
+            _smMarkDirty();
+            _renderDetailSection();
+          }
+        });
+      });
+      exList.querySelectorAll('[data-ex-dn]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          if (_smMoveExInBlock(+btn.getAttribute('data-ex-dn'), 1)) {
+            _smMarkDirty();
+            _renderDetailSection();
+          }
+        });
+      });
+      exList.querySelectorAll('[data-blk-up]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          if (_smMoveBlockGroup(+btn.getAttribute('data-blk-up'), -1)) {
+            _smMarkDirty();
+            _renderDetailSection();
+          }
+        });
+      });
+      exList.querySelectorAll('[data-blk-dn]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          if (_smMoveBlockGroup(+btn.getAttribute('data-blk-dn'), 1)) {
+            _smMarkDirty();
+            _renderDetailSection();
+          }
+        });
+      });
+      exList.querySelectorAll('[data-blk-rename]').forEach(function (sel) {
+        sel.addEventListener('change', function () {
+          var gi = +sel.getAttribute('data-blk-rename');
+          var groups = _smExGroups();
+          var g = groups[gi];
+          if (!g) return;
+          var name = sel.value;
+          g.idxs.forEach(function (i) {
+            if (_sfExercises[i]) _sfExercises[i].block = name;
+          });
+          _smMarkDirty();
+          _renderDetailSection();
+        });
+      });
+      exList.querySelectorAll('[data-blk-del]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var gi = +btn.getAttribute('data-blk-del');
+          var groups = _smExGroups();
+          var g = groups[gi];
+          if (!g) return;
+          var n = g.idxs.length;
+          function go() {
+            _smDeleteBlockGroup(gi);
+            _sm.swap = null;
+            _smMarkDirty();
+            _renderDetailSection();
+          }
+          if (n > 1) {
+            _plConfirm('Remove block "' + (g.block || 'Block') + '" and its ' + n + ' exercises?', go, { okLabel: 'Remove' });
+          } else {
+            go();
+          }
+        });
+      });
+      exList.querySelectorAll('[data-ex-swap]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var i = +btn.getAttribute('data-ex-swap');
+          if (_sm.swap && _sm.swap.mode === 'swap' && _sm.swap.index === i) {
+            _sm.swap = null;
+          } else {
+            _sm.swap = { mode: 'swap', index: i, query: '', searchAll: true, avoid: [] };
+          }
+          _renderDetailSection();
+        });
+      });
+      exList.querySelectorAll('[data-ex-add]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var block = btn.getAttribute('data-ex-add') || 'Exercises';
+          if (_sm.swap && _sm.swap.mode === 'add' && _sm.swap.block === block) {
+            _sm.swap = null;
+          } else {
+            _sm.swap = { mode: 'add', block: block, query: '', searchAll: true, avoid: [] };
+          }
+          _renderDetailSection();
+        });
+      });
+      exList.querySelectorAll('[data-blk-add]').forEach(function (btn) {
+        btn.addEventListener('click', function () { _smAddBlock(); });
+      });
+      exList.querySelectorAll('[data-blk-sets]').forEach(function (inp) {
+        inp.addEventListener('change', function () {
+          var gi = +inp.getAttribute('data-blk-sets');
+          _smApplyBlockSets(gi, inp.value);
+          _smMarkDirty();
+          _renderDetailSection();
+        });
+      });
+      if (_sm.swap) {
+        _smMountSwapPicker(exList.querySelector('#pl-sm-pick'));
+      }
+      exList.querySelectorAll('[data-ex-edit]').forEach(function (cell) {
+        cell.addEventListener('click', function () {
+          var i = +cell.getAttribute('data-ex-i');
+          var field = cell.getAttribute('data-ex-edit');
+          var ex = _sfExercises[i];
+          if (!ex) return;
+          var cur = field === 'tss' ? (ex.spend_tss != null ? ex.spend_tss : '') : (ex.spend_min != null ? ex.spend_min : '');
+          var next = window.prompt(field === 'tss' ? 'TSS' : 'Minutes', cur);
+          if (next == null || next === '') return;
+          var n = Number(next);
+          if (!isFinite(n) || n < 0) return;
+          if (field === 'tss') ex.spend_tss = n;
+          else ex.spend_min = n;
+          if (!_smExIsPinned(ex)) {
+            ex.pinned = true;
+            if (!ex.source || ex.source === 'generated') ex.source = 'manual';
+          }
+          _smMarkDirty();
+          _renderDetailSection();
+        });
+      });
+    }
 
     var strydToggle = document.getElementById('pl-sm-stryd-toggle');
     if (strydToggle) strydToggle.onclick = function () {
@@ -4585,9 +5591,10 @@ information about.
     /* ── Unified session modal (view = edit = AI) ── */
     '.plan-panel .pl-sm-modal{padding:0;overflow:hidden;}',
     '.plan-panel .pl-sm-pad{padding:18px 22px;}',
-    '.plan-panel .pl-sm-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}',
+    '.plan-panel .pl-sm-top{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px;}',
+    '.plan-panel .pl-sm-topr{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap;justify-content:flex-end;}',
     '.plan-panel .pl-sm-lbl{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--text-sub);}',
-    '.plan-panel .pl-sm-x{margin-left:auto;width:30px;height:30px;border-radius:8px;border:none;background:var(--tile);color:var(--text-sub);font-size:15px;cursor:pointer;}',
+    '.plan-panel .pl-sm-x{width:30px;height:30px;border-radius:8px;border:none;background:var(--tile);color:var(--text-sub);font-size:15px;cursor:pointer;}',
     // Bump to the file's established 44px touch target under a coarse
     // (touch) pointer — matches .pl-closepanel/.pl-arw/.pl-detid-copy, which
     // are 44px outright; this one stays compact for mouse users and only
@@ -4619,7 +5626,10 @@ information about.
     '.plan-panel .pl-sm-ai-n{font-family:var(--mono);font-size:10.5px;color:var(--text-sub);margin-top:8px;}',
     '.plan-panel .pl-sm-ai-err{font-size:12px;color:var(--danger);margin-top:8px;line-height:1.35;}',
     '.plan-panel .pl-sm-sech{display:flex;align-items:center;gap:10px;margin-top:17px;margin-bottom:9px;}',
-    '.plan-panel .pl-sm-tabs{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap;}',
+    '.plan-panel .pl-sm-tabs{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap;align-items:center;}',
+    '.plan-panel .pl-sm-adv{display:flex;gap:5px;align-items:center;margin-left:6px;}',
+    '.plan-panel .pl-sm-adv-tog{border:none;background:none;font-family:var(--mono);font-size:9.5px;color:var(--text-sub);cursor:pointer;padding:4px 2px;}',
+    '.plan-panel .pl-sm-adv-tog:hover{color:var(--primary);}',
     '.plan-panel .pl-sm-tab{font-size:11.5px;font-weight:650;padding:5px 11px;border-radius:8px;border:1px solid var(--border);background:#fff;color:var(--text-sub);cursor:pointer;font-family:inherit;}',
     '.plan-panel .pl-sm-tab.on{background:var(--ink);border-color:var(--ink);color:#fff;}',
     '.plan-panel .pl-sm-tiles{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;}',
@@ -4636,6 +5646,100 @@ information about.
     '.plan-panel .pl-sm-empty-s{border:1.5px dashed var(--border);border-radius:12px;padding:16px;text-align:center;color:var(--text-sub);font-size:12.5px;font-style:italic;}',
     '.plan-panel .pl-sm-preview{margin-top:12px;min-width:0;}',
     '.plan-panel .pl-sm-preview .preview-layout{margin-top:0;}',
+    '.plan-panel .pl-sm-mode{border:1px solid var(--border);background:#fff;border-radius:8px;padding:5px 12px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;color:var(--ink,#1b2340);}',
+    '.plan-panel .pl-sm-mode.on{background:var(--accent,#cff245);border-color:transparent;}',
+    '.plan-panel .pl-sm-mode:hover{border-color:var(--primary);}',
+    '.plan-panel .pl-sm-subtag,.plan-panel .pl-sm-typero,.plan-panel .pl-sm-date-ro{font-family:var(--mono);font-size:11.5px;color:var(--text-sub);padding:4px 8px;background:var(--tile);border-radius:7px;}',
+    '.plan-panel .pl-sm-subtag{color:#3b4bb8;background:#eef0ff;font-weight:700;}',
+    '.plan-panel .pl-sm-name-ro{font-size:22px;font-weight:800;margin:6px 0 8px;line-height:1.2;}',
+    '.plan-panel .pl-sm-focus-ro{font-size:12.5px;color:var(--text-sub);margin-bottom:10px;font-style:italic;}',
+    '.plan-panel .pl-sm-notes-ro{font-size:13px;line-height:1.45;white-space:pre-wrap;}',
+    '.plan-panel #pl-sm-subtype{border:1px solid var(--border);border-radius:8px;padding:5px 8px;font:inherit;font-size:12.5px;background:#fff;}',
+    '.plan-panel .pl-sm-bhleft{display:flex;align-items:center;gap:6px;min-width:0;flex:1;}',
+    '.plan-panel .pl-sm-bnsel{border:1px solid var(--border);border-radius:6px;padding:3px 6px;font:inherit;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-sub);background:#fff;max-width:160px;}',
+    '.plan-panel .pl-sm-blkdel,.plan-panel .pl-sm-delx{width:22px;height:22px;border-radius:6px;border:1px solid var(--border);background:#fff;color:var(--text-sub);cursor:pointer;font-size:12px;display:grid;place-items:center;padding:0;flex-shrink:0;}',
+    '.plan-panel .pl-sm-blkdel:hover,.plan-panel .pl-sm-delx:hover{border-color:#fca5a5;color:#b91c1c;background:#fef2f2;}',
+    '.plan-panel .pl-sm-mv,.plan-panel .pl-sm-bmv{display:flex;flex-direction:column;gap:1px;}',
+    '.plan-panel .pl-sm-mbtn{width:18px;height:14px;border:none;background:#eef1f7;border-radius:3px;color:#6b7280;font-size:8px;line-height:1;cursor:pointer;padding:0;}',
+    '.plan-panel .pl-sm-mbtn:hover:not(:disabled){background:#e4e8fd;color:#3b4bb8;}',
+    '.plan-panel .pl-sm-mbtn:disabled{opacity:.35;cursor:default;}',
+    '.plan-panel .pl-sm-pinbtn{border:1px solid var(--border);background:#fff;border-radius:7px;padding:4px 8px;font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-sub);cursor:pointer;white-space:nowrap;}',
+    '.plan-panel .pl-sm-pinbtn.on{background:#ede9fe;border-color:#c4b5fd;color:#6d28d9;}',
+    '.plan-panel .pl-sm-pinbtn:hover{border-color:var(--primary);}',
+    '.plan-panel .pl-sm-enum.ro{cursor:default;}',
+    '.plan-panel .pl-sm-enum.ro:hover{background:none;box-shadow:none;}',
+    '.plan-panel .pl-sm-exlist{margin-top:4px;}',
+    '.plan-panel .pl-sm-blk{border:1px solid var(--border);border-radius:11px;overflow:hidden;margin-bottom:9px;}',
+    '.plan-panel .pl-sm-blkh{background:var(--tile);padding:7px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px;}',
+    '.plan-panel .pl-sm-bn{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-sub);}',
+    '.plan-panel .pl-sm-bm{font-family:var(--mono);font-size:9.5px;color:var(--text-sub);}',
+    '.plan-panel .pl-sm-sk{color:var(--warning,#d97706);}',
+    '.plan-panel .pl-sm-addex{border:1px dashed var(--border);background:none;border-radius:6px;padding:2px 9px;font-family:var(--mono);font-size:9.5px;color:var(--text-sub);cursor:pointer;}',
+    '.plan-panel .pl-sm-addex:hover{border-color:var(--primary);color:var(--primary);}',
+    '.plan-panel .pl-sm-addblk{display:block;width:100%;margin:8px 0 4px;border:1px dashed var(--border);background:none;border-radius:8px;padding:8px 10px;font-family:var(--mono);font-size:11px;color:var(--text-sub);cursor:pointer;text-align:center;}',
+    '.plan-panel .pl-sm-addblk:hover{border-color:var(--primary);color:var(--primary);}',
+    '.plan-panel .pl-sm-bsets-lab{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;color:var(--text-sub);margin-left:4px;}',
+    '.plan-panel .pl-sm-bsets{width:44px;border:1px solid var(--border);border-radius:5px;padding:2px 4px;font-family:var(--mono);font-size:11px;text-align:right;}',
+    '.plan-panel .pl-sm-ex{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border);}',
+    '.plan-panel .pl-sm-ex:last-child{border-bottom:none;}',
+    '.plan-panel .pl-sm-ex.pinned{background:#fbfaff;}',
+    '.plan-panel .pl-sm-ex.skipped{background:#fafafa;}',
+    '.plan-panel .pl-sm-ex.skipped .pl-sm-en,.plan-panel .pl-sm-ex.skipped .pl-sm-erx{text-decoration:line-through;color:var(--text-sub);}',
+    '.plan-panel .pl-sm-chk{width:22px;height:22px;border-radius:6px;border:1.5px solid #cfd5e2;background:#fff;cursor:pointer;flex-shrink:0;display:grid;place-items:center;font-size:12px;color:#fff;padding:0;}',
+    '.plan-panel .pl-sm-chk.on{background:var(--success,#16a34a);border-color:var(--success,#16a34a);}',
+    '.plan-panel .pl-sm-exb{flex:1;min-width:0;}',
+    '.plan-panel .pl-sm-en{font-size:15.5px;font-weight:650;display:block;line-height:1.25;}',
+    '.plan-panel .pl-sm-erx{font-family:var(--mono);font-size:11.5px;color:var(--text-sub);margin-top:3px;display:block;}',
+    '.plan-panel .pl-sm-erx s{color:#9ca3af;}',
+    '.plan-panel .pl-sm-prov{font-family:var(--mono);font-size:8px;font-weight:700;padding:2px 6px;border-radius:4px;letter-spacing:.04em;white-space:nowrap;}',
+    '.plan-panel .pl-sm-prov.swap{background:#fef3c7;color:#92400e;}',
+    '.plan-panel .pl-sm-prov.hwweek{background:#f3e8ff;color:#7e22ce;}',
+    '.plan-panel .pl-sm-prov.hwstand{background:#ede9fe;color:#5b21b6;}',
+    '.plan-panel .pl-sm-prov.manual{background:#e4e8fd;color:#3b4bb8;}',
+    '.plan-panel .pl-sm-enum{font-family:var(--mono);font-size:11.5px;text-align:right;min-width:58px;color:var(--text-sub);cursor:text;border-radius:5px;padding:2px 4px;white-space:nowrap;}',
+    '.plan-panel .pl-sm-enum:hover{background:#eef2ff;box-shadow:inset 0 0 0 1px #c7d2fe;}',
+    '.plan-panel .pl-sm-exact{display:flex;gap:3px;flex-shrink:0;align-items:center;}',
+    '.plan-panel .pl-sm-ib{width:26px;height:26px;border-radius:7px;border:1px solid var(--border);background:#fff;color:var(--text-sub);cursor:pointer;font-size:12px;display:grid;place-items:center;padding:0;}',
+    '.plan-panel .pl-sm-ib:hover{border-color:var(--primary);color:var(--primary);}',
+    '.plan-panel .pl-sm-ib.on{background:#ede9fe;border-color:#c4b5fd;color:#6d28d9;}',
+    '.plan-panel .pl-sm-ex.active{background:#fffdf5;}',
+    '.plan-panel .pl-sm-pick{border:1.5px solid var(--primary,#4f6ef7);border-radius:12px;background:#fbfcff;margin:0 12px 10px;padding:12px 13px;}',
+    '.plan-panel .pl-sm-pickh{display:flex;align-items:center;gap:9px;margin-bottom:9px;flex-wrap:wrap;}',
+    '.plan-panel .pl-sm-pickh .t{font-size:12.5px;font-weight:700;}',
+    '.plan-panel .pl-sm-pickh .s{font-family:var(--mono);font-size:10px;color:var(--text-sub);}',
+    '.plan-panel .pl-sm-pickh .cx{margin-left:auto;border:none;background:none;color:var(--text-sub);cursor:pointer;font-size:14px;}',
+    '.plan-panel .pl-sm-srch{position:relative;margin-bottom:9px;}',
+    '.plan-panel .pl-sm-srch input{width:100%;border:1px solid var(--border);border-radius:9px;padding:9px 12px 9px 12px;font:inherit;font-size:13px;background:#fff;box-sizing:border-box;}',
+    '.plan-panel .pl-sm-srch input:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px #dbeafe;}',
+    '.plan-panel .pl-sm-srch .clr{position:absolute;right:10px;top:8px;border:none;background:none;color:var(--text-sub);cursor:pointer;font-size:13px;}',
+    '.plan-panel .pl-sm-scope{display:flex;align-items:center;gap:7px;margin-bottom:9px;flex-wrap:wrap;font-family:var(--mono);font-size:9.5px;color:var(--text-sub);}',
+    '.plan-panel .pl-sm-scope b{color:var(--primary);font-weight:700;}',
+    '.plan-panel .pl-sm-filters{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px;}',
+    '.plan-panel .pl-sm-fchip{border:1px solid var(--border);background:#fff;border-radius:99px;padding:4px 10px;font-family:var(--mono);font-size:9.5px;font-weight:700;color:var(--text-sub);cursor:pointer;}',
+    '.plan-panel .pl-sm-fchip.on{background:#fee2e2;border-color:#fca5a5;color:#b91c1c;}',
+    '.plan-panel .pl-sm-clist{max-height:250px;overflow-y:auto;padding-right:3px;}',
+    '.plan-panel .pl-sm-cand{display:flex;align-items:center;gap:10px;padding:8px 10px;background:#fff;border:1px solid var(--border);border-radius:9px;margin-bottom:6px;cursor:pointer;text-align:left;width:100%;font:inherit;color:inherit;}',
+    '.plan-panel .pl-sm-cand:hover{border-color:var(--primary);box-shadow:0 2px 8px rgba(79,110,247,.10);}',
+    '.plan-panel .pl-sm-cand.dis{opacity:.5;cursor:not-allowed;background:var(--tile);border-style:dashed;}',
+    '.plan-panel .pl-sm-cand.dis:hover{border-color:var(--border);box-shadow:none;}',
+    '.plan-panel .pl-sm-cand .cb{flex:1;min-width:0;}',
+    '.plan-panel .pl-sm-cand .cn{font-size:12.5px;font-weight:600;display:block;}',
+    '.plan-panel .pl-sm-cand .cn mark{background:#fef08a;color:inherit;border-radius:2px;padding:0 1px;}',
+    '.plan-panel .pl-sm-cand .cr{font-family:var(--mono);font-size:10px;color:var(--text-sub);margin-top:2px;display:block;}',
+    '.plan-panel .pl-sm-why{font-family:var(--mono);font-size:8.5px;font-weight:700;padding:2px 7px;border-radius:99px;background:var(--tile);color:var(--text-sub);white-space:nowrap;}',
+    '.plan-panel .pl-sm-why.used{background:#e4e8fd;color:#3b4bb8;}',
+    '.plan-panel .pl-sm-why.risk{background:#fee2e2;color:#b91c1c;}',
+    '.plan-panel .pl-sm-cd{font-family:var(--mono);font-size:10px;font-weight:700;min-width:50px;text-align:right;}',
+    '.plan-panel .pl-sm-cd.up{color:var(--warning,#d97706);}',
+    '.plan-panel .pl-sm-cd.dn{color:var(--success,#16a34a);}',
+    '.plan-panel .pl-sm-cd.eq{color:var(--text-sub);}',
+    '.plan-panel .pl-sm-sec{font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-sub);margin:9px 0 6px;}',
+    '.plan-panel .pl-sm-picknote{font-family:var(--mono);font-size:9.5px;color:var(--text-sub);margin-top:8px;line-height:1.6;}',
+    '.plan-panel .pl-sm-none{padding:15px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--text-sub);background:#fff;border:1px dashed var(--border);border-radius:9px;}',
+    '.plan-panel .pl-sm-none a{color:var(--primary);cursor:pointer;}',
+    '.plan-panel .pl-sm-spend{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--tile);border-radius:11px;font-size:12.5px;font-weight:700;margin-top:3px;}',
+    '.plan-panel .pl-sm-sv{font-family:var(--mono);}',
+    '.plan-panel .pl-sm-sv s{color:var(--text-sub);font-weight:400;margin-right:7px;}',
     '.plan-panel .pl-sm-notes{margin-top:15px;}',
     '.plan-panel .pl-sm-notes textarea{width:100%;border:1px solid var(--border);border-radius:11px;padding:11px 13px;font-family:inherit;font-size:12.5px;color:var(--ink);background:var(--tile);resize:vertical;min-height:52px;box-sizing:border-box;}',
     '.plan-panel .pl-sm-stryd{margin-top:13px;font-family:var(--mono);font-size:10.5px;color:var(--text-sub);cursor:pointer;}',
@@ -5862,11 +6966,19 @@ information about.
     // Server sends a rendered strip when it can (delta_strip); fall back to
     // field: from -> to so an unrecognised shape still reads as something.
     if (d.strip) return String(d.strip);
+    if (d.kind === 'add_to_set' && d.to && d.to.exercise_name) {
+      return 'Add ' + d.to.exercise_name + ' to strength' +
+        (d.muscle_group ? (' (underloaded ' + d.muscle_group + ')') : '');
+    }
     var field = d.field || d.key || '';
     if (field && d.from !== undefined && d.to !== undefined) {
       return field + ': ' + d.from + ' → ' + d.to;
     }
     return field || JSON.stringify(d);
+  }
+
+  function _isAddToSet(p) {
+    return !!(p && p.delta && p.delta.kind === 'add_to_set');
   }
 
   // "Adjust..." asks for a custom value via window.prompt() and both the
@@ -5881,6 +6993,7 @@ information about.
   // pre-computed delta.to with no client parsing). A real enum adjust UI
   // (a 3-way choice instead of free text) is a separate follow-up.
   function _isNumericDelta(p) {
+    if (_isAddToSet(p)) return false;
     var to = p && p.delta && p.delta.to;
     return typeof to === 'number' || (typeof to === 'string' && /^-?\d+(\.\d+)?$/.test(to));
   }
@@ -5890,6 +7003,20 @@ information about.
     var rows = _prefProposals.map(function (p) {
       var id = esc(p.id || '');
       var expires = (p.expires_at || '').slice(0, 10);
+      var actions;
+      if (_isAddToSet(p)) {
+        actions =
+          '<button type="button" class="pl-btn pl-lime pl-prop-try">Try for a week</button>' +
+          '<button type="button" class="pl-btn pl-ghost pl-prop-standing">Make it standing</button>' +
+          '<button type="button" class="pl-btn pl-ghost pl-prop-decline">Not now</button>';
+      } else {
+        actions =
+          '<button type="button" class="pl-btn pl-lime pl-prop-accept">Accept</button>' +
+          (_isNumericDelta(p)
+            ? '<button type="button" class="pl-btn pl-ghost pl-prop-adjust">Adjust…</button>'
+            : '') +
+          '<button type="button" class="pl-btn pl-ghost pl-prop-decline">Not now</button>';
+      }
       return (
         '<div class="pl-prop" data-proposal-id="' + id + '">' +
           '<div class="pl-prop-main">' +
@@ -5899,13 +7026,7 @@ information about.
             (expires
               ? '<div class="pl-prop-life">expires ' + esc(expires) + ' if ignored</div>' : '') +
           '</div>' +
-          '<div class="pl-prop-actions">' +
-            '<button type="button" class="pl-btn pl-lime pl-prop-accept">Accept</button>' +
-            (_isNumericDelta(p)
-              ? '<button type="button" class="pl-btn pl-ghost pl-prop-adjust">Adjust…</button>'
-              : '') +
-            '<button type="button" class="pl-btn pl-ghost pl-prop-decline">Not now</button>' +
-          '</div>' +
+          '<div class="pl-prop-actions">' + actions + '</div>' +
         '</div>'
       );
     }).join('');
@@ -5959,6 +7080,15 @@ information about.
 
       var accept = row.querySelector('.pl-prop-accept');
       if (accept) accept.addEventListener('click', function () { settle(accept, 'accept'); });
+
+      var tryWeek = row.querySelector('.pl-prop-try');
+      if (tryWeek) tryWeek.addEventListener('click', function () {
+        settle(tryWeek, 'accept', { action: 'try_week' });
+      });
+      var standing = row.querySelector('.pl-prop-standing');
+      if (standing) standing.addEventListener('click', function () {
+        settle(standing, 'accept', { action: 'standing' });
+      });
 
       var decline = row.querySelector('.pl-prop-decline');
       if (decline) decline.addEventListener('click', function () { settle(decline, 'decline'); });
