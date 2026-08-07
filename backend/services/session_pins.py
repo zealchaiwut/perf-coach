@@ -252,18 +252,3 @@ def stamp_generated(exercises: list | None) -> list[dict]:
             row["state"] = "done"
         out.append(row)
     return out
-
-
-def merge_pinned_and_filled(pinned: list[dict], filled: list[dict]) -> list[dict]:
-    """Pinned first (stable order), then newly filled (stamped generated)."""
-    kept = [ensure_exercise_pin_fields(e) for e in pinned]
-    # Drop filled rows that collide on name with a pinned row.
-    used = {str(e.get("name") or "").strip().lower() for e in kept if e.get("name")}
-    for ex in stamp_generated(filled):
-        name = str(ex.get("name") or "").strip().lower()
-        if name and name in used:
-            continue
-        kept.append(ex)
-        if name:
-            used.add(name)
-    return kept

@@ -197,8 +197,8 @@ def validate_slot(content: dict, slot: dict, week_ctx: dict | None = None) -> li
             errs.append(f"{wt} slot requires exercises")
         else:
             n = len(exercises)
-            if n < 4 or n > 12:
-                errs.append(f"{wt} needs 4–12 exercises, got {n}")
+            if n < 4 or n > 16:
+                errs.append(f"{wt} needs 4–16 exercises, got {n}")
             for ex in exercises:
                 if not isinstance(ex, dict) or not str(ex.get("name") or "").strip():
                     errs.append(f"exercise missing name: {ex!r}")
@@ -352,8 +352,8 @@ def template_content_for_slot(slot: dict) -> dict:
             exercises = [dict(e) for e in _LOWER_BODY_STRENGTH_EXERCISES]
             intent = "Lower body strength"
         # Trim to validator max
-        if len(exercises) > 12:
-            exercises = exercises[:12]
+        if len(exercises) > 16:
+            exercises = exercises[:16]
         return {
             "intent": intent[:140],
             "notes": None,
@@ -405,7 +405,7 @@ def build_slot_prompt(
         "    put the prescription in main.target, e.g. \"6×3min hard, 2min jog\").\n"
         "  · tempo: sustained comfortably-hard / threshold blocks (not easy continuous).\n"
         "  · long / long_run: steady aerobic; if ≥90 min include a fueling cue.\n"
-        "- strength/plyo: 4–12 named exercises; strength blocks ⊆ "
+        "- strength/plyo: 4–16 named exercises; strength blocks ⊆ "
         "{Warm-up, Heavy compound, Superset 1, Superset 2, Standalone, Accessories, "
         "Finisher, EMOM, 40/20, Bodyweight, Plyometrics, Isometrics, Stretch}.\n"
         "- intent ≤ 140 characters; title should reflect the subtype "
