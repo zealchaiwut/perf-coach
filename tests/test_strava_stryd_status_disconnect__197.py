@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from backend.main import app
+from backend.services.crypto import encrypt_oauth_token
 
 client = TestClient(app)
 
@@ -45,6 +46,10 @@ def _strava_token_row(
     row = MagicMock()
     row.access_token = "access-abc"
     row.refresh_token = "refresh-abc"
+    # strava_disconnect() decrypts access_token_encrypted (issue #1702 —
+    # OAuth tokens encrypted at rest); the mock must hold real ciphertext.
+    row.access_token_encrypted = encrypt_oauth_token("access-abc")
+    row.refresh_token_encrypted = encrypt_oauth_token("refresh-abc")
     row.expires_at = expires_at
     row.scope = scope
     row.athlete_data = athlete_data
