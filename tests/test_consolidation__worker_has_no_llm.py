@@ -51,9 +51,13 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 
-# The parked cluster. These modules exist only to make LLM calls that the
-# consolidation decided not to keep; importing one from the worker means the
-# parked orchestration is reachable again.
+# The parked cluster. These modules carried LLM calls that the consolidation
+# decided not to keep; importing one from the worker means the parked
+# orchestration is reachable again.
+#
+# coach_narrative, coach_claude_cli, and coach_orch_langgraph were deleted in
+# issue #1716 — they are no longer on disk. They remain in this set so that
+# if someone re-creates them they cannot sneak back into the worker's load path.
 #
 # backend.services.llm is deliberately NOT here — the daily coach message's
 # warmth rephrase calls it, which is one of the two sanctioned LLM surfaces.

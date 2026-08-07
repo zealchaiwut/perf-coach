@@ -7,20 +7,21 @@ race times, or kg figures — only numerals present in `facts["required_numerals
 ## Pipeline
 
 1. `build_coach_facts(user_id, today)` — specialists only (no LLM imports).
-2. `coach_orch_langgraph.run` / plain retry — on the **compute worker**,
-   provider is **`claude -p`** (`PERFCOACH_ROLE=worker` → `COACH_LLM=claude_cli`).
-   Webapps default to `off` (deterministic only). Set `COACH_LLM=api` only if
-   you intentionally want HTTP `complete_structured`.
-3. `validation_errors(sections, facts)` — section min length, max total chars,
-   numeral allowlist.
-4. On failure / CLI missing → `compose_coach_narrative(facts)`.
+2. `weekly_coach_message._call_llm_narrative` — on the **compute worker**,
+   rewrites the deterministic prose using `LLM_COACH_ENABLED` + provider API key
+   (GLM → Cerebras → Groq). Webapps only read the stored message; they never
+   invoke the rephrase.
+3. `_numbers_preserved(original, rephrased)` — discards any rephrase whose
+   numerals drift from the deterministic input.
+4. On failure / disabled → deterministic text from `compose_deterministic_message`.
 5. Persist `text` + nested `plan_state_snapshot`:
    `{ plan_state, facts, source, sections, orch, attempts }`.
 
-**Where it runs:** scheduled `weekly_coach` job on zeal-server (`docs/worker.md`).
-Web Home Coach tab only reads `GET /api/coach/weekly-message`.
+**Where it runs:** scheduled `daily_coach` job on zeal-server (`docs/worker.md`);
+`weekly_coach` is a dispatch alias.
+Web Home Coach tab only reads `GET /api/coach/daily-message`.
 
-Env: `COACH_LLM`, `PERFCOACH_ROLE`, `COACH_ORCH`, `WORKER_WEEKLY_COACH_*`
+Env: `LLM_COACH_ENABLED`, `LLM_PROVIDER`, `PERFCOACH_ROLE`, `WORKER_DAILY_COACH_ENABLED`
 (see `docs/llm-coaching.md`).
 
 ## Focus ranking (Phase 2)

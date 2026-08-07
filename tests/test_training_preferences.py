@@ -21,7 +21,6 @@ from backend.services.pref_catalog import (
     validate_payload,
 )
 from backend.services.plan_suggestions import build_signature, validation_errors
-from backend.services.coach_narrative import validation_errors_brief
 
 
 # ── Catalog ───────────────────────────────────────────────────────────────────
@@ -202,66 +201,6 @@ def test_excluded_gap_codes_are_not_mapped_to_proposals():
     ):
         assert code not in GAP_TO_PREF_DELTA
         assert mapping_for_gap_code(code) is None
-
-
-def test_brief_proposal_numeral_outside_delta_rejected():
-    facts = {
-        "section_facts": {},
-        "required_numerals": [],
-        "preference_proposals": [
-            {"id": "p1", "status": "proposed", "delta": {"field": "plyo_sessions_per_week", "from": 0, "to": 1}},
-        ],
-    }
-    skeleton = {
-        "sections": [
-            {
-                "id": "proposal_p1",
-                "type": "proposal",
-                "evidence_strip": "plyo / week: 0 → 1",
-                "proposal": {
-                    "id": "p1",
-                    "delta": {"field": "plyo_sessions_per_week", "from": 0, "to": 1},
-                },
-            }
-        ]
-    }
-    atoms = {
-        "today_verdict": "Easy.",
-        "week_verdict": "Hold.",
-        "week_verdict_sub": "Steady.",
-        "sections": [
-            {
-                "id": "proposal_p1",
-                "evidence": "You need 47 sessions this week based on secret math.",
-            }
-        ],
-    }
-    errs = validation_errors_brief(atoms, facts, skeleton)
-    assert any("47" in e and "allowlist" in e for e in errs)
-
-
-def test_brief_proposal_numeral_from_delta_ok():
-    facts = {"section_facts": {}, "required_numerals": []}
-    skeleton = {
-        "sections": [
-            {
-                "id": "proposal_p1",
-                "type": "proposal",
-                "evidence_strip": "plyo / week: 0 → 1",
-                "proposal": {"delta": {"field": "plyo_sessions_per_week", "from": 0, "to": 1}},
-            }
-        ]
-    }
-    atoms = {
-        "today_verdict": "Easy.",
-        "week_verdict": "Hold.",
-        "week_verdict_sub": "Steady.",
-        "sections": [
-            {"id": "proposal_p1", "evidence": "One more plyo session (0 to 1) closes the gap."},
-        ],
-    }
-    errs = validation_errors_brief(atoms, facts, skeleton)
-    assert not any("allowlist" in e for e in errs)
 
 
 # ── DB-backed (skip if tables missing) ────────────────────────────────────────
