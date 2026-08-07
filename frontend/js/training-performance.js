@@ -883,6 +883,16 @@
     );
   }
 
+  function _halfEquivCol(r) {
+    var s = r.half_marathon_equivalent_seconds || null;
+    return s
+      ? '<div class="pm-col">' +
+        '<div class="pm-coll">Half Equivalent</div>' +
+        '<div class="pm-colt">' + esc(fmtTime(s)) + "</div>" +
+        '<div class="pm-colp">21.1 km equiv.</div></div>'
+      : "";
+  }
+
   // Priority/type badge. Checkpoints get a distinct "CP" text badge (teal) so
   // they never read as a C-priority race; races keep the A/B/C letter square.
   function _priorityBadge(isCheckpoint, priority) {
@@ -945,13 +955,7 @@
         '<div class="pm-colp">' + esc(estPace) + esc(bandTxt) + "</div></div>";
     }
 
-    var halfSec = r.half_marathon_equivalent_seconds || null;
-    var halfCol = halfSec
-      ? '<div class="pm-col">' +
-        '<div class="pm-coll">Half Equivalent</div>' +
-        '<div class="pm-colt">' + esc(fmtTime(halfSec)) + "</div>" +
-        '<div class="pm-colp">21.1 km equiv.</div></div>'
-      : "";
+    var halfCol = _halfEquivCol(r);
 
     var grid =
       '<div class="pm-rcgrid">' +
@@ -1016,13 +1020,7 @@
         ? ' <span class="pm-delta ' + deltaCls + '">' + esc(delta) + "</span>"
         : "");
 
-    var halfSecDone = r.half_marathon_equivalent_seconds || null;
-    var halfColDone = halfSecDone
-      ? '<div class="pm-col">' +
-        '<div class="pm-coll">Half Equivalent</div>' +
-        '<div class="pm-colt">' + esc(fmtTime(halfSecDone)) + "</div>" +
-        '<div class="pm-colp">21.1 km equiv.</div></div>'
-      : "";
+    var halfColCompleted = _halfEquivCol(r);
 
     var grid =
       '<div class="pm-rcgrid">' +
@@ -1032,7 +1030,7 @@
       '<div class="pm-col est"><div class="pm-coll">' + actualLabel + "</div>" +
       '<div class="pm-colt">' + esc(actualSec != null ? fmtTime(actualSec) : "—") + "</div>" +
       '<div class="pm-colp">' + esc(actualPace || "—") + "</div></div>" +
-      halfColDone +
+      halfColCompleted +
       "</div>";
 
     card.innerHTML = head + grid;
