@@ -18,9 +18,34 @@
 # Environment → Env Vars (they appear with sync: false below, meaning Render
 # creates the slot but leaves the value empty until a human fills it in):
 #
-#   SESSION_SECRET     — random string; signs session cookies (all services)
-#   ADMIN_SECRET_UAT   — UAT admin gate passphrase (perf-coach-uat only)
-#   ADMIN_SECRET_PRD   — PRD admin gate passphrase (perf-coach-prd only)
+#   SESSION_SECRET           — random string; signs session cookies (all services)
+#   ADMIN_SECRET_UAT         — UAT admin gate passphrase (perf-coach-uat only)
+#   ADMIN_SECRET_PRD         — PRD admin gate passphrase (perf-coach-prd only)
+#
+#   Strava OAuth (all services — required for /api/strava/connect):
+#   STRAVA_CLIENT_ID         — from https://www.strava.com/settings/api
+#   STRAVA_CLIENT_SECRET     — from https://www.strava.com/settings/api
+#   STRAVA_STATE_SECRET      — random string; signs CSRF state tokens
+#   STRAVA_REDIRECT_URI      — full callback URL, e.g. https://<service>.onrender.com/api/strava/callback
+#
+#   Stryd credential encryption (all services — required for /api/stryd/connect):
+#   STRYD_FERNET_KEY         — generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+#
+#   OAuth token encryption (all services — required for /api/strava/* and /api/google/*):
+#   OAUTH_FERNET_KEY         — generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+#                              separate from STRYD_FERNET_KEY so each can rotate independently
+#                              NOTE: declaring this var here does NOT set the value (sync: false);
+#                              the actual key must be set manually in the Render dashboard for
+#                              each service before deploying — the alembic upgrade head
+#                              preDeployCommand will hard-fail if OAUTH_FERNET_KEY is unset.
+#
+#   Google OAuth (all services — required for /api/google/connect):
+#   GOOGLE_CLIENT_ID         — from https://console.cloud.google.com/apis/credentials
+#   GOOGLE_CLIENT_SECRET     — from https://console.cloud.google.com/apis/credentials
+#   GOOGLE_STATE_SECRET      — random string; signs CSRF state tokens
+#
+#   Google Drive sleep import (all services — required for Health Sync to run):
+#   HEALTH_SYNC_DRIVE_FOLDER_ID — last path segment of the Drive folder URL
 #
 # GOOGLE_LOGIN_ENABLED is not a secret and is set inline below.
 #
@@ -56,6 +81,26 @@ services:
         sync: false  # set via Render dashboard — see top of file
       - key: ADMIN_SECRET_UAT
         sync: false  # set via Render dashboard — see top of file
+      - key: STRAVA_CLIENT_ID
+        sync: false  # set via Render dashboard — see top of file
+      - key: STRAVA_CLIENT_SECRET
+        sync: false  # set via Render dashboard — see top of file
+      - key: STRAVA_STATE_SECRET
+        sync: false  # set via Render dashboard — see top of file
+      - key: STRAVA_REDIRECT_URI
+        sync: false  # set via Render dashboard — full callback URL for this service
+      - key: STRYD_FERNET_KEY
+        sync: false  # set via Render dashboard — see top of file
+      - key: OAUTH_FERNET_KEY
+        sync: false  # set via Render dashboard — see top of file; required before alembic upgrade
+      - key: GOOGLE_CLIENT_ID
+        sync: false  # set via Render dashboard — see top of file
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false  # set via Render dashboard — see top of file
+      - key: GOOGLE_STATE_SECRET
+        sync: false  # set via Render dashboard — see top of file
+      - key: HEALTH_SYNC_DRIVE_FOLDER_ID
+        sync: false  # set via Render dashboard — Drive folder ID for Health Sync sleep import
       - key: BANISTER_REFIT_ENABLED
         value: "0"  # refit runs on compute worker (zeal-server); disable on web dyno to save RAM
       - key: GOOGLE_LOGIN_ENABLED
@@ -94,8 +139,31 @@ services:
         sync: false  # set via Render dashboard — see top of file
       - key: ADMIN_SECRET_PRD
         sync: false  # set via Render dashboard — see top of file
+      - key: STRAVA_CLIENT_ID
+        sync: false  # set via Render dashboard — see top of file
+      - key: STRAVA_CLIENT_SECRET
+        sync: false  # set via Render dashboard — see top of file
+      - key: STRAVA_STATE_SECRET
+        sync: false  # set via Render dashboard — see top of file
+      - key: STRAVA_REDIRECT_URI
+        sync: false  # set via Render dashboard — full callback URL for this service
+      - key: STRYD_FERNET_KEY
+        sync: false  # set via Render dashboard — see top of file
+      - key: OAUTH_FERNET_KEY
+        sync: false  # set via Render dashboard — see top of file; required before alembic upgrade
+      - key: GOOGLE_CLIENT_ID
+        sync: false  # set via Render dashboard — see top of file
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false  # set via Render dashboard — see top of file
+      - key: GOOGLE_STATE_SECRET
+        sync: false  # set via Render dashboard — see top of file
+      - key: HEALTH_SYNC_DRIVE_FOLDER_ID
+        sync: false  # set via Render dashboard — Drive folder ID for Health Sync sleep import
       - key: BANISTER_REFIT_ENABLED
-        value: "0"  # refit runs on compute worker (zeal-server); disable on web dyno to save RAM
+        value: "1"  # SAFETY: keep the in-process fallback ON until a PRD worker is
+                    # confirmed running against DATABASE_URL_PRD. Once the PRD worker is
+                    # live (see docs/worker.md § Live PRD runbook), switch this to "0"
+                    # via the Render dashboard to avoid double-running the refit.
       - key: GOOGLE_LOGIN_ENABLED
         value: "false"  # toggle in Render dashboard to enable Google login
       - key: LLM_COACH_ENABLED

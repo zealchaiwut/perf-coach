@@ -14,6 +14,15 @@ get_latest_for_user / get_history_for_user / get_for_date
 get_coach_payload_for_user — shared Home + Hermes shape
 generate_for_user(user_id, db=None, today=None) -> dict
     facts → orch → persist nested snapshot {plan_state, facts, source, sections}.
+
+Shared helpers (public, importable by other services)
+------------------------------------------------------
+load_inputs_for_user(user_id, db, today) -> tuple
+    Load (goal, snapshot, weight_status, log_consistency) for a user.
+build_projection_info(goal, snapshot, today) -> dict
+    Derive projection_info dict from goal and latest training load snapshot.
+format_hms(seconds) -> str
+    Format seconds as H:MM or H:MM:SS.
 """
 
 from __future__ import annotations
@@ -21,8 +30,12 @@ from __future__ import annotations
 import math
 import re as _re
 from datetime import date, datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+if TYPE_CHECKING:
+    from backend.models import WeeklyCoachMessage
+
+from backend.services.coach_plan import _TARGET_CTL
 from backend.utils.log import get_logger
 from backend.utils.time import today_bangkok
 
@@ -44,14 +57,6 @@ _DIST_KM: dict[str, float] = {
     "marathon": 42.195,
 }
 
-# Representative target CTL per distance (mirrors coach_plan._TARGET_CTL)
-_TARGET_CTL: dict[str, float] = {
-    "5k": 50.0,
-    "10k": 60.0,
-    "half": 70.0,
-    "marathon": 85.0,
-}
-
 
 # ── Internal helpers ───────────────────────────────────────────────────────────
 
@@ -61,7 +66,7 @@ def _iso_week(d: date) -> str:
     return f"{iso[0]}-W{iso[1]:02d}"
 
 
-def _format_hms(seconds: int) -> str:
+def format_hms(seconds: int) -> str:
     """Format seconds as H:MM or H:MM:SS."""
     seconds = max(0, int(seconds))
     h, rem = divmod(seconds, 3600)
@@ -69,6 +74,8 @@ def _format_hms(seconds: int) -> str:
     if s == 0:
         return f"{h}:{m:02d}"
     return f"{h}:{m:02d}:{s:02d}"
+
+_format_hms = format_hms  # backward-compat alias
 
 
 def _estimate_current_trend(
@@ -195,8 +202,8 @@ def compose_deterministic_message(
         target_dt = projection_info.get("target_date")
         dist_label = projection_info.get("distance_label", "race")
 
-        full_str = _format_hms(full_time_sec)
-        trend_str = _format_hms(trend_time_sec)
+        full_str = format_hms(full_time_sec)
+        trend_str = format_hms(trend_time_sec)
 
         if isinstance(target_dt, date):
             target_month = target_dt.strftime("%b")
@@ -315,8 +322,6 @@ def _build_message(
 
 def _serialize_plan_state(plan_state: dict) -> dict:
     """Convert date objects in plan_state to ISO strings for JSONB storage."""
-    import json
-
     def _convert(obj: Any) -> Any:
         if isinstance(obj, date):
             return obj.isoformat()
@@ -337,37 +342,42 @@ def persist_daily_message(
     db,
     for_week: str | None = None,
 ) -> "WeeklyCoachMessage":
-    """Upsert a daily message record on (user_id, for_date)."""
+    """Upsert a daily message record on (user_id, for_date).
+
+    Uses INSERT … ON CONFLICT DO UPDATE so concurrent same-day runs converge
+    instead of racing on the select-then-insert pattern.
+    """
     from backend.models import WeeklyCoachMessage
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     week = for_week or _iso_week(for_date)
     snapshot = _serialize_plan_state(plan_state_snapshot) if plan_state_snapshot else None
     now = datetime.now(tz=timezone.utc)
 
-    existing = (
-        db.query(WeeklyCoachMessage)
-        .filter_by(user_id=user_id, for_date=for_date)
-        .first()
+    stmt = (
+        pg_insert(WeeklyCoachMessage)
+        .values(
+            user_id=user_id,
+            for_week=week,
+            for_date=for_date,
+            text=text,
+            generated_at=now,
+            plan_state_snapshot=snapshot,
+        )
+        .on_conflict_do_update(
+            constraint="uq_weekly_coach_messages_user_date",
+            set_={
+                "text": text,
+                "for_week": week,
+                "generated_at": now,
+                "plan_state_snapshot": snapshot,
+            },
+        )
+        .returning(WeeklyCoachMessage.__table__.c.id)
     )
-    if existing is not None:
-        existing.text = text
-        existing.for_week = week
-        existing.generated_at = now
-        existing.plan_state_snapshot = snapshot
-        db.flush()
-        return existing
-
-    record = WeeklyCoachMessage(
-        user_id=user_id,
-        for_week=week,
-        for_date=for_date,
-        text=text,
-        generated_at=now,
-        plan_state_snapshot=snapshot,
-    )
-    db.add(record)
+    row_id = db.execute(stmt).scalar_one()
     db.flush()
-    return record
+    return db.get(WeeklyCoachMessage, row_id, populate_existing=True)
 
 
 def persist_weekly_message(
@@ -608,7 +618,7 @@ def _goal_from_a_race(user_id, db) -> Any | None:
     )
 
 
-def _load_inputs_for_user(user_id, db, today: date) -> tuple[Any, Any, Any, Any]:
+def load_inputs_for_user(user_id, db, today: date) -> tuple[Any, Any, Any, Any]:
     """Load (goal, snapshot, weight_status, log_consistency) from DB.
 
     Goal source of truth for coach: **A-race** on the Plan tab. Falls back to
@@ -619,15 +629,10 @@ def _load_inputs_for_user(user_id, db, today: date) -> tuple[Any, Any, Any, Any]
 
     from sqlalchemy import desc
 
-    from backend.models import TrainingLoadSnapshot, WeightEntry, PerformanceGoal
+    from backend.models import TrainingLoadSnapshot, WeightEntry
+    from backend.services.goal_resolution import resolve_active_goal
 
-    goal = _goal_from_a_race(user_id, db)
-    if goal is None:
-        goal = (
-            db.query(PerformanceGoal)
-            .filter_by(user_id=user_id, active=True)
-            .first()
-        )
+    goal = resolve_active_goal(user_id, db)
     if goal is None:
         return None, None, None, None
 
@@ -677,7 +682,10 @@ def _load_inputs_for_user(user_id, db, today: date) -> tuple[Any, Any, Any, Any]
     return goal, snapshot, weight_status, log_consistency
 
 
-def _build_projection_info(goal: Any, snapshot: Any, today: date) -> dict:
+_load_inputs_for_user = load_inputs_for_user  # backward-compat alias
+
+
+def build_projection_info(goal: Any, snapshot: Any, today: date) -> dict:
     """Derive projection_info dict from goal and latest training load snapshot."""
     if goal is None:
         return {}
@@ -703,6 +711,9 @@ def _build_projection_info(goal: Any, snapshot: Any, today: date) -> dict:
         "uncertainty_minutes": _uncertainty_minutes(weeks_to_race),
         "distance_label": _DIST_LABEL.get(race_distance, race_distance),
     }
+
+
+_build_projection_info = build_projection_info  # backward-compat alias
 
 
 def generate_for_user(user_id, db=None, today: date | None = None) -> dict | None:

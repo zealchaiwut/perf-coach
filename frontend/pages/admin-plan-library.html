@@ -1,0 +1,1426 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plan library – Admin – perf-coach</title>
+  <link rel="stylesheet" href="/css/styles.css">
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body { background: var(--surface-2); color: var(--text); margin: 0; }
+
+    .topbar {
+      background: var(--ink);
+      color: #fff;
+      padding: 0 20px;
+      min-height: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .topbar-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: -0.01em;
+      padding: 10px 0;
+      color: #fff;
+      text-decoration: none;
+    }
+    .topbar-brand i { font-size: 18px; color: var(--primary); }
+    .topbar-tag {
+      font-size: 11px;
+      font-weight: 600;
+      background: rgba(255, 255, 255, 0.14);
+      border-radius: 6px;
+      padding: 2px 8px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .topbar-links { display: flex; align-items: center; gap: 8px; }
+    .topbar-links a, .logout-btn {
+      background: transparent;
+      border: 1.5px solid rgba(255, 255, 255, 0.25);
+      color: #fff;
+      border-radius: 8px;
+      min-height: 36px;
+      padding: 6px 14px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      text-decoration: none;
+    }
+    .topbar-links a:hover, .logout-btn:hover { background: rgba(255, 255, 255, 0.1); }
+
+    .page {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 24px 20px 48px;
+    }
+    .page-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .page-head h1 {
+      font-size: 22px;
+      font-weight: 700;
+      margin: 0 0 4px;
+      letter-spacing: -0.02em;
+    }
+    .page-head p {
+      margin: 0;
+      color: var(--text-sub);
+      font-size: 13.5px;
+      max-width: 58ch;
+      line-height: 1.45;
+    }
+    .head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0;
+    }
+    .tab {
+      border: none;
+      background: transparent;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      padding: 10px 16px;
+      font-family: inherit;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text-sub);
+      cursor: pointer;
+      border-radius: 8px 8px 0 0;
+    }
+    .tab:hover { color: var(--ink); background: rgba(255, 255, 255, 0.6); }
+    .tab.on {
+      color: var(--primary, #4338ca);
+      border-bottom-color: var(--primary, #4338ca);
+      background: var(--surface);
+    }
+
+    .btn {
+      border-radius: 9px;
+      min-height: 36px;
+      padding: 7px 14px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--ink);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn:hover { background: var(--tile); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
+    .btn-primary:hover { filter: brightness(1.05); background: var(--primary); }
+    .btn-danger { color: #b91c1c; border-color: #fecaca; }
+    .btn-danger:hover { background: #fef2f2; }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(17, 24, 39, 0.45);
+      z-index: 80;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      width: min(720px, 100%);
+      max-height: min(90vh, 860px);
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 40px rgba(17, 24, 39, 0.18);
+    }
+    .modal-h {
+      padding: 16px 18px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .modal-h h2 {
+      margin: 0 0 4px;
+      font-size: 17px;
+      font-weight: 700;
+    }
+    .modal-h p {
+      margin: 0;
+      font-size: 12.5px;
+      color: var(--text-sub);
+      line-height: 1.45;
+    }
+    .modal-body { padding: 14px 18px; overflow: auto; flex: 1; }
+    .modal-body textarea {
+      width: 100%;
+      min-height: 280px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.4;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 10px 12px;
+      resize: vertical;
+      background: var(--surface-2, #f8fafc);
+    }
+    .modal-foot {
+      padding: 12px 18px 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .modal-foot .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .import-meta {
+      font-size: 12px;
+      color: var(--text-sub);
+      margin-top: 8px;
+      white-space: pre-wrap;
+    }
+    .import-meta.ok { color: #047857; }
+    .import-meta.err { color: #b91c1c; }
+
+    .bp-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .bp-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface-2, #f8fafc);
+    }
+    .bp-swatch {
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+      flex: 0 0 auto;
+      margin-top: 3px;
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.08);
+    }
+    .bp-meta { min-width: 0; flex: 1; }
+    .bp-key {
+      font-size: 13px;
+      font-weight: 650;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    .bp-aliases {
+      font-size: 12px;
+      color: var(--text-sub);
+      margin-top: 2px;
+      line-height: 1.4;
+    }
+    .bp-aliases.muted { opacity: 0.75; }
+    #body-parts-modal .modal { width: min(560px, 100%); }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 1px 2px rgba(17, 24, 39, 0.04);
+      overflow: hidden;
+    }
+    .panel-pad { padding: 16px; }
+    .panel-h {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-sub);
+      margin: 0 0 10px;
+    }
+
+    .filters { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+    .search {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 9px 12px;
+      font: inherit;
+      font-size: 13.5px;
+    }
+    .chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip {
+      border: 1px solid var(--border);
+      background: #fff;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text-sub);
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .chip:hover { color: var(--ink); border-color: #c7d2fe; }
+    .chip.on {
+      background: var(--primary-soft, #eef2ff);
+      border-color: #c7d2fe;
+      color: var(--primary, #4338ca);
+    }
+    .chip.toggle.on {
+      background: #ecfdf5;
+      border-color: #a7f3d0;
+      color: #047857;
+    }
+
+    .ex-list { max-height: min(70vh, 720px); overflow: auto; border-top: 1px solid var(--border); }
+    .ex-row {
+      width: 100%;
+      text-align: left;
+      border: none;
+      border-bottom: 1px solid var(--border);
+      background: #fff;
+      padding: 12px 14px;
+      cursor: pointer;
+      font-family: inherit;
+      display: block;
+    }
+    .ex-row:hover { background: var(--tile); }
+    .ex-row.selected { background: #eef2ff; }
+    .ex-row.off { opacity: 0.55; }
+    .ex-name { font-size: 13.5px; font-weight: 700; color: var(--ink); margin: 0 0 4px; }
+    .ex-meta { font-size: 11px; color: var(--text-sub); line-height: 1.35; }
+    .ex-empty { padding: 28px 16px; text-align: center; color: var(--text-sub); font-size: 13px; }
+
+    .editor-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px 14px;
+    }
+    @media (max-width: 640px) {
+      .editor-grid { grid-template-columns: 1fr; }
+    }
+    .fld { display: flex; flex-direction: column; gap: 5px; }
+    .fld.span2 { grid-column: 1 / -1; }
+    .fld label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-sub);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .fld input, .fld select, .fld textarea {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font: inherit;
+      font-size: 13.5px;
+    }
+    .fld-hint { font-size: 11.5px; color: var(--text-sub); }
+
+    .parts {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .part-row {
+      display: grid;
+      grid-template-columns: 1fr 90px 36px;
+      gap: 8px;
+      align-items: center;
+    }
+    .part-row input, .part-row select {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 9px;
+      font: inherit;
+      font-size: 13px;
+    }
+    .part-sum {
+      font-size: 12px;
+      color: var(--text-sub);
+      font-family: var(--mono, ui-monospace, monospace);
+    }
+    .part-sum.warn { color: #b45309; }
+
+    .recipe-section {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px dashed var(--border);
+    }
+    .run-block-row, .strength-group-row {
+      display: grid;
+      gap: 6px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .run-block-row {
+      grid-template-columns: 90px 72px 56px 56px 1fr 36px;
+    }
+    .strength-group-row {
+      grid-template-columns: 110px 1fr 64px 64px 48px 1fr 36px;
+    }
+    @media (max-width: 900px) {
+      .run-block-row, .strength-group-row { grid-template-columns: 1fr 1fr; }
+      .run-block-row .rm, .strength-group-row .rm { grid-column: -1; }
+    }
+    .run-block-row input, .run-block-row select,
+    .strength-group-row input, .strength-group-row select {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 8px;
+      font: inherit;
+      font-size: 12.5px;
+      min-width: 0;
+    }
+    .row-labels {
+      display: grid;
+      gap: 6px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-sub);
+      margin-bottom: 4px;
+    }
+    .run-block-row.row-labels { grid-template-columns: 90px 72px 56px 56px 1fr 36px; }
+    .strength-group-row.row-labels { grid-template-columns: 110px 1fr 64px 64px 48px 1fr 36px; }
+
+    .raw-json {
+      margin-top: 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .raw-json summary {
+      padding: 10px 12px;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      background: var(--tile);
+      list-style: none;
+    }
+    .raw-json summary::-webkit-details-marker { display: none; }
+    .raw-json textarea {
+      width: 100%;
+      min-height: 140px;
+      border: none;
+      border-top: 1px solid var(--border);
+      padding: 10px 12px;
+      font-family: var(--mono, ui-monospace, monospace);
+      font-size: 12px;
+      resize: vertical;
+    }
+
+    .editor-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 16px;
+      padding-top: 14px;
+      border-top: 1px dashed var(--border);
+    }
+    .fb {
+      margin-top: 10px;
+      font-size: 13px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      display: none;
+    }
+    .fb.ok { display: block; background: #ecfdf5; color: #065f46; }
+    .fb.err { display: block; background: #fef2f2; color: #991b1b; }
+
+    .preview {
+      margin-top: 16px;
+      border-top: 1px solid var(--border);
+      padding-top: 14px;
+    }
+    .preview-panel { max-width: 1200px; }
+    .preview-panel .preview-out { margin-top: 4px; }
+    .preview-out {
+      background: transparent;
+      border: none;
+      border-radius: 0;
+      padding: 0;
+      font-size: 13px;
+    }
+    .preview-out .intent {
+      font-weight: 700;
+      margin-bottom: 10px;
+      padding: 0 2px;
+    }
+    .preview-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.55fr) minmax(260px, 0.7fr);
+      gap: 16px;
+      align-items: start;
+      margin-top: 4px;
+    }
+    @media (max-width: 900px) {
+      .preview-layout { grid-template-columns: 1fr; }
+    }
+    .preview-pane {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px 14px;
+      min-width: 0;
+    }
+    .preview-pane-h {
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-sub);
+      margin: 0 0 10px;
+    }
+    .preview-ex-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 12.5px;
+    }
+    .preview-ex-table th,
+    .preview-ex-table td {
+      text-align: left;
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(0,0,0,0.06);
+      vertical-align: top;
+    }
+    .preview-ex-table th {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-sub);
+      font-weight: 800;
+    }
+    .preview-ex-table th:nth-child(1),
+    .preview-ex-table td:nth-child(1) { width: 38%; }
+    .preview-ex-table th:nth-child(2),
+    .preview-ex-table td:nth-child(2) { width: 34%; }
+    .preview-ex-table th:nth-child(3),
+    .preview-ex-table td:nth-child(3) { width: 14%; }
+    .preview-ex-table th:nth-child(4),
+    .preview-ex-table td:nth-child(4) { width: 14%; }
+    .preview-ex-table td.rx { overflow-wrap: anywhere; }
+    .preview-ex-table td.num,
+    .preview-ex-table th.num {
+      text-align: right;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    .preview-ex-table tfoot td {
+      font-weight: 700;
+      border-bottom: none;
+      padding-top: 10px;
+    }
+    .preview-side {
+      display: block;
+      position: sticky;
+      top: 12px;
+    }
+    .preview-side-h { display: none; }
+    .muscle-tss-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      background: transparent;
+      border: none;
+      border-radius: 0;
+      overflow: visible;
+    }
+    .muscle-tss-table th,
+    .muscle-tss-table td {
+      padding: 5px 8px;
+      border-bottom: 1px solid rgba(0,0,0,0.06);
+    }
+    .muscle-tss-table th {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-sub);
+      text-align: left;
+    }
+    .muscle-tss-table td.num,
+    .muscle-tss-table th.num { text-align: right; }
+    .muscle-tss-table tfoot td {
+      font-weight: 700;
+      border-bottom: none;
+      border-top: 1px solid var(--border);
+    }
+    .muscle-bar {
+      display: block;
+      height: 4px;
+      margin-top: 3px;
+      border-radius: 2px;
+      background: #fdba74;
+      max-width: 100%;
+    }
+    .preview-ex, .preview-block {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr 0.7fr;
+      gap: 6px;
+      padding: 5px 0;
+      border-top: 1px solid rgba(0,0,0,0.06);
+      font-size: 12.5px;
+    }
+    .preview-ex:first-of-type, .preview-block:first-of-type { border-top: none; }
+    .fill-log {
+      margin-top: 12px;
+      font-size: 12px;
+      color: var(--text-sub);
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 14px;
+    }
+    .fill-log > summary {
+      cursor: pointer;
+      font-weight: 700;
+      color: var(--text-sub);
+      list-style: none;
+    }
+    .fill-log > summary::-webkit-details-marker { display: none; }
+    .fill-log > summary::before { content: "▸ "; font-size: 10px; }
+    .fill-log[open] > summary::before { content: "▾ "; }
+    .fill-log-pre {
+      margin: 8px 0 0;
+      padding: 10px 12px;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: var(--ink);
+      max-height: 280px;
+      overflow: auto;
+    }
+    /* Preview tab — variation B live-fill column */
+    .preview-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin: 0 0 0;
+      padding: 11px 0 11px;
+      border-bottom: 1px solid var(--border);
+    }
+    .preview-title {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0;
+      color: var(--ink);
+      text-transform: none;
+    }
+    .preview-controls {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr auto;
+      gap: 10px;
+      align-items: end;
+      margin: 12px 0 10px;
+    }
+    @media (max-width: 700px) {
+      .preview-controls { grid-template-columns: 1fr; }
+    }
+    .preview-fld-subtype select { width: 100%; }
+    .preview-fld-pair { display: flex; gap: 5px; }
+    .preview-fld-pair .fld { flex: 1; }
+    .preview-fld-pair .fld input { width: 100%; }
+    .pool-summary {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: 9px;
+      padding: 9px 11px;
+      font-size: 12px;
+      font-weight: 500;
+      color: #166534;
+      line-height: 1.5;
+      margin-bottom: 12px;
+    }
+    .pool-summary b { font-weight: 700; }
+    .pool-summary .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11.5px;
+    }
+    .pool-summary.warn {
+      background: #fffbeb;
+      border-color: #fcd34d;
+      color: #92400e;
+    }
+    .pool-summary.err {
+      background: #fef2f2;
+      border-color: #fecaca;
+      color: #b91c1c;
+    }
+    .pool-summary .muted { font-weight: 500; color: var(--text-sub); }
+    .budget-trace-block { margin-top: 4px; min-width: 0; max-width: 100%; clear: both; }
+    .budget-trace-list {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.6;
+      max-height: min(70vh, 720px);
+      overflow: auto;
+      padding: 0 0 8px;
+    }
+    .bt-group {
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      margin-bottom: 7px;
+      overflow: hidden;
+      background: #fff;
+    }
+    .bt-group-skip { opacity: 0.72; }
+    .bt-group-h {
+      padding: 6px 10px;
+      background: #f7f8fa;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: var(--text-sub);
+    }
+    .bt-group-label {
+      font-weight: 700;
+      color: var(--text-sub);
+      letter-spacing: 0.04em;
+      text-transform: none;
+    }
+    .bt-group-meta {
+      font-weight: 700;
+      color: var(--text-sub);
+      text-align: right;
+    }
+    .bt-picks { display: block; }
+    .bt-pick {
+      padding: 7px 10px;
+      border-bottom: 1px solid #f1f2f5;
+      background: #fff;
+      border-radius: 0;
+      border-left: none;
+      border-right: none;
+      border-top: none;
+    }
+    .bt-pick:last-child { border-bottom: none; }
+    .bt-name {
+      display: block;
+      font-family: inherit;
+      font-size: 12.5px;
+      font-weight: 700;
+      color: var(--ink);
+      margin-bottom: 0;
+      line-height: 1.35;
+    }
+    .bt-rx {
+      display: block;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 10.5px;
+      color: var(--text-sub);
+      margin-top: 2px;
+      line-height: 1.5;
+    }
+    .bt-spend-val { color: var(--primary, #2563eb); font-weight: 600; }
+    .bt-score-line {
+      display: block;
+      margin-top: 2px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 10.5px;
+      color: var(--text-sub);
+      line-height: 1.5;
+    }
+    .bt-score { color: #7c3aed; font-weight: 700; }
+    .bt-bias, .bt-rand { color: var(--text-sub); font-weight: 600; }
+    .bt-alts {
+      display: block;
+      margin-top: 3px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 9.5px;
+      color: #9ca3af;
+      line-height: 1.45;
+    }
+    .bt-remain {
+      display: block;
+      margin-top: 3px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 10px;
+      color: #9ca3af;
+      line-height: 1.4;
+    }
+    .bt-start, .bt-end, .bt-exhausted, .bt-inline {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 10.5px;
+      color: #9ca3af;
+      padding: 4px 2px 8px;
+    }
+    .bt-end {
+      margin-top: 2px;
+      padding: 7px 10px;
+      background: #f7f8fa;
+      border-radius: 8px;
+      color: var(--text-sub);
+      font-weight: 600;
+    }
+    .bt-exhausted {
+      padding: 7px 10px;
+      margin-bottom: 7px;
+      background: #fffbeb;
+      border: 1px solid #fcd34d;
+      border-radius: 9px;
+      color: #92400e;
+      font-weight: 600;
+    }
+    .bt-note { color: #9ca3af; }
+    .preview-error {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border-radius: 9px;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #b91c1c;
+      font-size: 12.5px;
+    }
+    .preview-out { overflow-x: hidden; overflow-y: visible; }
+    .preview-layout { min-width: 0; }
+    .preview-layout > div,
+    .preview-side { min-width: 0; }
+    .muted { color: var(--text-sub); }
+    [hidden] { display: none !important; }
+
+    .layout-ex {
+      grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+    }
+    @media (max-width: 980px) {
+      .layout-ex { grid-template-columns: 1fr; }
+    }
+    .panel-ex-grid { overflow: hidden; }
+    .ex-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 10px;
+      align-items: center;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .ex-toolbar .search { flex: 1 1 160px; min-width: 140px; max-width: 260px; }
+    .ex-hide-off {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12.5px;
+      color: var(--text-sub);
+      white-space: nowrap;
+    }
+    .ex-grid-wrap {
+      padding: 14px 14px 20px;
+      max-height: min(78vh, 900px);
+      overflow: auto;
+    }
+    .ex-card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+      gap: 10px;
+    }
+    .gsec { margin-bottom: 18px; }
+    .gsech {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 9px;
+    }
+    .gsech .t { font-size: 12px; font-weight: 700; color: var(--ink); }
+    .gsech .c {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 10px;
+      color: #9ca3af;
+    }
+    .gsech .ln { flex: 1; height: 1px; background: var(--border); }
+    .gsech .btn-add-group {
+      flex-shrink: 0;
+      min-height: 28px;
+      padding: 4px 10px;
+      font-size: 12px;
+    }
+    .exc {
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      padding: 11px 12px;
+      background: #fff;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      text-align: left;
+      font: inherit;
+      color: inherit;
+      width: 100%;
+    }
+    .exc:hover {
+      border-color: var(--primary, #2563eb);
+      box-shadow: 0 2px 10px rgba(37, 99, 235, 0.09);
+    }
+    .exc.selected {
+      border-color: var(--primary, #2563eb);
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+    }
+    .exc.sib-hl {
+      border-color: var(--primary, #2563eb);
+      background: #f8faff;
+    }
+    .exc.off { opacity: 0.5; border-style: dashed; }
+    .exc .n {
+      font-size: 13px;
+      font-weight: 650;
+      line-height: 1.25;
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 6px;
+    }
+    .exc .multi {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 9.5px;
+      font-weight: 700;
+      color: #9ca3af;
+      white-space: nowrap;
+    }
+    .exc .r {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      color: var(--text-sub);
+    }
+    .exc .tags { display: flex; gap: 4px; flex-wrap: wrap; }
+    .tg {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: #f3f4f6;
+      color: var(--text-sub);
+    }
+    .tg.lower { background: #eef2ff; color: #4338ca; }
+    .tg.upper { background: #fdf4ff; color: #a21caf; }
+    .tg.core { background: #fff7ed; color: #c2410c; }
+    .tg.full { background: #f0fdf4; color: #15803d; }
+    .tinybar {
+      display: flex;
+      height: 7px;
+      width: 100%;
+      border-radius: 99px;
+      overflow: hidden;
+      background: #f3f4f6;
+      margin-top: 2px;
+    }
+    .tinybar i { display: block; height: 100%; }
+    .ex-empty {
+      padding: 28px 12px;
+      text-align: center;
+      color: var(--text-sub);
+      font-size: 13px;
+    }
+    .ex-toolbar-spacer { flex: 1 1 40px; min-width: 12px; }
+    .ex-list-head-pad {
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .ex-toolbar-inline {
+      padding: 0;
+      border-bottom: none;
+      margin-top: 10px;
+    }
+    .pat-list-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+    .pat-list-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .ex-json-preview-wrap { display: flex; flex-direction: column; gap: 10px; }
+    .ex-json-preview .exc {
+      pointer-events: none;
+      max-width: 280px;
+    }
+    .ex-json-placeholder {
+      font-size: 13px;
+      color: var(--text-sub);
+      padding: 14px 12px;
+      border: 1px dashed var(--border);
+      border-radius: 11px;
+      background: #fafafa;
+    }
+    .ex-json-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+    .ex-json-meta .mk {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #9ca3af;
+      margin-right: 2px;
+    }
+    .ex-json-meta .chip {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--ink);
+    }
+    .ex-json-checks {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 12px;
+    }
+    .ex-json-checks li {
+      display: flex;
+      gap: 8px;
+      align-items: baseline;
+      color: var(--text-sub);
+    }
+    .ex-json-checks li.ok { color: #15803d; }
+    .ex-json-checks li.bad { color: #b91c1c; }
+    .ex-json-checks .mark {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      width: 1.1em;
+      flex-shrink: 0;
+    }
+    .ex-json-ta {
+      width: 100%;
+      min-height: 280px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      resize: vertical;
+      background: #fff;
+      color: var(--ink);
+    }
+    .ex-json-ta:focus {
+      outline: none;
+      border-color: var(--primary, #2563eb);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+    }
+    .ex-json-ta.invalid { border-color: #f87171; }
+    .pat-json-preview {
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      padding: 12px 14px;
+      background: #fff;
+    }
+    .pat-json-preview .ph {
+      font-size: 14px;
+      font-weight: 650;
+      margin: 0 0 6px;
+      line-height: 1.3;
+    }
+    .pat-json-preview .meta {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      color: #6b7280;
+      margin-bottom: 10px;
+    }
+    .pat-json-preview .intent {
+      font-size: 12.5px;
+      color: var(--text-sub);
+      margin-bottom: 10px;
+    }
+    .pat-json-preview .prow {
+      display: flex;
+      gap: 8px;
+      align-items: baseline;
+      padding: 5px 0;
+      border-top: 1px solid #f3f4f6;
+      font-size: 12.5px;
+    }
+    .pat-json-preview .prow:first-of-type { border-top: none; }
+    .pat-json-preview .pk {
+      font-weight: 650;
+      min-width: 7.5em;
+      color: var(--ink);
+    }
+    .pat-json-preview .pd {
+      color: var(--text-sub);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+    }
+    .pat-json-preview .bandh {
+      margin-top: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .pat-json-preview.off { opacity: 0.55; border-style: dashed; }
+
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="topbar-brand" href="/admin">
+      <i class="ti ti-shield-lock" aria-hidden="true"></i>
+      perf-coach
+      <span class="topbar-tag">Admin</span>
+    </a>
+    <div class="topbar-links">
+      <a href="/admin"><i class="ti ti-arrow-left" aria-hidden="true"></i> Dashboard</a>
+      <button class="logout-btn" id="logout-btn" type="button">
+        <i class="ti ti-logout" aria-hidden="true"></i>
+        Log out
+      </button>
+    </div>
+  </header>
+
+  <main class="page">
+    <div class="page-head">
+      <div>
+        <h1>Plan library</h1>
+        <p id="page-sub">
+          Grouped by recipe block, so the pool reads the way patterns consume it.
+        </p>
+      </div>
+      <div class="head-actions">
+        <button class="btn" type="button" id="btn-seed" title="Insert missing seed patterns and exercises">
+          Seed defaults
+        </button>
+        <button class="btn" type="button" id="btn-reset" title="Overwrite seed rows from code defaults">
+          Reset from defaults
+        </button>
+        <button class="btn btn-primary" type="button" id="btn-new">
+          + New exercise
+        </button>
+      </div>
+    </div>
+
+    <div class="tabs" role="tablist" aria-label="Plan library sections">
+      <button class="tab on" type="button" id="tab-exercises" role="tab" aria-selected="true" aria-controls="panel-exercises">Exercises</button>
+      <button class="tab" type="button" id="tab-patterns" role="tab" aria-selected="false" aria-controls="panel-patterns">Patterns</button>
+      <button class="tab" type="button" id="tab-preview" role="tab" aria-selected="false" aria-controls="panel-preview">Preview</button>
+    </div>
+
+    <div id="panel-exercises" role="tabpanel" aria-labelledby="tab-exercises">
+      <div class="layout layout-ex">
+        <section class="panel panel-ex-grid" aria-label="Exercise pool">
+          <div class="panel-pad ex-list-head-pad">
+            <div class="pat-list-head">
+              <h2 class="panel-h" style="margin:0;">Exercises</h2>
+              <div class="pat-list-actions">
+                <button class="btn" type="button" id="btn-ex-body-parts" title="Known body-part keys, colors, and plural aliases">
+                  Body parts
+                </button>
+                <button class="btn" type="button" id="btn-ex-download" title="Download LLM prompt with templates + current catalog (exercises and patterns)">
+                  Download JSON
+                </button>
+                <button class="btn" type="button" id="btn-ex-import" title="Bulk create / upsert exercises and patterns from Claude JSON">
+                  Bulk import JSON
+                </button>
+              </div>
+            </div>
+            <div class="ex-toolbar ex-toolbar-inline">
+              <input class="search" id="search" type="search" placeholder="Search by name…" autocomplete="off">
+              <div class="chip-row" id="filter-groups" aria-label="Filter by group"></div>
+              <div class="chip-row" id="filter-focus" aria-label="Filter by focus"></div>
+              <label class="ex-hide-off">
+                <input type="checkbox" id="hide-inactive"> Hide inactive
+              </label>
+              <span id="list-count" class="fld-hint"></span>
+            </div>
+          </div>
+          <div class="ex-grid-wrap" id="ex-grid"></div>
+        </section>
+
+        <section class="panel panel-ex-editor" aria-label="Exercise editor">
+          <div class="panel-pad">
+            <h2 class="panel-h" id="editor-title">New exercise</h2>
+            <input type="hidden" id="edit-id">
+            <p class="fld-hint" style="margin:0 0 12px;">
+              Paste LLM JSON (same shape as Download → <code>exercises[]</code> in the catalog).
+              The card updates as you edit; Save stays off until every field checks out.
+            </p>
+
+            <div class="ex-json-preview-wrap">
+              <div class="ex-json-preview" id="ex-card-preview">
+                <div class="ex-json-placeholder">Paste exercise JSON to preview the card.</div>
+              </div>
+              <div class="ex-json-meta" id="ex-json-meta" hidden></div>
+              <ul class="ex-json-checks" id="ex-json-checks" aria-live="polite"></ul>
+            </div>
+
+            <div class="fld" style="margin-top:12px;">
+              <label for="ex-json">Exercise JSON</label>
+              <textarea id="ex-json" class="ex-json-ta" spellcheck="false" rows="16" placeholder='{
+  "name": "Bulgarian split squat",
+  "groups": ["superset", "emom"],
+  "focus_tags": ["lower", "full"],
+  "body_parts": [
+    {"part": "quad", "ratio": 0.5},
+    {"part": "glute", "ratio": 0.5}
+  ],
+  "tss_weight": 1.1,
+  "default_sets": 3,
+  "default_reps": "8/side",
+  "default_load": "moderate DB",
+  "active": true
+}'></textarea>
+            </div>
+
+            <div class="editor-actions">
+              <button class="btn btn-primary" type="button" id="btn-save" disabled>Save</button>
+              <button class="btn" type="button" id="btn-format-json" title="Pretty-print JSON">Format</button>
+              <button class="btn" type="button" id="btn-dup">Duplicate</button>
+              <button class="btn btn-danger" type="button" id="btn-delete">Delete</button>
+            </div>
+            <div class="fb" id="feedback" role="status" aria-live="polite"></div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div id="panel-patterns" role="tabpanel" aria-labelledby="tab-patterns" hidden>
+      <div class="layout">
+        <section class="panel" aria-label="Pattern list">
+          <div class="panel-pad">
+            <div class="pat-list-head">
+              <h2 class="panel-h" style="margin:0;">Recipes</h2>
+              <div class="pat-list-actions">
+                <button class="btn" type="button" id="btn-pat-download" title="Download LLM prompt with templates + current catalog (exercises and patterns)">
+                  Download JSON
+                </button>
+                <button class="btn" type="button" id="btn-pat-import" title="Bulk create / upsert exercises and patterns from Claude JSON">
+                  Bulk import JSON
+                </button>
+              </div>
+            </div>
+            <div class="filters">
+              <input class="search" id="pat-search" type="search" placeholder="Search by name…" autocomplete="off">
+              <div class="chip-row" id="pat-filter-kind" aria-label="Filter by kind"></div>
+              <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-sub);">
+                <input type="checkbox" id="pat-hide-inactive"> Hide inactive
+              </label>
+            </div>
+            <div id="pat-list-count" class="fld-hint"></div>
+          </div>
+          <div class="ex-list" id="pat-list"></div>
+        </section>
+
+        <section class="panel panel-pat-editor" aria-label="Pattern editor">
+          <div class="panel-pad">
+            <h2 class="panel-h" id="pat-editor-title">New pattern</h2>
+            <input type="hidden" id="pat-edit-id">
+            <p class="fld-hint" style="margin:0 0 12px;">
+              Paste LLM JSON (same shape as Download → <code>patterns[]</code> in the catalog).
+              Preview updates as you edit; Save stays off until every field checks out.
+            </p>
+
+            <div class="ex-json-preview-wrap">
+              <div class="pat-json-preview" id="pat-card-preview">
+                <div class="ex-json-placeholder">Paste pattern JSON to preview the recipe.</div>
+              </div>
+              <ul class="ex-json-checks" id="pat-json-checks" aria-live="polite"></ul>
+            </div>
+
+            <div class="fld" style="margin-top:12px;">
+              <label for="pat-json">Pattern JSON</label>
+              <textarea id="pat-json" class="ex-json-ta" spellcheck="false" rows="18" placeholder='{
+  "kind": "run",
+  "subtype": "easy_run",
+  "duration_min_lo": 0,
+  "duration_min_hi": 120,
+  "name": "Easy aerobic (scaled)",
+  "priority": 10,
+  "active": true,
+  "recipe": {
+    "intent_template": "Easy aerobic run",
+    "notes_template": null,
+    "blocks": [
+      {"phase": "warmup", "duration_share": 0.15, "target": "easy", "pace_mult": 1.2},
+      {"phase": "main", "duration_share": 0.70, "target": "easy, conversational", "pace_mult": 1.2},
+      {"phase": "cooldown", "duration_share": 0.15, "target": "easy", "pace_mult": 1.2}
+    ]
+  }
+}'></textarea>
+            </div>
+
+            <div class="editor-actions">
+              <button class="btn btn-primary" type="button" id="pat-btn-save" disabled>Save</button>
+              <button class="btn" type="button" id="pat-btn-format-json" title="Pretty-print JSON">Format</button>
+              <button class="btn" type="button" id="pat-btn-new">New</button>
+              <button class="btn" type="button" id="pat-btn-dup">Duplicate</button>
+              <button class="btn btn-danger" type="button" id="pat-btn-delete">Delete</button>
+            </div>
+            <div class="fb" id="pat-feedback" role="status" aria-live="polite"></div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div id="panel-preview" role="tabpanel" aria-labelledby="tab-preview" hidden>
+      <section class="panel preview-panel" aria-label="Live fill preview">
+        <div class="panel-pad">
+          <div class="preview-head">
+            <h2 class="preview-title">Live fill preview</h2>
+            <button class="btn" type="button" id="btn-reshuffle" disabled title="Re-run the same config with a fresh seed">
+              ↻ Reshuffle
+            </button>
+          </div>
+          <div class="preview-controls">
+            <div class="fld preview-fld-subtype">
+              <label for="preview-subtype">Subtype</label>
+              <select id="preview-subtype">
+                <option value="strength_light">strength_light</option>
+                <option value="strength_lower">strength_lower</option>
+                <option value="strength_upper">strength_upper</option>
+                <option value="strength_full">strength_full</option>
+                <option value="easy_run">easy_run</option>
+                <option value="tempo">tempo</option>
+                <option value="intervals">intervals</option>
+                <option value="long_run">long_run</option>
+              </select>
+            </div>
+            <div class="preview-fld-pair">
+              <div class="fld">
+                <label for="preview-dur">Min</label>
+                <input id="preview-dur" type="number" min="20" max="180" step="5" value="45">
+              </div>
+              <div class="fld">
+                <label for="preview-tss">TSS</label>
+                <input id="preview-tss" type="number" min="10" max="200" step="5" value="50">
+              </div>
+            </div>
+            <button class="btn btn-primary" type="button" id="btn-preview">Preview</button>
+          </div>
+          <div class="pool-summary" id="pool-summary" aria-live="polite">
+            <span class="muted">Pick a subtype to see pool depth.</span>
+          </div>
+          <div class="preview-out" id="preview-out">
+            <span class="muted">Pick subtype / minutes / TSS, then Preview.</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+
+  <div class="modal-backdrop" id="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title" hidden>
+    <div class="modal">
+      <div class="modal-h">
+        <h2 id="import-title">Bulk import JSON</h2>
+        <p id="import-help">
+          Paste Claude's catalog JSON —
+          <code>{ "exercises": [ … ], "patterns": [ … ] }</code>.
+          Either array may be omitted. Upsert matches exercises by <strong>name</strong>,
+          patterns by <strong>kind + subtype + name</strong>.
+          Invalid groups / focus_tags / body parts are rejected.
+        </p>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+          <label class="btn" style="cursor:pointer;">
+            <i class="ti ti-paperclip" aria-hidden="true"></i> Choose file
+            <input type="file" id="import-file" accept="application/json,.json" style="display:none;">
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
+            <input type="checkbox" id="import-upsert" checked>
+            Upsert existing (uncheck = create-only, skip duplicates)
+          </label>
+        </div>
+        <textarea id="import-json" spellcheck="false" placeholder='[ { "name": "…" }, { "name": "…" } ]'></textarea>
+        <div class="import-meta" id="import-result" aria-live="polite"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" type="button" id="import-cancel">Cancel</button>
+        <div class="actions">
+          <button class="btn btn-primary" type="button" id="import-run">
+            <i class="ti ti-upload" aria-hidden="true"></i> Bulk import
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="body-parts-modal" role="dialog" aria-modal="true" aria-labelledby="body-parts-title" hidden>
+    <div class="modal">
+      <div class="modal-h">
+        <h2 id="body-parts-title">Known body parts</h2>
+        <p>
+          Canonical keys drive the exercise card color bar. Import accepts singulars and
+          plurals (e.g. <code>glute</code>/<code>glutes</code>, <code>calf</code>/<code>calves</code>)
+          and remaps them here. New canonical keys live in
+          <code>plan_body_parts.py</code> + <code>PART_COLORS</code> — use
+          <strong>Normalize pool</strong> to rewrite stored plurals on existing rows.
+        </p>
+      </div>
+      <div class="modal-body">
+        <div class="bp-list" id="body-parts-list"></div>
+        <div class="import-meta" id="body-parts-result" aria-live="polite"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" type="button" id="body-parts-cancel">Close</button>
+        <div class="actions">
+          <button class="btn btn-primary" type="button" id="body-parts-normalize" title="Rewrite stored body_parts through the alias map">
+            Normalize pool
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/lib/app-common.js"></script>
+  <script src="/js/lib/plan-fill-preview.js?v=20260806align1"></script>
+  <script src="/js/admin-plan-library.js?v=20260806bp1"></script>
+</body>
+</html>

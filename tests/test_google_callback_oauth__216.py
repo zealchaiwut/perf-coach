@@ -11,6 +11,7 @@ import responses as responses_lib
 from fastapi.testclient import TestClient
 
 from backend.main import app, _make_google_state_token
+from backend.services.crypto import decrypt_oauth_token as _dec, encrypt_oauth_token as _enc
 from backend.services.google import refresh_token_if_needed
 from backend.utils.errors import ExternalServiceError
 
@@ -198,8 +199,8 @@ def test_refresh_token_if_needed_refreshes_expired():
 
     mock_cred = MagicMock()
     mock_cred.expires_at = expired_at
-    mock_cred.refresh_token = "old-rt"
-    mock_cred.access_token = "old-at"
+    mock_cred.refresh_token_encrypted = _enc("old-rt")
+    mock_cred.access_token_encrypted = _enc("old-at")
 
     mock_session = MagicMock()
     mock_session.__enter__ = MagicMock(return_value=mock_session)
@@ -217,7 +218,7 @@ def test_refresh_token_if_needed_refreshes_expired():
         result = refresh_token_if_needed(TEST_USER_ID)
 
     assert result == "refreshed-at"
-    assert mock_cred.access_token == "refreshed-at"
+    assert _dec(mock_cred.access_token_encrypted) == "refreshed-at"
     mock_session.commit.assert_called_once()
     assert len(responses_lib.calls) == 1
 
@@ -231,7 +232,7 @@ def test_refresh_token_if_needed_skips_when_fresh():
 
     mock_cred = MagicMock()
     mock_cred.expires_at = fresh_at
-    mock_cred.access_token = "still-valid-at"
+    mock_cred.access_token_encrypted = _enc("still-valid-at")
 
     mock_session = MagicMock()
     mock_session.__enter__ = MagicMock(return_value=mock_session)
@@ -254,7 +255,7 @@ def test_refresh_token_if_needed_raises_when_no_refresh_token():
 
     mock_cred = MagicMock()
     mock_cred.expires_at = expired_at
-    mock_cred.refresh_token = None
+    mock_cred.refresh_token_encrypted = None
 
     mock_session = MagicMock()
     mock_session.__enter__ = MagicMock(return_value=mock_session)

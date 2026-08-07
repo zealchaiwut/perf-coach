@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import cast as _sa_cast, exc as sa_exc, func, or_, select, text
 from sqlalchemy.types import DateTime as _sa_DateTime
 from sqlalchemy.dialects.postgresql import insert as _pg_insert
-from sqlalchemy.orm import Session, joinedload, load_only, selectinload
+from sqlalchemy.orm import Session, joinedload, load_only
 from zoneinfo import ZoneInfo
 
 from backend.auth import require_admin
@@ -84,10 +84,13 @@ from backend.services.load_plan import (
     DELOAD_CUT_FRACTION,
     is_deload_cycle_week,
     resolve_baseline_weeks_ago,
+    resolve_baseline_seed,
 )
 from backend.services.feel_link import auto_link_feel_entries
 from backend.services.weight_status import compute_status_label as _compute_status_label
 from backend.services.weight_ewma import compute_ewma as _compute_ewma, DEFAULT_SPAN as _EWMA_DEFAULT_SPAN
+from backend.services.weight_stats import weight_stats as _weight_stats
+from backend.services.body_composition import compute_composition_trend as _compute_composition_trend
 from backend.services.weight_plan import compute_gap as _compute_weight_gap, generate_milestones as _generate_weight_milestones, plan_at as _weight_plan_at, project_hit_date as _project_hit_date
 # _weight_rollup / _ROLLUP_LOOKBACK_DAYS: the canonical "current weight" rule
 # (>=2 entries in the trailing 7 days else a wider-lookback average, never a
@@ -109,7 +112,6 @@ from backend.utils.workout_types import (
 )
 from backend.services.riegel import riegel_half_equivalent as _riegel_half_equivalent
 from backend.services.duration_curve_best_effort import get_athlete_duration_curve as _get_athlete_duration_curve
-from backend.services.lap_recompute import rebuild_athlete_duration_curve as _rebuild_athlete_duration_curve
 from backend.services.session_profile_caller import get_session_profile_for_workout as _get_session_profile
 from backend.services.aerobic_decoupling import compute_decoupling as _compute_decoupling
 from backend.services.heat_correction import (
@@ -144,6 +146,7 @@ from services.readiness.calculator import (
 )
 from services.readiness.job import compute_and_store as _readiness_compute_and_store
 from backend.services.daily_brief import build_brief
+import backend.services.daily_brief as _daily_brief_svc
 
 # Ceiling TSB used when computing expressible scores from historical/projected TSB.
 # 20.0 matches the representative value established in issue #1107.
@@ -183,6 +186,16 @@ def _today_bkk() -> _date:
 _static_root = Path(__file__).parent.parent
 app.mount("/css", StaticFiles(directory=str(_static_root / "frontend" / "css")), name="css")
 app.mount("/js", StaticFiles(directory=str(_static_root / "frontend" / "js")), name="js")
+
+
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
 
 
 @app.middleware("http")
@@ -239,10 +252,17 @@ _CSRF_EXEMPT_PATHS = frozenset({"/api/auth/login"})
 
 @app.middleware("http")
 async def _csrf_protect(request: Request, call_next):
-    """Require X-CSRF-Token header on all mutating requests that carry a session cookie."""
+    """Require X-CSRF-Token header on all mutating requests that carry an auth cookie.
+
+    Both the regular session cookie (COOKIE_NAME) and the admin session cookie
+    (ADMIN_COOKIE_NAME) trigger the double-submit CSRF check, providing
+    defense-in-depth on top of SameSite=Strict for admin-only endpoints.
+    """
     if request.method not in _CSRF_SAFE_METHODS and request.url.path not in _CSRF_EXEMPT_PATHS:
-        session_cookie = request.cookies.get(COOKIE_NAME)
-        if session_cookie:
+        has_auth_cookie = (
+            request.cookies.get(COOKIE_NAME) or request.cookies.get(ADMIN_COOKIE_NAME)
+        )
+        if has_auth_cookie:
             expected = request.cookies.get(CSRF_COOKIE_NAME)
             actual = request.headers.get("X-CSRF-Token")
             if not expected or not actual or not _hmac.compare_digest(expected, actual):
@@ -282,6 +302,36 @@ def health():
         "db": check_db(),
         "uptime_seconds": int(time.monotonic() - _start_time),
     })
+
+
+@app.get("/api/health/schema")
+def health_schema():
+    """Return alembic drift info for the smoke suite (issue #1580).
+
+    Compares the repo's expected migration head (from the bundled alembic
+    migration files) with the version currently stamped in the live DB.
+    No auth required — the revision IDs carry no sensitive info.
+
+    Response shape:
+        { "repo_head": "<hex>", "db_head": "<hex>" | null }
+    """
+    from alembic.config import Config as _AlembicConfig
+    from alembic.script import ScriptDirectory as _ScriptDirectory
+
+    _ini_path = Path(__file__).parent.parent / "alembic.ini"
+    _cfg = _AlembicConfig(str(_ini_path))
+    _script = _ScriptDirectory.from_config(_cfg)
+    heads = _script.get_heads()
+    repo_head = heads[0] if len(heads) == 1 else ",".join(sorted(heads))
+
+    try:
+        with engine.connect() as _conn:
+            row = _conn.execute(text("SELECT version_num FROM alembic_version LIMIT 1")).fetchone()
+            db_head = row[0] if row else None
+    except Exception:
+        db_head = None
+
+    return JSONResponse({"repo_head": repo_head, "db_head": db_head})
 
 
 @app.get("/api/healthz")
@@ -496,6 +546,7 @@ from backend.auth import (  # noqa: E402
     CSRF_COOKIE_NAME,
     generate_csrf_token,
     get_admin_secret,
+    get_client_ip,
     get_current_user,
     hash_password,
     MIN_PASSWORD_LENGTH,
@@ -551,7 +602,7 @@ class LoginIn(BaseModel):
 
 @app.post("/api/auth/login")
 def login(body: LoginIn, request: Request):
-    ip = request.client.host if request.client else "unknown"
+    ip = get_client_ip(request)
     _check_lockout(body.username, ip)
     try:
         with Session(engine) as session:
@@ -1117,7 +1168,6 @@ def _compute_weight_target_active(t: WeightTarget, session) -> dict:
 
     today = _today_bkk()
     target_date = t.target_date if isinstance(t.target_date, _date) else _date.fromisoformat(str(t.target_date))
-    start_date = t.start_date if isinstance(t.start_date, _date) else _date.fromisoformat(str(t.start_date))
 
     days_remaining = (target_date - today).days
     total_kg = float(t.start_weight_kg) - float(t.target_weight_kg)
@@ -1931,19 +1981,7 @@ def get_weight_chart(
                 _last_ewma = round(_ewma_by_date[day], 4)
             ewma_series.append({"date": str(day), "weight_kg": _last_ewma})
 
-        # Weekly rate derived from EWMA slope: ewma at to_d minus ewma 7 days earlier.
-        # This reflects trend momentum, not a raw entry-to-entry delta.
-        _ewma_non_null = [(i, p["weight_kg"]) for i, p in enumerate(ewma_series) if p["weight_kg"] is not None]
-        weekly_rate_ewma_kg: float | None = None
-        if len(_ewma_non_null) >= 2:
-            _last_ewma_idx, _last_ewma_val = _ewma_non_null[-1]
-            _target_earlier_idx = _last_ewma_idx - 7
-            _earlier_candidates = [(i, v) for i, v in _ewma_non_null if i <= max(_target_earlier_idx, 0)]
-            if _earlier_candidates and _target_earlier_idx >= 0:
-                _, _earlier_ewma_val = _earlier_candidates[-1]
-                weekly_rate_ewma_kg = round(_last_ewma_val - _earlier_ewma_val, 3)
-
-        # Stats
+        # Stats: current weight and raw deltas (legacy fallback when rate unreadable)
         in_range = [e for e in all_entries if (
             from_d
             <= (e.entry_date if isinstance(e.entry_date, _date) else _date.fromisoformat(str(e.entry_date)))
@@ -1957,7 +1995,6 @@ def get_weight_chart(
                 current_avg_kg = t["weight_kg"]
                 break
 
-        # delta: compare current weight to most recent entry on/before the pivot date
         pivot_7d = to_d - _timedelta(days=7)
         pivot_30d = to_d - _timedelta(days=30)
         entry_at_7d = None
@@ -1982,15 +2019,39 @@ def get_weight_chart(
             else None
         )
 
+        # Canonical OLS-on-EWMA rate — always the 30-day gate window so switching
+        # chart range cannot unlock/lock conclusions independently of coverage.
+        from backend.services.weight_stats import DEFAULT_WINDOW_DAYS as _RATE_WINDOW
+        _rate = _weight_stats(session, uid, window_days=_RATE_WINDOW, as_of=to_d)
+        weekly_rate_ewma_kg: float | None = _rate["rate_kg_wk"]
+        if weekly_rate_ewma_kg is not None:
+            weekly_rate_ewma_kg = round(weekly_rate_ewma_kg, 3)
+
         stats = {
             "current_weight_kg": current_weight_kg,
             "current_avg_kg": current_avg_kg,
-            "delta_7d_kg": delta_7d_kg,
-            "delta_30d_kg": delta_30d_kg,
+            "delta_7d_kg": (
+                weekly_rate_ewma_kg if _rate["readable"] and weekly_rate_ewma_kg is not None
+                else delta_7d_kg
+            ),
+            "delta_30d_kg": (
+                round(weekly_rate_ewma_kg * 4, 2) if _rate["readable"] and weekly_rate_ewma_kg is not None
+                else delta_30d_kg
+            ),
             "weekly_rate_ewma_kg": weekly_rate_ewma_kg,
             "ewma_alpha": round(2.0 / (_EWMA_DEFAULT_SPAN + 1), 4),
+            "rate": _rate,
+            "trend_kg": _rate["trend_kg"],
+            "rate_kg_wk": _rate["rate_kg_wk"],
+            "ci_kg_wk": _rate["ci_kg_wk"],
+            "state": _rate["state"],
+            "readable": _rate["readable"],
+            "gated": _rate["gated"],
+            "gate_reason": _rate["gate_reason"],
+            "days_needed": _rate["days_needed"],
+            "coverage_pct": _rate["coverage_pct"],
+            "needed_rate_kg_wk": _rate["needed_rate_kg_wk"],
         }
-
         # Always fetch active target (needed for plan_series / milestones / today_marker)
         active_target = (
             session.query(WeightTarget)
@@ -2087,6 +2148,19 @@ def get_weight_chart(
         ]
 
         # plan_series is omitted (key absent) when no active target
+        _composition_readings = [
+            {
+                "date": (
+                    e.entry_date if isinstance(e.entry_date, _date)
+                    else _date.fromisoformat(str(e.entry_date))
+                ),
+                "weight_kg": float(e.weight_kg),
+                "body_fat_pct": float(e.body_fat_pct) if e.body_fat_pct is not None else None,
+            }
+            for e in all_entries
+        ]
+        composition = _compute_composition_trend(_composition_readings, to_d)
+
         result = {
             "range": {"from": str(from_d), "to": str(to_d)},
             "actuals": actuals,
@@ -2094,6 +2168,7 @@ def get_weight_chart(
             "trend": trend,
             "ewma": ewma_series,
             "stats": stats,
+            "composition": composition,
             "future_milestones": future_milestones,
             "today_marker": today_marker,
             "logged_today": logged_today,
@@ -2747,12 +2822,14 @@ def get_home_readiness(
     hrv_baseline_vals = [float(r.hrv) for r in baseline_rows if r.hrv is not None and r.metric_date >= hrv_baseline_start]
     rhr_baseline_vals = [float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None]
     hrv_7d_avg = _avg(hrv_baseline_vals) if hrv_baseline_vals else None
+    rhr_30d_avg = _avg(rhr_baseline_vals)
     rhr_7d_avg = _avg([float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None and r.metric_date >= hrv_baseline_start])
     sleep_7d_avg_hours = _avg([float(r.sleep_hours) for r in baseline_rows if r.sleep_hours is not None and r.metric_date >= hrv_baseline_start])
 
     rolling_baseline = {
         "hrv_7d_avg": hrv_7d_avg,
         "rhr_7d_avg": rhr_7d_avg,
+        "rhr_30d_avg": rhr_30d_avg,
         "sleep_7d_avg_hours": sleep_7d_avg_hours,
     }
 
@@ -2828,7 +2905,7 @@ def get_home_readiness(
         "mood": float(metrics.mood) if metrics.mood is not None else None,
         "sleep_hours_baseline": rolling_baseline["sleep_7d_avg_hours"],
         "hrv_baseline": rolling_baseline["hrv_7d_avg"],
-        "rhr_baseline": rolling_baseline["rhr_7d_avg"],
+        "rhr_baseline": rolling_baseline["rhr_30d_avg"],
     }
     from backend.services.readiness_explanation import get_readiness_explanation
     explanation = get_readiness_explanation(
@@ -3444,7 +3521,7 @@ def _build_readiness_block(uid, today_bkk):
     hrv_baseline_vals = [float(r.hrv) for r in baseline_rows if r.hrv is not None and r.metric_date >= hrv_baseline_start]
     rhr_baseline_vals = [float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None]
     hrv_7d_avg = _avg(hrv_baseline_vals) if hrv_baseline_vals else None
-    rhr_7d_avg = _avg([float(r.resting_hr) for r in baseline_rows if r.resting_hr is not None and r.metric_date >= hrv_baseline_start])
+    rhr_30d_avg = _avg(rhr_baseline_vals)
     sleep_7d_avg = _avg([float(r.sleep_hours) for r in baseline_rows if r.sleep_hours is not None and r.metric_date >= hrv_baseline_start])
 
     result = _canonical_readiness(
@@ -3494,7 +3571,7 @@ def _build_readiness_block(uid, today_bkk):
         "mood": float(metrics.mood) if metrics.mood is not None else None,
         "sleep_hours_baseline": sleep_7d_avg,
         "hrv_baseline": hrv_7d_avg,
-        "rhr_baseline": rhr_7d_avg,
+        "rhr_baseline": rhr_30d_avg,
     }
     from backend.services.readiness_explanation import get_readiness_explanation
     explanation = get_readiness_explanation(
@@ -4002,7 +4079,7 @@ class HabitLogUpsertIn(BaseModel):
 @app.get("/api/habits/summary")
 def get_habits_summary(user: User = Depends(resolve_user)):
     """Return each active habit with streak and 30-day consistency stats."""
-    from datetime import date as _date_cls, timedelta as _td
+    from datetime import timedelta as _td
     today = _today_bkk()
     window_start = today - _td(days=29)
 
@@ -5176,11 +5253,13 @@ def get_habits_adherence(user: User = Depends(resolve_user)):
 
         logs_by_habit: dict = {}
         if habit_ids:
+            log_cutoff = today - _timedelta(days=60)
             all_logs = (
                 session.query(HabitLog)
                 .filter(
                     HabitLog.habit_id.in_(habit_ids),
                     HabitLog.user_id == uid,
+                    HabitLog.log_date >= log_cutoff,
                 )
                 .all()
             )
@@ -5296,7 +5375,7 @@ def get_adherence_nudges(user: User = Depends(resolve_user)):
     All computation is delegated to compute_adherence_breakdown,
     detect_slipping_habits, and build_nudges.
     """
-    from datetime import date as _date_cls, timedelta as _td
+    from datetime import timedelta as _td
 
     uid = user.id
     today = _today_bkk()
@@ -5848,6 +5927,33 @@ def _classified_manual_laps_map(session, run_workouts, prefs_dict) -> dict:
     return out
 
 
+def _planned_duration_map(session, workout_ids: list) -> dict:
+    """Map workout_id → planned_duration_seconds from matched PlannedSession rows.
+
+    Queries PlannedSession rows whose matched_workout_id is in workout_ids and
+    returns a dict keyed by workout_id.  Workouts not matched to any session, or
+    matched to a session whose structure has no parseable block durations, are
+    absent from the result (the caller treats a missing key as None, which
+    leaves the absolute-only guard in running_performance.py intact — issue #1479).
+    """
+    if not workout_ids:
+        return {}
+    from backend.services.plan_matching import _planned_duration_seconds as _pds
+    rows = (
+        session.query(PlannedSession)
+        .filter(PlannedSession.matched_workout_id.in_(workout_ids))
+        .all()
+    )
+    out = {}
+    for r in rows:
+        if r.matched_workout_id is None:
+            continue
+        dur = _pds(r.structure)
+        if dur is not None:
+            out[r.matched_workout_id] = dur
+    return out
+
+
 def _workout_signal_scores(session, workout) -> dict:
     """Per-session endurance/speed scores for the signal card.
 
@@ -5925,6 +6031,7 @@ def _workout_signal_scores(session, workout) -> dict:
             splits_by_wk.setdefault(s.workout_id, []).append(s)
 
     _ml_map = _classified_manual_laps_map(session, run_workouts, prefs_dict)
+    _pdc_map = _planned_duration_map(session, wids)
 
     def _build(max_date):
         runs = []
@@ -5984,6 +6091,7 @@ def _workout_signal_scores(session, workout) -> dict:
                     "speed_signal_window_seconds": wk.speed_signal_window_seconds,
                     "manual_laps": _ml_map.get(wk.id, []),
                     "ftp_w": (prefs_dict or {}).get("ftp_w"),
+                    "planned_duration_seconds": _pdc_map.get(wk.id),
                 }
             )
         return runs
@@ -6098,6 +6206,7 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
             splits_by_wk.setdefault(s.workout_id, []).append(s)
 
     _ml_map_asof = _classified_manual_laps_map(session, run_workouts, prefs_dict)
+    _pdc_map_asof = _planned_duration_map(session, wids)
 
     runs = []
     for wk in run_workouts:
@@ -6154,6 +6263,7 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
                 "speed_signal_window_seconds": wk.speed_signal_window_seconds,
                 "manual_laps": _ml_map_asof.get(wk.id, []),
                 "ftp_w": (prefs_dict or {}).get("ftp_w"),
+                "planned_duration_seconds": _pdc_map_asof.get(wk.id),
             }
         )
 
@@ -6267,13 +6377,38 @@ def _strava_source_dict(sa, prebuilt_streams: dict | None = None) -> dict | None
     """
     if sa is None:
         return None
-    detail = sa.detail_payload or {}
-    raw = sa.raw_payload or {}
     if prebuilt_streams is not None:
         streams = prebuilt_streams
     else:
         streams = sa.streams_payload if isinstance(sa.streams_payload, dict) else {}
+
+    # For rows synced after issue #1307 the four most-accessed detail scalars live
+    # in promoted columns (laps, splits_metric, best_efforts, calories) so we never
+    # need to load the full detail_payload blob for them.  For older rows all four
+    # promoted columns are NULL; fall back to detail_payload in that case.
+    # getattr: unit fixtures (SimpleNamespace) may omit the new columns.
+    has_promoted = getattr(sa, "laps", None) is not None
+    if has_promoted:
+        laps = getattr(sa, "laps", None) or []
+        splits_metric = getattr(sa, "splits_metric", None) or []
+        best_efforts = getattr(sa, "best_efforts", None) or []
+        calories = getattr(sa, "calories", None)
+        detail = {}  # only accessed below for the un-promoted fields
+    else:
+        detail = getattr(sa, "detail_payload", None) or {}
+        laps = detail.get("laps") or []
+        splits_metric = detail.get("splits_metric") or []
+        best_efforts = detail.get("best_efforts") or []
+        calories = detail.get("calories")
+
+    # Remaining detail fields that are not yet promoted — needs detail_payload
+    # for both old and new rows (segment_efforts, description, gear, map polyline).
+    if not has_promoted:
+        raw = getattr(sa, "raw_payload", None) or {}
+    else:
+        raw = {}
     map_obj = detail.get("map") or raw.get("map") or {}
+
     return {
         "strava_activity_id": sa.strava_activity_id,
         "name": sa.name,
@@ -6292,11 +6427,11 @@ def _strava_source_dict(sa, prebuilt_streams: dict | None = None) -> dict | None
         "external_id": sa.external_id,
         "is_stryd_synced": sa.is_stryd_synced,
         # full nested capture (Tier 2 detail)
-        "laps": detail.get("laps") or [],
-        "splits_metric": detail.get("splits_metric") or [],
-        "best_efforts": detail.get("best_efforts") or [],
+        "laps": laps,
+        "splits_metric": splits_metric,
+        "best_efforts": best_efforts,
         "segment_efforts": detail.get("segment_efforts") or [],
-        "calories": detail.get("calories"),
+        "calories": calories,
         "description": detail.get("description"),
         "gear": detail.get("gear"),
         "map_polyline": map_obj.get("polyline") or map_obj.get("summary_polyline"),
@@ -6470,7 +6605,7 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "remarks": w.remarks,
         "tss": w.tss,
         "tss_source": w.tss_source,
-        "source": w.source,
+        "source": w.source or w.tss_source or "manual",
         "has_strava": "strava" in src or w.strava_activity_pk is not None,
         "has_stryd": "stryd" in src or w.stryd_activity_pk is not None,
         "strava_activity_url": w.strava_activity_url,
@@ -7400,6 +7535,16 @@ def _planned_session_dict(p, matched=None, estimate_baseline=None) -> dict:
         "created_at": p.created_at.isoformat() if p.created_at else None,
         "updated_at": p.updated_at.isoformat() if p.updated_at else None,
     }
+    # Exercise-level actual spend (non-skipped) — planned pin stays on structure.
+    try:
+        from backend.services.session_pins import structure_actual_spend
+        spend = structure_actual_spend(p.structure)
+        if spend:
+            d["actual_tss"] = spend["actual_tss"]
+            d["actual_duration_min"] = spend["actual_duration_min"]
+            d["planned_tss"] = spend.get("planned_tss")
+    except Exception:
+        pass
     # Rough, formula-only (no LLM) estimated TSS/distance for a still-open,
     # still-ACHIEVABLE session, so a "what's coming this week" progress view
     # isn't blind to planned-but-not-logged work — see training_load.
@@ -10335,15 +10480,18 @@ def _upsert_strava_token(
     scope: Optional[str],
     athlete_data: dict,
 ) -> None:
+    from backend.services.crypto import encrypt_oauth_token as _enc_oauth  # noqa: E402
     now = _datetime.now(tz=_timezone.utc)
+    enc_at = _enc_oauth(access_token)
+    enc_rt = _enc_oauth(refresh_token)
     with Session(engine) as session:
         stmt = (
             _pg_insert(StravaToken)
             .values(
                 user_id=user_id,
                 athlete_id=athlete_id,
-                access_token=access_token,
-                refresh_token=refresh_token,
+                access_token_encrypted=enc_at,
+                refresh_token_encrypted=enc_rt,
                 expires_at=expires_at,
                 scope=scope,
                 athlete_data=athlete_data,
@@ -10352,8 +10500,8 @@ def _upsert_strava_token(
                 index_elements=["user_id"],
                 set_={
                     "athlete_id": athlete_id,
-                    "access_token": access_token,
-                    "refresh_token": refresh_token,
+                    "access_token_encrypted": enc_at,
+                    "refresh_token_encrypted": enc_rt,
                     "expires_at": expires_at,
                     "scope": scope,
                     "athlete_data": athlete_data,
@@ -10431,7 +10579,7 @@ def strava_callback(
 # ── Stryd ──────────────────────────────────────────────────────────────────────
 
 from backend.services.stryd import _call_stryd_signin as _stryd_signin  # noqa: E402
-from backend.services.crypto import encrypt_value as _encrypt_value  # noqa: E402
+from backend.services.crypto import encrypt_value as _encrypt_value, decrypt_oauth_token as _decrypt_oauth_token  # noqa: E402
 from backend.services.strava import refresh_token_if_needed  # noqa: E402
 from backend.services.stryd import refresh_stryd_session_if_needed  # noqa: E402
 
@@ -10578,7 +10726,7 @@ def strava_disconnect(user: User = Depends(resolve_user)):
     with Session(engine) as session:
         token_row = session.query(StravaToken).filter(StravaToken.user_id == user_id).first()
         if token_row is not None:
-            access_token = token_row.access_token
+            access_token = _decrypt_oauth_token(token_row.access_token_encrypted)
             session.delete(token_row)
             session.commit()
 
@@ -11012,6 +11160,8 @@ def strava_sync_latest(
     Without user_id: returns legacy summary dict for session user (backwards-compatible).
     """
     if user_id is not None:
+        if user_id != user.id and not bool(user.is_admin):
+            raise HTTPException(status_code=403, detail="Forbidden")
         # New path: full SyncJob dict, any status
         with Session(engine) as session:
             job = session.execute(
@@ -11142,6 +11292,8 @@ def stryd_sync_latest(
     """Most recent Stryd sync. With user_id: full latest SyncJob (any status);
     without: completed-only summary for the session user."""
     from sqlalchemy import select
+    if user_id is not None and user_id != user.id and not bool(user.is_admin):
+        raise HTTPException(status_code=403, detail="Forbidden")
     target = user_id if user_id is not None else user.id
     with Session(engine) as session:
         if user_id is not None:
@@ -11491,27 +11643,30 @@ def _upsert_google_credentials(
     expires_at: _datetime,
     id_token_payload: dict,
 ) -> None:
+    from backend.services.crypto import encrypt_oauth_token as _enc_oauth  # noqa: E402
     now = _datetime.now(tz=_timezone.utc)
+    enc_at = _enc_oauth(access_token)
+    enc_rt = _enc_oauth(refresh_token) if refresh_token is not None else None
     with Session(engine) as session:
         set_values: dict = {
             "google_sub": google_sub,
             "email": email,
             "email_verified": email_verified,
-            "access_token": access_token,
+            "access_token_encrypted": enc_at,
             "expires_at": expires_at,
             "id_token_payload": id_token_payload,
             "updated_at": now,
         }
-        if refresh_token is not None:
-            set_values["refresh_token"] = refresh_token
+        if enc_rt is not None:
+            set_values["refresh_token_encrypted"] = enc_rt
 
         insert_values = {
             "user_id": user_id,
             "google_sub": google_sub,
             "email": email,
             "email_verified": email_verified,
-            "access_token": access_token,
-            "refresh_token": refresh_token,
+            "access_token_encrypted": enc_at,
+            "refresh_token_encrypted": enc_rt,
             "expires_at": expires_at,
             "id_token_payload": id_token_payload,
         }
@@ -11853,7 +12008,6 @@ def drive_sleep_disconnect(user: User = Depends(resolve_user)):
 # ── Imports ───────────────────────────────────────────────────────────────────
 
 class _SleepImportBody(BaseModel):
-    user_id: str
     import_date: str
     source: str
     data: dict
@@ -13032,15 +13186,32 @@ _FORM_METRICS_ROLLING_DAYS = 28
 
 
 def _rolling_mean(values: list, window: int = _FORM_METRICS_ROLLING_DAYS) -> list:
-    """Return a trailing-window simple mean for each position in values.
+    """Return a date-based trailing-window simple mean for each position in values.
 
     values is a list of (run_date, float|None) tuples sorted ascending.
-    Returns a list of float|None — None when no non-null values exist in window.
+    run_date may be a datetime.date or an ISO-format string.
+    For each row, includes only entries whose date is within (window - 1) calendar
+    days of that row's date (i.e. the inclusive [date - 27d, date] window for a
+    28-day window). Returns a list of float|None — None when no non-null values
+    exist in window.
     """
+    import datetime as _dt
+
+    def _as_date(d):
+        if isinstance(d, _dt.date):
+            return d
+        return _dt.date.fromisoformat(d)
+
     out = []
-    for i, (_, v) in enumerate(values):
-        start = max(0, i - window + 1)
-        window_vals = [v2 for _, v2 in values[start : i + 1] if v2 is not None]
+    cutoff_delta = _dt.timedelta(days=window - 1)
+    for i, (rd, _) in enumerate(values):
+        current_date = _as_date(rd)
+        earliest = current_date - cutoff_delta
+        window_vals = [
+            v2
+            for rd2, v2 in values[: i + 1]
+            if v2 is not None and _as_date(rd2) >= earliest
+        ]
         out.append(round(sum(window_vals) / len(window_vals), 4) if window_vals else None)
     return out
 
@@ -13051,7 +13222,7 @@ def get_run_form_metrics(
     to_date: Optional[str] = Query(default=None, alias="to"),
     user: User = Depends(resolve_user),
 ):
-    """Per-run Stryd running-dynamics series with 28-day rolling means.
+    """Per-run Stryd running-dynamics series with 28-calendar-day rolling means.
 
     Query params (both optional):
         from  YYYY-MM-DD  start of range (default: 90 days ago)
@@ -13059,7 +13230,8 @@ def get_run_form_metrics(
 
     Response:
         runs           list of per-run objects sorted by run_date asc
-        rolling_means  28-day trailing means for each metric at each date position
+        rolling_means  28-calendar-day trailing means for each metric at each date
+                       position (only entries within the preceding 27 days are included)
     """
     today = _today_bkk()
     if from_date is None and to_date is None:
@@ -13164,486 +13336,6 @@ def get_structural_dose(
     with Session(engine) as db:
         result = compute_structural_dose(db, user.id, today, weeks=weeks)
     return JSONResponse(result)
-
-
-# ── Gap analysis endpoint (issue #1370) ───────────────────────────────────────
-
-@app.get("/api/training/gap-analysis")
-def get_gap_analysis(user: User = Depends(resolve_user)):
-    """Compute (or refresh) this week's training gap findings for the session user.
-
-    Runs the rules engine against available inputs (structural dose, etc.),
-    upserts findings into gap_findings preserving status, and returns:
-    {
-      "week_start":    "YYYY-MM-DD",
-      "computed_at":   "ISO datetime",
-      "findings": [
-        {
-          "code":           str,
-          "severity":       1|2|3,
-          "recommendation": str,
-          "evidence":       [{metric, value, threshold, window}],
-          "evidence_text":  str,   // deterministic sentence (issue #1374)
-          "target":         str | null
-        }, ...
-      ],  // ordered severity desc, code asc (issue #1374)
-      "skipped_rules": [str, ...]
-    }
-    """
-    from backend.services.gap_analysis.engine import run_gap_analysis
-    from backend.services.gap_analysis.evidence_text import (
-        render_evidence_text,
-        sort_findings_for_panel,
-    )
-    from backend.services.gap_analysis.phrasing import get_finding_phrasing
-    from backend.utils.time import today_bangkok
-
-    today = today_bangkok()
-    week_start_date = today - _timedelta(days=today.weekday())
-    week_start = week_start_date.isoformat()
-    with Session(engine) as db:
-        result = run_gap_analysis(db, user.id, today)
-
-        # Enrich each finding with evidence text (issue #1374), LLM phrasing (issue #1375),
-        # and add-to-plan template flags (issue #1376).
-        from backend.services.gap_analysis.templates import get_template, is_load_adding as _is_load_adding
-        from backend.services.gap_analysis.session_presets import (
-            get_preset_for_code,
-            is_incomplete_gap_session,
-        )
-
-        week_end_date = week_start_date + _timedelta(days=6)
-        on_plan_by_code: dict = {}
-        try:
-            plan_rows = (
-                db.query(PlannedSession)
-                .filter(
-                    PlannedSession.user_id == user.id,
-                    PlannedSession.planned_date >= week_start_date,
-                    PlannedSession.planned_date <= week_end_date,
-                    PlannedSession.structure.op("->>")("_gap_code").isnot(None),
-                )
-                .all()
-            )
-            for ps in plan_rows:
-                struct = ps.structure if isinstance(ps.structure, dict) else {}
-                gcode = struct.get("_gap_code")
-                if not gcode or gcode in on_plan_by_code:
-                    continue
-                on_plan_by_code[gcode] = {
-                    "planned_date": ps.planned_date.isoformat() if ps.planned_date else None,
-                    "session_id": str(ps.id),
-                    "incomplete": is_incomplete_gap_session(
-                        struct, get_preset_for_code(gcode, priority=2)
-                    ),
-                }
-        except Exception:
-            on_plan_by_code = {}
-
-        enriched = []
-        for f in result["findings"]:
-            phrasing_result = get_finding_phrasing(
-                f,
-                user_id=user.id,
-                week_start=week_start,
-                db=db,
-            )
-            code = f["code"]
-            try:
-                tmpl = get_template(code)
-                has_tmpl = tmpl is not None
-            except KeyError:
-                has_tmpl = False
-            preset = get_preset_for_code(code, priority=f.get("severity"))
-            item = {
-                **f,
-                "evidence_text": render_evidence_text(code, f["evidence"], f.get("target")),
-                "phrasing": phrasing_result["phrasing"],
-                "phrasing_source": phrasing_result["phrasing_source"],
-                "has_template": has_tmpl,
-                "load_adding": _is_load_adding(code),
-                "preset": preset,
-            }
-            if code in on_plan_by_code:
-                item["on_plan"] = on_plan_by_code[code]
-            enriched.append(item)
-
-        # Apply suppression filter (issue #1377): partition into visible / muted
-        from backend.services.gap_analysis.suppression import apply_suppression
-        partitioned = apply_suppression(db, user.id, week_start_date, enriched)
-
-        # De-dup against open preference proposals: a finding whose gap code
-        # maps to a field that already has an open ("proposed") proposal is
-        # actionable elsewhere (the Plan Accept/Adjust/Decline UI) — no need
-        # to show it twice. Only suppress when a proposal is actually open,
-        # never just because the code is proposal-eligible — a finding that
-        # hasn't persisted long enough to become a proposal yet must still
-        # show here, or its pre-proposal visibility disappears for weeks.
-        from backend.services.gap_analysis.pref_proposals import has_open_proposal_for_code
-        partitioned["findings"] = [
-            item for item in partitioned["findings"]
-            if not has_open_proposal_for_code(db, user.id, item["code"])
-        ]
-
-    sorted_visible = sort_findings_for_panel(partitioned["findings"])
-    sorted_muted = sort_findings_for_panel(partitioned["muted"])
-
-    return JSONResponse({
-        **result,
-        "findings": sorted_visible,
-        "muted": sorted_muted,
-        "verdict": _gap_get_verdict_for_user(user.id, today),
-    })
-
-
-# ── Finding feedback: accept / dismiss (issue #1377) ─────────────────────────
-
-_GAP_STATUS_VALID = frozenset({"active", "accepted", "dismissed"})
-
-
-class _GapStatusBody(BaseModel):
-    status: str
-
-
-@app.post("/api/training/gap-analysis/{code}/status")
-def gap_update_status(
-    code: str,
-    body: _GapStatusBody,
-    user: User = Depends(resolve_user),
-):
-    """Update the feedback status of this week's gap-finding.
-
-    Path param:
-        code   Gap-analysis rule code (e.g. 'cadence_drift')
-
-    Body:
-        status   "accepted" | "dismissed" | "active" (restores)
-
-    Responses:
-        200  Updated finding dict with new status
-        404  No gap_findings row for this user/week/code
-        422  Invalid status value
-    """
-    from backend.utils.time import today_bangkok
-    from backend.services.gap_analysis.suppression import evidence_hash as _ev_hash
-
-    if body.status not in _GAP_STATUS_VALID:
-        raise HTTPException(
-            status_code=422,
-            detail=f"status must be one of: {sorted(_GAP_STATUS_VALID)}",
-        )
-
-    today = today_bangkok()
-    week_start = (today - _timedelta(days=today.weekday())).isoformat()
-    now_dt = _datetime.now(tz=_timezone.utc)
-
-    with Session(engine) as db:
-        row = db.execute(
-            text("""
-                SELECT id, severity, evidence, status
-                FROM gap_findings
-                WHERE user_id = :uid AND week_start = :ws AND code = :code
-            """),
-            {"uid": str(user.id), "ws": week_start, "code": code},
-        ).fetchone()
-
-        if row is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No gap finding for code={code!r} this week",
-            )
-
-        row_id, severity, evidence, current_status = row
-        new_status = body.status
-
-        import json as _json
-        evidence_list = evidence if isinstance(evidence, list) else (_json.loads(evidence) if evidence else [])
-        ev_hash = _ev_hash(evidence_list)
-
-        if new_status == "dismissed":
-            db.execute(
-                text("""
-                    UPDATE gap_findings
-                    SET status = 'dismissed',
-                        dismissed_at = :now,
-                        dismissed_severity = :sev,
-                        accepted_at = NULL,
-                        accepted_evidence_hash = NULL
-                    WHERE id = :rid
-                """),
-                {"now": now_dt, "sev": severity, "rid": str(row_id)},
-            )
-        elif new_status == "accepted":
-            db.execute(
-                text("""
-                    UPDATE gap_findings
-                    SET status = 'accepted',
-                        accepted_at = :now,
-                        accepted_evidence_hash = :evh,
-                        dismissed_at = NULL,
-                        dismissed_severity = NULL
-                    WHERE id = :rid
-                """),
-                {"now": now_dt, "evh": ev_hash, "rid": str(row_id)},
-            )
-        else:  # active — restore
-            db.execute(
-                text("""
-                    UPDATE gap_findings
-                    SET status = 'active',
-                        dismissed_at = NULL,
-                        dismissed_severity = NULL,
-                        accepted_at = NULL,
-                        accepted_evidence_hash = NULL
-                    WHERE id = :rid
-                """),
-                {"rid": str(row_id)},
-            )
-        db.commit()
-
-    return JSONResponse({"code": code, "status": new_status, "week_start": week_start})
-
-
-# ── Add-to-plan helper (issue #1376) ─────────────────────────────────────────
-
-def _gap_get_verdict_for_user(user_id, today) -> Optional[str]:
-    """Return the current training verdict (back_off/hold/build) or None on failure."""
-    try:
-        from backend.services.gap_analysis.engine import _gather_training_verdict
-        return _gather_training_verdict(user_id, today)
-    except Exception:
-        return None
-
-
-class _GapAddToPlanBody(BaseModel):
-    date: str
-
-
-@app.post("/api/training/gap-analysis/{code}/add-to-plan", status_code=201)
-def gap_add_to_plan(
-    code: str,
-    body: _GapAddToPlanBody,
-    user: User = Depends(resolve_user),
-):
-    """Add a gap-analysis session preset into the week *draft* (not planned yet).
-
-    Path param:
-        code   Gap-analysis rule code (e.g. 'plyo_deficit')
-
-    Body:
-        date   ISO date (YYYY-MM-DD) for the draft slot
-
-    On success the finding is auto-marked ``accepted`` (added). Apply week
-    (or apply-slot) commits the draft to planned_sessions.
-    """
-    from backend.models import GapFinding, PlanDraft
-    from backend.services.gap_analysis.session_presets import (
-        get_preset_for_code,
-        materialize_planned_fields,
-    )
-    from backend.services.gap_analysis.templates import is_load_adding
-    from backend.services.plan_draft import (
-        apply_structure_op,
-        ensure_draft_shell,
-        get_draft,
-    )
-    from backend.utils.time import today_bangkok
-
-    preset = get_preset_for_code(code)
-    if preset is None:
-        raise HTTPException(status_code=404, detail=f"No add-to-plan action for rule: {code!r}")
-
-    target_date = _validate_planned_date(body.date)
-
-    if is_load_adding(code):
-        today = today_bangkok()
-        verdict = _gap_get_verdict_for_user(user.id, today)
-        if verdict == "back_off":
-            raise HTTPException(
-                status_code=409,
-                detail={"code": "back_off", "message": "Training verdict is back_off — load-adding sessions are disabled."},
-            )
-        if verdict is None:
-            raise HTTPException(
-                status_code=409,
-                detail={"code": "verdict_unavailable", "message": "Training verdict could not be computed — load-adding sessions are disabled until load data is available."},
-            )
-
-    week_start = target_date - _timedelta(days=target_date.weekday())
-    week_end = week_start + _timedelta(days=6)
-    day_offset = (target_date - week_start).days
-
-    # Optional load ceiling for materialize clamp
-    load_ceiling = None
-    try:
-        from backend.services.load_plan import ACWR_CEILING_MULT
-        from backend.models import TrainingLoadSnapshot
-        with Session(engine) as _db:
-            snap = (
-                _db.query(TrainingLoadSnapshot)
-                .filter(
-                    TrainingLoadSnapshot.user_id == user.id,
-                    TrainingLoadSnapshot.snapshot_date <= target_date,
-                )
-                .order_by(TrainingLoadSnapshot.snapshot_date.desc())
-                .first()
-            )
-            if snap is not None:
-                ctl = float(getattr(snap, "ctl", 0) or 0)
-                if ctl > 0:
-                    load_ceiling = round(ctl * 7 * float(ACWR_CEILING_MULT), 1)
-    except Exception:
-        load_ceiling = None
-
-    fields = materialize_planned_fields(preset, load_ceiling_tss=load_ceiling)
-    session_type = _validate_planned_type(fields["session_type"])
-    structure = dict(fields.get("structure") or {})
-    structure["_gap_code"] = code
-    structure["_preset_code"] = code
-
-    with Session(engine) as db:
-        # Duplicate: already planned this week with this gap code
-        existing_planned = (
-            db.query(PlannedSession)
-            .filter(
-                PlannedSession.user_id == user.id,
-                PlannedSession.planned_date >= week_start,
-                PlannedSession.planned_date <= week_end,
-                PlannedSession.structure.op("->>")("_gap_code") == code,
-            )
-            .first()
-        )
-        if existing_planned is not None:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "already_planned_this_week",
-                    "message": f"A {code!r} session is already planned this week.",
-                    "planned_date": existing_planned.planned_date.isoformat()
-                    if existing_planned.planned_date
-                    else None,
-                    "session_id": str(existing_planned.id),
-                },
-            )
-
-        ensure_draft_shell(db, user.id, week_start)
-        draft = get_draft(db, user.id, week_start) or {}
-        sessions = list((draft.get("payload") or {}).get("sessions") or [])
-
-        # Duplicate: already in this week's draft with this gap code
-        existing_draft = next(
-            (
-                s for s in sessions
-                if isinstance(s, dict) and (
-                    s.get("_gap_code") == code
-                    or (isinstance(s.get("structure"), dict) and s["structure"].get("_gap_code") == code)
-                )
-            ),
-            None,
-        )
-        if existing_draft is not None:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "already_planned_this_week",
-                    "message": f"A {code!r} session is already on this week's draft.",
-                    "planned_date": (
-                        week_start + _timedelta(days=int(existing_draft.get("day_offset") or 0))
-                    ).isoformat(),
-                    "slot_id": existing_draft.get("slot_id"),
-                    "draft": True,
-                },
-            )
-
-        result = apply_structure_op(
-            db, user.id, week_start,
-            op="add",
-            confirm_warnings=True,
-            inline=False,
-            day=day_offset,
-            kind="custom",
-            custom={
-                "workout_type": session_type,
-                "subtype": session_type,
-                "duration_minutes": int(fields.get("duration_min") or 30),
-                "target_tss": float(fields.get("target_tss") or 0),
-                "intent": fields.get("name") or "",
-                "notes": fields.get("notes"),
-                "structure": structure,
-                "_gap_code": code,
-            },
-        )
-        if not result.get("ok"):
-            code_http = result.get("status_code") or 400
-            detail = result.get("block_reason") or result.get("error") or result
-            if result.get("needs_confirm"):
-                raise HTTPException(status_code=409, detail=result)
-            raise HTTPException(status_code=code_http if code_http >= 400 else 400, detail=detail)
-
-        draft_out = result.get("draft") or get_draft(db, user.id, week_start) or {}
-        added_id = None
-        for s in ((draft_out.get("payload") or {}).get("sessions") or []):
-            if isinstance(s, dict) and int(s.get("day_offset", -1)) == day_offset:
-                added_id = s.get("slot_id")
-                s["_gap_code"] = code
-                if structure:
-                    s["structure"] = structure
-                break
-        if added_id:
-            row = db.query(PlanDraft).filter(
-                PlanDraft.user_id == user.id, PlanDraft.week_start == week_start
-            ).first()
-            if row and draft_out.get("payload"):
-                row.payload = draft_out["payload"]
-                db.flush()
-        slot_id = added_id
-        out_day = day_offset
-        upgraded = False
-
-        # Auto-mark finding accepted/added
-        finding = (
-            db.query(GapFinding)
-            .filter(
-                GapFinding.user_id == user.id,
-                GapFinding.week_start == week_start,
-                GapFinding.code == code,
-            )
-            .first()
-        )
-        if finding is not None and finding.status == "active":
-            from datetime import datetime, timezone as _tz
-            finding.status = "accepted"
-            finding.accepted_at = datetime.now(tz=_tz.utc)
-
-        db.commit()
-        fresh = get_draft(db, user.id, week_start) or {}
-        sess = None
-        for s in ((fresh.get("payload") or {}).get("sessions") or []):
-            if isinstance(s, dict) and (
-                (slot_id and s.get("slot_id") == slot_id)
-                or int(s.get("day_offset", -1)) == out_day
-            ):
-                sess = s
-                break
-
-        out = {
-            "draft": True,
-            "week_start": week_start.isoformat(),
-            "day_offset": out_day,
-            "slot_id": slot_id or (sess or {}).get("slot_id"),
-            "planned_date": target_date.isoformat(),
-            "session_type": session_type,
-            "session": sess,
-            "structure": (sess or {}).get("structure") or structure,
-            "preset": {
-                "code": code,
-                "summary": preset.get("summary"),
-                "constraints": preset.get("constraints"),
-            },
-            "marked_accepted": finding is not None,
-            "upgraded": upgraded,
-        }
-        return JSONResponse(status_code=201, content=out)
 
 
 @app.get("/api/training/muscle-load")
@@ -13760,9 +13452,26 @@ def admin_entry(request: Request):
     return FileResponse(str(_static_root / "frontend" / "pages" / "admin-login.html"))
 
 
+@app.get("/admin/exercises", include_in_schema=False)
+@app.get("/admin/plan-library", include_in_schema=False)
+def admin_plan_library_page(request: Request):
+    """Plan library — patterns + exercise pool for pattern fill. Same admin cookie gate as /admin."""
+    secret = get_admin_secret()
+    if not secret:
+        raise HTTPException(status_code=403, detail="Admin access is disabled on this instance")
+    token = request.cookies.get(ADMIN_COOKIE_NAME)
+    if token:
+        try:
+            read_admin_cookie(token)
+            return FileResponse(str(_static_root / "frontend" / "pages" / "admin-plan-library.html"))
+        except ValueError:
+            pass
+    return FileResponse(str(_static_root / "frontend" / "pages" / "admin-login.html"))
+
+
 @app.post("/api/admin/login")
 def admin_login(body: AdminLoginIn, request: Request):
-    ip = request.client.host if request.client else "unknown"
+    ip = get_client_ip(request)
     admin_lockout_check(ip)
 
     admin_secret = get_admin_secret()
@@ -13776,6 +13485,7 @@ def admin_login(body: AdminLoginIn, request: Request):
     admin_lockout_clear(ip)
     resp = JSONResponse({"ok": True})
     set_admin_cookie(resp)
+    set_csrf_cookie(resp, generate_csrf_token())
     return resp
 
 
@@ -13783,6 +13493,7 @@ def admin_login(body: AdminLoginIn, request: Request):
 def admin_logout():
     resp = Response(status_code=204)
     clear_admin_cookie(resp)
+    resp.delete_cookie(key=CSRF_COOKIE_NAME, path="/")
     return resp
 
 
@@ -14099,6 +13810,782 @@ def admin_copy_user_to_uat(body: AdminCopyUserIn):
     return JSONResponse(result)
 
 
+# ── Admin: plan patterns / exercises ──────────────────────────────────────────
+
+class AdminPlanPatternIn(BaseModel):
+    kind: str
+    subtype: str
+    duration_min_lo: int = 0
+    duration_min_hi: int = 120
+    name: str
+    priority: int = 10
+    recipe: dict
+    active: bool = True
+
+
+class AdminPlanExerciseIn(BaseModel):
+    name: str
+    groups: list = []
+    focus_tags: list = []
+    body_parts: list = []
+    tss_weight: float = 1.0
+    default_sets: Optional[int] = None
+    default_reps: Optional[str] = None
+    default_load: Optional[str] = None
+    active: bool = True
+
+
+def _pattern_dict(r) -> dict:
+    return {
+        "id": str(r.id),
+        "kind": r.kind,
+        "subtype": r.subtype,
+        "duration_min_lo": r.duration_min_lo,
+        "duration_min_hi": r.duration_min_hi,
+        "name": r.name,
+        "priority": r.priority,
+        "recipe": r.recipe or {},
+        "active": bool(r.active),
+        "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+    }
+
+
+def _exercise_dict(r) -> dict:
+    return {
+        "id": str(r.id),
+        "name": r.name,
+        "groups": r.groups or [],
+        "focus_tags": r.focus_tags or [],
+        "body_parts": r.body_parts or [],
+        "tss_weight": float(r.tss_weight or 1.0),
+        "default_sets": r.default_sets,
+        "default_reps": r.default_reps,
+        "default_load": r.default_load,
+        "active": bool(r.active),
+        "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+    }
+
+
+@app.get("/api/admin/plan-patterns", dependencies=[Depends(require_admin)])
+def admin_list_plan_patterns(kind: Optional[str] = None, subtype: Optional[str] = None):
+    from backend.models import PlanPattern
+
+    with Session(engine) as db:
+        q = db.query(PlanPattern)
+        if kind:
+            q = q.filter(PlanPattern.kind == kind)
+        if subtype:
+            q = q.filter(PlanPattern.subtype == subtype)
+        rows = q.order_by(PlanPattern.kind, PlanPattern.subtype, PlanPattern.priority.desc()).all()
+        return JSONResponse({"patterns": [_pattern_dict(r) for r in rows]})
+
+
+@app.post("/api/admin/plan-patterns", status_code=201, dependencies=[Depends(require_admin)])
+def admin_create_plan_pattern(body: AdminPlanPatternIn):
+    from backend.models import PlanPattern
+    from datetime import datetime, timezone
+
+    if body.kind not in ("run", "strength"):
+        raise HTTPException(status_code=422, detail="kind must be run or strength")
+    with Session(engine) as db:
+        row = PlanPattern(
+            kind=body.kind,
+            subtype=body.subtype.strip(),
+            duration_min_lo=body.duration_min_lo,
+            duration_min_hi=body.duration_min_hi,
+            name=body.name.strip(),
+            priority=body.priority,
+            recipe=body.recipe,
+            active=body.active,
+            updated_at=datetime.now(timezone.utc),
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return JSONResponse(status_code=201, content=_pattern_dict(row))
+
+
+@app.patch("/api/admin/plan-patterns/{pattern_id}", dependencies=[Depends(require_admin)])
+def admin_patch_plan_pattern(pattern_id: str, body: AdminPlanPatternIn):
+    from backend.models import PlanPattern
+    from datetime import datetime, timezone
+    from uuid import UUID
+
+    with Session(engine) as db:
+        row = db.query(PlanPattern).filter(PlanPattern.id == UUID(pattern_id)).first()
+        if row is None:
+            raise HTTPException(status_code=404, detail="pattern not found")
+        if body.kind not in ("run", "strength"):
+            raise HTTPException(status_code=422, detail="kind must be run or strength")
+        row.kind = body.kind
+        row.subtype = body.subtype.strip()
+        row.duration_min_lo = body.duration_min_lo
+        row.duration_min_hi = body.duration_min_hi
+        row.name = body.name.strip()
+        row.priority = body.priority
+        row.recipe = body.recipe
+        row.active = body.active
+        row.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(row)
+        return JSONResponse(_pattern_dict(row))
+
+
+@app.delete("/api/admin/plan-patterns/{pattern_id}", status_code=204, dependencies=[Depends(require_admin)])
+def admin_delete_plan_pattern(pattern_id: str):
+    from backend.models import PlanPattern
+    from uuid import UUID
+
+    with Session(engine) as db:
+        row = db.query(PlanPattern).filter(PlanPattern.id == UUID(pattern_id)).first()
+        if row is None:
+            raise HTTPException(status_code=404, detail="pattern not found")
+        db.delete(row)
+        db.commit()
+    return Response(status_code=204)
+
+
+@app.get("/api/admin/plan-exercises", dependencies=[Depends(require_admin)])
+def admin_list_plan_exercises():
+    from backend.models import PlanExercise
+
+    with Session(engine) as db:
+        rows = db.query(PlanExercise).order_by(PlanExercise.name).all()
+        return JSONResponse({"exercises": [_exercise_dict(r) for r in rows]})
+
+
+@app.post("/api/admin/plan-exercises", status_code=201, dependencies=[Depends(require_admin)])
+def admin_create_plan_exercise(body: AdminPlanExerciseIn):
+    from backend.models import PlanExercise
+    from backend.services.plan_body_parts import normalize_body_parts_list
+    from datetime import datetime, timezone
+    from sqlalchemy.exc import IntegrityError
+
+    cleaned, bp_err = normalize_body_parts_list(body.body_parts or [])
+    if bp_err:
+        raise HTTPException(status_code=422, detail=bp_err)
+
+    with Session(engine) as db:
+        row = PlanExercise(
+            name=body.name.strip(),
+            groups=body.groups or [],
+            focus_tags=body.focus_tags or [],
+            body_parts=cleaned or [],
+            tss_weight=body.tss_weight,
+            default_sets=body.default_sets,
+            default_reps=body.default_reps,
+            default_load=body.default_load,
+            active=body.active,
+            updated_at=datetime.now(timezone.utc),
+        )
+        db.add(row)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=409, detail=f"Exercise '{body.name}' already exists")
+        db.refresh(row)
+        return JSONResponse(status_code=201, content=_exercise_dict(row))
+
+
+@app.patch("/api/admin/plan-exercises/{exercise_id}", dependencies=[Depends(require_admin)])
+def admin_patch_plan_exercise(exercise_id: str, body: AdminPlanExerciseIn):
+    from backend.models import PlanExercise
+    from backend.services.plan_body_parts import normalize_body_parts_list
+    from datetime import datetime, timezone
+    from uuid import UUID
+
+    cleaned, bp_err = normalize_body_parts_list(body.body_parts or [])
+    if bp_err:
+        raise HTTPException(status_code=422, detail=bp_err)
+
+    with Session(engine) as db:
+        row = db.query(PlanExercise).filter(PlanExercise.id == UUID(exercise_id)).first()
+        if row is None:
+            raise HTTPException(status_code=404, detail="exercise not found")
+        row.name = body.name.strip()
+        row.groups = body.groups or []
+        row.focus_tags = body.focus_tags or []
+        row.body_parts = cleaned or []
+        row.tss_weight = body.tss_weight
+        row.default_sets = body.default_sets
+        row.default_reps = body.default_reps
+        row.default_load = body.default_load
+        row.active = body.active
+        row.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(row)
+        return JSONResponse(_exercise_dict(row))
+
+
+@app.delete("/api/admin/plan-exercises/{exercise_id}", status_code=204, dependencies=[Depends(require_admin)])
+def admin_delete_plan_exercise(exercise_id: str):
+    from backend.models import PlanExercise
+    from uuid import UUID
+
+    with Session(engine) as db:
+        row = db.query(PlanExercise).filter(PlanExercise.id == UUID(exercise_id)).first()
+        if row is None:
+            raise HTTPException(status_code=404, detail="exercise not found")
+        db.delete(row)
+        db.commit()
+    return Response(status_code=204)
+
+
+class AdminPlanExercisePreviewIn(BaseModel):
+    subtype: str = "strength_light"
+    duration_minutes: int = 45
+    target_tss: float = 40
+    # None → fresh random each Preview click so you can see shuffle.
+    seed: int | None = None
+
+
+_RUN_PREVIEW_SUBTYPES = frozenset({
+    "easy_run", "easy", "tempo", "intervals", "long_run",
+})
+
+
+@app.post("/api/admin/plan-exercises/preview", dependencies=[Depends(require_admin)])
+def admin_preview_plan_exercise_fill(body: AdminPlanExercisePreviewIn):
+    """Dry-run pattern fill for one strength or run subtype."""
+    import random
+    import time
+
+    from backend.services.plan_pattern_fill import (
+        compute_pool_counts,
+        fill_slot,
+        select_pattern,
+        _load_exercise_pool,
+    )
+    from backend.services.plan_slot import normalize_slot_subtype
+
+    raw_sub = (body.subtype or "").strip()
+    if raw_sub in _RUN_PREVIEW_SUBTYPES:
+        wt = "run"
+        subtype = normalize_slot_subtype("run", raw_sub) or raw_sub
+    else:
+        wt = "strength"
+        subtype = normalize_slot_subtype("strength", raw_sub) or "strength_light"
+
+    slot = {
+        "day_offset": 0,
+        "workout_type": wt,
+        "target_tss": float(body.target_tss),
+        "duration_minutes": int(body.duration_minutes),
+        "subtype": subtype,
+        "structure_hints": {},
+        "locked": False,
+    }
+    seed = body.seed if body.seed is not None else (time.time_ns() & 0xFFFFFFFF)
+    with Session(engine) as db:
+        content = fill_slot(
+            slot,
+            db=db,
+            week_ctx={"skeleton_slots": [slot]},
+            rng=random.Random(seed),
+        )
+        pattern = select_pattern(
+            db,
+            workout_type=wt,
+            subtype=subtype,
+            duration_min=int(body.duration_minutes),
+        )
+        pool_counts = None
+        if pattern and wt == "strength":
+            pool_counts = compute_pool_counts(
+                pattern,
+                _load_exercise_pool(db),
+                duration_min=int(body.duration_minutes),
+            )
+            pool_counts["pattern_id"] = pattern.get("id")
+    fill_log = content.get("fill_log") or {}
+    footprint = content.get("_muscle_footprint") or {}
+    muscle_summary = [
+        {"part": p, "tss": round(float(v), 2)}
+        for p, v in sorted(footprint.items(), key=lambda kv: -float(kv[1]))
+        if float(v) > 0
+    ]
+    return JSONResponse({
+        "subtype": subtype,
+        "workout_type": wt,
+        "intent": content.get("intent"),
+        "notes": content.get("notes"),
+        "exercises": content.get("exercises") or [],
+        "blocks": content.get("blocks") or [],
+        "source": content.get("source"),
+        "pattern_name": content.get("pattern_name"),
+        "pattern_id": (pattern or {}).get("id") if pattern else None,
+        "fill_log": fill_log,
+        "budget_trace": fill_log.get("budget_trace") or [],
+        "pool_counts": pool_counts,
+        "muscle_footprint": footprint,
+        "muscle_summary": muscle_summary,
+        "duration_minutes": int(body.duration_minutes),
+        "target_tss": float(body.target_tss),
+        "seed": seed,
+    })
+
+
+@app.get("/api/admin/plan-patterns/{pattern_id}/pool-counts", dependencies=[Depends(require_admin)])
+def admin_plan_pattern_pool_counts(pattern_id: str, duration_min: int = 60):
+    """Matched exercise counts per recipe group (same tag matcher as fill)."""
+    from uuid import UUID
+
+    from backend.models import PlanPattern
+    from backend.services.plan_pattern_fill import _load_exercise_pool, compute_pool_counts
+
+    with Session(engine) as db:
+        row = db.query(PlanPattern).filter(PlanPattern.id == UUID(pattern_id)).first()
+        if row is None:
+            raise HTTPException(status_code=404, detail="pattern not found")
+        pattern = {
+            "id": str(row.id),
+            "kind": row.kind,
+            "subtype": row.subtype,
+            "name": row.name,
+            "recipe": row.recipe or {},
+            "duration_min_lo": row.duration_min_lo,
+            "duration_min_hi": row.duration_min_hi,
+            "priority": row.priority,
+            "active": bool(row.active),
+        }
+        counts = compute_pool_counts(
+            pattern,
+            _load_exercise_pool(db),
+            duration_min=int(duration_min),
+        )
+        counts["pattern_id"] = str(row.id)
+        return JSONResponse(counts)
+
+
+@app.get("/api/admin/plan-library/pool-counts", dependencies=[Depends(require_admin)])
+def admin_plan_library_pool_counts(subtype: str, duration_min: int = 60):
+    """Resolve pattern by subtype + duration, then return pool counts (Preview strip)."""
+    from backend.services.plan_pattern_fill import (
+        _load_exercise_pool,
+        compute_pool_counts,
+        select_pattern,
+    )
+    from backend.services.plan_slot import normalize_slot_subtype
+
+    raw = (subtype or "").strip()
+    if raw in _RUN_PREVIEW_SUBTYPES:
+        wt = "run"
+        sub = normalize_slot_subtype("run", raw) or raw
+    else:
+        wt = "strength"
+        sub = normalize_slot_subtype("strength", raw) or raw
+
+    with Session(engine) as db:
+        pattern = select_pattern(
+            db, workout_type=wt, subtype=sub, duration_min=int(duration_min),
+        )
+        if pattern is None:
+            raise HTTPException(status_code=404, detail="no matching pattern")
+        if wt == "run":
+            return JSONResponse({
+                "pattern_id": pattern.get("id"),
+                "pattern_name": pattern.get("name"),
+                "subtype": pattern.get("subtype"),
+                "duration_min": int(duration_min),
+                "matched_total": 0,
+                "blocks": [],
+                "thin_blocks": [],
+                "kind": "run",
+                "note": "run patterns scale phases — no exercise pool",
+            })
+        counts = compute_pool_counts(
+            pattern,
+            _load_exercise_pool(db),
+            duration_min=int(duration_min),
+        )
+        counts["pattern_id"] = pattern.get("id")
+        return JSONResponse(counts)
+
+@app.post("/api/admin/plan-patterns/seed", dependencies=[Depends(require_admin)])
+def admin_seed_plan_patterns(reset: bool = False):
+    """Idempotent upsert of ship-default patterns and exercises."""
+    from backend.services.plan_pattern_fill import seed_defaults
+
+    with Session(engine) as db:
+        result = seed_defaults(db, reset=reset)
+        db.commit()
+        return JSONResponse(result)
+
+
+class AdminPlanLibraryImportIn(BaseModel):
+    """Bulk create/upsert from Claude-authored (or downloaded) catalog JSON.
+
+    Clients send ``exercises`` and/or ``patterns`` as lists of row objects
+    (the admin UI also accepts a bare array or a single object and normalizes
+    client-side). ``mode=upsert`` updates by name (exercises) or
+    kind+subtype+name (patterns); ``mode=create`` skips existing rows.
+    """
+    exercises: list[dict] = []
+    patterns: list[dict] = []
+    mode: str = "upsert"  # upsert | create
+
+
+# Catalog allow-lists — keep groups/focus in sync with frontend/js/admin-plan-library.js
+_PLAN_EXERCISE_GROUPS = frozenset({
+    "warmup", "heavy_compound", "superset", "standalone", "accessories",
+    "cooldown", "bodyweight", "plyo", "isometric", "emom",
+})
+_PLAN_FOCUS_TAGS = frozenset({"lower", "upper", "full", "core"})
+_PLAN_RUN_PHASES = frozenset({"warmup", "main", "cooldown", "mp"})
+
+
+def _validate_plan_exercise_import(raw: dict) -> str | None:
+    """Return an error detail string, or None if the exercise row is ok.
+
+    Normalizes body_parts in-place (plurals → canonical keys) on success.
+    """
+    from backend.services.plan_body_parts import normalize_body_parts_list
+
+    name = str(raw.get("name") or "").strip()
+    if not name:
+        return "name required"
+    groups = raw.get("groups")
+    if not isinstance(groups, list) or not groups:
+        return "groups must be a non-empty list"
+    bad_g = [g for g in groups if not isinstance(g, str) or g not in _PLAN_EXERCISE_GROUPS]
+    if bad_g:
+        return f"invalid groups: {bad_g!r} (allowed: {sorted(_PLAN_EXERCISE_GROUPS)})"
+    focus_tags = raw.get("focus_tags")
+    if not isinstance(focus_tags, list) or not focus_tags:
+        return "focus_tags must be a non-empty list"
+    bad_f = [f for f in focus_tags if not isinstance(f, str) or f not in _PLAN_FOCUS_TAGS]
+    if bad_f:
+        return f"invalid focus_tags: {bad_f!r} (allowed: {sorted(_PLAN_FOCUS_TAGS)})"
+    cleaned, bp_err = normalize_body_parts_list(raw.get("body_parts"))
+    if bp_err:
+        return bp_err
+    raw["body_parts"] = cleaned
+    try:
+        tss_weight = float(raw.get("tss_weight") if raw.get("tss_weight") is not None else 1.0)
+    except (TypeError, ValueError):
+        return "bad tss_weight"
+    if not (0 < tss_weight <= 3):
+        return "tss_weight must be 0 < n ≤ 3"
+    if raw.get("default_sets") is not None:
+        try:
+            sets = int(raw.get("default_sets"))
+        except (TypeError, ValueError):
+            return "bad default_sets"
+        if sets < 1 or sets > 12:
+            return "default_sets must be 1–12"
+    return None
+
+
+def _validate_strength_pick_group(g: dict) -> str | None:
+    if not isinstance(g, dict):
+        return "strength group must be an object"
+    if not str(g.get("key") or "").strip():
+        return "strength group.key required"
+    pick = g.get("pick")
+    if not isinstance(pick, dict):
+        return "strength group.pick required"
+    try:
+        n = int(pick.get("n"))
+    except (TypeError, ValueError):
+        return "strength group.pick.n must be an integer"
+    if n < 1:
+        return "strength group.pick.n must be ≥ 1"
+    tags = pick.get("from_tags")
+    if not isinstance(tags, list) or not tags:
+        return "strength group.pick.from_tags must be a non-empty list"
+    bad = [t for t in tags if not isinstance(t, str) or t not in _PLAN_EXERCISE_GROUPS]
+    if bad:
+        return f"invalid from_tags: {bad!r} (allowed groups: {sorted(_PLAN_EXERCISE_GROUPS)})"
+    return None
+
+
+def _validate_plan_pattern_import(raw: dict) -> str | None:
+    """Return an error detail string, or None if the pattern row is ok."""
+    kind = str(raw.get("kind") or "").strip()
+    subtype = str(raw.get("subtype") or "").strip()
+    name = str(raw.get("name") or "").strip()
+    if kind not in ("run", "strength"):
+        return "kind must be run or strength"
+    if not subtype or not name:
+        return "subtype and name required"
+    recipe = raw.get("recipe")
+    if not isinstance(recipe, dict):
+        return "recipe must be an object"
+    if not str(recipe.get("intent_template") or "").strip():
+        return "recipe.intent_template required"
+    if kind == "run":
+        blocks = recipe.get("blocks")
+        if not isinstance(blocks, list) or not blocks:
+            return "run recipe.blocks must be a non-empty list"
+        share_sum = 0.0
+        for b in blocks:
+            if not isinstance(b, dict):
+                return "run blocks must be objects"
+            phase = b.get("phase")
+            if phase not in _PLAN_RUN_PHASES:
+                return f"invalid block.phase: {phase!r} (allowed: {sorted(_PLAN_RUN_PHASES)})"
+            try:
+                share = float(b.get("duration_share"))
+            except (TypeError, ValueError):
+                return "block.duration_share must be a number"
+            if share <= 0:
+                return "block.duration_share must be > 0"
+            share_sum += share
+        if abs(share_sum - 1.0) > 0.05:
+            return f"block duration_share must sum ≈ 1.0 (got {share_sum:.2f})"
+    else:
+        groups = recipe.get("groups") if isinstance(recipe.get("groups"), list) else []
+        bands = recipe.get("bands") if isinstance(recipe.get("bands"), list) else []
+        if not groups and not bands:
+            return "strength recipe needs groups and/or bands"
+        for g in groups:
+            err = _validate_strength_pick_group(g)
+            if err:
+                return err
+        for band in bands:
+            if not isinstance(band, dict):
+                return "band must be an object"
+            bg = band.get("groups")
+            if not isinstance(bg, list) or not bg:
+                return "band.groups must be a non-empty list"
+            for g in bg:
+                err = _validate_strength_pick_group(g)
+                if err:
+                    return err
+        bias = recipe.get("focus_bias")
+        if bias is not None:
+            if not isinstance(bias, dict):
+                return "recipe.focus_bias must be an object"
+            primary_tag = bias.get("primary_tag")
+            if primary_tag not in _PLAN_FOCUS_TAGS:
+                return (
+                    f"invalid focus_bias.primary_tag: {primary_tag!r} "
+                    f"(allowed: {sorted(_PLAN_FOCUS_TAGS)})"
+                )
+    return None
+
+
+def _export_exercise_row(r) -> dict:
+    return {
+        "name": r.name,
+        "groups": r.groups or [],
+        "focus_tags": r.focus_tags or [],
+        "body_parts": r.body_parts or [],
+        "tss_weight": float(r.tss_weight or 1.0),
+        "default_sets": r.default_sets,
+        "default_reps": r.default_reps,
+        "default_load": r.default_load,
+        "active": bool(r.active),
+    }
+
+
+def _export_pattern_row(r) -> dict:
+    return {
+        "kind": r.kind,
+        "subtype": r.subtype,
+        "duration_min_lo": r.duration_min_lo,
+        "duration_min_hi": r.duration_min_hi,
+        "name": r.name,
+        "priority": r.priority,
+        "recipe": r.recipe or {},
+        "active": bool(r.active),
+    }
+
+
+@app.get("/api/admin/plan-library/export", dependencies=[Depends(require_admin)])
+def admin_export_plan_library():
+    """Downloadable catalog (no ids) for Claude edit → bulk import."""
+    from backend.models import PlanExercise, PlanPattern
+    from datetime import datetime, timezone
+
+    with Session(engine) as db:
+        exercises = [
+            _export_exercise_row(r)
+            for r in db.query(PlanExercise).order_by(PlanExercise.name).all()
+        ]
+        patterns = [
+            _export_pattern_row(r)
+            for r in db.query(PlanPattern).order_by(
+                PlanPattern.kind, PlanPattern.subtype, PlanPattern.priority.desc()
+            ).all()
+        ]
+    return JSONResponse({
+        "version": 1,
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "exercises": exercises,
+        "patterns": patterns,
+    })
+
+
+@app.get("/api/admin/plan-library/body-parts", dependencies=[Depends(require_admin)])
+def admin_plan_library_body_parts():
+    """Known body-part keys, colors, and accepted aliases (plural/singular)."""
+    from backend.services.plan_body_parts import catalog_payload
+    return JSONResponse(catalog_payload())
+
+
+@app.post("/api/admin/plan-library/normalize-body-parts", dependencies=[Depends(require_admin)])
+def admin_normalize_plan_body_parts():
+    """Rewrite stored exercise body_parts through the alias map (glutes→glute, …)."""
+    from backend.models import PlanExercise
+    from backend.services.plan_body_parts import normalize_body_parts_list
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    updated = 0
+    skipped = 0
+    errors = []
+    with Session(engine) as db:
+        rows = db.query(PlanExercise).all()
+        for row in rows:
+            cleaned, err = normalize_body_parts_list(row.body_parts or [])
+            if err or cleaned is None:
+                skipped += 1
+                errors.append({"name": row.name, "detail": err or "empty"})
+                continue
+            if cleaned == (row.body_parts or []):
+                skipped += 1
+                continue
+            row.body_parts = cleaned
+            row.updated_at = now
+            updated += 1
+        db.commit()
+    return JSONResponse({"updated": updated, "skipped": skipped, "errors": errors[:20]})
+
+
+@app.post("/api/admin/plan-library/import", dependencies=[Depends(require_admin)])
+def admin_import_plan_library(body: AdminPlanLibraryImportIn):
+    """Bulk create / upsert exercises and patterns from catalog JSON."""
+    from backend.models import PlanExercise, PlanPattern
+    from datetime import datetime, timezone
+
+    mode = (body.mode or "upsert").strip().lower()
+    if mode not in ("upsert", "create"):
+        raise HTTPException(status_code=422, detail="mode must be upsert or create")
+
+    now = datetime.now(timezone.utc)
+    summary = {
+        "mode": mode,
+        "exercises": {"created": 0, "updated": 0, "skipped": 0, "errors": []},
+        "patterns": {"created": 0, "updated": 0, "skipped": 0, "errors": []},
+    }
+
+    with Session(engine) as db:
+        for i, raw in enumerate(body.exercises or []):
+            if not isinstance(raw, dict):
+                summary["exercises"]["errors"].append({"index": i, "detail": "not an object"})
+                continue
+            name = str(raw.get("name") or "").strip()
+            verr = _validate_plan_exercise_import(raw)
+            if verr:
+                summary["exercises"]["errors"].append({
+                    "index": i, "name": name, "detail": verr,
+                })
+                continue
+            try:
+                tss_weight = float(raw.get("tss_weight") if raw.get("tss_weight") is not None else 1.0)
+            except (TypeError, ValueError):
+                summary["exercises"]["errors"].append({"index": i, "name": name, "detail": "bad tss_weight"})
+                continue
+            groups = list(raw.get("groups") or [])
+            focus_tags = list(raw.get("focus_tags") or [])
+            body_parts = list(raw.get("body_parts") or [])
+            default_sets = raw.get("default_sets")
+            if default_sets is not None:
+                try:
+                    default_sets = int(default_sets)
+                except (TypeError, ValueError):
+                    summary["exercises"]["errors"].append({"index": i, "name": name, "detail": "bad default_sets"})
+                    continue
+            active = bool(raw.get("active", True))
+            row = db.query(PlanExercise).filter_by(name=name).first()
+            if row is None:
+                db.add(PlanExercise(
+                    name=name,
+                    groups=groups,
+                    focus_tags=focus_tags,
+                    body_parts=body_parts,
+                    tss_weight=tss_weight,
+                    default_sets=default_sets,
+                    default_reps=raw.get("default_reps"),
+                    default_load=raw.get("default_load"),
+                    active=active,
+                    updated_at=now,
+                ))
+                summary["exercises"]["created"] += 1
+            elif mode == "create":
+                summary["exercises"]["skipped"] += 1
+            else:
+                row.groups = groups
+                row.focus_tags = focus_tags
+                row.body_parts = body_parts
+                row.tss_weight = tss_weight
+                row.default_sets = default_sets
+                row.default_reps = raw.get("default_reps")
+                row.default_load = raw.get("default_load")
+                row.active = active
+                row.updated_at = now
+                summary["exercises"]["updated"] += 1
+
+        for i, raw in enumerate(body.patterns or []):
+            if not isinstance(raw, dict):
+                summary["patterns"]["errors"].append({"index": i, "detail": "not an object"})
+                continue
+            kind = str(raw.get("kind") or "").strip()
+            subtype = str(raw.get("subtype") or "").strip()
+            name = str(raw.get("name") or "").strip()
+            verr = _validate_plan_pattern_import(raw)
+            if verr:
+                summary["patterns"]["errors"].append({
+                    "index": i, "name": name, "detail": verr,
+                })
+                continue
+            recipe = raw.get("recipe")
+            try:
+                duration_min_lo = int(raw.get("duration_min_lo") if raw.get("duration_min_lo") is not None else 0)
+                duration_min_hi = int(raw.get("duration_min_hi") if raw.get("duration_min_hi") is not None else 120)
+                priority = int(raw.get("priority") if raw.get("priority") is not None else 10)
+            except (TypeError, ValueError):
+                summary["patterns"]["errors"].append({
+                    "index": i, "name": name, "detail": "bad duration/priority ints",
+                })
+                continue
+            active = bool(raw.get("active", True))
+            row = (
+                db.query(PlanPattern)
+                .filter_by(kind=kind, subtype=subtype, name=name)
+                .first()
+            )
+            if row is None:
+                db.add(PlanPattern(
+                    kind=kind,
+                    subtype=subtype,
+                    duration_min_lo=duration_min_lo,
+                    duration_min_hi=duration_min_hi,
+                    name=name,
+                    priority=priority,
+                    recipe=recipe,
+                    active=active,
+                    updated_at=now,
+                ))
+                summary["patterns"]["created"] += 1
+            elif mode == "create":
+                summary["patterns"]["skipped"] += 1
+            else:
+                row.duration_min_lo = duration_min_lo
+                row.duration_min_hi = duration_min_hi
+                row.priority = priority
+                row.recipe = recipe
+                row.active = active
+                row.updated_at = now
+                summary["patterns"]["updated"] += 1
+
+        db.commit()
+
+    return JSONResponse(summary)
+
+
 # ── Sync status endpoint ───────────────────────────────────────────────────────
 
 @app.get("/api/sync/status")
@@ -14142,8 +14629,10 @@ async def get_sync_status(user: User = Depends(resolve_user)):
                 "started_at": wjr.started_at.isoformat() if wjr.started_at else None,
                 "finished_at": wjr.finished_at.isoformat() if wjr.finished_at else None,
             })
-    except Exception:
-        pass
+    except Exception as _wjr_exc:
+        _logging.getLogger(__name__).warning(
+            "sync_status: worker_job_runs query failed: %s", _wjr_exc
+        )
 
     # Phase 3: a queued/running job in the pull queue (e.g. a full sync waiting
     # for the worker to claim it) surfaces as "pending" so the nav bar reflects
@@ -14964,7 +15453,12 @@ def accept_calibration(
         ctl_days = prefs.ctl_days
         atl_days = prefs.atl_days
 
-    snapshots_recomputed = recompute_user_snapshots(str(user.id))
+    # Recompute is best-effort: prefs are already committed, and stale snapshots
+    # self-heal on next read via the ctl_days/atl_days mismatch guard.
+    try:
+        snapshots_recomputed = recompute_user_snapshots(str(user.id))
+    except Exception:
+        snapshots_recomputed = 0
 
     return JSONResponse({
         "ctl_days": ctl_days,
@@ -16239,29 +16733,6 @@ def get_athlete_detected_prs(athlete_id: str, user: User = Depends(resolve_user)
     return JSONResponse(records)
 
 
-def _trigger_curve_rebuild_background(user_id) -> None:
-    """Fire-and-forget: rebuild the athlete's duration curve in a daemon thread.
-
-    Used after threshold saves so the duration curve reflects the latest data
-    without blocking the HTTP response.  Errors are logged but do not propagate.
-    """
-    _curve_log = _logging.getLogger(__name__)
-
-    def _rebuild():
-        try:
-            from sqlalchemy.orm import Session as _Session
-            with _Session(engine) as _db:
-                _rebuild_athlete_duration_curve(user_id, _db)
-        except Exception as _exc:
-            _curve_log.warning(
-                "background curve rebuild failed for user %s: %s",
-                user_id, _exc, exc_info=True,
-            )
-
-    t = _threading.Thread(target=_rebuild, daemon=True)
-    t.start()
-
-
 # ── Athlete performance scores ────────────────────────────────────────────────
 
 _performance_log = _logging.getLogger(__name__)
@@ -16770,10 +17241,16 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
                 _performance_log.info("performance cache hit for %s", uid)
                 return JSONResponse(_perf_cached)
 
-            # Load all run workouts in chronological order (oldest first)
+            # Load run workouts within the scoring window (issue #1578: cap
+            # history to bound in-request memory on cache miss).
+            _history_cutoff = _datetime.now(_timezone.utc).date() - _timedelta(days=_RUN_HISTORY_CAP_DAYS)
             run_workouts = (
                 session.query(Workout)
-                .filter(Workout.user_id == uid, Workout.workout_type == "run")
+                .filter(
+                    Workout.user_id == uid,
+                    Workout.workout_type == "run",
+                    Workout.workout_date >= _history_cutoff,
+                )
                 .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
                 .all()
             )
@@ -16781,15 +17258,26 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
             prefs_dict = preferences or {}
             _ml_map_perf = _classified_manual_laps_map(session, run_workouts, prefs_dict)
 
-            runs = []
-            for workout in run_workouts:
-                # Load per-lap splits ordered by split_index
-                splits = (
+            # Batch-load all splits for the qualifying runs in one query
+            # (issue #1578: replaces N sequential per-workout queries → 1 query).
+            _run_ids = [w.id for w in run_workouts]
+            _pdc_map_perf = _planned_duration_map(session, _run_ids)
+            if _run_ids:
+                _all_splits = (
                     session.query(WorkoutSplit)
-                    .filter(WorkoutSplit.workout_id == workout.id)
-                    .order_by(WorkoutSplit.split_index)
+                    .filter(WorkoutSplit.workout_id.in_(_run_ids))
+                    .order_by(WorkoutSplit.workout_id, WorkoutSplit.split_index)
                     .all()
                 )
+            else:
+                _all_splits = []
+            _splits_by_workout: dict = {}
+            for _s in _all_splits:
+                _splits_by_workout.setdefault(_s.workout_id, []).append(_s)
+
+            runs = []
+            for workout in run_workouts:
+                splits = _splits_by_workout.get(workout.id, [])
 
                 # Classify lap intensity bands using user thresholds
                 classifications = classify_laps(splits, prefs_dict)
@@ -16849,6 +17337,7 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
                     # extraction (short reps are invisible in 1 km auto-splits).
                     "manual_laps": _ml_map_perf.get(workout.id, []),
                     "ftp_w": (prefs_dict or {}).get("ftp_w"),
+                    "planned_duration_seconds": _pdc_map_perf.get(workout.id),
                 })
 
         # All DB access is finished above.  The pure functions below perform no I/O.
@@ -16866,14 +17355,14 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
                 "state": "needs_thresholds",
                 "reason": _NEEDS_THRESHOLDS_REASON,
             }
-            if _performance_log.isEnabledFor(_logging.DEBUG):
+            if _performance_log.isEnabledFor(_logging.INFO):
                 log_entry = _build_performance_log_entry(
                     preferences=preferences,
                     runs=runs,
                     endurance=_needs_thresholds_obj,
                     speed=_needs_thresholds_obj,
                 )
-                _performance_log.debug("performance score request", extra=log_entry)
+                _performance_log.info("performance score request", extra=log_entry)
             return JSONResponse(
                 _build_performance_response(
                     state="needs_thresholds",
@@ -16892,14 +17381,14 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
         endurance = compute_endurance_score(runs, preferences, zone_constants, race_perf=_race_perf, body_modifier=_bm)
         speed = compute_speed_score(runs, preferences, zone_constants, race_perf=_race_perf, body_modifier=_bm)
 
-        if _performance_log.isEnabledFor(_logging.DEBUG):
+        if _performance_log.isEnabledFor(_logging.INFO):
             log_entry = _build_performance_log_entry(
                 preferences=preferences,
                 runs=runs,
                 endurance=endurance,
                 speed=speed,
             )
-            _performance_log.debug("performance score request", extra=log_entry)
+            _performance_log.info("performance score request", extra=log_entry)
 
         # Endurance requires threshold_hr (HR extrapolation); surface its
         # needs_thresholds sub-state as the top-level state.
@@ -17175,8 +17664,18 @@ def _summary_cache_put(user_id, key, sig, payload):
 # v6 = run_contributions + model + consistency bonus + improve hint;
 # v7 = power-fallback guards; v8 = implausible-lap filter; v9 = breakdown
 # block; v10 = race_floor_now + floor_binding; v11 = manual-lap reps;
-# v12 = aborted-session guard (MIN_ENDURANCE_QUALIFYING_SESSION_SECONDS).
-_PERF_FORMULA_VERSION = "vdot-v12"
+# v12 = aborted-session guard (MIN_ENDURANCE_QUALIFYING_SESSION_SECONDS);
+# v13 = endurance calibration: exponent 1.5→2.5, durability /50→/100 (#1331).
+_PERF_FORMULA_VERSION = "vdot-v13"
+
+# History window cap for the cold-cache run load (issue #1578).
+# trailing_window_days=90: only runs within 90d of the most-recent run affect
+# scores. Adding a 310d buffer handles users who last ran up to 400 days ago;
+# beyond that all runs are outside the scoring window and the endpoint returns
+# building_baseline regardless.  Peak memory on a 512 MB dyno with this cap:
+# ≤ ~400 runs × ~2 KB/run dict ≈ 0.8 MB for the runs list, well under the OOM
+# threshold observed in the 2026-07-22 incident (PR #1576 follow-up #1578).
+_RUN_HISTORY_CAP_DAYS = 400
 
 
 def _performance_signature(session, user_id, prefs_row) -> str:
@@ -17343,6 +17842,7 @@ def get_athlete_weekly_summary(
         prefs_dict = preferences or {}
         zone_constants = make_zone_constants()
         _ml_map_weekly = _classified_manual_laps_map(session, run_workouts, prefs_dict)
+        _pdc_map_weekly = _planned_duration_map(session, [w.id for w in run_workouts])
 
         try:
             compute_decoupling = _compute_decoupling
@@ -17408,6 +17908,7 @@ def get_athlete_weekly_summary(
                     "duration_seconds": workout.duration_seconds,
                     "speed_signal": workout.speed_signal,
                     "manual_laps": _ml_map_weekly.get(workout.id, []),
+                    "planned_duration_seconds": _pdc_map_weekly.get(workout.id),
                 })
             return runs
 
@@ -18255,7 +18756,15 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
         baseline_week_start = this_week_start - _timedelta(weeks=baseline_weeks_ago)
         baseline_week_end = baseline_week_start + _timedelta(days=6)
         baseline_volume = _get_weekly_volume(str(user.id), baseline_week_start, baseline_week_end)
-        baseline = baseline_volume["total_tss"]
+        baseline_logged = baseline_volume["total_tss"]
+        from backend.services.training_load import estimate_historical_pace_and_tss as _est_baseline
+        estimate_baseline = _est_baseline(str(user.id), db)
+        baseline_planned = _week_planned_tss(
+            db, user.id, baseline_week_start, baseline_week_end, estimate_baseline, today,
+            require_still_achievable=False,
+            include_all=True,
+        )
+        baseline = resolve_baseline_seed(baseline_logged, baseline_planned)
 
         start_28 = today - _timedelta(days=27)
         series_28 = daily_tss_series(str(user.id), start_28, today)
@@ -18316,11 +18825,11 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
             "ramp_weeks": result["ramp_weeks"],
             "peak": result["peak"],
             "baseline_tss": baseline,
+            "baseline_logged_tss": baseline_logged,
+            "baseline_planned_tss": baseline_planned,
             # The ramp/peak math above already used the CAPPED baseline
-            # internally when last week's actual TSS spiked well above
-            # chronic load — these three surface that plainly (never
-            # silently) rather than leaving the athlete to wonder why the
-            # ramp looks lower than their own logged week. See
+            # internally when the seed exceeded the ACWR band vs chronic —
+            # these three surface that plainly (never silently). See
             # docs/calculations/load-plan.md "Baseline cap".
             "capped_baseline_tss": result["baseline"],
             "chronic_weekly_tss": result["chronic_weekly"],
@@ -18364,38 +18873,48 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
 # See docs/calculations/load-plan.md. target_tss is read from the SAME
 # compute_load_plan series get_plan_load_plan builds — never recomputed here.
 
-def _week_planned_tss(db, user_id, week_start, week_end, estimate_baseline, today, require_still_achievable=True):
-    """Sum estimated_tss across planned sessions in a week that never became
-    a real logged workout (matched is None, not missed — those are covered
-    by baseline_tss/logged_tss instead).
+def _week_planned_tss(
+    db,
+    user_id,
+    week_start,
+    week_end,
+    estimate_baseline,
+    today,
+    require_still_achievable=True,
+    *,
+    include_all: bool = False,
+):
+    """Sum estimated_tss across planned sessions in a week.
 
-    require_still_achievable=True (the default, for the CURRENT/future
-    "planned_tss" component of projected_tss) additionally excludes sessions
-    whose date has already passed — same achievability rule
-    _planned_session_dict uses, since a past, never-logged session is
-    effectively missed even before the reconcile sweep flips its status.
+    Default (include_all=False): only sessions that never became a real
+    logged workout (matched is None, not missed) — the remaining "planned"
+    component of projected_tss. require_still_achievable=True additionally
+    excludes sessions whose date has already passed.
 
-    require_still_achievable=False is for baseline_planned_tss: the
-    retrospective "what did I plan for last week" comparison is ALWAYS about
-    a past week by definition, so excluding past dates there would zero out
-    every result — the whole point is comparing hindsight plan vs actual.
+    include_all=True: every planned session in the week (matched and missed
+    included) — the retrospective full planned week used for
+    ``resolve_baseline_seed(logged, planned)`` so a miss does not reset the
+    ramp. require_still_achievable is ignored in this mode.
     """
     from backend.services.training_load import estimate_planned_session_metrics as _est
 
-    rows = (
+    q = (
         db.query(PlannedSession)
         .filter(
             PlannedSession.user_id == user_id,
             PlannedSession.planned_date >= week_start,
             PlannedSession.planned_date <= week_end,
+        )
+    )
+    if not include_all:
+        q = q.filter(
             PlannedSession.matched_workout_id.is_(None),
             PlannedSession.status != "missed",
         )
-        .all()
-    )
+    rows = q.all()
     total = 0.0
     for p in rows:
-        if require_still_achievable and p.planned_date < today:
+        if (not include_all) and require_still_achievable and p.planned_date < today:
             continue
         est = _est(estimate_baseline, p.session_type, p.structure)
         if est.get("estimated_tss"):
@@ -18449,7 +18968,7 @@ def get_plan_week_load(
         )
         baseline_week_start = this_week_start - _timedelta(weeks=baseline_weeks_ago)
         baseline_week_end = baseline_week_start + _timedelta(days=6)
-        baseline_tss = _get_weekly_volume(str(user.id), baseline_week_start, baseline_week_end)["total_tss"]
+        baseline_logged_tss = _get_weekly_volume(str(user.id), baseline_week_start, baseline_week_end)["total_tss"]
 
         start_28 = today - _timedelta(days=27)
         series_28 = daily_tss_series(str(user.id), start_28, today)
@@ -18465,6 +18984,16 @@ def get_plan_week_load(
         _static_acwr_ceiling = round(ACWR_CEILING_MULT * trailing_28d_avg, 1) if trailing_28d_avg else None
 
         verdict = _resolve_current_verdict(user.id, today, trailing_28d_avg=trailing_28d_avg)
+
+        estimate_baseline = _est_baseline(str(user.id), db)
+
+        # Full planned week (matched + missed) for seed floor + UI compare.
+        baseline_planned_tss = _week_planned_tss(
+            db, user.id, baseline_week_start, baseline_week_end, estimate_baseline, today,
+            require_still_achievable=False,
+            include_all=True,
+        )
+        baseline_tss = resolve_baseline_seed(baseline_logged_tss, baseline_planned_tss)
 
         result = compute_load_plan(
             baseline=baseline_tss,
@@ -18484,17 +19013,6 @@ def get_plan_week_load(
         target_tss = target_week["target_tss"] if target_week else None
         clamped = target_week["clamped"] if target_week else False
         acwr_ceiling = target_week["ceiling"] if target_week else _static_acwr_ceiling
-
-        estimate_baseline = _est_baseline(str(user.id), db)
-
-        # baseline_planned_tss: what was PLANNED for the same completed week
-        # baseline_tss covers — showing "planned 340 · logged 316"
-        # alongside the actual is the argument for ramping off actuals, not
-        # optimistic plans (see docs/calculations/load-plan.md).
-        baseline_planned_tss = _week_planned_tss(
-            db, user.id, baseline_week_start, baseline_week_end, estimate_baseline, today,
-            require_still_achievable=False,
-        )
 
         logged_tss = _get_weekly_volume(str(user.id), query_week_start, query_week_end)["total_tss"]
         planned_tss = _week_planned_tss(
@@ -18531,9 +19049,10 @@ def get_plan_week_load(
             "week_start": query_week_start.isoformat(),
             "target_tss": target_tss,
             "baseline_tss": baseline_tss,
+            "baseline_logged_tss": baseline_logged_tss,
             # See docs/calculations/load-plan.md "Baseline cap" — target_tss
-            # above already reflects the capped baseline when last week
-            # spiked above chronic load; these surface that on the
+            # above already reflects the capped baseline when the seed
+            # exceeded the ACWR band; these surface that on the
             # Baseline×Ramp=Target chain instead of leaving it silent.
             "capped_baseline_tss": result["baseline"],
             "baseline_capped": result["baseline_capped"],
@@ -18736,6 +19255,8 @@ def get_projection(user: User = Depends(resolve_user)):
                         .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
                         .all()
                     )
+                    _proj_run_ids = [w.id for w in run_workouts]
+                    _pdc_map_proj = _planned_duration_map(db, _proj_run_ids)
 
                     runs = []
                     for workout in run_workouts:
@@ -18762,6 +19283,7 @@ def get_projection(user: User = Depends(resolve_user)):
                             "duration_seconds": workout.duration_seconds,
                             "avg_hr": workout.avg_hr,
                             "laps": laps,
+                            "planned_duration_seconds": _pdc_map_proj.get(workout.id),
                         })
 
                     from backend.services.body_modifier import get_body_modifier_for_user as _get_bm_proj
@@ -19402,38 +19924,22 @@ else:
 
 # ── Daily brief (issue #1498 / #1499) ────────────────────────────────────────
 
-_BRIEF_DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-
-
-def _build_week_plan(user_id, for_date: _date) -> dict:
-    from backend.services.daily_brief import _get_plan_for_date, _plan_to_session
-    days = []
-    for i in range(7):
-        d = for_date + _timedelta(days=i)
-        plan = _get_plan_for_date(user_id, d)
-        session = _plan_to_session(plan, d)
-        days.append({
-            "date": d.isoformat(),
-            "day": _BRIEF_DOW[d.weekday()],
-            "planned": session["planned"],
-            "session_type": session["session_type"],
-            "duration_min": session["duration_min"],
-        })
-    return {"days": days}
-
-
 @app.get("/api/brief/today")
 def get_brief_today(user: User = Depends(resolve_user)):
-    """Return today's SCHEMA_VERSION 3 coaching brief for the session user.
+    """Return the current coaching brief for the session user.
 
     Calls build_brief() directly — no worker process required.
     for_date is today in Asia/Bangkok timezone.
+    schema_version is set by build_brief() via daily_brief.SCHEMA_VERSION.
     """
     today = _today_bkk()
     brief = build_brief(user.id, today)
-    brief["schema_version"] = 3
-    try:
-        brief["week_plan"] = _build_week_plan(user.id, today)
-    except Exception:
+    brief["schema_version"] = _daily_brief_svc.SCHEMA_VERSION
+    # Normalize week_plan to the canonical API shape {"days": [...]}.
+    # build_brief returns week_plan as a list; the external API contract is a dict.
+    _wp = brief.get("week_plan")
+    if isinstance(_wp, list):
+        brief["week_plan"] = {"days": _wp}
+    elif not isinstance(_wp, dict):
         brief["week_plan"] = {"days": []}
     return JSONResponse(brief)

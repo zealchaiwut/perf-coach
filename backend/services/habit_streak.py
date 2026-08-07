@@ -196,6 +196,79 @@ def _weekly_streak(habit, by_date: dict, today: date) -> dict:
     }
 
 
+def _weekly_day_streak(habit, by_date: dict, today: date) -> dict:
+    """Compute streaks for a 'weekly' schedule habit (specific weekday).
+
+    schedule_target is the weekday index (0=Monday … 6=Sunday). A period is the
+    single occurrence of that weekday in each calendar week. The habit is met
+    for a period when is_period_met returns True for logs on that exact day.
+
+    Today is treated as pending when it falls on the target weekday and has not
+    yet been logged — this matches the daily-streak pending logic.
+    """
+    schedule_target = getattr(habit, "schedule_target", None)
+    if schedule_target is None:
+        return {
+            "current_streak": 0,
+            "longest_streak": 0,
+            "debug": {"reason": "schedule_target is required for weekly schedule type"},
+        }
+
+    # Most recent occurrence of the target weekday on or before today
+    days_since_target = (today.weekday() - schedule_target) % 7
+    latest_occurrence = today - timedelta(days=days_since_target)
+
+    earliest = min(by_date.keys())
+
+    # ── current streak ────────────────────────────────────────────────────────
+    # Walk backward one week at a time from the latest occurrence.
+    # Only today's occurrence is treated as pending when unmet; all others are elapsed.
+    current = 0
+    occurrence = latest_occurrence
+    while occurrence >= earliest - timedelta(days=6):
+        period_logs = by_date.get(occurrence, [])
+        met, _ = is_period_met(habit, period_logs)
+        if met:
+            current += 1
+            occurrence -= timedelta(days=7)
+        elif occurrence == today:
+            # Target weekday falls on today and is not yet logged — treat as pending
+            occurrence -= timedelta(days=7)
+        else:
+            # Fully elapsed target day not met — streak breaks
+            break
+
+    # ── longest streak ────────────────────────────────────────────────────────
+    # Find the first occurrence of the target weekday on or before the earliest log date
+    days_since_at_earliest = (earliest.weekday() - schedule_target) % 7
+    first_occurrence = earliest - timedelta(days=days_since_at_earliest)
+
+    longest = 0
+    run = 0
+    scan = first_occurrence
+    while scan <= today:
+        scan_logs = by_date.get(scan, [])
+        met, _ = is_period_met(habit, scan_logs)
+        if met:
+            run += 1
+            if run > longest:
+                longest = run
+        else:
+            run = 0
+        scan += timedelta(days=7)
+
+    return {
+        "current_streak": current,
+        "longest_streak": longest,
+        "debug": {
+            "schedule_type": "weekly",
+            "schedule_target": schedule_target,
+            "today": str(today),
+            "latest_occurrence": str(latest_occurrence),
+        },
+    }
+
+
 def compute_streak(habit, logs, today) -> dict:
     """Derive ``current_streak``, ``longest_streak``, and ``debug`` from pre-fetched data.
 
@@ -300,8 +373,11 @@ def compute_streak(habit, logs, today) -> dict:
     if schedule_type == "daily":
         return _daily_streak(habit, by_date, today)
 
-    if schedule_type in ("times_per_week", "weekly"):
+    if schedule_type == "times_per_week":
         return _weekly_streak(habit, by_date, today)
+
+    if schedule_type == "weekly":
+        return _weekly_day_streak(habit, by_date, today)
 
     # Unrecognised schedule type — return zeros with a diagnostic reason
     return {

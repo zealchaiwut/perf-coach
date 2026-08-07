@@ -1,0 +1,90 @@
+"""Weight tab revamp — frontend static assertions (passes 2–6)."""
+from pathlib import Path
+import subprocess
+import json
+import textwrap
+
+ROOT = Path(__file__).resolve().parent.parent
+WEIGHT_HTML = (ROOT / "frontend/pages/weight.html").read_text()
+WEIGHT_JS = (ROOT / "frontend/js/weight.js").read_text()
+TIMELINE_JS = (ROOT / "frontend/js/weight-timeline.js").read_text()
+
+
+def test_no_compute_streak_in_weight_js():
+    assert "_computeStreak" not in WEIGHT_JS
+
+
+def test_gate_unlock_copy_present():
+    assert "lock-group" in WEIGHT_HTML
+    assert "3 sections need more weigh-ins" in WEIGHT_HTML
+    assert "_renderLockGroup" in WEIGHT_JS
+    assert "UNLOCKS AT 70% COVERAGE" not in WEIGHT_HTML
+
+
+def test_progress_card_hidden():
+    assert 'id="progress-card" hidden' in WEIGHT_HTML or "#progress-card" in (ROOT / "frontend/css/weight.css").read_text()
+
+
+def test_legacy_chart_p2w_and_target_history_hidden():
+    """Visible Basic/Advanced chart, power-to-weight, and target history are retired."""
+    assert 'id="legacy-chart-card" hidden' in WEIGHT_HTML
+    assert 'id="p2w-card" hidden' in WEIGHT_HTML
+    assert 'id="target-history-section"' in WEIGHT_HTML
+    assert " hidden" in WEIGHT_HTML[
+        WEIGHT_HTML.find('id="target-history-section"'):
+        WEIGHT_HTML.find('id="target-history-section"') + 90
+    ]
+    # Visible heading copy must not reappear outside CSS comments
+    body = WEIGHT_HTML.split("<body", 1)[-1]
+    assert "Target history" not in body
+    assert "Power-to-weight" not in body
+    assert "Your weight journey" not in body
+
+
+def test_fuel_collapsed_to_budget_and_week():
+    """Fuel today shows the kcal budget and week chart.
+
+    Food log/macros were hidden by the original revamp, then intentionally
+    unhidden again by issue #1691 (pre-prd-review: the panel was completely
+    inaccessible) — so this only asserts the budget/week markup still exists,
+    not that the food log is absent.
+    """
+    assert 'id="fuel-budget-num"' in WEIGHT_HTML
+    assert 'id="fuel-week-bars"' in WEIGHT_HTML
+    assert "kcal budget" in WEIGHT_HTML
+
+
+def test_compact_top_layout():
+    """Compact 2-col: log+composition left; coverage calendar + recent values right."""
+    assert "w-logstrip" in WEIGHT_HTML
+    assert "Coverage &amp; backfill" in WEIGHT_HTML or "Coverage & backfill" in WEIGHT_HTML
+    assert "Recent values" in WEIGHT_HTML
+    assert 'id="cov-bar-fill"' in WEIGHT_HTML
+    assert "w-gap" in WEIGHT_JS or "not logged" in WEIGHT_JS
+    # Body measurements folded into log card
+    assert 'id="bm-waist-input"' in WEIGHT_HTML
+    assert "Body measurements" not in WEIGHT_HTML.split("<body", 1)[-1]
+
+
+def test_one_rate_uses_stats_rate():
+    assert "stats.rate" in WEIGHT_JS or "stats && stats.rate" in WEIGHT_JS
+    assert "rate.rate_kg_wk" in WEIGHT_JS or "rate_kg_wk" in WEIGHT_JS
+    assert "renderRateCard" in WEIGHT_JS
+
+
+def test_hypothesis_card_wired():
+    assert "hypothesis-card" in WEIGHT_HTML
+    assert "/api/weight-hypothesis" in WEIGHT_JS
+
+
+def test_timeline_domain_helper():
+    script = textwrap.dedent(f"""
+        {TIMELINE_JS}
+        const d = WeightTimeline.timelineDomain([89.0, 88.5, 88.0]);
+        console.log(JSON.stringify(d));
+    """)
+    result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    parsed = json.loads(result.stdout.strip())
+    assert parsed["lo"] <= 88.0
+    assert parsed["hi"] >= 89.0

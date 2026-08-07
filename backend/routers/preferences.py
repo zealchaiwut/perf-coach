@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid as _uuid
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -35,7 +35,8 @@ class _PrefsBody(BaseModel):
 
 
 class _AdjustBody(BaseModel):
-    to: Any
+    to: Any = None
+    action: Optional[str] = None  # add_to_set: try_week | standing
 
 
 # ── Catalog (UI docs) ─────────────────────────────────────────────────────────
@@ -130,7 +131,11 @@ def confirm_preferences(user: User = Depends(resolve_user)):
 # ── Proposals ─────────────────────────────────────────────────────────────────
 
 @router.post("/api/preferences/proposals/{proposal_id}/accept")
-def accept_proposal(proposal_id: str, user: User = Depends(resolve_user)):
+def accept_proposal(
+    proposal_id: str,
+    user: User = Depends(resolve_user),
+    body: Optional[_AdjustBody] = Body(default=None),
+):
     db = _db()
     try:
         pid = _proposal_id(proposal_id)
@@ -142,10 +147,14 @@ def accept_proposal(proposal_id: str, user: User = Depends(resolve_user)):
         )
         if row is None:
             raise HTTPException(status_code=404, detail="proposal not found")
+        action = body.action if body is not None else None
+        adjusted = body.to if body is not None else None
         if row.gap_code == "safety_rollback":
             result = _props.accept_rollback_marks_original(db, user.id, pid)
         else:
-            result = _props.accept_proposal(db, user.id, pid)
+            result = _props.accept_proposal(
+                db, user.id, pid, adjusted_to=adjusted, action=action,
+            )
         db.commit()
         return JSONResponse(result)
     except LookupError:

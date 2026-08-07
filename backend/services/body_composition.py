@@ -97,6 +97,20 @@ def derive_lean_mass_kg(weight_kg, body_fat_pct) -> Optional[float]:
     return round(w * (1.0 - bf / 100.0), 2)
 
 
+def derive_fat_mass_kg(weight_kg, body_fat_pct) -> Optional[float]:
+    """Fat mass from a weigh-in plus its composition reading. None without both."""
+    if weight_kg is None or body_fat_pct is None:
+        return None
+    try:
+        w = float(weight_kg)
+        bf = float(body_fat_pct)
+    except (TypeError, ValueError):
+        return None
+    if w <= 0 or not (0 < bf < 100):
+        return None
+    return round(w * bf / 100.0, 2)
+
+
 def _rolling_mean(values: list[float]) -> Optional[float]:
     return round(sum(values) / len(values), 2) if values else None
 
@@ -118,7 +132,9 @@ def compute_composition_trend(readings: Iterable[dict], today: _date) -> dict:
     dict with keys:
         ``body_fat_pct_trend``   — 4-week rolling mean, or None
         ``lean_mass_kg_trend``   — 4-week rolling mean, or None
+        ``fat_mass_kg_trend``    — 4-week rolling mean, or None
         ``lean_mass_4wk_delta``  — latest 4-week block minus the previous one
+        ``fat_mass_4wk_delta``   — latest 4-week block minus the previous one
         ``lean_mass_falling_weeks`` — consecutive weekly blocks trending down
         ``readings_count``       — usable readings inside the trailing window
         ``readable``             — whether there is enough data to say anything
@@ -133,29 +149,38 @@ def compute_composition_trend(readings: Iterable[dict], today: _date) -> dict:
         if d is None or d > today:
             continue
         lean = derive_lean_mass_kg(r.get("weight_kg"), r.get("body_fat_pct"))
+        fat = derive_fat_mass_kg(r.get("weight_kg"), r.get("body_fat_pct"))
         if lean is None:
             continue
         rows.append({
             "date": d,
             "body_fat_pct": round(float(r["body_fat_pct"]), 1),
             "lean_mass_kg": lean,
+            "fat_mass_kg": fat,
         })
     rows.sort(key=lambda r: r["date"])
 
     out = {
         "body_fat_pct_trend": None,
         "lean_mass_kg_trend": None,
+        "fat_mass_kg_trend": None,
         "lean_mass_4wk_delta": None,
+        "fat_mass_4wk_delta": None,
         "lean_mass_falling_weeks": 0,
         "lean_mass_falling": False,
         "readings_count": len(rows),
         "readable": False,
         "readable_note": None,
+        # frontend-facing fields: composition card (weight.js) and timeline overlay
+        # (weight-timeline.js) expect these keys — see issue #1692
+        "latest": None,
+        "verdict": None,
         "readings": [
             {
                 "date": r["date"].isoformat(),
                 "body_fat_pct": r["body_fat_pct"],
                 "lean_mass_kg": r["lean_mass_kg"],
+                "fat_mass_kg": r["fat_mass_kg"],
             }
             for r in rows
         ],
@@ -169,6 +194,7 @@ def compute_composition_trend(readings: Iterable[dict], today: _date) -> dict:
     recent = [r for r in rows if r["date"] > window_start]
     out["body_fat_pct_trend"] = _rolling_mean([r["body_fat_pct"] for r in recent])
     out["lean_mass_kg_trend"] = _rolling_mean([r["lean_mass_kg"] for r in recent])
+    out["fat_mass_kg_trend"] = _rolling_mean([r["fat_mass_kg"] for r in recent])
 
     if len(rows) < ROLLING_WEEKS:
         out["readable_note"] = (
@@ -182,8 +208,11 @@ def compute_composition_trend(readings: Iterable[dict], today: _date) -> dict:
     prev_start = today - _timedelta(weeks=ROLLING_WEEKS * 2)
     previous = [r for r in rows if prev_start < r["date"] <= window_start]
     prev_mean = _rolling_mean([r["lean_mass_kg"] for r in previous])
+    prev_fat_mean = _rolling_mean([r["fat_mass_kg"] for r in previous])
     if prev_mean is not None and out["lean_mass_kg_trend"] is not None:
         out["lean_mass_4wk_delta"] = round(out["lean_mass_kg_trend"] - prev_mean, 2)
+    if prev_fat_mean is not None and out["fat_mass_kg_trend"] is not None:
+        out["fat_mass_4wk_delta"] = round(out["fat_mass_kg_trend"] - prev_fat_mean, 2)
 
     out["lean_mass_falling_weeks"] = _count_falling_weeks(rows)
     # What the deficit guard actually reads (#1598). The consecutive-raw-fall
@@ -191,6 +220,19 @@ def compute_composition_trend(readings: Iterable[dict], today: _date) -> dict:
     # carry the guard: see LEAN_MASS_FALL_DELTA_KG for the measurements.
     delta = out["lean_mass_4wk_delta"]
     out["lean_mass_falling"] = delta is not None and delta <= -LEAN_MASS_FALL_DELTA_KG
+
+    # Frontend shape: composition card reads .latest and .verdict (issue #1692).
+    # Expose the 4-week rolling means under the key the card renderer expects.
+    out["latest"] = {
+        "lean_mass_kg": out["lean_mass_kg_trend"],
+        "fat_mass_kg": out["fat_mass_kg_trend"],
+        "body_fat_pct": out["body_fat_pct_trend"],
+    }
+    # verdict is shown in a "good" styled banner — only emit it when lean mass
+    # is not falling; a falling-lean-mass state needs the card to stay neutral.
+    if not out["lean_mass_falling"]:
+        out["verdict"] = "Lean mass stable — deficit isn't costing muscle"
+
     return out
 
 

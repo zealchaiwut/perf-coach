@@ -76,16 +76,15 @@ def test_duplicate_409(client, user_id, first_import):
     assert body["existing_id"] == first_import
 
 
-# 3. Unknown user_id → 404
-def test_unknown_user_404(client):
+# 3. Unauthenticated request → 401 (endpoint resolves user from session, not body)
+def test_unauthenticated_401(client):
     payload = {
-        "user_id": str(uuid.uuid4()),
         "import_date": IMPORT_DATE,
         "source": "manual_json",
         "data": {"sleep_score": 80},
     }
     res = client.post("/api/imports/sleep", json=payload)
-    assert res.status_code == 404
+    assert res.status_code == 401
 
 
 # 4. Invalid import_date → 422

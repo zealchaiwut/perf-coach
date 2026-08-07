@@ -77,19 +77,6 @@
     return window.AppCommon.escapeHtml(s);
   }
 
-  function csvField(val) {
-    var s = val == null ? "" : String(val);
-    if (
-      s.indexOf(",") !== -1 ||
-      s.indexOf('"') !== -1 ||
-      s.indexOf("\n") !== -1 ||
-      s.indexOf("\r") !== -1
-    ) {
-      return '"' + s.replace(/"/g, '""') + '"';
-    }
-    return s;
-  }
-
   // issue #531: empty for falsy/non-positive, else the shared h:mm:ss/m:ss form.
   function fmtDurationRow(secs) {
     if (!secs || secs <= 0) return "";
@@ -105,14 +92,10 @@
     return m + "min";
   }
 
-  // Compact rollup for month headers: 3h3m, 45m, 2h.
+  // Compact rollup for month headers: 3h 3m, 45m, 2h — delegates to the
+  // shared formatter so both call sites in this file agree (issue #1603).
   function fmtDurationCompact(secs) {
-    if (!secs) return "0m";
-    var h = Math.floor(secs / 3600),
-      m = Math.floor((secs % 3600) / 60);
-    if (h > 0 && m > 0) return h + "h" + m + "m";
-    if (h > 0) return h + "h";
-    return m + "m";
+    return TF.formatDurationCompact(secs);
   }
 
   // issue #531: render an already-computed seconds-per-km via the shared
@@ -340,25 +323,6 @@
     });
   }
 
-  // ── Header stats subtitle ─────────────────────────────────────────────────
-  function updateHeaderStats(data) {
-    var subtitleEl = document.getElementById("log-subtitle");
-    if (!subtitleEl) return;
-    var weeks = data.weeks || [];
-    var totalCount = 0,
-      totalTSS = 0,
-      totalMinutes = 0;
-    weeks.forEach(function (week) {
-      var s = week.summary || {};
-      totalCount += s.workout_count || 0;
-      totalTSS += s.total_tss || 0;
-      totalMinutes += s.total_time_minutes || 0;
-    });
-    // Total TSS / total hours intentionally hidden — keep just the count.
-    var parts = [totalCount + " workout" + (totalCount !== 1 ? "s" : "")];
-    subtitleEl.textContent = parts.join(" · ");
-  }
-
   // ── Build filter bar (issue #637: type pills + search, client-side) ─────────
   var filterBarBuilt = false;
 
@@ -569,7 +533,7 @@
       source: source,
       strava_activity_url: w.strava_activity_url,
       is_stryd_synced: !!w.stryd_activity_pk,
-      has_strava: source.indexOf("strava") !== -1 || !!w.strava_activity_pk,
+      has_strava: isStravaWorkout(w),
       has_stryd: source.indexOf("stryd") !== -1 || !!w.stryd_activity_pk,
       notes: w.remarks || "",
       weight_context: w.remarks,
@@ -631,7 +595,7 @@
   }
 
   // Re-render the list from the in-memory lastWeeks without re-fetching.
-  // Deliberately skips renderVolumeChart()/updateHeaderStats()/updateCalendar()/
+  // Deliberately skips renderVolumeChart()/updateCalendar()/
   // fetchReadinessWidget() — those depend on server-computed aggregates a
   // single-workout patch can't cheaply reproduce; they refresh on the next
   // full fetchAndRender() (sync completion, restore, or page load).
@@ -693,7 +657,6 @@
         buildFlatWorkouts();
         var listEl = document.getElementById("log-list");
         renderList(listEl, lastWeeks);
-        updateHeaderStats(data);
         // issue #528: volume chart re-renders on every fetch; readiness is #640 widget only.
         renderVolumeChart();
         // issue #638: update month calendar with newly loaded data
@@ -1587,7 +1550,10 @@
         loadOlderEl.textContent = "Load older workouts";
         loadOlderEl.setAttribute("role", "button");
         loadOlderEl.tabIndex = 0;
+        var _loadOlderFired = false;
         var triggerLoadOlder = function () {
+          if (_loadOlderFired) return;
+          _loadOlderFired = true;
           loadOlderEl.removeEventListener("click", triggerLoadOlder);
           loadOlderEl.textContent = "Loading…";
           fetchAndRender(true);
@@ -1847,50 +1813,6 @@
       activeRowEl = row;
       row.classList.add("is-active");
     }
-  }
-
-  // ── CSV Export ────────────────────────────────────────────────────────────
-  function exportCSV() {
-    var today = todayISO();
-    var fromDate = filters.from || today;
-    var toDate = filters.to || today;
-    var filename = "training-log-" + fromDate + "-to-" + toDate + ".csv";
-
-    var rows = [
-      "date,type,title,distance_km,duration_minutes,avg_hr,tss,source",
-    ];
-    lastWeeks.forEach(function (week) {
-      (week.entries || []).forEach(function (entry) {
-        if (entry.type === "rest") return;
-        rows.push(
-          [
-            csvField(entry.date),
-            csvField(entry.type),
-            csvField(entry.title),
-            csvField(entry.distance_km != null ? entry.distance_km : ""),
-            csvField(
-              entry.duration_seconds != null
-                ? Math.round((entry.duration_seconds / 60) * 10) / 10
-                : "",
-            ),
-            csvField(entry.avg_hr != null ? entry.avg_hr : ""),
-            csvField(entry.tss != null ? entry.tss : ""),
-            csvField(entry.source),
-          ].join(","),
-        );
-      });
-    });
-
-    var csv = rows.join("\r\n");
-    var blob = new Blob([csv], { type: "text/csv" });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
   }
 
   // ── Detail panel position helpers ─────────────────────────────────────────
@@ -3601,10 +3523,10 @@
   }
 
   // ── Run VIEW (read-only, mock-matched) ─────────────────────────────────────
-  // Zone-2 HR band. Module constants are the fallback; user-saved values from
-  // GET /api/user-preferences take precedence when present (issue #598).
-  var ZONE2_HR_MIN = 130;
-  var ZONE2_HR_MAX = 155;
+  // Zone-2 fallbacks are now owned by zone2-constants.js (window.Zone2) and
+  // consumed by run-detail-view.js; the local constants here were dead
+  // (renderRunView passes prefs straight through to window.RunDetailView.render,
+  // which reads zone2_hr_min/max from prefs.row and falls back to window.Zone2).
 
   // Fetch user preferences once per page load and cache the promise.
   // renderRunView reads zone2_hr_min/max from the resolved value.
@@ -5627,9 +5549,6 @@
     _initSyncWidget();
     _loadSyncChip();
 
-    var exportBtn = document.getElementById("log-export-btn");
-    if (exportBtn) exportBtn.addEventListener("click", exportCSV);
-
     var closeBtn = document.getElementById("dp-close-btn");
     if (closeBtn)
       closeBtn.addEventListener("click", function () {
@@ -6652,6 +6571,8 @@
 (function () {
   "use strict";
 
+  var TF = window.TrainingFormat;
+
   var _athleteId = null;
   var _activePeriod = "week";
   var _when = "last"; // "last" (default) | "this"
@@ -6723,18 +6644,10 @@
   }
 
   // Compact rollup for the summary-digest Duration tile: 3h 3m, 45m, 2h.
-  // Local copy — this file's other top-level module (fmtDurationCompact at
-  // line ~107) lives in a SEPARATE closure and is out of scope here; this
-  // module already keeps its own local _esc() rather than reaching across
-  // IIFEs, so follow the same convention instead of introducing a shared
-  // global.
+  // Delegates to the shared formatter (issue #1603) — same implementation as
+  // the month-header call site in the other IIFE above.
   function fmtDurationCompact(secs) {
-    if (!secs) return "0m";
-    var h = Math.floor(secs / 3600),
-      m = Math.floor((secs % 3600) / 60);
-    if (h > 0 && m > 0) return h + "h " + m + "m";
-    if (h > 0) return h + "h";
-    return m + "m";
+    return TF.formatDurationCompact(secs);
   }
 
   function _fmtDelta(val, unit) {

@@ -676,8 +676,8 @@ class StravaToken(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
     athlete_id = Column(BigInteger, nullable=False)
-    access_token = Column(Text, nullable=False)
-    refresh_token = Column(Text, nullable=False)
+    access_token_encrypted = Column(Text, nullable=False)
+    refresh_token_encrypted = Column(Text, nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     scope = Column(String(255), nullable=True)
     athlete_data = Column(JSONB, nullable=True)
@@ -693,8 +693,8 @@ class GoogleOAuthCredentials(Base):
     google_sub = Column(String(255), nullable=False)
     email = Column(String(255), nullable=False)
     email_verified = Column(Boolean, nullable=False, server_default=text("false"))
-    access_token = Column(Text, nullable=False)
-    refresh_token = Column(Text, nullable=True)
+    access_token_encrypted = Column(Text, nullable=False)
+    refresh_token_encrypted = Column(Text, nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     id_token_payload = Column(JSONB, nullable=True)
     last_sync_at = Column(DateTime(timezone=True), nullable=True)
@@ -756,6 +756,13 @@ class StravaActivity(Base):
     # surface later). detail_payload = /activities/{id}; streams_payload = its /streams.
     detail_payload = deferred(Column(JSONB, nullable=True))
     streams_payload = deferred(Column(JSONB, nullable=True))
+    # Promoted scalars from detail_payload (issue #1307): populated at sync time so
+    # _strava_source_dict can serve these fields without touching the large detail_payload
+    # blob for new rows. NULL means the row was synced before this column was added.
+    laps = deferred(Column(JSONB, nullable=True))
+    splits_metric = deferred(Column(JSONB, nullable=True))
+    best_efforts = deferred(Column(JSONB, nullable=True))
+    calories = Column(Integer, nullable=True)
     synced_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
 
     __table_args__ = (
@@ -950,6 +957,8 @@ class UserPreferences(Base):
     aerobic_decoupling_threshold = Column(Float, nullable=True)
     ctl_days = Column(Integer, nullable=True)
     atl_days = Column(Integer, nullable=True)
+    scale_constant = Column(Float, nullable=True)
+    max_tss = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
@@ -2199,6 +2208,53 @@ class UserCustomPreset(Base):
 
     __table_args__ = (
         UniqueConstraint("user_id", "code", name="uq_user_custom_presets_user_code"),
+    )
+
+
+class PlanPattern(Base):
+    """Admin-editable run/strength session recipe keyed by subtype + duration band."""
+
+    __tablename__ = "plan_patterns"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    kind = Column(String(20), nullable=False)  # run | strength
+    subtype = Column(String(40), nullable=False)
+    duration_min_lo = Column(Integer, nullable=False, server_default=text("0"))
+    duration_min_hi = Column(Integer, nullable=False, server_default=text("120"))
+    name = Column(String(120), nullable=False)
+    priority = Column(Integer, nullable=False, server_default=text("10"))
+    recipe = Column(JSONB, nullable=False)
+    active = Column(Boolean, nullable=False, server_default=text("true"))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    __table_args__ = (
+        CheckConstraint("kind IN ('run', 'strength')", name="ck_plan_patterns_kind"),
+        Index("ix_plan_patterns_kind_subtype", "kind", "subtype"),
+        Index("ix_plan_patterns_active", "active"),
+    )
+
+
+class PlanExercise(Base):
+    """Global exercise pool for strength pattern fill (muscle tags + group eligibility)."""
+
+    __tablename__ = "plan_exercises"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    name = Column(String(200), nullable=False, unique=True)
+    groups = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    focus_tags = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    body_parts = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    tss_weight = Column(Float, nullable=False, server_default=text("1.0"))
+    default_sets = Column(Integer, nullable=True)
+    default_reps = Column(String(40), nullable=True)
+    default_load = Column(String(80), nullable=True)
+    active = Column(Boolean, nullable=False, server_default=text("true"))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    __table_args__ = (
+        Index("ix_plan_exercises_active", "active"),
     )
 
 

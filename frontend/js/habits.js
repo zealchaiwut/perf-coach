@@ -533,6 +533,9 @@ async function loadAndRender() {
   const weekFrom = dates[0];
   const weekTo = dates[6];
 
+  const gridEl = document.getElementById('day-grid-content');
+  if (typeof UIStates !== 'undefined' && gridEl) UIStates.setLoading(gridEl);
+
   try {
     const weekUrl = currentWeekStart
       ? `/api/habits/week?week_start=${currentWeekStart}`
@@ -888,7 +891,7 @@ function _setCellState(btn, state, logId) {
   }
 }
 
-function _buildHabitRow(habit, weekDatesArr, streaksPerHabit, todayStr, logSet) {
+function _buildHabitRow(habit, weekDatesArr, streaksPerHabit, logSet) {
   const iconHTML = habitIconHTML(habit.icon, habit.color, 28);
   const target = habit.total ? habit.total.target : 7;
   const done = habit.total ? habit.total.done : 0;
@@ -1011,7 +1014,7 @@ function renderDailyGrid(logSet) {
 
   function _buildSectionTable(habits) {
     let h = `<table class="day-grid-table" role="grid">${theadHTML}<tbody>`;
-    habits.forEach(habit => { h += _buildHabitRow(habit, weekDatesArr, streaksPerHabit, todayStr, logSet); });
+    habits.forEach(habit => { h += _buildHabitRow(habit, weekDatesArr, streaksPerHabit, logSet); });
     h += '</tbody></table>';
     return h;
   }
@@ -1993,8 +1996,21 @@ function closeHabitForm() {
 }
 
 function _sfUpdateVisibility() {
-  const habitType = (document.getElementById('habit-form-habit-type') || {}).value;
-  const scheduleType = (document.getElementById('habit-form-schedule-type') || {}).value;
+  const habitTypeEl = document.getElementById('habit-form-habit-type');
+  const schedTypeEl = document.getElementById('habit-form-schedule-type');
+  const habitType = (habitTypeEl || {}).value;
+
+  // Binary habits are naturally daily — disable the 'weekly' option so the user
+  // cannot reach the silent weekly_target=7 hardcode path (issue #868).
+  const weeklyOptEl = schedTypeEl ? schedTypeEl.querySelector('option[value="weekly"]') : null;
+  if (weeklyOptEl) {
+    weeklyOptEl.disabled = habitType === 'binary';
+  }
+  if (habitType === 'binary' && schedTypeEl && schedTypeEl.value === 'weekly') {
+    schedTypeEl.value = 'daily';
+  }
+
+  const scheduleType = (schedTypeEl || {}).value;
 
   const targetRow = document.getElementById('habit-form-target-row');
   const scheduleTargetRow = document.getElementById('habit-form-schedule-target-row');
@@ -2051,15 +2067,9 @@ function _sfFormToApiPayload(habitType, scheduleType, targetValue, scheduleTarge
   let weekly_target = null;
 
   if (habitType === 'binary') {
-    if (scheduleType === 'daily') {
-      tracking_type = 'daily_checkmark';
-    } else if (scheduleType === 'weekly') {
-      tracking_type = 'weekly_count';
-      weekly_target = 7;
-    } else {
-      tracking_type = 'weekly_count';
-      weekly_target = scheduleTarget;
-    }
+    // binary+weekly is prevented in the UI (_sfUpdateVisibility resets to daily);
+    // treat any non-daily schedule as daily_checkmark defensively.
+    tracking_type = 'daily_checkmark';
   } else if (habitType === 'count') {
     tracking_type = 'weekly_count';
     weekly_target = scheduleType === 'times_per_week' ? scheduleTarget : targetValue;
@@ -2731,8 +2741,17 @@ async function _refreshHabitCal() {
   const year = hcalMonth ? hcalMonth.getFullYear() : window.AppCommon.nowBangkok().getFullYear();
   const month = hcalMonth ? hcalMonth.getMonth() : window.AppCommon.nowBangkok().getMonth();
   const lastDay = new Date(year, month + 1, 0).getDate();
-  const from = year + '-' + _hcalPad(month + 1) + '-01';
-  const to = year + '-' + _hcalPad(month + 1) + '-' + _hcalPad(lastDay);
+  let from = year + '-' + _hcalPad(month + 1) + '-01';
+  let to = year + '-' + _hcalPad(month + 1) + '-' + _hcalPad(lastDay);
+
+  // Expand range to cover the week strip when it crosses the month boundary
+  if (hcalWeekStart) {
+    const weekEnd = new Date(hcalWeekStart.getFullYear(), hcalWeekStart.getMonth(), hcalWeekStart.getDate() + 6);
+    const weekFrom = _hcalISO(hcalWeekStart);
+    const weekTo = _hcalISO(weekEnd);
+    if (weekFrom < from) from = weekFrom;
+    if (weekTo > to) to = weekTo;
+  }
 
   await _fetchCalendarRange(from, to);
   renderHcalFilter();
@@ -3006,6 +3025,8 @@ window.addEventListener('userReady', () => {
 });
 
 window.addEventListener('userChanged', () => {
+  _hcalInitialized = false;
+  hcalFetchedRange = null;
   loadAndRender();
   loadInsights();
 });

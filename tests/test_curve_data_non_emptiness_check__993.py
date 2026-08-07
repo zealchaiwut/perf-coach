@@ -25,8 +25,6 @@ Acceptance Criteria covered:
 import logging
 import unittest.mock as mock
 
-import pytest
-
 
 def _make_curve_row(curve_data, runs_considered=None):
     """Return a mock AthleteDurationCurve row with explicit attribute values."""

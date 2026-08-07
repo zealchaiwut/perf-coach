@@ -78,6 +78,25 @@ PREF_FIELDS: dict[str, dict[str, Any]] = {
         "reads": ["content"],
         "default": [],
     },
+    # Homework ladder (session modal Pass 5). Standing required_exercises never
+    # expire; weekly_focus items carry expires_on (ISO date, typically +7d).
+    # Shape per item: {exercise_id?, exercise_name, session_types, sets, reps,
+    # load, expires_on?, block?}. Pre-placed as pinned rows on matching
+    # session types — see session_homework.py.
+    "weekly_focus": {
+        "type": "list[homework]",
+        "max_items": 8,
+        "persist_weeks": 2,
+        "reads": ["content"],
+        "default": [],
+    },
+    "required_exercises": {
+        "type": "list[homework]",
+        "max_items": 12,
+        "persist_weeks": 2,
+        "reads": ["content"],
+        "default": [],
+    },
 }
 
 _ENUM_MAP = {
@@ -244,6 +263,29 @@ def _validate_one(field: str, meta: dict, val: Any) -> str | None:
             if len(item) > max_len:
                 return f"each item is at most {max_len} characters"
         return None
+    if t == "list[homework]":
+        if not isinstance(val, list):
+            return "must be a list of homework objects"
+        max_items = int(meta.get("max_items") or 8)
+        if len(val) > max_items:
+            return f"at most {max_items} items"
+        for item in val:
+            if not isinstance(item, dict):
+                return "every homework item must be an object"
+            name = item.get("exercise_name") or item.get("name")
+            eid = item.get("exercise_id")
+            if not name and not eid:
+                return "homework item needs exercise_name or exercise_id"
+            types = item.get("session_types")
+            if types is not None and not isinstance(types, list):
+                return "session_types must be a list"
+            if item.get("expires_on") is not None:
+                try:
+                    from datetime import date as _date
+                    _date.fromisoformat(str(item["expires_on"])[:10])
+                except (TypeError, ValueError):
+                    return "expires_on must be YYYY-MM-DD"
+        return None
     return None
 
 
@@ -285,6 +327,29 @@ def normalize_payload(payload: dict | None) -> dict:
             if str(item).strip()
         ]
         set_field(out, field, cleaned[:max_items])
+    # Coerce list[homework]: keep dict items that normalize, drop junk.
+    for field, meta in PREF_FIELDS.items():
+        if meta.get("type") != "list[homework]":
+            continue
+        raw_items = get_field(out, field) or []
+        if not isinstance(raw_items, list):
+            raw_items = []
+        max_items = int(meta.get("max_items") or 8)
+        cleaned_hw = []
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("exercise_name") or item.get("name") or "").strip()
+            eid = item.get("exercise_id")
+            if not name and not eid:
+                continue
+            row = dict(item)
+            if name and not row.get("exercise_name"):
+                row["exercise_name"] = name
+            if row.get("session_types") is None:
+                row["session_types"] = ["strength"]
+            cleaned_hw.append(row)
+        set_field(out, field, cleaned_hw[:max_items])
     return out
 
 

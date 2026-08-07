@@ -196,7 +196,10 @@ def _compute_timeline(goal: Any, unlock_date: date, today: date) -> list[dict]:
     ramp_end = cut_end_start - timedelta(days=1)
 
     # Hold: today until day before ramp.
-    hold_start = today
+    # When load is already available (unlock_date <= today), hold would span
+    # today→yesterday (inverted). Anchor it to the previous day instead so
+    # hold is a valid single-day phase while ramp still starts today.
+    hold_start = today - timedelta(days=1) if unlock_date <= today else today
     hold_end = unlock_date - timedelta(days=1)
 
     def _fmt(d: date) -> str:
@@ -248,6 +251,9 @@ def _compute_timeline(goal: Any, unlock_date: date, today: date) -> list[dict]:
             ),
         },
     ]
+
+    # Drop phases where start_date > end_date (inverted / zero-length).
+    phases = [p for p in phases if p["start_date"] <= p["end_date"]]
 
     # Sort chronologically by start_date.
     phases.sort(key=lambda p: p["start_date"])

@@ -883,6 +883,16 @@
     );
   }
 
+  function _halfEquivCol(r) {
+    var s = r.half_marathon_equivalent_seconds || null;
+    return s
+      ? '<div class="pm-col">' +
+        '<div class="pm-coll">Half Equivalent</div>' +
+        '<div class="pm-colt">' + esc(fmtTime(s)) + "</div>" +
+        '<div class="pm-colp">21.1 km equiv.</div></div>'
+      : "";
+  }
+
   // Priority/type badge. Checkpoints get a distinct "CP" text badge (teal) so
   // they never read as a C-priority race; races keep the A/B/C letter square.
   function _priorityBadge(isCheckpoint, priority) {
@@ -945,13 +955,7 @@
         '<div class="pm-colp">' + esc(estPace) + esc(bandTxt) + "</div></div>";
     }
 
-    var halfSec = r.half_marathon_equivalent_seconds || null;
-    var halfCol = halfSec
-      ? '<div class="pm-col">' +
-        '<div class="pm-coll">Half Equivalent</div>' +
-        '<div class="pm-colt">' + esc(fmtTime(halfSec)) + "</div>" +
-        '<div class="pm-colp">21.1 km equiv.</div></div>'
-      : "";
+    var halfCol = _halfEquivCol(r);
 
     var grid =
       '<div class="pm-rcgrid">' +
@@ -1016,13 +1020,7 @@
         ? ' <span class="pm-delta ' + deltaCls + '">' + esc(delta) + "</span>"
         : "");
 
-    var halfSecDone = r.half_marathon_equivalent_seconds || null;
-    var halfColDone = halfSecDone
-      ? '<div class="pm-col">' +
-        '<div class="pm-coll">Half Equivalent</div>' +
-        '<div class="pm-colt">' + esc(fmtTime(halfSecDone)) + "</div>" +
-        '<div class="pm-colp">21.1 km equiv.</div></div>'
-      : "";
+    var halfColCompleted = _halfEquivCol(r);
 
     var grid =
       '<div class="pm-rcgrid">' +
@@ -1032,7 +1030,7 @@
       '<div class="pm-col est"><div class="pm-coll">' + actualLabel + "</div>" +
       '<div class="pm-colt">' + esc(actualSec != null ? fmtTime(actualSec) : "—") + "</div>" +
       '<div class="pm-colp">' + esc(actualPace || "—") + "</div></div>" +
-      halfColDone +
+      halfColCompleted +
       "</div>";
 
     card.innerHTML = head + grid;
@@ -2176,238 +2174,6 @@
     }
   }
 
-  // ── What-to-improve gap panel (issue #1374, #1376, #1377) ───────────────────
-  // Mute / Done for review; + Add to plan materializes a template session on
-  // the week grid (POST …/add-to-plan) and auto-marks the finding accepted.
-
-  function _gapPostStatus(code, status, onDone) {
-    fetch("/api/training/gap-analysis/" + encodeURIComponent(code) + "/status", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: status }),
-    })
-      .then(function (r) {
-        if (!r.ok) throw new Error("HTTP " + r.status);
-        return r.json();
-      })
-      .then(function () { if (onDone) onDone(); })
-      .catch(function (err) { console.warn("gap status update failed:", err); });
-  }
-
-  function _gapDefaultDate(weekStart) {
-    // Prefer first open (non-past, empty) day on the currently viewed plan week.
-    if (window.TrainingPlan && window.TrainingPlan.getOpenDayInfo) {
-      var open = window.TrainingPlan.getOpenDayInfo().filter(function (d) {
-        return d.open;
-      });
-      if (open.length) return open[0].date;
-      var future = window.TrainingPlan.getOpenDayInfo().filter(function (d) {
-        return !d.past;
-      });
-      if (future.length) return future[0].date;
-    }
-    if (!weekStart) return "";
-    var today = window.AppCommon.nowBangkok();
-    var tomorrow = new Date(today);
-    tomorrow.setDate(today.getDate() + 1);
-    var ws = new Date(weekStart + "T00:00:00");
-    var sun = new Date(ws);
-    sun.setDate(ws.getDate() + 6);
-    var target = tomorrow > sun ? sun : (tomorrow < ws ? ws : tomorrow);
-    var m = String(target.getMonth() + 1).padStart(2, "0");
-    var d = String(target.getDate()).padStart(2, "0");
-    return target.getFullYear() + "-" + m + "-" + d;
-  }
-
-  function _gapAddToPlan(code, defaultDate, btn, statusEl, reloadFn) {
-    var picker = btn.parentNode.querySelector(".gap-atp-picker");
-    if (picker) { picker.remove(); return; }
-
-    var wrap = document.createElement("span");
-    wrap.className = "gap-atp-picker";
-
-    var input = document.createElement("input");
-    input.type = "date";
-    input.className = "gap-atp-date";
-    input.value = defaultDate || "";
-
-    var confirm = document.createElement("button");
-    confirm.className = "gap-atp-confirm";
-    confirm.textContent = "Add";
-
-    wrap.appendChild(input);
-    wrap.appendChild(confirm);
-    btn.parentNode.appendChild(wrap);
-
-    confirm.addEventListener("click", function () {
-      var date = input.value;
-      if (!date) return;
-      confirm.disabled = true;
-      confirm.textContent = "…";
-
-      fetch("/api/training/gap-analysis/" + encodeURIComponent(code) + "/add-to-plan", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: date }),
-      })
-        .then(function (r) {
-          if (r.status === 409) {
-            return r.json().then(function (d) {
-              var detail = (d && d.detail) || {};
-              if (typeof detail === "object" && detail.code === "back_off") {
-                throw new Error("Training verdict is back off — rest first.");
-              }
-              if (typeof detail === "object" && detail.code === "already_planned_this_week") {
-                var when = detail.planned_date ? (" (" + detail.planned_date + ")") : "";
-                throw new Error("Already on plan" + when + ".");
-              }
-              throw new Error((typeof detail === "string" ? detail : detail.message) || "Conflict");
-            });
-          }
-          if (!r.ok) throw new Error("HTTP " + r.status);
-          return r.json();
-        })
-        .then(function (data) {
-          wrap.remove();
-          if (statusEl) {
-            statusEl.textContent = (data && data.draft)
-              ? "Added to week draft ✓"
-              : ((data && data.upgraded) ? "Upgraded on plan ✓" : "Added to plan ✓");
-            statusEl.hidden = false;
-          }
-          btn.disabled = true;
-          btn.title = "On week draft — Apply week on Plan to commit";
-          if (window.TrainingPlan) {
-            if (window.TrainingPlan.markDraftPending) window.TrainingPlan.markDraftPending();
-            if (window.TrainingPlan.reloadDraft) window.TrainingPlan.reloadDraft();
-            else if (window.TrainingPlan.reload) window.TrainingPlan.reload();
-          }
-          if (reloadFn) reloadFn();
-        })
-        .catch(function (err) {
-          confirm.disabled = false;
-          confirm.textContent = "Add";
-          if (statusEl) {
-            statusEl.textContent = err.message || "Error";
-            statusEl.hidden = false;
-          }
-        });
-    });
-
-    var _closeOnOutside = function (e) {
-      if (!wrap.contains(e.target) && e.target !== btn) {
-        wrap.remove();
-        document.removeEventListener("click", _closeOnOutside);
-      }
-    };
-    setTimeout(function () {
-      document.addEventListener("click", _closeOnOutside);
-    }, 0);
-  }
-
-  function _buildGapFeedbackControls(f, reloadFn) {
-    var wrap = document.createElement("div");
-    wrap.className = "gap-feedback-controls";
-
-    var dismissBtn = document.createElement("button");
-    dismissBtn.className = "gap-fb-btn gap-fb-dismiss";
-    dismissBtn.title = "Mute for 28 days";
-    dismissBtn.textContent = "Mute";
-    dismissBtn.addEventListener("click", function () {
-      dismissBtn.disabled = true;
-      _gapPostStatus(f.code, "dismissed", reloadFn);
-    });
-
-    var acceptBtn = document.createElement("button");
-    acceptBtn.className = "gap-fb-btn gap-fb-accept";
-    acceptBtn.title = "Mark as done";
-    acceptBtn.textContent = "Done ✓";
-    acceptBtn.addEventListener("click", function () {
-      acceptBtn.disabled = true;
-      _gapPostStatus(f.code, "accepted", reloadFn);
-    });
-
-    wrap.appendChild(dismissBtn);
-    wrap.appendChild(acceptBtn);
-    return wrap;
-  }
-
-  function _buildGapCard(f, verdict, weekStart, reloadFn, isAccepted) {
-    var sev = f.severity || 1;
-    var card = document.createElement("div");
-    card.className = "gap-finding gap-finding--sev" + sev;
-    if (isAccepted) card.className += " gap-finding--accepted";
-
-    var headline = document.createElement("p");
-    headline.className = "gap-finding-headline";
-    headline.textContent = (isAccepted ? "✓ " : "") + (f.recommendation || "");
-
-    var evidence = document.createElement("p");
-    evidence.className = "gap-finding-evidence";
-    evidence.textContent = f.evidence_text || "";
-
-    card.appendChild(headline);
-    card.appendChild(evidence);
-
-    if (f.preset && f.preset.summary) {
-      var presetEl = document.createElement("p");
-      presetEl.className = "gap-finding-preset";
-      presetEl.textContent = f.preset.summary;
-      card.appendChild(presetEl);
-    }
-
-    if (!isAccepted) {
-      var footer = document.createElement("div");
-      footer.className = "gap-finding-footer";
-
-      if (f.has_template) {
-        var atpBtn = document.createElement("button");
-        atpBtn.className = "gap-atp-btn";
-        var onPlan = f.on_plan || null;
-        var incompleteOnPlan = !!(onPlan && onPlan.incomplete);
-        var completeOnPlan = !!(onPlan && !onPlan.incomplete);
-
-        atpBtn.textContent = incompleteOnPlan ? "Upgrade on plan" : "+ Add to plan";
-
-        var isBackOff = verdict === "back_off" && f.load_adding;
-        if (isBackOff) {
-          atpBtn.disabled = true;
-          atpBtn.title = "Training verdict is back off — rest this week before adding load.";
-          atpBtn.className += " gap-atp-btn--disabled";
-          footer.appendChild(atpBtn);
-        } else if (completeOnPlan) {
-          atpBtn.disabled = true;
-          atpBtn.className += " gap-atp-btn--disabled";
-          atpBtn.title = "Already on plan" + (onPlan.planned_date ? (" (" + onPlan.planned_date + ")") : "");
-          var statusElDone = document.createElement("span");
-          statusElDone.className = "gap-atp-status";
-          statusElDone.textContent = "On plan" + (onPlan.planned_date ? (" · " + onPlan.planned_date) : "");
-          footer.appendChild(atpBtn);
-          footer.appendChild(statusElDone);
-        } else {
-          var statusEl = document.createElement("span");
-          statusEl.className = "gap-atp-status";
-          statusEl.hidden = true;
-          var defaultDate = (incompleteOnPlan && onPlan.planned_date)
-            ? onPlan.planned_date
-            : _gapDefaultDate(weekStart);
-          atpBtn.addEventListener("click", function () {
-            _gapAddToPlan(f.code, defaultDate, atpBtn, statusEl, reloadFn);
-          });
-          footer.appendChild(atpBtn);
-          footer.appendChild(statusEl);
-        }
-      }
-
-      footer.appendChild(_buildGapFeedbackControls(f, reloadFn));
-      card.appendChild(footer);
-    }
-
-    return card;
-  }
-
   // ── Muscle balance card (issue #1382) ────────────────────────────────────
 
   var _mbalData = null; // cached API response
@@ -2687,124 +2453,6 @@
       .catch(function () {
         _sv(elLoading, false);
         _sv(elError, true);
-      });
-  }
-
-  function _loadGapPanel() {
-    var elLoading  = document.getElementById("gap-panel-loading");
-    var elFindings = document.getElementById("gap-panel-findings");
-    var elEmpty    = document.getElementById("gap-panel-empty");
-    var elError    = document.getElementById("gap-panel-error");
-    var elSkipped  = document.getElementById("gap-panel-skipped");
-    var elWeek     = document.getElementById("gap-panel-week");
-    var elMuted    = document.getElementById("gap-panel-muted");
-    if (!elLoading) return;
-
-    function _setVisible(el, on) { if (el) el.hidden = !on; }
-
-    _setVisible(elLoading, true);
-    _setVisible(elFindings, false);
-    _setVisible(elEmpty, false);
-    _setVisible(elError, false);
-    _setVisible(elSkipped, false);
-    _setVisible(elMuted, false);
-
-    fetch("/api/training/gap-analysis", { credentials: "same-origin" })
-      .then(function (r) {
-        if (!r.ok) return Promise.reject(r.status);
-        return r.json();
-      })
-      .then(function (data) {
-        _setVisible(elLoading, false);
-
-        var verdict = data.verdict || null;
-        var weekStart = data.week_start || null;
-
-        // Week label
-        if (elWeek && weekStart) elWeek.textContent = "wk " + weekStart;
-
-        var findings = (data.findings || []).slice(0, 3);
-        var muted = data.muted || [];
-
-        // Skipped footnote — never silently drop
-        var skipped = data.skipped_rules || [];
-        if (skipped.length > 0) {
-          var names = skipped.map(function (s) {
-            return s.replace(/_/g, " ");
-          }).join(", ");
-          elSkipped.textContent = "Some checks skipped: no data for " + names + ".";
-          _setVisible(elSkipped, true);
-        }
-
-        if (findings.length === 0 && muted.length === 0) {
-          _setVisible(elEmpty, true);
-          return;
-        }
-
-        // Main findings
-        elFindings.innerHTML = "";
-        findings.forEach(function (f) {
-          var isAccepted = f.status === "accepted";
-          elFindings.appendChild(_buildGapCard(f, verdict, weekStart, _loadGapPanel, isAccepted));
-        });
-        if (findings.length === 0 && muted.length > 0) {
-          var noActive = document.createElement("p");
-          noActive.className = "gap-no-active";
-          noActive.textContent = "No active findings this week.";
-          elFindings.appendChild(noActive);
-        }
-        _setVisible(elFindings, true);
-
-        // Muted / suppressed section (issue #1377)
-        if (elMuted && muted.length > 0) {
-          elMuted.innerHTML = "";
-          var toggle = document.createElement("button");
-          toggle.type = "button";
-          toggle.className = "gap-muted-toggle";
-          toggle.textContent = "Muted (" + muted.length + ")";
-          toggle.setAttribute("aria-expanded", "false");
-          var muteList = document.createElement("div");
-          muteList.className = "gap-muted-list";
-          muteList.id = "gap-muted-list";
-          muteList.hidden = true;
-          toggle.setAttribute("aria-controls", "gap-muted-list");
-
-          muted.forEach(function (f) {
-            var row = document.createElement("div");
-            row.className = "gap-muted-row";
-
-            var label = document.createElement("span");
-            label.className = "gap-muted-label";
-            label.textContent = f.recommendation || f.code;
-
-            var restoreBtn = document.createElement("button");
-            restoreBtn.className = "gap-fb-btn gap-fb-restore";
-            restoreBtn.textContent = "Restore";
-            restoreBtn.title = "Show again in main panel";
-            restoreBtn.addEventListener("click", function () {
-              restoreBtn.disabled = true;
-              _gapPostStatus(f.code, "active", _loadGapPanel);
-            });
-
-            row.appendChild(label);
-            row.appendChild(restoreBtn);
-            muteList.appendChild(row);
-          });
-
-          toggle.addEventListener("click", function () {
-            muteList.hidden = !muteList.hidden;
-            toggle.textContent = (muteList.hidden ? "Muted" : "Muted ▾") + " (" + muted.length + ")";
-            toggle.setAttribute("aria-expanded", muteList.hidden ? "false" : "true");
-          });
-
-          elMuted.appendChild(toggle);
-          elMuted.appendChild(muteList);
-          _setVisible(elMuted, true);
-        }
-      })
-      .catch(function () {
-        _setVisible(elLoading, false);
-        _setVisible(elError, true);
       });
   }
 
@@ -3330,6 +2978,5 @@
 
   window.TrainingPerformance = {
     init: init,
-    loadGapPanel: _loadGapPanel,
   };
 })();

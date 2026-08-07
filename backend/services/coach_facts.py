@@ -167,7 +167,6 @@ def _thin_focus_from_ranking(plan_state: dict, weight: dict, load: dict) -> list
     ranking = plan_state.get("lever_ranking") or {}
     bigger = ranking.get("bigger_lever") or "load"
     tractable = ranking.get("more_tractable") or "weight"
-    rationale = ranking.get("rationale") or ""
     out: list[dict] = []
 
     load_state = load.get("state")
@@ -505,7 +504,7 @@ def _enrich_load_context(user_id, today: date, load: dict, db, race=None) -> dic
         from backend.services.training_load import daily_tss_series
         from backend.services.load_plan import compute_load_plan, ACWR_CEILING_MULT
         from backend.services.guardrail import get_guardrail_result
-        from backend.services.weekly_coach_message import _TARGET_CTL
+        from backend.services.coach_plan import _TARGET_CTL
 
         this_week_start = today - timedelta(days=today.weekday())
         last_week_start = this_week_start - timedelta(days=7)
@@ -1326,12 +1325,12 @@ def _reflection_block(
     return reflection
 
 
-def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | None:
+def build_coach_facts(user_id, today: date | None = None, db=None, goal=None) -> dict | None:
     """Return coach_facts dict, or None when no A-race / PerformanceGoal exists."""
     from backend.services.coach_plan import build_plan_state
     from backend.services.weekly_coach_message import (
-        _load_inputs_for_user,
-        _format_hms,
+        load_inputs_for_user,
+        format_hms,
     )
 
     today = today or today_bangkok()
@@ -1342,7 +1341,7 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
         db = Session(engine)
 
     try:
-        goal, snapshot, weight_status, log_consistency = _load_inputs_for_user(
+        goal, snapshot, weight_status, log_consistency = load_inputs_for_user(
             user_id, db, today
         )
         if goal is None:
@@ -1410,7 +1409,7 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
             if gap >= 2 and tsec > 0:
                 cut = min(6.0, gap)
                 weight["payoff_cut_kg"] = cut
-                weight["payoff_label"] = _format_hms(
+                weight["payoff_label"] = format_hms(
                     int(round(tsec * (1.0 - 0.008 * cut)))
                 )
         except Exception:
@@ -1439,7 +1438,7 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
                 if gap >= 2 and target_sec > 0:
                     cut = min(6.0, gap)
                     weight["payoff_cut_kg"] = cut
-                    weight["payoff_label"] = _format_hms(
+                    weight["payoff_label"] = format_hms(
                         int(round(target_sec * (1.0 - 0.008 * cut)))
                     )
             except Exception:
@@ -1448,8 +1447,8 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
         trend_sec = race_est.get("est_sec")
         trend_label = race_est.get("est_label")
         projection = {
-            "goal_label": _format_hms(target_sec) if target_sec else None,
-            "full_compliance_label": _format_hms(target_sec) if target_sec else None,
+            "goal_label": format_hms(target_sec) if target_sec else None,
+            "full_compliance_label": format_hms(target_sec) if target_sec else None,
             "full_compliance_sec": target_sec or None,
             "current_trend_label": trend_label,
             "current_trend_sec": trend_sec,
@@ -1493,7 +1492,7 @@ def build_coach_facts(user_id, today: date | None = None, db=None) -> dict | Non
         goal_block = {
             "distance": getattr(goal, "race_distance", None),
             "target_time_sec": target_sec or None,
-            "target_time_label": _format_hms(target_sec) if target_sec else None,
+            "target_time_label": format_hms(target_sec) if target_sec else None,
             "race_date": _iso(race_date),
             "source": getattr(goal, "source", None) or "performance_goal",
         }

@@ -1282,14 +1282,41 @@ def _assemble_findings(user) -> list[dict]:
     """Visible gap-analysis findings only — muted/suppressed items are excluded.
 
     A finding the athlete already dismissed, or one inside its suppression
-    cooldown, is noise in a daily message; the app decided not to show it and the
-    export honours that decision.
+    cooldown, is noise in a daily message; the export honours that decision.
+    Calls the gap engine directly (the Plan-tab What-to-improve surface and its
+    HTTP endpoints were removed).
     """
-    from backend.main import get_gap_analysis
+    from datetime import timedelta
 
-    payload = json.loads(get_gap_analysis(user=user).body)
+    from backend.services.gap_analysis.engine import run_gap_analysis
+    from backend.services.gap_analysis.evidence_text import render_evidence_text
+    from backend.services.gap_analysis.pref_proposals import has_open_proposal_for_code
+    from backend.services.gap_analysis.suppression import apply_suppression
+    from backend.services.gap_analysis.templates import is_load_adding
+    from backend.utils.time import today_bangkok
+
+    today = today_bangkok()
+    week_start = today - timedelta(days=today.weekday())
+    with Session(engine) as db:
+        result = run_gap_analysis(db, user.id, today)
+        enriched = []
+        for f in result.get("findings") or []:
+            code = f.get("code")
+            enriched.append({
+                **f,
+                "evidence_text": render_evidence_text(
+                    code, f.get("evidence") or [], f.get("target")
+                ),
+                "load_adding": is_load_adding(code) if code else False,
+            })
+        partitioned = apply_suppression(db, user.id, week_start, enriched)
+        visible = [
+            item for item in partitioned["findings"]
+            if not has_open_proposal_for_code(db, user.id, item["code"])
+        ]
+
     findings: list[dict] = []
-    for f in payload.get("findings") or []:
+    for f in visible:
         findings.append({
             "code": f.get("code"),
             "severity": f.get("severity"),
@@ -1629,8 +1656,9 @@ review:   <what to check, and when>
 ```
 
 Only propose changes the constraints allow. One or two changes, not five — I'll
-actually do two. If a prefs change is involved, also give me the JSON patch to
-paste into the prefs importer.
+actually do two. Prefs changes belong in the list as
+`prefs: <field> <from> → <to>`; I'll apply them in the Plan preferences form
+myself.
 
 ## Style
 

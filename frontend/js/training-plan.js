@@ -16,6 +16,7 @@
   var _initialized = false;
   var _weekStart = null;          // Date (Monday) of the visible week
   var _bundle = null;             // last GET bundle
+  var _nextUpBundle = null;       // today→+20d for Next-up hero
   var _panel = { open: null };    // null | 'add' | 'detail'
   var _addState = { top: 'single', sub: 'form', delim: 'pipe' };
   // Create-mode draft-first: optional AI/manual content before Save draft.
@@ -157,10 +158,6 @@ information about.
       _wireLoadPlanSettings();
       _loadLoadPlan();
       _loadWeekLoad(_iso(_weekStart));
-      // What to improve panel (moved from Performance → Plan)
-      if (window.TrainingPerformance && window.TrainingPerformance.loadGapPanel) {
-        window.TrainingPerformance.loadGapPanel();
-      }
       if (window.location.hash === '#prefs') {
         setTimeout(function () {
           var t = document.getElementById('plan-suggestions-trigger');
@@ -688,38 +685,19 @@ information about.
           if (d.draft_version) _draft.draft_version = d.draft_version;
           _renderDraftChrome();
           _renderWeekList();
+          var sess = null;
+          (((_draft || {}).payload || {}).sessions || []).forEach(function (s) {
+            if (s && s.slot_id === slotId) sess = s;
+          });
+          if (sess && _detailDraft && _detailDraft.slot_id === slotId) {
+            _detailDraft = sess;
+            _renderDraftDetailSection();
+          }
         }
-        _toast('Generating details…');
-        _pollDraftPending(slotId);
+        _toast('Details filled');
         return d;
       });
     });
-  }
-
-  var _draftPendingTimer = null;
-  function _pollDraftPending(slotId) {
-    if (_draftPendingTimer) clearInterval(_draftPendingTimer);
-    var tries = 0;
-    _draftPendingTimer = setInterval(function () {
-      tries++;
-      _loadDraft(function () {
-        var sess = null;
-        (((_draft || {}).payload || {}).sessions || []).forEach(function (s) {
-          if (s && s.slot_id === slotId) sess = s;
-        });
-        if (!sess || !sess.pending || tries > 40) {
-          clearInterval(_draftPendingTimer);
-          _draftPendingTimer = null;
-          if (sess && !sess.pending) {
-            _toast('Details ready');
-            if (_detailDraft && _detailDraft.slot_id === slotId) {
-              _detailDraft = sess;
-              _renderDraftDetailSection();
-            }
-          }
-        }
-      });
-    }, 3000);
   }
 
   function _dayOffsetForDate(isoDate) {
@@ -904,7 +882,7 @@ information about.
         pendingBar.innerHTML =
           '<span class="pl-gen-spin pl-gen-spin-lg" aria-hidden="true"></span>' +
           '<span>Regenerating ' + pendingN + ' session' + (pendingN === 1 ? '' : 's') +
-          ' on zeal-server — you can keep editing. We\'ll nudge you when it\'s done.</span>';
+          '…</span>';
       } else {
         pendingBar.hidden = true;
         pendingBar.innerHTML = '';
@@ -924,9 +902,10 @@ information about.
 
   function _refreshDraft() {
     _api('POST', '/api/plan/draft/refresh', { week_start: _iso(_weekStart) })
-      .then(function () {
-        _toast('Draft refresh queued');
-        setTimeout(function () { _loadDraft(); }, 2500);
+      .then(function (res) {
+        if (res && res.draft) _draft = res.draft;
+        _toast('Draft refreshed');
+        _loadDraft();
       })
       .catch(function () { _toast('Could not refresh draft', true); });
   }
@@ -938,6 +917,7 @@ information about.
       .then(function (res) {
         var n = (res && res.created) ? res.created.length : 0;
         _toast(n ? ('Applied ' + n + ' session' + (n === 1 ? '' : 's')) : 'Draft applied');
+        if (btn) btn.disabled = false;
         _draft = null;
         _loadWeek(function () { _loadDraft(); });
         _updatePlanTabBadge(false);
@@ -957,6 +937,7 @@ information about.
       .then(function (data) {
         _bundle = data;
         _renderWeekList();
+        _loadNextUpRange();
         // Keep an open detail panel in sync with the freshly loaded bundle
         // (a mutation triggered from inside the panel doesn't otherwise
         // refresh it, since it renders from _detail, not _bundle).
@@ -992,6 +973,7 @@ information about.
       })
       .catch(function () {
         if (host) host.innerHTML = '<div class="pl-loading">Could not load the week.</div>';
+        if (onDone) onDone();
       });
   }
 
@@ -1047,6 +1029,8 @@ information about.
       if (emptyEl) emptyEl.hidden = false;
       if (subtitle) subtitle.innerHTML = '&nbsp;';
       if (cogBtn) cogBtn.hidden = true;
+      var setlineEmpty = document.getElementById('lp-setline');
+      if (setlineEmpty) setlineEmpty.hidden = true;
       return;
     }
 
@@ -1070,6 +1054,16 @@ information about.
       _setText('lp-rule-taper', _lpData.taper_weeks + ' weeks');
     }
 
+    var setline = document.getElementById('lp-setline');
+    var setlineText = document.getElementById('lp-setline-text');
+    if (setline && setlineText) {
+      setline.hidden = false;
+      setlineText.innerHTML =
+        '<b>' + esc(String(_lpData.weeks_to_race)) + ' wks</b> to ' + esc(_lpData.race.name) +
+        ' <span>·</span> ramp <b>+' + esc(_fmtPct1(_lpData.ramp_rate)) + '</b>' +
+        ' <span>·</span> peak <b>' + Math.round(_lpData.peak) + '</b>';
+    }
+
     if (warnEl) {
       // Two independent informational banners can both be true at once
       // (a degenerate ramp/hold/taper config AND a capped baseline) — join
@@ -1079,8 +1073,8 @@ information about.
       if (_lpData.warning) msgs.push(_lpData.warning);
       if (_lpData.baseline_capped) {
         msgs.push(
-          'Baseline capped: last week (' + Math.round(_lpData.baseline_tss) +
-          ') exceeded chronic load; using ' + Math.round(_lpData.capped_baseline_tss) + '.'
+          'Baseline capped: seed (' + Math.round(_lpData.baseline_tss) +
+          ') exceeded ACWR band vs chronic; using ' + Math.round(_lpData.capped_baseline_tss) + '.'
         );
       }
       if (msgs.length) { warnEl.hidden = false; warnEl.textContent = msgs.join(' '); }
@@ -1114,6 +1108,85 @@ information about.
     if (el) el.textContent = text;
   }
 
+  function _isMobilePlanLayout() {
+    return typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 1039.98px)').matches;
+  }
+
+  function _barKind(w, isPrior) {
+    if (isPrior) return 'actual' + (w.deload ? ' is-deload' : '');
+    var cls = 'target phase-' + (w.phase || 'ramp');
+    if (w.clamped) cls += ' is-clamped';
+    if (w.deload) cls += ' is-deload';
+    return cls;
+  }
+
+  function _phaseStripHtml(series) {
+    // Collapse consecutive same-phase weeks into strips (desktop full chart).
+    var segs = [];
+    series.forEach(function (item) {
+      var phase = item.isPrior ? 'prior' : (item.w.phase || 'ramp');
+      var last = segs[segs.length - 1];
+      if (last && last.phase === phase) { last.w += 1; return; }
+      segs.push({ phase: phase, w: 1 });
+    });
+    return '<div class="lp-phasebar">' + segs.map(function (s) {
+      if (s.phase === 'prior') return '<div class="lp-ph lp-ph-prior" style="flex:' + s.w + '"></div>';
+      var lab = s.phase === 'hold' ? ('PEAK HOLD · ' + s.w + ' WKS')
+        : s.phase === 'taper' ? 'TAPER'
+        : s.phase === 'race' ? 'RACE'
+        : s.phase === 'consolidation' ? 'HOLD'
+        : 'BUILD';
+      var cls = s.phase === 'hold' ? 'peakp' : s.phase === 'taper' ? 'taperp'
+        : s.phase === 'race' ? 'racep' : 'build';
+      return '<div class="lp-ph ' + cls + '" style="flex:' + s.w + '">' + lab + '</div>';
+    }).join('') + '</div>';
+  }
+
+  function _mobileAheadChips(weeks, race) {
+    var hold = weeks.filter(function (w) { return w.phase === 'hold'; });
+    var taper = weeks.filter(function (w) { return w.phase === 'taper' || w.phase === 'race'; });
+    var chips = [];
+    if (hold.length) {
+      chips.push('<div class="lp-amini peak"><div class="k">Peak hold</div><div class="v">' +
+        Math.round(hold[0].target_tss) + '</div><div class="s">' + hold.length + ' wks · ' +
+        _fmtShortDate(hold[0].week_start) + '</div></div>');
+    }
+    if (taper.length) {
+      var first = taper[0], last = taper[taper.length - 1];
+      chips.push('<div class="lp-amini tap"><div class="k">Taper</div><div class="v">' +
+        Math.round(first.target_tss) + '→' + Math.round(last.target_tss) +
+        '</div><div class="s">' + taper.length + ' wks · ' + _fmtShortDate(first.week_start) + '</div></div>');
+    }
+    if (race) {
+      chips.push('<div class="lp-amini race"><div class="k">Race day</div><div class="v">' +
+        esc(_fmtShortDate(race.date)) + '</div><div class="s">' + esc(race.name) + '</div></div>');
+    }
+    return chips.length ? ('<div class="lp-ahead">' + chips.join('') + '</div>') : '';
+  }
+
+  function _currentPhaseLabel(weeks) {
+    var cur = null, idx = 0, total = 0;
+    for (var i = 0; i < weeks.length; i++) {
+      if (weeks[i].week_index === 1) { cur = weeks[i]; break; }
+    }
+    if (!cur) cur = weeks[0];
+    if (!cur) return '';
+    var phase = cur.phase || 'ramp';
+    weeks.forEach(function (w) {
+      if (w.phase === phase) total += 1;
+    });
+    // Position within phase: count weeks of this phase up to and including current
+    var pos = 0;
+    for (var j = 0; j < weeks.length; j++) {
+      if (weeks[j].phase !== phase) continue;
+      pos += 1;
+      if (weeks[j].week_start === cur.week_start) break;
+    }
+    var name = phase === 'hold' ? 'PEAK HOLD' : phase === 'taper' ? 'TAPER'
+      : phase === 'race' ? 'RACE' : phase === 'consolidation' ? 'HOLD' : 'BUILD';
+    return '<div class="lp-phasenow"><div class="lp-ph">' + name + ' · WEEK ' + pos + ' OF ' + total + '</div></div>';
+  }
+
   function _renderLoadPlanChart() {
     var host = document.getElementById('lp-chart-wrap');
     if (!host) return;
@@ -1121,102 +1194,99 @@ information about.
 
     var prior = _lpData.prior_weeks || [];
     var weeks = _lpData.weeks || [];
-    var totalCols = prior.length + weeks.length;
-    if (totalCols === 0) { host.innerHTML = ''; return; }
+    if (!prior.length && !weeks.length) { host.innerHTML = ''; return; }
 
-    var allValues = prior.map(function (p) { return p.actual_tss; })
-      .concat(weeks.map(function (w) { return w.target_tss; }));
+    var series = prior.map(function (p) { return { w: p, isPrior: true }; })
+      .concat(weeks.map(function (w) { return { w: w, isPrior: false }; }));
+
+    var mobile = _isMobilePlanLayout();
+    var view = series;
+    var thisIdx = -1;
+    series.forEach(function (item, i) {
+      if (!item.isPrior && item.w.week_index === 1) thisIdx = i;
+    });
+    if (mobile && thisIdx >= 0) {
+      var from = Math.max(0, thisIdx - 2);
+      var to = Math.min(series.length, thisIdx + 3);
+      view = series.slice(from, to);
+    }
+
+    var allValues = view.map(function (item) {
+      return item.isPrior ? item.w.actual_tss : item.w.target_tss;
+    });
     var maxVal = Math.max.apply(null, allValues.concat([1]));
 
-    var barsHtml = '';
-    var axisHtml = '';
-    var prevMonth = null;
+    var barsHtml = view.map(function (item) {
+      var val = item.isPrior ? item.w.actual_tss : item.w.target_tss;
+      var h = Math.max(6, (val / maxVal) * 100);
+      var kind = _barKind(item.w, item.isPrior);
+      var isNow = !item.isPrior && item.w.week_index === 1;
+      var d = _parseISO(item.w.week_start);
+      var dLab = d.getDate() + ' ' + MON[d.getMonth()];
+      var tip = dLab + ' · ' + Math.round(val) + ' TSS';
+      return '<div class="lp-bar-col' + (isNow ? ' is-this-week' : '') + '" title="' + esc(tip) + '">' +
+        '<div class="lp-bar ' + kind + '" style="height:' + h + '%">' +
+        (item.w.deload ? '<span class="lp-deload-arrow" aria-hidden="true">▼</span>' : '') +
+        '<span class="lp-bar-value">' + Math.round(val) + '</span></div>' +
+        '<span class="lp-bar-d">' + esc(dLab) + '</span></div>';
+    }).join('');
 
-    function axisCol(iso) {
-      var d = _parseISO(iso);
-      var m = d.getMonth();
-      var showMonth = m !== prevMonth;
-      prevMonth = m;
-      return '<div class="lp-axis-col">' + d.getDate() +
-        (showMonth ? '<span class="mon">' + MON[m] + '</span>' : '') + '</div>';
+    var mobileExtra = '';
+    if (mobile) {
+      var weeksAhead = Math.max(0, weeks.length - 1);
+      mobileExtra =
+        _currentPhaseLabel(weeks) +
+        (weeksAhead > 0 ? '<div class="lp-divider"><span>' + weeksAhead + ' weeks ahead</span></div>' : '') +
+        _mobileAheadChips(weeks, _lpData.race) +
+        '<button type="button" class="lp-fullink" id="lp-full-chart-btn">Full season chart →</button>';
     }
-
-    prior.forEach(function (p) {
-      var h = Math.max(6, (p.actual_tss / maxVal) * 100);
-      var cls = 'lp-bar actual' + (p.deload ? ' is-deload' : '');
-      barsHtml += '<div class="lp-bar-col"><div class="' + cls + '" style="height:' + h + '%"' +
-        (p.deload ? ' title="Deload week"' : '') + '>' +
-        '<span class="lp-bar-value">' + Math.round(p.actual_tss) +
-        (p.deload ? '<span class="lp-deload-mark">▼</span>' : '') +
-        '</span></div></div>';
-      axisHtml += axisCol(p.week_start);
-    });
-
-    var thisWeekCol = -1, raceCol = -1;
-    var holdFirst = -1, holdLast = -1;
-
-    weeks.forEach(function (w, i) {
-      var col = prior.length + i;
-      if (w.phase === 'ramp' && w.week_index === 1) thisWeekCol = col;
-      if (w.phase === 'hold') { if (holdFirst < 0) holdFirst = col; holdLast = col; }
-      if (w.phase === 'race') raceCol = col;
-      if (w.week_index === 1) thisWeekCol = col; // week_index 1 is always "this week", any phase
-
-      var h = Math.max(6, (w.target_tss / maxVal) * 100);
-      var cls = 'lp-bar target phase-' + w.phase + (w.clamped ? ' is-clamped' : '') + (w.deload ? ' is-deload' : '');
-      var colCls = 'lp-bar-col' + (w.week_index === 1 ? ' is-this-week' : '');
-      barsHtml += '<div class="' + colCls + '"><div class="' + cls + '" style="height:' + h + '%" title="' +
-        esc(PHASE_LABEL[w.phase] || w.phase) + (w.deload ? ' — deload week (cut 30%)' : '') +
-        (w.clamped ? ' — ACWR-clamped' : '') + '">' +
-        '<span class="lp-bar-value">' + Math.round(w.target_tss) + (w.deload ? '<span class="lp-deload-mark">▼</span>' : '') + '</span></div></div>';
-      axisHtml += axisCol(w.week_start);
-    });
-
-    var bracketHtml = '';
-    if (holdFirst >= 0 && holdLast >= 0) {
-      var left = (holdFirst / totalCols) * 100;
-      var width = ((holdLast - holdFirst + 1) / totalCols) * 100;
-      bracketHtml = '<div class="lp-bracket" style="left:' + left + '%;width:' + width + '%">' +
-        '<span class="lp-bracket-lab">PEAK HOLD · ' + _lpData.hold_weeks + ' WKS</span></div>';
-    }
-
-    var flagHtml = '';
-    if (thisWeekCol >= 0) {
-      var twLeft = ((thisWeekCol + 0.5) / totalCols) * 100;
-      flagHtml += '<div class="lp-flag-this-week" style="left:' + twLeft + '%">THIS WEEK</div>';
-    }
-    if (raceCol >= 0) {
-      var rLeft = ((raceCol + 0.5) / totalCols) * 100;
-      flagHtml += '<div class="lp-flag-race" style="left:' + rLeft + '%">' +
-        '<div class="caret">▲</div><div class="lp-flag-race-badge">RACE DAY<br>' +
-        esc(_fmtRaceDayLabel(_lpData.race.date)) + '</div></div>';
-    }
-
-    // Other races / checkpoints in the window — small carets under their
-    // week's bar (the A race keeps the big RACE DAY flag).
-    (_lpData.markers || []).forEach(function (m) {
-      var col = -1;
-      var md = m.date;
-      prior.forEach(function (p, i) {
-        if (md >= p.week_start && md < _isoAddDays(p.week_start, 7)) col = i;
-      });
-      weeks.forEach(function (w, i) {
-        if (md >= w.week_start && md < _isoAddDays(w.week_start, 7)) col = prior.length + i;
-      });
-      if (col < 0 || col === raceCol) return;
-      var mLeft = ((col + 0.5) / totalCols) * 100;
-      var isCp = (m.race_type || '') === 'checkpoint';
-      var lab = isCp ? 'CP' : (m.priority || 'B');
-      flagHtml += '<div class="lp-flag-marker' + (isCp ? ' is-cp' : '') + '" style="left:' + mLeft + '%" title="' +
-        esc(m.name + ' \u00b7 ' + m.date) + '">' +
-        '<div class="caret">▲</div><div class="lp-flag-marker-badge">' + esc(lab) + '</div></div>';
-    });
 
     host.innerHTML =
-      '<div class="lp-bracket-row" style="position:relative;height:14px;">' + bracketHtml + '</div>' +
-      '<div class="lp-bars">' + barsHtml + '</div>' +
-      '<div class="lp-axis">' + axisHtml + '</div>' +
-      '<div class="lp-flag-row">' + flagHtml + '</div>';
+      '<div class="lp-bars' + (mobile ? ' is-windowed' : '') + '">' + barsHtml + '</div>' +
+      (mobile ? '' : _phaseStripHtml(series)) +
+      mobileExtra;
+
+    var fullBtn = document.getElementById('lp-full-chart-btn');
+    if (fullBtn) fullBtn.onclick = function () { _openFullSeasonSheet(); };
+  }
+
+  function _openFullSeasonSheet() {
+    if (!_lpData) return;
+    var existing = document.getElementById('lp-full-sheet');
+    if (existing) existing.remove();
+    var prior = _lpData.prior_weeks || [];
+    var weeks = _lpData.weeks || [];
+    var series = prior.map(function (p) { return { w: p, isPrior: true }; })
+      .concat(weeks.map(function (w) { return { w: w, isPrior: false }; }));
+    var allValues = series.map(function (item) {
+      return item.isPrior ? item.w.actual_tss : item.w.target_tss;
+    });
+    var maxVal = Math.max.apply(null, allValues.concat([1]));
+    var bars = series.map(function (item) {
+      var val = item.isPrior ? item.w.actual_tss : item.w.target_tss;
+      var h = Math.max(6, (val / maxVal) * 100);
+      var d = _parseISO(item.w.week_start);
+      var dLab = d.getDate() + ' ' + MON[d.getMonth()];
+      var isNow = !item.isPrior && item.w.week_index === 1;
+      return '<div class="lp-bar-col' + (isNow ? ' is-this-week' : '') + '" title="' + esc(dLab + ' · ' + Math.round(val) + ' TSS') + '">' +
+        '<div class="lp-bar ' + _barKind(item.w, item.isPrior) + '" style="height:' + h + '%">' +
+        '<span class="lp-bar-value">' + Math.round(val) + '</span></div>' +
+        '<span class="lp-bar-d">' + esc(dLab) + '</span></div>';
+    }).join('');
+    var sheet = document.createElement('div');
+    sheet.id = 'lp-full-sheet';
+    sheet.className = 'lp-full-sheet';
+    sheet.innerHTML =
+      '<div class="lp-full-sheet-card" role="dialog" aria-modal="true" aria-label="Full season chart">' +
+        '<div class="lp-full-sheet-head"><span>Full season chart</span>' +
+          '<button type="button" class="lp-full-sheet-close" id="lp-full-sheet-close" aria-label="Close">✕</button></div>' +
+        '<div class="lp-bars">' + bars + '</div>' +
+        _phaseStripHtml(series) +
+      '</div>';
+    document.body.appendChild(sheet);
+    function close() { sheet.remove(); }
+    sheet.addEventListener('click', function (e) { if (e.target === sheet) close(); });
+    document.getElementById('lp-full-sheet-close').onclick = close;
   }
 
   function _isoAddDays(iso, n) {
@@ -1334,11 +1404,29 @@ information about.
     var rampInput = document.getElementById('lp-ramp-input');
     var saveBtn = document.getElementById('lp-save-btn');
     var deloadToggle = document.getElementById('lp-recovery-toggle');
+    var setline = document.getElementById('lp-setline');
     if (cogBtn) cogBtn.onclick = _toggleLoadPlanSettings;
     if (deloadToggle) deloadToggle.onchange = _syncDeloadWeekRow;
     if (rampSlider) rampSlider.oninput = function () { if (rampInput) rampInput.value = rampSlider.value; };
     if (rampInput) rampInput.oninput = function () { if (rampSlider) rampSlider.value = rampInput.value; };
     if (saveBtn) saveBtn.onclick = _saveLoadPlanRules;
+    if (setline) setline.onclick = function () {
+      var strip = document.getElementById('lp-rules-strip');
+      if (!strip) return;
+      var open = strip.classList.toggle('is-open');
+      setline.setAttribute('aria-expanded', open ? 'true' : 'false');
+      setline.classList.toggle('is-open', open);
+    };
+    if (!window.__plChartResizeWired) {
+      window.__plChartResizeWired = true;
+      var t = null;
+      window.addEventListener('resize', function () {
+        clearTimeout(t);
+        t = setTimeout(function () {
+          if (_lpData) _renderLoadPlanChart();
+        }, 150);
+      });
+    }
   }
 
   // ── Session load · this week (Plan-tab revamp, Part 2) ──────────────────────
@@ -1380,6 +1468,7 @@ information about.
 
     var d = _wlData;
     _setText('wl-target-val', '/' + Math.round(d.target_tss));
+    _renderNextUp(); // Of-week share uses target_tss
 
     var projEl = document.getElementById('wl-target-projected');
     if (projEl) {
@@ -1429,8 +1518,8 @@ information about.
       // (docs/calculations/load-plan.md "Baseline cap") rather than just
       // showing the lower capped number with no explanation.
       if (d.baseline_capped) {
-        baselineEl.innerHTML = Math.round(d.capped_baseline_tss) + ' TSS <span class="wl-baseline-capped" title="Last week (' +
-          Math.round(d.baseline_tss) + ' TSS) exceeded chronic load — capped to ' +
+        baselineEl.innerHTML = Math.round(d.capped_baseline_tss) + ' TSS <span class="wl-baseline-capped" title="Seed (' +
+          Math.round(d.baseline_tss) + ' TSS = max(logged, planned)) exceeded ACWR band vs chronic — capped to ' +
           Math.round(d.capped_baseline_tss) + ' TSS so the ramp does not compound the spike.">(capped)</span>';
       } else {
         baselineEl.textContent = Math.round(d.baseline_tss) + ' TSS';
@@ -1470,7 +1559,8 @@ information about.
     }
     _setText(
       'wl-baseline-compare',
-      'planned ' + Math.round(d.baseline_planned_tss) + ' · logged ' + Math.round(d.baseline_tss),
+      'planned ' + Math.round(d.baseline_planned_tss) + ' · logged ' +
+        Math.round(d.baseline_logged_tss != null ? d.baseline_logged_tss : d.baseline_tss),
     );
 
     if (d.acwr_ceiling != null) {
@@ -1518,10 +1608,244 @@ information about.
   }
 
   // ── Render shell ────────────────────────────────────────────────────────────
+
+  // ── Next up hero (§1) ───────────────────────────────────────────────────────
+  function _isOpenPlanned(p) {
+    if (!p || p.session_type === 'rest') return false;
+    var s = p.status || 'planned';
+    if (s === 'done_auto' || s === 'done_manual') return false;
+    if (s === 'missed' || s === 'missed_auto' || s === 'missed_manual') return false;
+    return true;
+  }
+
+  function _fmtHeroDate(iso) {
+    var d = _parseISO(iso);
+    var dow = DOW[(d.getDay() + 6) % 7];
+    var short = dow.charAt(0) + dow.slice(1).toLowerCase() + ' ' + d.getDate() + ' ' + MON[d.getMonth()];
+    if (iso === _todayISO()) return short + ' · today';
+    return short;
+  }
+
+  function _fmtThenDate(iso) {
+    var d = _parseISO(iso);
+    var dow = DOW[(d.getDay() + 6) % 7];
+    return dow.charAt(0) + dow.slice(1).toLowerCase() + ' ' + d.getDate();
+  }
+
+  function _sessionCue(p) {
+    if (!p) return null;
+    if (p.notes && String(p.notes).trim()) {
+      var n = String(p.notes).trim().replace(/\s+/g, ' ');
+      if (n.length > 140) n = n.slice(0, 137) + '…';
+      return n;
+    }
+    var s = p.structure || {};
+    if (s.cue && String(s.cue).trim()) return String(s.cue).trim();
+    if (s.key_instruction && String(s.key_instruction).trim()) return String(s.key_instruction).trim();
+    if (Array.isArray(s.blocks)) {
+      for (var i = 0; i < s.blocks.length; i++) {
+        var b = s.blocks[i];
+        if (b && b.notes && String(b.notes).trim()) return String(b.notes).trim();
+        if (b && b.cue && String(b.cue).trim()) return String(b.cue).trim();
+      }
+    }
+    return null;
+  }
+
+  function _pickNextUp(days) {
+    var today = _todayISO();
+    var best = null;
+    (days || []).forEach(function (day) {
+      if (day.date < today) return;
+      (day.planned || []).forEach(function (p) {
+        if (!_isOpenPlanned(p)) return;
+        if (!best || day.date < best.day.date) best = { p: p, day: day };
+      });
+    });
+    return best;
+  }
+
+  function _pickThenAfter(days, current) {
+    if (!current) return null;
+    var afterDate = current.day.date;
+    var afterId = current.p.id;
+    var passed = false;
+    for (var i = 0; i < (days || []).length; i++) {
+      var day = days[i];
+      if (day.date < afterDate) continue;
+      var planned = day.planned || [];
+      for (var j = 0; j < planned.length; j++) {
+        var p = planned[j];
+        if (!passed) {
+          if (p.id === afterId) { passed = true; continue; }
+          if (day.date === afterDate) continue;
+        }
+        if (_isOpenPlanned(p)) {
+          return {
+            fam: _famClass(p.session_type),
+            chip: _sessionTypeChipLabel(p),
+            text: 'then ' + _fmtThenDate(day.date) + ' · ' + _sessionDisplayName(p)
+          };
+        }
+      }
+      if (passed && day.date > afterDate && !planned.length) {
+        return {
+          fam: null,
+          chip: null,
+          text: 'then ' + _fmtThenDate(day.date) + ' · rest day — nothing scheduled'
+        };
+      }
+    }
+    return null;
+  }
+
+  function _loadNextUpRange() {
+    var today = _todayISO();
+    var to = _iso(_addDays(_parseISO(today), 20));
+    _api('GET', '/api/planned-sessions?from=' + today + '&to=' + to)
+      .then(function (data) {
+        _nextUpBundle = data;
+        _renderNextUp();
+      })
+      .catch(function () {
+        _nextUpBundle = null;
+        _renderNextUp();
+      });
+  }
+
+  function _renderNextUp() {
+    var host = document.getElementById('plan-next-up');
+    if (!host) return;
+    var days = (_nextUpBundle && _nextUpBundle.days) || (_bundle && _bundle.days) || [];
+    var next = _pickNextUp(days);
+    if (!next) {
+      host.innerHTML =
+        '<div class="pl-hero pl-hero--empty">' +
+          '<div class="pl-hero-top"><span class="pl-hero-k">Next up</span></div>' +
+          '<div class="pl-hero-body">' +
+            '<div class="pl-hero-empty-msg">Nothing scheduled from today forward.</div>' +
+            '<button type="button" class="pl-hero-btn" id="pl-hero-suggest">Suggest sessions</button>' +
+          '</div>' +
+        '</div>';
+      var sug = document.getElementById('pl-hero-suggest');
+      if (sug) sug.onclick = _openSuggestPanel;
+      return;
+    }
+    var p = next.p;
+    var fam = _famClass(p.session_type);
+    var cue = _sessionCue(p);
+    var dur = _plannedDurationMin(p);
+    var tss = _sessionTss(p) || (function () {
+      var pt = _plannedTargetTss(p);
+      return pt != null ? { value: pt, estimated: true } : null;
+    })();
+    var weekT = (_wlData && _wlData.target_tss != null) ? Number(_wlData.target_tss) : null;
+    var share = (tss && weekT) ? Math.round((tss.value / weekT) * 100) + '%' : '—';
+    var metaBits = [];
+    if (dur != null) metaBits.push(dur + ' min');
+    var soft = _plannedMeta(p);
+    if (soft) metaBits.push(soft);
+    metaBits.push('planned');
+    var then = _pickThenAfter(days, next);
+    var cueHtml = cue
+      ? '<div class="pl-hero-cue"><span aria-hidden="true">⛽</span><span>' + esc(cue) + '</span></div>'
+      : '';
+    var thenHtml = then
+      ? '<div class="pl-hero-foot">' +
+          (then.chip ? '<span class="pl-stypetag ' + (then.fam || '') + '" style="opacity:.55">' + esc(then.chip) + '</span>' : '') +
+          '<span class="pl-hero-then">' + esc(then.text) + '</span></div>'
+      : '';
+
+    host.innerHTML =
+      '<div class="pl-hero">' +
+        '<div class="pl-hero-top"><span class="pl-hero-k">Next up</span>' +
+          '<span class="pl-hero-d">' + esc(_fmtHeroDate(next.day.date)) + '</span></div>' +
+        '<div class="pl-hero-body">' +
+          '<div class="pl-hero-left">' +
+            '<div class="pl-hero-name"><span class="pl-stypetag ' + fam + '">' + esc(_sessionTypeChipLabel(p)) + '</span> ' +
+              esc(_sessionDisplayName(p)) + '</div>' +
+            '<div class="pl-hero-meta">' + esc(metaBits.join(' · ')) + '</div>' +
+            cueHtml +
+          '</div>' +
+          '<div class="pl-hero-stats">' +
+            '<div class="pl-hero-stat"><div class="k">Duration</div><div class="v">' + (dur != null ? dur : '—') + '</div></div>' +
+            '<div class="pl-hero-stat"><div class="k">TSS</div><div class="v">' +
+              (tss ? ((tss.estimated ? '~' : '') + Math.round(tss.value)) : '—') + '</div></div>' +
+            '<div class="pl-hero-stat"><div class="k">Of week</div><div class="v">' + esc(share) + '</div></div>' +
+          '</div>' +
+          '<div class="pl-hero-acts">' +
+            '<button type="button" class="pl-hero-btn" id="pl-hero-open">Open session</button>' +
+            '<button type="button" class="pl-hero-btn ghost" id="pl-hero-done">Mark done</button>' +
+          '</div>' +
+        '</div>' + thenHtml +
+      '</div>';
+
+    var openBtn = document.getElementById('pl-hero-open');
+    if (openBtn) openBtn.onclick = function () { _openDetailById(p.id); };
+    var doneBtn = document.getElementById('pl-hero-done');
+    if (doneBtn) doneBtn.onclick = function () {
+      _mutate('POST', '/api/planned-sessions/' + p.id + '/mark-done');
+    };
+  }
+
   function _renderAll() {
+    _renderNextUp();
     _renderWeekSection();
     _renderAddSection();
     _renderDetailSection();
+  }
+
+  function _openSuggestPanel() {
+    var t = document.getElementById('plan-suggestions-trigger');
+    if (t) t.click();
+    setTimeout(function () {
+      var panel = document.getElementById('plan-suggestions-panel');
+      if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+  }
+
+  function _defaultNewSessionDate() {
+    var today = _todayISO();
+    var weekEnd = _iso(_addDays(_weekStart, 6));
+    if (today >= _iso(_weekStart) && today <= weekEnd) return today;
+    return _iso(_weekStart);
+  }
+
+  function _exportWeekSessions() {
+    if (!_bundle || !(_bundle.days || []).length) {
+      _toast('Nothing to export this week', true);
+      return;
+    }
+    var out = [];
+    (_bundle.days || []).forEach(function (day) {
+      (day.planned || []).forEach(function (p) {
+        if (p.session_type === 'rest') return;
+        var type = (p.session_type || 'run').toLowerCase();
+        var structure = p.structure || {};
+        var row = {
+          date: p.planned_date || day.date,
+          type: type,
+          name: _sessionDisplayName(p)
+        };
+        if (p.notes) row.notes = p.notes;
+        if (Array.isArray(structure.blocks) && structure.blocks.length) row.blocks = structure.blocks;
+        if (Array.isArray(structure.exercises) && structure.exercises.length) {
+          row.exercises = structure.exercises.map(function (ex) {
+            return _smExportExerciseRow(ex);
+          }).filter(Boolean);
+        }
+        if (structure.target_tss != null) row.target_tss = structure.target_tss;
+        if (structure.duration_minutes != null) row.duration_minutes = structure.duration_minutes;
+        out.push(row);
+      });
+    });
+    if (!out.length) {
+      _toast('No sessions to export', true);
+      return;
+    }
+    var ws = _iso(_weekStart);
+    _downloadFile('week-plan-' + ws + '.json', JSON.stringify(out, null, 2), 'application/json');
+    _toast('Exported ' + out.length + ' session' + (out.length === 1 ? '' : 's'));
   }
 
   function _renderWeekSection() {
@@ -1529,24 +1853,31 @@ information about.
     if (!host) return;
     host.innerHTML =
       '<div class="pl-card">' +
-        '<div class="pl-chead"><div class="pl-wknav">' +
+        '<div class="pl-wknav">' +
           '<button class="pl-arw" id="pl-prev" aria-label="Previous week">‹</button>' +
           '<span class="pl-wktitle" id="pl-wktitle">' + esc(_fmtWeekTitle(_weekStart)) + '</span>' +
           '<button class="pl-arw" id="pl-next" aria-label="Next week">›</button>' +
           '<span class="pl-weektotal" id="pl-weektotal" hidden></span>' +
+          '<span class="pl-wknav-right">' +
+            '<button type="button" class="pl-btn pl-ghost pl-tiny" id="pl-new-session">+ New session</button>' +
+            '<button type="button" class="pl-btn pl-ghost pl-tiny" id="pl-export-week">Export ↗</button>' +
+          '</span>' +
         '</div>' +
-        '<div class="pl-btnrow">' +
+        '<div class="pl-btnrow" style="display:none">' +
           '<button class="pl-btn pl-lime" id="pl-apply-draft" hidden title="Create planned sessions from this draft">Apply week</button>' +
           '<button class="pl-btn pl-ghost" id="pl-refresh-draft" hidden title="Regenerate untouched draft slots">Refresh draft</button>' +
-          /* hidden with the other two draft buttons — drafts are parked (D1),
-             so this would queue a job the worker no longer dispatches. */
           '<button class="pl-btn pl-ghost" id="pl-replan-remaining" hidden title="Replan open days from remaining budget">Replan remaining</button>' +
-          /* Opens the suggestions panel (prefs + build schedule live there). */
-          '<button class="pl-btn pl-ghost" id="pl-suggest" title="AI-suggested sessions for this week">✨ Suggest sessions</button>' +
-        '</div></div>' +
+        '</div>' +
         '<div class="pl-draft-banner" id="pl-draft-banner" aria-live="polite" hidden></div>' +
         '<div class="pl-draft-pending" id="pl-draft-pending" hidden></div>' +
-        '<div class="pl-infobanner" id="pl-infobanner" style="margin-bottom:12px;">Sessions are generated to hit your weekly target, respecting the ramp rule and your rest days.</div>' +
+        '<button type="button" class="pl-suggest" id="pl-suggest" title="Suggest sessions for this week">' +
+          '<span class="pl-suggest-ic" aria-hidden="true">✨</span>' +
+          '<span class="pl-suggest-tx">' +
+            '<span class="pl-suggest-t">Suggest sessions</span>' +
+            '<span class="pl-suggest-s" id="pl-suggest-sub">deterministic · respects rest days and the ramp rule</span>' +
+          '</span>' +
+          '<span class="pl-suggest-ar" aria-hidden="true">›</span>' +
+        '</button>' +
         '<div class="pl-weeklist" id="plan-week-list"></div>' +
         '<div class="pl-legend">' +
           '<span><b style="background:var(--primary)"></b>Run</span><span><b style="background:var(--workout-lift)"></b>Strength</span><span><b style="background:var(--warning)"></b>Plyo</span>' +
@@ -1562,8 +1893,6 @@ information about.
     document.getElementById('pl-next').onclick = function () {
       _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(function () { if (_draftVisible) _loadDraft(); }); _loadWeekLoad(_iso(_weekStart));
     };
-    // Header "+ Add" removed — use Suggest sessions or each day's "+ add"
-    // (bulk JSON / Ask AI still live in the Add panel opened from a day).
     var applyBtn = document.getElementById('pl-apply-draft');
     if (applyBtn) applyBtn.onclick = _applyDraftWeek;
     var refreshBtn = document.getElementById('pl-refresh-draft');
@@ -1579,14 +1908,11 @@ information about.
         .catch(function () { _toast('Replan failed', true); });
     };
     var sugBtn = document.getElementById('pl-suggest');
-    if (sugBtn) sugBtn.onclick = function () {
-      var t = document.getElementById('plan-suggestions-trigger');
-      if (t) t.click();
-      setTimeout(function () {
-        var panel = document.getElementById('plan-suggestions-panel');
-        if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 50);
-    };
+    if (sugBtn) sugBtn.onclick = _openSuggestPanel;
+    var newBtn = document.getElementById('pl-new-session');
+    if (newBtn) newBtn.onclick = function () { _openAdd('single', _defaultNewSessionDate()); };
+    var expBtn = document.getElementById('pl-export-week');
+    if (expBtn) expBtn.onclick = _exportWeekSessions;
     _updateWeekTargetUI();
     _renderDraftChrome();
     if (_bundle) _renderWeekList();
@@ -1606,21 +1932,18 @@ information about.
         totalEl.hidden = false;
         var stateLabel = d.state === 'on_track' ? 'on track' : d.state === 'under' ? 'under' :
           d.state === 'over' ? 'over' : '—';
-        totalEl.innerHTML = 'week total <b>' + Math.round(d.projected_tss) + '</b> / ' + target +
+        totalEl.innerHTML = '<b>' + Math.round(d.projected_tss) + '</b> / ' + target +
           ' TSS &middot; ' + esc(stateLabel);
       } else {
         totalEl.hidden = true;
       }
     }
 
-    var sugBtn = document.getElementById('pl-suggest');
-    if (sugBtn) sugBtn.textContent = target != null ? '✨ Suggest sessions · fill to ' + target : '✨ Suggest sessions';
-
-    var bannerEl = document.getElementById('pl-infobanner');
-    if (bannerEl) {
-      bannerEl.innerHTML = target != null
-        ? 'Sessions are generated to hit <b>' + target + ' TSS</b>, respecting the ramp rule and your rest days.'
-        : 'Sessions are generated to hit your weekly target, respecting the ramp rule and your rest days.';
+    var sugSub = document.getElementById('pl-suggest-sub');
+    if (sugSub) {
+      sugSub.textContent = target != null
+        ? 'fill to ' + target + ' TSS · deterministic · respects rest days and the ramp rule'
+        : 'deterministic · respects rest days and the ramp rule';
     }
   }
 
@@ -1632,7 +1955,7 @@ information about.
       ? _draftSessionsByOffset() : {};
     host.innerHTML = (_bundle.days || []).map(function (day, di) {
       var isPast = day.date < todayStr;
-      var cls = day.date === todayStr ? 'today' : (isPast ? 'past' : '');
+      var isToday = day.date === todayStr;
       var cards = (day.planned || []).map(function (p) { return _plannedCardHtml(p, day); }).join('');
       var ghosts = (day.unplanned || []).filter(function (u) { return !_dismissedGhosts[u.id]; })
         .map(function (u) { return _ghostCardHtml(u, day); }).join('');
@@ -1650,22 +1973,36 @@ information about.
           '<button type="button" class="pl-btn pl-ghost pl-tiny" data-draft-add="' + di + '" data-kind="stretch">Quick stretch</button>' +
         '</div>';
       }
-      var hasContent = (day.planned || []).length || ghosts || draftHtml || addDraft;
-      var rest = !hasContent ? '<div class="pl-restday">Rest day</div>' : '';
-      // A past day is done — no NEW session should be added to it. Existing
-      // cards keep every action (match/change match/mark missed/delete); only
-      // the "+ add" trigger for a fresh session is disabled.
-      var addDay = isPast
-        ? '<div class="pl-addday is-disabled" title="This day has passed — nothing new can be added">+ add</div>'
-        : '<button type="button" class="pl-addday" data-add-date="' + day.date + '" aria-label="Add a session on ' + esc(day.date) + '">+ add</button>';
+      var hasSessions = !!(cards || ghosts || draftHtml || addDraft);
       var dayTotal = _dayTotalTss(day);
-      var dayWarn = _dayHasWarning(day) ? '<span class="pl-day-guard-badge" title="A session this day loads an overused or injured muscle group">⚠</span>' : '';
-      return '<div class="pl-dayrow ' + cls + '" data-date="' + day.date + '" data-day-offset="' + di + '">' +
-        '<div class="pl-daylabel"><span class="pl-dname">' + day.dow + dayWarn + '</span><span class="pl-dnum">' + _parseISO(day.date).getDate() + '</span></div>' +
-        '<div class="pl-daybody">' + cards + draftHtml + addDraft + ghosts + rest + addDay +
-        '</div>' +
-        (dayTotal != null ? '<span class="pl-dtotal">' + Math.round(dayTotal) + ' TSS</span>' : '') +
-      '</div>';
+      var dayWarn = _dayHasWarning(day)
+        ? '<span class="pl-day-guard-badge" title="A session this day loads an overused or injured muscle group">⚠</span>'
+        : '';
+      var gutTot = (hasSessions && dayTotal != null)
+        ? '<span class="pl-gut-tot">' + Math.round(dayTotal) + ' TSS</span>'
+        : '';
+      var gut = '<span class="pl-gut"><span class="pl-gut-dw">' + esc(day.dow) + dayWarn +
+        '</span><span class="pl-gut-dn">' + _parseISO(day.date).getDate() + '</span>' +
+        gutTot + '</span>';
+
+      var addRight = isPast
+        ? ''
+        : '<button type="button" class="pl-day-add" data-add-date="' + day.date +
+          '" aria-label="Add a session on ' + esc(day.date) + '">+ add session</button>';
+
+      var content;
+      if (!hasSessions) {
+        content = '<span class="pl-day-content"><span class="pl-day-sessions">' +
+          '<div class="pl-rest-lab">rest day — nothing scheduled</div></span>' + addRight + '</span>';
+      } else {
+        content = '<span class="pl-day-content"><span class="pl-day-sessions">' +
+          cards + draftHtml + addDraft + ghosts + '</span>' + addRight + '</span>';
+      }
+
+      var cls = 'pl-dayrow' + (isToday ? ' today' : '') + (isPast ? ' past' : '') +
+        (!hasSessions ? ' rest' : '');
+      return '<div class="' + cls + '" data-date="' + day.date + '" data-day-offset="' + di + '">' +
+        gut + content + '</div>';
     }).join('');
     _wireWeekEvents();
   }
@@ -1716,6 +2053,109 @@ information about.
       ? '<span class="pl-stat-tag done">MANUALLY LINKED</span>'
       : '<span class="pl-stat-tag done">COMPLETED (no data)</span>';
     return '';
+  }
+
+  /** Never render empty session identity (Part 0.1). */
+  function _sessionDisplayName(p) {
+    var n = (p && p.name) ? String(p.name).trim() : '';
+    if (n) return n;
+    if (p && p.actual && p.actual.name) {
+      n = String(p.actual.name).trim();
+      if (n) return n;
+    }
+    var t = ((p && p.session_type) || 'run').toLowerCase();
+    if (t === 'strength' || t === 'plyo') return 'Strength session';
+    if (t === 'stretch') return 'Stretch session';
+    if (t === 'rest') return 'Rest day';
+    return 'Easy run';
+  }
+
+  function _sessionTypeChipLabel(p) {
+    var t = ((p && p.session_type) || 'run').toLowerCase();
+    if (t === 'strength') return 'LIFT';
+    if (t === 'plyo') return 'PLYO';
+    if (t === 'stretch') return 'STRETCH';
+    if (t === 'rest') return 'REST';
+    return 'RUN';
+  }
+
+  function _plannedTargetTss(p) {
+    if (!p) return null;
+    if (p.planned_tss != null && isFinite(Number(p.planned_tss))) return Number(p.planned_tss);
+    var s = p.structure || {};
+    if (s.target_tss != null && isFinite(Number(s.target_tss))) return Number(s.target_tss);
+    if (p.estimated_tss != null && isFinite(Number(p.estimated_tss))) return Number(p.estimated_tss);
+    return null;
+  }
+
+  function _actualDurationMin(p) {
+    if (p && p.actual && p.actual.duration_seconds != null) {
+      return Math.round(Number(p.actual.duration_seconds) / 60);
+    }
+    if (p && p.actual_duration_min != null) return Math.round(Number(p.actual_duration_min));
+    return null;
+  }
+
+  function _plannedDurationMin(p) {
+    var s = (p && p.structure) || {};
+    if (s.duration_minutes != null && isFinite(Number(s.duration_minutes))) {
+      return Math.round(Number(s.duration_minutes));
+    }
+    if (Array.isArray(s.blocks) && s.blocks.length) {
+      var tot = 0;
+      s.blocks.forEach(function (b) {
+        var d = Number(b.duration_min) || 0;
+        var r = Math.max(1, Number(b.repeat) || 1);
+        tot += d * r + (Number(b.rest_min) || 0) * (r - 1);
+      });
+      return tot || null;
+    }
+    return null;
+  }
+
+  /**
+   * One compact derivation line (Part 0.2) — never repeat TSS four ways.
+   * Matched: `91 min · planned 54 → 70 · auto-matched`
+   * Planned: `130 min · easy · planned` or `14 exercises · planned`
+   */
+  function _sessionCompactMeta(p) {
+    var bits = [];
+    var done = p.status === 'done_auto' || p.status === 'done_manual';
+    var actMin = _actualDurationMin(p);
+    var planMin = _plannedDurationMin(p);
+    var planTss = _plannedTargetTss(p);
+    var actTss = _sessionTss(p);
+    var matchLab = p.status === 'done_auto' ? 'auto-matched'
+      : (p.status === 'done_manual' ? 'manually linked' : '');
+
+    if (done && (actMin != null || actTss)) {
+      if (actMin != null) bits.push(actMin + ' min');
+      if (planTss != null && actTss) {
+        var deltaCls = actTss.value > planTss ? 'over' : 'delta';
+        bits.push('planned ' + Math.round(planTss) + ' → <span class="pl-sdelta ' + deltaCls + '">' +
+          Math.round(actTss.value) + ' TSS</span>');
+      } else if (actTss) {
+        bits.push(Math.round(actTss.value) + ' TSS');
+      }
+      if (matchLab) bits.push(matchLab);
+      return bits.join(' · ');
+    }
+
+    var soft = _plannedMeta(p);
+    if (planMin != null && !(soft && soft.indexOf('min') !== -1)) bits.push(planMin + ' min');
+    if (soft) bits.push(esc(soft));
+    else if (planTss != null) bits.push('~' + Math.round(planTss) + ' TSS');
+    if (p.status === 'needs_review') bits.push('needs review');
+    else if (p.status === 'missed' || p.status === 'missed_auto' || p.status === 'missed_manual') bits.push('missed');
+    else bits.push('planned');
+    return bits.join(' · ');
+  }
+
+  function _statusDotClass(status) {
+    if (status === 'done_auto' || status === 'done_manual') return 'done';
+    if (status === 'needs_review') return 'review';
+    if (status === 'missed' || status === 'missed_auto' || status === 'missed_manual') return 'missed';
+    return 'draft';
   }
 
   function _plannedMeta(p) {
@@ -1778,41 +2218,54 @@ information about.
 
   function _plannedCardHtml(p, day) {
     var fam = _famClass(p.session_type);
+    var chip = _sessionTypeChipLabel(p).toLowerCase();
+    var displayName = _sessionDisplayName(p);
     var generating = !!(p.id && _generatingIds[p.id]);
     var draggable = !generating && (p.status === 'planned' || p.status === 'missed' || p.status === 'missed_auto' || p.status === 'missed_manual');
     var clickable = (p.status !== 'needs_review');
-    var acts = '<div class="pl-sess-acts">' +
-      (generating ? '' :
-        '<button type="button" class="pl-sess-del" data-sess-del="' + p.id + '" title="Delete session" aria-label="Delete session">🗑</button>') +
-      (draggable ? '<span class="pl-dhandle" title="Drag to move">⠿⠿</span>' : '') +
-      '</div>';
-    var meta = p.actual && (p.status === 'done_auto' || p.status === 'done_manual')
-      ? _plannedMeta(p) : _plannedMeta(p);
-    var dayLate = '';
-    if ((p.status === 'done_auto' || p.status === 'done_manual') && p.actual && p.actual.date && p.planned_date && p.actual.date !== p.planned_date) {
-      dayLate = '<div class="pl-diffline">done · a day late</div>';
+    var todayStr = _todayISO();
+    var compact = generating ? 'content updating for the new budget…' : _sessionCompactMeta(p);
+    if (!generating && day && day.date === todayStr && (p.status === 'planned' || !p.status)) {
+      if (compact.indexOf('today') === -1) compact = compact.replace(/ · planned$/, ' · today');
     }
-    var body = '';
-    if (p.status === 'done_auto' || p.status === 'done_manual') {
-      var actMeta = p.actual ? p.actual.meta : '';
+    var tss = _sessionTss(p);
+    var tssHtml = tss
+      ? '<span class="pl-stss' + (tss.estimated ? ' is-est' : '') + '">' + (tss.estimated ? '~' : '') + Math.round(tss.value) + '</span>'
+      : '<span class="pl-stss"></span>';
+    var warn = generating ? '' : _planWarnBadge(p);
+
+    var expandBody = '';
+    if (generating) {
+      expandBody = '';
+    } else if (p.status === 'done_auto' || p.status === 'done_manual') {
       var mwid = p.matched_workout_id || (p.actual && p.actual.id) || '';
       var feel = p.actual ? p.actual.feeling : null;
-      var diffLine = p.actual
-        ? '<div class="pl-diffline">Planned ' + esc((_plannedMeta(p) || '').split('·')[0].trim() || p.session_type) +
-          ' → Actual ' + esc(actMeta) + '</div>'
-        : '<div class="pl-diffline pl-diffline--manual">Marked complete manually — no workout data attached</div>';
-      body = diffLine +
+      var matchLine = '';
+      if (p.actual) {
+        var srcLab = p.status === 'done_auto' ? '✓ matched' : '↔ linked by you';
+        matchLine = '<div class="pl-matchline' + (p.status === 'done_manual' ? ' manual' : '') + '">' +
+          esc(srcLab) + (p.actual.name ? ' · ' + esc(p.actual.name) : '') +
+          (p.actual.meta ? ' · ' + esc(p.actual.meta) : '') + '</div>';
+      } else {
+        matchLine = '<div class="pl-matchline manual">Marked complete manually — no workout data attached</div>';
+      }
+      if (p.actual && p.actual.date && p.planned_date && p.actual.date !== p.planned_date) {
+        matchLine += '<div class="pl-diffline">done · a day late</div>';
+      }
+      expandBody = matchLine +
         _viewFullLinkHtml(mwid) +
         _feelRowHtml(mwid, feel) +
-        '<div class="pl-matchbtns">' +
-          '<button class="pl-unlink" data-unlink="' + p.id + '">' + (mwid ? 'unlink match' : 'revert to planned') + '</button>' +
-          '<button class="pl-pickbtn" data-pick="' + p.id + '" data-pick-mode="override">' + (mwid ? 'Change matched workout' : 'Attach a workout') + '</button>' +
+        '<div class="pl-sexp-acts">' +
+          '<button type="button" class="pl-abtn" data-open-sess="' + p.id + '">Open session</button>' +
+          '<button type="button" class="pl-abtn" data-pick="' + p.id + '" data-pick-mode="override">' +
+            (mwid ? 'Change match' : 'Attach a workout') + '</button>' +
+          '<button type="button" class="pl-abtn warn" data-unlink="' + p.id + '">' +
+            (mwid ? 'Unlink' : 'Revert') + '</button>' +
         '</div>' +
         '<div class="pl-picker" data-pickerfor="' + p.id + '" hidden></div>';
     } else if (p.status === 'needs_review') {
-      var day2 = day;
-      var cands = _reviewCandidates(p, day2);
-      body = '<div class="pl-candlist">' + cands.map(function (c, ci) {
+      var cands = _reviewCandidates(p, day);
+      expandBody = '<div class="pl-candlist">' + cands.map(function (c, ci) {
           return '<label class="pl-candrow"><input type="radio" name="pl-cand-' + p.id + '" value="' + c.id + '"' + (ci === 0 ? ' checked' : '') + '/>' +
             '<span class="pl-cn">' + esc(c.name) + '</span><span class="pl-cm">' + esc(c.meta) + '</span></label>';
         }).join('') +
@@ -1820,45 +2273,45 @@ information about.
           (cands.length ? '<button class="pl-btn pl-lime pl-tiny" data-confirm="' + p.id + '">Confirm match</button>' : '') +
           '<button class="pl-btn pl-ghost pl-tiny" data-missed="' + p.id + '">None → missed</button>' +
         '</div></div>';
-    }
-    // Keyboard/screen-reader access: the card is the only way to open the
-    // detail panel (no separate "open" control), so when it's clickable it
-    // needs a real button role + tabindex + a descriptive label — not just
-    // "button" with no context.
-    var typeLabel = fam === 'lift' ? 'Strength' : (fam.charAt(0).toUpperCase() + fam.slice(1));
-    var statusLabel = (p.status === 'needs_review') ? 'needs review'
-      : (p.status === 'missed' || p.status === 'missed_auto' || p.status === 'missed_manual') ? 'missed'
-      : (p.status === 'done_auto' || p.status === 'done_manual') ? 'completed'
-      : 'planned';
-    var ariaLabel = typeLabel + ' session, ' + (p.name || '(untitled)') + ', ' +
-      day.dow + ' ' + _parseISO(day.date).getDate() + ', ' + statusLabel;
-    var a11yAttrs = clickable
-      ? ' role="button" tabindex="0" aria-label="' + esc(ariaLabel) + '"'
-      : '';
-    // Keyboard-operable alternative to the drag-and-drop reschedule (drag has
-    // no keyboard path at all) — only offered where drag itself is offered.
-    var moveHtml = '';
-    if (draggable && !generating) {
+    } else {
       var moveOpts = ((_bundle && _bundle.days) || []).filter(function (d) {
         return d.date !== day.date;
       }).map(function (d) {
         return '<option value="' + d.date + '">' + d.dow + ' ' + _parseISO(d.date).getDate() + '</option>';
       }).join('');
-      moveHtml = '<div class="pl-sess-move"><select data-sess-move="' + p.id + '" title="Move to…" aria-label="Move this session to a different day"><option value="">Move to ▾</option>' + moveOpts + '</select></div>';
+      expandBody = '<div class="pl-sexp-acts">' +
+        '<button type="button" class="pl-abtn" data-open-sess="' + p.id + '">Open session</button>' +
+        (draggable
+          ? '<label class="pl-abtn pl-abtn-sel">Move to… <select data-sess-move="' + p.id + '" aria-label="Move session"><option value="">…</option>' + moveOpts + '</select></label>'
+          : '') +
+        '<button type="button" class="pl-abtn warn" data-sess-del="' + p.id + '">Remove</button>' +
+      '</div>';
     }
-    return '<div class="pl-sess ' + fam + ' status-' + p.status + (generating ? ' is-generating' : '') + '"' +
+
+    var typeLabel = fam === 'lift' ? 'Strength' : (fam.charAt(0).toUpperCase() + fam.slice(1));
+    var statusLabel = (p.status === 'needs_review') ? 'needs review'
+      : (p.status === 'missed' || p.status === 'missed_auto' || p.status === 'missed_manual') ? 'missed'
+      : (p.status === 'done_auto' || p.status === 'done_manual') ? 'completed'
+      : 'planned';
+    var ariaLabel = typeLabel + ' session, ' + displayName + ', ' +
+      day.dow + ' ' + _parseISO(day.date).getDate() + ', ' + statusLabel;
+    var a11yAttrs = clickable
+      ? ' role="button" tabindex="0" aria-expanded="false" aria-label="' + esc(ariaLabel) + '"'
+      : '';
+
+    var forceOpen = (p.status === 'needs_review');
+    return '<div class="pl-sess ' + fam + ' status-' + p.status + (generating ? ' is-generating' : '') + (forceOpen ? ' open' : '') + '"' +
         (draggable && !generating ? ' draggable="true"' : '') +
         ' data-sess="' + p.id + '"' + (clickable ? ' data-click="1"' : '') + a11yAttrs + '>' +
-      acts +
-      '<div class="pl-sesstop"><span class="pl-sesstop-left"><span class="pl-stypetag ' + fam + '">' + fam + '</span>' +
-        (generating ? '' : _sessionTssBadge(p) + _planWarnBadge(p)) +
-      '</span>' +
-        (generating ? _generatingChipHtml() : _statusTag(p.status, !!p.actual)) +
+      '<div class="pl-srow">' +
+        '<span class="pl-stypetag ' + fam + '">' + esc(_sessionTypeChipLabel(p)) + '</span>' +
+        '<span class="pl-sn">' + esc(displayName) + warn + '</span>' +
+        '<span class="pl-smeta2">' + (generating ? esc(compact) : compact) + '</span>' +
+        tssHtml +
+        '<span class="pl-sdot ' + _statusDotClass(p.status) + '" aria-hidden="true"></span>' +
       '</div>' +
-      '<div class="pl-sn">' + esc(p.name || '(untitled)') + '</div>' +
-      '<div class="pl-sm' + (generating ? ' pl-sm-generating' : '') + '">' +
-        (generating ? 'content updating for the new budget…' : esc(meta)) +
-      '</div>' + dayLate + (generating ? '' : body) + (generating ? '' : moveHtml) +
+      '<div class="pl-smeta-m">' + (generating ? esc(compact) : compact) + '</div>' +
+      (expandBody ? '<div class="pl-sexp">' + expandBody + '</div>' : '') +
     '</div>';
   }
 
@@ -1927,7 +2380,7 @@ information about.
       return acc.concat((d.planned || []).filter(function (p) {
         return p.status !== 'done_auto' && p.status !== 'done_manual' && p.session_type !== 'rest';
       }).map(function (p) {
-        var label = (p.name || '(untitled)') + (d.date !== u.date ? ' — ' + d.dow + ' ' + _parseISO(d.date).getDate() : '');
+        var label = _sessionDisplayName(p) + (d.date !== u.date ? ' — ' + d.dow + ' ' + _parseISO(d.date).getDate() : '');
         return '<option value="' + p.id + '">' + esc(label) + '</option>';
       }));
     }, []).join('');
@@ -1936,7 +2389,7 @@ information about.
         '<div class="pl-candbtns"><button class="pl-btn pl-ghost pl-tiny" data-map="' + u.id + '">Map</button><button class="pl-btn pl-ghost pl-tiny" data-ignore="' + u.id + '">Ignore</button></div>'
       : '<div class="pl-candbtns"><button class="pl-btn pl-ghost pl-tiny" data-ignore="' + u.id + '">Ignore</button></div>';
     return '<div class="pl-ghost"><div class="pl-gtop"><span class="pl-gtag">UNPLANNED</span></div>' +
-      '<div class="pl-sn" style="font-style:italic;">' + esc(u.name) + '</div><div class="pl-sm">' + esc(u.meta) + '</div>' + mapper +
+      '<div class="pl-sn" style="font-style:italic;">' + esc(u.name || 'Unplanned workout') + '</div><div class="pl-sm">' + esc(u.meta) + '</div>' + mapper +
     '</div>';
   }
 
@@ -2033,22 +2486,30 @@ information about.
     });
 
     host.querySelectorAll('.pl-sess[data-click="1"]').forEach(function (el) {
-      el.addEventListener('click', function () { _openDetailById(el.getAttribute('data-sess')); });
-      // Keyboard equivalent for the click above (role="button"/tabindex are
-      // set at render time — see _plannedCardHtml). Only fire when the card
-      // itself is focused; nested controls (buttons, selects, radios) handle
-      // their own Enter/Space natively and stop propagation on click.
+      el.addEventListener('click', function (e) {
+        if (e.target.closest('button, select, input, label, a, .pl-picker, .pl-sexp-acts, .pl-candlist')) return;
+        var open = el.classList.toggle('open');
+        el.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
       el.addEventListener('keydown', function (e) {
         if (e.target !== el) return;
         if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
           e.preventDefault();
-          _openDetailById(el.getAttribute('data-sess'));
+          var open = el.classList.toggle('open');
+          el.setAttribute('aria-expanded', open ? 'true' : 'false');
         }
       });
     });
+    host.querySelectorAll('[data-open-sess]').forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        _openDetailById(b.getAttribute('data-open-sess'));
+      });
+    });
     // Keyboard-operable reschedule (parity with the "Move to…" dropdown
-    // already used for draft slots) — lives inside the clickable card above,
-    // so stop the click from also opening the detail panel.
+    // already used for draft slots) — lives inside the expandable card,
+    // so stop the click from also toggling the row.
     host.querySelectorAll('[data-sess-move]').forEach(function (sel) {
       sel.addEventListener('click', function (e) { e.stopPropagation(); });
       sel.addEventListener('change', function (e) {
@@ -2129,8 +2590,9 @@ information about.
         _renderWeekList();
       });
     });
-    host.querySelectorAll('.pl-addday[data-add-date]').forEach(function (el) {
-      el.addEventListener('click', function () {
+    host.querySelectorAll('[data-add-date]').forEach(function (el) {
+      el.addEventListener('click', function (e) {
+        e.stopPropagation();
         _openAdd('single', el.getAttribute('data-add-date'));
       });
     });
@@ -2327,7 +2789,7 @@ information about.
 
   function _renderAddBody() {
     var editing = !!_addState.editId;
-    // Create single-session: Form (draft-first) | JSON. Ask AI lives on the form.
+    // Create single-session: Form (draft-first) | JSON.
     // Edit / bulk keep prior subtabs.
     var subs;
     if (editing) {
@@ -2402,7 +2864,7 @@ information about.
         '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-sf-save">Save changes</button><button class="pl-btn pl-ghost" id="pl-sf-cancel">Cancel</button></div>';
     }
 
-    // Create — draft-first: pins first, then AI / manual / skeleton, then save.
+    // Create — draft-first: pins + optional manual structure, then save.
     var draftMode = !!_draftVisible;
     var defaultType = 'run';
     return '<div class="pl-infobanner" style="margin-bottom:12px;">' +
@@ -2425,17 +2887,13 @@ information about.
       '<div class="pl-frow">' +
         '<div class="pl-fld"><label>Expected TSS</label><input type="number" id="pl-sf-tss" min="0" max="400" value="40"/></div>' +
         '<div class="pl-fld"><label>Duration (min)</label><input type="number" id="pl-sf-dur" min="0" max="600" value="45"/></div>' +
-        '<div class="pl-fld"><label>Name / intent</label><input id="pl-sf-name" placeholder="Optional — AI can fill"/></div>' +
+        '<div class="pl-fld"><label>Name / intent</label><input id="pl-sf-name" placeholder="Optional"/></div>' +
       '</div>' +
-      '<div class="pl-fld" style="margin-top:10px;"><label>Note to coach (optional)</label>' +
-        '<textarea id="pl-sf-note" placeholder="e.g. keep it under 45 min, focus on hip mobility"></textarea></div>' +
       '<div class="pl-btnrow pl-sf-draft-tools" style="margin-top:12px;gap:8px;flex-wrap:wrap;">' +
-        '<button type="button" class="pl-btn pl-ghost" id="pl-sf-askai">✨ Ask AI to generate</button>' +
         '<button type="button" class="pl-btn pl-ghost" id="pl-sf-manual-tog">' +
           (_addDraftExtras.manualOpen ? 'Hide manual structure' : 'Fill structure manually') +
         '</button>' +
       '</div>' +
-      '<div id="pl-sf-ai-prev" style="margin-top:10px;"></div>' +
       '<div id="pl-sf-structure" style="' + (_addDraftExtras.manualOpen ? '' : 'display:none;') + 'margin-top:12px;"></div>' +
       '<div class="pl-fld" style="margin-top:12px;"><label>Notes</label><textarea id="pl-sf-notes" placeholder="Optional notes saved on the draft"></textarea></div>' +
       '<div id="pl-sf-guard" aria-live="assertive"></div>' +
@@ -2447,7 +2905,7 @@ information about.
         '<button class="pl-btn pl-ghost" id="pl-sf-cancel">Cancel</button>' +
       '</div>' +
       (draftMode
-        ? '<p class="pl-sf-hint">Leave structure empty to keep a skeleton — content can fill later via Generate details or a worker week draft.</p>'
+        ? '<p class="pl-sf-hint">Leave structure empty — Save draft fills content from patterns. Or fill structure manually.</p>'
         : '');
   }
 
@@ -2502,8 +2960,9 @@ information about.
   }
 
   function _blockRowHtml(b, i) {
-    var cls = b.phase === 'warmup' ? 'warm' : (b.phase === 'main' ? 'main' : 'cool');
-    var label = b.phase === 'warmup' ? 'Warmup' : (b.phase === 'main' ? 'Main set' : (b.phase === 'cooldown' ? 'Cooldown' : b.phase));
+    var ph = String(b.phase || '').toLowerCase();
+    var cls = ph === 'warmup' ? 'warm' : (ph === 'main' || ph === 'mp' || ph === 'marathon_pace' ? 'main' : 'cool');
+    var label = _phaseLabel(b.phase);
     return '<div class="pl-block" data-bi="' + i + '"><span class="pl-btag ' + cls + '">' + label + '</span>' +
       '<input class="pl-bdur" data-f="duration_min" aria-label="' + label + ' duration in minutes" value="' + esc(b.duration_min != null ? b.duration_min : '') + '" placeholder="min"/>' +
       '<input class="pl-btgt" data-f="repeat" aria-label="' + label + ' repeat count" value="' + esc(b.repeat != null ? b.repeat : '') + '" placeholder="×reps"/>' +
@@ -2907,8 +3366,6 @@ information about.
         _syncSubtype();
         if (_addDraftExtras.manualOpen) _renderStructureBuilder();
         _addDraftExtras.ai = null;
-        var prev = document.getElementById('pl-sf-ai-prev');
-        if (prev) prev.innerHTML = '';
       });
       ['pl-sf-tss', 'pl-sf-dur'].forEach(function (id) {
         var el = document.getElementById(id);
@@ -2930,67 +3387,6 @@ information about.
         }
       };
       if (_addDraftExtras.manualOpen) _renderStructureBuilder();
-
-      if (_addDraftExtras.ai) {
-        var prev0 = document.getElementById('pl-sf-ai-prev');
-        if (prev0) prev0.innerHTML = _aiSessionPreviewHtml(_addDraftExtras.ai);
-      }
-
-      var askBtn = document.getElementById('pl-sf-askai');
-      if (askBtn) askBtn.onclick = function () {
-        var dateEl = document.getElementById('pl-sf-date');
-        if (!dateEl.value) { _toast('Pick a date first', true); return; }
-        askBtn.disabled = true;
-        askBtn.textContent = 'Generating…';
-        _api('POST', '/api/plan/suggestions/session', {
-          date: dateEl.value,
-          workout_type: typeEl.value,
-          subtype: (subEl.value || null),
-          note: (document.getElementById('pl-sf-note').value || null),
-          target_tss: parseFloat(document.getElementById('pl-sf-tss').value) || null,
-          duration_minutes: parseInt(document.getElementById('pl-sf-dur').value, 10) || null,
-        })
-          .then(function (data) {
-            var s = data.session || {};
-            _addDraftExtras.ai = s;
-            if (s.intent) document.getElementById('pl-sf-name').value = s.intent;
-            if (s.notes) document.getElementById('pl-sf-notes').value = s.notes;
-            if (s.target_tss != null) {
-              var tssEl = document.getElementById('pl-sf-tss');
-              tssEl.value = s.target_tss;
-              tssEl.dataset.touched = '1';
-            }
-            if (s.duration_minutes != null) {
-              var durEl = document.getElementById('pl-sf-dur');
-              durEl.value = s.duration_minutes;
-              durEl.dataset.touched = '1';
-            }
-            if (Array.isArray(s.blocks) && s.blocks.length) {
-              _sfBlocks = s.blocks.slice();
-              _addDraftExtras.manualOpen = true;
-              manualTog.textContent = 'Hide manual structure';
-              var host = document.getElementById('pl-sf-structure');
-              host.style.display = '';
-              _renderStructureBuilder();
-            } else if (Array.isArray(s.exercises) && s.exercises.length) {
-              _sfExercises = s.exercises.slice();
-              _addDraftExtras.manualOpen = true;
-              manualTog.textContent = 'Hide manual structure';
-              var host2 = document.getElementById('pl-sf-structure');
-              host2.style.display = '';
-              _renderStructureBuilder();
-            }
-            document.getElementById('pl-sf-ai-prev').innerHTML = _aiSessionPreviewHtml(s);
-          })
-          .catch(function (e) {
-            document.getElementById('pl-sf-ai-prev').innerHTML =
-              '<div class="pl-previewbox err">' + esc(e.message || 'Could not generate') + '</div>';
-          })
-          .then(function () {
-            askBtn.disabled = false;
-            askBtn.textContent = '✨ Ask AI to generate';
-          });
-      };
 
       function _readCreateCustom() {
         var wt = typeEl.value;
@@ -3106,10 +3502,26 @@ information about.
 
   // Map a template object {date,type,name,notes,blocks|exercises} → API payload.
   function _tplToPayload(o) {
-    var p = { planned_date: o.date, session_type: (o.type || '').toLowerCase(), name: o.name || null, notes: o.notes || null, structure: null };
-    if (o.blocks) p.structure = { blocks: o.blocks };
-    else if (o.exercises) p.structure = { exercises: o.exercises };
-    else if (o.focus) p.structure = { focus: o.focus };
+    var p = {
+      planned_date: o.date,
+      session_type: (o.type || '').toLowerCase(),
+      name: o.name || null,
+      notes: o.notes || null,
+      structure: null,
+    };
+    var structure = {};
+    if (o.structure && typeof o.structure === 'object' && !Array.isArray(o.structure)) {
+      Object.keys(o.structure).forEach(function (k) {
+        if (o.structure[k] != null) structure[k] = o.structure[k];
+      });
+    }
+    if (o.blocks) structure.blocks = o.blocks;
+    if (o.exercises) structure.exercises = o.exercises;
+    if (o.focus) structure.focus = o.focus;
+    ['target_tss', 'duration_minutes', 'distance_km', 'subtype'].forEach(function (k) {
+      if (o[k] != null && structure[k] == null) structure[k] = o[k];
+    });
+    if (Object.keys(structure).length) p.structure = structure;
     return p;
   }
 
@@ -3159,10 +3571,19 @@ information about.
   }
 
   // ── Single session — Ask AI (generate one day from date/type/note) ──────────
-  // Shares the backend's single-session generator with the suggestion-row
-  // "Refine" action below — same endpoint, same session shape, this side just
-  // starts from a blank date/type instead of an existing suggestion.
+  // Shares the backend's single-session generator with suggestion-row Update
+  // (POST /api/plan/suggestions/session → pattern fill). This side starts from
+  // a blank date/type; Update re-fills an existing suggestion from duration/subtype.
   var _aiSessionResult = null; // the last generated session, pending Save
+
+  function _phaseLabel(ph) {
+    var p = String(ph || '').toLowerCase();
+    if (p === 'warmup') return 'Warmup';
+    if (p === 'cooldown') return 'Cooldown';
+    if (p === 'main') return 'Main set';
+    if (p === 'mp' || p === 'marathon_pace') return 'MP segment';
+    return ph || 'Block';
+  }
 
   function _singleAIHtml() {
     _aiSessionResult = null;
@@ -3180,8 +3601,8 @@ information about.
       '<div class="pl-btnrow" style="margin-top:14px;"><button class="pl-btn pl-lime" id="pl-ai-save" disabled>Save session</button><button class="pl-btn pl-ghost" id="pl-ai-cancel">Cancel</button></div>';
   }
 
-  // Local, read-only preview rows — _sugExercisesHtml/_sugBlocksHtml live in
-  // the separate Plan Suggestions closure below and aren't reachable here.
+  // Local, read-only preview rows for the Ask-AI modal.
+  // Pattern-fill session pane is PlanFillPreview (js/lib/plan-fill-preview.js).
   function _aiPreviewExRow(x) {
     var sr = (x.sets != null && x.reps != null) ? (x.sets + ' × ' + x.reps) : (x.sets != null ? x.sets + ' sets' : '');
     return '<div class="pl-exd"><span class="pl-en">' + esc(x.name || 'Exercise') + '</span>' +
@@ -3417,13 +3838,23 @@ information about.
   var _sm = {
     baseline: null,
     dirty: false,
+    mode: 'view', // view (in-gym) | edit (structure)
     strydOpen: false,
     aiForcedOpen: false,
     aiBusy: false,
     aiError: '',
     structTab: 'simple', // simple | detailed | json
     suppressDomSync: false,
+    swap: null, // { mode: 'swap'|'add', index?, block?, query, searchAll, avoid[] }
+    avoidParts: null, // cached from /api/plan/exercises/avoid-parts
   };
+
+  // Strength/plyo block labels — same catalog as plan_slot._STRENGTH_BLOCKS.
+  var _SM_BLOCK_OPTIONS = [
+    'Warm-up', 'Heavy compound', 'Superset 1', 'Superset 2', 'Standalone',
+    'Accessories', 'Bodyweight', 'Plyometrics', 'Isometrics', 'Stretch',
+    'Cooldown', 'Finisher', 'EMOM', '40/20',
+  ];
 
   var _H = function () { return window.PlanSessionHelpers || {}; };
 
@@ -3453,8 +3884,17 @@ information about.
       _sfBlocks = [];
       if (Array.isArray(s.exercises) && s.exercises.length) {
         _sfStrengthMode = 'detailed';
-        _sm.structTab = 'detailed';
-        _sfExercises = s.exercises.map(function (x) { return Object.assign({}, x); });
+        if (!_sm.structTab || _sm.structTab === 'detailed') _sm.structTab = 'simple';
+        _sfExercises = s.exercises.map(function (x) {
+          var row = Object.assign({}, x);
+          if (!row.source) row.source = 'generated';
+          if (row.pinned == null) {
+            row.pinned = row.source !== 'generated' && row.source !== 'pattern';
+          }
+          // Legacy "done" meant "not skipped". Gym checklist uses "completed".
+          if (row.state === 'done') row.state = '';
+          return row;
+        });
         _sfFocus = s.focus || '';
       } else {
         _sfStrengthMode = 'simple';
@@ -3485,7 +3925,39 @@ information about.
     ['target_tss', 'duration_minutes', 'distance_km', 'source'].forEach(function (k) {
       if (prev[k] != null && out[k] == null) out[k] = prev[k];
     });
+    // Session budget pins (editable) override structure pins.
+    var tssEl = document.getElementById('pl-sm-pin-tss');
+    var durEl = document.getElementById('pl-sm-pin-dur');
+    var distEl = document.getElementById('pl-sm-pin-dist');
+    if (tssEl && tssEl.value !== '' && isFinite(Number(tssEl.value))) {
+      out.target_tss = Number(tssEl.value);
+    }
+    if (durEl && durEl.value !== '' && isFinite(Number(durEl.value))) {
+      out.duration_minutes = Number(durEl.value);
+    }
+    if (distEl && !distEl.disabled && distEl.value !== '' && distEl.value !== '—' && isFinite(Number(distEl.value))) {
+      out.distance_km = Number(distEl.value);
+    }
+    var subEl = document.getElementById('pl-sm-subtype');
+    if (subEl && subEl.value) {
+      out.subtype = subEl.value;
+    } else if (prev.subtype != null && out.subtype == null) {
+      out.subtype = prev.subtype;
+    }
     return out;
+  }
+
+  function _smUiSubtype(type, p) {
+    var raw = String(((p && p.structure && p.structure.subtype) || (p && p.subtype) || '')).trim().toLowerCase();
+    if (!raw) return '';
+    if (raw.indexOf('strength_') === 0) raw = raw.slice('strength_'.length);
+    if (raw.indexOf('easy_') === 0) raw = 'easy';
+    if (raw === 'long_run') raw = 'long';
+    var list = _ADD_SUBTYPES[type] || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].v === raw) return raw;
+    }
+    return raw;
   }
 
   function _smReadDraftFromDom(p) {
@@ -3501,6 +3973,73 @@ information about.
       session_type: type,
       structure: _smCollectStructure(type),
     };
+  }
+
+  function _smIsEdit() {
+    return _sm.mode === 'edit';
+  }
+
+  /** Portable session JSON for sharing / later import (Add session → JSON). */
+  function _smExportExerciseRow(ex) {
+    if (!ex || typeof ex !== 'object') return null;
+    var row = {};
+    if (ex.block) row.block = ex.block;
+    row.name = ex.name || 'Exercise';
+    if (ex.sets != null && ex.sets !== '') row.sets = ex.sets;
+    if (ex.reps != null && String(ex.reps).trim() !== '') row.reps = ex.reps;
+    if (ex.load != null && String(ex.load).trim() !== '') row.load = ex.load;
+    if (ex.spend_tss != null && isFinite(Number(ex.spend_tss))) row.spend_tss = Number(ex.spend_tss);
+    if (ex.spend_min != null && isFinite(Number(ex.spend_min))) row.spend_min = Number(ex.spend_min);
+    return row;
+  }
+
+  function _smExportSessionPayload(p) {
+    p = p || _detail || {};
+    var draft = _smReadDraftFromDom(p);
+    var type = (draft.session_type || p.session_type || 'run').toLowerCase();
+    var structure = draft.structure || p.structure || {};
+    var out = {
+      date: draft.planned_date || p.planned_date || '',
+      type: type,
+      name: draft.name || p.name || '',
+    };
+    var notes = draft.notes != null ? draft.notes : (p.notes || '');
+    if (notes) out.notes = notes;
+    if (structure.subtype) out.subtype = structure.subtype;
+    if (structure.focus) out.focus = structure.focus;
+    if (structure.target_tss != null) out.target_tss = structure.target_tss;
+    if (structure.duration_minutes != null) out.duration_minutes = structure.duration_minutes;
+    if (structure.distance_km != null) out.distance_km = structure.distance_km;
+    if (type === 'run' && Array.isArray(structure.blocks)) {
+      out.blocks = structure.blocks.map(function (b) { return Object.assign({}, b); });
+    } else if (Array.isArray(structure.exercises) && structure.exercises.length) {
+      out.exercises = structure.exercises.map(_smExportExerciseRow).filter(Boolean);
+    } else if (Array.isArray(_sfExercises) && _sfExercises.length && type !== 'run') {
+      out.exercises = _sfExercises.map(_smExportExerciseRow).filter(Boolean);
+    } else if (Array.isArray(_sfBlocks) && _sfBlocks.length && type === 'run') {
+      out.blocks = _sfBlocks.map(function (b) { return Object.assign({}, b); });
+    }
+    return out;
+  }
+
+  function _smExportFilename(payload) {
+    var date = (payload.date || 'session').replace(/[^\d-]/g, '');
+    var slug = String(payload.name || payload.type || 'session')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 48) || 'session';
+    return 'perf-coach-session-' + date + '-' + slug + '.json';
+  }
+
+  function _smDownloadSessionJson(p) {
+    var payload = _smExportSessionPayload(p);
+    _downloadFile(
+      _smExportFilename(payload),
+      JSON.stringify(payload, null, 2),
+      'application/json'
+    );
+    _toast('Session JSON downloaded — share or paste into Add → JSON');
   }
 
   function _smMarkDirty() {
@@ -3530,6 +4069,35 @@ information about.
     var bits = [p.actual.name || 'Matched workout'];
     if (p.actual.meta) bits.push(p.actual.meta);
     return '<span class="pl-sm-matched">✓ matched · ' + esc(bits.join(' ')) + '</span>';
+  }
+
+  function _smBudgetHtml(p) {
+    if (!_smIsEdit()) return _smTilesHtml(p);
+    var SB = window.SessionBudget;
+    if (!SB || !SB.html) return _smTilesHtml(p) + _smAiBarHtml(p);
+    if ((p.session_type || '') === 'rest') return '';
+    if (_smAiDormant(p) && !_sm.aiForcedOpen) {
+      return '<div class="pl-sm-ai pl-sm-ai-dormant" id="pl-sm-ai">' +
+        '<div class="pl-sm-ai-h"><b>Session completed — nothing left to plan</b>' +
+        '<button type="button" class="pl-sm-ai-expand" id="pl-sm-ai-expand">add structure anyway</button></div>' +
+      '</div>';
+    }
+    var s = p.structure || {};
+    var live = _smCollectStructure(p.session_type) || s;
+    var type = (p.session_type || 'run').toLowerCase();
+    var has = _smHasStructure(p);
+    return SB.html({
+      duration: live.duration_minutes != null ? live.duration_minutes : s.duration_minutes,
+      tss: live.target_tss != null ? live.target_tss : s.target_tss,
+      distance: live.distance_km != null ? live.distance_km : s.distance_km,
+      distanceDisabled: type !== 'run',
+      exercises: type === 'run' ? [] : (_sfExercises || []),
+      hasStructure: has,
+      refillBusy: _sm.aiBusy,
+      refillLabel: has ? 'Refill unpinned' : 'Fill from patterns',
+      showRefill: true,
+      error: _sm.aiError || '',
+    });
   }
 
   function _smTilesHtml(p) {
@@ -3571,86 +4139,601 @@ information about.
       var dm = _H().durationMinutesFromBlocks && _H().durationMinutesFromBlocks(s.blocks);
       if (dm) pins.push(dm + ' min');
     }
-    var pinNote = has && pins.length
-      ? 'keeps day · type · ' + pins.join(' · ') + ' pinned — content only'
-      : (has ? 'refines content · day & type stay pinned' : 'no structure yet — builds from focus + coach note');
-    var title = has ? '✨ Refine with AI' : '✨ Generate with AI';
-    var goLab = has ? 'Refine' : 'Generate';
-    var chips = has
-      ? '<div class="pl-sm-chips" id="pl-sm-chips">' +
-          '<button type="button" class="pl-sm-chip" data-steer="make it easier / lighter volume">Easier</button>' +
-          '<button type="button" class="pl-sm-chip" data-steer="make it harder / more stimulus">Harder</button>' +
-          '<button type="button" class="pl-sm-chip" data-steer="shorten the session while keeping the intent">Shorten</button>' +
-          '<button type="button" class="pl-sm-chip" data-steer="swap to a different subtype / focus">Swap subtype</button>' +
-        '</div>'
-      : '';
+    var pinNote = pins.length
+      ? 'fills from patterns · keeps ' + pins.join(' · ') + ' pinned'
+      : 'needs TSS or duration pinned to fill from patterns';
+    var title = has ? 'Refill from patterns' : 'Fill from patterns';
+    var goLab = has ? 'Refill' : 'Fill';
     var err = _sm.aiError
       ? '<div class="pl-sm-ai-err" id="pl-sm-ai-err" aria-live="assertive" role="alert">' + esc(_sm.aiError) + '</div>'
       : '<div class="pl-sm-ai-err" id="pl-sm-ai-err" aria-live="assertive" hidden></div>';
     return '<div class="pl-sm-ai" id="pl-sm-ai">' +
       '<div class="pl-sm-ai-h"><b>' + title + '</b><span>' + esc(pinNote) + '</span></div>' +
-      chips +
       '<div class="pl-sm-free">' +
-        '<input type="text" id="pl-sm-ai-note" aria-label="AI steering note" placeholder="' +
-          (has ? 'or describe the change… e.g. add 4 × 20s strides at the end'
-               : 'optional steer… e.g. lower / posterior chain, dumbbells only, 45 min') + '"/>' +
-        '<button type="button" class="pl-sm-go" id="pl-sm-ai-go"' + (_sm.aiBusy ? ' disabled' : '') + '>' +
+        '<button type="button" class="pl-sm-go" id="pl-sm-ai-go"' +
+          (_sm.aiBusy || !pins.length ? ' disabled' : '') + '>' +
           (_sm.aiBusy ? '…' : goLab) + '</button>' +
       '</div>' +
       err +
       '<div class="pl-sm-ai-n">' +
-        (has
-          ? 'manual edits below mark this session EDITED — drafts will never overwrite it'
-          : 'uses the same engine as week drafts · house structure · validated before it lands') +
+        'deterministic pattern fill · no LLM · review then save' +
       '</div>' +
     '</div>';
   }
 
   function _smStructureBodyHtml(p) {
     var type = (p.session_type || 'run').toLowerCase();
+    var edit = _smIsEdit();
     if (type === 'rest') {
       return '<div class="pl-sm-empty-s">Rest day — no structure.</div>';
     }
     if (type === 'run') {
       if (!_sfBlocks.length && !_smHasStructure(p)) {
-        return '<div class="pl-sm-empty-s">No structure yet — Generate above, or add blocks in Detailed.</div>';
+        return '<div class="pl-sm-empty-s">' +
+          (edit ? 'No structure yet — Fill from patterns above, or open advanced › Detailed.'
+            : 'No structure yet — tap Edit to fill this session.') +
+          '</div>';
       }
-      // Simple view: phase rows; Detailed reuses block builder
-      if (_sm.structTab === 'json') {
+      if (edit && _sm.structTab === 'json') {
         return '<textarea class="pl-jsonta" id="pl-sm-json" aria-label="Structure JSON" spellcheck="false">' +
           esc(JSON.stringify({ blocks: _sfBlocks }, null, 2)) + '</textarea>';
       }
-      if (_sm.structTab === 'detailed') {
+      if (edit && _sm.structTab === 'detailed') {
         return '<div id="pl-sm-struct-host"></div>';
       }
-      // simple rows
-      var rows = _sfBlocks.map(function (b) {
-        var dur = b.duration_min != null ? b.duration_min + ' min' : '';
-        var rep = (b.repeat && b.repeat > 1) ? (' ×' + b.repeat) : '';
-        var tgt = b.target || '';
-        var lab = b.phase === 'warmup' ? 'Warmup' : (b.phase === 'cooldown' ? 'Cooldown' : 'Main');
-        return '<div class="pl-sm-brow"><span class="pl-sm-ph">' + lab + '</span>' +
-          '<span class="pl-sm-bt">' + esc(tgt || lab) + '</span>' +
-          '<span class="pl-sm-bm">' + esc(dur + rep) + '</span></div>';
-      }).join('');
-      return '<div class="pl-sm-blocks">' + (rows || '<div class="pl-sm-empty-s">No blocks yet.</div>') + '</div>';
+      return _smPreviewPaneHtml(p, type);
     }
     // strength / plyo / stretch
-    if (_sm.structTab === 'json') {
+    if (edit && _sm.structTab === 'json') {
       return '<textarea class="pl-jsonta" id="pl-sm-json" aria-label="Structure JSON" spellcheck="false">' +
         esc(JSON.stringify({ exercises: _sfExercises, focus: _sfFocus }, null, 2)) + '</textarea>';
     }
-    if (_sm.structTab === 'simple') {
-      if (!_sfFocus && !_sfExercises.length) {
-        return '<div class="pl-sm-empty-s">No structure yet — Generate above, or switch to Detailed to build it by hand.</div>' +
-          '<div class="pl-fld" style="margin-top:10px;"><label>Focus</label>' +
-          '<input type="text" id="pl-sm-focus" aria-label="Focus" value="' + esc(_sfFocus) + '" placeholder="e.g. posterior chain"/></div>';
-      }
-      return '<div class="pl-fld"><label>Focus</label>' +
-        '<input type="text" id="pl-sm-focus" aria-label="Focus" value="' + esc(_sfFocus) + '"/></div>';
+    if (edit && _sm.structTab === 'detailed') {
+      return '<div id="pl-sm-struct-host"></div>';
     }
-    // detailed
-    return '<div id="pl-sm-struct-host"></div>';
+    if (!_sfFocus && !_sfExercises.length) {
+      return '<div class="pl-sm-empty-s">' +
+        (edit ? 'No structure yet — Fill from patterns above, or open advanced › Detailed.'
+          : 'No structure yet — tap Edit to fill this session.') +
+        '</div>';
+    }
+    var focusHtml = '';
+    if (_sfFocus) {
+      focusHtml = edit
+        ? '<div class="pl-fld" style="margin-bottom:10px;"><label>Focus</label>' +
+          '<input type="text" id="pl-sm-focus" aria-label="Focus" value="' + esc(_sfFocus) + '"/></div>'
+        : '<div class="pl-sm-focus-ro">' + esc(_sfFocus) + '</div>';
+    }
+    return focusHtml + _smInteractiveExercisesHtml();
+  }
+
+  function _smProvChip(ex) {
+    var src = String(ex.source || 'generated').toLowerCase();
+    if (src === 'generated' || src === 'pattern') return '';
+    var lab = '';
+    var cls = 'manual';
+    if (src === 'swap') { lab = 'SUBSTITUTED'; cls = 'swap'; }
+    else if (src === 'substituted') { lab = 'SUBSTITUTED'; cls = 'swap'; }
+    else if (src === 'homework_standing') { lab = 'HOMEWORK · STANDING'; cls = 'hwstand'; }
+    else if (src === 'homework_week') {
+      var days = ex.homework_days_left;
+      lab = days != null ? ('HOMEWORK · ' + days + 'd LEFT') : 'HOMEWORK · WEEK';
+      cls = 'hwweek';
+    } else if (src === 'coach') { lab = 'COACH'; cls = 'hwstand'; }
+    else if (src === 'manual') { lab = 'MANUAL'; cls = 'manual'; }
+    else { lab = src.toUpperCase(); cls = 'manual'; }
+    var tip = ex.replaced_name ? (' title="replaced ' + esc(ex.replaced_name) + '"') : '';
+    return '<span class="pl-sm-prov ' + cls + '"' + tip + '>' + esc(lab) + '</span>';
+  }
+
+  function _smExIsPinned(ex) {
+    if (window.SessionBudget && window.SessionBudget.isPinned) return window.SessionBudget.isPinned(ex);
+    if (ex.pinned === true) return true;
+    if (ex.pinned === false) return false;
+    var src = String(ex.source || 'generated').toLowerCase();
+    return src && src !== 'generated' && src !== 'pattern';
+  }
+
+  function _smSessionNameMap() {
+    var map = {};
+    _sfExercises.forEach(function (ex) {
+      if (!ex || !ex.name) return;
+      map[String(ex.name).trim().toLowerCase()] = ex.block || 'session';
+    });
+    return map;
+  }
+
+  function _smHlName(name, q) {
+    if (!q) return esc(name);
+    var i = String(name).toLowerCase().indexOf(String(q).toLowerCase());
+    if (i < 0) return esc(name);
+    return esc(name.slice(0, i)) + '<mark>' + esc(name.slice(i, i + q.length)) + '</mark>' +
+      esc(name.slice(i + q.length));
+  }
+
+  function _smEnsureAvoidParts() {
+    if (_sm.avoidParts) return Promise.resolve(_sm.avoidParts);
+    return fetch('/api/plan/exercises/avoid-parts', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : { parts: [] }; })
+      .then(function (j) {
+        _sm.avoidParts = (j && j.parts) || [];
+        return _sm.avoidParts;
+      })
+      .catch(function () {
+        _sm.avoidParts = [];
+        return _sm.avoidParts;
+      });
+  }
+
+  function _smApplyCandidate(cand) {
+    if (!_sm.swap || !cand) return;
+    var SB = window.SessionBudget;
+    if (_sm.swap.mode === 'swap') {
+      var i = _sm.swap.index;
+      var old = _sfExercises[i];
+      if (!old) return;
+      var oldSp = SB && SB.spendOf ? SB.spendOf(old) : { tss: Number(old.spend_tss) || 0, min: Number(old.spend_min) || 0 };
+      // Keep the block's shared set count (not the library default).
+      var keepSets = old.sets != null ? old.sets : (_smBlockSetsByName(old.block) || 3);
+      _sfExercises[i] = {
+        block: old.block,
+        name: cand.name,
+        sets: keepSets,
+        reps: cand.default_reps || old.reps || '10',
+        load: cand.default_load || old.load || 'moderate',
+        spend_tss: cand.tss != null ? cand.tss : oldSp.tss,
+        spend_min: oldSp.min,
+        pinned: true,
+        source: 'swap',
+        replaced_name: old.name,
+        state: old.state || '',
+        exercise_id: cand.id || undefined,
+      };
+      if (_sm.swap.searchAll) _sfExercises[i].swap_left_block = true;
+    } else {
+      var block = _sm.swap.block || 'Accessories';
+      var sets = _smBlockSetsByName(block);
+      if (sets == null) sets = 3;
+      var replaceIdx = -1;
+      var insertAt = _sfExercises.length;
+      for (var k = 0; k < _sfExercises.length; k++) {
+        if (String(_sfExercises[k].block || '') === block) {
+          insertAt = k + 1;
+          if (!_sfExercises[k].name) replaceIdx = k;
+        }
+      }
+      var row = {
+        block: block,
+        name: cand.name,
+        sets: sets,
+        reps: cand.default_reps || '10',
+        load: cand.default_load || 'moderate',
+        spend_tss: cand.tss != null ? cand.tss : Math.max(1, sets),
+        spend_min: Math.max(2, sets * 2.5),
+        pinned: true,
+        source: 'manual',
+        state: '',
+        exercise_id: cand.id || undefined,
+      };
+      if (replaceIdx >= 0) _sfExercises[replaceIdx] = row;
+      else _sfExercises.splice(insertAt, 0, row);
+    }
+    _sm.swap = null;
+    _smMarkDirty();
+    _renderDetailSection();
+  }
+
+  function _smMountSwapPicker(host) {
+    if (!host || !_sm.swap) return;
+    var swap = _sm.swap;
+    // Search the whole library — no block scope / avoid-part chips.
+    swap.searchAll = true;
+    swap.avoid = [];
+    var cur = swap.mode === 'swap' ? _sfExercises[swap.index] : null;
+    var block = swap.mode === 'swap' ? ((cur && cur.block) || 'Exercises') : (swap.block || 'Exercises');
+    var title = swap.mode === 'swap'
+      ? ('Swap ' + ((cur && cur.name) || 'exercise'))
+      : ('Add to ' + block);
+    var SB = window.SessionBudget;
+    var curTss = cur
+      ? ((SB && SB.spendOf ? SB.spendOf(cur).tss : Number(cur.spend_tss)) || 0)
+      : 0;
+
+    host.innerHTML =
+      '<div class="pl-sm-pickh"><span class="t">' + esc(title) + '</span>' +
+        '<span class="s" id="pl-sm-pick-count"></span>' +
+        '<button type="button" class="cx" id="pl-sm-pick-close" aria-label="Close">✕</button></div>' +
+      '<div class="pl-sm-srch"><input type="search" id="pl-sm-pick-q" placeholder="Search exercises…" value="' +
+        esc(swap.query || '') + '"/>' +
+        '<button type="button" class="clr" id="pl-sm-pick-clr"' +
+          ((swap.query) ? '' : ' hidden') + '>✕</button></div>' +
+      '<div class="pl-sm-scope" id="pl-sm-pick-scope">loading…</div>' +
+      '<div class="pl-sm-clist" id="pl-sm-pick-list"></div>' +
+      '<div class="pl-sm-picknote" id="pl-sm-pick-note"></div>';
+
+    document.getElementById('pl-sm-pick-close').onclick = function () {
+      _sm.swap = null;
+      _renderDetailSection();
+    };
+    var qEl = document.getElementById('pl-sm-pick-q');
+    var clr = document.getElementById('pl-sm-pick-clr');
+    qEl.oninput = function () {
+      _sm.swap.query = qEl.value;
+      clr.hidden = !qEl.value;
+      _smFetchSwapCandidates();
+    };
+    clr.onclick = function () {
+      qEl.value = '';
+      _sm.swap.query = '';
+      clr.hidden = true;
+      _smFetchSwapCandidates();
+      qEl.focus();
+    };
+
+    _smFetchSwapCandidates();
+    qEl.focus();
+  }
+
+  function _smFetchSwapCandidates() {
+    if (!_sm.swap) return;
+    var swap = _sm.swap;
+    var cur = swap.mode === 'swap' ? _sfExercises[swap.index] : null;
+    var block = swap.mode === 'swap' ? ((cur && cur.block) || 'Exercises') : (swap.block || 'Exercises');
+    var SB = window.SessionBudget;
+    var curTss = cur
+      ? ((SB && SB.spendOf ? SB.spendOf(cur).tss : Number(cur.spend_tss)) || 0)
+      : 0;
+    var body = {
+      block: block,
+      current_name: cur ? cur.name : null,
+      current_tss: curTss,
+      current_body_parts: (cur && cur.body_parts) || null,
+      session_names: _smSessionNameMap(),
+      avoid_parts: swap.avoid || [],
+      query: swap.query || '',
+      search_all_blocks: !!swap.searchAll,
+    };
+    fetch('/api/plan/exercises/swap-candidates', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(function (r) {
+      return r.ok ? r.json() : Promise.reject(new Error('swap candidates failed'));
+    }).then(function (data) {
+      if (!_sm.swap) return;
+      _smRenderSwapList(data, curTss, block);
+    }).catch(function () {
+      var list = document.getElementById('pl-sm-pick-list');
+      if (list) list.innerHTML = '<div class="pl-sm-none">Could not load candidates</div>';
+    });
+  }
+
+  function _smRenderSwapList(data, curTss, block) {
+    var ok = data.eligible || [];
+    var no = data.disabled || [];
+    var count = document.getElementById('pl-sm-pick-count');
+    if (count) {
+      count.textContent = ok.length + ' available' + (no.length ? (' · ' + no.length + ' blocked') : '');
+    }
+    var scope = document.getElementById('pl-sm-pick-scope');
+    if (scope) {
+      scope.innerHTML = (data.library_count || 0) + ' in library · <b>' + ok.length + '</b> match' +
+        (no.length ? (' · ' + no.length + ' already in session') : '');
+    }
+    var note = document.getElementById('pl-sm-pick-note');
+    if (note) {
+      note.innerHTML = 'searching all exercises · ranked by body-part overlap then TSS' +
+        (curTss ? (' proximity to ' + curTss.toFixed(1)) : '') +
+        ' · a swap arrives <b>pinned</b> — refill won\'t undo it';
+    }
+    function rowHtml(e, dis) {
+      var d = Number(e.tss_delta != null ? e.tss_delta : ((e.tss || 0) - curTss));
+      d = Math.round(d * 10) / 10;
+      var cls = d > 0.5 ? 'up' : (d < -0.5 ? 'dn' : 'eq');
+      var why = '';
+      if (dis) {
+        why = '<span class="pl-sm-why ' + esc(e.why_cls || '') + '">' + esc(e.why || '') +
+          (e.where ? (' · ' + esc(e.where)) : '') + '</span>';
+      }
+      return '<button type="button" class="pl-sm-cand' + (dis ? ' dis' : '') + '"' +
+        (dis ? ' disabled' : '') + ' data-cand-name="' + esc(e.name) + '">' +
+        '<span class="cb"><span class="cn">' + _smHlName(e.name, _sm.swap.query || '') + '</span>' +
+          '<span class="cr">' + esc(e.prescription || '') + '</span></span>' +
+        why +
+        '<span class="pl-sm-cd ' + cls + '">' + (d > 0 ? '+' : '') + d + ' TSS</span></button>';
+    }
+    var h = '';
+    if (ok.length) {
+      h = ok.map(function (e) { return rowHtml(e, false); }).join('');
+    } else {
+      h = '<div class="pl-sm-none">No ' +
+        (_sm.swap.query ? ('match for "' + esc(_sm.swap.query) + '"') : 'candidate') +
+        '.</div>';
+    }
+    if (no.length) {
+      h += '<div class="pl-sm-sec">not available</div>' + no.map(function (e) { return rowHtml(e, true); }).join('');
+    }
+    var list = document.getElementById('pl-sm-pick-list');
+    if (!list) return;
+    list.innerHTML = h;
+    list.querySelectorAll('.pl-sm-cand:not(.dis)').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var name = btn.getAttribute('data-cand-name');
+        var cand = (ok.concat(no)).filter(function (c) { return c.name === name; })[0];
+        if (cand) _smApplyCandidate(cand);
+      });
+    });
+  }
+
+  function _smExGroups() {
+    var groups = [];
+    _sfExercises.forEach(function (x, i) {
+      var b = (x && x.block) ? x.block : 'Exercises';
+      var last = groups[groups.length - 1];
+      if (!last || last.block !== b) groups.push({ block: b, idxs: [i] });
+      else last.idxs.push(i);
+    });
+    return groups;
+  }
+
+  function _smBlockSetsFromIdxs(idxs) {
+    for (var i = 0; i < idxs.length; i++) {
+      var ex = _sfExercises[idxs[i]];
+      if (ex && ex.sets != null && isFinite(Number(ex.sets))) return Math.round(Number(ex.sets));
+    }
+    return 3;
+  }
+
+  function _smBlockSetsByName(block) {
+    for (var i = 0; i < _sfExercises.length; i++) {
+      if (String(_sfExercises[i].block || '') === String(block || '') &&
+          _sfExercises[i].sets != null && isFinite(Number(_sfExercises[i].sets))) {
+        return Math.round(Number(_sfExercises[i].sets));
+      }
+    }
+    return null;
+  }
+
+  function _smApplyBlockSets(gi, sets) {
+    var groups = _smExGroups();
+    var g = groups[gi];
+    if (!g) return;
+    var n = Math.max(1, Math.min(12, Math.round(Number(sets)) || 3));
+    g.idxs.forEach(function (i) {
+      if (_sfExercises[i]) _sfExercises[i].sets = n;
+    });
+  }
+
+  function _smNewBlockName() {
+    var used = {};
+    _sfExercises.forEach(function (x) { used[String(x.block || '')] = true; });
+    for (var i = 0; i < _SM_BLOCK_OPTIONS.length; i++) {
+      if (!used[_SM_BLOCK_OPTIONS[i]]) return _SM_BLOCK_OPTIONS[i];
+    }
+    var n = 2;
+    while (used['Block ' + n]) n += 1;
+    return 'Block ' + n;
+  }
+
+  function _smAddBlock() {
+    var name = _smNewBlockName();
+    _sfExercises.push({
+      block: name,
+      name: '',
+      sets: 3,
+      reps: '10',
+      load: 'moderate',
+      spend_tss: 3,
+      spend_min: 7.5,
+      pinned: false,
+      source: 'manual',
+      state: '',
+    });
+    _sm.swap = { mode: 'add', block: name, query: '', searchAll: true, avoid: [] };
+    _smMarkDirty();
+    _renderDetailSection();
+  }
+
+  function _smBlockSelectHtml(current, gi) {
+    var cur = current || 'Exercises';
+    var opts = _SM_BLOCK_OPTIONS.slice();
+    if (opts.indexOf(cur) < 0) opts.unshift(cur);
+    return '<select class="pl-sm-bnsel" data-blk-rename="' + gi + '" aria-label="Block type">' +
+      opts.map(function (o) {
+        return '<option value="' + esc(o) + '"' + (o === cur ? ' selected' : '') + '>' + esc(o) + '</option>';
+      }).join('') +
+    '</select>';
+  }
+
+  function _smMoveExInBlock(i, dir) {
+    var j = i + dir;
+    if (j < 0 || j >= _sfExercises.length) return false;
+    var a = _sfExercises[i];
+    var b = _sfExercises[j];
+    if ((a.block || '') !== (b.block || '')) return false;
+    _sfExercises[i] = b;
+    _sfExercises[j] = a;
+    return true;
+  }
+
+  function _smMoveBlockGroup(gi, dir) {
+    var groups = _smExGroups();
+    var gj = gi + dir;
+    if (gj < 0 || gj >= groups.length) return false;
+    var rebuilt = [];
+    var order = groups.map(function (_, k) { return k; });
+    var tmp = order[gi];
+    order[gi] = order[gj];
+    order[gj] = tmp;
+    order.forEach(function (k) {
+      groups[k].idxs.forEach(function (i) { rebuilt.push(_sfExercises[i]); });
+    });
+    _sfExercises = rebuilt;
+    return true;
+  }
+
+  function _smDeleteBlockGroup(gi) {
+    var groups = _smExGroups();
+    if (!groups[gi]) return;
+    var drop = {};
+    groups[gi].idxs.forEach(function (i) { drop[i] = true; });
+    _sfExercises = _sfExercises.filter(function (_, i) { return !drop[i]; });
+  }
+
+  function _smInteractiveExercisesHtml() {
+    var groups = _smExGroups();
+    var edit = _smIsEdit();
+    var SB = window.SessionBudget;
+    var swap = (_sm && _sm.swap) || null;
+
+    function spendFooter() {
+      var planned = (_detail && _detail.structure && _detail.structure.target_tss) || null;
+      var actualTss = 0;
+      var actualMin = 0;
+      _sfExercises.forEach(function (ex) {
+        if (String(ex.state || 'done') === 'skipped') return;
+        var sp = SB && SB.spendOf ? SB.spendOf(ex) : { tss: 0, min: 0 };
+        actualTss += sp.tss;
+        actualMin += sp.min;
+      });
+      return '<div class="pl-sm-spend"><span>Session spend</span><span class="pl-sm-sv">' +
+        (planned != null ? ('<s>planned ' + Math.round(planned) + ' TSS</s> ') : '') +
+        'actual ' + (Math.round(actualMin * 10) / 10) + ' min · ' + (Math.round(actualTss * 10) / 10) + ' TSS' +
+        '</span></div>';
+    }
+
+    var addBlkBtn = edit
+      ? '<button type="button" class="pl-sm-addblk" data-blk-add="1">+ block</button>'
+      : '';
+
+    if (!groups.length) {
+      if (!edit) return '';
+      return '<div class="pl-sm-exlist" id="pl-sm-exlist">' + addBlkBtn + spendFooter() + '</div>';
+    }
+
+    var html = groups.map(function (g, gi) {
+      var tss = 0;
+      var mins = 0;
+      var skipped = 0;
+      var blockSets = _smBlockSetsFromIdxs(g.idxs);
+      g.idxs.forEach(function (i) {
+        var ex = _sfExercises[i];
+        if (String(ex.state || 'done') === 'skipped') { skipped += 1; return; }
+        var sp = SB && SB.spendOf ? SB.spendOf(ex) : { tss: Number(ex.spend_tss) || 0, min: Number(ex.spend_min) || 0 };
+        tss += sp.tss;
+        mins += sp.min;
+      });
+      var meta = (Math.round(mins * 10) / 10) + ' min · ' + (Math.round(tss * 10) / 10) + ' TSS' +
+        (skipped ? (' · <span class="pl-sm-sk">' + skipped + ' skipped</span>') : '');
+      var rows = g.idxs.map(function (i, pos) {
+        var ex = _sfExercises[i];
+        var pinned = _smExIsPinned(ex);
+        var skippedRow = String(ex.state || '') === 'skipped';
+        var doneRow = String(ex.state || '') === 'completed';
+        var sp = SB && SB.spendOf ? SB.spendOf(ex) : { tss: Number(ex.spend_tss) || 0, min: Number(ex.spend_min) || 0 };
+        // Sets live on the block — row shows reps · load only.
+        var rxPlain = '';
+        if (ex.reps != null && String(ex.reps).trim() !== '') rxPlain = String(ex.reps);
+        if (ex.load) rxPlain += (rxPlain ? ' · ' : '') + ex.load;
+        var rx;
+        if (edit && ex.replaced_name) {
+          rx = '<s>' + esc(ex.replaced_name) + '</s> → ' + esc(rxPlain) +
+            (ex.substitute_reason ? (' · ' + esc(ex.substitute_reason)) : '');
+        } else {
+          rx = esc(rxPlain);
+        }
+        var minLab = (Math.round(sp.min * 10) / 10) + ' min';
+        var tssLab = (Math.round(sp.tss * 10) / 10) + ' TSS';
+        var leftCtl;
+        var rightCtl;
+        if (edit) {
+          var swapOn = swap && swap.mode === 'swap' && swap.index === i;
+          leftCtl = '<button type="button" class="pl-sm-delx" data-ex-del="' + i + '" title="Remove exercise" aria-label="Remove exercise">✕</button>' +
+            '<span class="pl-sm-mv">' +
+              '<button type="button" class="pl-sm-mbtn" data-ex-up="' + i + '"' +
+                (pos === 0 ? ' disabled' : '') + ' aria-label="Move up">▲</button>' +
+              '<button type="button" class="pl-sm-mbtn" data-ex-dn="' + i + '"' +
+                (pos === g.idxs.length - 1 ? ' disabled' : '') + ' aria-label="Move down">▼</button>' +
+            '</span>';
+          rightCtl = '<span class="pl-sm-enum" data-ex-edit="min" data-ex-i="' + i + '" title="Minutes">' + minLab + '</span>' +
+            '<span class="pl-sm-enum" data-ex-edit="tss" data-ex-i="' + i + '" title="TSS">' + tssLab + '</span>' +
+            '<span class="pl-sm-exact">' +
+              '<button type="button" class="pl-sm-pinbtn' + (pinned ? ' on' : '') + '" data-ex-pin="' + i + '"' +
+                ' aria-pressed="' + (pinned ? 'true' : 'false') + '" title="Keep on refill">' +
+                (pinned ? 'Pinned' : 'Pin') + '</button>' +
+              '<button type="button" class="pl-sm-ib' + (swapOn ? ' on' : '') + '" data-ex-swap="' + i + '" title="Swap" aria-label="Swap">⇄</button>' +
+            '</span>';
+          return '<div class="pl-sm-ex' + (pinned ? ' pinned' : '') + (skippedRow ? ' skipped' : '') +
+            (swapOn ? ' active' : '') + '" data-ex-i="' + i + '">' +
+            leftCtl +
+            '<span class="pl-sm-exb"><span class="pl-sm-en">' + esc(ex.name || 'Exercise') + '</span>' +
+              '<span class="pl-sm-erx">' + rx + '</span></span>' +
+            _smProvChip(ex) +
+            rightCtl +
+            '</div>' +
+            (swapOn ? '<div class="pl-sm-pick" id="pl-sm-pick" data-pick-host="1"></div>' : '');
+        }
+        // View: empty checkbox until tapped at the gym; no per-row min/TSS; no swap strike.
+        leftCtl = '<button type="button" class="pl-sm-chk' + (doneRow ? ' on' : '') + '" data-ex-skip="' + i + '"' +
+          ' aria-label="' + (doneRow ? 'Mark not done' : 'Mark done') + '" aria-pressed="' +
+          (doneRow ? 'true' : 'false') + '">' + (doneRow ? '✓' : '') + '</button>';
+        return '<div class="pl-sm-ex' + (skippedRow ? ' skipped' : '') + (doneRow ? ' done' : '') +
+          '" data-ex-i="' + i + '">' +
+          leftCtl +
+          '<span class="pl-sm-exb"><span class="pl-sm-en">' + esc(ex.name || 'Exercise') + '</span>' +
+            '<span class="pl-sm-erx">' + esc(String(blockSets) + ' × ') + rx + '</span></span>' +
+        '</div>';
+      }).join('');
+      var head;
+      if (edit) {
+        var addOn = swap && swap.mode === 'add' && swap.block === g.block;
+        head = '<div class="pl-sm-blkh">' +
+          '<span class="pl-sm-bhleft">' +
+            '<span class="pl-sm-bmv">' +
+              '<button type="button" class="pl-sm-mbtn" data-blk-up="' + gi + '"' +
+                (gi === 0 ? ' disabled' : '') + ' aria-label="Move block up">▲</button>' +
+              '<button type="button" class="pl-sm-mbtn" data-blk-dn="' + gi + '"' +
+                (gi === groups.length - 1 ? ' disabled' : '') + ' aria-label="Move block down">▼</button>' +
+            '</span>' +
+            _smBlockSelectHtml(g.block, gi) +
+            '<label class="pl-sm-bsets-lab" title="Sets for every exercise in this block">Sets ' +
+              '<input type="number" class="pl-sm-bsets" data-blk-sets="' + gi + '" min="1" max="12" step="1" value="' +
+              blockSets + '"/></label>' +
+            '<button type="button" class="pl-sm-blkdel" data-blk-del="' + gi + '" title="Remove block" aria-label="Remove block">✕</button>' +
+          '</span>' +
+          '<span style="display:flex;gap:8px;align-items:center">' +
+            '<span class="pl-sm-bm">' + meta + '</span>' +
+            '<button type="button" class="pl-sm-addex" data-ex-add="' + esc(g.block) + '">+ exercise</button>' +
+          '</span></div>';
+        return '<div class="pl-sm-blk">' + head + rows +
+          (addOn ? '<div class="pl-sm-pick" id="pl-sm-pick" data-pick-host="1"></div>' : '') +
+        '</div>';
+      }
+      head = '<div class="pl-sm-blkh"><span class="pl-sm-bn">' + esc(g.block) + '</span>' +
+        '<span class="pl-sm-bm">' + blockSets + ' sets · ' + meta + '</span></div>';
+      return '<div class="pl-sm-blk">' + head + rows + '</div>';
+    }).join('');
+
+    return '<div class="pl-sm-exlist" id="pl-sm-exlist">' + html + addBlkBtn + spendFooter() + '</div>';
+  }
+
+  /** Read-only preview pane (same as admin / plan suggestions) for Simple tab. */
+  function _smPreviewPaneHtml(p, type) {
+    var P = window.PlanFillPreview;
+    if (!P || !P.sessionPaneHtml) return '';
+    var s = (p && p.structure) || {};
+    var exs = type === 'run' ? [] : (_sfExercises || []);
+    var blocks = type === 'run' ? (_sfBlocks || []) : [];
+    if (!exs.length && !blocks.length) return '';
+    return '<div class="pl-sm-preview">' + P.sessionPaneHtml({
+      exercises: exs,
+      blocks: blocks,
+      workout_type: type,
+      muscle_footprint: s._muscle_footprint || s.muscle_footprint || null,
+      muscle_summary: s.muscle_summary || null,
+      fill_log: null,
+    }, { showBudget: false }) + '</div>';
   }
 
   function _smUnifiedHtml(p) {
@@ -3658,12 +4741,34 @@ information about.
     var fam = _famClass(type);
     var tagCls = (type === 'strength' || type === 'plyo') ? 'lift' : '';
     var statusRow = _detailStatusActionsHtml(p);
-    var tabs = type === 'run'
-      ? [['simple', 'Simple'], ['detailed', 'Detailed'], ['json', 'JSON']]
-      : [['simple', 'Simple'], ['detailed', 'Detailed'], ['json', 'JSON']];
-    var tabHtml = tabs.map(function (t) {
-      return '<button type="button" class="pl-sm-tab' + (_sm.structTab === t[0] ? ' on' : '') + '" data-stab="' + t[0] + '">' + t[1] + '</button>';
-    }).join('');
+    var edit = _smIsEdit();
+    var advOpen = edit && (_sm.structTab === 'detailed' || _sm.structTab === 'json');
+    var advHtml = edit
+      ? ('<span class="pl-sm-adv">' +
+          '<button type="button" class="pl-sm-adv-tog" id="pl-sm-adv-tog">' +
+            (advOpen ? 'advanced ▾' : 'advanced ›') + '</button>' +
+          (advOpen
+            ? '<button type="button" class="pl-sm-tab' + (_sm.structTab === 'detailed' ? ' on' : '') + '" data-stab="detailed">Detailed</button>' +
+              '<button type="button" class="pl-sm-tab' + (_sm.structTab === 'json' ? ' on' : '') + '" data-stab="json">JSON</button>'
+            : '') +
+        '</span>')
+      : '';
+
+    var subSelected = _smUiSubtype(type, p);
+    var subtypeOpts = _ADD_SUBTYPES[type] || [];
+    var subtypeHtml = '';
+    if (subtypeOpts.length) {
+      if (edit) {
+        subtypeHtml = '<select id="pl-sm-subtype" aria-label="Session subtype">' +
+          '<option value="">Subtype</option>' +
+          _addSubtypeOptions(type, subSelected) +
+        '</select>';
+      } else if (subSelected) {
+        var subLab = subSelected;
+        subtypeOpts.forEach(function (o) { if (o.v === subSelected) subLab = o.l; });
+        subtypeHtml = '<span class="pl-sm-subtag">' + esc(subLab) + '</span>';
+      }
+    }
 
     var stryd = '';
     if (type === 'run') {
@@ -3675,34 +4780,67 @@ information about.
         '</div>';
     }
 
-    return '<div class="pl-sm-pad">' +
-      '<div class="pl-sm-top"><span class="pl-sm-lbl">Session</span>' +
-        '<button type="button" class="pl-sm-x" id="pl-detclose" aria-label="Close">✕</button></div>' +
-      '<div class="pl-sm-meta">' +
-        '<span class="pl-sm-tag ' + tagCls + '">' + _smTypeLabel(type) + '</span>' +
-        '<select id="pl-sm-type" aria-label="Session type">' +
+    var modeBtn = edit
+      ? '<button type="button" class="pl-sm-mode" id="pl-sm-done-edit">Done editing</button>'
+      : '<button type="button" class="pl-sm-mode on" id="pl-sm-enter-edit">Edit</button>';
+    var exportBtn =
+      '<button type="button" class="pl-sm-mode" id="pl-sm-export-json" title="Download shareable session JSON">' +
+      'Export JSON</button>';
+
+    var metaType = edit
+      ? ('<select id="pl-sm-type" aria-label="Session type">' +
           ['run', 'strength', 'plyo', 'stretch', 'rest'].map(function (t) {
             return '<option value="' + t + '"' + (type === t ? ' selected' : '') + '>' +
               (t.charAt(0).toUpperCase() + t.slice(1)) + '</option>';
           }).join('') +
-        '</select>' +
-        '<input class="pl-sm-datef" type="date" id="pl-sm-date" aria-label="Session date" value="' + esc(p.planned_date || '') + '"/>' +
+        '</select>')
+      : ('<span class="pl-sm-typero">' + esc(type.charAt(0).toUpperCase() + type.slice(1)) + '</span>');
+
+    var dateHtml = edit
+      ? '<input class="pl-sm-datef" type="date" id="pl-sm-date" aria-label="Session date" value="' + esc(p.planned_date || '') + '"/>'
+      : '<span class="pl-sm-date-ro">' + esc(p.planned_date || '') + '</span>';
+
+    var nameHtml = edit
+      ? '<input class="pl-sm-name" id="pl-sm-name" aria-label="Session name" value="' + esc(p.name || '') + '" placeholder="Session name"/>'
+      : '<div class="pl-sm-name-ro">' + esc(p.name || 'Session') + '</div>';
+
+    var sech = edit
+      ? ('<div class="pl-sm-sech"><span class="pl-sm-lbl">Exercises</span>' +
+          '<div class="pl-sm-tabs">' +
+            '<button type="button" class="pl-sm-tab' + (_sm.structTab === 'simple' || !advOpen ? ' on' : '') + '" data-stab="simple">Simple</button>' +
+            advHtml +
+          '</div></div>')
+      : '<div class="pl-sm-sech"><span class="pl-sm-lbl">Exercises</span></div>';
+
+    var notesHtml = edit
+      ? ('<div class="pl-sm-notes"><span class="pl-sm-lbl">Coach notes</span>' +
+          '<textarea id="pl-sm-notes" rows="3" aria-label="Coach notes">' + esc(p.notes || '') + '</textarea></div>')
+      : (p.notes
+        ? '<div class="pl-sm-notes"><span class="pl-sm-lbl">Coach notes</span><div class="pl-sm-notes-ro">' + esc(p.notes) + '</div></div>'
+        : '');
+
+    return '<div class="pl-sm-pad' + (edit ? ' is-edit' : ' is-view') + '" data-sm-mode="' + (edit ? 'edit' : 'view') + '">' +
+      '<div class="pl-sm-top"><span class="pl-sm-lbl">Session</span>' +
+        '<span class="pl-sm-topr">' + exportBtn + modeBtn +
+        '<button type="button" class="pl-sm-x" id="pl-detclose" aria-label="Close">✕</button></span></div>' +
+      '<div class="pl-sm-meta">' +
+        '<span class="pl-sm-tag ' + tagCls + '">' + _smTypeLabel(type) + '</span>' +
+        metaType +
+        subtypeHtml +
+        dateHtml +
         _smMatchedLine(p) +
       '</div>' +
-      '<input class="pl-sm-name" id="pl-sm-name" aria-label="Session name" value="' + esc(p.name || '') + '" placeholder="Session name"/>' +
+      nameHtml +
       _detailIdRowHtml(p) +
       statusRow +
-      _smAiBarHtml(p) +
-      '<div class="pl-sm-sech"><span class="pl-sm-lbl">Structure</span>' +
-        '<div class="pl-sm-tabs">' + tabHtml + '</div></div>' +
-      _smTilesHtml(p) +
+      _smBudgetHtml(p) +
+      sech +
       '<div id="pl-sm-struct-body">' + _smStructureBodyHtml(p) + '</div>' +
-      '<div class="pl-sm-notes"><span class="pl-sm-lbl">Coach notes</span>' +
-        '<textarea id="pl-sm-notes" rows="3" aria-label="Coach notes">' + esc(p.notes || '') + '</textarea></div>' +
-      stryd +
+      notesHtml +
+      (edit ? stryd : '') +
     '</div>' +
     '<div class="pl-sm-foot">' +
-      '<button type="button" class="pl-sm-del" id="pl-det-delete">Delete</button>' +
+      (edit ? '<button type="button" class="pl-sm-del" id="pl-det-delete">Delete</button>' : '') +
       '<span class="pl-sm-sp"></span>' +
       '<span class="pl-sm-dirty" id="pl-sm-dirty" aria-live="polite"></span>' +
       '<button type="button" class="pl-sm-ghost" id="pl-sm-discard" hidden>Discard</button>' +
@@ -3743,38 +4881,50 @@ information about.
     finish();
   }
 
-  function _smRunAi(steer) {
+  function _smRunAi() {
     var p = _detail;
     if (!p || _sm.aiBusy) return;
     var H = _H();
     var draft = _smReadDraftFromDom(p);
-    var note = (steer || '').trim();
-    var noteEl = document.getElementById('pl-sm-ai-note');
-    if (!note && noteEl) note = noteEl.value.trim();
-    if (!note) {
-      note = _smHasStructure(p)
-        ? 'Regenerate fuller session details while keeping the same intent.'
-        : 'Fill in full session details matching the existing title and coach notes.';
-    }
+    var st = draft.structure || {};
     var current = {
       day_offset: 0,
       workout_type: draft.session_type,
       intent: draft.name,
       notes: draft.notes,
-      exercises: (draft.structure && draft.structure.exercises) || null,
-      blocks: (draft.structure && draft.structure.blocks) || null,
-      target_tss: (p.structure && p.structure.target_tss) || 0,
-      duration_minutes: (p.structure && p.structure.duration_minutes) ||
-        (H.durationMinutesFromBlocks && H.durationMinutesFromBlocks((p.structure || {}).blocks)) || 0,
+      exercises: st.exercises || null,
+      blocks: st.blocks || null,
+      source: (p.structure && p.structure.source) || null,
+      target_tss: st.target_tss || 0,
+      duration_minutes: st.duration_minutes ||
+        (H.durationMinutesFromBlocks && H.durationMinutesFromBlocks(st.blocks || (p.structure || {}).blocks)) || 0,
     };
+    if (!(current.target_tss > 0) && !(current.duration_minutes > 0)) {
+      _sm.aiError = 'Set TSS or duration before filling from patterns.';
+      _renderDetailSection();
+      return;
+    }
+    var SB = window.SessionBudget;
+    if (SB && SB.analyze && Array.isArray(current.exercises)) {
+      var contract = SB.analyze({
+        budgetTss: current.target_tss,
+        budgetMin: current.duration_minutes,
+        exercises: current.exercises,
+      });
+      if (contract.blocked) {
+        _sm.aiError = contract.note;
+        _renderDetailSection();
+        return;
+      }
+    }
     var body = {
       date: draft.planned_date || p.planned_date,
       workout_type: draft.session_type,
-      note: note,
       current_session: _smHasStructure(p) ? current : null,
+      target_tss: current.target_tss > 0 ? current.target_tss : null,
+      duration_minutes: current.duration_minutes > 0 ? current.duration_minutes : null,
+      subtype: (p.structure && p.structure.subtype) || p.subtype || null,
     };
-    if (current.target_tss > 0) body.target_tss = current.target_tss;
-    if (current.duration_minutes > 0) body.duration_minutes = current.duration_minutes;
 
     _sm.aiBusy = true;
     _sm.aiError = '';
@@ -3791,30 +4941,35 @@ information about.
         } else if (Array.isArray(s.blocks) && s.blocks.length) {
           structure = { blocks: s.blocks };
         } else {
-          throw new Error('AI returned no exercises or run structure — try a more specific note.');
+          throw new Error('Pattern fill returned no exercises or run structure.');
         }
-        if (s.target_tss != null) structure.target_tss = s.target_tss;
-        else if (p.structure && p.structure.target_tss != null) structure.target_tss = p.structure.target_tss;
-        if (s.duration_minutes != null) structure.duration_minutes = s.duration_minutes;
-        else if (structure.blocks && H.durationMinutesFromBlocks) {
+        // Keep budget pins from the UI / prior session.
+        structure.target_tss = current.target_tss > 0 ? current.target_tss
+          : (s.target_tss != null ? s.target_tss : (p.structure && p.structure.target_tss));
+        structure.duration_minutes = current.duration_minutes > 0 ? current.duration_minutes
+          : (s.duration_minutes != null ? s.duration_minutes : null);
+        if (structure.duration_minutes == null && structure.blocks && H.durationMinutesFromBlocks) {
           var dmin = H.durationMinutesFromBlocks(structure.blocks);
           if (dmin) structure.duration_minutes = dmin;
         }
-        if (H.stampSourceUser) structure = H.stampSourceUser(structure);
+        if (s._muscle_footprint) structure._muscle_footprint = s._muscle_footprint;
+        else if (s.muscle_footprint) structure._muscle_footprint = s.muscle_footprint;
+        if (s.subtype) structure.subtype = s.subtype;
+        // Do NOT stamp whole structure source=user — that blocked Refill.
+        // Exercise rows carry their own pinned/source from the fill engine.
+        structure.source = 'pattern';
 
-        // Land in modal for review — mark dirty, do NOT autosave.
         p.name = s.intent ? String(s.intent).substring(0, 80) : (draft.name || p.name);
         p.notes = s.notes != null ? s.notes : draft.notes;
         p.structure = structure;
         _smSeedBuilders(p);
         _sm.aiBusy = false;
         delete _generatingIds[p.id];
+        _sm.dirty = true;
+        _smMarkDirty();
         _renderWeekList();
         _sm.suppressDomSync = true;
         _renderDetailSection();
-        // Force dirty vs baseline
-        _sm.dirty = true;
-        _smMarkDirty();
         var dirtyEl = document.getElementById('pl-sm-dirty');
         if (dirtyEl) dirtyEl.textContent = 'unsaved changes';
         var discardBtn = document.getElementById('pl-sm-discard');
@@ -3824,12 +4979,11 @@ information about.
         if (saveBtn) saveBtn.hidden = false;
         if (closeBtn) closeBtn.hidden = true;
       })
-      .catch(function (err) {
+      .catch(function (e) {
         _sm.aiBusy = false;
-        _sm.aiError = (err && err.message) || 'Could not generate — try again.';
         delete _generatingIds[p.id];
+        _sm.aiError = (e && e.message) || 'Pattern fill failed';
         _renderWeekList();
-        _sm.suppressDomSync = true;
         _renderDetailSection();
       });
   }
@@ -3925,6 +5079,8 @@ information about.
     _sm.aiBusy = false;
     _sm.aiError = '';
     _sm.dirty = false;
+    _sm.mode = 'view';
+    _sm.swap = null;
     _smSeedBuilders(found);
     _sm.suppressDomSync = true;
     _renderDetailSection(); _renderAddSection();
@@ -3976,6 +5132,33 @@ information about.
     var saveBtn = document.getElementById('pl-sm-save');
     if (saveBtn) saveBtn.onclick = _smSave;
 
+    var enterEdit = document.getElementById('pl-sm-enter-edit');
+    if (enterEdit) enterEdit.onclick = function () {
+      _sm.mode = 'edit';
+      if (_sm.structTab !== 'simple' && _sm.structTab !== 'detailed' && _sm.structTab !== 'json') {
+        _sm.structTab = 'simple';
+      }
+      _sm.suppressDomSync = true;
+      _renderDetailSection();
+    };
+    var exportJson = document.getElementById('pl-sm-export-json');
+    if (exportJson) exportJson.onclick = function () { _smDownloadSessionJson(p); };
+    var doneEdit = document.getElementById('pl-sm-done-edit');
+    if (doneEdit) doneEdit.onclick = function () {
+      if (_detail && document.getElementById('pl-sm-name')) {
+        var live = _smReadDraftFromDom(_detail);
+        _detail.name = live.name;
+        _detail.notes = live.notes;
+        _detail.planned_date = live.planned_date;
+        _detail.session_type = live.session_type;
+        if (live.structure) _detail.structure = live.structure;
+      }
+      _sm.mode = 'view';
+      _sm.swap = null;
+      _sm.suppressDomSync = true;
+      _renderDetailSection();
+    };
+
     var delBtn = document.getElementById('pl-det-delete');
     if (delBtn) delBtn.onclick = function () {
       _plConfirm(
@@ -4004,7 +5187,7 @@ information about.
       } else { _fallbackCopy(p.id); flash(); }
     };
 
-    ['pl-sm-name', 'pl-sm-notes', 'pl-sm-date', 'pl-sm-focus'].forEach(function (id) {
+    ['pl-sm-name', 'pl-sm-notes', 'pl-sm-date', 'pl-sm-focus', 'pl-sm-subtype'].forEach(function (id) {
       var el = document.getElementById(id);
       if (!el) return;
       el.addEventListener('input', function () {
@@ -4013,6 +5196,10 @@ information about.
       });
       el.addEventListener('change', function () {
         if (id === 'pl-sm-focus') _sfFocus = el.value;
+        if (id === 'pl-sm-subtype' && _detail) {
+          if (!_detail.structure) _detail.structure = {};
+          _detail.structure.subtype = el.value || null;
+        }
         _smMarkDirty();
       });
     });
@@ -4080,12 +5267,223 @@ information about.
       _renderDetailSection();
     };
     var aiGo = document.getElementById('pl-sm-ai-go');
-    if (aiGo) aiGo.onclick = function () { _smRunAi(null); };
-    host.querySelectorAll('.pl-sm-chip').forEach(function (chip) {
-      chip.addEventListener('click', function () {
-        _smRunAi(chip.getAttribute('data-steer') || chip.textContent);
+    if (aiGo) aiGo.onclick = function () { _smRunAi(); };
+
+    var advTog = document.getElementById('pl-sm-adv-tog');
+    if (advTog) advTog.onclick = function () {
+      if (_sm.structTab === 'detailed' || _sm.structTab === 'json') {
+        _sm.structTab = 'simple';
+      } else {
+        _sm.structTab = 'detailed';
+        _sfStrengthMode = 'detailed';
+      }
+      _renderDetailSection();
+    };
+
+    // Session budget steppers / pin inputs
+    var budgetRoot = document.getElementById('pl-sm-budget');
+    function _applyBudgetBump(kind, delta) {
+      if (!_detail) return;
+      if (!_detail.structure) _detail.structure = {};
+      var key = kind === 'dur' ? 'duration_minutes' : 'target_tss';
+      var el = document.getElementById(kind === 'dur' ? 'pl-sm-pin-dur' : 'pl-sm-pin-tss');
+      var cur = el && el.value !== '' ? Number(el.value) : Number(_detail.structure[key] || 0);
+      if (!isFinite(cur)) cur = 0;
+      var next = Math.max(0, cur + delta);
+      _detail.structure[key] = next;
+      _smMarkDirty();
+      _renderDetailSection();
+    }
+    function _applyBudgetChange(id, val) {
+      if (!_detail) return;
+      if (!_detail.structure) _detail.structure = {};
+      var n = val === '' || val === '—' ? null : Number(val);
+      if (id === 'pl-sm-pin-dur') _detail.structure.duration_minutes = (n != null && isFinite(n)) ? n : null;
+      if (id === 'pl-sm-pin-tss') _detail.structure.target_tss = (n != null && isFinite(n)) ? n : null;
+      if (id === 'pl-sm-pin-dist' && n != null && isFinite(n)) _detail.structure.distance_km = n;
+      _smMarkDirty();
+      _renderDetailSection();
+    }
+    if (window.SessionBudget && window.SessionBudget.wire && budgetRoot) {
+      window.SessionBudget.wire(budgetRoot, {
+        onBump: _applyBudgetBump,
+        onChange: _applyBudgetChange,
       });
-    });
+    } else if (budgetRoot) {
+      budgetRoot.querySelectorAll('[data-sb-bump]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          _applyBudgetBump(btn.getAttribute('data-sb-bump'), Number(btn.getAttribute('data-d')) || 0);
+        });
+      });
+    }
+
+    // Exercise pin / skip / swap / delete / reorder (Simple interactive list)
+    var exList = document.getElementById('pl-sm-exlist');
+    if (exList) {
+      exList.querySelectorAll('[data-ex-pin]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var i = +btn.getAttribute('data-ex-pin');
+          var ex = _sfExercises[i];
+          if (!ex) return;
+          var next = !_smExIsPinned(ex);
+          ex.pinned = next;
+          if (next && (!ex.source || ex.source === 'generated' || ex.source === 'pattern')) {
+            ex.source = 'manual';
+          }
+          if (!next) ex.source = 'generated';
+          _smMarkDirty();
+          _renderDetailSection();
+        });
+      });
+      exList.querySelectorAll('[data-ex-skip]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var i = +btn.getAttribute('data-ex-skip');
+          var ex = _sfExercises[i];
+          if (!ex) return;
+          // View checklist: tap to mark done at the gym (empty → completed → empty).
+          if (String(ex.state || '') === 'completed') {
+            ex.state = '';
+          } else {
+            ex.state = 'completed';
+          }
+          _smMarkDirty();
+          _renderDetailSection();
+        });
+      });
+      exList.querySelectorAll('[data-ex-del]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var i = +btn.getAttribute('data-ex-del');
+          if (!_sfExercises[i]) return;
+          _sfExercises.splice(i, 1);
+          _sm.swap = null;
+          _smMarkDirty();
+          _renderDetailSection();
+        });
+      });
+      exList.querySelectorAll('[data-ex-up]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          if (_smMoveExInBlock(+btn.getAttribute('data-ex-up'), -1)) {
+            _smMarkDirty();
+            _renderDetailSection();
+          }
+        });
+      });
+      exList.querySelectorAll('[data-ex-dn]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          if (_smMoveExInBlock(+btn.getAttribute('data-ex-dn'), 1)) {
+            _smMarkDirty();
+            _renderDetailSection();
+          }
+        });
+      });
+      exList.querySelectorAll('[data-blk-up]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          if (_smMoveBlockGroup(+btn.getAttribute('data-blk-up'), -1)) {
+            _smMarkDirty();
+            _renderDetailSection();
+          }
+        });
+      });
+      exList.querySelectorAll('[data-blk-dn]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          if (_smMoveBlockGroup(+btn.getAttribute('data-blk-dn'), 1)) {
+            _smMarkDirty();
+            _renderDetailSection();
+          }
+        });
+      });
+      exList.querySelectorAll('[data-blk-rename]').forEach(function (sel) {
+        sel.addEventListener('change', function () {
+          var gi = +sel.getAttribute('data-blk-rename');
+          var groups = _smExGroups();
+          var g = groups[gi];
+          if (!g) return;
+          var name = sel.value;
+          g.idxs.forEach(function (i) {
+            if (_sfExercises[i]) _sfExercises[i].block = name;
+          });
+          _smMarkDirty();
+          _renderDetailSection();
+        });
+      });
+      exList.querySelectorAll('[data-blk-del]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var gi = +btn.getAttribute('data-blk-del');
+          var groups = _smExGroups();
+          var g = groups[gi];
+          if (!g) return;
+          var n = g.idxs.length;
+          function go() {
+            _smDeleteBlockGroup(gi);
+            _sm.swap = null;
+            _smMarkDirty();
+            _renderDetailSection();
+          }
+          if (n > 1) {
+            _plConfirm('Remove block "' + (g.block || 'Block') + '" and its ' + n + ' exercises?', go, { okLabel: 'Remove' });
+          } else {
+            go();
+          }
+        });
+      });
+      exList.querySelectorAll('[data-ex-swap]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var i = +btn.getAttribute('data-ex-swap');
+          if (_sm.swap && _sm.swap.mode === 'swap' && _sm.swap.index === i) {
+            _sm.swap = null;
+          } else {
+            _sm.swap = { mode: 'swap', index: i, query: '', searchAll: true, avoid: [] };
+          }
+          _renderDetailSection();
+        });
+      });
+      exList.querySelectorAll('[data-ex-add]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var block = btn.getAttribute('data-ex-add') || 'Exercises';
+          if (_sm.swap && _sm.swap.mode === 'add' && _sm.swap.block === block) {
+            _sm.swap = null;
+          } else {
+            _sm.swap = { mode: 'add', block: block, query: '', searchAll: true, avoid: [] };
+          }
+          _renderDetailSection();
+        });
+      });
+      exList.querySelectorAll('[data-blk-add]').forEach(function (btn) {
+        btn.addEventListener('click', function () { _smAddBlock(); });
+      });
+      exList.querySelectorAll('[data-blk-sets]').forEach(function (inp) {
+        inp.addEventListener('change', function () {
+          var gi = +inp.getAttribute('data-blk-sets');
+          _smApplyBlockSets(gi, inp.value);
+          _smMarkDirty();
+          _renderDetailSection();
+        });
+      });
+      if (_sm.swap) {
+        _smMountSwapPicker(exList.querySelector('#pl-sm-pick'));
+      }
+      exList.querySelectorAll('[data-ex-edit]').forEach(function (cell) {
+        cell.addEventListener('click', function () {
+          var i = +cell.getAttribute('data-ex-i');
+          var field = cell.getAttribute('data-ex-edit');
+          var ex = _sfExercises[i];
+          if (!ex) return;
+          var cur = field === 'tss' ? (ex.spend_tss != null ? ex.spend_tss : '') : (ex.spend_min != null ? ex.spend_min : '');
+          var next = window.prompt(field === 'tss' ? 'TSS' : 'Minutes', cur);
+          if (next == null || next === '') return;
+          var n = Number(next);
+          if (!isFinite(n) || n < 0) return;
+          if (field === 'tss') ex.spend_tss = n;
+          else ex.spend_min = n;
+          if (!_smExIsPinned(ex)) {
+            ex.pinned = true;
+            if (!ex.source || ex.source === 'generated') ex.source = 'manual';
+          }
+          _smMarkDirty();
+          _renderDetailSection();
+        });
+      });
+    }
 
     var strydToggle = document.getElementById('pl-sm-stryd-toggle');
     if (strydToggle) strydToggle.onclick = function () {
@@ -4136,7 +5534,7 @@ information about.
         out.push('  Work    ' + pad(mmss(dur)) + tgt);
         if (b.rest_min) out.push('  Rest    ' + pad(mmss(Number(b.rest_min))) + 'easy jog');
       } else {
-        var label = b.phase === 'warmup' ? 'Warmup' : (b.phase === 'cooldown' ? 'Cooldown' : 'Work');
+        var label = b.phase === 'warmup' ? 'Warmup' : (b.phase === 'cooldown' ? 'Cooldown' : (b.phase === 'mp' || b.phase === 'marathon_pace' ? 'MP' : 'Work'));
         out.push(pad(label) + ' ' + pad(mmss(dur)) + tgt);
       }
     });
@@ -4158,7 +5556,7 @@ information about.
 
   // ── Scoped styles (injected once) ───────────────────────────────────────────
   function _injectStyles() {
-    var VER = '20260731import1';
+    var VER = '20260807planv3g';
     var existing = document.getElementById('plan-tab-styles');
     if (existing) {
       if (existing.getAttribute('data-ver') === VER) return;
@@ -4214,26 +5612,80 @@ information about.
     '.plan-panel .pl-panelhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;}',
     '.plan-panel .pl-closepanel{width:44px;height:44px;flex-shrink:0;border:1px solid var(--border);background:var(--tile);border-radius:8px;cursor:pointer;color:var(--text-sub);font-size:13px;}',
     '.plan-panel .pl-closepanel:hover{color:var(--danger);border-color:#fecaca;}',
-    '.plan-panel .pl-wknav{display:flex;align-items:center;gap:10px;}',
+    '.plan-panel .pl-wknav{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px;}',
+    '.plan-panel .pl-wknav-right{margin-left:auto;display:flex;gap:7px;align-items:center;}',
+    '.plan-panel .pl-suggest{display:flex;align-items:center;gap:12px;width:100%;margin:13px 0 4px;background:linear-gradient(100deg,#4f6ef7,#6d5cf0);border:none;border-radius:12px;padding:13px 16px;cursor:pointer;text-align:left;box-shadow:0 4px 14px rgba(79,110,247,.30);font-family:inherit;}',
+    '.plan-panel .pl-suggest:hover{filter:brightness(1.04);}',
+    '.plan-panel .pl-suggest-ic{width:32px;height:32px;border-radius:9px;background:rgba(255,255,255,.2);display:grid;place-items:center;font-size:15px;flex-shrink:0;}',
+    '.plan-panel .pl-suggest-tx{flex:1;color:#fff;min-width:0;}',
+    '.plan-panel .pl-suggest-t{display:block;font-size:14px;font-weight:700;color:#fff;}',
+    '.plan-panel .pl-suggest-s{display:block;font-family:var(--mono);font-size:10px;opacity:.85;margin-top:2px;color:#fff;}',
+    '.plan-panel .pl-suggest-ar{color:rgba(255,255,255,.8);font-size:17px;flex-shrink:0;}',
+
     '.plan-panel .pl-arw{width:44px;height:44px;border:1px solid var(--border);background:var(--tile);border-radius:8px;cursor:pointer;font-size:14px;color:var(--text-sub);}',
     '.plan-panel .pl-wktitle{font-size:13px;font-weight:800;}',
     '.plan-panel .pl-weektotal{font-size:11px;color:var(--text-sub);font-family:var(--mono);margin-left:6px;}',
     '.plan-panel .pl-weektotal b{color:var(--ink);font-weight:800;}',
-    '.plan-panel .pl-weeklist{display:flex;flex-direction:column;gap:6px;margin-top:14px;}',
-    '.plan-panel .pl-dayrow{display:flex;gap:12px;padding:7px 12px;border:1px solid var(--border);border-radius:12px;background:var(--tile);align-items:flex-start;}',
-    '.plan-panel .pl-dayrow.today{border-color:#c7d2fe;background:#f4f6ff;}',
+    '.plan-panel .pl-weeklist{display:flex;flex-direction:column;margin-top:14px;}',
+    '.plan-panel .pl-dayrow{display:flex;gap:14px;padding:10px 0;border-bottom:1px solid var(--border);align-items:flex-start;}',
+    '.plan-panel .pl-dayrow:last-child{border-bottom:none;}',
+    '.plan-panel .pl-dayrow.today{background:#f7f9ff;margin:0 -18px;padding-left:18px;padding-right:18px;}',
     '.plan-panel .pl-dayrow.past{opacity:0.94;}',
     '.plan-panel .pl-dayrow.dragover{outline:2px dashed var(--info);outline-offset:-2px;background:#eef2ff;}',
-    '.plan-panel .pl-daylabel{width:58px;flex-shrink:0;padding-top:2px;}',
-    '.plan-panel .pl-daylabel .pl-dname{font-size:10px;font-weight:800;color:var(--text-sub);text-transform:uppercase;display:block;}',
-    '.plan-panel .pl-daylabel .pl-dnum{font-size:20px;font-family:var(--mono);color:var(--ink);font-weight:700;display:block;margin-top:2px;}',
-    '.plan-panel .pl-dtotal{flex-shrink:0;align-self:center;font-size:10.5px;font-weight:700;font-family:var(--mono);color:var(--text-sub);white-space:nowrap;padding-left:8px;}',
-    '.plan-panel .pl-daybody{flex:1;display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;min-width:0;}',
-    '.plan-panel .pl-daybody .pl-sess,.plan-panel .pl-daybody .pl-ghost{flex:1 1 250px;max-width:360px;}',
-    '.plan-panel .pl-sess{position:relative;border-radius:8px;padding:7px 9px;font-size:11px;cursor:pointer;background:#fff;box-shadow:0 1px 2px rgba(20,28,70,0.06);}',
+    '.plan-panel .pl-dayrow.rest{align-items:flex-start;}',
+    '.plan-panel .pl-gut{width:52px;flex-shrink:0;padding-top:2px;}',
+    '.plan-panel .pl-gut-dw{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.05em;color:var(--text-sub);line-height:1;display:block;}',
+    '.plan-panel .pl-gut-dn{font-family:var(--mono);font-size:17px;font-weight:700;color:var(--text-sub);line-height:1.15;display:block;}',
+    '.plan-panel .pl-dayrow.today .pl-gut-dw,.plan-panel .pl-dayrow.today .pl-gut-dn{color:var(--primary);}',
+    '.plan-panel .pl-gut-tot{font-family:var(--mono);font-size:9px;color:var(--text-sub);margin-top:4px;display:block;}',
+    '.plan-panel .pl-day-content{flex:1;min-width:0;display:flex;align-items:flex-start;gap:10px;}',
+    '.plan-panel .pl-day-sessions{flex:1;min-width:0;}',
+    /* Rest day — same pill footprint as a session card so the row aligns */
+    '.plan-panel .pl-rest-lab{display:flex;align-items:center;min-height:42px;padding:9px 12px;border-radius:10px;background:#f8fafc;border:1px dashed #d1d5db;font-family:var(--mono);font-size:11px;color:#94a3b8;font-style:italic;box-sizing:border-box;}',
+    '.plan-panel .pl-dayrow.today .pl-rest-lab{background:#f1f5ff;border-color:#c7d2fe;color:#7b87c9;}',
+    '.plan-panel .pl-day-add,.plan-panel .pl-rest-add{border:1px dashed var(--border);background:none;border-radius:6px;padding:3px 10px;font-family:var(--mono);font-size:9.5px;color:var(--text-sub);cursor:pointer;flex-shrink:0;margin-left:auto;white-space:nowrap;align-self:center;}',
+    '.plan-panel .pl-day-add:hover,.plan-panel .pl-rest-add:hover{border-color:var(--primary);color:var(--primary);}',
+    '.plan-panel .pl-day-content .pl-sess,.plan-panel .pl-day-content .pl-ghost{max-width:none;}',
+    '.plan-panel .pl-sess{position:relative;border-radius:10px;padding:9px 12px;font-size:11px;cursor:pointer;background:transparent;box-shadow:none;}',
+    '.plan-panel .pl-sess+.pl-sess{margin-top:8px;}',
     '.plan-panel .pl-sess.dragging{opacity:0.4;}',
     '.plan-panel .pl-sess[draggable="true"]{cursor:grab;}',
-    '.plan-panel .pl-sess .pl-sn{font-weight:700;font-size:11.5px;}.plan-panel .pl-sess .pl-sm{color:var(--text-sub);font-family:var(--mono);font-size:10px;margin-top:2px;}',
+    /* Planned — tinted by type (not greyscale) */
+    '.plan-panel .pl-sess.status-planned.run{background:#e4e8fd;border:1px solid #c7d2fe;}',
+    '.plan-panel .pl-sess.status-planned.run .pl-sn{color:#1e2a5a;}',
+    '.plan-panel .pl-sess.status-planned.lift{background:#efe9fd;border:1px solid #ddd6fe;}',
+    '.plan-panel .pl-sess.status-planned.lift .pl-sn{color:#4c1d95;}',
+    '.plan-panel .pl-sess.status-planned.plyo{background:#ffedd5;border:1px solid #fdba74;}',
+    '.plan-panel .pl-sess.status-planned.plyo .pl-sn{color:#9a3412;}',
+    '.plan-panel .pl-sess.status-planned.stretch{background:#e6f7ef;border:1px solid #a7f3d0;}',
+    '.plan-panel .pl-sess.status-planned.stretch .pl-sn{color:#065f46;}',
+    '.plan-panel .pl-sess.status-planned .pl-smeta2,.plan-panel .pl-sess.status-planned .pl-smeta-m,.plan-panel .pl-sess.status-planned .pl-stss{color:var(--text-sub);}',
+    /* Matched / linked — green (finished) */
+    '.plan-panel .pl-sess.status-done_auto,.plan-panel .pl-sess.status-done_manual{background:#dcfce7;border:1px solid #86efac;}',
+    '.plan-panel .pl-sess.status-done_auto .pl-sn,.plan-panel .pl-sess.status-done_manual .pl-sn{color:#14532d;}',
+    '.plan-panel .pl-sess.status-done_auto .pl-stss,.plan-panel .pl-sess.status-done_manual .pl-stss{color:#14532d;}',
+    '.plan-panel .pl-srow{display:flex;align-items:center;gap:10px;}',
+    '.plan-panel .pl-sess .pl-sn{font-weight:650;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;}',
+    '.plan-panel .pl-smeta2{font-family:var(--mono);font-size:10px;color:var(--text-sub);margin-left:auto;white-space:nowrap;}',
+    '.plan-panel .pl-smeta-m{display:none;font-family:var(--mono);font-size:10px;color:var(--text-sub);margin-top:4px;}',
+    '@media(max-width:1039.98px){.plan-panel .pl-smeta2{display:none;}.plan-panel .pl-smeta-m{display:block;}}',
+    '.plan-panel .pl-sdelta.delta{color:var(--success);font-weight:700;}',
+    '.plan-panel .pl-sdelta.over{color:var(--warning);font-weight:700;}',
+    '.plan-panel .pl-stss{font-family:var(--mono);font-size:13px;font-weight:700;min-width:44px;text-align:right;}',
+    '.plan-panel .pl-stss.is-est{font-style:italic;color:var(--text-sub);}',
+    '.plan-panel .pl-sdot{width:8px;height:8px;border-radius:99px;flex-shrink:0;background:#c3c9d6;}',
+    '.plan-panel .pl-sdot.done{background:var(--success);}.plan-panel .pl-sdot.review{background:var(--warning);}.plan-panel .pl-sdot.missed{background:var(--danger);}',
+    '.plan-panel .pl-sexp{display:none;margin-top:9px;padding-top:9px;border-top:1px dashed var(--border);}',
+    '.plan-panel .pl-sess.open .pl-sexp{display:block;}',
+    '.plan-panel .pl-matchline{font-family:var(--mono);font-size:10px;color:var(--success);margin-bottom:8px;}',
+    '.plan-panel .pl-matchline.manual{color:var(--primary);}',
+    '.plan-panel .pl-sexp-acts{display:flex;gap:6px;flex-wrap:wrap;}',
+    '.plan-panel .pl-abtn{border:1px solid var(--border);background:#fff;border-radius:7px;padding:5px 11px;font-family:var(--mono);font-size:10px;font-weight:700;color:var(--text-sub);cursor:pointer;}',
+    '.plan-panel .pl-abtn:hover{border-color:var(--primary);color:var(--primary);}',
+    '.plan-panel .pl-abtn.warn{color:var(--warning);border-color:#fde68a;}',
+    '.plan-panel .pl-abtn-sel{display:inline-flex;align-items:center;gap:4px;}',
+    '.plan-panel .pl-abtn-sel select{font:inherit;border:none;background:transparent;color:inherit;cursor:pointer;}',
+    '.plan-panel .pl-sess .pl-sm{color:var(--text-sub);font-family:var(--mono);font-size:10px;margin-top:2px;}',
     // .pl-stypetag base + variant colors were fully re-declared further down
     // (re-audit #14) and that later, un-tokenized block always won the
     // cascade — this tokenized version was dead. Removed rather than kept,
@@ -4263,9 +5715,77 @@ information about.
     '.plan-panel .pl-stat-tag.missed{background:var(--danger-soft);color:var(--danger);}',
     '.plan-panel .pl-stat-tag.review{background:var(--warning-soft);color:var(--warning);}',
     '.plan-panel .pl-stat-tag.done{background:var(--success-soft);color:var(--success);}',
-    '.plan-panel .pl-sess.status-missed{opacity:0.55;}',
-    '.plan-panel .pl-sess.status-done_auto,.plan-panel .pl-sess.status-done_manual{background:#f4fbf6;}',
-    '.plan-panel .pl-sess.status-needs_review{background:#fffaf0;cursor:default;}',
+    '.plan-panel .pl-sess.status-missed,.plan-panel .pl-sess.status-missed_auto,.plan-panel .pl-sess.status-missed_manual{opacity:0.55;background:#f9fafb;border:1px solid #e5e7eb;}',
+    '.plan-panel .pl-sess.status-needs_review{background:#fffaf0;border:1px solid #fde68a;cursor:default;}',
+    /* v3 layout / next-up / chart window */
+    '.plan-panel.pl-v3,.plan-panel .pl-v3{display:flex;flex-direction:column;gap:14px;}',
+    /* Single column at all breakpoints: chart → this week → week list. */
+    '.pl-v3-grid{display:flex;flex-direction:column;gap:14px;align-items:stretch;}',
+    '.pl-v3-chart,.pl-v3-side,.pl-v3-week{min-width:0;width:100%;}',
+    '.pl-v3-side{position:static;}',
+    '.pl-hero{background:#fff;border-radius:14px;border:1px solid var(--border);overflow:hidden;box-shadow:0 2px 8px rgba(20,28,70,.07);}',
+    '.pl-hero-top{display:flex;align-items:center;gap:9px;padding:9px 18px;background:linear-gradient(90deg,#eef2ff,#f7f9ff);border-bottom:1px solid #e2e8fd;}',
+    '.pl-hero-k{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#3b4bb8;}',
+    '.pl-hero-d{font-family:var(--mono);font-size:9.5px;color:#7b87c9;margin-left:auto;}',
+    '.pl-hero-body{display:flex;align-items:center;gap:20px;padding:15px 18px;flex-wrap:wrap;}',
+    '.pl-hero-left{flex:1;min-width:250px;}',
+    '.pl-hero-name{font-size:19px;font-weight:700;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}',
+    '@media(max-width:1039.98px){.pl-hero-name{font-size:17px;}}',
+    '.pl-hero-meta{font-family:var(--mono);font-size:11px;color:var(--text-sub);margin-top:6px;}',
+    '.pl-hero-cue{display:inline-flex;align-items:center;gap:7px;margin-top:9px;background:#f7f8fe;border:1px solid #dfe3fb;border-radius:9px;padding:7px 11px;font-size:12.5px;color:#3b4bb8;}',
+    '.pl-hero-stats{display:flex;gap:9px;flex-wrap:wrap;}',
+    '@media(max-width:1039.98px){.pl-hero-stats{display:grid;grid-template-columns:repeat(3,1fr);width:100%;}}',
+    '.pl-hero-stat{background:var(--tile);border-radius:10px;padding:9px 13px;min-width:78px;text-align:center;}',
+    '.pl-hero-stat .k{font-family:var(--mono);font-size:8px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-sub);margin-bottom:4px;}',
+    '.pl-hero-stat .v{font-family:var(--mono);font-size:17px;font-weight:700;}',
+    '.pl-hero-acts{display:flex;gap:8px;flex-wrap:wrap;}',
+    '@media(max-width:1039.98px){.pl-hero-acts{width:100%;}.pl-hero-acts .pl-hero-btn{flex:1;}}',
+    '.pl-hero-btn{border:none;border-radius:10px;padding:11px 18px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;background:var(--primary);color:#fff;}',
+    '.pl-hero-btn.ghost{background:#fff;color:var(--text-sub);border:1px solid var(--border);font-weight:600;}',
+    '.pl-hero-foot{display:flex;align-items:center;gap:9px;padding:9px 18px;background:var(--tile);border-top:1px solid var(--border);}',
+    '.pl-hero-then{font-family:var(--mono);font-size:10px;color:var(--text-sub);}',
+    '.pl-hero-empty-msg{font-size:14px;color:var(--text-sub);margin-bottom:10px;}',
+    '.lp-setline{display:none;width:100%;text-align:left;border:1px solid var(--border);background:var(--tile);border-radius:10px;padding:10px 12px;font-family:var(--mono);font-size:11px;color:var(--text-sub);cursor:pointer;margin-bottom:12px;align-items:center;gap:6px;flex-wrap:wrap;}',
+    '.lp-setline b{color:var(--ink);}',
+    '.lp-setline-cv{margin-left:auto;}',
+    '.lp-setline.is-open .lp-setline-cv{transform:rotate(180deg);}',
+    '@media(max-width:1039.98px){.lp-setline{display:flex;}.lp-rules-strip{display:none;}.lp-rules-strip.is-open{display:grid;}}',
+    '.lp-bars{display:flex;align-items:flex-end;gap:4px;height:150px;padding-top:16px;}',
+    '.lp-bars .lp-bar-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:3px;min-width:0;}',
+    '.lp-bars .lp-bar{width:100%;border-radius:3px 3px 0 0;}',
+    '.lp-bars .lp-bar.actual{background:var(--primary);}',
+    '.lp-bars .lp-bar.deload{background:#c3c9d6;}',
+    '.lp-bars .lp-bar.target{background:#dfe5fd;border:1.5px solid var(--primary);border-bottom:none;}',
+    '.lp-bars .lp-bar.peak{background:#e8edfe;border:1.5px solid #8fa5f9;border-bottom:none;}',
+    '.lp-bars .lp-bar.taperb{background:#fff0dc;border:1.5px solid #f3b96b;border-bottom:none;}',
+    '.lp-bars .lp-bar.raceb{background:#fee2e2;border:1.5px solid #f8a3a3;border-bottom:none;}',
+    '.lp-bars .lp-bar-value{font-family:var(--mono);font-size:8.5px;font-weight:700;color:var(--text-sub);}',
+    '.lp-bars .lp-bar-d{font-family:var(--mono);font-size:8px;color:var(--text-sub);margin-top:4px;white-space:nowrap;}',
+    '.lp-bars .lp-bar-col.is-this-week .lp-bar{box-shadow:0 0 0 2px var(--ink);}',
+    '.lp-phasebar{display:flex;gap:4px;margin-top:9px;}',
+    '.lp-ph{border-radius:5px;padding:4px 0;text-align:center;font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.04em;}',
+    '.lp-ph.build{background:#e4e8fd;color:#3b4bb8;}',
+    '.lp-ph.peakp{background:#e8edfe;color:#4055c9;}',
+    '.lp-ph.taperp{background:#fff0dc;color:#a16207;}',
+    '.lp-ph.racep{background:#fee2e2;color:#b91c1c;}',
+    '.lp-ph-prior{background:transparent;}',
+    '.lp-phasenow{margin-top:9px;}',
+    '.lp-phasenow .lp-ph{width:100%;}',
+    '.lp-divider{display:flex;align-items:center;gap:10px;margin:14px 0 10px;font-family:var(--mono);font-size:9.5px;color:var(--text-sub);}',
+    '.lp-divider::before,.lp-divider::after{content:\"\";flex:1;height:1px;background:var(--border);}',
+    '.lp-ahead{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}',
+    '.lp-amini{border-radius:10px;padding:9px 10px;}',
+    '.lp-amini .k{font-family:var(--mono);font-size:8px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:3px;}',
+    '.lp-amini .v{font-family:var(--mono);font-size:14px;font-weight:700;}',
+    '.lp-amini .s{font-family:var(--mono);font-size:9px;margin-top:2px;opacity:.85;}',
+    '.lp-amini.peak{background:#e8edfe;color:#4055c9;}',
+    '.lp-amini.tap{background:#fff0dc;color:#a16207;}',
+    '.lp-amini.race{background:#fee2e2;color:#b91c1c;}',
+    '.lp-fullink{display:inline-block;margin-top:12px;font-family:var(--mono);font-size:11px;font-weight:700;color:var(--primary);background:none;border:none;cursor:pointer;padding:0;}',
+    '.lp-full-sheet{position:fixed;inset:0;background:rgba(15,20,50,.45);z-index:80;display:flex;align-items:flex-end;justify-content:center;padding:12px;}',
+    '.lp-full-sheet-card{background:#fff;border-radius:16px 16px 12px 12px;padding:14px 16px 20px;width:min(960px,100%);max-height:85vh;overflow:auto;}',
+    '.lp-full-sheet-head{display:flex;align-items:center;justify-content:space-between;font-weight:700;margin-bottom:10px;}',
+    '.lp-full-sheet-close{border:1px solid var(--border);background:#fff;border-radius:8px;width:32px;height:32px;cursor:pointer;}',
     '.plan-panel .pl-diffline{font-size:10.5px;color:var(--text-sub);font-family:var(--mono);margin-top:6px;line-height:1.4;}',
     '.plan-panel .pl-diffline--manual{font-style:italic;}',
     '.plan-panel .pl-unlink{margin-top:4px;font-size:10.5px;color:var(--text-sub);background:none;border:none;cursor:pointer;padding:0;}',
@@ -4482,7 +6002,7 @@ information about.
     '.plan-panel .pl-exblock{margin-bottom:18px;padding:12px 12px 4px;border-radius:12px;background:rgba(13,30,67,0.03);}',
     '.plan-panel .pl-exblock:last-child{margin-bottom:0;}',
     '.plan-panel .pl-exblock-h{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-sub);margin-bottom:9px;padding-bottom:7px;border-bottom:1px solid var(--border);}',
-    '@media(max-width:640px){.plan-panel .pl-dayrow{flex-direction:column;gap:8px;}.plan-panel .pl-daylabel{width:auto;display:flex;align-items:baseline;gap:6px;padding-top:0;}}',
+    '@media(max-width:640px){.plan-panel .pl-dayrow{/* gutter stays horizontal */}.plan-panel .pl-hero-acts{width:100%;}}',
     // ── Suggestions panel (issue #1315) ─────────────────────────────────────
     '.pl-suggestions-panel{background:var(--tile);border:1px solid var(--border);border-radius:13px;padding:14px 16px;margin:14px 0;position:relative;}',
     '.pl-sug-header{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;}',
@@ -4508,6 +6028,17 @@ information about.
     '.pl-sug-ex-detail{font-family:var(--mono);color:var(--text-sub);}',
     '.pl-sug-ex-load{color:var(--text-sub);font-size:11.5px;}',
     '.pl-sug-rep{font-size:10.5px;font-weight:800;color:var(--primary);background:var(--primary-soft);border-radius:5px;padding:1px 5px;}',
+    /* Shared PlanFillPreview pane sits under the suggestion header */
+    '.pl-sug-preview-wrap{margin:8px 0 4px 46px;padding-top:8px;border-top:1px dashed var(--border);min-width:0;}',
+    '.pl-sug-collapsed{margin:6px 0 2px 46px;font-size:12px;color:var(--text-sub);}',
+    '.pl-sug-collapsed>summary{cursor:pointer;font-weight:600;color:var(--text-sub);list-style:none;user-select:none;}',
+    '.pl-sug-collapsed>summary::-webkit-details-marker{display:none;}',
+    '.pl-sug-collapsed>summary::before{content:"▸ ";font-size:10px;}',
+    '.pl-sug-collapsed[open]>summary::before{content:"▾ ";}',
+    '.pl-sug-collapsed .pl-sug-preview-wrap{margin-left:0;}',
+    '.pl-sug-collapsed .pl-sug-notes-line{margin-left:0;}',
+    '.pl-sug-collapsed .pl-sug-fill-log{margin-left:0;}',
+    '.pl-sug-row-wrap.is-added{opacity:0.92;}',
     '.pl-sug-day{font-size:10px;font-weight:800;color:var(--text-sub);text-transform:uppercase;width:36px;flex-shrink:0;}',
     '.pl-sug-type-select{font-size:10px;font-weight:800;padding:3px 6px;border-radius:6px;text-transform:uppercase;flex-shrink:0;border:1px solid transparent;cursor:pointer;}',
     '.pl-sug-type-select:hover{border-color:currentColor;}',
@@ -4522,30 +6053,42 @@ information about.
     '.pl-sug-add{font-size:11px;font-weight:700;background:var(--accent);color:#1b2340;border:none;border-radius:7px;padding:5px 11px;cursor:pointer;flex-shrink:0;}',
     '.pl-sug-add:disabled{opacity:0.5;cursor:default;}',
     '.pl-sug-add.added{background:#d1fae5;color:#065f46;}',
-    '.pl-sug-refine-toggle{font-size:10.5px;font-weight:600;background:none;border:1px solid var(--border);border-radius:6px;padding:4px 7px;cursor:pointer;color:var(--info-dark);}',
-    '.pl-sug-refine-toggle:hover{background:var(--tile);}',
-    '.pl-sug-refine-panel{display:flex;align-items:center;gap:6px;margin:4px 0 6px 46px;flex-wrap:wrap;}',
-    '.pl-sug-refine-input{flex:1;min-width:180px;font-size:11.5px;border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-family:inherit;}',
-    '.pl-sug-refine-status{font-size:10.5px;color:var(--text-sub);}',
+    '.pl-sug-update{font-size:10.5px;font-weight:600;background:none;border:1px solid var(--border);border-radius:6px;padding:4px 7px;cursor:pointer;color:var(--info-dark);}',
+    '.pl-sug-update:hover{background:var(--tile);}',
+    '.pl-sug-update:disabled{opacity:0.4;cursor:not-allowed;}',
+    '.pl-sug-reshuffle{font-size:10.5px;font-weight:600;background:none;border:1px solid var(--border);border-radius:6px;padding:4px 7px;cursor:pointer;color:var(--text-sub);}',
+    '.pl-sug-reshuffle:hover{background:var(--tile);color:var(--ink);}',
+    '.pl-sug-reshuffle:disabled{opacity:0.4;cursor:not-allowed;}',
+    '.pl-sug-fill-log{margin:6px 0 2px 46px;font-size:11px;color:var(--text-sub);}',
+    '.pl-sug-fill-log>summary{cursor:pointer;font-weight:600;color:var(--text-sub);list-style:none;}',
+    '.pl-sug-fill-log>summary::-webkit-details-marker{display:none;}',
+    '.pl-sug-fill-log>summary::before{content:"▸ ";font-size:10px;}',
+    '.pl-sug-fill-log[open]>summary::before{content:"▾ ";}',
+    '.pl-sug-fill-log-pre{margin:6px 0 0 46px;padding:8px 10px;background:var(--tile);border:1px solid var(--border);border-radius:8px;font-family:var(--mono);font-size:10.5px;line-height:1.45;white-space:pre-wrap;word-break:break-word;color:var(--ink);max-height:280px;overflow:auto;}',
+    '.pl-sug-fill-log .pl-sug-fill-log-pre{margin-left:0;}',
     '.pl-sug-trigger-row{margin:10px 0 4px;display:flex;justify-content:flex-start;}',
     '.pl-sug-trigger-btn{font-size:12px;font-weight:700;color:var(--info-dark);background:none;border:1px dashed #c7d2fe;border-radius:8px;padding:7px 13px;cursor:pointer;}',
     // ── Pre-generation preferences form ─────────────────────────────────────
-    '.pl-sug-prefs{display:flex;flex-direction:column;gap:12px;}',
-    '.pl-sug-prefs-row{display:flex;flex-direction:column;gap:6px;}',
-    '.pl-sug-prefs-label{font-size:11px;font-weight:700;color:var(--text-sub);text-transform:uppercase;letter-spacing:0.03em;}',
-    '.pl-sug-daychks{display:flex;gap:6px;flex-wrap:wrap;}',
-    '.pl-sug-daychk{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:var(--ink);background:#fff;border:1px solid var(--border);border-radius:8px;padding:5px 10px;cursor:pointer;}',
+    '.pl-sug-prefs{display:flex;flex-direction:column;gap:10px;}',
+    '.pl-sug-prefs-row{display:flex;flex-direction:column;gap:5px;}',
+    '.pl-sug-prefs-row--inline{flex-direction:row;align-items:center;justify-content:space-between;gap:10px;}',
+    '.pl-sug-prefs-row--inline .pl-sug-prefs-label{flex:1 1 auto;min-width:0;margin:0;}',
+    '.pl-sug-prefs-label{font-size:10.5px;font-weight:700;color:var(--text-sub);text-transform:uppercase;letter-spacing:0.03em;}',
+    '.pl-sug-daychks{display:flex;gap:5px;flex-wrap:wrap;}',
+    '.pl-sug-daychk{display:flex;align-items:center;gap:4px;font-size:11.5px;font-weight:600;color:var(--ink);background:#fff;border:1px solid var(--border);border-radius:7px;padding:4px 8px;cursor:pointer;}',
     '.pl-sug-daychk input{margin:0;}',
     '.pl-sug-daychk.is-closed{opacity:0.4;cursor:not-allowed;}',
     '.pl-sug-daychk.is-past{opacity:0.45;cursor:not-allowed;background:var(--tile);}',
     '.pl-sug-daychk.has-session{border-color:#c7d2fe;background:#eef2ff;}',
     '.pl-sug-daychk .pl-sug-sess-tag{font-size:9.5px;font-weight:800;letter-spacing:0.03em;text-transform:uppercase;color:var(--primary);background:var(--primary-soft);border-radius:4px;padding:1px 5px;}',
-    '.pl-sug-prefs-extra{margin-top:4px;padding-top:10px;border-top:1px dashed var(--border);}',
-    '.pl-sug-prefs-row select,.pl-sug-prefs-row input[type=number]{font:inherit;font-size:12.5px;padding:5px 8px;border-radius:7px;border:1px solid var(--border);background:#fff;min-width:100px;}',
-    '.pl-sug-prefs-notes{width:100%;min-height:48px;font:inherit;font-size:12.5px;padding:7px 9px;border-radius:8px;border:1px solid var(--border);box-sizing:border-box;}',
-    '.pl-sug-habits{font-size:11.5px;color:var(--text-sub);margin-top:8px;line-height:1.4;}',
+    '.pl-sug-prefs-extra{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;margin-top:2px;padding-top:10px;border-top:1px dashed var(--border);}',
+    '@media (max-width:520px){.pl-sug-prefs-extra{grid-template-columns:1fr;}}',
+    '.pl-sug-prefs-row select,.pl-sug-prefs-row input[type=number]{font:inherit;font-size:12px;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:#fff;width:auto;max-width:100%;min-width:0;align-self:flex-start;box-sizing:border-box;}',
+    '.pl-sug-prefs-row--inline select{min-width:7.5rem;flex:0 0 auto;}',
+    '.pl-sug-prefs-row--inline input[type=number]{width:4.5rem;flex:0 0 auto;text-align:right;font-family:var(--mono);}',
+    '.pl-sug-habits{font-size:11.5px;color:var(--text-sub);margin-top:4px;line-height:1.4;}',
     '.pl-sug-habits a{color:var(--primary);font-weight:600;}',
-    '.pl-sug-prefs-err{color:#b91c1c;font-size:12px;margin-top:8px;white-space:pre-wrap;}',
+    '.pl-sug-prefs-err{color:#b91c1c;font-size:12px;margin-top:6px;white-space:pre-wrap;}',
     // Preference proposals ledger — moved out of the coach brief (D6).
     '.pl-prop-block{margin-top:14px;padding-top:12px;border-top:1px solid var(--border);}',
     '.pl-prop-count{display:inline-block;margin-left:6px;padding:0 6px;border-radius:9px;background:var(--primary);color:#fff;font-size:10.5px;font-weight:700;line-height:16px;vertical-align:middle;}',
@@ -4557,21 +6100,10 @@ information about.
     '.pl-prop-life{font-size:11px;color:var(--text-sub);margin-top:3px;opacity:.85;}',
     '.pl-prop-actions{display:flex;gap:6px;flex-wrap:wrap;}',
     '.pl-prop-actions .pl-btn{font-size:12px;padding:5px 10px;}',
-    // Prefs importer — the consult's change list, pasted back in (#1608).
-    '.pl-import-block{margin-top:14px;padding-top:12px;border-top:1px solid var(--border);}',
-    '.pl-import{display:flex;flex-direction:column;gap:8px;}',
-    '.pl-import-ta{width:100%;min-height:56px;font:inherit;font-size:12.5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;padding:8px 10px;border-radius:8px;border:1px solid var(--border);box-sizing:border-box;}',
-    '.pl-import-actions{display:flex;gap:6px;flex-wrap:wrap;}',
-    '.pl-import-out{font-size:12px;padding:9px 11px;border-radius:8px;background:var(--surface-2,#fafafa);border:1px solid var(--border);}',
-    '.pl-import-out.is-error{border-color:#e08c8c;color:#b91c1c;white-space:pre-wrap;}',
-    '.pl-import-title{font-weight:700;margin-bottom:5px;}',
-    '.pl-import-row{font-size:12px;line-height:1.7;}',
-    '.pl-import-row code{font-size:11.5px;background:var(--chip-bg,#eef1f5);padding:1px 5px;border-radius:4px;}',
-    '.pl-sug-select{font-size:13px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--ink);width:auto;align-self:flex-start;}',
-    '.pl-sug-notes{font-size:13px;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:#fff;color:var(--ink);min-height:52px;resize:vertical;font-family:inherit;}',
-    '.pl-sug-count-wrap{display:flex;align-items:center;gap:8px;}',
-    '.pl-sug-count{width:70px;font-size:13px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--ink);font-family:var(--mono);}',
-    '.pl-sug-count-hint{font-size:11px;color:var(--text-sub);}',
+    '.pl-sug-select{font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:#fff;color:var(--ink);width:auto;max-width:100%;flex:0 0 auto;}',
+    '.pl-sug-count-wrap{display:flex;align-items:center;gap:8px;flex:0 1 auto;min-width:0;}',
+    '.pl-sug-count{width:56px;font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:#fff;color:var(--ink);font-family:var(--mono);}',
+    '.pl-sug-count-hint{font-size:10.5px;color:var(--text-sub);white-space:nowrap;}',
     // ── Two-rail suggestions (issue #1417): rail 1 schedule grid ─────────────
     '#plan-suggestions-sched{margin-bottom:12px;}',
     '.pl-rail-head{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;}',
@@ -4650,9 +6182,11 @@ information about.
     '.pl-sug-day-select{font-size:10px;font-weight:800;color:var(--text-sub);text-transform:uppercase;border:1px solid var(--border);border-radius:6px;padding:3px 4px;background:#fff;cursor:pointer;flex-shrink:0;}',
     '.pl-sug-meta-edit{display:inline-flex;align-items:center;gap:3px;}',
     '.pl-sug-tss-input,.pl-sug-dur-input{width:52px;font-size:11.5px;font-family:var(--mono);border:1px solid var(--border);border-radius:6px;padding:3px 5px;color:var(--ink);}',
+    '.pl-sug-tss-label{font-size:11.5px;font-family:var(--mono);color:var(--text-sub);}',
     '.pl-sug-gen{font-size:10.5px;font-weight:700;background:none;border:1px solid #c7d2fe;border-radius:6px;padding:4px 8px;cursor:pointer;color:var(--info-dark);}',
     '.pl-sug-gen:hover{background:var(--primary-soft);}',
     '.pl-sug-gen:disabled{opacity:0.6;cursor:default;}',
+    '.pl-sug-adj:disabled{opacity:0.4;cursor:not-allowed;}',
     '.pl-sug-intent-empty{color:var(--text-sub);font-style:italic;}',
     '.pl-rail-note{font-size:11.5px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:6px 10px;margin-bottom:8px;}',
     '.pl-sug-type-select.stretch{background:#ccfbf1;color:#0f766e;}',
@@ -4660,9 +6194,10 @@ information about.
     /* ── Unified session modal (view = edit = AI) ── */
     '.plan-panel .pl-sm-modal{padding:0;overflow:hidden;}',
     '.plan-panel .pl-sm-pad{padding:18px 22px;}',
-    '.plan-panel .pl-sm-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}',
+    '.plan-panel .pl-sm-top{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px;}',
+    '.plan-panel .pl-sm-topr{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap;justify-content:flex-end;}',
     '.plan-panel .pl-sm-lbl{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--text-sub);}',
-    '.plan-panel .pl-sm-x{margin-left:auto;width:30px;height:30px;border-radius:8px;border:none;background:var(--tile);color:var(--text-sub);font-size:15px;cursor:pointer;}',
+    '.plan-panel .pl-sm-x{width:30px;height:30px;border-radius:8px;border:none;background:var(--tile);color:var(--text-sub);font-size:15px;cursor:pointer;}',
     // Bump to the file's established 44px touch target under a coarse
     // (touch) pointer — matches .pl-closepanel/.pl-arw/.pl-detid-copy, which
     // are 44px outright; this one stays compact for mouse users and only
@@ -4694,7 +6229,10 @@ information about.
     '.plan-panel .pl-sm-ai-n{font-family:var(--mono);font-size:10.5px;color:var(--text-sub);margin-top:8px;}',
     '.plan-panel .pl-sm-ai-err{font-size:12px;color:var(--danger);margin-top:8px;line-height:1.35;}',
     '.plan-panel .pl-sm-sech{display:flex;align-items:center;gap:10px;margin-top:17px;margin-bottom:9px;}',
-    '.plan-panel .pl-sm-tabs{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap;}',
+    '.plan-panel .pl-sm-tabs{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap;align-items:center;}',
+    '.plan-panel .pl-sm-adv{display:flex;gap:5px;align-items:center;margin-left:6px;}',
+    '.plan-panel .pl-sm-adv-tog{border:none;background:none;font-family:var(--mono);font-size:9.5px;color:var(--text-sub);cursor:pointer;padding:4px 2px;}',
+    '.plan-panel .pl-sm-adv-tog:hover{color:var(--primary);}',
     '.plan-panel .pl-sm-tab{font-size:11.5px;font-weight:650;padding:5px 11px;border-radius:8px;border:1px solid var(--border);background:#fff;color:var(--text-sub);cursor:pointer;font-family:inherit;}',
     '.plan-panel .pl-sm-tab.on{background:var(--ink);border-color:var(--ink);color:#fff;}',
     '.plan-panel .pl-sm-tiles{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;}',
@@ -4709,6 +6247,102 @@ information about.
     '.plan-panel .pl-sm-bt{flex:1;font-size:12.5px;}',
     '.plan-panel .pl-sm-bm{font-family:var(--mono);font-size:10.5px;color:var(--text-sub);}',
     '.plan-panel .pl-sm-empty-s{border:1.5px dashed var(--border);border-radius:12px;padding:16px;text-align:center;color:var(--text-sub);font-size:12.5px;font-style:italic;}',
+    '.plan-panel .pl-sm-preview{margin-top:12px;min-width:0;}',
+    '.plan-panel .pl-sm-preview .preview-layout{margin-top:0;}',
+    '.plan-panel .pl-sm-mode{border:1px solid var(--border);background:#fff;border-radius:8px;padding:5px 12px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;color:var(--ink,#1b2340);}',
+    '.plan-panel .pl-sm-mode.on{background:var(--accent,#cff245);border-color:transparent;}',
+    '.plan-panel .pl-sm-mode:hover{border-color:var(--primary);}',
+    '.plan-panel .pl-sm-subtag,.plan-panel .pl-sm-typero,.plan-panel .pl-sm-date-ro{font-family:var(--mono);font-size:11.5px;color:var(--text-sub);padding:4px 8px;background:var(--tile);border-radius:7px;}',
+    '.plan-panel .pl-sm-subtag{color:#3b4bb8;background:#eef0ff;font-weight:700;}',
+    '.plan-panel .pl-sm-name-ro{font-size:22px;font-weight:800;margin:6px 0 8px;line-height:1.2;}',
+    '.plan-panel .pl-sm-focus-ro{font-size:12.5px;color:var(--text-sub);margin-bottom:10px;font-style:italic;}',
+    '.plan-panel .pl-sm-notes-ro{font-size:13px;line-height:1.45;white-space:pre-wrap;}',
+    '.plan-panel #pl-sm-subtype{border:1px solid var(--border);border-radius:8px;padding:5px 8px;font:inherit;font-size:12.5px;background:#fff;}',
+    '.plan-panel .pl-sm-bhleft{display:flex;align-items:center;gap:6px;min-width:0;flex:1;}',
+    '.plan-panel .pl-sm-bnsel{border:1px solid var(--border);border-radius:6px;padding:3px 6px;font:inherit;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-sub);background:#fff;max-width:160px;}',
+    '.plan-panel .pl-sm-blkdel,.plan-panel .pl-sm-delx{width:22px;height:22px;border-radius:6px;border:1px solid var(--border);background:#fff;color:var(--text-sub);cursor:pointer;font-size:12px;display:grid;place-items:center;padding:0;flex-shrink:0;}',
+    '.plan-panel .pl-sm-blkdel:hover,.plan-panel .pl-sm-delx:hover{border-color:#fca5a5;color:#b91c1c;background:#fef2f2;}',
+    '.plan-panel .pl-sm-mv,.plan-panel .pl-sm-bmv{display:flex;flex-direction:column;gap:1px;}',
+    '.plan-panel .pl-sm-mbtn{width:18px;height:14px;border:none;background:#eef1f7;border-radius:3px;color:#6b7280;font-size:8px;line-height:1;cursor:pointer;padding:0;}',
+    '.plan-panel .pl-sm-mbtn:hover:not(:disabled){background:#e4e8fd;color:#3b4bb8;}',
+    '.plan-panel .pl-sm-mbtn:disabled{opacity:.35;cursor:default;}',
+    '.plan-panel .pl-sm-pinbtn{border:1px solid var(--border);background:#fff;border-radius:7px;padding:4px 8px;font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-sub);cursor:pointer;white-space:nowrap;}',
+    '.plan-panel .pl-sm-pinbtn.on{background:#ede9fe;border-color:#c4b5fd;color:#6d28d9;}',
+    '.plan-panel .pl-sm-pinbtn:hover{border-color:var(--primary);}',
+    '.plan-panel .pl-sm-enum.ro{cursor:default;}',
+    '.plan-panel .pl-sm-enum.ro:hover{background:none;box-shadow:none;}',
+    '.plan-panel .pl-sm-exlist{margin-top:4px;}',
+    '.plan-panel .pl-sm-blk{border:1px solid var(--border);border-radius:11px;overflow:hidden;margin-bottom:9px;}',
+    '.plan-panel .pl-sm-blkh{background:var(--tile);padding:7px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px;}',
+    '.plan-panel .pl-sm-bn{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-sub);}',
+    '.plan-panel .pl-sm-bm{font-family:var(--mono);font-size:9.5px;color:var(--text-sub);}',
+    '.plan-panel .pl-sm-sk{color:var(--warning,#d97706);}',
+    '.plan-panel .pl-sm-addex{border:1px dashed var(--border);background:none;border-radius:6px;padding:2px 9px;font-family:var(--mono);font-size:9.5px;color:var(--text-sub);cursor:pointer;}',
+    '.plan-panel .pl-sm-addex:hover{border-color:var(--primary);color:var(--primary);}',
+    '.plan-panel .pl-sm-addblk{display:block;width:100%;margin:8px 0 4px;border:1px dashed var(--border);background:none;border-radius:8px;padding:8px 10px;font-family:var(--mono);font-size:11px;color:var(--text-sub);cursor:pointer;text-align:center;}',
+    '.plan-panel .pl-sm-addblk:hover{border-color:var(--primary);color:var(--primary);}',
+    '.plan-panel .pl-sm-bsets-lab{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;color:var(--text-sub);margin-left:4px;}',
+    '.plan-panel .pl-sm-bsets{width:44px;border:1px solid var(--border);border-radius:5px;padding:2px 4px;font-family:var(--mono);font-size:11px;text-align:right;}',
+    '.plan-panel .pl-sm-ex{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border);}',
+    '.plan-panel .pl-sm-ex:last-child{border-bottom:none;}',
+    '.plan-panel .pl-sm-ex.pinned{background:#fbfaff;}',
+    '.plan-panel .pl-sm-ex.skipped{background:#fafafa;}',
+    '.plan-panel .pl-sm-ex.skipped .pl-sm-en,.plan-panel .pl-sm-ex.skipped .pl-sm-erx{text-decoration:line-through;color:var(--text-sub);}',
+    '.plan-panel .pl-sm-chk{width:22px;height:22px;border-radius:6px;border:1.5px solid #cfd5e2;background:#fff;cursor:pointer;flex-shrink:0;display:grid;place-items:center;font-size:12px;color:#fff;padding:0;}',
+    '.plan-panel .pl-sm-chk.on{background:var(--success,#16a34a);border-color:var(--success,#16a34a);}',
+    '.plan-panel .pl-sm-exb{flex:1;min-width:0;}',
+    '.plan-panel .pl-sm-en{font-size:15.5px;font-weight:650;display:block;line-height:1.25;}',
+    '.plan-panel .pl-sm-erx{font-family:var(--mono);font-size:11.5px;color:var(--text-sub);margin-top:3px;display:block;}',
+    '.plan-panel .pl-sm-erx s{color:#9ca3af;}',
+    '.plan-panel .pl-sm-prov{font-family:var(--mono);font-size:8px;font-weight:700;padding:2px 6px;border-radius:4px;letter-spacing:.04em;white-space:nowrap;}',
+    '.plan-panel .pl-sm-prov.swap{background:#fef3c7;color:#92400e;}',
+    '.plan-panel .pl-sm-prov.hwweek{background:#f3e8ff;color:#7e22ce;}',
+    '.plan-panel .pl-sm-prov.hwstand{background:#ede9fe;color:#5b21b6;}',
+    '.plan-panel .pl-sm-prov.manual{background:#e4e8fd;color:#3b4bb8;}',
+    '.plan-panel .pl-sm-enum{font-family:var(--mono);font-size:11.5px;text-align:right;min-width:58px;color:var(--text-sub);cursor:text;border-radius:5px;padding:2px 4px;white-space:nowrap;}',
+    '.plan-panel .pl-sm-enum:hover{background:#eef2ff;box-shadow:inset 0 0 0 1px #c7d2fe;}',
+    '.plan-panel .pl-sm-exact{display:flex;gap:3px;flex-shrink:0;align-items:center;}',
+    '.plan-panel .pl-sm-ib{width:26px;height:26px;border-radius:7px;border:1px solid var(--border);background:#fff;color:var(--text-sub);cursor:pointer;font-size:12px;display:grid;place-items:center;padding:0;}',
+    '.plan-panel .pl-sm-ib:hover{border-color:var(--primary);color:var(--primary);}',
+    '.plan-panel .pl-sm-ib.on{background:#ede9fe;border-color:#c4b5fd;color:#6d28d9;}',
+    '.plan-panel .pl-sm-ex.active{background:#fffdf5;}',
+    '.plan-panel .pl-sm-pick{border:1.5px solid var(--primary,#4f6ef7);border-radius:12px;background:#fbfcff;margin:0 12px 10px;padding:12px 13px;}',
+    '.plan-panel .pl-sm-pickh{display:flex;align-items:center;gap:9px;margin-bottom:9px;flex-wrap:wrap;}',
+    '.plan-panel .pl-sm-pickh .t{font-size:12.5px;font-weight:700;}',
+    '.plan-panel .pl-sm-pickh .s{font-family:var(--mono);font-size:10px;color:var(--text-sub);}',
+    '.plan-panel .pl-sm-pickh .cx{margin-left:auto;border:none;background:none;color:var(--text-sub);cursor:pointer;font-size:14px;}',
+    '.plan-panel .pl-sm-srch{position:relative;margin-bottom:9px;}',
+    '.plan-panel .pl-sm-srch input{width:100%;border:1px solid var(--border);border-radius:9px;padding:9px 12px 9px 12px;font:inherit;font-size:13px;background:#fff;box-sizing:border-box;}',
+    '.plan-panel .pl-sm-srch input:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px #dbeafe;}',
+    '.plan-panel .pl-sm-srch .clr{position:absolute;right:10px;top:8px;border:none;background:none;color:var(--text-sub);cursor:pointer;font-size:13px;}',
+    '.plan-panel .pl-sm-scope{display:flex;align-items:center;gap:7px;margin-bottom:9px;flex-wrap:wrap;font-family:var(--mono);font-size:9.5px;color:var(--text-sub);}',
+    '.plan-panel .pl-sm-scope b{color:var(--primary);font-weight:700;}',
+    '.plan-panel .pl-sm-filters{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px;}',
+    '.plan-panel .pl-sm-fchip{border:1px solid var(--border);background:#fff;border-radius:99px;padding:4px 10px;font-family:var(--mono);font-size:9.5px;font-weight:700;color:var(--text-sub);cursor:pointer;}',
+    '.plan-panel .pl-sm-fchip.on{background:#fee2e2;border-color:#fca5a5;color:#b91c1c;}',
+    '.plan-panel .pl-sm-clist{max-height:250px;overflow-y:auto;padding-right:3px;}',
+    '.plan-panel .pl-sm-cand{display:flex;align-items:center;gap:10px;padding:8px 10px;background:#fff;border:1px solid var(--border);border-radius:9px;margin-bottom:6px;cursor:pointer;text-align:left;width:100%;font:inherit;color:inherit;}',
+    '.plan-panel .pl-sm-cand:hover{border-color:var(--primary);box-shadow:0 2px 8px rgba(79,110,247,.10);}',
+    '.plan-panel .pl-sm-cand.dis{opacity:.5;cursor:not-allowed;background:var(--tile);border-style:dashed;}',
+    '.plan-panel .pl-sm-cand.dis:hover{border-color:var(--border);box-shadow:none;}',
+    '.plan-panel .pl-sm-cand .cb{flex:1;min-width:0;}',
+    '.plan-panel .pl-sm-cand .cn{font-size:12.5px;font-weight:600;display:block;}',
+    '.plan-panel .pl-sm-cand .cn mark{background:#fef08a;color:inherit;border-radius:2px;padding:0 1px;}',
+    '.plan-panel .pl-sm-cand .cr{font-family:var(--mono);font-size:10px;color:var(--text-sub);margin-top:2px;display:block;}',
+    '.plan-panel .pl-sm-why{font-family:var(--mono);font-size:8.5px;font-weight:700;padding:2px 7px;border-radius:99px;background:var(--tile);color:var(--text-sub);white-space:nowrap;}',
+    '.plan-panel .pl-sm-why.used{background:#e4e8fd;color:#3b4bb8;}',
+    '.plan-panel .pl-sm-why.risk{background:#fee2e2;color:#b91c1c;}',
+    '.plan-panel .pl-sm-cd{font-family:var(--mono);font-size:10px;font-weight:700;min-width:50px;text-align:right;}',
+    '.plan-panel .pl-sm-cd.up{color:var(--warning,#d97706);}',
+    '.plan-panel .pl-sm-cd.dn{color:var(--success,#16a34a);}',
+    '.plan-panel .pl-sm-cd.eq{color:var(--text-sub);}',
+    '.plan-panel .pl-sm-sec{font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-sub);margin:9px 0 6px;}',
+    '.plan-panel .pl-sm-picknote{font-family:var(--mono);font-size:9.5px;color:var(--text-sub);margin-top:8px;line-height:1.6;}',
+    '.plan-panel .pl-sm-none{padding:15px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--text-sub);background:#fff;border:1px dashed var(--border);border-radius:9px;}',
+    '.plan-panel .pl-sm-none a{color:var(--primary);cursor:pointer;}',
+    '.plan-panel .pl-sm-spend{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--tile);border-radius:11px;font-size:12.5px;font-weight:700;margin-top:3px;}',
+    '.plan-panel .pl-sm-sv{font-family:var(--mono);}',
+    '.plan-panel .pl-sm-sv s{color:var(--text-sub);font-weight:400;margin-right:7px;}',
     '.plan-panel .pl-sm-notes{margin-top:15px;}',
     '.plan-panel .pl-sm-notes textarea{width:100%;border:1px solid var(--border);border-radius:11px;padding:11px 13px;font-family:inherit;font-size:12.5px;color:var(--ink);background:var(--tile);resize:vertical;min-height:52px;box-sizing:border-box;}',
     '.plan-panel .pl-sm-stryd{margin-top:13px;font-family:var(--mono);font-size:10.5px;color:var(--text-sub);cursor:pointer;}',
@@ -4740,15 +6374,14 @@ information about.
   // lose what the athlete already told it.
   // Rest days + optional exact strength-session count ('' = auto from the
   // athlete's own last-3-weeks history). No free-text — the schedule rail is
-  // rule-based (zero LLM); per-slot Refine carries any free-form asks.
+  // rule-based (zero LLM); Update re-fills a slot from duration/subtype.
   var _lastPrefs = {
     restDays: [],
     strengthSessions: '',
     strengthEmphasis: 'same',
-    plyoMode: 'off',
+    plyoMode: 'standalone',
     plyoSessions: 0,
     mpSegmentMin: 0,
-    notes: '',
   };
   var _habitTargets = null;
   // Pending preference proposals, rendered as a ledger in the prefs panel.
@@ -4794,19 +6427,56 @@ information about.
     return _fmtISO(d);
   }
 
-  // ── Per-session adjust: type override + lighter/harder ──────────────────────
-  // Lighter/Harder used to touch only the summary target_tss/duration numbers
-  // — the actual exercises/blocks never changed, so "harder" didn't translate
-  // into anything the athlete could act on at the gym. Now it also nudges the
-  // real prescription: exercise sets (and numeric reps, when parseable) for
-  // strength/plyo, and block duration/repeat for run.
+  // ── Per-session adjust: lighter / harder ───────────────────────────────────
+  // Softens or stiffens the prescription itself — load ladder + sets for
+  // strength/plyo; interval repeats (or main duration) for run. TSS/duration
+  // summary numbers still move a little so the week budget stays coherent.
+
+  var _LOAD_LADDER = [
+    'bodyweight',
+    'light band',
+    'bodyweight or light DB',
+    'light DB',
+    'moderate',
+    'moderate DB',
+    'working weight',
+    'heavy',
+    'heavy DB',
+  ];
+
+  function _loadLadderIndex(load) {
+    var s = String(load || '').toLowerCase().trim();
+    if (!s) return -1;
+    for (var i = 0; i < _LOAD_LADDER.length; i++) {
+      if (s === _LOAD_LADDER[i]) return i;
+    }
+    if (/body\s*weight|\bbw\b/.test(s)) return 0;
+    if (/band/.test(s)) return 1;
+    if (/light/.test(s) && /db|dumb/.test(s)) return 3;
+    if (/light/.test(s)) return 2;
+    if (/moderate|med/.test(s)) return 5;
+    if (/working|rpe\s*[6-7]/.test(s)) return 6;
+    if (/heavy|max|rpe\s*[8-9]/.test(s)) return 7;
+    return 4;
+  }
+
+  function _stepLoad(load, harder) {
+    var i = _loadLadderIndex(load);
+    if (i < 0) return harder ? 'light DB' : 'bodyweight';
+    var next = harder ? Math.min(_LOAD_LADDER.length - 1, i + 1) : Math.max(0, i - 1);
+    return _LOAD_LADDER[next];
+  }
+
+  function _isWarmCoolBlock(name) {
+    var b = String(name || '').toLowerCase();
+    return /warm|cool/.test(b);
+  }
 
   function _adjustSession(s, harder) {
-    var factor = harder ? 1.2 : 0.8;
+    var factor = harder ? 1.15 : 0.85;
     var nextTss = Math.max(0, Math.min(400, Math.round((s.target_tss || 0) * factor)));
     var nextDur = Math.max(0, Math.round((s.duration_minutes || 0) * factor));
 
-    // Clamp to preset constraints when present (from gap / coach rule base)
     var c = s.preset_constraints || (s.structure && s.structure._preset_constraints) || null;
     if (!c && s._preset_constraints) c = s._preset_constraints;
     if (c) {
@@ -4819,7 +6489,6 @@ information about.
       }
     }
 
-    // Disable-at-bounds: if no movement possible, leave as-is
     if (!harder && c && c.min_duration_min != null && (s.duration_minutes || 0) <= c.min_duration_min
         && c.min_tss != null && (s.target_tss || 0) <= c.min_tss) {
       return;
@@ -4830,27 +6499,37 @@ information about.
 
     if (Array.isArray(s.exercises)) {
       s.exercises.forEach(function (ex) {
+        if (_isWarmCoolBlock(ex.block)) return;
         if (ex.sets != null) {
           ex.sets = Math.max(1, Math.min(8, ex.sets + (harder ? 1 : -1)));
         }
-        // reps is a freeform string ("10", "30s hold", "per side") — only
-        // scale it when it's a plain integer; leave hold-durations/text alone.
+        if (ex.load != null && String(ex.load).trim()) {
+          ex.load = _stepLoad(ex.load, harder);
+        } else if (!harder) {
+          ex.load = 'bodyweight';
+        } else {
+          ex.load = 'light DB';
+        }
+        // Plain integer reps only — leave "30s hold" / "per side" alone.
         if (typeof ex.reps === 'string' && /^\d+$/.test(ex.reps.trim())) {
           var n = parseInt(ex.reps, 10);
-          ex.reps = String(Math.max(1, Math.round(n * factor)));
+          ex.reps = String(Math.max(1, Math.round(n * (harder ? 1.1 : 0.9))));
         }
       });
     }
     if (Array.isArray(s.blocks)) {
       s.blocks.forEach(function (b) {
+        var ph = String(b.phase || '').toLowerCase();
+        if (ph === 'warmup' || ph === 'cooldown') return;
+        if (b.repeat != null && Number(b.repeat) > 1) {
+          // Interval / tempo sets: fewer or more repeats
+          b.repeat = Math.max(1, Math.min(20, Number(b.repeat) + (harder ? 1 : -1)));
+          return;
+        }
         if (b.duration_min != null) {
           b.duration_min = Math.max(1, Math.round(b.duration_min * factor));
         }
-        if (b.repeat != null && b.repeat > 0) {
-          b.repeat = Math.max(1, Math.min(20, b.repeat + (harder ? 1 : -1)));
-        }
       });
-      // Re-sum block durations toward clamped duration when preset floor applies
       if (c && c.min_duration_min != null) {
         var sum = 0;
         s.blocks.forEach(function (b) {
@@ -4859,7 +6538,7 @@ information about.
         if (sum > 0 && sum < c.min_duration_min) {
           var scale = c.min_duration_min / sum;
           s.blocks.forEach(function (b) {
-            if (b.duration_min != null) {
+            if (b.duration_min != null && String(b.phase || '').toLowerCase() === 'main') {
               b.duration_min = Math.max(1, Math.round(b.duration_min * scale));
             }
           });
@@ -4868,58 +6547,126 @@ information about.
     }
   }
 
-  // Block-grouped exercise breakdown under a strength/plyo suggestion row —
-  // same shape PlannedSession.structure.exercises stores, same grouping the
-  // detail modal renders (see _liftDetailHtml). Without this the suggestion
-  // was a bare TSS/duration/intent line and "Add" produced an empty-shell
-  // planned session with nothing to actually do at the gym.
-  function _sugExercisesHtml(exercises) {
-    if (!exercises || !exercises.length) return '';
-    var order = [];
-    exercises.forEach(function (x) {
-      var b = (x && x.block) ? x.block : 'Exercises';
-      if (order.indexOf(b) === -1) order.push(b);
-    });
-    var blocks = order.map(function (b) {
-      var rows = exercises.filter(function (x) { return ((x && x.block) ? x.block : 'Exercises') === b; })
-        .map(function (x) {
-          var sr = (x.sets != null && x.reps != null) ? (x.sets + ' × ' + x.reps) : (x.sets != null ? x.sets + ' sets' : '');
-          return '<div class="pl-sug-ex-row"><span class="pl-sug-ex-name">' + esc(x.name || 'Exercise') + '</span>' +
-            '<span class="pl-sug-ex-detail">' + esc(sr) + '</span>' +
-            '<span class="pl-sug-ex-load">' + esc(x.load || '') + '</span></div>';
-        }).join('');
-      return '<div class="pl-sug-ex-block"><div class="pl-sug-ex-block-h">' + esc(b) + '</div>' + rows + '</div>';
-    }).join('');
-    return '<div class="pl-sug-exercises">' + blocks + '</div>';
+  // Session detail pane — shared with admin Plan library live preview.
+  function _sugSessionPaneHtml(s, wt) {
+    var P = window.PlanFillPreview;
+    if (!P || !P.sessionPaneHtml) return '';
+    var hasEx = Array.isArray(s.exercises) && s.exercises.length;
+    var hasBlocks = Array.isArray(s.blocks) && s.blocks.length;
+    var hasMuscle = !!(s._muscle_footprint || s.muscle_footprint);
+    var hasLog = !!(s.fill_log && (s.fill_log.budget_trace || []).length);
+    if (!hasEx && !hasBlocks && !hasMuscle && !hasLog) return '';
+    P.ensureStyles();
+    return '<div class="pl-sug-preview-wrap">' + P.sessionPaneHtml({
+      exercises: wt !== 'rest' ? (s.exercises || []) : [],
+      blocks: wt === 'run' ? (s.blocks || []) : [],
+      workout_type: wt,
+      muscle_footprint: s._muscle_footprint || s.muscle_footprint || null,
+      fill_log: s.fill_log || null,
+      pool_counts: s.pool_counts || null,
+    }) + '</div>';
   }
 
-  // Phase-structured breakdown under a run suggestion row — same shape
-  // PlannedSession.structure.blocks stores (see _runDetailHtml's segment
-  // rendering). Without this a run suggestion was just target_tss/duration —
-  // no warmup/main/cooldown structure, no repeat/target for a workout.
-  function _phaseLabel(ph) { return ph === 'warmup' ? 'Warmup' : (ph === 'cooldown' ? 'Cooldown' : (ph === 'main' ? 'Main set' : (ph || 'Block'))); }
-  function _sugBlocksHtml(blocks) {
-    if (!blocks || !blocks.length) return '';
-    var segs = blocks.map(function (b) {
-      var dur = b.duration_min != null ? b.duration_min + ' min' : '';
-      var rep = (b.repeat && b.repeat > 1) ? (' <span class="pl-sug-rep">×' + b.repeat + '</span>') : '';
-      var main = (b.repeat && b.repeat > 1) ? (b.repeat + ' × ' + dur) : dur;
-      var tgt = (b.target || '') + (b.rest_min ? ' · ' + b.rest_min + 'min rest between' : '');
-      return '<div class="pl-sug-ex-row"><span class="pl-sug-ex-name">' + esc(_phaseLabel(b.phase)) + '</span>' +
-        '<span class="pl-sug-ex-detail">' + esc(main) + '</span>' + rep +
-        '<span class="pl-sug-ex-load">' + esc(tgt) + '</span></div>';
-    }).join('');
-    return '<div class="pl-sug-exercises"><div class="pl-sug-ex-block">' + segs + '</div></div>';
+  function _formatFillStep(step) {
+    var op = step.op || '?';
+    if (op === 'normalize_subtype') {
+      return op + ': ' + (step.from || '∅') + ' → ' + (step.to || '∅') +
+        ' · ' + (step.duration_minutes || 0) + ' min · TSS ' +
+        (step.target_tss != null ? step.target_tss : '—');
+    }
+    if (op === 'select_pattern') {
+      if (step.picked === null) {
+        return op + ': none (' + (step.reason || '') + ')';
+      }
+      var band = step.duration_band || [];
+      return op + ': "' + (step.name || '') + '" subtype=' + (step.subtype || '') +
+        ' [' + (band[0] != null ? band[0] : '?') + '–' +
+        (band[1] != null ? band[1] : '?') + ' min]';
+    }
+    if (op === 'fill_strength') {
+      return op + (step.attempt ? ' attempt ' + step.attempt : '') +
+        ' · ' + (step.exercise_count || 0) + ' exercises' +
+        (step.blocks && step.blocks.length ? ' · blocks: ' + step.blocks.join(', ') : '');
+    }
+    if (op === 'fill_run') {
+      var phases = (step.phases || []).map(function (p) {
+        var bit = (p.phase || '') + ' ' + (p.duration_min != null ? p.duration_min + 'm' : '');
+        if (p.repeat && p.repeat > 1) bit += ' ×' + p.repeat;
+        if (p.target) bit += ' (' + p.target + ')';
+        return '  ' + bit;
+      }).join('\n');
+      return op + (phases ? '\n' + phases : '');
+    }
+    if (op === 'validate') {
+      if (step.ok) return op + ': ok';
+      return op + ': FAILED' + (step.retry ? ' (will retry)' : '') +
+        ((step.errors && step.errors.length) ? '\n  ' + step.errors.join('\n  ') : '');
+    }
+    if (op === 'fallback' || op === 'template') {
+      return op + (step.to ? ' → ' + step.to : '') +
+        (step.reason ? ' (' + step.reason + ')' : '') +
+        (step.intent ? ' intent="' + step.intent + '"' : '') +
+        ((step.errors && step.errors.length) ? '\n  ' + step.errors.join('\n  ') : '');
+    }
+    if (op === 'keep_user') return op + ': ' + (step.reason || '');
+    try { return op + ': ' + JSON.stringify(step); }
+    catch (e) { return op; }
+  }
+
+  function _sugPipelineLogHtml(s) {
+    var log = s && s.fill_log;
+    if (!log || !log.steps || !log.steps.length) return '';
+    var lines = log.steps.map(_formatFillStep).join('\n');
+    var meta = [];
+    if (s.pattern_name) meta.push(s.pattern_name);
+    if (s.source) meta.push(s.source);
+    return '<details class="pl-sug-fill-log">' +
+      '<summary>Pipeline log' + (meta.length ? ' · ' + esc(meta.join(' · ')) : '') + '</summary>' +
+      '<pre class="pl-sug-fill-log-pre">' + esc(lines) + '</pre>' +
+      '</details>';
+  }
+
+  function _sugDetailSectionHtml(s, wt) {
+    var body =
+      (s.notes ? '<div class="pl-sug-notes-line">' + esc(s.notes) + '</div>' : '') +
+      _sugSessionPaneHtml(s, wt) +
+      _sugPipelineLogHtml(s);
+    if (!body) return '';
+    // Added sessions stay compact — expand to re-check the fill.
+    if (s._added) {
+      var bits = [];
+      if (Array.isArray(s.exercises) && s.exercises.length) bits.push(s.exercises.length + ' exercises');
+      else if (Array.isArray(s.blocks) && s.blocks.length) bits.push(s.blocks.length + ' blocks');
+      var meta = bits.length ? ' · ' + bits.join(' · ') : '';
+      return '<details class="pl-sug-collapsed">' +
+        '<summary>Session detail (added)' + meta + '</summary>' +
+        body +
+        '</details>';
+    }
+    return body;
+  }
+
+  function _sugHasDetail(s) {
+    if (!s) return false;
+    var wt = (s.workout_type || '').toLowerCase();
+    if (wt === 'rest') return false;
+    if (Array.isArray(s.exercises) && s.exercises.length) return true;
+    if (Array.isArray(s.blocks) && s.blocks.length) return true;
+    // Stretch / simple pattern fills may set intent without exercise rows.
+    if (s._ai && s.intent) return true;
+    return false;
   }
 
   function _buildSugRow(s, idx) {
     var wrap = document.createElement('div');
-    wrap.className = 'pl-sug-row-wrap';
+    wrap.className = 'pl-sug-row-wrap' + (s._added ? ' is-added' : '');
     wrap.dataset.idx = idx;
 
     var wt = (s.workout_type || 'rest').toLowerCase();
     var types = ['run', 'strength', 'plyo', 'stretch', 'rest'];
     var allowed = (_suggestionsData && _suggestionsData.facts && _suggestionsData.facts.allowed_offsets) || [0, 1, 2, 3, 4, 5, 6];
+    var hasDetail = _sugHasDetail(s);
+    var tssLabel = (s.target_tss != null && s.target_tss !== '') ? (s.target_tss + ' TSS') : '— TSS';
 
     wrap.innerHTML =
       '<div class="pl-sug-row">' +
@@ -4933,45 +6680,38 @@ information about.
           types.map(function (t) { return '<option value="' + t + '"' + (t === wt ? ' selected' : '') + '>' + t + '</option>'; }).join('') +
         '</select>' +
         (_SLOT_SUBTYPES[wt]
-          ? '<select class="pl-sug-subtype-select" data-idx="' + idx + '" title="Optional flavor — binding when the slot is filled with AI">' +
+          ? '<select class="pl-sug-subtype-select" data-idx="' + idx + '" title="Optional flavor — binding when the slot is filled from patterns">' +
               '<option value="">any</option>' +
               _SLOT_SUBTYPES[wt].map(function (t) { return '<option value="' + t + '"' + (t === s.subtype ? ' selected' : '') + '>' + t + '</option>'; }).join('') +
             '</select>'
           : '') +
         '<span class="pl-sug-meta pl-sug-meta-edit">' +
-          '<input type="number" class="pl-sug-tss-input" data-idx="' + idx + '" min="0" max="400" value="' + (s.target_tss || 0) + '" title="Slot TSS budget — AI fills content to match"/> TSS · ' +
-          '<input type="number" class="pl-sug-dur-input" data-idx="' + idx + '" min="0" max="600" step="5" value="' + (s.duration_minutes || 0) + '" title="Slot duration — AI fills content to match"/> min' +
+          '<span class="pl-sug-tss-label" title="Set by the week schedule / pattern fill">' + tssLabel + '</span> · ' +
+          '<input type="number" class="pl-sug-dur-input" data-idx="' + idx + '" min="0" max="600" step="5" value="' + (s.duration_minutes || 0) + '" title="Slot duration"/> min' +
         '</span>' +
-        '<span class="pl-sug-intent">' + (s.intent ? esc(s.intent) : '<span class="pl-sug-intent-empty">Not filled yet — ✨ generates the session</span>') + '</span>' +
+        '<span class="pl-sug-intent">' + (s.intent ? esc(s.intent) : '<span class="pl-sug-intent-empty">Not filled yet — use Fill from patterns</span>') + '</span>' +
         (wt !== 'rest'
           ? '<span class="pl-sug-adjust">' +
-              '<button type="button" class="pl-sug-gen" data-idx="' + idx + '" title="Generate this session’s content with AI — day/type/TSS/duration stay as set">✨ ' + (s._ai ? 'Regenerate' : 'Fill with AI') + '</button>' +
-              '<button type="button" class="pl-sug-adj" data-adj="lighter" data-idx="' + idx + '" title="Fewer sets/reps or shorter — not just a lower TSS number">▾ Lighter</button>' +
-              '<button type="button" class="pl-sug-adj" data-adj="harder" data-idx="' + idx + '" title="More sets/reps or longer — not just a higher TSS number">▴ Harder</button>' +
-              '<button type="button" class="pl-sug-refine-toggle" title="Regenerate this session with a note — e.g. change focus, faster intervals">✎ Refine</button>' +
+              '<button type="button" class="pl-sug-adj" data-adj="lighter" data-idx="' + idx + '" title="Lighter loads / fewer sets, or fewer interval repeats"' + (hasDetail ? '' : ' disabled') + '>▾ Lighter</button>' +
+              '<button type="button" class="pl-sug-adj" data-adj="harder" data-idx="' + idx + '" title="Heavier loads / more sets, or more interval repeats"' + (hasDetail ? '' : ' disabled') + '>▴ Harder</button>' +
+              '<button type="button" class="pl-sug-reshuffle" data-idx="' + idx + '" title="Re-roll exercise picks (same duration &amp; subtype)"' + (hasDetail ? '' : ' disabled') + '>⟳ Reshuffle</button>' +
+              '<button type="button" class="pl-sug-update" data-idx="' + idx + '" title="Re-fill from patterns using the current duration and subtype">↻ Update</button>' +
             '</span>' +
             (s._added
               ? '<button class="pl-sug-add added" type="button" disabled>✓ Added</button>'
-              : '<button class="pl-sug-add" type="button" data-idx="' + idx + '">Add</button>')
+              : '<button class="pl-sug-add" type="button" data-idx="' + idx + '"' +
+                  (hasDetail ? '' : ' disabled') +
+                  ' title="' + (hasDetail ? 'Add this session to the week draft' : 'Fill the session from patterns first') + '">Add</button>')
           : '') +
       '</div>' +
-      (wt !== 'rest'
-        ? '<div class="pl-sug-refine-panel" style="display:none;">' +
-            '<input type="text" class="pl-sug-refine-input" placeholder="e.g. change focus to posterior chain, faster intervals..."/>' +
-            '<button type="button" class="pl-sug-refine-go pl-btn pl-ghost">Regenerate</button>' +
-            '<span class="pl-sug-refine-status"></span>' +
-          '</div>'
-        : '') +
-      (s.notes ? '<div class="pl-sug-notes-line">' + esc(s.notes) + '</div>' : '') +
-      _sugExercisesHtml(wt !== 'rest' ? s.exercises : null) +
-      _sugBlocksHtml(wt === 'run' ? s.blocks : null);
+      _sugDetailSectionHtml(s, wt);
 
     var typeSel = wrap.querySelector('.pl-sug-type-select');
     typeSel.addEventListener('change', function () {
       var prev = s.workout_type;
       s.workout_type = typeSel.value;
       if (typeSel.value === 'rest') { s.target_tss = 0; s.duration_minutes = 0; }
-      if (prev !== typeSel.value) { s.exercises = null; s.blocks = null; s._ai = false; s.subtype = null; }
+      if (prev !== typeSel.value) { s.exercises = null; s.blocks = null; s._ai = false; s.subtype = null; s.fill_log = null; s.pattern_name = null; s.source = null; s._muscle_footprint = null; }
       _renderSuggestions(_suggestionsData); // small list — cheap full re-render
     });
 
@@ -4979,6 +6719,9 @@ information about.
     if (subSel) {
       subSel.addEventListener('change', function () {
         s.subtype = subSel.value || null;
+        // Duration/subtype drive pattern fill — clear stale content until Update.
+        s.exercises = null; s.blocks = null; s._ai = false; s.intent = null; s.notes = null;
+        s.fill_log = null; s.pattern_name = null; s.source = null; s._muscle_footprint = null;
         _renderSuggestions(_suggestionsData);
       });
     }
@@ -4989,88 +6732,63 @@ information about.
       _renderSuggestions(_suggestionsData);
     });
 
-    var tssIn = wrap.querySelector('.pl-sug-tss-input');
-    tssIn.addEventListener('change', function () {
-      s.target_tss = Math.max(0, Math.min(400, parseInt(tssIn.value, 10) || 0));
-      _renderSuggestions(_suggestionsData);
-    });
     var durIn = wrap.querySelector('.pl-sug-dur-input');
     durIn.addEventListener('change', function () {
       s.duration_minutes = Math.max(0, Math.min(600, parseInt(durIn.value, 10) || 0));
+      s.exercises = null; s.blocks = null; s._ai = false; s.intent = null; s.notes = null;
+      s.fill_log = null; s.pattern_name = null; s.source = null; s._muscle_footprint = null;
       _renderSuggestions(_suggestionsData);
     });
 
-    var genBtn = wrap.querySelector('.pl-sug-gen');
-    if (genBtn) {
-      genBtn.addEventListener('click', function () {
-        genBtn.disabled = true;
-        genBtn.textContent = '… generating';
-        _generateSlot(s)
-          .then(function () { _renderSuggestions(_suggestionsData); })
-          .catch(function (e) {
-            genBtn.disabled = false;
-            genBtn.textContent = '✨ Retry';
-            genBtn.title = (e && e.message) || 'Could not generate — try again.';
-          });
-      });
-    }
-
     wrap.querySelectorAll('.pl-sug-adj').forEach(function (btn) {
       btn.addEventListener('click', function () {
+        if (!_sugHasDetail(s)) return;
         _adjustSession(s, btn.getAttribute('data-adj') === 'harder');
         _renderSuggestions(_suggestionsData);
       });
     });
 
     var addBtn = wrap.querySelector('.pl-sug-add');
-    if (addBtn) {
+    if (addBtn && !addBtn.disabled) {
       addBtn.addEventListener('click', function () {
+        if (!_sugHasDetail(s)) return;
         _addSuggestion(s, addBtn);
       });
     }
 
-    var refineToggle = wrap.querySelector('.pl-sug-refine-toggle');
-    var refinePanel = wrap.querySelector('.pl-sug-refine-panel');
-    if (refineToggle && refinePanel) {
-      refineToggle.addEventListener('click', function () {
-        var open = refinePanel.style.display === 'none';
-        refinePanel.style.display = open ? '' : 'none';
-        if (open) refinePanel.querySelector('.pl-sug-refine-input').focus();
+    var updateBtn = wrap.querySelector('.pl-sug-update');
+    if (updateBtn) {
+      updateBtn.addEventListener('click', function () {
+        updateBtn.disabled = true;
+        updateBtn.textContent = '…';
+        _generateSlot(s).then(function () {
+          _renderSuggestions(_suggestionsData);
+        }).catch(function (e) {
+          updateBtn.disabled = false;
+          updateBtn.textContent = '↻ Update';
+          if (window.UIStates && window.UIStates.showToast) {
+            window.UIStates.showToast(e.message || 'Update failed', true);
+          }
+        });
       });
-      var goBtn = refinePanel.querySelector('.pl-sug-refine-go');
-      var statusEl = refinePanel.querySelector('.pl-sug-refine-status');
-      goBtn.addEventListener('click', function () {
-        var note = refinePanel.querySelector('.pl-sug-refine-input').value.trim();
-        if (!note) { statusEl.textContent = 'Add a note first'; return; }
-        goBtn.disabled = true; statusEl.textContent = 'Regenerating…';
-        // Raw fetch, not _api() — that helper lives in the OTHER closure (the
-        // main Plan-tab module above) and isn't reachable from here; this
-        // closure's own convention is plain fetch (see _addSuggestion).
-        fetch('/api/plan/suggestions/session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            date: _formatSugDate(s.day_offset),
-            workout_type: s.workout_type,
-            note: note,
-            current_session: s,
-          }),
-        })
-          .then(function (r) {
-            return r.json().then(function (d) {
-              if (!r.ok) throw new Error((d && d.detail) || ('HTTP ' + r.status));
-              return d;
-            });
-          })
-          .then(function (data) {
-            data.session._ai = true;
-            _suggestionsData.suggestions[idx] = data.session;
-            _renderSuggestions(_suggestionsData); // small list — cheap full re-render
-          })
-          .catch(function (e) {
-            statusEl.textContent = e.message || 'Could not regenerate — try again.';
-            goBtn.disabled = false;
-          });
+    }
+
+    var reshuffleBtn = wrap.querySelector('.pl-sug-reshuffle');
+    if (reshuffleBtn) {
+      reshuffleBtn.addEventListener('click', function () {
+        if (!_sugHasDetail(s)) return;
+        reshuffleBtn.disabled = true;
+        reshuffleBtn.textContent = '…';
+        // Fresh seed → strength/plyo re-picks; runs stay deterministic.
+        _generateSlot(s, null, { reshuffle: true }).then(function () {
+          _renderSuggestions(_suggestionsData);
+        }).catch(function (e) {
+          reshuffleBtn.disabled = false;
+          reshuffleBtn.textContent = '⟳ Reshuffle';
+          if (window.UIStates && window.UIStates.showToast) {
+            window.UIStates.showToast(e.message || 'Reshuffle failed', true);
+          }
+        });
       });
     }
     return wrap;
@@ -5103,6 +6821,12 @@ information about.
       body.structure = { exercises: s.exercises };
     } else if (Array.isArray(s.blocks) && s.blocks.length) {
       body.structure = { blocks: s.blocks };
+    }
+    if (body.structure) {
+      if (s.target_tss != null) body.structure.target_tss = s.target_tss;
+      if (s.duration_minutes != null) body.structure.duration_minutes = s.duration_minutes;
+      if (s._muscle_footprint) body.structure._muscle_footprint = s._muscle_footprint;
+      if (s.subtype) body.structure.subtype = s.subtype;
     }
 
     function _doAdd() {
@@ -5236,22 +6960,22 @@ information about.
       '<div class="pl-rail-head">' +
         '<span class="pl-rail-title">Schedule — drag, resize, then fill</span>' +
         '<span class="pl-rail-sum">' + _slotSumHtml(data) + '</span>' +
-        '<label class="pl-fill-skiprun" title="Exclude run slots from the AI fill — they are usually the most numerous and the first to exhaust the LLM budget">' +
+        '<label class="pl-fill-skiprun" title="Exclude run slots from pattern fill">' +
           '<input type="checkbox" id="pl-skip-run"' + (_skipRunFill ? ' checked' : '') + (_fillAllRunning ? ' disabled' : '') + '/> Skip Run</label>' +
         '<div class="pl-fill-group">' +
           '<button type="button" class="pl-btn pl-lime pl-fill-all"' + (fillDisabled ? ' disabled' : '') + '>' +
-            (_fillAllRunning ? '… filling' : '✨ Fill sessions with AI') + '</button>' +
+            (_fillAllRunning ? '… filling' : 'Fill from patterns') + '</button>' +
           '<button type="button" class="pl-fill-menu-btn" aria-haspopup="true" aria-expanded="false" title="More fill options"' +
             (_fillAllRunning ? ' disabled' : '') + '>▾</button>' +
           '<div class="pl-fill-menu" role="menu">' +
             '<button type="button" data-fill-action="web"' + (fillDisabled ? ' disabled' : '') + '>' +
-              'Fill here (webapp AI)' +
-              '<span class="pl-fill-menu-hint">Sequential Groq fills — stays in this panel</span>' +
+              'Fill here (patterns)' +
+              '<span class="pl-fill-menu-hint">Sync pattern fill per open slot</span>' +
             '</button>' +
             '<button type="button" data-fill-action="worker-draft"' +
               (_draftQueueBusy ? ' disabled' : '') + '>' +
-              'Queue week draft on worker' +
-              '<span class="pl-fill-menu-hint">plan_draft job on zeal-server — review &amp; apply later</span>' +
+              'Refresh week draft' +
+              '<span class="pl-fill-menu-hint">Sync pattern refill of the Plan draft</span>' +
             '</button>' +
           '</div>' +
         '</div>' +
@@ -5364,25 +7088,10 @@ information about.
   }
 
   function _queueWorkerDraft() {
-    // Always show feedback first — never fail silently.
-    try {
-      _showDraftQueueModal({ queuing: true });
-    } catch (e1) {
-      try { window.alert('Queuing week draft on the worker…'); } catch (e2) { /* ignore */ }
-    }
-
-    if (_draftQueueBusy) {
-      _showDraftQueueModal({
-        error: false,
-        jobId: _draftQueueJobId,
-        already: true,
-      });
-      return;
-    }
-
+    if (_draftQueueBusy) return;
     _draftQueueBusy = true;
     try {
-      _setDraftQueueLock(true, 'Queuing week draft on the worker…');
+      _setDraftQueueLock(true, 'Refreshing week draft from patterns…');
     } catch (e3) {
       console.warn('[plan] lock banner failed', e3);
     }
@@ -5407,24 +7116,26 @@ information about.
         });
       })
       .then(function (res) {
-        var jid = (res && res.job_id) ? String(res.job_id) : null;
-        _draftQueueJobId = jid;
-        if (window.TrainingPlan && window.TrainingPlan.markDraftPending) {
-          window.TrainingPlan.markDraftPending();
+        _draftQueueBusy = false;
+        try { _setDraftQueueLock(false); } catch (e5) { /* ignore */ }
+        if (window.TrainingPlan && window.TrainingPlan.reloadDraft) {
+          window.TrainingPlan.reloadDraft();
         }
-        _showDraftQueueModal({
-          jobId: jid,
-          weekStart: res && res.week_start,
-        });
+        if (window.UIStates && window.UIStates.showToast) {
+          window.UIStates.showToast('Week draft refreshed', false);
+        }
+        if (_suggestionsData) {
+          _suggestionsData._fillNote = 'Draft refreshed from patterns';
+          _renderSuggestions(_suggestionsData);
+        }
+        return res;
       })
       .catch(function (err) {
         _draftQueueBusy = false;
         try { _setDraftQueueLock(false); } catch (e5) { /* ignore */ }
-        _showDraftQueueModal({
-          error: true,
-          title: 'Could not queue draft',
-          body: (err && err.message) ? String(err.message) : 'The worker queue request failed.',
-        });
+        if (window.UIStates && window.UIStates.showToast) {
+          window.UIStates.showToast((err && err.message) || 'Draft refresh failed', true);
+        }
       });
   }
 
@@ -5604,20 +7315,27 @@ information about.
   }
 
   // ── Rail 2: per-slot content generation ─────────────────────────────────────
-  // Keeps the slot's own day/type/TSS/duration authoritative — only the
-  // content fields (intent/notes/exercises/blocks) come from the LLM.
-  function _generateSlot(s, statusEl) {
+  // Keeps the slot's own day/type/TSS/duration authoritative — content
+  // (intent/notes/exercises/blocks) comes from deterministic pattern fill
+  // (POST /api/plan/suggestions/session → plan_pattern_fill). No LLM.
+  function _generateSlot(s, statusEl, opts) {
+    opts = opts || {};
+    var body = {
+      date: _formatSugDate(s.day_offset),
+      workout_type: s.workout_type,
+      note: null,
+      target_tss: s.target_tss || null,
+      duration_minutes: s.duration_minutes || null,
+      subtype: s.subtype || null,
+    };
+    if (opts.reshuffle) {
+      // New seed each click so strength/plyo picks re-roll. Runs ignore RNG.
+      body.seed = (Date.now() ^ Math.floor(Math.random() * 0xFFFFFFFF)) >>> 0;
+    }
     return fetch('/api/plan/suggestions/session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        date: _formatSugDate(s.day_offset),
-        workout_type: s.workout_type,
-        note: null,
-        target_tss: s.target_tss || null,
-        duration_minutes: s.duration_minutes || null,
-        subtype: s.subtype || null,
-      }),
+      body: JSON.stringify(body),
     })
       .then(function (r) {
         return r.json().then(function (d) {
@@ -5631,33 +7349,21 @@ information about.
         s.notes = g.notes || s.notes;
         s.exercises = g.exercises || null;
         s.blocks = g.blocks || null;
-        s._ai = true;
+        s.source = g.source || s.source || null;
+        s.pattern_name = g.pattern_name || null;
+        s.fill_log = g.fill_log || null;
+        s._muscle_footprint = g._muscle_footprint || null;
+        s.seed = g.seed != null ? g.seed : (body.seed != null ? body.seed : null);
+        s._ai = true; // "filled" flag (name is historical; content is pattern-based)
       });
   }
 
-  // Sequential, not parallel — Groq's free tier enforces a per-minute token
-  // budget that a burst of slots blows through instantly (observed: first
-  // slot fills, every later one 429s). The backend now sleeps out Groq's
-  // "try again in Ns" hint once per call, so each slot can take up to a
-  // minute or so — the progress label carries that.
-  // True while a fill-all chain is in flight: the fill button renders
-  // disabled (no duplicate concurrent chains against the rate-limited
-  // provider) and _renderSuggestions leaves the progress overlay alone (any
-  // unrelated re-render used to hide it mid-chain).
+  // True while a fill-all chain is in flight: the fill button renders disabled
+  // and _renderSuggestions leaves the progress overlay alone.
   var _fillAllRunning = false;
-  // Persists across re-renders within the session (not saved) — lets the
-  // athlete exclude 'run' slots from the AI fill chain, since they're the
-  // most numerous slot type and the first to exhaust a per-minute LLM budget.
+  // Persists across re-renders within the session (not saved) — exclude run
+  // slots from bulk pattern fill when the athlete only wants strength/plyo.
   var _skipRunFill = false;
-  // Extra pause between slots, on TOP of the backend's own 429 sleep-retry —
-  // spaces out the burst pre-emptively instead of reacting to it after the
-  // fact, so a small provider budget (e.g. Cerebras trial tier) is less
-  // likely to be exhausted mid-chain.
-  var _FILL_SLOT_DELAY_MS = 3000;
-
-  function _delay(ms) {
-    return new Promise(function (resolve) { setTimeout(resolve, ms); });
-  }
 
   function _fillableSlots() {
     return (_suggestionsData.suggestions || []).filter(function (s) {
@@ -5674,29 +7380,23 @@ information about.
     var loading = _el('plan-suggestions-loading');
     var label = loading ? loading.querySelector('span') : null;
     if (loading) loading.style.display = '';
+    if (label) {
+      label.textContent = 'Filling ' + slots.length + ' session' +
+        (slots.length === 1 ? '' : 's') + ' from patterns…';
+    }
     var done = 0, failed = 0;
-    var chain = Promise.resolve();
-    slots.forEach(function (s, i) {
-      chain = chain.then(function () {
-        return i > 0 ? _delay(_FILL_SLOT_DELAY_MS) : Promise.resolve();
-      }).then(function () {
-        if (loading) loading.style.display = ''; // survive interim re-renders
-        if (label) {
-          label.textContent = 'Filling session ' + (done + failed + 1) + ' of ' + slots.length +
-            '… (the AI provider rate-limits — a slot can take up to a minute)';
-        }
-        return _generateSlot(s).then(
-          function () { done++; },
-          function () { failed++; /* keep going; row keeps its blank slot */ }
-        );
-      });
-    });
-    chain.then(function () {
+    // Pattern fill is sync DB work — no provider rate limit. Run in parallel.
+    Promise.all(slots.map(function (s) {
+      return _generateSlot(s).then(
+        function () { done++; },
+        function () { failed++; }
+      );
+    })).then(function () {
       _fillAllRunning = false;
       if (loading) loading.style.display = 'none';
       _suggestionsData._fillNote = failed
-        ? 'Filled ' + done + ' of ' + slots.length + ' — the AI provider rate-limited the rest. ' +
-          'Wait a minute and press ✨ Fill sessions with AI again; already-filled sessions are kept.'
+        ? 'Filled ' + done + ' of ' + slots.length +
+          ' — ' + failed + ' failed. Already-filled sessions are kept; try Fill from patterns again.'
         : '';
       _renderSuggestions(_suggestionsData);
     });
@@ -5780,10 +7480,9 @@ information about.
     var days = _nestedGet(p, 'rest_days') || [];
     _lastPrefs.restDays = days.map(Number).filter(function (d) { return d >= 0 && d <= 6; });
     _lastPrefs.strengthEmphasis = _nestedGet(p, 'strength_emphasis') || 'same';
-    _lastPrefs.plyoMode = _nestedGet(p, 'plyo_mode') || 'off';
+    _lastPrefs.plyoMode = _nestedGet(p, 'plyo_mode') || 'standalone';
     _lastPrefs.plyoSessions = Number(_nestedGet(p, 'plyo_sessions_per_week') || 0);
     _lastPrefs.mpSegmentMin = Number(_nestedGet(p, 'long_run.mp_segment_min') || 0);
-    _lastPrefs.notes = _nestedGet(p, 'notes') || '';
     _habitTargets = data.habit_targets || null;
     // Pending proposals only. GET /api/preferences returns settled ones too
     // (include_settled=True); accepted/declined are history, and a decision
@@ -5800,7 +7499,7 @@ information about.
       plyo_mode: _lastPrefs.plyoMode || 'off',
       plyo_sessions_per_week: Number(_lastPrefs.plyoSessions) || 0,
       long_run: { mp_segment_min: Number(_lastPrefs.mpSegmentMin) || 0 },
-      notes: _lastPrefs.notes || '',
+      notes: '',
     };
   }
 
@@ -5815,8 +7514,6 @@ information about.
     if (ps) _lastPrefs.plyoSessions = Number(ps.value) || 0;
     var mp = _el('pl-sug-mp-segment');
     if (mp) _lastPrefs.mpSegmentMin = Number(mp.value) || 0;
-    var notes = _el('pl-sug-notes');
-    if (notes) _lastPrefs.notes = notes.value || '';
   }
 
   function _saveTrainingPrefs() {
@@ -5872,6 +7569,10 @@ information about.
     // Server sends a rendered strip when it can (delta_strip); fall back to
     // field: from -> to so an unrecognised shape still reads as something.
     if (d.strip) return String(d.strip);
+    if (d.kind === 'add_to_set' && d.to && d.to.exercise_name) {
+      return 'Add ' + d.to.exercise_name + ' to strength' +
+        (d.muscle_group ? (' (underloaded ' + d.muscle_group + ')') : '');
+    }
     var field = d.field || d.key || '';
     if (field && d.from !== undefined && d.to !== undefined) {
       return field + ': ' + d.from + ' → ' + d.to;
@@ -5879,178 +7580,8 @@ information about.
     return field || JSON.stringify(d);
   }
 
-  // ── Prefs importer ─────────────────────────────────────────────────────────
-  //
-  // The consult prompt (coach_export.CONSULT_TEMPLATE) tells the pasted-into
-  // Claude session: "If a prefs change is involved, also give me the JSON patch
-  // to paste into the prefs importer." No importer existed (issue #1608), so
-  // every consult touching a preference handed the athlete instructions for a
-  // feature that wasn't there — and they hand-translated it into Settings.
-  //
-  // MERGE, NOT REPLACE. This is the safety property of the whole feature.
-  // training_prefs.write_version stores `payload=normalized` wholesale with no
-  // merge against the previous version, so PUTting a partial patch would wipe
-  // every field the patch omits. A consult produces a PATCH ("plyo 0 -> 1"),
-  // never a full document. So the patch is merged onto the current payload here
-  // and the merged result is sent.
-
-  var _importPreview = null;   // {patch, merged, changes:[{key, from, to}]}
-
-  function _flatten(obj, prefix, out) {
-    out = out || {};
-    prefix = prefix || '';
-    Object.keys(obj || {}).forEach(function (k) {
-      var v = obj[k];
-      var key = prefix ? prefix + '.' + k : k;
-      if (v && typeof v === 'object' && !Array.isArray(v)) _flatten(v, key, out);
-      else out[key] = v;
-    });
-    return out;
-  }
-
-  function _deepMerge(base, patch) {
-    var out = JSON.parse(JSON.stringify(base || {}));
-    Object.keys(patch || {}).forEach(function (k) {
-      var v = patch[k];
-      if (v && typeof v === 'object' && !Array.isArray(v) &&
-          out[k] && typeof out[k] === 'object' && !Array.isArray(out[k])) {
-        out[k] = _deepMerge(out[k], v);
-      } else {
-        out[k] = v;
-      }
-    });
-    return out;
-  }
-
-  function _diffPayloads(before, after) {
-    var a = _flatten(before), b = _flatten(after), changes = [];
-    Object.keys(b).forEach(function (k) {
-      var was = JSON.stringify(a[k]), now = JSON.stringify(b[k]);
-      if (was !== now) changes.push({ key: k, from: a[k], to: b[k] });
-    });
-    return changes;
-  }
-
-  function _fmtVal(v) {
-    if (v === undefined) return 'unset';
-    if (Array.isArray(v)) return v.length ? v.join(', ') : 'none';
-    return String(v);
-  }
-
-  function _importerHtml() {
-    return (
-      '<div class="pl-sug-prefs-row pl-import-block" style="align-items:start;">' +
-        '<label class="pl-sug-prefs-label" for="pl-import-json">From a consult</label>' +
-        '<div class="pl-import">' +
-          '<textarea id="pl-import-json" class="pl-import-ta" rows="3" ' +
-            'placeholder=\'Paste the JSON patch from your consult, e.g. {"plyo_sessions_per_week": 1}\'></textarea>' +
-          '<div class="pl-import-actions">' +
-            '<button type="button" class="pl-btn pl-ghost" id="pl-import-preview">Preview change</button>' +
-            '<button type="button" class="pl-btn pl-lime" id="pl-import-apply" hidden>Apply</button>' +
-            '<button type="button" class="pl-btn pl-ghost" id="pl-import-cancel" hidden>Cancel</button>' +
-          '</div>' +
-          '<div class="pl-import-out" id="pl-import-out" hidden></div>' +
-        '</div>' +
-      '</div>'
-    );
-  }
-
-  function _bindImporter(host) {
-    var ta = _el('pl-import-json');
-    var previewBtn = _el('pl-import-preview');
-    var applyBtn = _el('pl-import-apply');
-    var cancelBtn = _el('pl-import-cancel');
-    var out = _el('pl-import-out');
-    if (!ta || !previewBtn || !out) return;
-
-    function show(html, isError) {
-      out.hidden = false;
-      out.className = 'pl-import-out' + (isError ? ' is-error' : '');
-      out.innerHTML = html;
-    }
-
-    function reset() {
-      _importPreview = null;
-      applyBtn.hidden = true;
-      cancelBtn.hidden = true;
-      out.hidden = true;
-      out.innerHTML = '';
-    }
-
-    cancelBtn.addEventListener('click', function () { reset(); ta.value = ''; });
-
-    previewBtn.addEventListener('click', function () {
-      var raw = (ta.value || '').trim();
-      if (!raw) { show('Paste the JSON patch first.', true); return; }
-      var patch;
-      try {
-        patch = JSON.parse(raw);
-      } catch (e) {
-        show('That is not valid JSON — ' + esc(e.message) + '.', true);
-        return;
-      }
-      if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
-        show('Expected a JSON object, e.g. {"plyo_sessions_per_week": 1}.', true);
-        return;
-      }
-      // Merge onto CURRENT prefs. Never send the patch alone — the API replaces
-      // the whole payload, so a bare patch would erase everything it omits.
-      var current = _collectTrainingPrefsPayload();
-      var merged = _deepMerge(current, patch);
-      var changes = _diffPayloads(current, merged);
-      if (!changes.length) {
-        show('Nothing to change — those values are already set.', false);
-        applyBtn.hidden = true;
-        cancelBtn.hidden = false;
-        return;
-      }
-      _importPreview = { patch: patch, merged: merged, changes: changes };
-      show(
-        '<div class="pl-import-title">' + changes.length +
-          ' change' + (changes.length === 1 ? '' : 's') + ' to apply</div>' +
-        changes.map(function (c) {
-          return '<div class="pl-import-row"><code>' + esc(c.key) + '</code> ' +
-            esc(_fmtVal(c.from)) + ' → <b>' + esc(_fmtVal(c.to)) + '</b></div>';
-        }).join(''),
-        false
-      );
-      applyBtn.hidden = false;
-      cancelBtn.hidden = false;
-    });
-
-    applyBtn.addEventListener('click', function () {
-      if (!_importPreview) return;
-      applyBtn.disabled = true;
-      fetch('/api/preferences', {
-        method: 'PUT',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ payload: _importPreview.merged }),
-      })
-        .then(function (r) {
-          return r.json().then(function (body) {
-            if (!r.ok) return Promise.reject(body);
-            return body;
-          });
-        })
-        .then(function () {
-          ta.value = '';
-          reset();
-          // Re-fetch so the form shows what the server actually stored, not
-          // what we hoped it would store.
-          _renderPrefsForm();
-          _toast('Preferences updated from consult');
-        })
-        .catch(function (body) {
-          applyBtn.disabled = false;
-          var msg = 'Apply failed';
-          if (body && body.detail) {
-            msg = typeof body.detail === 'string'
-              ? body.detail : JSON.stringify(body.detail, null, 2);
-          }
-          show(esc(msg), true);
-        });
-    });
+  function _isAddToSet(p) {
+    return !!(p && p.delta && p.delta.kind === 'add_to_set');
   }
 
   // "Adjust..." asks for a custom value via window.prompt() and both the
@@ -6065,6 +7596,7 @@ information about.
   // pre-computed delta.to with no client parsing). A real enum adjust UI
   // (a 3-way choice instead of free text) is a separate follow-up.
   function _isNumericDelta(p) {
+    if (_isAddToSet(p)) return false;
     var to = p && p.delta && p.delta.to;
     return typeof to === 'number' || (typeof to === 'string' && /^-?\d+(\.\d+)?$/.test(to));
   }
@@ -6074,6 +7606,20 @@ information about.
     var rows = _prefProposals.map(function (p) {
       var id = esc(p.id || '');
       var expires = (p.expires_at || '').slice(0, 10);
+      var actions;
+      if (_isAddToSet(p)) {
+        actions =
+          '<button type="button" class="pl-btn pl-lime pl-prop-try">Try for a week</button>' +
+          '<button type="button" class="pl-btn pl-ghost pl-prop-standing">Make it standing</button>' +
+          '<button type="button" class="pl-btn pl-ghost pl-prop-decline">Not now</button>';
+      } else {
+        actions =
+          '<button type="button" class="pl-btn pl-lime pl-prop-accept">Accept</button>' +
+          (_isNumericDelta(p)
+            ? '<button type="button" class="pl-btn pl-ghost pl-prop-adjust">Adjust…</button>'
+            : '') +
+          '<button type="button" class="pl-btn pl-ghost pl-prop-decline">Not now</button>';
+      }
       return (
         '<div class="pl-prop" data-proposal-id="' + id + '">' +
           '<div class="pl-prop-main">' +
@@ -6083,13 +7629,7 @@ information about.
             (expires
               ? '<div class="pl-prop-life">expires ' + esc(expires) + ' if ignored</div>' : '') +
           '</div>' +
-          '<div class="pl-prop-actions">' +
-            '<button type="button" class="pl-btn pl-lime pl-prop-accept">Accept</button>' +
-            (_isNumericDelta(p)
-              ? '<button type="button" class="pl-btn pl-ghost pl-prop-adjust">Adjust…</button>'
-              : '') +
-            '<button type="button" class="pl-btn pl-ghost pl-prop-decline">Not now</button>' +
-          '</div>' +
+          '<div class="pl-prop-actions">' + actions + '</div>' +
         '</div>'
       );
     }).join('');
@@ -6143,6 +7683,15 @@ information about.
 
       var accept = row.querySelector('.pl-prop-accept');
       if (accept) accept.addEventListener('click', function () { settle(accept, 'accept'); });
+
+      var tryWeek = row.querySelector('.pl-prop-try');
+      if (tryWeek) tryWeek.addEventListener('click', function () {
+        settle(tryWeek, 'accept', { action: 'try_week' });
+      });
+      var standing = row.querySelector('.pl-prop-standing');
+      if (standing) standing.addEventListener('click', function () {
+        settle(standing, 'accept', { action: 'standing' });
+      });
 
       var decline = row.querySelector('.pl-prop-decline');
       if (decline) decline.addEventListener('click', function () { settle(decline, 'decline'); });
@@ -6203,43 +7752,38 @@ information about.
             '<label class="pl-sug-prefs-label">Rest days</label>' +
             '<div class="pl-sug-daychks">' + dayChecks + '</div>' +
           '</div>' +
-          '<div class="pl-sug-prefs-row">' +
+          '<div class="pl-sug-prefs-row pl-sug-prefs-row--inline">' +
             '<label class="pl-sug-prefs-label" for="pl-sug-strength-count">Strength sessions</label>' +
             '<span class="pl-sug-count-wrap"><input id="pl-sug-strength-count" class="pl-sug-count" type="number" min="0" max="7" step="1" placeholder="auto" value="' + esc(_lastPrefs.strengthSessions) + '"/>' +
-            '<span class="pl-sug-count-hint">blank = match your recent weeks</span></span>' +
+            '<span class="pl-sug-count-hint">blank = recent weeks</span></span>' +
           '</div>' +
           '<div class="pl-sug-prefs-extra">' +
-            '<div class="pl-sug-prefs-row">' +
+            '<div class="pl-sug-prefs-row pl-sug-prefs-row--inline">' +
               '<label class="pl-sug-prefs-label" for="pl-sug-strength-emphasis">Strength emphasis</label>' +
-              '<select id="pl-sug-strength-emphasis">' +
+              '<select id="pl-sug-strength-emphasis" class="pl-sug-select">' +
                 ['less', 'same', 'more'].map(function (v) {
                   return '<option value="' + v + '"' + (_lastPrefs.strengthEmphasis === v ? ' selected' : '') + '>' + v + '</option>';
                 }).join('') +
               '</select>' +
             '</div>' +
-            '<div class="pl-sug-prefs-row">' +
+            '<div class="pl-sug-prefs-row pl-sug-prefs-row--inline">' +
               '<label class="pl-sug-prefs-label" for="pl-sug-plyo-mode">Plyo mode</label>' +
-              '<select id="pl-sug-plyo-mode">' +
+              '<select id="pl-sug-plyo-mode" class="pl-sug-select">' +
                 ['standalone', 'superset', 'off'].map(function (v) {
                   return '<option value="' + v + '"' + (_lastPrefs.plyoMode === v ? ' selected' : '') + '>' + v + '</option>';
                 }).join('') +
               '</select>' +
             '</div>' +
-            '<div class="pl-sug-prefs-row">' +
-              '<label class="pl-sug-prefs-label" for="pl-sug-plyo-sessions">Plyo sessions / week</label>' +
+            '<div class="pl-sug-prefs-row pl-sug-prefs-row--inline">' +
+              '<label class="pl-sug-prefs-label" for="pl-sug-plyo-sessions">Plyo / week</label>' +
               '<input id="pl-sug-plyo-sessions" type="number" min="0" max="2" step="1" value="' + esc(_lastPrefs.plyoSessions) + '"/>' +
             '</div>' +
-            '<div class="pl-sug-prefs-row">' +
-              '<label class="pl-sug-prefs-label" for="pl-sug-mp-segment">Long-run MP segment (min)</label>' +
+            '<div class="pl-sug-prefs-row pl-sug-prefs-row--inline">' +
+              '<label class="pl-sug-prefs-label" for="pl-sug-mp-segment">Long-run MP (min)</label>' +
               '<input id="pl-sug-mp-segment" type="number" min="0" max="30" step="10" value="' + esc(_lastPrefs.mpSegmentMin) + '"/>' +
-            '</div>' +
-            '<div class="pl-sug-prefs-row" style="align-items:start;">' +
-              '<label class="pl-sug-prefs-label" for="pl-sug-notes">Notes</label>' +
-              '<textarea id="pl-sug-notes" class="pl-sug-prefs-notes" maxlength="200">' + esc(_lastPrefs.notes) + '</textarea>' +
             '</div>' +
           '</div>' +
           _proposalsHtml() +
-          _importerHtml() +
           '<div class="pl-sug-habits">' + habitsLine + '</div>' +
           '<div class="pl-sug-prefs-err" id="pl-sug-prefs-err" hidden></div>' +
           '<div class="pl-btnrow" style="margin-top:12px;">' +
@@ -6254,8 +7798,6 @@ information about.
       '</div>';
 
     _bindProposalActions(host);
-    _bindImporter(host);
-
     host.querySelectorAll('[data-restday]').forEach(function (chk) {
       chk.addEventListener('change', function () {
         var off = +chk.getAttribute('data-restday');

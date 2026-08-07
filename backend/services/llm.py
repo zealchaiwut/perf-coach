@@ -4,7 +4,6 @@ Exposes:
   llm_enabled()              — True iff GROQ_API_KEY set AND LLM_COACH_ENABLED=true
   complete_structured(...)   — call Groq, return parsed dict or None (never raises)
   get_or_generate(...)       — cache-aware wrapper over complete_structured
-  llm_transport()            — claude_cli | groq_api (plan pipeline v2)
 
 Everything is OFF by default: when LLM_COACH_ENABLED is unset/false this module
 is a no-op and zero behavior changes anywhere. Later surfaces import and call
@@ -41,20 +40,6 @@ _DEFAULT_CEREBRAS_MODEL = "gpt-oss-120b"
 _startup_logged = False
 
 
-def llm_transport() -> str:
-    """Wire for plan-slot / coach calls: claude_cli | groq_api.
-
-    Worker env typically sets LLM_TRANSPORT=claude_cli; webapp uses groq_api.
-    Facts/prompts/validation stay identical across transports.
-    """
-    t = os.getenv("LLM_TRANSPORT", "").strip().lower()
-    if t in ("claude_cli", "claude", "cli"):
-        return "claude_cli"
-    if t in ("groq_api", "groq", "http"):
-        return "groq_api"
-    return "groq_api"
-
-
 def _provider() -> str:
     p = os.getenv("LLM_PROVIDER", "").strip().lower()
     if p in ("glm", "zai", "z.ai"):
@@ -72,7 +57,7 @@ def _emit_startup_info() -> None:
     if _startup_logged:
         return
     _startup_logged = True
-    if not os.getenv("LLM_COACH_ENABLED", "").lower() in ("1", "true", "yes"):
+    if os.getenv("LLM_COACH_ENABLED", "").lower() not in ("1", "true", "yes"):
         _log.info("LLM coaching disabled (LLM_COACH_ENABLED not set)")
     elif not _api_key():
         _log.info("LLM coaching enabled but no API key for provider %s — all calls return None", _provider())
@@ -235,6 +220,9 @@ def complete_structured(
             )
             return None
     return None
+
+
+_emit_startup_info()
 
 
 def get_or_generate(

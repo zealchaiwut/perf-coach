@@ -294,12 +294,12 @@ Timed schedules:
   back to legacy `WORKER_WEEKLY_COACH_ENABLED`), the scheduler enqueues a
   `daily_coach` job (dedupe key `daily_coach:YYYY-MM-DD`) at the same wake
   times as the sync sweep. The handler runs
-  `weekly_coach_message.generate_for_user` for every active user — using
-  `claude -p` when `COACH_LLM=claude_cli` (set by `start_worker.sh`). After
-  each per-user Strava/Stryd sync the worker also enqueues
-  `daily_coach` for that user (dedupe per day+user). Render webapps only
-  **read** `GET /api/coach/daily-message` (weekly-message is a compat
-  alias); they default `COACH_LLM=off` and never invoke Claude. Manual:
+  `weekly_coach_message.generate_for_user` for every active user — the warmth
+  rephrase uses `LLM_COACH_ENABLED` and the provider API keys in `.env`
+  (see `docs/llm-coaching.md`). After each per-user Strava/Stryd sync the
+  worker also enqueues `daily_coach` for that user (dedupe per day+user).
+  Render webapps only **read** `GET /api/coach/daily-message`
+  (weekly-message is a compat alias). Manual:
   `POST /internal/daily-coach/run` with `X-Worker-Secret`
   (`/internal/weekly-coach/run` remains an alias).
 
@@ -390,6 +390,72 @@ mirroring the webapp's plist (same `WorkingDirectory`, `ENVIRONMENT=uat`,
 `KeepAlive`, `RunAtLoad`, `ProgramArguments` pointing at
 `.venv/bin/uvicorn backend.worker_app:app --port 9100`) plus `caffeinate -s` to
 keep it polling through sleep.
+
+### Live PRD runbook (zeal-server / Mac Mini)
+
+The PRD stack runs on the same Mac Mini as UAT but against the PRD Neon branch,
+out of a **separate clone** at `~/dev/perf-coach/prd`, tracking `master`. Use a
+different port (9101) so UAT and PRD workers coexist without conflict.
+
+Both processes read the same `.env` (`ENVIRONMENT=prd`, `DATABASE_URL_PRD`).
+
+| Process | Cmd | Port | Managed by | Logs |
+|---|---|---|---|---|
+| Worker (`backend.worker_app`) | `ENVIRONMENT=prd WORKER_PORT=9101 bash start_worker.sh` | 9101 | launchd `com.perfcoach.prd-worker` (target) | `~/dev/perf-coach/prd/logs/worker-prd.log` |
+
+**Initial setup (one-time):**
+
+```bash
+ssh zeal-server@100.103.104.41
+git clone https://github.com/zealchaiwut/perf-coach.git ~/dev/perf-coach/prd
+cd ~/dev/perf-coach/prd
+git checkout master
+
+python3.12 -m venv .venv
+uv pip install --python .venv/bin/python -r requirements.txt
+
+# Copy UAT .env and update for PRD:
+cp ~/dev/perf-coach/uat/.env .env
+# Edit .env: set ENVIRONMENT=prd (start_worker.sh reads this)
+# The script auto-selects DATABASE_URL_PRD when ENVIRONMENT=prd.
+# Set WORKER_PORT=9101 to avoid clash with UAT worker on 9100.
+
+# Run PRD migrations (requires DATABASE_URL_PRD in .env):
+set -a; source .env; set +a
+export ENVIRONMENT=prd DATABASE_URL="$DATABASE_URL_PRD"
+.venv/bin/alembic upgrade head
+```
+
+**Redeploy after a merge to master:**
+
+```bash
+ssh zeal-server@100.103.104.41
+cd ~/dev/perf-coach/prd
+# stop the worker
+kill "$(lsof -tiTCP:9101 -sTCP:LISTEN)" 2>/dev/null
+# sync + migrate
+git checkout master && git pull --ff-only
+set -a; source .env; set +a; export ENVIRONMENT=prd DATABASE_URL="$DATABASE_URL_PRD"
+.venv/bin/alembic upgrade head
+# restart worker
+mkdir -p logs
+nohup bash start_worker.sh > logs/worker-prd.log 2>&1 &
+```
+
+Health check: `curl http://127.0.0.1:9101/internal/health`
+A healthy log shows `queue poll started` and `sync scheduler started`.
+
+**After confirming the PRD worker is running:**
+
+Switch `BANISTER_REFIT_ENABLED` from `"1"` to `"0"` in the Render dashboard
+under **perf-coach-prd → Environment** (do **not** commit "0" to `render.yaml`
+until the PRD worker is a persistent launchd service). This prevents the
+in-process fallback and the worker from double-running the weekly refit.
+
+To make the worker persistent across reboots, add a `com.perfcoach.prd-worker`
+LaunchAgent plist (same structure as `com.perfcoach.uat-worker` but with
+`WorkingDirectory ~/dev/perf-coach/prd`, `ENVIRONMENT=prd`, and
+`--port 9101`) with `KeepAlive=true` and `caffeinate -s`.
 
 ## Read API (Hermes)
 
@@ -582,18 +648,28 @@ curl "http://localhost:9100/api/training/load?date=2026-07-13"
 }
 ```
 
-### ~~`GET /api/scores`~~ — documented but never implemented
+### `GET /api/scores`
 
-**Removed from this document 2026-07-31 (issue #1601).** It described a live
-endpoint returning Endurance and Speed scores with a 7-day trend flag, complete
-with an example request and response. No such route exists in `worker_app.py`,
-and `git` shows none ever did — the documentation was written ahead of an
-implementation that did not land.
+Current Endurance and Speed scores with a 7-day trend (`up` / `flat` /
+`down`) for Hermes. Reads from `performance_score_history` only — never
+recomputes. Returns HTTP 404 when the user has no score history rows.
 
-Anyone scoping "what does Hermes call today" from this file — including the
-audit that found it — got a larger surface than the code actually has. If the
-endpoint is wanted, build it and restore this section; until then the absence is
-the honest description.
+Restored 2026-08 (the earlier "never implemented" strike was wrong once the
+route landed in `worker_app.py`).
+
+```bash
+curl -H "Authorization: Bearer $WORKER_API_TOKEN" \
+  "http://localhost:9100/api/scores"
+```
+
+```json
+{
+  "as_of": "2026-07-13",
+  "formula_version": "2026-06-endurance-v1",
+  "endurance": {"value": 62.4, "trend": "up"},
+  "speed": {"value": 55.1, "trend": "flat"}
+}
+```
 
 ### `GET /api/plan/today`
 
@@ -631,6 +707,7 @@ Example — no session planned:
 {
   "plan_date": "2026-07-13",
   "planned": false,
+  "session_type": null,
   "sessions": []
 }
 ```

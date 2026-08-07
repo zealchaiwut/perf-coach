@@ -503,8 +503,9 @@ function _fuelInitPlanMismatch() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const updated = await res.json();
       _fuelRenderPlanMismatch(updated);
-      // Refresh today card so budget reflects new deficit
+      // Refresh both cards so budget and weekly projection reflect new deficit
       await _fuelLoadToday();
+      await _fuelLoadWeek();
     } catch (e) {
       console.error('Sync deficit failed:', e);
     } finally {
@@ -545,6 +546,14 @@ function _fuelRenderWeeklyReview(d) {
   const body = document.getElementById('cut-review-body');
   const badge = document.getElementById('cut-review-badge');
   if (!body) return;
+
+  // Locked payload: no conclusions — leave the card empty (lock-group covers it).
+  if (d.gated || d.recommendation === 'insufficient_coverage') {
+    if (loading) loading.hidden = true;
+    body.hidden = true;
+    if (badge) badge.hidden = true;
+    return;
+  }
 
   if (loading) loading.hidden = true;
   body.hidden = false;
@@ -589,9 +598,6 @@ function _fuelRenderWeeklyReview(d) {
       planEl.textContent = '—';
     }
   }
-
-  const adherenceEl = document.getElementById('cut-review-adherence');
-  if (adherenceEl) adherenceEl.textContent = Math.round(d.logging_adherence_pct) + '%';
 
   if (badge) {
     badge.textContent = rec.replace(/_/g, ' ');

@@ -8,8 +8,8 @@ IMPORTANT: this module must NEVER import backend.main — that module starts
 daemon threads (sleep sync, banister refit) at import time. Only import
 backend.db, backend.models, and backend.services.* here.
 
-Also owns the daily Home Coach narrative job (`daily_coach`) — Claude CLI
-(`COACH_LLM=claude_cli`) runs here on zeal-server, never on the Render webapp.
+Also owns the daily Home Coach narrative job (`daily_coach`); the warmth
+rephrase uses `LLM_COACH_ENABLED` + provider API keys (see docs/llm-coaching.md).
 The legacy job name `weekly_coach` remains as a dispatch alias.
 """
 
@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 
 from backend.db import engine
 from backend.services import job_queue
+from backend.services.daily_brief import extract_session_target as _extract_target
 
 logger = logging.getLogger("backend.worker_app")
 
@@ -298,6 +299,21 @@ def _run_banister_refit_batch() -> None:
         logger.error("job finish: banister_refit status=error: %s", exc, exc_info=True)
 
 
+def _daily_coach_message_exists(db, user_id, today) -> bool:
+    """Return True if a WeeklyCoachMessage row already exists for (user_id, today).
+
+    Used as a per-user per-day short-circuit so a post-sync job and a scheduled
+    batch job that both wake on the same calendar day never double-fire the LLM
+    for the same user (#1582).
+    """
+    from backend.models import WeeklyCoachMessage
+    return (
+        db.query(WeeklyCoachMessage.id)
+        .filter_by(user_id=user_id, for_date=today)
+        .first()
+    ) is not None
+
+
 def _run_daily_coach_batch(
     user_id: str | None = None,
     triggered_by: str = "schedule",
@@ -335,6 +351,14 @@ def _run_daily_coach_batch(
         for uid in user_ids:
             key = str(uid)
             try:
+                with Session(engine) as check_db:
+                    if _daily_coach_message_exists(check_db, uid, as_of):
+                        logger.info(
+                            "daily_coach user=%s skipped: message already generated for %s",
+                            key, as_of,
+                        )
+                        results[key] = "skip_already_generated"
+                        continue
                 out = generate_for_user(user_id=uid, today=as_of)
                 if out is None:
                     results[key] = "skip_no_goal"
@@ -714,26 +738,6 @@ def _resolve_read_user(user_param: str | None):
         raise HTTPException(status_code=400, detail="?user= required: multiple or zero active users")
 
 
-def _extract_target(structure: dict | None) -> dict:
-    """Extract distance_km, duration_min, intensity from a planned_sessions structure blob.
-
-    Tries top-level keys first, then the first block in structure["blocks"].
-    Returns nulls for any field not found.
-    """
-    out: dict = {"distance_km": None, "duration_min": None, "intensity": None}
-    if not structure or not isinstance(structure, dict):
-        return out
-    for key in out:
-        val = structure.get(key)
-        if val is None:
-            for block in structure.get("blocks", []):
-                if isinstance(block, dict) and block.get(key) is not None:
-                    val = block[key]
-                    break
-        out[key] = val
-    return out
-
-
 def _session_to_dict(row) -> dict:
     return {
         "session_type": row.session_type,
@@ -842,11 +846,14 @@ def plan_today(date: str | None = None, user: str | None = None):
         )
 
     planned = len(rows) > 0
-    return {
+    response = {
         "plan_date": plan_date.isoformat(),
         "planned": planned,
         "sessions": [_session_to_dict(r) for r in rows],
     }
+    if not planned:
+        response["session_type"] = None
+    return response
 
 
 @app.get("/api/plan/draft-notify", dependencies=[Depends(_require_worker_api_token)])
@@ -1267,6 +1274,76 @@ def weight_nudge(user: str | None = None, ack: bool = False):
         "deliver_now": bool(due and in_window),
         "message": message,
         "acked": bool(ack),
+    }
+
+
+# Trend thresholds for /api/scores
+_SCORES_TREND_FLAT_DELTA = 0.5   # abs(delta) ≤ this → "flat"
+_SCORES_TREND_LOOKBACK_DAYS = 7  # days back to find the comparison row
+
+
+def _score_trend(current: float | None, prior: float | None) -> str:
+    """Compute up/flat/down trend between two nullable score values."""
+    if current is None or prior is None:
+        return "flat"
+    delta = current - prior
+    if delta > _SCORES_TREND_FLAT_DELTA:
+        return "up"
+    if delta < -_SCORES_TREND_FLAT_DELTA:
+        return "down"
+    return "flat"
+
+
+@app.get("/api/scores", dependencies=[Depends(_require_worker_api_token)])
+def scores(user: str | None = None):
+    """Return current Endurance/Speed scores with 7-day trend for Hermes.
+
+    Reads from performance_score_history (never recomputes).
+    404 when no history rows exist for the user.
+    """
+    from backend.models import PerformanceScoreHistory
+
+    resolved_user = _resolve_read_user(user)
+
+    with Session(engine) as s:
+        # Latest row (newest score_date, tie-break by newest formula_version lexically)
+        latest = (
+            s.query(PerformanceScoreHistory)
+            .filter(PerformanceScoreHistory.user_id == resolved_user.id)
+            .order_by(
+                PerformanceScoreHistory.score_date.desc(),
+                PerformanceScoreHistory.formula_version.desc(),
+            )
+            .first()
+        )
+
+        if latest is None:
+            raise HTTPException(status_code=404, detail="no performance score history for user")
+
+        # Comparison row: latest row ≤ 7 days before latest, same formula_version
+        cutoff = latest.score_date - timedelta(days=_SCORES_TREND_LOOKBACK_DAYS)
+        prior = (
+            s.query(PerformanceScoreHistory)
+            .filter(
+                PerformanceScoreHistory.user_id == resolved_user.id,
+                PerformanceScoreHistory.formula_version == latest.formula_version,
+                PerformanceScoreHistory.score_date <= cutoff,
+            )
+            .order_by(PerformanceScoreHistory.score_date.desc())
+            .first()
+        )
+
+    return {
+        "as_of": latest.score_date.isoformat(),
+        "formula_version": latest.formula_version,
+        "endurance": {
+            "value": latest.endurance,
+            "trend": _score_trend(latest.endurance, prior.endurance if prior else None),
+        },
+        "speed": {
+            "value": latest.speed,
+            "trend": _score_trend(latest.speed, prior.speed if prior else None),
+        },
     }
 
 

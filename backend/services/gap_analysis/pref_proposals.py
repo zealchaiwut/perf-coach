@@ -57,15 +57,16 @@ GAP_TO_PREF_DELTA: dict[str, dict[str, Any]] = {
     "aerobic_durability_gap": {"field": "long_run.mp_segment_min", "step": +10},
     "strength_lapsed": {"field": "strength_emphasis", "step": +1},
     "muscle_overused": {"field": "strength_emphasis", "step": -1},
-    "muscle_untrained": {"field": "strength_emphasis", "step": +1},
+    # muscle_untrained → add_to_set homework (Pass 6), not a strength_emphasis bump
     # stretch_neglect lands when that gap rule ships
 }
 
-# muscle_overused / muscle_untrained findings carry a dynamic per-group code
+# muscle_overused findings carry a dynamic per-group code
 # ("muscle_overused.calf", not bare "muscle_overused" — see
 # gap_analysis/rules/muscle_balance.py and templates.py's _PREFIX table for
 # the same pattern). Resolve those by prefix instead of exact dict lookup.
-_PREFIX_GAP_CODES: tuple[str, ...] = ("muscle_overused", "muscle_untrained")
+# muscle_untrained.* is handled as add_to_set in maybe_create_proposals_from_findings.
+_PREFIX_GAP_CODES: tuple[str, ...] = ("muscle_overused",)
 
 
 def mapping_for_gap_code(code: str) -> dict[str, Any] | None:
@@ -75,6 +76,9 @@ def mapping_for_gap_code(code: str) -> dict[str, Any] | None:
         return None
     if code in GAP_TO_PREF_DELTA:
         return GAP_TO_PREF_DELTA[code]
+    if code.startswith("muscle_untrained."):
+        # Homework add_to_set — field used for open-proposal / cooldown keys.
+        return {"field": "weekly_focus", "kind": "add_to_set"}
     for prefix in _PREFIX_GAP_CODES:
         if code.startswith(prefix + "."):
             return GAP_TO_PREF_DELTA[prefix]
@@ -290,8 +294,20 @@ def maybe_create_proposals_from_findings(
 
     for f in findings or []:
         code = f.get("code") if isinstance(f, dict) else getattr(f, "code", None)
-        mapping = mapping_for_gap_code(code) if code else None
+        if not code:
+            continue
+
+        # Pass 6: muscle underload → add_to_set homework proposal (≥2 weeks).
+        if str(code).startswith("muscle_untrained."):
+            row = _maybe_create_add_to_set(db, user_id, f, week_start, payload)
+            if row is not None:
+                created.append(row)
+            continue
+
+        mapping = mapping_for_gap_code(code)
         if mapping is None:
+            continue
+        if mapping.get("kind") == "add_to_set":
             continue
         severity = int(
             f.get("severity") if isinstance(f, dict) else getattr(f, "severity", 1) or 1
@@ -369,12 +385,104 @@ def maybe_create_proposals_from_findings(
     return created
 
 
+def _maybe_create_add_to_set(
+    db: Session,
+    user_id,
+    finding: dict | Any,
+    week_start,
+    payload: dict,
+) -> Any | None:
+    """Create an add_to_set homework proposal for muscle_untrained.<group>."""
+    from backend.models import PreferenceProposal
+    from backend.services.plan_pattern_fill import _load_exercise_pool
+    from backend.services.session_homework import pick_exercise_for_muscle
+
+    code = finding.get("code") if isinstance(finding, dict) else getattr(finding, "code", None)
+    if not code or not str(code).startswith("muscle_untrained."):
+        return None
+    group = str(code).split(".", 1)[1].strip().lower()
+    if not group:
+        return None
+    severity = int(
+        finding.get("severity") if isinstance(finding, dict) else getattr(finding, "severity", 1) or 1
+    )
+    field = "weekly_focus"
+    need = persist_weeks_for(field)  # 2
+    weeks = _consecutive_weeks_firing(db, user_id, code, week_start)
+    if weeks < need:
+        return None
+    # Also suppress if either homework field already has an open add_to_set
+    if _open_proposal_for_field(db, user_id, "weekly_focus"):
+        return None
+    if _open_proposal_for_field(db, user_id, "required_exercises"):
+        return None
+    if _decline_quiet(db, user_id, field, severity):
+        return None
+    if _accepted_still_ramping(db, user_id, field):
+        return None
+
+    pool = _load_exercise_pool(db)
+    # Avoid exercises already in standing / weekly homework
+    avoid: set[str] = set()
+    for raw in list(payload.get("required_exercises") or []) + list(payload.get("weekly_focus") or []):
+        if isinstance(raw, dict):
+            n = raw.get("exercise_name") or raw.get("name")
+            if n:
+                avoid.add(str(n).strip().lower())
+    picked = pick_exercise_for_muscle(pool, group, avoid_names=avoid)
+    if picked is None:
+        return None
+
+    item = {
+        "exercise_id": str(picked["id"]) if picked.get("id") else None,
+        "exercise_name": picked.get("name"),
+        "session_types": ["strength"],
+        "sets": picked.get("default_sets") if picked.get("default_sets") is not None else 3,
+        "reps": picked.get("default_reps") or "12",
+        "load": picked.get("default_load") or "moderate",
+        "block": "Accessories",
+    }
+    evidence = finding.get("evidence") if isinstance(finding, dict) else getattr(finding, "evidence", None)
+    finding_ref = evidence_hash(evidence or [])[:32]
+    now = _now()
+    strip = (
+        f"Add {item['exercise_name']} to strength sessions "
+        f"(underloaded {group}, {weeks}w)"
+    )
+    row = PreferenceProposal(
+        user_id=user_id,
+        gap_code=code,
+        finding_ref=finding_ref,
+        delta={
+            "kind": "add_to_set",
+            "field": field,
+            "muscle_group": group,
+            "from": None,
+            "to": item,
+            "strip": strip,
+            "actions": ["try_week", "standing", "decline"],
+        },
+        status="proposed",
+        proposed_at=now,
+        expires_at=now + timedelta(days=PROPOSAL_EXPIRE_DAYS),
+        dismissed_severity=severity,
+    )
+    db.add(row)
+    db.flush()
+    _log.info(
+        "pref add_to_set created user=%s exercise=%s group=%s weeks=%s",
+        user_id, item.get("exercise_name"), group, weeks,
+    )
+    return row
+
+
 def accept_proposal(
     db: Session,
     user_id,
     proposal_id,
     *,
     adjusted_to: Any | None = None,
+    action: str | None = None,
 ) -> dict:
     from backend.models import PreferenceProposal
 
@@ -392,9 +500,13 @@ def accept_proposal(
     if row.status != "proposed":
         raise ValueError(f"proposal status is {row.status}, expected proposed")
 
-    field = (row.delta or {}).get("field")
-    from_v = (row.delta or {}).get("from")
-    to_v = adjusted_to if adjusted_to is not None else (row.delta or {}).get("to")
+    delta = dict(row.delta or {})
+    if delta.get("kind") == "add_to_set":
+        return _accept_add_to_set(db, user_id, row, action=action)
+
+    field = delta.get("field")
+    from_v = delta.get("from")
+    to_v = adjusted_to if adjusted_to is not None else delta.get("to")
     if field is None:
         raise ValueError("proposal delta missing field")
 
@@ -443,6 +555,65 @@ def accept_proposal(
     # Preserve extra keys (e.g. safety_rollback `reverts`)
     new_delta = dict(row.delta or {})
     new_delta.update({"field": field, "from": from_v, "to": to_v})
+    row.delta = new_delta
+    db.flush()
+    return {
+        "proposal": proposal_dict(row),
+        "preferences": active_dict(db, user_id),
+        "prefs_version": prefs_row.version,
+    }
+
+
+def _accept_add_to_set(
+    db: Session,
+    user_id,
+    row: Any,
+    *,
+    action: str | None = None,
+) -> dict:
+    """Accept add_to_set: try_week → weekly_focus (+7d); standing → required_exercises."""
+    from backend.services.session_homework import append_homework_item
+
+    act = (action or "try_week").strip().lower()
+    if act in ("try", "week", "try_for_a_week"):
+        act = "try_week"
+    if act in ("make_standing", "standing_homework"):
+        act = "standing"
+    if act not in ("try_week", "standing"):
+        raise ValueError({"action": "must be try_week or standing"})
+
+    item = (row.delta or {}).get("to")
+    if not isinstance(item, dict):
+        raise ValueError("add_to_set proposal missing exercise item")
+
+    field = "weekly_focus" if act == "try_week" else "required_exercises"
+    active = ensure_active(db, user_id)
+    payload = deepcopy(active.payload or {})
+    payload = append_homework_item(payload, field, item)
+    errs = validate_payload(payload)
+    if errs:
+        raise ValueError(errs)
+
+    now = _now()
+    prefs_row = write_version(
+        db,
+        user_id,
+        payload,
+        source="coach_proposal",
+        origin_gap_code=row.gap_code,
+        origin_proposal_id=row.id,
+        confirm=True,
+    )
+    row.status = "accepted"
+    row.decided_at = now
+    row.review_at = now + timedelta(days=REVIEW_AFTER_DAYS)
+    new_delta = dict(row.delta or {})
+    new_delta["field"] = field
+    new_delta["action"] = act
+    new_delta["from"] = None
+    # Reflect the stored homework item (with expires_on for weekly)
+    stored = (payload.get(field) or [])[-1] if payload.get(field) else item
+    new_delta["to"] = stored
     row.delta = new_delta
     db.flush()
     return {

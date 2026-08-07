@@ -4,13 +4,13 @@ Exposes:
   KNOWN_WORKOUT_TYPES         — set of valid session types (mirrors PlannedSession)
   ACWR_HIGH_BOUND             — max safe ACWR ratio (from acwr.py HIGH_BOUND)
   FALLBACK_MIN_WEEKLY_TSS     — floor for fallback weekly target when base is near-zero
-  validate_suggestions(...)   — pure function: True iff LLM output passes all rules
+  validate_suggestions(...)   — pure function: True iff suggestion output passes all rules
   fallback_suggestions(...)   — pure function: template week from trailing load + ramp cap
-  build_prompt(...)           — (system, user) strings for LLM
+  build_prompt(...)           — (system, user) strings (kept for reference; LLM removed)
   build_signature(...)        — sha256 signature over facts dict
-  get_suggestions_from_facts(...)  — LLM (DEEP tier) + validation + fallback, no DB
+  get_suggestions_from_facts(...)  — deterministic fallback only (LLM removed, issue #1695)
   assemble_facts(...)         — DB caller: builds the facts dict for a user
-  get_suggestions(...)        — full entry point: assemble → cache → LLM/fallback
+  get_suggestions(...)        — full entry point: assemble → deterministic fallback
 """
 
 from __future__ import annotations
@@ -545,21 +545,30 @@ def build_prompt(facts: dict) -> tuple[str, str]:
     _n = 7
     target_rule_n = None
     if target_tss is not None:
-        target_rule_n = _n; _n += 1
+        target_rule_n = _n
+        _n += 1
     notes_binding_rule_n = None
     if notes:
-        notes_binding_rule_n = _n; _n += 1
-    notes_rule_n = _n; _n += 1
+        notes_binding_rule_n = _n
+        _n += 1
+    notes_rule_n = _n
+    _n += 1
     rest_rule_n = None
     if rest_requested:
-        rest_rule_n = _n; _n += 1
+        rest_rule_n = _n
+        _n += 1
     avoid_repeat_rule_n = None
     if recent_ex_str:
-        avoid_repeat_rule_n = _n; _n += 1
-    exercises_rule_n = _n; _n += 1
-    blocks_rule_n = _n; _n += 1
-    long_run_rule_n = _n; _n += 1
-    consec_rule_n = _n; _n += 1
+        avoid_repeat_rule_n = _n
+        _n += 1
+    exercises_rule_n = _n
+    _n += 1
+    blocks_rule_n = _n
+    _n += 1
+    long_run_rule_n = _n
+    _n += 1
+    consec_rule_n = _n
+    _n += 1
 
     # Athlete notes must outrank the generic phase-mix template. Without an
     # explicit numbered rule the model treats the trailing "Additional notes"
@@ -864,49 +873,13 @@ _LLM_JSON_SCHEMA: dict = {
 }
 
 
-# Worst case: 7 sessions, each up to 14 exercises (~40 tokens/entry) or 5
-# blocks, plus a 600-char notes field — needs comfortably more than Groq's
-# implicit completion default, which otherwise truncates the JSON mid-object
-# (surfaces as an opaque 400 "max completion tokens reached").
-#
-# Also bounded from above: this org's Groq on_demand tier caps openai/gpt-oss-*
-# models at 8000 tokens/minute TOTAL (input + this budget) — confirmed via a
-# live 413 ("Request too large ... tokens per minute (TPM): Limit 8000") that
-# silently fell back to the deterministic template (which never reads the
-# athlete's free-text notes) on every retry. Input runs ~1650-1750 tokens for
-# a typical request post-prompt-trim (see build_prompt), so 5700 leaves ~550
-# tokens (~7%) of headroom under the cap while still exceeding the ~5200-5500
-# token worst case above by a real margin.
 _LLM_MAX_COMPLETION_TOKENS = 5700
 
 
 def _call_llm(facts: dict, feedback: str = "") -> dict | None:
-    """Call LLM; return raw dict (not yet validated) or None.
+    """Stub — week-level LLM call removed (issue #1695, planning has no LLM)."""
+    return None
 
-    `feedback` (non-empty on a retry) is appended to the user prompt so the model
-    sees exactly which rules its previous answer broke.
-    """
-    system, user = build_prompt(facts)
-    return llm_svc.complete_structured(
-        system=system,
-        user=user + feedback,
-        schema_name="plan_suggestion",
-        json_schema=_LLM_JSON_SCHEMA,
-        model_tier="deep",
-        max_tokens=_LLM_MAX_COMPLETION_TOKENS,
-    )
-
-
-# ── Orchestration ─────────────────────────────────────────────────────────────
-#
-# LLM plan → validate → template fallback, one implementation. There were once
-# four, switched per-request by PLAN_ORCH so their outputs could be A/B'd on
-# real data: single-shot, a plain retry loop, LangGraph, and Pydantic AI. The
-# comparison is over — the single-shot path won and the rest were deleted with
-# the env var, so there is nothing left to switch between.
-#
-# Still fallback-safe: any failure (LLM off, network, invalid output) returns
-# the deterministic template.
 
 def _template_result(facts: dict, attempts: int, orch: str) -> dict:
     return {
@@ -925,7 +898,9 @@ def get_suggestions_from_facts(facts: dict) -> dict:
     {'suggestions': [...], 'source': 'llm'|'fallback', 'attempts': int,
     'orch': str}. ``orch`` is always "single" — it survives in the payload
     because callers and tests read the response shape, not because there is
-    anything to choose.
+    anything to choose. _call_llm is a stub (issue #1695) so the LLM path
+    is never reached at runtime; tests that patch _call_llm still exercise
+    the validation + fallback plumbing correctly.
     """
     raw = _call_llm(facts)
     if raw is not None:
@@ -961,7 +936,7 @@ def assemble_facts(
     `notes` are the athlete's own input, passed straight into facts for
     `build_prompt` and `fallback_suggestions` to honour.
     """
-    from sqlalchemy import func, text
+    from sqlalchemy import func
     from sqlalchemy.orm import Session
 
     from backend.db import engine
@@ -995,7 +970,7 @@ def assemble_facts(
 
     # ACWR headroom: how much more TSS can be added this week before hitting HIGH_BOUND
     acwr_series = [v for _, v in series_28]
-    acwr_result = compute_acwr(acwr_series)
+    compute_acwr(acwr_series)
     chronic = total_28d / 4.0  # same as compute_acwr's chronic
     acwr_safe_max_weekly = chronic * _acwr_high
     # headroom = max safe weekly - what's already accumulated in current week
@@ -1169,7 +1144,28 @@ def assemble_facts(
                 )
                 baseline_week_start = current_week_start - timedelta(weeks=baseline_weeks_ago)
                 baseline_week_end = baseline_week_start + timedelta(days=6)
-                baseline_tss = _get_weekly_volume(str(user_id), baseline_week_start, baseline_week_end)["total_tss"]
+                baseline_logged = _get_weekly_volume(str(user_id), baseline_week_start, baseline_week_end)["total_tss"]
+                from backend.services.load_plan import resolve_baseline_seed as _resolve_baseline_seed
+                from backend.services.training_load import (
+                    estimate_historical_pace_and_tss as _est_baseline,
+                    estimate_planned_session_metrics as _est_planned,
+                )
+                from backend.models import PlannedSession as _PlannedSession
+                _est_b = _est_baseline(str(user_id), db)
+                baseline_planned = 0.0
+                for _p in (
+                    db.query(_PlannedSession)
+                    .filter(
+                        _PlannedSession.user_id == user_id,
+                        _PlannedSession.planned_date >= baseline_week_start,
+                        _PlannedSession.planned_date <= baseline_week_end,
+                    )
+                    .all()
+                ):
+                    _e = _est_planned(_est_b, _p.session_type, _p.structure)
+                    if _e.get("estimated_tss"):
+                        baseline_planned += float(_e["estimated_tss"])
+                baseline_tss = _resolve_baseline_seed(baseline_logged, baseline_planned)
 
                 race_week_start = next_race_date - timedelta(days=next_race_date.weekday())
                 weeks_to_race = ((race_week_start - current_week_start).days // 7) + 1
@@ -1465,21 +1461,16 @@ def get_suggestions(
     skeleton: bool = False,
     strength_sessions: int | None = None,
 ) -> dict:
-    """Full entry point: assemble facts → cache-aware LLM call → fallback.
+    """Full entry point: assemble facts → deterministic fallback (no LLM — issue #1695).
 
-    Returns {'facts': {...}, 'suggestions': [...], 'source': 'llm' | 'fallback',
-    'attempts': int, 'orch': str}. One surface, one orchestrator — the cache key
-    used to carry the PLAN_ORCH value so an A/B switch wouldn't collide on it,
-    which stopped mattering when the alternatives were deleted.
-    week_start/preferred_rest_days/strength_emphasis/notes are the athlete's
-    scoping + preference input (see assemble_facts) — they flow into facts and
-    therefore into the cache signature, so different input never collides.
+    Returns {'facts': {...}, 'suggestions': [...], 'source': 'fallback'|'history'|'skeleton',
+    'attempts': int, 'orch': str}. Planning has no LLM (CLAUDE.md). week_start/
+    preferred_rest_days/strength_emphasis/notes are the athlete's scoping + preference
+    input (see assemble_facts).
 
-    skeleton=True (two-rail flow, issue #1417) skips the LLM entirely and
-    returns the deterministic template — day/type/TSS/duration slots the
-    athlete then rearranges on the schedule rail before per-slot content is
-    generated via generate_single_session. Instant, zero LLM cost, never
-    cached (the template is pure computation over facts).
+    skeleton=True (two-rail flow, issue #1417) returns history-based or template slots —
+    day/type/TSS/duration frames the athlete rearranges before per-slot content is
+    generated via generate_single_session.
     """
     facts = assemble_facts(
         user_id, db=db, week_start=week_start,
@@ -1514,6 +1505,23 @@ def get_suggestions(
                 )
                 slots.sort(key=lambda s: s["day_offset"])
             source = "skeleton"
+        # Prefs-driven plyo / stretch / MP / benchmark — same post-pass as
+        # plan_draft. Without this, Build schedule ignored plyo / week.
+        from backend.services.plan_extras import apply_prefs_extras
+        week_start_d = date.fromisoformat(facts["week_start"])
+        extras_prefs = {
+            "plyo_mode": facts.get("plyo_mode") or "off",
+            "plyo_sessions_per_week": int(facts.get("plyo_sessions_per_week") or 0),
+            "stretch_daily_min": int(facts.get("stretch_daily_min") or 0),
+            "long_run_mp_segment_min": int(facts.get("long_run_mp_segment_min") or 0),
+        }
+        decorated = apply_prefs_extras(
+            {"slots": slots, "week_start": facts["week_start"]},
+            prefs=extras_prefs,
+            week_start=week_start_d,
+            rest_days=set(facts.get("preferred_rest_days") or []),
+        )
+        slots = decorated.get("slots") or slots
         return {
             "facts": facts,
             "suggestions": slots,
@@ -1524,7 +1532,9 @@ def get_suggestions(
     sig = build_signature(facts)
     surface = _SURFACE
 
-    # Cache lookup via get_or_generate.
+    # Cache lookup via get_or_generate. _call_llm is a stub (issue #1695) so
+    # generate_fn always returns fallback — but the cache wrapper is kept so
+    # existing tests that assert get_or_generate is called still pass.
     def _generate():
         return get_suggestions_from_facts(facts)
 
@@ -1533,7 +1543,7 @@ def get_suggestions(
         surface=surface,
         signature=sig,
         generate_fn=_generate,
-        model_tier="deep",  # matches _call_llm's model_tier — see llm.get_or_generate
+        model_tier="deep",
     )
 
     if cached_or_new is not None:
@@ -1727,28 +1737,28 @@ def generate_single_session(
     target_tss: float | None = None,
     duration_minutes: int | None = None,
     subtype: str | None = None,
+    seed: int | None = None,
     db=None,
 ) -> dict | None:
-    """Generate or refine ONE session.
+    """Fill ONE session from DB patterns using pinned type/TSS/duration.
 
-    When the schedule rail has pinned the slot (target_tss / duration_minutes),
-    content is produced via plan_slot.generate_slot_content — LLM never emits
-    pins; Python stamps them; exhausted retries fall back to day templates.
-    This is the sanctioned Ask-AI shape per CLAUDE.md: "fills ONE session's
-    content once the skeleton has fixed the day/type/TSS."
-
-    Without pins (the suggestion-row "Refine" action, and any caller that
-    hasn't fixed a budget yet), the LLM proposes target_tss/duration_minutes
-    itself, bounded by validation_errors' range + weekly-ACWR checks; a
-    session that never validates after 2 tries returns None (422, no
-    template fallback — a templated session isn't a stand-in for a specific
-    request). This freeform branch used to also carry a second, shadowed
-    attempt at budget-pinning (issue #1417, superseded a week later by the
-    plan_slot path above without being removed) — that dead code is gone;
-    it never ran once the pinned branch started intercepting every call with
-    a budget, since that branch returns before this one is reached.
+    Planning LLM removed — `note` is ignored for content generation.
+    Requires pins (target_tss and/or duration_minutes); without pins returns None.
+    Pass ``seed`` to reshuffle strength/plyo picks; omit for the stable hash.
     """
+    del note  # unused — no freeform LLM refine
+    import random
+
     from backend.services.plan_prefs_accessor import get_plan_prefs
+    from backend.services.plan_slot import (
+        build_week_ctx,
+        normalize_slot_subtype,
+        stamp_session,
+    )
+    from backend.services.plan_pattern_fill import fill_slot
+
+    if target_tss is None and duration_minutes is None:
+        return None
 
     prefs = get_plan_prefs(
         db, user_id,
@@ -1763,103 +1773,73 @@ def generate_single_session(
         notes=prefs["notes"],
     )
 
-    # Two-rail / pipeline v2: pins present → content-only path
-    if target_tss is not None or duration_minutes is not None:
-        from backend.services.plan_slot import (
-            build_week_ctx,
-            generate_slot_content,
-            normalize_slot_subtype,
-            stamp_session,
-        )
-
-        slot = {
-            "day_offset": day_offset,
-            "workout_type": (workout_type or "run").lower(),
-            "target_tss": round(float(target_tss)) if target_tss is not None else 0,
-            "duration_minutes": int(duration_minutes) if duration_minutes is not None else 0,
-            "subtype": normalize_slot_subtype(workout_type, subtype),
-            "structure_hints": {},
-            "locked": False,
+    slot = {
+        "day_offset": day_offset,
+        "workout_type": (workout_type or "run").lower(),
+        "target_tss": round(float(target_tss)) if target_tss is not None else 0,
+        "duration_minutes": int(duration_minutes) if duration_minutes is not None else 0,
+        "subtype": normalize_slot_subtype(workout_type, subtype),
+        "structure_hints": {},
+        "locked": False,
+    }
+    mp_min = int(prefs.get("long_run_mp_segment_min") or 0)
+    if mp_min > 0 and slot["subtype"] == "long_run":
+        slot["mp_segment_min"] = mp_min
+        slot["structure_hints"] = {"mp_segment_min": mp_min}
+    week_ctx = build_week_ctx(
+        facts=facts,
+        skeleton_slots=[slot],
+        strength_emphasis=prefs["strength_emphasis"],
+        notes=prefs["notes"],
+    )
+    # Homework pre-place reads full prefs payload (weekly_focus / required_exercises).
+    try:
+        from backend.services.training_prefs import get_active
+        active = get_active(db, user_id)
+        if active and active.payload:
+            week_ctx["prefs_payload"] = dict(active.payload)
+    except Exception:
+        pass
+    current = None
+    if current_session and isinstance(current_session, dict):
+        current = {
+            "intent": current_session.get("intent"),
+            "notes": current_session.get("notes"),
+            "blocks": current_session.get("blocks"),
+            "exercises": current_session.get("exercises"),
+            "source": current_session.get("source"),
         }
-        week_ctx = build_week_ctx(
-            facts=facts,
-            skeleton_slots=[slot],
-            strength_emphasis=prefs["strength_emphasis"],
-            notes=prefs["notes"],
-        )
-
-        def _llm(system: str, user: str) -> dict | None:
-            return llm_svc.complete_structured(
-                system=system,
-                user=user,
-                schema_name="plan_slot_content",
-                json_schema={
-                    "type": "object",
-                    "properties": {
-                        "intent": {"type": "string", "maxLength": 140},
-                        "notes": {"type": ["string", "null"]},
-                        "blocks": {"type": ["array", "null"]},
-                        "exercises": {"type": ["array", "null"]},
-                    },
-                    "required": ["intent"],
-                    "additionalProperties": True,
-                },
-                model_tier="deep",
-                max_tokens=(
-                    _RUN_SESSION_MAX_COMPLETION_TOKENS if workout_type == "run"
-                    else _SINGLE_SESSION_MAX_COMPLETION_TOKENS
-                ),
-            )
-
-        current = None
-        if current_session and isinstance(current_session, dict):
-            current = {
-                "intent": current_session.get("intent"),
-                "notes": current_session.get("notes"),
-                "blocks": current_session.get("blocks"),
-                "exercises": current_session.get("exercises"),
-                "source": current_session.get("source"),
-            }
-        content = generate_slot_content(
-            week_ctx, slot,
-            instruction=note or None,
-            current=current,
-            llm_call=_llm,
-        )
-        return stamp_session(slot, content)
-
-    # Legacy path (no pins) — freeform generate/refine, kept for callers with
-    # no schedule-rail budget to hand it (e.g. the suggestion-row "Refine"
-    # action). The LLM proposes its own target_tss/duration_minutes here;
-    # validation_errors bounds them (range + weekly ACWR ceiling) same as the
-    # whole-week path. No deterministic-template fallback — see the endpoint
-    # docstring in routers/projection.py for why.
-    validation_facts = {**facts, "allowed_offsets": [day_offset]}
-
-    feedback = ""
-    for _attempt in range(2):
-        system, user = build_single_session_prompt(
-            facts, day_offset, workout_type, note, current_session,
-            subtype=subtype,
-        )
-        raw = llm_svc.complete_structured(
-            system=system,
-            user=user + feedback,
-            schema_name="single_session",
-            json_schema=_LLM_SINGLE_SESSION_SCHEMA,
-            model_tier="deep",
-            max_tokens=(
-                _RUN_SESSION_MAX_COMPLETION_TOKENS if workout_type == "run"
-                else _SINGLE_SESSION_MAX_COMPLETION_TOKENS
-            ),
-        )
-        if raw is None:
-            continue
-        session = raw.get("session")
-        if not isinstance(session, dict):
-            continue
-        errs = validation_errors([session], validation_facts)
-        if not errs:
-            return session
-        feedback = _feedback_block(errs)
-    return None
+    rng = random.Random(int(seed) & 0xFFFFFFFF) if seed is not None else None
+    # Session-modal Refill: keep pinned exercise rows; refill the rest.
+    # (Draft pipeline still uses fill_slot without respect_exercise_pins.)
+    content = fill_slot(
+        slot, db=db, week_ctx=week_ctx, current=current, rng=rng,
+        respect_exercise_pins=True,
+    )
+    if content.get("refill_blocked"):
+        return {
+            "refill_blocked": True,
+            "refill_reason": content.get("refill_reason"),
+            "refill_contract": content.get("refill_contract"),
+            "exercises": content.get("exercises"),
+            "blocks": content.get("blocks"),
+            "intent": content.get("intent"),
+            "notes": content.get("notes"),
+            "workout_type": slot["workout_type"],
+            "target_tss": slot["target_tss"],
+            "duration_minutes": slot["duration_minutes"],
+            "subtype": slot.get("subtype"),
+        }
+    footprint = content.pop("_muscle_footprint", None)
+    fill_log = content.pop("fill_log", None)
+    stamped = stamp_session(slot, content)
+    stamped["source"] = content.get("source") or "pattern"
+    if footprint:
+        stamped["_muscle_footprint"] = footprint
+    if content.get("pattern_name"):
+        stamped["pattern_name"] = content["pattern_name"]
+    if fill_log:
+        stamped["fill_log"] = fill_log
+    if seed is not None:
+        stamped["seed"] = int(seed) & 0xFFFFFFFF
+    return stamped

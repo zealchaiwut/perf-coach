@@ -56,12 +56,9 @@ main_py = MAIN_PY.read_text()
 # ── (A) Recent Entries Card ────────────────────────────────────────────────────
 
 def test_a1_recent_entries_header_text():
-    """(A1) Card header reads 'Recent entries' with 'last 14 days' subtitle."""
-    assert "Recent entries" in html, (
-        "Card header 'Recent entries' not found in weight.html (AC-A1)"
-    )
-    assert "last 14 days" in html, (
-        "'last 14 days' subtitle not found in weight.html (AC-A1)"
+    """(A1 revised) Card header reads 'Recent values' (compact mock)."""
+    assert "Recent values" in html or "Recent entries" in html, (
+        "Recent values/entries header not found in weight.html (AC-A1)"
     )
 
 
@@ -299,21 +296,9 @@ def test_a12_card_b_logging_syncs_entries():
 
 
 def test_a13_gap_aware_delta():
-    """(A13) Delta uses gap-aware logic: finds previous logged entry, not previous calendar day."""
-    assert (
-        "prevWeight" in js
-        or "prev_weight" in js
-        or "allSorted" in js
-    ), (
-        "Gap-aware delta computation not found in weight.js (AC-A13)"
-    )
-    # The pattern should compare entry dates to find prior logged entry
-    assert (
-        "entry_date" in js
-        and ("localeCompare" in js or "sort" in js)
-    ), (
-        "Gap-aware delta sort by entry_date not found (AC-A13)"
-    )
+    """(A13 revised) Deltas are vs trend (compact mock), grey — never red."""
+    assert "trendByDate" in js or "vs trend" in js or "ewma" in js
+    assert "entry_date" in js and ("localeCompare" in js or "sort" in js)
 
 
 def test_a14_re_row_grid_columns_count():
@@ -341,20 +326,10 @@ def test_b1_target_history_heading():
 
 
 def test_b2_target_history_inline_not_hidden_by_tab():
-    """(B2) Target history section is inline — not in the history tab (display:none by default)."""
-    # The section should not be inside a tab div that has display:none
-    # Check that target-history section exists and doesn't start hidden
-    assert "target-history" in html, (
-        "target-history section/id not found in weight.html (AC-B2)"
-    )
-    # Must NOT be inside tab-history with display:none at start
-    target_hist_idx = html.find("target-history")
-    if target_hist_idx != -1:
-        # Find the surrounding element — it should not have display:none near it
-        nearby_html = html[max(0, target_hist_idx - 200):target_hist_idx + 200]
-        assert 'style="display:none"' not in nearby_html or "tab-history" not in nearby_html, (
-            "Target history section must not be hidden inside a tab (AC-B2)"
-        )
+    """(B2 revised) Target history is retired from the visible tab (hidden stub)."""
+    assert 'id="target-history-section"' in html
+    assert " hidden" in html[html.find('id="target-history-section"'):
+                              html.find('id="target-history-section"') + 90]
 
 
 def test_b3_target_history_grid_responsive():
@@ -543,11 +518,11 @@ def test_b13_export_js_calls_exports_endpoint():
 
 
 def test_b14_target_history_stacks_at_640px():
-    """(B14) Target history section stacks to single column below 640px."""
-    # Media query at 640px and grid-template-columns: 1fr
-    assert "640px" in html, "640px breakpoint not in weight.html (AC-B14)"
-    media_idx = html.rfind("640px")
-    media_block = html[max(0, media_idx - 50):media_idx + 300]
-    assert "1fr" in media_block or "grid-template-columns" in media_block, (
-        "640px media query doesn't change to single-column grid (AC-B14)"
-    )
+    """(B14) Dormant target-history CSS still stacks at 640px."""
+    assert "640px" in html
+    assert ".target-history-grid" in html
+    idx = html.find(".target-history-grid")
+    # Prefer the rule inside a 640px media block
+    media = html.find("@media (max-width: 640px)")
+    assert media != -1
+    assert "grid-template-columns: 1fr" in html[media:media + 2500]

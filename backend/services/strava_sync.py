@@ -184,6 +184,13 @@ def sync_strava_activities(
                 detail, streams = _enrich_activity(user_id, activity_id)
                 if detail is not None:
                     fields["detail_payload"] = detail
+                    # Promote the most-accessed scalars so _strava_source_dict
+                    # can serve them without loading the full detail_payload blob
+                    # (issue #1307).
+                    fields["laps"] = detail.get("laps") or []
+                    fields["splits_metric"] = detail.get("splits_metric") or []
+                    fields["best_efforts"] = detail.get("best_efforts") or []
+                    fields["calories"] = detail.get("calories")
                 if streams is not None:
                     fields["streams_payload"] = streams
 

@@ -142,11 +142,9 @@ _REGISTRY.register(requires=["structural_dose"])(my_rule)
 
 ## API
 
-`GET /api/training/gap-analysis`
-
-Auth: session cookie required (401 if anonymous).
-
-Response:
+The Plan-tab HTTP surface (`GET/POST /api/training/gap-analysis…`) was removed.
+Callers (coach export, preference proposals) invoke `run_gap_analysis` in
+`backend/services/gap_analysis/engine.py` directly. Engine return shape:
 
 ```json
 {
@@ -515,12 +513,11 @@ prescribes loading an actively injured area.
 File: `backend/services/gap_analysis/templates.py`
 
 Templates still define what a finding *means* as a session (type, name, notes,
-load_adding) and power `POST /api/training/gap-analysis/{code}/add-to-plan` for
-pipeline / Suggest flows. The **What to improve** Plan-tab panel is a
-**reviewer** surface only (Mute / Done) — it no longer shows "+ Add to plan" or
-"Ask AI"; week materialization happens via Suggest sessions / the draft
-pipeline, which tags `planned_sessions.structure` with `{"_gap_code": "<code>"}`
-when using this endpoint.
+load_adding) for pipeline / Suggest flows and coach export. The Plan-tab
+**What to improve** panel and its HTTP surface (`GET/POST /api/training/gap-analysis…`)
+were removed; the rules engine itself remains for coach paste and preference
+proposals. Week materialization via Suggest / draft may still tag
+`planned_sessions.structure` with `{"_gap_code": "<code>"}`.
 
 **Session template registry** (`get_template(code)` in `templates.py`):
 
@@ -541,17 +538,5 @@ when using this endpoint.
 | `intensity_too_hard` | — | (no template) | Reducing rule — no add-to-plan action | — |
 | `recurrent_niggle_area` | — | (no template) | Recovery rule — no add-to-plan action | — |
 
-**Verdict guard**: when `training_verdict == "back_off"`, add-to-plan for any
-`load_adding=True` template is rejected by the server (HTTP 409 with
-`code: "back_off"`).
-
-**Duplicate guard**: a second add-to-plan for the same `code` within the same
-calendar week returns HTTP 409 (`code: "already_planned_this_week"`, with
-`planned_date` / `session_id`) when the existing session already meets the
-preset floors. If the existing row is a hollow stub (old templates with
-`structure: null`, or below duration/TSS floors), the endpoint **upgrades it
-in place** on the requested date (HTTP 200, `upgraded: true`) instead of 409.
-
-**Endpoint**: `POST /api/training/gap-analysis/{code}/add-to-plan`
-- Body: `{"date": "YYYY-MM-DD"}`
-- Response: 201 with the created `planned_session` dict (or 200 when upgrading)
+Templates are consumed by Suggest / draft pipeline helpers, not by a dedicated
+HTTP add-to-plan route (that endpoint was removed with the What-to-improve panel).

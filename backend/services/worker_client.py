@@ -23,9 +23,12 @@ Environment variables:
   ROUTE_BACKFILL_FALLBACK_TO_INPROCESS   Same for backfill (opt-in, off by default).
 """
 import json
+import logging
 import os
 import urllib.request as _urllib_request
 import urllib.error
+
+_log = logging.getLogger(__name__)
 
 
 class WorkerUnavailable(Exception):
@@ -68,11 +71,13 @@ def get_worker_timeout() -> int:
 def _post(path: str, payload: dict, timeout: int | None = None) -> dict:
     base_url = get_worker_base_url()
     if not base_url:
-        raise WorkerUnavailable("WORKER_BASE_URL is not configured")
+        _log.warning("WORKER_BASE_URL is not configured")
+        raise WorkerUnavailable("Worker configuration error")
 
     secret = get_worker_shared_secret()
     if not secret:
-        raise WorkerUnavailable("WORKER_SHARED_SECRET is not configured")
+        _log.warning("WORKER_SHARED_SECRET is not configured")
+        raise WorkerUnavailable("Worker configuration error")
 
     effective_timeout = timeout if timeout is not None else get_worker_timeout()
     url = base_url.rstrip("/") + path
@@ -108,7 +113,7 @@ def delegate_sync(
         return _post(
             "/internal/sync/run",
             {"user_id": user_id, "sources": sources, "full": full, "triggered_by": triggered_by},
-            timeout=timeout if timeout is not None else get_worker_timeout(),
+            timeout=timeout,
         )
 
     from backend.services import job_queue
@@ -169,7 +174,7 @@ def delegate_backfill(user_id: str, timeout: int | None = None) -> dict:
         return _post(
             "/internal/performance/backfill",
             {"user_id": user_id},
-            timeout=timeout if timeout is not None else get_worker_timeout(),
+            timeout=timeout,
         )
 
     from backend.services import job_queue

@@ -280,23 +280,35 @@ class TestThresholdSaveTriggerAC7:
     def test_patch_prefs_endpoint_calls_rebuild(self):
         import backend.main as main_mod
         src = inspect.getsource(main_mod)
-        assert "rebuild_athlete_duration_curve" in src or "lap_recompute" in src, (
+        assert (
+            "rebuild_athlete_duration_curve" in src
+            or "lap_recompute" in src
+            or "_trigger_performance_backfill_background" in src
+            or "backfill_performance" in src
+        ), (
             "main.py must trigger rebuild_athlete_duration_curve on threshold save"
         )
 
     def test_accept_suggestions_endpoint_calls_rebuild(self):
         import backend.main as main_mod
         src = inspect.getsource(main_mod)
-        assert "rebuild_athlete_duration_curve" in src or "lap_recompute" in src, (
+        assert (
+            "rebuild_athlete_duration_curve" in src
+            or "lap_recompute" in src
+            or "_trigger_performance_backfill_background" in src
+            or "backfill_performance" in src
+        ), (
             "main.py must trigger rebuild on threshold acceptance"
         )
 
     def test_trigger_background_rebuild_function_exists(self):
         import backend.main as main_mod
-        assert hasattr(main_mod, "_trigger_curve_rebuild_background"), (
-            "main.py must expose _trigger_curve_rebuild_background"
+        # _trigger_curve_rebuild_background was replaced by _trigger_performance_backfill_background
+        # (issue #1588 dead-code cleanup); the new function covers the same AC.
+        assert hasattr(main_mod, "_trigger_performance_backfill_background"), (
+            "main.py must expose a background backfill trigger function"
         )
-        assert callable(main_mod._trigger_curve_rebuild_background)
+        assert callable(main_mod._trigger_performance_backfill_background)
 
 
 # ---------------------------------------------------------------------------

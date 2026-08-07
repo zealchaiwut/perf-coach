@@ -1361,6 +1361,15 @@
       .fuel-plan-sync-btn:hover {
         opacity: 0.88;
       }
+      .fuel-grid--compact #fuel-today-card {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        min-height: 120px;
+      }
+      .fuel-grid--compact .fuel-budget-row {
+        margin-top: 8px;
+      }
       .fuel-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -3063,12 +3072,7 @@
         <div>
           <h1>Weight</h1>
           <p class="page-subtitle" id="page-subtitle">Loading…</p>
-          <div class="streak-adherence-row">
-            <span class="streak-badge" id="streak-value">No streak yet</span>
-            <span class="adherence-label" id="adherence-value"
-              >0 / 14 days</span
-            >
-          </div>
+          <span class="covpill low" id="header-cov-pill" hidden>—</span>
           <!-- Paused weight tracking (#1608). Reassurance, not a warning:
                nothing turns red, and the copy says training continues. -->
           <p class="tracking-state" id="tracking-state" hidden></p>
@@ -3087,342 +3091,372 @@
         </div>
       </div>
 
-      <!-- Hero: 2-card row (Card A: Current | Card B: Log Today) -->
-      <!-- Top: [Current weight + Progress] | [Log Today + Recent + Calendar] -->
-      <div class="top-grid">
-        <div class="top-col">
-          <!-- Merged: Current weight + Log Today + Progress toward goal -->
-          <div class="card hero-card hero-card-a merged-card">
-            <div class="hca-top">
-              <span class="hca-label">CURRENT WEIGHT</span>
-              <span class="hca-date-sub" id="hca-date-sub"></span>
-            </div>
-            <div class="hca-middle">
-              <div class="hca-col">
-                <div class="hca-col-label">7-day avg</div>
-                <div class="hca-avg" id="hca-avg">--</div>
-              </div>
-              <div class="hca-weight" id="hca-weight">--</div>
-              <div class="hca-col hca-col-right">
-                <div class="hca-col-label">Change</div>
-                <div class="hca-pills">
-                  <span class="delta-pill neutral" id="hca-pill-week"
-                    >This wk: --</span
-                  >
-                  <span class="delta-pill neutral" id="hca-pill-month"
-                    >This mo: --</span
-                  >
-                </div>
-              </div>
-            </div>
-            <!-- EWMA weekly rate indicator -->
-            <div class="ewma-rate-row" id="ewma-rate-row" hidden>
-              <span class="ewma-rate-label">EWMA trend</span>
-              <span class="delta-pill neutral" id="ewma-rate-pill">-- kg/wk</span>
-            </div>
-            <!-- Coach strip: single instance, re-evaluates on each log/edit -->
-            <div class="coach-strip coach-grey" id="coach-strip">
-              <span id="coach-text"
-                >😴 No entry yet today — log your weight to wake me up</span
-              >
-            </div>
-            <div class="merged-sep"></div>
-            <div class="log-weight-section">
-              <div class="hcb-top">
-                <span class="hcb-label">LOG WEIGHT</span>
-                <span class="hcb-date" id="hcb-date"></span>
-              </div>
-              <div id="unit-toggle" class="unit-toggle">
+      <!-- Gate banner superseded by #lock-group -->
+      <div class="card" id="gate-card" hidden aria-hidden="true">
+        <div class="w-gate">
+          <div class="w-gate-h">
+            <span class="w-gate-ic">!</span>
+            <span class="w-gate-t">Not enough weigh-ins to read a trend</span>
+          </div>
+          <p>
+            <b id="gate-morning-count">—</b> Daily weight swings ±0.5–1.5 kg from water and food, so at this
+            coverage a real trend and noise look identical. Rate, cut verdict and the hypothesis stay hidden
+            until the data can support them.
+          </p>
+          <div class="w-gate-m">
+            <span class="w-covbar"><i id="gate-cov-fill" style="width:0%"></i><b style="left:70%"></b></span>
+            <span class="mono" id="gate-cov-pct" style="font-size:11px;font-weight:700;color:#92400e">—</span>
+          </div>
+          <div class="mono" id="gate-mornings-needed" style="font-size:10.5px;color:#92400e;margin-top:9px"></div>
+        </div>
+      </div>
+
+      <div class="w-revamp-cols">
+        <!-- LEFT · log &amp; measure -->
+        <div class="w-revamp-stack">
+          <div class="card" id="log-today-card">
+            <div class="w-card-hdr">
+              <span class="w-lbl">Log today · <span id="hcb-date"></span></span>
+              <div id="unit-toggle" class="unit-toggle seg">
                 <button class="unit-btn active" data-unit="kg" type="button">kg</button>
                 <button class="unit-btn" data-unit="lb" type="button">lb</button>
               </div>
-              <!-- Stepper (shown when not yet logged today, or while editing) -->
-              <div id="stepper-wrap">
-                <div class="et-field" style="margin-bottom:8px">
-                  <input
-                    type="date"
-                    id="log-date-input"
-                    aria-label="Entry date"
-                    style="width:100%;box-sizing:border-box"
-                  />
-                </div>
-                <div class="stepper">
-                  <button
-                    class="stepper-btn"
-                    id="stepper-dec"
-                    type="button"
-                    aria-label="Decrease weight"
-                  >
-                    −
-                  </button>
-                  <input
-                    class="stepper-input"
-                    id="stepper-input"
-                    type="number"
-                    step="0.1"
-                    min="20"
-                    max="300"
-                    inputmode="decimal"
-                    aria-label="Weight in kg"
-                  />
-                  <button
-                    class="stepper-btn"
-                    id="stepper-inc"
-                    type="button"
-                    aria-label="Increase weight"
-                  >
-                    +
-                  </button>
-                </div>
-                <button class="same-as-last-btn" id="same-as-last-btn" type="button" hidden>
-                  Log same as last
-                </button>
-                <button class="log-submit-btn" id="log-submit-btn" type="button">
-                  Log -- kg
-                </button>
-                <div class="hcb-error" id="hcb-error" role="alert"></div>
-                <!-- quicklog-error alias for test_weight_page_frontend__412 -->
-                <div id="quicklog-error" hidden></div>
-              </div>
-              <!-- Logged strip (shown after successful log) -->
-              <div class="logged-strip" id="logged-strip" hidden>
-                <span id="logged-text">✓ Logged today · -- kg · </span
-                ><button class="edit-link" id="edit-link" type="button">
-                  Edit
-                </button>
-              </div>
             </div>
-            <!-- Body measurements compact entry -->
-            <div class="merged-sep"></div>
-            <div class="bm-section" id="bm-section">
-              <div class="hcb-top">
-                <span class="hcb-label">BODY MEASUREMENTS</span>
+            <div class="w-logstrip">
+              <div class="w-num">
+                <span class="w-num-k">Trend</span>
+                <span class="w-num-row"><span class="w-num-v" id="log-trend-val">--</span><span class="w-num-u" id="log-trend-unit">kg</span></span>
               </div>
-              <p class="bm-hint" id="bm-hint"></p>
-              <div class="bm-row">
-                <div class="bm-field">
-                  <label for="bm-waist-input">Waist (cm)</label>
-                  <input
-                    type="number"
-                    id="bm-waist-input"
-                    step="0.1"
-                    min="40"
-                    max="200"
-                    inputmode="decimal"
-                    placeholder="e.g. 88.5"
-                  />
-                </div>
-                <div class="bm-field">
-                  <label for="bm-bf-input">Body fat % <span style="font-weight:400;text-transform:none;font-size:9px">(optional)</span></label>
-                  <input
-                    type="number"
-                    id="bm-bf-input"
-                    step="0.1"
-                    min="3"
-                    max="60"
-                    inputmode="decimal"
-                    placeholder="e.g. 18.5"
-                  />
-                </div>
-                <button class="bm-save-btn" id="bm-save-btn" type="button">Save</button>
+              <span class="w-vdiv" aria-hidden="true"></span>
+              <div class="w-num">
+                <span class="w-num-k">Today</span>
+                <span class="w-num-row"><span class="w-num-v s" id="log-last-val">—</span><span class="w-num-u" id="log-last-sub"></span></span>
               </div>
+              <span class="w-grow"></span>
+              <span class="w-okpill" id="logged-strip" hidden>
+                <span id="logged-text">✓ Logged</span>
+                <button class="edit-link" id="edit-link" type="button">Edit</button>
+              </span>
+            </div>
+            <div id="stepper-wrap" class="w-stepper-compact" style="margin-top:12px">
+              <div class="et-field" style="margin-bottom:8px">
+                <input type="date" id="log-date-input" aria-label="Entry date" style="width:100%;box-sizing:border-box" />
+              </div>
+              <div class="stepper">
+                <button class="stepper-btn" id="stepper-dec" type="button" aria-label="Decrease weight">−</button>
+                <input class="stepper-input" id="stepper-input" type="number" step="0.1" min="20" max="300" inputmode="decimal" aria-label="Weight in kg" />
+                <button class="stepper-btn" id="stepper-inc" type="button" aria-label="Increase weight">+</button>
+              </div>
+              <button class="same-as-last-btn" id="same-as-last-btn" type="button" hidden>Same as last</button>
+              <button class="log-submit-btn" id="log-submit-btn" type="button">Log -- kg</button>
+              <div class="hcb-error" id="hcb-error" role="alert"></div>
+              <div id="quicklog-error" hidden></div>
+            </div>
+            <!-- measurements inline (mock mrow) -->
+            <div class="bm-section w-mrow" id="bm-section">
+              <span class="w-minp">
+                <label for="bm-waist-input">waist</label>
+                <input type="number" id="bm-waist-input" step="0.1" min="40" max="200" inputmode="decimal" placeholder="88.5" />
+              </span>
+              <span class="w-minp">
+                <label for="bm-bf-input">body fat</label>
+                <input type="number" id="bm-bf-input" step="0.1" min="3" max="60" inputmode="decimal" placeholder="18.5" />
+              </span>
+              <button class="bm-save-btn w-btn-ghost" id="bm-save-btn" type="button">Save</button>
+              <span class="w-mnote">weekly is enough</span>
               <p class="bm-error" id="bm-error" role="alert"></p>
-              <!-- Waist trend sparkline -->
+              <p class="bm-hint" id="bm-hint" hidden></p>
               <div id="waist-sparkline-wrap" hidden>
-                <p class="waist-trend-label">Waist trend</p>
                 <svg id="waist-sparkline" role="img" aria-label="Waist trend"></svg>
-                <p id="waist-sparkline-empty" hidden>No waist data yet.</p>
-              </div>
-            </div>
-
-            <div id="progress-card" hidden>
-              <div class="merged-sep"></div>
-              <div class="progress-card-hdr">
-                <h2>Progress toward goal</h2>
-                <button
-                  id="edit-target-pill-btn"
-                  type="button"
-                  class="edit-target-pill"
-                >
-                  Edit target
-                </button>
-              </div>
-              <!-- Three-stat row: Start | You | Goal -->
-              <div class="progress-stat-row">
-                <div>
-                  <div class="pstat-val" id="pstat-start-val">-- kg</div>
-                  <div class="pstat-lbl">Start</div>
-                  <div class="pstat-date" id="pstat-start-date">--</div>
-                </div>
-                <div>
-                  <div class="pstat-val pstat-val-blue" id="pstat-you-val">
-                    -- kg
-                  </div>
-                  <div class="pstat-lbl">You</div>
-                  <div class="pstat-plan-sub" id="pstat-plan-sub">
-                    plan -- kg
-                  </div>
-                </div>
-                <div>
-                  <div class="pstat-val pstat-val-amber" id="pstat-next-val">
-                    -- kg
-                  </div>
-                  <div class="pstat-lbl">Next goal</div>
-                  <div class="pstat-date pstat-date-amber" id="pstat-next-date">
-                    --
-                  </div>
-                </div>
-                <div>
-                  <div class="pstat-val pstat-val-green" id="pstat-goal-val">
-                    -- kg
-                  </div>
-                  <div class="pstat-lbl">Final goal</div>
-                  <div class="pstat-date pstat-date-green" id="pstat-goal-date">
-                    --
-                  </div>
-                </div>
-              </div>
-              <!-- Progress bar -->
-              <div class="progress-bar-wrap">
-                <!-- YOU marker rides above the bar -->
-                <div class="pgbar-lane pgbar-lane-top">
-                  <div class="pgbar-flag pgbar-flag-you" id="pgbar-micro-you">
-                    <span class="pgbar-flag-lbl">YOU</span>
-                    <span class="pgbar-caret pgbar-caret-down"></span>
-                  </div>
-                </div>
-                <div class="progress-bar-track" id="pgbar-track">
-                  <div
-                    class="progress-bar-fill pgbar-fill"
-                    id="pgbar-fill"
-                  ></div>
-                  <div class="pgbar-plan-tick" id="pgbar-plan-tick"></div>
-                  <div class="pgbar-ms-layer" id="pgbar-ms-layer"></div>
-                  <div
-                    class="progress-marker pgbar-you-dot"
-                    id="pgbar-you-dot"
-                  ></div>
-                </div>
-                <!-- PLAN marker rides below the bar -->
-                <div class="pgbar-lane pgbar-lane-bottom">
-                  <div class="pgbar-flag pgbar-flag-plan" id="pgbar-micro-plan">
-                    <span class="pgbar-caret pgbar-caret-up"></span>
-                    <span class="pgbar-flag-lbl">PLAN</span>
-                  </div>
-                </div>
-              </div>
-              <!-- Summary row -->
-              <div class="progress-summary-row">
-                <div>
-                  <span class="progress-pct-big" id="progress-pct-big"
-                    >--%</span
-                  >
-                  <span class="progress-detail" id="progress-detail"
-                    >-- kg to go · -- days</span
-                  >
-                </div>
-                <!-- Hidden backward-compat elements (for test_weight_page_frontend__412) -->
-                <span id="kg-to-go" hidden></span>
-                <span class="pgstatus-pill" id="pgstatus-pill"></span>
-              </div>
-
-              <!-- Projected arrival (issue #1602 — GET /api/weight-targets/arrival-projection) -->
-              <div id="arrival-projection" class="arrival-projection" hidden>
-                <i class="ti ti-flag-3" aria-hidden="true"></i>
-                <span id="arrival-projection-text"></span>
-              </div>
-
-              <!-- What-if prompt (AC5): appears when behind plan. Opens the
-                   assumed-pace simulator (issue #1602 — used to silently open
-                   #edit-panel, the ordinary edit-goal form, instead). -->
-              <div id="whatif-prompt" class="whatif-prompt" hidden>
-                <span id="whatif-headline" class="whatif-headline"></span>
-                <button
-                  id="whatif-open-btn"
-                  type="button"
-                  class="edit-target-pill whatif-open-btn"
-                >
-                  What if?
-                </button>
               </div>
             </div>
           </div>
-        </div>
-        <div class="top-col">
-          <!-- Recent entries + backfill calendar -->
-          <div class="card hero-card hero-card-b merged-card">
-            <div class="card-header-row">
-              <h2>
-                Recent entries &middot;
-                <span class="card-subtitle">last 5 days</span>
-              </h2>
-              <a href="/weight/entries" class="view-all-link" id="view-all-link"
-                >View all &#x2192;</a
-              >
-            </div>
-            <div class="entries-table" id="recent-entries"></div>
 
-            <!-- Backfill calendar: two months on desktop, one on mobile -->
+          <div class="card" id="composition-card">
+            <div class="w-card-hdr">
+              <span class="w-lbl">Composition · 4-week trend</span>
+              <span class="mono w-comp-count" id="composition-chip">0 of 4 readings</span>
+            </div>
+            <div id="composition-body"></div>
+          </div>
+        </div>
+
+        <!-- RIGHT · coverage calendar + recent values -->
+        <div class="w-revamp-stack">
+          <div class="card" id="coverage-cal-card">
+            <div class="w-card-hdr">
+              <span class="w-lbl">Coverage &amp; backfill</span>
+              <span class="wcal-nav-group">
+                <button class="wcal-nav" id="wcal-prev" type="button" aria-label="Earlier months">‹</button>
+                <button class="wcal-nav" id="wcal-next" type="button" aria-label="Later months">›</button>
+              </span>
+            </div>
+            <div class="w-cov-head" id="coverage-card">
+              <span class="w-hbig" id="cov-chip">—</span>
+              <span class="w-hsub" id="cov-text">—</span>
+              <span class="w-hbar"><i id="cov-bar-fill" style="width:0%"></i><b style="left:70%"></b></span>
+              <span class="w-hsub" id="cov-verdict">—</span>
+            </div>
+            <!-- legacy strip stub (calendar absorbed it) -->
+            <div id="cov-strip" hidden></div>
             <div class="wcal" id="wcal">
-              <div class="wcal-head">
-                <span class="wcal-kicker">Backfill any date</span>
-                <span class="wcal-nav-group">
-                  <button
-                    class="wcal-nav"
-                    id="wcal-prev"
-                    type="button"
-                    aria-label="Earlier months"
-                  >
-                    &#8249;
-                  </button>
-                  <button
-                    class="wcal-nav"
-                    id="wcal-next"
-                    type="button"
-                    aria-label="Later months"
-                  >
-                    &#8250;
-                  </button>
-                </span>
-              </div>
               <div class="wcal-months">
                 <div class="wcal-month wcal-month-left">
                   <div class="wcal-mtitle" id="wcal-mtitle-left"></div>
-                  <div class="wcal-dow" aria-hidden="true">
-                    <span>M</span><span>T</span><span>W</span><span>T</span
-                    ><span>F</span><span>S</span><span>S</span>
-                  </div>
+                  <div class="wcal-dow" aria-hidden="true"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
                   <div class="wcal-grid" id="wcal-grid-left"></div>
                 </div>
                 <div class="wcal-month">
                   <div class="wcal-mtitle" id="wcal-mtitle-right"></div>
-                  <div class="wcal-dow" aria-hidden="true">
-                    <span>M</span><span>T</span><span>W</span><span>T</span
-                    ><span>F</span><span>S</span><span>S</span>
-                  </div>
+                  <div class="wcal-dow" aria-hidden="true"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
                   <div class="wcal-grid" id="wcal-grid-right"></div>
                 </div>
               </div>
+              <div class="wcal-legend">
+                <span class="wcal-lg"><span class="wcal-lgs has"></span>logged · tap to edit</span>
+                <span class="wcal-lg"><span class="wcal-lgs miss"></span>missed · tap to backfill</span>
+                <span class="wcal-lg"><span class="wcal-lgs today"></span>today</span>
+              </div>
               <div class="wcal-editor" id="wcal-editor" hidden></div>
+            </div>
+          </div>
+
+          <div class="card" id="recent-entries-card">
+            <div class="w-card-hdr">
+              <span class="w-lbl">Recent values</span>
+              <a href="/weight/entries" class="view-all-link link" id="view-all-link">View all →</a>
+            </div>
+            <div class="entries-table w-elist" id="recent-entries"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="w-lockgrp" id="lock-group" hidden>
+        <div class="w-lg-head">
+          <span class="w-lg-ic" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+          </span>
+          <span class="w-lg-t">
+            <span class="w-lg-n" id="lg-title">3 sections need more weigh-ins</span>
+            <span class="w-lg-s">rate · target hypothesis · weekly cut review</span>
+          </span>
+          <span class="w-lg-cov">
+            <span class="w-lg-bar"><i id="lg-cov-fill" style="width:0%"></i><b style="left:70%"></b></span>
+            <span class="w-lg-pct" id="lg-pct">— · need 70%</span>
+          </span>
+          <button type="button" class="w-lg-toggle" id="lg-toggle">What's in here ▾</button>
+        </div>
+        <div class="w-lg-body" id="lg-peek">
+          <div class="w-lg-list">
+            <div class="w-lg-row">
+              <span class="w-lg-k">1</span>
+              <span class="w-lg-b"><span class="w-lg-bt">Rate</span>
+                <span class="w-lg-bd">How fast you're moving, with its confidence interval.</span></span>
+              <span class="w-lg-need">21 days</span>
+            </div>
+            <div class="w-lg-row">
+              <span class="w-lg-k">2</span>
+              <span class="w-lg-b"><span class="w-lg-bt">Target as a hypothesis</span>
+                <span class="w-lg-bd">Where performance peaks — weight bands vs endurance/speed.</span></span>
+              <span class="w-lg-need">30 paired days</span>
+            </div>
+            <div class="w-lg-row">
+              <span class="w-lg-k">3</span>
+              <span class="w-lg-b"><span class="w-lg-bt">Weekly cut review</span>
+                <span class="w-lg-bd">Hold / ease off / recalibrate. Reads the rate, so it can't run first.</span></span>
+              <span class="w-lg-need">needs rate</span>
+            </div>
+          </div>
+          <div class="w-lg-foot">
+            <span>Nothing is computed while locked — <b>no partial numbers, no provisional verdicts.</b></span>
+            <span style="margin-left:auto" id="lg-mornings"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="w-revamp-full">
+        <div class="card" id="rate-card">
+          <div class="w-card-hdr">
+            <span class="w-lbl">Rate · the only rate on this page</span>
+            <div class="range-tabs" id="rate-range-tabs" role="group" aria-label="Rate date range">
+              <button class="range-tab" data-range="7d" type="button">7D</button>
+              <button class="range-tab active" data-range="30d" type="button">30D</button>
+              <button class="range-tab" data-range="90d" type="button">90D</button>
+              <button class="range-tab" data-range="6m" type="button">6M</button>
+              <button class="range-tab" data-range="1y" type="button">1Y</button>
+            </div>
+          </div>
+          <div class="w-t2">
+            <div class="w-tile">
+              <div class="w-tile-lbl">Trend weight</div>
+              <div class="w-big" id="rate-trend-val">-- <span>kg</span></div>
+              <div class="w-sub mute" id="rate-trend-sub"></div>
+            </div>
+            <div class="w-tile">
+              <div class="w-tile-lbl">Rate</div>
+              <div class="w-big" id="rate-val">—.— <span>kg/wk</span></div>
+              <div class="w-sub mute" id="rate-val-sub">interval too wide to read</div>
+            </div>
+          </div>
+          <div class="w-rbar" id="rate-bar"></div>
+          <div class="w-verdict flat" id="rate-verdict"></div>
+        </div>
+
+        <div class="card" id="timeline-card">
+          <div class="w-card-hdr">
+            <span class="w-lbl">Timeline · trend, decisions, sprints on one axis</span>
+            <div class="w-tl-mode-seg" id="timeline-mode-seg">
+              <button class="on" data-mode="trend" type="button">TREND</button>
+              <button data-mode="composition" type="button">+ COMPOSITION</button>
+            </div>
+          </div>
+          <div id="weight-timeline"></div>
+          <div class="w-clegend">
+            <span><span class="w-sq" style="background:#4f6ef7"></span>trend (EWMA)</span>
+            <span><span class="w-sq" style="background:#c9d2fb"></span>weigh-ins · clipped to trend range</span>
+            <span><span class="w-sq" style="background:#8b5cf6"></span>decision</span>
+          </div>
+        </div>
+
+        <div class="card" id="decisions-card">
+          <div class="w-card-hdr">
+            <span class="w-lbl">What I changed · from consults</span>
+            <a href="/coach" class="link">+ Paste from consult</a>
+          </div>
+          <div id="decisions-list"></div>
+        </div>
+
+        <div class="card" id="hypothesis-card">
+          <div class="w-card-hdr">
+            <span class="w-lbl">Target as a hypothesis</span>
+            <span class="w-chip">weight × performance</span>
+          </div>
+          <div class="w-hyp" id="hypothesis-body"></div>
+          <div class="w-verdict flat" id="hypothesis-verdict"></div>
+        </div>
+
+        <div class="card" id="cut-review-card">
+          <div class="w-card-hdr">
+            <span class="w-lbl">Weekly cut review</span>
+            <span class="w-chip ok" id="cut-review-badge" hidden>FROM WEIGHT ALONE</span>
+          </div>
+          <div id="cut-review-loading" style="color:var(--text-tertiary);font-size:13px;padding:12px 0">Loading...</div>
+          <div id="cut-review-body" hidden>
+            <div id="cut-review-headline" style="font-size:15px;font-weight:600;margin:10px 0 4px"></div>
+            <div id="cut-review-action" style="font-size:13px;color:var(--text-secondary);margin-bottom:14px"></div>
+            <div id="cut-review-plateau" hidden style="margin-bottom:14px;padding:10px 12px;background:var(--w-tile-3);border-radius:8px">
+              <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px">
+                Stalled for <span id="cut-review-plateau-days"></span> days. Two options:
+              </div>
+              <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">
+                1. <a id="cut-review-calibrate-link" href="/weight#fuel-calibrate">Recalibrate maintenance</a>
+              </div>
+              <div style="font-size:12px;color:var(--text-secondary)">
+                2. <strong>Diet break</strong>: set deficit to 0 kcal for 14 days in Fuel settings, then resume.
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div>
+                <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.05em">Actual rate</div>
+                <div id="cut-review-actual-rate" style="font-size:20px;font-weight:700;margin-top:2px"></div>
+                <div style="font-size:11px;color:var(--text-tertiary)">kg/wk</div>
+              </div>
+              <div>
+                <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.05em">Plan rate</div>
+                <div id="cut-review-plan-rate" style="font-size:20px;font-weight:700;margin-top:2px"></div>
+                <div style="font-size:11px;color:var(--text-tertiary)">kg/wk</div>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- ── Fuel section: Fuel today + Fuel week ─────────────────────────────── -->
+      <!-- Legacy progress card (hidden — hypothesis replaces progress bar) -->
+      <div id="progress-card" hidden aria-hidden="true">
+        <button type="button" class="edit-target-pill" id="edit-target-pill-btn">Edit target</button>
+        <span id="pstat-start-val"></span><span id="pstat-you-val"></span><span id="pstat-goal-val"></span>
+        <span id="pgbar-fill"></span><span id="pgbar-you-dot"></span><span id="pgbar-plan-tick"></span>
+        <span id="pgbar-micro-you"></span><span id="pgbar-micro-plan"></span>
+        <span id="progress-pct-big"></span><span id="progress-detail"></span><span id="pgstatus-pill"></span>
+        <span id="pgbar-ms-layer"></span><span id="kg-to-go"></span>
+        <!-- Projected arrival + what-if (issue #1602) — kept mounted so JS
+             callers still resolve; visible UI lives on the hypothesis card. -->
+        <div id="arrival-projection" class="arrival-projection" hidden>
+          <i class="ti ti-flag-3" aria-hidden="true"></i>
+          <span id="arrival-projection-text"></span>
+        </div>
+        <div id="whatif-prompt" class="whatif-prompt" hidden>
+          <span id="whatif-headline" class="whatif-headline"></span>
+          <button id="whatif-open-btn" type="button" class="edit-target-pill whatif-open-btn">
+            What if?
+          </button>
+        </div>
+      </div>
+
+      <!-- Legacy chart / p2w / target-history stubs (revamp: timeline + hypothesis replace these) -->
+      <div class="card chart-card" id="legacy-chart-card" hidden aria-hidden="true">
+        <div class="chart-controls">
+          <div class="mode-seg" role="group" aria-label="Chart detail level">
+            <button class="mode-btn active" data-mode="basic" type="button">Basic</button>
+            <button class="mode-btn" data-mode="advanced" type="button">Advanced</button>
+          </div>
+          <div class="range-tabs" role="group" aria-label="Chart date range">
+            <button class="range-tab" data-range="7d" type="button">7D</button>
+            <button class="range-tab active" data-range="30d" type="button">30D</button>
+            <button class="range-tab" data-range="90d" type="button">90D</button>
+            <button class="range-tab" data-range="6m" type="button">6M</button>
+            <button class="range-tab" data-range="1y" type="button">1Y</button>
+            <button class="range-tab" data-range="all" type="button">ALL</button>
+          </div>
+        </div>
+        <div class="chart-container">
+          <div id="chart-loading" hidden>Loading chart…</div>
+          <div id="weight-chart" hidden></div>
+        </div>
+        <div class="chart-legend" id="chart-legend">
+          <span class="legend-chip">Weigh-in</span>
+          <span class="legend-chip">7-day avg</span>
+          <span class="legend-chip">EWMA</span>
+          <span class="legend-chip" id="legend-plan" hidden></span>
+          <span class="legend-chip" id="legend-gap" hidden></span>
+          <span class="legend-chip" id="legend-milestone" hidden></span>
+        </div>
+      </div>
+      <div class="card p2w-card" id="p2w-card" hidden aria-hidden="true">
+        <span id="p2w-headline"></span><span id="p2w-delta"></span><svg id="p2w-spark"></svg>
+      </div>
+      <section id="target-history-section" class="target-history-section" hidden aria-hidden="true">
+        <div class="target-history-grid">
+          <div id="journey-card">
+            <span id="journey-banner-text">No target history yet.</span>
+            <span id="journey-targets-set"></span><span id="journey-achieved"></span>
+            <span id="journey-total-lost"></span><span id="journey-avg-pace"></span>
+            <span id="journey-achieved-sub"></span>
+          </div>
+          <div id="past-targets-card">
+            <table class="th-table" id="past-targets-table">
+              <tbody id="past-targets-tbody">
+                <tr><td class="th-empty">No targets yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Fuel section (collapsed: today kcal budget + week chart) ───────── -->
       <section id="fuel-section" class="fuel-section">
         <div class="target-history-hdr" style="background-color: #1f3b8a">
           <h2>Fuel</h2>
         </div>
-        <!-- Plan-mismatch banner — shown only when consistency === 'mismatch' (AC4) -->
         <div class="fuel-plan-mismatch" id="fuel-plan-mismatch" hidden>
           <span class="fuel-plan-mismatch-dot"></span>
           <span class="fuel-plan-mismatch-text" id="fuel-plan-mismatch-text"></span>
           <button type="button" class="fuel-plan-sync-btn" id="fuel-plan-sync-btn">Sync</button>
         </div>
 
-        <div class="fuel-grid">
-          <!-- Fuel today -->
+        <div class="fuel-grid fuel-grid--compact">
           <div class="card" id="fuel-today-card">
             <div class="fuel-hdr-top">
               <div class="fuel-title-row">
@@ -3630,14 +3664,11 @@
             </div>
           </div>
 
-          <!-- Fuel week -->
           <div class="card" id="fuel-week-card">
             <div class="fuel-hdr-top">
               <h2 style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-tertiary);">Fuel week</h2>
             </div>
-            <div class="fuel-week-note" id="fuel-week-note">
-              Budget follows the plan. Past days use logged workouts; future days use planned sessions.
-            </div>
+            <div class="fuel-week-note" id="fuel-week-note" hidden></div>
             <div class="fuel-week-bars" id="fuel-week-bars"></div>
             <div class="fuel-week-legend">
               <span><b style="background:var(--w-tile);border:1px solid var(--w-line)"></b>Rest</span>
@@ -3648,271 +3679,8 @@
             </div>
           </div>
         </div>
-
-        <!-- Weekly cut review card -->
-        <div class="card" id="cut-review-card" style="margin-top:16px">
-          <div class="fuel-hdr-top">
-            <h2 style="text-transform:uppercase;font-size:11px;letter-spacing:0.06em;color:var(--text-tertiary);">Weekly cut review</h2>
-            <span id="cut-review-badge" class="fuel-deficit-chip" style="display:none"></span>
-          </div>
-
-          <div id="cut-review-loading" style="color:var(--text-tertiary);font-size:13px;padding:12px 0">
-            Loading...
-          </div>
-
-          <div id="cut-review-body" hidden>
-            <div id="cut-review-headline" style="font-size:15px;font-weight:600;margin:10px 0 4px"></div>
-            <div id="cut-review-action" style="font-size:13px;color:var(--text-secondary);margin-bottom:14px"></div>
-
-            <!-- Plateau-specific actions (shown only when rec === 'plateau') -->
-            <div id="cut-review-plateau" hidden style="margin-bottom:14px;padding:10px 12px;background:var(--card-bg,#1e2430);border-radius:8px">
-              <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px">
-                Stalled for <span id="cut-review-plateau-days"></span> days. Two options:
-              </div>
-              <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">
-                1. <a id="cut-review-calibrate-link" href="/weight#fuel-calibrate" style="color:var(--accent,#6c9ef8)">Recalibrate maintenance</a>: updates your estimated maintenance from recent history.
-              </div>
-              <div style="font-size:12px;color:var(--text-secondary)">
-                2. <strong>Diet break</strong>: manually set your deficit to 0 kcal for 14 days in Fuel settings, then resume.
-              </div>
-            </div>
-
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
-              <div>
-                <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.05em">Actual rate</div>
-                <div id="cut-review-actual-rate" style="font-size:20px;font-weight:700;margin-top:2px"></div>
-                <div style="font-size:11px;color:var(--text-tertiary)">kg/wk</div>
-              </div>
-              <div>
-                <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.05em">Plan rate</div>
-                <div id="cut-review-plan-rate" style="font-size:20px;font-weight:700;margin-top:2px"></div>
-                <div style="font-size:11px;color:var(--text-tertiary)">kg/wk</div>
-              </div>
-              <div>
-                <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.05em">Log adherence</div>
-                <div id="cut-review-adherence" style="font-size:20px;font-weight:700;margin-top:2px"></div>
-                <div style="font-size:11px;color:var(--text-tertiary)">% of days logged</div>
-              </div>
-            </div>
-          </div>
-        </div>
       </section>
 
-      <!-- Chart card (Graph) -->
-      <div class="card chart-card">
-        <div id="chart-verdict" class="chart-verdict" hidden>
-          <span id="chart-verdict-pill" class="chart-verdict-pill"></span>
-          <span id="chart-verdict-text" class="chart-verdict-text"></span>
-        </div>
-        <div class="chart-controls">
-          <div class="mode-seg" role="group" aria-label="Chart detail level">
-            <button class="mode-btn active" data-mode="basic" type="button" aria-pressed="true">Basic</button>
-            <button class="mode-btn" data-mode="advanced" type="button" aria-pressed="false">Advanced</button>
-          </div>
-          <div class="range-tabs" role="group" aria-label="Chart date range">
-            <button class="range-tab" data-range="7d" type="button" aria-pressed="false">7D</button>
-            <button class="range-tab active" data-range="30d" type="button" aria-pressed="true">
-              30D
-            </button>
-            <button class="range-tab" data-range="90d" type="button" aria-pressed="false">90D</button>
-            <button class="range-tab" data-range="6m" type="button" aria-pressed="false">6M</button>
-            <button class="range-tab" data-range="1y" type="button" aria-pressed="false">1Y</button>
-            <button class="range-tab" data-range="all" type="button" aria-pressed="false">ALL</button>
-          </div>
-        </div>
-        <div class="chart-container">
-          <div
-            id="chart-loading"
-            style="
-              text-align: center;
-              padding: 40px 0;
-              color: var(--text-tertiary);
-              font-size: 13.5px;
-            "
-          >
-            Loading chart…
-          </div>
-          <div id="weight-chart" hidden></div>
-        </div>
-        <!-- Legend chips -->
-        <div class="chart-legend" id="chart-legend">
-          <span class="legend-chip">
-            <span class="legend-dot" style="background: #9ca3af"></span>Weigh-in
-          </span>
-          <span class="legend-chip">
-            <span class="legend-line" style="background: #2563eb"></span>7-day
-            avg
-          </span>
-          <span class="legend-chip">
-            <span class="legend-line" style="background: #f59e0b"></span>EWMA
-          </span>
-          <span class="legend-chip" id="legend-plan" hidden>
-            <span class="legend-dashed" style="border-color: #16a34a"></span
-            >Plan
-          </span>
-          <span class="legend-chip" id="legend-gap" hidden>
-            <span
-              style="
-                display: inline-block;
-                width: 9px;
-                height: 9px;
-                background: #16a34a;
-                border-radius: 2px;
-                opacity: 0.7;
-              "
-            ></span
-            >ahead
-            <span
-              style="
-                display: inline-block;
-                width: 9px;
-                height: 9px;
-                background: #dc2626;
-                border-radius: 2px;
-                opacity: 0.7;
-                margin-left: 4px;
-              "
-            ></span
-            >behind
-          </span>
-          <span class="legend-chip" id="legend-milestone" hidden>
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 12 12"
-              style="flex-shrink: 0"
-              aria-hidden="true"
-            >
-              <polygon
-                points="6,0 12,6 6,12 0,6"
-                fill="#fff"
-                stroke="#16a34a"
-                stroke-width="2"
-              /></svg
-            >Milestone
-          </span>
-        </div>
-      </div>
-
-      <!-- ── Power-to-weight card (issue #1360) ──────────────────────────────── -->
-      <div class="card p2w-card" id="p2w-card" hidden>
-        <div class="p2w-header">
-          <h2>Power-to-weight</h2>
-          <span class="p2w-basis-chip" id="p2w-basis-chip" title="Power basis: current FTP applied flat across the range">flat FTP</span>
-        </div>
-        <div class="p2w-body">
-          <div class="p2w-stat">
-            <div class="p2w-headline" id="p2w-headline"></div>
-            <div class="p2w-unit">W/kg</div>
-          </div>
-          <svg class="p2w-spark" id="p2w-spark" aria-hidden="true"></svg>
-          <div class="p2w-delta" id="p2w-delta"></div>
-        </div>
-      </div>
-
-      <!-- ── Target History section ──────────────────────────────────────────── -->
-      <section id="target-history-section" class="target-history-section">
-        <div class="target-history-hdr" style="background-color: #1f3b8a">
-          <h2>Target history</h2>
-          <!-- issue #1602 considered a "Manage targets" link to the legacy
-               targets route here, but test_weight_page_frontend__412.py's
-               test_b_manage_target_links_to_weight_targets (AC #461) pins
-               the opposite: that route was deliberately de-linked from this
-               page when it was consolidated into this slide-in panel, and
-               the string must not reappear anywhere in this file (see that
-               test's own assertion). Treated the same as /preferences — the
-               redirect shim stays reachable by URL, not linked from normal
-               flow. See test_s3_remainder__1602.py for the full note. -->
-        </div>
-        <div class="target-history-grid">
-          <!-- Left: Your weight journey (all-time stats + vs past attempts) -->
-          <div class="card" id="journey-card">
-            <h2 style="margin-bottom: 10px">Your weight journey</h2>
-            <div class="journey-banner" id="journey-banner">
-              <i class="ti ti-info-circle" aria-hidden="true"></i>
-              <span class="jb-text" id="journey-banner-text"
-                >No target history yet.</span
-              >
-            </div>
-            <div class="journey-stats4" id="journey-stats">
-              <div class="js4">
-                <div class="js4-l">Targets set</div>
-                <div class="js4-v" id="journey-targets-set">0</div>
-                <div class="js4-s" id="journey-targets-set-sub"></div>
-              </div>
-              <div class="js4">
-                <div class="js4-l">Achieved</div>
-                <div class="js4-v" id="journey-achieved">0</div>
-                <div class="js4-s good" id="journey-achieved-sub"></div>
-              </div>
-              <div class="js4">
-                <div class="js4-l">Total lost</div>
-                <div class="js4-v" id="journey-total-lost">
-                  0<span class="js4-u">kg</span>
-                </div>
-                <div class="js4-s" id="journey-total-lost-sub">
-                  across targets
-                </div>
-              </div>
-              <div class="js4">
-                <div class="js4-l">Avg pace</div>
-                <div class="js4-v" id="journey-avg-pace">
-                  0<span class="js4-u">/wk</span>
-                </div>
-                <div class="js4-s" id="journey-avg-pace-sub">on achieved</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Right: Past targets table with filter pills + export -->
-          <div class="card" id="past-targets-card">
-            <div class="th-card-hdr">
-              <h2 class="th-card-title">Past targets</h2>
-              <button
-                id="export-targets-btn"
-                class="th-export-btn"
-                type="button"
-              >
-                <i class="ti ti-download" style="font-size: 11px" aria-hidden="true"></i> Export
-              </button>
-            </div>
-            <div
-              class="th-filter-row"
-              id="target-filter-pills"
-              role="group"
-              aria-label="Filter past targets"
-            >
-              <button class="th-fb active" data-filter="all" type="button" aria-pressed="true">
-                All
-              </button>
-              <button class="th-fb" data-filter="achieved" type="button" aria-pressed="false">
-                Achieved
-              </button>
-              <button class="th-fb" data-filter="replaced" type="button" aria-pressed="false">
-                Replaced
-              </button>
-              <button class="th-fb" data-filter="abandoned" type="button" aria-pressed="false">
-                Abandoned
-              </button>
-            </div>
-            <div class="th-table-wrap">
-              <table class="th-table" id="past-targets-table">
-                <thead>
-                  <tr>
-                    <th>Status</th>
-                    <th>Target</th>
-                    <th class="r">Result</th>
-                    <th class="r">&#x394;</th>
-                  </tr>
-                </thead>
-                <tbody id="past-targets-tbody"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-        <!-- /.target-history-grid -->
-      </section>
-      <!-- /#target-history-section -->
     </main>
 
     <!-- ── Edit-target slide-in panel ──────────────────────────────────────── -->
@@ -4031,6 +3799,7 @@
     <script src="js/nav.js"></script>
     <script src="js/ui-states.js"></script>
     <script src="js/weight-chart.js"></script>
+    <script src="js/weight-timeline.js"></script>
     <script src="js/lib/weight-current-card.js"></script>
     <script src="js/weight.js"></script>
     <script src="js/fuel.js"></script>

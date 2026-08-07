@@ -291,15 +291,7 @@ def extract_stryd_streams(
 # ── Conversion helper: stored row → Strava-format streams dict ───────────────
 
 def activity_streams_to_strava_dict(stream_row) -> dict:
-    """Convert a stored ActivityStream row to the Strava raw-streams format.
-
-    The returned dict uses Strava key names (e.g. ``"watts"``, ``"heartrate"``)
-    so that ``_downsample_streams`` and ``_compute_derived`` in main.py work
-    unchanged.  The data is already at ≤1 Hz (stored at ingest time) so
-    ``_downsample_streams`` will simply thin it to the UI target (≈120 pts).
-
-    Returns an empty dict when the row is None or carries no channel data.
-    """
+    """Convert a stored ActivityStream row to Strava raw-streams dict format."""
     if stream_row is None:
         return {}
 

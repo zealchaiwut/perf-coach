@@ -79,6 +79,8 @@ def test_db_max_overflow():
     from backend.db import engine
 
     pool = engine.pool
+    # _max_overflow is a private SQLAlchemy attr (verified against 2.0.x).
+    # If this breaks after a dep bump, check QueuePool's public API for max_overflow.
     assert pool._max_overflow == 2, (
         f"Expected max_overflow=2, got {pool._max_overflow}"
     )
@@ -88,6 +90,9 @@ def test_db_pool_pre_ping_and_recycle_unchanged():
     """AC2c: pool_pre_ping=True and pool_recycle=3600 are preserved."""
     from backend.db import engine
 
+    # _pre_ping and _recycle are private SQLAlchemy attrs (verified against 2.0.x).
+    # If these break after a dep bump, look for pool_pre_ping / pool_recycle
+    # equivalents in the public QueuePool or Engine API for that version.
     assert engine.pool._pre_ping is True, "pool_pre_ping must remain True"
     assert engine.pool._recycle == 3600, (
         f"pool_recycle must remain 3600, got {engine.pool._recycle}"
