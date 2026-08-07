@@ -112,10 +112,12 @@ See `docs/worker.md § Live PRD runbook` for full setup instructions.
 > **Required whenever the release includes destructive schema changes — column
 > renames, column drops, or table drops.**
 >
-> This release carries column renames in `weight_entries` (`recorded_date` →
-> `entry_date`) and `habit_logs` (`logged_date` → `log_date`). A code-only
-> rollback against the already-migrated PRD schema is **unsafe**; if a deploy
-> fails after migrations run, a DB restore is required.
+> Before deploying, identify whether this release contains destructive migrations.
+> Check the migration files in `alembic/versions/` that are new since the current
+> PRD head (`DATABASE_URL=$DATABASE_URL_PRD alembic current`) and look for any
+> `op.drop_column`, `op.drop_table`, or `op.alter_column` (renames) calls. If any
+> exist, a code-only rollback against the already-migrated PRD schema is **unsafe**;
+> if a deploy fails after migrations run, a DB restore is required.
 
 Take a snapshot of PRD immediately before deploying:
 
@@ -192,11 +194,11 @@ If smoke tests fail or PRD is unhealthy after deploy:
 > things further if any applied migration renamed or dropped a column the old
 > code still reads.
 >
-> **Column renames are specifically unsafe.** For example, this release renamed
-> `weight_entries.recorded_date` → `entry_date` and `habit_logs.logged_date` →
-> `log_date`. The old code image references the old column names; running it
-> against the migrated schema will produce 500 errors or silent data corruption,
-> not a clean rollback.
+> **Destructive migrations are specifically unsafe to roll back via code-only
+> rollback.** Column drops, column renames, or table drops mean the old code image
+> references columns or tables that no longer exist (or have been renamed). Running
+> the old image against the migrated schema will produce 500 errors or silent data
+> corruption, not a clean rollback.
 
 **Decision tree:**
 

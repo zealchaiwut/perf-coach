@@ -31,6 +31,14 @@
 #   Stryd credential encryption (all services — required for /api/stryd/connect):
 #   STRYD_FERNET_KEY         — generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 #
+#   OAuth token encryption (all services — required for /api/strava/* and /api/google/*):
+#   OAUTH_FERNET_KEY         — generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+#                              separate from STRYD_FERNET_KEY so each can rotate independently
+#                              NOTE: declaring this var here does NOT set the value (sync: false);
+#                              the actual key must be set manually in the Render dashboard for
+#                              each service before deploying — the alembic upgrade head
+#                              preDeployCommand will hard-fail if OAUTH_FERNET_KEY is unset.
+#
 #   Google OAuth (all services — required for /api/google/connect):
 #   GOOGLE_CLIENT_ID         — from https://console.cloud.google.com/apis/credentials
 #   GOOGLE_CLIENT_SECRET     — from https://console.cloud.google.com/apis/credentials
@@ -83,6 +91,8 @@ services:
         sync: false  # set via Render dashboard — full callback URL for this service
       - key: STRYD_FERNET_KEY
         sync: false  # set via Render dashboard — see top of file
+      - key: OAUTH_FERNET_KEY
+        sync: false  # set via Render dashboard — see top of file; required before alembic upgrade
       - key: GOOGLE_CLIENT_ID
         sync: false  # set via Render dashboard — see top of file
       - key: GOOGLE_CLIENT_SECRET
@@ -139,6 +149,8 @@ services:
         sync: false  # set via Render dashboard — full callback URL for this service
       - key: STRYD_FERNET_KEY
         sync: false  # set via Render dashboard — see top of file
+      - key: OAUTH_FERNET_KEY
+        sync: false  # set via Render dashboard — see top of file; required before alembic upgrade
       - key: GOOGLE_CLIENT_ID
         sync: false  # set via Render dashboard — see top of file
       - key: GOOGLE_CLIENT_SECRET

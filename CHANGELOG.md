@@ -1,5 +1,10 @@
 # Changelog
 
+## Sprint 132 — PRD deploy-blocker fixes (render.yaml secret, release-doc rollback guidance)
+
+- #1734: add `OAUTH_FERNET_KEY` to `render.yaml` for both `perf-coach-uat` and `perf-coach-prd` with `sync: false` — the OAuth-token encryption key (shipped in #1702, separate from `STRYD_FERNET_KEY`) was undeclared, so the `alembic upgrade head` preDeployCommand hard-failed on deploy. The key value must still be set manually in the Render dashboard per service; the secrets comment block now documents it alongside the Fernet key generation command
+- #1735: make `docs/release-process.md` rollback guidance release-agnostic — Step 3c (pre-deploy snapshot) and Step 7 (rollback) no longer name specific column renames from a past release; they instead tell operators to inspect the new `alembic/versions/` migrations against the current PRD head for `op.drop_column` / `op.drop_table` / `op.alter_column` (rename) calls and treat any as destructive/unsafe for code-only rollback
+
 ## Sprint 130.1 — pre-PRD review hardening (security, LLM policy, migrations, session/weight fixes)
 
 - #1702: encrypt Strava and Google OAuth tokens at rest — `strava_tokens` and `google_oauth_credentials` now store `access_token_encrypted` / `refresh_token_encrypted` (Fernet via new `OAUTH_FERNET_KEY`, separate from `STRYD_FERNET_KEY` so keys rotate independently). New `encrypt_oauth_token` / `decrypt_oauth_token` in `crypto.py`; `strava.py`, `google.py`, and the `_upsert_*` writers encrypt on write and decrypt on read. Migration `b1be92b4c4ff`; `OAUTH_FERNET_KEY` must be set in Render before applying
