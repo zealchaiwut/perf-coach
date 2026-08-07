@@ -55,6 +55,54 @@
     biceps: '#22c55e', triceps: '#10b981', core: '#eab308', oblique: '#facc15',
     grip: '#64748b',
   };
+  var BODY_PARTS = Object.keys(PART_COLORS);
+  // Keep in sync with backend/services/plan_body_parts.py PLAN_BODY_PART_ALIASES.
+  var PART_ALIASES = {
+    quads: 'quad', quadriceps: 'quad',
+    glutes: 'glute', gluteus: 'glute',
+    hamstrings: 'hamstring',
+    calves: 'calf', achilles: 'calf',
+    hips: 'hip',
+    'hip flexor': 'hip_flexor', 'hip flexors': 'hip_flexor', hip_flexors: 'hip_flexor',
+    shoulders: 'shoulder', delts: 'shoulder', deltoids: 'shoulder',
+    obliques: 'oblique',
+    abs: 'core', abdominals: 'core',
+    traps: 'trapezius',
+    pecs: 'chest', pectorals: 'chest', pectoral: 'chest',
+    back: 'upper_back', lats: 'upper_back',
+    arms: 'biceps', arm: 'biceps',
+    forearms: 'grip', forearm: 'grip',
+  };
+  BODY_PARTS.forEach(function (k) { PART_ALIASES[k] = k; });
+
+  function normalizeBodyPart(raw) {
+    if (raw == null) return null;
+    var key = String(raw).trim().toLowerCase().replace(/-/g, '_');
+    key = key.replace(/\s+/g, ' ');
+    if (PART_ALIASES[key]) return PART_ALIASES[key];
+    var under = key.replace(/ /g, '_');
+    if (PART_ALIASES[under]) return PART_ALIASES[under];
+    var spaced = key.replace(/_/g, ' ');
+    if (PART_ALIASES[spaced]) return PART_ALIASES[spaced];
+    return null;
+  }
+
+  /** Merge [{part,ratio}] through aliases; null if empty/invalid structure. */
+  function normalizeBodyPartsList(parts) {
+    if (!Array.isArray(parts) || !parts.length) return null;
+    var merged = {};
+    for (var i = 0; i < parts.length; i++) {
+      var p = parts[i];
+      if (!p || typeof p !== 'object') return null;
+      var canon = normalizeBodyPart(p.part);
+      var ratio = Number(p.ratio);
+      if (!canon || !isFinite(ratio) || ratio <= 0) return null;
+      merged[canon] = (merged[canon] || 0) + ratio;
+    }
+    return Object.keys(merged).map(function (k) {
+      return { part: k, ratio: Math.round(merged[k] * 10000) / 10000 };
+    });
+  }
   var RUN_PHASES = ['warmup', 'main', 'cooldown', 'mp'];
   var PAT_KINDS = ['run', 'strength'];
 
@@ -242,17 +290,14 @@
     });
     add(focusOk, 'focus_tags — non-empty, each in: ' + FOCUS.join(', '));
 
-    var parts = Array.isArray(obj.body_parts) ? obj.body_parts : null;
+    var rawParts = Array.isArray(obj.body_parts) ? obj.body_parts : null;
+    var parts = rawParts ? normalizeBodyPartsList(rawParts) : null;
     var partSum = 0;
-    var partsOk = !!parts && parts.length > 0 && parts.every(function (p) {
-      if (!p || typeof p !== 'object') return false;
-      var part = typeof p.part === 'string' ? p.part.trim() : '';
-      var ratio = Number(p.ratio);
-      if (!part || !isFinite(ratio) || ratio <= 0) return false;
-      partSum += ratio;
-      return true;
-    });
-    add(partsOk, 'body_parts — [{ part, ratio }] with ratio > 0');
+    var partsOk = !!parts && parts.length > 0;
+    if (partsOk) {
+      parts.forEach(function (p) { partSum += Number(p.ratio); });
+    }
+    add(partsOk, 'body_parts — [{ part, ratio }] known part (plurals ok: glutes→glute), ratio > 0');
     add(partsOk && Math.abs(partSum - 1) <= 0.05, 'body_parts ratios sum ≈ 1.0 (now ' +
       (partsOk ? partSum.toFixed(2) : '—') + ')');
 
@@ -280,7 +325,7 @@
       groups: groups.slice(),
       focus_tags: focus.slice(),
       body_parts: parts.map(function (p) {
-        return { part: String(p.part).trim(), ratio: Math.round(Number(p.ratio) * 100) / 100 };
+        return { part: p.part, ratio: Math.round(Number(p.ratio) * 100) / 100 };
       }),
       tss_weight: tw,
       default_sets: sets,
@@ -418,14 +463,10 @@
   }
 
   function partBarHtml(parts) {
-    var entries = [];
-    (parts || []).forEach(function (p) {
-      if (!p || typeof p !== 'object') return;
-      var key = String(p.part || '');
-      var ratio = Number(p.ratio);
-      if (!key || !isFinite(ratio) || ratio <= 0) return;
-      entries.push([key, ratio]);
-    });
+    var normalized = normalizeBodyPartsList(parts) || [];
+    var entries = normalized.map(function (p) {
+      return [p.part, Number(p.ratio)];
+    }).filter(function (x) { return x[0] && isFinite(x[1]) && x[1] > 0; });
     if (!entries.length) {
       return '<span class="tinybar" title="No body parts"></span>';
     }
@@ -932,7 +973,9 @@
     var n = Number(pick.n);
     if (!isFinite(n) || Math.floor(n) !== n || n < 1) return false;
     if (!Array.isArray(pick.from_tags) || !pick.from_tags.length) return false;
-    return pick.from_tags.every(function (t) { return typeof t === 'string' && t.trim(); });
+    return pick.from_tags.every(function (t) {
+      return typeof t === 'string' && GROUPS.indexOf(t) !== -1;
+    });
   }
 
   function validateRecipe(kind, recipe) {
@@ -1403,8 +1446,37 @@
     };
   }
 
-  function triggerJsonDownload(filename, data) {
-    var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  function strengthPatternTemplateExample() {
+    return {
+      kind: 'strength',
+      subtype: 'full',
+      duration_min_lo: 30,
+      duration_min_hi: 75,
+      name: 'Full-body strength (band recipe)',
+      priority: 20,
+      active: true,
+      recipe: {
+        intent_template: 'Full-body strength',
+        notes_template: null,
+        focus_bias: { primary_tag: 'full', primary: 0.7, accessory: 0.3 },
+        bands: [
+          {
+            duration_min_lo: 30,
+            duration_min_hi: 75,
+            groups: [
+              { key: 'warmup', pick: { n: 2, from_tags: ['warmup'] } },
+              { key: 'main', pick: { n: 2, from_tags: ['heavy_compound'] } },
+              { key: 'accessories', pick: { n: 2, from_tags: ['accessories'] } },
+              { key: 'cooldown', pick: { n: 1, from_tags: ['cooldown'] } },
+            ],
+          },
+        ],
+      },
+    };
+  }
+
+  function triggerTextDownload(filename, text, mime) {
+    var blob = new Blob([text], { type: mime || 'text/plain;charset=utf-8' });
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = filename;
@@ -1414,94 +1486,148 @@
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
   }
 
-  function downloadExercisesJson() {
+  /** LLM paste prompt: template + allowed vocab + current catalog for Bulk import. */
+  function buildPlanLibraryLlmPrompt(catalog) {
+    var stamp = ((catalog && catalog.exported_at) || '').slice(0, 10) || 'catalog';
+    var payload = {
+      version: (catalog && catalog.version) || 1,
+      exported_at: (catalog && catalog.exported_at) || null,
+      exercises: (catalog && catalog.exercises) || [],
+      patterns: (catalog && catalog.patterns) || [],
+    };
+    var lines = [
+      '# Plan library — Claude bulk-edit prompt',
+      '',
+      'You are editing the perf-coach **plan library** (exercise pool + session patterns).',
+      '',
+      '## How to return your answer',
+      '',
+      '1. Reply with a **single JSON object** (no markdown fences unless the chat UI needs them).',
+      '2. Shape:',
+      '```json',
+      '{',
+      '  "exercises": [ /* exercise objects */ ],',
+      '  "patterns": [ /* pattern objects */ ]',
+      '}',
+      '```',
+      '3. You may omit `exercises` or `patterns` if unchanged; include only rows you add or change.',
+      '4. Paste that JSON into Admin → Plan library → **Bulk import JSON**.',
+      '   Upsert matches exercises by **name**, patterns by **kind + subtype + name**. Omit ids.',
+      '',
+      '## Allowed vocabularies (invalid values are rejected on import)',
+      '',
+      '- **groups** (exercise `groups[]` and strength recipe `pick.from_tags[]`): ' + GROUPS.join(', '),
+      '- **focus_tags** / focus_bias.primary_tag: ' + FOCUS.join(', '),
+      '- **body_parts[].part** (canonical): ' + BODY_PARTS.join(', '),
+      '  Plurals / aliases also accepted and normalized: glutes→glute, calves→calf, quads→quad, hamstrings→hamstring, hips→hip, shoulders→shoulder, abs→core, traps→trapezius, pecs→chest, back→upper_back, arms→biceps, …',
+      '- **run recipe blocks[].phase**: ' + RUN_PHASES.join(', '),
+      '- **pattern kind**: ' + PAT_KINDS.join(', '),
+      '',
+      '## Exercise rules',
+      '',
+      '- `groups` and `focus_tags`: non-empty arrays; every value from the allow-lists above.',
+      '- `body_parts`: non-empty `[{ "part", "ratio" }]`; ratios > 0 and sum ≈ 1.0 (±0.05). Prefer singular canonical keys; plurals are remapped on import.',
+      '- `default_sets`: integer 1–12; `default_reps` / `default_load`: non-empty strings.',
+      '- `tss_weight`: number with 0 < n ≤ 3; `active`: boolean (default true).',
+      '',
+      '### Exercise template',
+      '```json',
+      JSON.stringify(exerciseTemplateExample(), null, 2),
+      '```',
+      '',
+      '## Pattern rules',
+      '',
+      '- `kind` is `run` or `strength`; `subtype` + `name` required.',
+      '- Run recipes: `blocks` with phases + `duration_share` summing ≈ 1.0.',
+      '- Strength recipes: `groups` and/or `bands` of pick groups; `from_tags` must be valid **groups**.',
+      '',
+      '### Run pattern template',
+      '```json',
+      JSON.stringify(patternTemplateExample(), null, 2),
+      '```',
+      '',
+      '### Strength pattern template',
+      '```json',
+      JSON.stringify(strengthPatternTemplateExample(), null, 2),
+      '```',
+      '',
+      '## Current catalog (reference — export ' + stamp + ')',
+      '',
+      'Use this as context. Prefer editing existing names over inventing duplicates.',
+      '```json',
+      JSON.stringify(payload, null, 2),
+      '```',
+      '',
+    ];
+    return lines.join('\n');
+  }
+
+  function downloadLlmPrompt() {
     api('/api/admin/plan-library/export').then(function (res) {
       if (!res.ok || !res.data) {
         alert((res.data && res.data.detail) || 'Download failed');
         return;
       }
       var stamp = (res.data.exported_at || '').slice(0, 10) || 'catalog';
-      triggerJsonDownload('plan-exercises-' + stamp + '.json', {
-        version: res.data.version || 1,
-        scope: 'exercises',
-        exported_at: res.data.exported_at || null,
-        instructions:
-          'Ask Claude to return JSON with an exercises array (same fields as example). ' +
-          'Upsert matches by name. Omit ids. Keep groups/focus_tags from the allowed sets; body_parts ratios ≈ 1.0.',
-        example: exerciseTemplateExample(),
-        exercises: res.data.exercises || [],
-      });
+      triggerTextDownload(
+        'plan-library-llm-prompt-' + stamp + '.md',
+        buildPlanLibraryLlmPrompt(res.data),
+        'text/markdown;charset=utf-8'
+      );
     }).catch(function () { alert('Download failed'); });
   }
 
-  function downloadPatternsJson() {
-    api('/api/admin/plan-library/export').then(function (res) {
-      if (!res.ok || !res.data) {
-        alert((res.data && res.data.detail) || 'Download failed');
-        return;
-      }
-      var stamp = (res.data.exported_at || '').slice(0, 10) || 'catalog';
-      triggerJsonDownload('plan-patterns-' + stamp + '.json', {
-        version: res.data.version || 1,
-        scope: 'patterns',
-        exported_at: res.data.exported_at || null,
-        instructions:
-          'Ask Claude to return JSON with a patterns array (same fields as example). ' +
-          'Upsert matches by kind + subtype + name. Omit ids. Run recipes use blocks; strength recipes use bands and/or groups.',
-        example: patternTemplateExample(),
-        patterns: res.data.patterns || [],
+  /** Normalize paste/file JSON into { exercises, patterns } for bulk import. */
+  function normalizeImportBundle(parsed) {
+    var exercises = [];
+    var patterns = [];
+    if (Array.isArray(parsed)) {
+      // Bare array: infer by shape (pattern has kind+subtype+recipe).
+      parsed.forEach(function (row) {
+        if (!row || typeof row !== 'object') return;
+        if (row.kind && row.subtype && row.recipe) patterns.push(row);
+        else if (row.name) exercises.push(row);
       });
-    }).catch(function () { alert('Download failed'); });
-  }
-
-  var _importScope = 'exercises';
-
-  /** Normalize paste/file JSON into a list of row objects for the active scope. */
-  function normalizeImportItems(parsed, scope) {
-    if (Array.isArray(parsed)) return parsed;
-    if (!parsed || typeof parsed !== 'object') return [];
-    if (scope === 'patterns') {
-      if (Array.isArray(parsed.patterns)) return parsed.patterns;
-      if (parsed.catalog && Array.isArray(parsed.catalog.patterns)) {
-        return parsed.catalog.patterns;
+      return { exercises: exercises, patterns: patterns };
+    }
+    if (!parsed || typeof parsed !== 'object') {
+      return { exercises: [], patterns: [] };
+    }
+    if (Array.isArray(parsed.exercises)) exercises = parsed.exercises.slice();
+    else if (parsed.catalog && Array.isArray(parsed.catalog.exercises)) {
+      exercises = parsed.catalog.exercises.slice();
+    }
+    if (Array.isArray(parsed.patterns)) patterns = parsed.patterns.slice();
+    else if (parsed.catalog && Array.isArray(parsed.catalog.patterns)) {
+      patterns = parsed.catalog.patterns.slice();
+    }
+    // Single pattern / exercise object (no wrapper arrays)
+    if (!exercises.length && !patterns.length) {
+      if (parsed.kind && parsed.subtype && parsed.recipe) patterns = [parsed];
+      else if (parsed.name && (parsed.groups || parsed.body_parts || parsed.focus_tags)) {
+        exercises = [parsed];
+      } else if (parsed.name && !parsed.kind) {
+        exercises = [parsed];
       }
-      // Single pattern object (has kind + subtype + recipe)
-      if (parsed.kind && parsed.subtype && parsed.recipe) return [parsed];
-      return [];
     }
-    if (Array.isArray(parsed.exercises)) return parsed.exercises;
-    if (parsed.catalog && Array.isArray(parsed.catalog.exercises)) {
-      return parsed.catalog.exercises;
-    }
-    // Single exercise object
-    if (parsed.name && (parsed.groups || parsed.body_parts || parsed.focus_tags)) {
-      return [parsed];
-    }
-    if (parsed.name && !parsed.patterns && !parsed.exercises) return [parsed];
-    return [];
+    return { exercises: exercises, patterns: patterns };
   }
 
-  function openImportModal(scope) {
-    _importScope = scope === 'patterns' ? 'patterns' : 'exercises';
+  function openImportModal() {
     var el = document.getElementById('import-modal');
     var title = document.getElementById('import-title');
     var help = document.getElementById('import-help');
     var ta = document.getElementById('import-json');
-    if (_importScope === 'patterns') {
-      title.textContent = 'Bulk import patterns';
-      help.innerHTML =
-        'Paste a JSON <strong>array</strong> of patterns, or ' +
-        '<code>{ "patterns": [ … ] }</code>. A single object is fine too. ' +
-        'Upsert matches by <strong>kind + subtype + name</strong>.';
-      ta.placeholder = '[ { "kind": "strength", "subtype": "…", "name": "…" }, … ]';
-    } else {
-      title.textContent = 'Bulk import exercises';
-      help.innerHTML =
-        'Paste a JSON <strong>array</strong> of exercises, or ' +
-        '<code>{ "exercises": [ … ] }</code>. A single object is fine too. ' +
-        'Upsert matches by <strong>name</strong>.';
-      ta.placeholder = '[ { "name": "…" }, { "name": "…" } ]';
-    }
+    title.textContent = 'Bulk import JSON';
+    help.innerHTML =
+      'Paste Claude\'s catalog JSON — ' +
+      '<code>{ "exercises": [ … ], "patterns": [ … ] }</code>. ' +
+      'Either array may be omitted. A bare array or single object is fine too. ' +
+      'Upsert matches exercises by <strong>name</strong>, patterns by ' +
+      '<strong>kind + subtype + name</strong>. Invalid groups / focus_tags / body parts are rejected. ' +
+      'Body-part plurals (glutes, calves, …) are normalized to singular keys.';
+    ta.placeholder =
+      '{ "exercises": [ { "name": "…" } ], "patterns": [ { "kind": "strength", "subtype": "…", "name": "…" } ] }';
     el.hidden = false;
     el.classList.add('open');
     document.getElementById('import-result').textContent = '';
@@ -1512,6 +1638,64 @@
     var el = document.getElementById('import-modal');
     el.classList.remove('open');
     el.hidden = true;
+  }
+
+  function openBodyPartsModal() {
+    var el = document.getElementById('body-parts-modal');
+    var list = document.getElementById('body-parts-list');
+    var meta = document.getElementById('body-parts-result');
+    meta.textContent = '';
+    meta.className = 'import-meta';
+    list.innerHTML = '<p class="fld-hint">Loading…</p>';
+    el.hidden = false;
+    el.classList.add('open');
+    api('/api/admin/plan-library/body-parts').then(function (res) {
+      if (!res.ok || !res.data || !Array.isArray(res.data.parts)) {
+        list.innerHTML = '<p class="fld-hint" style="color:#b91c1c;">Failed to load catalog.</p>';
+        return;
+      }
+      list.innerHTML = res.data.parts.map(function (row) {
+        var aliases = (row.aliases || []).slice().sort();
+        return '<div class="bp-row">' +
+          '<span class="bp-swatch" style="background:' + esc(row.color) + '"></span>' +
+          '<div class="bp-meta">' +
+            '<div class="bp-key">' + esc(row.key) + '</div>' +
+            (aliases.length
+              ? '<div class="bp-aliases">also: ' + aliases.map(esc).join(', ') + '</div>'
+              : '<div class="bp-aliases muted">canonical only</div>') +
+          '</div></div>';
+      }).join('');
+    }).catch(function () {
+      list.innerHTML = '<p class="fld-hint" style="color:#b91c1c;">Failed to load catalog.</p>';
+    });
+  }
+
+  function closeBodyPartsModal() {
+    var el = document.getElementById('body-parts-modal');
+    el.classList.remove('open');
+    el.hidden = true;
+  }
+
+  function runNormalizeBodyParts() {
+    var meta = document.getElementById('body-parts-result');
+    meta.className = 'import-meta';
+    meta.textContent = 'Normalizing pool…';
+    api('/api/admin/plan-library/normalize-body-parts', { method: 'POST' }).then(function (res) {
+      if (!res.ok || !res.data) {
+        meta.className = 'import-meta err';
+        meta.textContent = (res.data && res.data.detail) || 'Normalize failed';
+        return;
+      }
+      meta.className = 'import-meta ok';
+      var errN = (res.data.errors || []).length;
+      meta.textContent =
+        'Updated ' + res.data.updated + ' exercise(s); skipped ' + res.data.skipped +
+        (errN ? ' (' + errN + ' with invalid parts — see server list)' : '') + '.';
+      loadExercises();
+    }).catch(function () {
+      meta.className = 'import-meta err';
+      meta.textContent = 'Normalize failed';
+    });
   }
 
   function runImport() {
@@ -1531,20 +1715,57 @@
       resultEl.textContent = 'Invalid JSON: ' + e.message;
       return;
     }
-    var items = normalizeImportItems(parsed, _importScope);
-    if (!items.length) {
+    var bundle = normalizeImportBundle(parsed);
+    if (!bundle.exercises.length && !bundle.patterns.length) {
       resultEl.className = 'import-meta err';
-      resultEl.textContent = _importScope === 'patterns'
-        ? 'No patterns found — use an array, { "patterns": […] }, or one pattern object.'
-        : 'No exercises found — use an array, { "exercises": […] }, or one exercise object.';
+      resultEl.textContent =
+        'No exercises or patterns found — use { "exercises": […], "patterns": […] }, ' +
+        'a bare array, or one object.';
       return;
     }
+
+    var clientErrors = [];
+    var cleanExercises = [];
+    bundle.exercises.forEach(function (row, i) {
+      var v = validateExerciseDraft(row);
+      if (!v.ok) {
+        var fails = (v.checks || []).filter(function (c) { return !c.ok; })
+          .map(function (c) { return c.label; });
+        clientErrors.push('exercise[' + i + '] ' + (row && row.name ? row.name : '') +
+          ': ' + (fails[0] || 'invalid'));
+        return;
+      }
+      cleanExercises.push(v.body);
+    });
+    var cleanPatterns = [];
+    bundle.patterns.forEach(function (row, i) {
+      var v = validatePatternDraft(row);
+      if (!v.ok) {
+        var fails = (v.checks || []).filter(function (c) { return !c.ok; })
+          .map(function (c) { return c.label; });
+        clientErrors.push('pattern[' + i + '] ' + (row && row.name ? row.name : '') +
+          ': ' + (fails[0] || 'invalid'));
+        return;
+      }
+      cleanPatterns.push(v.body);
+    });
+    if (clientErrors.length) {
+      resultEl.className = 'import-meta err';
+      resultEl.textContent =
+        'Validation failed — fix before import (' + clientErrors.length + '):\n' +
+        clientErrors.slice(0, 12).map(function (e) { return '  · ' + e; }).join('\n') +
+        (clientErrors.length > 12 ? '\n  · …' : '');
+      return;
+    }
+
     var payload = {
-      exercises: _importScope === 'exercises' ? items : [],
-      patterns: _importScope === 'patterns' ? items : [],
+      exercises: cleanExercises,
+      patterns: cleanPatterns,
       mode: document.getElementById('import-upsert').checked ? 'upsert' : 'create',
     };
-    resultEl.textContent = 'Importing ' + items.length + '…';
+    resultEl.textContent =
+      'Importing ' + cleanExercises.length + ' exercise(s), ' +
+      cleanPatterns.length + ' pattern(s)…';
     api('/api/admin/plan-library/import', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1556,14 +1777,17 @@
         return;
       }
       var d = res.data || {};
-      var bucket = _importScope === 'patterns' ? (d.patterns || {}) : (d.exercises || {});
-      var label = _importScope === 'patterns' ? 'Patterns' : 'Exercises';
+      var ex = d.exercises || {};
+      var pat = d.patterns || {};
       var lines = [
-        label + ' — created ' + (bucket.created || 0) +
-          ', updated ' + (bucket.updated || 0) +
-          ', skipped ' + (bucket.skipped || 0),
+        'Exercises — created ' + (ex.created || 0) +
+          ', updated ' + (ex.updated || 0) +
+          ', skipped ' + (ex.skipped || 0),
+        'Patterns — created ' + (pat.created || 0) +
+          ', updated ' + (pat.updated || 0) +
+          ', skipped ' + (pat.skipped || 0),
       ];
-      var errs = bucket.errors || [];
+      var errs = [].concat(ex.errors || [], pat.errors || []);
       if (errs.length) {
         lines.push('Errors (' + errs.length + '):');
         errs.slice(0, 8).forEach(function (e) {
@@ -1573,8 +1797,8 @@
       }
       resultEl.className = errs.length ? 'import-meta err' : 'import-meta ok';
       resultEl.textContent = lines.join('\n');
-      if (_importScope === 'patterns') loadPatterns();
-      else loadExercises();
+      if (cleanExercises.length) loadExercises();
+      if (cleanPatterns.length) loadPatterns();
     }).catch(function () {
       resultEl.className = 'import-meta err';
       resultEl.textContent = 'Import failed';
@@ -1607,14 +1831,20 @@
   });
   document.getElementById('btn-seed').onclick = function () { seed(false); };
   document.getElementById('btn-reset').onclick = function () { seed(true); };
-  document.getElementById('btn-ex-download').onclick = downloadExercisesJson;
-  document.getElementById('btn-ex-import').onclick = function () { openImportModal('exercises'); };
-  document.getElementById('btn-pat-download').onclick = downloadPatternsJson;
-  document.getElementById('btn-pat-import').onclick = function () { openImportModal('patterns'); };
+  document.getElementById('btn-ex-download').onclick = downloadLlmPrompt;
+  document.getElementById('btn-ex-import').onclick = openImportModal;
+  document.getElementById('btn-ex-body-parts').onclick = openBodyPartsModal;
+  document.getElementById('btn-pat-download').onclick = downloadLlmPrompt;
+  document.getElementById('btn-pat-import').onclick = openImportModal;
   document.getElementById('import-cancel').onclick = closeImportModal;
   document.getElementById('import-run').onclick = runImport;
   document.getElementById('import-modal').addEventListener('click', function (e) {
     if (e.target === e.currentTarget) closeImportModal();
+  });
+  document.getElementById('body-parts-cancel').onclick = closeBodyPartsModal;
+  document.getElementById('body-parts-normalize').onclick = runNormalizeBodyParts;
+  document.getElementById('body-parts-modal').addEventListener('click', function (e) {
+    if (e.target === e.currentTarget) closeBodyPartsModal();
   });
   document.getElementById('import-file').addEventListener('change', function (e) {
     var file = e.target.files && e.target.files[0];
@@ -1666,6 +1896,9 @@
     renderExerciseList: renderExerciseList,
     GROUP_SECTION_ORDER: GROUP_SECTION_ORDER,
     PART_COLORS: PART_COLORS,
+    PART_ALIASES: PART_ALIASES,
+    normalizeBodyPart: normalizeBodyPart,
+    normalizeBodyPartsList: normalizeBodyPartsList,
     validateExerciseDraft: validateExerciseDraft,
     unwrapExerciseJson: unwrapExerciseJson,
     parseExerciseEditor: parseExerciseEditor,

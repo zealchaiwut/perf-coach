@@ -48,7 +48,7 @@ def test_strength_lower_focus_bias_prefers_lower_tags():
         rng=rng,
     )
     assert content["exercises"]
-    assert 4 <= len(content["exercises"]) <= 12
+    assert 4 <= len(content["exercises"]) <= 16
     names = {e["name"] for e in content["exercises"]}
     # Seeded lower session should include at least one lower-tagged compound
     lower_names = {
@@ -112,7 +112,9 @@ def test_fill_strength_multi_pick_groups_share_time():
         if len(picks) < 2:
             continue
         mins = [float(p.get("spend_min") or 0) for p in picks]
-        assert min(mins) >= 2.0, f"{g.get('label')}: {mins}"
+        # Warm-up / stretch packs more short movements — allow sub-2 min spends.
+        floor = 1.0 if (g.get("label") or "") in ("Stretch", "Warm-up", "Cooldown") else 2.0
+        assert min(mins) >= floor, f"{g.get('label')}: {mins}"
         assert max(mins) / max(min(mins), 0.1) < 3.0, f"{g.get('label')} skewed: {mins}"
 
 
@@ -427,11 +429,15 @@ def test_strength_50_vs_75_structure_and_finisher():
     assert long_blocks & {"EMOM", "40/20", "Plyometrics"}
     ss1 = [e for e in long["exercises"] if e["block"] == "Superset 1"]
     assert len(ss1) == 3
-    assert 4 <= len(short["exercises"]) <= 12
-    assert 4 <= len(long["exercises"]) <= 12
+    assert 4 <= len(short["exercises"]) <= 16
+    assert 4 <= len(long["exercises"]) <= 16
     # Finisher prescription should mention the format
     fin = [e for e in long["exercises"] if e["block"] in {"EMOM", "40/20", "Plyometrics"}]
-    assert fin
+    assert len(fin) >= 3, f"expected ≥3 finisher exercises, got {len(fin)}"
+    warm = [e for e in long["exercises"] if e["block"] == "Warm-up"]
+    stretch = [e for e in long["exercises"] if e["block"] == "Stretch"]
+    assert len(warm) >= 3, f"expected ≥3 warm-up exercises, got {len(warm)}"
+    assert len(stretch) >= 3, f"expected ≥3 stretch exercises, got {len(stretch)}"
     if fin[0]["block"] == "EMOM":
         assert "EMOM" in (fin[0].get("load") or "")
     if fin[0]["block"] == "40/20":

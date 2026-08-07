@@ -99,7 +99,7 @@ def default_strength_patterns() -> list[dict[str, Any]]:
       ≥90  — same as 70–89 with a bit more finisher share
     """
     g_warmup = {"key": "warmup", "label": "Warm-up", "time_share": 0.12, "tss_share": 0.08,
-                "pick": {"n": 2, "from_tags": ["warmup"]}}
+                "pick": {"n": 3, "from_tags": ["warmup"]}}
     g_heavy = {"key": "heavy_compound", "label": "Heavy compound", "time_share": 0.28, "tss_share": 0.32,
                "pick": {"n": 1, "from_tags": ["heavy_compound"]}}
     g_ss1_2 = {"key": "superset", "label": "Superset 1", "time_share": 0.22, "tss_share": 0.24,
@@ -121,10 +121,10 @@ def default_strength_patterns() -> list[dict[str, Any]]:
         "tss_share": 0.10,
         # Resolved at fill time via rng among these formats.
         "format_choices": ["emom", "40_20", "plyo"],
-        "pick": {"n": 2, "from_tags": ["plyo", "bodyweight", "superset", "emom"]},
+        "pick": {"n": 3, "from_tags": ["plyo", "bodyweight", "superset", "emom"]},
     }
     g_cooldown = {"key": "cooldown", "label": "Stretch", "time_share": 0.08, "tss_share": 0.04,
-                  "pick": {"n": 1, "from_tags": ["cooldown"]}}
+                  "pick": {"n": 3, "from_tags": ["cooldown"]}}
 
     # Renormalize shares is done implicitly by fill (uses shares as relative weights
     # within the active band — they need not sum to 1.0 exactly, but should be close).
@@ -133,11 +133,13 @@ def default_strength_patterns() -> list[dict[str, Any]]:
             "duration_min_lo": 0,
             "duration_min_hi": 54,
             "groups": [
-                {**g_warmup, "time_share": 0.14, "tss_share": 0.10},
+                {**g_warmup, "time_share": 0.14, "tss_share": 0.10,
+                 "pick": {"n": 2, "from_tags": ["warmup"]}},
                 {**g_heavy, "time_share": 0.30, "tss_share": 0.34},
                 {**g_ss1_2, "time_share": 0.24, "tss_share": 0.26},
                 {**g_ss2_2, "time_share": 0.24, "tss_share": 0.26},
-                {**g_cooldown, "time_share": 0.08, "tss_share": 0.04},
+                {**g_cooldown, "time_share": 0.08, "tss_share": 0.04,
+                 "pick": {"n": 2, "from_tags": ["cooldown"]}},
             ],
         },
         {
@@ -155,7 +157,7 @@ def default_strength_patterns() -> list[dict[str, Any]]:
         {
             "duration_min_lo": 70,
             "duration_min_hi": 89,
-            # ≤12 exercises: wu2 + h1 + ss3 + ss2 + acc1 + fin2 + cd1
+            # ~15: wu3 + h1 + ss3 + ss2 + acc1 + fin3 + cd3
             "groups": [
                 {**g_warmup, "time_share": 0.10, "tss_share": 0.06},
                 {**g_heavy, "time_share": 0.18, "tss_share": 0.22},
@@ -170,7 +172,7 @@ def default_strength_patterns() -> list[dict[str, Any]]:
         {
             "duration_min_lo": 90,
             "duration_min_hi": 180,
-            # ≤12: wu2 + h1 + ss3 + ss2 + acc1 + fin2 + cd1 (longer finisher share)
+            # ~16: wu3 + h1 + ss3 + ss2 + acc1 + fin4 + cd3
             "groups": [
                 {**g_warmup, "time_share": 0.10, "tss_share": 0.06},
                 {**g_heavy, "time_share": 0.16, "tss_share": 0.20},
@@ -178,26 +180,34 @@ def default_strength_patterns() -> list[dict[str, Any]]:
                 {**g_ss2_3, "time_share": 0.16, "tss_share": 0.16,
                  "pick": {"n": 2, "from_tags": ["superset"]}},
                 {**g_accessories, "pick": {"n": 1, "from_tags": ["accessories"]}},
-                {**g_finisher, "time_share": 0.14, "tss_share": 0.12},
+                {**g_finisher, "time_share": 0.14, "tss_share": 0.12,
+                 "pick": {"n": 4, "from_tags": ["plyo", "bodyweight", "superset", "emom"]}},
                 {**g_cooldown, "time_share": 0.06, "tss_share": 0.03},
             ],
         },
     ]
 
     groups_light = [
-        {"key": "warmup", "label": "Warm-up", "time_share": 0.15, "tss_share": 0.10, "pick": {"n": 2, "from_tags": ["warmup"]}},
-        {"key": "bodyweight", "label": "Bodyweight", "time_share": 0.28, "tss_share": 0.30, "pick": {"n": 2, "from_tags": ["bodyweight"]}},
-        {"key": "plyo", "label": "Plyometrics", "time_share": 0.22, "tss_share": 0.25, "pick": {"n": 2, "from_tags": ["plyo"]}},
-        {"key": "isometric", "label": "Isometrics", "time_share": 0.22, "tss_share": 0.25, "pick": {"n": 2, "from_tags": ["isometric"]}},
-        {"key": "cooldown", "label": "Stretch", "time_share": 0.13, "tss_share": 0.10, "pick": {"n": 1, "from_tags": ["cooldown"]}},
+        {"key": "warmup", "label": "Warm-up", "time_share": 0.15, "tss_share": 0.10,
+         "pick": {"n": 3, "from_tags": ["warmup"]}},
+        {"key": "bodyweight", "label": "Bodyweight", "time_share": 0.28, "tss_share": 0.30,
+         "pick": {"n": 2, "from_tags": ["bodyweight"]}},
+        {"key": "plyo", "label": "Plyometrics", "time_share": 0.22, "tss_share": 0.25,
+         "pick": {"n": 2, "from_tags": ["plyo"]}},
+        {"key": "isometric", "label": "Isometrics", "time_share": 0.22, "tss_share": 0.25,
+         "pick": {"n": 2, "from_tags": ["isometric"]}},
+        {"key": "cooldown", "label": "Stretch", "time_share": 0.13, "tss_share": 0.10,
+         "pick": {"n": 3, "from_tags": ["cooldown"]}},
     ]
     bands_light = [
         {"duration_min_lo": 0, "duration_min_hi": 54,
          "groups": [
-             {**groups_light[0], "time_share": 0.18},
+             {**groups_light[0], "time_share": 0.18,
+              "pick": {"n": 2, "from_tags": ["warmup"]}},
              {**groups_light[1], "time_share": 0.40, "pick": {"n": 2, "from_tags": ["bodyweight"]}},
              {**groups_light[3], "time_share": 0.28},
-             {**groups_light[4], "time_share": 0.14},
+             {**groups_light[4], "time_share": 0.14,
+              "pick": {"n": 2, "from_tags": ["cooldown"]}},
          ]},
         {"duration_min_lo": 55, "duration_min_hi": 180, "groups": groups_light},
     ]
@@ -275,6 +285,9 @@ def default_exercises() -> list[dict[str, Any]]:
         ex("Dead bug", ["accessories", "bodyweight"], ["core", "full"], [{"part": "core", "ratio": 1.0}], 3, "10", "bodyweight", 0.5),
         ex("Bird dog", ["accessories", "cooldown", "bodyweight"], ["core", "full", "lower"], [{"part": "core", "ratio": 0.5}, {"part": "glute", "ratio": 0.3}, {"part": "lower_back", "ratio": 0.2}], 3, "10", "bodyweight", 0.5),
         ex("World's greatest stretch", ["cooldown"], ["full", "lower"], [{"part": "hip_flexor", "ratio": 0.5}, {"part": "hamstring", "ratio": 0.5}], 1, "5/side", "bodyweight", 0.3),
+        ex("Figure-4 glute stretch", ["cooldown"], ["lower", "full"], [{"part": "glute", "ratio": 1.0}], 1, "45s/side", "bodyweight", 0.3),
+        ex("Standing hamstring stretch", ["cooldown"], ["lower", "full"], [{"part": "hamstring", "ratio": 1.0}], 1, "40s/side", "bodyweight", 0.3),
+        ex("Wall calf stretch", ["cooldown"], ["lower"], [{"part": "calf", "ratio": 1.0}], 1, "40s/side", "bodyweight", 0.3),
         # light-session pool — bodyweight / plyo / isometric only
         ex("Push-up", ["bodyweight", "emom"], ["upper", "full"], [{"part": "chest", "ratio": 0.5}, {"part": "triceps", "ratio": 0.3}, {"part": "core", "ratio": 0.2}], 3, "8-12", "bodyweight", 0.8),
         ex("Glute bridge", ["bodyweight"], ["lower", "full"], [{"part": "glute", "ratio": 0.7}, {"part": "hamstring", "ratio": 0.3}], 3, "12", "bodyweight", 0.7),
