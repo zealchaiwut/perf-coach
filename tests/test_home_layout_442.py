@@ -2,8 +2,8 @@
 
 Home revamp v2 (docs/mocks/home-revamp-v2.html) replaced the original
 single-column v7 layout this file was written against with a two-column
-#home-cols CSS Grid (left: coach/weight-trend/race/performance/readiness,
-right: today's workout/training/week-plan/recent-workouts), fronted by a
+#home-cols of .home-col flex stacks (left: coach/weight-trend/race/
+performance/readiness, right: next-up/training/week-plan/recent), fronted by a
 full-width "This morning" strip (#home-morning) instead of a habits+readiness
 2-up row. The (L2/L3/L10/L11/L12/L13) anchors below have been updated in
 place to describe that layout instead of the retired one; anchor numbering
@@ -29,12 +29,8 @@ AC anchors:
   (L11) HTML: #home-weight-trend (30-day trend/rate/coverage card) supersedes the old
               full-width #home-weight-widget; the quick weigh-in action itself moved
               into #home-morning's weigh-in row (home-morning.js)
-  (L12) HTML: training card (#home-training-card, right column) and performance card
-              (#home-performance-card, left column) are both direct children of
-              #home-cols, each pinned to its column via CSS grid-column
-  (L13) HTML: the sleep card is removed from Home entirely (revamp v2 spec); recent
-              workouts (#home-recent-workouts-card) shares training's column
-              (grid-column: 2), not paired directly beside training in a 2-up row
+  (L12) HTML: training card (right .home-col) and performance card (left .home-col)
+  (L13) HTML: the sleep card is removed; recent workouts shares right .home-col with training
   (L14) CSS: touch targets for habit check circles ≥40px (min-height or height)
   (L15) CSS: touch targets for weight stepper buttons ≥40px (min-height or height)
   (A1) API: /api/home/summary response includes all seven blocks:
@@ -185,36 +181,41 @@ def test_L11_weight_trend_card_supersedes_weight_widget():
     # somewhere — now in home-morning.js.
     assert "/api/weight-entries" in _MORNING_JS, \
         "home-morning.js's weigh-in row must POST /api/weight-entries"
+    # After logging, morning keeps a Logged + Change affordance (not display:none)
+    # until the whole strip is all-done — so weigh-in stays discoverable.
+    assert "hm-w-change" in _MORNING_JS and "_showLoggedSummary" in _MORNING_JS, \
+        "home-morning.js must offer Change after a logged weigh-in"
 
 
 def test_L12_training_and_performance_are_columns_of_home_cols():
-    """Training (#home-training-card) and Performance (#home-performance-card)
-    are both direct children of #home-cols, each pinned to its own column via
-    CSS grid-column (training: right/2, performance: left/1) rather than
-    stacked in linear DOM order."""
+    """Training sits in the right .home-col stack; Performance in the left.
+    Mock-faithful two flex columns (not flat grid-column placement)."""
     assert 'id="home-training-card"' in _HOME_HTML
     assert 'id="home-performance-card"' in _HOME_HTML
+    assert 'home-col--left' in _HOME_HTML and 'home-col--right' in _HOME_HTML
 
-    training_col = re.search(r'#home-training-card\s*\{[^}]*grid-column\s*:\s*(\d+)', _HOME_HTML)
-    perf_col = re.search(r'#home-performance-card\s*\{[^}]*grid-column\s*:\s*(\d+)', _HOME_HTML)
-    assert training_col, "#home-training-card must have a grid-column rule"
-    assert perf_col, "#home-performance-card must have a grid-column rule"
-    assert training_col.group(1) != perf_col.group(1), \
-        "Training and Performance must sit in different #home-cols columns"
+    left_idx = _HOME_HTML.find('home-col--left')
+    right_idx = _HOME_HTML.find('home-col--right')
+    perf_idx = _HOME_HTML.find('id="home-performance-card"')
+    train_idx = _HOME_HTML.find('id="home-training-card"')
+    assert left_idx < perf_idx < right_idx, \
+        "Performance must live inside .home-col--left"
+    assert right_idx < train_idx, \
+        "Training must live inside .home-col--right"
 
 
 def test_L13_sleep_card_removed_recent_workouts_shares_training_column():
     """The sleep card is removed from Home entirely (revamp v2 spec); recent
-    workouts shares training's column (both grid-column: 2 / right side)."""
+    workouts shares the right .home-col with Training."""
     assert 'id="home-sleep-card"' not in _HOME_HTML, \
         "#home-sleep-card must be removed from home.html (revamp v2 spec)"
     assert 'id="home-recent-workouts-card"' in _HOME_HTML
 
-    training_col = re.search(r'#home-training-card\s*\{[^}]*grid-column\s*:\s*(\d+)', _HOME_HTML)
-    recent_col = re.search(r'#home-recent-workouts-card\s*\{[^}]*grid-column\s*:\s*(\d+)', _HOME_HTML)
-    assert training_col and recent_col
-    assert training_col.group(1) == recent_col.group(1), \
-        "#home-recent-workouts-card must share #home-training-card's column"
+    right_idx = _HOME_HTML.find('home-col--right')
+    train_idx = _HOME_HTML.find('id="home-training-card"')
+    recent_idx = _HOME_HTML.find('id="home-recent-workouts-card"')
+    assert right_idx < train_idx < recent_idx, \
+        "#home-recent-workouts-card must share .home-col--right with Training"
 
 
 def test_L2_layout_order_greeting_morning_cols():

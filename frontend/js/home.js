@@ -457,8 +457,9 @@
          GET /api/planned-sessions for the current week, shared across the
          morning session row, Today's workout (NextUpCard), and Week plan —
          per the revamp v2 spec, no widget below fetches its own copy. */
-      var summary = await summaryPromise;
-      var weekDays = await _fetchWeekPlannedSessions();
+      var results = await Promise.all([summaryPromise, _fetchWeekPlannedSessions()]);
+      var summary = results[0];
+      var weekDays = results[1];
 
       /* Readiness tile + training card + recent-workouts + performance
          widget + coach digest (home v2 / revamp v2) */

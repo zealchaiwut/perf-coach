@@ -16,6 +16,7 @@ PGS  = ROOT / "frontend" / "pages"
 
 UI_STATES = (JS / "ui-states.js").read_text()
 HOME_JS   = (JS / "home.js").read_text()
+HOME_WEIGHT_TREND_JS = (JS / "home-weight-trend.js").read_text() if (JS / "home-weight-trend.js").exists() else ""
 WEIGHT_JS = (JS / "weight.js").read_text()
 HABITS_JS = (JS / "habits.js").read_text()
 TRAIN_JS  = (JS / "training.js").read_text()
@@ -130,8 +131,10 @@ def test_home_js_shows_toast_on_save():
 # ── AC-4: Loading helpers used across widgets ─────────────────────────────────
 
 def test_home_js_uses_loading_helper():
-    assert "UIStates.loadingHTML" in HOME_JS or "UIStates.setLoading" in HOME_JS, \
-        "home.js must use UIStates loading helpers"
+    # Home widgets may live in home.js or split modules (e.g. weight trend).
+    home_modules = HOME_JS + HOME_WEIGHT_TREND_JS
+    assert "UIStates.loadingHTML" in home_modules or "UIStates.setLoading" in home_modules, \
+        "home page modules must use UIStates loading helpers"
 
 
 def test_weight_js_uses_loading_helper():

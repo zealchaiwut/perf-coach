@@ -137,8 +137,9 @@
 
     function _paint() {
       var n = _rowsDoneCount();
+      var allDone = n === 3;
       var wrap = host.querySelector('#hm-morning');
-      if (wrap) wrap.classList.toggle('hm-all-done', n === 3);
+      if (wrap) wrap.classList.toggle('hm-all-done', allDone);
       var cnt = host.querySelector('#hm-cnt');
       if (cnt) cnt.textContent = n + ' of 3 done';
       var dots = host.querySelector('#hm-dots');
@@ -147,23 +148,41 @@
           return '<span class="hm-pd' + (i < n ? ' on' : '') + '"></span>';
         }).join('');
       }
-      ['weight', 'session', 'habits'].forEach(function (k) {
+      // Session/habits collapse when done. Weight stays visible with
+      // "Logged · Change" until the whole morning is complete — otherwise
+      // the stepper vanishes and users hunt for it on Weight trend.
+      ['session', 'habits'].forEach(function (k) {
         var row = host.querySelector('.hm-row[data-k="' + k + '"]');
         if (row) row.classList.toggle('hm-row--done', done[k]);
       });
+      var weightRow = host.querySelector('.hm-row[data-k="weight"]');
+      if (weightRow) weightRow.classList.toggle('hm-row--done', allDone && done.weight);
     }
 
     // ── Weigh-in row (ported from home.js's _hwwInitStepper) ──────────────
+
+    function _loggedKgLabel() {
+      if (weightBlock && weightBlock.last_entry_kg != null) {
+        return Number(weightBlock.last_entry_kg).toFixed(1);
+      }
+      if (weightBlock && weightBlock.current_kg != null) {
+        return Number(weightBlock.current_kg).toFixed(1);
+      }
+      return null;
+    }
 
     function _weightRowHtml() {
       var trend = weightBlock && weightBlock.seven_day_avg != null
         ? Number(weightBlock.seven_day_avg).toFixed(1) + ' kg'
         : (weightBlock && weightBlock.current_kg != null ? Number(weightBlock.current_kg).toFixed(1) + ' kg' : '—');
+      var sub = done.weight
+        ? ('logged ' + (_loggedKgLabel() != null ? _loggedKgLabel() + ' kg' : 'today'))
+        : ('trend ' + trend);
       return (
         '<div class="hm-row" data-k="weight">' +
           '<span class="hm-ic hm-ic--weight">&#9878;</span>' +
           '<span class="hm-tx"><span class="hm-t">Weigh in</span>' +
-            '<span class="hm-s">trend ' + esc(trend) + '</span></span>' +
+            '<span class="hm-s">' + esc(sub) + '</span></span>' +
           '<span class="hm-act" id="hm-weight-act"></span>' +
         '</div>'
       );
@@ -172,12 +191,21 @@
     function _wireWeightRow() {
       var actEl = host.querySelector('#hm-weight-act');
       if (!actEl) return;
-      if (done.weight) {
-        actEl.innerHTML = '';
-        return;
-      }
       var prefill = weightBlock && weightBlock.last_entry_kg != null
         ? Number(weightBlock.last_entry_kg).toFixed(1) : '';
+
+      function _showLoggedSummary() {
+        var kg = _loggedKgLabel();
+        actEl.innerHTML =
+          (kg != null ? '<span class="hm-logged">Logged ' + esc(kg) + ' kg</span>' : '') +
+          '<button type="button" class="hm-btn hm-btn--ghost" id="hm-w-change">Change</button>';
+        var changeBtn = actEl.querySelector('#hm-w-change');
+        if (changeBtn) {
+          changeBtn.addEventListener('click', function () {
+            _renderStepper(kg != null ? parseFloat(kg) : (prefill !== '' ? parseFloat(prefill) : null));
+          });
+        }
+      }
 
       function _renderStepper(currentVal) {
         actEl.innerHTML =
@@ -245,7 +273,13 @@
               logBtn.disabled = false;
               return;
             }
+            if (!weightBlock) weightBlock = {};
+            weightBlock.logged_today = true;
+            weightBlock.last_entry_kg = val;
             done.weight = true;
+            var subEl = host.querySelector('.hm-row[data-k="weight"] .hm-s');
+            if (subEl) subEl.textContent = 'logged ' + val.toFixed(1) + ' kg';
+            _showLoggedSummary();
             _paint();
             if (ctx.onWeightLogged) ctx.onWeightLogged();
           } catch (_) {
@@ -254,7 +288,11 @@
         });
       }
 
-      _renderStepper(prefill !== '' ? parseFloat(prefill) : null);
+      if (done.weight) {
+        _showLoggedSummary();
+      } else {
+        _renderStepper(prefill !== '' ? parseFloat(prefill) : null);
+      }
     }
 
     // ── Session row ─────────────────────────────────────────────────────

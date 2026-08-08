@@ -44,6 +44,8 @@ _HOME_JS = (_ROOT / "frontend" / "js" / "home.js").read_text()
 _HOME_HTML = (_ROOT / "frontend" / "pages" / "home.html").read_text()
 _STRIP_HABITS_JS = (_ROOT / "frontend" / "js" / "home-strip-habits.js").read_text()
 _RTS_JS = (_ROOT / "frontend" / "js" / "home-readiness-training-sleep.js").read_text()
+_WEIGHT_TREND_JS = (_ROOT / "frontend" / "js" / "home-weight-trend.js").read_text()
+_MORNING_JS = (_ROOT / "frontend" / "js" / "home-morning.js").read_text()
 _NAV_JS = (_ROOT / "frontend" / "js" / "nav.js").read_text()
 
 client = TestClient(app)
@@ -229,7 +231,9 @@ def test_outbound_link_all_habits():
 
 
 def test_outbound_link_open_weight():
-    all_js = _HOME_JS + _STRIP_HABITS_JS + _RTS_JS
+    # Weight outbound link lives in home-weight-trend.js (and morning weigh-in
+    # helpers); scan those modules too after the home layout split.
+    all_js = _HOME_JS + _STRIP_HABITS_JS + _RTS_JS + _WEIGHT_TREND_JS + _MORNING_JS
     assert "'/weight'" in all_js or '"/weight"' in all_js or 'href="/weight"' in all_js or "href='/weight'" in all_js, \
         "home JS modules must contain an 'Open weight' link to /weight"
 

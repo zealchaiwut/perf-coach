@@ -34,6 +34,10 @@ WEIGHT_JS = (JS_DIR / "weight.js").read_text()
 WT_HTML = (PAGES_DIR / "weight-targets.html").read_text() if (PAGES_DIR / "weight-targets.html").exists() else ""
 WT_JS = (JS_DIR / "weight-targets.js").read_text() if (JS_DIR / "weight-targets.js").exists() else ""
 HOME_JS = (JS_DIR / "home.js").read_text() if (JS_DIR / "home.js").exists() else ""
+HOME_WEIGHT_TREND_JS = (
+    (JS_DIR / "home-weight-trend.js").read_text()
+    if (JS_DIR / "home-weight-trend.js").exists() else ""
+)
 
 
 # ── AC1: Mockup desktop file ───────────────────────────────────────────────────
@@ -156,8 +160,9 @@ def test_ac6_home_weight_widget_click_navigates_to_weight():
 
 
 def test_ac6_home_weight_widget_empty_state_links_to_weight():
-    assert 'href="/weight"' in HOME_JS or "href='/weight'" in HOME_JS, \
-        "home.js weight widget empty state must link to /weight (not /weight.html)"
+    # Empty-state /weight link lives in home-weight-trend.js after the split.
+    assert 'href="/weight"' in HOME_WEIGHT_TREND_JS or "href='/weight'" in HOME_WEIGHT_TREND_JS, \
+        "home-weight-trend.js empty state must link to /weight (not /weight.html)"
 
 
 def test_ac6_no_legacy_weight_html_link_in_home():
