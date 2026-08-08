@@ -6,12 +6,6 @@
   <title>Home – perf-coach</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" rel="stylesheet">
-  <!-- gridstack.js: Home dashboard layout engine (see js/home-grid.js). extra
-       css is required for column counts other than 12 (we use 8/6/1). -->
-  <link href="https://cdn.jsdelivr.net/npm/gridstack@10/dist/gridstack.min.css" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/gridstack@10/dist/gridstack-extra.min.css" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/gridstack@10/dist/gridstack-all.js"></script>
-  <link rel="stylesheet" href="css/weight-current-card.css">
   <link rel="stylesheet" href="css/load-readiness-tiles.css?v=20260801a">
   <!-- Shared design tokens (issue: Home anti-pattern audit, re-audit #6) —
        this page used to skip styles.css entirely and re-declare a full
@@ -121,7 +115,8 @@
     .page {
       max-width: 1320px;
       margin: 0 auto;
-      padding: 28px;
+      /* Match mock home-revamp-v2 (14px 24px) so morning + cols share one edge */
+      padding: 14px 24px 46px;
     }
     .greeting { margin-bottom: 22px; }
     .greeting h1 {
@@ -138,32 +133,45 @@
       font-size: 14px;
     }
 
-    /* ---- DASHBOARD GRID (gridstack.js — see js/home-grid.js) ----
-       gridstack packs the widgets (float:false auto-compaction) and sizes each
-       item's height to its content (sizeToContent), driven by the registry in
-       home-grid.js — no hand-placed grid-column/grid-row and no per-breakpoint
-       @media grid rules here anymore. These rules only strip gridstack's own
-       chrome so each widget's existing .card styling shows through unchanged.
-       #body-modifier-guardrail, #strava-stale-banner, and #row-log stay
-       OUTSIDE this grid. */
-    #home-dashboard-grid.grid-stack { margin-bottom: 16px; }
-    #home-dashboard-grid .grid-stack-item-content {
-      background: transparent;
-      border-radius: 20px;
-      overflow: visible;
-      padding: 0;
-      /* No `inset:0` here — gridstack insets the content by its `margin` option
-         (see home-grid.js) to create the gaps between widgets; overriding inset
-         would collapse those gaps. */
-    }
-    /* The widget container fills the item's WIDTH; its height must stay natural
-       (auto) so gridstack's sizeToContent can measure the real content height —
-       forcing height:100% here collapses that measurement to the item's current
-       (often still-empty) height and the content then overflows into its
-       neighbours. */
-    #home-dashboard-grid .grid-stack-item-content > * {
+    /* ---- HOME REVAMP v2: MORNING STRIP + TWO-COLUMN STACKS ----
+       Mock-faithful layout: #home-cols is a 2-col grid of .home-col flex
+       stacks (not a flat grid of 9 cards with shared row tracks — that made
+       Week plan stretch left-column rows and leave blue holes under Race).
+       Mobile ≤900px: .home-col { display:contents } so card `order` still
+       stacks as morning → workout → coach → weight → race → perf →
+       readiness → training → week plan → recent. */
+    #home-morning { margin-bottom: 13px; width: 100%; }
+    #home-cols {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 13px;
+      align-items: start;
       width: 100%;
-      height: auto;
+      margin-bottom: 16px;
+    }
+    .home-col {
+      display: flex;
+      flex-direction: column;
+      gap: 13px;
+      min-width: 0;
+    }
+
+    @media (max-width: 900px) {
+      #home-cols {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .home-col { display: contents; }
+      #home-next-up              { order: 1; }
+      #home-today-rec-card       { order: 2; }
+      #home-weight-trend         { order: 3; }
+      #home-race-card            { order: 4; }
+      #home-performance-card     { order: 5; }
+      #home-top-row-right        { order: 6; }
+      #home-training-card        { order: 7; }
+      #home-brief-week-plan-card { order: 8; }
+      #home-recent-workouts-card { order: 9; }
     }
 
     /* Breakpoint consolidation (redesign pass): was 759px, one of three
@@ -182,10 +190,10 @@
          override above on specificity — restate it so the tighter padding
          actually reaches them. */
       #home-top-row-right,
-      #home-habits-widget,
       #home-training-card,
       #home-recent-workouts-card,
-      #home-weight-widget .card { padding: 12px; }
+      #home-weight-trend,
+      #home-race-card { padding: 12px; }
     }
 
     /* Card affordance: hover lift conveys "this is interactive" (most tiles
@@ -364,31 +372,38 @@
       padding: 16px 4px; line-height: 1.5;
     }
 
-    /* ---- Strava stale sync banner ----
-       Card-treatment matching .bm-guardrail's small-notice pattern
-       (background/border/radius/padding scale) — was bare floating text
-       directly on the page's blue gradient background, which now sits right
-       after the log-today strip (above the dashboard grid) instead of nestled
-       between two large cards, so the lack of a container reads as broken. */
+    /* ---- Strava stale sync banner (home revamp v2: mock's red .alert
+       treatment — a stale sync means every load-derived number on the page
+       below is stale, so this reads as a warning, not a quiet notice). ---- */
     .strava-stale-banner {
       display: flex;
       align-items: center;
-      gap: 8px;
-      background: #fff;
-      border: 1px solid var(--card-border);
+      gap: 11px;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
       border-radius: 12px;
-      padding: 10px 16px;
+      padding: 11px 15px;
       margin-bottom: 14px;
-      font-size: 12.5px;
-      color: #64748b;
+      font-size: 13px;
+      color: #7f1d1d;
     }
-    .strava-stale-banner--syncing { color: #3a4361; font-style: italic; }
+    .strava-stale-banner--syncing { color: #7f1d1d; font-style: italic; }
     .strava-stale-msg { flex: 1; }
-    /* Darkened from Strava's literal brand orange #FC4C02 (3.40:1 on
-       white, fails AA) — re-audit #12. #c93d02 keeps the same hue,
-       clears 5.0:1. */
-    .strava-stale-banner a { color: #c93d02; font-weight: 600; text-decoration: none; }
-    .strava-stale-banner a:hover { text-decoration: underline; }
+    .strava-stale-msg b { font-weight: 700; }
+    .strava-stale-banner button {
+      margin-left: auto;
+      border: 1px solid #fca5a5;
+      background: #fff;
+      color: #b91c1c;
+      border-radius: 8px;
+      padding: 8px 15px;
+      font-family: inherit;
+      font-size: 12.5px;
+      font-weight: 700;
+      cursor: pointer;
+      min-height: 36px;
+    }
+    .strava-stale-banner button:disabled { opacity: 0.6; cursor: default; }
 
     /* ---- BODY-MODIFIER GUARDRAIL WARNING (issue #1161) ----
        Was its own raw-hex orange family (#fff7ed/#fb923c/#c2410c/#7c2d12) —
@@ -703,111 +718,9 @@
     }
   </style>
   <style>
-    /* ---- HABITS WIDGET (home-habits-widget) ---- */
-    #home-habits-widget {
-      background: #fff;
-      border-radius: 20px;
-      border: 1px solid var(--card-border);
-      padding: 20px 22px 16px;
-      display: flex; flex-direction: column; gap: 0;
-    }
-    #home-habits-widget .card-head { margin-bottom: 14px; }
-    .hw-body {
-      display: flex;
-      align-items: flex-start;
-      gap: 16px;
-    }
-    .hw-wheel-wrap {
-      flex-shrink: 0;
-    }
-    .hw-wheel-svg {
-      width: 118px; height: 118px;
-      display: block;
-    }
-    .hw-habits-list {
-      flex: 1;
-      display: flex; flex-direction: column; gap: 8px;
-    }
-    .hw-habit-row {
-      display: flex; align-items: center; gap: 10px;
-    }
-    .hw-habit-icon { flex-shrink: 0; }
-    .hw-habit-info {
-      flex: 1; min-width: 0;
-      display: flex; align-items: center; gap: 5px;
-    }
-    .hw-habit-name {
-      font-size: 13px; font-weight: 500;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    .hw-flame-badge {
-      font-size: 12px; font-weight: 600; flex-shrink: 0;
-    }
-    .hw-week-count {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 11px; font-weight: 600;
-      color: var(--text-tertiary);
-      flex-shrink: 0;
-    }
-    /* Today-check circle (44px — WCAG 2.5.5 minimum tap target; was 40px) */
-    .hw-check-circle {
-      width: 44px; height: 44px; border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      cursor: pointer; flex-shrink: 0;
-      font-size: 15px; font-weight: 700;
-      transition: background 0.12s, color 0.12s, border-color 0.12s;
-      -webkit-tap-highlight-color: transparent;
-    }
-    .hw-check-circle:focus-visible {
-      outline: 2px solid var(--link);
-      outline-offset: 2px;
-    }
-    .hw-check-circle--empty {
-      border: 2px dashed var(--text-tertiary);
-      color: var(--text-tertiary);
-      background: transparent;
-    }
-    .hw-check-circle--done {
-      background: var(--success);
-      color: #fff;
-      border: 2px solid var(--success);
-    }
-    /* Auto-fill progress marker (non-interactive) */
-    .hw-autofill-marker {
-      width: 32px; height: 32px; border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 18px; color: var(--text-tertiary);
-      flex-shrink: 0; cursor: default;
-    }
-    /* Footer */
-    .hw-footer {
-      margin-top: 12px;
-      padding-top: 10px;
-      border-top: 1px solid var(--card-divider);
-      font-size: 11.5px;
-      color: var(--text-tertiary);
-    }
-    .hw-footer a { color: var(--link); text-decoration: none; }
-    .hw-footer a:hover { text-decoration: underline; }
-    .hw-all-link { font-size: 12px; color: var(--link); text-decoration: none; }
-    .hw-all-link:hover { text-decoration: underline; }
-    .hw-empty {
-      font-size: 13.5px; color: var(--text-secondary);
-      padding: 12px 0; line-height: 1.5;
-    }
-    .hw-empty a { color: var(--link); text-decoration: none; }
-
-    /* Habit icon chip */
-    .habit-icon-chip {
-      display: inline-flex; align-items: center; justify-content: center;
-      border-radius: 8px; color: #fff; flex-shrink: 0;
-    }
-
-    /* Was 880px — consolidated onto 1024 (see Breakpoint consolidation
-       note in the first <style> block above). */
-    @media (max-width: 1024px) {
-      .hw-wheel-svg { width: 88px; height: 88px; }
-    }
+    /* Habits wheel widget CSS removed (home revamp v2) — habits live in
+       #home-morning now. Tap-target / :focus-visible notes that used to live
+       on .hw-check-circle apply to .hm-hab in the THIS MORNING block below. */
   </style>
   <style>
     /* ---- READINESS TILE (compact, home-top-row-right) ---- */
@@ -981,10 +894,8 @@
       padding: 16px 4px;
     }
 
-    /* ---- SLEEP CARD RIGHT (home-sleep-card) ---- */
-    #home-sleep-card {
-      min-height: 160px;
-    }
+    /* ---- SLEEP CARD removed (home revamp v2) — was #home-sleep-card.
+       Sleep metrics still surface via Readiness factors / Log metrics. ---- */
 
     /* ---- RESPONSIVE ----
        (Orphaned #row-training-sleep rule removed here — that id doesn't
@@ -997,55 +908,14 @@
 
     /* Load tiles (CTL/ATL/TSB/ACWR) — styles in css/load-readiness-tiles.css */
 
-    /* ---- TODAY'S PLAN CARD (compact, beside Performance — the forward-looking
-       focal point: top row, right next to Readiness. See js/home-today-plan-card.js.
-       This slot used to hold the retrospective Recent Workouts list; that moved
-       down to its own full-width #home-recent-workouts-card, below Training,
-       so "what should I do today" is what a visitor sees first, not "what did
-       I already do".) ---- */
-    #home-today-plan-card,
+    /* Today's plan card (#home-today-plan-card) removed in home revamp v2 —
+       replaced by #home-next-up (shared NextUpCard) + morning session row.
+       Performance card styles retained below. */
     #home-performance-card {
       display: flex;
       flex-direction: column;
       box-sizing: border-box;
     }
-    /* Loading skeleton / error text reuse .brief-skeleton / .brief-unavail
-       (defined further down, shared with the other daily-brief cards) — no
-       new CSS needed for those states. */
-    .tfc-list { display: flex; flex-direction: column; gap: 12px; flex: 1 1 auto; justify-content: center; }
-    .tfc-sess { padding: 2px 0; }
-    .tfc-sess-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
-    /* TSS badge reuses the same real-vs-estimated convention as the Plan
-       tab's .pl-tss-badge (frontend/js/training-plan.js _sessionTssBadge) —
-       "~" prefix + a lighter tint when the number is a formula estimate for a
-       still-open session, not yet a logged actual. */
-    .tfc-tss {
-      font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700;
-      color: var(--text-secondary); background: var(--chip-bg);
-      padding: 2px 8px; border-radius: 999px;
-    }
-    .tfc-tss.is-estimated { color: var(--text-tertiary); font-weight: 600; }
-    .tfc-name {
-      font-size: 15px; font-weight: 700; color: var(--text-primary);
-      letter-spacing: -0.01em; line-height: 1.3;
-    }
-    .tfc-meta { font-size: 12px; color: var(--text-secondary); margin-top: 3px; }
-    /* Empty states (rest day / no plan at all / load error) — same centered
-       icon+message layout as the neighboring Readiness tile's own empty
-       state (.rd-tile-empty), so the top row reads as one family when either
-       card is empty. */
-    .tfc-empty {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: flex-start;
-      justify-content: center;
-      gap: 8px;
-    }
-    .tfc-empty-icon { font-size: 24px; color: var(--text-tertiary); }
-    .tfc-empty-msg { margin: 0; font-size: 13.5px; color: var(--text-secondary); line-height: 1.5; }
-    .tfc-empty-msg a { color: var(--link); text-decoration: none; font-weight: 600; }
-    .tfc-empty-sub { margin: 0; font-size: 12px; color: var(--text-tertiary); line-height: 1.5; }
 
     /* ---- RECENT WORKOUTS CARD (retrospective — below Training) ---- */
     #home-recent-workouts-card { padding: 20px 22px; }
@@ -1578,6 +1448,252 @@
     }
     .hpl-noplan a { color: var(--text-primary); font-weight: 700; text-decoration: underline; }
   </style>
+  <style>
+    /* ==== HOME REVAMP v2 ==== */
+
+    /* ---- THIS MORNING (home-morning.js) ---- */
+    .hm-morning {
+      background: #fff; border-radius: 15px; overflow: hidden;
+      border: 1px solid var(--card-border);
+      box-shadow: 0 3px 14px rgba(10,16,50,.08);
+    }
+    .hm-head {
+      display: flex; align-items: center; gap: 11px; padding: 11px 18px;
+      background: linear-gradient(90deg, #eafaf0, #f4fbf7);
+      border-bottom: 1px solid #d6f0df;
+    }
+    .hm-k {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+      color: #15803d;
+    }
+    .hm-prog { margin-left: auto; display: flex; align-items: center; gap: 9px; }
+    .hm-pdots { display: inline-flex; gap: 4px; }
+    .hm-pd { width: 8px; height: 8px; border-radius: 99px; background: #cdead9; display: inline-block; }
+    .hm-pd.on { background: #16a34a; }
+    .hm-cnt { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 700; color: #15803d; }
+    .hm-rows { display: flex; flex-direction: column; padding: 0 18px; }
+    .hm-row {
+      display: flex; align-items: center; gap: 13px; padding: 13px 0;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .hm-row:last-child { border-bottom: none; }
+    /* Collapse completed rows (mock: .mrow.done { display:none }) */
+    .hm-row--done { display: none; }
+    .hm-ic {
+      width: 32px; height: 32px; border-radius: 10px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; font-size: 14px;
+      background: var(--chip-bg);
+    }
+    .hm-ic--weight { background: #fed7aa; color: #9a3412; }
+    .hm-ic--session { background: #dbe2fd; color: #3b4bb8; }
+    .hm-ic--habits { background: #bbf7d0; color: #15803d; }
+    .hm-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+    .hm-t { font-size: 14px; font-weight: 650; color: var(--text-primary); }
+    .hm-s { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--text-tertiary); margin-top: 3px; display: block; }
+    .hm-act { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .hm-step {
+      display: flex; align-items: center; gap: 0; border: 1px solid var(--card-border);
+      border-radius: 9px; overflow: hidden; background: #f7f9fd;
+    }
+    .hm-step button {
+      width: 44px; min-height: 44px; background: var(--chip-bg); border: 0; cursor: pointer;
+      font-size: 15px; font-family: inherit; color: var(--text-secondary);
+    }
+    .hm-step button:focus-visible,
+    .hm-btn:focus-visible,
+    .hm-hab:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+    .hm-step input {
+      width: 64px; border: 0; background: transparent; text-align: center;
+      font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 700;
+      padding: 6px 2px; color: var(--text-primary); -moz-appearance: textfield;
+    }
+    .hm-step input::-webkit-outer-spin-button, .hm-step input::-webkit-inner-spin-button { -webkit-appearance: none; }
+    .hm-btn {
+      border: 0; border-radius: 9px; padding: 9px 15px; font-family: inherit;
+      font-size: 12.5px; font-weight: 700; cursor: pointer; white-space: nowrap;
+      min-height: 44px;
+    }
+    .hm-btn--lime { background: #cff245; color: #1b2340; }
+    .hm-btn--blue { background: #4f6ef7; color: #fff; }
+    .hm-btn--ghost { background: #fff; color: var(--text-secondary); border: 1px solid var(--card-border); font-weight: 600; }
+    .hm-btn--s { padding: 5px 10px; font-size: 11.5px; min-height: 32px; }
+    .hm-habs { display: flex; gap: 6px; flex-wrap: wrap; }
+    .hm-hab {
+      display: inline-flex; align-items: center; gap: 5px; border: 1.5px solid var(--card-border);
+      border-radius: 999px; background: #fff; padding: 5px 11px 5px 7px; font-size: 11.5px;
+      font-weight: 600; color: var(--text-secondary); cursor: pointer; font-family: inherit;
+      text-decoration: none; min-height: 44px;
+    }
+    .hm-hab-bx {
+      width: 15px; height: 15px; border-radius: 50%; border: 1.5px solid var(--card-border);
+      display: inline-flex; align-items: center; justify-content: center; font-size: 9px; color: transparent;
+    }
+    .hm-hab--on { background: var(--green-soft, #dcfce7); border-color: #16a34a; color: #15803d; }
+    .hm-hab--on .hm-hab-bx { background: #16a34a; border-color: #16a34a; color: #fff; }
+    .hm-hab--more { border-style: dashed; color: var(--link); }
+    .hm-logged {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px; font-weight: 600; color: #15803d;
+      margin-right: 4px;
+    }
+    .hm-done {
+      display: none; align-items: center; gap: 10px; padding: 12px 18px;
+      border-top: 1px solid #d6f0df; font-size: 13px; color: #15803d;
+      background: #f4fbf7;
+    }
+    .hm-done-ic {
+      width: 22px; height: 22px; border-radius: 50%; background: #16a34a; color: #fff;
+      display: inline-flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0;
+    }
+    .hm-morning.hm-all-done .hm-done { display: flex; }
+
+    @media (max-width: 640px) {
+      .hm-row { flex-wrap: wrap; }
+      .hm-act { width: 100%; justify-content: stretch; }
+      .hm-act .hm-step { flex: 1; }
+      .hm-act .hm-btn { flex: 1; }
+      .hm-habs { width: 100%; }
+      .hm-hab { flex: 1; justify-content: center; }
+    }
+
+    /* ---- WEIGHT TREND (home-weight-trend.js) ---- */
+    .hwt-loading, .hwt-empty { font-size: 13.5px; color: var(--text-secondary); padding: 8px 0; line-height: 1.5; }
+    .hwt-empty a { color: var(--link); text-decoration: none; }
+    .hwt-top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+    .hwt-big { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
+    .hwt-unit { font-size: 12px; color: var(--text-tertiary); }
+    .hwt-rate { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+    .hwt-rate small { font-weight: 500; color: var(--text-tertiary); }
+    .hwt-rate--mute { color: var(--text-tertiary); font-weight: 500; }
+    .hwt-cov {
+      margin-left: auto; font-size: 10.5px; font-weight: 700; padding: 3px 8px;
+      border-radius: 999px; background: var(--chip-bg); color: var(--text-tertiary);
+    }
+    .hwt-cov--warn { background: var(--amber-soft); color: var(--amber); }
+    .hwt-spark { margin-top: 4px; }
+    .hwt-spark-svg { display: block; }
+    .hwt-foot { font-size: 10.5px; color: var(--text-tertiary); margin-top: 4px; }
+    .hwt-foot a { color: var(--link); text-decoration: none; font-weight: 600; }
+
+    /* ---- RACE (home-race-card.js) ---- */
+    .hrc-loading { font-size: 13.5px; color: var(--text-secondary); padding: 8px 0; }
+    .hrc-empty { padding: 8px 0; }
+    .hrc-empty-sub { font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; }
+    .hrc-empty-cta {
+      display: inline-block; padding: 8px 18px; border-radius: 999px;
+      background: var(--text-primary); color: #fff; font-size: 13px; font-weight: 600;
+      text-decoration: none;
+    }
+    .hrc-race { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+    .hrc-days {
+      width: 54px; height: 54px; border-radius: 12px; background: var(--bg-1); color: #fff;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .hrc-days-n { font-family: 'JetBrains Mono', monospace; font-size: 19px; font-weight: 800; line-height: 1; }
+    .hrc-days-k { font-size: 8.5px; text-transform: uppercase; letter-spacing: .05em; opacity: .85; }
+    .hrc-info-t { font-size: 15px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; }
+    .hrc-info-m { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+    .hrc-stats { display: flex; gap: 10px; flex-wrap: wrap; }
+    .hrc-est { flex: 1; min-width: 80px; background: var(--tile, var(--chip-bg)); border-radius: 10px; padding: 9px 12px; text-align: center; }
+    .hrc-est-k { font-size: 9px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); }
+    .hrc-est-v { font-family: 'JetBrains Mono', monospace; font-size: 17px; font-weight: 700; margin-top: 3px; }
+    .hrc-est-v--ok { color: var(--green); }
+    .hrc-est-s { font-size: 10px; color: var(--text-tertiary); margin-top: 2px; }
+    /* Simple countdown progress (created_at → race date) — no named phases */
+    .hrc-progress { margin-top: 12px; }
+    .hrc-progress-bar {
+      height: 8px; border-radius: 99px; background: var(--chip-bg, #f1f4fa);
+      overflow: hidden;
+    }
+    .hrc-progress-fill {
+      height: 100%; border-radius: 99px;
+      background: linear-gradient(90deg, #4f6ef7, #16a34a);
+      min-width: 0;
+    }
+    .hrc-progress-meta {
+      display: flex; justify-content: space-between; gap: 10px;
+      margin-top: 5px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; font-weight: 600; color: var(--text-tertiary);
+    }
+
+    /* ---- Coach digest — numbered focus rows (unhidden, home revamp v2) ---- */
+    .hc-dg-focus { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+    .hc-dg-focus .hc-focus-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 0; border-top: 1px solid var(--card-divider);
+    }
+    .hc-dg-focus .hc-focus-item:first-child { border-top: 0; padding-top: 0; }
+    .hc-dg-focus .hc-f-p {
+      margin-left: auto; font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; font-weight: 700; color: var(--amber, #d97706);
+      white-space: nowrap;
+    }
+    .hc-dg-focus .hc-f-p.ok,
+    .hc-dg-focus .hc-f-p--ok { color: var(--green, #16a34a); }
+
+    /* Performance tiles side-by-side (home revamp v2).
+       Stacked layout uses border-top on every tile except :first-child —
+       that leftover divider was shoving Speed down when the tiles sit
+       side-by-side. Clear it here and top-align both columns. */
+    .hperf-grid--side {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      align-items: start;
+    }
+    .hperf-grid--side .hperf-tile {
+      border-top: 0;
+      padding-top: 0;
+      padding-bottom: 0;
+    }
+    @media (max-width: 480px) {
+      .hperf-grid--side { grid-template-columns: 1fr; }
+      .hperf-grid--side .hperf-tile {
+        padding: 14px 2px;
+        border-top: 1px solid var(--card-border);
+      }
+      .hperf-grid--side .hperf-tile:first-child {
+        border-top: 0;
+        padding-top: 0;
+      }
+    }
+
+    /* Readiness: TSB+ACWR headline; CTL/ATL behind <details> */
+    .rd-load-tiles--headline .rd-load-headline {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .rd-load-more {
+      margin-top: 10px;
+      border-top: 1px solid var(--card-divider);
+      padding-top: 8px;
+    }
+    .rd-load-more > summary {
+      cursor: pointer;
+      list-style: none;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 32px;
+      user-select: none;
+    }
+    .rd-load-more > summary::-webkit-details-marker { display: none; }
+    .rd-load-more-arrow { font-size: 10px; color: var(--text-tertiary); }
+    .rd-load-more[open] .rd-load-more-arrow { transform: rotate(180deg); }
+    .rd-load-expand {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 10px;
+    }
+  </style>
 </head>
 <body>
 
@@ -1588,51 +1704,39 @@
     <p id="greeting-date"></p>
   </div>
 
-  <!-- Coach Today strip (brief v4) — above the grid -->
-  <div id="home-coach-today-strip" class="hc-strip-wrap"></div>
-
   <!-- Active injury/illness/niggle strip -->
   <div id="home-injury-strip" style="padding:0 16px;"></div>
 
-  <!-- Banners — stay outside the dashboard grid below, in their own full-width
-       block, so they don't have to interrupt a single continuous grid flow. -->
+  <!-- Banners — stay outside the morning strip / column grid below, in their
+       own full-width block. -->
   <div id="body-modifier-guardrail"></div>
   <div id="strava-stale-banner" hidden></div>
 
-  <!-- Dashboard grid — gridstack.js engine (js/home-grid.js). Each widget is a
-       .grid-stack-item wrapping the SAME container id it always used; the
-       page renderers fill those ids unchanged. gridstack owns width + position
-       from home-grid.js's registry
-       (this DOM order = the fixed widget order: Readiness → Today's plan +
-       Performance → Coach digest + Week plan → Training → Recent workouts →
-       Personal records → Habits → Weight → Sleep → Goal) and auto-fits each
-       item's height to content. gs-w is stamped by home-grid.js per
-       breakpoint before init. #body-modifier-guardrail, #strava-stale-banner,
-       and #row-log stay OUTSIDE this grid.
+  <!-- This morning — weigh-in, today's session, habits (home-morning.js). -->
+  <div id="home-morning"></div>
 
-       Today's plan sits in the top row beside Readiness — the forward-looking
-       "what should I do today" focal point (issue: Home today-focal-point
-       UX review). Recent workouts (retrospective) moved below Training to
-       make room for it there; still on the page, just no longer the first
-       thing a visitor sees. -->
-  <div id="home-dashboard-grid" class="grid-stack">
-    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-top-row-right" class="grp-training"></div></div></div>
-    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-today-plan-card" class="card grp-training"></div></div></div>
-    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-performance-card" class="card grp-training"></div></div></div>
-    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-today-rec-card" class="card grp-training"></div></div></div>
-    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-brief-week-plan-card" class="card"></div></div></div>
-    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-training-card" class="card grp-training"></div></div></div>
-    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-recent-workouts-card" class="card grp-training"></div></div></div>
-    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-perf-container"></div></div></div>
-    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-habits-widget" class="card grp-training"></div></div></div>
-    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-weight-widget"></div></div></div>
-    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-sleep-card" class="card sleep-card"></div></div></div>
-    <div class="grid-stack-item"><div class="grid-stack-item-content"><div id="home-goal-card" class="card"></div></div></div>
+  <!-- Two-column body (home revamp v2 — two .home-col flex stacks inside a
+       2-col grid, matching docs/mocks/home-revamp-v2.html). Right column
+       leads with #home-next-up. Mobile uses display:contents + order (see
+       ≤900px rules). Banners and #row-log stay outside. -->
+  <div id="home-cols">
+    <div class="home-col home-col--left">
+      <div id="home-today-rec-card" class="card grp-training"></div>
+      <div id="home-weight-trend" class="card grp-weight"></div>
+      <div id="home-race-card" class="card"></div>
+      <div id="home-performance-card" class="card grp-training"></div>
+      <div id="home-top-row-right" class="grp-training"></div>
+    </div>
+    <div class="home-col home-col--right">
+      <div id="home-next-up"></div>
+      <div id="home-training-card" class="card grp-training"></div>
+      <div id="home-brief-week-plan-card" class="card"></div>
+      <div id="home-recent-workouts-card" class="card grp-training"></div>
+    </div>
   </div>
 
-  <!-- Fast-log form: hidden by default, revealed by the Today · Coach strip's
-       "Log metrics" CTA (frontend/js/home-coach-strip.js's data-hc-log-metrics
-       click handler removes the attribute). -->
+  <!-- Fast-log form: hidden by default, revealed by Readiness's
+       "Log metrics →" (data-rd-log-metrics in home-readiness-training-sleep.js). -->
   <div id="row-log" style="margin-top:16px;" hidden>
     <section id="fast-log-section" class="card fast-log">
       <div class="card-head">
@@ -1766,17 +1870,16 @@
 <script src="js/nav.js?v=20260718nav1"></script>
 <script src="js/ui-states.js"></script>
 <script src="js/wheel-helpers.js"></script>
-<script src="js/home-strip-habits.js?v=20260718brief6"></script>
 <script src="js/lib/load-readiness-tiles.js?v=20260801a"></script>
 <script src="js/coach-brief.js?v=20260718brief9"></script>
-<script src="js/home-coach-strip.js?v=20260718brief8"></script>
-<script src="js/home-coach-digest.js?v=20260718brief5"></script>
-<script src="js/home-readiness-training-sleep.js?v=20260801focal1"></script>
-<script src="js/lib/weight-current-card.js"></script>
-<script src="js/home-brief-week-plan-card.js?v=20260717z"></script>
-<script src="js/home-today-plan-card.js?v=20260801focal1"></script>
-<script src="js/home.js?v=20260801focal1"></script>
-<script src="js/home-grid.js?v=20260801focal1"></script>
+<script src="js/home-coach-digest.js?v=20260808revamp3"></script>
+<script src="js/home-readiness-training-sleep.js?v=20260808revamp3"></script>
+<script src="js/home-brief-week-plan-card.js?v=20260808revamp3"></script>
+<script src="js/lib/next-up-card.js?v=20260808revamp3"></script>
+<script src="js/home-morning.js?v=20260808revamp3"></script>
+<script src="js/home-weight-trend.js?v=20260808revamp3"></script>
+<script src="js/home-race-card.js?v=20260808racebar1"></script>
+<script src="js/home.js?v=20260808revamp3"></script>
 
 <script src="js/injury-log.js"></script>
 <script>

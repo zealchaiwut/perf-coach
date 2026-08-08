@@ -10,7 +10,9 @@ AC anchors:
              vs_last_week, daily_load with 7 entries)
   (F1)  HTML: #home-top-row-right exists for readiness tile
   (F2)  HTML: #home-training-card container present (or JS creates it)
-  (F3)  HTML: #home-sleep-card container present (or JS creates it)
+  (F3)  HTML: #home-sleep-card container is REMOVED (home revamp v2 spec dropped
+              the sleep card from Home entirely); renderSleepCard itself is kept
+              (F6) but now safely no-ops when its host is absent
   (F4)  JS: readiness tile render function exists
   (F5)  JS: training card render function exists
   (F6)  JS: sleep card render function exists
@@ -284,11 +286,13 @@ def test_F2_html_has_training_card_container():
     assert 'id="home-training-card"' in _HOME_HTML
 
 
-# ── F3: HTML has sleep card container ─────────────────────────────────────────
+# ── F3: sleep card container removed from Home (revamp v2) ────────────────────
 
-def test_F3_html_has_sleep_card_container():
-    """home.html must contain a container element for the sleep card."""
-    assert 'id="home-sleep-card"' in _HOME_HTML
+def test_F3_html_sleep_card_container_removed():
+    """home.html must NOT contain a container for the sleep card — home
+    revamp v2 dropped the sleep card from Home entirely (weight/sleep signal
+    moved to #home-weight-trend + #home-morning's weigh-in row instead)."""
+    assert 'id="home-sleep-card"' not in _HOME_HTML
 
 
 # ── F4: JS has readiness tile render function ─────────────────────────────────

@@ -129,10 +129,11 @@ def test_e_weight_feature_doc_has_known_limitations():
 # ── (f) home.js weight widget links to /weight ───────────────────────────────
 
 def test_f_home_js_weight_widget_links_to_weight():
-    home_js = (JS_DIR / "home.js").read_text()
-    assert 'href="/weight"' in home_js or "href='/weight'" in home_js or \
-           '"/weight"' in home_js, \
-        "home.js weight widget must include a link to /weight"
+    # Weight widget moved to home-weight-trend.js in the home layout split.
+    weight_trend_js = (JS_DIR / "home-weight-trend.js").read_text()
+    assert 'href="/weight"' in weight_trend_js or "href='/weight'" in weight_trend_js or \
+           '"/weight"' in weight_trend_js, \
+        "home-weight-trend.js must include a link to /weight"
 
 
 def test_f_home_js_no_weight_html_reference_in_weight_card():

@@ -1,24 +1,36 @@
 """TDD tests for issue #442: Assemble home layout with gradient design language.
 
+Home revamp v2 (docs/mocks/home-revamp-v2.html) replaced the original
+single-column v7 layout this file was written against with a two-column
+#home-cols of .home-col flex stacks (left: coach/weight-trend/race/
+performance/readiness, right: next-up/training/week-plan/recent), fronted by a
+full-width "This morning" strip (#home-morning) instead of a habits+readiness
+2-up row. The (L2/L3/L10/L11/L12/L13) anchors below have been updated in
+place to describe that layout instead of the retired one; anchor numbering
+is kept stable so this docstring still matches its own test names.
+
 AC anchors:
   (L1) HTML: page renders on blue gradient background (radial-gradient token in body CSS)
-  (L2) HTML: layout order is greeting → log-today strip → habits/readiness 2-up →
-             weight full-width → training full-width → performance + [workouts+sleep] 2-up
-  (L3) CSS: container max-width ~760px and centered
+  (L2) HTML: layout order is greeting → banners → This morning (#home-morning) →
+             two-column grid (#home-cols)
+  (L3) CSS: container max-width fits the two-column grid (~1300px, matching the mock)
   (L4) CSS: two-up grids collapse to single column at viewports ≤640px
   (L5) JS: page fires exactly ONE fetch of /api/home/summary (no duplicate calls)
-  (L6) JS: all main widget blocks (readiness, habits, weight, training, performance,
-           recent_workouts, sleep) are populated from the single summary response
+  (L6) JS: all main widget blocks still sourced from the single summary response
+           (readiness, habits, weight, training_week, recent_workouts, sleep) are
+           consumed by SOME home JS module (habits/weight now live in home-morning.js,
+           not home-strip-habits.js — see the revamp)
   (L7) JS: habit check action fires POST /api/habits/{id}/log (targeted write)
   (L8) JS: weight log action fires POST /api/weight-entries (targeted write)
   (L9) CSS: gradient tokens (--bg-1, --bg-2) used via var() — no per-page redefinitions
             of raw hex values for the gradient background
-  (L10) HTML: #home-top-row contains habits widget (left) and readiness tile (right)
-  (L11) HTML: #home-weight-widget is a direct child of .page (full-width)
-  (L12) HTML: training card container (#home-training-card or #home-training-row) comes
-              BEFORE the performance card container (#perf-card or #home-perf-sleep-row)
-  (L13) HTML: #home-sleep-card is in the same column / row group as recent-workouts
-              (right side), NOT paired directly with training card
+  (L10) HTML: #home-morning (weigh-in + today's session + habits) is a full-width
+              section directly above #home-cols
+  (L11) HTML: #home-weight-trend (30-day trend/rate/coverage card) supersedes the old
+              full-width #home-weight-widget; the quick weigh-in action itself moved
+              into #home-morning's weigh-in row (home-morning.js)
+  (L12) HTML: training card (right .home-col) and performance card (left .home-col)
+  (L13) HTML: the sleep card is removed; recent workouts shares right .home-col with training
   (L14) CSS: touch targets for habit check circles ≥40px (min-height or height)
   (L15) CSS: touch targets for weight stepper buttons ≥40px (min-height or height)
   (A1) API: /api/home/summary response includes all seven blocks:
@@ -42,11 +54,19 @@ _HOME_HTML = (_ROOT / "frontend" / "pages" / "home.html").read_text()
 _HOME_JS = (_ROOT / "frontend" / "js" / "home.js").read_text()
 _STRIP_JS = (_ROOT / "frontend" / "js" / "home-strip-habits.js").read_text()
 _RTS_JS = (_ROOT / "frontend" / "js" / "home-readiness-training-sleep.js").read_text()
+_MORNING_JS = (_ROOT / "frontend" / "js" / "home-morning.js").read_text()
 
 
 def _all_home_js():
-    """Concatenated text of all home JS modules."""
-    return _HOME_JS + "\n" + _STRIP_JS + "\n" + _RTS_JS
+    """Concatenated text of all home JS modules.
+
+    Includes home-morning.js (home revamp v2) — habits and weight consumption
+    moved there from home-strip-habits.js / home.js's old weight widget; the
+    latter file is left in the concatenation too since it's still shipped
+    (just no longer wired into home.html) and other anchors in this file
+    still reference it.
+    """
+    return _HOME_JS + "\n" + _STRIP_JS + "\n" + _RTS_JS + "\n" + _MORNING_JS
 
 
 # ── Layout / CSS checks ────────────────────────────────────────────────────────
@@ -58,19 +78,20 @@ def test_L1_body_uses_gradient_background():
         "gradient tokens --bg-1 / --bg-2 not defined in page"
 
 
-def test_L3_container_max_width_760():
-    """Page container must have max-width ≤ 800px (targeting ~760px)."""
-    # Extract max-width values from .page rule
-    matches = re.findall(r'max-width\s*:\s*(\d+)px', _HOME_HTML)
-    # There may be multiple matches; find the one applied to .page
-    # We look for a .page block with max-width <= 800
+def test_L3_container_max_width_fits_two_column_grid():
+    """Page container must be wide enough for the #home-cols two-column grid
+    (revamp v2's mock uses max-width:1300px for its two-column `main`;
+    home.html's own .page targets the same ballpark, ~1200-1400px)."""
     page_block = re.search(
         r'\.page\s*\{[^}]*max-width\s*:\s*(\d+)px',
         _HOME_HTML, re.DOTALL
     )
     assert page_block, ".page rule with max-width not found in home.html"
     mw = int(page_block.group(1))
-    assert mw <= 800, f".page max-width is {mw}px — should be ~760px (≤800px)"
+    assert 1200 <= mw <= 1400, (
+        f".page max-width is {mw}px — should be ~1300px to fit the "
+        "#home-cols two-column grid (see docs/mocks/home-revamp-v2.html)"
+    )
 
 
 def test_L4_two_up_grids_collapse_at_640px():
@@ -96,23 +117,26 @@ def test_L9_gradient_tokens_used_via_var():
 
 
 def test_L14_habit_check_circles_touch_target():
-    """Habit check circles must have ≥40px touch target."""
-    # Look for hw-check-circle with min-height or height >= 40px
-    circle_rules = re.findall(
-        r'\.hw-check-circle\s*\{[^}]+\}',
+    """Morning habit chips must have ≥40px touch target (home revamp v2)."""
+    chip_rules = re.findall(
+        r'\.hm-hab\s*\{[^}]+\}',
         _HOME_HTML, re.DOTALL
     )
-    combined = " ".join(circle_rules)
+    combined = " ".join(chip_rules)
     sizes = re.findall(r'(?:min-height|height|width)\s*:\s*(\d+)px', combined)
     assert any(int(s) >= 40 for s in sizes), \
-        f"Habit check circles lack ≥40px touch target; found sizes: {sizes}"
+        f"Morning habit chips lack ≥40px touch target; found sizes: {sizes}"
 
 
 def test_L15_weight_stepper_buttons_touch_target():
-    """Weight stepper buttons must have ≥40px touch target (min-height)."""
-    # hww-step-btn or fm-step-btn
+    """Morning weigh-in stepper buttons must have ≥40px touch target."""
     btn_rules = re.findall(
-        r'\.(?:hww-step-btn|fm-step-btn|hw-step-btn)\s*\{[^}]+\}',
+        r'\.hm-step\s+button\s*\{[^}]+\}',
+        _HOME_HTML, re.DOTALL
+    )
+    # Also accept the fast-log stepper (row-log) which remains on the page.
+    btn_rules += re.findall(
+        r'\.fm-step-btn\s*\{[^}]+\}',
         _HOME_HTML, re.DOTALL
     )
     combined = " ".join(btn_rules)
@@ -123,64 +147,91 @@ def test_L15_weight_stepper_buttons_touch_target():
 
 # ── HTML structure checks ──────────────────────────────────────────────────────
 
-def test_L10_home_top_row_contains_habits_and_readiness():
-    """#home-top-row must contain both habits widget and readiness tile containers."""
-    assert 'id="home-top-row"' in _HOME_HTML or "id='home-top-row'" in _HOME_HTML
-    assert 'id="home-habits-widget"' in _HOME_HTML
-    assert 'id="home-top-row-right"' in _HOME_HTML
+def test_L10_home_morning_is_full_width_above_cols():
+    """#home-morning (weigh-in + today's session + habits) must be a
+    full-width section that comes directly before #home-cols."""
+    assert 'id="home-morning"' in _HOME_HTML
+    assert 'id="home-cols"' in _HOME_HTML
+    morning_pos = _HOME_HTML.find('id="home-morning"')
+    cols_pos = _HOME_HTML.find('id="home-cols"')
+    assert morning_pos < cols_pos, "#home-morning must come before #home-cols"
 
-    # Verify both are children of home-top-row (check their document order relative)
-    top_row_pos = _HOME_HTML.find('id="home-top-row"')
-    habits_pos = _HOME_HTML.find('id="home-habits-widget"')
-    readiness_pos = _HOME_HTML.find('id="home-top-row-right"')
-    assert top_row_pos < habits_pos, "#home-habits-widget must come after #home-top-row"
-    assert top_row_pos < readiness_pos, "#home-top-row-right must come after #home-top-row"
-
-
-def test_L11_weight_widget_present():
-    """#home-weight-widget must be present in home.html."""
-    assert 'id="home-weight-widget"' in _HOME_HTML
-
-
-def test_L12_training_before_performance():
-    """Training card container must appear BEFORE performance card container in DOM."""
-    training_pos = _HOME_HTML.find('id="home-training-card"')
-    # performance card is dynamically inserted; check for perf-card or home-perf-row
-    perf_pos = max(
-        _HOME_HTML.find('id="home-perf-sleep-row"'),
-        _HOME_HTML.find('id="home-lower-row"'),
-        _HOME_HTML.find('id="row-2"'),  # legacy fallback
-    )
-    assert training_pos >= 0, "#home-training-card not found in home.html"
-    assert perf_pos >= 0, "Performance row container not found in home.html"
-    assert training_pos < perf_pos, \
-        "#home-training-card must appear BEFORE performance container in DOM"
+    # home-morning.js must actually render the three asks into that host.
+    assert "HomeMorning" in _MORNING_JS.replace("window.HomeMorning", "") or \
+        "window.HomeMorning" in _MORNING_JS, \
+        "home-morning.js must expose window.HomeMorning"
+    for row_key in ("weight", "session", "habits"):
+        assert row_key in _MORNING_JS, \
+            f"home-morning.js must render a '{row_key}' row"
 
 
-def test_L13_sleep_and_workouts_in_right_column():
-    """Sleep card and workouts card containers must be in the right-side column."""
-    assert 'id="home-sleep-card"' in _HOME_HTML
-    # Both sleep and recent workouts should be in same parent container
-    # Check they're not adjacent to training card in a 2-column layout
-    training_pos = _HOME_HTML.find('id="home-training-card"')
-    sleep_pos = _HOME_HTML.find('id="home-sleep-card"')
-    # Sleep must come AFTER training in document order (it's in the lower row)
-    assert sleep_pos > training_pos, \
-        "#home-sleep-card must come after #home-training-card in DOM"
+def test_L11_weight_trend_card_supersedes_weight_widget():
+    """The old full-width #home-weight-widget is retired; #home-weight-trend
+    (trend/rate/coverage card) takes its slot in #home-cols, and the actual
+    quick weigh-in action moved into #home-morning's weigh-in row."""
+    assert 'id="home-weight-widget"' not in _HOME_HTML, \
+        "#home-weight-widget must be removed — superseded by #home-weight-trend " \
+        "+ #home-morning's weigh-in row"
+    assert 'id="home-weight-trend"' in _HOME_HTML
+
+    weight_trend_js = (_ROOT / "frontend" / "js" / "home-weight-trend.js").read_text()
+    assert "window.HomeWeightTrend" in weight_trend_js
+
+    # The quick weigh-in action (POST /api/weight-entries) must still exist
+    # somewhere — now in home-morning.js.
+    assert "/api/weight-entries" in _MORNING_JS, \
+        "home-morning.js's weigh-in row must POST /api/weight-entries"
+    # After logging, morning keeps a Logged + Change affordance (not display:none)
+    # until the whole strip is all-done — so weigh-in stays discoverable.
+    assert "hm-w-change" in _MORNING_JS and "_showLoggedSummary" in _MORNING_JS, \
+        "home-morning.js must offer Change after a logged weigh-in"
 
 
-def test_L2_layout_order_greeting_strip_toprow_weight_training():
-    """Key layout elements must appear in correct v7 order."""
+def test_L12_training_and_performance_are_columns_of_home_cols():
+    """Training sits in the right .home-col stack; Performance in the left.
+    Mock-faithful two flex columns (not flat grid-column placement)."""
+    assert 'id="home-training-card"' in _HOME_HTML
+    assert 'id="home-performance-card"' in _HOME_HTML
+    assert 'home-col--left' in _HOME_HTML and 'home-col--right' in _HOME_HTML
+
+    left_idx = _HOME_HTML.find('home-col--left')
+    right_idx = _HOME_HTML.find('home-col--right')
+    perf_idx = _HOME_HTML.find('id="home-performance-card"')
+    train_idx = _HOME_HTML.find('id="home-training-card"')
+    assert left_idx < perf_idx < right_idx, \
+        "Performance must live inside .home-col--left"
+    assert right_idx < train_idx, \
+        "Training must live inside .home-col--right"
+
+
+def test_L13_sleep_card_removed_recent_workouts_shares_training_column():
+    """The sleep card is removed from Home entirely (revamp v2 spec); recent
+    workouts shares the right .home-col with Training."""
+    assert 'id="home-sleep-card"' not in _HOME_HTML, \
+        "#home-sleep-card must be removed from home.html (revamp v2 spec)"
+    assert 'id="home-recent-workouts-card"' in _HOME_HTML
+
+    right_idx = _HOME_HTML.find('home-col--right')
+    train_idx = _HOME_HTML.find('id="home-training-card"')
+    recent_idx = _HOME_HTML.find('id="home-recent-workouts-card"')
+    assert right_idx < train_idx < recent_idx, \
+        "#home-recent-workouts-card must share .home-col--right with Training"
+
+
+def test_L2_layout_order_greeting_morning_cols():
+    """Key layout elements must appear in the revamp v2 order: greeting →
+    This morning (#home-morning) → two-column grid (#home-cols), with
+    training/performance/weight-trend all living inside #home-cols."""
     greeting_pos = _HOME_HTML.find('id="greeting-text"')
-    strip_pos = _HOME_HTML.find('id="home-log-today-strip"')
-    top_row_pos = _HOME_HTML.find('id="home-top-row"')
-    weight_pos = _HOME_HTML.find('id="home-weight-widget"')
+    morning_pos = _HOME_HTML.find('id="home-morning"')
+    cols_pos = _HOME_HTML.find('id="home-cols"')
+    weight_trend_pos = _HOME_HTML.find('id="home-weight-trend"')
     training_pos = _HOME_HTML.find('id="home-training-card"')
 
-    assert greeting_pos < strip_pos, "Greeting must come before log-today strip"
-    assert strip_pos < top_row_pos, "Log-today strip must come before home-top-row"
-    assert top_row_pos < weight_pos, "home-top-row must come before weight widget"
-    assert weight_pos < training_pos, "weight widget must come before training card"
+    assert greeting_pos < morning_pos, "Greeting must come before #home-morning"
+    assert morning_pos < cols_pos, "#home-morning must come before #home-cols"
+    assert cols_pos < weight_trend_pos, "#home-cols must come before its children (weight trend)"
+    assert cols_pos < training_pos, "#home-cols must come before its children (training)"
 
 
 # ── JS single summary call ─────────────────────────────────────────────────────
@@ -220,12 +271,17 @@ def test_L5_single_summary_fetch_in_home_js():
 
 
 def test_L6_summary_blocks_consumed_by_renderers():
-    """JS renderers must consume named summary blocks (readiness, habits, weight, etc.)."""
+    """JS renderers must consume named summary blocks still used on Home.
+
+    home revamp v2: Endurance/Speed come from GET /api/athletes/{id}/performance
+    (not summary.performance), and the Sleep card host is gone — so those two
+    summary keys are no longer required consumers even if the API still
+    returns them.
+    """
     all_js = _all_home_js()
 
-    # Each block key must appear in the JS as a property access on the summary object
     for block in ("readiness", "habits", "weight", "training_week",
-                  "performance", "recent_workouts", "sleep"):
+                  "recent_workouts"):
         assert re.search(r'summary\.' + block + r'\b', all_js) or \
                re.search(r"summary\['" + block + r"'\]", all_js) or \
                re.search(r'summary\["' + block + r'"\]', all_js), \
@@ -296,9 +352,16 @@ def test_A1_summary_has_all_blocks(client, mock_user):
     """GET /api/home/summary returns all 7 block keys."""
     uid = str(mock_user.id)
     mock_sess = _make_mock_session()
-    with patch("backend.main.resolve_user", return_value=mock_user), \
-         patch("backend.main.Session", return_value=mock_sess):
-        resp = client.get(f"/api/home/summary?user_id={uid}")
+
+    async def _fake_resolve():
+        return mock_user
+
+    app.dependency_overrides[resolve_user] = _fake_resolve
+    try:
+        with patch("backend.main.Session", return_value=mock_sess):
+            resp = client.get(f"/api/home/summary?user_id={uid}")
+    finally:
+        app.dependency_overrides.pop(resolve_user, None)
     assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text[:200]}"
     data = resp.json()
     for key in ("habits", "weight", "readiness", "training_week",
@@ -309,18 +372,29 @@ def test_A1_summary_has_all_blocks(client, mock_user):
 def test_A2_habit_log_post_is_valid_endpoint(client, mock_user):
     """POST /api/habits/{id}/log endpoint is reachable (not 405)."""
     habit_id = str(uuid.uuid4())
-    with patch("backend.main.resolve_user", return_value=mock_user):
+
+    async def _fake_resolve():
+        return mock_user
+
+    app.dependency_overrides[resolve_user] = _fake_resolve
+    try:
         resp = client.post(
             f"/api/habits/{habit_id}/log",
             json={"logged_date": str(date.today())},
         )
+    finally:
+        app.dependency_overrides.pop(resolve_user, None)
     # 404 (habit not found) is fine — we're just verifying the route exists (not 405)
     assert resp.status_code != 405, "POST /api/habits/{id}/log returned 405 — route missing"
 
 
 def test_A3_weight_post_is_valid_endpoint(client, mock_user):
     """POST /api/weight-entries endpoint is reachable (returns 201 or 409, not 404/405)."""
-    with patch("backend.main.resolve_user", return_value=mock_user):
+    async def _fake_resolve():
+        return mock_user
+
+    app.dependency_overrides[resolve_user] = _fake_resolve
+    try:
         resp = client.post(
             "/api/weight-entries",
             json={
@@ -329,6 +403,8 @@ def test_A3_weight_post_is_valid_endpoint(client, mock_user):
                 "entry_date": str(date.today()),
             },
         )
+    finally:
+        app.dependency_overrides.pop(resolve_user, None)
     assert resp.status_code in (201, 409), (
         f"POST /api/weight-entries returned {resp.status_code} — expected 201 or 409"
     )

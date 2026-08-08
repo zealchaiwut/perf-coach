@@ -46,6 +46,15 @@
     return 'lift';
   }
 
+  // Real logged TSS when done/matched; the server-computed estimate
+  // otherwise — same precedence as training-plan.js's _sessionTss. Never
+  // fabricates a number.
+  function _sessionTss(p) {
+    if (p.actual && p.actual.tss != null) return { value: p.actual.tss, estimated: false };
+    if (p.estimated_tss != null) return { value: p.estimated_tss, estimated: true };
+    return null;
+  }
+
   function _sessionMeta(p) {
     var s = p.structure || {};
     if (Array.isArray(s.blocks) && s.blocks.length) {
@@ -131,10 +140,15 @@
         var meta = _sessionMeta(p);
         var name = p.name || '(untitled)';
         if (name.length > 42) name = name.slice(0, 40) + '…';
+        var tss = _sessionTss(p);
+        var tssHtml = tss
+          ? '<span class="hpl-tss">' + (tss.estimated ? '~' : '') + Math.round(tss.value) + '</span>'
+          : '';
         return (
           '<div class="hpl-sess hpl-sess--' + fam + '">' +
             '<div class="hpl-sess-top">' +
               '<span class="hpl-tag hpl-tag--' + fam + '">' + esc(fam) + '</span>' +
+              tssHtml +
             '</div>' +
             '<div class="hpl-name">' + esc(name) + '</div>' +
             (meta ? '<div class="hpl-meta">' + esc(meta) + '</div>' : '') +
@@ -154,39 +168,51 @@
     );
   }
 
-  function render(el) {
+  function _renderDays(el, days) {
+    var todayStr = window.AppCommon.todayISO();
+    var totalPlanned = days.reduce(function (n, d) { return n + (d.planned || []).length; }, 0);
+    // Zero planned sessions across the whole week almost always means no
+    // plan has ever been drafted for this athlete (no A-race set, or a
+    // plan that was never applied) rather than a genuine all-rest week —
+    // say so plainly instead of letting seven "Rest" rows imply the
+    // planner looked at the week and recommended nothing. Matches the
+    // wording already used on the full Plan tab when there's no A race.
+    var notice = !totalPlanned
+      ? '<div class="hpl-noplan">No sessions planned this week. Set a ' +
+          'goal race on <a href="/log#performance">Performance</a> to generate one.</div>'
+      : '';
+    el.innerHTML =
+      '<div class="card-head">' +
+        '<h2 class="ttl"><i class="ti ti-calendar-week"></i>Week plan</h2>' +
+        '<a href="/log#plan">Full plan &#8594;</a>' +
+      '</div>' +
+      notice +
+      '<div class="hpl-list">' +
+        days.map(function (d) { return _dayRowHtml(d, todayStr); }).join('') +
+      '</div>';
+  }
+
+  // `days` — optional, pre-fetched /api/planned-sessions `days` array for the
+  // current Mon–Sun week (home revamp v2: one shared week fetch across the
+  // morning session row, Today's workout, and this card). Falls back to its
+  // own fetch when omitted, so this stays usable standalone.
+  function render(el, days) {
     if (!el) return;
+    if (Array.isArray(days)) {
+      _renderDays(el, days);
+      return;
+    }
+
     renderSkeleton(el);
 
     var monday = _mondayOf(new Date());
     var from = _iso(monday);
     var to = _iso(_addDays(monday, 6));
-    var todayStr = window.AppCommon.todayISO();
 
     fetch('/api/planned-sessions?from=' + from + '&to=' + to)
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
       .then(function (data) {
-        var days = (data && data.days) || [];
-        var totalPlanned = days.reduce(function (n, d) { return n + (d.planned || []).length; }, 0);
-        // Zero planned sessions across the whole week almost always means no
-        // plan has ever been drafted for this athlete (no A-race set, or a
-        // plan that was never applied) rather than a genuine all-rest week —
-        // say so plainly instead of letting seven "Rest" rows imply the
-        // planner looked at the week and recommended nothing. Matches the
-        // wording already used on the full Plan tab when there's no A race.
-        var notice = !totalPlanned
-          ? '<div class="hpl-noplan">No sessions planned this week. Set a ' +
-              'goal race on <a href="/log#performance">Performance</a> to generate one.</div>'
-          : '';
-        el.innerHTML =
-          '<div class="card-head">' +
-            '<h2 class="ttl"><i class="ti ti-calendar-week"></i>Week plan</h2>' +
-            '<a href="/log#plan">Full plan &#8594;</a>' +
-          '</div>' +
-          notice +
-          '<div class="hpl-list">' +
-            days.map(function (d) { return _dayRowHtml(d, todayStr); }).join('') +
-          '</div>';
+        _renderDays(el, (data && data.days) || []);
       })
       .catch(function () {
         renderUnavailable(el);
