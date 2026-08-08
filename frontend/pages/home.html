@@ -1633,14 +1633,31 @@
     .hc-dg-focus .hc-f-p.ok,
     .hc-dg-focus .hc-f-p--ok { color: var(--green, #16a34a); }
 
-    /* Performance tiles side-by-side (home revamp v2) */
+    /* Performance tiles side-by-side (home revamp v2).
+       Stacked layout uses border-top on every tile except :first-child —
+       that leftover divider was shoving Speed down when the tiles sit
+       side-by-side. Clear it here and top-align both columns. */
     .hperf-grid--side {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 10px;
+      align-items: start;
+    }
+    .hperf-grid--side .hperf-tile {
+      border-top: 0;
+      padding-top: 0;
+      padding-bottom: 0;
     }
     @media (max-width: 480px) {
       .hperf-grid--side { grid-template-columns: 1fr; }
+      .hperf-grid--side .hperf-tile {
+        padding: 14px 2px;
+        border-top: 1px solid var(--card-border);
+      }
+      .hperf-grid--side .hperf-tile:first-child {
+        border-top: 0;
+        padding-top: 0;
+      }
     }
 
     /* Readiness: TSB+ACWR headline; CTL/ATL behind <details> */

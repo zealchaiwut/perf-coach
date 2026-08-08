@@ -62,7 +62,11 @@
 
   function render(host) {
     if (!host) return;
-    host.innerHTML = _header() + '<div class="hwt-loading">Loading…</div>';
+    host.innerHTML = _header() + (
+      (window.UIStates && UIStates.loadingHTML)
+        ? UIStates.loadingHTML('Loading…')
+        : '<div class="hwt-loading">Loading…</div>'
+    );
 
     var to = window.AppCommon.todayISO();
     var from = window.AppCommon.addDaysISO(to, -29);
