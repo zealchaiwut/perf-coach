@@ -115,7 +115,8 @@
     .page {
       max-width: 1320px;
       margin: 0 auto;
-      padding: 28px;
+      /* Match mock home-revamp-v2 (14px 24px) so morning + cols share one edge */
+      padding: 14px 24px 46px;
     }
     .greeting { margin-bottom: 22px; }
     .greeting h1 {
@@ -132,38 +133,36 @@
       font-size: 14px;
     }
 
-    /* ---- HOME REVAMP v2: MORNING STRIP + TWO-COLUMN GRID ----
-       Replaces gridstack.js (see former js/home-grid.js, deleted) with a
-       plain CSS Grid: 9 cards as direct children of #home-cols, placed into
-       2 explicit columns via grid-column/grid-row (desktop), collapsing to
-       a single column with `order` for mobile stacking (see the ≤900px
-       block further down — the stack order matches docs/mocks/home-mobile.html's
-       documented priority: morning → today's workout → coach → weight →
-       race → performance → readiness → training → week plan → recent). */
-    #home-morning { margin-bottom: 16px; }
+    /* ---- HOME REVAMP v2: MORNING STRIP + TWO-COLUMN STACKS ----
+       Mock-faithful layout: #home-cols is a 2-col grid of .home-col flex
+       stacks (not a flat grid of 9 cards with shared row tracks — that made
+       Week plan stretch left-column rows and leave blue holes under Race).
+       Mobile ≤900px: .home-col { display:contents } so card `order` still
+       stacks as morning → workout → coach → weight → race → perf →
+       readiness → training → week plan → recent. */
+    #home-morning { margin-bottom: 13px; width: 100%; }
     #home-cols {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 13px;
       align-items: start;
+      width: 100%;
       margin-bottom: 16px;
     }
-    /* Left column */
-    #home-today-rec-card    { grid-column: 1; grid-row: 1; }
-    #home-weight-trend      { grid-column: 1; grid-row: 2; }
-    #home-race-card         { grid-column: 1; grid-row: 3; }
-    #home-performance-card  { grid-column: 1; grid-row: 4; }
-    #home-top-row-right     { grid-column: 1; grid-row: 5; }
-    /* Right column — Today's workout (#home-next-up) leads it (issue: Home
-       today-focal-point UX review carried forward into revamp v2). */
-    #home-next-up              { grid-column: 2; grid-row: 1; }
-    #home-training-card        { grid-column: 2; grid-row: 2; }
-    #home-brief-week-plan-card { grid-column: 2; grid-row: 3; }
-    #home-recent-workouts-card { grid-column: 2; grid-row: 4; }
+    .home-col {
+      display: flex;
+      flex-direction: column;
+      gap: 13px;
+      min-width: 0;
+    }
 
     @media (max-width: 900px) {
-      #home-cols { grid-template-columns: 1fr; gap: 14px; }
-      #home-cols > * { grid-column: 1 !important; grid-row: auto !important; }
+      #home-cols {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .home-col { display: contents; }
       #home-next-up              { order: 1; }
       #home-today-rec-card       { order: 2; }
       #home-weight-trend         { order: 3; }
@@ -1533,6 +1532,11 @@
     .hm-hab--on { background: var(--green-soft, #dcfce7); border-color: #16a34a; color: #15803d; }
     .hm-hab--on .hm-hab-bx { background: #16a34a; border-color: #16a34a; color: #fff; }
     .hm-hab--more { border-style: dashed; color: var(--link); }
+    .hm-logged {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px; font-weight: 600; color: #15803d;
+      margin-right: 4px;
+    }
     .hm-done {
       display: none; align-items: center; gap: 10px; padding: 12px 18px;
       border-top: 1px solid #d6f0df; font-size: 13px; color: #15803d;
@@ -1570,6 +1574,7 @@
     .hwt-spark { margin-top: 4px; }
     .hwt-spark-svg { display: block; }
     .hwt-foot { font-size: 10.5px; color: var(--text-tertiary); margin-top: 4px; }
+    .hwt-foot a { color: var(--link); text-decoration: none; font-weight: 600; }
 
     /* ---- RACE (home-race-card.js) ---- */
     .hrc-loading { font-size: 13.5px; color: var(--text-secondary); padding: 8px 0; }
@@ -1595,6 +1600,23 @@
     .hrc-est-v { font-family: 'JetBrains Mono', monospace; font-size: 17px; font-weight: 700; margin-top: 3px; }
     .hrc-est-v--ok { color: var(--green); }
     .hrc-est-s { font-size: 10px; color: var(--text-tertiary); margin-top: 2px; }
+    /* Simple countdown progress (created_at → race date) — no named phases */
+    .hrc-progress { margin-top: 12px; }
+    .hrc-progress-bar {
+      height: 8px; border-radius: 99px; background: var(--chip-bg, #f1f4fa);
+      overflow: hidden;
+    }
+    .hrc-progress-fill {
+      height: 100%; border-radius: 99px;
+      background: linear-gradient(90deg, #4f6ef7, #16a34a);
+      min-width: 0;
+    }
+    .hrc-progress-meta {
+      display: flex; justify-content: space-between; gap: 10px;
+      margin-top: 5px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; font-weight: 600; color: var(--text-tertiary);
+    }
 
     /* ---- Coach digest — numbered focus rows (unhidden, home revamp v2) ---- */
     .hc-dg-focus { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
@@ -1676,25 +1698,24 @@
   <!-- This morning — weigh-in, today's session, habits (home-morning.js). -->
   <div id="home-morning"></div>
 
-  <!-- Two-column body (home revamp v2 — plain CSS Grid, no gridstack; see the
-       #home-cols rules above). #home-next-up leads the right column so it's
-       the forward-looking "what should I do today" focal point (carried over
-       from the Home today-focal-point UX review); on mobile it collapses to
-       a single column and re-orders to sit right after #home-morning (see
-       the ≤900px block above and docs/mocks/home-mobile.html's documented
-       stack order). #body-modifier-guardrail, #strava-stale-banner, and
-       #row-log stay OUTSIDE this grid. -->
+  <!-- Two-column body (home revamp v2 — two .home-col flex stacks inside a
+       2-col grid, matching docs/mocks/home-revamp-v2.html). Right column
+       leads with #home-next-up. Mobile uses display:contents + order (see
+       ≤900px rules). Banners and #row-log stay outside. -->
   <div id="home-cols">
-    <div id="home-today-rec-card" class="card grp-training"></div>
-    <div id="home-weight-trend" class="card grp-weight"></div>
-    <div id="home-race-card" class="card"></div>
-    <div id="home-performance-card" class="card grp-training"></div>
-    <div id="home-top-row-right" class="grp-training"></div>
-
-    <div id="home-next-up"></div>
-    <div id="home-training-card" class="card grp-training"></div>
-    <div id="home-brief-week-plan-card" class="card"></div>
-    <div id="home-recent-workouts-card" class="card grp-training"></div>
+    <div class="home-col home-col--left">
+      <div id="home-today-rec-card" class="card grp-training"></div>
+      <div id="home-weight-trend" class="card grp-weight"></div>
+      <div id="home-race-card" class="card"></div>
+      <div id="home-performance-card" class="card grp-training"></div>
+      <div id="home-top-row-right" class="grp-training"></div>
+    </div>
+    <div class="home-col home-col--right">
+      <div id="home-next-up"></div>
+      <div id="home-training-card" class="card grp-training"></div>
+      <div id="home-brief-week-plan-card" class="card"></div>
+      <div id="home-recent-workouts-card" class="card grp-training"></div>
+    </div>
   </div>
 
   <!-- Fast-log form: hidden by default, revealed by Readiness's
@@ -1834,14 +1855,14 @@
 <script src="js/wheel-helpers.js"></script>
 <script src="js/lib/load-readiness-tiles.js?v=20260801a"></script>
 <script src="js/coach-brief.js?v=20260718brief9"></script>
-<script src="js/home-coach-digest.js?v=20260807revamp2"></script>
-<script src="js/home-readiness-training-sleep.js?v=20260807revamp2"></script>
-<script src="js/home-brief-week-plan-card.js?v=20260807revamp2"></script>
-<script src="js/lib/next-up-card.js?v=20260807revamp2"></script>
-<script src="js/home-morning.js?v=20260807revamp2"></script>
-<script src="js/home-weight-trend.js?v=20260807revamp2"></script>
-<script src="js/home-race-card.js?v=20260807revamp2"></script>
-<script src="js/home.js?v=20260807revamp2"></script>
+<script src="js/home-coach-digest.js?v=20260808revamp3"></script>
+<script src="js/home-readiness-training-sleep.js?v=20260808revamp3"></script>
+<script src="js/home-brief-week-plan-card.js?v=20260808revamp3"></script>
+<script src="js/lib/next-up-card.js?v=20260808revamp3"></script>
+<script src="js/home-morning.js?v=20260808revamp3"></script>
+<script src="js/home-weight-trend.js?v=20260808revamp3"></script>
+<script src="js/home-race-card.js?v=20260808racebar1"></script>
+<script src="js/home.js?v=20260808revamp3"></script>
 
 <script src="js/injury-log.js"></script>
 <script>

@@ -116,6 +116,9 @@ def test_gridstack_layout_engine_removed():
     assert 'id="home-dashboard-grid"' not in _HOME_HTML, (
         "home.html must not have the old gridstack #home-dashboard-grid host"
     )
+    assert 'home-col' in _HOME_HTML and 'display: contents' in _HOME_HTML, (
+        "home.html must use .home-col stacks with display:contents on mobile"
+    )
     assert 'id="home-cols"' in _HOME_HTML, (
         "home.html must have the #home-cols CSS Grid container that replaced "
         "gridstack's #home-dashboard-grid"

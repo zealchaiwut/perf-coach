@@ -10,7 +10,9 @@
  * disagreed with this one in production (see its _renderPerfProjection
  * comment) — using it here would risk the same two-numbers-for-one-race bug.
  *
- * No season bar (projection has no phase boundaries to draw one from).
+ * Progress bar is a simple elapsed fill from race.created_at → race.date
+ * (no named build/peak/taper segments — those phase boundaries aren't in
+ * the plan/computed payload).
  */
 (function () {
   'use strict';
@@ -61,14 +63,49 @@
     return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
   }
 
-  function _daysUntil(iso) {
-    if (!iso) return null;
-    var today = window.AppCommon.todayISO();
-    var msPerDay = 86400000;
-    var a = new Date(today + 'T00:00:00');
-    var b = new Date(iso + 'T00:00:00');
+  function _daysBetween(isoA, isoB) {
+    if (!isoA || !isoB) return null;
+    var a = new Date(String(isoA).slice(0, 10) + 'T00:00:00');
+    var b = new Date(String(isoB).slice(0, 10) + 'T00:00:00');
     if (isNaN(a.getTime()) || isNaN(b.getTime())) return null;
-    return Math.round((b - a) / msPerDay);
+    return Math.round((b - a) / 86400000);
+  }
+
+  function _daysUntil(iso) {
+    return _daysBetween(window.AppCommon.todayISO(), iso);
+  }
+
+  // Simple countdown progress: created_at → race date. Returns '' when we
+  // can't compute an honest span (missing created_at, inverted dates, etc.).
+  function _progressHtml(primary, daysLeft) {
+    var startIso = primary.created_at ? String(primary.created_at).slice(0, 10) : null;
+    var raceIso = primary.date ? String(primary.date).slice(0, 10) : null;
+    if (!startIso || !raceIso) return '';
+
+    var total = _daysBetween(startIso, raceIso);
+    if (total == null || total <= 0) return '';
+
+    var today = window.AppCommon.todayISO();
+    var elapsed = _daysBetween(startIso, today);
+    if (elapsed == null) return '';
+    elapsed = Math.max(0, Math.min(total, elapsed));
+    var pct = Math.round((elapsed / total) * 100);
+    var left = daysLeft != null ? Math.max(0, daysLeft) : Math.max(0, total - elapsed);
+    var weekNow = Math.max(1, Math.min(Math.ceil(total / 7), Math.ceil(Math.max(1, elapsed) / 7) || 1));
+    var weekTotal = Math.max(1, Math.ceil(total / 7));
+
+    return (
+      '<div class="hrc-progress">' +
+        '<div class="hrc-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pct + '"' +
+          ' aria-label="Race countdown progress">' +
+          '<div class="hrc-progress-fill" style="width:' + pct + '%"></div>' +
+        '</div>' +
+        '<div class="hrc-progress-meta">' +
+          '<span>week ' + weekNow + ' of ' + weekTotal + '</span>' +
+          '<span>' + left + ' day' + (left === 1 ? '' : 's') + ' left</span>' +
+        '</div>' +
+      '</div>'
+    );
   }
 
   function render(host) {
@@ -144,7 +181,8 @@
             '</div>' +
             estHtml +
             gapHtml +
-          '</div>';
+          '</div>' +
+          _progressHtml(primary, days);
       })
       .catch(function () {
         host.innerHTML = _header() + '<div class="hrc-empty"><div class="hrc-empty-sub">Could not load race.</div></div>';

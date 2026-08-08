@@ -76,12 +76,15 @@
 
         if (!stats || trendKg == null) {
           host.innerHTML = _header() +
-            '<div class="hwt-empty">No weight data yet. <a href="/weight">Log your first weigh-in</a>.</div>';
+            '<div class="hwt-empty">No weight data yet. Log in <b>This morning</b> above, or <a href="/weight">Open weight</a>.</div>';
           return;
         }
 
-        var rateHtml = stats.rate_kg_wk != null
-          ? '<span class="hwt-rate">' + _fmtRate(stats.rate_kg_wk, stats.ci_kg_wk) + '</span>'
+        var rateHtml = (stats.weekly_rate_ewma_kg != null || stats.rate_kg_wk != null)
+          ? '<span class="hwt-rate">' + _fmtRate(
+              stats.weekly_rate_ewma_kg != null ? stats.weekly_rate_ewma_kg : stats.rate_kg_wk,
+              stats.ci_kg_wk
+            ) + '</span>'
           : '<span class="hwt-rate hwt-rate--mute">rate not yet readable</span>';
 
         var covHtml = '';
@@ -92,6 +95,10 @@
             '</span>';
         }
 
+        var footHint = stats.gated
+          ? 'Log weigh-ins in This morning · <a href="/weight">Open →</a>'
+          : (series.length + ' days');
+
         host.innerHTML =
           _header() +
           '<div class="hwt-top">' +
@@ -100,7 +107,7 @@
             covHtml +
           '</div>' +
           '<div class="hwt-spark">' + _sparklineSvg(series) + '</div>' +
-          '<div class="hwt-foot"><span>' + series.length + ' days</span></div>';
+          '<div class="hwt-foot">' + footHint + '</div>';
       })
       .catch(function () {
         host.innerHTML = _header() + '<div class="hwt-empty">Could not load weight trend.</div>';
