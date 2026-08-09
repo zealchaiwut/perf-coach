@@ -68,11 +68,6 @@ FUEL_SETTINGS = {
 }
 
 
-class _FakeResponse:
-    def __init__(self, payload: dict) -> None:
-        self.body = json.dumps(payload).encode("utf-8")
-
-
 @pytest.fixture
 def db_engine():
     engine = create_engine("sqlite:///:memory:")
@@ -109,7 +104,7 @@ def stub_services(db_engine, monkeypatch):
     """Stub the canonical services with their own empty/no-data shapes."""
     import backend.main as main_mod
     from backend.services import fuel as fuel_svc
-    from backend.services import plan_prefs_accessor, training_load
+    from backend.services import performance_scores, plan_prefs_accessor, training_load
 
     monkeypatch.setattr(ce, "engine", db_engine)
     monkeypatch.setattr(training_load, "engine", db_engine)
@@ -129,15 +124,17 @@ def stub_services(db_engine, monkeypatch):
         "estimate_planned_session_metrics",
         lambda *a, **k: {"estimated_tss": None, "estimated_distance_km": None},
     )
+    # coach_export._assemble_performance calls get_performance_payload (worker-safe
+    # extract) — not main.get_athlete_performance — so stub the service entrypoint.
     monkeypatch.setattr(
-        main_mod,
-        "get_athlete_performance",
-        lambda athlete_id, user=None: _FakeResponse({
+        performance_scores,
+        "get_performance_payload",
+        lambda user_id, **kw: {
             "state": "building_baseline",
             "endurance": {"state": "building_baseline", "reason": "no qualifying runs"},
             "speed": {"state": "building_baseline", "reason": "no qualifying runs"},
             "generated_at": "2026-07-30T00:00:00+00:00",
-        }),
+        },
     )
     monkeypatch.setattr(ce, "_assemble_findings", lambda user: [])
     monkeypatch.setattr(

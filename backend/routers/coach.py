@@ -253,3 +253,95 @@ async def get_coach_consult(
     return PlainTextResponse(
         build_consult_blob(export), media_type="text/plain; charset=utf-8"
     )
+
+
+# ── Coach export jobs (worker queue) ─────────────────────────────────────────
+
+
+class _CoachExportJobBody(BaseModel):
+    kind: str = "consult"
+    window: int | None = None
+
+    @validator("kind")
+    def _kind_valid(cls, v):  # noqa: N805
+        if v not in ("paste", "consult"):
+            raise ValueError("kind must be 'paste' or 'consult'")
+        return v
+
+
+def _coach_export_job_dict(row: dict) -> dict:
+    result = row.get("result") or {}
+    out = {
+        "job_id": str(row["id"]),
+        "status": row["status"],
+        "error": row.get("error"),
+        "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+        "started_at": row["started_at"].isoformat() if row.get("started_at") else None,
+        "finished_at": row["finished_at"].isoformat() if row.get("finished_at") else None,
+    }
+    if row["status"] == "done" and isinstance(result, dict):
+        out["char_count"] = result.get("char_count")
+        out["built_at"] = result.get("built_at")
+        out["degraded"] = result.get("degraded") or []
+        out["kind"] = result.get("kind")
+    return out
+
+
+@router.post("/api/coach/export/jobs", status_code=202)
+async def post_coach_export_job(
+    body: _CoachExportJobBody,
+    user: User = Depends(resolve_user),
+):
+    """Enqueue coach export on the compute worker; poll GET .../jobs/{id} for status."""
+    from backend.services import worker_client as wc
+    from backend.services.coach_export import (
+        DEFAULT_WINDOW_DAYS,
+        MAX_WINDOW_DAYS,
+        MIN_WINDOW_DAYS,
+    )
+
+    if not wc.coach_export_via_queue_enabled():
+        return JSONResponse(
+            {"detail": "coach export queue disabled (COACH_EXPORT_VIA_QUEUE=0)"},
+            status_code=503,
+        )
+
+    window_days = DEFAULT_WINDOW_DAYS if body.window is None else body.window
+    if window_days < MIN_WINDOW_DAYS or window_days > MAX_WINDOW_DAYS:
+        return JSONResponse(
+            {"detail": {"window": f"must be between {MIN_WINDOW_DAYS} and {MAX_WINDOW_DAYS}"}},
+            status_code=422,
+        )
+
+    try:
+        res = wc.delegate_coach_export(str(user.id), kind=body.kind, window=window_days)
+    except wc.WorkerUnavailable as exc:
+        return JSONResponse({"detail": str(exc)}, status_code=503)
+
+    return JSONResponse({"job_id": res.get("job_id"), "status": "queued"}, status_code=202)
+
+
+@router.get("/api/coach/export/jobs/{job_id}")
+async def get_coach_export_job(job_id: str, user: User = Depends(resolve_user)):
+    from backend.services import job_queue as jq
+
+    row = jq.get_owned_job(job_id, str(user.id), job_type="coach_export")
+    if row is None:
+        return JSONResponse({"detail": "job not found"}, status_code=404)
+    return JSONResponse(_coach_export_job_dict(row))
+
+
+@router.get("/api/coach/export/jobs/{job_id}/blob", response_class=PlainTextResponse)
+async def get_coach_export_job_blob(job_id: str, user: User = Depends(resolve_user)):
+    from backend.services import job_queue as jq
+
+    row = jq.get_owned_job(job_id, str(user.id), job_type="coach_export")
+    if row is None:
+        return JSONResponse({"detail": "job not found"}, status_code=404)
+    if row["status"] != "done":
+        return JSONResponse({"detail": f"job status is {row['status']}"}, status_code=409)
+    result = row.get("result") or {}
+    blob = result.get("blob")
+    if not blob:
+        return JSONResponse({"detail": "blob not available"}, status_code=404)
+    return PlainTextResponse(blob, media_type="text/plain; charset=utf-8")

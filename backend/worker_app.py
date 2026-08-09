@@ -51,8 +51,10 @@ _BANISTER_REFIT_INTERVAL_SECONDS = 7 * 24 * 3600  # weekly
 # instead of being reached over HTTP — outbound-only, so home NAT is a non-issue.
 QUEUE_POLL_ENABLED = os.getenv("QUEUE_POLL_ENABLED", "1") == "1"
 QUEUE_POLL_INTERVAL_SECONDS = int(os.getenv("QUEUE_POLL_INTERVAL_SECONDS", "5"))
+QUEUE_POLL_IDLE_INTERVAL_SECONDS = int(os.getenv("QUEUE_POLL_IDLE_INTERVAL_SECONDS", "300"))
 QUEUE_LEASE_SECONDS = int(os.getenv("QUEUE_LEASE_SECONDS", "600"))
 _WORKER_ID = f"{socket.gethostname()}:{os.getpid()}"
+_queue_wake = threading.Event()
 
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
@@ -483,6 +485,53 @@ def _h_garmin_sync(p: dict) -> None:
     _enqueue_precompute_after_sync(p.get("user_id"))
 
 
+def _h_coach_export(p: dict) -> dict:
+    """Build coach export blob on the worker (keeps heavy assembly off Render)."""
+    import uuid as _uuid
+    from datetime import datetime as _dt, timezone as _tz
+
+    from sqlalchemy.orm import Session
+
+    from backend.db import engine
+    from backend.models import User
+    from backend.services.coach_export import (
+        DEFAULT_WINDOW_DAYS,
+        build_consult_blob,
+        build_export,
+        build_paste_blob,
+    )
+
+    user_id = p.get("user_id")
+    if not user_id:
+        raise ValueError("coach_export payload missing user_id")
+    kind = p.get("kind") or "consult"
+    if kind not in ("paste", "consult"):
+        raise ValueError(f"coach_export kind must be paste|consult, got {kind!r}")
+    window = int(p.get("window") or DEFAULT_WINDOW_DAYS)
+
+    uid = _uuid.UUID(str(user_id))
+    export = build_export(uid, window_days=window)
+    blob = build_paste_blob(export) if kind == "paste" else build_consult_blob(export)
+
+    if kind == "paste":
+        try:
+            with Session(engine) as db:
+                db.query(User).filter(User.id == uid).update(
+                    {"last_coach_export_at": _dt.now(_tz.utc)}
+                )
+                db.commit()
+        except Exception:
+            logger.warning("failed to stamp last_coach_export_at", exc_info=True)
+
+    return {
+        "kind": kind,
+        "char_count": len(blob),
+        "blob": blob,
+        "built_at": _dt.now(_tz.utc).isoformat(),
+        "degraded": (export.get("meta") or {}).get("degraded") or [],
+    }
+
+
 # plan_draft is PARKED (Priority 2, D1). Its handler is gone from the dispatch
 # table below, so a queued plan_draft row is now a no-op rather than an entry
 # point into plan_draft -> plan_slot_cache -> plan_suggestions -> llm. Nothing
@@ -500,6 +549,7 @@ _DISPATCH = {
     "weekly_coach": _h_weekly_coach,  # compat alias
     "precompute": _h_precompute,
     "garmin_sync": _h_garmin_sync,
+    "coach_export": _h_coach_export,
 }
 
 
@@ -525,6 +575,28 @@ class _Heartbeat:
         self._stop.set()
 
 
+def _poll_once() -> bool:
+    """Try to claim and dispatch one job. Returns True if a job was claimed."""
+    job_types = list(_DISPATCH.keys())
+    job_queue.requeue_stale()
+    claimed = job_queue.claim_next(
+        _WORKER_ID, lease_seconds=QUEUE_LEASE_SECONDS, job_types=job_types
+    )
+    if claimed is not None:
+        _executor.submit(_handle_job, claimed)
+        return True
+    return False
+
+
+def wake_queue_poll() -> None:
+    """Signal the poll loop and try one immediate claim."""
+    _queue_wake.set()
+    try:
+        _poll_once()
+    except Exception as exc:
+        logger.error("wake poll error: %s", exc, exc_info=True)
+
+
 def _handle_job(row: dict) -> None:
     job_id = str(row["id"])
     job_type = row["job_type"]
@@ -535,8 +607,8 @@ def _handle_job(row: dict) -> None:
         return
     hb = _Heartbeat(job_id)
     try:
-        handler(payload)
-        job_queue.complete(job_id, None)
+        result = handler(payload)
+        job_queue.complete(job_id, result if isinstance(result, dict) else None)
     except Exception as exc:
         logger.error("queue job %s (%s) failed: %s", job_id, job_type, exc, exc_info=True)
         job_queue.fail(job_id, str(exc), retryable=True)
@@ -548,23 +620,25 @@ def _queue_poll_loop() -> None:
     if not QUEUE_POLL_ENABLED:
         logger.info("queue poll disabled (QUEUE_POLL_ENABLED != 1)")
         return
-    job_types = list(_DISPATCH.keys())
     logger.info(
-        "queue poll started: worker_id=%s interval=%ss lease=%ss",
-        _WORKER_ID, QUEUE_POLL_INTERVAL_SECONDS, QUEUE_LEASE_SECONDS,
+        "queue poll started: worker_id=%s active_interval=%ss idle_interval=%ss lease=%ss",
+        _WORKER_ID, QUEUE_POLL_INTERVAL_SECONDS, QUEUE_POLL_IDLE_INTERVAL_SECONDS,
+        QUEUE_LEASE_SECONDS,
     )
     while True:
         try:
-            job_queue.requeue_stale()  # cheap; recovers jobs after a sleep/crash
-            claimed = job_queue.claim_next(
-                _WORKER_ID, lease_seconds=QUEUE_LEASE_SECONDS, job_types=job_types
+            drained = False
+            while _poll_once():
+                drained = True
+            interval = (
+                QUEUE_POLL_INTERVAL_SECONDS if drained
+                else QUEUE_POLL_IDLE_INTERVAL_SECONDS
             )
-            if claimed is not None:
-                _executor.submit(_handle_job, claimed)
-                continue  # drain: try another immediately before sleeping
+            _queue_wake.wait(interval)
+            _queue_wake.clear()
         except Exception as exc:
             logger.error("queue poll error: %s", exc, exc_info=True)
-        time.sleep(QUEUE_POLL_INTERVAL_SECONDS)
+            time.sleep(QUEUE_POLL_INTERVAL_SECONDS)
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -572,6 +646,13 @@ def _queue_poll_loop() -> None:
 @app.get("/internal/health")
 def health():
     return {"status": "ok", "time": datetime.now(timezone.utc).isoformat()}
+
+
+@app.post("/internal/queue/wake", dependencies=[Depends(require_worker_secret)])
+def queue_wake():
+    """Nudge the poll loop to claim queued jobs immediately (quiet-worker mode)."""
+    wake_queue_poll()
+    return {"woke": True}
 
 
 @app.post("/internal/sync/run", dependencies=[Depends(require_worker_secret)])

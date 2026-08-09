@@ -5883,75 +5883,13 @@ _FEELING_VALUES = frozenset({"hard", "ok", "easy"})
 
 
 def _classified_manual_laps_map(session, run_workouts, prefs_dict) -> dict:
-    """{workout_id: [classified manual-lap dicts]} for workouts whose Stryd
-    activity carries lap-button laps (stryd_activities.manual_laps). Short
-    reps are invisible inside 1 km auto-splits — a 2-min rep at 4:30/km
-    dilutes to a ~6:15/km split — so the speed score prefers these when the
-    athlete marked reps (running_performance._speed_effort_pace_duration
-    precedence 0). Bands come from the SAME classify_laps as auto-splits."""
-    from types import SimpleNamespace
-    from backend.services.lap_classify import classify_laps as _cl
-
-    pks = {wk.stryd_activity_pk for wk in run_workouts if getattr(wk, "stryd_activity_pk", None)}
-    if not pks:
-        return {}
-    rows = (
-        session.query(StrydActivity.id, StrydActivity.manual_laps)
-        .filter(StrydActivity.id.in_(pks))
-        .all()
-    )
-    by_pk = {rid: ml for rid, ml in rows if ml}
-    out: dict = {}
-    for wk in run_workouts:
-        ml = by_pk.get(getattr(wk, "stryd_activity_pk", None))
-        if not ml:
-            continue
-        shims = [
-            SimpleNamespace(
-                avg_power=lap.get("avg_power"), avg_hr=lap.get("avg_hr"),
-                duration_seconds=lap.get("duration_seconds"),
-                distance_km=lap.get("distance_km"),
-            )
-            for lap in ml
-        ]
-        out[wk.id] = [
-            {
-                "band": c.get("band"),
-                "avg_power": lap.get("avg_power"),
-                "avg_hr": lap.get("avg_hr"),
-                "distance_km": float(lap["distance_km"]) if lap.get("distance_km") is not None else None,
-                "duration_seconds": lap.get("duration_seconds"),
-            }
-            for lap, c in zip(ml, _cl(shims, prefs_dict or {}))
-        ]
-    return out
+    from backend.services.workout_perf_helpers import classified_manual_laps_map
+    return classified_manual_laps_map(session, run_workouts, prefs_dict)
 
 
 def _planned_duration_map(session, workout_ids: list) -> dict:
-    """Map workout_id → planned_duration_seconds from matched PlannedSession rows.
-
-    Queries PlannedSession rows whose matched_workout_id is in workout_ids and
-    returns a dict keyed by workout_id.  Workouts not matched to any session, or
-    matched to a session whose structure has no parseable block durations, are
-    absent from the result (the caller treats a missing key as None, which
-    leaves the absolute-only guard in running_performance.py intact — issue #1479).
-    """
-    if not workout_ids:
-        return {}
-    from backend.services.plan_matching import _planned_duration_seconds as _pds
-    rows = (
-        session.query(PlannedSession)
-        .filter(PlannedSession.matched_workout_id.in_(workout_ids))
-        .all()
-    )
-    out = {}
-    for r in rows:
-        if r.matched_workout_id is None:
-            continue
-        dur = _pds(r.structure)
-        if dur is not None:
-            out[r.matched_workout_id] = dur
-    return out
+    from backend.services.workout_perf_helpers import planned_duration_map
+    return planned_duration_map(session, workout_ids)
 
 
 def _workout_signal_scores(session, workout) -> dict:
@@ -17128,7 +17066,9 @@ def get_score_breakdown(
     if window != expected:
         raise HTTPException(status_code=422, detail=f"window must be {expected!r}")
 
-    perf = _json.loads(get_athlete_performance(str(user.id), user=user).body)
+    from backend.services.performance_scores import get_performance_payload
+
+    perf = get_performance_payload(user.id)
     if perf.get("state") != "scored":
         raise HTTPException(status_code=409, detail=f"scores not available: {perf.get('state')}")
     block = (perf.get(metric) or {}).get("breakdown")

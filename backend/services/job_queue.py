@@ -273,5 +273,21 @@ def has_done(dedupe_key: str) -> bool:
         return result is not None
 
 
+def get_owned_job(job_id: str, user_id: str, *, job_type: str | None = None) -> Optional[dict]:
+    """Fetch one queue row scoped to the session user (never cross-user)."""
+    clauses = ["id = :jid", "payload->>'user_id' = :uid"]
+    params: dict[str, Any] = {"jid": job_id, "uid": str(user_id)}
+    if job_type:
+        clauses.append("job_type = :jt")
+        params["jt"] = job_type
+    sql = text(
+        "SELECT id, job_type, status, result, error, created_at, started_at, finished_at "
+        f"FROM job_queue WHERE {' AND '.join(clauses)}"
+    )
+    with Session(engine) as s:
+        row = s.execute(sql, params).mappings().first()
+    return dict(row) if row is not None else None
+
+
 def _db_now(s: Session):
     return s.execute(text("SELECT now()")).scalar_one()

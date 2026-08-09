@@ -21,6 +21,8 @@ Environment variables:
   ROUTE_FULL_SYNC_FALLBACK_TO_INPROCESS  Set "1" to allow in-process fallback when
                                           the worker is unreachable (opt-in, off by default).
   ROUTE_BACKFILL_FALLBACK_TO_INPROCESS   Same for backfill (opt-in, off by default).
+  WORKER_WAKE_ENABLED                   When "1" (default), queue-mode enqueue POSTs
+                                        /internal/queue/wake if WORKER_BASE_URL is set.
 """
 import json
 import logging
@@ -66,6 +68,23 @@ def get_worker_timeout() -> int:
         return int(raw) if raw else 10
     except ValueError:
         return 10
+
+
+def maybe_wake_worker() -> None:
+    """Best-effort wake after enqueue when worker is reachable (HTTP).
+
+    In queue-only NAT mode (no WORKER_BASE_URL), the worker's idle poll loop
+    picks up jobs — this is a no-op."""
+    if not _flag_on("WORKER_WAKE_ENABLED"):
+        return
+    if _trigger_mode() != "queue":
+        return
+    if not get_worker_base_url():
+        return
+    try:
+        _post("/internal/queue/wake", {}, timeout=3)
+    except Exception as exc:
+        _log.debug("worker wake skipped: %s", exc)
 
 
 def _post(path: str, payload: dict, timeout: int | None = None) -> dict:
@@ -127,6 +146,7 @@ def delegate_sync(
         )
         if jid:
             job_ids.append(jid)
+    maybe_wake_worker()
     return {"started": True, "queued": True, "job_ids": job_ids}
 
 
@@ -163,9 +183,36 @@ def delegate_precompute(user_id: str, *, dates=None) -> dict:
             "precompute", payload, enqueued_by="web",
             dedupe_key=f"precompute:{user_id}",
         )
+        maybe_wake_worker()
         return {"queued": True, "job_ids": [jid] if jid else []}
     except Exception:
         return {"queued": False}
+
+
+def coach_export_via_queue_enabled() -> bool:
+    return _flag_on("COACH_EXPORT_VIA_QUEUE")
+
+
+def delegate_coach_export(
+    user_id: str,
+    *,
+    kind: str,
+    window: int = 90,
+) -> dict:
+    """Enqueue a coach_export job (deduped per user+kind)."""
+    if _trigger_mode() == "http":
+        raise WorkerUnavailable("coach_export queue requires WORKER_TRIGGER_MODE=queue")
+
+    from backend.services import job_queue
+
+    jid = job_queue.enqueue(
+        "coach_export",
+        {"user_id": user_id, "kind": kind, "window": window},
+        enqueued_by="web",
+        dedupe_key=f"coach_export:{kind}:{user_id}",
+    )
+    maybe_wake_worker()
+    return {"queued": True, "job_id": jid}
 
 
 def delegate_backfill(user_id: str, timeout: int | None = None) -> dict:
@@ -184,4 +231,5 @@ def delegate_backfill(user_id: str, timeout: int | None = None) -> dict:
         enqueued_by="web",
         dedupe_key=f"backfill:{user_id}",
     )
+    maybe_wake_worker()
     return {"started": True, "queued": True, "job_ids": [jid] if jid else []}

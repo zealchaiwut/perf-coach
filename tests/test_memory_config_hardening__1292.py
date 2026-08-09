@@ -63,6 +63,14 @@ def test_render_yaml_banister_disabled_prd():
     )
 
 
+def test_render_yaml_healthz_probe():
+    doc = _render_yaml()
+    for name in ("perf-coach-uat", "perf-coach-prd"):
+        svc = next((s for s in doc.get("services", []) if s.get("name") == name), None)
+        assert svc is not None
+        assert svc.get("healthCheckPath") == "/api/healthz", name
+
+
 # ── AC2: db.py engine pool settings ──────────────────────────────────────────
 
 
