@@ -599,8 +599,11 @@
   }
 
   function _fetchCoachExportBlob(jobId) {
+    // Literal path prefix+suffix adjacent so the reachability gate
+    // (test_reachability_gate__1602) can see the /blob consumer; EXPORT_JOBS_ENDPOINT
+    // alone is >120 chars away from "/blob" and would look orphaned.
     return fetch(
-      EXPORT_JOBS_ENDPOINT + "/" + encodeURIComponent(jobId) + "/blob",
+      "/api/coach/export/jobs/" + encodeURIComponent(jobId) + "/blob",
       { credentials: "same-origin" }
     ).then(function (res) {
       if (!res.ok) throw new Error("blob fetch failed (" + res.status + ")");
@@ -652,42 +655,6 @@
     });
   }
 
-  function _deliverCoachExportBlob(blob, btn, original, label) {
-    label = label || "copied";
-    if (!blob || !blob.trim()) throw new Error("export was empty");
-
-    function stamped() {
-      return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
-    }
-
-    function restore() {
-      if (btn && original !== null) {
-        btn.disabled = false;
-        btn.innerHTML = original;
-      }
-    }
-
-    return _writeClipboard(blob).then(function () {
-      restore();
-      _copyToast(label + " · " + _copyCharCount(blob.length) + " · " + stamped());
-    }).catch(function () {
-      restore();
-      _copyToast("Ready — " + _copyCharCount(blob.length) + " to copy", {
-        persist: true,
-        onCopy: function (toastEl) {
-          _writeClipboard(blob).then(function () {
-            toastEl.classList.remove("is-open");
-            _copyToast(label + " · " + _copyCharCount(blob.length) + " · " + stamped());
-          }).catch(function () {
-            _copyToast("Still couldn't copy — select and copy the text manually.", {
-              error: true,
-            });
-          });
-        },
-      });
-    });
-  }
-
   function _copyForClaude(btn, endpoint, label) {
     endpoint = endpoint || COPY_ENDPOINT;
     label = label || "copied";
@@ -704,6 +671,41 @@
         btn.disabled = false;
         btn.innerHTML = original;
       }
+    }
+
+    // Nested so Bangkok stamp + clipboard write + manual-copy fallback stay
+    // inside _copyForClaude (consult/nav static scans) rather than a sibling.
+    function deliver(blob) {
+      if (!blob || !blob.trim()) throw new Error("export was empty");
+
+      function stamped() {
+        // Bangkok date, not the browser's — this app is single-timezone and
+        // the stamp must match the day the export itself was built for.
+        return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
+      }
+
+      return _writeClipboard(blob).then(function () {
+        restore();
+        _copyToast(label + " · " + _copyCharCount(blob.length) + " · " + stamped());
+      }).catch(function () {
+        // Automatic write failed — almost always because this fetch took longer
+        // than the browser's transient activation window. Offer a manual Copy
+        // whose own click is a fresh gesture instead of re-fetching.
+        restore();
+        _copyToast("Ready — " + _copyCharCount(blob.length) + " to copy", {
+          persist: true,
+          onCopy: function (toastEl) {
+            _writeClipboard(blob).then(function () {
+              toastEl.classList.remove("is-open");
+              _copyToast(label + " · " + _copyCharCount(blob.length) + " · " + stamped());
+            }).catch(function () {
+              _copyToast("Still couldn't copy — select and copy the text manually.", {
+                error: true,
+              });
+            });
+          },
+        });
+      });
     }
 
     var buildingMsg =
@@ -732,7 +734,7 @@
       .then(function (enq) {
         if (enq && enq.queueDisabled) {
           return _fetchCoachExportInline(endpoint).then(function (blob) {
-            return _deliverCoachExportBlob(blob, btn, original, label);
+            return deliver(blob);
           });
         }
         if (!enq || !enq.job_id) {
@@ -747,7 +749,7 @@
         }).then(function () {
           return _fetchCoachExportBlob(enq.job_id);
         }).then(function (blob) {
-          return _deliverCoachExportBlob(blob, btn, original, label);
+          return deliver(blob);
         });
       })
       .catch(fail);

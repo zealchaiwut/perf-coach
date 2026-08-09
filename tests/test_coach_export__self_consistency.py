@@ -543,15 +543,19 @@ def export(db_engine, monkeypatch):
         lambda baseline, wt, structure: {"estimated_tss": 45, "estimated_distance_km": 7.5},
     )
 
+    from backend.services import performance_scores
+
+    # coach_export._assemble_performance reads get_performance_payload (not
+    # main.get_athlete_performance) so the stub must target the service module.
     monkeypatch.setattr(
-        main_mod,
-        "get_athlete_performance",
-        lambda athlete_id, user=None: _FakeResponse({
+        performance_scores,
+        "get_performance_payload",
+        lambda user_id, **kw: {
             "state": "scored",
             "endurance": endurance,
             "speed": SPEED,
             "generated_at": "2026-07-30T00:00:00+00:00",
-        }),
+        },
     )
     monkeypatch.setattr(
         ce,
@@ -785,15 +789,15 @@ def test_performance_state_is_carried_through(export):
 
 
 def test_unscored_performance_is_reported_not_faked(db_engine, monkeypatch):
-    import backend.main as main_mod
+    from backend.services import performance_scores
 
     monkeypatch.setattr(
-        main_mod,
-        "get_athlete_performance",
-        lambda athlete_id, user=None: _FakeResponse({
+        performance_scores,
+        "get_performance_payload",
+        lambda user_id, **kw: {
             "state": "building_baseline", "endurance": None, "speed": None,
             "generated_at": "2026-07-30T00:00:00+00:00",
-        }),
+        },
     )
     with _OrmSess(db_engine) as session:
         user = _add_user(session)
