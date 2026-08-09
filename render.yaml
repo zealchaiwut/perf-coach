@@ -62,7 +62,7 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
     preDeployCommand: alembic upgrade head
-    healthCheckPath: /api/health
+    healthCheckPath: /api/healthz
     envVars:
       - key: ENVIRONMENT
         value: uat
@@ -103,6 +103,10 @@ services:
         sync: false  # set via Render dashboard — Drive folder ID for Health Sync sleep import
       - key: BANISTER_REFIT_ENABLED
         value: "0"  # refit runs on compute worker (zeal-server); disable on web dyno to save RAM
+      - key: COACH_EXPORT_VIA_QUEUE
+        value: "1"  # build paste/consult blobs on worker; web enqueues + polls
+      - key: WEB_INCREMENTAL_SYNC_ENABLED
+        value: "0"  # route incremental sync to worker (keeps 512MB dyno thin)
       - key: GOOGLE_LOGIN_ENABLED
         value: "false"  # toggle in Render dashboard to enable Google login
       - key: LLM_COACH_ENABLED
@@ -120,7 +124,7 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
     preDeployCommand: alembic upgrade head
-    healthCheckPath: /api/health
+    healthCheckPath: /api/healthz
     envVars:
       - key: ENVIRONMENT
         value: prd
@@ -160,10 +164,11 @@ services:
       - key: HEALTH_SYNC_DRIVE_FOLDER_ID
         sync: false  # set via Render dashboard — Drive folder ID for Health Sync sleep import
       - key: BANISTER_REFIT_ENABLED
-        value: "1"  # SAFETY: keep the in-process fallback ON until a PRD worker is
-                    # confirmed running against DATABASE_URL_PRD. Once the PRD worker is
-                    # live (see docs/worker.md § Live PRD runbook), switch this to "0"
-                    # via the Render dashboard to avoid double-running the refit.
+        value: "0"  # refit runs on zeal-server worker; web dyno stays thin
+      - key: COACH_EXPORT_VIA_QUEUE
+        value: "1"
+      - key: WEB_INCREMENTAL_SYNC_ENABLED
+        value: "0"
       - key: GOOGLE_LOGIN_ENABLED
         value: "false"  # toggle in Render dashboard to enable Google login
       - key: LLM_COACH_ENABLED
