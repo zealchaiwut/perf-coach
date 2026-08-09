@@ -418,9 +418,9 @@ def _assemble_performance(user) -> dict:
     """Read the CANONICAL performance compute — the same cached call that serves
     the Performance tab and /api/performance/score-breakdown. Calling it here is
     what keeps the export's scores from ever disagreeing with the app."""
-    from backend.main import get_athlete_performance
+    from backend.services.performance_scores import get_performance_payload
 
-    payload = json.loads(get_athlete_performance(str(user.id), user=user).body)
+    payload = get_performance_payload(user.id)
     state = payload.get("state")
     if state != "scored":
         return {

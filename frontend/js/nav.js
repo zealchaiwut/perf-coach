@@ -486,6 +486,8 @@
   // difference is which endpoint is fetched.
   var COPY_ENDPOINT = "/api/coach/export/paste";
   var CONSULT_ENDPOINT = "/api/coach/consult";
+  var EXPORT_JOBS_ENDPOINT = "/api/coach/export/jobs";
+  var EXPORT_JOB_POLL_MS = 2500;
 
   /** Same contract as training-plan.js's Stryd copy: Clipboard API, then a
    * hidden-textarea fallback for older webviews and non-secure contexts. */
@@ -583,6 +585,109 @@
     return chars >= 1000 ? Math.round(chars / 1000) + "k chars" : chars + " chars";
   }
 
+  function _exportKindForEndpoint(endpoint) {
+    return endpoint === CONSULT_ENDPOINT ? "consult" : "paste";
+  }
+
+  function _pollCoachExportJob(jobId) {
+    return fetch(EXPORT_JOBS_ENDPOINT + "/" + encodeURIComponent(jobId), {
+      credentials: "same-origin",
+    }).then(function (res) {
+      if (!res.ok) throw new Error("status poll failed (" + res.status + ")");
+      return res.json();
+    });
+  }
+
+  function _fetchCoachExportBlob(jobId) {
+    return fetch(
+      EXPORT_JOBS_ENDPOINT + "/" + encodeURIComponent(jobId) + "/blob",
+      { credentials: "same-origin" }
+    ).then(function (res) {
+      if (!res.ok) throw new Error("blob fetch failed (" + res.status + ")");
+      return res.text();
+    });
+  }
+
+  function _enqueueCoachExport(kind) {
+    return fetch(EXPORT_JOBS_ENDPOINT, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: kind }),
+    }).then(function (res) {
+      if (res.status === 503) {
+        return { queueDisabled: true };
+      }
+      if (!res.ok) throw new Error("enqueue failed (" + res.status + ")");
+      return res.json();
+    });
+  }
+
+  function _waitForCoachExportJob(jobId, onStatus) {
+    return new Promise(function (resolve, reject) {
+      function tick() {
+        _pollCoachExportJob(jobId)
+          .then(function (body) {
+            if (body.status === "done") {
+              resolve(body);
+              return;
+            }
+            if (body.status === "failed") {
+              reject(new Error(body.error || "export job failed"));
+              return;
+            }
+            if (onStatus) onStatus(body.status);
+            setTimeout(tick, EXPORT_JOB_POLL_MS);
+          })
+          .catch(reject);
+      }
+      tick();
+    });
+  }
+
+  function _fetchCoachExportInline(endpoint) {
+    return fetch(endpoint, { credentials: "same-origin" }).then(function (res) {
+      if (!res.ok) throw new Error("export failed (" + res.status + ")");
+      return res.text();
+    });
+  }
+
+  function _deliverCoachExportBlob(blob, btn, original, label) {
+    label = label || "copied";
+    if (!blob || !blob.trim()) throw new Error("export was empty");
+
+    function stamped() {
+      return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
+    }
+
+    function restore() {
+      if (btn && original !== null) {
+        btn.disabled = false;
+        btn.innerHTML = original;
+      }
+    }
+
+    return _writeClipboard(blob).then(function () {
+      restore();
+      _copyToast(label + " · " + _copyCharCount(blob.length) + " · " + stamped());
+    }).catch(function () {
+      restore();
+      _copyToast("Ready — " + _copyCharCount(blob.length) + " to copy", {
+        persist: true,
+        onCopy: function (toastEl) {
+          _writeClipboard(blob).then(function () {
+            toastEl.classList.remove("is-open");
+            _copyToast(label + " · " + _copyCharCount(blob.length) + " · " + stamped());
+          }).catch(function () {
+            _copyToast("Still couldn't copy — select and copy the text manually.", {
+              error: true,
+            });
+          });
+        },
+      });
+    });
+  }
+
   function _copyForClaude(btn, endpoint, label) {
     endpoint = endpoint || COPY_ENDPOINT;
     label = label || "copied";
@@ -601,73 +706,51 @@
       }
     }
 
-    // The button's own "Building…" + spinner only reads clearly once you've
-    // noticed it; the toast is the loud, hard-to-miss half of the same
-    // signal, and names roughly how long the ~12s build takes so the wait
-    // reads as expected rather than possibly-stuck. persist:true keeps it
-    // open for the full wait — see _copyToast's comment on why the normal
-    // 4s auto-dismiss doesn't fit this case.
     var buildingMsg =
       endpoint === CONSULT_ENDPOINT
         ? "Building your check-in — usually takes about 10 seconds…"
         : "Building your training summary — usually takes about 10 seconds…";
     _copyToast(buildingMsg, { persist: true });
 
-    fetch(endpoint, { credentials: "same-origin" })
-      .then(function (res) {
-        if (!res.ok) throw new Error("export failed (" + res.status + ")");
-        return res.text();
-      })
-      .then(function (blob) {
-        if (!blob || !blob.trim()) throw new Error("export was empty");
+    var kind = _exportKindForEndpoint(endpoint);
 
-        function stamped() {
-          // Bangkok date, not the browser's — this app is single-timezone and
-          // the stamp must match the day the export itself was built for.
-          return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
+    function fail(err) {
+      restore();
+      if (btn) btn.classList.add("is-error");
+      _copyToast(
+        "Couldn't copy — " + (err && err.message ? err.message : "request failed") + ".",
+        {
+          error: true,
+          onRetry: function () {
+            _copyForClaude(btn, endpoint, label);
+          },
         }
+      );
+    }
 
-        return _writeClipboard(blob).then(function () {
-          restore();
-          _copyToast(label + " · " + _copyCharCount(blob.length) + " · " + stamped());
-        }).catch(function () {
-          // The automatic write failed — almost always because this fetch
-          // took the ~10-12s it's expected to, and by the time it resolved,
-          // the browser's clipboard-write permission (tied to a recent, real
-          // user gesture — "transient activation") had expired. Retrying the
-          // whole fetch would hit the exact same timing wall again. Instead,
-          // the blob is already sitting in memory — offer a manual Copy
-          // button, whose own click is a fresh gesture, so the write it
-          // triggers succeeds even though the automatic one couldn't.
-          restore();
-          _copyToast("Ready — " + _copyCharCount(blob.length) + " to copy", {
-            persist: true,
-            onCopy: function (toastEl) {
-              _writeClipboard(blob).then(function () {
-                toastEl.classList.remove("is-open");
-                _copyToast(label + " · " + _copyCharCount(blob.length) + " · " + stamped());
-              }).catch(function () {
-                _copyToast("Still couldn't copy — select and copy the text manually.", {
-                  error: true,
-                });
-              });
-            },
+    _enqueueCoachExport(kind)
+      .then(function (enq) {
+        if (enq && enq.queueDisabled) {
+          return _fetchCoachExportInline(endpoint).then(function (blob) {
+            return _deliverCoachExportBlob(blob, btn, original, label);
           });
+        }
+        if (!enq || !enq.job_id) {
+          throw new Error("enqueue returned no job_id");
+        }
+        return _waitForCoachExportJob(enq.job_id, function (status) {
+          if (status === "queued") {
+            _copyToast("Queued — waiting for worker…", { persist: true });
+          } else if (status === "running") {
+            _copyToast(buildingMsg, { persist: true });
+          }
+        }).then(function () {
+          return _fetchCoachExportBlob(enq.job_id);
+        }).then(function (blob) {
+          return _deliverCoachExportBlob(blob, btn, original, label);
         });
       })
-      .catch(function (err) {
-        restore();
-        if (btn) btn.classList.add("is-error");
-        _copyToast(
-          "Couldn't copy — " + (err && err.message ? err.message : "request failed") + ".",
-          {
-            error: true,
-            onRetry: function () {
-              _copyForClaude(btn, endpoint, label);
-            },
-          }
-        );
-      });
+      .catch(fail);
   }
 
   // Shared with coach.js's "Start a check-in" card — the /coach page's own
