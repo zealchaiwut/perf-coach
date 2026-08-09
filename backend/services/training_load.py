@@ -1509,11 +1509,20 @@ def estimate_historical_pace_and_tss(user_id, db=None) -> dict:
 
 def _planned_duration_minutes(workout_type: str, structure) -> Optional[float]:
     """Best-effort planned duration in minutes from a session's structure —
+    prefer ``structure.duration_minutes`` when set (session pin); else
     run: sum of block durations (see plan_matching._planned_duration_seconds,
     duplicated here in minutes to avoid a service-to-service import cycle);
     strength/plyo: exercise count × _STRENGTH_MIN_PER_EXERCISE proxy."""
     if not structure or not isinstance(structure, dict):
         return None
+    pinned = structure.get("duration_minutes")
+    if pinned is not None:
+        try:
+            pinned_f = float(pinned)
+        except (TypeError, ValueError):
+            pinned_f = None
+        if pinned_f is not None and pinned_f > 0:
+            return pinned_f
     wt = (workout_type or "").lower()
     if wt == "run":
         blocks = structure.get("blocks")
@@ -1558,9 +1567,11 @@ def estimate_planned_session_metrics(baseline: dict, workout_type: str, structur
     "estimated_distance_km": float|None} — both None when there's nothing to
     estimate from (no duration derivable, or no matching history).
 
-    Strength/plyo sessions with per-exercise ``spend_tss`` use the sum of
-    non-skipped rows as estimated_tss (session actual for training load) —
-    the planned pin on ``structure.target_tss`` is left untouched.
+    Precedence for estimated_tss:
+      1. Strength/plyo with completed per-exercise ``spend_tss`` → actual spend
+      2. ``structure.target_tss`` pin when set (do not overwrite with history)
+      3. Historical intensity × planned duration (duration prefers
+         ``structure.duration_minutes`` via ``_planned_duration_minutes``)
     """
     out = {"estimated_tss": None, "estimated_distance_km": None}
     wt = (workout_type or "").lower()
@@ -1575,11 +1586,16 @@ def estimate_planned_session_metrics(baseline: dict, workout_type: str, structur
             out["estimated_tss"] = int(round(float(actual["actual_tss"])))
             return out
 
-    dur_min = _planned_duration_minutes(workout_type, structure)
-    if not dur_min:
-        return out
+    pinned_tss = None
+    if isinstance(structure, dict) and structure.get("target_tss") is not None:
+        try:
+            pinned_tss = round(float(structure["target_tss"]))
+        except (TypeError, ValueError):
+            pinned_tss = None
 
-    if wt == "run":
+    dur_min = _planned_duration_minutes(workout_type, structure)
+
+    if wt == "run" and dur_min:
         for name, lo, hi in _RUN_DURATION_BUCKETS:
             if dur_min >= lo and (hi is None or dur_min < hi):
                 pace = baseline.get("run_pace_min_per_km", {}).get(name)
@@ -1593,6 +1609,15 @@ def estimate_planned_session_metrics(baseline: dict, workout_type: str, structur
             pace = (sum(available) / len(available)) if available else None
         if pace:
             out["estimated_distance_km"] = round(dur_min / pace, 1)
+
+    if pinned_tss is not None:
+        out["estimated_tss"] = pinned_tss
+        return out
+
+    if not dur_min:
+        return out
+
+    if wt == "run":
         if baseline.get("run_tss_per_min"):
             out["estimated_tss"] = round(dur_min * baseline["run_tss_per_min"])
     elif wt in ("strength", "plyo"):

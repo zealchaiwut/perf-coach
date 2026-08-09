@@ -46,25 +46,37 @@
     return 'lift';
   }
 
-  // Real logged TSS when done/matched; the server-computed estimate
-  // otherwise — same precedence as training-plan.js's _sessionTss. Never
-  // fabricates a number.
+  // Precedence: matched actual → structure.target_tss pin → server
+  // historical estimate — same as training-plan.js's _sessionTss.
   function _sessionTss(p) {
     if (p.actual && p.actual.tss != null) return { value: p.actual.tss, estimated: false };
+    var s = (p && p.structure) || {};
+    if (s.target_tss != null && isFinite(Number(s.target_tss))) {
+      return { value: Number(s.target_tss), estimated: true };
+    }
     if (p.estimated_tss != null) return { value: p.estimated_tss, estimated: true };
     return null;
   }
 
   function _sessionMeta(p) {
     var s = p.structure || {};
-    if (Array.isArray(s.blocks) && s.blocks.length) {
-      var tot = 0;
-      s.blocks.forEach(function (b) {
-        var d = Number(b.duration_min) || 0;
-        var r = Math.max(1, Number(b.repeat) || 1);
-        tot += d * r + (Number(b.rest_min) || 0) * (r - 1);
-      });
-      var tgt = (s.blocks.find(function (b) { return b.target; }) || {}).target;
+    var pinnedDur = (s.duration_minutes != null && isFinite(Number(s.duration_minutes))
+      && Number(s.duration_minutes) > 0)
+      ? Math.round(Number(s.duration_minutes))
+      : null;
+    if (pinnedDur != null || (Array.isArray(s.blocks) && s.blocks.length)) {
+      var tot = pinnedDur;
+      if (tot == null) {
+        tot = 0;
+        s.blocks.forEach(function (b) {
+          var d = Number(b.duration_min) || 0;
+          var r = Math.max(1, Number(b.repeat) || 1);
+          tot += d * r + (Number(b.rest_min) || 0) * (r - 1);
+        });
+      }
+      var tgt = (Array.isArray(s.blocks) && s.blocks.length)
+        ? ((s.blocks.find(function (b) { return b.target; }) || {}).target)
+        : null;
       return (tot ? tot + 'min' : '') + (tgt ? ' · ' + tgt : '');
     }
     if (Array.isArray(s.exercises) && s.exercises.length) {

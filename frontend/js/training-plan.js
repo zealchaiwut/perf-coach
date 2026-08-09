@@ -2027,11 +2027,15 @@ information about.
   }
 
   // Real logged TSS (p.actual.tss) when the session is done/matched; the
-  // server-computed historical-baseline estimate (p.estimated_tss, "~" —
-  // ONLY present while the session is still achievable, see
-  // _planned_session_dict) otherwise. Never fabricates a number.
+  // Precedence: matched actual → structure.target_tss pin → server
+  // historical estimate (p.estimated_tss, "~" — only while still achievable).
+  // Never fabricates a number.
   function _sessionTss(p) {
     if (p.actual && p.actual.tss != null) return { value: p.actual.tss, estimated: false };
+    var s = (p && p.structure) || {};
+    if (s.target_tss != null && isFinite(Number(s.target_tss))) {
+      return { value: Number(s.target_tss), estimated: true };
+    }
     if (p.estimated_tss != null) return { value: p.estimated_tss, estimated: true };
     return null;
   }

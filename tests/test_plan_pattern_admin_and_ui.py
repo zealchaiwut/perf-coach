@@ -136,11 +136,13 @@ def test_admin_plan_library_page_shell():
     assert 'id="btn-download"' not in html
     assert 'id="btn-import"' not in html
     assert 'id="btn-ex-download"' in html
+    assert 'id="btn-ex-export-json"' in html
     assert 'id="btn-ex-import"' in html
     assert 'id="btn-ex-body-parts"' in html
     assert 'id="body-parts-modal"' in html
     assert 'id="body-parts-normalize"' in html
     assert 'id="btn-pat-download"' in html
+    assert 'id="btn-pat-export-json"' in html
     assert 'id="btn-pat-import"' in html
     assert 'id="import-modal"' in html
     assert "/api/admin/plan-library/export" in js
@@ -151,12 +153,19 @@ def test_admin_plan_library_page_shell():
     assert "openBodyPartsModal" in js
     assert "PART_ALIASES" in js
     assert "downloadLlmPrompt" in js
+    assert "downloadCatalogJson" in js
     assert "buildPlanLibraryLlmPrompt" in js
+    assert "Download LLM prompt" in html
+    assert "Bulk export JSON" in html
     assert "Bulk import JSON" in html
     assert "normalizeImportBundle" in js
     assert "validateExerciseDraft" in js
     assert "openImportModal" in js
     assert "Bulk import JSON" in js
+    assert "downloadCatalogJson('exercises')" in js
+    assert "downloadCatalogJson('patterns')" in js
+    assert "plan-exercises-" in js
+    assert "plan-patterns-" in js
     assert "invalid groups" in js or "Validation failed" in js
     # Variation C — Exercises grouped card grid
     assert 'id="ex-grid"' in html

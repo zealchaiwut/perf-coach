@@ -125,6 +125,52 @@ def test_strength_estimate_uses_exercise_count_proxy_duration():
     assert out["estimated_distance_km"] is None
 
 
+def test_run_estimate_prefers_target_tss_pin():
+    # Blocks alone would yield 90 * 1.2 = 108; pin must win for week-badge path.
+    structure = {
+        "target_tss": 70,
+        "duration_minutes": 60,
+        "blocks": [
+            {"phase": "warmup", "duration_min": 10},
+            {"phase": "main", "duration_min": 70},
+            {"phase": "cooldown", "duration_min": 10},
+        ],
+    }
+    out = tl.estimate_planned_session_metrics(_BASELINE, "run", structure)
+    assert out["estimated_tss"] == 70
+    # duration_minutes pin drives distance (moderate bucket @ 7.5 min/km)
+    assert out["estimated_distance_km"] == pytest.approx(60 / 7.5, rel=0.02)
+
+
+def test_run_estimate_no_pin_still_uses_historical():
+    structure = {"blocks": [{"phase": "main", "duration_min": 60}]}
+    out = tl.estimate_planned_session_metrics(_BASELINE, "run", structure)
+    assert out["estimated_tss"] == round(60 * 1.2)
+    assert out["estimated_distance_km"] == pytest.approx(60 / 7.5, rel=0.02)
+
+
+def test_strength_estimate_prefers_target_tss_pin_when_pending():
+    # Pending exercises → no actual spend; without pin would be n×5×0.8.
+    structure = {
+        "target_tss": 40,
+        "exercises": [
+            {"name": "Squat", "state": "pending"},
+            {"name": "Row", "state": "pending"},
+        ],
+    }
+    out = tl.estimate_planned_session_metrics(_BASELINE, "strength", structure)
+    assert out["estimated_tss"] == 40
+    assert out["estimated_tss"] != round(2 * tl._STRENGTH_MIN_PER_EXERCISE * 0.8)
+
+
+def test_planned_duration_prefers_duration_minutes_pin():
+    structure = {
+        "duration_minutes": 55,
+        "blocks": [{"phase": "main", "duration_min": 90}],
+    }
+    assert tl._planned_duration_minutes("run", structure) == 55.0
+
+
 def test_no_structure_returns_no_estimate():
     assert tl.estimate_planned_session_metrics(_BASELINE, "run", None) == {
         "estimated_tss": None, "estimated_distance_km": None,
