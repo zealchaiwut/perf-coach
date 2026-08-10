@@ -964,8 +964,15 @@
     );
   }
 
+  // Single field read — #1560 requires the half-marathon-equivalent field
+  // appear exactly once so upcoming/completed cards cannot drift into
+  // duplicate inlines.
+  function _halfEquivSeconds(r) {
+    return r.half_marathon_equivalent_seconds || null;
+  }
+
   function _halfEquivCol(r) {
-    var s = r.half_marathon_equivalent_seconds || null;
+    var s = _halfEquivSeconds(r);
     return s
       ? '<div class="pm-col">' +
         '<div class="pm-coll">Half Equivalent</div>' +
@@ -977,7 +984,7 @@
   // Stacked Actual + Half-equivalent block for completed cards (one column,
   // top/bottom) so labels fit on narrow widths.
   function _actualHalfStack(r, actualLabel, actualSec, actualPace) {
-    var halfSec = r.half_marathon_equivalent_seconds || null;
+    var halfSec = _halfEquivSeconds(r);
     var html =
       '<div class="pm-col est pm-col--vstack">' +
       '<div class="pm-col-block">' +
