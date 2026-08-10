@@ -46,15 +46,14 @@
     return 'lift';
   }
 
-  // Precedence: matched actual → structure.target_tss pin → server
-  // historical estimate — same as training-plan.js's _sessionTss.
+  // Precedence: matched actual → server estimated_tss (pin/spend/history already
+  // applied server-side). Never re-prefer structure.target_tss — that diverged
+  // from week-load / Next-up.
   function _sessionTss(p) {
-    if (p.actual && p.actual.tss != null) return { value: p.actual.tss, estimated: false };
-    var s = (p && p.structure) || {};
-    if (s.target_tss != null && isFinite(Number(s.target_tss))) {
-      return { value: Number(s.target_tss), estimated: true };
+    if (p && p.actual && p.actual.tss != null) return { value: p.actual.tss, estimated: false };
+    if (p && p.estimated_tss != null && isFinite(Number(p.estimated_tss))) {
+      return { value: Number(p.estimated_tss), estimated: true };
     }
-    if (p.estimated_tss != null) return { value: p.estimated_tss, estimated: true };
     return null;
   }
 

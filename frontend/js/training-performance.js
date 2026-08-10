@@ -851,10 +851,13 @@
     var hist = tc.history || [];
     var est = null,
       band = null;
+    // Race-day sample (last projection point after build+taper) — same SoT as
+    // race cards / computed.estimate. The first sample is ~tomorrow and disagrees.
     if (proj.length > 0) {
-      est = proj[0].estimated_finish_seconds;
-      band = proj[0].confidence_band_seconds != null
-        ? proj[0].confidence_band_seconds
+      var last = proj[proj.length - 1];
+      est = last.estimated_finish_seconds;
+      band = last.confidence_band_seconds != null
+        ? last.confidence_band_seconds
         : null;
     } else if (hist.length > 0) {
       est = hist[hist.length - 1].estimated_finish_seconds;

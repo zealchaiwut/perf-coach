@@ -82,6 +82,19 @@
     return s;
   }
 
+  /**
+   * Display TSS for a planned session.
+   * actual.tss when logged; else server estimated_tss (already encodes
+   * pin / spend / history). Never re-prefer structure.target_tss.
+   */
+  function sessionTss(p) {
+    if (p && p.actual && p.actual.tss != null) return { value: p.actual.tss, estimated: false };
+    if (p && p.estimated_tss != null && isFinite(Number(p.estimated_tss))) {
+      return { value: Number(p.estimated_tss), estimated: true };
+    }
+    return null;
+  }
+
   global.PlanSessionHelpers = {
     hasStructure: hasStructure,
     aiBarDormant: aiBarDormant,
@@ -90,5 +103,6 @@
     snapshotFields: snapshotFields,
     snapshotsEqual: snapshotsEqual,
     stampSourceUser: stampSourceUser,
+    sessionTss: sessionTss,
   };
 })(typeof window !== 'undefined' ? window : globalThis);
