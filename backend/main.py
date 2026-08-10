@@ -5892,6 +5892,11 @@ def _planned_duration_map(session, workout_ids: list) -> dict:
     return planned_duration_map(session, workout_ids)
 
 
+def _splits_by_workout_map(session, workout_ids: list) -> dict:
+    from backend.services.workout_perf_helpers import splits_by_workout_map
+    return splits_by_workout_map(session, workout_ids)
+
+
 def _workout_signal_scores(session, workout) -> dict:
     """Per-session endurance/speed scores for the signal card.
 
@@ -6566,6 +6571,7 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
 def get_workouts(
     from_date: str = Query(alias="from"),
     to_date: str = Query(alias="to"),
+    limit: Optional[int] = Query(default=None, ge=1, le=500),
     user: User = Depends(resolve_user),
 ):
     uid = user.id
@@ -6575,20 +6581,31 @@ def get_workouts(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
     with Session(engine) as session:
-        workouts = (
-            session.query(Workout)
-            .options(
+        # limit=1 existence probes (Log "Repeat last") must stay cheap — no
+        # Strava/Stryd joinedload, no exercise counts.
+        existence_only = limit == 1
+        q = session.query(Workout)
+        if not existence_only:
+            q = q.options(
                 joinedload(Workout.strava_activity),
                 joinedload(Workout.stryd_activity),
             )
-            .filter(
+        q = (
+            q.filter(
                 Workout.user_id == uid,
                 Workout.workout_date >= from_d,
                 Workout.workout_date <= to_d,
             )
             .order_by(Workout.workout_date.desc(), Workout.created_at.desc())
-            .all()
         )
+        if limit is not None:
+            q = q.limit(limit)
+        workouts = q.all()
+        if existence_only:
+            return JSONResponse([
+                {"id": str(w.id), "workout_date": str(w.workout_date)}
+                for w in workouts
+            ])
         workout_ids = [w.id for w in workouts]
         exercise_counts: dict = {}
         if workout_ids:
@@ -9662,13 +9679,10 @@ def get_performance_chart(
         zc = _make_zone_constants(preferences=prefs_dict)
 
         runs: list[dict] = []
+        _run_ids = [w.id for w in run_workouts]
+        _splits_by_wk = _splits_by_workout_map(session, _run_ids)
         for w in run_workouts:
-            splits = (
-                session.query(WorkoutSplit)
-                .filter(WorkoutSplit.workout_id == w.id)
-                .order_by(WorkoutSplit.split_index)
-                .all()
-            )
+            splits = _splits_by_wk.get(w.id, [])
             if not splits:
                 continue
 
@@ -17202,18 +17216,7 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
             # (issue #1578: replaces N sequential per-workout queries → 1 query).
             _run_ids = [w.id for w in run_workouts]
             _pdc_map_perf = _planned_duration_map(session, _run_ids)
-            if _run_ids:
-                _all_splits = (
-                    session.query(WorkoutSplit)
-                    .filter(WorkoutSplit.workout_id.in_(_run_ids))
-                    .order_by(WorkoutSplit.workout_id, WorkoutSplit.split_index)
-                    .all()
-                )
-            else:
-                _all_splits = []
-            _splits_by_workout: dict = {}
-            for _s in _all_splits:
-                _splits_by_workout.setdefault(_s.workout_id, []).append(_s)
+            _splits_by_workout = _splits_by_workout_map(session, _run_ids)
 
             runs = []
             for workout in run_workouts:
@@ -19189,23 +19192,29 @@ def get_projection(user: User = Depends(resolve_user)):
 
                     zone_constants = make_zone_constants(preferences)
 
+                    # Same #1578 bound as get_athlete_performance — uncapped
+                    # run+N+1-splits here OOMs the 512MB web dyno on plan-bundle
+                    # cold miss (get_projection is called from _compute_plan_bundle).
+                    _history_cutoff = _datetime.now(_timezone.utc).date() - _timedelta(
+                        days=_RUN_HISTORY_CAP_DAYS
+                    )
                     run_workouts = (
                         db.query(Workout)
-                        .filter(Workout.user_id == user.id, Workout.workout_type == "run")
+                        .filter(
+                            Workout.user_id == user.id,
+                            Workout.workout_type == "run",
+                            Workout.workout_date >= _history_cutoff,
+                        )
                         .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
                         .all()
                     )
                     _proj_run_ids = [w.id for w in run_workouts]
                     _pdc_map_proj = _planned_duration_map(db, _proj_run_ids)
+                    _splits_by_wk = _splits_by_workout_map(db, _proj_run_ids)
 
                     runs = []
                     for workout in run_workouts:
-                        splits = (
-                            db.query(WorkoutSplit)
-                            .filter(WorkoutSplit.workout_id == workout.id)
-                            .order_by(WorkoutSplit.split_index)
-                            .all()
-                        )
+                        splits = _splits_by_wk.get(workout.id, [])
                         classifications = classify_laps(splits, preferences)
                         laps = []
                         for split, cls in zip(splits, classifications):

@@ -157,7 +157,7 @@ information about.
       });
       _wireLoadPlanSettings();
       _loadLoadPlan();
-      _loadWeekLoad(_iso(_weekStart));
+      // week-load is refreshed from _loadWeek's success path — do not double-fetch here.
       if (window.location.hash === '#prefs') {
         setTimeout(function () {
           var t = document.getElementById('plan-suggestions-trigger');
@@ -316,20 +316,11 @@ information about.
   }
 
   function _loadPipelineThenWeek(onDone) {
-    _api('GET', '/api/plan/pipeline')
-      .then(function (p) {
-        _pipeline = p || { mode: 'legacy', enabled: false, shadow: false, ui_default: false };
-        _draftVisible = _shouldShowDraftUi();
-        _loadWeek(function () {
-          if (_draftVisible) _loadDraft(onDone);
-          else if (onDone) onDone();
-        });
-      })
-      .catch(function () {
-        _pipeline = { mode: 'legacy', enabled: false, shadow: false, ui_default: false };
-        _draftVisible = false;
-        _loadWeek(onDone);
-      });
+    // Drafts are parked (_shouldShowDraftUi always false) — skip the pipeline
+    // round-trip; it only gated an unreachable overlay.
+    _pipeline = { mode: 'legacy', enabled: false, shadow: false, ui_default: false };
+    _draftVisible = false;
+    _loadWeek(onDone);
   }
 
   function _loadDraft(onDone) {
@@ -1907,10 +1898,10 @@ information about.
         '</div>' +
       '</div>';
     document.getElementById('pl-prev').onclick = function () {
-      _weekStart = _addDays(_weekStart, -7); _renderWeekSection(); _loadWeek(function () { if (_draftVisible) _loadDraft(); }); _loadWeekLoad(_iso(_weekStart));
+      _weekStart = _addDays(_weekStart, -7); _renderWeekSection(); _loadWeek(function () { if (_draftVisible) _loadDraft(); });
     };
     document.getElementById('pl-next').onclick = function () {
-      _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(function () { if (_draftVisible) _loadDraft(); }); _loadWeekLoad(_iso(_weekStart));
+      _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(function () { if (_draftVisible) _loadDraft(); });
     };
     var applyBtn = document.getElementById('pl-apply-draft');
     if (applyBtn) applyBtn.onclick = _applyDraftWeek;
@@ -2026,17 +2017,17 @@ information about.
     _wireWeekEvents();
   }
 
-  // Real logged TSS (p.actual.tss) when the session is done/matched; the
-  // Precedence: matched actual → structure.target_tss pin → server
-  // historical estimate (p.estimated_tss, "~" — only while still achievable).
-  // Never fabricates a number.
+  // Real logged TSS (p.actual.tss) when the session is done/matched; else the
+  // server estimate (p.estimated_tss) which already encodes pin / spend /
+  // history precedence. Do NOT re-prefer structure.target_tss here — that
+  // diverged from week-load / Next-up / home morning.
   function _sessionTss(p) {
-    if (p.actual && p.actual.tss != null) return { value: p.actual.tss, estimated: false };
-    var s = (p && p.structure) || {};
-    if (s.target_tss != null && isFinite(Number(s.target_tss))) {
-      return { value: Number(s.target_tss), estimated: true };
+    var H = window.PlanSessionHelpers;
+    if (H && typeof H.sessionTss === 'function') return H.sessionTss(p);
+    if (p && p.actual && p.actual.tss != null) return { value: p.actual.tss, estimated: false };
+    if (p && p.estimated_tss != null && isFinite(Number(p.estimated_tss))) {
+      return { value: Number(p.estimated_tss), estimated: true };
     }
-    if (p.estimated_tss != null) return { value: p.estimated_tss, estimated: true };
     return null;
   }
 

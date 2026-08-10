@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from backend.models import PlannedSession, StrydActivity
+from backend.models import PlannedSession, StrydActivity, WorkoutSplit
 
 
 def classified_manual_laps_map(session, run_workouts, prefs_dict) -> dict:
@@ -65,4 +65,25 @@ def planned_duration_map(session, workout_ids: list) -> dict:
         dur = _pds(r.structure)
         if dur is not None:
             out[r.matched_workout_id] = dur
+    return out
+
+
+def splits_by_workout_map(session, workout_ids: list) -> dict:
+    """Batch-load WorkoutSplit rows for many workouts in one query.
+
+    Same pattern as issue #1578's cold-cache performance path — callers must
+    not N+1 ``filter(workout_id == …)`` per run on the 512MB web dyno.
+    Returns ``{workout_id: [WorkoutSplit, …]}`` ordered by split_index.
+    """
+    if not workout_ids:
+        return {}
+    rows = (
+        session.query(WorkoutSplit)
+        .filter(WorkoutSplit.workout_id.in_(workout_ids))
+        .order_by(WorkoutSplit.workout_id, WorkoutSplit.split_index)
+        .all()
+    )
+    out: dict = {}
+    for s in rows:
+        out.setdefault(s.workout_id, []).append(s)
     return out

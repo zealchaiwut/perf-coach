@@ -5382,14 +5382,14 @@
   }
 
   // Enable the button only when a previous workout exists; otherwise disable it
-  // with an explanatory empty-state title (AC6). Checks a long window so a user
-  // with history but an empty current week still sees it enabled.
+  // with an explanatory empty-state title (AC6). Cheap existence probe
+  // (limit=1) — do not pull 3 years of joined Strava/Stryd rows.
   function refreshRepeatAvailability() {
     var btn = document.getElementById("log-repeat-last-btn");
     if (!btn) return;
     var to = todayISO();
     var from = addDays(to, -1095); // ~3 years, matches the form-side repeat window
-    fetch("/api/workouts?from=" + from + "&to=" + to)
+    fetch("/api/workouts?from=" + from + "&to=" + to + "&limit=1")
       .then(function (res) {
         return res.ok ? res.json() : [];
       })
