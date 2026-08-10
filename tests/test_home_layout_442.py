@@ -358,7 +358,11 @@ def test_A1_summary_has_all_blocks(client, mock_user):
 
     app.dependency_overrides[resolve_user] = _fake_resolve
     try:
-        with patch("backend.main.Session", return_value=mock_sess):
+        with patch("backend.main.Session", return_value=mock_sess), \
+             patch("backend.main.get_planned_sessions", return_value={"days": []}), \
+             patch("backend.main.get_readiness", return_value=None), \
+             patch("backend.main.get_athlete_performance", return_value=None), \
+             patch("backend.main._home_slim_primary_race", return_value=None):
             resp = client.get(f"/api/home/summary?user_id={uid}")
     finally:
         app.dependency_overrides.pop(resolve_user, None)

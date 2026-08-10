@@ -108,28 +108,42 @@
     );
   }
 
-  function render(host) {
+  function render(host, primary) {
     if (!host) return;
     host.innerHTML = _header() + '<div class="hrc-loading">Loading…</div>';
+
+    function _paint(primaryRace) {
+      if (!primaryRace) {
+        host.innerHTML = _header() +
+          '<div class="hrc-empty">' +
+            '<div class="hrc-empty-sub">No upcoming race set yet.</div>' +
+            '<a class="hrc-empty-cta" href="/log#performance">Set a race on Performance &#8594;</a>' +
+          '</div>';
+        return;
+      }
+      _paintPrimary(primaryRace);
+    }
+
+    // Phase B: prefer slim race from /api/home/summary (no cold plan/computed).
+    if (primary !== undefined) {
+      _paint(primary || null);
+      return;
+    }
 
     fetch('/api/plan/computed')
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (bundle) {
         var races = (bundle && Array.isArray(bundle.races)) ? bundle.races : [];
-        var primary =
+        var found =
           races.find(function (r) { return r.type === 'race' && r.priority === 'A' && r.status !== 'done'; }) ||
           races.find(function (r) { return r.type === 'race' && r.status !== 'done'; }) ||
           null;
+        _paint(found);
+      })
+      .catch(function () { _paint(null); });
+  }
 
-        if (!primary) {
-          host.innerHTML = _header() +
-            '<div class="hrc-empty">' +
-              '<div class="hrc-empty-sub">No upcoming race set yet.</div>' +
-              '<a class="hrc-empty-cta" href="/log#performance">Set a race on Performance &#8594;</a>' +
-            '</div>';
-          return;
-        }
-
+  function _paintPrimary(primary) {
         var distKm = parseFloat(primary.distance || 0);
         var days = _daysUntil(primary.date);
         var weeksOut = days != null ? Math.max(0, Math.round(days / 7)) : null;
@@ -183,10 +197,6 @@
             gapHtml +
           '</div>' +
           _progressHtml(primary, days);
-      })
-      .catch(function () {
-        host.innerHTML = _header() + '<div class="hrc-empty"><div class="hrc-empty-sub">Could not load race.</div></div>';
-      });
   }
 
   window.HomeRaceCard = { render: render };

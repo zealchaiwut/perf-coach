@@ -54,7 +54,7 @@ def test_home_week_session_tss_does_not_reprefer_pin():
 def test_plan_skips_pipeline_fetch_while_drafts_parked():
     body = _fn_body(PLAN_JS, "_loadPipelineThenWeek")
     assert "/api/plan/pipeline" not in body
-    assert "_loadWeek(onDone)" in body
+    assert "_loadWeek(onDone, opts)" in body
 
 
 def test_plan_init_does_not_double_fetch_week_load():

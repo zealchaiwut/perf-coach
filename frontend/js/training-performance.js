@@ -1347,6 +1347,31 @@
       bundle.prefs && typeof bundle.prefs.threshold_pace === "number"
         ? bundle.prefs.threshold_pace
         : null;
+    if (bundle.prefs && typeof bundle.prefs.timezone === "string" && bundle.prefs.timezone) {
+      _perfTz = bundle.prefs.timezone;
+    }
+
+    // Phase B boot extras (scores / PRs / workout meta) — apply when present;
+    // fall back for warm caches that predate these fields.
+    if (bundle.performance) _applyPerfScoresFromBundle(bundle.performance);
+    else if (_perfAthleteId) _loadPerfScores();
+    if (bundle.prs) { _perfPrsAppliedFromBundle = true; _renderPerfPR(bundle.prs); }
+    else if (_perfAthleteId) _loadPerfPR();
+    if (bundle.workout_meta && typeof bundle.workout_meta === "object") {
+      Object.keys(bundle.workout_meta).forEach(function (id) {
+        var m = bundle.workout_meta[id] || {};
+        _perfMetaById[String(id)] = {
+          title: m.title,
+          distance_km: m.distance_km,
+          pace: _perfFmtPace(m.pace_seconds_per_km),
+          avg_hr: m.avg_hr,
+        };
+      });
+      _renderPerfBreakdownLists("endurance");
+      _renderPerfBreakdownLists("speed");
+    } else if (_perfAthleteId) {
+      _loadPerfFeeds();
+    }
 
     var proj = bundle.projection || {};
     _projection = {
@@ -2137,28 +2162,40 @@
     if (_perfBooted) return;
     _perfBooted = true;
     var userId = window.getCurrentUserId ? window.getCurrentUserId() : null;
-    function resolvePrefsAndLoad() {
-      fetch("/api/user-preferences", { credentials: "same-origin" })
-        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-        .then(function (data) {
-          var tz = data && data.row && data.row.timezone;
-          if (tz && typeof tz === "string") _perfTz = tz;
-        })
-        .catch(function () {})
-        .then(function () {
-          _loadPerfScores();
-          _loadPerfFeeds();
-          _loadPerfPR();
-          _renderPerfProjection();
-        });
-    }
-    if (userId) { _perfAthleteId = userId; resolvePrefsAndLoad(); }
+    // Scores / PRs / workout meta / timezone arrive on the plan/computed
+    // bundle (applyBundle). Do not fan out here.
+    if (userId) _perfAthleteId = userId;
     else {
       window.addEventListener("userReady", function (e) {
         _perfAthleteId = e.detail.userId;
-        resolvePrefsAndLoad();
       }, { once: true });
     }
+  }
+
+  var _perfScoresAppliedFromBundle = false;
+  var _perfPrsAppliedFromBundle = false;
+
+  function _applyPerfScoresFromBundle(data) {
+    _perfScoresAppliedFromBundle = true;
+    var state = data && typeof data === "object" ? data.state : null;
+    if (state === "scored") {
+      _renderPerfScoreCard("endurance", data.endurance);
+      _renderPerfScoreCard("speed", data.speed);
+      return;
+    }
+    if (state === "needs_thresholds") {
+      _renderPerfThresholdHint("endurance");
+      _renderPerfThresholdHint("speed");
+      return;
+    }
+    if (state === "building_baseline") {
+      var reason = (data && data.reason) || "Keep training: your baseline is building.";
+      _renderPerfBuildingBaseline("endurance", reason);
+      _renderPerfBuildingBaseline("speed", reason);
+      return;
+    }
+    _renderPerfScoreError("endurance");
+    _renderPerfScoreError("speed");
   }
 
   function _perfToday() {
@@ -2586,7 +2623,7 @@
     if (!_perfAthleteId) return;
     fetch("/api/athletes/" + _perfAthleteId + "/run-personal-records")
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-      .then(function (data) { _renderPerfPR(data); })
+      .then(function (data) { _perfPrsAppliedFromBundle = true; _renderPerfPR(data); })
       .catch(function () { _renderPerfPR(null); });
   }
   function _renderPerfPR(data) {

@@ -301,6 +301,8 @@ def test_home_summary_endpoint_shape_with_mock(monkeypatch):
     import uuid
     from unittest.mock import MagicMock, patch
 
+    from backend.main import resolve_user
+
     uid = str(uuid.uuid4())
     mock_user = MagicMock()
     mock_user.id = uuid.UUID(uid)
@@ -310,19 +312,29 @@ def test_home_summary_endpoint_shape_with_mock(monkeypatch):
     mock_cm.__enter__.return_value = mock_s
     mock_cm.__exit__.return_value = False
 
-    with patch("backend.main.Session", return_value=mock_cm), \
-         patch("backend.main._build_habits_block", return_value=None), \
-         patch("backend.main._build_weight_block", return_value=None), \
-         patch("backend.main._build_readiness_block", return_value=None), \
-         patch("backend.main._build_training_week_block", return_value=None), \
-         patch("backend.main._build_performance_block", return_value=None), \
-         patch("backend.main._build_recent_workouts_block", return_value=None), \
-         patch("backend.main._build_sleep_block", return_value=None):
+    async def _fake_resolve():
+        return mock_user
 
-        res = client.get(f"/api/home/summary?user_id={uid}")
+    app.dependency_overrides[resolve_user] = _fake_resolve
+    try:
+        with patch("backend.main.Session", return_value=mock_cm), \
+             patch("backend.main._build_habits_block", return_value=None), \
+             patch("backend.main._build_weight_block", return_value=None), \
+             patch("backend.main._build_readiness_block", return_value=None), \
+             patch("backend.main._build_training_week_block", return_value=None), \
+             patch("backend.main.get_athlete_performance", return_value=None), \
+             patch("backend.main._build_recent_workouts_block", return_value=None), \
+             patch("backend.main._build_sleep_block", return_value=None), \
+             patch("backend.main.get_planned_sessions", return_value={"days": []}), \
+             patch("backend.main.get_readiness", return_value=None), \
+             patch("backend.main._home_slim_primary_race", return_value=None):
+
+            res = client.get("/api/home/summary")
+    finally:
+        app.dependency_overrides.pop(resolve_user, None)
 
     assert res.status_code == 200
     body = res.json()
     for key in ("habits", "weight", "readiness", "training_week",
-                "performance", "recent_workouts", "sleep"):
+                "performance", "recent_workouts", "sleep", "week_days", "race"):
         assert key in body, f"home/summary response missing block key: '{key}'"

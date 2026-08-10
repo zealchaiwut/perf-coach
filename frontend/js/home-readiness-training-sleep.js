@@ -505,7 +505,7 @@
     '</div>';
   }
 
-  function renderPerformanceCard(el, athleteId) {
+  function renderPerformanceCard(el, athleteId, performanceData) {
     if (!el) return;
 
     var header =
@@ -515,23 +515,10 @@
       '</div>';
     el.innerHTML = header + '<div class="hperf-loading">Loading…</div>';
 
-    if (!athleteId) {
-      el.innerHTML = header + '<div class="hperf-msg">Could not load score.</div>';
-      return;
-    }
-
-    fetch('/api/athletes/' + athleteId + '/performance')
-      .then(function (r) {
-        return r.json().then(function (d) { return d; }).catch(function () { return null; });
-      })
-      .then(function (data) {
+    function _paint(data) {
         var state = data && typeof data === 'object' ? data.state : null;
 
         if (state === 'scored') {
-          // Side-by-side (home revamp v2): Performance now sits in a
-          // half-width column card rather than a full-width top-row slot, so
-          // the two tiles are shown as a compact pair instead of stacked
-          // full-width rows.
           el.innerHTML = header +
             '<div class="hperf-grid hperf-grid--side">' +
               _hpfTileHtml('Endurance', 'e', data.endurance) +
@@ -539,8 +526,6 @@
             '</div>';
           return;
         }
-        // Mirror the Performance tab's own phrasing for these sub-states
-        // (frontend/pages/training-log.html .perf-threshold-hint / .perf-bb-reason).
         if (state === 'needs_thresholds') {
           el.innerHTML = header +
             '<div class="hperf-msg">To compute your score, set your FTP, threshold HR, ' +
@@ -553,7 +538,24 @@
           return;
         }
         el.innerHTML = header + '<div class="hperf-msg">Could not load score.</div>';
+    }
+
+    // Phase B: prefer summary.performance from /api/home/summary.
+    if (performanceData !== undefined) {
+      _paint(performanceData || null);
+      return;
+    }
+
+    if (!athleteId) {
+      el.innerHTML = header + '<div class="hperf-msg">Could not load score.</div>';
+      return;
+    }
+
+    fetch('/api/athletes/' + athleteId + '/performance')
+      .then(function (r) {
+        return r.json().then(function (d) { return d; }).catch(function () { return null; });
       })
+      .then(_paint)
       .catch(function () {
         el.innerHTML = header + '<div class="hperf-msg">Could not load score.</div>';
       });
@@ -604,17 +606,19 @@
     if (rdEl) {
       rdEl.classList.add('card');
       var readinessData = summary && summary.readiness ? summary.readiness : null;
-      // Render immediately from the summary data (daily signal), then again
-      // once the separate CTL/ATL/TSB/ACWR fetch resolves — load tiles are a
-      // second, independent data source (GET /api/readiness), so they
-      // shouldn't block the rest of this tile.
-      renderReadinessTile(rdEl, readinessData, null);
-      fetch('/api/readiness')
-        .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (trainingLoad) {
-          renderReadinessTile(rdEl, readinessData, trainingLoad);
-        })
-        .catch(function () { /* trio stays omitted; daily-signal block is unaffected */ });
+      var trainingLoad = readinessData && readinessData.training_load
+        ? readinessData.training_load
+        : null;
+      // Phase B: CTL/ATL/TSB rides summary.readiness.training_load.
+      renderReadinessTile(rdEl, readinessData, trainingLoad);
+      if (!trainingLoad) {
+        fetch('/api/readiness')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (tl) {
+            renderReadinessTile(rdEl, readinessData, tl);
+          })
+          .catch(function () { /* trio stays omitted */ });
+      }
     }
     if (twEl) {
       renderTrainingCard(twEl, summary && summary.training_week ? summary.training_week : null);
@@ -626,7 +630,7 @@
       renderRecentWorkoutsCard(nwEl, summary && summary.recent_workouts ? summary.recent_workouts : []);
     }
     if (pfEl) {
-      renderPerformanceCard(pfEl, userId);
+      renderPerformanceCard(pfEl, userId, summary && summary.performance);
     }
     loadCoachBrief();
   }
