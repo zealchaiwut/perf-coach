@@ -35,8 +35,9 @@ def _extract_apply_draft_week(src):
 
 def _extract_load_week(src):
     """Return the body of _loadWeek (everything between its braces)."""
-    m = re.search(r"function _loadWeek\(onDone\)\s*\{", src)
-    assert m, "_loadWeek(onDone) not found in training-plan.js"
+    # Phase B: optional opts (includeLoadPlan) — still the same onDone contract.
+    m = re.search(r"function _loadWeek\(onDone(?:,\s*opts)?\)\s*\{", src)
+    assert m, "_loadWeek(onDone[, opts]) not found in training-plan.js"
     start = m.end()
     depth = 1
     i = start
