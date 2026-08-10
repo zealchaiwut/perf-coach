@@ -68,7 +68,9 @@ def test_full_endpoint_source_includes_detected_profile():
     src = pathlib.Path(__file__).resolve().parents[1] / "backend" / "main.py"
     code = src.read_text()
     func_start = code.find("def get_workout_full")
-    func_body = code[func_start:func_start + 8000]
+    # Phase C expanded get_workout_full (streams=none early-exit); keep slice
+    # past the response_body keys near the end of the function (~9k chars).
+    func_body = code[func_start:func_start + 12000]
     assert '"detected_profile"' in func_body, (
         "get_workout_full must include 'detected_profile' in its JSONResponse dict"
     )
@@ -82,7 +84,9 @@ def test_full_endpoint_calls_session_profile_caller():
         "main.py must import from session_profile_caller"
     )
     func_start = code.find("def get_workout_full")
-    func_body = code[func_start:func_start + 8000]
+    # Phase C expanded get_workout_full (streams=none early-exit); keep slice
+    # past the response_body keys near the end of the function (~9k chars).
+    func_body = code[func_start:func_start + 12000]
     assert "_get_session_profile" in func_body or "get_session_profile_for_workout" in func_body, (
         "get_workout_full must call the session profile caller"
     )
@@ -218,7 +222,9 @@ def test_full_endpoint_still_has_existing_fields():
     src = pathlib.Path(__file__).resolve().parents[1] / "backend" / "main.py"
     code = src.read_text()
     func_start = code.find("def get_workout_full")
-    func_body = code[func_start:func_start + 8000]
+    # Phase C expanded get_workout_full (streams=none early-exit); keep slice
+    # past the response_body keys near the end of the function (~9k chars).
+    func_body = code[func_start:func_start + 12000]
 
     required_keys = ['"workout"', '"splits"', '"sources"', '"unified"', '"computed"',
                      '"field_coverage"', '"tss"', '"tss_method"', '"tss_partial"',

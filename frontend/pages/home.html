@@ -161,8 +161,26 @@
         display: flex;
         flex-direction: column;
         gap: 14px;
+        /* Base rule uses align-items:start (grid row packing). That leaks
+           into this flex stack and sizes cards to content width — wide
+           widgets look full-bleed while Race / Performance stay narrow
+           with a blue gutter. Stretch so every card matches. */
+        align-items: stretch;
       }
       .home-col { display: contents; }
+      #home-next-up,
+      #home-today-rec-card,
+      #home-weight-trend,
+      #home-race-card,
+      #home-performance-card,
+      #home-top-row-right,
+      #home-training-card,
+      #home-brief-week-plan-card,
+      #home-recent-workouts-card {
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+      }
       #home-next-up              { order: 1; }
       #home-today-rec-card       { order: 2; }
       #home-weight-trend         { order: 3; }
