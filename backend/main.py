@@ -3853,7 +3853,11 @@ def get_home_summary(current_user: User = Depends(resolve_user)):
 
     performance_block = None
     try:
-        performance_block = _build_performance_block(uid)
+        # Phase B: athlete Endurance/Speed scores (what HomeRTS actually renders).
+        # Replaces the unused PR-tracks block that no Home JS read.
+        performance_block = _resp_json_or_none(
+            get_athlete_performance(str(uid), user=current_user)
+        )
     except Exception as _e:
         _HOME_SUMMARY_LOG.error("home/summary performance block error for user %s: %s", uid, _e)
 
@@ -3869,6 +3873,35 @@ def get_home_summary(current_user: User = Depends(resolve_user)):
     except Exception as _e:
         _HOME_SUMMARY_LOG.error("home/summary sleep block error for user %s: %s", uid, _e)
 
+    week_days = None
+    try:
+        week_end = ws + _timedelta(days=6)
+        sessions = _resp_json_or_none(
+            get_planned_sessions(
+                from_date=ws.isoformat(), to_date=week_end.isoformat(), user=current_user
+            )
+        )
+        week_days = (sessions or {}).get("days") or []
+    except Exception as _e:
+        _HOME_SUMMARY_LOG.error("home/summary week_days block error for user %s: %s", uid, _e)
+        week_days = []
+
+    training_load = None
+    try:
+        training_load = _resp_json_or_none(get_readiness(user=current_user))
+    except Exception as _e:
+        _HOME_SUMMARY_LOG.error("home/summary training_load block error for user %s: %s", uid, _e)
+
+    if isinstance(readiness_block, dict) and training_load is not None:
+        readiness_block = dict(readiness_block)
+        readiness_block["training_load"] = training_load
+
+    race_block = None
+    try:
+        race_block = _home_slim_primary_race(current_user)
+    except Exception as _e:
+        _HOME_SUMMARY_LOG.error("home/summary race block error for user %s: %s", uid, _e)
+
     return JSONResponse({
         "habits": habits_block,
         "weight": weight_block,
@@ -3877,7 +3910,79 @@ def get_home_summary(current_user: User = Depends(resolve_user)):
         "performance": performance_block,
         "recent_workouts": recent_workouts_block,
         "sleep": sleep_block,
+        "week_days": week_days,
+        "race": race_block,
     })
+
+
+def _home_slim_primary_race(user) -> dict | None:
+    """Primary A-race fields for the Home race card — never cold-computes the
+    full plan bundle. Prefer a warm ``computed_cache``; else metadata only.
+    """
+    today = _today_bkk()
+    with Session(engine) as session:
+        plan = (
+            session.query(TrainingPlan)
+            .filter(TrainingPlan.user_id == user.id)
+            .order_by(TrainingPlan.created_at.asc())
+            .first()
+        )
+        races = []
+        if plan and isinstance(plan.computed_cache, dict):
+            races = plan.computed_cache.get("races") or []
+        primary = None
+        for r in races:
+            if not isinstance(r, dict):
+                continue
+            if r.get("type") == "race" and r.get("priority") == "A" and r.get("status") != "done":
+                primary = r
+                break
+        if primary is None:
+            for r in races:
+                if isinstance(r, dict) and r.get("type") == "race" and r.get("status") != "done":
+                    primary = r
+                    break
+        if primary is not None:
+            return {
+                "id": primary.get("id"),
+                "name": primary.get("name"),
+                "date": primary.get("date"),
+                "distance": primary.get("distance"),
+                "priority": primary.get("priority"),
+                "status": primary.get("status"),
+                "type": primary.get("type"),
+                "created_at": primary.get("created_at"),
+                "goal_time_seconds": primary.get("goal_time_seconds"),
+                "computed": primary.get("computed") or {},
+            }
+
+        # Cold path: race row only (no readiness recompute on the Home request).
+        rows = (
+            session.query(Race)
+            .filter(
+                Race.user_id == user.id,
+                Race.race_type == "race",
+                Race.status != "done",
+                Race.race_date >= today,
+            )
+            .order_by(Race.race_date.asc())
+            .all()
+        )
+        row = next((r for r in rows if r.priority == "A"), rows[0] if rows else None)
+        if row is None:
+            return None
+        return {
+            "id": str(row.id),
+            "name": row.name,
+            "date": row.race_date.isoformat() if row.race_date else None,
+            "distance": float(row.distance_km) if row.distance_km is not None else None,
+            "priority": row.priority,
+            "status": row.status,
+            "type": row.race_type,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "goal_time_seconds": row.goal_time_seconds,
+            "computed": {"estimate": None},
+        }
 
 
 # ── Habit endpoints ───────────────────────────────────────────────────────────
@@ -18295,6 +18400,17 @@ def _compute_plan_bundle(user) -> dict:
     except HTTPException:
         projection = {}
 
+    # Prefs + PRs for Perf boot (Phase B) — avoid separate fan-out.
+    try:
+        prefs_payload = _decode(get_user_preferences(user=user)) or {}
+    except HTTPException:
+        prefs_payload = {}
+    prefs_row_dict = (prefs_payload.get("row") or {}) if isinstance(prefs_payload, dict) else {}
+    try:
+        prs = _decode(get_athlete_run_personal_records(str(user.id), user=user)) or {}
+    except HTTPException:
+        prs = {}
+
     with Session(engine) as session:
         prefs_row = (
             session.query(UserPreferences)
@@ -18302,6 +18418,34 @@ def _compute_plan_bundle(user) -> dict:
             .first()
         )
         tp = prefs_row.threshold_pace_seconds_per_km if prefs_row else None
+
+        # Slim workout meta for Endurance/Speed breakdown rows (replaces a
+        # separate 120d /api/training-log fetch on Perf boot).
+        _meta_from = _today_bkk() - _timedelta(days=120)
+        _meta_rows = (
+            session.query(Workout)
+            .options(load_only(
+                Workout.id, Workout.name, Workout.distance_km,
+                Workout.duration_seconds, Workout.avg_hr, Workout.workout_date,
+            ))
+            .filter(
+                Workout.user_id == user.id,
+                Workout.workout_date >= _meta_from,
+                Workout.workout_type == "run",
+            )
+            .all()
+        )
+        workout_meta = {}
+        for w in _meta_rows:
+            pace = None
+            if w.distance_km and w.duration_seconds and float(w.distance_km) > 0:
+                pace = round(float(w.duration_seconds) / float(w.distance_km), 1)
+            workout_meta[str(w.id)] = {
+                "title": w.name,
+                "distance_km": float(w.distance_km) if w.distance_km is not None else None,
+                "pace_seconds_per_km": pace,
+                "avg_hr": w.avg_hr,
+            }
 
         races = (
             session.query(Race)
@@ -18403,7 +18547,13 @@ def _compute_plan_bundle(user) -> dict:
     return {
         "generated_at": _datetime.now(_timezone.utc).isoformat(),
         "current_scores": current_scores,
-        "prefs": {"threshold_pace": tp},
+        "performance": perf,
+        "prs": prs,
+        "workout_meta": workout_meta,
+        "prefs": {
+            "threshold_pace": tp,
+            "timezone": prefs_row_dict.get("timezone") or "UTC",
+        },
         "calibration": {
             "last_calibration_date": calibration.get("last_calibration_date"),
             "data_sufficiency": calibration.get("data_sufficiency"),
@@ -19021,6 +19171,69 @@ def get_plan_week_load(
             "weeks_to_converge": verdict["weeks_to_converge"],
             "converge_date": verdict["converge_date"],
         })
+
+
+def _resp_json_or_none(resp):
+    """Decode a FastAPI JSONResponse body; 204 / empty → None.
+
+    Dict/list passthrough supports unit tests that stub handlers with plain
+    payloads (and any future in-process callers that skip JSONResponse).
+    """
+    if resp is None:
+        return None
+    if isinstance(resp, (dict, list)):
+        return resp
+    if getattr(resp, "status_code", 200) == 204:
+        return None
+    try:
+        return _json.loads(resp.body)
+    except Exception:
+        return None
+
+
+@app.get("/api/plan/week-bundle")
+def get_plan_week_bundle(
+    week_start: Optional[str] = Query(default=None),
+    include_load_plan: bool = Query(default=False),
+    user: User = Depends(resolve_user),
+):
+    """One Plan-tab week boot: sessions + next-up + week-load (+ optional load-plan).
+
+    Reuses the existing handlers in-process (same shapes) so the Plan FE can
+    collapse four round-trips into one without rewriting renderers.
+    """
+    from backend.utils.time import today_bangkok
+
+    today = today_bangkok()
+    if week_start is not None:
+        try:
+            parsed = _date.fromisoformat(week_start)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
+        ws = parsed - _timedelta(days=parsed.weekday())
+    else:
+        ws = today - _timedelta(days=today.weekday())
+    we = ws + _timedelta(days=6)
+    next_to = today + _timedelta(days=20)
+
+    sessions = _resp_json_or_none(
+        get_planned_sessions(from_date=ws.isoformat(), to_date=we.isoformat(), user=user)
+    ) or {"from": ws.isoformat(), "to": we.isoformat(), "days": []}
+    next_up = _resp_json_or_none(
+        get_planned_sessions(from_date=today.isoformat(), to_date=next_to.isoformat(), user=user)
+    ) or {"from": today.isoformat(), "to": next_to.isoformat(), "days": []}
+    week_load = _resp_json_or_none(get_plan_week_load(week_start=ws.isoformat(), user=user))
+    load_plan = None
+    if include_load_plan:
+        load_plan = _resp_json_or_none(get_plan_load_plan(user=user))
+
+    return JSONResponse({
+        "week_start": ws.isoformat(),
+        "sessions": sessions,
+        "next_up": next_up,
+        "week_load": week_load,
+        "load_plan": load_plan,
+    })
 
 
 @app.get("/api/plan/computed")

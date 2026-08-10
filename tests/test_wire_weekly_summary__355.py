@@ -189,11 +189,19 @@ def test_bar_chart_today_accent():
 # ── AC-6: All 5 home widgets fire simultaneously ─────────────────────────────
 
 def test_promise_all_or_equivalent_used_for_5_widgets():
-    """init() must fire all 5 home-widget fetches via Promise.all or simultaneously."""
+    """init() must not waterfall five separate widget fetches.
+
+    Phase B folds the home widgets into one GET /api/home/summary — that is
+    an equivalent (better) parallelization than Promise.all of five calls.
+    """
     assert (
-        "Promise.all" in _HOME_JS or
-        "Promise.allSettled" in _HOME_JS
-    ), "home.js must use Promise.all or Promise.allSettled to fire widget fetches in parallel"
+        "Promise.all" in _HOME_JS
+        or "Promise.allSettled" in _HOME_JS
+        or "/api/home/summary" in _HOME_JS
+    ), (
+        "home.js must use Promise.all/allSettled or a single /api/home/summary "
+        "aggregator so widget data does not waterfall"
+    )
 
 
 def test_five_home_api_endpoints_referenced():

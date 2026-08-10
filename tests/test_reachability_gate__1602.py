@@ -469,6 +469,11 @@ _PERMANENT_EXEMPT_API: dict[str, str] = {
         "the markup is gone). Endpoint stays for API/tests and plan-check "
         "backend enrichment — no frontend caller by design."
     ),
+    "/api/plan/week-load": (
+        "Plan FE boots via /api/plan/week-bundle (Phase B); week-load is "
+        "composed in-process by get_plan_week_bundle. Direct FE callers "
+        "removed on purpose — endpoint kept as the week-load SoT handler."
+    ),
 }
 
 
