@@ -6964,45 +6964,56 @@ def get_workout_full(
         tss_result = _compute_running_tss(workout, split_rows, prefs or UserPreferences())
         from backend.models import ActivityStream as _ActivityStream
         from backend.services.activity_streams import activity_streams_to_strava_dict as _as_to_strava
-        _stream_row = session.get(_ActivityStream, workout.id)
-        _prebuilt_streams = _as_to_strava(_stream_row) if _stream_row else None
+        # Phase C: streams=none must not hydrate deferred GPS/power/HR arrays.
+        # Pass {} (not None) so _strava_source_dict does not fall back to
+        # sa.streams_payload.
+        if streams == "none":
+            _prebuilt_streams = {}
+        else:
+            _stream_row = session.get(_ActivityStream, workout.id)
+            _prebuilt_streams = _as_to_strava(_stream_row) if _stream_row else None
         strava = _strava_source_dict(getattr(workout, "strava_activity", None), prebuilt_streams=_prebuilt_streams)
         stryd = _stryd_source_dict(getattr(workout, "stryd_activity", None))
         unified = _unified_workout_dict(workout, strava, stryd)
         # Derive metrics from the full streams BEFORE downsampling for transport.
-        computed = _compute_derived(strava, stryd)
-        # Compute aerobic decoupling from full streams (before downsampling).
-        _decoupling_threshold = getattr(prefs, "aerobic_decoupling_threshold", None) if prefs else None
-        _workout_dict_plain = {
-            "workout_type": workout.workout_type,
-            "duration_seconds": workout.duration_seconds,
-            "avg_hr": workout.avg_hr,
-        }
-        _raw_streams = (strava or {}).get("streams") or {} if strava else {}
-        _splits_plain = [
-            {
-                "split_index": s.split_index,
-                "duration_seconds": s.duration_seconds,
-                "avg_hr": s.avg_hr,
-                "avg_power": s.avg_power,
-                "distance_km": float(s.distance_km) if s.distance_km is not None else None,
+        # Skip when streams=none — no stream arrays were loaded.
+        if streams == "none":
+            computed = {}
+            _aerobic_result, _aerobic_reason = None, "streams=none"
+        else:
+            computed = _compute_derived(strava, stryd)
+            # Compute aerobic decoupling from full streams (before downsampling).
+            _decoupling_threshold = getattr(prefs, "aerobic_decoupling_threshold", None) if prefs else None
+            _workout_dict_plain = {
+                "workout_type": workout.workout_type,
+                "duration_seconds": workout.duration_seconds,
+                "avg_hr": workout.avg_hr,
             }
-            for s in split_rows
-        ]
-        _decoupling_input = _raw_streams if _raw_streams else (_splits_plain or None)
-        _aerobic_result, _aerobic_reason = _compute_decoupling(
-            _workout_dict_plain, _decoupling_input, _decoupling_threshold
-        )
-        # Apply heat/humidity correction when environmental data is present (AC4).
-        if _aerobic_result is not None:
-            _heat_factor, _heat_active = _compute_heat_correction_factor(
-                temperature_c=getattr(workout, "temperature_c", None),
-                humidity_pct=getattr(workout, "humidity_pct", None),
+            _raw_streams = (strava or {}).get("streams") or {} if strava else {}
+            _splits_plain = [
+                {
+                    "split_index": s.split_index,
+                    "duration_seconds": s.duration_seconds,
+                    "avg_hr": s.avg_hr,
+                    "avg_power": s.avg_power,
+                    "distance_km": float(s.distance_km) if s.distance_km is not None else None,
+                }
+                for s in split_rows
+            ]
+            _decoupling_input = _raw_streams if _raw_streams else (_splits_plain or None)
+            _aerobic_result, _aerobic_reason = _compute_decoupling(
+                _workout_dict_plain, _decoupling_input, _decoupling_threshold
             )
-            if _heat_active:
-                _aerobic_result = _apply_heat_correction(
-                    _aerobic_result, _heat_factor, _decoupling_threshold
+            # Apply heat/humidity correction when environmental data is present (AC4).
+            if _aerobic_result is not None:
+                _heat_factor, _heat_active = _compute_heat_correction_factor(
+                    temperature_c=getattr(workout, "temperature_c", None),
+                    humidity_pct=getattr(workout, "humidity_pct", None),
                 )
+                if _heat_active:
+                    _aerobic_result = _apply_heat_correction(
+                        _aerobic_result, _heat_factor, _decoupling_threshold
+                    )
         if strava is not None:
             strava["streams"] = _downsample_streams(strava.get("streams") or {}, streams)
         coverage = {
@@ -7028,6 +7039,9 @@ def get_workout_full(
                 _persisted = getattr(_sta, "manual_laps", None)
                 if _persisted is not None:
                     _mlaps = _persisted
+                elif streams == "none":
+                    # Phase C: do not touch deferred streams_payload.
+                    _mlaps = []
                 else:
                     _streams = _sta.streams_payload if isinstance(_sta.streams_payload, dict) else None
                     from backend.services.stryd_laps import compute_manual_laps as _cml
@@ -10935,16 +10949,26 @@ def _web_incremental_sync_enabled() -> bool:
 
 def _maybe_delegate_incremental(uid, source: str):
     """Phase 3 routing: when web incremental is disabled, hand the incremental
-    sync to the worker (queue). Returns a JSONResponse to return, or None to fall
-    through to the in-process path (flag on, or worker unavailable in http mode)."""
+    sync to the worker (queue). Returns a JSONResponse to return, or None to
+    fall through to the in-process path when the web flag is on.
+
+    When the flag is off and the worker is unavailable, fail closed with 503 —
+    never silently run in-process on the thin web dyno (Phase C).
+    """
     if _web_incremental_sync_enabled():
         return None
     try:
         res = _worker_client.delegate_sync(str(uid), sources=[source], full=False)
         return JSONResponse({"started": True, "worker_delegated": True, **res}, status_code=202)
-    except _worker_client.WorkerUnavailable:
-        return None  # http mode with no worker → fall back to in-process
-
+    except _worker_client.WorkerUnavailable as exc:
+        return JSONResponse(
+            {
+                "detail": (
+                    f"Compute worker unavailable — cannot run incremental sync: {exc}"
+                ),
+            },
+            status_code=503,
+        )
 
 @app.post("/api/strava/sync")
 def strava_sync(body: _StravaSyncBody = Body(default=None), user: User = Depends(resolve_user)):

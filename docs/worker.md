@@ -239,8 +239,9 @@ Worker-tier flag:
 **Sync routing.** Full / stream-heavy syncs always go to the worker. Light
 incremental syncs run in-process on the web tier by default; set
 `WEB_INCREMENTAL_SYNC_ENABLED=0` to route those to the worker too (fully offload
-sync from the web dyno). In http mode with no worker reachable, an incremental
-falls back to in-process rather than failing.
+sync from the web dyno). When the flag is off and the worker is unreachable,
+incremental sync **fails closed with 503** — it does not fall back to
+in-process on the thin web dyno.
 
 **Queue visibility.** `GET /api/sync/status` now also reports a queued/running
 pull-queue job as `pending` / `running` (source `queue`) — so the nav bar
@@ -260,7 +261,7 @@ Web-tier flags (Render):
 
 | Var | Default | Purpose |
 |-----|---------|---------|
-| `WEB_INCREMENTAL_SYNC_ENABLED` | `1` | Run light incremental syncs in-process. `0` routes them to the worker too. |
+| `WEB_INCREMENTAL_SYNC_ENABLED` | `1` | Run light incremental syncs in-process. `0` routes them to the worker too (503 if worker unreachable — fail closed). |
 | `GARMIN_SYNC_ENABLED` | `0` | Turn on the Garmin source (scaffold — not implemented yet). |
 
 ## Poll loop & schedule
