@@ -1577,6 +1577,38 @@
     }).catch(function () { alert('Download failed'); });
   }
 
+  /** Tab-scoped catalog JSON for Bulk import (exercises | patterns | all). */
+  function downloadCatalogJson(scope) {
+    api('/api/admin/plan-library/export').then(function (res) {
+      if (!res.ok || !res.data) {
+        alert((res.data && res.data.detail) || 'Export failed');
+        return;
+      }
+      var stamp = (res.data.exported_at || '').slice(0, 10) || 'catalog';
+      var out = {
+        version: res.data.version || 1,
+        exported_at: res.data.exported_at || null,
+      };
+      var filename;
+      if (scope === 'exercises') {
+        out.exercises = res.data.exercises || [];
+        filename = 'plan-exercises-' + stamp + '.json';
+      } else if (scope === 'patterns') {
+        out.patterns = res.data.patterns || [];
+        filename = 'plan-patterns-' + stamp + '.json';
+      } else {
+        out.exercises = res.data.exercises || [];
+        out.patterns = res.data.patterns || [];
+        filename = 'plan-library-' + stamp + '.json';
+      }
+      triggerTextDownload(
+        filename,
+        JSON.stringify(out, null, 2),
+        'application/json'
+      );
+    }).catch(function () { alert('Export failed'); });
+  }
+
   /** Normalize paste/file JSON into { exercises, patterns } for bulk import. */
   function normalizeImportBundle(parsed) {
     var exercises = [];
@@ -1832,9 +1864,11 @@
   document.getElementById('btn-seed').onclick = function () { seed(false); };
   document.getElementById('btn-reset').onclick = function () { seed(true); };
   document.getElementById('btn-ex-download').onclick = downloadLlmPrompt;
+  document.getElementById('btn-ex-export-json').onclick = function () { downloadCatalogJson('exercises'); };
   document.getElementById('btn-ex-import').onclick = openImportModal;
   document.getElementById('btn-ex-body-parts').onclick = openBodyPartsModal;
   document.getElementById('btn-pat-download').onclick = downloadLlmPrompt;
+  document.getElementById('btn-pat-export-json').onclick = function () { downloadCatalogJson('patterns'); };
   document.getElementById('btn-pat-import').onclick = openImportModal;
   document.getElementById('import-cancel').onclick = closeImportModal;
   document.getElementById('import-run').onclick = runImport;
