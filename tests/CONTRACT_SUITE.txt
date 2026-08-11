@@ -1,0 +1,20 @@
+# Contract / ratchet suite — must stay fully green (no BASELINE_FAILURES allowance).
+#
+# These are the static/source-shape gates that have been failing the first push
+# of recent PRs (#1602 reachability, #1603 Bangkok literal, phase static
+# contracts, cache-bust companions). Run before push:
+#   .venv/bin/python scripts/run_contract_tests.py
+#
+# Add a path (relative to repo root) when you introduce a new must-green ratchet.
+# Prefer whole modules of static asserts; do not list integration-heavy files.
+
+tests/test_frontend_shared_lib__1603.py
+tests/test_reachability_gate__1602.py
+tests/test_phase_a_memory_sot_quickwins.py
+tests/test_phase_b_bundle_merges.py
+tests/test_phase_c_fail_closed_thin.py
+tests/test_phase_d_race_finish_sot.py
+tests/test_plan_tab_ui_revamp__v3.py
+tests/test_session_modal__view_edit_ux.py
+tests/test_consolidation__worker_has_no_llm.py
+tests/test_contract_suite__preflight.py
