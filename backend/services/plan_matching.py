@@ -6,8 +6,11 @@ SEPARATE from reconcile.py (which merges raw Strava/Stryd activities into the
 ``planned_sessions`` against those already-reconciled ``workouts`` and set a
 reconciliation status per planned session.
 
-Link-only: we set ``planned_sessions.matched_workout_id`` → ``workouts.id``; the
-workout stays its own row and the Log tab is unchanged.
+Link-only for identity: we set ``planned_sessions.matched_workout_id`` →
+``workouts.id``. For strength/plyo matches, ``plan_match_apply`` also stamps
+planned ``target_tss`` and exercise rows onto the workout when those fields are
+empty (Strava lifts often arrive with ``tss=NULL``), then recomputes muscle load.
+Existing workout TSS / exercises are never overwritten.
 
 Thresholds are a documented FIRST PASS (see docs/calculations/plan-matching.md),
 tunable later — keep the constants here as the single source of truth.
@@ -195,6 +198,7 @@ def reconcile_user(session: _Session, user_id) -> dict:
     }
 
     updated = 0
+    post_apply: list[tuple] = []  # (user_id, workout_id, stats) after commit
     for p in planned:
         st = (p.session_type or "").lower()
         if st == "rest":
@@ -262,6 +266,20 @@ def reconcile_user(session: _Session, user_id) -> dict:
                 p.status = "done_auto"
                 claimed.add(new_match)
                 changed = True
+                try:
+                    from backend.services.plan_match_apply import (
+                        apply_planned_session_to_workout,
+                    )
+                    w = next((x for x in workouts if x.id == new_match), None)
+                    if w is not None:
+                        _stats = apply_planned_session_to_workout(session, p, w)
+                        post_apply.append((p.user_id, w.id, _stats))
+                except Exception:
+                    import logging as _logging
+                    _logging.getLogger(__name__).warning(
+                        "plan_match_apply failed for planned=%s workout=%s",
+                        p.id, new_match, exc_info=True,
+                    )
         else:
             # needs_review / missed_auto / planned: clear any stale (non-manual) link.
             if p.matched_workout_id is not None:
@@ -276,6 +294,15 @@ def reconcile_user(session: _Session, user_id) -> dict:
             updated += 1
 
     session.commit()
+
+    if post_apply:
+        from backend.models import Workout as _Workout
+        from backend.services.plan_match_apply import after_match_side_effects
+
+        for uid, wid, stats in post_apply:
+            w = session.get(_Workout, wid)
+            if w is not None:
+                after_match_side_effects(uid, w, stats=stats)
 
     counts: dict = {}
     for p in planned:

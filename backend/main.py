@@ -7892,8 +7892,15 @@ def match_planned_session(ps_id: str, body: PlannedSessionMatchIn, user: User = 
         row.matched_workout_id = wid
         row.status = "done_manual"
         row.updated_at = _datetime.now(_timezone.utc)
+        from backend.services.plan_match_apply import (
+            after_match_side_effects,
+            apply_planned_session_to_workout,
+        )
+        _apply_stats = apply_planned_session_to_workout(session, row, workout)
         session.commit()
         session.refresh(row)
+        session.refresh(workout)
+        after_match_side_effects(user.id, workout, stats=_apply_stats)
         return JSONResponse(_planned_session_dict(row, workout))
 
 
