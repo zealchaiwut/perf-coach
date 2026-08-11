@@ -2678,13 +2678,22 @@ information about.
   }
 
   function _pickWhen(w) {
-    var iso = w.created_at || w.start_time;
+    // Prefer exercise start over created_at — backlog sync stamps created_at
+    // at pull time while start_time is the real session clock.
+    var iso = w.start_time || w.created_at;
     if (!iso) return '';
     var d = new Date(iso);
     if (isNaN(d.getTime())) return '';
-    var hh = d.getHours(), mm = d.getMinutes();
-    return DOW[(d.getDay() + 6) % 7].charAt(0) + DOW[(d.getDay() + 6) % 7].slice(1, 3).toLowerCase() +
-      ' ' + (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
+    // Use AppCommon.TIMEZONE (not a page-local Asia/Bangkok literal — #1603).
+    var tz = (window.AppCommon && window.AppCommon.TIMEZONE) || undefined;
+    var opts = tz ? { timeZone: tz } : {};
+    var weekday = d.toLocaleDateString('en-US', Object.assign({ weekday: 'short' }, opts));
+    var time = d.toLocaleTimeString('en-GB', Object.assign({
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }, opts));
+    return weekday + ' ' + time;
   }
 
   function _renderPickerList(box, sessId, mode, list) {
