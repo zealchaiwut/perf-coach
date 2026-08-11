@@ -15173,6 +15173,10 @@ def _validate_distance_km(distance_km: float, status_code: int = 422) -> None:
 
 @app.post("/api/races", status_code=201)
 def create_race(body: _RaceCreateBody, user: User = Depends(resolve_user)):
+    # Phase D: flat /api/races* family is FE-orphan (reachability baseline).
+    # Live UI uses plan-scoped /api/plans/{id}/races. Keep these HTTP wrappers
+    # for integration tests until Phase E migrates them; do not add new FE
+    # callers here.
     # ``date`` takes precedence; fall back to legacy ``race_date``.
     if body.date is not None:
         race_date = _validate_race_date_400(body.date)

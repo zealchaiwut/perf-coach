@@ -474,6 +474,11 @@ _PERMANENT_EXEMPT_API: dict[str, str] = {
         "composed in-process by get_plan_week_bundle. Direct FE callers "
         "removed on purpose — endpoint kept as the week-load SoT handler."
     ),
+    "/api/projection": (
+        "FE unused; still called in-process by _compute_plan_bundle "
+        "(plan/computed SoT). Gate does not see main.py callers — permanent "
+        "exempt rather than delete (Phase D)."
+    ),
 }
 
 
@@ -595,13 +600,13 @@ _BASELINE_ORPHANS_API: dict[str, str] = {
     "/api/preferences/export": "No frontend caller anywhere.",
     "/api/preferences/import": "No frontend caller anywhere.",
 
-    "/api/projection": "No frontend caller — distinct from the /projection PAGE route above, which redirects to /log#performance; this is the (also unused) API route of the same name.",
-    "/api/projection/snapshots": "No frontend caller anywhere.",
+    "/api/projection/snapshots": "No frontend caller; Phase E candidate to delete after snapshot-list tests migrate. Writer remains for plan projection first-write-of-day.",
 
     # The flat /api/races family (main.py ~15215-15838) is superseded by the
     # plan-scoped /api/plans/{id}/races that _planRaceUrl() actually calls
     # (see the PERMANENT_EXEMPT entry note and the checkpoints cluster
-    # above). No frontend reference to the flat form survives.
+    # above). No frontend reference to the flat form survives. Phase E:
+    # migrate tests then delete.
     "/api/races": "Superseded by the plan-scoped /api/plans/{id}/races that _planRaceUrl() calls; no caller for the flat form.",
     "/api/races/{race_id}": "Same flat-races family as /api/races above — no caller.",
     "/api/races/{race_id}/calibrate": "No frontend caller for either calibrate verb.",
