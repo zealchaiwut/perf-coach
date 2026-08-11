@@ -14,6 +14,11 @@ name: Tests — unit subset, no new failures
 # The gate is a ratchet, not a green wall: zero collection errors, and no new
 # failures against tests/BASELINE_FAILURES.txt. See
 # scripts/check_test_regressions.py for why.
+#
+# A parallel **contract** job runs the curated static ratchets first
+# (tests/CONTRACT_SUITE.txt via scripts/run_contract_tests.py). Those must be
+# fully green — no baseline — so FE/API shape breaks fail in ~20s instead of
+# waiting for the full unit subset.
 
 on:
   pull_request:
@@ -21,6 +26,27 @@ on:
     branches: [develop, master]
 
 jobs:
+  contract:
+    name: Contract suite — must stay green
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run contract suite
+        env:
+          TZ: Asia/Bangkok
+        run: python scripts/run_contract_tests.py
+
   unit:
     name: Unit subset — zero collection errors, no regressions
     runs-on: ubuntu-latest
