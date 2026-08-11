@@ -464,6 +464,21 @@ _PERMANENT_EXEMPT_API: dict[str, str] = {
         "Same _postProposal(id, action) indirection as 'accept' above — "
         "wired to the .pl-prop-decline button (line 6129)."
     ),
+    "/api/training/muscle-load": (
+        "Perf muscle-balance card was removed on purpose (test_1382 asserts "
+        "the markup is gone). Endpoint stays for API/tests and plan-check "
+        "backend enrichment — no frontend caller by design."
+    ),
+    "/api/plan/week-load": (
+        "Plan FE boots via /api/plan/week-bundle (Phase B); week-load is "
+        "composed in-process by get_plan_week_bundle. Direct FE callers "
+        "removed on purpose — endpoint kept as the week-load SoT handler."
+    ),
+    "/api/projection": (
+        "FE unused; still called in-process by _compute_plan_bundle "
+        "(plan/computed SoT). Gate does not see main.py callers — permanent "
+        "exempt rather than delete (Phase D)."
+    ),
 }
 
 
@@ -585,13 +600,13 @@ _BASELINE_ORPHANS_API: dict[str, str] = {
     "/api/preferences/export": "No frontend caller anywhere.",
     "/api/preferences/import": "No frontend caller anywhere.",
 
-    "/api/projection": "No frontend caller — distinct from the /projection PAGE route above, which redirects to /log#performance; this is the (also unused) API route of the same name.",
-    "/api/projection/snapshots": "No frontend caller anywhere.",
+    "/api/projection/snapshots": "No frontend caller; Phase E candidate to delete after snapshot-list tests migrate. Writer remains for plan projection first-write-of-day.",
 
     # The flat /api/races family (main.py ~15215-15838) is superseded by the
     # plan-scoped /api/plans/{id}/races that _planRaceUrl() actually calls
     # (see the PERMANENT_EXEMPT entry note and the checkpoints cluster
-    # above). No frontend reference to the flat form survives.
+    # above). No frontend reference to the flat form survives. Phase E:
+    # migrate tests then delete.
     "/api/races": "Superseded by the plan-scoped /api/plans/{id}/races that _planRaceUrl() calls; no caller for the flat form.",
     "/api/races/{race_id}": "Same flat-races family as /api/races above — no caller.",
     "/api/races/{race_id}/calibrate": "No frontend caller for either calibrate verb.",
@@ -611,9 +626,10 @@ _BASELINE_ORPHANS_API: dict[str, str] = {
     "/api/training-load/recompute": "No frontend caller (see cluster note above).",
     "/api/training-load/refresh": "No frontend caller (see cluster note above). The one 'refresh' hit anywhere in frontend is an unrelated <meta http-equiv=\"refresh\"> tag in preferences.html.",
 
-    # training-performance.js / training-plan.js use /api/training/muscle-load
-    # and /api/training/plan-check — not these five. (gap-analysis HTTP surface
-    # was removed with the Plan-tab What-to-improve panel.)
+    # /api/training/muscle-load is permanently exempt (Perf card removed).
+    # training-plan.js still calls /api/training/plan-check — not these five.
+    # (gap-analysis HTTP surface was removed with the Plan-tab What-to-improve
+    # panel.)
     "/api/training/daily-load": "No frontend caller; distinct from /api/athletes/{id}/daily-load, which IS called (training-log.js, lib/load-readiness-tiles.js).",
     "/api/training/form-metrics": "No frontend caller (see cluster note above).",
     "/api/training/structural-dose": "No frontend caller (see cluster note above).",

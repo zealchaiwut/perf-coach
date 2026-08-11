@@ -151,7 +151,7 @@ def test_ac3_full_endpoint_includes_detected_profile_key():
     code = _MAIN_SRC.read_text()
     func_start = code.find("def get_workout_full")
     assert func_start >= 0, "get_workout_full function must exist in main.py"
-    func_body = code[func_start:func_start + 8000]
+    func_body = code[func_start:func_start + 12000]
     assert '"detected_profile"' in func_body, (
         "get_workout_full JSONResponse dict must include 'detected_profile' key"
     )
@@ -166,7 +166,7 @@ def test_ac3_full_endpoint_calls_session_profile_caller():
         "main.py must import from session_profile_caller to get the session profile"
     )
     func_start = code.find("def get_workout_full")
-    func_body = code[func_start:func_start + 8000]
+    func_body = code[func_start:func_start + 12000]
     uses_caller = "_get_session_profile" in func_body or "get_session_profile_for_workout" in func_body
     assert uses_caller, (
         "get_workout_full must call the session profile caller to populate detected_profile"
@@ -177,7 +177,7 @@ def test_ac3_full_endpoint_existing_keys_preserved():
     """AC3 / AC7: detected_profile must not displace any existing response keys."""
     code = _MAIN_SRC.read_text()
     func_start = code.find("def get_workout_full")
-    func_body = code[func_start:func_start + 8000]
+    func_body = code[func_start:func_start + 12000]
     required = [
         '"workout"', '"splits"', '"sources"', '"unified"', '"computed"',
         '"field_coverage"', '"tss"', '"tss_method"', '"tss_partial"',
@@ -405,7 +405,7 @@ def test_ac9_get_workout_full_returns_404_for_missing_workout():
     code = _MAIN_SRC.read_text()
     func_start = code.find("def get_workout_full")
     assert func_start >= 0, "get_workout_full must exist in main.py"
-    func_body = code[func_start:func_start + 8000]
+    func_body = code[func_start:func_start + 12000]
 
     # The endpoint must check for None workout and raise 404
     has_none_check = "is None" in func_body or "one_or_none" in func_body
@@ -422,7 +422,7 @@ def test_ac9_get_workout_full_not_found_uses_404_not_500():
     """AC9: verify the 404 is not swallowed by a bare except that might return 500."""
     code = _MAIN_SRC.read_text()
     func_start = code.find("def get_workout_full")
-    func_body = code[func_start:func_start + 8000]
+    func_body = code[func_start:func_start + 12000]
 
     # The function must not have a bare except that would catch HTTPException
     has_bare_except = "except:" in func_body and "except Exception:" not in func_body
@@ -437,7 +437,7 @@ def test_ac9_full_endpoint_uses_one_or_none_for_404_behaviour():
     """AC9: endpoint must use one_or_none() so missing rows yield None (not NoResultFound)."""
     code = _MAIN_SRC.read_text()
     func_start = code.find("def get_workout_full")
-    func_body = code[func_start:func_start + 8000]
+    func_body = code[func_start:func_start + 12000]
     assert "one_or_none" in func_body, (
         "get_workout_full must use .one_or_none() to safely handle missing workouts "
         "and return 404 instead of raising an ORM exception"

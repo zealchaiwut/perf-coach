@@ -164,6 +164,27 @@ async def get_daily_messages(
 # ── Coach export (paste-to-Claude loop) ──────────────────────────────────────
 
 
+def _reject_inline_coach_export_if_queued():
+    """When COACH_EXPORT_VIA_QUEUE=1, inline GET export must fail closed (503).
+
+    The nav uses POST /api/coach/export/jobs; allowing GET paste/consult on the
+    thin web dyno would reintroduce the heavy in-process path Phase C removes.
+    """
+    from backend.services import worker_client as wc
+
+    if wc.coach_export_via_queue_enabled():
+        return JSONResponse(
+            {
+                "detail": (
+                    "coach export via queue only (COACH_EXPORT_VIA_QUEUE=1); "
+                    "use POST /api/coach/export/jobs"
+                ),
+            },
+            status_code=503,
+        )
+    return None
+
+
 @router.get("/api/coach/export")
 async def get_coach_export(
     window: int = Query(default=None, alias="window"),
@@ -172,8 +193,12 @@ async def get_coach_export(
     """Return the coach-export payload alone, for inspection and tests.
 
     Pure assembly over services that already exist — no LLM call, no writes. The
-    paste endpoint below is what the nav button uses.
+    paste endpoint below is what the nav button uses when queue mode is off.
     """
+    blocked = _reject_inline_coach_export_if_queued()
+    if blocked is not None:
+        return blocked
+
     from backend.services.coach_export import DEFAULT_WINDOW_DAYS, build_export
 
     window_days = DEFAULT_WINDOW_DAYS if window is None else window
@@ -196,7 +221,13 @@ async def get_coach_export_paste(
     stamps ``users.last_coach_export_at``, which the NEXT export reports as
     ``meta.previous_export_date`` so the coach message can skip a season
     re-check when nothing has moved.
+
+    When ``COACH_EXPORT_VIA_QUEUE=1``, returns 503 — use the jobs path instead.
     """
+    blocked = _reject_inline_coach_export_if_queued()
+    if blocked is not None:
+        return blocked
+
     from backend.services.coach_export import (
         DEFAULT_WINDOW_DAYS,
         build_export,
@@ -237,7 +268,13 @@ async def get_coach_consult(
     it does NOT stamp ``last_coach_export_at``: a check-in is a conversation, not
     the daily message, and consuming the "nothing moved since" signal here would
     silence the next day's season check.
+
+    When ``COACH_EXPORT_VIA_QUEUE=1``, returns 503 — use the jobs path instead.
     """
+    blocked = _reject_inline_coach_export_if_queued()
+    if blocked is not None:
+        return blocked
+
     from backend.services.coach_export import (
         DEFAULT_WINDOW_DAYS,
         build_consult_blob,

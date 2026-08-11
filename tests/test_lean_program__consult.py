@@ -193,6 +193,7 @@ class _StubUser:
 
 @pytest.fixture
 def client_user(monkeypatch):
+    monkeypatch.setenv("COACH_EXPORT_VIA_QUEUE", "0")
     user = _StubUser()
     app.dependency_overrides[resolve_user] = lambda: user
     monkeypatch.setattr(

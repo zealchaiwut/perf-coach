@@ -154,10 +154,9 @@ information about.
           _pendingOpenId = null;
           _openDetailById(id);
         }
-      });
+      }, { includeLoadPlan: true });
       _wireLoadPlanSettings();
-      _loadLoadPlan();
-      _loadWeekLoad(_iso(_weekStart));
+      // load-plan + week-load + sessions + next-up come from week-bundle on init.
       if (window.location.hash === '#prefs') {
         setTimeout(function () {
           var t = document.getElementById('plan-suggestions-trigger');
@@ -315,21 +314,12 @@ information about.
     return false;
   }
 
-  function _loadPipelineThenWeek(onDone) {
-    _api('GET', '/api/plan/pipeline')
-      .then(function (p) {
-        _pipeline = p || { mode: 'legacy', enabled: false, shadow: false, ui_default: false };
-        _draftVisible = _shouldShowDraftUi();
-        _loadWeek(function () {
-          if (_draftVisible) _loadDraft(onDone);
-          else if (onDone) onDone();
-        });
-      })
-      .catch(function () {
-        _pipeline = { mode: 'legacy', enabled: false, shadow: false, ui_default: false };
-        _draftVisible = false;
-        _loadWeek(onDone);
-      });
+  function _loadPipelineThenWeek(onDone, opts) {
+    // Drafts are parked (_shouldShowDraftUi always false) — skip the pipeline
+    // round-trip; it only gated an unreachable overlay.
+    _pipeline = { mode: 'legacy', enabled: false, shadow: false, ui_default: false };
+    _draftVisible = false;
+    _loadWeek(onDone, opts);
   }
 
   function _loadDraft(onDone) {
@@ -929,46 +919,53 @@ information about.
   }
 
   // ── Load / reload the week ──────────────────────────────────────────────────
-  function _loadWeek(onDone) {
-    var from = _iso(_weekStart), to = _iso(_addDays(_weekStart, 6));
+  function _applyWeekBundle(data, opts) {
+    opts = opts || {};
+    _bundle = (data && data.sessions) || { days: [] };
+    _nextUpBundle = (data && data.next_up) || null;
+    _wlData = (data && data.week_load) || null;
+    if (opts.includeLoadPlan) {
+      _lpData = (data && data.load_plan) || null;
+      _renderLoadPlan();
+    }
+    _renderWeekList();
+    _renderWeekLoad();
+    _renderNextUp();
+    // Keep an open detail panel in sync with the freshly loaded bundle.
+    if (_detail) {
+      var updated = null;
+      (_bundle.days || []).forEach(function (d) {
+        (d.planned || []).forEach(function (p) { if (p.id === _detail.id) updated = p; });
+      });
+      if (!updated) {
+        _closeDetail();
+      } else if (_sm.dirty) {
+        _detail.status = updated.status;
+        _detail.matched_workout_id = updated.matched_workout_id;
+        _detail.actual = updated.actual;
+        _renderDetailSection();
+      } else {
+        _detail = updated;
+        _smSeedBuilders(updated);
+        _sm.suppressDomSync = true;
+        _renderDetailSection();
+        _sm.baseline = _smReadDraftFromDom(updated);
+        _sm.dirty = false;
+        _smMarkDirty();
+      }
+    }
+  }
+
+  function _loadWeek(onDone, opts) {
+    opts = opts || {};
     var host = document.getElementById('plan-week-list');
     if (host) host.innerHTML = '<div class="pl-loading">Loading week…</div>';
-    _api('GET', '/api/planned-sessions?from=' + from + '&to=' + to)
+    var ws = _iso(_weekStart);
+    var url = '/api/plan/week-bundle?week_start=' + encodeURIComponent(ws);
+    if (opts.includeLoadPlan) url += '&include_load_plan=true';
+    _api('GET', url)
       .then(function (data) {
-        _bundle = data;
-        _renderWeekList();
-        _loadNextUpRange();
-        // Keep an open detail panel in sync with the freshly loaded bundle
-        // (a mutation triggered from inside the panel doesn't otherwise
-        // refresh it, since it renders from _detail, not _bundle).
-        if (_detail) {
-          var updated = null;
-          (_bundle.days || []).forEach(function (d) {
-            (d.planned || []).forEach(function (p) { if (p.id === _detail.id) updated = p; });
-          });
-          if (!updated) {
-            _closeDetail();
-          } else if (_sm.dirty) {
-            // Keep in-progress edits; only refresh server-owned status fields.
-            _detail.status = updated.status;
-            _detail.matched_workout_id = updated.matched_workout_id;
-            _detail.actual = updated.actual;
-            _renderDetailSection();
-          } else {
-            _detail = updated;
-            _smSeedBuilders(updated);
-            _sm.suppressDomSync = true;
-            _renderDetailSection();
-            _sm.baseline = _smReadDraftFromDom(updated);
-            _sm.dirty = false;
-            _smMarkDirty();
-          }
-        }
-        // Every planned-session mutation funnels through _loadWeek — refresh
-        // the Session-load card's planned/projected numbers in the same
-        // breath, so adding/editing a session recalculates the week TSS
-        // immediately instead of waiting for a page reload.
-        _loadWeekLoad(_iso(_weekStart));
+        _applyWeekBundle(data, opts);
         if (onDone) onDone();
       })
       .catch(function () {
@@ -1390,8 +1387,7 @@ information about.
           savedEl.style.display = '';
           setTimeout(function () { savedEl.style.display = 'none'; }, 2000);
         }
-        _loadLoadPlan();
-        _loadWeekLoad();
+        _loadWeek(null, { includeLoadPlan: true });
       })
       .catch(function (e) {
         if (errEl) errEl.textContent = e.message || 'Save failed.';
@@ -1437,14 +1433,16 @@ information about.
   var _wlData = null;
 
   function _loadWeekLoad(weekStartISO) {
-    var url = '/api/plan/week-load' + (weekStartISO ? '?week_start=' + weekStartISO : '');
-    _api('GET', url).then(function (data) {
-      _wlData = data;
-      _renderWeekLoad();
-    }).catch(function () {
-      _wlData = null;
-      _renderWeekLoad();
-    });
+    // After Phase B, week-load rides /api/plan/week-bundle with sessions.
+    if (weekStartISO) {
+      try { _weekStart = _mondayOf(_parseISO(weekStartISO)); } catch (e) { /* keep */ }
+    }
+    _loadWeek();
+  }
+
+  function _loadNextUpRange() {
+    // Next-up is included in week-bundle; no separate fetch.
+    _renderNextUp();
   }
 
   function _renderWeekLoad() {
@@ -1699,20 +1697,6 @@ information about.
     return null;
   }
 
-  function _loadNextUpRange() {
-    var today = _todayISO();
-    var to = _iso(_addDays(_parseISO(today), 20));
-    _api('GET', '/api/planned-sessions?from=' + today + '&to=' + to)
-      .then(function (data) {
-        _nextUpBundle = data;
-        _renderNextUp();
-      })
-      .catch(function () {
-        _nextUpBundle = null;
-        _renderNextUp();
-      });
-  }
-
   function _renderNextUp() {
     var host = document.getElementById('plan-next-up');
     if (!host) return;
@@ -1907,10 +1891,10 @@ information about.
         '</div>' +
       '</div>';
     document.getElementById('pl-prev').onclick = function () {
-      _weekStart = _addDays(_weekStart, -7); _renderWeekSection(); _loadWeek(function () { if (_draftVisible) _loadDraft(); }); _loadWeekLoad(_iso(_weekStart));
+      _weekStart = _addDays(_weekStart, -7); _renderWeekSection(); _loadWeek(function () { if (_draftVisible) _loadDraft(); });
     };
     document.getElementById('pl-next').onclick = function () {
-      _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(function () { if (_draftVisible) _loadDraft(); }); _loadWeekLoad(_iso(_weekStart));
+      _weekStart = _addDays(_weekStart, 7); _renderWeekSection(); _loadWeek(function () { if (_draftVisible) _loadDraft(); });
     };
     var applyBtn = document.getElementById('pl-apply-draft');
     if (applyBtn) applyBtn.onclick = _applyDraftWeek;
@@ -2026,13 +2010,17 @@ information about.
     _wireWeekEvents();
   }
 
-  // Real logged TSS (p.actual.tss) when the session is done/matched; the
-  // server-computed historical-baseline estimate (p.estimated_tss, "~" —
-  // ONLY present while the session is still achievable, see
-  // _planned_session_dict) otherwise. Never fabricates a number.
+  // Real logged TSS (p.actual.tss) when the session is done/matched; else the
+  // server estimate (p.estimated_tss) which already encodes pin / spend /
+  // history precedence. Do NOT re-prefer structure.target_tss here — that
+  // diverged from week-load / Next-up / home morning.
   function _sessionTss(p) {
-    if (p.actual && p.actual.tss != null) return { value: p.actual.tss, estimated: false };
-    if (p.estimated_tss != null) return { value: p.estimated_tss, estimated: true };
+    var H = window.PlanSessionHelpers;
+    if (H && typeof H.sessionTss === 'function') return H.sessionTss(p);
+    if (p && p.actual && p.actual.tss != null) return { value: p.actual.tss, estimated: false };
+    if (p && p.estimated_tss != null && isFinite(Number(p.estimated_tss))) {
+      return { value: Number(p.estimated_tss), estimated: true };
+    }
     return null;
   }
 

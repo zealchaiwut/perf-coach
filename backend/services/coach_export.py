@@ -470,32 +470,31 @@ _NULL_GOAL = {
 def _race_estimate(db: Session, user, race_row, distance_km: Optional[float]) -> dict:
     """Current finish estimate for the goal race + its band, in minutes.
 
-    Preferred source is the race-readiness compute behind the Performance tab
-    (its projection series ends on race day, so the estimate accounts for the
-    whole build and taper). For a PerformanceGoal with no Race row there is no
-    projection to read, so fall back to ``blended_scores_estimate`` — the same
-    engine, anchored on today's displayed End/Spd scores with no build modelled.
+    Preferred source is ``race_finish_estimate.estimate_race_finish`` — the same
+    Performance-tab SoT Coach Dream uses (RacePrediction tip or live time_curve
+    race-day sample). Never invent a CTL√-ratio time here.
+
+    For a PerformanceGoal with no Race row there is no projection to read, so
+    fall back to ``blended_scores_estimate`` anchored on today's End/Spd scores.
     """
     out = {"current_estimate": None, "estimate_band_min": None, "estimate_source": None}
 
     if race_row is not None:
         try:
-            from backend.main import _race_readiness_impl
+            from backend.services.race_finish_estimate import estimate_race_finish
+            from backend.utils.time import today_bangkok as _today_bkk
 
-            readiness = json.loads(_race_readiness_impl(str(race_row.id), user).body)
-            curve = readiness.get("time_curve") or {}
-            samples = curve.get("projection") or curve.get("history") or []
-            if samples:
-                last = samples[-1]
-                out["current_estimate"] = _hhmmss(last.get("estimated_finish_seconds"))
-                band = last.get("confidence_band_seconds")
+            est = estimate_race_finish(user.id, race_row, today=_today_bkk(), db=db)
+            if not est.get("unavailable") and est.get("est_label"):
+                out["current_estimate"] = est["est_label"]
+                band = est.get("band_sec")
                 out["estimate_band_min"] = (
                     round(band / 60.0, 1) if band is not None else None
                 )
-                out["estimate_source"] = "race_readiness_projection"
+                out["estimate_source"] = est.get("source") or "performance_time_curve"
                 return out
         except Exception as exc:
-            _log.warning("race readiness estimate unavailable: %s", exc, exc_info=True)
+            _log.warning("race finish estimate unavailable: %s", exc, exc_info=True)
 
     if distance_km:
         from backend.main import _athlete_scores_as_of

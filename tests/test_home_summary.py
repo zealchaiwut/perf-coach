@@ -101,16 +101,14 @@ def _valid_training_week():
 
 
 def _valid_performance():
-    return [
-        {
-            "name": "Half Marathon",
-            "track_meta": {"track_type": "time"},
-            "pb_value_formatted": "1:54:31",
-            "pb_date": str(_TODAY - datetime.timedelta(days=30)),
-            "most_recent_formatted": "1:54:31",
-            "improvement_vs_pb": "—",
-        }
-    ]
+    # Phase B: home/summary.performance is athlete Endurance/Speed scores
+    # (same shape as GET /api/athletes/{id}/performance), not PR tracks.
+    return {
+        "state": "scored",
+        "endurance": {"score": 62, "band": "solid"},
+        "speed": {"score": 55, "band": "building"},
+        "generated_at": "2026-06-08T00:00:00+00:00",
+    }
 
 
 def _valid_recent_workouts():
@@ -128,9 +126,13 @@ _ALL_BLOCKS = {
     "backend.main._build_weight_block": _valid_weight(),
     "backend.main._build_readiness_block": _valid_readiness(),
     "backend.main._build_training_week_block": _valid_training_week(),
-    "backend.main._build_performance_block": _valid_performance(),
+    "backend.main.get_athlete_performance": _valid_performance(),
     "backend.main._build_recent_workouts_block": _valid_recent_workouts(),
     "backend.main._build_sleep_block": _valid_sleep(),
+    # Phase B extras — avoid cold Session mocks leaking MagicMocks into JSON.
+    "backend.main.get_planned_sessions": {"days": []},
+    "backend.main.get_readiness": None,
+    "backend.main._home_slim_primary_race": None,
 }
 
 
@@ -231,7 +233,7 @@ def test_unknown_user_returns_404(as_user):
     ("backend.main._build_weight_block", "weight"),
     ("backend.main._build_readiness_block", "readiness"),
     ("backend.main._build_training_week_block", "training_week"),
-    ("backend.main._build_performance_block", "performance"),
+    ("backend.main.get_athlete_performance", "performance"),
     ("backend.main._build_recent_workouts_block", "recent_workouts"),
     ("backend.main._build_sleep_block", "sleep"),
 ])

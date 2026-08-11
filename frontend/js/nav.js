@@ -619,7 +619,20 @@
       body: JSON.stringify({ kind: kind }),
     }).then(function (res) {
       if (res.status === 503) {
-        return { queueDisabled: true };
+        return res.json().then(function (body) {
+          var detail = (body && body.detail) || "";
+          // Local/dev: COACH_EXPORT_VIA_QUEUE=0 — inline GET is intentional.
+          if (
+            typeof detail === "string" &&
+            detail.indexOf("queue disabled") !== -1
+          ) {
+            return { queueDisabled: true };
+          }
+          // Phase C: worker/queue unavailable on a queued deploy — fail closed.
+          throw new Error("export queue unavailable (503)");
+        }, function () {
+          throw new Error("export queue unavailable (503)");
+        });
       }
       if (!res.ok) throw new Error("enqueue failed (" + res.status + ")");
       return res.json();

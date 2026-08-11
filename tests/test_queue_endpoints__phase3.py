@@ -116,14 +116,17 @@ def test_maybe_delegate_incremental_delegates_when_disabled(monkeypatch):
     assert kwargs["full"] is False and kwargs["sources"] == ["stryd"]
 
 
-def test_maybe_delegate_incremental_falls_through_when_worker_unavailable(monkeypatch):
+def test_maybe_delegate_incremental_fails_closed_when_worker_unavailable(monkeypatch):
     import backend.main as m
     from unittest.mock import patch
     monkeypatch.setenv("WEB_INCREMENTAL_SYNC_ENABLED", "0")
     with patch.object(m._worker_client, "delegate_sync",
                       side_effect=m._worker_client.WorkerUnavailable("no worker")):
-        assert m._maybe_delegate_incremental("u1", "strava") is None  # → in-process
-
+        resp = m._maybe_delegate_incremental("u1", "strava")
+    assert resp is not None
+    assert resp.status_code == 503
+    body = __import__("json").loads(resp.body)
+    assert "unavailable" in (body.get("detail") or "").lower()
 
 # ── Garmin scaffold ──────────────────────────────────────────────────────────
 

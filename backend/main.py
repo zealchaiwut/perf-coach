@@ -3853,7 +3853,11 @@ def get_home_summary(current_user: User = Depends(resolve_user)):
 
     performance_block = None
     try:
-        performance_block = _build_performance_block(uid)
+        # Phase B: athlete Endurance/Speed scores (what HomeRTS actually renders).
+        # Replaces the unused PR-tracks block that no Home JS read.
+        performance_block = _resp_json_or_none(
+            get_athlete_performance(str(uid), user=current_user)
+        )
     except Exception as _e:
         _HOME_SUMMARY_LOG.error("home/summary performance block error for user %s: %s", uid, _e)
 
@@ -3869,6 +3873,35 @@ def get_home_summary(current_user: User = Depends(resolve_user)):
     except Exception as _e:
         _HOME_SUMMARY_LOG.error("home/summary sleep block error for user %s: %s", uid, _e)
 
+    week_days = None
+    try:
+        week_end = ws + _timedelta(days=6)
+        sessions = _resp_json_or_none(
+            get_planned_sessions(
+                from_date=ws.isoformat(), to_date=week_end.isoformat(), user=current_user
+            )
+        )
+        week_days = (sessions or {}).get("days") or []
+    except Exception as _e:
+        _HOME_SUMMARY_LOG.error("home/summary week_days block error for user %s: %s", uid, _e)
+        week_days = []
+
+    training_load = None
+    try:
+        training_load = _resp_json_or_none(get_readiness(user=current_user))
+    except Exception as _e:
+        _HOME_SUMMARY_LOG.error("home/summary training_load block error for user %s: %s", uid, _e)
+
+    if isinstance(readiness_block, dict) and training_load is not None:
+        readiness_block = dict(readiness_block)
+        readiness_block["training_load"] = training_load
+
+    race_block = None
+    try:
+        race_block = _home_slim_primary_race(current_user)
+    except Exception as _e:
+        _HOME_SUMMARY_LOG.error("home/summary race block error for user %s: %s", uid, _e)
+
     return JSONResponse({
         "habits": habits_block,
         "weight": weight_block,
@@ -3877,7 +3910,79 @@ def get_home_summary(current_user: User = Depends(resolve_user)):
         "performance": performance_block,
         "recent_workouts": recent_workouts_block,
         "sleep": sleep_block,
+        "week_days": week_days,
+        "race": race_block,
     })
+
+
+def _home_slim_primary_race(user) -> dict | None:
+    """Primary A-race fields for the Home race card — never cold-computes the
+    full plan bundle. Prefer a warm ``computed_cache``; else metadata only.
+    """
+    today = _today_bkk()
+    with Session(engine) as session:
+        plan = (
+            session.query(TrainingPlan)
+            .filter(TrainingPlan.user_id == user.id)
+            .order_by(TrainingPlan.created_at.asc())
+            .first()
+        )
+        races = []
+        if plan and isinstance(plan.computed_cache, dict):
+            races = plan.computed_cache.get("races") or []
+        primary = None
+        for r in races:
+            if not isinstance(r, dict):
+                continue
+            if r.get("type") == "race" and r.get("priority") == "A" and r.get("status") != "done":
+                primary = r
+                break
+        if primary is None:
+            for r in races:
+                if isinstance(r, dict) and r.get("type") == "race" and r.get("status") != "done":
+                    primary = r
+                    break
+        if primary is not None:
+            return {
+                "id": primary.get("id"),
+                "name": primary.get("name"),
+                "date": primary.get("date"),
+                "distance": primary.get("distance"),
+                "priority": primary.get("priority"),
+                "status": primary.get("status"),
+                "type": primary.get("type"),
+                "created_at": primary.get("created_at"),
+                "goal_time_seconds": primary.get("goal_time_seconds"),
+                "computed": primary.get("computed") or {},
+            }
+
+        # Cold path: race row only (no readiness recompute on the Home request).
+        rows = (
+            session.query(Race)
+            .filter(
+                Race.user_id == user.id,
+                Race.race_type == "race",
+                Race.status != "done",
+                Race.race_date >= today,
+            )
+            .order_by(Race.race_date.asc())
+            .all()
+        )
+        row = next((r for r in rows if r.priority == "A"), rows[0] if rows else None)
+        if row is None:
+            return None
+        return {
+            "id": str(row.id),
+            "name": row.name,
+            "date": row.race_date.isoformat() if row.race_date else None,
+            "distance": float(row.distance_km) if row.distance_km is not None else None,
+            "priority": row.priority,
+            "status": row.status,
+            "type": row.race_type,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "goal_time_seconds": row.goal_time_seconds,
+            "computed": {"estimate": None},
+        }
 
 
 # ── Habit endpoints ───────────────────────────────────────────────────────────
@@ -5892,6 +5997,11 @@ def _planned_duration_map(session, workout_ids: list) -> dict:
     return planned_duration_map(session, workout_ids)
 
 
+def _splits_by_workout_map(session, workout_ids: list) -> dict:
+    from backend.services.workout_perf_helpers import splits_by_workout_map
+    return splits_by_workout_map(session, workout_ids)
+
+
 def _workout_signal_scores(session, workout) -> dict:
     """Per-session endurance/speed scores for the signal card.
 
@@ -6566,6 +6676,7 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
 def get_workouts(
     from_date: str = Query(alias="from"),
     to_date: str = Query(alias="to"),
+    limit: Optional[int] = Query(default=None, ge=1, le=500),
     user: User = Depends(resolve_user),
 ):
     uid = user.id
@@ -6575,20 +6686,31 @@ def get_workouts(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format; use YYYY-MM-DD")
     with Session(engine) as session:
-        workouts = (
-            session.query(Workout)
-            .options(
+        # limit=1 existence probes (Log "Repeat last") must stay cheap — no
+        # Strava/Stryd joinedload, no exercise counts.
+        existence_only = limit == 1
+        q = session.query(Workout)
+        if not existence_only:
+            q = q.options(
                 joinedload(Workout.strava_activity),
                 joinedload(Workout.stryd_activity),
             )
-            .filter(
+        q = (
+            q.filter(
                 Workout.user_id == uid,
                 Workout.workout_date >= from_d,
                 Workout.workout_date <= to_d,
             )
             .order_by(Workout.workout_date.desc(), Workout.created_at.desc())
-            .all()
         )
+        if limit is not None:
+            q = q.limit(limit)
+        workouts = q.all()
+        if existence_only:
+            return JSONResponse([
+                {"id": str(w.id), "workout_date": str(w.workout_date)}
+                for w in workouts
+            ])
         workout_ids = [w.id for w in workouts]
         exercise_counts: dict = {}
         if workout_ids:
@@ -6842,45 +6964,56 @@ def get_workout_full(
         tss_result = _compute_running_tss(workout, split_rows, prefs or UserPreferences())
         from backend.models import ActivityStream as _ActivityStream
         from backend.services.activity_streams import activity_streams_to_strava_dict as _as_to_strava
-        _stream_row = session.get(_ActivityStream, workout.id)
-        _prebuilt_streams = _as_to_strava(_stream_row) if _stream_row else None
+        # Phase C: streams=none must not hydrate deferred GPS/power/HR arrays.
+        # Pass {} (not None) so _strava_source_dict does not fall back to
+        # sa.streams_payload.
+        if streams == "none":
+            _prebuilt_streams = {}
+        else:
+            _stream_row = session.get(_ActivityStream, workout.id)
+            _prebuilt_streams = _as_to_strava(_stream_row) if _stream_row else None
         strava = _strava_source_dict(getattr(workout, "strava_activity", None), prebuilt_streams=_prebuilt_streams)
         stryd = _stryd_source_dict(getattr(workout, "stryd_activity", None))
         unified = _unified_workout_dict(workout, strava, stryd)
         # Derive metrics from the full streams BEFORE downsampling for transport.
-        computed = _compute_derived(strava, stryd)
-        # Compute aerobic decoupling from full streams (before downsampling).
-        _decoupling_threshold = getattr(prefs, "aerobic_decoupling_threshold", None) if prefs else None
-        _workout_dict_plain = {
-            "workout_type": workout.workout_type,
-            "duration_seconds": workout.duration_seconds,
-            "avg_hr": workout.avg_hr,
-        }
-        _raw_streams = (strava or {}).get("streams") or {} if strava else {}
-        _splits_plain = [
-            {
-                "split_index": s.split_index,
-                "duration_seconds": s.duration_seconds,
-                "avg_hr": s.avg_hr,
-                "avg_power": s.avg_power,
-                "distance_km": float(s.distance_km) if s.distance_km is not None else None,
+        # Skip when streams=none — no stream arrays were loaded.
+        if streams == "none":
+            computed = {}
+            _aerobic_result, _aerobic_reason = None, "streams=none"
+        else:
+            computed = _compute_derived(strava, stryd)
+            # Compute aerobic decoupling from full streams (before downsampling).
+            _decoupling_threshold = getattr(prefs, "aerobic_decoupling_threshold", None) if prefs else None
+            _workout_dict_plain = {
+                "workout_type": workout.workout_type,
+                "duration_seconds": workout.duration_seconds,
+                "avg_hr": workout.avg_hr,
             }
-            for s in split_rows
-        ]
-        _decoupling_input = _raw_streams if _raw_streams else (_splits_plain or None)
-        _aerobic_result, _aerobic_reason = _compute_decoupling(
-            _workout_dict_plain, _decoupling_input, _decoupling_threshold
-        )
-        # Apply heat/humidity correction when environmental data is present (AC4).
-        if _aerobic_result is not None:
-            _heat_factor, _heat_active = _compute_heat_correction_factor(
-                temperature_c=getattr(workout, "temperature_c", None),
-                humidity_pct=getattr(workout, "humidity_pct", None),
+            _raw_streams = (strava or {}).get("streams") or {} if strava else {}
+            _splits_plain = [
+                {
+                    "split_index": s.split_index,
+                    "duration_seconds": s.duration_seconds,
+                    "avg_hr": s.avg_hr,
+                    "avg_power": s.avg_power,
+                    "distance_km": float(s.distance_km) if s.distance_km is not None else None,
+                }
+                for s in split_rows
+            ]
+            _decoupling_input = _raw_streams if _raw_streams else (_splits_plain or None)
+            _aerobic_result, _aerobic_reason = _compute_decoupling(
+                _workout_dict_plain, _decoupling_input, _decoupling_threshold
             )
-            if _heat_active:
-                _aerobic_result = _apply_heat_correction(
-                    _aerobic_result, _heat_factor, _decoupling_threshold
+            # Apply heat/humidity correction when environmental data is present (AC4).
+            if _aerobic_result is not None:
+                _heat_factor, _heat_active = _compute_heat_correction_factor(
+                    temperature_c=getattr(workout, "temperature_c", None),
+                    humidity_pct=getattr(workout, "humidity_pct", None),
                 )
+                if _heat_active:
+                    _aerobic_result = _apply_heat_correction(
+                        _aerobic_result, _heat_factor, _decoupling_threshold
+                    )
         if strava is not None:
             strava["streams"] = _downsample_streams(strava.get("streams") or {}, streams)
         coverage = {
@@ -6906,6 +7039,9 @@ def get_workout_full(
                 _persisted = getattr(_sta, "manual_laps", None)
                 if _persisted is not None:
                     _mlaps = _persisted
+                elif streams == "none":
+                    # Phase C: do not touch deferred streams_payload.
+                    _mlaps = []
                 else:
                     _streams = _sta.streams_payload if isinstance(_sta.streams_payload, dict) else None
                     from backend.services.stryd_laps import compute_manual_laps as _cml
@@ -9662,13 +9798,10 @@ def get_performance_chart(
         zc = _make_zone_constants(preferences=prefs_dict)
 
         runs: list[dict] = []
+        _run_ids = [w.id for w in run_workouts]
+        _splits_by_wk = _splits_by_workout_map(session, _run_ids)
         for w in run_workouts:
-            splits = (
-                session.query(WorkoutSplit)
-                .filter(WorkoutSplit.workout_id == w.id)
-                .order_by(WorkoutSplit.split_index)
-                .all()
-            )
+            splits = _splits_by_wk.get(w.id, [])
             if not splits:
                 continue
 
@@ -10816,16 +10949,26 @@ def _web_incremental_sync_enabled() -> bool:
 
 def _maybe_delegate_incremental(uid, source: str):
     """Phase 3 routing: when web incremental is disabled, hand the incremental
-    sync to the worker (queue). Returns a JSONResponse to return, or None to fall
-    through to the in-process path (flag on, or worker unavailable in http mode)."""
+    sync to the worker (queue). Returns a JSONResponse to return, or None to
+    fall through to the in-process path when the web flag is on.
+
+    When the flag is off and the worker is unavailable, fail closed with 503 —
+    never silently run in-process on the thin web dyno (Phase C).
+    """
     if _web_incremental_sync_enabled():
         return None
     try:
         res = _worker_client.delegate_sync(str(uid), sources=[source], full=False)
         return JSONResponse({"started": True, "worker_delegated": True, **res}, status_code=202)
-    except _worker_client.WorkerUnavailable:
-        return None  # http mode with no worker → fall back to in-process
-
+    except _worker_client.WorkerUnavailable as exc:
+        return JSONResponse(
+            {
+                "detail": (
+                    f"Compute worker unavailable — cannot run incremental sync: {exc}"
+                ),
+            },
+            status_code=503,
+        )
 
 @app.post("/api/strava/sync")
 def strava_sync(body: _StravaSyncBody = Body(default=None), user: User = Depends(resolve_user)):
@@ -15030,6 +15173,10 @@ def _validate_distance_km(distance_km: float, status_code: int = 422) -> None:
 
 @app.post("/api/races", status_code=201)
 def create_race(body: _RaceCreateBody, user: User = Depends(resolve_user)):
+    # Phase D: flat /api/races* family is FE-orphan (reachability baseline).
+    # Live UI uses plan-scoped /api/plans/{id}/races. Keep these HTTP wrappers
+    # for integration tests until Phase E migrates them; do not add new FE
+    # callers here.
     # ``date`` takes precedence; fall back to legacy ``race_date``.
     if body.date is not None:
         race_date = _validate_race_date_400(body.date)
@@ -17202,18 +17349,7 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
             # (issue #1578: replaces N sequential per-workout queries → 1 query).
             _run_ids = [w.id for w in run_workouts]
             _pdc_map_perf = _planned_duration_map(session, _run_ids)
-            if _run_ids:
-                _all_splits = (
-                    session.query(WorkoutSplit)
-                    .filter(WorkoutSplit.workout_id.in_(_run_ids))
-                    .order_by(WorkoutSplit.workout_id, WorkoutSplit.split_index)
-                    .all()
-                )
-            else:
-                _all_splits = []
-            _splits_by_workout: dict = {}
-            for _s in _all_splits:
-                _splits_by_workout.setdefault(_s.workout_id, []).append(_s)
+            _splits_by_workout = _splits_by_workout_map(session, _run_ids)
 
             runs = []
             for workout in run_workouts:
@@ -18292,6 +18428,17 @@ def _compute_plan_bundle(user) -> dict:
     except HTTPException:
         projection = {}
 
+    # Prefs + PRs for Perf boot (Phase B) — avoid separate fan-out.
+    try:
+        prefs_payload = _decode(get_user_preferences(user=user)) or {}
+    except HTTPException:
+        prefs_payload = {}
+    prefs_row_dict = (prefs_payload.get("row") or {}) if isinstance(prefs_payload, dict) else {}
+    try:
+        prs = _decode(get_athlete_run_personal_records(str(user.id), user=user)) or {}
+    except HTTPException:
+        prs = {}
+
     with Session(engine) as session:
         prefs_row = (
             session.query(UserPreferences)
@@ -18299,6 +18446,34 @@ def _compute_plan_bundle(user) -> dict:
             .first()
         )
         tp = prefs_row.threshold_pace_seconds_per_km if prefs_row else None
+
+        # Slim workout meta for Endurance/Speed breakdown rows (replaces a
+        # separate 120d /api/training-log fetch on Perf boot).
+        _meta_from = _today_bkk() - _timedelta(days=120)
+        _meta_rows = (
+            session.query(Workout)
+            .options(load_only(
+                Workout.id, Workout.name, Workout.distance_km,
+                Workout.duration_seconds, Workout.avg_hr, Workout.workout_date,
+            ))
+            .filter(
+                Workout.user_id == user.id,
+                Workout.workout_date >= _meta_from,
+                Workout.workout_type == "run",
+            )
+            .all()
+        )
+        workout_meta = {}
+        for w in _meta_rows:
+            pace = None
+            if w.distance_km and w.duration_seconds and float(w.distance_km) > 0:
+                pace = round(float(w.duration_seconds) / float(w.distance_km), 1)
+            workout_meta[str(w.id)] = {
+                "title": w.name,
+                "distance_km": float(w.distance_km) if w.distance_km is not None else None,
+                "pace_seconds_per_km": pace,
+                "avg_hr": w.avg_hr,
+            }
 
         races = (
             session.query(Race)
@@ -18400,7 +18575,13 @@ def _compute_plan_bundle(user) -> dict:
     return {
         "generated_at": _datetime.now(_timezone.utc).isoformat(),
         "current_scores": current_scores,
-        "prefs": {"threshold_pace": tp},
+        "performance": perf,
+        "prs": prs,
+        "workout_meta": workout_meta,
+        "prefs": {
+            "threshold_pace": tp,
+            "timezone": prefs_row_dict.get("timezone") or "UTC",
+        },
         "calibration": {
             "last_calibration_date": calibration.get("last_calibration_date"),
             "data_sufficiency": calibration.get("data_sufficiency"),
@@ -19020,6 +19201,69 @@ def get_plan_week_load(
         })
 
 
+def _resp_json_or_none(resp):
+    """Decode a FastAPI JSONResponse body; 204 / empty → None.
+
+    Dict/list passthrough supports unit tests that stub handlers with plain
+    payloads (and any future in-process callers that skip JSONResponse).
+    """
+    if resp is None:
+        return None
+    if isinstance(resp, (dict, list)):
+        return resp
+    if getattr(resp, "status_code", 200) == 204:
+        return None
+    try:
+        return _json.loads(resp.body)
+    except Exception:
+        return None
+
+
+@app.get("/api/plan/week-bundle")
+def get_plan_week_bundle(
+    week_start: Optional[str] = Query(default=None),
+    include_load_plan: bool = Query(default=False),
+    user: User = Depends(resolve_user),
+):
+    """One Plan-tab week boot: sessions + next-up + week-load (+ optional load-plan).
+
+    Reuses the existing handlers in-process (same shapes) so the Plan FE can
+    collapse four round-trips into one without rewriting renderers.
+    """
+    from backend.utils.time import today_bangkok
+
+    today = today_bangkok()
+    if week_start is not None:
+        try:
+            parsed = _date.fromisoformat(week_start)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
+        ws = parsed - _timedelta(days=parsed.weekday())
+    else:
+        ws = today - _timedelta(days=today.weekday())
+    we = ws + _timedelta(days=6)
+    next_to = today + _timedelta(days=20)
+
+    sessions = _resp_json_or_none(
+        get_planned_sessions(from_date=ws.isoformat(), to_date=we.isoformat(), user=user)
+    ) or {"from": ws.isoformat(), "to": we.isoformat(), "days": []}
+    next_up = _resp_json_or_none(
+        get_planned_sessions(from_date=today.isoformat(), to_date=next_to.isoformat(), user=user)
+    ) or {"from": today.isoformat(), "to": next_to.isoformat(), "days": []}
+    week_load = _resp_json_or_none(get_plan_week_load(week_start=ws.isoformat(), user=user))
+    load_plan = None
+    if include_load_plan:
+        load_plan = _resp_json_or_none(get_plan_load_plan(user=user))
+
+    return JSONResponse({
+        "week_start": ws.isoformat(),
+        "sessions": sessions,
+        "next_up": next_up,
+        "week_load": week_load,
+        "load_plan": load_plan,
+    })
+
+
 @app.get("/api/plan/computed")
 def get_plan_computed(user: User = Depends(resolve_user)):
     """Single Plan-tab data call, backed by a plan-level cache.
@@ -19189,23 +19433,29 @@ def get_projection(user: User = Depends(resolve_user)):
 
                     zone_constants = make_zone_constants(preferences)
 
+                    # Same #1578 bound as get_athlete_performance — uncapped
+                    # run+N+1-splits here OOMs the 512MB web dyno on plan-bundle
+                    # cold miss (get_projection is called from _compute_plan_bundle).
+                    _history_cutoff = _datetime.now(_timezone.utc).date() - _timedelta(
+                        days=_RUN_HISTORY_CAP_DAYS
+                    )
                     run_workouts = (
                         db.query(Workout)
-                        .filter(Workout.user_id == user.id, Workout.workout_type == "run")
+                        .filter(
+                            Workout.user_id == user.id,
+                            Workout.workout_type == "run",
+                            Workout.workout_date >= _history_cutoff,
+                        )
                         .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nulls_last())
                         .all()
                     )
                     _proj_run_ids = [w.id for w in run_workouts]
                     _pdc_map_proj = _planned_duration_map(db, _proj_run_ids)
+                    _splits_by_wk = _splits_by_workout_map(db, _proj_run_ids)
 
                     runs = []
                     for workout in run_workouts:
-                        splits = (
-                            db.query(WorkoutSplit)
-                            .filter(WorkoutSplit.workout_id == workout.id)
-                            .order_by(WorkoutSplit.split_index)
-                            .all()
-                        )
+                        splits = _splits_by_wk.get(workout.id, [])
                         classifications = classify_laps(splits, preferences)
                         laps = []
                         for split, cls in zip(splits, classifications):

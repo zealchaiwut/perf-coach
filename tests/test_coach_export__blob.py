@@ -97,7 +97,7 @@ def _populated_payload() -> dict:
         "goal_time": "1:45:00",
         "current_estimate": "1:49:12",
         "estimate_band_min": 3.4,
-        "estimate_source": "race_readiness_projection",
+        "estimate_source": "performance_time_curve",
     }
     payload["goal"]["body"] = {
         "target_kg": 72.0,

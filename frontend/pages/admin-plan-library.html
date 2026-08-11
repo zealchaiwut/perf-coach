@@ -1163,7 +1163,10 @@
                   Body parts
                 </button>
                 <button class="btn" type="button" id="btn-ex-download" title="Download LLM prompt with templates + current catalog (exercises and patterns)">
-                  Download JSON
+                  Download LLM prompt
+                </button>
+                <button class="btn" type="button" id="btn-ex-export-json" title="Export exercises as import-compatible JSON">
+                  Bulk export JSON
                 </button>
                 <button class="btn" type="button" id="btn-ex-import" title="Bulk create / upsert exercises and patterns from Claude JSON">
                   Bulk import JSON
@@ -1188,7 +1191,7 @@
             <h2 class="panel-h" id="editor-title">New exercise</h2>
             <input type="hidden" id="edit-id">
             <p class="fld-hint" style="margin:0 0 12px;">
-              Paste LLM JSON (same shape as Download → <code>exercises[]</code> in the catalog).
+              Paste LLM JSON (same shape as Bulk export JSON → <code>exercises[]</code>).
               The card updates as you edit; Save stays off until every field checks out.
             </p>
 
@@ -1238,7 +1241,10 @@
               <h2 class="panel-h" style="margin:0;">Recipes</h2>
               <div class="pat-list-actions">
                 <button class="btn" type="button" id="btn-pat-download" title="Download LLM prompt with templates + current catalog (exercises and patterns)">
-                  Download JSON
+                  Download LLM prompt
+                </button>
+                <button class="btn" type="button" id="btn-pat-export-json" title="Export patterns as import-compatible JSON">
+                  Bulk export JSON
                 </button>
                 <button class="btn" type="button" id="btn-pat-import" title="Bulk create / upsert exercises and patterns from Claude JSON">
                   Bulk import JSON
@@ -1262,7 +1268,7 @@
             <h2 class="panel-h" id="pat-editor-title">New pattern</h2>
             <input type="hidden" id="pat-edit-id">
             <p class="fld-hint" style="margin:0 0 12px;">
-              Paste LLM JSON (same shape as Download → <code>patterns[]</code> in the catalog).
+              Paste LLM JSON (same shape as Bulk export JSON → <code>patterns[]</code>).
               Preview updates as you edit; Save stays off until every field checks out.
             </p>
 
@@ -1421,6 +1427,6 @@
 
   <script src="/js/lib/app-common.js"></script>
   <script src="/js/lib/plan-fill-preview.js?v=20260806align1"></script>
-  <script src="/js/admin-plan-library.js?v=20260806bp1"></script>
+  <script src="/js/admin-plan-library.js?v=20260809ex1"></script>
 </body>
 </html>

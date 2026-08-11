@@ -62,9 +62,11 @@
       }
 
       main.log-page {
-        max-width: 1280px;
-        margin: 0 auto;
-        padding: 24px 22px 40px;
+        /* Shell inset lives on .log-layout / .tab-panel-placeholder /
+           .log-card--week via --log-shell-* (main is display:contents later). */
+        max-width: none;
+        margin: 0;
+        padding: 0;
         display: flex;
         flex-direction: column;
         gap: 12px;
@@ -79,7 +81,7 @@
 
       .log-card--week,
       .log-card--filters {
-        padding: 10px 12px;
+        padding: var(--log-card-pad-y) var(--log-card-pad-x);
       }
       /* Type/search filter retired for now — hidden on every width. */
       .log-card--filters {
@@ -169,7 +171,7 @@
         cursor: not-allowed;
       }
 
-      /* ── Mobile: keep the action buttons on the same row (icon-only). ── */
+      /* ── Mobile: one toolbar row — tabs + icon-only actions. ── */
       @media (max-width: 640px) {
         .log-page-header {
           flex-wrap: nowrap;
@@ -179,27 +181,28 @@
         .log-page-header-actions {
           flex-wrap: nowrap;
           gap: 6px;
-          /* Labels stay visible now (see below) — on the narrowest phones
-             three labeled buttons may not all fit; scroll horizontally
-             within the cluster itself rather than clipping "+ Log" off the
-             edge of the screen. */
-          max-width: 100%;
-          overflow-x: auto;
-          -webkit-overflow-scrolling: touch;
-          scrollbar-width: none;
+          max-width: none;
+          overflow-x: visible;
         }
-        .log-page-header-actions::-webkit-scrollbar {
+        /* Icon-only Sync / Removed / +Log — frees width for Summary|Plan|Perf. */
+        .log-page-header .btn-label,
+        .log-page-header .sync-chevron {
           display: none;
         }
-        /* Labels stay visible — the sub-tab nav wraps to its own row below
-           these buttons (see the 1023px query), so there's no space pressure
-           forcing icon-only buttons here. */
         .log-page-header .btn-secondary,
-        .log-page-header .btn-accent {
-          padding: 0 10px;
-        }
+        .log-page-header .btn-accent,
         .log-page-header .sync-chip {
-          padding: 0 8px;
+          width: 36px;
+          min-width: 36px;
+          padding: 0;
+          justify-content: center;
+          gap: 0;
+        }
+        .log-page-header .sync-chip .ti,
+        .log-page-header .btn-secondary .ti,
+        .log-page-header .btn-accent .ti {
+          font-size: 16px;
+          margin: 0;
         }
       }
 
@@ -506,15 +509,43 @@
         color: #fff;
       }
 
+      /* ── Universal content shell (Summary / Plan / Perf) ──
+         One max-width + one pad triad. Every sub-tab panel MUST use these
+         tokens so left/right edges and top gap under the sticky nav match.
+
+         Rule:
+         - Outer inset (viewport → card edge): --log-shell-pad-x / -pad-top
+         - Inner inset (card edge → content):  --log-card-pad-x / -pad-y
+         - Never pad both a placeholder AND an inner #plan-tab-panel
+         - Week strip (outside .log-layout) uses the same shell tokens via
+           width: calc(100% - 2*pad-x) + margin-top: pad-top */
+      :root {
+        --log-shell-max: 1000px;
+        --log-shell-pad-x: 24px;
+        --log-shell-pad-top: 20px;
+        --log-shell-pad-bottom: 60px;
+        --log-card-pad-y: 18px;
+        --log-card-pad-x: 20px;
+      }
+      @media (max-width: 640px) {
+        :root {
+          --log-shell-pad-x: 12px;
+          --log-shell-pad-top: 12px;
+          --log-shell-pad-bottom: 48px;
+          --log-card-pad-y: 12px;
+          --log-card-pad-x: 12px;
+        }
+      }
+
       /* ── Placeholder panels (Plan / Performance) ──
-         Match the Log shell EXACTLY (.log-layout / #layout-wrapper.has-panel:
-         max-width 1000px, padding 20px 24px 60px) so all three sub-tabs share
-         the same content-left/right edge and _positionNav aligns the tab strip
-         to it on every tab. */
+         Match the Log shell EXACTLY so all three sub-tabs share the same
+         content-left/right edge and _positionNav aligns the tab strip to it. */
       .tab-panel-placeholder {
-        max-width: 1000px;
+        max-width: var(--log-shell-max);
         margin: 0 auto;
-        padding: 20px 24px 60px;
+        padding: var(--log-shell-pad-top) var(--log-shell-pad-x) var(--log-shell-pad-bottom);
+        box-sizing: border-box;
+        width: 100%;
         display: flex;
         flex-direction: column;
         gap: 12px;
@@ -593,9 +624,11 @@
 
       .ws-pills {
         display: flex;
-        gap: 4px;
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
+        gap: 2px;
+        width: 100%;
+        box-sizing: border-box;
+        /* Fit MON–SUN in the card — no horizontal scroll that clips Sunday. */
+        overflow-x: hidden;
         padding-bottom: 2px;
       }
 
@@ -608,16 +641,16 @@
       }
 
       .day-pill {
-        flex: 1;
-        min-width: 42px;
+        flex: 1 1 0;
+        min-width: 0;
+        box-sizing: border-box;
         display: flex;
         flex-direction: column;
         align-items: center;
-        padding: 7px 4px;
+        padding: 7px 2px;
         border-radius: 9px;
         background: transparent;
         border: 1.5px solid transparent;
-        flex-shrink: 0;
         /* issue #523: pills are now real <button>s — reset button chrome. */
         font-family: inherit;
         cursor: pointer;
@@ -658,7 +691,11 @@
         font-weight: 600;
         color: var(--text-sub);
         text-transform: uppercase;
-        letter-spacing: 0.03em;
+        letter-spacing: 0.02em;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: clip;
+        white-space: nowrap;
       }
 
       .day-num {
@@ -1130,13 +1167,15 @@
 
       /* Weekly volume chart card */
       .volume-chart-card {
-        padding: 16px 18px 18px;
+        padding: 0;
       }
       /* Nested at the top of .log-card--history (no card-in-card border/
          shadow of its own — the parent card already supplies those) — just
          a bottom divider to separate it from the workout list below. */
       .volume-chart-card--nested {
         border-bottom: 1px solid var(--card-border);
+        padding: 0 0 var(--log-section-gap, 12px);
+        margin-bottom: var(--log-section-gap, 12px);
       }
 
       .vc-header {
@@ -1144,22 +1183,22 @@
         align-items: baseline;
         justify-content: space-between;
         gap: 0.75rem;
-        margin-bottom: 0.35rem;
+        margin-bottom: var(--log-section-gap, 12px);
       }
 
       .vc-title {
-        font-size: 14px;
-        font-weight: 600;
-        letter-spacing: -0.01em;
-        text-transform: none;
-        color: var(--text-primary);
+        font-size: 13px;
+        font-weight: 800;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        color: var(--text-sub);
       }
 
       .vc-caption {
         font-size: 11.5px;
         line-height: 1.45;
         color: var(--text-secondary);
-        margin: 0 0 0.65rem;
+        margin: 0 0 var(--log-section-gap, 12px);
       }
 
       .vc-body {
@@ -1740,14 +1779,14 @@
 
       @media (max-width: 640px) {
         main.log-page {
-          padding: 16px 16px 24px;
+          padding: 0;
         }
         .log-page-header {
           padding: 0;
         }
         .log-card--week,
         .log-card--filters {
-          padding: 10px;
+          padding: var(--log-card-pad-y) var(--log-card-pad-x);
         }
         #filter-bar {
           flex-direction: column;
@@ -1803,8 +1842,8 @@
         }
 
         .day-pill {
-          min-width: 40px;
-          padding: 0.35rem;
+          min-width: 0;
+          padding: 0.35rem 1px;
         }
       }
 
@@ -3237,11 +3276,13 @@
 
       /* ── Plan tab (issue #650, grafted from sprint-69) ── */
       /* ── Plan tab: layout and sections ──────────────────────────────────── */
+      /* Pad lives on .tab-panel-placeholder only — do not re-pad here or Perf
+         (which reuses #plan-tab-panel) doubles the shell inset. */
       #plan-tab-panel {
-        padding: 16px;
+        padding: 0;
         display: flex;
         flex-direction: column;
-        gap: 16px;
+        gap: 12px;
       }
       .plan-section {
         background: var(--card-bg);
@@ -4019,7 +4060,7 @@
       /* Responsive */
       @media (max-width: 640px) {
         #plan-tab-panel {
-          padding: 12px;
+          padding: 0;
           gap: 12px;
         }
         .plan-race-meta {
@@ -4271,13 +4312,8 @@
             </button>
           </div>
 
-          <button type="button" class="lp-setline" id="lp-setline" hidden aria-expanded="false">
-            <span id="lp-setline-text">Plan settings</span>
-            <span class="lp-setline-cv" aria-hidden="true">▾</span>
-          </button>
-
           <div class="lp-rules-strip" id="lp-rules-strip" hidden>
-            <div class="lp-rule">
+            <div class="lp-rule lp-rule--race">
               <div class="lp-rule-lab">A race</div>
               <div class="lp-rule-val" id="lp-rule-race">—</div>
             </div>
@@ -4342,10 +4378,10 @@
               <label for="lp-deload-week-select">Deload week</label>
               <span class="lp-settings-num">
                 <select id="lp-deload-week-select">
-                  <option value="1">Week 1 (1, 5, 9, …)</option>
-                  <option value="2">Week 2 (2, 6, 10, …)</option>
-                  <option value="3">Week 3 (3, 7, 11, …)</option>
-                  <option value="4" selected>Week 4 (4, 8, 12, …)</option>
+                  <option value="1">Week 1</option>
+                  <option value="2">Week 2</option>
+                  <option value="3">Week 3</option>
+                  <option value="4" selected>Week 4</option>
                 </select>
                 <span class="pm-unit">of cycle</span>
               </span>
@@ -4449,8 +4485,7 @@
       <!-- ── AI suggestions panel (issue #1315) ─────────────────────────── -->
       <div id="plan-suggestions-panel" style="display:none;" class="pl-suggestions-panel">
         <div class="pl-sug-header">
-          <span class="pl-sug-title" id="plan-suggestions-title">Suggested sessions</span>
-          <span id="plan-suggestions-source" class="pl-sug-source"></span>
+          <span class="pl-sug-title" id="plan-suggestions-title">Suggestions for this week</span>
           <button id="plan-suggestions-refresh" class="pl-sug-btn-sm" type="button" title="Regenerate suggestions">↻</button>
           <button id="plan-suggestions-dismiss" class="pl-sug-btn-sm" type="button" title="Dismiss">✕</button>
         </div>
@@ -4594,28 +4629,6 @@
           </div>
           <!-- /.perf-scorewrap -->
 
-          <!-- ── Muscle balance card (issue #1382) ─────────────────────── -->
-          <div class="pm-card" id="muscle-balance-card">
-            <div class="pm-ckhead">
-              <h2 class="pm-sectitle">Muscle balance</h2>
-            </div>
-            <div id="muscle-balance-loading" class="mbal-loading">Loading…</div>
-            <div id="muscle-balance-rows" class="mbal-rows" hidden></div>
-            <div id="muscle-balance-show-all" class="mbal-show-all-wrap" hidden>
-              <button class="mbal-show-all-btn" type="button" id="muscle-balance-show-all-btn" aria-expanded="false" aria-controls="muscle-balance-inactive-rows">
-                Show inactive groups ▾
-              </button>
-              <div id="muscle-balance-inactive-rows" class="mbal-inactive-rows"></div>
-            </div>
-            <div id="muscle-balance-unclassified" class="mbal-unclassified" hidden></div>
-            <div id="muscle-balance-empty" class="mbal-empty" hidden>
-              No muscle load data yet.
-            </div>
-            <div id="muscle-balance-error" class="mbal-error" hidden>
-              Could not load muscle balance data.
-            </div>
-          </div>
-
           <!-- Row: A-race header + calibration status -->
           <div class="pm-row2">
           <!-- 1. A-race header -->
@@ -4668,12 +4681,8 @@
               <div class="perf-proj-meta" id="perf-proj-meta"></div>
               <div class="perf-projgrid">
                 <div class="perf-projtile perf-projtile--e">
-                  <div class="perf-projtile-l">Endurance</div>
+                  <div class="perf-projtile-l">Est. finish</div>
                   <div class="perf-projtile-v" id="perf-proj-endurance">–</div>
-                </div>
-                <div class="perf-projtile perf-projtile--s">
-                  <div class="perf-projtile-l">Speed</div>
-                  <div class="perf-projtile-v" id="perf-proj-speed">–</div>
                 </div>
               </div>
             </div>
@@ -4687,14 +4696,17 @@
             <div class="pm-ckhead">
               <h2 class="pm-sectitle pm-sectitle--plain">Races &amp; projections</h2>
               <div class="pm-ckbtns">
-                <button id="plan-recalc-btn" class="pm-ckbtn" type="button">
-                  ↻ Recalculate
+                <button id="plan-recalc-btn" class="pm-ckbtn" type="button" aria-label="Recalculate">
+                  <span class="pm-ckbtn-ico" aria-hidden="true">↻</span>
+                  <span class="pm-ckbtn-lab">Recalculate</span>
                 </button>
-                <button id="plan-add-race-btn" class="pm-ckbtn dark" type="button">
-                  + Add Race
+                <button id="plan-add-race-btn" class="pm-ckbtn" type="button" aria-label="Add race">
+                  <span class="pm-ckbtn-ico" aria-hidden="true">+</span>
+                  <span class="pm-ckbtn-lab">Add race</span>
                 </button>
-                <button id="plan-add-checkpoint-btn" class="pm-ckbtn" type="button">
-                  + Add Checkpoint
+                <button id="plan-add-checkpoint-btn" class="pm-ckbtn" type="button" aria-label="Add checkpoint">
+                  <span class="pm-ckbtn-ico" aria-hidden="true">+</span>
+                  <span class="pm-ckbtn-lab">Checkpoint</span>
                 </button>
               </div>
             </div>
@@ -4717,10 +4729,12 @@
               class="pm-projnow"
               style="display: none"
             >
-              <span class="pm-projnow-lab">Projected now</span>
-              <span class="pm-projnow-val" id="plan-projected-now-val">—</span>
-              <span class="pm-projnow-meta" id="plan-projected-now-meta"></span>
-              <span class="pm-projnow-basis" id="plan-projected-basis"></span>
+              <div class="pm-projnow-top">
+                <span class="pm-projnow-lab">Projected now</span>
+                <span class="pm-projnow-val" id="plan-projected-now-val">—</span>
+              </div>
+              <div class="pm-projnow-meta" id="plan-projected-now-meta"></div>
+              <div class="pm-projnow-basis" id="plan-projected-basis"></div>
             </div>
             <svg
               id="plan-timecurve"
@@ -4741,37 +4755,6 @@
             </div>
           </div>
 
-          <!-- Row: form curve + plan settings -->
-          <div class="pm-row2">
-          <!-- 4. Form curve (TSB) -->
-          <div class="pm-card">
-            <h2 class="pm-sectitle pm-sectitle--plain">Form curve (TSB)</h2>
-            <div class="pm-csub">
-              Fresh above the green line, overreached below the red. Built from
-              your logged load — the projection extends this forward.
-            </div>
-            <div id="plan-curve-empty" class="pm-empty" style="display: none">
-              <p class="pm-empty-msg">Not enough history to project</p>
-              <p class="pm-empty-sub">
-                Log at least 8 weeks of training to see the form curve.
-              </p>
-            </div>
-            <div id="plan-building-baseline" class="pm-bb" style="display: none">
-              <span class="pm-bb-icon">📈</span>
-              <span
-                >Building baseline: projection unavailable until sufficient
-                training history is established.</span
-              >
-            </div>
-            <svg
-              id="plan-pacecurve"
-              viewBox="0 0 1140 300"
-              style="width: 100%; height: 280px"
-              role="img"
-              aria-label="Form (TSB) history curve"
-            ></svg>
-          </div>
-
           <!-- 5. Race-readiness specificity (Plan settings moved to the Plan
                tab — see #plan-settings-section there) -->
           <div class="pm-card" id="plan-spec-section">
@@ -4784,8 +4767,6 @@
             </div>
             <div id="plan-spec-bars"></div>
           </div>
-
-          </div><!-- /pm-row2 (form curve + race-readiness specificity) -->
 
           <!-- ── Personal records — moved here from the removed Performance
                tab ─────────────────────────────────────────────────────── -->
@@ -4805,14 +4786,14 @@
       .plan-merged {
         display: flex;
         flex-direction: column;
-        gap: 16px;
+        gap: 12px;
         color: var(--ink);
         letter-spacing: -0.01em;
       }
       .plan-merged .pm-card {
         background: var(--surface);
         border-radius: 16px;
-        padding: 20px 22px;
+        padding: var(--log-card-pad-y) var(--log-card-pad-x);
         box-shadow: 0 8px 24px rgba(20, 28, 70, 0.1);
         border: 1px solid var(--border);
       }
@@ -4824,141 +4805,6 @@
         align-items: stretch;
       }
       .plan-merged .pm-row2 > .pm-card { min-width: 0; }
-
-      /* ── Muscle balance card (issue #1382) ──────────────────────────────── */
-      .mbal-loading, .mbal-empty, .mbal-error {
-        font-size: 13px;
-        color: var(--text-sub);
-        padding: 8px 0 4px;
-      }
-      .mbal-error { color: var(--danger); }
-      .mbal-rows { display: flex; flex-direction: column; gap: 0; }
-      .mbal-row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 9px 0;
-        border-bottom: 1px solid var(--border);
-        cursor: pointer;
-        border-radius: 0;
-        transition: background 0.1s;
-      }
-      .mbal-row:last-child { border-bottom: none; }
-      .mbal-row:hover { background: var(--tile); margin: 0 -4px; padding-left: 4px; padding-right: 4px; border-radius: 6px; }
-      .mbal-group-name {
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--ink);
-        width: 88px;
-        flex-shrink: 0;
-        text-transform: capitalize;
-      }
-      .mbal-bar-wrap {
-        flex: 1;
-        min-width: 0;
-        height: 6px;
-        background: var(--border);
-        border-radius: 3px;
-        overflow: hidden;
-      }
-      .mbal-bar {
-        height: 100%;
-        width: 100%;
-        border-radius: 3px;
-        background: var(--mbal-bar-color, var(--primary));
-        transform-origin: left;
-        transition: transform 0.3s ease;
-      }
-      .mbal-chip {
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        padding: 2px 7px;
-        border-radius: 5px;
-        flex-shrink: 0;
-        white-space: nowrap;
-      }
-      .mbal-chip--overused  { background: var(--danger-soft);   color: var(--danger); }
-      .mbal-chip--elevated  { background: var(--warning-soft); color: var(--warning); }
-      .mbal-chip--balanced  { background: var(--tile);      color: var(--text-sub); }
-      .mbal-chip--detraining{ background: #e6ebfe;             color: #4f6ef7; }
-      .mbal-chip--untrained { background: #e6ebfe;             color: #4f6ef7; }
-      .mbal-chip--inactive  { background: var(--tile);      color: var(--text-sub); }
-      .mbal-injured-mark {
-        font-size: 11px;
-        color: var(--danger);
-        flex-shrink: 0;
-        font-weight: 700;
-      }
-      /* Expanded detail panel */
-      .mbal-detail {
-        background: var(--tile);
-        border-radius: 8px;
-        padding: 10px 12px;
-        margin: 0 0 6px;
-        display: none;
-      }
-      .mbal-detail.is-open { display: block; }
-      .mbal-detail-head {
-        font-size: 11px;
-        font-weight: 700;
-        color: var(--text-sub);
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        margin-bottom: 6px;
-      }
-      .mbal-sparkline {
-        width: 100%;
-        height: 44px;
-        display: block;
-        margin-bottom: 8px;
-      }
-      .mbal-source-split {
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
-      }
-      .mbal-source-pill {
-        font-size: 11px;
-        font-weight: 600;
-        color: var(--ink);
-        background: #fff;
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        padding: 2px 8px;
-      }
-      /* Show all toggle */
-      .mbal-show-all-wrap {
-        margin-top: 4px;
-        padding-top: 8px;
-        border-top: 1px solid var(--border);
-      }
-      .mbal-show-all-btn {
-        font-size: 12px;
-        font-weight: 600;
-        color: var(--text-sub);
-        background: transparent;
-        border: none;
-        cursor: pointer;
-        padding: 2px 0;
-        letter-spacing: -0.01em;
-      }
-      .mbal-show-all-btn:hover { color: var(--ink); }
-      .mbal-inactive-rows { display: none; }
-      .mbal-inactive-rows.is-shown { display: block; }
-      /* Unclassified footnote */
-      .mbal-unclassified {
-        margin-top: 10px;
-        padding-top: 8px;
-        border-top: 1px solid var(--border);
-        font-size: 11px;
-        color: var(--text-sub);
-      }
-      @media (max-width: 640px) {
-        .mbal-group-name { width: 68px; font-size: 12px; }
-        .mbal-chip { font-size: 9px; padding: 2px 5px; }
-      }
 
       /* Race header content floats vertically centered in its stretched card. */
       .plan-merged #plan-race-header {
@@ -5001,8 +4847,12 @@
         flex-wrap: wrap;
       }
       .plan-merged .pm-ckbtns {
-        display: flex;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 8px;
+        width: 100%;
+        flex: 1 1 220px;
+        min-width: 0;
       }
       .plan-merged .pm-ckbtn {
         font-size: 12px;
@@ -5011,9 +4861,26 @@
         background: var(--tile);
         border: 1px solid var(--border);
         border-radius: 8px;
-        padding: 7px 12px;
+        padding: 8px 10px;
         cursor: pointer;
         font-family: inherit;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        min-width: 0;
+        text-align: center;
+        line-height: 1.2;
+        white-space: nowrap;
+      }
+      .plan-merged .pm-ckbtn-ico {
+        flex-shrink: 0;
+        font-weight: 700;
+      }
+      .plan-merged .pm-ckbtn-lab {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       .plan-merged .pm-ckbtn:hover {
         background: #eef2fb;
@@ -5030,6 +4897,25 @@
       .plan-merged .pm-ckbtn.is-loading {
         opacity: 0.6;
         pointer-events: none;
+      }
+      @media (max-width: 640px) {
+        .plan-merged .pm-ckhead:has(.pm-ckbtns) {
+          flex-direction: column;
+          align-items: stretch;
+        }
+        .plan-merged .pm-ckbtns {
+          flex: none;
+          width: 100%;
+          gap: 6px;
+        }
+        .plan-merged .pm-ckbtn {
+          flex-direction: column;
+          gap: 2px;
+          padding: 8px 6px;
+          font-size: 11px;
+          white-space: normal;
+          min-height: 48px;
+        }
       }
       .plan-merged .pm-csub {
         font-size: 12px;
@@ -5073,14 +4959,19 @@
       }
       .plan-merged .pm-projnow {
         display: flex;
-        align-items: baseline;
-        gap: 10px;
-        flex-wrap: wrap;
+        flex-direction: column;
+        gap: 8px;
         margin-bottom: 12px;
-        padding: 10px 14px;
+        padding: 12px 14px;
         border-radius: 10px;
         background: #f2f5ff;
         border: 1px solid #e0e7ff;
+      }
+      .plan-merged .pm-projnow-top {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
       }
       .plan-merged .pm-projnow-lab {
         font-size: 10px;
@@ -5090,25 +4981,64 @@
         color: #4a6bcc;
       }
       .plan-merged .pm-projnow-val {
-        font-size: 22px;
-        font-weight: 700;
+        font-size: 26px;
+        font-weight: 800;
         font-family: var(--mono);
-        color: var(--ink);
+        color: var(--primary, #4f6ef7);
         line-height: 1;
+        letter-spacing: -0.02em;
       }
       .plan-merged .pm-projnow-meta {
-        font-size: 11.5px;
-        color: var(--text-sub);
-        font-family: var(--mono);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
       }
-      /* How the estimate was formed from the athlete's own scores —
-         "End 36 → 6:37 /km · Spd 49 → 5:44 /km → blended 6:09 /km". */
-      .plan-merged .pm-projnow-basis {
-        flex-basis: 100%;
-        font-size: 11px;
+      .plan-merged .pm-projnow-chip {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 5px;
+        padding: 4px 8px;
+        border-radius: 6px;
+        background: #fff;
+        border: 1px solid #dbe3ff;
+        font-size: 12px;
+        color: var(--ink);
+        font-family: inherit;
+        line-height: 1.2;
+      }
+      .plan-merged .pm-projnow-chip b {
+        font-size: 9.5px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
         color: var(--text-sub);
+      }
+      /* How the estimate was formed from the athlete's own scores. */
+      .plan-merged .pm-projnow-basis {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        font-size: 12px;
+        color: var(--text-sub);
+        font-family: inherit;
+        line-height: 1.35;
+      }
+      .plan-merged .pm-projnow-basis:empty {
+        display: none;
+      }
+      .plan-merged .pm-projnow-basis-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 8px;
+      }
+      .plan-merged .pm-projnow-basis-k {
+        font-weight: 700;
+        color: var(--ink);
+        min-width: 5.5em;
+      }
+      .plan-merged .pm-projnow-basis-v {
         font-family: var(--mono);
-        margin-top: 2px;
+        font-size: 11.5px;
       }
       .plan-merged .pm-bb {
         display: flex;
@@ -5242,12 +5172,29 @@
         padding: 2px 6px;
         font-size: 9.5px;
       }
-      .plan-merged .pm-rcmeta--done {
+      .plan-merged .pm-rc--done .pm-rcmeta {
         font-size: 10px;
-        margin-bottom: 7px;
       }
       .plan-merged .pm-rc--done .pm-rcgrid {
         gap: 6px;
+      }
+      .plan-merged .pm-rcgrid--done {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+        gap: 8px;
+      }
+      .plan-merged .pm-col--vstack {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+      }
+      .plan-merged .pm-col-block--sub {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid var(--border);
+      }
+      .plan-merged .pm-colt--sm {
+        font-size: 16px;
       }
       .plan-merged .pm-rc--done .pm-col {
         padding: 6px 8px;
@@ -5259,6 +5206,9 @@
       }
       .plan-merged .pm-rc--done .pm-colt {
         font-size: 14px;
+      }
+      .plan-merged .pm-rc--done .pm-colt--sm {
+        font-size: 13px;
       }
       .plan-merged .pm-rc--done .pm-colp {
         font-size: 9.5px;
@@ -5564,7 +5514,8 @@
         font-size: 13px;
         font-weight: 700;
         color: var(--ink);
-        margin-top: 2px;
+        margin-top: 6px;
+        line-height: 1.25;
       }
       .plan-merged .lp-cog-btn {
         flex-shrink: 0;
@@ -5588,9 +5539,12 @@
 
       .plan-merged .lp-rules-strip {
         display: grid;
-        grid-template-columns: repeat(5, 1fr);
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 10px;
         margin: 14px 0 4px;
+      }
+      .plan-merged .lp-rule--race {
+        grid-column: 1 / -1;
       }
       .plan-merged .lp-rule {
         background: var(--tile);
@@ -5617,6 +5571,12 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+      }
+      .plan-merged .lp-rule--race .lp-rule-val {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: unset;
+        overflow-wrap: anywhere;
       }
 
       .plan-merged .lp-settings-panel {
@@ -6021,7 +5981,7 @@
       }
       @media (max-width: 640px) {
         .plan-merged .lp-rules-strip {
-          grid-template-columns: repeat(2, 1fr);
+          grid-template-columns: repeat(2, minmax(0, 1fr));
         }
       }
 
@@ -6287,35 +6247,52 @@
         vertical-align: -1px;
       }
       @media (max-width: 640px) {
-        /* Keep baseline/ramp/target/guardrail in ONE row on mobile instead
-           of stacking (which made this card very tall) — shrink cells and
-           drop their secondary detail (sparkline, compare, guardrail
-           detail) to fit; scrolls horizontally if it still doesn't. */
+        /* Fit baseline × ramp = target | guardrail in one row without
+           overflow/overlap — equal flex shrink + a skinny ramp cell. */
         .plan-merged .wl-chain {
           flex-wrap: nowrap;
-          overflow-x: auto;
-          -webkit-overflow-scrolling: touch;
-          gap: 4px;
+          overflow-x: hidden;
+          gap: 3px;
+          width: 100%;
+          max-width: 100%;
+          box-sizing: border-box;
         }
         .plan-merged .wl-chain-cell {
+          flex: 1 1 0;
+          min-width: 0;
+          padding: 5px 4px;
+        }
+        /* Ramp is just "5%" — don't let it steal width from Target/Guardrail. */
+        .plan-merged .wl-chain-cell#wl-ramp-cell {
           flex: 0 0 auto;
-          min-width: 64px;
-          padding: 6px 7px;
+          max-width: 48px;
+          padding: 5px 3px;
+          text-align: center;
         }
         .plan-merged .wl-chain-cell.wl-guardrail-cell {
-          flex-basis: auto;
+          flex: 1 1 0;
+          flex-basis: 0;
+          min-width: 0;
         }
         .plan-merged .wl-chain-op {
           padding: 0;
-          font-size: 14px;
+          font-size: 12px;
+          flex: 0 0 auto;
         }
         .plan-merged .wl-chain-lab {
           font-size: 7px;
           white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
         .plan-merged .wl-chain-val {
-          font-size: 12.5px;
+          font-size: 11px;
           white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .plan-merged .wl-chain .wl-unit {
+          display: none;
         }
         .plan-merged .wl-guardrail-sub {
           display: none;
@@ -6469,11 +6446,12 @@
         font-size: 24px;
       }
       .plan-merged .pm-projnow {
-        padding: 8px 12px;
+        padding: 10px 12px;
         margin-bottom: 9px;
+        gap: 7px;
       }
       .plan-merged .pm-projnow-val {
-        font-size: 19px;
+        font-size: 24px;
       }
       /* Specificity rows */
       .plan-merged .pm-specrow {
@@ -6481,8 +6459,7 @@
       }
 
       @media (max-width: 1024px) {
-        /* Goal/Estimated (races) and the four calibration tiles STAY on one
-           row — compact tiles instead of a tall stack of full-width rows. */
+        /* Goal/Estimated (races) stay on one row — compact tiles. */
         .plan-merged .pm-rcgrid {
           gap: 8px;
         }
@@ -6490,28 +6467,30 @@
           min-width: 0;
           padding: 8px 10px;
         }
+        /* Calibration: 2×2 so labels/badges fit on phone widths. */
         .plan-merged .pm-calgrid {
-          gap: 6px;
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
         }
         .plan-merged .pm-caltile {
           min-width: 0;
-          padding: 8px 8px;
+          padding: 10px 12px;
         }
         .plan-merged .pm-caltile .pm-lab {
-          font-size: 8.5px;
-          letter-spacing: 0.02em;
+          font-size: 9.5px;
+          letter-spacing: 0.04em;
         }
         .plan-merged .pm-lab-full { display: none; }
         .plan-merged .pm-lab-short { display: inline; }
         .plan-merged .pm-caltile .pm-v {
-          font-size: 11.5px;
-          line-height: 1.3;
+          font-size: 13px;
+          line-height: 1.35;
           overflow-wrap: anywhere;
         }
-        /* Badges ("Sufficient"/"High") shrink instead of breaking mid-word. */
         .plan-merged .pm-caltile .pm-badge {
-          font-size: 9.5px;
-          padding: 2px 6px;
+          font-size: 11px;
+          padding: 3px 8px;
           overflow-wrap: normal;
           white-space: nowrap;
         }
@@ -6532,7 +6511,7 @@
       .perf-card {
         background: #fff;
         border-radius: 16px;
-        padding: 18px 20px;
+        padding: var(--log-card-pad-y) var(--log-card-pad-x);
         box-shadow: 0 8px 24px rgba(20, 28, 70, 0.16);
       }
       .perf-sectitle {
@@ -7443,7 +7422,7 @@
       width: 100%;
       position: relative;
       /* JS (_positionNav) sets padding-left/right to the content column's edges. */
-      padding: 12px 24px;
+      padding: 12px var(--log-shell-pad-x);
       display: flex;
       align-items: center;
       gap: 22px;
@@ -7506,20 +7485,24 @@
     }
 
     /* ── Centered shell, overlay drawer (no reserved column) ─────────────── */
-    /* 1000px (narrowed from 1120) so the wider 600px overlay drawer coexists
-       cleanly with the centered content on a 1440 viewport. Shared across all
-       three sub-tabs (Summary/Plan/Performance). */
+    /* Shared with .tab-panel-placeholder via --log-shell-* tokens. */
     .log-layout {
-      max-width: 1000px;
-      padding: 20px 24px 60px;
+      max-width: var(--log-shell-max);
+      margin-left: auto;
+      margin-right: auto;
+      padding: var(--log-shell-pad-top) var(--log-shell-pad-x) var(--log-shell-pad-bottom);
+      box-sizing: border-box;
+      width: 100%;
     }
     /* Kill the reserved 2-column grid — the drawer is now a fixed overlay. */
     @media (min-width: 1024px) {
       #layout-wrapper.has-panel {
         display: block;
-        max-width: 1000px;
+        max-width: var(--log-shell-max);
         margin: 0 auto;
-        padding: 20px 24px 60px;
+        padding: var(--log-shell-pad-top) var(--log-shell-pad-x) var(--log-shell-pad-bottom);
+        box-sizing: border-box;
+        width: 100%;
       }
       #layout-wrapper.has-panel .log-page-body {
         max-width: none;
@@ -7527,7 +7510,7 @@
         padding: 0;
       }
     }
-    .log-page-body { gap: 16px; }
+    .log-page-body { gap: 12px; }
 
     /* Restyle the section cards to the mock's rounded, shadowed look. */
     #layout-wrapper .log-card {
@@ -7535,7 +7518,11 @@
       border: none;
       box-shadow: 0 8px 24px rgba(20, 28, 70, 0.16);
       background: #fff;
-      padding: 18px 20px;
+      padding: var(--log-card-pad-y) var(--log-card-pad-x);
+      /* Shared section rhythm: title → body, and divider margins.
+         Summary / Readiness / Weekly volume all use this — don't invent
+         per-section padding that fights the outer card pad. */
+      --log-section-gap: 12px;
     }
     /* Summary / Readiness+chart / Weekly coach report: one shared card,
        three sections stacked with a horizontal divider between each
@@ -7545,7 +7532,7 @@
        on the outer .log-card's own padding rather than doubling up. */
     .section-divider {
       border-top: 1px solid var(--card-border, #e5e7eb);
-      margin: 18px 0;
+      margin: var(--log-section-gap, 12px) 0;
     }
     .rf-merged {
       display: flex;
@@ -7554,7 +7541,7 @@
     .rf-half {
       flex: 1 1 50%;
       min-width: 0;
-      padding: 4px 0;
+      padding: 0;
     }
     .rf-half:first-child {
       padding-right: 18px;
@@ -7568,17 +7555,22 @@
       background: var(--card-border, #e5e7eb);
       flex-shrink: 0;
     }
+    /* Nested inside the shared log card — no second padding box. */
+    #load-surfaces .readiness-widget,
+    .rf-merged .readiness-widget {
+      padding: 0;
+    }
     @media (max-width: 640px) {
       .rf-merged {
         flex-direction: column;
       }
       .rf-half:first-child {
         padding-right: 0;
-        padding-bottom: 18px;
+        padding-bottom: var(--log-section-gap, 12px);
       }
       .rf-half:last-child {
         padding-left: 0;
-        padding-top: 18px;
+        padding-top: var(--log-section-gap, 12px);
       }
       .rf-divider {
         width: auto;
@@ -7597,8 +7589,29 @@
       align-items: center;
       justify-content: space-between;
       gap: 10px;
-      margin-bottom: 12px;
+      margin-bottom: var(--log-section-gap, 12px);
       flex-wrap: wrap;
+    }
+    /* Form label (Optimal / Fresh / Fatigued) — centered status pill under the
+       section title so it's the first clear signal before the CTL/ATL/TSB/ACWR grid. */
+    .lrx-form-banner {
+      display: block;
+      width: fit-content;
+      max-width: 100%;
+      box-sizing: border-box;
+      margin: 0 auto var(--log-section-gap, 12px);
+      padding: 8px 18px;
+      border-radius: 999px;
+      text-align: center;
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      background: var(--primary-soft, #eef2ff);
+      color: var(--info-dark, #3730a3);
+      border: 1.5px solid var(--primary, #6366f1);
+    }
+    .readiness-widget .lrx-chead:has(+ .lrx-form-banner) {
+      margin-bottom: 8px;
     }
 
     /* ── Weekly coach report ───────────────────────────────────────────────── */
@@ -8000,41 +8013,41 @@
         margin-left: 0;
       }
       .log-page-header-inner {
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
         align-items: center;
-        padding: 12px 14px 14px;
-        column-gap: 10px;
-        row-gap: 14px;
+        padding: 10px var(--log-shell-pad-x);
+        column-gap: 8px;
+        row-gap: 0;
       }
       .log-nav-spacer {
         display: none;
       }
       .log-page-header-actions {
-        order: 3;
+        order: 0;
         position: static;
         transform: none;
-        margin-left: auto;
+        margin-left: 0;
         flex-shrink: 0;
-        gap: 10px;
+        gap: 6px;
         align-self: center;
-        margin-top: 2px;
+        margin-top: 0;
       }
       .log-page-header .training-sub-tabs {
-        order: 2;
+        order: 0;
         display: flex;
-        flex: 1 1 100%;
-        width: 100%;
+        flex: 1 1 auto;
+        width: auto;
         min-width: 0;
         box-sizing: border-box;
-        gap: 4px;
-        padding: 5px;
+        gap: 3px;
+        padding: 4px;
         margin: 0;
       }
       .log-page-header .training-sub-tab {
         flex: 1 1 0;
         min-width: 0;
-        padding: 8px 4px;
-        font-size: 11.5px;
+        padding: 7px 2px;
+        font-size: 11px;
         font-weight: 700;
         text-align: center;
         white-space: nowrap;
@@ -8073,16 +8086,22 @@
         border-radius: 0;
       }
 
-      /* Summary + readiness: stay 3-across, compact tiles on phones */
+      /* Summary + readiness: stay 3-across, compact tiles on phones.
+         Shell pad is owned by --log-shell-* (do not restate hardcoded px). */
       .log-layout {
-        padding: 12px 12px 48px;
+        padding: var(--log-shell-pad-top) var(--log-shell-pad-x) var(--log-shell-pad-bottom);
       }
       .log-card--week {
-        margin-left: 12px;
-        margin-right: 12px;
-        width: auto;
+        margin-top: var(--log-shell-pad-top);
+        margin-left: auto;
+        margin-right: auto;
+        width: min(
+          calc(100% - (2 * var(--log-shell-pad-x))),
+          calc(var(--log-shell-max) - (2 * var(--log-shell-pad-x)))
+        );
+        max-width: var(--log-shell-max);
         box-sizing: border-box;
-        padding: 12px 14px;
+        padding: var(--log-card-pad-y) var(--log-card-pad-x);
       }
       #week-strip {
         padding: 2px 2px;
@@ -8091,12 +8110,12 @@
         padding-left: 2px;
         padding-right: 2px;
       }
-      #layout-wrapper .log-card,
-      #readiness-widget.readiness-widget {
-        padding: 12px;
+      #layout-wrapper .log-card {
+        padding: var(--log-card-pad-y) var(--log-card-pad-x);
       }
-      .lrx-chead {
-        margin-bottom: 8px;
+      .lrx-chead,
+      .vc-header {
+        margin-bottom: var(--log-section-gap, 12px);
         gap: 6px;
       }
       .lrx-sectitle {
@@ -8147,6 +8166,11 @@
       .lrx-chip {
         font-size: 11px;
         padding: 3px 7px;
+      }
+      .lrx-form-banner {
+        font-size: 14px;
+        padding: 7px 16px;
+        margin-bottom: var(--log-section-gap, 12px);
       }
       .lrx-rcard {
         padding: 8px 5px;
@@ -8256,8 +8280,8 @@
             <div id="readiness-widget" class="readiness-widget rf-half" hidden></div>
             <div class="rf-divider" aria-hidden="true"></div>
             <!-- No title (redundant next to Readiness) or caption (the
-                 legend already labels each line); fixed to a 30-day window
-                 (no range toggle) so the chart gets the full section height. -->
+                 legend already labels each line); ~30-day window on desktop,
+                 4 weeks on mobile — no range toggle. -->
             <div id="perf-chart-card" class="rf-half">
               <div id="perf-chart-bb" class="perf-chart-baseline" hidden>
                 <span class="perf-bb-icon">📈</span>
@@ -8307,7 +8331,7 @@
           </div>
           <div class="vc-body">
             <canvas id="volume-chart" height="220" role="img"
-                    aria-label="Weekly training volume: stacked run and strength TSS with run distance line for the last 8 weeks"></canvas>
+                    aria-label="Weekly training volume: stacked run and strength TSS with run distance line"></canvas>
           </div>
         </div>
         <div id="log-list"></div>
@@ -9202,7 +9226,7 @@
 
     <script src="js/lib/app-common.js"></script>
     <script src="js/lib/sync-poller.js"></script>
-    <script src="js/nav.js?v=20260718nav1"></script>
+    <script src="js/nav.js?v=20260810phasec1"></script>
     <script src="js/lib/html2canvas.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
     <script src="js/ui-states.js"></script>
@@ -9211,13 +9235,13 @@
     <script src="js/zone2-constants.js"></script>
     <script src="js/lib/run-detail-view.js?v=20260717y"></script>
     <script src="js/training.js"></script>
-    <script src="js/training-log.js?v=20260717ae"></script>
-    <script src="js/training-performance.js?v=20260720draft1"></script>
-    <script src="js/lib/plan-session-helpers.js?v=20260720sm1"></script>
+    <script src="js/training-log.js?v=20260810phasec1"></script>
+    <script src="js/training-performance.js?v=20260810phaseb1"></script>
+    <script src="js/lib/plan-session-helpers.js?v=20260810phasea1"></script>
     <script src="js/lib/session-budget.js?v=20260805sb1"></script>
     <script src="js/lib/plan-fill-preview.js?v=20260806align1"></script>
-    <script src="js/lib/next-up-card.js?v=20260807revamp1"></script>
-    <script src="js/training-plan.js?v=20260807planv3g"></script>
+    <script src="js/lib/next-up-card.js?v=20260810done1"></script>
+    <script src="js/training-plan.js?v=20260810phaseb1"></script>
     <script src="js/user.js"></script>
     <script src="js/env.js"></script>
     <script>

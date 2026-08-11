@@ -408,21 +408,8 @@
   }
 
   function _fetchWeekPlannedSessions() {
-    // Anchor the week on Bangkok "today" (same clock as AppCommon.todayISO /
-    // the morning session filter), not the browser's local Date — otherwise
-    // a laptop in UTC-5 can ask for the wrong Mon–Sun window near midnight.
-    var todayIso = window.AppCommon.todayISO();
-    var parts = todayIso.split('-');
-    var today = new Date(+parts[0], +parts[1] - 1, +parts[2]);
-    var monday = _mondayOf(today);
-    var sunday = new Date(monday);
-    sunday.setDate(monday.getDate() + 6);
-    var from = _isoDate(monday);
-    var to = _isoDate(sunday);
-    return fetch('/api/planned-sessions?from=' + from + '&to=' + to)
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (data) { return (data && data.days) || []; })
-      .catch(function () { return []; });
+    // Unused after Phase B — week_days rides /api/home/summary.
+    return Promise.resolve([]);
   }
 
   /* ---- Init ---- */
@@ -453,13 +440,10 @@
       _checkThresholdBanner();
       _checkStravaStaleBanner();
 
-      /* Single summary fetch — distribute to all widget renderers. One more
-         GET /api/planned-sessions for the current week, shared across the
-         morning session row, Today's workout (NextUpCard), and Week plan —
-         per the revamp v2 spec, no widget below fetches its own copy. */
-      var results = await Promise.all([summaryPromise, _fetchWeekPlannedSessions()]);
-      var summary = results[0];
-      var weekDays = results[1];
+      /* Single summary fetch — week_days / training_load / performance / race
+         are folded into /api/home/summary (Phase B). */
+      var summary = await summaryPromise;
+      var weekDays = Array.isArray(summary.week_days) ? summary.week_days : [];
 
       /* Readiness tile + training card + recent-workouts + performance
          widget + coach digest (home v2 / revamp v2) */
@@ -539,7 +523,7 @@
 
       /* Weight trend + Race — home revamp v2 (each fetches its own data). */
       if (window.HomeWeightTrend) HomeWeightTrend.render(document.getElementById('home-weight-trend'));
-      if (window.HomeRaceCard) HomeRaceCard.render(document.getElementById('home-race-card'));
+      if (window.HomeRaceCard) HomeRaceCard.render(document.getElementById('home-race-card'), summary.race || null);
 
       /* Body-modifier guardrail warning (issue #1161) */
       _renderBodyModifierGuardrail();

@@ -484,8 +484,9 @@
   }
 
   // ── 3. Time-curve SVG (projected finish time) ─────────────────────────────
-  // Ported from mock #timecurve. Piecewise x compresses the pre-race lead-in
-  // and expands the race window; y-range tightened around the projected times.
+  // Ported from mock #timecurve. Piecewise x: history left of NOW, projection
+  // expanded to the right. Mobile shortens history to ~28d and caps the left
+  // pane at 30% width so the approach stays readable; desktop keeps ~90d.
   function renderTimeCurve() {
     var svg = document.getElementById("plan-timecurve");
     var emptyEl = document.getElementById("plan-time-curve-empty");
@@ -502,14 +503,24 @@
     var tc = _readiness && _readiness.time_curve;
     var history = (tc && tc.history) || [];
     var projection = (tc && tc.projection) || [];
+    // Measure early so mobile can shorten the lookback AND cap the left pane
+    // before we pick history samples (phone: 28d / ≤30% width; desktop: 90d).
+    var W = measureChartW(svg);
+    var mobile = W < 640; // matches the documented 640px mobile ceiling (DESIGN.md)
+    var histLookbackDays = mobile ? 28 : 90;
+    var histWidthCap = mobile ? 0.3 : 0.5;
     // Only the recent approach matters — the early low-fitness ramp both
-    // wastes half the x-axis and drags the y-domain. Keep the last ~3
-    // months (projection already runs today → race day, so the right edge
-    // IS race day).
+    // wastes half the x-axis and drags the y-domain. Projection already
+    // runs today → race day, so the right edge IS race day.
     // Bangkok via the ISO helper; toISOString() is UTC (issue #1603).
-    var cutoffISO = window.AppCommon.addDaysISO(window.AppCommon.todayISO(), -90);
-    var recent = history.filter(function (e) { return !e.date || e.date >= cutoffISO; });
-    history = recent.length ? recent : history.slice(-90);
+    var cutoffISO = window.AppCommon.addDaysISO(
+      window.AppCommon.todayISO(),
+      -histLookbackDays,
+    );
+    var recent = history.filter(function (e) {
+      return !e.date || e.date >= cutoffISO;
+    });
+    history = recent.length ? recent : history.slice(-histLookbackDays);
     var goalSec = tc && tc.goal_finish_seconds != null
       ? tc.goal_finish_seconds
       : (_primaryRace && _primaryRace.goal_time_seconds) || null;
@@ -532,13 +543,27 @@
       projNow.style.display = "";
       if (valEl) valEl.textContent = fmtTime(estInfo.est);
       if (metaEl) {
-        var parts = [];
+        var chips = [];
         var distKm = _primaryRace ? parseFloat(_primaryRace.distance || 0) : 0;
-        if (distKm) parts.push(fmtPace(estInfo.est / distKm));
+        if (distKm)
+          chips.push(
+            '<span class="pm-projnow-chip"><b>Pace</b> ' +
+              fmtPace(estInfo.est / distKm) +
+              "</span>",
+          );
         if (estInfo.band != null)
-          parts.push("±" + Math.max(1, Math.round(estInfo.band / 60)) + " min");
-        if (goalSec != null) parts.push("goal " + fmtTime(goalSec));
-        metaEl.textContent = parts.join(" · ");
+          chips.push(
+            '<span class="pm-projnow-chip"><b>Band</b> ±' +
+              Math.max(1, Math.round(estInfo.band / 60)) +
+              " min</span>",
+          );
+        if (goalSec != null)
+          chips.push(
+            '<span class="pm-projnow-chip"><b>Goal</b> ' +
+              fmtTime(goalSec) +
+              "</span>",
+          );
+        metaEl.innerHTML = chips.join("");
       }
       // How the estimate was formed from the athlete's own scores — the
       // interpretable decomposition (time_curve.estimate_basis).
@@ -546,15 +571,52 @@
       if (basisEl) {
         var basis = tc && tc.estimate_basis;
         if (basis && basis.blended_pace_seconds_per_km != null) {
-          var bits = [];
-          if (basis.endurance_score != null && basis.endurance_pace_seconds_per_km != null)
-            bits.push("End " + Math.round(basis.endurance_score) + " → " + fmtPace(basis.endurance_pace_seconds_per_km));
-          if (basis.speed_score != null && basis.speed_pace_seconds_per_km != null)
-            bits.push("Spd " + Math.round(basis.speed_score) + " → " + fmtPace(basis.speed_pace_seconds_per_km));
-          var wPct = basis.speed_weight != null ? Math.round(basis.speed_weight * 100) : null;
-          bits.push("blended" + (wPct != null ? " (" + wPct + "% speed)" : "") + " → " +
-            fmtPace(basis.blended_pace_seconds_per_km));
-          basisEl.textContent = bits.join(" · ");
+          var rows = [];
+          if (
+            basis.endurance_score != null &&
+            basis.endurance_pace_seconds_per_km != null
+          ) {
+            rows.push(
+              '<div class="pm-projnow-basis-row">' +
+                '<span class="pm-projnow-basis-k">Endurance ' +
+                Math.round(basis.endurance_score) +
+                "</span>" +
+                '<span class="pm-projnow-basis-v">' +
+                fmtPace(basis.endurance_pace_seconds_per_km) +
+                "</span>" +
+                "</div>",
+            );
+          }
+          if (
+            basis.speed_score != null &&
+            basis.speed_pace_seconds_per_km != null
+          ) {
+            rows.push(
+              '<div class="pm-projnow-basis-row">' +
+                '<span class="pm-projnow-basis-k">Speed ' +
+                Math.round(basis.speed_score) +
+                "</span>" +
+                '<span class="pm-projnow-basis-v">' +
+                fmtPace(basis.speed_pace_seconds_per_km) +
+                "</span>" +
+                "</div>",
+            );
+          }
+          var wPct =
+            basis.speed_weight != null
+              ? Math.round(basis.speed_weight * 100)
+              : null;
+          rows.push(
+            '<div class="pm-projnow-basis-row">' +
+              '<span class="pm-projnow-basis-k">Blend' +
+              (wPct != null ? " · " + wPct + "% speed" : "") +
+              "</span>" +
+              '<span class="pm-projnow-basis-v">' +
+              fmtPace(basis.blended_pace_seconds_per_km) +
+              "</span>" +
+              "</div>",
+          );
+          basisEl.innerHTML = rows.join("");
         } else {
           basisEl.textContent = "";
         }
@@ -585,8 +647,7 @@
 
     // Responsive sizing: build the coordinate space to the measured render
     // width so 1 unit ≈ 1px on any viewport (fixes the ~3× mobile downscale).
-    var W = measureChartW(svg);
-    var mobile = W < 640; // matches the documented 640px mobile ceiling (DESIGN.md)
+    // W / mobile already measured above for the history lookback.
     var H = mobile ? 240 : 200;
     // Y labels live INSIDE the plot (right edge) — no left gutter needed,
     // the full card width goes to data.
@@ -648,10 +709,15 @@
     }
 
     // Piecewise x: history 0..nowT, projection nowT..1 (expanded).
+    // Cap history's share so a long lookback never eats the projection pane
+    // (phone: ≤30%; desktop: ≤50%).
     var nHist = history.length;
     var nProj = projection.length;
     var total = nHist + nProj;
-    var nowT = total > 0 ? Math.max(0.08, Math.min(0.5, nHist / total)) : 0.15;
+    var nowT =
+      total > 0
+        ? Math.max(0.08, Math.min(histWidthCap, nHist / total))
+        : 0.15;
     function xHist(i) {
       return p.l + (nHist > 1 ? i / (nHist - 1) : 0) * (nowT) * (W - p.l - p.r);
     }
@@ -785,10 +851,13 @@
     var hist = tc.history || [];
     var est = null,
       band = null;
+    // Race-day sample (last projection point after build+taper) — same SoT as
+    // race cards / computed.estimate. The first sample is ~tomorrow and disagrees.
     if (proj.length > 0) {
-      est = proj[0].estimated_finish_seconds;
-      band = proj[0].confidence_band_seconds != null
-        ? proj[0].confidence_band_seconds
+      var last = proj[proj.length - 1];
+      est = last.estimated_finish_seconds;
+      band = last.confidence_band_seconds != null
+        ? last.confidence_band_seconds
         : null;
     } else if (hist.length > 0) {
       est = hist[hist.length - 1].estimated_finish_seconds;
@@ -859,6 +928,21 @@
     return { end: sc.end, spd: sc.spd };
   }
 
+  // Footer tags under Goal/Actual — same placement as upcoming required scores.
+  function _demonstratedScoreFoot(r) {
+    var demo = _demonstratedScores(r);
+    if (!demo) return "";
+    var end =
+      demo.end != null && isFinite(Number(demo.end)) ? demo.end : null;
+    var spd =
+      demo.spd != null && isFinite(Number(demo.spd)) ? demo.spd : null;
+    if (end == null && spd == null) return "";
+    var tags =
+      '<span class="pm-sc req">End ' + (end != null ? end : "—") + "</span>" +
+      '<span class="pm-sc req">Spd ' + (spd != null ? spd : "—") + "</span>";
+    return '<div class="pm-rcfoot"><div class="pm-scoretags">' + tags + "</div></div>";
+  }
+
   // Format a signed delta of actual vs goal as "+M:SS" (over) / "−M:SS"
   // (under). Returns "" when there is no goal.
   function _actualDelta(actualSec, goalSec) {
@@ -883,14 +967,52 @@
     );
   }
 
+  // Single field read — #1560 requires the half-marathon-equivalent field
+  // appear exactly once so upcoming/completed cards cannot drift into
+  // duplicate inlines.
+  function _halfEquivSeconds(r) {
+    return r.half_marathon_equivalent_seconds || null;
+  }
+
   function _halfEquivCol(r) {
-    var s = r.half_marathon_equivalent_seconds || null;
+    var s = _halfEquivSeconds(r);
     return s
       ? '<div class="pm-col">' +
         '<div class="pm-coll">Half Equivalent</div>' +
         '<div class="pm-colt">' + esc(fmtTime(s)) + "</div>" +
         '<div class="pm-colp">21.1 km equiv.</div></div>'
       : "";
+  }
+
+  // Stacked Actual + Half-equivalent block for completed cards (one column,
+  // top/bottom) so labels fit on narrow widths.
+  function _actualHalfStack(r, actualLabel, actualSec, actualPace) {
+    var halfSec = _halfEquivSeconds(r);
+    var html =
+      '<div class="pm-col est pm-col--vstack">' +
+      '<div class="pm-col-block">' +
+      '<div class="pm-coll">' +
+      actualLabel +
+      "</div>" +
+      '<div class="pm-colt">' +
+      esc(actualSec != null ? fmtTime(actualSec) : "—") +
+      "</div>" +
+      '<div class="pm-colp">' +
+      esc(actualPace || "—") +
+      "</div>" +
+      "</div>";
+    if (halfSec) {
+      html +=
+        '<div class="pm-col-block pm-col-block--sub">' +
+        '<div class="pm-coll">Half equiv.</div>' +
+        '<div class="pm-colt pm-colt--sm">' +
+        esc(fmtTime(halfSec)) +
+        "</div>" +
+        '<div class="pm-colp">21.1 km</div>' +
+        "</div>";
+    }
+    html += "</div>";
+    return html;
   }
 
   // Priority/type badge. Checkpoints get a distinct "CP" text badge (teal) so
@@ -992,27 +1114,21 @@
     card.className = "pm-rc pm-rc--done";
     card.setAttribute("data-race-id", r.id);
 
-    // Demonstrated End/Spd scores from this race's own result (distance-split).
-    var demo = _demonstratedScores(r);
-    var demoTags = demo
-      ? '<span class="pm-sc req">End ' + demo.end + "</span>" +
-        '<span class="pm-sc req">Spd ' + demo.spd + "</span>"
-      : "";
-
+    // Mirror upcoming: name/type, then date·distance + DONE, then actions.
+    // End/Spd live under the Goal/Actual grid (not in the tag row).
     var head =
       '<div class="pm-rchd">' +
       _priorityBadge(isCheckpoint, priority) +
       '<span class="pm-rcname">' + esc(r.name || "Unnamed") + "</span>" +
       '<span class="pm-typetag">' +
       (isCheckpoint ? "CHECKPOINT" : "RACE") + "</span>" +
+      '<span class="pm-rcmeta">' + esc(_metaText(r, distKm)) + "</span>" +
       '<span class="pm-upc pm-done">DONE</span>' +
-      demoTags +
       '<span class="pm-rcactions">' +
       '<button class="pm-rcact" data-act="edit" type="button">Edit</button>' +
       '<button class="pm-rcact" data-act="del" type="button" aria-label="Remove ' + esc(r.name || "race") + '">✕</button>' +
       "</span>" +
-      "</div>" +
-      '<div class="pm-rcmeta pm-rcmeta--done">' + esc(_metaText(r, distKm)) + "</div>";
+      "</div>";
 
     var actualLabel =
       "Actual" +
@@ -1020,20 +1136,15 @@
         ? ' <span class="pm-delta ' + deltaCls + '">' + esc(delta) + "</span>"
         : "");
 
-    var halfColCompleted = _halfEquivCol(r);
-
     var grid =
-      '<div class="pm-rcgrid">' +
+      '<div class="pm-rcgrid pm-rcgrid--done">' +
       '<div class="pm-col"><div class="pm-coll">Goal</div>' +
       '<div class="pm-colt">' + esc(goalSec ? fmtTime(goalSec) : "—") + "</div>" +
       '<div class="pm-colp">' + esc(goalPace || "—") + "</div></div>" +
-      '<div class="pm-col est"><div class="pm-coll">' + actualLabel + "</div>" +
-      '<div class="pm-colt">' + esc(actualSec != null ? fmtTime(actualSec) : "—") + "</div>" +
-      '<div class="pm-colp">' + esc(actualPace || "—") + "</div></div>" +
-      halfColCompleted +
+      _actualHalfStack(r, actualLabel, actualSec, actualPace) +
       "</div>";
 
-    card.innerHTML = head + grid;
+    card.innerHTML = head + grid + _demonstratedScoreFoot(r);
     _wireCardActions(card, r);
     return card;
   }
@@ -1115,128 +1226,6 @@
     container.appendChild(sections);
   }
 
-  // ── 4. Form curve SVG (TSB) ───────────────────────────────────────────────
-  // Ported from mock #pacecurve: recent-emphasis x (pow 1.55), fresh/overreach
-  // zones. Fed the real daily TSB series from form_curve.
-  function renderFormCurve() {
-    var svg = document.getElementById("plan-pacecurve");
-    var emptyEl = document.getElementById("plan-curve-empty");
-    var bbEl = document.getElementById("plan-building-baseline");
-    if (!svg) return;
-    clearSvg(svg);
-
-    if (_readiness && _readiness.building_baseline) {
-      svg.style.display = "none";
-      if (emptyEl) emptyEl.style.display = "none";
-      if (bbEl) bbEl.style.display = "";
-      return;
-    }
-    if (bbEl) bbEl.style.display = "none";
-
-    var formCurve =
-      (_readiness && _readiness.form_curve) ||
-      (_projection && _projection.form_curve) ||
-      [];
-
-    if (formCurve.length < 2) {
-      svg.style.display = "none";
-      if (emptyEl) emptyEl.style.display = "";
-      return;
-    }
-    if (emptyEl) emptyEl.style.display = "none";
-    svg.style.display = "";
-
-    // Accessible name: concise real-data summary (form = TSB-style freshness
-    // score) rather than a generic label, since the drawing itself conveys
-    // nothing to screen readers.
-    (function () {
-      var firstForm = formCurve[0].form;
-      var lastForm = formCurve[formCurve.length - 1].form;
-      var delta = lastForm - firstForm;
-      var trend = delta > 0.5
-        ? "up from " + Math.round(firstForm)
-        : delta < -0.5
-          ? "down from " + Math.round(firstForm)
-          : "steady near " + Math.round(firstForm);
-      svg.setAttribute("aria-label",
-        "Training form trend: currently " + Math.round(lastForm) + ", " + trend + ".");
-    })();
-
-    // Responsive sizing: match the measured render width (1 unit ≈ 1px). This
-    // card sits in a 2-col row on desktop (~half width) and full width on mobile,
-    // so a hardcoded 1140 mis-scaled it on BOTH — measuring fixes both.
-    var W = measureChartW(svg);
-    var mobile = W < 640; // matches the documented 640px mobile ceiling (DESIGN.md)
-    var H = mobile ? 260 : 300;
-    var p = mobile
-      ? { l: 36, r: 14, t: 12, b: 30 }
-      : { l: 44, r: 20, t: 12, b: 28 };
-    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
-    svg.style.height = H + "px";
-    var FS = function (n) { return Math.max(10, n); };
-    var vmin = -25, vmax = 10;
-    // widen range if data exceeds defaults
-    formCurve.forEach(function (pt) {
-      if (pt.form < vmin) vmin = Math.floor(pt.form);
-      if (pt.form > vmax) vmax = Math.ceil(pt.form);
-    });
-    function y(v) {
-      return p.t + (1 - (v - vmin) / (vmax - vmin)) * (H - p.t - p.b);
-    }
-    function xf(u) {
-      return Math.pow(u, 1.55);
-    }
-    function x(i, n) {
-      return p.l + xf(n > 1 ? i / (n - 1) : 0) * (W - p.l - p.r);
-    }
-
-    // fresh (green) and overreach (red) zones
-    svg.appendChild(E("rect", {
-      x: p.l, y: y(vmax), width: W - p.l - p.r, height: y(5) - y(vmax),
-      fill: "#dcfce7", "fill-opacity": 0.55,
-    }));
-    svg.appendChild(E("rect", {
-      x: p.l, y: y(-18), width: W - p.l - p.r, height: y(vmin) - y(-18),
-      fill: "#fee2e2", "fill-opacity": 0.55,
-    }));
-
-    [vmax, 0, -10, vmin].forEach(function (v) {
-      svg.appendChild(E("line", {
-        x1: p.l, x2: W - p.r, y1: y(v), y2: y(v), stroke: PERF_COLORS.gridLine,
-      }));
-      var lab = E("text", {
-        x: p.l - 8, y: y(v) + 3, "font-size": FS(10), "font-family": "JetBrains Mono",
-        fill: PERF_COLORS.textMuted, "text-anchor": "end",
-      });
-      lab.textContent = Math.round(v);
-      svg.appendChild(lab);
-    });
-
-    var N = formCurve.length;
-    var pts = formCurve.map(function (pt, i) {
-      return [x(i, N), y(pt.form)];
-    });
-    svg.appendChild(E("path", {
-      d: Path(pts), fill: "none", stroke: PERF_COLORS.dataLine, "stroke-width": mobile ? 2.4 : 1.8,
-      "stroke-linejoin": "round",
-    }));
-
-    // date ticks: first, ~mid, last (3 — kept sparse so mobile isn't crowded).
-    var idxs = [0, Math.floor(N * 0.6), N - 1];
-    idxs.forEach(function (i, k) {
-      var xx = x(i, N);
-      var t = E("text", {
-        x: xx, y: H - 8, "font-size": FS(10), "font-family": "JetBrains Mono",
-        fill: PERF_COLORS.textMuted,
-        "text-anchor": k === 0 ? "start" : k === idxs.length - 1 ? "end" : "middle",
-      });
-      var d = new Date(formCurve[i].date + "T00:00:00");
-      var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-      t.textContent = months[d.getMonth()] + " " + d.getDate();
-      svg.appendChild(t);
-    });
-  }
-
   // ── 5. Specificity bars ───────────────────────────────────────────────────
   function renderSpecBars() {
     var host = document.getElementById("plan-spec-bars");
@@ -1274,7 +1263,7 @@
 
     if (sp.volume_at_pace)
       rows.push(["Goal-pace volume", pct(sp.volume_at_pace.current, sp.volume_at_pace.target), fmtVal(sp.volume_at_pace),
-        "km run within ±15 s/km of goal pace" + goalPaceTxt + " · target 60% of race distance"]);
+        "km run within ±15 s/km of goal pace" + goalPaceTxt + " · target 75% of race distance"]);
     if (sp.longest_pace_effort)
       rows.push(["Longest-at-pace", pct(sp.longest_pace_effort.current, sp.longest_pace_effort.target), fmtVal(sp.longest_pace_effort),
         "longest single run at goal pace" + goalPaceTxt + " ±15 s/km · target 90% of race distance"]);
@@ -1324,7 +1313,6 @@
     renderRaceHeader();
     renderTimeCurve();
     renderRaceCards();
-    renderFormCurve();
     renderSpecBars();
     _renderPerfProjection();
   }
@@ -1359,6 +1347,31 @@
       bundle.prefs && typeof bundle.prefs.threshold_pace === "number"
         ? bundle.prefs.threshold_pace
         : null;
+    if (bundle.prefs && typeof bundle.prefs.timezone === "string" && bundle.prefs.timezone) {
+      _perfTz = bundle.prefs.timezone;
+    }
+
+    // Phase B boot extras (scores / PRs / workout meta) — apply when present;
+    // fall back for warm caches that predate these fields.
+    if (bundle.performance) _applyPerfScoresFromBundle(bundle.performance);
+    else if (_perfAthleteId) _loadPerfScores();
+    if (bundle.prs) { _perfPrsAppliedFromBundle = true; _renderPerfPR(bundle.prs); }
+    else if (_perfAthleteId) _loadPerfPR();
+    if (bundle.workout_meta && typeof bundle.workout_meta === "object") {
+      Object.keys(bundle.workout_meta).forEach(function (id) {
+        var m = bundle.workout_meta[id] || {};
+        _perfMetaById[String(id)] = {
+          title: m.title,
+          distance_km: m.distance_km,
+          pace: _perfFmtPace(m.pace_seconds_per_km),
+          avg_hr: m.avg_hr,
+        };
+      });
+      _renderPerfBreakdownLists("endurance");
+      _renderPerfBreakdownLists("speed");
+    } else if (_perfAthleteId) {
+      _loadPerfFeeds();
+    }
 
     var proj = bundle.projection || {};
     _projection = {
@@ -2149,311 +2162,40 @@
     if (_perfBooted) return;
     _perfBooted = true;
     var userId = window.getCurrentUserId ? window.getCurrentUserId() : null;
-    function resolvePrefsAndLoad() {
-      fetch("/api/user-preferences", { credentials: "same-origin" })
-        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-        .then(function (data) {
-          var tz = data && data.row && data.row.timezone;
-          if (tz && typeof tz === "string") _perfTz = tz;
-        })
-        .catch(function () {})
-        .then(function () {
-          _loadPerfScores();
-          _loadPerfFeeds();
-          _loadPerfPR();
-          _renderPerfProjection();
-          _loadMuscleBalance();
-        });
-    }
-    if (userId) { _perfAthleteId = userId; resolvePrefsAndLoad(); }
+    // Scores / PRs / workout meta / timezone arrive on the plan/computed
+    // bundle (applyBundle). Do not fan out here.
+    if (userId) _perfAthleteId = userId;
     else {
       window.addEventListener("userReady", function (e) {
         _perfAthleteId = e.detail.userId;
-        resolvePrefsAndLoad();
       }, { once: true });
     }
   }
 
-  // ── Muscle balance card (issue #1382) ────────────────────────────────────
+  var _perfScoresAppliedFromBundle = false;
+  var _perfPrsAppliedFromBundle = false;
 
-  var _mbalData = null; // cached API response
-
-  function _mbalChipClass(cls) {
-    var map = {
-      overused: "mbal-chip--overused",
-      elevated: "mbal-chip--elevated",
-      balanced: "mbal-chip--balanced",
-      detraining: "mbal-chip--detraining",
-      untrained: "mbal-chip--untrained",
-      inactive: "mbal-chip--inactive",
-    };
-    return map[cls] || "mbal-chip--inactive";
-  }
-
-  function _mbalBarColor(cls) {
-    var map = {
-      overused: "var(--danger)",
-      elevated: PERF_COLORS.amber,
-      balanced: PERF_COLORS.goalGreen,
-      detraining: PERF_COLORS.dataLine,
-      untrained: PERF_COLORS.dataLine,
-      inactive: PERF_COLORS.inactiveGray,
-    };
-    return map[cls] || PERF_COLORS.inactiveGray;
-  }
-
-  function _mbalSparklineSvg(groupName, weeklySeries) {
-    var vals = (weeklySeries || []).map(function (w) {
-      return (w.groups && w.groups[groupName]) ? +w.groups[groupName] : 0;
-    });
-    var maxV = Math.max.apply(null, vals.concat([1]));
-    var W = 200, H = 36, pad = 2;
-    var n = vals.length;
-    if (n < 2) return null;
-
-    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
-    svg.setAttribute("preserveAspectRatio", "none");
-    svg.classList.add("mbal-sparkline");
-    // Unlike the score sparklines, no adjacent element renders this trend's
-    // values as text, so expose a real-data summary instead of hiding the
-    // chart from assistive tech entirely.
-    svg.setAttribute("role", "img");
-    var _mbalFirst = vals[0], _mbalLast = vals[vals.length - 1];
-    var _mbalTrend = _mbalLast > _mbalFirst ? "up from " : _mbalLast < _mbalFirst ? "down from " : "flat at ";
-    svg.setAttribute("aria-label",
-      groupName + " 8-week load trend: currently " + _mbalLast.toFixed(1) +
-      ", " + _mbalTrend + _mbalFirst.toFixed(1) + ".");
-
-    var pts = vals.map(function (v, i) {
-      var x = pad + (i / (n - 1)) * (W - pad * 2);
-      var y = H - pad - (v / maxV) * (H - pad * 2);
-      return [x, y];
-    });
-
-    var pathD = pts.map(function (p, i) {
-      return (i === 0 ? "M" : "L") + p[0].toFixed(1) + "," + p[1].toFixed(1);
-    }).join(" ");
-
-    var line = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    line.setAttribute("d", pathD);
-    line.setAttribute("fill", "none");
-    line.setAttribute("stroke", PERF_COLORS.dataLine);
-    line.setAttribute("stroke-width", "1.5");
-    line.setAttribute("stroke-linecap", "round");
-    line.setAttribute("stroke-linejoin", "round");
-    svg.appendChild(line);
-
-    // Shade under line
-    var fillD = pathD + " L" + pts[pts.length - 1][0].toFixed(1) + "," + H + " L" + pts[0][0].toFixed(1) + "," + H + " Z";
-    var fill = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    fill.setAttribute("d", fillD);
-    fill.setAttribute("fill", PERF_COLORS.dataLineFill);
-    svg.insertBefore(fill, line);
-
-    return svg;
-  }
-
-  function _mbalBuildRow(item, weeklySeries, isInactive) {
-    var grp = item.group;
-    var cls = item.classification || "inactive";
-    var injured = !!item.injured;
-    var acute = item.acute_7d || 0;
-    var chronic = item.chronic_28d || 0;
-    var barPct = chronic > 0 ? Math.min((acute / (chronic * 1.5)) * 100, 100) : 0;
-
-    var wrap = document.createElement("div");
-    wrap.className = "mbal-row-wrap";
-
-    var row = document.createElement("div");
-    row.className = "mbal-row";
-    row.setAttribute("role", "button");
-    row.setAttribute("tabindex", "0");
-    row.setAttribute("aria-expanded", "false");
-    row.setAttribute("aria-label", grp + " — " + cls);
-
-    var nameEl = document.createElement("span");
-    nameEl.className = "mbal-group-name";
-    nameEl.textContent = grp.charAt(0).toUpperCase() + grp.slice(1);
-    row.appendChild(nameEl);
-
-    var barWrap = document.createElement("div");
-    barWrap.className = "mbal-bar-wrap";
-    var bar = document.createElement("div");
-    bar.className = "mbal-bar";
-    // transform: scaleX() (not width) so the fill-in animates a compositor-
-    // only property instead of triggering layout on every frame.
-    bar.style.transform = "scaleX(" + (barPct / 100).toFixed(4) + ")";
-    bar.style.setProperty("--mbal-bar-color", _mbalBarColor(cls));
-    bar.style.background = _mbalBarColor(cls);
-    barWrap.appendChild(bar);
-    row.appendChild(barWrap);
-
-    if (injured) {
-      var injMark = document.createElement("span");
-      injMark.className = "mbal-injured-mark";
-      injMark.title = "Active injury";
-      injMark.textContent = "⚑";
-      row.appendChild(injMark);
+  function _applyPerfScoresFromBundle(data) {
+    _perfScoresAppliedFromBundle = true;
+    var state = data && typeof data === "object" ? data.state : null;
+    if (state === "scored") {
+      _renderPerfScoreCard("endurance", data.endurance);
+      _renderPerfScoreCard("speed", data.speed);
+      return;
     }
-
-    var chip = document.createElement("span");
-    chip.className = "mbal-chip " + _mbalChipClass(cls);
-    chip.textContent = cls;
-    row.appendChild(chip);
-
-    wrap.appendChild(row);
-
-    // Expand detail panel
-    var detail = document.createElement("div");
-    detail.className = "mbal-detail";
-    wrap.appendChild(detail);
-
-    function toggleDetail() {
-      var open = detail.classList.toggle("is-open");
-      row.setAttribute("aria-expanded", open ? "true" : "false");
-      if (open && !detail._built) {
-        detail._built = true;
-
-        var head = document.createElement("div");
-        head.className = "mbal-detail-head";
-        head.textContent = "8-week load";
-        detail.appendChild(head);
-
-        var spark = _mbalSparklineSvg(grp, weeklySeries);
-        if (spark) detail.appendChild(spark);
-
-        var srcBreak = item.source_breakdown || {};
-        var srcKeys = Object.keys(srcBreak).sort(function (a, b) {
-          return srcBreak[b] - srcBreak[a];
-        });
-        if (srcKeys.length > 0) {
-          var srcWrap = document.createElement("div");
-          srcWrap.className = "mbal-source-split";
-          srcKeys.forEach(function (src) {
-            var pct = Math.round(srcBreak[src] * 100);
-            var pill = document.createElement("span");
-            pill.className = "mbal-source-pill";
-            pill.textContent = src + " " + pct + "%";
-            srcWrap.appendChild(pill);
-          });
-          detail.appendChild(srcWrap);
-        } else {
-          var noSrc = document.createElement("span");
-          noSrc.style.cssText = "font-size:11px;color:var(--text-sub)";
-          noSrc.textContent = "No source data";
-          detail.appendChild(noSrc);
-        }
-      }
+    if (state === "needs_thresholds") {
+      _renderPerfThresholdHint("endurance");
+      _renderPerfThresholdHint("speed");
+      return;
     }
-
-    row.addEventListener("click", toggleDetail);
-    row.addEventListener("keydown", function (e) {
-      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleDetail(); }
-    });
-
-    return wrap;
-  }
-
-  function _loadMuscleBalance() {
-    var elLoading = document.getElementById("muscle-balance-loading");
-    var elRows = document.getElementById("muscle-balance-rows");
-    var elShowAll = document.getElementById("muscle-balance-show-all");
-    var elShowAllBtn = document.getElementById("muscle-balance-show-all-btn");
-    var elInactiveRows = document.getElementById("muscle-balance-inactive-rows");
-    var elUnclassified = document.getElementById("muscle-balance-unclassified");
-    var elEmpty = document.getElementById("muscle-balance-empty");
-    var elError = document.getElementById("muscle-balance-error");
-    if (!elLoading) return;
-
-    function _sv(el, on) { if (el) el.hidden = !on; }
-
-    _sv(elLoading, true);
-    _sv(elRows, false);
-    _sv(elShowAll, false);
-    _sv(elUnclassified, false);
-    _sv(elEmpty, false);
-    _sv(elError, false);
-
-    fetch("/api/training/muscle-load", { credentials: "same-origin" })
-      .then(function (r) {
-        if (!r.ok) return Promise.reject(r.status);
-        return r.json();
-      })
-      .then(function (data) {
-        _sv(elLoading, false);
-        _mbalData = data;
-
-        var sorted = data.sorted_groups || [];
-        var weeklySeries = data.weekly_series || [];
-        var unclassified = data.unclassified || [];
-
-        // Check if any group has load data
-        var hasData = sorted.some(function (g) {
-          return (g.acute_7d || 0) > 0 || (g.chronic_28d || 0) > 0;
-        });
-
-        if (!hasData && sorted.length === 0) {
-          _sv(elEmpty, true);
-          return;
-        }
-
-        // Split active vs inactive
-        var active = sorted.filter(function (g) { return g.classification !== "inactive"; });
-        var inactive = sorted.filter(function (g) { return g.classification === "inactive"; });
-
-        if (active.length === 0 && inactive.length === 0) {
-          _sv(elEmpty, true);
-          return;
-        }
-
-        // Render active rows
-        elRows.innerHTML = "";
-        active.forEach(function (item) {
-          elRows.appendChild(_mbalBuildRow(item, weeklySeries, false));
-        });
-        _sv(elRows, true);
-
-        // Inactive groups under "show all"
-        if (inactive.length > 0) {
-          elInactiveRows.innerHTML = "";
-          inactive.forEach(function (item) {
-            elInactiveRows.appendChild(_mbalBuildRow(item, weeklySeries, true));
-          });
-          _sv(elShowAll, true);
-
-          if (elShowAllBtn && !elShowAllBtn._wired) {
-            elShowAllBtn._wired = true;
-            elShowAllBtn.addEventListener("click", function () {
-              var shown = elInactiveRows.classList.toggle("is-shown");
-              elShowAllBtn.textContent = shown
-                ? "Hide inactive ▴"
-                : "Show inactive groups ▾";
-              elShowAllBtn.setAttribute("aria-expanded", shown ? "true" : "false");
-            });
-          }
-        }
-
-        // Unclassified footnote
-        if (unclassified.length > 0) {
-          elUnclassified.innerHTML = "";
-          var foot = document.createElement("span");
-          foot.textContent = unclassified.length + " exercise" + (unclassified.length === 1 ? "" : "s") + " not in catalog (not contributing to any group): " + unclassified.slice(0, 5).join(", ") + (unclassified.length > 5 ? "…" : "");
-          elUnclassified.appendChild(foot);
-          _sv(elUnclassified, true);
-        }
-
-        // Empty state: all data present but all groups have 0 load → show "no data yet"
-        if (!hasData) {
-          _sv(elEmpty, true);
-          _sv(elRows, false);
-          _sv(elShowAll, false);
-        }
-      })
-      .catch(function () {
-        _sv(elLoading, false);
-        _sv(elError, true);
-      });
+    if (state === "building_baseline") {
+      var reason = (data && data.reason) || "Keep training: your baseline is building.";
+      _renderPerfBuildingBaseline("endurance", reason);
+      _renderPerfBuildingBaseline("speed", reason);
+      return;
+    }
+    _renderPerfScoreError("endurance");
+    _renderPerfScoreError("speed");
   }
 
   function _perfToday() {
@@ -2844,13 +2586,11 @@
   // time_curve — the same engine behind the time-curve chart at the top of
   // this tab). Reported live: this card said 2:15:11 while the SAME race's
   // card below said 2:30:42. Fixed by sourcing both from the one estimate.
-  var RIEGEL_EXPONENT = 1.06; // backend/services/riegel.py — single source of truth
   function _renderPerfProjection() {
     var body = document.getElementById("perf-proj-body");
     var empty = document.getElementById("perf-proj-empty");
     var metaEl = document.getElementById("perf-proj-meta");
     var endEl = document.getElementById("perf-proj-endurance");
-    var spdEl = document.getElementById("perf-proj-speed");
     if (!body && !empty) return;
 
     var todayStr = todayISO();
@@ -2868,19 +2608,7 @@
     if (empty) empty.hidden = true;
     if (body) body.hidden = false;
     if (metaEl) metaEl.textContent = (next.name || "Checkpoint") + " · " + formatDate(next.date);
-    if (endEl) {
-      endEl.innerHTML = esc(fmtTime(est.est));
-      var tile = endEl.closest(".perf-projtile");
-      var lbl = tile ? tile.querySelector(".perf-projtile-l") : null;
-      if (lbl) lbl.textContent = "Est. finish";
-    }
-    if (spdEl) {
-      var halfSeconds = Math.round(est.est * Math.pow(0.5, RIEGEL_EXPONENT));
-      spdEl.innerHTML = esc(fmtTime(halfSeconds));
-      var tile2 = spdEl.closest(".perf-projtile");
-      var lbl2 = tile2 ? tile2.querySelector(".perf-projtile-l") : null;
-      if (lbl2) lbl2.textContent = "Half equiv.";
-    }
+    if (endEl) endEl.innerHTML = esc(fmtTime(est.est));
   }
 
   // ── Personal records grid ───────────────────────────────────────────────────
@@ -2895,7 +2623,7 @@
     if (!_perfAthleteId) return;
     fetch("/api/athletes/" + _perfAthleteId + "/run-personal-records")
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-      .then(function (data) { _renderPerfPR(data); })
+      .then(function (data) { _perfPrsAppliedFromBundle = true; _renderPerfPR(data); })
       .catch(function () { _renderPerfPR(null); });
   }
   function _renderPerfPR(data) {
@@ -2963,16 +2691,14 @@
     refresh();
   }
 
-  // Redraw both charts on viewport resize / rotation so they adapt (they're
-  // drawn once on load otherwise). Debounced ~150ms; both fns guard internally
-  // (they return early when their SVG or data is missing), and each call is
-  // wrapped so a not-yet-loaded chart can't break the other.
+  // Redraw the finish-time chart on viewport resize / rotation so it adapts
+  // (drawn once on load otherwise). Debounced ~150ms; renderTimeCurve guards
+  // internally when its SVG or data is missing.
   var _resizeTimer = null;
   window.addEventListener("resize", function () {
     if (_resizeTimer) clearTimeout(_resizeTimer);
     _resizeTimer = setTimeout(function () {
       try { renderTimeCurve(); } catch (e) {}
-      try { renderFormCurve(); } catch (e) {}
     }, 150);
   });
 

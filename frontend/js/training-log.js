@@ -18,8 +18,10 @@
   var cachedDetailWorkout = null;
   // issue: perf — fetchAndRender() defaults to a trailing window rather than
   // full history (see the fetchAndRender comment below); this flags whether
-  // the "Load older workouts" affordance has been used to pull everything.
+  // Load older has reached the end of available history (no older rows / max).
   var _logFullHistoryLoaded = false;
+  var _logWindowMonths = null; // set on first fetch; extended by Load older
+  var _logOldestEntryDate = null;
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function pad(n) {
@@ -619,14 +621,25 @@
   // full history") on every call, including the two-tap "mark feeling" and
   // subtype edits below. For a multi-year single-user log that payload only
   // grows over time. Default to a trailing LOG_WINDOW_MONTHS window instead;
-  // pass loadFullHistory=true (wired to the "Load older workouts" sentinel in
-  // renderNextBatch) to fall back to the old from=2010-01-01 behavior when the
-  // user actually needs older history. Trade-off: client-side search/type
-  // filtering (issue #637) and prev/next navigation only cover whatever
-  // window is currently loaded, not the full account history, unless/until
-  // "Load older workouts" has been used — same as any other paginated list.
-  var LOG_WINDOW_MONTHS = 24;
-  function fetchAndRender(loadFullHistory) {
+  // "Load older workouts" extends that window by another LOG_WINDOW_MONTHS
+  // (Phase C — never jumps to from=2010-01-01 in one shot). Trade-off: client
+  // search/type filtering and prev/next only cover the loaded window until
+  // Load older has been used enough times.
+  var LOG_WINDOW_MONTHS = 12;
+  var LOG_WINDOW_MAX_MONTHS = 120; // safety cap (~10y)
+
+  function _oldestEntryDate(weeks) {
+    var oldest = null;
+    (weeks || []).forEach(function (week) {
+      (week.entries || []).forEach(function (entry) {
+        if (!entry || !entry.date) return;
+        if (!oldest || entry.date < oldest) oldest = entry.date;
+      });
+    });
+    return oldest;
+  }
+
+  function fetchAndRender(extendOlder) {
     var loadingEl = document.getElementById("log-loading-indicator");
     if (loadingEl) loadingEl.hidden = false;
 
@@ -635,17 +648,26 @@
 
     var today = todayISO();
     var params = new URLSearchParams();
+    var prevOldest = _logOldestEntryDate;
 
-    params.set(
-      "from",
-      loadFullHistory ? "2010-01-01" : isoMonthsAgo(LOG_WINDOW_MONTHS),
-    );
+    if (extendOlder) {
+      _logWindowMonths = Math.min(
+        (_logWindowMonths || LOG_WINDOW_MONTHS) + LOG_WINDOW_MONTHS,
+        LOG_WINDOW_MAX_MONTHS,
+      );
+    } else {
+      _logWindowMonths = LOG_WINDOW_MONTHS;
+      _logFullHistoryLoaded = false;
+      _logOldestEntryDate = null;
+      prevOldest = null;
+    }
+
+    params.set("from", isoMonthsAgo(_logWindowMonths));
     params.set("to", today);
     params.set("include_rest", "false");
     // issue #528: pull CTL/ATL/TSB on the SAME request as the list so the
     // readiness widget is fed from one computation (no duplicate load_context).
     params.set("include_load_context", "true");
-    _logFullHistoryLoaded = !!loadFullHistory;
 
     fetch("/api/training-log?" + params.toString())
       .then(function (res) {
@@ -655,6 +677,18 @@
       .then(function (data) {
         lastWeeks = data.weeks || [];
         buildFlatWorkouts();
+        var oldest = _oldestEntryDate(lastWeeks);
+        if (extendOlder) {
+          // No new older rows, or we hit the safety cap → end of log.
+          if (
+            _logWindowMonths >= LOG_WINDOW_MAX_MONTHS ||
+            (prevOldest && oldest && oldest >= prevOldest) ||
+            (extendOlder && !oldest)
+          ) {
+            _logFullHistoryLoaded = true;
+          }
+        }
+        _logOldestEntryDate = oldest;
         var listEl = document.getElementById("log-list");
         renderList(listEl, lastWeeks);
         // issue #528: volume chart re-renders on every fetch; readiness is #640 widget only.
@@ -1544,7 +1578,7 @@
       if (!_logFullHistoryLoaded) {
         // issue: perf — the default fetch is windowed (see fetchAndRender);
         // once every day in that window has been rendered, offer to pull
-        // full history rather than always paying for it up front.
+        // an older window rather than loading full history up front.
         var loadOlderEl = document.createElement("div");
         loadOlderEl.className = "log-load-more lrx-sentinel";
         loadOlderEl.textContent = "Load older workouts";
@@ -5382,14 +5416,14 @@
   }
 
   // Enable the button only when a previous workout exists; otherwise disable it
-  // with an explanatory empty-state title (AC6). Checks a long window so a user
-  // with history but an empty current week still sees it enabled.
+  // with an explanatory empty-state title (AC6). Cheap existence probe
+  // (limit=1) — do not pull 3 years of joined Strava/Stryd rows.
   function refreshRepeatAvailability() {
     var btn = document.getElementById("log-repeat-last-btn");
     if (!btn) return;
     var to = todayISO();
     var from = addDays(to, -1095); // ~3 years, matches the form-side repeat window
-    fetch("/api/workouts?from=" + from + "&to=" + to)
+    fetch("/api/workouts?from=" + from + "&to=" + to + "&limit=1")
       .then(function (res) {
         return res.ok ? res.json() : [];
       })

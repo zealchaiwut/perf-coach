@@ -97,5 +97,18 @@ def test_stamp_source_user_and_snapshots():
     assert _run_helpers("H.snapshotsEqual(" + json.dumps(a) + ", " + json.dumps(b) + ")") is False
 
 
+def test_session_tss_prefers_actual_then_estimated_not_pin():
+    """Display SoT: actual → estimated_tss; never re-prefer structure.target_tss."""
+    assert _run_helpers(
+        'H.sessionTss({actual: {tss: 42}, estimated_tss: 50, structure: {target_tss: 99}})'
+    ) == {"value": 42, "estimated": False}
+    assert _run_helpers(
+        'H.sessionTss({estimated_tss: 50, structure: {target_tss: 99}})'
+    ) == {"value": 50, "estimated": True}
+    assert _run_helpers(
+        'H.sessionTss({structure: {target_tss: 99}})'
+    ) is None
+
+
 def test_helpers_file_exists():
     assert HELPERS.is_file()
