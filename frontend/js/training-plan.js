@@ -2684,16 +2684,15 @@ information about.
     if (!iso) return '';
     var d = new Date(iso);
     if (isNaN(d.getTime())) return '';
-    var weekday = d.toLocaleDateString('en-US', {
-      timeZone: 'Asia/Bangkok',
-      weekday: 'short',
-    });
-    var time = d.toLocaleTimeString('en-GB', {
-      timeZone: 'Asia/Bangkok',
+    // Use AppCommon.TIMEZONE (not a page-local Asia/Bangkok literal — #1603).
+    var tz = (window.AppCommon && window.AppCommon.TIMEZONE) || undefined;
+    var opts = tz ? { timeZone: tz } : {};
+    var weekday = d.toLocaleDateString('en-US', Object.assign({ weekday: 'short' }, opts));
+    var time = d.toLocaleTimeString('en-GB', Object.assign({
       hour: '2-digit',
       minute: '2-digit',
       hourCycle: 'h23',
-    });
+    }, opts));
     return weekday + ' ' + time;
   }
 
