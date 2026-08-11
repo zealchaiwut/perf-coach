@@ -87,6 +87,11 @@ def _estimate_current_trend(
 
     Uses a square-root scaling so that a 10% CTL deficit → ~5% slower time.
     Returns target_time_seconds unchanged when data is insufficient.
+
+    ponytail: parked — Coach Dream / export use
+    ``race_finish_estimate.estimate_race_finish`` (Phase D). Do not wire this
+    CTL√ invent into new surfaces; kept only for ``build_projection_info`` /
+    legacy #1529 callers until those are retired.
     """
     target_ctl = _TARGET_CTL.get(race_distance, 70.0)
     if target_ctl <= 0 or current_ctl <= 0:
@@ -686,7 +691,12 @@ _load_inputs_for_user = load_inputs_for_user  # backward-compat alias
 
 
 def build_projection_info(goal: Any, snapshot: Any, today: date) -> dict:
-    """Derive projection_info dict from goal and latest training load snapshot."""
+    """Derive projection_info dict from goal and latest training load snapshot.
+
+    ponytail: parked — live coach generation uses ``build_coach_facts`` →
+    ``estimate_race_finish``. This CTL√ path remains for tests / #1529 until
+    those callers migrate; do not add new production call sites.
+    """
     if goal is None:
         return {}
 

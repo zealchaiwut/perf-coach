@@ -571,19 +571,16 @@ def export(db_engine, monkeypatch):
         ],
     )
     monkeypatch.setattr(
-        main_mod,
-        "_race_readiness_impl",
-        lambda race_id, user, *a, **k: _FakeResponse({
-            "time_curve": {
-                "projection": [
-                    {
-                        "date": "2026-11-15",
-                        "estimated_finish_seconds": RACE_ESTIMATE_SECONDS,
-                        "confidence_band_seconds": RACE_BAND_SECONDS,
-                    }
-                ]
-            }
-        }),
+        "backend.services.race_finish_estimate.estimate_race_finish",
+        lambda user_id, race, today=None, db=None: {
+            "unavailable": False,
+            "est_sec": RACE_ESTIMATE_SECONDS,
+            "est_label": "1:49:12",
+            "band_sec": RACE_BAND_SECONDS,
+            "uncertainty_min": int(round(RACE_BAND_SECONDS / 60)),
+            "source": "performance_time_curve",
+            "reason": None,
+        },
     )
     monkeypatch.setattr(
         main_mod,
@@ -806,11 +803,11 @@ def test_unscored_performance_is_reported_not_faked(db_engine, monkeypatch):
     assert perf["endurance"]["score"] is None
 
 
-def test_race_estimate_comes_from_the_readiness_projection(export):
+def test_race_estimate_comes_from_performance_sot(export):
     race = export["goal"]["race"]
     assert race["current_estimate"] == "1:49:12"
     assert race["estimate_band_min"] == pytest.approx(RACE_BAND_SECONDS / 60.0, abs=0.05)
-    assert race["estimate_source"] == "race_readiness_projection"
+    assert race["estimate_source"] == "performance_time_curve"
 
 
 def test_goal_time_is_formatted_from_the_stored_seconds(export):

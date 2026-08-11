@@ -1,6 +1,12 @@
 """
 Race-time projection for the coach plan — deterministic, zero LLM calls.
 
+ponytail: parked for race finish SoT (Phase D). Production Coach Dream /
+coach export use ``race_finish_estimate.estimate_race_finish``. This module's
+``race_projection`` (Riegel + CTL-ramp) remains for tests (#1503) and
+``_band_seconds`` (export no-race fallback). Do not wire ``race_projection``
+into new surfaces.
+
 Maps recent running efforts to two finish-time forecasts:
 
 - current_predicted_sec: Riegel-formula projection from the athlete's best
@@ -200,6 +206,9 @@ def race_projection(
     _today: date | None = None,
 ) -> dict:
     """Project race finish time from recent efforts and coach-plan trajectory.
+
+    ponytail: parked — prefer ``estimate_race_finish`` for coach/export. Kept
+    for ``tests/test_race_time_projection__1503.py`` until that suite migrates.
 
     Parameters
     ----------
