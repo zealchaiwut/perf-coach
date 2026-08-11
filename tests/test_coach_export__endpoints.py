@@ -44,7 +44,9 @@ class _StubUser:
 
 
 @pytest.fixture
-def stub_user():
+def stub_user(monkeypatch):
+    # Inline GET export is for local/debug; queue mode fails those closed (Phase C).
+    monkeypatch.setenv("COACH_EXPORT_VIA_QUEUE", "0")
     user = _StubUser()
     app.dependency_overrides[resolve_user] = lambda: user
     yield user
@@ -218,3 +220,12 @@ def test_both_endpoints_require_a_session(client):
     for url in (EXPORT_URL, PASTE_URL):
         res = client.get(url)
         assert res.status_code in (401, 403), f"{url} served an anonymous request"
+
+
+def test_inline_export_fails_closed_when_queue_enabled(client, stub_user, monkeypatch):
+    """Phase C: queue mode must not serve heavy inline GET paste/export."""
+    monkeypatch.setenv("COACH_EXPORT_VIA_QUEUE", "1")
+    for url in (EXPORT_URL, PASTE_URL):
+        res = client.get(url)
+        assert res.status_code == 503, f"{url} expected 503 in queue mode, got {res.status_code}"
+        assert "queue" in (res.json().get("detail") or "").lower()
