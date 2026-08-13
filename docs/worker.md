@@ -195,11 +195,10 @@ curl -X POST http://zeal-server:9100/internal/performance/backfill \
 
 ## Precompute: warm caches on the worker (Phase 2)
 
-The heaviest recompute on the web path is `training_load.daily_update()` — a
-180-day EWMA rebuild — run both when a workout is written and, as a fallback,
-when `current_load()` reads a missing/stale `training_load_snapshots` row. Phase 2
-moves that work to the worker via a `precompute` queue job so the web request
-stays fast:
+The heaviest recomputes on the web path used to run **on GET**: a 180-day EWMA
+in `training_load.daily_update()`, plus endurance/speed scoring and the Plan
+bundle. Those now run on the worker via a `precompute` queue job; dashboard
+GETs **select the last stored row** even when the signature is stale.
 
 - **On workout write** (create / edit / delete / duplicate), the web tier calls
   `worker_client.delegate_precompute(user_id, dates=[...])`, which enqueues a
@@ -209,17 +208,23 @@ stays fast:
 - **After a sync**, each per-user `*_sync` handler enqueues a `precompute` for
   that user (`PRECOMPUTE_AFTER_SYNC_ENABLED`, default on), so the first
   post-sync dashboard load is a pure cache hit rather than paying the recompute.
-- **The worker** runs `backend/services/precompute.py::precompute_user`, warming
-  today + yesterday (+ any edited dates) in `training_load_snapshots`.
+- **The worker** runs `backend/services/precompute.py::precompute_user`, which
+  warms:
+  - today + yesterday (+ any edited dates) in `training_load_snapshots`
+  - Endurance/Speed scores in `summary_cache` (`performance`)
+  - this week + last week, this month + last month in `summary_cache`
+  - performance + personal-records overlay on `training_plans.computed_cache`
 
-Safety: `current_load()` still falls back to an inline recompute when it reads
-before the worker has caught up, so a brief lag is correct, just slightly slower.
-`LOAD_READ_FROM_SNAPSHOT` (default on) can force `current_load` to always
-recompute inline (debug / rollback) — always safe, since inline is the same path
-taken on a cache miss. Performance scores and the weekly/monthly summaries keep
-their existing inline-on-miss `summary_cache` (signature-invalidated); the
-form/weight projections are cheap once the load snapshot is warm, so neither
-grew a new snapshot table.
+**GET never recomputes when a row exists.** A post-sync signature bump used to
+force the browser to wait on endurance/speed scoring; it now returns the last
+payload immediately. Recalculate (`POST /api/plan/recompute`) is the manual
+force-refresh for race projections.
+
+Safety: `current_load()` reads the latest snapshot on or before the requested
+date. It only runs `daily_update` when the user has **no** snapshots at all
+(first-ever). `LOAD_READ_FROM_SNAPSHOT=0` still forces an inline recompute
+(debug / rollback). First-ever GETs with an empty `summary_cache` still compute
+once and persist the row.
 
 Web-tier flags (Render):
 

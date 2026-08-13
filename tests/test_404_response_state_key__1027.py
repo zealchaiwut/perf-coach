@@ -267,6 +267,7 @@ def test_success_path_returns_200_and_non_error_state():
             # Also patch _performance_signature and _summary_cache_get/_get_athlete_duration_curve
             with mock.patch("backend.main._performance_signature", return_value="sig"), \
                  mock.patch("backend.main._summary_cache_get", return_value=None), \
+                 mock.patch("backend.main._summary_cache_get_latest", return_value=None), \
                  mock.patch("backend.main._get_athlete_duration_curve", return_value={}), \
                  mock.patch("backend.main._latest_race_perf", return_value=None):
                 res = client.get(f"/api/athletes/{user.id}/performance")

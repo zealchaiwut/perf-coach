@@ -129,6 +129,7 @@ def test_424_returned_when_no_workouts():
         patch("backend.main.get_snapshot_series", return_value=[]),
         patch("backend.main._get_app_config", return_value=""),
         patch("backend.main._summary_cache_get", return_value=None),
+        patch("backend.main._summary_cache_get_latest", return_value=None),
         patch("backend.main._summary_signature", return_value="sig"),
     ):
         MockSession.return_value = mock_db
@@ -162,6 +163,7 @@ def test_monthly_endpoint_does_not_call_weekly_summary():
         patch("backend.main.get_snapshot_series", return_value=[]),
         patch("backend.main._get_app_config", return_value=""),
         patch("backend.main._summary_cache_get", return_value=None),
+        patch("backend.main._summary_cache_get_latest", return_value=None),
         patch("backend.main._summary_signature", return_value="sig"),
         patch.object(main_module, "get_athlete_weekly_summary", side_effect=spy_weekly),
     ):
@@ -189,6 +191,7 @@ def test_424_detail_does_not_mention_weekly_aggregation():
         patch("backend.main.get_snapshot_series", return_value=[]),
         patch("backend.main._get_app_config", return_value=""),
         patch("backend.main._summary_cache_get", return_value=None),
+        patch("backend.main._summary_cache_get_latest", return_value=None),
         patch("backend.main._summary_signature", return_value="sig"),
     ):
         MockSession.return_value = mock_db
@@ -215,6 +218,7 @@ def test_424_detail_mentions_training_sessions():
         patch("backend.main.get_snapshot_series", return_value=[]),
         patch("backend.main._get_app_config", return_value=""),
         patch("backend.main._summary_cache_get", return_value=None),
+        patch("backend.main._summary_cache_get_latest", return_value=None),
         patch("backend.main._summary_signature", return_value="sig"),
     ):
         MockSession.return_value = mock_db
