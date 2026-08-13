@@ -15,7 +15,7 @@ Kept **worker-importable**: never imports ``backend.main``.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
 import uuid as _uuid
 
@@ -145,7 +145,7 @@ def _warm_plan_bundle(user_id: str) -> str:
             session.add(plan)
             session.flush()
         bundle = dict(plan.computed_cache or {})
-        bundle["generated_at"] = datetime.now().isoformat()
+        bundle["generated_at"] = datetime.now(timezone.utc).isoformat()
         bundle["performance"] = perf
         bundle["prs"] = raw
         bundle["current_scores"] = current_scores
