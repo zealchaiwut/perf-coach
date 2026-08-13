@@ -73,8 +73,10 @@ services:
       # first 7 hours of every local day (issue #1600).
       - key: TZ
         value: Asia/Bangkok
-      - key: GIT_SHA
-        value: ${{RENDER_GIT_COMMIT}}  # Render built-in deploy metadata
+      # No GIT_SHA here: Render injects RENDER_GIT_COMMIT into every service
+      # automatically, and backend.main._git_sha falls back to it. Setting
+      # GIT_SHA: ${{RENDER_GIT_COMMIT}} does NOT work — that is GitHub Actions
+      # syntax, and Render passed the literal string through as the version.
       - key: DATABASE_URL_UAT
         sync: false  # set via Render dashboard — see top of file
       - key: SESSION_SECRET
@@ -135,8 +137,7 @@ services:
       # first 7 hours of every local day (issue #1600).
       - key: TZ
         value: Asia/Bangkok
-      - key: GIT_SHA
-        value: ${{RENDER_GIT_COMMIT}}  # Render built-in deploy metadata
+      # No GIT_SHA here — see the perf-coach-uat service above.
       - key: DATABASE_URL_PRD
         sync: false  # set via Render dashboard — see top of file
       - key: SESSION_SECRET
