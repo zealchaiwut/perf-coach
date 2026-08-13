@@ -49,6 +49,8 @@ def _call_monthly_no_workouts(user):
         patch("backend.main.get_snapshot_series", return_value=[]),
         patch("backend.main._get_app_config", return_value="1.0"),
         patch("backend.main.get_guardrail_result", return_value=default_guardrail),
+        patch("backend.main._summary_cache_get", return_value=None),
+        patch("backend.main._summary_cache_get_latest", return_value=None),
     ):
         MockSession.return_value = mock_db
         return get_athlete_monthly_summary(str(user.id), user, None)

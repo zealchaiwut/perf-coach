@@ -215,6 +215,11 @@ counted here — it is the reason the in-app surface can stay this small.
 - The venv is **uv-managed**: install deps with
   `uv pip install --python .venv/bin/python -r requirements.txt`, and run tools as
   `.venv/bin/python` / `.venv/bin/alembic`. Tests need `pytest` + `httpx`.
+- **Before pushing FE/API shape changes**, run the must-green contract suite
+  (reachability, Bangkok-literal ratchet, phase static contracts, cache-bust):
+  `.venv/bin/python scripts/run_contract_tests.py`. Paths live in
+  `tests/CONTRACT_SUITE.txt`. CI runs this as a parallel job so those failures
+  show up in ~20s; the full unit subset still uses the baseline ratchet.
 - `start_uat.sh` / `start_prd.sh` exist but assume lowercase `ENVIRONMENT` and a
   single `DATABASE_URL`; to run directly: source `.env`, export
   `ENVIRONMENT=uat` and `DATABASE_URL=$DATABASE_URL_UAT`, then

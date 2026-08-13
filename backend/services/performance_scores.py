@@ -9,9 +9,15 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.db import engine
-from backend.models import PerformanceScoreHistory, Race, SummaryCache, User, UserPreferences, Workout, WorkoutSplit
+from backend.models import PerformanceScoreHistory, Race, User, UserPreferences, Workout, WorkoutSplit
 from backend.services.duration_curve_best_effort import get_athlete_duration_curve
 from backend.services.performance_constants import NEEDS_THRESHOLDS_REASON as _NEEDS_THRESHOLDS_REASON
+from backend.services.summary_cache_store import (
+    summary_cache_get as _summary_cache_get,
+    summary_cache_get_latest as _summary_cache_get_latest,
+    summary_cache_put as _summary_cache_put,
+    summary_signature as _summary_signature,
+)
 from backend.services.workout_perf_helpers import classified_manual_laps_map, planned_duration_map
 
 _performance_log = logging.getLogger(__name__)
@@ -336,7 +342,12 @@ def _build_performance_diagnostic(preferences, runs):
 
 
 
-def get_performance_payload(user_id: _uuid.UUID, *, generated_at: str | None = None) -> dict:
+def get_performance_payload(
+    user_id: _uuid.UUID,
+    *,
+    generated_at: str | None = None,
+    force: bool = False,
+) -> dict:
     """Return endurance and speed performance scores for an athlete (issue #1020).
 
     Every response includes exactly these top-level keys: state, endurance, speed,
@@ -401,10 +412,16 @@ def get_performance_payload(user_id: _uuid.UUID, *, generated_at: str | None = N
             # synced (signature changes) or a threshold/preference input the
             # score depends on changes — not on every page load.
             _perf_sig = _performance_signature(session, uid, prefs_row)
-            _perf_cached = _summary_cache_get(uid, "performance", _perf_sig)
-            if _perf_cached is not None:
-                _performance_log.info("performance cache hit for %s", uid)
-                return _perf_cached
+            if not force:
+                _perf_cached = _summary_cache_get(uid, "performance", _perf_sig)
+                if _perf_cached is not None:
+                    _performance_log.info("performance cache hit for %s", uid)
+                    return _perf_cached
+                # Stale row is still a SELECT — worker refreshes after sync.
+                _perf_stale = _summary_cache_get_latest(uid, "performance")
+                if _perf_stale is not None:
+                    _performance_log.info("performance cache stale hit for %s", uid)
+                    return _perf_stale
 
             # Load run workouts within the scoring window (issue #1578: cap
             # history to bound in-request memory on cache miss).
@@ -656,112 +673,6 @@ def get_performance_payload(user_id: _uuid.UUID, *, generated_at: str | None = N
                 generated_at=generated_at,
                 reason="unexpected server error",
             )
-# In-process cache for the log-tab summaries: recompute only when new workouts
-# arrive (a sync) or the period rolls over — otherwise reuse the last result
-# (summary was recomputed every load). Signature-invalidation like the plan
-# cache; in-memory (re-warms after a restart, which is fine — idempotent).
-_SUMMARY_CACHE: dict = {}
-
-
-def _l1_cacheable(key: str) -> bool:
-    """Whether ``key`` is safe to hold in the unbounded in-process L1 dict.
-
-    Fixed keys ("performance", "weekly") are bounded by the number of active
-    users — fine. "monthly:<iso-date>" keys are not: every distinct month a
-    user has ever viewed adds a permanent entry for the life of the process,
-    since only a restart clears L1. Those keys still get the durable L2 table
-    (``summary_cache``), just not the in-process dict — a slightly slower
-    cache hit (one query) instead of unbounded process memory growth.
-    """
-    return not key.startswith("monthly:")
-
-
-def _summary_signature(session, user_id) -> str:
-    row = (
-        session.query(
-            func.max(Workout.created_at),
-            func.count(Workout.id),
-            func.max(Workout.updated_at),
-        )
-        .filter(Workout.user_id == user_id)
-        .one()
-    )
-    # Include MAX(updated_at) so an in-place edit (e.g. marking a run as an
-    # interval) — which changes updated_at but not created_at/count — still
-    # busts the cache and refreshes the derived scores/feeds.
-    return "%s|%s|%s" % (row[0], row[1], row[2])
-
-
-def _summary_cache_get(user_id, key, sig):
-    """Two-level cache read: in-memory L1, then durable Neon L2.
-
-    L1 (``_SUMMARY_CACHE``) is the fast per-process path — but only for
-    ``_l1_cacheable`` keys (see that function). On an L1 miss (e.g. the first
-    request after a restart wiped L1, or an unbounded-cardinality key that
-    never touches L1 at all) fall back to the ``summary_cache`` table: if a
-    row exists whose stored signature matches, hydrate L1 (when cacheable)
-    and return it — no recompute. Any DB error degrades gracefully to a miss
-    (recompute).
-    """
-    cacheable = _l1_cacheable(key)
-    if cacheable:
-        ent = _SUMMARY_CACHE.get((str(user_id), key))
-        if ent and ent[0] == sig:
-            return ent[1]
-
-    # L2: durable Neon-backed cache. A restart clears L1 but not this table.
-    try:
-        with Session(engine) as _s:
-            row = (
-                _s.query(SummaryCache.signature, SummaryCache.payload)
-                .filter(
-                    SummaryCache.user_id == user_id,
-                    SummaryCache.cache_key == key,
-                )
-                .first()
-            )
-        if row is not None and row[0] == sig:
-            payload = row[1]
-            if cacheable:
-                _SUMMARY_CACHE[(str(user_id), key)] = (sig, payload)  # hydrate L1
-            return payload
-    except Exception:
-        _performance_log.exception("summary_cache L2 read failed for %s/%s", user_id, key)
-    return None
-
-
-def _summary_cache_put(user_id, key, sig, payload):
-    """Two-level cache write: set L1 (if bounded), then UPSERT the durable L2 row.
-
-    A DB failure on the L2 write must not break the request — L1 still serves
-    within the process (when the key is L1-cacheable); the durable row simply
-    refreshes on the next compute.
-    """
-    if _l1_cacheable(key):
-        _SUMMARY_CACHE[(str(user_id), key)] = (sig, payload)
-    try:
-        from sqlalchemy.dialects.postgresql import insert as _pg_insert
-        stmt = _pg_insert(SummaryCache.__table__).values(
-            user_id=user_id,
-            cache_key=key,
-            signature=sig,
-            payload=payload,
-            updated_at=_datetime.now(_timezone.utc),
-        )
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["user_id", "cache_key"],
-            set_={
-                "signature": stmt.excluded.signature,
-                "payload": stmt.excluded.payload,
-                "updated_at": stmt.excluded.updated_at,
-            },
-        )
-        with Session(engine) as _s:
-            _s.execute(stmt)
-            _s.commit()
-    except Exception:
-        _performance_log.exception("summary_cache L2 write failed for %s/%s", user_id, key)
-
 
 # Bump whenever the score FORMULA changes so BOTH caches bust on deploy: the
 # durable Neon summary_cache for /performance AND the plan bundle (race

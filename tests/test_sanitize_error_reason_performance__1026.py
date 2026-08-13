@@ -123,6 +123,7 @@ class TestPerformanceErrorResponseSanitized:
         # to raise after the DB block (it's called after the Session context exits).
         with patch("backend.main.Session") as mock_session_cls, \
              patch("backend.main._summary_cache_get", return_value=None), \
+             patch("backend.main._summary_cache_get_latest", return_value=None), \
              patch("backend.main._check_needs_thresholds", side_effect=Exception(sensitive_message)), \
              patch("backend.main._performance_log") as mock_log:
 
@@ -174,6 +175,7 @@ class TestPerformanceErrorResponseSanitized:
 
         with patch("backend.main.Session") as mock_session_cls, \
              patch("backend.main._summary_cache_get", return_value=None), \
+             patch("backend.main._summary_cache_get_latest", return_value=None), \
              patch("backend.main._check_needs_thresholds", side_effect=Exception("boom")), \
              patch("backend.main._performance_log") as mock_log:
 

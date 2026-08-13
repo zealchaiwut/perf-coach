@@ -62,8 +62,10 @@ on a day which has at least one planned session of a **compatible type-family**,
 is returned by `GET /api/planned-sessions` as an `unplanned` entry for manual
 mapping (Map → `POST …/match`, or Ignore client-side).
 
-## Link-only
+## Link + content apply (strength)
 
-The matcher sets `planned_sessions.matched_workout_id → workouts.id`. The
-workout row is untouched and the Log tab is unchanged — the planned session and
-the actual workout stay separate rows joined only by that FK.
+The matcher sets `planned_sessions.matched_workout_id → workouts.id`. For
+strength/plyo matches, `backend/services/plan_match_apply.py` also stamps
+planned `target_tss` and exercise rows onto the workout **when those fields are
+empty** (typical for Strava lifts), then recomputes muscle load. Existing
+workout TSS / exercises are never overwritten — runs keep Strava/Stryd TSS.

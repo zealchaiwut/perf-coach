@@ -7892,8 +7892,15 @@ def match_planned_session(ps_id: str, body: PlannedSessionMatchIn, user: User = 
         row.matched_workout_id = wid
         row.status = "done_manual"
         row.updated_at = _datetime.now(_timezone.utc)
+        from backend.services.plan_match_apply import (
+            after_match_side_effects,
+            apply_planned_session_to_workout,
+        )
+        _apply_stats = apply_planned_session_to_workout(session, row, workout)
         session.commit()
         session.refresh(row)
+        session.refresh(workout)
+        after_match_side_effects(user.id, workout, stats=_apply_stats)
         return JSONResponse(_planned_session_dict(row, workout))
 
 
@@ -17327,6 +17334,10 @@ def get_athlete_performance(athlete_id: str, user: User = Depends(resolve_user))
             if _perf_cached is not None:
                 _performance_log.info("performance cache hit for %s", uid)
                 return JSONResponse(_perf_cached)
+            _perf_stale = _summary_cache_get_latest(uid, "performance")
+            if _perf_stale is not None:
+                _performance_log.info("performance cache stale hit for %s", uid)
+                return JSONResponse(_perf_stale)
 
             # Load run workouts within the scoring window (issue #1578: cap
             # history to bound in-request memory on cache miss).
@@ -17623,111 +17634,17 @@ def _generate_weekly_note(
     return ", ".join(parts) if parts else f"{session_count} session{'s' if session_count > 1 else ''} logged"
 
 
-# In-process cache for the log-tab summaries: recompute only when new workouts
-# arrive (a sync) or the period rolls over — otherwise reuse the last result
-# (summary was recomputed every load). Signature-invalidation like the plan
-# cache; in-memory (re-warms after a restart, which is fine — idempotent).
-_SUMMARY_CACHE: dict = {}
-
-
-def _l1_cacheable(key: str) -> bool:
-    """Whether ``key`` is safe to hold in the unbounded in-process L1 dict.
-
-    Fixed keys ("performance", "weekly") are bounded by the number of active
-    users — fine. "monthly:<iso-date>" keys are not: every distinct month a
-    user has ever viewed adds a permanent entry for the life of the process,
-    since only a restart clears L1. Those keys still get the durable L2 table
-    (``summary_cache``), just not the in-process dict — a slightly slower
-    cache hit (one query) instead of unbounded process memory growth.
-    """
-    return not key.startswith("monthly:")
-
-
-def _summary_signature(session, user_id) -> str:
-    row = (
-        session.query(
-            func.max(Workout.created_at),
-            func.count(Workout.id),
-            func.max(Workout.updated_at),
-        )
-        .filter(Workout.user_id == user_id)
-        .one()
-    )
-    # Include MAX(updated_at) so an in-place edit (e.g. marking a run as an
-    # interval) — which changes updated_at but not created_at/count — still
-    # busts the cache and refreshes the derived scores/feeds.
-    return "%s|%s|%s" % (row[0], row[1], row[2])
-
-
-def _summary_cache_get(user_id, key, sig):
-    """Two-level cache read: in-memory L1, then durable Neon L2.
-
-    L1 (``_SUMMARY_CACHE``) is the fast per-process path — but only for
-    ``_l1_cacheable`` keys (see that function). On an L1 miss (e.g. the first
-    request after a restart wiped L1, or an unbounded-cardinality key that
-    never touches L1 at all) fall back to the ``summary_cache`` table: if a
-    row exists whose stored signature matches, hydrate L1 (when cacheable)
-    and return it — no recompute. Any DB error degrades gracefully to a miss
-    (recompute).
-    """
-    cacheable = _l1_cacheable(key)
-    if cacheable:
-        ent = _SUMMARY_CACHE.get((str(user_id), key))
-        if ent and ent[0] == sig:
-            return ent[1]
-
-    # L2: durable Neon-backed cache. A restart clears L1 but not this table.
-    try:
-        with Session(engine) as _s:
-            row = (
-                _s.query(SummaryCache.signature, SummaryCache.payload)
-                .filter(
-                    SummaryCache.user_id == user_id,
-                    SummaryCache.cache_key == key,
-                )
-                .first()
-            )
-        if row is not None and row[0] == sig:
-            payload = row[1]
-            if cacheable:
-                _SUMMARY_CACHE[(str(user_id), key)] = (sig, payload)  # hydrate L1
-            return payload
-    except Exception:
-        _performance_log.exception("summary_cache L2 read failed for %s/%s", user_id, key)
-    return None
-
-
-def _summary_cache_put(user_id, key, sig, payload):
-    """Two-level cache write: set L1 (if bounded), then UPSERT the durable L2 row.
-
-    A DB failure on the L2 write must not break the request — L1 still serves
-    within the process (when the key is L1-cacheable); the durable row simply
-    refreshes on the next compute.
-    """
-    if _l1_cacheable(key):
-        _SUMMARY_CACHE[(str(user_id), key)] = (sig, payload)
-    try:
-        from sqlalchemy.dialects.postgresql import insert as _pg_insert
-        stmt = _pg_insert(SummaryCache.__table__).values(
-            user_id=user_id,
-            cache_key=key,
-            signature=sig,
-            payload=payload,
-            updated_at=_datetime.now(_timezone.utc),
-        )
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["user_id", "cache_key"],
-            set_={
-                "signature": stmt.excluded.signature,
-                "payload": stmt.excluded.payload,
-                "updated_at": stmt.excluded.updated_at,
-            },
-        )
-        with Session(engine) as _s:
-            _s.execute(stmt)
-            _s.commit()
-    except Exception:
-        _performance_log.exception("summary_cache L2 write failed for %s/%s", user_id, key)
+# Durable summary_cache helpers live in summary_cache_store (shared with the
+# worker). Re-exported here so existing tests that patch backend.main._summary_*
+# keep working.
+from backend.services.summary_cache_store import (  # noqa: E402
+    _SUMMARY_CACHE,
+    l1_cacheable as _l1_cacheable,
+    summary_cache_get as _summary_cache_get,
+    summary_cache_get_latest as _summary_cache_get_latest,
+    summary_cache_put as _summary_cache_put,
+    summary_signature as _summary_signature,
+)
 
 
 # Bump whenever the score FORMULA changes so BOTH caches bust on deploy: the
@@ -17852,6 +17769,13 @@ def get_athlete_weekly_summary(
         _cached = _summary_cache_get(uid, "weekly", _sig)
         if _cached is not None:
             return JSONResponse(_cached)
+        # Signature mismatch after a sync: serve the last stored week rather
+        # than recomputing endurance/speed inline. Worker precompute refreshes.
+        _stale = _summary_cache_get_latest(uid, "weekly:" + ws.isoformat())
+        if _stale is None:
+            _stale = _summary_cache_get_latest(uid, "weekly")
+        if _stale is not None and _stale.get("week_start") == ws.isoformat():
+            return JSONResponse(_stale)
 
         # ── Weekly volume (AC8) ───────────────────────────────────────────────
         _volume = _get_weekly_volume(str(uid), ws, we)
@@ -19268,16 +19192,17 @@ def get_plan_week_bundle(
 def get_plan_computed(user: User = Depends(resolve_user)):
     """Single Plan-tab data call, backed by a plan-level cache.
 
-    Returns the cached bundle when the data signature is unchanged
-    (``cached: true``); otherwise recomputes, stores cache+signature, and
-    returns it (``cached: false``).
+    Returns the stored bundle whenever one exists (``cached: true`` when the
+    signature still matches, ``cached: false`` when it is stale). A post-sync
+    signature bump does **not** recompute on GET — the worker precompute job
+    and POST /api/plan/recompute are the write path.
     """
     with Session(engine) as session:
         plan = _resolve_or_create_plan(session, user.id)
         sig = _plan_signature(session, user.id, plan)
-        if plan.computed_signature == sig and plan.computed_cache:
+        if plan.computed_cache:
             bundle = dict(plan.computed_cache)
-            bundle["cached"] = True
+            bundle["cached"] = plan.computed_signature == sig
             return JSONResponse(bundle)
 
     bundle = _compute_plan_bundle(user)
@@ -19708,6 +19633,9 @@ def get_athlete_monthly_summary(
         _mcached = _summary_cache_get(uid, _mkey, _msig)
         if _mcached is not None:
             return JSONResponse(_mcached)
+        _mstale = _summary_cache_get_latest(uid, _mkey)
+        if _mstale is not None:
+            return JSONResponse(_mstale)
 
         workouts = (
             session.query(Workout)
