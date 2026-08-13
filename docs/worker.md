@@ -367,7 +367,13 @@ against the UAT Neon branch. Both processes read the same `.env`
 | Process | Cmd | Port | Managed by | Logs |
 |---|---|---|---|---|
 | Webapp (`backend.main`) | `.venv/bin/uvicorn backend.main:app --port 9001` | 9001 | launchd `com.perfcoach.uat` (`RunAtLoad`, `KeepAlive` on non-zero exit) | `~/Library/Logs/com.perfcoach.uat/{stdout,stderr}.log` |
-| Worker (`backend.worker_app`) | `bash start_worker.sh` | 9100 | foreground/background process (no launchd job yet) | `~/dev/perf-coach/uat/logs/worker-uat.log` |
+| Worker (`backend.worker_app`) | `bash start_worker.sh` | 9100 | **not running** — see the port warning below | `~/dev/perf-coach/uat/logs/worker-uat.log` |
+
+> **Port 9100 belongs to the PRD worker.** As of 2026-08-13 the Mac Mini runs
+> exactly one worker — the PRD one, out of `~/dev/perf-coach/worker` on 9100
+> (see the PRD runbook below). The `start_worker.sh` command in this section
+> will fail to bind. To run a UAT worker alongside it, set a different
+> `WORKER_PORT` (e.g. `9101`) in the `uat/` clone's `.env` first.
 
 Redeploy after a merge to develop:
 
@@ -399,69 +405,99 @@ keep it polling through sleep.
 
 ### Live PRD runbook (zeal-server / Mac Mini)
 
-The PRD stack runs on the same Mac Mini as UAT but against the PRD Neon branch,
-out of a **separate clone** at `~/dev/perf-coach/prd`, tracking `master`. Use a
-different port (9101) so UAT and PRD workers coexist without conflict.
-
-Both processes read the same `.env` (`ENVIRONMENT=prd`, `DATABASE_URL_PRD`).
+PRD is **split across two machines**: the webapp runs on Render (deployed from
+`render.yaml`, see `docs/release-process.md`), and the worker runs on the same
+Mac Mini as UAT, against the PRD Neon branch. They only ever meet in the Neon
+DB — Render cannot reach the Mac Mini behind home NAT, which is exactly why
+`WORKER_TRIGGER_MODE=queue` is the default.
 
 | Process | Cmd | Port | Managed by | Logs |
 |---|---|---|---|---|
-| Worker (`backend.worker_app`) | `ENVIRONMENT=prd WORKER_PORT=9101 bash start_worker.sh` | 9101 | launchd `com.perfcoach.prd-worker` (target) | `~/dev/perf-coach/prd/logs/worker-prd.log` |
+| Webapp (`backend.main`) | Render service `perf-coach-prd` | — | Render (`autoDeploy: no` — deploy by hand) | Render dashboard |
+| Worker (`backend.worker_app`) | `bash start_worker.sh` | 9100 | launchd `com.perfcoach.worker` (`RunAtLoad`, `KeepAlive`) | `~/dev/perf-coach/worker/logs/worker.{out,err}.log` |
 
-**Initial setup (one-time):**
-
-```bash
-ssh zeal-server@100.103.104.41
-git clone https://github.com/zealchaiwut/perf-coach.git ~/dev/perf-coach/prd
-cd ~/dev/perf-coach/prd
-git checkout master
-
-python3.12 -m venv .venv
-uv pip install --python .venv/bin/python -r requirements.txt
-
-# Copy UAT .env and update for PRD:
-cp ~/dev/perf-coach/uat/.env .env
-# Edit .env: set ENVIRONMENT=prd (start_worker.sh reads this)
-# The script auto-selects DATABASE_URL_PRD when ENVIRONMENT=prd.
-# Set WORKER_PORT=9101 to avoid clash with UAT worker on 9100.
-
-# Run PRD migrations (requires DATABASE_URL_PRD in .env):
-set -a; source .env; set +a
-export ENVIRONMENT=prd DATABASE_URL="$DATABASE_URL_PRD"
-.venv/bin/alembic upgrade head
-```
+The worker clone is `~/dev/perf-coach/worker`, tracking `master`, with
+`ENVIRONMENT=prd` and `WORKER_PORT=9100` in its `.env`. Its LaunchAgent is
+`~/Library/LaunchAgents/com.perfcoach.worker.plist`
+(`WorkingDirectory=/Users/zeal-server/dev/perf-coach/worker`,
+`ProgramArguments=/bin/bash .../start_worker.sh`). Unlike the UAT worker, it
+**does** survive reboot and logout.
 
 **Redeploy after a merge to master:**
 
 ```bash
 ssh zeal-server@100.103.104.41
-cd ~/dev/perf-coach/prd
-# stop the worker
-kill "$(lsof -tiTCP:9101 -sTCP:LISTEN)" 2>/dev/null
-# sync + migrate
-git checkout master && git pull --ff-only
-set -a; source .env; set +a; export ENVIRONMENT=prd DATABASE_URL="$DATABASE_URL_PRD"
-.venv/bin/alembic upgrade head
-# restart worker
-mkdir -p logs
-nohup bash start_worker.sh > logs/worker-prd.log 2>&1 &
+cd ~/dev/perf-coach/worker
+git pull --ff-only origin master
+# restart — launchd, NOT kill: KeepAlive respawns whatever you kill
+launchctl kickstart -k "gui/$(id -u)/com.perfcoach.worker"
 ```
 
-Health check: `curl http://127.0.0.1:9101/internal/health`
-A healthy log shows `queue poll started` and `sync scheduler started`.
+Check what the range actually changed before doing more than pull + restart:
 
-**After confirming the PRD worker is running:**
+```bash
+git diff --name-status <deployed-sha>..<new-sha> -- alembic/versions/
+git diff <deployed-sha>..<new-sha> -- requirements.txt
+```
 
-Switch `BANISTER_REFIT_ENABLED` from `"1"` to `"0"` in the Render dashboard
-under **perf-coach-prd → Environment** (do **not** commit "0" to `render.yaml`
-until the PRD worker is a persistent launchd service). This prevents the
-in-process fallback and the worker from double-running the weekly refit.
+- Migration diff → run `.venv/bin/alembic upgrade head` with
+  `ENVIRONMENT=prd DATABASE_URL="$DATABASE_URL_PRD"` exported. Render's webapp
+  deploy migrates the same DB, so whichever runs first wins; both are idempotent
+  via `alembic_version`.
+- `requirements.txt` diff → `uv pip install --python .venv/bin/python -r requirements.txt`.
+- Neither → pull + `kickstart` is the entire deploy.
 
-To make the worker persistent across reboots, add a `com.perfcoach.prd-worker`
-LaunchAgent plist (same structure as `com.perfcoach.uat-worker` but with
-`WorkingDirectory ~/dev/perf-coach/prd`, `ENVIRONMENT=prd`, and
-`--port 9101`) with `KeepAlive=true` and `caffeinate -s`.
+**Health checks:**
+
+```bash
+curl http://127.0.0.1:9100/internal/health
+grep -E "queue poll started|sync scheduler started" logs/worker.err.log | tail -2
+```
+
+A healthy startup looks like:
+
+```
+sync scheduler started (times=[(6, 0), (18, 0)], tz=Asia/Bangkok)
+queue poll started: worker_id=<host>:<pid> active_interval=5s idle_interval=300s lease=600s
+```
+
+**PRD worker `.env` (as of 2026-08-13):**
+
+| Var | Value | Why |
+|---|---|---|
+| `ENVIRONMENT` | `prd` | selects `DATABASE_URL_PRD` |
+| `WORKER_PORT` | `9100` | |
+| `QUEUE_POLL_ENABLED` | `1` | **must be `1`** or queued jobs are never claimed |
+| `QUEUE_POLL_INTERVAL_SECONDS` | `5` | drain rate while work remains |
+| `QUEUE_POLL_IDLE_INTERVAL_SECONDS` | `300` | quiet idle poll (5 min) |
+| `WORKER_SYNC_TIMES` | `06:00,18:00` | leave **non-empty** — see below |
+| `WORKER_BANISTER_ENABLED` | `1` | |
+| `WORKER_API_TOKEN` | *(set)* | bearer token for the Hermes read/write API |
+| `WORKER_SHARED_SECRET` | *(set)* | without it every `/internal/*` route returns 503 |
+
+Every one of these is read **once at process start** — an `.env` edit needs a
+`kickstart` to take effect.
+
+**Failure modes worth recognising:**
+
+- **`QUEUE_POLL_ENABLED=0` silently accumulates work.** The scheduler keeps
+  enqueueing, nothing claims, and each later enqueue logs `enqueue dedupe hit`
+  because the previous row is still `queued`. Since the dashboard now *reads*
+  precomputed rows instead of recomputing on GET (see Phase 2 above), the
+  visible symptom is an **empty performance score on PRD** — the writer never
+  ran. The startup line `queue poll disabled (QUEUE_POLL_ENABLED != 1)` is the
+  tell.
+- **Empty `WORKER_SYNC_TIMES` is not "disabled" — it is hourly.** The scheduler
+  falls back to `sleep 3600` and enqueues a sweep every hour, while logging a
+  misleading `no scheduled syncs will run` ERROR. To actually go quiet, set
+  explicit times, not an empty value.
+- **`WORKER_WAKE_ENABLED` / `WORKER_BASE_URL` do nothing for PRD.** Render
+  cannot reach the Mac Mini through NAT, so the `/internal/queue/wake` push
+  never arrives; the worker picks the job up on its next idle poll instead.
+
+**Banister double-run:** set `BANISTER_REFIT_ENABLED` to `"0"` in the Render
+dashboard under **perf-coach-prd → Environment** so the web dyno's own refit
+scheduler stands down and only the worker runs it.
 
 ## Read API (Hermes)
 

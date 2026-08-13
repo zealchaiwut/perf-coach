@@ -273,6 +273,21 @@ async def _csrf_protect(request: Request, call_next):
     return await call_next(request)
 
 
+def _git_sha(default: str) -> str:
+    """Return the deployed commit SHA.
+
+    Render injects ``RENDER_GIT_COMMIT`` into every service automatically, so
+    nothing needs to be declared in ``render.yaml`` for this to work. ``GIT_SHA``
+    stays supported as a manual override for non-Render deploys.
+
+    render.yaml used to set ``GIT_SHA: ${{RENDER_GIT_COMMIT}}``, which is GitHub
+    Actions syntax — Render does not interpolate it, so both services reported
+    the literal string ``${{RENDER_GIT_COMMIT}}`` as their version and there was
+    no way to tell which commit was live.
+    """
+    return os.getenv("GIT_SHA") or os.getenv("RENDER_GIT_COMMIT") or default
+
+
 @app.get("/api/health")
 def health():
     """Return service liveness and environment metadata.
@@ -281,7 +296,7 @@ def health():
         {
             "status":          "ok",
             "environment":     "uat" | "prd" | "local"  (ENVIRONMENT env var, defaults to "local"),
-            "version":         "<GIT_SHA>" | "unknown"   (GIT_SHA env var, defaults to "unknown"),
+            "version":         "<commit sha>" | "unknown"  (GIT_SHA, else Render's RENDER_GIT_COMMIT),
             "db":              "ok" | "error",
             "uptime_seconds":  <int>
         }
@@ -292,13 +307,13 @@ def health():
 
     Breaking changes from the previous schema:
         - "database" key renamed to "db"
-        - "version" field added (git SHA injected at deploy time via GIT_SHA env var)
+        - "version" field added (deploy SHA — see _git_sha)
         - "uptime_seconds" field added
     """
     return JSONResponse({
         "status": "ok",
         "environment": environment,
-        "version": os.getenv("GIT_SHA", "unknown"),
+        "version": _git_sha("unknown"),
         "db": check_db(),
         "uptime_seconds": int(time.monotonic() - _start_time),
     })
@@ -339,7 +354,7 @@ def healthz():
     """Render health check ping. Returns {ok, version, env}."""
     return JSONResponse({
         "ok": True,
-        "version": os.getenv("GIT_SHA", "unset"),
+        "version": _git_sha("unset"),
         "env": environment,
     })
 
@@ -364,7 +379,7 @@ def get_about():
     Response schema:
         {
             "app_version":        str  — contents of VERSION file; fallback "v0.0.1-dev"
-            "git_sha":            str  — GIT_SHA env var; fallback "local-dev"
+            "git_sha":            str  — deploy SHA (see _git_sha); fallback "local-dev"
             "environment":        str  — current environment ("uat"/"prd"/"local")
             "changelog_available": bool — True when CHANGELOG.md exists in repo root
         }
@@ -380,7 +395,7 @@ def get_about():
 
     return JSONResponse({
         "app_version": app_version,
-        "git_sha": os.getenv("GIT_SHA", "local-dev"),
+        "git_sha": _git_sha("local-dev"),
         "environment": environment,
         "changelog_available": changelog_available,
     })

@@ -96,7 +96,7 @@ Return service health status including DB connectivity, environment, and uptime.
 |-------|------|-------------|
 | `status` | `"ok" \| "degraded"` | Service health |
 | `environment` | `"uat" \| "prd" \| "local"` | Active environment |
-| `version` | string | Git SHA injected at deploy via `GIT_SHA` env var, `"unknown"` if not set |
+| `version` | string | Deploy commit SHA — `GIT_SHA` if set, else Render's built-in `RENDER_GIT_COMMIT`, else `"unknown"` |
 | `db` | `"ok" \| "error: <msg>"` | Database reachability |
 | `uptime_seconds` | integer | Seconds since process start |
 
