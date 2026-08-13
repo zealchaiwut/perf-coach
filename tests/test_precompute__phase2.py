@@ -109,6 +109,7 @@ def test_current_load_flag_on_reads_snapshot(monkeypatch):
     snap = MagicMock(
         snapshot_date=today, ctl=10.0, atl=5.0, tsb=5.0, acwr=1.2,
         formula_version=training_load._FORMULA_VERSION,
+        ctl_days=None, atl_days=None,
     )
     sess = MagicMock()
     sess.__enter__ = lambda s: sess

@@ -191,6 +191,8 @@ def _call_endpoint(
         patch("backend.main.get_snapshot_series", return_value=fitness_series),
         patch("backend.main._get_app_config", side_effect=config_fn),
         patch("backend.main.get_guardrail_result", return_value=_default_guardrail),
+        patch("backend.main._summary_cache_get", return_value=None),
+        patch("backend.main._summary_cache_get_latest", return_value=None),
     ):
         MockSession.return_value = mock_db
         result = get_athlete_monthly_summary(str(user.id), user, month)
@@ -529,6 +531,8 @@ def test_http_424_when_no_workouts_in_month():
         patch("backend.main.Session") as MockSession,
         patch("backend.main.get_snapshot_series", return_value=[]),
         patch("backend.main._get_app_config", return_value=""),
+        patch("backend.main._summary_cache_get", return_value=None),
+        patch("backend.main._summary_cache_get_latest", return_value=None),
     ):
         MockSession.return_value = mock_db
         with pytest.raises(HTTPException) as exc:
@@ -561,6 +565,8 @@ def test_http_424_body_is_descriptive():
         patch("backend.main.Session") as MockSession,
         patch("backend.main.get_snapshot_series", return_value=[]),
         patch("backend.main._get_app_config", return_value=""),
+        patch("backend.main._summary_cache_get", return_value=None),
+        patch("backend.main._summary_cache_get_latest", return_value=None),
     ):
         MockSession.return_value = mock_db
         with pytest.raises(HTTPException) as exc:

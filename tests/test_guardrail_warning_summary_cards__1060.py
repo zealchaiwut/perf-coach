@@ -155,6 +155,8 @@ def _call_weekly_endpoint(user, guardrail_result=None):
         patch("backend.main.Session") as MockSession,
         patch("backend.main.get_snapshot_series", return_value=[]),
         patch("backend.main.get_guardrail_result", return_value=guardrail_result),
+        patch("backend.main._summary_cache_get", return_value=None),
+        patch("backend.main._summary_cache_get_latest", return_value=None),
     ):
         MockSession.return_value = mock_db
         # athlete_id is a required path param (/api/athletes/{athlete_id}/...);
@@ -211,6 +213,8 @@ def _call_monthly_endpoint(user, workouts, guardrail_result=None):
         patch("backend.main.get_snapshot_series", return_value=fitness_series),
         patch("backend.main._get_app_config", side_effect=lambda key, default="": default),
         patch("backend.main.get_guardrail_result", return_value=guardrail_result),
+        patch("backend.main._summary_cache_get", return_value=None),
+        patch("backend.main._summary_cache_get_latest", return_value=None),
     ):
         MockSession.return_value = mock_db
         result = get_athlete_monthly_summary(str(user.id), user, None)

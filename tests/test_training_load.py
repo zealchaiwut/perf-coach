@@ -169,7 +169,10 @@ def _mock_session_snapshot(snap=None):
     mock_session = MagicMock()
     mock_session.__enter__ = MagicMock(return_value=mock_session)
     mock_session.__exit__ = MagicMock(return_value=False)
-    mock_session.query.return_value.filter.return_value.first.return_value = snap
+    q = mock_session.query.return_value
+    q.filter.return_value = q
+    q.order_by.return_value = q
+    q.first.return_value = snap
     return mock_session
 
 

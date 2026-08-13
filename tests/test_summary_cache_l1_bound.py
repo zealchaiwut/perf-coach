@@ -28,8 +28,9 @@ def test_monthly_keys_are_not_l1_cacheable():
 def test_summary_cache_put_skips_l1_for_monthly_keys(monkeypatch):
     main._SUMMARY_CACHE.clear()
     # Avoid the L2 (Neon) write — this test only cares about L1 behavior.
+    import backend.services.summary_cache_store as store
     monkeypatch.setattr(
-        main, "Session", lambda *a, **kw: (_ for _ in ()).throw(Exception("no DB in this test"))
+        store, "Session", lambda *a, **kw: (_ for _ in ()).throw(Exception("no DB in this test"))
     )
     main._summary_cache_put("user-1", "monthly:2026-08-01", "sig", {"x": 1})
     assert ("user-1", "monthly:2026-08-01") not in main._SUMMARY_CACHE
@@ -37,8 +38,9 @@ def test_summary_cache_put_skips_l1_for_monthly_keys(monkeypatch):
 
 def test_summary_cache_put_still_uses_l1_for_fixed_keys(monkeypatch):
     main._SUMMARY_CACHE.clear()
+    import backend.services.summary_cache_store as store
     monkeypatch.setattr(
-        main, "Session", lambda *a, **kw: (_ for _ in ()).throw(Exception("no DB in this test"))
+        store, "Session", lambda *a, **kw: (_ for _ in ()).throw(Exception("no DB in this test"))
     )
     main._summary_cache_put("user-1", "performance", "sig", {"x": 1})
     assert main._SUMMARY_CACHE[("user-1", "performance")] == ("sig", {"x": 1})

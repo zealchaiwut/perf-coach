@@ -69,6 +69,7 @@ def _invoke_performance_with_exception(exc_to_raise):
 
     with patch("backend.main.Session") as mock_session_cls, \
          patch("backend.main._summary_cache_get", return_value=None), \
+         patch("backend.main._summary_cache_get_latest", return_value=None), \
          patch("backend.main._check_needs_thresholds", side_effect=exc_to_raise), \
          patch("backend.main._performance_log") as mock_log:
 

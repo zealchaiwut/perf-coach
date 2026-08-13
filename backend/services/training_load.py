@@ -251,11 +251,12 @@ def current_load(
     must call instead of recomputing independently. See
     docs/calculations/training-load.md.
 
-    Reads today's row from training_load_snapshots when present, fresh
-    (snapshot_date == end date, formula_version matches, and ctl_days/atl_days
-    match the user's current calibration), to avoid a 180-day recompute on the
-    hot path. Falls back to the live recompute when the snapshot is missing,
-    stale, version-mismatched, or computed with different calibration constants.
+    Reads today's row from ``training_load_snapshots`` when present and fresh
+    (snapshot_date == end, formula_version matches, ctl_days/atl_days match
+    the user's current calibration). If today's row is missing, returns the
+    latest stored row on or before ``end`` (the worker refreshes after sync).
+    Falls back to live recompute only when the user has no snapshots at all,
+    or when LOAD_READ_FROM_SNAPSHOT=0.
 
     Args:
         user_id: the user's ID.
@@ -290,6 +291,28 @@ def current_load(
                     "atl": snap.atl,
                     "tsb": snap.tsb,
                     "acwr": snap.acwr,
+                }
+            # Dashboard reads must not pay a 180-day EWMA. Serve the latest
+            # stored row on or before the requested date; the worker refreshes
+            # after sync. Only a user with no snapshots at all falls through
+            # to daily_update (first-ever path).
+            latest = (
+                session.query(TrainingLoadSnapshot)
+                .filter(
+                    TrainingLoadSnapshot.user_id == uid,
+                    TrainingLoadSnapshot.snapshot_date <= end,
+                    TrainingLoadSnapshot.formula_version == _FORMULA_VERSION,
+                )
+                .order_by(TrainingLoadSnapshot.snapshot_date.desc())
+                .first()
+            )
+            if latest is not None and _snap_matches_calibration(latest, ctl_days, atl_days):
+                return {
+                    "date": latest.snapshot_date,
+                    "ctl": latest.ctl,
+                    "atl": latest.atl,
+                    "tsb": latest.tsb,
+                    "acwr": latest.acwr,
                 }
 
     computed = daily_update(user_id, target_date=end, ctl_days=ctl_days, atl_days=atl_days)
