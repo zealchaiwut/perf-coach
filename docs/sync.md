@@ -65,22 +65,24 @@ duplicates.
 that loads the nav. The bar is hidden by default and becomes visible when a
 sync is running or has recently completed.
 
-The bar polls `GET /api/sync/status` on a 4-second interval while a sync is
-running. On success or error it shows the final state for a few seconds then
-hides itself.
+The bar polls `GET /api/sync/status` on a 3-second interval while a sync is
+`running` or `pending` (queued on the worker). On success or error it shows
+the final state for a few seconds then hides itself. Dismiss (`×`) while a
+job is in flight hides the bar but **keeps polling**; the bar returns on
+error (or success).
 
-Individual pages (e.g. Training Log) may run their own poll on a shorter
-interval (3 seconds) while the sync dialog is open. Both pollers use the
-same endpoint and are independent.
+Individual pages (e.g. Training Log) subscribe to the same
+`frontend/js/lib/sync-poller.js` instance. Do not start a second timer.
 
 ## Polling cadence
 
 | Context | Interval |
 |---|---|
-| Nav status bar (`nav.js`) | 4 000 ms |
-| Training Log page (`training-log.js`) | 3 000 ms |
+| Shared poller (`sync-poller.js`) | 3 000 ms |
 
-Polling stops automatically once the job status leaves `running`.
+Polling stops automatically once the job status leaves `running`/`pending`.
+`waitForIdle()` also treats `pending` as in-flight, so sequential
+Strava → Stryd syncs do not start the second provider early.
 
 ## Compute worker (scheduled syncs on zeal-server)
 

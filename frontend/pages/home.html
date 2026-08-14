@@ -257,74 +257,6 @@
     .rd-arrow--negative { color: var(--red); }
     .rd-arrow--neutral  { color: var(--text-tertiary); }
 
-    /* ---- SLEEP HERO CARD ---- */
-    .sleep-card {
-      background: linear-gradient(160deg, var(--sleep-1) 0%, var(--sleep-2) 100%);
-      color: #fff;
-      border: 0;
-      min-height: 280px;
-      padding: 22px;
-    }
-    .sleep-card .slp-lbl {
-      font-size: 11px;
-      color: rgba(255,255,255,0.6);
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      font-weight: 500;
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      /* Now an <h2> (re-audit #12) — margin:0 replaces the div's implicit
-         zero top margin; bottom spacing unchanged. */
-      margin: 0 0 12px;
-    }
-    .sleep-card .slp-body {
-      display: flex;
-      flex-direction: column;
-      flex: 1;
-    }
-    .sleep-card .slp-score {
-      font-size: 56px;
-      font-weight: 700;
-      letter-spacing: -0.04em;
-      line-height: 1;
-    }
-    .sleep-card .slp-score small {
-      font-size: 19px;
-      opacity: 0.5;
-      font-weight: 500;
-    }
-    .sleep-card .slp-quality {
-      font-size: 13px;
-      color: rgba(255,255,255,0.7);
-      margin: 4px 0 0;
-    }
-    /* Fills the gap below slp-quality with the numeric Quality X/5 readout
-       (was previously unstyled — inherited body defaults with no size/
-       spacing rule at all, so it rendered oversized and mismatched). */
-    .sleep-card .slp-quality-detail {
-      font-size: 12px;
-      color: rgba(255,255,255,0.55);
-      margin: 2px 0 16px;
-    }
-    .sleep-card .slp-empty {
-      flex: 1;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 14px;
-      color: rgba(255,255,255,0.6);
-      text-align: center;
-      padding: 20px 0;
-    }
-    /* .slp-log-link is a <button> standing in for the old /calendar link
-       (nav-cleanup removed that page) — reset button chrome, keep the
-       underlined-link look against the card's dark background. */
-    .sleep-card .slp-empty button.slp-log-link {
-      background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
-      color: #fff; text-decoration: underline;
-    }
-
     /* ---- CARD HEADER (shared) ---- */
     .card-head {
       display: flex; align-items: center; justify-content: space-between;
@@ -366,7 +298,7 @@
     }
     .pr-tile:first-child { border-left: 0; }
     .pr-lbl {
-      font-size: 8px; font-weight: 800; color: var(--text-tertiary);
+      font-size: 11px; font-weight: 800; color: var(--text-tertiary);
       text-transform: uppercase; letter-spacing: 0.03em;
     }
     .pr-val {
@@ -656,6 +588,13 @@
       -webkit-tap-highlight-color: transparent;
     }
     .fm-pill:hover { background: #dde6f8; border-color: var(--link); color: var(--link); }
+    .fm-scale {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 4px;
+      font-size: 11px;
+      color: var(--text-tertiary);
+    }
     .fm-pill.active {
       background: #0b1530;
       border-color: #0b1530;
@@ -698,6 +637,18 @@
       min-height: 48px;
     }
     .fm-save-btn:disabled { opacity: 0.55; cursor: default; }
+    .fm-cancel-btn {
+      min-height: 44px;
+      padding: 0 16px;
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      background: #fff;
+      color: var(--text-secondary);
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
     .fm-feedback {
       font-size: 12.5px;
       font-weight: 500;
@@ -717,22 +668,6 @@
       .page { padding: 16px 14px 8px; }
       .greeting h1 { font-size: 22px; }
       .greeting p { font-size: 12.5px; }
-
-      /* Sleep card: mobile — score and quality on the same top row */
-      .sleep-card .slp-top {
-        display: flex;
-        align-items: flex-end;
-        justify-content: space-between;
-        gap: 10px;
-        margin-bottom: 14px;
-      }
-      .sleep-card .slp-score { font-size: 52px; }
-      .sleep-card .slp-score small { font-size: 17px; }
-      .sleep-card .slp-quality {
-        text-align: right;
-        font-size: 12px;
-        margin: 0 0 6px;
-      }
     }
   </style>
   <style>
@@ -895,7 +830,6 @@
       border-radius: 4px 4px 0 0;
       background: var(--bg-1);
       min-height: 4px;
-      transition: height 0.2s;
     }
     .tw-bar--rest  { background: var(--chip-bg); }
     .tw-bar--today { background: var(--accent); }
@@ -1535,7 +1469,7 @@
     .hm-btn--lime { background: #cff245; color: #1b2340; }
     .hm-btn--blue { background: #4f6ef7; color: #fff; }
     .hm-btn--ghost { background: #fff; color: var(--text-secondary); border: 1px solid var(--card-border); font-weight: 600; }
-    .hm-btn--s { padding: 5px 10px; font-size: 11.5px; min-height: 32px; }
+    .hm-btn--s { padding: 8px 12px; font-size: 12px; min-height: 44px; }
     .hm-habs { display: flex; gap: 6px; flex-wrap: wrap; }
     .hm-hab {
       display: inline-flex; align-items: center; gap: 5px; border: 1.5px solid var(--card-border);
@@ -1730,7 +1664,7 @@
   <div id="body-modifier-guardrail"></div>
   <div id="strava-stale-banner" hidden></div>
 
-  <!-- This morning — weigh-in, today's session, habits (home-morning.js). -->
+  <!-- This morning — weigh-in, today's session, habits, wellness (home-morning.js). -->
   <div id="home-morning"></div>
 
   <!-- Two-column body (home revamp v2 — two .home-col flex stacks inside a
@@ -1806,6 +1740,20 @@
             </div>
           </div>
 
+          <!-- Sleep quality (1–5) — this is the scored sleep signal, not hours -->
+          <div class="fm-field">
+            <label class="fm-label" id="fm-sleep-quality-label">Sleep quality</label>
+            <div class="fm-pills" id="fm-sleep-quality-pills" role="group" aria-labelledby="fm-sleep-quality-label">
+              <button type="button" class="fm-pill" data-val="1" aria-pressed="false" aria-label="Poor">1</button>
+              <button type="button" class="fm-pill" data-val="2" aria-pressed="false">2</button>
+              <button type="button" class="fm-pill" data-val="3" aria-pressed="false">3</button>
+              <button type="button" class="fm-pill" data-val="4" aria-pressed="false">4</button>
+              <button type="button" class="fm-pill" data-val="5" aria-pressed="false" aria-label="Great">5</button>
+            </div>
+            <div class="fm-scale"><span>Poor</span><span>Great</span></div>
+            <input type="hidden" id="fm-sleep-quality-val" name="sleep_quality">
+          </div>
+
           <!-- Fueling / Intake (kcal) -->
           <div class="fm-field">
             <label class="fm-label" for="fm-kcal">
@@ -1823,27 +1771,29 @@
 
           <!-- Energy (1–5 segmented pills) -->
           <div class="fm-field">
-            <label class="fm-label">Energy</label>
-            <div class="fm-pills" id="fm-energy-pills" role="group" aria-label="Energy 1 to 5">
-              <button type="button" class="fm-pill" data-val="1" aria-pressed="false">1</button>
+            <label class="fm-label" id="fm-energy-label">Energy</label>
+            <div class="fm-pills" id="fm-energy-pills" role="group" aria-labelledby="fm-energy-label">
+              <button type="button" class="fm-pill" data-val="1" aria-pressed="false" aria-label="Poor">1</button>
               <button type="button" class="fm-pill" data-val="2" aria-pressed="false">2</button>
               <button type="button" class="fm-pill" data-val="3" aria-pressed="false">3</button>
               <button type="button" class="fm-pill" data-val="4" aria-pressed="false">4</button>
-              <button type="button" class="fm-pill" data-val="5" aria-pressed="false">5</button>
+              <button type="button" class="fm-pill" data-val="5" aria-pressed="false" aria-label="Great">5</button>
             </div>
+            <div class="fm-scale"><span>Poor</span><span>Great</span></div>
             <input type="hidden" id="fm-energy-val" name="energy">
           </div>
 
           <!-- Mood (1–5 segmented pills) -->
           <div class="fm-field">
-            <label class="fm-label">Mood</label>
-            <div class="fm-pills" id="fm-mood-pills" role="group" aria-label="Mood 1 to 5">
-              <button type="button" class="fm-pill" data-val="1" aria-pressed="false">1</button>
+            <label class="fm-label" id="fm-mood-label">Mood</label>
+            <div class="fm-pills" id="fm-mood-pills" role="group" aria-labelledby="fm-mood-label">
+              <button type="button" class="fm-pill" data-val="1" aria-pressed="false" aria-label="Poor">1</button>
               <button type="button" class="fm-pill" data-val="2" aria-pressed="false">2</button>
               <button type="button" class="fm-pill" data-val="3" aria-pressed="false">3</button>
               <button type="button" class="fm-pill" data-val="4" aria-pressed="false">4</button>
-              <button type="button" class="fm-pill" data-val="5" aria-pressed="false">5</button>
+              <button type="button" class="fm-pill" data-val="5" aria-pressed="false" aria-label="Great">5</button>
             </div>
+            <div class="fm-scale"><span>Poor</span><span>Great</span></div>
             <input type="hidden" id="fm-mood-val" name="mood">
           </div>
 
@@ -1875,6 +1825,7 @@
 
         <div class="fm-actions">
           <button id="fm-save" type="submit" class="fm-save-btn">Save</button>
+          <button id="fm-cancel" type="button" class="fm-cancel-btn">Cancel</button>
           <div id="fm-feedback" class="fm-feedback"></div>
         </div>
       </form>
@@ -1883,9 +1834,9 @@
 </main>
 
 <script src="js/lib/app-common.js"></script>
-<script src="js/lib/sync-poller.js"></script>
+<script src="js/lib/sync-poller.js?v=20260814ux1"></script>
 
-<script src="js/nav.js?v=20260810phasec1"></script>
+<script src="js/nav.js?v=20260814ux1"></script>
 <script src="js/ui-states.js"></script>
 <script src="js/wheel-helpers.js"></script>
 <script src="js/lib/load-readiness-tiles.js?v=20260801a"></script>
@@ -1894,10 +1845,10 @@
 <script src="js/home-readiness-training-sleep.js?v=20260810phaseb1"></script>
 <script src="js/home-brief-week-plan-card.js?v=20260810phasea1"></script>
 <script src="js/lib/next-up-card.js?v=20260810phasea1"></script>
-<script src="js/home-morning.js?v=20260808revamp3"></script>
+<script src="js/home-morning.js?v=20260814ux1"></script>
 <script src="js/home-weight-trend.js?v=20260808revamp3"></script>
 <script src="js/home-race-card.js?v=20260810phaseb1"></script>
-<script src="js/home.js?v=20260810phaseb1"></script>
+<script src="js/home.js?v=20260814ux1"></script>
 
 <script src="js/injury-log.js"></script>
 <script>

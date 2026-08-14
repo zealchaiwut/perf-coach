@@ -8,7 +8,7 @@ AC coverage:
   AC3 – Phase labels match exactly:
            pulling_strava  → "Syncing Strava…"
            pulling_stryd   → "Syncing Stryd…"
-           reconciling     → "Reconciling activities…"
+           reconciling     → "Matching workouts…"
            complete/success → "Sync complete — N workouts updated"
   AC4 – Bar auto-hides after 4–6 s on success
   AC5 – Bar includes a dismiss/close control that hides it immediately
@@ -55,8 +55,8 @@ def test_phase_label_pulling_stryd_exact():
 
 
 def test_phase_label_reconciling_exact():
-    """reconciling maps to 'Reconciling activities…'."""
-    assert "Reconciling activities" in NAV_JS
+    """reconciling maps to 'Matching workouts…'."""
+    assert "Matching workouts" in NAV_JS
 
 
 def test_phase_labels_dict_keys():

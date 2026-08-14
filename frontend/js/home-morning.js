@@ -1,8 +1,8 @@
 /**
- * Home "This morning" strip (home revamp v2) — three quick asks: weigh in,
- * today's session, habits. Reuses the same endpoints the old home weight
- * widget (home.js's _hwwInitStepper) and habits strip (home-strip-habits.js)
- * already used — no new backend surface.
+ * Home "This morning" strip (home revamp v2) — four quick asks: weigh in,
+ * today's session, habits, wellness metrics. Reuses the same endpoints the old
+ * home weight widget (home.js's _hwwInitStepper) and habits strip
+ * (home-strip-habits.js) already used — no new backend surface.
  *
  * window.HomeMorning.render(host, ctx):
  *   ctx.summary        — /api/home/summary payload (for weight + habits blocks)
@@ -118,7 +118,7 @@
     var habitsBlock = summary.habits || null;
     var session = _todaySession(ctx.weekDays);
 
-    var done = { weight: !!(weightBlock && weightBlock.logged_today), session: false, habits: false };
+    var done = { weight: !!(weightBlock && weightBlock.logged_today), session: false, habits: false, metrics: false };
     if (habitsBlock && Array.isArray(habitsBlock.daily_habits) && habitsBlock.daily_habits.length) {
       done.habits = habitsBlock.daily_habits.every(function (h) { return !!h.today_checked; });
     } else {
@@ -130,28 +130,29 @@
       var st = session.status || 'planned';
       done.session = (st === 'done_auto' || st === 'done_manual');
     }
+    done.metrics = !!(summary.readiness && summary.readiness.logged);
 
     function _rowsDoneCount() {
-      return (done.weight ? 1 : 0) + (done.session ? 1 : 0) + (done.habits ? 1 : 0);
+      return (done.weight ? 1 : 0) + (done.session ? 1 : 0) + (done.habits ? 1 : 0) + (done.metrics ? 1 : 0);
     }
 
     function _paint() {
       var n = _rowsDoneCount();
-      var allDone = n === 3;
+      var allDone = n === 4;
       var wrap = host.querySelector('#hm-morning');
       if (wrap) wrap.classList.toggle('hm-all-done', allDone);
       var cnt = host.querySelector('#hm-cnt');
-      if (cnt) cnt.textContent = n + ' of 3 done';
+      if (cnt) cnt.textContent = n + ' of 4 done';
       var dots = host.querySelector('#hm-dots');
       if (dots) {
-        dots.innerHTML = [0, 1, 2].map(function (i) {
+        dots.innerHTML = [0, 1, 2, 3].map(function (i) {
           return '<span class="hm-pd' + (i < n ? ' on' : '') + '"></span>';
         }).join('');
       }
-      // Session/habits collapse when done. Weight stays visible with
+      // Session/habits/metrics collapse when done. Weight stays visible with
       // "Logged · Change" until the whole morning is complete — otherwise
       // the stepper vanishes and users hunt for it on Weight trend.
-      ['session', 'habits'].forEach(function (k) {
+      ['session', 'habits', 'metrics'].forEach(function (k) {
         var row = host.querySelector('.hm-row[data-k="' + k + '"]');
         if (row) row.classList.toggle('hm-row--done', done[k]);
       });
@@ -379,6 +380,42 @@
       );
     }
 
+    function _openLogToday() {
+      var row = document.getElementById('row-log');
+      if (row) {
+        row.hidden = false;
+        row.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+
+    function _metricsRowHtml() {
+      if (done.metrics) {
+        var score = summary.readiness && summary.readiness.score;
+        var scoreBit = score != null ? 'score ' + score : 'logged today';
+        return (
+          '<div class="hm-row" data-k="metrics">' +
+            '<span class="hm-ic hm-ic--session">&#9829;</span>' +
+            '<span class="hm-tx"><span class="hm-t">Readiness metrics</span>' +
+              '<span class="hm-s">' + esc(scoreBit) + '</span></span>' +
+            '<span class="hm-act"><button type="button" class="hm-btn hm-btn--ghost" id="hm-metrics-log">Change</button></span>' +
+          '</div>'
+        );
+      }
+      return (
+        '<div class="hm-row" data-k="metrics">' +
+          '<span class="hm-ic hm-ic--session">&#9829;</span>' +
+          '<span class="hm-tx"><span class="hm-t">Readiness metrics</span>' +
+            '<span class="hm-s">sleep quality, HRV, energy</span></span>' +
+          '<span class="hm-act"><button type="button" class="hm-btn hm-btn--lime" id="hm-metrics-log">Log metrics</button></span>' +
+        '</div>'
+      );
+    }
+
+    function _wireMetricsRow() {
+      var btn = host.querySelector('#hm-metrics-log');
+      if (btn) btn.addEventListener('click', _openLogToday);
+    }
+
     function _wireHabitsRow() {
       var today = _todayISO();
       var habits = (habitsBlock && habitsBlock.daily_habits) || [];
@@ -430,7 +467,7 @@
       return (
         '<div class="hm-done">' +
           '<span class="hm-done-ic">&#10003;</span>' +
-          '<span><span class="hm-t">Morning done — weight, session and habits all logged.</span>' +
+          '<span><span class="hm-t">Morning done — weight, session, habits and metrics all logged.</span>' +
             nextLine + '</span>' +
           '<span style="margin-left:auto"><button type="button" class="hm-btn hm-btn--ghost hm-btn--s" id="hm-undo">Undo</button></span>' +
         '</div>'
@@ -448,6 +485,7 @@
           _weightRowHtml() +
           _sessionRowHtml() +
           _habitsRowHtml() +
+          _metricsRowHtml() +
         '</div>' +
         _allDoneHtml() +
       '</div>';
@@ -455,6 +493,7 @@
     _wireWeightRow();
     _wireSessionRow();
     _wireHabitsRow();
+    _wireMetricsRow();
 
     var undoBtn = host.querySelector('#hm-undo');
     if (undoBtn) {

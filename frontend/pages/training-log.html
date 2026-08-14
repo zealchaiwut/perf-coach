@@ -93,6 +93,18 @@
       }
 
       /* ── Page header (on gradient) ─────────────────────────────────────── */
+      .u-sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
       .log-page-header {
         display: flex;
         align-items: center;
@@ -4080,6 +4092,7 @@
   </head>
   <body>
     <main class="log-page">
+      <h1 class="u-sr-only">Training log</h1>
       <!-- Page header: sub-tabs + action buttons -->
       <header class="log-page-header">
         <div class="log-page-header-inner">
@@ -9226,7 +9239,7 @@
 
     <script src="js/lib/app-common.js"></script>
     <script src="js/lib/sync-poller.js"></script>
-    <script src="js/nav.js?v=20260810phasec1"></script>
+    <script src="js/nav.js?v=20260814ux1"></script>
     <script src="js/lib/html2canvas.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
     <script src="js/ui-states.js"></script>
@@ -9235,7 +9248,7 @@
     <script src="js/zone2-constants.js"></script>
     <script src="js/lib/run-detail-view.js?v=20260717y"></script>
     <script src="js/training.js"></script>
-    <script src="js/training-log.js?v=20260810phasec1"></script>
+    <script src="js/training-log.js?v=20260814ux1"></script>
     <script src="js/training-performance.js?v=20260810phaseb1"></script>
     <script src="js/lib/plan-session-helpers.js?v=20260810phasea1"></script>
     <script src="js/lib/session-budget.js?v=20260805sb1"></script>

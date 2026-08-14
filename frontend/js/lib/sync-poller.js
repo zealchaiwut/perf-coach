@@ -4,7 +4,7 @@
 // settings.html x2), each with its own setInterval/setTimeout loop hitting
 // the same endpoint. This module is the single home for that polling: one
 // timer, subscriber callbacks, start-on-demand (only polls while a sync is
-// actually running).
+// actually in flight: running or pending/queued).
 //
 // No build step in this project (plain <script> tags, served as
 // FileResponse), so this attaches to `window.SyncPoller` and must be loaded
@@ -16,6 +16,10 @@
   var _timer = null;
   var _inFlight = false;
   var _subscribers = [];
+
+  function _isActive(status) {
+    return status === 'running' || status === 'pending';
+  }
 
   function _notify(data) {
     // Copy so a subscriber unsubscribing mid-notify doesn't skip callbacks.
@@ -55,7 +59,7 @@
           return;
         }
         _notify(data);
-        if (data.status === 'running') {
+        if (_isActive(data.status)) {
           start();
         } else {
           stop();
@@ -63,8 +67,10 @@
       })
       .catch(function () {
         _inFlight = false;
-        stop();
         _notify(null);
+        // Keep the interval if we were already watching a job; a blip
+        // must not look like "sync finished."
+        if (!_timer) return;
       });
   }
 
@@ -85,24 +91,20 @@
   // Promise-based "wait until the current sync finishes" helper, for call
   // sites that trigger a sync and need to await its completion rather than
   // subscribe to ongoing updates (e.g. sequential multi-provider syncs).
+  // pending/queued is still in-flight — do not resolve until success, idle,
+  // cancelled, or error.
   function waitForIdle() {
     return new Promise(function (resolve, reject) {
       var unsub = subscribe(function (data) {
-        if (!data || data.status === 'idle') {
-          unsub();
-          resolve(data);
-          return;
-        }
+        if (!data) return;
         if (data.status === 'error') {
           unsub();
           reject(new Error(data.error || 'Sync failed'));
           return;
         }
-        if (data.status !== 'running') {
-          unsub();
-          resolve(data);
-        }
-        // else still running — keep waiting for the next notification.
+        if (_isActive(data.status)) return;
+        unsub();
+        resolve(data);
       });
       checkNow();
     });

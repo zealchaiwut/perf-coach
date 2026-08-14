@@ -162,9 +162,8 @@
   }
 }
 
-/* Keep mobile Home scannable — daily signal stays; load tiles hide */
+/* Keep mobile Home scannable — shrink load tiles, do not hide TSB/ACWR */
 @media (max-width: 479px) {
-  .rd-load-tiles {
-    display: none;
-  }
+  .rd-load-tiles .lrx-rcard .rv { font-size: 22px; }
+  .rd-load-tiles .lrx-rcard .rl { font-size: 10px; }
 }
