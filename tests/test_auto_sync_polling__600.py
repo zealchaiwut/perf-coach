@@ -66,7 +66,7 @@ def test_auto_sync_polling__phase_labels_stryd(client):
 def test_auto_sync_polling__phase_labels_reconciling(client):
     """
     AC: The bar displays the following phase labels exactly as backend state progresses:
-    - `reconciling` → **"Reconciling activities…"**
+    - `reconciling` → **"Matching workouts…"**
 
     Label text verified via browser step.
     """

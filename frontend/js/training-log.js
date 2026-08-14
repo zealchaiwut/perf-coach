@@ -4944,7 +4944,7 @@
 
   function _syncHandleTerminal(data, opts) {
     opts = opts || {};
-    if (!data || data.status === "running" || data.status === "idle") return;
+    if (!data || data.status === "running" || data.status === "pending" || data.status === "idle") return;
     var key = _syncTerminalKey(data);
     if (key && key === _syncLastTerminalStatus) return;
     _syncLastTerminalStatus = key;
@@ -4967,7 +4967,7 @@
       _syncSetBusy(false);
       return;
     }
-    if (data.status === "running") {
+    if (data.status === "running" || data.status === "pending") {
       _syncSetBusy(true);
     } else {
       _syncSetBusy(false);

@@ -17,4 +17,4 @@ tests/test_phase_d_race_finish_sot.py
 tests/test_plan_tab_ui_revamp__v3.py
 tests/test_session_modal__view_edit_ux.py
 tests/test_consolidation__worker_has_no_llm.py
-tests/test_contract_suite__preflight.py
+tests/test_ux_readiness_sync_fixes.py

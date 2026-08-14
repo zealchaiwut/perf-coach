@@ -701,6 +701,11 @@
       gap: 8px;
       margin-bottom: 10px;
     }
+    .stryd-form label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-sub);
+    }
     .stryd-form input {
       padding: 8px 10px;
       border: 1px solid color-mix(in srgb, var(--text) 15%, transparent);
@@ -892,6 +897,12 @@
       margin-bottom: 20px;
       background: #0d1117;
       overflow: hidden;
+    }
+    .integration-log > summary {
+      cursor: pointer;
+      padding: 10px 14px;
+      color: #c9d1d9;
+      font-weight: 600;
     }
     .integration-log-header {
       display: flex;
@@ -1525,17 +1536,18 @@
 
       <div id="section-integrations" class="settings-section" role="tabpanel" aria-labelledby="tab-integrations" tabindex="0">
         <h1>Integrations</h1>
+        <p class="queue-intro">Connect Strava or Stryd, then Sync now. Last-synced time is on each card.</p>
 
-        <!-- Shared sync/debug log — reused by every integration (Strava, Stryd, …) -->
-        <div class="integration-log" id="integration-log">
+        <!-- Shared sync/debug log — collapsed so Connect/Sync lead -->
+        <details class="integration-log" id="integration-log">
+          <summary class="integration-log-title">Sync log</summary>
           <div class="integration-log-header">
-            <span class="integration-log-title">Sync log</span>
             <button type="button" class="integration-log-clear" id="integration-log-clear">Clear</button>
           </div>
           <div class="integration-log-body" id="integration-log-body" aria-live="polite">
             <div class="integration-log-empty">No activity yet. Connect or sync to see data here.</div>
           </div>
-        </div>
+        </details>
 
         <!-- Strava -->
         <div class="integration-card" id="strava-card">
@@ -1676,7 +1688,7 @@
         </div>
 
         <!-- Google (placeholder) -->
-        <div class="integration-card integration-card--placeholder" id="google-card">
+        <div class="integration-card integration-card--placeholder" id="google-card" hidden>
           <div class="integration-header">
             <div class="integration-name-wrap">
               <span class="integration-icon" aria-hidden="true">
@@ -1695,7 +1707,7 @@
         </div>
 
         <!-- Samsung Health (placeholder) -->
-        <div class="integration-card integration-card--placeholder" id="samsung-card">
+        <div class="integration-card integration-card--placeholder" id="samsung-card" hidden>
           <div class="integration-header">
             <div class="integration-name-wrap">
               <span class="integration-icon" aria-hidden="true">
@@ -2723,12 +2735,14 @@
         var resultEl = document.getElementById('strava-panel-result');
         if (!job || !resultEl) { _clearStravaSyncPoll(); return; }
         var status = job.status || 'idle';
-        if (status === 'running') {
+        if (status === 'running' || status === 'pending') {
           var phase = job.phase || '';
           var fetched = job.current || 0;
-          var msg = phase === 'reconciling'
-            ? 'Reconciling activities…'
-            : 'Fetching activities… ' + fetched + ' fetched';
+          var msg = status === 'pending'
+            ? 'Waiting to sync…'
+            : (phase === 'reconciling'
+              ? 'Matching workouts…'
+              : 'Fetching activities… ' + fetched + ' fetched');
           resultEl.innerHTML = '<div class="strava-sync-progress">' + msg + '</div>';
         } else if (status === 'success') {
           _clearStravaSyncPoll();
@@ -3096,8 +3110,10 @@
           '<p class="u-muted-13" style="margin:0 0 10px;">Stryd has no OAuth, so this app signs in on your ' +
           'behalf: your password is encrypted before it’s stored and used only to refresh your Stryd session.</p>' +
           '<div class="stryd-form" id="stryd-cred-form">' +
-          '<input type="email" id="stryd-email" placeholder="Stryd email" autocomplete="username">' +
-          '<input type="password" id="stryd-password" placeholder="Stryd password" autocomplete="current-password">' +
+          '<label for="stryd-email">Email</label>' +
+          '<input type="email" id="stryd-email" placeholder="Stryd email" autocomplete="username" aria-label="Stryd email">' +
+          '<label for="stryd-password">Password</label>' +
+          '<input type="password" id="stryd-password" placeholder="Stryd password" autocomplete="current-password" aria-label="Stryd password">' +
           '</div>';
 
         var actions = document.getElementById('stryd-actions');
@@ -3206,7 +3222,7 @@
       function _strydSyncProgressLabel(job) {
         if (!job) return '…';
         if (job.phase === 'reconciling' && job.total) {
-          return 'reconciling (' + (job.current || 0) + '/' + job.total + ')';
+          return 'matching workouts (' + (job.current || 0) + '/' + job.total + ')';
         }
         if (job.items_synced) {
           return (job.phase || '…') + ' (' + job.items_synced + ' synced)';
@@ -3260,7 +3276,7 @@
 
       function _onStrydSyncPoll(job) {
         var status = (job && job.status) || 'idle';
-        if (status === 'running') {
+        if (status === 'running' || status === 'pending') {
           window.intLog('stryd', 'info', 'Phase: ' + _strydSyncProgressLabel(job));
         } else if (status === 'success') {
           _clearStrydSyncPoll();

@@ -54,7 +54,7 @@ def test_sync_status_bar__phase_labels_stryd(client):
 
 
 def test_sync_status_bar__phase_labels_reconciling(client):
-    # AC: Phase label reconciling → "Reconciling activities…"
+    # AC: Phase label reconciling → "Matching workouts…"
     # HTTP test: Endpoint accessible
     r = client.get("/api/sync/status")
     assert r.status_code in (200, 401, 400)

@@ -1080,10 +1080,11 @@
   var _PHASE_LABELS = {
     pulling_strava: "Syncing Strava…",
     pulling_stryd: "Syncing Stryd…",
-    reconciling: "Reconciling activities…",
+    reconciling: "Matching workouts…",
   };
 
   var _syncPollerUnsub = null;
+  var _ssbMutedWhileActive = false;
 
   function buildSyncBar() {
     if (document.getElementById("sync-status-bar")) return;
@@ -1144,11 +1145,13 @@
   }
 
   function _ssbRunning(data) {
-    var label =
-      _PHASE_LABELS[data.phase] ||
-      (data.provider ? data.provider + " sync…" : "Syncing…");
+    var pending = data.status === "pending";
+    var label = pending
+      ? "Waiting to sync…"
+      : _PHASE_LABELS[data.phase] ||
+        (data.provider ? data.provider + " sync…" : "Syncing…");
     var count = "";
-    if (data.current > 0) {
+    if (!pending && data.current > 0) {
       count =
         data.total != null
           ? " (" + data.current + " / " + data.total + ")"
@@ -1166,7 +1169,8 @@
     var dismiss = document.querySelector("#sync-status-bar .ssb-dismiss");
     if (dismiss)
       dismiss.addEventListener("click", function () {
-        window.SyncPoller.stop();
+        // Hide the bar, keep polling; restore on error (or success).
+        _ssbMutedWhileActive = true;
         _ssbHide();
       });
   }
@@ -1216,9 +1220,11 @@
 
   function _onSyncPollerUpdate(data) {
     if (!data) return;
-    if (data.status === "running") {
+    if (data.status === "running" || data.status === "pending") {
+      if (_ssbMutedWhileActive) return;
       _ssbRunning(data);
     } else if (data.status === "success" || data.status === "error") {
+      _ssbMutedWhileActive = false;
       if (_ssbIsDismissed(data)) {
         _ssbHide();
         return;
@@ -1226,15 +1232,8 @@
       if (data.status === "success") _ssbSuccess(data);
       else _ssbError(data);
     } else {
-      // Anything else — "idle" (job aged out of the registry, e.g. a
-      // server restart mid-sync per docs/sync.md "Status lost on restart"),
-      // "cancelled", "pending", or any status this bar doesn't render a
-      // dedicated state for. SyncPoller stops polling as soon as status
-      // leaves "running" (see lib/sync-poller.js), so without this branch
-      // the bar was left frozen on its last "Syncing…" spinner forever —
-      // found live during the S1 UX review by stubbing exactly this
-      // transition. Hiding is the safe default: it matches what the athlete
-      // actually knows (no sync is running right now).
+      // idle (registry aged out / restart mid-sync), cancelled, or unknown.
+      _ssbMutedWhileActive = false;
       _ssbHide();
     }
   }

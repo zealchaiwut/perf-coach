@@ -9510,7 +9510,7 @@ def get_readiness_today(user: User = Depends(resolve_user)):
       { date, score, missing_data: { hrv, rhr, sleep, energy },
         hrv_contribution, rhr_contribution, sleep_contribution, energy_contribution }
 
-    Returns 404 when no readiness row exists for today (card falls back to mock data).
+    Returns 404 when no readiness row exists for today.
     """
     uid = user.id
 

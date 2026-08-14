@@ -294,7 +294,7 @@
     .rb-sync-label { font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-tertiary); }
     .rb-sync-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .rb-sync-field { background: var(--rl-tile); border-radius: 10px; padding: 9px 12px; }
-    .rb-sync-field-label { font-size: 8px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 4px; }
+    .rb-sync-field-label { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 4px; }
     .rb-sync-val { font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 700; color: var(--text-primary); }
     .rb-sync-placeholder { color: var(--text-tertiary); }
     .rb-sync-val.has-value { color: var(--text-primary); }
