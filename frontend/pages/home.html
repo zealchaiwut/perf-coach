@@ -765,6 +765,26 @@
       margin: 8px 0 0;
       line-height: 1.45;
     }
+    .rd-tile-signals {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin: 6px 0 0;
+      line-height: 1.45;
+    }
+    .fm-hint {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin: 0 0 12px;
+      line-height: 1.4;
+    }
+    .fm-label-note {
+      font-weight: 500;
+      color: var(--text-tertiary);
+      text-transform: none;
+      letter-spacing: 0;
+    }
 
     /* ---- TRAINING CARD (home-training-card) ---- */
     #home-training-card { padding: 20px 22px; }
@@ -1695,6 +1715,7 @@
         <h2 class="ttl"><i class="ti ti-pencil-plus"></i>Log Today</h2>
         <span id="fast-log-date-label" class="meta"></span>
       </div>
+      <p class="fm-hint">Score uses HRV, RHR, sleep quality, and energy. Mood and sleep hours are logged only.</p>
       <form id="fast-log-form" novalidate>
         <div class="fm-fields">
 
@@ -1730,6 +1751,7 @@
           <div class="fm-field">
             <label class="fm-label" for="fm-sleep">
               Sleep <span class="fm-unit">hours</span>
+              <span class="fm-label-note">(logged)</span>
             </label>
             <div class="fm-stepper">
               <button id="fm-sleep-minus" type="button" class="fm-step-btn" aria-label="Decrease sleep">−</button>
@@ -1742,7 +1764,7 @@
 
           <!-- Sleep quality (1–5) — this is the scored sleep signal, not hours -->
           <div class="fm-field">
-            <label class="fm-label" id="fm-sleep-quality-label">Sleep quality</label>
+            <label class="fm-label" id="fm-sleep-quality-label">Sleep quality <span class="fm-label-note">(in score)</span></label>
             <div class="fm-pills" id="fm-sleep-quality-pills" role="group" aria-labelledby="fm-sleep-quality-label">
               <button type="button" class="fm-pill" data-val="1" aria-pressed="false" aria-label="Poor">1</button>
               <button type="button" class="fm-pill" data-val="2" aria-pressed="false">2</button>
@@ -1771,7 +1793,7 @@
 
           <!-- Energy (1–5 segmented pills) -->
           <div class="fm-field">
-            <label class="fm-label" id="fm-energy-label">Energy</label>
+            <label class="fm-label" id="fm-energy-label">Energy <span class="fm-label-note">(in score)</span></label>
             <div class="fm-pills" id="fm-energy-pills" role="group" aria-labelledby="fm-energy-label">
               <button type="button" class="fm-pill" data-val="1" aria-pressed="false" aria-label="Poor">1</button>
               <button type="button" class="fm-pill" data-val="2" aria-pressed="false">2</button>
@@ -1785,7 +1807,7 @@
 
           <!-- Mood (1–5 segmented pills) -->
           <div class="fm-field">
-            <label class="fm-label" id="fm-mood-label">Mood</label>
+            <label class="fm-label" id="fm-mood-label">Mood <span class="fm-label-note">(logged, not scored)</span></label>
             <div class="fm-pills" id="fm-mood-pills" role="group" aria-labelledby="fm-mood-label">
               <button type="button" class="fm-pill" data-val="1" aria-pressed="false" aria-label="Poor">1</button>
               <button type="button" class="fm-pill" data-val="2" aria-pressed="false">2</button>
@@ -1842,7 +1864,7 @@
 <script src="js/lib/load-readiness-tiles.js?v=20260801a"></script>
 <script src="js/coach-brief.js?v=20260718brief9"></script>
 <script src="js/home-coach-digest.js?v=20260808revamp3"></script>
-<script src="js/home-readiness-training-sleep.js?v=20260810phaseb1"></script>
+<script src="js/home-readiness-training-sleep.js?v=20260814ux2"></script>
 <script src="js/home-brief-week-plan-card.js?v=20260810phasea1"></script>
 <script src="js/lib/next-up-card.js?v=20260810phasea1"></script>
 <script src="js/home-morning.js?v=20260814ux1"></script>
