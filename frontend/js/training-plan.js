@@ -5650,10 +5650,10 @@ information about.
     '.plan-panel .pl-dayrow.dragover{outline:2px dashed var(--info);outline-offset:-2px;background:#eef2ff;}',
     '.plan-panel .pl-dayrow.rest{align-items:flex-start;}',
     '.plan-panel .pl-gut{width:52px;flex-shrink:0;padding-top:2px;}',
-    '.plan-panel .pl-gut-dw{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.05em;color:var(--text-sub);line-height:1;display:block;}',
+    '.plan-panel .pl-gut-dw{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.05em;color:var(--text-sub);line-height:1;display:block;}',
     '.plan-panel .pl-gut-dn{font-family:var(--mono);font-size:17px;font-weight:700;color:var(--text-sub);line-height:1.15;display:block;}',
     '.plan-panel .pl-dayrow.today .pl-gut-dw,.plan-panel .pl-dayrow.today .pl-gut-dn{color:var(--primary);}',
-    '.plan-panel .pl-gut-tot{font-family:var(--mono);font-size:9px;color:var(--text-sub);margin-top:4px;display:block;}',
+    '.plan-panel .pl-gut-tot{font-family:var(--mono);font-size:11px;color:var(--text-sub);margin-top:4px;display:block;}',
     '.plan-panel .pl-day-content{flex:1;min-width:0;display:flex;align-items:flex-start;gap:10px;}',
     '.plan-panel .pl-day-sessions{flex:1;min-width:0;}',
     /* Rest day — same pill footprint as a session card so the row aligns */
@@ -5707,7 +5707,7 @@ information about.
     // cascade — this tokenized version was dead. Removed rather than kept,
     // to avoid a visual change without browser verification; see the note
     // by the surviving definition.
-    '.plan-panel .pl-dhandle{font-size:9px;color:var(--text-sub);letter-spacing:-1px;line-height:1;padding:2px 0;}',
+    '.plan-panel .pl-dhandle{font-size:11px;color:var(--text-sub);letter-spacing:-1px;line-height:1;padding:2px 0;}',
     '.plan-panel .pl-sess-acts{position:absolute;top:5px;right:6px;display:flex;align-items:center;gap:4px;z-index:2;}',
     '.plan-panel .pl-sess-del{background:none;border:none;padding:2px 3px;font-size:13px;line-height:1;cursor:pointer;opacity:0.35;border-radius:5px;}',
     '.plan-panel .pl-sess-del:hover{opacity:1;background:var(--danger-soft);}',
@@ -5793,7 +5793,7 @@ information about.
     '.lp-amini{border-radius:10px;padding:9px 10px;}',
     '.lp-amini .k{font-family:var(--mono);font-size:8px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:3px;}',
     '.lp-amini .v{font-family:var(--mono);font-size:14px;font-weight:700;}',
-    '.lp-amini .s{font-family:var(--mono);font-size:9px;margin-top:2px;opacity:.85;}',
+    '.lp-amini .s{font-family:var(--mono);font-size:11px;margin-top:2px;opacity:.85;}',
     '.lp-amini.peak{background:#e8edfe;color:#4055c9;}',
     '.lp-amini.tap{background:#fff0dc;color:#a16207;}',
     '.lp-amini.race{background:#fee2e2;color:#b91c1c;}',
