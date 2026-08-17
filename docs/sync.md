@@ -3,8 +3,11 @@
 ## Heavy-path delegation (issue #1297)
 
 `POST /api/strava/sync` and `POST /api/stryd/sync` with `full=true` are
-delegated to the compute worker (`/internal/sync/run`) when `WORKER_BASE_URL`
-is set. Incremental syncs (`full=false` or omitted) continue to run in-process.
+delegated to the compute worker (queue row by default). Incremental syncs
+(`full=false` / Settings → **Sync new**) run **in-process on the webapp**
+(`WEB_INCREMENTAL_SYNC_ENABLED=1` on Render) so they still pull when the
+worker is off. If that flag is `0`, queue mode enqueues and returns 202 even
+with no worker, and nothing syncs until zeal-server claims the job.
 
 The worker records job progress in `worker_job_runs` (shared Neon DB).
 `GET /api/sync/status` checks `worker_job_runs` when no in-process job exists,
