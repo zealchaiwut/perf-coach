@@ -3602,6 +3602,9 @@ def _build_readiness_block(uid, today_bkk):
         "label": _readiness_score_label(score),
         "top_factors": top_factors_clean,
         "explanation": explanation,
+        # Keys present in the canonical calculator's raw_scores after
+        # baseline/missing renormalization: hrv, rhr, sleep, energy.
+        "used_signals": sorted(raw.keys()),
     }
 
 
