@@ -241,12 +241,17 @@ Worker-tier flag:
 
 ## Sync routing, queue visibility & Garmin (Phase 3)
 
-**Sync routing.** Full / stream-heavy syncs always go to the worker. Light
-incremental syncs run in-process on the web tier by default; set
-`WEB_INCREMENTAL_SYNC_ENABLED=0` to route those to the worker too (fully offload
-sync from the web dyno). When the flag is off and the worker is unreachable,
-incremental sync **fails closed with 503** — it does not fall back to
-in-process on the thin web dyno.
+**Sync routing.** Full / stream-heavy syncs always go to the worker (queue
+row; they sit `pending` until the worker claims them). Light incremental
+syncs (**Settings → Sync new**, Home Sync now) run **in-process on the web
+tier** so they still pull data when the worker is asleep. Set
+`WEB_INCREMENTAL_SYNC_ENABLED=0` to route those to the worker too.
+
+Queue mode does **not** 503 when the worker is off: enqueue is a DB insert
+and returns 202, so a full sync with the worker down looks started but never
+runs. Incremental must stay on the webapp (`WEB_INCREMENTAL_SYNC_ENABLED=1`
+on Render) for that reason. The 503 fail-closed path is **http** trigger
+mode only (`WorkerUnavailable`).
 
 **Queue visibility.** `GET /api/sync/status` now also reports a queued/running
 pull-queue job as `pending` / `running` (source `queue`) — so the nav bar
@@ -266,7 +271,7 @@ Web-tier flags (Render):
 
 | Var | Default | Purpose |
 |-----|---------|---------|
-| `WEB_INCREMENTAL_SYNC_ENABLED` | `1` | Run light incremental syncs in-process. `0` routes them to the worker too (503 if worker unreachable — fail closed). |
+| `WEB_INCREMENTAL_SYNC_ENABLED` | `1` | Run light incremental syncs in-process (required on Render so Sync new works with the worker off). `0` routes them to the worker queue; they wait forever if the worker is down. |
 | `GARMIN_SYNC_ENABLED` | `0` | Turn on the Garmin source (scaffold — not implemented yet). |
 
 ## Poll loop & schedule

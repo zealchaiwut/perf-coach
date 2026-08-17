@@ -108,7 +108,7 @@ services:
       - key: COACH_EXPORT_VIA_QUEUE
         value: "1"  # build paste/consult blobs on worker; web enqueues + polls
       - key: WEB_INCREMENTAL_SYNC_ENABLED
-        value: "0"  # route incremental sync to worker (keeps 512MB dyno thin)
+        value: "1"  # Sync new runs in-process so it still works if the worker is off
       - key: GOOGLE_LOGIN_ENABLED
         value: "false"  # toggle in Render dashboard to enable Google login
       - key: LLM_COACH_ENABLED
@@ -169,7 +169,7 @@ services:
       - key: COACH_EXPORT_VIA_QUEUE
         value: "1"
       - key: WEB_INCREMENTAL_SYNC_ENABLED
-        value: "0"
+        value: "1"  # Sync new runs in-process so it still works if the worker is off
       - key: GOOGLE_LOGIN_ENABLED
         value: "false"  # toggle in Render dashboard to enable Google login
       - key: LLM_COACH_ENABLED
