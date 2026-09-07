@@ -479,6 +479,16 @@ _PERMANENT_EXEMPT_API: dict[str, str] = {
         "(plan/computed SoT). Gate does not see main.py callers — permanent "
         "exempt rather than delete (Phase D)."
     ),
+    "/api/auth/tokens": (
+        "Machine-caller token management (issue #1759). Called by the token "
+        "owner via Authorization: Bearer or session cookie — not from frontend "
+        "JS. Viral-radar and other hub services call this directly via HTTP."
+    ),
+    "/api/auth/tokens/{token_id}": (
+        "Token revocation endpoint (issue #1759). Called by the token owner "
+        "to revoke a specific token; same machine-caller audience as "
+        "/api/auth/tokens. No frontend caller by design."
+    ),
 }
 
 

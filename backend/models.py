@@ -2268,3 +2268,31 @@ class PreferenceImportAudit(Base):
     raw_json = Column(JSONB, nullable=False)
     prefs_version = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+
+class APIToken(Base):
+    """Scoped read-only API token for machine callers (issue #1759).
+
+    Tokens are generated as 32-byte random secrets and stored here as their
+    SHA-256 hex digest only — the plaintext is shown once at creation time and
+    never persisted. Callers present the plaintext in an Authorization: Bearer
+    header; the server hashes it on each request and looks up this table.
+
+    scope is currently always 'read'; extend the CHECK constraint and
+    require_write logic if write-scoped tokens are ever needed.
+    """
+
+    __tablename__ = "api_tokens"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token_hash = Column(String(64), nullable=False, unique=True)
+    scope = Column(String(20), nullable=False, server_default=text("'read'"))
+    label = Column(String(100), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_api_tokens_user_id", "user_id"),
+        CheckConstraint("scope IN ('read')", name="ck_api_tokens_scope_values"),
+    )

@@ -9,12 +9,12 @@ import time
 import uuid as _uuid
 from typing import Optional
 
-from fastapi import HTTPException, Request, Response, Security
+from fastapi import Depends, HTTPException, Request, Response, Security
 from fastapi.security import APIKeyCookie
 from sqlalchemy.orm import Session, load_only as _load_only
 
 from backend.db import engine
-from backend.models import User
+from backend.models import APIToken, User
 
 _log = logging.getLogger(__name__)
 
@@ -76,6 +76,16 @@ def hash_password(plain: str) -> str:
         plain.encode(), salt=salt, n=_SCRYPT_N, r=_SCRYPT_R, p=_SCRYPT_P, dklen=_SCRYPT_DKLEN
     )
     return f"{_SCRYPT_N}${_SCRYPT_R}${_SCRYPT_P}${salt.hex()}${h.hex()}"
+
+
+def hash_api_token(plaintext: str) -> str:
+    """Return the SHA-256 hex digest of a raw API token.
+
+    API tokens are random 32-byte secrets; hashing with SHA-256 (no salt needed
+    for high-entropy random values) lets the server verify a presented token
+    without ever storing the plaintext.
+    """
+    return hashlib.sha256(plaintext.encode()).hexdigest()
 
 
 def verify_password(plain: str, stored: str) -> bool:
@@ -320,18 +330,69 @@ async def resolve_user(
 ) -> User:
     """Shared FastAPI dependency: resolve the session user or raise 401.
 
-    `_scheme` is declared but never read — the cookie is still taken off the
-    request below, exactly as before. Its only job is to put a security
-    requirement into the OpenAPI schema, because a dependency that reads
-    `request.cookies` by hand contributes nothing there and every one of these
-    routes therefore appeared **public** to anything inspecting `/openapi.json`
-    rather than the source.
+    Accepts two authentication methods (tried in order):
 
-    `auto_error=False` on the scheme is what keeps behaviour identical: FastAPI
-    passes None instead of raising its own 403, so the 401 below is still the
-    one callers get.
+    1. ``Authorization: Bearer <token>`` — machine-caller path (issue #1759).
+       The raw token is hashed with SHA-256 and looked up in ``api_tokens``.
+       On success, ``request.state.token_scope`` is set to the token's scope
+       (e.g. ``"read"``) so that ``require_write`` can enforce read-only
+       restrictions downstream.
+
+    2. Session cookie — the original browser flow, unchanged.
+
+    ``_scheme`` is declared but never read — its only job is to put a security
+    requirement into the OpenAPI schema (``auto_error=False`` keeps behaviour
+    identical to before: FastAPI passes None instead of raising its own 403).
     """
+    auth_header = request.headers.get("Authorization") or ""
+    if isinstance(auth_header, str) and auth_header.startswith("Bearer "):
+        raw_token = auth_header[7:]
+        token_hash = hash_api_token(raw_token)
+        with Session(engine) as db:
+            api_token = (
+                db.query(APIToken)
+                .filter(APIToken.token_hash == token_hash, APIToken.revoked_at.is_(None))
+                .first()
+            )
+        if api_token is None:
+            raise HTTPException(status_code=401, detail="Invalid or revoked token")
+        with Session(engine) as db:
+            user = (
+                db.query(User)
+                .filter(User.id == api_token.user_id, User.is_active.is_(True))
+                .options(_load_only(
+                    User.id, User.name, User.is_admin, User.is_active,
+                    User.password_hash, User.created_at, User.avatar_mime,
+                ))
+                .first()
+            )
+        if user is None:
+            raise HTTPException(status_code=401, detail="User not found")
+        request.state.token_scope = api_token.scope
+        return user
+
     token = request.cookies.get(COOKIE_NAME)
     if token:
         return await get_current_user(request)
     raise HTTPException(status_code=401, detail="Not authenticated")
+
+
+def require_write(request: Request, user: User = Depends(resolve_user)) -> User:
+    """FastAPI dependency: block read-only API token holders from write routes.
+
+    Cookie-authenticated sessions and write-scoped tokens (future) pass through
+    unchanged. A Bearer token with ``scope='read'`` gets 403.
+
+    Usage::
+
+        @app.post("/api/some-resource", status_code=201)
+        def create_resource(body: ..., user: User = Depends(require_write)):
+            ...
+    """
+    scope = getattr(request.state, "token_scope", None)
+    if scope == "read":
+        raise HTTPException(
+            status_code=403,
+            detail="Read-only token cannot perform write operations",
+        )
+    return user
