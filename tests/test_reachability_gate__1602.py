@@ -537,6 +537,7 @@ _BASELINE_ORPHANS_API: dict[str, str] = {
     # the same #414 ticket never got a button.
     "/api/exports/body-measurements": "No export button wired; only weight-targets and weight-entries exports are called (weight.js).",
     "/api/exports/daily-metrics": "No export button wired (see cluster note above).",
+    "/api/exports/races": "Machine-caller endpoint for the cross-project content pipeline (issue #1760); no frontend export button wired.",
     "/api/exports/workouts": "No export button wired (see cluster note above).",
 
     # No reference to "/api/feel" in any form anywhere in frontend/js or

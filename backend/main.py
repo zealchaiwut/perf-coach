@@ -9270,17 +9270,21 @@ def export_workouts_csv(
         if type_filter:
             q = q.filter(Workout.workout_type.in_(type_filter))
         rows = q.order_by(Workout.workout_date.asc()).all()
+        pr_dates = {
+            pr.achieved_on
+            for pr in session.query(PersonalRecord).filter(PersonalRecord.user_id == uid).all()
+        }
 
     _desired_cols = ["workout_date", "workout_type", "name", "distance_km", "duration_seconds", "avg_hr", "tss", "source", "remarks"]
     _model_col_keys = {c.key for c in Workout.__table__.columns}
-    headers = [c for c in _desired_cols if c in _model_col_keys]
+    headers = [c for c in _desired_cols if c in _model_col_keys] + ["is_pr"]
 
     buf = _io.StringIO()
     writer = _csv.writer(buf, quoting=_csv.QUOTE_MINIMAL)
     writer.writerow(headers)
     for w in rows:
         row = []
-        for col in headers:
+        for col in headers[:-1]:
             val = getattr(w, col)
             if val is None:
                 row.append("")
@@ -9288,6 +9292,7 @@ def export_workouts_csv(
                 row.append(str(val))
             else:
                 row.append(val)
+        row.append("true" if w.workout_date in pr_dates else "false")
         writer.writerow(row)
 
     if from_d is not None and to_d is not None:
@@ -9415,6 +9420,78 @@ def export_weight_targets_csv(
         iter([buf.getvalue()]),
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# Stability contract: column names and order are frozen for downstream consumers
+# (viral-radar, asset-studio). Do not rename, remove, or reorder without a
+# versioned migration plan.
+_RACES_EXPORT_COLUMNS = [
+    "race_date",
+    "name",
+    "race_type",
+    "priority",
+    "status",
+    "distance_km",
+    "goal_time_seconds",
+    "finish_time_seconds",
+    "goal_vs_finish_delta_seconds",
+    "ctl",
+    "atl",
+    "tsb",
+]
+
+
+@app.get("/api/exports/races")
+def export_races_csv(user: User = Depends(resolve_user)):
+    uid = user.id
+    with Session(engine) as session:
+        races = (
+            session.query(Race)
+            .filter(Race.user_id == uid)
+            .order_by(Race.race_date.asc())
+            .all()
+        )
+        race_dates = {r.race_date for r in races}
+        snap_by_date: dict = {}
+        if race_dates:
+            snaps = (
+                session.query(TrainingLoadSnapshot)
+                .filter(
+                    TrainingLoadSnapshot.user_id == uid,
+                    TrainingLoadSnapshot.snapshot_date.in_(race_dates),
+                )
+                .all()
+            )
+            snap_by_date = {s.snapshot_date: s for s in snaps}
+
+    buf = _io.StringIO()
+    writer = _csv.writer(buf, quoting=_csv.QUOTE_MINIMAL)
+    writer.writerow(_RACES_EXPORT_COLUMNS)
+    for r in races:
+        snap = snap_by_date.get(r.race_date)
+        delta = None
+        if r.actual_time_seconds is not None and r.goal_time_seconds is not None:
+            delta = r.actual_time_seconds - r.goal_time_seconds
+        writer.writerow([
+            str(r.race_date),
+            r.name,
+            r.race_type,
+            r.priority,
+            r.status,
+            float(r.distance_km) if r.distance_km is not None else "",
+            r.goal_time_seconds if r.goal_time_seconds is not None else "",
+            r.actual_time_seconds if r.actual_time_seconds is not None else "",
+            delta if delta is not None else "",
+            snap.ctl if snap is not None else "",
+            snap.atl if snap is not None else "",
+            snap.tsb if snap is not None else "",
+        ])
+
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="races.csv"'},
     )
 
 
