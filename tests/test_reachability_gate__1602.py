@@ -475,6 +475,12 @@ _PERMANENT_EXEMPT_API: dict[str, str] = {
         "frontend page that constructs this URL — unreachable from the app UI "
         "by design."
     ),
+    "/api/races/changes": (
+        "Machine-to-machine polled changes feed for the viral-radar content "
+        "pipeline (issue #1762). The hub polls this to detect new race results "
+        "and personal records; there is no frontend page that calls this — "
+        "unreachable from the app UI by design."
+    ),
     "/api/plan/week-load": (
         "Plan FE boots via /api/plan/week-bundle (Phase B); week-load is "
         "composed in-process by get_plan_week_bundle. Direct FE callers "
