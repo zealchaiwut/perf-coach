@@ -15266,6 +15266,96 @@ def list_athlete_races(athlete_id: str, user: User = Depends(resolve_user)):
         return JSONResponse([_race_dict(r) for r in rows])
 
 
+_RACE_CHANGES_RETENTION_DAYS = 30
+_RACE_CHANGES_POLL_INTERVAL_SECONDS = 300
+
+
+@app.get("/api/races/changes")
+def get_race_changes(
+    since: str = Query(..., description="ISO 8601 cursor timestamp; return changes after this point"),
+    user: User = Depends(resolve_user),
+):
+    """Polled changes feed for race results and personal records (issue #1762).
+
+    Cursor semantics: pass the ``cursor_next`` from the previous response as
+    ``since`` on the next poll.  On first poll, pass the earliest timestamp you
+    care about (e.g. 30 days ago).  The feed retains changes for
+    ``retention_days`` days — polling more than that far back returns partial
+    results.  Recommended poll frequency: every ``poll_interval_seconds`` seconds
+    (5 minutes).  ``cursor_next`` is the server's UTC time at query execution;
+    store it and use it on the next call.
+    """
+    try:
+        since_dt = _datetime.fromisoformat(since)
+        if since_dt.tzinfo is None:
+            since_dt = since_dt.replace(tzinfo=_timezone.utc)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="since must be a valid ISO 8601 timestamp")
+
+    now = _datetime.now(_timezone.utc)
+    floor = now - _timedelta(days=_RACE_CHANGES_RETENTION_DAYS)
+    effective_since = max(since_dt, floor)
+
+    with Session(engine) as session:
+        races = (
+            session.query(Race)
+            .filter(
+                Race.user_id == user.id,
+                Race.updated_at > effective_since,
+            )
+            .order_by(Race.updated_at.asc())
+            .all()
+        )
+
+        prs = (
+            session.query(PersonalRecord)
+            .filter(
+                PersonalRecord.user_id == user.id,
+                PersonalRecord.created_at > effective_since,
+            )
+            .order_by(PersonalRecord.created_at.asc())
+            .all()
+        )
+
+    def _change_type(r: Race) -> str:
+        if r.status == "done" and r.actual_time_seconds is not None:
+            return "result"
+        return "status"
+
+    return JSONResponse({
+        "version": "1",
+        "cursor_next": now.isoformat(),
+        "retention_days": _RACE_CHANGES_RETENTION_DAYS,
+        "poll_interval_seconds": _RACE_CHANGES_POLL_INTERVAL_SECONDS,
+        "races": [
+            {
+                "id": str(r.id),
+                "name": r.name,
+                "race_date": str(r.race_date),
+                "distance_km": float(r.distance_km) if r.distance_km is not None else None,
+                "priority": r.priority,
+                "status": r.status,
+                "goal_time_seconds": r.goal_time_seconds,
+                "actual_time_seconds": r.actual_time_seconds,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+                "change_type": _change_type(r),
+            }
+            for r in races
+        ],
+        "personal_records": [
+            {
+                "id": str(pr.id),
+                "track_key": pr.track_key,
+                "track_name": pr.track_name,
+                "value_numeric": float(pr.value_numeric),
+                "achieved_on": str(pr.achieved_on),
+                "created_at": pr.created_at.isoformat() if pr.created_at else None,
+            }
+            for pr in prs
+        ],
+    })
+
+
 @app.get("/api/races/{race_id}")
 def get_race(race_id: str, user: User = Depends(resolve_user)):
     try:
