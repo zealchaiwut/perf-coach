@@ -252,3 +252,21 @@ truth.
 - master = production
 - develop = integration
 - feature/<N>-<slug> = work branches off develop
+
+## Agent lifecycle
+
+- **Coder**: create the feature branch off `develop`, implement the ticket,
+  push the branch, label the issue **SIT**, and leave a comment on the issue
+  summarizing what shipped. Do **not** merge.
+- **Tester**: check out the feature branch, verify every acceptance
+  criterion, post a test report as an issue comment, then **merge to
+  `develop`** and label the issue **UAT**.
+- **Human**: reviews UAT, signs off, and promotes `develop` → `master`. This
+  is the only path code reaches production.
+
+If a step is skipped — a coder implements and commits locally but never
+pushes/labels, or a tester verifies but never merges — the ticket stalls
+invisibly: the work exists but GitHub never finds out. Do every step, in
+order, every time, even when the work already exists from a prior session —
+finding pre-existing local commits does not excuse pushing them and
+labeling the ticket.
