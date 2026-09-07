@@ -270,3 +270,16 @@ invisibly: the work exists but GitHub never finds out. Do every step, in
 order, every time, even when the work already exists from a prior session —
 finding pre-existing local commits does not excuse pushing them and
 labeling the ticket.
+
+**Headless dispatch has no notification mechanism.** You are run via `claude
+-p`, not an interactive session — there is no later turn and nothing resumes
+you. If you run tests or a merge via `run_in_background: true`,
+`ScheduleWakeup`, or any other async/polling pattern and then end your
+response, the process simply exits and the work is lost — the ticket will
+show as "verified" in your own reasoning but nothing will have actually
+happened on GitHub or `develop`. Run the full suite and the merge
+**synchronously, in the same turn**, and wait for the command to return
+before writing your final report. Verifying thoroughly and then stopping
+short of the actual merge is the same failure as skipping verification
+entirely — GitHub only sees what you actually execute, not what you
+concluded.
