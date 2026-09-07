@@ -469,6 +469,12 @@ _PERMANENT_EXEMPT_API: dict[str, str] = {
         "the markup is gone). Endpoint stays for API/tests and plan-check "
         "backend enrichment — no frontend caller by design."
     ),
+    "/api/races/{race_id}/note": (
+        "Machine-to-machine endpoint for the viral-radar content pipeline "
+        "(issue #1761). The hub calls this directly over HTTP; there is no "
+        "frontend page that constructs this URL — unreachable from the app UI "
+        "by design."
+    ),
     "/api/plan/week-load": (
         "Plan FE boots via /api/plan/week-bundle (Phase B); week-load is "
         "composed in-process by get_plan_week_bundle. Direct FE callers "

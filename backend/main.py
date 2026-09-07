@@ -16590,6 +16590,111 @@ def _pending_suggestions(session, user_id) -> dict:
     return pending
 
 
+# ── Race note endpoint (issue #1761) ──────────────────────────────────────────
+
+
+@app.get("/api/races/{race_id}/note")
+def get_race_note(race_id: str, user: User = Depends(resolve_user)):
+    """Return structured race facts for content generation (issue #1761).
+
+    Versioned JSON contract — no narrative prose.  Includes goal vs finish
+    delta, PR context, training-load snapshot at race day, and checkpoint splits.
+    """
+    try:
+        rid = _uuid.UUID(race_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid race_id")
+
+    with Session(engine) as session:
+        race = session.get(Race, rid)
+        if race is None or race.user_id != user.id:
+            raise HTTPException(status_code=404, detail="race not found")
+
+        snap = (
+            session.query(TrainingLoadSnapshot)
+            .filter(
+                TrainingLoadSnapshot.user_id == user.id,
+                TrainingLoadSnapshot.snapshot_date == race.race_date,
+            )
+            .first()
+        )
+
+        prs_on_date = (
+            session.query(PersonalRecord)
+            .filter(
+                PersonalRecord.user_id == user.id,
+                PersonalRecord.achieved_on == race.race_date,
+            )
+            .all()
+        )
+
+        pr_context = None
+        if prs_on_date:
+            pr = prs_on_date[0]
+            prev_prs = (
+                session.query(PersonalRecord)
+                .filter(
+                    PersonalRecord.user_id == user.id,
+                    PersonalRecord.track_key == pr.track_key,
+                    PersonalRecord.achieved_on < race.race_date,
+                )
+                .order_by(PersonalRecord.achieved_on.desc())
+                .all()
+            )
+            margin_seconds = None
+            if prev_prs:
+                margin_seconds = float(pr.value_numeric) - float(prev_prs[0].value_numeric)
+            pr_context = {
+                "set_pr": True,
+                "track_key": pr.track_key,
+                "track_name": pr.track_name,
+                "value_seconds": float(pr.value_numeric),
+                "margin_seconds": margin_seconds,
+            }
+
+        checkpoints = (
+            session.query(RaceCheckpoint)
+            .filter(RaceCheckpoint.race_id == race.id)
+            .order_by(RaceCheckpoint.target_distance_km)
+            .all()
+        )
+
+        goal = race.goal_time_seconds
+        finish = race.actual_time_seconds
+        delta = (finish - goal) if (goal is not None and finish is not None) else None
+
+        return JSONResponse({
+            "version": "1",
+            "race": {
+                "id": str(race.id),
+                "name": race.name,
+                "race_date": str(race.race_date),
+                "distance_km": float(race.distance_km) if race.distance_km is not None else None,
+                "priority": race.priority,
+                "status": race.status,
+                "goal_time_seconds": goal,
+                "finish_time_seconds": finish,
+                "goal_vs_finish_delta_seconds": delta,
+            },
+            "personal_record": pr_context,
+            "fitness": {
+                "ctl": snap.ctl,
+                "atl": snap.atl,
+                "tsb": snap.tsb,
+            } if snap is not None else None,
+            "checkpoints": [
+                {
+                    "label": cp.label,
+                    "target_distance_km": float(cp.target_distance_km) if cp.target_distance_km is not None else None,
+                    "target_pace_seconds_per_km": cp.target_pace_seconds_per_km,
+                    "target_duration_seconds": cp.target_duration_seconds,
+                    "met": cp.met,
+                }
+                for cp in checkpoints
+            ],
+        })
+
+
 @app.get("/api/thresholds/suggestions")
 def get_threshold_suggestions(user: User = Depends(resolve_user)):
     """Return pending threshold suggestions for the authenticated user.
