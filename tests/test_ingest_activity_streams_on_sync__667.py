@@ -13,8 +13,8 @@ from backend.services.activity_streams import (
     downsample_to_1hz,
     extract_strava_streams,
     extract_stryd_streams,
-    write_activity_stream,
 )
+from backend.services.reconcile import write_activity_stream
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
