@@ -59,24 +59,19 @@ def _generate_line(
 ) -> str:
     """Return a plain-English sentence describing the insight.
 
-    Delegates to coaching_voice.reframe_line_builder so that tone changes
-    propagate from the shared voice module without edits here.
+    Delegates to coaching_voice.correlation_line_builder so tone changes
+    propagate from the shared voice module.  Correlation insights are
+    associative — "Logging X is associated with..." — never progress-tracking
+    ("You are on track with...").
     """
-    direction = "up" if coefficient >= 0 else "down"
     label = _outcome_label(outcome_name)
+    direction_word = "higher" if coefficient >= 0 else "lower"
     if lag_days == 0:
-        context = f"associated with higher '{label}' scores on the same day"
+        context = f"associated with {direction_word} '{label}' scores on the same day"
     else:
         day_word = "day" if lag_days == 1 else "days"
-        context = f"associated with higher '{label}' scores {lag_days} {day_word} later"
-    if coefficient < 0:
-        context = context.replace("higher", "lower")
-    return coaching_voice.praise_line_builder(
-        f"'{habit_name}' habit",
-        None,
-        direction,
-        context,
-    )
+        context = f"associated with {direction_word} '{label}' scores {lag_days} {day_word} later"
+    return coaching_voice.correlation_line_builder(habit_name, label, context)
 
 
 def _pearson(x_seq: list[float], y_seq: list[float]) -> float:

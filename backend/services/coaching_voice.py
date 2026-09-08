@@ -220,3 +220,24 @@ def _direction_state(metric_name: str, value: float | None, direction: str) -> s
         "under": "below target",
         "neutral": "at a crossroads",
     }.get(direction, "changing")
+
+
+def correlation_line_builder(
+    habit_name: str,
+    label: str,
+    context: str,
+) -> str:
+    """Return an associative correlation insight string.
+
+    Uses logging-framing ("Logging X is associated with...") rather than
+    progress-tracking framing ("You are on track with...").  Correlation
+    insights are observational — they never imply goal attainment.
+
+    Worked example:
+        correlation_line_builder(
+            "Morning Run", "Energy",
+            "associated with higher 'Energy' scores on the same day"
+        )
+        → "Logging 'Morning Run' is associated with higher 'Energy' scores on the same day."
+    """
+    return f"Logging '{habit_name}' is {context}."
