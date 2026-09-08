@@ -13,9 +13,6 @@ These tests verify that the structural boundary is enforced:
          from reconcile (behavioural regression guard).
 """
 import ast
-import importlib
-import sys
-import textwrap
 import uuid
 from pathlib import Path
 
