@@ -87,7 +87,7 @@ def test_strava_resync_without_power_clears_stale_np():
     act = _make_strava_act(workout, _strava_payload_without_power(n_seconds=120))
     session = _make_session()
 
-    with patch("backend.services.activity_streams.write_activity_stream"):
+    with patch("backend.services.reconcile.write_activity_stream"):
         _ingest_streams(session, [("strava", act)], [workout])
 
     assert workout.np is None, (
@@ -106,7 +106,7 @@ def test_stryd_resync_without_power_clears_stale_np():
     act = _make_stryd_act(workout, _stryd_payload_without_power(n_seconds=120))
     session = _make_session()
 
-    with patch("backend.services.activity_streams.write_activity_stream"):
+    with patch("backend.services.reconcile.write_activity_stream"):
         _ingest_streams(session, [("stryd", act)], [workout])
 
     assert workout.np is None, (
@@ -122,7 +122,7 @@ def test_strava_resync_with_power_retains_np():
     act = _make_strava_act(workout, _strava_payload_with_power(n_seconds=120, watts=250))
     session = _make_session()
 
-    with patch("backend.services.activity_streams.write_activity_stream"):
+    with patch("backend.services.reconcile.write_activity_stream"):
         _ingest_streams(session, [("strava", act)], [workout])
 
     assert workout.np == 250, "workout.np must still be computed from the power stream"

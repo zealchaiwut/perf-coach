@@ -62,7 +62,7 @@ def test_power_stream_present_stores_correct_np():
     workout = _make_workout()
     act = _make_strava_act(workout, _strava_payload_with_power(n_seconds=120, watts=200))
 
-    with patch("backend.services.activity_streams.write_activity_stream"):
+    with patch("backend.services.reconcile.write_activity_stream"):
         _ingest_streams(_make_session(), [("strava", act)], [workout])
 
     assert workout.np is not None
@@ -77,7 +77,7 @@ def test_no_power_stream_np_is_null():
     workout = _make_workout()
     act = _make_strava_act(workout, _strava_payload_without_power(n_seconds=120))
 
-    with patch("backend.services.activity_streams.write_activity_stream"):
+    with patch("backend.services.reconcile.write_activity_stream"):
         _ingest_streams(_make_session(), [("strava", act)], [workout])
 
     assert workout.np is None
@@ -130,7 +130,7 @@ def test_caller_does_not_hardcode_window_or_constants():
         return compute_normalized_power(power_samples, sample_interval_seconds)
 
     with (
-        patch("backend.services.activity_streams.write_activity_stream"),
+        patch("backend.services.reconcile.write_activity_stream"),
         patch("backend.services.normalized_power.compute_normalized_power", side_effect=fake_np),
     ):
         _ingest_streams(_make_session(), [("stryd", act)], [workout])
@@ -186,7 +186,7 @@ def test_reingest_with_power_overwrites_np():
     # Re-ingest with a 120-second steady 300 W power stream.
     act = _make_strava_act(workout, _strava_payload_with_power(n_seconds=120, watts=300))
 
-    with patch("backend.services.activity_streams.write_activity_stream"):
+    with patch("backend.services.reconcile.write_activity_stream"):
         _ingest_streams(_make_session(), [("strava", act)], [workout])
 
     # The old value 999 must be replaced by the freshly computed value.
@@ -203,7 +203,7 @@ def test_reingest_without_power_preserves_existing_np():
 
     act = _make_strava_act(workout, _strava_payload_without_power(n_seconds=120))
 
-    with patch("backend.services.activity_streams.write_activity_stream"):
+    with patch("backend.services.reconcile.write_activity_stream"):
         _ingest_streams(_make_session(), [("strava", act)], [workout])
 
     # np should remain at its previous value since no power stream was present.

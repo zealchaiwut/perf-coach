@@ -75,7 +75,7 @@ def test_strava_partial_power_clears_stale_np():
     act = _make_strava_act(workout, _strava_payload_with_few_power_samples())
     session = _make_session()
 
-    with patch("backend.services.activity_streams.write_activity_stream"):
+    with patch("backend.services.reconcile.write_activity_stream"):
         _ingest_streams(session, [("strava", act)], [workout])
 
     assert workout.np is None, (
@@ -94,7 +94,7 @@ def test_stryd_partial_power_clears_stale_np():
     act = _make_stryd_act(workout, _stryd_payload_with_few_power_samples())
     session = _make_session()
 
-    with patch("backend.services.activity_streams.write_activity_stream"):
+    with patch("backend.services.reconcile.write_activity_stream"):
         _ingest_streams(session, [("stryd", act)], [workout])
 
     assert workout.np is None, (
@@ -117,7 +117,7 @@ def test_strava_sufficient_power_still_sets_np():
     act = _make_strava_act(workout, payload)
     session = _make_session()
 
-    with patch("backend.services.activity_streams.write_activity_stream"):
+    with patch("backend.services.reconcile.write_activity_stream"):
         _ingest_streams(session, [("strava", act)], [workout])
 
     assert workout.np == 250, "workout.np must still be computed when power stream is sufficient"
