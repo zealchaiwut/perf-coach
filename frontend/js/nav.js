@@ -828,7 +828,7 @@
         {
           error: true,
           onRetry: function () {
-            _copyForClaude(btn, endpoint, label, { skipWindowCheck: true, slow: opts.slow });
+            _copyForClaude(btn, endpoint, label);
           },
         }
       );
