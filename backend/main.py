@@ -563,11 +563,13 @@ from backend.auth import (  # noqa: E402
     get_admin_secret,
     get_client_ip,
     get_current_user,
+    hash_api_token,
     hash_password,
     MIN_PASSWORD_LENGTH,
     read_admin_cookie,
     read_session_cookie,
     require_admin,
+    require_write,
     resolve_user,
     set_admin_cookie,
     set_csrf_cookie,
@@ -752,6 +754,108 @@ async def delete_avatar(request: Request):
     return Response(status_code=204)
 
 
+# ── API Token endpoints (issue #1759) ────────────────────────────────────────
+#
+# Scoped read-only tokens let machine callers (e.g. viral-radar) read data
+# from the web service via Authorization: Bearer <token>. Tokens are stored
+# as SHA-256 hashes only; the plaintext is returned once at creation.
+#
+# See docs/api-tokens.md for creation/revocation runbook and Render env-var
+# guidance.
+
+
+class _APITokenCreateIn(BaseModel):
+    label: Optional[str] = None  # human-readable name for the token
+
+
+@app.post("/api/auth/tokens", status_code=201)
+def create_api_token(body: _APITokenCreateIn, user: User = Depends(resolve_user)):
+    """Create a new read-only API token for the authenticated user.
+
+    Returns the plaintext token once. Store it securely — it cannot be
+    retrieved again. Subsequent requests use the plaintext in an
+    ``Authorization: Bearer <token>`` header.
+    """
+    import secrets as _secrets_mod
+    from backend.models import APIToken
+
+    raw = _secrets_mod.token_hex(32)  # 256 bits of entropy
+    token_hash = hash_api_token(raw)
+    with Session(engine) as db:
+        tok = APIToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            scope="read",
+            label=body.label or None,
+        )
+        db.add(tok)
+        db.commit()
+        db.refresh(tok)
+        tok_id = str(tok.id)
+    return JSONResponse(
+        {
+            "id": tok_id,
+            "token": raw,
+            "scope": "read",
+            "label": body.label,
+            "note": "Store this token securely — it will not be shown again.",
+        },
+        status_code=201,
+    )
+
+
+@app.get("/api/auth/tokens")
+def list_api_tokens(user: User = Depends(resolve_user)):
+    """List the authenticated user's non-revoked API tokens (no plaintext)."""
+    from backend.models import APIToken
+
+    with Session(engine) as db:
+        tokens = (
+            db.query(APIToken)
+            .filter(APIToken.user_id == user.id, APIToken.revoked_at.is_(None))
+            .order_by(APIToken.created_at.desc())
+            .all()
+        )
+        return JSONResponse(
+            [
+                {
+                    "id": str(t.id),
+                    "scope": t.scope,
+                    "label": t.label,
+                    "created_at": t.created_at.isoformat() if t.created_at else None,
+                }
+                for t in tokens
+            ]
+        )
+
+
+@app.delete("/api/auth/tokens/{token_id}", status_code=204)
+def revoke_api_token(token_id: str, user: User = Depends(resolve_user)):
+    """Revoke an API token by id.
+
+    Soft-deletes (sets revoked_at) so the audit trail is preserved.
+    Only the token's owner can revoke it.
+    """
+    import datetime as _dt
+    from backend.models import APIToken
+
+    try:
+        tid = _uuid.UUID(token_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid token id")
+    with Session(engine) as db:
+        tok = db.query(APIToken).filter(
+            APIToken.id == tid, APIToken.user_id == user.id
+        ).first()
+        if tok is None:
+            raise HTTPException(status_code=404, detail="Token not found")
+        if tok.revoked_at is not None:
+            raise HTTPException(status_code=409, detail="Token already revoked")
+        tok.revoked_at = _dt.datetime.now(_dt.timezone.utc)
+        db.commit()
+    return Response(status_code=204)
+
+
 # ── Weight endpoints (AC-1 through AC-4) ─────────────────────────────────────
 
 # ── Weight entries CRUD endpoints ─────────────────────────────────────────────
@@ -838,7 +942,7 @@ def _parse_entry_time(entry_time_str: str):
 
 
 @app.post("/api/weight-entries", status_code=201)
-def create_weight_entry(body: WeightEntriesCreateIn, user: User = Depends(resolve_user)):
+def create_weight_entry(body: WeightEntriesCreateIn, user: User = Depends(require_write)):
     uid = user.id
 
     if not (20 <= body.weight_kg <= 300):
