@@ -1853,7 +1853,7 @@ async function _saveEditPanel() {
   if (startWVal != null) {
     const isLossTarget = _activeTarget
       ? _activeTarget.start_weight_kg > _activeTarget.target_weight_kg
-      : false;
+      : true;
     if (isLossTarget && goalW >= startWVal) {
       if (errEl) errEl.textContent = 'Goal must be less than start weight.';
       return;
