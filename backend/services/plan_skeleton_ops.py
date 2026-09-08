@@ -364,6 +364,7 @@ def remove(
             wsum = sum(weights) or 1.0
             deltas: dict[str, float] = {}
             placed = 0.0
+            ceiling_overshoot = 0.0
             for i, s in enumerate(train):
                 if i == len(train) - 1:
                     add = target_add - placed
@@ -372,9 +373,18 @@ def remove(
                     placed += add
                 old = float(s.get("target_tss") or 0)
                 new = min(_PER_SLOT_TSS_CAP, max(_PER_SLOT_TSS_FLOOR, old + add))
-                # Cap by remaining room; re-apply floor so ceiling never overrides it
                 if ceiling is not None:
-                    new = min(new, old + max(0.0, add))
+                    # Clamp to what the ACWR ceiling permits for this slot.
+                    ceiling_allowed = old + max(0.0, add)
+                    new = min(new, ceiling_allowed)
+                    # Floor intentionally overrides the ACWR ceiling for tiny slots:
+                    # keeping a training slot below 15 TSS produces meaningless load,
+                    # so the floor always wins.  Each bumped slot overshoots the ceiling
+                    # by at most _PER_SLOT_TSS_FLOOR; aggregate overshoot is bounded by
+                    # n_bumped_slots × _PER_SLOT_TSS_FLOOR and is tracked in
+                    # redistribute_meta["ceiling_overshoot"] for caller visibility.
+                    if new < _PER_SLOT_TSS_FLOOR:
+                        ceiling_overshoot += _PER_SLOT_TSS_FLOOR - new
                     new = max(_PER_SLOT_TSS_FLOOR, new)
                 new_pin = _round_tss_pin(new)
                 old_pin = _round_tss_pin(old)
@@ -391,6 +401,7 @@ def remove(
                 "replaced_tss": round(replaced, 1),
                 "dropped_tss": round(max(0.0, dropped_tss - replaced), 1),
                 "per_slot_deltas": deltas,
+                "ceiling_overshoot": round(ceiling_overshoot, 1),
             }
 
     return {
