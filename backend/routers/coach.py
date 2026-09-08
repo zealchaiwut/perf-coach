@@ -295,6 +295,21 @@ async def get_coach_consult(
 # ── Coach export jobs (worker queue) ─────────────────────────────────────────
 
 
+@router.get("/api/coach/export/queue-window")
+async def get_coach_export_queue_window(user: User = Depends(resolve_user)):
+    """Whether the worker's idle poll is currently in its fast-response window.
+
+    QUEUE_POLL_FAST_WINDOWS must be set the same on the webapp and the worker
+    (see backend.services.queue_window) — this endpoint doesn't reach the
+    worker itself, it just evaluates the same config the worker uses, so the
+    two must agree for the reported window to mean anything. nav.js uses this
+    to warn before enqueuing a coach_export job outside those hours, when a
+    check-in can take minutes instead of the usual ~10 seconds."""
+    from backend.services.queue_window import window_status
+
+    return JSONResponse(window_status())
+
+
 class _CoachExportJobBody(BaseModel):
     kind: str = "consult"
     window: int | None = None
