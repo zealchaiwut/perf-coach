@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session
 from backend.db import engine
 from backend.services import job_queue
 from backend.services.daily_brief import extract_session_target as _extract_target
+from backend.services.queue_window import is_in_fast_window
 
 logger = logging.getLogger("backend.worker_app")
 
@@ -52,6 +53,12 @@ _BANISTER_REFIT_INTERVAL_SECONDS = 7 * 24 * 3600  # weekly
 QUEUE_POLL_ENABLED = os.getenv("QUEUE_POLL_ENABLED", "1") == "1"
 QUEUE_POLL_INTERVAL_SECONDS = int(os.getenv("QUEUE_POLL_INTERVAL_SECONDS", "5"))
 QUEUE_POLL_IDLE_INTERVAL_SECONDS = int(os.getenv("QUEUE_POLL_IDLE_INTERVAL_SECONDS", "300"))
+# Within QUEUE_POLL_FAST_WINDOWS (see backend.services.queue_window), an idle
+# poll uses this shorter interval instead of QUEUE_POLL_IDLE_INTERVAL_SECONDS —
+# keeps Neon awake (billed) only during the athlete's actual usage hours
+# rather than 24/7. No windows configured = same behavior as before (always
+# QUEUE_POLL_IDLE_INTERVAL_SECONDS when idle).
+QUEUE_POLL_FAST_INTERVAL_SECONDS = int(os.getenv("QUEUE_POLL_FAST_INTERVAL_SECONDS", "20"))
 QUEUE_LEASE_SECONDS = int(os.getenv("QUEUE_LEASE_SECONDS", "600"))
 _WORKER_ID = f"{socket.gethostname()}:{os.getpid()}"
 _queue_wake = threading.Event()
@@ -621,19 +628,22 @@ def _queue_poll_loop() -> None:
         logger.info("queue poll disabled (QUEUE_POLL_ENABLED != 1)")
         return
     logger.info(
-        "queue poll started: worker_id=%s active_interval=%ss idle_interval=%ss lease=%ss",
-        _WORKER_ID, QUEUE_POLL_INTERVAL_SECONDS, QUEUE_POLL_IDLE_INTERVAL_SECONDS,
-        QUEUE_LEASE_SECONDS,
+        "queue poll started: worker_id=%s active_interval=%ss fast_interval=%ss "
+        "idle_interval=%ss lease=%ss",
+        _WORKER_ID, QUEUE_POLL_INTERVAL_SECONDS, QUEUE_POLL_FAST_INTERVAL_SECONDS,
+        QUEUE_POLL_IDLE_INTERVAL_SECONDS, QUEUE_LEASE_SECONDS,
     )
     while True:
         try:
             drained = False
             while _poll_once():
                 drained = True
-            interval = (
-                QUEUE_POLL_INTERVAL_SECONDS if drained
-                else QUEUE_POLL_IDLE_INTERVAL_SECONDS
-            )
+            if drained:
+                interval = QUEUE_POLL_INTERVAL_SECONDS
+            elif is_in_fast_window():
+                interval = QUEUE_POLL_FAST_INTERVAL_SECONDS
+            else:
+                interval = QUEUE_POLL_IDLE_INTERVAL_SECONDS
             _queue_wake.wait(interval)
             _queue_wake.clear()
         except Exception as exc:
@@ -1519,6 +1529,15 @@ def _scheduler_loop() -> None:
                 logger.error(
                     "scheduled daily_coach failed to enqueue: %s", exc, exc_info=True
                 )
+
+        # In-process, so unlike the webapp's maybe_wake_worker() this always
+        # reaches the poll loop — no NAT/network involved. Lets the 06:00/18:00
+        # scheduled jobs run immediately instead of waiting out whatever idle
+        # interval (fast- or slow-window) the poll loop happened to be sleeping.
+        try:
+            wake_queue_poll()
+        except Exception as exc:
+            logger.error("post-schedule queue wake failed: %s", exc, exc_info=True)
 
 
 @app.on_event("startup")

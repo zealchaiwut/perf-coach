@@ -488,6 +488,72 @@
   var CONSULT_ENDPOINT = "/api/coach/consult";
   var EXPORT_JOBS_ENDPOINT = "/api/coach/export/jobs";
   var EXPORT_JOB_POLL_MS = 2500;
+  var QUEUE_WINDOW_ENDPOINT = "/api/coach/export/queue-window";
+  var _QUEUE_WINDOW_TTL_MS = 60000;
+  var _queueWindowCache = null; // { data, fetchedAt }
+
+  // Best-effort — a failed/slow fetch must never block the actual check-in,
+  // so any error just resolves to null and the caller treats that as
+  // "unknown, proceed without a warning" rather than surfacing it.
+  function _fetchQueueWindow() {
+    var now = Date.now();
+    if (_queueWindowCache && now - _queueWindowCache.fetchedAt < _QUEUE_WINDOW_TTL_MS) {
+      return Promise.resolve(_queueWindowCache.data);
+    }
+    return fetch(QUEUE_WINDOW_ENDPOINT, { credentials: "same-origin" })
+      .then(function (res) {
+        return res.ok ? res.json() : null;
+      })
+      .catch(function () {
+        return null;
+      })
+      .then(function (data) {
+        if (data) _queueWindowCache = { data: data, fetchedAt: now };
+        return data;
+      });
+  }
+
+  function _closeQueueWindowModal() {
+    var el = document.getElementById("gn-qw-overlay");
+    if (el) el.remove();
+  }
+
+  // Reuses the shared .modal-overlay/.modal-box/.modal-actions/.btn-primary/
+  // .btn-secondary classes from styles.css (loaded on every page) rather than
+  // adding page-scoped modal CSS — nav.js runs on every page, so it can't rely
+  // on any one page's own modal markup/styles existing.
+  function _showQueueWindowModal(info, onContinue) {
+    _closeQueueWindowModal();
+    var windows = (info && info.fast_windows) || [];
+    var windowsText = windows.length
+      ? windows.join(" and ") + " (Bangkok time)"
+      : "its scheduled hours";
+
+    var overlay = document.createElement("div");
+    overlay.id = "gn-qw-overlay";
+    overlay.className = "modal-overlay is-open";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.innerHTML =
+      '<div class="modal-box">' +
+        "<h3>Outside quick check-in hours</h3>" +
+        "<p>The compute worker only polls quickly during " + windowsText +
+        ". Right now this can take a few minutes instead of the usual ~10 seconds.</p>" +
+        '<div class="modal-actions">' +
+          '<button type="button" class="btn-secondary" data-qw="cancel">Try later</button>' +
+          '<button type="button" class="btn-primary" data-qw="continue">Continue anyway</button>' +
+        "</div>" +
+      "</div>";
+    document.body.appendChild(overlay);
+    overlay.querySelector('[data-qw="cancel"]').addEventListener("click", _closeQueueWindowModal);
+    overlay.addEventListener("click", function (e) {
+      if (e.target === overlay) _closeQueueWindowModal();
+    });
+    overlay.querySelector('[data-qw="continue"]').addEventListener("click", function () {
+      _closeQueueWindowModal();
+      onContinue();
+    });
+  }
 
   /** Same contract as training-plan.js's Stryd copy: Clipboard API, then a
    * hidden-textarea fallback for older webviews and non-secure contexts. */
@@ -668,9 +734,30 @@
     });
   }
 
-  function _copyForClaude(btn, endpoint, label) {
+  function _copyForClaude(btn, endpoint, label, opts) {
     endpoint = endpoint || COPY_ENDPOINT;
     label = label || "copied";
+    opts = opts || {};
+
+    // Both endpoints enqueue a coach_export job (see EXPORT_JOBS_ENDPOINT
+    // below) — same worker-queue wait either way — so the window check
+    // applies uniformly, not just to the consult/check-in button. Gate before
+    // touching the button so a click outside the fast window shows the modal
+    // first instead of flashing "Building…" and then waiting.
+    if (!opts.skipWindowCheck) {
+      _fetchQueueWindow().then(function (info) {
+        var outside = !!(info && info.in_window === false);
+        if (outside) {
+          _showQueueWindowModal(info, function () {
+            _copyForClaude(btn, endpoint, label, { skipWindowCheck: true, slow: true });
+          });
+        } else {
+          _copyForClaude(btn, endpoint, label, { skipWindowCheck: true, slow: false });
+        }
+      });
+      return;
+    }
+
     var original = btn ? btn.innerHTML : null;
     if (btn) {
       btn.disabled = true;
@@ -722,9 +809,13 @@
     }
 
     var buildingMsg =
-      endpoint === CONSULT_ENDPOINT
+      (endpoint === CONSULT_ENDPOINT
         ? "Building your check-in — usually takes about 10 seconds…"
-        : "Building your training summary — usually takes about 10 seconds…";
+        : "Building your training summary — usually takes about 10 seconds…") +
+      (opts.slow ? " (outside quick hours — this can take a few minutes)" : "");
+    var queuedMsg =
+      "Queued — waiting for worker…" +
+      (opts.slow ? " (outside quick hours — this can take a few minutes)" : "");
     _copyToast(buildingMsg, { persist: true });
 
     var kind = _exportKindForEndpoint(endpoint);
@@ -737,7 +828,7 @@
         {
           error: true,
           onRetry: function () {
-            _copyForClaude(btn, endpoint, label);
+            _copyForClaude(btn, endpoint, label, { skipWindowCheck: true, slow: opts.slow });
           },
         }
       );
@@ -755,7 +846,7 @@
         }
         return _waitForCoachExportJob(enq.job_id, function (status) {
           if (status === "queued") {
-            _copyToast("Queued — waiting for worker…", { persist: true });
+            _copyToast(queuedMsg, { persist: true });
           } else if (status === "running") {
             _copyToast(buildingMsg, { persist: true });
           }
