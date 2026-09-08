@@ -535,7 +535,7 @@
       source: source,
       strava_activity_url: w.strava_activity_url,
       is_stryd_synced: !!w.stryd_activity_pk,
-      has_strava: isStravaWorkout(w),
+      has_strava: isStravaWorkout(w) || !!w.has_strava,
       has_stryd: source.indexOf("stryd") !== -1 || !!w.stryd_activity_pk,
       notes: w.remarks || "",
       weight_context: w.remarks,
@@ -1618,10 +1618,14 @@
   // carries a Strava activity URL (some imports leave `source` unset). Shared by
   // the list and detail views so both attribute the source identically.
   // issue #601: uses substring includes() so merged 'strava,stryd' source is detected.
+  // issue #1656: also check strava_activity_pk (present in detail responses) so
+  // pk-only workouts whose strava_activity_url is null keep their badge.
   function isStravaWorkout(workout) {
     if (!workout) return false;
     return (
-      (workout.source || "").includes("strava") || !!workout.strava_activity_url
+      (workout.source || "").includes("strava") ||
+      !!workout.strava_activity_url ||
+      !!workout.strava_activity_pk
     );
   }
 
