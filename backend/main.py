@@ -13482,15 +13482,13 @@ def _rolling_mean(values: list, window: int = _FORM_METRICS_ROLLING_DAYS) -> lis
     28-day window). Returns a list of float|None — None when no non-null values
     exist in window.
     """
-    import datetime as _dt
-
     def _as_date(d):
-        if isinstance(d, _dt.date):
+        if isinstance(d, _date):
             return d
-        return _dt.date.fromisoformat(d)
+        return _date.fromisoformat(d)
 
     out = []
-    cutoff_delta = _dt.timedelta(days=window - 1)
+    cutoff_delta = _timedelta(days=window - 1)
     for i, (rd, _) in enumerate(values):
         current_date = _as_date(rd)
         earliest = current_date - cutoff_delta
