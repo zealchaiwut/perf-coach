@@ -1398,8 +1398,13 @@ def get_strength_tss_per_set_for_workout(workout_id, user_id, db) -> dict:
                             "reps": s.get("reps") if isinstance(s, dict) else None,
                             "rpe": s.get("rpe") if isinstance(s, dict) else None,
                         })
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as exc:
+                _log.warning(
+                    "Skipping malformed sets_json for workout_id=%s exercise=%s: %s",
+                    workout_id,
+                    getattr(ex, "id", ex),
+                    exc,
+                )
         else:
             ex_rpe = getattr(ex, "rpe", None)
             ex_reps = getattr(ex, "reps", None)
