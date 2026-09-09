@@ -5,7 +5,8 @@ other than the original developer's box (including CI).
 
 AC1: A portable glob (relative to the repo root) must find habit_consistency.py.
 AC2: The hardcoded-path glob used in the grading test must also find the file,
-     because conftest.py patches glob.glob to translate the old path portably.
+     because the portable_glob fixture patches glob.glob to translate the old
+     path portably (fix #1673 scoped this from session-wide to fixture-scoped).
 """
 import glob
 import os
@@ -21,15 +22,16 @@ def test_portable_glob_finds_habit_consistency():
     )
 
 
-def test_hardcoded_path_translated_portably_by_conftest():
-    """AC2: conftest.py patches glob.glob so the grading-test's hardcoded path
-    finds files on this machine and in CI (not silently vacuous)."""
+def test_hardcoded_path_translated_portably_by_conftest(portable_glob):
+    """AC2: the portable_glob fixture patches glob.glob so the grading-test's
+    hardcoded path finds files on this machine and in CI (not silently vacuous).
+    Requires the portable_glob fixture (#1673: scoped, not session-wide)."""
     candidates = glob.glob(
         "/Users/zeal-server/dev/perf-coach/coder/backend/services/habit_consist*.py"
     )
     assert len(candidates) >= 1, (
-        "The hardcoded-path glob returned empty — conftest.py must translate "
-        "'/Users/zeal-server/dev/perf-coach/coder/' to the repo root so "
+        "The hardcoded-path glob returned empty — the portable_glob fixture must "
+        "translate '/Users/zeal-server/dev/perf-coach/coder/' to the repo root so "
         "test_no_consistency_module_duplicates_met_rule is not silently vacuous."
     )
 
