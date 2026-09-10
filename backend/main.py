@@ -2013,6 +2013,7 @@ def get_weight_chart(
                 weekly_rate_ewma_kg if _rate["readable"] and weekly_rate_ewma_kg is not None
                 else delta_7d_kg
             ),
+            # #1698 rate-pill-consistency: 'This mo' uses OLS rate × 4, same methodology as 'This wk'
             "delta_30d_kg": (
                 round(weekly_rate_ewma_kg * 4, 2) if _rate["readable"] and weekly_rate_ewma_kg is not None
                 else delta_30d_kg
