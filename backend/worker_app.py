@@ -30,12 +30,18 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from backend.db import engine
+from backend.routers.admin import router as _admin_router
 from backend.services import job_queue
 from backend.services.daily_brief import extract_session_target as _extract_target
 
 logger = logging.getLogger("backend.worker_app")
 
 app = FastAPI(title="perf-coach compute worker")
+
+# Shares backend.auth.require_admin / ADMIN_SECRET_* with the webapp — the
+# same admin cookie works against either. Still mounted on the webapp too for
+# now (backend/main.py); that will be dropped once this is verified out here.
+app.include_router(_admin_router)
 
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="worker-sync")
 
