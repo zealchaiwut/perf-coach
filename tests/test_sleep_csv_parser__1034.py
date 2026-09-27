@@ -326,7 +326,7 @@ def test_upsert_inserts_rows():
 
     from sqlalchemy.orm import Session
     from sqlalchemy import text
-    from services.health_sync.sleep_csv_parser import parse_sleep_csv, upsert_sleep_records
+    from services.health_sync.sleep_csv_parser import parse_sleep_csv, upsert_parsed_sleep_rows
 
     user_id = _alice_id(engine)
     result = parse_sleep_csv(_SAMPLE_CSV, user_id, "UTC")
@@ -335,7 +335,7 @@ def test_upsert_inserts_rows():
     ext_ids = [r["external_id"] for r in rows]
     with Session(engine) as session:
         try:
-            summary = upsert_sleep_records(rows, session)
+            summary = upsert_parsed_sleep_rows(rows, session)
             session.commit()
             assert summary["inserted"] + summary["updated"] == len(rows)
         except Exception:
@@ -359,7 +359,7 @@ def test_upsert_idempotent_no_duplicates():
 
     from sqlalchemy.orm import Session
     from sqlalchemy import text
-    from services.health_sync.sleep_csv_parser import parse_sleep_csv, upsert_sleep_records
+    from services.health_sync.sleep_csv_parser import parse_sleep_csv, upsert_parsed_sleep_rows
 
     user_id = _alice_id(engine)
     result = parse_sleep_csv(_SAMPLE_CSV, user_id, "UTC")
@@ -368,11 +368,11 @@ def test_upsert_idempotent_no_duplicates():
 
     with Session(engine) as session:
         try:
-            upsert_sleep_records(rows, session)
+            upsert_parsed_sleep_rows(rows, session)
             session.commit()
 
             # Second import
-            upsert_sleep_records(rows, session)
+            upsert_parsed_sleep_rows(rows, session)
             session.commit()
 
             count = session.execute(
@@ -403,7 +403,7 @@ def test_upsert_stage_null_stored_as_null():
 
     from sqlalchemy.orm import Session
     from sqlalchemy import text
-    from services.health_sync.sleep_csv_parser import parse_sleep_csv, upsert_sleep_records
+    from services.health_sync.sleep_csv_parser import parse_sleep_csv, upsert_parsed_sleep_rows
 
     user_id = _alice_id(engine)
     result = parse_sleep_csv(_SAMPLE_CSV, user_id, "UTC")
@@ -413,7 +413,7 @@ def test_upsert_stage_null_stored_as_null():
 
     with Session(engine) as session:
         try:
-            upsert_sleep_records(rows, session)
+            upsert_parsed_sleep_rows(rows, session)
             session.commit()
 
             db_row = session.execute(

@@ -1,50 +1,76 @@
-"""Tests for issue #525: Default new workout type to most recent selection (runs against UAT)"""
-import os
+"""Tests for issue #525 follow-up (#1278): remove conditional pytest.skip calls.
+
+The two tests in this file verify GET /api/workouts/recent-type using an
+in-process TestClient with resolve_user overridden, so they always reach the
+200 path and the assertions always run — no conditional skips needed.
+
+Acceptance criteria (issue #1278):
+  AC — The two conditional pytest.skip calls (lines 32 and 46) are replaced
+       with a properly authenticated in-process TestClient so the 200-path
+       assertions run unconditionally.
+"""
+import uuid
+from unittest.mock import MagicMock, patch
+
 import pytest
-import httpx
+from fastapi.testclient import TestClient
+
+from backend.auth import resolve_user
+from backend.main import app
 
 
-# Resolved from UAT .env at runtime; see tester skill Step 0.
-# Falls back to the same live-server default the sibling 525 test file uses
-# (127.0.0.1:9001) so the gate can run even when UAT_PORT is not exported.
-_uat_port = os.environ.get("UAT_PORT")
-BASE_URL = (
-    os.environ.get("UAT_BASE_URL")
-    or (f"http://127.0.0.1:{_uat_port}" if _uat_port else "http://127.0.0.1:9001")
-)
+class _StubUser:
+    def __init__(self, user_id=None):
+        self.id = user_id or uuid.uuid4()
+        self.name = "test-user-525"
+        self.is_admin = False
+        self.is_active = True
 
 
 @pytest.fixture
-def client():
-    with httpx.Client(base_url=BASE_URL, timeout=10.0) as c:
+def authed_client():
+    """TestClient with resolve_user stubbed so /api/workouts/recent-type returns 200."""
+    stub = _StubUser()
+    app.dependency_overrides[resolve_user] = lambda: stub
+    with TestClient(app, raise_server_exceptions=True) as c:
+        c._stub_user = stub
         yield c
+    app.dependency_overrides.pop(resolve_user, None)
 
 
-def test_default_recent_workout_type__endpoint_exists_and_returns_null_when_no_history(client):
-    """AC: If no prior workout exists, default remains "Strength" """
-    # GET /api/workouts/recent-type returns {"workout_type": null} for new users.
-    # The frontend then falls back to the built-in default "Strength".
-    # Note: Requires authentication; endpoint returns 401 without a session.
-    r = client.get("/api/workouts/recent-type")
-    # If auth is not set up in the test client, expect 401. This is expected.
-    # The actual feature verification happens via browser interaction (UAT steps).
-    if r.status_code == 401:
-        pytest.skip("Endpoint requires authentication — verified via UAT browser steps")
-    elif r.status_code == 200:
-        data = r.json()
-        # Either null (new user) or a string (existing user with history)
-        assert data.get("workout_type") is None or isinstance(data.get("workout_type"), str)
+def test_endpoint_returns_null_when_no_history(authed_client):
+    """AC: endpoint returns {"workout_type": null} for a user with no workout history."""
+    mock_session = MagicMock()
+    mock_query = mock_session.__enter__.return_value.query.return_value
+    mock_query.filter.return_value.order_by.return_value.first.return_value = None
+
+    with patch("backend.main.Session", return_value=mock_session):
+        r = authed_client.get("/api/workouts/recent-type")
+
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert "workout_type" in data
+    assert data["workout_type"] is None
 
 
-def test_default_recent_workout_type__endpoint_returns_most_recent_type(client):
-    """AC: On form open, workout type pre-selects the user's most recently logged workout type"""
-    # GET /api/workouts/recent-type returns the most recent logged type for the user.
-    # The endpoint is protected by session auth and scoped to the current user.
-    r = client.get("/api/workouts/recent-type")
-    # Endpoint is auth-protected; test documents the contract.
-    if r.status_code == 401:
-        pytest.skip("Endpoint requires authentication — verified via UAT browser steps")
-    elif r.status_code == 200:
-        data = r.json()
-        # Should have 'workout_type' key
-        assert "workout_type" in data
+def test_endpoint_returns_most_recent_type(authed_client):
+    """AC: endpoint returns {"workout_type": <type>} with the workout_type key present."""
+    mock_session = MagicMock()
+    mock_query = mock_session.__enter__.return_value.query.return_value
+    mock_query.filter.return_value.order_by.return_value.first.return_value = ("run",)
+
+    with patch("backend.main.Session", return_value=mock_session):
+        r = authed_client.get("/api/workouts/recent-type")
+
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert "workout_type" in data
+    assert isinstance(data["workout_type"], str)
+    assert data["workout_type"] == "run"
+
+
+def test_anonymous_request_gets_401():
+    """The endpoint rejects unauthenticated requests (no skip needed — always runs)."""
+    with TestClient(app, raise_server_exceptions=True) as c:
+        r = c.get("/api/workouts/recent-type")
+    assert r.status_code == 401

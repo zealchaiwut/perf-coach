@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.dialects import postgresql
 
-from helpers import column_exists, table_exists, index_exists
+from helpers import column_exists, table_exists, index_exists, valid_index_exists
 
 revision: str = "z9n0o1p2q3r4"
 down_revision: Union[str, None] = "y8m9n0o1p2q3"
@@ -161,8 +161,9 @@ def upgrade() -> None:
         )
 
     # 5. Composite index
-    if not index_exists("habit_logs", "ix_habit_logs_habit_id_log_week_start"):
+    if not valid_index_exists("habit_logs", "ix_habit_logs_habit_id_log_week_start"):
         with op.get_context().autocommit_block():
+            op.execute("DROP INDEX IF EXISTS ix_habit_logs_habit_id_log_week_start")
             op.create_index(
                 "ix_habit_logs_habit_id_log_week_start",
                 "habit_logs", ["habit_id", "log_week_start"],

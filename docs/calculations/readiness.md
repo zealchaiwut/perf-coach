@@ -1,85 +1,51 @@
 # Readiness — Daily Wellness Score
 
 **Purpose:** one 0–100 number each morning from wellness inputs (HRV, RHR,
-sleep, energy, mood).
+sleep quality, energy).
 
-**Problem: four different "readiness" formulas coexist**, three of them
-scoring the same wellness inputs differently. The home card, the trends
-chart, and the stored `daily_readiness` row can disagree for the same day.
+**Canonical formula (sprint 103 / #1348):** every wellness surface uses
+`services/readiness/calculator.py`. Home (`GET /api/home/readiness` and the
+`/api/home/summary` readiness block), trends, and `POST /api/readiness/compute`
+all call this calculator. Auto-recompute runs after
+`POST`/`PATCH`/`PUT /api/daily-metrics` (#1349).
 
-## 1. Canonical (persisted) — `services/readiness/`
+## Weights
 
-`calculator.py` + `job.py`; triggered ONLY by `POST /api/readiness/compute`
-(main.py:8035-8060) or the CLI. (Note: lives in top-level `services/`, not
-`backend/services/`.)
+HRV 0.40 / RHR 0.20 / sleep quality 0.20 / energy 0.20
+(calculator.py). Missing signals are **renormalized** over the ones present.
+Mood is logged on Home but is **not** a scored input. Sleep **hours** are
+logged and shown in the explanation; the scored sleep signal is
+`sleep_quality` (1–5).
 
-- Weights: HRV 0.40 / RHR 0.20 / sleep-quality 0.20 / energy 0.20
-  (calculator.py:13-16), **renormalized over available signals** (:129-137).
-- HRV/RHR: CV-normalized z-score vs baseline (HRV 7-day, RHR 30-day windows;
-  min 2/3 baseline days); `score = clamp(50 + z·20)` (ZSCORE_SCALE=20,
-  :52-76).
+- HRV/RHR: CV-normalized z-score vs baseline (HRV 7-day, RHR 30-day;
+  min 2/3 baseline days); `score = clamp(50 + z·20)`.
 - Sleep quality / energy: linear `(x−1)/4 × 100`.
-- Stored in `daily_readiness` (score, components JSONB, computed_at) via
-  raw-SQL upsert on (user_id, date) (job.py:92-111).
-- **Invalidation gap:** editing a `daily_metrics` row does NOT recompute the
-  stored readiness — stale until the compute endpoint is called again.
-- **Edge cases:** HRV omitted (weight redistributed) if fewer than 2 baseline
-  days; RHR omitted if fewer than 3; `sleep_quality`/`energy` NULL → that
-  signal omitted, weight redistributed proportionally; all signals absent →
-  `compute_readiness` returns `None`, no row written; baseline mean of 0 →
-  component score defaults to 50 (neutral); CV < 0.01 (near-constant
-  baseline) falls back to absolute std (floor 1) as the denominator.
-- **`components` JSONB shape:** `{"hrv_contribution", "rhr_contribution",
-  "sleep_contribution", "energy_contribution"}` — the four additive terms sum
-  to `score` (within float tolerance).
-- **Determinism:** `compute_readiness` is pure — no randomness, clock access,
-  or I/O — given the same `(hrv, resting_hr, sleep_quality, energy,
-  hrv_baseline, rhr_baseline)` tuple it always returns the same result.
-- **CLI backfill:** `python -m services.readiness.job --user-id <uuid>
-  --date <YYYY-MM-DD>` (or `--from`/`--to` for a range).
+- All scored inputs absent → `compute_readiness` returns `None`, no row
+  written (Home shows “No metrics logged yet”).
+- HRV omitted if fewer than 2 baseline days; RHR omitted if fewer than 3.
 
-## 2. Home readiness — `GET /api/home/readiness` (main.py:2606-2760)
+Stored in `daily_readiness` via upsert on (user_id, date). Home also
+recomputes live on read (same formula) so the tile matches the latest
+metrics even if a write-path recompute failed.
 
-- Different weights: sleep_hours 0.30 / HRV 0.25 / RHR 0.20 / mood 0.15 /
-  energy 0.10.
-- Per-factor `50 ± delta_pct` vs 7-day mean; **missing factor = 50, not
-  renormalized**.
-- Labels ≥80 Excellent … <20 Recovery (main.py:2591-2603).
+CLI: `python -m services.readiness.job --user-id <uuid> --date <YYYY-MM-DD>`.
 
-## 3. Trends readiness — `_compute_readiness` (main.py:7777-7797)
+## TSB form is not this score
 
-- Unweighted mean of fixed linear maps: HRV 20→100 ms ⇒ 0→100; RHR 90→40 bpm
-  ⇒ 0→100; sleep 4→9 h ⇒ 0→100; quality/energy/mood `(x−1)/4`.
-- No baselines at all. Used by trends/summary series (main.py:7967, 8000).
-
-## 4. TSB "readiness" label — `training_load.readiness_label` (:917-938)
-
-Fatigued/Optimal/Fresh from TSB; surfaces as `readiness_next_week` in the
-weekly summary (main.py:14456). A completely different concept sharing the
-name.
+`training_load.readiness_label` maps TSB to Fatigued / Optimal / Fresh.
+API payloads use `form_label` (preferred) with a deprecated
+`readiness_label` alias, and weekly summary still exposes
+`readiness_next_week` as that TSB form string. That is training-load
+freshness, not the 0–100 wellness score. Do not mix the two.
 
 ## Known weaknesses
 
-1. Three wellness formulas → three numbers for the same day.
-2. No HRV outlier rejection; short baseline windows give unstable CV early on.
-3. Missing mood ⇒ contributes exactly 50 in formula 2 (bias toward the middle).
-4. Stored rows carry no formula-version stamp — retraining data would mix
-   generations.
+1. Short HRV/RHR windows make early scores jumpy.
+2. No HRV outlier rejection.
+3. Mood is collected and unused.
+4. Stored rows carry no formula-version stamp.
 
 ## ML-readiness
 
-The most textbook ML target in the app.
-
-- **Features:** `daily_metrics`, prior TSS/ATL, sleep imports, weight EWMA.
-- **Label options:** next-day subjective energy; session-RPE-vs-planned
-  deviation; HRV rebound.
-- **Model:** per-user personalized regression / Bayesian hierarchical model
-  (population prior for cold start).
-- **Missing logging:** post-workout outcome tied to morning readiness ("did
-  the session go as planned?") — `workout_feel` + `feel_link.py` exist, but
-  coverage and linkage are the gap; formula version stamps on stored rows.
-
-## Caching
-
-`daily_readiness` upsert, explicit-compute only (see invalidation gap above).
-Formulas 2–4 are computed live per request, uncached.
+Still the most textbook ML target in the app (next-day energy, RPE vs plan,
+HRV rebound). Parked until logging coverage on `workout_feel` is real.

@@ -150,6 +150,34 @@ def _sync_splits(session, workout, act) -> None:
     ])
 
 
+def write_activity_stream(workout_id, row_data: dict, session) -> bool:
+    """Upsert one ``activity_streams`` row for the given workout.
+
+    Uses INSERT … ON CONFLICT (workout_id) DO UPDATE so re-syncing is
+    idempotent — the arrays are overwritten with freshly-downsampled data.
+    Returns True if a row was written, False if row_data was empty/None.
+    """
+    if not row_data:
+        return False
+
+    from sqlalchemy.dialects.postgresql import insert as _pg_insert
+    from backend.models import ActivityStream
+
+    vals = {"workout_id": workout_id, **row_data}
+    update_cols = {k: v for k, v in row_data.items()}
+
+    stmt = (
+        _pg_insert(ActivityStream)
+        .values(**vals)
+        .on_conflict_do_update(
+            index_elements=["workout_id"],
+            set_=update_cols,
+        )
+    )
+    session.execute(stmt)
+    return True
+
+
 def _ingest_streams(session, all_acts, existing_workouts) -> None:
     """Write activity_streams rows for every workout that has stream data.
 
@@ -163,7 +191,6 @@ def _ingest_streams(session, all_acts, existing_workouts) -> None:
     from backend.services.activity_streams import (
         extract_strava_streams,
         extract_stryd_streams,
-        write_activity_stream,
     )
     from backend.services.normalized_power import compute_normalized_power
     import logging

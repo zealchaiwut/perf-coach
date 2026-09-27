@@ -58,7 +58,7 @@ def test_phase_label_pulling_stryd():
 
 
 def test_phase_label_reconciling():
-    assert "Reconciling activities" in NAV_JS
+    assert "Matching workouts" in NAV_JS
 
 
 # ── Polling logic ─────────────────────────────────────────────────────────────

@@ -315,7 +315,12 @@ function _showRowError(row, msg) {
   setTimeout(() => { if (errEl.parentNode) errEl.textContent = ''; }, 4000);
 }
 
-function renderTodayCard(habits) {
+function renderTodayCard(habits, todayLogs) {
+  // Build a habit_id → existing log map so controls can be pre-seeded.
+  const todayLogMap = {};
+  if (Array.isArray(todayLogs)) {
+    todayLogs.forEach(l => { todayLogMap[String(l.habit_id)] = l; });
+  }
   const card = document.getElementById('today-quick-log-card');
   const list = document.getElementById('today-habits-list');
   const emptyEl = document.getElementById('today-empty-state');
@@ -442,7 +447,10 @@ function renderTodayCard(habits) {
     const dec = stepper.querySelector('.stepper-dec');
     const inc = stepper.querySelector('.stepper-inc');
     const val = stepper.querySelector('.stepper-val');
-    let count = 0;
+    // Pre-seed count from today's existing log value to avoid overwriting stored data.
+    const existingLog = todayLogMap[String(habitId)];
+    let count = existingLog && existingLog.value != null ? parseInt(existingLog.value, 10) || 0 : 0;
+    if (val) val.textContent = count;
 
     if (dec) dec.addEventListener('click', async () => {
       if (count <= 0) return;
@@ -479,7 +487,13 @@ function renderTodayCard(habits) {
   list.querySelectorAll('.today-duration-input').forEach(input => {
     const row = input.closest('.today-habit-row');
     const habitId = row && row.dataset.habitId;
+    // Pre-seed input from today's existing log value to avoid overwriting stored data.
+    const existingLogDur = todayLogMap[String(habitId)];
     let lastValue = '';
+    if (existingLogDur && existingLogDur.value != null) {
+      input.value = existingLogDur.value;
+      lastValue = String(existingLogDur.value);
+    }
     input.addEventListener('change', async () => {
       const v = parseFloat(input.value);
       if (isNaN(v) || v <= 0) return;
@@ -598,6 +612,10 @@ async function loadAndRender() {
         logSet[l.habit_id + '|' + l.logged_date] = l.id;
       }
     });
+
+    // ── Today quick-log card — filter week logs down to today only ──
+    const todayLogs = logs.filter(l => l.logged_date === todayStr);
+    renderTodayCard(activeHabits, todayLogs);
 
     // ── Daily grid (uses weekData.daily_habits for 4-state cells) ──
     renderDailyGrid(logSet);

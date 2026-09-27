@@ -96,7 +96,7 @@ def test_strava_power_stream_sets_np_on_workout():
     act = _make_strava_act(workout, _strava_payload_with_power(n_seconds=120, watts=250))
     session = _make_session()
 
-    with patch("backend.services.activity_streams.write_activity_stream"):
+    with patch("backend.services.reconcile.write_activity_stream"):
         _ingest_streams(session, [("strava", act)], [workout])
 
     assert workout.np is not None
@@ -112,7 +112,7 @@ def test_strava_no_power_stream_np_remains_null():
     act = _make_strava_act(workout, _strava_payload_without_power(n_seconds=120))
     session = _make_session()
 
-    with patch("backend.services.activity_streams.write_activity_stream"):
+    with patch("backend.services.reconcile.write_activity_stream"):
         _ingest_streams(session, [("strava", act)], [workout])
 
     assert workout.np is None
@@ -126,7 +126,7 @@ def test_stryd_power_stream_sets_np_on_workout():
     act = _make_stryd_act(workout, _stryd_payload_with_power(n_seconds=120, watts=300))
     session = _make_session()
 
-    with patch("backend.services.activity_streams.write_activity_stream"):
+    with patch("backend.services.reconcile.write_activity_stream"):
         _ingest_streams(session, [("stryd", act)], [workout])
 
     assert workout.np is not None
@@ -142,7 +142,7 @@ def test_stryd_no_power_stream_np_remains_null():
     act = _make_stryd_act(workout, _stryd_payload_without_power(n_seconds=120))
     session = _make_session()
 
-    with patch("backend.services.activity_streams.write_activity_stream"):
+    with patch("backend.services.reconcile.write_activity_stream"):
         _ingest_streams(session, [("stryd", act)], [workout])
 
     assert workout.np is None

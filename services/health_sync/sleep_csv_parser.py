@@ -147,7 +147,7 @@ def parse_sleep_csv(
                         the CSV are treated as local to this timezone.
 
     Returns a dict with keys:
-        rows      – list of dicts ready to pass to upsert_sleep_records
+        rows      – list of dicts ready to pass to upsert_parsed_sleep_rows
         inserted  – always 0 (no DB write happens here)
         updated   – always 0
         skipped   – count of rows that were unparseable / missing required fields
@@ -185,8 +185,12 @@ def parse_sleep_csv(
 
 # ── DB upsert ─────────────────────────────────────────────────────────────────
 
-def upsert_sleep_records(rows: list, session: Session) -> dict:
+def upsert_parsed_sleep_rows(rows: list, session: Session) -> dict:
     """Upsert parsed sleep rows into sleep_records via (user_id, external_id) conflict key.
+
+    Renamed from upsert_sleep_records (issue #1065) to avoid a naming collision with
+    drive_sleep_sync.upsert_sleep_records, which takes an incompatible (user_id, records, session)
+    signature.
 
     Args:
         rows:    Output of parse_sleep_csv()["rows"].
@@ -327,7 +331,7 @@ def import_sleep_csv_for_user(user_id: Any, session: Session, user_timezone: str
         return {"inserted": 0, "updated": 0, "skipped": 0, "errors": ["No CSV found in Drive folder"], "rows": []}
 
     parse_result = parse_sleep_csv(csv_content, user_id, user_timezone)
-    upsert_result = upsert_sleep_records(parse_result["rows"], session)
+    upsert_result = upsert_parsed_sleep_rows(parse_result["rows"], session)
 
     conn.last_sync_at = datetime.now(tz=timezone.utc)
 

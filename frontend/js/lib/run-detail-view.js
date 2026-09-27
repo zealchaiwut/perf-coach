@@ -2021,8 +2021,167 @@
     return laps;
   }
 
+  function paceSecFromDisplay(paceTxt) {
+    if (!paceTxt || paceTxt === "—") return null;
+    var parts = String(paceTxt).trim().split(":");
+    if (parts.length !== 2) return null;
+    var m = parseInt(parts[0], 10);
+    var s = parseInt(parts[1], 10);
+    if (!isFinite(m) || !isFinite(s)) return null;
+    return m * 60 + s;
+  }
+
+  /** Pace bar colour tiers — matches the IG/FB share-card legend. */
+  function socialPaceBarColor(paceSec) {
+    if (paceSec == null) return "#64748b";
+    if (paceSec <= 375) return "#f97316"; /* ≤ 6:15 */
+    if (paceSec <= 400) return "#d97706"; /* ≤ 6:40 */
+    return "#ef4444"; /* slower */
+  }
+
+  function socialPaceBarWidth(paceSec, minSec, maxSec) {
+    if (paceSec == null || minSec == null || maxSec == null) return 8;
+    var rng = maxSec - minSec || 1;
+    var norm = 1 - (paceSec - minSec) / rng;
+    return Math.max(12, Math.round(18 + norm * 72));
+  }
+
+  function parseSocialStatGrid(stack) {
+    var loadCard = findLoadCard(stack);
+    var out = {};
+    if (!loadCard) return out;
+    loadCard.querySelectorAll(".rd4-stat").forEach(function (tile) {
+      var lblEl = tile.querySelector(".rd4-stat-lbl");
+      var valEl = tile.querySelector(".rd4-stat-val");
+      if (!lblEl || !valEl) return;
+      var lbl = lblEl.textContent.replace(/\s+/g, " ").trim();
+      var txt = "";
+      valEl.childNodes.forEach(function (n) {
+        if (n.nodeType === 3) txt += n.textContent;
+      });
+      txt = txt.replace(/\s+/g, " ").trim();
+      var unitEl = valEl.querySelector(".rd4-stat-unit");
+      var unit = unitEl ? unitEl.textContent.replace(/\s+/g, " ").trim() : "";
+      if (!txt) txt = valEl.textContent.replace(/\s+/g, " ").trim();
+      else if (unit) txt = txt + " " + unit;
+      out[lbl] = txt;
+    });
+    var tssVal = loadCard.querySelector("#rd4-tss-val");
+    if (tssVal) out.TSS = tssVal.textContent.trim();
+    return out;
+  }
+
+  function parseSocialLapRows(stack) {
+    var tbody = stack.querySelector(".rd4-lap-table tbody");
+    if (!tbody) return [];
+    var withDur = !!stack.querySelector('.rd4-lap-table thead th:nth-child(3)');
+    var headCells = stack.querySelectorAll(".rd4-lap-table thead th");
+    if (headCells.length >= 3 && headCells[2].textContent.trim() === "Dur") {
+      withDur = true;
+    }
+    var rows = [];
+    tbody.querySelectorAll("tr").forEach(function (tr) {
+      var cells = tr.querySelectorAll("td");
+      if (cells.length < 5) return;
+      var paceIdx = withDur ? 3 : 2;
+      var hrIdx = withDur ? 4 : 3;
+      var pwrIdx = withDur ? 5 : 4;
+      var lapNum = cells[0].querySelector(".rd4-lap-num");
+      rows.push({
+        index: lapNum ? lapNum.textContent.trim() : cells[0].textContent.trim(),
+        pace: cells[paceIdx].textContent.trim(),
+        hr: cells[hrIdx].textContent.trim(),
+        power: cells[pwrIdx].textContent.trim(),
+        zone2: tr.classList.contains("rd4-lap-row--z2"),
+        paceSec: paceSecFromDisplay(cells[paceIdx].textContent.trim()),
+      });
+    });
+    return rows;
+  }
+
+  function socialLapModeLabel(stack) {
+    var title = stack.querySelector("#rd4-laps-title");
+    if (!title) return "LAPS";
+    var t = title.textContent.toLowerCase();
+    if (t.indexOf("manual") >= 0) return "manual";
+    if (t.indexOf("1 km") >= 0 || t.indexOf("splits") >= 0) return "lap1km";
+    return "laps";
+  }
+
+  function buildSocialLapColumn(rows, startIdx) {
+    if (!rows.length) return "";
+    var paceSecs = rows.map(function (r) { return r.paceSec; }).filter(function (v) { return v != null; });
+    var minP = paceSecs.length ? Math.min.apply(null, paceSecs) : null;
+    var maxP = paceSecs.length ? Math.max.apply(null, paceSecs) : null;
+
+    var html =
+      '<div class="rd4-social-lap-head">' +
+      '<span>KM</span><span>PACE</span><span></span><span>HR</span><span>W</span>' +
+      "</div>";
+
+    rows.forEach(function (row) {
+      var barW = socialPaceBarWidth(row.paceSec, minP, maxP);
+      var barC = socialPaceBarColor(row.paceSec);
+      var rowCls = "rd4-social-lap-row" + (row.zone2 ? " rd4-social-lap-row--z2" : "");
+      html +=
+        '<div class="' + rowCls + '">' +
+        '<span class="rd4-social-lap-km">' + esc(row.index) + "</span>" +
+        '<span class="rd4-social-lap-pace">' + esc(row.pace) + "</span>" +
+        '<span class="rd4-social-lap-bar"><i style="width:' + barW + "px;background:" + barC + '"></i></span>' +
+        '<span class="rd4-social-lap-hr">' + esc(row.hr) + "</span>" +
+        '<span class="rd4-social-lap-pwr">' + esc(row.power) + "</span>" +
+        "</div>";
+    });
+    return html;
+  }
+
+  function buildSocialPowerZones(stack) {
+    var pzCard = findPowerZonesCard(stack);
+    if (!pzCard) return "";
+    var bar = pzCard.querySelector(".rd4-pz-bar");
+    if (!bar) return "";
+    var segs = bar.querySelectorAll(".rd4-pz-seg");
+    var rows = pzCard.querySelectorAll(".rd4-pz-row");
+    var barHtml = "";
+    segs.forEach(function (seg, i) {
+      var pctEl = rows[i] && rows[i].querySelector(".rd4-pz-pct");
+      var pct = pctEl ? pctEl.textContent.trim() : "";
+      var bg = seg.style.background || "#64748b";
+      var flex = seg.style.flex || "1 1 0";
+      barHtml +=
+        '<div class="rd4-social-pz-seg" style="flex:' + flex + ";background:" + bg + '">' +
+        (pct && parseInt(pct, 10) >= 4 ? "<span>" + esc(pct) + "</span>" : "") +
+        "</div>";
+    });
+    var ftp = "";
+    var foot = pzCard.querySelector(".rd4-foot");
+    if (foot) {
+      var m = foot.textContent.match(/FTP\s+(\d+)/i);
+      if (m) ftp = m[1];
+    }
+    return (
+      '<div class="rd4-social-pz">' +
+      '<div class="rd4-social-pz-head">' +
+      '<span>TIME IN POWER ZONES</span>' +
+      (ftp ? '<span class="rd4-social-pz-ftp">STRYD FTP ' + esc(ftp) + " W</span>" : "") +
+      "</div>" +
+      '<div class="rd4-social-pz-bar">' + barHtml + "</div>" +
+      "</div>"
+    );
+  }
+
+  function fmtSocialDate(iso) {
+    if (!iso) return "—";
+    var d = new Date(iso + (iso.length === 10 ? "T12:00:00" : ""));
+    if (isNaN(d.getTime())) return iso;
+    var dd = pad(d.getDate());
+    var mm = pad(d.getMonth() + 1);
+    var yy = String(d.getFullYear()).slice(-2);
+    return dd + "." + mm + "." + yy;
+  }
+
   /**
-   * Build a landscape share card from the live run-detail DOM.
+   * Portrait social share card (IG / FB stories) — dark theme, two-column laps.
    * Returns null when the panel is not an rd4 run view (caller falls back).
    */
   function buildShareCard(contentEl, opts) {
@@ -2032,75 +2191,100 @@
     if (!stack) return null;
 
     var w = opts.workout || {};
-    var feeling =
-      opts.feeling != null
-        ? opts.feeling
-        : w.feeling != null
-          ? w.feeling
-          : null;
+    var stats = parseSocialStatGrid(stack);
+    var lapRows = parseSocialLapRows(stack);
+    var lapLabel = socialLapModeLabel(stack);
 
-    var root = document.createElement("div");
-    root.className = "rd4-share";
+    var titleEl = stack.querySelector(".rd4-title");
+    var title = titleEl ? titleEl.textContent.trim() : w.name || "Run";
 
-    var left = document.createElement("div");
-    left.className = "rd4-share-col rd4-share-col--left";
+    var subtypeEl = stack.querySelector(".rd4-subtypebadge");
+    var typeLine = (subtypeEl ? subtypeEl.textContent.trim().toUpperCase() : "RUN");
 
-    var headerSrc = stack.querySelector(".rd4-header");
-    if (headerSrc) {
-      var header = document.createElement("section");
-      header.className = "rd4-card rd4-share-header";
-
-      var typebadges = headerSrc.querySelector(".rd4-typebadges");
-      if (typebadges) header.appendChild(typebadges.cloneNode(true));
-
-      var titleEl = headerSrc.querySelector(".rd4-title");
-      if (titleEl) {
-        var h1 = document.createElement("h1");
-        h1.className = "rd4-title";
-        h1.textContent = titleEl.textContent;
-        header.appendChild(h1);
-      }
-
-      var idEl = headerSrc.querySelector(".rd4-id");
-      if (idEl) {
-        var idrow = document.createElement("div");
-        idrow.className = "rd4-idrow";
-        var code = document.createElement("code");
-        code.className = "rd4-id";
-        code.textContent = idEl.textContent;
-        idrow.appendChild(code);
-        header.appendChild(idrow);
-      }
-
-      var dateEl = headerSrc.querySelector(".rd4-date");
-      if (dateEl) {
-        var date = document.createElement("div");
-        date.className = "rd4-date";
-        date.textContent = dateEl.textContent.replace(/\s·\s/g, " - ");
-        header.appendChild(date);
-      }
-
-      header.appendChild(buildShareFeeling(feeling));
-      header.appendChild(buildShareHeroes(w));
-      left.appendChild(header);
+    var dateEl = stack.querySelector(".rd4-date");
+    var dateTxt = w.workout_date ? fmtSocialDate(w.workout_date) : "—";
+    var startTxt = "";
+    if (dateEl) {
+      var m = dateEl.textContent.match(/started\s+(\d{1,2}:\d{2})/i);
+      if (m) startTxt = m[1];
     }
 
-    var metrics = buildShareMetrics(findLoadCard(stack));
-    if (metrics) left.appendChild(metrics);
+    var heroTime = fmtDuration(w.duration_seconds);
+    var dist =
+      w.distance_km != null
+        ? parseFloat((+w.distance_km).toFixed(2)) + " KM"
+        : "—";
+    var paceSec =
+      w.duration_seconds && w.distance_km
+        ? w.duration_seconds / w.distance_km
+        : null;
+    var pace = paceSec != null ? fmtPace(paceSec) + " /KM" : "—";
+    var avgHr = w.avg_hr != null ? Math.round(w.avg_hr) + " BPM" : dash(w.avg_hr);
 
-    var powerZones = buildSharePowerZones(stack);
-    if (powerZones) left.appendChild(powerZones);
+    var mid = Math.ceil(lapRows.length / 2);
+    var colA = lapRows.slice(0, mid);
+    var colB = lapRows.slice(mid);
 
-    var right = document.createElement("div");
-    right.className = "rd4-share-col rd4-share-col--right";
-    var laps = buildShareLaps(stack);
-    if (laps) right.appendChild(laps);
+    var z2min = _Z2.ZONE2_HR_MIN;
+    var z2max = _Z2.ZONE2_HR_MAX;
 
-    root.appendChild(left);
-    if (laps) root.appendChild(right);
-    else root.classList.add("rd4-share--solo");
+    var brandRaw = opts.brand || "perf-coach";
+    var brand = String(brandRaw).trim().toLowerCase().replace(/\s+/g, "") || "perf-coach";
+
+    var root = document.createElement("div");
+    root.className = "rd4-social";
+    root.innerHTML =
+      '<div class="rd4-social-top">' +
+      '<div class="rd4-social-event">' + esc(title) + "</div>" +
+      '<div class="rd4-social-brand">' + esc(brand) + "</div>" +
+      "</div>" +
+      '<div class="rd4-social-meta">' +
+      esc(typeLine) +
+      " · FINISH · " +
+      esc(dateTxt) +
+      (startTxt ? " · " + esc(startTxt) : "") +
+      "</div>" +
+      '<div class="rd4-social-hero-time">' + esc(heroTime) + "</div>" +
+      '<div class="rd4-social-hero-row">' +
+      "<span>" + esc(dist) + "</span>" +
+      "<span>" + esc(pace) + "</span>" +
+      "<span>" + esc(avgHr) + "</span>" +
+      "</div>" +
+      (lapRows.length
+        ? '<div class="rd4-social-laps-title">' + esc(lapLabel) + "</div>" +
+          '<div class="rd4-social-laps">' +
+          '<div class="rd4-social-lap-col">' + buildSocialLapColumn(colA) + "</div>" +
+          '<div class="rd4-social-lap-col">' + buildSocialLapColumn(colB) + "</div>" +
+          "</div>" +
+          '<div class="rd4-social-legend">' +
+          '<span><i class="rd4-social-leg rd4-social-leg--z2"></i> HR zone 2 (' +
+          z2min + "–" + z2max +
+          ")</span>" +
+          '<span><i class="rd4-social-leg rd4-social-leg--fast"></i> ≤ 6:15</span>' +
+          '<span><i class="rd4-social-leg rd4-social-leg--mid"></i> ≤ 6:40</span>' +
+          '<span><i class="rd4-social-leg rd4-social-leg--slow"></i> slower</span>' +
+          "</div>"
+        : "") +
+      '<div class="rd4-social-stats">' +
+      statSocialTile("TSS", stats.TSS || dash(w.tss != null ? Math.round(w.tss) : null)) +
+      statSocialTile("NP", stats.NP || dash(w.np)) +
+      statSocialTile("AVG PWR", stats["Avg power"] || dash(w.avg_power)) +
+      statSocialTile("CADENCE", stats.Cadence || dash(w.avg_cadence_spm)) +
+      statSocialTile("STRIDE", stats.Stride || dash(w.avg_stride_m)) +
+      statSocialTile("ZONE 2", stats["Zone 2"] || dash(w.zone2_minutes)) +
+      "</div>" +
+      buildSocialPowerZones(stack);
 
     return root;
+
+    function statSocialTile(lbl, val) {
+      return (
+        '<div class="rd4-social-stat">' +
+        '<div class="rd4-social-stat-val">' + esc(val) + "</div>" +
+        '<div class="rd4-social-stat-lbl">' + esc(lbl) + "</div>" +
+        "</div>"
+      );
+    }
   }
 
   // ── Simple overlay share card (transparent, for compositing on photos) ──

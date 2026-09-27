@@ -134,6 +134,27 @@
       );
   }
 
+  var _RD_SIGNAL_NAMES = {
+    hrv: 'HRV',
+    rhr: 'RHR',
+    sleep: 'sleep quality',
+    energy: 'energy'
+  };
+
+  function _rdUsedSignalsNote(used) {
+    var all = ['hrv', 'rhr', 'sleep', 'energy'];
+    if (!Array.isArray(used) || used.length === 0) return '';
+    if (used.length >= all.length) return '';
+    var names = used.map(function (k) {
+      return _RD_SIGNAL_NAMES[k] || k;
+    });
+    var line = 'Score uses ' + names.join(', ') + '.';
+    if (used.indexOf('hrv') === -1 || used.indexOf('rhr') === -1) {
+      line += ' HRV needs 2 prior days; RHR needs 3.';
+    }
+    return '<p class="rd-tile-signals">' + esc(line) + '</p>';
+  }
+
   function renderReadinessTile(el, readiness, trainingLoad) {
     if (!el) return;
 
@@ -190,6 +211,7 @@
           esc(readiness.explanation) +
         '</p>';
       }
+      var signalsHTML = _rdUsedSignalsNote(readiness.used_signals);
 
       body =
         '<div class="rd-tile-body">' +
@@ -199,7 +221,8 @@
           '</div>' +
           '<div class="rd-tile-factors">' + factorsHTML + '</div>' +
         '</div>' +
-        explanationHTML;
+        explanationHTML +
+        signalsHTML;
     }
 
     // Load tiles (CTL/ATL/TSB/ACWR) below the daily-signal block — independent

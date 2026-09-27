@@ -333,33 +333,3 @@ def activity_streams_to_strava_dict(stream_row) -> dict:
         out["latlng"] = {"data": list(zip(lat, lng))}
 
     return out
-
-
-# ── Database write helper ─────────────────────────────────────────────────────
-
-def write_activity_stream(workout_id, row_data: dict, session) -> bool:
-    """Upsert one ``activity_streams`` row for the given workout.
-
-    Uses INSERT … ON CONFLICT (workout_id) DO UPDATE so re-syncing is
-    idempotent — the arrays are overwritten with freshly-downsampled data.
-    Returns True if a row was written, False if row_data was empty/None.
-    """
-    if not row_data:
-        return False
-
-    from sqlalchemy.dialects.postgresql import insert as _pg_insert
-    from backend.models import ActivityStream
-
-    vals = {"workout_id": workout_id, **row_data}
-    update_cols = {k: v for k, v in row_data.items()}
-
-    stmt = (
-        _pg_insert(ActivityStream)
-        .values(**vals)
-        .on_conflict_do_update(
-            index_elements=["workout_id"],
-            set_=update_cols,
-        )
-    )
-    session.execute(stmt)
-    return True

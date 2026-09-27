@@ -469,6 +469,18 @@ _PERMANENT_EXEMPT_API: dict[str, str] = {
         "the markup is gone). Endpoint stays for API/tests and plan-check "
         "backend enrichment — no frontend caller by design."
     ),
+    "/api/races/{race_id}/note": (
+        "Machine-to-machine endpoint for the viral-radar content pipeline "
+        "(issue #1761). The hub calls this directly over HTTP; there is no "
+        "frontend page that constructs this URL — unreachable from the app UI "
+        "by design."
+    ),
+    "/api/races/changes": (
+        "Machine-to-machine polled changes feed for the viral-radar content "
+        "pipeline (issue #1762). The hub polls this to detect new race results "
+        "and personal records; there is no frontend page that calls this — "
+        "unreachable from the app UI by design."
+    ),
     "/api/plan/week-load": (
         "Plan FE boots via /api/plan/week-bundle (Phase B); week-load is "
         "composed in-process by get_plan_week_bundle. Direct FE callers "
@@ -478,6 +490,16 @@ _PERMANENT_EXEMPT_API: dict[str, str] = {
         "FE unused; still called in-process by _compute_plan_bundle "
         "(plan/computed SoT). Gate does not see main.py callers — permanent "
         "exempt rather than delete (Phase D)."
+    ),
+    "/api/auth/tokens": (
+        "Machine-caller token management (issue #1759). Called by the token "
+        "owner via Authorization: Bearer or session cookie — not from frontend "
+        "JS. Viral-radar and other hub services call this directly via HTTP."
+    ),
+    "/api/auth/tokens/{token_id}": (
+        "Token revocation endpoint (issue #1759). Called by the token owner "
+        "to revoke a specific token; same machine-caller audience as "
+        "/api/auth/tokens. No frontend caller by design."
     ),
 }
 
@@ -537,6 +559,7 @@ _BASELINE_ORPHANS_API: dict[str, str] = {
     # the same #414 ticket never got a button.
     "/api/exports/body-measurements": "No export button wired; only weight-targets and weight-entries exports are called (weight.js).",
     "/api/exports/daily-metrics": "No export button wired (see cluster note above).",
+    "/api/exports/races": "Machine-caller endpoint for the cross-project content pipeline (issue #1760); no frontend export button wired.",
     "/api/exports/workouts": "No export button wired (see cluster note above).",
 
     # No reference to "/api/feel" in any form anywhere in frontend/js or

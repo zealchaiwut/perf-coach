@@ -274,27 +274,35 @@ def as_user():
     _app.dependency_overrides.pop(resolve_user, None)
 
 
-# ── Portable glob translation (issue #835) ────────────────────────────────────
+# ── Portable glob translation (issue #835, scoped fix #1673) ─────────────────
 #
 # test_no_consistency_module_duplicates_met_rule (tests/test_is_period_met__822.py:233)
 # was written with a hardcoded absolute path from the original coder agent's
 # working directory. That path does not exist on any other machine or in CI,
 # making the test silently vacuous everywhere else.
 #
-# This patch intercepts glob.glob and translates the known-bad prefix to the
-# current repo root so the test is not silently vacuous in CI or on other
-# machines, without touching the grading test file itself.
+# Issue #1673: the original fix replaced glob.glob process-wide with no
+# teardown, contaminating every other test in the session.  The fixture below
+# scopes the patch to whichever test requests it.
 
 _CODER_HARDCODED_PREFIX = '/Users/zeal-server/dev/perf-coach/coder/'
-_original_glob_fn = _glob_module.glob
 _REPO_ROOT_FOR_GLOB = str(_Path(__file__).parent.parent.resolve()) + '/'
 
 
-def _portable_glob(pattern, **kwargs):
-    pattern_str = str(pattern)
-    if _CODER_HARDCODED_PREFIX in pattern_str:
-        pattern_str = pattern_str.replace(_CODER_HARDCODED_PREFIX, _REPO_ROOT_FOR_GLOB)
-    return _original_glob_fn(pattern_str, **kwargs)
+@_pytest.fixture()
+def portable_glob(monkeypatch):
+    """Fixture that translates the hardcoded coder path prefix in glob.glob.
 
+    Request this fixture in any test that calls glob.glob with the hardcoded
+    /Users/zeal-server/dev/perf-coach/coder/ prefix.  monkeypatch restores
+    the original glob.glob automatically after the test ends.
+    """
+    _original = _glob_module.glob
 
-_glob_module.glob = _portable_glob
+    def _shim(pattern, **kwargs):
+        pattern_str = str(pattern)
+        if _CODER_HARDCODED_PREFIX in pattern_str:
+            pattern_str = pattern_str.replace(_CODER_HARDCODED_PREFIX, _REPO_ROOT_FOR_GLOB)
+        return _original(pattern_str, **kwargs)
+
+    monkeypatch.setattr(_glob_module, "glob", _shim)

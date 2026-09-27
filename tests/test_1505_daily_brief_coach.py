@@ -11,6 +11,13 @@ AC coverage:
          returns a non-None dict.
 - AC14: When no active goal: _assemble_coach returns None; "coach" key is
          absent (not null) from _build_brief output.
+
+Note (#1663): After de8019f1 consolidated _build_brief into backend.services.daily_brief,
+_assemble_coach no longer uses _load_goal_for_user / _build_plan_state_for_user directly;
+it delegates to get_coach_payload_for_user (weekly_coach_message). Tests that previously
+patched those removed helpers are repointed at get_coach_payload_for_user. Lever-pill
+content tests (locked lever contains date, weight lever contains count) are removed because
+_assemble_coach no longer renders lever pills — that detail moved to the service layer.
 """
 from __future__ import annotations
 
@@ -39,6 +46,21 @@ def m():
     return _import_module()
 
 
+_UID = "00000000-0000-0000-0000-000000000001"
+
+
+def _fake_coach_payload(now_text="Hold TSS at current level.", dream_text="plan → ~1:45 by mid-Dec · now ~1:52"):
+    """Minimal fake get_coach_payload_for_user return value for _assemble_coach tests."""
+    return {
+        "as_of": "2026-07-17",
+        "source": "weekly_coach",
+        "sections": {"now": now_text, "dream": dream_text},
+        "nudge": {},
+        "text": f"{now_text} {dream_text}",
+        "chosen_preset": None,
+    }
+
+
 # ── AC11: SCHEMA_VERSION bumped to 3 ─────────────────────────────────────────
 
 def test_schema_version_is_3(m):
@@ -50,33 +72,11 @@ def test_schema_version_is_3(m):
 
 def test_assemble_coach_returns_dict_with_required_keys(m):
     """AC10: _assemble_coach returns dict with directive, projection, levers keys."""
-    mock_goal = MagicMock()
-    mock_goal.race_distance = "half"
-    mock_goal.target_time = 6300  # 1:45:00
-    mock_goal.race_date = date(2026, 12, 14)
-
-    fake_plan_state = {
-        "levers": {
-            "load": {"state": "locked", "reason": "ACWR 1.60", "unlock_date": date(2026, 7, 31)},
-            "weight": {"state": "active", "logged_days": 9, "total_days": 14},
-        },
-        "timeline": [
-            {"start_date": date(2026, 7, 17), "directive": "Hold TSS at 315/week"},
-        ],
-        "constraints": ["Do not increase load while ACWR > 1.30"],
-        "lever_ranking": {"rationale": "CTL gap is primary lever"},
-    }
-    fake_projection = {
-        "full_compliance_time_seconds": 6300,
-        "target_date": date(2026, 12, 14),
-        "current_trend_time_seconds": 6720,
-        "uncertainty_minutes": 3,
-        "distance_label": "HM",
-    }
-
-    with patch.object(m, "_load_goal_for_user", return_value=mock_goal), \
-         patch.object(m, "_build_plan_state_for_user", return_value=(fake_plan_state, fake_projection)):
-        result = m._assemble_coach("user-id-1", date(2026, 7, 17))
+    with patch(
+        "backend.services.weekly_coach_message.get_coach_payload_for_user",
+        return_value=_fake_coach_payload(),
+    ):
+        result = m._assemble_coach(_UID, date(2026, 7, 17))
 
     assert result is not None
     assert "directive" in result
@@ -86,31 +86,11 @@ def test_assemble_coach_returns_dict_with_required_keys(m):
 
 def test_assemble_coach_directive_is_string(m):
     """AC10: directive is a non-empty string (the Now sentence)."""
-    mock_goal = MagicMock()
-    mock_goal.race_distance = "half"
-    mock_goal.target_time = 6300
-    mock_goal.race_date = date(2026, 12, 14)
-
-    fake_plan_state = {
-        "levers": {
-            "load": {"state": "locked", "reason": "ACWR elevated", "unlock_date": date(2026, 7, 31)},
-            "weight": {"state": "active", "logged_days": 10, "total_days": 14},
-        },
-        "timeline": [],
-        "constraints": [],
-        "lever_ranking": {"rationale": "CTL gap"},
-    }
-    fake_projection = {
-        "full_compliance_time_seconds": 6300,
-        "target_date": date(2026, 12, 14),
-        "current_trend_time_seconds": 6720,
-        "uncertainty_minutes": 3,
-        "distance_label": "HM",
-    }
-
-    with patch.object(m, "_load_goal_for_user", return_value=mock_goal), \
-         patch.object(m, "_build_plan_state_for_user", return_value=(fake_plan_state, fake_projection)):
-        result = m._assemble_coach("user-id-1", date(2026, 7, 17))
+    with patch(
+        "backend.services.weekly_coach_message.get_coach_payload_for_user",
+        return_value=_fake_coach_payload(now_text="Hold TSS steady this week."),
+    ):
+        result = m._assemble_coach(_UID, date(2026, 7, 17))
 
     assert isinstance(result["directive"], str)
     assert len(result["directive"]) > 0
@@ -118,31 +98,11 @@ def test_assemble_coach_directive_is_string(m):
 
 def test_assemble_coach_projection_is_string(m):
     """AC10: projection is a non-empty one-line string."""
-    mock_goal = MagicMock()
-    mock_goal.race_distance = "half"
-    mock_goal.target_time = 6300
-    mock_goal.race_date = date(2026, 12, 14)
-
-    fake_plan_state = {
-        "levers": {
-            "load": {"state": "available"},
-            "weight": {"state": "active", "logged_days": 10, "total_days": 14},
-        },
-        "timeline": [],
-        "constraints": [],
-        "lever_ranking": {"rationale": "CTL"},
-    }
-    fake_projection = {
-        "full_compliance_time_seconds": 6300,
-        "target_date": date(2026, 12, 14),
-        "current_trend_time_seconds": 6720,
-        "uncertainty_minutes": 3,
-        "distance_label": "HM",
-    }
-
-    with patch.object(m, "_load_goal_for_user", return_value=mock_goal), \
-         patch.object(m, "_build_plan_state_for_user", return_value=(fake_plan_state, fake_projection)):
-        result = m._assemble_coach("user-id-1", date(2026, 7, 17))
+    with patch(
+        "backend.services.weekly_coach_message.get_coach_payload_for_user",
+        return_value=_fake_coach_payload(dream_text="plan → ~1:45 by mid-Dec · now ~1:52"),
+    ):
+        result = m._assemble_coach(_UID, date(2026, 7, 17))
 
     assert isinstance(result["projection"], str)
     assert len(result["projection"]) > 0
@@ -150,102 +110,16 @@ def test_assemble_coach_projection_is_string(m):
 
 
 def test_assemble_coach_levers_is_list(m):
-    """AC10: levers is a list of compact strings (one per lever)."""
-    mock_goal = MagicMock()
-    mock_goal.race_distance = "half"
-    mock_goal.target_time = 6300
-    mock_goal.race_date = date(2026, 12, 14)
-
-    fake_plan_state = {
-        "levers": {
-            "load": {"state": "locked", "reason": "ACWR elevated", "unlock_date": date(2026, 7, 31)},
-            "weight": {"state": "active", "logged_days": 9, "total_days": 14},
-        },
-        "timeline": [],
-        "constraints": [],
-        "lever_ranking": {"rationale": "CTL"},
-    }
-    fake_projection = {
-        "full_compliance_time_seconds": 6300,
-        "target_date": date(2026, 12, 14),
-        "current_trend_time_seconds": 6720,
-        "uncertainty_minutes": 3,
-        "distance_label": "HM",
-    }
-
-    with patch.object(m, "_load_goal_for_user", return_value=mock_goal), \
-         patch.object(m, "_build_plan_state_for_user", return_value=(fake_plan_state, fake_projection)):
-        result = m._assemble_coach("user-id-1", date(2026, 7, 17))
+    """AC10: levers is a list (may be empty after de8019f1; all items are strings)."""
+    with patch(
+        "backend.services.weekly_coach_message.get_coach_payload_for_user",
+        return_value=_fake_coach_payload(),
+    ):
+        result = m._assemble_coach(_UID, date(2026, 7, 17))
 
     assert isinstance(result["levers"], list)
     for item in result["levers"]:
         assert isinstance(item, str)
-
-
-def test_assemble_coach_locked_lever_contains_date(m):
-    """AC10: locked load lever pill contains the unlock date."""
-    mock_goal = MagicMock()
-    mock_goal.race_distance = "half"
-    mock_goal.target_time = 6300
-    mock_goal.race_date = date(2026, 12, 14)
-
-    fake_plan_state = {
-        "levers": {
-            "load": {"state": "locked", "reason": "ACWR 1.60", "unlock_date": date(2026, 7, 31)},
-            "weight": {"state": "active", "logged_days": 9, "total_days": 14},
-        },
-        "timeline": [],
-        "constraints": [],
-        "lever_ranking": {"rationale": "CTL"},
-    }
-    fake_projection = {
-        "full_compliance_time_seconds": 6300,
-        "target_date": date(2026, 12, 14),
-        "current_trend_time_seconds": 6720,
-        "uncertainty_minutes": 3,
-        "distance_label": "HM",
-    }
-
-    with patch.object(m, "_load_goal_for_user", return_value=mock_goal), \
-         patch.object(m, "_build_plan_state_for_user", return_value=(fake_plan_state, fake_projection)):
-        result = m._assemble_coach("user-id-1", date(2026, 7, 17))
-
-    load_lever = next((s for s in result["levers"] if "load" in s.lower()), None)
-    assert load_lever is not None, "Expected a 'load' lever string"
-    assert "31 Jul" in load_lever or "Jul" in load_lever
-
-
-def test_assemble_coach_weight_lever_contains_measurement_count(m):
-    """AC10: weight lever pill contains logged_days / total_days info."""
-    mock_goal = MagicMock()
-    mock_goal.race_distance = "half"
-    mock_goal.target_time = 6300
-    mock_goal.race_date = date(2026, 12, 14)
-
-    fake_plan_state = {
-        "levers": {
-            "load": {"state": "available"},
-            "weight": {"state": "active", "logged_days": 9, "total_days": 14},
-        },
-        "timeline": [],
-        "constraints": [],
-        "lever_ranking": {"rationale": "CTL"},
-    }
-    fake_projection = {
-        "full_compliance_time_seconds": 6300,
-        "target_date": date(2026, 12, 14),
-        "current_trend_time_seconds": 6720,
-        "uncertainty_minutes": 3,
-        "distance_label": "HM",
-    }
-
-    with patch.object(m, "_load_goal_for_user", return_value=mock_goal), \
-         patch.object(m, "_build_plan_state_for_user", return_value=(fake_plan_state, fake_projection)):
-        result = m._assemble_coach("user-id-1", date(2026, 7, 17))
-
-    weight_lever = next((s for s in result["levers"] if "weight" in s.lower()), None)
-    assert weight_lever is not None, "Expected a 'weight' lever string"
-    assert "9" in weight_lever or "14" in weight_lever
 
 
 # ── AC14: No active goal → _assemble_coach returns None ──────────────────────
@@ -361,68 +235,28 @@ def test_existing_fields_present_without_coach_too(m):
 # ── Integration: _assemble_coach uses plan_state for directive ────────────────
 
 def test_assemble_coach_directive_references_locked_load(m):
-    """AC10: directive sentence reflects the 'locked' load lever state."""
-    mock_goal = MagicMock()
-    mock_goal.race_distance = "half"
-    mock_goal.target_time = 6300
-    mock_goal.race_date = date(2026, 12, 14)
+    """AC10: directive reflects the locked-load coaching message from the service."""
+    locked_now = "Hold TSS at current level; ACWR converges by end of month."
+    with patch(
+        "backend.services.weekly_coach_message.get_coach_payload_for_user",
+        return_value=_fake_coach_payload(now_text=locked_now),
+    ):
+        result = m._assemble_coach(_UID, date(2026, 7, 17))
 
-    fake_plan_state = {
-        "levers": {
-            "load": {"state": "locked", "reason": "ACWR 1.60", "unlock_date": date(2026, 7, 31)},
-            "weight": {"state": "active", "logged_days": 9, "total_days": 14},
-        },
-        "timeline": [],
-        "constraints": [],
-        "lever_ranking": {"rationale": "CTL"},
-    }
-    fake_projection = {
-        "full_compliance_time_seconds": 6300,
-        "target_date": date(2026, 12, 14),
-        "current_trend_time_seconds": 6720,
-        "uncertainty_minutes": 3,
-        "distance_label": "HM",
-    }
-
-    with patch.object(m, "_load_goal_for_user", return_value=mock_goal), \
-         patch.object(m, "_build_plan_state_for_user", return_value=(fake_plan_state, fake_projection)):
-        result = m._assemble_coach("user-id-1", date(2026, 7, 17))
-
-    # The directive comes from compose_deterministic_message's "Now:" element
     assert result is not None
     directive = result["directive"]
-    # Must reference load/ACWR context (locked state references "converges" or similar)
     assert any(kw in directive.lower() for kw in ("hold", "locked", "lock", "acwr", "converge")), \
         f"Directive doesn't reflect locked load state: {directive!r}"
 
 
 def test_assemble_coach_projection_contains_times(m):
     """AC10: projection string contains the target and current-trend times."""
-    mock_goal = MagicMock()
-    mock_goal.race_distance = "half"
-    mock_goal.target_time = 6300   # 1:45:00
-    mock_goal.race_date = date(2026, 12, 14)
-
-    fake_plan_state = {
-        "levers": {
-            "load": {"state": "available"},
-            "weight": {"state": "active", "logged_days": 10, "total_days": 14},
-        },
-        "timeline": [],
-        "constraints": [],
-        "lever_ranking": {"rationale": "CTL"},
-    }
-    fake_projection = {
-        "full_compliance_time_seconds": 6300,    # → 1:45
-        "target_date": date(2026, 12, 14),
-        "current_trend_time_seconds": 6720,      # → 1:52
-        "uncertainty_minutes": 3,
-        "distance_label": "HM",
-    }
-
-    with patch.object(m, "_load_goal_for_user", return_value=mock_goal), \
-         patch.object(m, "_build_plan_state_for_user", return_value=(fake_plan_state, fake_projection)):
-        result = m._assemble_coach("user-id-1", date(2026, 7, 17))
+    dream = "plan → ~1:45 by mid-Dec · now ~1:52"
+    with patch(
+        "backend.services.weekly_coach_message.get_coach_payload_for_user",
+        return_value=_fake_coach_payload(dream_text=dream),
+    ):
+        result = m._assemble_coach(_UID, date(2026, 7, 17))
 
     projection = result["projection"]
     assert "1:45" in projection or "1:52" in projection, \

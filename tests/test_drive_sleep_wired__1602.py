@@ -66,11 +66,11 @@ def test_the_orphaned_parser_still_passes_its_own_tests():
     cross-package import is exactly what failed the first time."""
     from services.health_sync.sleep_csv_parser import (
         parse_sleep_csv,
-        upsert_sleep_records,
+        upsert_parsed_sleep_rows,
     )
 
     assert callable(parse_sleep_csv)
-    assert callable(upsert_sleep_records)
+    assert callable(upsert_parsed_sleep_rows)
 
 
 def test_real_csv_bytes_produce_real_rows():

@@ -85,6 +85,23 @@ def test_ac3_guard_triggers_on_goal_equal_to_start():
     )
 
 
+# ── AC3 (follow-up): new-target path must not hard-code isLossTarget = false ─
+
+def test_ac3_new_target_path_not_hardcoded_false():
+    """isLossTarget in _saveEditPanel must not be hard-coded to false for the
+    new-target branch. When _activeTarget is null, the guard must be able to
+    fire when goalW >= startWVal (the chart's current_weight_kg)."""
+    body = _save_panel_body()
+    assert body, "_saveEditPanel not found in weight.js"
+    m = re.search(r'const isLossTarget\s*=([^;]+);', body, re.DOTALL)
+    assert m, "isLossTarget assignment not found in _saveEditPanel"
+    decl = m.group(1)
+    assert ': false' not in decl and ':false' not in decl, (
+        "isLossTarget new-target branch must not be hard-coded to 'false'; "
+        "the guard must fire when _activeTarget is null and goalW >= startWVal"
+    )
+
+
 # ── AC4: guard fires before fetch ────────────────────────────────────────────
 
 def test_ac4_validation_before_fetch():

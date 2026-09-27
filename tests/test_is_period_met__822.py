@@ -226,7 +226,7 @@ def test_streak_module_imports_from_habit_completion():
 
 # ── AC: consistency module (no existing module — no duplicate logic) ──────────
 
-def test_no_consistency_module_duplicates_met_rule():
+def test_no_consistency_module_duplicates_met_rule(portable_glob):
     """UAT 9: no separate consistency module re-implements met-period logic."""
     import glob
     candidates = glob.glob(

@@ -15,7 +15,7 @@ from typing import Sequence, Union
 
 from alembic import op
 
-from helpers import table_exists, index_exists
+from helpers import table_exists, index_exists, valid_index_exists
 
 
 # revision identifiers, used by Alembic.
@@ -31,8 +31,9 @@ _INDEX_NAME = "ix_weight_entries_user_date_null_time"
 def upgrade() -> None:
     if not table_exists("weight_entries"):
         return
-    if not index_exists("weight_entries", _INDEX_NAME):
+    if not valid_index_exists("weight_entries", _INDEX_NAME):
         with op.get_context().autocommit_block():
+            op.execute(f"DROP INDEX IF EXISTS {_INDEX_NAME}")
             op.execute(
                 "CREATE UNIQUE INDEX CONCURRENTLY ix_weight_entries_user_date_null_time "
                 "ON weight_entries (user_id, entry_date) "

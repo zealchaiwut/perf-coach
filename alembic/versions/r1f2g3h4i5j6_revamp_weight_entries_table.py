@@ -12,7 +12,7 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID
 
-from helpers import table_exists, column_exists, index_exists, fk_exists
+from helpers import table_exists, column_exists, index_exists, valid_index_exists, fk_exists
 
 revision = "r1f2g3h4i5j6"
 down_revision = "q0e1f2a3b4c5"
@@ -155,8 +155,9 @@ def upgrade():
         ))
 
     # ── Add index ─────────────────────────────────────────────────────────────
-    if not index_exists("weight_entries", "ix_weight_entries_user_entry_date"):
+    if not valid_index_exists("weight_entries", "ix_weight_entries_user_entry_date"):
         with op.get_context().autocommit_block():
+            op.execute("DROP INDEX IF EXISTS ix_weight_entries_user_entry_date")
             op.create_index(
                 "ix_weight_entries_user_entry_date",
                 "weight_entries",

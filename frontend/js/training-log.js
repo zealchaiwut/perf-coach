@@ -16,6 +16,7 @@
   var activeRowEl = null;
   var panelMode = "view"; // 'view' | 'edit' | 'create'
   var cachedDetailWorkout = null;
+  var _athleteBrand = "";
   // issue: perf — fetchAndRender() defaults to a trailing window rather than
   // full history (see the fetchAndRender comment below); this flags whether
   // Load older has reached the end of available history (no older rows / max).
@@ -535,7 +536,7 @@
       source: source,
       strava_activity_url: w.strava_activity_url,
       is_stryd_synced: !!w.stryd_activity_pk,
-      has_strava: isStravaWorkout(w),
+      has_strava: isStravaWorkout(w) || !!w.has_strava,
       has_stryd: source.indexOf("stryd") !== -1 || !!w.stryd_activity_pk,
       notes: w.remarks || "",
       weight_context: w.remarks,
@@ -1618,10 +1619,14 @@
   // carries a Strava activity URL (some imports leave `source` unset). Shared by
   // the list and detail views so both attribute the source identically.
   // issue #601: uses substring includes() so merged 'strava,stryd' source is detected.
+  // issue #1656: also check strava_activity_pk (present in detail responses) so
+  // pk-only workouts whose strava_activity_url is null keep their badge.
   function isStravaWorkout(workout) {
     if (!workout) return false;
     return (
-      (workout.source || "").includes("strava") || !!workout.strava_activity_url
+      (workout.source || "").includes("strava") ||
+      !!workout.strava_activity_url ||
+      !!workout.strava_activity_pk
     );
   }
 
@@ -2599,6 +2604,7 @@
     if (typeof RD.buildShareCard === "function") {
       var share = RD.buildShareCard(contentEl, {
         workout: cachedDetailWorkout || {},
+        brand: _athleteBrand || undefined,
       });
       if (share) return share;
     }
@@ -2607,7 +2613,7 @@
 
   /**
    * Single screenshot modal with two sections + live preview:
-   *   Card  — Advanced info | Simple + graph | Simple (no graph)
+   *   Card  — Social (IG/FB) | Simple + graph | Simple (no graph)
    *   Laps  — Manual | 1 km   (when both exist; dimmed if card doesn't need laps)
    * Resolves { style, includeGraph, lapMode } or null if cancelled.
    */
@@ -2825,10 +2831,10 @@
               return;
             }
 
-            var isAdv = node.classList.contains("rd4-share");
+            var isSocial = node.classList.contains("rd4-social");
             var isSimple = node.classList.contains("rd4-simple");
-            var naturalW = isAdv ? 1100 : isSimple ? 360 : 200;
-            if (isAdv) node.style.width = "1100px";
+            var naturalW = isSocial ? 1080 : isSimple ? 360 : 200;
+            if (isSocial) node.style.width = "1080px";
             else node.style.width = "max-content";
 
             var scaleWrap = document.createElement("div");
@@ -2855,6 +2861,16 @@
               previewStage.style.height = measuredH + 16 + "px";
               scaleWrap.style.transform = "none";
               scaleWrap.style.width = measured + "px";
+            } else if (isSocial) {
+              previewStage.style.width = "";
+              previewStage.style.maxWidth = "100%";
+              previewStage.style.backgroundColor = "#1a1a1a";
+              var stageW = previewStage.clientWidth || 400;
+              var scale = Math.min(1, (stageW - 16) / measured);
+              scaleWrap.style.transform = "scale(" + scale + ")";
+              scaleWrap.style.width = measured + "px";
+              previewStage.style.height =
+                Math.max(160, Math.ceil(measuredH * scale) + 16) + "px";
             } else {
               previewStage.style.width = "";
               previewStage.style.maxWidth = "";
@@ -2881,7 +2897,7 @@
       controls.appendChild(
         choiceBtn(
           "card",
-          "Advanced info",
+          "Social (IG/FB)",
           "advanced",
           function () {
             return card;
@@ -3061,23 +3077,23 @@
         // Let lap-mode UI/chart repaint before cloning.
         var capture = function () {
           var clone = buildDetailCaptureRoot(contentEl, shotOpts);
-          var isShare = !!(
+          var isSocial = !!(
             clone &&
             clone.classList &&
-            clone.classList.contains("rd4-share")
+            clone.classList.contains("rd4-social")
           );
           var isSimple = !!(
             clone &&
             clone.classList &&
             clone.classList.contains("rd4-simple")
           );
-          var captureWidth = isShare ? 1100 : isSimple ? 360 : 540;
-          var bg = isSimple ? null : isShare ? "#f4f6fa" : "#ffffff";
+          var captureWidth = isSocial ? 1080 : isSimple ? 360 : 540;
+          var bg = isSimple ? null : isSocial ? "#0a0a0a" : "#ffffff";
 
           var host = document.createElement("div");
           host.className =
             "dp-screenshot-capture" +
-            (isShare ? " dp-screenshot-capture--share" : "") +
+            (isSocial ? " dp-screenshot-capture--share" : "") +
             (isSimple ? " dp-screenshot-capture--simple" : "");
           host.setAttribute("aria-hidden", "true");
           host.style.cssText =
@@ -4944,7 +4960,7 @@
 
   function _syncHandleTerminal(data, opts) {
     opts = opts || {};
-    if (!data || data.status === "running" || data.status === "idle") return;
+    if (!data || data.status === "running" || data.status === "pending" || data.status === "idle") return;
     var key = _syncTerminalKey(data);
     if (key && key === _syncLastTerminalStatus) return;
     _syncLastTerminalStatus = key;
@@ -4967,7 +4983,7 @@
       _syncSetBusy(false);
       return;
     }
-    if (data.status === "running") {
+    if (data.status === "running" || data.status === "pending") {
       _syncSetBusy(true);
     } else {
       _syncSetBusy(false);
@@ -7159,6 +7175,7 @@
   // Grab the user ID — user.js fires userReady once auth/me resolves
   window.addEventListener("userReady", function (e) {
     var uid = e.detail && e.detail.userId;
+    _athleteBrand = (e.detail && e.detail.userName) || _athleteBrand || "";
     if (uid && !_athleteId) _init(uid);
   });
 

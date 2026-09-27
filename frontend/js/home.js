@@ -57,6 +57,7 @@
 
   var _fastLogUserId = null;
   var _autoSaveTimer = null;
+  var _afterMetricsSave = function () {};
 
   var _FM_STEPPERS = [
     { inputId: 'fm-rhr',    minusId: 'fm-rhr-minus',    plusId: 'fm-rhr-plus',    min: 30,  max: 120,   step: 1   },
@@ -71,19 +72,45 @@
     var hrv    = document.getElementById('fm-hrv')   ? document.getElementById('fm-hrv').value.trim()   : '';
     var sleep  = document.getElementById('fm-sleep') ? document.getElementById('fm-sleep').value.trim() : '';
     var kcal   = document.getElementById('fm-kcal')  ? document.getElementById('fm-kcal').value.trim()  : '';
+    var quality = document.getElementById('fm-sleep-quality-val') ? document.getElementById('fm-sleep-quality-val').value : '';
     var energy = document.getElementById('fm-energy-val') ? document.getElementById('fm-energy-val').value : '';
     var mood   = document.getElementById('fm-mood-val')   ? document.getElementById('fm-mood-val').value   : '';
     var notes  = document.getElementById('fm-notes') ? document.getElementById('fm-notes').value.trim()  : '';
 
     var payload = {};
-    if (rhr    !== '') payload.resting_hr  = parseInt(rhr, 10);
-    if (hrv    !== '') payload.hrv         = parseInt(hrv, 10);
-    if (sleep  !== '') payload.sleep_hours = parseFloat(sleep);
-    if (kcal   !== '') payload.kcal_intake = parseInt(kcal, 10);
-    if (energy !== '') payload.energy      = parseInt(energy, 10);
-    if (mood   !== '') payload.mood        = parseInt(mood, 10);
-    if (notes  !== '') payload.notes       = notes;
+    if (rhr     !== '') payload.resting_hr    = parseInt(rhr, 10);
+    if (hrv     !== '') payload.hrv           = parseInt(hrv, 10);
+    if (sleep   !== '') payload.sleep_hours   = parseFloat(sleep);
+    if (kcal    !== '') payload.kcal_intake   = parseInt(kcal, 10);
+    if (quality !== '') payload.sleep_quality = parseInt(quality, 10);
+    if (energy  !== '') payload.energy        = parseInt(energy, 10);
+    if (mood    !== '') payload.mood          = parseInt(mood, 10);
+    if (notes   !== '') payload.notes         = notes;
     return payload;
+  }
+
+  function _fmSaveWeight(todayStr) {
+    var el = document.getElementById('fm-weight');
+    if (!el) return Promise.resolve();
+    var raw = el.value.trim();
+    if (raw === '' || isNaN(parseFloat(raw))) return Promise.resolve();
+    var val = parseFloat(raw);
+    if (val < 30 || val > 200) return Promise.resolve();
+    return fetch('/api/weight-entries', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entry_date: todayStr, weight_kg: val })
+    }).then(function (res) {
+      if (res.status !== 409) return;
+      return res.json().then(function (d) {
+        if (!d || !d.existing_id) return;
+        return fetch('/api/weight-entries/' + d.existing_id, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ weight_kg: val })
+        });
+      }).catch(function () {});
+    }).catch(function () {});
   }
 
   async function _fmDoSave(userId, todayStr, silent) {
@@ -103,12 +130,14 @@
       if (res.ok) {
         var banner = document.getElementById('log-today-banner');
         if (banner) banner.style.display = 'none';
+        await _fmSaveWeight(todayStr);
         if (window.UIStates) UIStates.showToast('Saved');
         if (feedback) {
           feedback.className = 'fm-feedback';
           feedback.textContent = 'Saved';
           setTimeout(function () { if (feedback) feedback.textContent = ''; }, 2000);
         }
+        _afterMetricsSave();
 
       } else {
         var errData = null;
@@ -189,6 +218,10 @@
     if (existing.hrv         != null) { var el = document.getElementById('fm-hrv');   if (el) el.value = existing.hrv; }
     if (existing.sleep_hours != null) { var el = document.getElementById('fm-sleep'); if (el) el.value = existing.sleep_hours; }
     if (existing.kcal_intake != null) { var el = document.getElementById('fm-kcal');  if (el) el.value = existing.kcal_intake; }
+    if (existing.sleep_quality != null) {
+      var hidden = document.getElementById('fm-sleep-quality-val'); if (hidden) hidden.value = existing.sleep_quality;
+      var group  = document.getElementById('fm-sleep-quality-pills'); if (group) _fmSelectPill(group, existing.sleep_quality);
+    }
     if (existing.energy != null) {
       var hidden = document.getElementById('fm-energy-val'); if (hidden) hidden.value = existing.energy;
       var group  = document.getElementById('fm-energy-pills'); if (group) _fmSelectPill(group, existing.energy);
@@ -215,6 +248,7 @@
     _fmPrefill(existing);
 
     _FM_STEPPERS.forEach(function (cfg) { _fmInitStepper(cfg, userId, todayStr); });
+    _fmInitPills('fm-sleep-quality-pills', 'fm-sleep-quality-val', userId, todayStr);
     _fmInitPills('fm-energy-pills', 'fm-energy-val', userId, todayStr);
     _fmInitPills('fm-mood-pills',   'fm-mood-val',   userId, todayStr);
 
@@ -227,6 +261,13 @@
         e.preventDefault();
         clearTimeout(_autoSaveTimer);
         _fmDoSave(userId, todayStr, false);
+      });
+    }
+    var cancel = document.getElementById('fm-cancel');
+    if (cancel) {
+      cancel.addEventListener('click', function () {
+        var row = document.getElementById('row-log');
+        if (row) row.hidden = true;
       });
     }
   }
@@ -328,8 +369,16 @@
           .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
           .then(function () {
             container.innerHTML = '<div class="strava-stale-banner strava-stale-banner--syncing">Sync started…</div>';
+            if (window.syncBarRefresh) window.syncBarRefresh();
           })
-          .catch(function () { container.innerHTML = ''; container.hidden = true; });
+          .catch(function () {
+            btn.disabled = false;
+            btn.textContent = 'Sync now';
+            var msg = container.querySelector('.strava-stale-msg');
+            if (msg) {
+              msg.innerHTML = '<b>Sync failed.</b> Load numbers below are still stale. Try again.';
+            }
+          });
       });
     }
   }
@@ -451,10 +500,10 @@
         HomeRTS.render(summary, userId);
       }
 
-      /* This morning — weigh-in, today's session, habits (home-morning.js).
-         Re-render after a weight/habit log so the "N of 3 done" progress
-         and all-done state reflect the just-saved change; the session row's
-         own optimistic UI handles itself without a re-render. */
+      /* This morning — weigh-in, session, habits, wellness (home-morning.js).
+         Re-render after a weight/habit/metrics log so progress reflects the
+         just-saved change; the session row's own optimistic UI handles itself
+         without a re-render. */
       var morningEl = document.getElementById('home-morning');
       var nextUpEl = document.getElementById('home-next-up');
       var weekPlanEl = document.getElementById('home-brief-week-plan-card');
@@ -515,6 +564,20 @@
           });
         }
       }
+      _afterMetricsSave = function () {
+        fetch('/api/home/summary')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (fresh) {
+            if (!fresh) return;
+            summary = fresh;
+            weekDays = Array.isArray(fresh.week_days) ? fresh.week_days : weekDays;
+            if (window.HomeRTS) HomeRTS.render(fresh, userId);
+            _renderMorning();
+            if (window.HomeWeightTrend) HomeWeightTrend.render(document.getElementById('home-weight-trend'));
+          })
+          .catch(function () {});
+      };
+
       _renderMorning();
       _renderNextUpCard();
 
