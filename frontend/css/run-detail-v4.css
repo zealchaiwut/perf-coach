@@ -944,7 +944,248 @@
   .rd4-signal-lbl { min-width: 68px; }
 }
 
-/* ── Share-card export (landscape screenshot) ── */
+/* ── Social share card (portrait IG/FB screenshot) ── */
+.rd4-social {
+  width: 1080px;
+  max-width: 1080px;
+  box-sizing: border-box;
+  padding: 36px 40px 44px;
+  background: #0a0a0a;
+  color: #f5f0e6;
+  font-family: "Inter Tight", system-ui, sans-serif;
+}
+
+.rd4-social-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.rd4-social-event {
+  font-size: 1.125rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #f97316;
+  line-height: 1.2;
+  max-width: 72%;
+}
+
+.rd4-social-brand {
+  font-size: 1.375rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #f5f0e6;
+  white-space: nowrap;
+}
+
+.rd4-social-meta {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #a8a29e;
+  margin-bottom: 18px;
+}
+
+.rd4-social-hero-time {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 5.5rem;
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+  color: #f5f0e6;
+  margin-bottom: 16px;
+}
+
+.rd4-social-hero-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 1.625rem;
+  font-weight: 700;
+  color: #f5f0e6;
+  margin-bottom: 28px;
+}
+
+.rd4-social-laps-title {
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #78716c;
+  margin-bottom: 10px;
+}
+
+.rd4-social-laps {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px 28px;
+  margin-bottom: 14px;
+}
+
+.rd4-social-lap-col {
+  min-width: 0;
+}
+
+.rd4-social-lap-head,
+.rd4-social-lap-row {
+  display: grid;
+  grid-template-columns: 36px 72px 1fr 52px 52px;
+  gap: 8px;
+  align-items: center;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.8125rem;
+}
+
+.rd4-social-lap-head {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #78716c;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #292524;
+}
+
+.rd4-social-lap-row {
+  padding: 5px 6px;
+  border-radius: 6px;
+  color: #f5f0e6;
+}
+
+.rd4-social-lap-row--z2 {
+  background: rgba(34, 197, 94, 0.14);
+}
+
+.rd4-social-lap-km {
+  font-weight: 700;
+  color: #d6d3d1;
+}
+
+.rd4-social-lap-pace {
+  font-weight: 600;
+}
+
+.rd4-social-lap-bar {
+  display: flex;
+  align-items: center;
+  min-height: 10px;
+}
+
+.rd4-social-lap-bar i {
+  display: block;
+  height: 10px;
+  border-radius: 3px;
+  min-width: 8px;
+}
+
+.rd4-social-lap-hr,
+.rd4-social-lap-pwr {
+  text-align: right;
+  color: #e7e5e4;
+}
+
+.rd4-social-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 22px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #a8a29e;
+  margin-bottom: 28px;
+}
+
+.rd4-social-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rd4-social-leg {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+}
+
+.rd4-social-leg--z2 { background: #22c55e; }
+.rd4-social-leg--fast { background: #f97316; }
+.rd4-social-leg--mid { background: #d97706; }
+.rd4-social-leg--slow { background: #ef4444; }
+
+.rd4-social-stats {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.rd4-social-stat {
+  text-align: center;
+  padding: 12px 6px;
+  border-top: 1px solid #292524;
+}
+
+.rd4-social-stat-val {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: #f5f0e6;
+  line-height: 1.1;
+}
+
+.rd4-social-stat-lbl {
+  margin-top: 6px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #78716c;
+}
+
+.rd4-social-pz-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #78716c;
+  margin-bottom: 10px;
+}
+
+.rd4-social-pz-ftp {
+  color: #a8a29e;
+  font-weight: 700;
+}
+
+.rd4-social-pz-bar {
+  display: flex;
+  gap: 3px;
+  height: 40px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.rd4-social-pz-seg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 4px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #0a0a0a;
+}
+
+/* ── Legacy landscape share card (kept for reference / fallback clones) ── */
 .rd4-share {
   display: grid;
   grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
