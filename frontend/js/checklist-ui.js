@@ -207,6 +207,10 @@
     if (!host || !data) return;
     _cache = data;
     opts = opts || {};
+    if (window.ChecklistHabitsPage && typeof window.ChecklistHabitsPage.render === 'function') {
+      window.ChecklistHabitsPage.render(host, data, opts);
+      return;
+    }
     var today = _todayISO();
     var weekLabel = data.week_start ? 'Week of ' + data.week_start : 'This week';
     host.hidden = false;
@@ -285,10 +289,15 @@
 
   function hideLegacyHabits() {
     ['hero-row', 'habits-day-grid-card', 'weekly-habits-card', 'insights-panel',
-      'nudges-panel', 'habits-history-cal', 'habit-evidence', 'starter-section'].forEach(function (id) {
+      'nudges-panel', 'habits-history-cal', 'habit-evidence', 'starter-section',
+      'back-current-wrap'].forEach(function (id) {
       var el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });
+    var hdr = document.querySelector('.habits-page-header');
+    if (hdr) hdr.style.display = 'none';
+    var addBtn = document.getElementById('add-habit-btn');
+    if (addBtn) addBtn.style.display = 'none';
     var root = document.getElementById('checklist-root');
     if (root) root.hidden = false;
   }

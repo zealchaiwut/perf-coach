@@ -557,7 +557,6 @@ async function loadAndRender() {
             week_end: clData.week_end,
             is_current_week: clData.is_current_week,
           };
-          renderPageHeaderFromChecklist(clData);
           ChecklistUI.hideLegacyHabits();
           const root = document.getElementById('checklist-root');
           const refresh = async () => {
@@ -568,8 +567,6 @@ async function loadAndRender() {
             if (r.ok) ChecklistUI.renderHabitsPage(root, await r.json(), { onRefresh: refresh });
           };
           ChecklistUI.renderHabitsPage(root, clData, { onRefresh: refresh });
-          document.getElementById('back-current-wrap').style.display =
-            currentWeekStart && !clData.is_current_week ? '' : 'none';
           return;
         }
       }
