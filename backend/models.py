@@ -189,6 +189,9 @@ class Habit(Base):
     focus_since = Column(DateTime(timezone=True), nullable=True)
     # Section grouping: 'training' or 'general' (issue #1506)
     section = Column(Text, nullable=False, server_default=text("'general'"))
+    # Weekly checklist role (WC-05): core counts toward day score; optional never
+    # "missed"; off hides without archiving.
+    checklist_role = Column(Text, nullable=False, server_default=text("'core'"))
 
     __table_args__ = (
         CheckConstraint(
@@ -202,6 +205,10 @@ class Habit(Base):
         CheckConstraint(
             "section IN ('training', 'general')",
             name="ck_habits_section_values",
+        ),
+        CheckConstraint(
+            "checklist_role IN ('core', 'optional', 'off')",
+            name="ck_habits_checklist_role",
         ),
         # Partial unique indexes (#1604) closing ensure_goal_habits' check-then-
         # insert race — see goal_habits.py and

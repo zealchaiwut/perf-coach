@@ -578,7 +578,7 @@
           ) {
             rows.push(
               '<div class="pm-projnow-basis-row">' +
-                '<span class="pm-projnow-basis-k">Endurance ' +
+                '<span class="pm-projnow-basis-k">Endurance (race-specific) ' +
                 Math.round(basis.endurance_score) +
                 "</span>" +
                 '<span class="pm-projnow-basis-v">' +
@@ -593,7 +593,7 @@
           ) {
             rows.push(
               '<div class="pm-projnow-basis-row">' +
-                '<span class="pm-projnow-basis-k">Speed ' +
+                '<span class="pm-projnow-basis-k">Speed (race-specific) ' +
                 Math.round(basis.speed_score) +
                 "</span>" +
                 '<span class="pm-projnow-basis-v">' +
@@ -914,6 +914,7 @@
     var sc = r.computed && r.computed.scores;
     if (!sc || sc.kind !== "required") return "";
     var tags =
+      '<span class="pm-sc-lbl">race-specific</span>' +
       '<span class="pm-sc req">End ' + sc.end + " " + _signed(sc.d_end) + "</span>" +
       '<span class="pm-sc req">Spd ' + sc.spd + " " + _signed(sc.d_spd) + "</span>";
     return '<div class="pm-rcfoot"><div class="pm-scoretags">' + tags + "</div></div>";
@@ -938,6 +939,7 @@
       demo.spd != null && isFinite(Number(demo.spd)) ? demo.spd : null;
     if (end == null && spd == null) return "";
     var tags =
+      '<span class="pm-sc-lbl">race-specific</span>' +
       '<span class="pm-sc req">End ' + (end != null ? end : "—") + "</span>" +
       '<span class="pm-sc req">Spd ' + (spd != null ? spd : "—") + "</span>";
     return '<div class="pm-rcfoot"><div class="pm-scoretags">' + tags + "</div></div>";
@@ -1023,6 +1025,71 @@
     }
     return '<span class="pm-rclet" style="background:' +
       (_LET_BG[priority] || "var(--text-sub)") + '">' + esc(priority) + "</span>";
+  }
+
+  function _isNeedsResult(r) {
+    if (r.type === "checkpoint") return false;
+    var todayStr = todayISO();
+    return (
+      r.date &&
+      r.date < todayStr &&
+      !(r.status === "done" && r.actual_time_seconds != null)
+    );
+  }
+
+  function _recordAndRecalibrate(r) {
+    var actual = r.suggested_actual_time_seconds;
+    if (actual == null || actual <= 0) {
+      openModal(r, r.type || "race");
+      return;
+    }
+    apiPost("/api/races/" + r.id + "/calibrate", { actual_time_seconds: actual }, function (res) {
+      if (!res.ok) {
+        window.alert("Could not record result — try Edit and pick from history.");
+        return;
+      }
+      refresh();
+    });
+  }
+
+  // Past race with no recorded result — suggest matched workout time.
+  function _buildNeedsResultCard(r) {
+    var distKm = parseFloat(r.distance || 0);
+    var goalSec = r.goal_time_seconds || null;
+    var goalPace = goalSec && distKm ? fmtPace(goalSec / distKm) : "";
+    var actualSec = r.suggested_actual_time_seconds || null;
+    var actualPace = actualSec != null && distKm ? fmtPace(actualSec / distKm) : "";
+
+    var card = document.createElement("div");
+    card.className = "pm-rc pm-rc--needs";
+    card.setAttribute("data-race-id", r.id);
+
+    var head =
+      '<div class="pm-rchd">' +
+      _priorityBadge(false, r.priority || "B") +
+      '<span class="pm-rcname">' + esc(r.name || "Unnamed") + "</span>" +
+      '<span class="pm-typetag">RACE</span>' +
+      '<span class="pm-rcmeta">' + esc(_metaText(r, distKm)) + "</span>" +
+      '<span class="pm-upc pm-needs">NEEDS RESULT</span>' +
+      '<span class="pm-rcactions">' +
+      '<button class="pm-rcact pm-rcact--primary" data-act="calibrate" type="button">' +
+      "Record and recalibrate</button>" +
+      '<button class="pm-rcact" data-act="edit" type="button">Edit</button>' +
+      "</span></div>";
+
+    var grid =
+      '<div class="pm-rcgrid">' +
+      '<div class="pm-col"><div class="pm-coll">Goal</div>' +
+      '<div class="pm-colt">' + esc(goalSec ? fmtTime(goalSec) : "—") + "</div>" +
+      '<div class="pm-colp">' + esc(goalPace || "—") + "</div></div>" +
+      '<div class="pm-col"><div class="pm-coll">Suggested actual</div>' +
+      '<div class="pm-colt">' + esc(actualSec != null ? fmtTime(actualSec) : "—") + "</div>" +
+      '<div class="pm-colp">' + esc(actualPace || "from synced run") + "</div></div>" +
+      "</div>";
+
+    card.innerHTML = head + grid + _requiredScoreFoot(r);
+    _wireCardActions(card, r);
+    return card;
   }
 
   // Build a full-width UPCOMING card (Goal + Estimated columns).
@@ -1150,6 +1217,11 @@
   }
 
   function _wireCardActions(card, r) {
+    var calBtn = card.querySelector('[data-act="calibrate"]');
+    if (calBtn)
+      calBtn.addEventListener("click", function () {
+        _recordAndRecalibrate(r);
+      });
     var editBtn = card.querySelector('[data-act="edit"]');
     if (editBtn)
       editBtn.addEventListener("click", function () {
@@ -1187,9 +1259,11 @@
         return r.status === "done" && r.actual_time_seconds != null;
       })
       .sort(byDate);
+    var needsResult = _races.filter(_isNeedsResult).sort(byDate);
     var upcoming = _races
       .filter(function (r) {
-        return !(r.status === "done" && r.actual_time_seconds != null);
+        return !_isNeedsResult(r) &&
+          !(r.status === "done" && r.actual_time_seconds != null);
       })
       .sort(byDate);
 
@@ -1209,6 +1283,16 @@
         grid.appendChild(_buildCompletedCard(r));
       });
       sections.appendChild(grid);
+    }
+
+    if (needsResult.length > 0) {
+      var nhdr = document.createElement("div");
+      nhdr.className = "pm-races-hdr";
+      nhdr.textContent = "Needs a result";
+      sections.appendChild(nhdr);
+      needsResult.forEach(function (r) {
+        sections.appendChild(_buildNeedsResultCard(r));
+      });
     }
 
     // UPCOMING — full-width cards.

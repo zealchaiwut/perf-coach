@@ -544,8 +544,8 @@
         if (state === 'scored') {
           el.innerHTML = header +
             '<div class="hperf-grid hperf-grid--side">' +
-              _hpfTileHtml('Endurance', 'e', data.endurance) +
-              _hpfTileHtml('Speed', 's', data.speed) +
+              _hpfTileHtml('Endurance (overall)', 'e', data.endurance) +
+              _hpfTileHtml('Speed (overall)', 's', data.speed) +
             '</div>';
           return;
         }

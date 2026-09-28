@@ -1473,15 +1473,19 @@ information about.
       // Status by severity: over the ACWR guardrail = red "warning"; over
       // the week target = orange "over target"; otherwise blue "on target".
       var proj = d.projected_tss != null ? d.projected_tss : null;
-      var status = 'on';
+      var status = d.state || 'on_track';
       if (proj != null && d.acwr_ceiling != null && proj > d.acwr_ceiling) status = 'danger';
-      else if (proj != null && proj > d.target_tss) status = 'over';
-      projEl.className = 'wl-target-projected wl-proj-' + status;
+      projEl.className = 'wl-target-projected wl-proj-' +
+        (status === 'danger' ? 'danger' : status === 'over' ? 'over' : status === 'under' ? 'under' : 'on');
       projEl.textContent = proj != null ? Math.round(proj) : '';
       var statusPill = document.getElementById('wl-proj-status');
       if (statusPill) {
-        statusPill.className = 'wl-proj-pill wl-proj-' + status;
-        statusPill.textContent = status === 'danger' ? 'warning' : (status === 'over' ? 'over target' : 'on target');
+        var pillCls = status === 'danger' ? 'danger' : status === 'over' ? 'over' :
+          status === 'under' ? 'under' : 'on';
+        statusPill.className = 'wl-proj-pill wl-proj-' + pillCls;
+        statusPill.textContent = status === 'danger' ? 'warning' :
+          status === 'over' ? 'over target' :
+          status === 'under' ? 'under' : 'on target';
         statusPill.hidden = proj == null;
       }
     }
@@ -1526,7 +1530,25 @@ information about.
     var rampPct = (d.ramp_rate * 100).toFixed(1).replace(/\.0$/, '') + '%';
     var rampCell = document.getElementById('wl-ramp-cell');
     var deloadSub = document.getElementById('wl-deload-sub');
-    if (d.deload) {
+    if (d.week_phase === 'consolidation') {
+      _setText('wl-ramp-lab', 'Hold');
+      _setText('wl-ramp-val', '90% baseline');
+      if (deloadSub) {
+        deloadSub.hidden = false;
+        deloadSub.textContent = 'verdict consolidation — flat target this week';
+      }
+      if (rampCell) rampCell.classList.remove('is-deload');
+    } else if (d.week_phase === 'hold') {
+      _setText('wl-ramp-lab', 'Hold');
+      _setText('wl-ramp-val', 'flat');
+      if (deloadSub) { deloadSub.hidden = true; deloadSub.textContent = ''; }
+      if (rampCell) rampCell.classList.remove('is-deload');
+    } else if (d.week_phase === 'taper') {
+      _setText('wl-ramp-lab', 'Taper');
+      _setText('wl-ramp-val', '↓ volume');
+      if (deloadSub) { deloadSub.hidden = true; deloadSub.textContent = ''; }
+      if (rampCell) rampCell.classList.remove('is-deload');
+    } else if (d.deload) {
       // Deload week: the chain is baseline × ramp × (1 − cut), not the plain
       // ramp — show the cut or the target looks broken next to "5%".
       var cutPct = Math.round((d.deload_cut || 0.3) * 100);

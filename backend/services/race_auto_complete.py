@@ -166,3 +166,39 @@ def backfill_planned_races(session, user_id) -> int:
             best.id,
         )
     return updated
+
+
+def suggest_actual_time_for_race(session, race) -> Optional[int]:
+    """Return matching workout duration for a past planned race, if any."""
+    from backend.models import Workout
+
+    if race.race_date is None or race.distance_km is None:
+        return None
+    if race.status == "done" and race.actual_time_seconds is not None:
+        return None
+
+    runs = (
+        session.query(Workout)
+        .filter(
+            Workout.user_id == race.user_id,
+            Workout.workout_date == race.race_date,
+            Workout.duration_seconds.isnot(None),
+            Workout.distance_km.isnot(None),
+        )
+        .all()
+    )
+    run_dist_target = float(race.distance_km)
+    best = None
+    best_diff = None
+    for w in runs:
+        if not is_run_workout(w.workout_type or ""):
+            continue
+        if not _distance_ok(run_dist_target, float(w.distance_km)):
+            continue
+        diff = abs(float(w.distance_km) - run_dist_target)
+        if best is None or diff < best_diff:
+            best = w
+            best_diff = diff
+    if best is None:
+        return None
+    return int(best.duration_seconds)
