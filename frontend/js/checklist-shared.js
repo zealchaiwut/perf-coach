@@ -29,8 +29,12 @@
 
   function autoFillLink(item) {
     var src = (item && item.auto_fill_source) || '';
-    if (src.indexOf('sleep') >= 0 || src.indexOf('weight') >= 0 || src.indexOf('metrics') >= 0) {
-      return '/log#metrics';
+    // Daily metrics (sleep, HRV, etc.) live on Home — not Training log.
+    if (src.indexOf('sleep') >= 0 || src.indexOf('metrics') >= 0) {
+      return '/home#log-metrics';
+    }
+    if (src.indexOf('weight') >= 0) {
+      return '/home#weight';
     }
     if (src.indexOf('workout') >= 0 || src.indexOf('long_run') >= 0) {
       return '/log';

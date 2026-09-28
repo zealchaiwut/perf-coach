@@ -543,6 +543,11 @@ async function loadAndRender() {
   clearError();
 
   if (window.ChecklistUI) {
+    var checklistRoot = document.getElementById('checklist-root');
+    if (checklistRoot && !checklistRoot.querySelector('.clh-page:not(.clh-page--loading)')) {
+      ChecklistUI.hideLegacyHabits();
+      ChecklistUI.showChecklistLoading(checklistRoot);
+    }
     try {
       const clUrl = currentWeekStart
         ? `/api/checklist/week?week_start=${currentWeekStart}`
@@ -550,7 +555,10 @@ async function loadAndRender() {
       const clRes = await fetch(clUrl);
       if (clRes.ok) {
         const clData = await clRes.json();
-        if (clData.checklist_enabled) {
+        // Weekly checklist mock is the Habits surface when the read model loads.
+        // weekly_checklist_enabled (WC-06) is kept for API telemetry; no Settings
+        // toggle exists yet — do not gate the page on it.
+        if (clData.days && clData.days.length) {
           currentWeekStart = clData.week_start;
           weekData = {
             week_start: clData.week_start,

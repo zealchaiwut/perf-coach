@@ -8,6 +8,8 @@ def test_checklist_shared_module():
     assert "itemRowHtml" in src
     assert "fuelBoxesHtml" in src
     assert "autoFillLink" in src
+    assert "/home#log-metrics" in src
+    assert "/log#metrics" not in src
 
 
 def test_home_today_checklist_module():

@@ -131,35 +131,75 @@
       '<div class="brief-unavail">' + esc(msg || 'Could not load week plan') + '</div>';
   }
 
-  function _dayRowHtml(day, todayStr) {
+  function _checklistDayMap(checklist) {
+    var map = {};
+    if (!checklist || !checklist.days) return map;
+    checklist.days.forEach(function (d) {
+      map[d.date] = d;
+    });
+    return map;
+  }
+
+  function _sessionState(p, clDay) {
+    if (!clDay || !clDay.items) return '';
+    var hit = clDay.items.find(function (it) {
+      return it.kind === 'planned_session' && it.id === String(p.id);
+    });
+    if (!hit) return '';
+    if (hit.state === 'done') return 'done';
+    if (hit.state === 'missed') return 'missed';
+    if (hit.state === 'skipped') return 'skipped';
+    return 'pending';
+  }
+
+  function _fuelChip(clDay) {
+    if (!clDay || !clDay.items) return '';
+    var fuel = clDay.items.find(function (it) { return it.kind === 'fuel'; });
+    if (!fuel || !fuel.fuel) return '';
+    var dt = fuel.fuel.day_type || (fuel.label ? fuel.label.replace(/^Fuel · /, '') : '');
+    return '<span class="hpl-chip hpl-chip--fuel">' + esc(dt.replace(/_/g, ' ')) + '</span>';
+  }
+
+  function _extraChips(clDay) {
+    if (!clDay || !clDay.items) return '';
+    return clDay.items.filter(function (it) {
+      return it.kind === 'planned_session' && it.session_type === 'mobility';
+    }).map(function (it) {
+      var st = it.state === 'done' ? ' hpl-chip--done' : '';
+      return '<span class="hpl-chip hpl-chip--mobility' + st + '">' + esc(it.label) + '</span>';
+    }).join('');
+  }
+
+  function _dayRowHtml(day, todayStr, clMap) {
     var isToday = day.date === todayStr;
     var planned = day.planned || [];
     var unplanned = day.unplanned || [];
     var dow = day.dow || DOW[(_parseISO(day.date).getDay() + 6) % 7];
     var dnum = _parseISO(day.date).getDate();
+    var clDay = clMap[day.date];
 
     var body;
     if (!planned.length && unplanned.length) {
-      // Nothing was planned for this day, but the athlete actually trained —
-      // show what happened rather than a misleading "Rest".
       body = unplanned.map(_ghostCardHtml).join('');
     } else if (!planned.length) {
       body = '<div class="hpl-rest">Rest</div>';
     } else {
-      body = planned.map(function (p) {
+      body = planned.filter(function (p) {
+        return (p.session_type || '').toLowerCase() !== 'mobility';
+      }).map(function (p) {
         var fam = _fam(p.session_type);
         var meta = _sessionMeta(p);
         var name = p.name || '(untitled)';
         if (name.length > 42) name = name.slice(0, 40) + '…';
-        var tss = _sessionTss(p);
-        var tssHtml = tss
-          ? '<span class="hpl-tss">' + (tss.estimated ? '~' : '') + Math.round(tss.value) + '</span>'
+        var st = _sessionState(p, clDay);
+        var stHtml = st
+          ? '<span class="hpl-state hpl-state--' + st + '">' + esc(st) + '</span>'
           : '';
         return (
-          '<div class="hpl-sess hpl-sess--' + fam + '">' +
+          '<div class="hpl-sess hpl-sess--' + fam + (st === 'done' ? ' hpl-sess--done' : '') + '">' +
             '<div class="hpl-sess-top">' +
               '<span class="hpl-tag hpl-tag--' + fam + '">' + esc(fam) + '</span>' +
-              tssHtml +
+              stHtml +
             '</div>' +
             '<div class="hpl-name">' + esc(name) + '</div>' +
             (meta ? '<div class="hpl-meta">' + esc(meta) + '</div>' : '') +
@@ -168,20 +208,27 @@
       }).join('');
     }
 
+    var extras = _extraChips(clDay) + _fuelChip(clDay);
+
     return (
       '<div class="hpl-day' + (isToday ? ' hpl-day--today' : '') + '">' +
         '<div class="hpl-label">' +
           '<span class="hpl-dow">' + esc(dow) + '</span>' +
           '<span class="hpl-dnum">' + dnum + '</span>' +
         '</div>' +
-        '<div class="hpl-body">' + body + '</div>' +
+        '<div class="hpl-body">' + body + (extras ? '<div class="hpl-extras">' + extras + '</div>' : '') + '</div>' +
       '</div>'
     );
   }
 
-  function _renderDays(el, days) {
+  function _renderDays(el, days, checklist) {
     var todayStr = window.AppCommon.todayISO();
-    var totalPlanned = days.reduce(function (n, d) { return n + (d.planned || []).length; }, 0);
+    var clMap = _checklistDayMap(checklist);
+    var totalPlanned = days.reduce(function (n, d) {
+      return n + (d.planned || []).filter(function (p) {
+        return (p.session_type || '').toLowerCase() !== 'mobility';
+      }).length;
+    }, 0);
     // Zero planned sessions across the whole week almost always means no
     // plan has ever been drafted for this athlete (no A-race set, or a
     // plan that was never applied) rather than a genuine all-rest week —
@@ -199,18 +246,15 @@
       '</div>' +
       notice +
       '<div class="hpl-list">' +
-        days.map(function (d) { return _dayRowHtml(d, todayStr); }).join('') +
+        days.map(function (d) { return _dayRowHtml(d, todayStr, clMap); }).join('') +
       '</div>';
   }
 
-  // `days` — optional, pre-fetched /api/planned-sessions `days` array for the
-  // current Mon–Sun week (home revamp v2: one shared week fetch across the
-  // morning session row, Today's workout, and this card). Falls back to its
-  // own fetch when omitted, so this stays usable standalone.
-  function render(el, days) {
+  // `days` — pre-fetched week; `checklist` — optional GET /api/checklist/week payload.
+  function render(el, days, checklist) {
     if (!el) return;
     if (Array.isArray(days)) {
-      _renderDays(el, days);
+      _renderDays(el, days, checklist);
       return;
     }
 
@@ -220,10 +264,14 @@
     var from = _iso(monday);
     var to = _iso(_addDays(monday, 6));
 
-    fetch('/api/planned-sessions?from=' + from + '&to=' + to)
-      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-      .then(function (data) {
-        _renderDays(el, (data && data.days) || []);
+    Promise.all([
+      fetch('/api/planned-sessions?from=' + from + '&to=' + to).then(function (r) {
+        return r.ok ? r.json() : Promise.reject(r.status);
+      }),
+      fetch('/api/checklist/week').then(function (r) { return r.ok ? r.json() : null; }),
+    ])
+      .then(function (res) {
+        _renderDays(el, (res[0] && res[0].days) || [], res[1]);
       })
       .catch(function () {
         renderUnavailable(el);

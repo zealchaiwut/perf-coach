@@ -53,6 +53,33 @@
      summary.recent_workouts in via HomeRTS.render(summary, userId); it no
      longer fills the section here. */
 
+  /* ---- Deep links (#log-metrics, #weight) from checklist / habits ---- */
+
+  function _openLogMetricsPanel(focusFieldId) {
+    var row = document.getElementById('row-log');
+    if (!row) return;
+    row.hidden = false;
+    row.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (focusFieldId) {
+      var input = document.getElementById(focusFieldId);
+      if (input && input.focus) {
+        setTimeout(function () { input.focus(); }, 300);
+      }
+    }
+  }
+
+  function _handleHomeDeepLink() {
+    var hash = (window.location.hash || '').replace('#', '').toLowerCase();
+    if (hash === 'log-metrics' || hash === 'metrics') {
+      _openLogMetricsPanel('fm-sleep');
+    } else if (hash === 'weight' || hash === 'this-morning') {
+      var morning = document.getElementById('home-morning');
+      if (morning) morning.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+
+  window.addEventListener('hashchange', _handleHomeDeepLink);
+
   /* ---- Fast-log form (issue #394: mobile-optimised daily metrics) ---- */
 
   var _fastLogUserId = null;
@@ -604,6 +631,7 @@
          HomeRTS.render (called above with summary.recent_workouts). */
 
       initFastLogForm(userId);
+      _handleHomeDeepLink();
     }
   }
 

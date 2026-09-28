@@ -1,7 +1,69 @@
 /* Habits weekly checklist mock shell (WC-23) */
 
+/* Checklist-first: hide legacy hero/grid until /api/checklist/week fails */
+body.habits-checklist-first .habits-page-header,
+body.habits-checklist-first #hero-row,
+body.habits-checklist-first #habit-evidence,
+body.habits-checklist-first #habits-day-grid-card,
+body.habits-checklist-first #weekly-habits-card,
+body.habits-checklist-first #insights-panel,
+body.habits-checklist-first #nudges-panel,
+body.habits-checklist-first #habits-history-cal,
+body.habits-checklist-first #starter-section,
+body.habits-checklist-first #back-current-wrap {
+  display: none !important;
+}
+
+body.habits-checklist-first #checklist-root {
+  display: block;
+}
+
 .clh-page {
   margin-bottom: 10px;
+}
+
+.clh-page--loading .clh-skel {
+  border-radius: 10px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.22) 50%, rgba(255, 255, 255, 0.12) 100%);
+  background-size: 200% 100%;
+  animation: clh-skel-shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes clh-skel-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+.clh-loading-hdr { margin-bottom: 14px; }
+.clh-skel--title { height: 32px; width: min(280px, 70%); margin-bottom: 8px; }
+.clh-skel--sub { height: 14px; width: min(180px, 45%); opacity: 0.7; }
+
+.clh-loading-ribbon {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.clh-skel--day { min-height: 96px; }
+
+.clh-loading-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.85fr);
+  gap: 10px;
+}
+
+.clh-skel--panel { min-height: 320px; background: var(--card-bg); border: 1px solid var(--card-border); box-shadow: var(--card-shadow); }
+.clh-skel--panel.clh-skel { animation: none; background: #f1f5f9; }
+.clh-skel--narrow { min-height: 200px; }
+
+@media (max-width: 960px) {
+  .clh-loading-body { grid-template-columns: 1fr; }
+  .clh-loading-ribbon {
+    display: flex;
+    overflow-x: hidden;
+  }
+  .clh-skel--day { min-width: 108px; flex-shrink: 0; }
 }
 
 .clh-header {
@@ -11,6 +73,10 @@
   gap: 16px;
   flex-wrap: wrap;
   margin-bottom: 14px;
+  /* styles.css sets header { background: var(--surface) } — reset for gradient page */
+  background: transparent;
+  border-bottom: none;
+  padding: 0;
 }
 
 .clh-kicker {

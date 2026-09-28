@@ -96,7 +96,7 @@
             row.hidden = false;
             row.scrollIntoView({ behavior: 'smooth', block: 'start' });
           } else {
-            window.location.href = '/log#metrics';
+            window.location.href = '/home#log-metrics';
           }
         });
       }
