@@ -50,6 +50,25 @@ def recompute_autofill_for_week(user_id: UUID, week_start: date) -> dict:
         # Weight-sourced habits (the weigh-in habit) read weight_entries, not
         # workouts. Fetched only when a habit actually asks for them.
         weigh_in_dates: list = []
+        sleep_dates: list = []
+        if any((h.auto_fill_source or "") == "sleep.hours_min" for h in habits):
+            from backend.models import SleepRecord
+
+            rows = (
+                session.query(SleepRecord)
+                .filter(
+                    SleepRecord.user_id == user_id,
+                    SleepRecord.sleep_date >= week_start,
+                    SleepRecord.sleep_date <= week_end,
+                )
+                .all()
+            )
+            sleep_dates = [
+                (r.sleep_date, float(r.total_sleep_minutes or 0) / 60.0)
+                for r in rows
+                if r.total_sleep_minutes is not None
+            ]
+
         if any(
             (h.auto_fill_source or "").startswith("weight.") for h in habits
         ):
@@ -94,7 +113,11 @@ def recompute_autofill_for_week(user_id: UUID, week_start: date) -> dict:
             }
 
             date_values = _compute_date_values(
-                habit.auto_fill_source, workouts, weigh_in_dates
+                habit.auto_fill_source,
+                workouts,
+                weigh_in_dates,
+                sleep_dates=sleep_dates,
+                target_hours=float(habit.target_value or 0) if habit.target_value else None,
             )
 
             for log_date, value in date_values.items():
@@ -124,6 +147,9 @@ def _compute_date_values(
     auto_fill_source: str,
     workouts: list,
     weigh_in_dates: list | None = None,
+    *,
+    sleep_dates: list | None = None,
+    target_hours: float | None = None,
 ) -> dict:
     """Return {date: float_value} for the given source.
 
@@ -147,6 +173,16 @@ def _compute_date_values(
                 continue
             if getattr(w, "fuelled", None) is True:
                 values[w.workout_date] = 1.0
+        return values
+
+    if auto_fill_source == "sleep.hours_min":
+        # Source of truth: sleep_records only (WC-07). daily_metrics.sleep_hours
+        # is NOT read here — Drive merge may copy into daily_metrics but habit
+        # autofill follows the structured sleep import table.
+        threshold = target_hours if target_hours and target_hours > 0 else 7.5
+        for sleep_date, hours in sleep_dates or []:
+            if hours >= threshold:
+                values[sleep_date] = 1.0
         return values
 
     if auto_fill_source == "weight.logged":

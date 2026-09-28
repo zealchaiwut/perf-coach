@@ -3978,7 +3978,10 @@ _VALID_AUTO_FILL_SOURCES = frozenset({
     "workout.zone2_minutes", "workout.run_count", "workout.lift_count",
     "workout.total_duration_minutes", "workout.distance_km",
     "coach.stretch_daily",
+    "sleep.hours_min",
 })
+
+_CHECKLIST_ROLE_VALUES = frozenset({"core", "optional", "off"})
 
 
 def _habit_dict(h: Habit) -> dict:
@@ -3996,6 +3999,7 @@ def _habit_dict(h: Habit) -> dict:
         "sort_order": h.sort_order,
         "is_archived": h.is_archived,
         "section": str(h.section) if h.section is not None else "general",
+        "checklist_role": getattr(h, "checklist_role", None) or "core",
         "created_at": h.created_at.isoformat() if h.created_at else None,
         "updated_at": h.updated_at.isoformat() if h.updated_at else None,
     }
@@ -4032,6 +4036,7 @@ def _habit_dict_v2(h: Habit) -> dict:
         "color": h.color,
         "auto_fill_source": h.auto_fill_source,
         "section": str(h.section) if h.section is not None else "general",
+        "checklist_role": getattr(h, "checklist_role", None) or "core",
         "created_at": h.created_at.isoformat() if h.created_at else None,
         "updated_at": h.updated_at.isoformat() if h.updated_at else None,
     }
@@ -4066,8 +4071,17 @@ def _validate_habit_business_rules(
     schedule_type: Optional[str] = None,
     target_value: Optional[float] = None,
     section: Optional[str] = None,
+    checklist_role: Optional[str] = None,
 ) -> None:
     # v2 enum validations
+    if checklist_role is not None and checklist_role not in _CHECKLIST_ROLE_VALUES:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": f"checklist_role must be one of {sorted(_CHECKLIST_ROLE_VALUES)}",
+                "details": "",
+            },
+        )
     if section is not None and section not in _VALID_SECTION_VALUES:
         raise HTTPException(
             status_code=422,
@@ -4127,6 +4141,7 @@ class HabitIn(BaseModel):
     auto_fill_source: Optional[str] = None
     icon: Optional[str] = None
     color: Optional[str] = None
+    checklist_role: Optional[str] = None
 
 
 class HabitPatch(BaseModel):
@@ -4145,6 +4160,7 @@ class HabitPatch(BaseModel):
     color: Optional[str] = None
     sort_order: Optional[int] = None
     is_archived: Optional[bool] = None
+    checklist_role: Optional[str] = None
 
 
 class HabitReorderIn(BaseModel):
@@ -4249,6 +4265,7 @@ def get_habits(
     user: User = Depends(resolve_user),
 ):
     with Session(engine) as session:
+        from backend.services.checklist_habits import ensure_sleep_habit
         from backend.services.coach_habit_targets import ensure_coach_tracked_habits
         from backend.services.goal_habits import ensure_goal_habits
 
@@ -4257,6 +4274,7 @@ def get_habits(
         # long-run fuel). Idempotent and adopt-not-duplicate, so opening this
         # page is the whole bootstrap — the same shape as the line above.
         ensure_goal_habits(session, user.id)
+        ensure_sleep_habit(session, user.id)
         session.commit()
         q = session.query(Habit).filter(Habit.user_id == user.id)
         if active is not None:
@@ -4266,7 +4284,11 @@ def get_habits(
             # legacy: exclude is_archived habits
             q = q.filter(Habit.is_archived.is_(False))
         rows = q.order_by(Habit.sort_order).all()
-        return JSONResponse([_habit_dict(r) for r in rows])
+        visible = [
+            r for r in rows
+            if include_archived or getattr(r, "checklist_role", "core") != "off"
+        ]
+        return JSONResponse([_habit_dict(r) for r in visible])
 
 
 @app.post("/api/habits", status_code=201)
@@ -4284,6 +4306,7 @@ def post_habit(body: HabitIn, user: User = Depends(resolve_user)):
         schedule_type=body.schedule_type,
         target_value=body.target_value,
         section=body.section,
+        checklist_role=body.checklist_role,
     )
     with Session(engine) as session:
         if body.auto_fill_source is not None:
@@ -4359,6 +4382,7 @@ async def patch_habit(habit_id: str, request: Request, user: User = Depends(reso
         schedule_type=body.schedule_type,
         target_value=body.target_value,
         section=body.section,
+        checklist_role=body.checklist_role,
     )
     try:
         hid = _uuid.UUID(habit_id)
@@ -17601,6 +17625,17 @@ def _compute_plan_bundle(user) -> dict:
             scores = _plan_race_scores(
                 session, user.id, race, rd, readiness, current_scores, tp
             )
+            if not is_done and str(race.race_date) < str(today):
+                try:
+                    from backend.services.race_auto_complete import (
+                        suggest_actual_time_for_race as _suggest_actual,
+                    )
+
+                    suggested = _suggest_actual(session, race)
+                    if suggested is not None:
+                        rd["suggested_actual_time_seconds"] = suggested
+                except Exception:
+                    _log.warning("race suggest actual failed", exc_info=True)
             rd["computed"] = {"estimate": estimate, "scores": scores}
             race_out.append(rd)
 
@@ -18230,6 +18265,8 @@ def get_plan_week_load(
             "verdict_reason": verdict["reason"],
             "weeks_to_converge": verdict["weeks_to_converge"],
             "converge_date": verdict["converge_date"],
+            "week_phase": target_week.get("phase") if target_week else None,
+            "week_deload": bool(target_week.get("deload")) if target_week else False,
         })
 
 

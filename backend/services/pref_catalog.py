@@ -62,6 +62,12 @@ PREF_FIELDS: dict[str, dict[str, Any]] = {
         "reads": ["skeleton"],
         "default": 0,
     },
+    # Master switch for the weekly checklist UI (WC-06). Off = legacy habits page.
+    "weekly_checklist_enabled": {
+        "type": "bool",
+        "reads": [],
+        "default": False,
+    },
     "notes": {
         "type": "str",
         "max_len": 200,

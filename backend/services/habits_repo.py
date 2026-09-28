@@ -118,6 +118,8 @@ def create_habit(
 
     if data.get("section") is not None:
         habit.section = data["section"]
+    if data.get("checklist_role") is not None:
+        habit.checklist_role = data["checklist_role"]
 
     # auto-assign sort_order unless caller provided it
     provided_order = data.get("sort_order")
@@ -183,6 +185,8 @@ def update_habit(
         h.is_archived = data["is_archived"]
     if "section" in data and data["section"] is not None:
         h.section = data["section"]
+    if "checklist_role" in data and data["checklist_role"] is not None:
+        h.checklist_role = data["checklist_role"]
 
     h.updated_at = datetime.now(timezone.utc)
     session.commit()

@@ -446,9 +446,45 @@ def compute_food_totals(entry: Optional[FuelEntry]) -> dict:
 
 # ── Day type + burn ──────────────────────────────────────────────────────────
 
+# Race-week day types (WC-08). Long races (goal ≥ 90 min) carb-load two days out.
+_CARB_LOAD_GOAL_SECONDS = 90 * 60
+
+
+def _race_calendar_day_type(user_id, target_date: _date, db: Session) -> Optional[str]:
+    """Return race-calendar override for *target_date*, or None."""
+    from backend.models import Race
+
+    races = (
+        db.query(Race)
+        .filter(
+            Race.user_id == user_id,
+            Race.race_type == "race",
+            Race.race_date >= target_date - timedelta(days=3),
+            Race.race_date <= target_date + timedelta(days=1),
+        )
+        .order_by(Race.priority.asc(), Race.race_date.asc())
+        .all()
+    )
+    if not races:
+        return None
+
+    for race in races:
+        if race.race_date == target_date:
+            return "race"
+        goal = race.goal_time_seconds or 0
+        days_before = (race.race_date - target_date).days
+        if goal >= _CARB_LOAD_GOAL_SECONDS:
+            if days_before in (1, 2):
+                return "carb_load"
+        elif days_before == 1:
+            return "pre_race"
+    return None
+
+
 def compute_day_type(sessions: list) -> str:
     """sessions: list of {"type": <normalized-or-raw workout_type str>,
-    "duration_min": float|None}. rest | lift | easy_run | long_run."""
+    "duration_min": float|None, "quality": bool|None}.
+    rest | lift | easy_run | long_run | quality."""
     if not sessions:
         return "rest"
     run_minutes = 0.0
@@ -462,7 +498,12 @@ def compute_day_type(sessions: list) -> str:
         elif wt != "rest":
             saw_other = True
     if saw_run:
-        return "long_run" if run_minutes >= _LONG_RUN_MINUTES else "easy_run"
+        if run_minutes >= _LONG_RUN_MINUTES:
+            return "long_run"
+        for s in sessions:
+            if _normalize_type(s.get("type")) == "run" and s.get("quality"):
+                return "quality"
+        return "easy_run"
     if saw_other:
         return "lift"
     return "rest"
@@ -577,6 +618,9 @@ def training_burn_kcal(
             user_id, target_date, today, weight_kg, run_kcal_per_kg_per_km, baseline, db,
         )
         day_type = compute_day_type(sessions)
+        race_type = _race_calendar_day_type(user_id, target_date, db)
+        if race_type is not None:
+            day_type = race_type
         return {
             "burn": round(burn),
             "day_type": day_type,
