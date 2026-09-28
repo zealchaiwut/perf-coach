@@ -100,6 +100,17 @@ def write_version(
     )
     db.add(row)
     db.flush()
+    if prev is not None:
+        from backend.services.pref_catalog import get_field
+        from backend.services.plan_build_status import enqueue_week_rebuild
+
+        old_stretch = int(get_field(prev.payload, "stretch_daily_min") or 0)
+        new_stretch = int(get_field(normalized, "stretch_daily_min") or 0)
+        if old_stretch != new_stretch:
+            try:
+                enqueue_week_rebuild(user_id, remaining_days_only=True)
+            except Exception:
+                pass
     return row
 
 
