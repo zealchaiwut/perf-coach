@@ -307,9 +307,15 @@
     if (root) { root.hidden = true; root.innerHTML = ''; }
   }
 
+  function wireItems(host, data, onRefresh) {
+    if (data) _cache = data;
+    _wireTicks(host, onRefresh);
+  }
+
   window.ChecklistUI = {
     fetchWeek: fetchWeek,
     tickItem: tickItem,
+    wireItems: wireItems,
     renderHabitsPage: renderHabitsPage,
     renderPlanStrip: renderPlanStrip,
     renderPlanDayExtras: renderPlanDayExtras,
@@ -318,5 +324,6 @@
     hideLegacyHabits: hideLegacyHabits,
     showLegacyHabits: showLegacyHabits,
     raceStripHtml: _raceStripHtml,
+    stateClass: _stateClass,
   };
 })();

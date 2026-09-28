@@ -1,6 +1,5 @@
 /**
- * Habits weekly checklist page shell (WC-23) — mock layout: header, week ribbon,
- * selected-day panel (stub), sidebar stubs. Data from GET /api/checklist/week.
+ * Habits weekly checklist page (WC-23..26) — mock layout from GET /api/checklist/week.
  */
 (function () {
   'use strict';
@@ -13,6 +12,25 @@
 
   function _todayISO() {
     return window.AppCommon.todayISO();
+  }
+
+  function _stateClass(state, role) {
+    if (window.ChecklistUI && window.ChecklistUI.stateClass) {
+      return window.ChecklistUI.stateClass(state, role);
+    }
+    if (state === 'done') return 'cl-done';
+    if (state === 'missed') return 'cl-missed';
+    if (state === 'skipped') return 'cl-skipped';
+    if (state === 'upcoming') return 'cl-upcoming';
+    if (role === 'optional') return 'cl-optional';
+    return 'cl-pending';
+  }
+
+  function _stateIcon(state) {
+    if (state === 'done') return '<i class="ti ti-check"></i>';
+    if (state === 'missed') return '<i class="ti ti-x"></i>';
+    if (state === 'skipped') return '<span class="cl-skip-lab">skip</span>';
+    return '';
   }
 
   function _fmtRange(weekStart, weekEnd) {
@@ -30,6 +48,15 @@
     var d = new Date(iso + 'T12:00:00');
     var mo = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return DOW_SHORT[(d.getDay() + 6) % 7] + 'day ' + d.getDate() + ' ' + mo[d.getMonth()];
+  }
+
+  function _fmtGoal(secs) {
+    secs = Math.round(secs);
+    var h = Math.floor(secs / 3600);
+    var m = Math.floor((secs % 3600) / 60);
+    var s = secs % 60;
+    if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+    return m + ':' + String(s).padStart(2, '0');
   }
 
   function _ribbonAccent(sessionType) {
@@ -89,15 +116,6 @@
     );
   }
 
-  function _fmtGoal(secs) {
-    secs = Math.round(secs);
-    var h = Math.floor(secs / 3600);
-    var m = Math.floor((secs % 3600) / 60);
-    var s = secs % 60;
-    if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-    return m + ':' + String(s).padStart(2, '0');
-  }
-
   function _ribbonHtml(days, selectedDate, today) {
     return (
       '<div class="clh-ribbon" role="tablist" aria-label="Week days">' +
@@ -130,21 +148,128 @@
     );
   }
 
+  function _itemRowHtml(item, dayDate) {
+    var cls = _stateClass(item.state, item.role);
+    var isAuto = !!item.auto_fill_source;
+    var tickable = !!(item.tick && item.state !== 'done' && item.state !== 'shown' && !isAuto);
+    var link = item.link ? ' href="' + esc(item.link) + '"' : '';
+    var tag = item.role === 'optional' ? '<span class="cl-role-tag">optional</span>' : '';
+    var autoTag = isAuto ? '<span class="clh-auto-tag">AUTO</span>' : '';
+    var prog = '';
+    if (item.weekly_progress) {
+      prog = '<span class="cl-week-prog">' +
+        Math.round(item.weekly_progress.value) + '/' +
+        Math.round(item.weekly_progress.target) + '</span>';
+    }
+    return (
+      '<div class="cl-item ' + cls + '" data-kind="' + esc(item.kind) + '" data-id="' + esc(item.id) + '"' +
+        ' data-date="' + esc(dayDate) + '">' +
+        (isAuto
+          ? '<span class="cl-tick cl-tick--static clh-tick-auto" title="Auto-filled">&#8226;</span>'
+          : tickable
+            ? '<button type="button" class="cl-tick" aria-label="Mark done">' + _stateIcon(item.state) + '</button>'
+            : '<span class="cl-tick cl-tick--static">' + _stateIcon(item.state) + '</span>') +
+        '<a class="cl-label"' + link + '>' + esc(item.label) + tag + autoTag + prog + '</a>' +
+        (item.tick && item.tick.skip_url && item.state === 'pending'
+          ? '<button type="button" class="cl-skip-btn">Skip</button>' : '') +
+      '</div>'
+    );
+  }
+
+  function _sessionCardHtml(item) {
+    if (!item || item.kind !== 'planned_session') return '';
+    var sum = item.structure_summary || {};
+    var st = (item.session_type || 'session').replace('_', ' ');
+    var meta = [];
+    if (sum.duration_minutes) meta.push(sum.duration_minutes + ' min');
+    if (sum.exercise_count) meta.push(sum.exercise_count + ' exercises');
+    if (sum.block_count) meta.push(sum.block_count + ' blocks');
+    var link = item.link || (item.id ? '/log?tab=plan&session=' + item.id : '/log?tab=plan');
+    return (
+      '<div class="clh-session-card clh-session-card--' + esc(_ribbonAccent(item.session_type)) + '">' +
+        '<div class="clh-session-top">' +
+          '<span class="clh-session-type">' + esc(st.charAt(0).toUpperCase() + st.slice(1)) + '</span>' +
+          '<a href="' + esc(link) + '" class="clh-session-link">Open in Plan →</a>' +
+        '</div>' +
+        '<h3 class="clh-session-name">' + esc(item.label) + '</h3>' +
+        (meta.length ? '<p class="clh-session-meta">' + esc(meta.join(' · ')) + '</p>' : '') +
+      '</div>'
+    );
+  }
+
+  function _fuelBoxesHtml(fuelDetail, fuelItem) {
+    var fd = fuelDetail || {};
+    var targets = fd.targets || {};
+    var budget = (fuelItem && fuelItem.fuel && fuelItem.fuel.budget) || fd.budget;
+    var dayType = fd.day_type || (fuelItem && fuelItem.fuel && fuelItem.fuel.day_type) || 'rest';
+    var phase = fd.week_phase ? String(fd.week_phase).replace(/_/g, ' ') : '';
+    function box(lab, val, unit) {
+      if (val == null) return '';
+      return '<div class="clh-fuel-box">' +
+        '<span class="clh-fuel-val">' + Math.round(val) + (unit || '') + '</span>' +
+        '<span class="clh-fuel-lab">' + esc(lab) + '</span></div>';
+    }
+    var boxes = [
+      box('Protein', targets.protein_g, 'g'),
+      box('Carbs', targets.carbs_g, 'g'),
+      box('Fat', targets.fat_g, 'g'),
+    ].filter(Boolean).join('');
+    if (!boxes && budget == null) return '';
+    return (
+      '<div class="clh-section">' +
+        '<h3 class="clh-section-title">Fuel</h3>' +
+        '<p class="clh-fuel-daytype">' + esc(String(dayType).replace(/_/g, ' ')) +
+          (phase ? ' · ' + esc(phase) : '') + '</p>' +
+        (budget != null
+          ? '<p class="clh-fuel-budget">Budget <strong>' + Math.round(budget) + '</strong> kcal</p>'
+          : '') +
+        (boxes ? '<div class="clh-fuel-grid">' + boxes + '</div>' : '') +
+        '<p class="clh-fuel-note">Fuel targets are informational — not ticked.</p>' +
+      '</div>'
+    );
+  }
+
+  function _sectionHtml(title, rowsHtml) {
+    if (!rowsHtml) return '';
+    return (
+      '<div class="clh-section">' +
+        '<h3 class="clh-section-title">' + esc(title) + '</h3>' +
+        '<div class="clh-rows">' + rowsHtml + '</div>' +
+      '</div>'
+    );
+  }
+
   function _dayPanelHtml(day) {
     if (!day) {
       return '<div class="clh-panel clh-panel--day"><p class="clh-empty">Select a day</p></div>';
     }
     var score = day.score || { core_done: 0, core_total: 0 };
-    var optionalDone = (day.items || []).filter(function (it) {
+    var items = day.items || [];
+    var optionalDone = items.filter(function (it) {
       return it.role === 'optional' && it.state === 'done';
     }).length;
-    var optionalTotal = (day.items || []).filter(function (it) {
+    var optionalTotal = items.filter(function (it) {
       return it.role === 'optional' && it.kind !== 'fuel';
     }).length;
     var pct = score.core_total ? Math.round((score.core_done / score.core_total) * 100) : 0;
 
+    var coreItems = items.filter(function (it) {
+      return it.role === 'core' && it.kind === 'habit';
+    });
+    var sessions = items.filter(function (it) {
+      return it.kind === 'planned_session' && it.session_type !== 'rest';
+    });
+    var optionalItems = items.filter(function (it) {
+      return it.role === 'optional' && it.kind !== 'fuel';
+    });
+    var fuelItem = items.find(function (it) { return it.kind === 'fuel'; });
+
+    var coreRows = coreItems.map(function (it) { return _itemRowHtml(it, day.date); }).join('');
+    var optionalRows = optionalItems.map(function (it) { return _itemRowHtml(it, day.date); }).join('');
+    var sessionCards = sessions.map(_sessionCardHtml).join('');
+
     return (
-      '<div class="clh-panel clh-panel--day">' +
+      '<div class="clh-panel clh-panel--day" data-date="' + esc(day.date) + '">' +
         '<div class="clh-day-hdr">' +
           '<div>' +
             '<h2 class="clh-day-title">' + esc(_fmtDayTitle(day.date)) + '</h2>' +
@@ -153,51 +278,135 @@
           '</div>' +
         '</div>' +
         '<div class="clh-progress"><div class="clh-progress-fill" style="width:' + pct + '%"></div></div>' +
-        '<p class="clh-slice-note">Day detail (core rows, session card, fuel boxes) — slice B</p>' +
-        '<div class="clh-day-preview">' +
-          (day.items || []).filter(function (it) { return it.kind !== 'fuel'; }).slice(0, 8).map(function (it) {
-            return '<div class="clh-preview-row">' +
-              '<span class="clh-preview-state clh-preview-state--' + esc(it.state) + '"></span>' +
-              '<span>' + esc(it.label) + '</span></div>';
-          }).join('') +
-        '</div>' +
+        _sectionHtml('Core', coreRows) +
+        (sessionCards
+          ? '<div class="clh-section"><h3 class="clh-section-title">Session</h3>' + sessionCards + '</div>'
+          : '') +
+        _fuelBoxesHtml(day.fuel_detail, fuelItem) +
+        _sectionHtml('Optional', optionalRows) +
       '</div>'
     );
   }
 
-  function _sidebarHtml(data) {
+  function _matrixCellHtml(item) {
+    if (!item) return '<span class="clh-mx-cell clh-mx-cell--empty">·</span>';
+    if (item.weekly_progress) {
+      var v = item.weekly_progress;
+      var pct = v.target > 0 ? Math.min(100, Math.round((v.value / v.target) * 100)) : 0;
+      return '<span class="clh-mx-cell clh-mx-cell--week" title="' +
+        Math.round(v.value) + '/' + Math.round(v.target) + '">' +
+        pct + '%</span>';
+    }
+    if (item.auto_fill_source) {
+      return '<span class="clh-mx-cell clh-mx-cell--auto" title="Auto">A</span>';
+    }
+    var st = item.state || 'pending';
+    return '<span class="clh-mx-cell clh-mx-cell--' + esc(st) + '" aria-label="' + esc(st) + '"></span>';
+  }
+
+  function _matrixRows(days) {
+    var byId = {};
+    (days || []).forEach(function (day) {
+      (day.items || []).forEach(function (it) {
+        if (it.kind !== 'habit') return;
+        if (!byId[it.id]) {
+          byId[it.id] = { id: it.id, label: it.label, cells: {} };
+        }
+        byId[it.id].cells[day.date] = it;
+      });
+    });
+    return Object.keys(byId).map(function (k) { return byId[k]; });
+  }
+
+  function _matrixHtml(days, selectedDate) {
+    if (!days || !days.length) {
+      return '<p class="clh-empty">No habits this week</p>';
+    }
+    var rows = _matrixRows(days);
+    if (!rows.length) {
+      return '<p class="clh-empty">No habits this week</p>';
+    }
+    var hdr = '<div class="clh-mx-row clh-mx-row--hdr">' +
+      '<span class="clh-mx-lab"></span>' +
+      days.map(function (d, i) {
+        var sel = d.date === selectedDate ? ' clh-mx-col--sel' : '';
+        return '<button type="button" class="clh-mx-col' + sel + '" data-date="' + esc(d.date) + '" ' +
+          'title="' + esc(d.date) + '">' + esc(DOW_SHORT[i] || DOW_SHORT[d.day_offset] || '') + '</button>';
+      }).join('') +
+      '</div>';
+    var body = rows.map(function (row) {
+      return '<div class="clh-mx-row">' +
+        '<span class="clh-mx-lab" title="' + esc(row.label) + '">' + esc(row.label) + '</span>' +
+        days.map(function (d) {
+          return '<span class="clh-mx-cell-wrap">' + _matrixCellHtml(row.cells[d.date]) + '</span>';
+        }).join('') +
+        '</div>';
+    }).join('');
+    return '<div class="clh-matrix">' + hdr + body + '</div>';
+  }
+
+  function _sidebarHtml(data, selectedDate) {
     var st = data.build_status || {};
     var stLab = st.status === 'up_to_date' ? 'Up to date'
       : st.status === 'updating' ? 'Updating'
       : (st.status || '—');
     var stCls = st.status === 'up_to_date' ? 'ok' : st.status === 'updating' ? 'warn' : 'muted';
+    var fw = data.fuel_week || {};
+    var phase = fw.week_phase ? String(fw.week_phase).replace(/_/g, ' ') : '';
+    var raceName = (data.a_race && data.a_race.name)
+      ? data.a_race.name.split(/\s+\d/)[0].trim()
+      : 'your race';
     return (
       '<aside class="clh-sidebar">' +
         '<div class="clh-panel clh-panel--sidebar">' +
           '<h3 class="clh-side-title">Week at a glance</h3>' +
-          '<p class="clh-slice-note">Habit × day matrix — slice B</p>' +
+          _matrixHtml(data.days, selectedDate) +
         '</div>' +
         '<div class="clh-panel clh-panel--sidebar">' +
           '<div class="clh-side-hdr">' +
-            '<h3 class="clh-side-title">What moves ' +
-              esc((data.a_race && data.a_race.name) ? data.a_race.name.split(/\s+\d/)[0].trim() : 'your race') +
-            '</h3>' +
+            '<h3 class="clh-side-title">What moves ' + esc(raceName) + '</h3>' +
             '<a href="/log#performance" class="clh-side-link">Performance →</a>' +
           '</div>' +
-          ((data.what_moves_estimate || []).slice(0, 3).map(function (ev) {
-            return '<p class="clh-evidence">' + esc(ev.sentence || '') + '</p>';
-          }).join('') || '<p class="clh-slice-note">No evidence yet</p>') +
+          ((data.what_moves_estimate || []).slice(0, 4).map(function (ev) {
+            var habit = ev.habit ? '<strong>' + esc(ev.habit) + '</strong> — ' : '';
+            return '<p class="clh-evidence">' + habit + esc(ev.sentence || '') + '</p>';
+          }).join('') || '<p class="clh-empty">No evidence yet</p>') +
         '</div>' +
         '<div class="clh-panel clh-panel--sidebar clh-panel--build">' +
           '<span class="clh-build-badge clh-build-badge--' + stCls + '">' + esc(stLab) + '</span>' +
           '<h3 class="clh-side-title">Checklist build</h3>' +
+          (phase ? '<p class="clh-build-phase">Fuel phase: ' + esc(phase) + '</p>' : '') +
           (st.last_built_at
             ? '<p class="clh-build-sub">Built ' + esc(String(st.last_built_at).slice(0, 16)) + '</p>'
-            : '<p class="clh-build-sub">Plan checklist from this week\'s sessions + habits.</p>') +
+            : '<p class="clh-build-sub">Sessions and habits from this week\'s plan.</p>') +
+          (fw.week_phase_reason
+            ? '<p class="clh-build-reason">' + esc(String(fw.week_phase_reason)) + '</p>'
+            : '') +
           '<a href="/settings" class="clh-manage">Manage →</a>' +
         '</div>' +
       '</aside>'
     );
+  }
+
+  function _bindInteractions(host, data, opts) {
+    var selected = opts.selectedDate || _todayISO();
+    host.querySelectorAll('.clh-day').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var dt = btn.getAttribute('data-date');
+        if (!dt || dt === selected) return;
+        render(host, data, Object.assign({}, opts, { selectedDate: dt }));
+      });
+    });
+    host.querySelectorAll('.clh-mx-col').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var dt = btn.getAttribute('data-date');
+        if (!dt || dt === selected) return;
+        render(host, data, Object.assign({}, opts, { selectedDate: dt }));
+      });
+    });
+    if (window.ChecklistUI && typeof window.ChecklistUI.wireItems === 'function') {
+      window.ChecklistUI.wireItems(host, data, opts.onRefresh);
+    }
   }
 
   function render(host, data, opts) {
@@ -218,18 +427,12 @@
         _ribbonHtml(days, selected, today) +
         '<div class="clh-body">' +
           _dayPanelHtml(day) +
-          _sidebarHtml(data) +
+          _sidebarHtml(data, selected) +
         '</div>' +
       '</div>';
 
-    host.querySelectorAll('.clh-day').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var dt = btn.getAttribute('data-date');
-        if (!dt || dt === selected) return;
-        render(host, data, Object.assign({}, opts, { selectedDate: dt }));
-      });
-    });
+    _bindInteractions(host, data, Object.assign({}, opts, { selectedDate: selected }));
   }
 
-  window.ChecklistHabitsPage = { render: render };
+  window.ChecklistHabitsPage = { render: render, matrixRows: _matrixRows };
 })();
