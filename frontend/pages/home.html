@@ -1565,6 +1565,93 @@
     }
     .hm-morning.hm-all-done .hm-done { display: flex; }
 
+    /* ---- TODAY · CORE & FUEL (home-today-checklist.js) ---- */
+    .htc-card {
+      background: #fff; border-radius: 15px; overflow: hidden;
+      border: 1px solid var(--card-border);
+      box-shadow: 0 3px 14px rgba(10,16,50,.08);
+    }
+    .htc-head {
+      padding: 11px 18px;
+      background: linear-gradient(90deg, #eafaf0, #f4fbf7);
+      border-bottom: 1px solid #d6f0df;
+    }
+    .htc-k {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+      color: #15803d;
+    }
+    .htc-body {
+      display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 0;
+    }
+    @media (max-width: 720px) { .htc-body { grid-template-columns: 1fr; } }
+    .htc-core-col { padding: 8px 16px 12px; border-right: 1px solid var(--card-border); }
+    @media (max-width: 720px) { .htc-core-col { border-right: none; border-bottom: 1px solid var(--card-border); } }
+    .htc-row {
+      display: flex; align-items: center; gap: 10px; padding: 10px 0;
+      border-bottom: 1px solid rgba(13,30,67,.06);
+    }
+    .htc-row--tappable { cursor: pointer; }
+    .htc-row--tappable:hover { background: rgba(53, 99, 212, 0.04); margin: 0 -8px; padding: 10px 8px; border-radius: 8px; }
+    .htc-row--auto { cursor: pointer; }
+    .htc-row--auto:hover { background: rgba(13, 30, 67, 0.03); margin: 0 -8px; padding: 10px 8px; border-radius: 8px; }
+    .htc-row:last-child { border-bottom: none; }
+    .htc-row--session {
+      background: linear-gradient(90deg, #f3f0ff, #faf8ff);
+      margin: 0 -8px; padding: 10px 8px; border-radius: 10px; border-bottom: none;
+    }
+    .htc-check {
+      width: 22px; height: 22px; border-radius: 6px; border: 1.5px solid #d1d5db;
+      display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+      font-size: 12px; color: #15803d;
+    }
+    .htc-check--btn {
+      padding: 0; background: #fff; cursor: pointer; font-family: inherit;
+    }
+    .htc-check--btn:hover { border-color: #3563d4; background: #f0f6ff; }
+    .htc-check--on { background: #dcfce7; border-color: #16a34a; }
+    .htc-row-body { flex: 1; min-width: 0; }
+    .htc-label { font-size: 14px; font-weight: 650; color: var(--text-primary); text-decoration: none; display: block; }
+    .htc-sub { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-tertiary); display: block; margin-top: 2px; }
+    .htc-tag {
+      font-size: 9px; font-weight: 700; letter-spacing: .06em; padding: 2px 6px; border-radius: 4px;
+      text-transform: uppercase; flex-shrink: 0;
+    }
+    .htc-tag--auto { background: #dcfce7; color: #15803d; }
+    .htc-tag--tap { background: #dbeafe; color: #1d4ed8; }
+    .htc-open-btn {
+      border: 1px solid var(--card-border); background: #fff; border-radius: 8px;
+      font-size: 11px; font-weight: 600; padding: 6px 10px; cursor: pointer; font-family: inherit;
+    }
+    .htc-open-btn { background: #4f6ef7; color: #fff; border-color: #4f6ef7; }
+    .htc-fuel { padding: 12px 16px 14px; background: #fafbff; }
+    .htc-fuel-hdr { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+    .htc-fuel-title { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-tertiary); }
+    .htc-fuel-phase { font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: #fef3c7; color: #92400e; }
+    .htc-fuel-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .htc-macro-k { font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: .04em; display: block; }
+    .htc-macro-v { font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 700; display: block; margin-top: 2px; }
+    .htc-macro-v--muted { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+    .htc-food-eq { font-size: 10px; color: var(--text-secondary); display: block; margin-top: 3px; line-height: 1.3; }
+    .htc-fuel-note { font-size: 10px; color: var(--text-tertiary); margin: 8px 0 0; line-height: 1.35; }
+    .htc-optional {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+      padding: 10px 16px; border-top: 1px solid var(--card-border);
+    }
+    .htc-opt-lab { font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--text-tertiary); margin-right: 4px; }
+    .htc-opt { font-size: 11px; padding: 4px 10px; border-radius: 999px; background: #f1f5f9; color: var(--text-secondary); }
+    .htc-opt--done { background: #dcfce7; color: #15803d; }
+    .htc-all-habits { margin-left: auto; font-size: 11px; color: var(--link); text-decoration: none; }
+    .htc-foot {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 10px 16px; border-top: 1px solid var(--card-border); background: #fafafa;
+    }
+    .htc-foot-tx { font-size: 12px; color: var(--text-secondary); }
+    .htc-metrics-btn {
+      border: 0; border-radius: 9px; padding: 8px 14px; background: #cff245;
+      font-family: inherit; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;
+    }
+
     @media (max-width: 640px) {
       .hm-row { flex-wrap: wrap; }
       .hm-act { width: 100%; justify-content: stretch; }
@@ -1628,6 +1715,81 @@
       background: linear-gradient(90deg, #4f6ef7, #16a34a);
       min-width: 0;
     }
+    .hrc-warn {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      margin-bottom: 10px; padding: 8px 12px; border-radius: 10px;
+      background: #fef3c7; border: 1px solid #fcd34d; font-size: 12px; color: #92400e;
+    }
+    .hrc-warn-link { margin-left: auto; font-weight: 600; color: #92400e; text-decoration: none; }
+    .hrc-scores {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px;
+    }
+    .hrc-scores-lab {
+      font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+      color: var(--text-tertiary);
+    }
+    .hrc-score-pill {
+      font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700;
+      padding: 4px 10px; border-radius: 999px; background: var(--chip-bg);
+    }
+
+    /* ---- TODAY'S SESSION (home-today-session.js) ---- */
+    .hts-card {
+      background: #fff; border-radius: 15px; border: 1px solid var(--card-border);
+      box-shadow: 0 3px 14px rgba(10,16,50,.08); overflow: hidden;
+    }
+    .hts-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 11px 18px; background: linear-gradient(90deg, #eef2ff, #f7f9ff);
+      border-bottom: 1px solid #e2e8fd;
+    }
+    .hts-k {
+      font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700;
+      letter-spacing: .08em; text-transform: uppercase; color: #3b4bb8;
+    }
+    .hts-status { font-size: 10px; font-weight: 700; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; }
+    .hts-status--done { background: #dcfce7; color: #15803d; }
+    .hts-status--planned { background: #dbeafe; color: #1d4ed8; }
+    .hts-status--missed { background: #fee2e2; color: #991b1b; }
+    .hts-body { padding: 14px 18px 16px; }
+    .hts-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+    .hts-tag {
+      font-size: 9px; font-weight: 800; letter-spacing: .04em; padding: 3px 8px; border-radius: 6px;
+    }
+    .hts-tag--lift { background: var(--purple-soft); color: var(--purple-text); }
+    .hts-tag--run { background: var(--blue-soft); color: var(--blue-text); }
+    .hts-name { font-size: 17px; font-weight: 700; color: var(--text-primary); }
+    .hts-dur { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-tertiary); margin-left: auto; }
+    .hts-exercises { margin: 0 0 12px; padding-left: 18px; font-size: 13px; line-height: 1.45; color: var(--text-secondary); }
+    .hts-meta { font-size: 13px; color: var(--text-secondary); margin: 0 0 12px; }
+    .hts-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .hts-btn {
+      border: 0; border-radius: 10px; padding: 10px 16px; font-family: inherit;
+      font-size: 13px; font-weight: 700; cursor: pointer;
+    }
+    .hts-btn--primary { background: #4f6ef7; color: #fff; }
+    .hts-btn--ghost { background: #fff; color: var(--text-secondary); border: 1px solid var(--card-border); }
+    .hts-empty-msg { font-size: 14px; color: var(--text-secondary); margin: 0 0 8px; }
+    .hts-link { font-size: 13px; color: var(--link); }
+
+    /* Week plan checklist chips */
+    .hpl-extras { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+    .hpl-chip {
+      font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+      padding: 2px 7px; border-radius: 999px; background: #f1f5f9; color: var(--text-secondary);
+    }
+    .hpl-chip--fuel { background: #fef3c7; color: #92400e; }
+    .hpl-chip--mobility { background: #e0e7ff; color: #3730a3; }
+    .hpl-chip--done { background: #dcfce7; color: #15803d; }
+    .hpl-state {
+      margin-left: auto; font-size: 9px; font-weight: 700; text-transform: uppercase;
+      padding: 2px 6px; border-radius: 4px;
+    }
+    .hpl-state--done { background: #dcfce7; color: #15803d; }
+    .hpl-state--pending { background: #dbeafe; color: #1d4ed8; }
+    .hpl-state--missed { background: #fee2e2; color: #991b1b; }
+    .hpl-sess--done .hpl-name { opacity: .75; }
+
     .hrc-progress-meta {
       display: flex; justify-content: space-between; gap: 10px;
       margin-top: 5px;
@@ -1916,6 +2078,8 @@
 <script src="js/home-brief-week-plan-card.js?v=20260810phasea1"></script>
 <script src="js/lib/next-up-card.js?v=20260810phasea1"></script>
 <script src="js/home-morning.js?v=20260814ux1"></script>
+<script src="js/home-today-checklist.js"></script>
+<script src="js/home-today-session.js"></script>
 <script src="js/home-weight-trend.js?v=20260808revamp3"></script>
 <script src="js/home-race-card.js?v=20260810phaseb1"></script>
 <script src="js/home.js?v=20260814ux1"></script>

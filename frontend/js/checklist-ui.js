@@ -205,6 +205,7 @@
 
   function renderHabitsPage(host, data, opts) {
     if (!host || !data) return;
+    host.removeAttribute('aria-busy');
     _cache = data;
     opts = opts || {};
     if (window.ChecklistHabitsPage && typeof window.ChecklistHabitsPage.render === 'function') {
@@ -287,7 +288,28 @@
     host.insertAdjacentHTML('beforeend', html);
   }
 
+  function showChecklistLoading(host) {
+    if (!host) return;
+    host.hidden = false;
+    host.setAttribute('aria-busy', 'true');
+    var daySkels = '';
+    for (var i = 0; i < 7; i++) daySkels += '<div class="clh-skel clh-skel--day"></div>';
+    host.innerHTML =
+      '<div class="clh-page clh-page--loading">' +
+        '<div class="clh-loading-hdr">' +
+          '<div class="clh-skel clh-skel--title"></div>' +
+          '<div class="clh-skel clh-skel--sub"></div>' +
+        '</div>' +
+        '<div class="clh-loading-ribbon">' + daySkels + '</div>' +
+        '<div class="clh-loading-body">' +
+          '<div class="clh-skel clh-skel--panel"></div>' +
+          '<div class="clh-skel clh-skel--panel clh-skel--narrow"></div>' +
+        '</div>' +
+      '</div>';
+  }
+
   function hideLegacyHabits() {
+    document.body.classList.add('habits-checklist-first');
     ['hero-row', 'habits-day-grid-card', 'weekly-habits-card', 'insights-panel',
       'nudges-panel', 'habits-history-cal', 'habit-evidence', 'starter-section',
       'back-current-wrap'].forEach(function (id) {
@@ -303,8 +325,23 @@
   }
 
   function showLegacyHabits() {
+    document.body.classList.remove('habits-checklist-first');
     var root = document.getElementById('checklist-root');
-    if (root) { root.hidden = true; root.innerHTML = ''; }
+    if (root) {
+      root.hidden = true;
+      root.innerHTML = '';
+      root.removeAttribute('aria-busy');
+    }
+    ['hero-row', 'habits-day-grid-card', 'weekly-habits-card', 'insights-panel',
+      'nudges-panel', 'habits-history-cal', 'habit-evidence', 'starter-section',
+      'back-current-wrap'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.style.display = '';
+    });
+    var hdr = document.querySelector('.habits-page-header');
+    if (hdr) hdr.style.display = '';
+    var addBtn = document.getElementById('add-habit-btn');
+    if (addBtn) addBtn.style.display = '';
   }
 
   function wireItems(host, data, onRefresh) {
@@ -321,9 +358,15 @@
     renderPlanDayExtras: renderPlanDayExtras,
     renderWhatMoves: renderWhatMoves,
     renderHomeWeekPlan: renderHomeWeekPlan,
+    showChecklistLoading: showChecklistLoading,
     hideLegacyHabits: hideLegacyHabits,
     showLegacyHabits: showLegacyHabits,
     raceStripHtml: _raceStripHtml,
     stateClass: _stateClass,
   };
+
+  if (document.body.classList.contains('habits-checklist-first')) {
+    var bootRoot = document.getElementById('checklist-root');
+    if (bootRoot) showChecklistLoading(bootRoot);
+  }
 })();

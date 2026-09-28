@@ -194,3 +194,12 @@ def test_habits_html_loads_checklist_habits_assets():
     html = open("frontend/pages/habits.html", encoding="utf-8").read()
     assert "checklist-habits-page.js" in html
     assert "checklist-habits.css" in html
+    assert 'class="habits-checklist-first"' in html
+    assert 'id="checklist-root"' in html
+    assert 'id="checklist-root" hidden' not in html
+
+
+def test_checklist_ui_has_loading_shell():
+    ui = open("frontend/js/checklist-ui.js", encoding="utf-8").read()
+    assert "showChecklistLoading" in ui
+    assert "habits-checklist-first" in ui

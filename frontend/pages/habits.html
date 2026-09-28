@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="css/checklist.css">
   <link rel="stylesheet" href="css/checklist-habits.css">
 </head>
-<body>
+<body class="habits-checklist-first">
   <main>
     <!-- Page header (renders on gradient) -->
     <div class="habits-page-header">
@@ -37,8 +37,8 @@
 
     <p id="api-error" class="error-msg" role="alert"></p>
 
-    <!-- Weekly checklist (WC-16) — shown when weekly_checklist_enabled -->
-    <div id="checklist-root" hidden></div>
+    <!-- Weekly checklist — default surface; legacy blocks hidden until API fallback -->
+    <div id="checklist-root" aria-busy="true" aria-label="Loading checklist"></div>
 
     <!-- Empty state: starter suggestions (shown only when 0 habits) -->
     <div id="starter-section" style="display:none">
@@ -177,23 +177,19 @@
         <div class="insights-loading"><span class="insights-spinner"></span> Loading…</div>
       </div>
     </div>
+
+    <!-- History Calendar (issue #829/830) — inside main so width matches other cards -->
+    <div class="card habits-history-cal" id="habits-history-cal" style="display:none">
+      <span class="hcal-title">History</span>
+      <div id="hcal-filter" class="hcal-filter" role="group" aria-label="Filter by habit"></div>
+      <div id="habits-month-cal" aria-label="Monthly habits calendar"></div>
+      <div id="habits-week-strip" aria-label="Weekly habits strip"></div>
+    </div>
+
+    <div class="card" id="habits-cal-detail" style="display:none">
+      <div id="habits-cal-detail-content"></div>
+    </div>
   </main>
-
-  <!-- History Calendar card (issue #829/830) — hidden until habits load -->
-  <div class="card habits-history-cal" id="habits-history-cal" style="display:none">
-    <span class="hcal-title">History</span>
-    <!-- Habit filter (issue #830) -->
-    <div id="hcal-filter" class="hcal-filter" role="group" aria-label="Filter by habit"></div>
-    <!-- Desktop: month grid -->
-    <div id="habits-month-cal" aria-label="Monthly habits calendar"></div>
-    <!-- Mobile: week strip -->
-    <div id="habits-week-strip" aria-label="Weekly habits strip"></div>
-  </div>
-
-  <!-- Day detail area (revealed when a calendar cell is selected) -->
-  <div class="card" id="habits-cal-detail" style="display:none">
-    <div id="habits-cal-detail-content"></div>
-  </div>
 
   <!-- Create / Edit habit slide-over (issue #832) -->
   <div id="habit-slideover" class="habit-slideover" role="dialog" aria-modal="true" aria-labelledby="habit-form-title">

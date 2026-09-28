@@ -966,7 +966,8 @@
       return;
     }
 
-    var page = document.querySelector("main.page, .page");
+    // Habits / Weight use plain <main> (1280px) — not only main.page.
+    var page = document.querySelector("main.page, main, .page");
     if (page) {
       var rect = page.getBoundingClientRect();
       var cs = window.getComputedStyle(page);
@@ -980,7 +981,7 @@
       return;
     }
 
-    var CONTENT_MAX = 1000;
+    var CONTENT_MAX = 1280;
     var PAD = 24;
     var vw = document.documentElement.clientWidth;
     var inset = Math.max(0, (vw - CONTENT_MAX) / 2) + PAD;

@@ -63,6 +63,17 @@ def test_skip_endpoint_rejects_non_mobility(as_user):
     assert r.status_code in (404, 422)
 
 
+def test_food_portions_for_targets():
+    from backend.services.fuel import FOOD, food_portions_for_targets
+
+    fp = food_portions_for_targets(155, 230)
+    assert fp["meat_g"] > 0
+    assert fp["rice_g"] > 0
+    assert fp["rice_carbs_per_100g"] == round(FOOD["rice"]["c"] * 100)
+    # 100 g cooked rice ≈ 28 g carbs in our model (not 30 — see fuel.md)
+    assert abs(fp["rice_carbs_g"] - fp["rice_g"] * FOOD["rice"]["c"]) < 2
+
+
 def test_build_checklist_week_shape(monkeypatch):
     """Minimal DB mock — verifies days[] + score fields exist."""
     from backend.services import checklist_week as cw
