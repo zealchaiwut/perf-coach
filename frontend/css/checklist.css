@@ -1,0 +1,180 @@
+/* Weekly checklist UI (WC-14..WC-20) */
+.cl-race-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  background: rgba(255,255,255,0.14);
+  border: 1px solid rgba(255,255,255,0.22);
+  border-radius: 12px;
+  color: #fff;
+  font-size: 13px;
+}
+.cl-race-strip i { opacity: 0.85; }
+
+.cl-build-status {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.8);
+  margin-bottom: 10px;
+}
+.cl-build-updating .cl-build-lab { color: #fde68a; }
+.cl-build-up_to_date .cl-build-lab { color: #bbf7d0; }
+
+.cl-habits-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.cl-week-label { font-size: 13px; color: rgba(255,255,255,0.85); font-weight: 600; }
+.cl-manage-btn {
+  font-size: 12px;
+  color: rgba(255,255,255,0.9);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.12);
+}
+
+.cl-days-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.cl-day {
+  background: var(--card-bg);
+  border-radius: var(--card-radius);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--card-shadow);
+  padding: 12px 14px;
+}
+.cl-day--today { outline: 2px solid rgba(53,99,212,0.35); }
+.cl-day-hdr {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.cl-score { margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+
+.cl-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px solid rgba(13,30,67,0.06);
+  font-size: 13px;
+}
+.cl-item:first-child { border-top: none; }
+.cl-tick {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--track, #e4e8f0);
+  background: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  padding: 0;
+}
+.cl-tick--static { cursor: default; }
+.cl-done .cl-tick, .cl-tick.cl-done { background: #dff5d6; border-color: #86efac; color: #166534; }
+.cl-missed .cl-tick { background: #ffd9d9; border-color: #fca5a5; color: #991b1b; }
+.cl-label {
+  flex: 1;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+.cl-label:hover { text-decoration: underline; }
+.cl-role-tag {
+  margin-left: 6px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+}
+.cl-skip-btn {
+  font-size: 11px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  text-decoration: underline;
+}
+.cl-fuel-meta, .cl-week-prog {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.cl-card-title {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+}
+.cl-fuel-phase { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+.cl-fuel-reason { font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; }
+.cl-fuel-note { font-size: 12px; color: var(--text-tertiary); margin: 0; }
+
+.cl-evidence-row {
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 8px 0;
+  border-top: 1px solid rgba(13,30,67,0.06);
+  color: var(--text-secondary);
+}
+.cl-evidence-row:first-of-type { border-top: none; padding-top: 0; }
+
+.cl-plan-extras {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  padding-left: 52px;
+}
+.cl-plan-chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(13,30,67,0.06);
+  color: var(--text-secondary);
+}
+.cl-plan-chip.cl-done { background: #dff5d6; color: #166534; }
+
+.cl-home-teaser {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+.cl-home-score { font-weight: 600; margin-right: 4px; }
+.cl-home-chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(13,30,67,0.06);
+}
+.cl-home-chip.cl-done { background: #dff5d6; }
+.cl-home-link { margin-left: auto; font-size: 12px; }
+
+#plan-what-moves.cl-hidden { display: none; }

@@ -340,6 +340,7 @@ def prefs_for_assemble_facts(db: Session, user_id) -> dict:
         # of habits and into the plan). The habit is read below only as a
         # fallback, so an athlete who set a target before the move keeps it.
         "stretch_daily_min": int(get_field(p, "stretch_daily_min") or 0),
+        "weekly_checklist_enabled": bool(get_field(p, "weekly_checklist_enabled")),
         "zone2_weekly_min": 0,
         "notes": get_field(p, "notes") or "",
     }

@@ -19,6 +19,7 @@ _DEFAULTS = {
     "long_run_mp_segment_min": 0,
     "stretch_daily_min": 0,
     "zone2_weekly_min": 0,
+    "weekly_checklist_enabled": False,
 }
 
 

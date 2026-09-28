@@ -542,6 +542,41 @@ function _renderHabitEvidence(evidence) {
 async function loadAndRender() {
   clearError();
 
+  if (window.ChecklistUI) {
+    try {
+      const clUrl = currentWeekStart
+        ? `/api/checklist/week?week_start=${currentWeekStart}`
+        : '/api/checklist/week';
+      const clRes = await fetch(clUrl);
+      if (clRes.ok) {
+        const clData = await clRes.json();
+        if (clData.checklist_enabled) {
+          currentWeekStart = clData.week_start;
+          weekData = {
+            week_start: clData.week_start,
+            week_end: clData.week_end,
+            is_current_week: clData.is_current_week,
+          };
+          renderPageHeaderFromChecklist(clData);
+          ChecklistUI.hideLegacyHabits();
+          const root = document.getElementById('checklist-root');
+          const refresh = async () => {
+            const url = currentWeekStart
+              ? `/api/checklist/week?week_start=${currentWeekStart}`
+              : '/api/checklist/week';
+            const r = await fetch(url);
+            if (r.ok) ChecklistUI.renderHabitsPage(root, await r.json(), { onRefresh: refresh });
+          };
+          ChecklistUI.renderHabitsPage(root, clData, { onRefresh: refresh });
+          document.getElementById('back-current-wrap').style.display =
+            currentWeekStart && !clData.is_current_week ? '' : 'none';
+          return;
+        }
+      }
+    } catch (_) { /* fall through to legacy habits */ }
+    ChecklistUI.showLegacyHabits();
+  }
+
   const todayStr = bangkokTodayStr();
   const dates = weekDates();
   const weekFrom = dates[0];
@@ -687,6 +722,25 @@ async function createStarterHabit(starter) {
 }
 
 // ── Page header ───────────────────────────────────────────────────────────────
+
+function renderPageHeaderFromChecklist(clData) {
+  const subtitleEl = document.getElementById('habits-subtitle');
+  const navLabel = document.getElementById('week-nav-label');
+  const nextBtn = document.getElementById('week-next-btn');
+  const backWrap = document.getElementById('back-current-wrap');
+  const range = formatWeekRange(clData.week_start, clData.week_end || clData.week_start);
+  if (navLabel) navLabel.textContent = range;
+  if (nextBtn) nextBtn.disabled = !!clData.is_current_week;
+  if (backWrap) backWrap.style.display = clData.is_current_week ? 'none' : '';
+  if (subtitleEl) {
+    const today = bangkokTodayStr();
+    const day = (clData.days || []).find(d => d.date === today);
+    const score = day && day.score ? day.score : { core_done: 0, core_total: 0 };
+    subtitleEl.textContent = clData.is_current_week
+      ? `Weekly checklist · ${score.core_done}/${score.core_total} core today`
+      : `Week of ${range}`;
+  }
+}
 
 function renderPageHeader() {
   const subtitleEl = document.getElementById('habits-subtitle');

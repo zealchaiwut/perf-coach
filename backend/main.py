@@ -4873,6 +4873,30 @@ def get_habit_summary(
     })
 
 
+# ── Weekly checklist read model (WC-14) ─────────────────────────────────────
+
+@app.get("/api/checklist/week")
+def get_checklist_week(
+    week_start: Optional[str] = Query(None),
+    user: User = Depends(resolve_user),
+):
+    """Compose planned sessions, habits, fuel and sleep into days[] (no table)."""
+    from backend.services.checklist_week import build_checklist_week
+
+    if week_start is not None:
+        try:
+            ws = _date.fromisoformat(week_start)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid week_start; use YYYY-MM-DD")
+        if ws.weekday() != 0:
+            raise HTTPException(status_code=422, detail="week_start must be a Monday")
+    else:
+        ws = _week_start_bangkok(_bangkok_today())
+
+    with Session(engine) as session:
+        return JSONResponse(build_checklist_week(session, user.id, ws))
+
+
 # ── Habits week-view batch endpoint (issue #429) ─────────────────────────────
 
 @app.get("/api/habits/week")
@@ -5742,6 +5766,15 @@ def _serve_login():
 
 app.add_api_route("/login", _serve_login, include_in_schema=False)
 app.add_api_route("/login.html", _serve_login, include_in_schema=False)
+
+
+def _redirect_checklist_to_habits():
+    """WC-20: retire standalone checklist artifact — one in-app surface."""
+    return RedirectResponse(url="/habits", status_code=302)
+
+
+app.add_api_route("/checklist", _redirect_checklist_to_habits, include_in_schema=False)
+app.add_api_route("/checklist.html", _redirect_checklist_to_habits, include_in_schema=False)
 
 
 def _serve_dev_mobile():
@@ -7952,6 +7985,20 @@ def mark_done_planned_session(ps_id: str, user: User = Depends(resolve_user)):
         row = _get_planned_session_or_404(session, ps_id, user)
         row.matched_workout_id = None
         row.status = "done_manual"
+        row.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+        session.refresh(row)
+        return JSONResponse(_planned_session_dict(row))
+
+
+@app.post("/api/planned-sessions/{ps_id}/skip")
+def skip_planned_session(ps_id: str, user: User = Depends(resolve_user)):
+    """Skip an optional session (mobility) — never counted as missed."""
+    with Session(engine) as session:
+        row = _get_planned_session_or_404(session, ps_id, user)
+        if row.session_type != "mobility":
+            raise HTTPException(status_code=422, detail="only mobility sessions may be skipped")
+        row.status = "skipped"
         row.updated_at = _datetime.now(_timezone.utc)
         session.commit()
         session.refresh(row)

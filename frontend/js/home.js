@@ -583,6 +583,14 @@
 
       /* Week plan teaser — same shared week fetch. */
       if (window.HomeBriefWeekPlanCard && weekPlanEl) HomeBriefWeekPlanCard.render(weekPlanEl, weekDays);
+      if (window.ChecklistUI && weekPlanEl) {
+        fetch('/api/checklist/week')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (cl) {
+            if (cl && cl.checklist_enabled) ChecklistUI.renderHomeWeekPlan(weekPlanEl, cl);
+          })
+          .catch(function () {});
+      }
 
       /* Weight trend + Race — home revamp v2 (each fetches its own data). */
       if (window.HomeWeightTrend) HomeWeightTrend.render(document.getElementById('home-weight-trend'));

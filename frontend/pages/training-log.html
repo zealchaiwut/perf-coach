@@ -12,6 +12,7 @@
     <link rel="stylesheet" href="css/training-detail.css" />
     <link rel="stylesheet" href="css/run-detail-v4.css?v=20260927a" />
     <link rel="stylesheet" href="css/load-readiness-tiles.css?v=20260801a" />
+    <link rel="stylesheet" href="css/checklist.css" />
     <link
       href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css"
       rel="stylesheet"
@@ -4757,6 +4758,8 @@
               aria-label="Projected finish-time curve with race markers"
             ></svg>
 
+            <div id="plan-what-moves" class="pm-card cl-hidden" hidden></div>
+
             <div id="plan-races" class="pm-races">
               <div id="plan-races-loading" class="pm-loading">Loading…</div>
               <div id="plan-races-empty" class="pm-empty" style="display: none">
@@ -9245,6 +9248,7 @@
     <script src="js/lib/run-detail-view.js?v=20260927b"></script>
     <script src="js/training.js"></script>
     <script src="js/training-log.js?v=20260927b"></script>
+    <script src="js/checklist-ui.js"></script>
     <script src="js/training-performance.js?v=20260928b"></script>
     <script src="js/lib/plan-session-helpers.js?v=20260810phasea1"></script>
     <script src="js/lib/session-budget.js?v=20260805sb1"></script>
