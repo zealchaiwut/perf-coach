@@ -8,6 +8,7 @@
   <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" rel="stylesheet">
   <link rel="stylesheet" href="css/styles.css">
   <link rel="stylesheet" href="css/habits.css">
+  <link rel="stylesheet" href="css/checklist.css">
 </head>
 <body>
   <main>
@@ -34,6 +35,9 @@
     </div>
 
     <p id="api-error" class="error-msg" role="alert"></p>
+
+    <!-- Weekly checklist (WC-16) — shown when weekly_checklist_enabled -->
+    <div id="checklist-root" hidden></div>
 
     <!-- Empty state: starter suggestions (shown only when 0 habits) -->
     <div id="starter-section" style="display:none">
@@ -387,6 +391,7 @@
   <script src="js/ui-states.js"></script>
   <script src="js/wheel-helpers.js"></script>
   <script src="js/habit-wheel-fx.js"></script>
+  <script src="js/checklist-ui.js"></script>
   <script src="js/habits.js"></script>
   <script src="js/habit-insights.js"></script>
   <script src="js/habit-nudges.js"></script>

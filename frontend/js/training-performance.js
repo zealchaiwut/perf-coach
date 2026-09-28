@@ -1474,6 +1474,24 @@
 
     renderCalibration(bundle.calibration || {});
     renderAll();
+    _loadChecklistWhatMoves();
+  }
+
+  function _loadChecklistWhatMoves() {
+    if (!window.ChecklistUI) return;
+    fetch("/api/checklist/week")
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        var host = document.getElementById("plan-what-moves");
+        if (!host || !data || !data.checklist_enabled) {
+          if (host) { host.hidden = true; host.innerHTML = ""; }
+          return;
+        }
+        host.hidden = false;
+        host.classList.remove("cl-hidden");
+        ChecklistUI.renderWhatMoves(host, data.what_moves_estimate || []);
+      })
+      .catch(function () {});
   }
 
   function refresh() {

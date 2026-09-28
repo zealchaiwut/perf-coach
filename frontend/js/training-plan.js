@@ -16,6 +16,7 @@
   var _initialized = false;
   var _weekStart = null;          // Date (Monday) of the visible week
   var _bundle = null;             // last GET bundle
+  var _checklistWeek = null;      // GET /api/checklist/week when enabled
   var _nextUpBundle = null;       // today→+20d for Next-up hero
   var _panel = { open: null };    // null | 'add' | 'detail'
   var _addState = { top: 'single', sub: 'form', delim: 'pipe' };
@@ -146,6 +147,8 @@ information about.
       _injectStyles();
       if (!_weekStart) _weekStart = _mondayOf(new Date());
       _applyUrlWeekParam();
+      var sessionParam = _urlFlag('session');
+      if (sessionParam) _pendingOpenId = sessionParam;
       // Idempotent: always re-render the shell + reload the current week.
       _renderAll();
       _loadPipelineThenWeek(function () {
@@ -931,6 +934,7 @@ information about.
     _renderWeekList();
     _renderWeekLoad();
     _renderNextUp();
+    _loadChecklistForPlan();
     // Keep an open detail panel in sync with the freshly loaded bundle.
     if (_detail) {
       var updated = null;
@@ -1888,6 +1892,7 @@ information about.
             '<button type="button" class="pl-btn pl-ghost pl-tiny" id="pl-export-week">Export ↗</button>' +
           '</span>' +
         '</div>' +
+        '<div id="cl-plan-strip" class="cl-plan-strip-host"></div>' +
         '<div class="pl-btnrow" style="display:none">' +
           '<button class="pl-btn pl-lime" id="pl-apply-draft" hidden title="Create planned sessions from this draft">Apply week</button>' +
           '<button class="pl-btn pl-ghost" id="pl-refresh-draft" hidden title="Regenerate untouched draft slots">Refresh draft</button>' +
@@ -2030,6 +2035,32 @@ information about.
         gut + content + '</div>';
     }).join('');
     _wireWeekEvents();
+    _mergeChecklistIntoPlanRows();
+  }
+
+  function _loadChecklistForPlan() {
+    if (!window.ChecklistUI) return;
+    var ws = _iso(_weekStart);
+    fetch('/api/checklist/week?week_start=' + encodeURIComponent(ws))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        _checklistWeek = data && data.checklist_enabled ? data : null;
+        var strip = document.getElementById('cl-plan-strip');
+        if (strip && _checklistWeek) ChecklistUI.renderPlanStrip(strip, _checklistWeek);
+        else if (strip) strip.innerHTML = '';
+        _mergeChecklistIntoPlanRows();
+      })
+      .catch(function () {});
+  }
+
+  function _mergeChecklistIntoPlanRows() {
+    if (!_checklistWeek || !window.ChecklistUI) return;
+    var host = document.getElementById('plan-week-list');
+    if (!host) return;
+    (_checklistWeek.days || []).forEach(function (dayData) {
+      var row = host.querySelector('.pl-dayrow[data-date="' + dayData.date + '"]');
+      if (row) ChecklistUI.renderPlanDayExtras(row, dayData);
+    });
   }
 
   // Real logged TSS (p.actual.tss) when the session is done/matched; else the
