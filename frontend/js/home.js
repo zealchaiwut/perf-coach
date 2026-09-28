@@ -457,8 +457,10 @@
   }
 
   function _fetchWeekPlannedSessions() {
-    // Unused after Phase B — week_days rides /api/home/summary.
-    return Promise.resolve([]);
+    return fetch('/api/home/summary')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (s) { return (s && Array.isArray(s.week_days)) ? s.week_days : []; })
+      .catch(function () { return []; });
   }
 
   /* ---- Init ---- */
@@ -516,17 +518,7 @@
             onOpen: function () { window.location.href = '/log#plan'; },
             onMarkDone: function (sessionId) {
               fetch('/api/planned-sessions/' + sessionId + '/mark-done', { method: 'POST' })
-                .then(function (r) {
-                  if (!r.ok) return;
-                  return _fetchWeekPlannedSessions().then(function (fresh) {
-                    weekDays = fresh;
-                    _renderMorning();
-                    _renderNextUpCard();
-                    if (window.HomeBriefWeekPlanCard && weekPlanEl) {
-                      HomeBriefWeekPlanCard.render(weekPlanEl, weekDays);
-                    }
-                  });
-                })
+                .then(function (r) { if (r.ok) return _reloadWeekState(); })
                 .catch(function () {});
             },
             onSuggest: function () { window.location.href = '/log#plan'; }
@@ -534,35 +526,44 @@
         }
       }
 
+      function _reloadWeekState() {
+        return _fetchWeekPlannedSessions().then(function (fresh) {
+          weekDays = fresh;
+          _renderMorning();
+          _renderNextUpCard();
+          if (window.HomeBriefWeekPlanCard && weekPlanEl) {
+            HomeBriefWeekPlanCard.render(weekPlanEl, weekDays);
+          }
+        });
+      }
+
       function _renderMorning() {
-        if (window.HomeMorning && morningEl) {
-          HomeMorning.render(morningEl, {
-            summary: summary,
-            weekDays: weekDays,
-            onOpenSession: function () { window.location.href = '/log#plan'; },
-            onMarkDone: function (sessionId) {
-              fetch('/api/planned-sessions/' + sessionId + '/mark-done', { method: 'POST' })
-                .then(function (r) {
-                  if (!r.ok) return;
-                  return _fetchWeekPlannedSessions().then(function (fresh) {
-                    weekDays = fresh;
-                    _renderNextUpCard();
-                    if (window.HomeBriefWeekPlanCard && weekPlanEl) {
-                      HomeBriefWeekPlanCard.render(weekPlanEl, weekDays);
-                    }
-                  });
-                })
-                .catch(function () {});
-            },
-            onWeightLogged: function () {
-              fetch('/api/home/summary').then(function (r) { return r.ok ? r.json() : null; })
-                .then(function (fresh) { if (fresh) { summary = fresh; _renderMorning(); } })
-                .catch(function () {});
-              if (window.HomeWeightTrend) HomeWeightTrend.render(document.getElementById('home-weight-trend'));
-            },
-            onHabitToggle: function () {}
+        if (!morningEl) return;
+        var morningCtx = {
+          summary: summary,
+          weekDays: weekDays,
+          onRefresh: _reloadWeekState,
+          onOpenSession: function () { window.location.href = '/log#plan'; },
+          onMarkDone: function (sessionId) {
+            fetch('/api/planned-sessions/' + sessionId + '/mark-done', { method: 'POST' })
+              .then(function (r) { if (r.ok) return _reloadWeekState(); })
+              .catch(function () {});
+          },
+          onWeightLogged: function () {
+            fetch('/api/home/summary').then(function (r) { return r.ok ? r.json() : null; })
+              .then(function (fresh) { if (fresh) { summary = fresh; _renderMorning(); } })
+              .catch(function () {});
+            if (window.HomeWeightTrend) HomeWeightTrend.render(document.getElementById('home-weight-trend'));
+          },
+          onHabitToggle: function () { _reloadWeekState(); }
+        };
+        if (window.HomeTodayChecklist) {
+          HomeTodayChecklist.render(morningEl, morningCtx).then(function (ok) {
+            if (!ok && window.HomeMorning) HomeMorning.render(morningEl, morningCtx);
           });
+          return;
         }
+        if (window.HomeMorning) HomeMorning.render(morningEl, morningCtx);
       }
       _afterMetricsSave = function () {
         fetch('/api/home/summary')
