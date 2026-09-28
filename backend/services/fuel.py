@@ -706,6 +706,19 @@ def compute_targets(
     return {"protein_g": protein_g, "carbs_g": round(carbs_g), "fat_g": fat_g}
 
 
+def food_portions_for_targets(protein_g: float, carbs_g: float) -> dict:
+    """Translate macro targets into cooked meat/rice portions (see FOOD constants)."""
+    meat_g = round(protein_g / FOOD["meat"]["p"] / 25) * 25 if protein_g > 0 else 0
+    rice_g = round(carbs_g / FOOD["rice"]["c"] / 50) * 50 if carbs_g > 0 else 0
+    return {
+        "meat_g": int(meat_g),
+        "rice_g": int(rice_g),
+        "meat_protein_g": round(meat_g * FOOD["meat"]["p"]),
+        "rice_carbs_g": round(rice_g * FOOD["rice"]["c"]),
+        "rice_carbs_per_100g": round(FOOD["rice"]["c"] * 100),
+    }
+
+
 # ── Suggestion (§1.6) ────────────────────────────────────────────────────────
 
 def compute_suggestion(targets: dict, eaten: dict, remaining_kcal: float) -> dict:
@@ -991,6 +1004,9 @@ def get_today_payload(user_id, target_date: _date, db: Optional[Session] = None)
             "eaten": eaten,
             "remaining": remaining,
             "targets": targets,
+            "food_portions": food_portions_for_targets(
+                targets["protein_g"], targets["carbs_g"],
+            ),
             "suggestion": suggestion,
             "maintenance_source": settings["maintenance_source"],
             "lean_mass_kg": lean_info["lean_mass_kg"],

@@ -3,12 +3,13 @@ from __future__ import annotations
 
 
 def test_checklist_habits_day_detail_markup():
-    src = open("frontend/js/checklist-habits-page.js", encoding="utf-8").read()
-    assert "_sessionCardHtml" in src
-    assert "_fuelBoxesHtml" in src
-    assert "clh-section-title" in src
-    assert "clh-auto-tag" in src
-    assert "_itemRowHtml" in src
+    page = open("frontend/js/checklist-habits-page.js", encoding="utf-8").read()
+    shared = open("frontend/js/checklist-shared.js", encoding="utf-8").read()
+    assert "_sessionCardHtml" in page
+    assert "ChecklistShared" in page
+    assert "itemRowHtml" in shared
+    assert "clh-section-title" in page
+    assert "clh-auto-tag" in shared
 
 
 def test_checklist_habits_week_matrix():

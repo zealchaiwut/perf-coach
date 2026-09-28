@@ -1,5 +1,5 @@
 /**
- * Habits weekly checklist page (WC-23..26) — mock layout from GET /api/checklist/week.
+ * Habits weekly checklist page (WC-23..28) — mock layout from GET /api/checklist/week.
  */
 (function () {
   'use strict';
@@ -14,22 +14,17 @@
     return window.AppCommon.todayISO();
   }
 
-  function _stateClass(state, role) {
-    if (window.ChecklistUI && window.ChecklistUI.stateClass) {
-      return window.ChecklistUI.stateClass(state, role);
+  function _itemRowHtml(item, dayDate) {
+    if (window.ChecklistShared) {
+      return window.ChecklistShared.itemRowHtml(item, dayDate, { showSubtext: true });
     }
-    if (state === 'done') return 'cl-done';
-    if (state === 'missed') return 'cl-missed';
-    if (state === 'skipped') return 'cl-skipped';
-    if (state === 'upcoming') return 'cl-upcoming';
-    if (role === 'optional') return 'cl-optional';
-    return 'cl-pending';
+    return '<div class="cl-item">' + esc(item.label) + '</div>';
   }
 
-  function _stateIcon(state) {
-    if (state === 'done') return '<i class="ti ti-check"></i>';
-    if (state === 'missed') return '<i class="ti ti-x"></i>';
-    if (state === 'skipped') return '<span class="cl-skip-lab">skip</span>';
+  function _fuelBoxesHtml(fuelDetail, fuelItem) {
+    if (window.ChecklistShared) {
+      return window.ChecklistShared.fuelBoxesHtml(fuelDetail, fuelItem);
+    }
     return '';
   }
 
@@ -104,7 +99,14 @@
       '<header class="clh-header">' +
         '<div class="clh-header-left">' +
           '<div class="clh-kicker">Habits · Week ' + esc(String(data.week_number || '')) + '</div>' +
-          '<h1 class="clh-title">' + esc(_fmtRange(data.week_start, data.week_end)) + '</h1>' +
+          '<div class="clh-title-row">' +
+            '<h1 class="clh-title">' + esc(_fmtRange(data.week_start, data.week_end)) + '</h1>' +
+            '<div class="clh-week-nav">' +
+              '<button type="button" class="clh-week-btn" data-week-nav="prev" aria-label="Previous week">‹</button>' +
+              '<button type="button" class="clh-week-btn" data-week-nav="next"' +
+                (data.is_current_week ? ' disabled' : '') + ' aria-label="Next week">›</button>' +
+            '</div>' +
+          '</div>' +
           '<p class="clh-sub">Built from this week\'s Plan</p>' +
         '</div>' +
         '<div class="clh-header-right">' +
@@ -148,34 +150,6 @@
     );
   }
 
-  function _itemRowHtml(item, dayDate) {
-    var cls = _stateClass(item.state, item.role);
-    var isAuto = !!item.auto_fill_source;
-    var tickable = !!(item.tick && item.state !== 'done' && item.state !== 'shown' && !isAuto);
-    var link = item.link ? ' href="' + esc(item.link) + '"' : '';
-    var tag = item.role === 'optional' ? '<span class="cl-role-tag">optional</span>' : '';
-    var autoTag = isAuto ? '<span class="clh-auto-tag">AUTO</span>' : '';
-    var prog = '';
-    if (item.weekly_progress) {
-      prog = '<span class="cl-week-prog">' +
-        Math.round(item.weekly_progress.value) + '/' +
-        Math.round(item.weekly_progress.target) + '</span>';
-    }
-    return (
-      '<div class="cl-item ' + cls + '" data-kind="' + esc(item.kind) + '" data-id="' + esc(item.id) + '"' +
-        ' data-date="' + esc(dayDate) + '">' +
-        (isAuto
-          ? '<span class="cl-tick cl-tick--static clh-tick-auto" title="Auto-filled">&#8226;</span>'
-          : tickable
-            ? '<button type="button" class="cl-tick" aria-label="Mark done">' + _stateIcon(item.state) + '</button>'
-            : '<span class="cl-tick cl-tick--static">' + _stateIcon(item.state) + '</span>') +
-        '<a class="cl-label"' + link + '>' + esc(item.label) + tag + autoTag + prog + '</a>' +
-        (item.tick && item.tick.skip_url && item.state === 'pending'
-          ? '<button type="button" class="cl-skip-btn">Skip</button>' : '') +
-      '</div>'
-    );
-  }
-
   function _sessionCardHtml(item) {
     if (!item || item.kind !== 'planned_session') return '';
     var sum = item.structure_summary || {};
@@ -193,38 +167,6 @@
         '</div>' +
         '<h3 class="clh-session-name">' + esc(item.label) + '</h3>' +
         (meta.length ? '<p class="clh-session-meta">' + esc(meta.join(' · ')) + '</p>' : '') +
-      '</div>'
-    );
-  }
-
-  function _fuelBoxesHtml(fuelDetail, fuelItem) {
-    var fd = fuelDetail || {};
-    var targets = fd.targets || {};
-    var budget = (fuelItem && fuelItem.fuel && fuelItem.fuel.budget) || fd.budget;
-    var dayType = fd.day_type || (fuelItem && fuelItem.fuel && fuelItem.fuel.day_type) || 'rest';
-    var phase = fd.week_phase ? String(fd.week_phase).replace(/_/g, ' ') : '';
-    function box(lab, val, unit) {
-      if (val == null) return '';
-      return '<div class="clh-fuel-box">' +
-        '<span class="clh-fuel-val">' + Math.round(val) + (unit || '') + '</span>' +
-        '<span class="clh-fuel-lab">' + esc(lab) + '</span></div>';
-    }
-    var boxes = [
-      box('Protein', targets.protein_g, 'g'),
-      box('Carbs', targets.carbs_g, 'g'),
-      box('Fat', targets.fat_g, 'g'),
-    ].filter(Boolean).join('');
-    if (!boxes && budget == null) return '';
-    return (
-      '<div class="clh-section">' +
-        '<h3 class="clh-section-title">Fuel</h3>' +
-        '<p class="clh-fuel-daytype">' + esc(String(dayType).replace(/_/g, ' ')) +
-          (phase ? ' · ' + esc(phase) : '') + '</p>' +
-        (budget != null
-          ? '<p class="clh-fuel-budget">Budget <strong>' + Math.round(budget) + '</strong> kcal</p>'
-          : '') +
-        (boxes ? '<div class="clh-fuel-grid">' + boxes + '</div>' : '') +
-        '<p class="clh-fuel-note">Fuel targets are informational — not ticked.</p>' +
       '</div>'
     );
   }
@@ -254,7 +196,7 @@
     var pct = score.core_total ? Math.round((score.core_done / score.core_total) * 100) : 0;
 
     var coreItems = items.filter(function (it) {
-      return it.role === 'core' && it.kind === 'habit';
+      return it.role === 'core' && it.kind !== 'fuel';
     });
     var sessions = items.filter(function (it) {
       return it.kind === 'planned_session' && it.session_type !== 'rest';
@@ -404,6 +346,20 @@
         render(host, data, Object.assign({}, opts, { selectedDate: dt }));
       });
     });
+    host.querySelectorAll('[data-week-nav]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (btn.disabled) return;
+        var dir = btn.getAttribute('data-week-nav');
+        if (dir === 'prev' && typeof opts.onWeekPrev === 'function') opts.onWeekPrev();
+        if (dir === 'next' && typeof opts.onWeekNext === 'function') opts.onWeekNext();
+      });
+    });
+    var backBtn = host.querySelector('[data-back-current]');
+    if (backBtn) {
+      backBtn.addEventListener('click', function () {
+        if (typeof opts.onBackCurrent === 'function') opts.onBackCurrent();
+      });
+    }
     if (window.ChecklistUI && typeof window.ChecklistUI.wireItems === 'function') {
       window.ChecklistUI.wireItems(host, data, opts.onRefresh);
     }
@@ -424,6 +380,9 @@
     host.innerHTML =
       '<div class="clh-page">' +
         _headerHtml(data) +
+        (!data.is_current_week
+          ? '<div class="clh-back-wrap"><button type="button" class="clh-back-btn" data-back-current>← Back to this week</button></div>'
+          : '') +
         _ribbonHtml(days, selected, today) +
         '<div class="clh-body">' +
           _dayPanelHtml(day) +

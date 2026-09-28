@@ -564,9 +564,28 @@ async function loadAndRender() {
               ? `/api/checklist/week?week_start=${currentWeekStart}`
               : '/api/checklist/week';
             const r = await fetch(url);
-            if (r.ok) ChecklistUI.renderHabitsPage(root, await r.json(), { onRefresh: refresh });
+            if (r.ok) ChecklistUI.renderHabitsPage(root, await r.json(), checklistOpts());
           };
-          ChecklistUI.renderHabitsPage(root, clData, { onRefresh: refresh });
+          const checklistOpts = () => ({
+            onRefresh: refresh,
+            onWeekPrev: async () => {
+              if (!currentWeekStart) return;
+              const [y, m, d] = currentWeekStart.split('-').map(Number);
+              currentWeekStart = isoDate(new Date(y, m - 1, d - 7));
+              await loadAndRender();
+            },
+            onWeekNext: async () => {
+              if (!currentWeekStart || weekData?.is_current_week) return;
+              const [y, m, d] = currentWeekStart.split('-').map(Number);
+              currentWeekStart = isoDate(new Date(y, m - 1, d + 7));
+              await loadAndRender();
+            },
+            onBackCurrent: async () => {
+              currentWeekStart = null;
+              await loadAndRender();
+            },
+          });
+          ChecklistUI.renderHabitsPage(root, clData, checklistOpts());
           return;
         }
       }

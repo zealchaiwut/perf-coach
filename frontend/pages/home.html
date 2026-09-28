@@ -20,6 +20,7 @@
        still win the cascade (nothing here changes visually). -->
   <link rel="stylesheet" href="css/styles.css">
   <link rel="stylesheet" href="css/checklist.css">
+  <link rel="stylesheet" href="css/checklist-habits.css">
   <style>
     :root {
       /* Home-only tokens — no equivalent in styles.css's shared
@@ -1424,6 +1425,49 @@
   <style>
     /* ==== HOME REVAMP v2 ==== */
 
+    /* ---- TODAY CHECKLIST (home-today-checklist.js, WC-27) ---- */
+    .htc-card {
+      background: #fff; border-radius: 15px; overflow: hidden;
+      border: 1px solid var(--card-border);
+      box-shadow: 0 3px 14px rgba(10,16,50,.08);
+    }
+    .htc-head {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 11px 18px; background: linear-gradient(90deg, #eafaf0, #f4fbf7);
+      border-bottom: 1px solid #d6f0df;
+    }
+    .htc-k {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+      color: #15803d;
+    }
+    .htc-all-link { font-size: 12px; font-weight: 600; color: var(--link, #2b4ca8); text-decoration: none; }
+    .htc-body {
+      display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+      gap: 0; align-items: stretch;
+    }
+    @media (max-width: 820px) { .htc-body { grid-template-columns: 1fr; } }
+    .htc-core-col { padding: 8px 14px 12px; border-right: 1px solid var(--card-border); }
+    @media (max-width: 820px) { .htc-core-col { border-right: none; border-bottom: 1px solid var(--card-border); } }
+    .htc-fuel-col { padding: 8px 14px 12px; }
+    .htc-fuel-col .clh-section { margin-bottom: 0; }
+    .htc-optional {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+      padding: 10px 18px; border-top: 1px solid var(--card-border);
+    }
+    .htc-opt-lab { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-tertiary); margin-right: 4px; }
+    .htc-opt { font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: #f1f5f9; color: var(--text-secondary); }
+    .htc-opt--done { background: #dcfce7; color: #15803d; }
+    .htc-foot {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 10px 18px; border-top: 1px solid var(--card-border); background: #fafbfd;
+    }
+    .htc-foot-tx { font-size: 12px; color: var(--text-secondary); }
+    .htc-metrics-btn {
+      border: 1px solid var(--card-border); background: #fff; border-radius: 9px;
+      padding: 8px 12px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit;
+    }
+
     /* ---- THIS MORNING (home-morning.js) ---- */
     .hm-morning {
       background: #fff; border-radius: 15px; overflow: hidden;
@@ -1867,6 +1911,8 @@
 <script src="js/home-coach-digest.js?v=20260808revamp3"></script>
 <script src="js/home-readiness-training-sleep.js?v=20260814ux2"></script>
 <script src="js/checklist-ui.js"></script>
+<script src="js/checklist-shared.js"></script>
+<script src="js/home-today-checklist.js"></script>
 <script src="js/home-brief-week-plan-card.js?v=20260810phasea1"></script>
 <script src="js/lib/next-up-card.js?v=20260810phasea1"></script>
 <script src="js/home-morning.js?v=20260814ux1"></script>
