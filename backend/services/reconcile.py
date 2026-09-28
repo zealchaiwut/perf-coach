@@ -534,6 +534,16 @@ def reconcile_workouts(
         workout_ids=affected_workout_ids if incremental else None,
     )
 
+    # Match synced runs to planned races (same path as manual workout POST).
+    try:
+        from backend.services.race_auto_complete import backfill_planned_races
+
+        with _Session(engine) as session:
+            if backfill_planned_races(session, uid):
+                session.commit()
+    except Exception:
+        _log.exception("race auto-complete after reconcile failed for user %s", uid)
+
     # Update the per-athlete best-effort duration curve for touched runs only.
     try:
         _update_duration_curves(

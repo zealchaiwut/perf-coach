@@ -132,6 +132,10 @@ def update_race(
     goal_time_seconds: Optional[int] = None,
     goal_time_set: bool = False,
     priority: Optional[str] = None,
+    status: Optional[str] = None,
+    actual_time_seconds: Optional[int] = None,
+    status_set: bool = False,
+    actual_time_set: bool = False,
 ) -> Optional[dict]:
     from backend.models import TrainingPlan
     with Session(engine) as db:
@@ -153,6 +157,10 @@ def update_race(
             race.priority = priority
         if goal_time_set:
             race.goal_time_seconds = goal_time_seconds
+        if status_set and status is not None:
+            race.status = status
+        if actual_time_set:
+            race.actual_time_seconds = actual_time_seconds
         pace, _ = _compute_goal_pace(
             race.goal_time_seconds,
             float(race.distance_km) if race.distance_km is not None else None,

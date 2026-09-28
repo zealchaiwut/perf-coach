@@ -1438,8 +1438,6 @@
   // Set the active type tab and reconfigure which fields are visible.
   function _setModalType(tab) {
     if (["race", "checkpoint", "history"].indexOf(tab) < 0) tab = "race";
-    // History is only offered when ADDING (not editing an existing entry).
-    if (tab === "history" && _editingRaceId) tab = "race";
     _activeTab = tab;
     _editingRaceType = tab === "checkpoint" ? "checkpoint" : "race";
 
@@ -1450,9 +1448,6 @@
           var active = b.getAttribute("data-type") === tab;
           b.classList.toggle("active", active);
           b.setAttribute("aria-selected", active ? "true" : "false");
-          // The History tab is hidden while editing.
-          if (b.getAttribute("data-type") === "history")
-            b.style.display = _editingRaceId ? "none" : "";
         },
       );
     }
@@ -1713,14 +1708,14 @@
       "/api/workouts?from=" + from + "&to=" + to,
       function (data) {
         var rows = Array.isArray(data) ? data : [];
-        // Runs only, > 10 km, with a usable finish time. Server does not filter
-        // by distance, so filter client-side. Sort most-recent first.
+        // Runs only, ~10K and up (9.5 km floor catches labeled 10K races), with a
+        // usable finish time. Server does not filter by distance client-side.
         _historyRuns = rows
           .filter(function (w) {
             return (
               (w.workout_type || "").toLowerCase() === "run" &&
               w.distance_km != null &&
-              parseFloat(w.distance_km) > 10 &&
+              parseFloat(w.distance_km) >= 9.5 &&
               w.duration_seconds
             );
           })
@@ -1800,7 +1795,7 @@
     _updateGoalDerived();
 
     // Preload the history list up front so the History tab is instant.
-    if (!_editingRaceId) _loadHistory();
+    _loadHistory();
 
     modal.style.display = "";
     if (nameIn && type !== "history") nameIn.focus();
@@ -1888,7 +1883,9 @@
       if (type === "race" && _pickedActualSeconds != null) {
         body.status = "done";
         body.actual_time_seconds = _pickedActualSeconds;
-      } else {
+      } else if (!_editingRaceId) {
+        // New races default to planned; editing without a history pick must not
+        // revert an already-completed race back to planned.
         body.status = "planned";
       }
     }
