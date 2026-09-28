@@ -83,12 +83,18 @@ def test_week_start_is_read_from_the_skeleton_when_not_passed():
 # ── Stretch ──────────────────────────────────────────────────────────────────
 
 def test_stretch_lands_on_every_day_including_rest():
-    """Mobility on a rest day is the point, not an oversight."""
+    """Legacy attach_stretch still decorates daily_extras (superseded by mobility slots in apply_prefs_extras)."""
     slots = attach_stretch(_week(), 12)
     assert len(slots) == 7
     for slot in slots:
         kinds = [e["kind"] for e in slot["daily_extras"]]
         assert "stretch" in kinds
+
+
+def test_apply_prefs_extras_uses_mobility_slots():
+    from backend.services.plan_extras import apply_prefs_extras
+    out = apply_prefs_extras(_skeleton(), prefs={"stretch_daily_min": 10}, week_start=ORDINARY_WEEK)
+    assert any(s.get("workout_type") == "mobility" for s in out["slots"])
 
 
 def test_stretch_carries_no_tss():

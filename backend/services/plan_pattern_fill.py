@@ -132,7 +132,14 @@ def select_pattern(
 ) -> dict[str, Any] | None:
     """Pick highest-priority active pattern whose duration band contains duration_min."""
     wt = (workout_type or "").lower()
-    kind = "run" if wt == "run" else ("strength" if wt in ("strength", "plyo") else None)
+    if wt == "mobility":
+        kind = "mobility"
+    elif wt == "run":
+        kind = "run"
+    elif wt in ("strength", "plyo"):
+        kind = "strength"
+    else:
+        kind = None
     if kind is None:
         return None
     sub = normalize_slot_subtype(wt, subtype) or ""
@@ -1140,6 +1147,59 @@ def fill_strength(
     }
 
 
+def fill_mobility(
+    pattern: dict,
+    slot: dict,
+    pool: list[dict],
+    *,
+    rng: random.Random | None = None,
+    prior_quality_day: bool = False,
+) -> dict:
+    """Fill a mobility slot from stretch-group exercises (0 TSS)."""
+    from backend.services.plan_mobility import maybe_refine_mobility, validate_mobility_content
+
+    recipe = pattern.get("recipe") or {}
+    pick = recipe.get("pick") or {}
+    n = int(pick.get("n") or 4)
+    tags = _as_list(pick.get("from_tags")) or ["stretch"]
+    pnf_ok = recipe.get("pnf_allowed", True) and not prior_quality_day
+
+    candidates = match_exercises_for_tags(pool, tags)
+    rng = rng or random.Random(int(slot.get("day_offset") or 0) & 0xFFFFFFFF)
+    rng.shuffle(candidates)
+    chosen = candidates[:n]
+    duration_min = int(slot.get("duration_minutes") or 10)
+    per_hold = max(30, int((duration_min * 60) / max(len(chosen), 1)))
+
+    exercises = []
+    for row in chosen:
+        exercises.append({
+            "block": "Stretch",
+            "name": row["name"],
+            "sets": 1,
+            "reps": f"{per_hold}s hold",
+            "load": "mobility",
+            "pnf": bool(pnf_ok and row.get("pnf_allowed", True)),
+            "source": "generated",
+        })
+
+    content = {
+        "intent": (recipe.get("intent_template") or "Mobility")[:140],
+        "notes": None,
+        "blocks": None,
+        "exercises": exercises,
+        "duration_minutes": duration_min,
+        "source": "pattern",
+        "pattern_name": pattern.get("name"),
+    }
+    errs = validate_mobility_content(
+        content, pattern=pattern, pool=pool, prior_quality_day=prior_quality_day,
+    )
+    if errs:
+        content["validation_errors"] = errs
+    return maybe_refine_mobility(content, pool=pool, pattern=pattern)
+
+
 def fill_slot(
     slot: dict,
     *,
@@ -1306,6 +1366,19 @@ def fill_slot(
             "pattern_name": content.get("pattern_name"),
             "phases": phases,
             "budget_trace": budget_trace,
+        })
+    elif pattern and wt == "mobility":
+        pool = _load_exercise_pool(db)
+        prior_quality = bool((week_ctx or {}).get("quality_day_before") or {})
+        day = int(slot.get("day_offset") or 0)
+        prior_quality = prior_quality.get(day) if isinstance(prior_quality, dict) else prior_quality
+        content = fill_mobility(
+            pattern, slot, pool, rng=rng, prior_quality_day=bool(prior_quality),
+        )
+        log["steps"].append({
+            "op": "fill_mobility",
+            "pattern_name": content.get("pattern_name"),
+            "exercise_count": len(content.get("exercises") or []),
         })
     elif pattern and wt in ("strength", "plyo"):
         pool = _load_exercise_pool(db)

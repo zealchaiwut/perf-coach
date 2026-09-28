@@ -7511,10 +7511,10 @@ def delete_workout(workout_id: str, user: User = Depends(resolve_user)):
 # Distinct from Projection's ramp/taper load model (TrainingPlan/PlannedLoad).
 # Link-only: matched_workout_id → workouts.id; Log tab unchanged.
 
-_PLANNED_SESSION_TYPES = {"run", "strength", "plyo", "stretch", "rest"}
+_PLANNED_SESSION_TYPES = {"run", "strength", "plyo", "stretch", "rest", "mobility"}
 _PLANNED_STATUSES = {
     "planned", "missed", "missed_auto", "missed_manual",
-    "needs_review", "done_auto", "done_manual",
+    "needs_review", "done_auto", "done_manual", "skipped",
 }
 
 
@@ -7644,7 +7644,8 @@ def _planned_session_dict(p, matched=None, estimate_baseline=None) -> dict:
     if (
         estimate_baseline is not None
         and matched is None
-        and p.status != "missed"
+        and p.status not in ("missed", "skipped")
+        and p.session_type != "mobility"
         and p.planned_date >= _today_bkk()
     ):
         from backend.services.training_load import estimate_planned_session_metrics as _est
@@ -18097,7 +18098,8 @@ def _week_planned_tss(
     if not include_all:
         q = q.filter(
             PlannedSession.matched_workout_id.is_(None),
-            PlannedSession.status != "missed",
+            PlannedSession.status.notin_(("missed", "skipped")),
+            PlannedSession.session_type != "mobility",
         )
     rows = q.all()
     total = 0.0

@@ -545,13 +545,13 @@ def _h_coach_export(p: dict) -> dict:
     }
 
 
-# plan_draft is PARKED (Priority 2, D1). Its handler is gone from the dispatch
-# table below, so a queued plan_draft row is now a no-op rather than an entry
-# point into plan_draft -> plan_slot_cache -> plan_suggestions -> llm. Nothing
-# ever enqueued one: the scheduler emits strava_sync / stryd_sync /
-# banister_refit / daily_coach, and post-sync emits precompute / daily_coach.
-# Removing the handler is what actually keeps the worker's import graph
-# LLM-free — see tests/test_consolidation__worker_has_no_llm.py.
+def _h_plan_draft(p: dict) -> None:
+    """Pattern-fill draft regen (mobility included). Lazy-import keeps worker LLM-free."""
+    from backend.services.plan_draft import run_plan_draft_job
+
+    run_plan_draft_job(p)
+
+
 _DISPATCH = {
     "strava_sync": _h_strava_sync,
     "stryd_sync": _h_stryd_sync,
@@ -563,6 +563,7 @@ _DISPATCH = {
     "precompute": _h_precompute,
     "garmin_sync": _h_garmin_sync,
     "coach_export": _h_coach_export,
+    "plan_draft": _h_plan_draft,
 }
 
 
@@ -955,14 +956,39 @@ def plan_today(date: str | None = None, user: str | None = None):
 
 @app.get("/api/plan/draft-notify", dependencies=[Depends(_require_worker_api_token)])
 def plan_draft_notify(user: str | None = None, ack: bool = False):
-    """Hermes morning-window draft nudge. PARKED — always reports pipeline off.
+    """Hermes morning-window draft nudge when a fresh draft is pending notify."""
+    pipeline_on = os.getenv("PLAN_PIPELINE", "legacy").lower() in ("skeleton_v2", "v2", "shadow")
+    if not pipeline_on:
+        return {"ready": False, "deliver_now": False, "pipeline_off": True}
+    if not user:
+        return {"ready": False, "deliver_now": False, "pipeline_off": False}
+    from backend.models import PlanDraft, User
+    from backend.utils.time import today_bangkok
 
-    Worker drafts are parked (Priority 2, D1) and nothing enqueues a plan_draft
-    job, so there is never a draft to announce. The route survives returning its
-    documented pipeline-off shape rather than 404ing, because Hermes polls it on
-    a schedule and a 404 would read as an outage rather than as "nothing today".
-    """
-    return {"ready": False, "deliver_now": False, "pipeline_off": True}
+    today = today_bangkok()
+    ws = today - timedelta(days=today.weekday())
+    with Session(engine) as db:
+        u = db.query(User).filter(User.name == user).first()
+        if u is None:
+            return {"ready": False, "deliver_now": False, "pipeline_off": False}
+        draft = (
+            db.query(PlanDraft)
+            .filter(PlanDraft.user_id == u.id, PlanDraft.week_start == ws)
+            .first()
+        )
+        if draft is None or draft.status not in ("fresh", "outdated"):
+            return {"ready": False, "deliver_now": False, "pipeline_off": False}
+        payload = draft.payload or {}
+        if not payload.get("notify_pending"):
+            return {"ready": False, "deliver_now": False, "pipeline_off": False}
+        if ack:
+            payload = dict(payload)
+            payload["notify_pending"] = False
+            payload["notified_at"] = datetime.now(timezone.utc).isoformat()
+            draft.payload = payload
+            db.commit()
+            return {"ready": False, "deliver_now": False, "pipeline_off": False, "acked": True}
+    return {"ready": True, "deliver_now": True, "pipeline_off": False, "week_start": ws.isoformat()}
 
 
 @app.get("/api/weight/recent", dependencies=[Depends(_require_worker_api_token)])
@@ -1515,6 +1541,28 @@ def _scheduler_loop() -> None:
         # the same wake times as the sync sweep. Dedupe key is the date so
         # 06:00 + 18:00 only run once. Also skip when a done row already exists
         # (enqueue() alone only dedupes queued/running).
+        # Sunday evening sync sweep: enqueue next week's plan draft (includes mobility).
+        try:
+            now_bkk = datetime.now(BANGKOK_TZ)
+            if now_bkk.weekday() == 6 and os.getenv("PLAN_PIPELINE", "legacy").lower() in (
+                "skeleton_v2", "v2", "shadow",
+            ):
+                next_monday = now_bkk.date() + timedelta(days=1)
+                from backend.models import User
+
+                with Session(engine) as sdb:
+                    users = sdb.query(User.id).filter(User.is_active.is_(True)).all()
+                for (uid,) in users:
+                    job_queue.enqueue(
+                        "plan_draft",
+                        {"user_id": str(uid), "week_start": next_monday.isoformat()},
+                        priority=6,
+                        enqueued_by="schedule",
+                        dedupe_key=f"plan_draft:{uid}:{next_monday.isoformat()}:full",
+                    )
+        except Exception as exc:
+            logger.error("scheduled plan_draft failed: %s", exc, exc_info=True)
+
         if daily_coach_enabled:
             day_key = datetime.now(BANGKOK_TZ).date().isoformat()
             dedupe_key = f"daily_coach:{day_key}"
