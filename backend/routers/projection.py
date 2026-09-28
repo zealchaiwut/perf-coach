@@ -91,6 +91,8 @@ class _RacePatchBody(BaseModel):
     name: Optional[str] = None
     goal_time_seconds: Optional[int] = None
     priority: Optional[str] = None
+    status: Optional[str] = None
+    actual_time_seconds: Optional[int] = None
 
 
 class _CheckpointCreateBody(BaseModel):
@@ -266,6 +268,11 @@ async def patch_race(
         priority = _resolve_priority(body.type or "race", body.priority)
 
     goal_time_set = "goal_time_seconds" in body.model_fields_set
+    if body.status is not None and body.status not in ("planned", "done", "abandoned"):
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "status", "error": "status must be one of: planned, done, abandoned"},
+        )
     data = _svc.update_race(
         pid,
         rid,
@@ -276,6 +283,10 @@ async def patch_race(
         goal_time_seconds=body.goal_time_seconds,
         goal_time_set=goal_time_set,
         priority=priority,
+        status=body.status,
+        actual_time_seconds=body.actual_time_seconds,
+        status_set="status" in body.model_fields_set,
+        actual_time_set="actual_time_seconds" in body.model_fields_set,
     )
     if data is None:
         raise HTTPException(status_code=404, detail="race not found")

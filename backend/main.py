@@ -7209,6 +7209,12 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             _logging.getLogger(__name__).warning(
                 "checkpoint autodetection failed for workout %s: %s", workout.id, _cd_exc, exc_info=True
             )
+        try:
+            _run_race_autocomplete(workout)
+        except Exception as _ra_exc:
+            _logging.getLogger(__name__).warning(
+                "race auto-complete failed for workout %s: %s", workout.id, _ra_exc, exc_info=True
+            )
         if workout.workout_type == "strength":
             try:
                 from backend.services.muscle_load import recompute_strength_load_for_date as _rsl
@@ -14703,6 +14709,18 @@ def get_calibration_status(user: User = Depends(resolve_user)):
 # ── Race Checkpoints ──────────────────────────────────────────────────────────
 
 
+def _run_race_autocomplete(workout: Workout) -> None:
+    """Mark planned races done when a synced run matches race date + distance."""
+    from backend.services.race_auto_complete import apply_race_autocomplete_for_workout
+
+    with Session(engine) as session:
+        w = session.get(Workout, workout.id)
+        if w is None:
+            return
+        if apply_race_autocomplete_for_workout(session, w):
+            session.commit()
+
+
 def _run_checkpoint_autodetection(workout: Workout) -> None:
     """Evaluate and update unmet/non-overridden checkpoints after a run is ingested.
 
@@ -17478,6 +17496,16 @@ def _compute_plan_bundle(user) -> dict:
                 "pace_seconds_per_km": pace,
                 "avg_hr": w.avg_hr,
             }
+
+        # Self-heal planned races that already have a matching run (e.g. after
+        # Strava sync while the worker/Mac was off — this runs on the webapp).
+        try:
+            from backend.services.race_auto_complete import backfill_planned_races as _backfill_races
+
+            if _backfill_races(session, user.id):
+                session.commit()
+        except Exception:
+            _log.warning("race backfill failed", exc_info=True)
 
         races = (
             session.query(Race)
