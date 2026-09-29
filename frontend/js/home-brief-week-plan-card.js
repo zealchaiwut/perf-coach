@@ -160,6 +160,23 @@
     return '<span class="hpl-chip hpl-chip--fuel">' + esc(dt.replace(/_/g, ' ')) + '</span>';
   }
 
+  var _DAY_TYPE_LABEL = {
+    lift: 'Lift day',
+    easy_run: 'Easy day',
+    long_run: 'Long run day',
+    quality: 'Quality day',
+    race: 'Race day',
+    pre_race: 'Pre-race',
+    carb_load: 'Carb load'
+  };
+
+  function _dayTypeChip(clDay) {
+    var dt = clDay && clDay.fuel_detail && clDay.fuel_detail.day_type;
+    if (!dt || dt === 'rest') return '';
+    var label = _DAY_TYPE_LABEL[dt] || String(dt).replace(/_/g, ' ');
+    return '<span class="hpl-day-type">' + esc(label) + '</span>';
+  }
+
   function _extraChips(clDay) {
     if (!clDay || !clDay.items) return '';
     return clDay.items.filter(function (it) {
@@ -168,6 +185,15 @@
       var st = it.state === 'done' ? ' hpl-chip--done' : '';
       return '<span class="hpl-chip hpl-chip--mobility' + st + '">' + esc(it.label) + '</span>';
     }).join('');
+  }
+
+  function _weekPlanSubtitle(checklist) {
+    var fw = checklist && checklist.fuel_week;
+    if (!fw) return '';
+    var reason = fw.week_phase_reason ||
+      (fw.week_phase ? String(fw.week_phase).replace(/_/g, ' ') : '');
+    if (!reason) return '';
+    return '<p class="hpl-phase">' + esc(reason) + '</p>';
   }
 
   function _dayRowHtml(day, todayStr, clMap) {
@@ -210,6 +236,8 @@
 
     var extras = _extraChips(clDay) + _fuelChip(clDay);
 
+    var dayType = _dayTypeChip(clDay);
+
     return (
       '<div class="hpl-day' + (isToday ? ' hpl-day--today' : '') + '">' +
         '<div class="hpl-label">' +
@@ -217,6 +245,7 @@
           '<span class="hpl-dnum">' + dnum + '</span>' +
         '</div>' +
         '<div class="hpl-body">' + body + (extras ? '<div class="hpl-extras">' + extras + '</div>' : '') + '</div>' +
+        (dayType ? dayType : '') +
       '</div>'
     );
   }
@@ -244,6 +273,7 @@
         '<h2 class="ttl"><i class="ti ti-calendar-week"></i>Week plan</h2>' +
         '<a href="/log#plan">Full plan &#8594;</a>' +
       '</div>' +
+      _weekPlanSubtitle(checklist) +
       notice +
       '<div class="hpl-list">' +
         days.map(function (d) { return _dayRowHtml(d, todayStr, clMap); }).join('') +

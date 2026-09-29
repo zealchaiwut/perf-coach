@@ -48,10 +48,9 @@
 
   /* Recent workouts are rendered by home-readiness-training-sleep.js's
      renderRecentWorkoutsCard, into #home-recent-workouts-card (bottom of the
-     right column — the top of that column is #home-next-up's forward-looking
-     "what should I do today" card instead, see NextUpCard). home.js passes
-     summary.recent_workouts in via HomeRTS.render(summary, userId); it no
-     longer fills the section here. */
+     right column — the top of that column is #home-next-up's Today's session
+     card via HomeTodaySession). home.js passes summary.recent_workouts in via
+     HomeRTS.render(summary, userId); it no longer fills the section here. */
 
   /* ---- Deep links (#log-metrics, #weight) from checklist / habits ---- */
 
@@ -465,10 +464,10 @@
   }
 
   /* ---- Weekly planned-sessions fetch (shared) ----
-     One GET /api/planned-sessions for the current Mon–Sun week, distributed
-     to #home-morning's session row, #home-next-up (NextUpCard), and
-     #home-brief-week-plan-card — per the revamp v2 spec, no widget fetches
-     its own copy of this week's plan. */
+     One GET /api/home/summary for week_days, distributed to #home-morning's
+     checklist session row, #home-next-up (HomeTodaySession), and
+     #home-brief-week-plan-card — one fetch, three consumers. Checklist week
+     is fetched once separately and shared across morning + week plan. */
 
   function _mondayOf(d) {
     var day = d.getDay(); // 0=Sun..6=Sat
@@ -488,6 +487,12 @@
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (s) { return (s && Array.isArray(s.week_days)) ? s.week_days : []; })
       .catch(function () { return []; });
+  }
+
+  function _fetchChecklistWeek() {
+    return fetch('/api/checklist/week')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; });
   }
 
   /* ---- Init ---- */
@@ -522,6 +527,7 @@
          are folded into /api/home/summary (Phase B). */
       var summary = await summaryPromise;
       var weekDays = Array.isArray(summary.week_days) ? summary.week_days : [];
+      var checklistWeek = await _fetchChecklistWeek();
 
       /* Readiness tile + training card + recent-workouts + performance
          widget + coach digest (home v2 / revamp v2) */
@@ -529,46 +535,17 @@
         HomeRTS.render(summary, userId);
       }
 
-      /* This morning — weigh-in, session, habits, wellness (home-morning.js).
-         Re-render after a weight/habit/metrics log so progress reflects the
-         just-saved change; the session row's own optimistic UI handles itself
-         without a re-render. */
+      /* Today checklist (#home-morning) + Today's session (#home-next-up) +
+         week plan — shared week_days + checklistWeek payloads. */
       var morningEl = document.getElementById('home-morning');
       var nextUpEl = document.getElementById('home-next-up');
       var weekPlanEl = document.getElementById('home-brief-week-plan-card');
 
-      function _renderNextUpCard() {
-        if (window.NextUpCard && nextUpEl) {
-          NextUpCard.render(nextUpEl, {
-            days: weekDays,
-            title: "Today's workout",
-            onOpen: function () { window.location.href = '/log#plan'; },
-            onMarkDone: function (sessionId) {
-              fetch('/api/planned-sessions/' + sessionId + '/mark-done', { method: 'POST' })
-                .then(function (r) { if (r.ok) return _reloadWeekState(); })
-                .catch(function () {});
-            },
-            onSuggest: function () { window.location.href = '/log#plan'; }
-          });
-        }
-      }
-
-      function _reloadWeekState() {
-        return _fetchWeekPlannedSessions().then(function (fresh) {
-          weekDays = fresh;
-          _renderMorning();
-          _renderNextUpCard();
-          if (window.HomeBriefWeekPlanCard && weekPlanEl) {
-            HomeBriefWeekPlanCard.render(weekPlanEl, weekDays);
-          }
-        });
-      }
-
-      function _renderMorning() {
-        if (!morningEl) return;
-        var morningCtx = {
+      function _morningCtx() {
+        return {
           summary: summary,
           weekDays: weekDays,
+          checklistWeek: checklistWeek,
           onRefresh: _reloadWeekState,
           onOpenSession: function () { window.location.href = '/log#plan'; },
           onMarkDone: function (sessionId) {
@@ -584,41 +561,81 @@
           },
           onHabitToggle: function () { _reloadWeekState(); }
         };
+      }
+
+      function _renderTodaySession() {
+        if (!window.HomeTodaySession || !nextUpEl) return;
+        HomeTodaySession.render(nextUpEl, {
+          weekDays: weekDays,
+          onOpen: function (sessionId) {
+            window.location.href = sessionId
+              ? '/log?tab=plan&session=' + encodeURIComponent(sessionId)
+              : '/log#plan';
+          },
+          onMarkDone: function (sessionId) {
+            fetch('/api/planned-sessions/' + sessionId + '/mark-done', { method: 'POST' })
+              .then(function (r) { if (r.ok) return _reloadWeekState(); })
+              .catch(function () {});
+          }
+        });
+      }
+
+      function _renderWeekPlan() {
+        if (window.HomeBriefWeekPlanCard && weekPlanEl) {
+          HomeBriefWeekPlanCard.render(weekPlanEl, weekDays, checklistWeek);
+        }
+      }
+
+      function _reloadWeekState() {
+        return Promise.all([
+          _fetchWeekPlannedSessions(),
+          _fetchChecklistWeek()
+        ]).then(function (res) {
+          weekDays = res[0];
+          checklistWeek = res[1];
+          _renderMorning();
+          _renderTodaySession();
+          _renderWeekPlan();
+        });
+      }
+
+      function _renderMorning() {
+        if (!morningEl) return;
+        var ctx = _morningCtx();
         if (window.HomeTodayChecklist) {
-          HomeTodayChecklist.render(morningEl, morningCtx).then(function (ok) {
-            if (!ok && window.HomeMorning) HomeMorning.render(morningEl, morningCtx);
+          HomeTodayChecklist.render(morningEl, ctx).then(function (status) {
+            if (status === 'error' && window.HomeMorning) {
+              HomeMorning.render(morningEl, ctx);
+            }
           });
           return;
         }
-        if (window.HomeMorning) HomeMorning.render(morningEl, morningCtx);
+        if (window.HomeMorning) HomeMorning.render(morningEl, ctx);
       }
+
       _afterMetricsSave = function () {
-        fetch('/api/home/summary')
-          .then(function (r) { return r.ok ? r.json() : null; })
-          .then(function (fresh) {
-            if (!fresh) return;
-            summary = fresh;
-            weekDays = Array.isArray(fresh.week_days) ? fresh.week_days : weekDays;
-            if (window.HomeRTS) HomeRTS.render(fresh, userId);
-            _renderMorning();
-            if (window.HomeWeightTrend) HomeWeightTrend.render(document.getElementById('home-weight-trend'));
-          })
-          .catch(function () {});
+        Promise.all([
+          fetch('/api/home/summary').then(function (r) { return r.ok ? r.json() : null; }),
+          _fetchChecklistWeek()
+        ]).then(function (res) {
+          var fresh = res[0];
+          if (!fresh) return;
+          summary = fresh;
+          weekDays = Array.isArray(fresh.week_days) ? fresh.week_days : weekDays;
+          checklistWeek = res[1];
+          if (window.HomeRTS) HomeRTS.render(fresh, userId);
+          _renderMorning();
+          _renderWeekPlan();
+          if (window.HomeWeightTrend) HomeWeightTrend.render(document.getElementById('home-weight-trend'));
+        }).catch(function () {});
       };
 
-      _renderMorning();
-      _renderNextUpCard();
-
-      /* Week plan teaser — same shared week fetch. */
-      if (window.HomeBriefWeekPlanCard && weekPlanEl) HomeBriefWeekPlanCard.render(weekPlanEl, weekDays);
-      if (window.ChecklistUI && weekPlanEl) {
-        fetch('/api/checklist/week')
-          .then(function (r) { return r.ok ? r.json() : null; })
-          .then(function (cl) {
-            if (cl && cl.checklist_enabled) ChecklistUI.renderHomeWeekPlan(weekPlanEl, cl);
-          })
-          .catch(function () {});
+      if (window.HomeTodayChecklist && typeof HomeTodayChecklist.showLoading === 'function') {
+        HomeTodayChecklist.showLoading(morningEl);
       }
+      _renderMorning();
+      _renderTodaySession();
+      _renderWeekPlan();
 
       /* Weight trend + Race — home revamp v2 (each fetches its own data). */
       if (window.HomeWeightTrend) HomeWeightTrend.render(document.getElementById('home-weight-trend'));

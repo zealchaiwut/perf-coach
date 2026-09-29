@@ -27,8 +27,13 @@ def _session_state(ps: PlannedSession, today: date) -> str:
     return "pending"
 
 
-def _session_role(ps: PlannedSession) -> str:
+def _session_role(ps: PlannedSession, prefs_payload: dict | None = None) -> str:
     if ps.session_type == "mobility":
+        from backend.services.pref_catalog import get_field
+
+        role = get_field(prefs_payload or {}, "mobility_checklist_role") or "optional"
+        if role in ("core", "optional"):
+            return role
         return "optional"
     return "core"
 
@@ -252,7 +257,7 @@ def build_checklist_week(
         for ps in day_sessions:
             if ps.session_type == "rest":
                 continue
-            role = _session_role(ps)
+            role = _session_role(ps, prefs_payload)
             state = _session_state(ps, today)
             if role == "core" and state not in ("skipped",):
                 core_total += 1
@@ -331,22 +336,24 @@ def build_checklist_week(
                     "weekly_progress": {"value": total, "target": target},
                 })
 
-        fuel = fuel_by_date.get(d.isoformat()) or {}
-        items.append({
-            "id": f"fuel-{d.isoformat()}",
-            "kind": "fuel",
-            "source": "fuel",
-            "role": "optional",
-            "state": "shown",
-            "label": f"Fuel · {fuel.get('day_type', 'rest')}",
-            "link": None,
-            "tick": None,
-            "fuel": {
-                "day_type": fuel.get("day_type"),
-                "budget": fuel.get("budget"),
-                "burn": fuel.get("burn"),
-            },
-        })
+        fuel_enabled = get_field(prefs_payload, "checklist_fuel_enabled")
+        if fuel_enabled is not False:
+            fuel = fuel_by_date.get(d.isoformat()) or {}
+            items.append({
+                "id": f"fuel-{d.isoformat()}",
+                "kind": "fuel",
+                "source": "fuel",
+                "role": "optional",
+                "state": "shown",
+                "label": f"Fuel · {fuel.get('day_type', 'rest')}",
+                "link": None,
+                "tick": None,
+                "fuel": {
+                    "day_type": fuel.get("day_type"),
+                    "budget": fuel.get("budget"),
+                    "burn": fuel.get("burn"),
+                },
+            })
 
         score = {"core_done": core_done, "core_total": core_total}
         days_out.append({

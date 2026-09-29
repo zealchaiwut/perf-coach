@@ -112,7 +112,7 @@
         '<div class="clh-header-right">' +
           _racePillHtml(bRace, 'b') +
           aPill +
-          '<a href="/settings" class="clh-settings" title="Checklist settings"><i class="ti ti-settings"></i></a>' +
+          '<button type="button" class="clh-settings" data-open-checklist-settings title="Manage checklist" aria-label="Manage checklist"><i class="ti ti-settings"></i></button>' +
         '</div>' +
       '</header>'
     );
@@ -324,7 +324,7 @@
           (fw.week_phase_reason
             ? '<p class="clh-build-reason">' + esc(String(fw.week_phase_reason)) + '</p>'
             : '') +
-          '<a href="/settings" class="clh-manage">Manage →</a>' +
+          '<button type="button" class="clh-manage" data-open-checklist-settings>Manage →</button>' +
         '</div>' +
       '</aside>'
     );
@@ -360,6 +360,13 @@
         if (typeof opts.onBackCurrent === 'function') opts.onBackCurrent();
       });
     }
+    host.querySelectorAll('[data-open-checklist-settings]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (typeof opts.onOpenSettings === 'function') {
+          opts.onOpenSettings(data);
+        }
+      });
+    });
     if (window.ChecklistUI && typeof window.ChecklistUI.wireItems === 'function') {
       window.ChecklistUI.wireItems(host, data, opts.onRefresh);
     }

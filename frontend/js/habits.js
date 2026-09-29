@@ -97,6 +97,7 @@ let selectedColor = COLORS[0];
 
 // Week-view state
 let weekData = null;        // last response from GET /api/habits/week
+let _checklistUiDisabled = false; // weekly_checklist_enabled off (WC-06 manage modal)
 let currentWeekStart = null; // ISO date string; null = use server default (current week)
 
 // Debounce handle for hero + grid-totals refresh after cell mutations
@@ -556,9 +557,9 @@ async function loadAndRender() {
       if (clRes.ok) {
         const clData = await clRes.json();
         // Weekly checklist mock is the Habits surface when the read model loads.
-        // weekly_checklist_enabled (WC-06) is kept for API telemetry; no Settings
-        // toggle exists yet — do not gate the page on it.
-        if (clData.days && clData.days.length) {
+        if (clData.checklist_enabled === false) _checklistUiDisabled = true;
+        if (clData.checklist_enabled === true) _checklistUiDisabled = false;
+        if (clData.days && clData.days.length && !_checklistUiDisabled) {
           currentWeekStart = clData.week_start;
           weekData = {
             week_start: clData.week_start,
@@ -576,6 +577,26 @@ async function loadAndRender() {
           };
           const checklistOpts = () => ({
             onRefresh: refresh,
+            onOpenSettings: function (data) {
+              if (!window.ChecklistSettings) return;
+              window.ChecklistSettings.open({
+                weekStart: currentWeekStart || (data && data.week_start),
+                buildStatus: data && data.build_status,
+                forceChecklistOn: true,
+                onSaved: refresh,
+                onChecklistEnabled: async function () {
+                  _checklistUiDisabled = false;
+                  await loadAndRender();
+                },
+                onChecklistDisabled: async function () {
+                  window.ChecklistSettings.close();
+                  _checklistUiDisabled = true;
+                  if (window.ChecklistUI) ChecklistUI.showLegacyHabits();
+                  currentWeekStart = null;
+                  await loadAndRender();
+                },
+              });
+            },
             onWeekPrev: async () => {
               if (!currentWeekStart) return;
               const [y, m, d] = currentWeekStart.split('-').map(Number);
@@ -3123,6 +3144,12 @@ window.addEventListener('userReady', () => {
 window.addEventListener('userChanged', () => {
   _hcalInitialized = false;
   hcalFetchedRange = null;
+  _checklistUiDisabled = false;
   loadAndRender();
   loadInsights();
 });
+
+window.HabitsPage = {
+  openHabitForm: openHabitForm,
+  loadAndRender: loadAndRender,
+};

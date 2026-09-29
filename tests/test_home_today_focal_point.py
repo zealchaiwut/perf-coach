@@ -1,16 +1,10 @@
 """Tests for the Home today-focal-point UX improvement.
 
-UX review finding: Home's main content area had no forward-looking "what
-should I do today?" focal point. This was originally fixed with a dedicated
-home-today-plan-card.js widget; home revamp v2 (docs/mocks/home-revamp-v2.html)
-superseded that with a shared, reusable component — frontend/js/lib/next-up-card.js
-(window.NextUpCard) — extracted from the Plan tab's own "Next up" hero
-(training-plan.js's #plan-next-up) so Home's "Today's workout"
-(#home-next-up) and the Plan tab render byte-for-byte identical markup off
-the SAME /api/planned-sessions data, instead of home.html shipping a second,
-divergent implementation. gridstack.js (frontend/js/home-grid.js) was also
-removed in the same revamp — Home's layout is now a plain CSS Grid
-(#home-cols) — so this file no longer reads that module either.
+Home's right-column focal card (#home-next-up) is Sprint 138's
+HomeTodaySession (exercise list for today's planned session). The shared
+NextUpCard component remains on the Plan tab only (training-plan.js).
+Home revamp v2 layout (#home-cols) is unchanged — plain CSS Grid, no
+gridstack.
 
 Deliberately PURE STATIC-SOURCE assertions (frontend/js/*.js and
 frontend/pages/home.html read as text) — no live server and no live-DB
@@ -63,33 +57,28 @@ def test_next_up_card_exposes_global():
 
 def test_home_html_has_next_up_container():
     assert 'id="home-next-up"' in _HOME_HTML, (
-        "home.html must have a #home-next-up container for the shared "
-        "Today's workout card"
+        "home.html must have a #home-next-up container for Today's session"
     )
 
 
-def test_home_html_loads_next_up_card_script():
-    assert "js/lib/next-up-card.js" in _HOME_HTML, (
-        "home.html must load js/lib/next-up-card.js"
+def test_home_html_loads_today_session_script():
+    assert "home-today-session.js" in _HOME_HTML, (
+        "home.html must load home-today-session.js"
     )
 
 
-def test_next_up_card_script_loads_before_home_js():
-    """home.js calls window.NextUpCard.render synchronously on page init, so
-    the script tag order matters."""
-    card_idx = _HOME_HTML.find("js/lib/next-up-card.js")
+def test_today_session_script_loads_before_home_js():
+    sess_idx = _HOME_HTML.find("home-today-session.js")
     home_js_idx = _HOME_HTML.find('src="js/home.js')
-    assert card_idx != -1 and home_js_idx != -1
-    assert card_idx < home_js_idx, (
-        "js/lib/next-up-card.js must be loaded before js/home.js so "
-        "window.NextUpCard exists when home.js's init() runs"
+    assert sess_idx != -1 and home_js_idx != -1
+    assert sess_idx < home_js_idx, (
+        "home-today-session.js must load before home.js"
     )
 
 
-def test_home_js_initializes_next_up_card():
-    assert "NextUpCard" in _HOME_JS, (
-        "home.js must reference window.NextUpCard to initialize the "
-        "Today's workout card"
+def test_home_js_initializes_today_session():
+    assert "HomeTodaySession" in _HOME_JS, (
+        "home.js must call HomeTodaySession for #home-next-up"
     )
     assert "home-next-up" in _HOME_JS, (
         "home.js must look up the #home-next-up container"
@@ -149,12 +138,11 @@ def test_next_up_card_takes_days_as_input_not_a_fetch():
     )
 
 
-def test_home_js_fetches_planned_sessions_once_for_next_up():
-    assert "/api/planned-sessions" in _HOME_JS, (
-        "home.js must fetch /api/planned-sessions and pass the result to "
-        "NextUpCard.render (and the morning session row, and the week plan "
-        "teaser) — not a new endpoint"
+def test_home_js_uses_summary_week_days_for_session():
+    assert "week_days" in _HOME_JS, (
+        "home.js must pass summary week_days to HomeTodaySession and week plan"
     )
+    assert "/api/home/summary" in _HOME_JS
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -254,14 +242,14 @@ def test_recent_workouts_renderer_targets_new_container():
 # Layout — Today's workout leads the right column, beside Readiness's row
 # ══════════════════════════════════════════════════════════════════════════
 
-def test_dom_order_next_up_before_training_before_recent_workouts():
+def test_dom_order_session_week_plan_training_recent():
     next_up_pos = _HOME_HTML.find('id="home-next-up"')
+    week_pos = _HOME_HTML.find('id="home-brief-week-plan-card"')
     training_pos = _HOME_HTML.find('id="home-training-card"')
     recent_pos = _HOME_HTML.find('id="home-recent-workouts-card"')
-    assert next_up_pos != -1 and training_pos != -1 and recent_pos != -1
-    assert next_up_pos < training_pos < recent_pos, (
-        "DOM order must be Today's workout (top of right column) ... "
-        "Training ... Recent workouts (bottom of right column)"
+    assert next_up_pos != -1 and week_pos != -1 and training_pos != -1 and recent_pos != -1
+    assert next_up_pos < week_pos < training_pos < recent_pos, (
+        "Right column: Today's session → Week plan → Training → Recent"
     )
 
 

@@ -9238,7 +9238,7 @@
 
     <script src="js/lib/app-common.js"></script>
     <script src="js/lib/sync-poller.js"></script>
-    <script src="js/nav.js?v=20260814ux1"></script>
+    <script src="js/nav.js?v=20260929b"></script>
     <script src="js/lib/html2canvas.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
     <script src="js/ui-states.js"></script>
@@ -9247,7 +9247,7 @@
     <script src="js/zone2-constants.js"></script>
     <script src="js/lib/run-detail-view.js?v=20260927b"></script>
     <script src="js/training.js"></script>
-    <script src="js/training-log.js?v=20260927b"></script>
+    <script src="js/training-log.js?v=20260929b"></script>
     <script src="js/checklist-ui.js"></script>
     <script src="js/training-performance.js?v=20260928b"></script>
     <script src="js/lib/plan-session-helpers.js?v=20260810phasea1"></script>
@@ -9307,6 +9307,7 @@
             window.TrainingPerformance.init();
           // Hide "Log workout" button when not on Log tab
           if (logNewBtn) logNewBtn.style.display = isLog ? "" : "none";
+          if (window.repositionLogNav) window.repositionLogNav();
         }
 
         // Handle clicks without triggering a page reload

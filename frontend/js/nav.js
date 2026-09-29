@@ -953,6 +953,26 @@
   }
 
   /**
+   * Pick the element whose left/right edges define the page content column.
+   * Training log's ``main.log-page`` is ``display:contents`` — measuring it
+   * yields a zero rect and parks almost all padding on the right, clipping
+   * "Home" to "Hom". Fall back to the log shell (``.log-layout`` /
+   * ``.tab-panel-placeholder``) instead.
+   */
+  function _pageContentAnchor() {
+    var page = document.querySelector("main.page, main, .page");
+    if (page && window.getComputedStyle(page).display !== "contents") {
+      return page;
+    }
+    var shell =
+      document.querySelector(".log-layout:not([hidden])") ||
+      document.querySelector(".tab-panel-placeholder:not([hidden])") ||
+      document.querySelector(".log-layout") ||
+      document.querySelector(".tab-panel-placeholder");
+    return shell || page;
+  }
+
+  /**
    * Desktop: inset sticky global nav to the page content column edges.
    * Prefer measuring ``.page`` (Home = 1320/28) so Home / Training / etc.
    * match their own column; fall back to Training's 1000 + 24 geometry.
@@ -967,7 +987,7 @@
     }
 
     // Habits / Weight use plain <main> (1280px) — not only main.page.
-    var page = document.querySelector("main.page, main, .page");
+    var page = _pageContentAnchor();
     if (page) {
       var rect = page.getBoundingClientRect();
       var cs = window.getComputedStyle(page);

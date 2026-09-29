@@ -5985,6 +5985,22 @@
   //
   // Desktop: inset .log-page-header-inner to the content column. Global nav
   // left/right padding is owned by nav.js (_positionGlobalNav) on every page.
+  function _visibleLogShell() {
+    var selectors = [".log-layout", ".tab-panel-placeholder"];
+    for (var s = 0; s < selectors.length; s++) {
+      var nodes = document.querySelectorAll(selectors[s]);
+      for (var i = 0; i < nodes.length; i++) {
+        var el = nodes[i];
+        if (el.hidden) continue;
+        if (el.style.display === "none") continue;
+        var cs = window.getComputedStyle(el);
+        if (cs.display === "none" || cs.visibility === "hidden") continue;
+        return el;
+      }
+    }
+    return document.querySelector(".log-layout, .tab-panel-placeholder");
+  }
+
   function _positionNav() {
     var gnav = document.querySelector(".global-nav");
     var hdr = document.querySelector(".log-page-header");
@@ -6007,13 +6023,20 @@
       return;
     }
 
-    // Brand+tabs align to the shared centered content box's left edge (same as
-    // #plan-race-header / any .pm-card); computed from geometry (all four tabs
-    // share max-width:1000 + 24px padding, border-box) rather than measuring
-    // #list-main, which is display:none on Plan/Projection/Performance.
-    // The actions cluster (.log-page-header-actions) is a normal flex child
-    // pushed right by .log-nav-spacer, so setting this same padding-right
-    // aligns its right edge with the content column's right edge too.
+    // Measure the visible sub-tab shell (--log-shell-max) so Summary / Plan /
+    // Performance share the same left/right edge as the sticky tab bar.
+    var anchor = _visibleLogShell();
+    if (anchor) {
+      var rect = anchor.getBoundingClientRect();
+      var cs = window.getComputedStyle(anchor);
+      var pl = parseFloat(cs.paddingLeft) || 0;
+      var pr = parseFloat(cs.paddingRight) || 0;
+      inner.style.paddingLeft = Math.max(0, rect.left + pl) + "px";
+      inner.style.paddingRight =
+        Math.max(0, document.documentElement.clientWidth - (rect.right - pr)) + "px";
+      return;
+    }
+
     var CONTENT_MAX = 1000,
       PAD = 24;
     var vw = document.documentElement.clientWidth;
@@ -6021,6 +6044,7 @@
     inner.style.paddingLeft = contentLeft + "px";
     inner.style.paddingRight = contentLeft + "px";
   }
+  window.repositionLogNav = _positionNav;
   window.addEventListener("load", _positionNav);
   window.addEventListener("resize", _positionNav);
   _positionNav();

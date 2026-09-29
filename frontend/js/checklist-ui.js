@@ -220,7 +220,7 @@
       _buildStatusHtml(data.build_status) +
       '<div class="cl-habits-toolbar">' +
         '<span class="cl-week-label">' + esc(weekLabel) + '</span>' +
-        '<a href="/settings" class="cl-manage-btn" title="Checklist settings"><i class="ti ti-settings"></i> Manage</a>' +
+        '<button type="button" class="cl-manage-btn" data-open-checklist-settings title="Manage checklist"><i class="ti ti-settings"></i> Manage</button>' +
       '</div>' +
       '<div class="cl-days-grid">' +
         (data.days || []).map(function (d) { return _dayBlockHtml(d, today); }).join('') +

@@ -140,12 +140,12 @@
        stacks (not a flat grid of 9 cards with shared row tracks — that made
        Week plan stretch left-column rows and leave blue holes under Race).
        Mobile ≤900px: .home-col { display:contents } so card `order` still
-       stacks as morning → workout → coach → weight → race → perf →
-       readiness → training → week plan → recent. */
+       stacks as morning → session → coach → race → weight → perf →
+       readiness → week plan → training → recent. */
     #home-morning { margin-bottom: 13px; width: 100%; }
     #home-cols {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1.2fr 0.8fr;
       gap: 13px;
       align-items: start;
       width: 100%;
@@ -185,12 +185,12 @@
       }
       #home-next-up              { order: 1; }
       #home-today-rec-card       { order: 2; }
-      #home-weight-trend         { order: 3; }
-      #home-race-card            { order: 4; }
+      #home-race-card            { order: 3; }
+      #home-weight-trend         { order: 4; }
       #home-performance-card     { order: 5; }
       #home-top-row-right        { order: 6; }
-      #home-training-card        { order: 7; }
-      #home-brief-week-plan-card { order: 8; }
+      #home-brief-week-plan-card { order: 7; }
+      #home-training-card        { order: 8; }
       #home-recent-workouts-card { order: 9; }
     }
 
@@ -1651,6 +1651,17 @@
       border: 0; border-radius: 9px; padding: 8px 14px; background: #cff245;
       font-family: inherit; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;
     }
+    .htc-card--loading .htc-skel {
+      border-radius: 8px; background: linear-gradient(90deg, #f1f4fa 25%, #e8ecf4 50%, #f1f4fa 75%);
+      background-size: 200% 100%; animation: htc-shimmer 1.2s ease-in-out infinite;
+    }
+    .htc-skel--row { height: 38px; margin-bottom: 8px; }
+    .htc-skel--short { width: 70%; }
+    .htc-skel--fuel { height: 88px; }
+    @keyframes htc-shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+    .htc-body--empty { padding: 16px 18px 20px; }
+    .htc-empty-msg { font-size: 13px; color: var(--text-secondary); margin: 0 0 10px; }
+    .htc-all-link { font-size: 12px; font-weight: 600; color: var(--link); text-decoration: none; }
 
     @media (max-width: 640px) {
       .hm-row { flex-wrap: wrap; }
@@ -1789,6 +1800,15 @@
     .hpl-state--pending { background: #dbeafe; color: #1d4ed8; }
     .hpl-state--missed { background: #fee2e2; color: #991b1b; }
     .hpl-sess--done .hpl-name { opacity: .75; }
+    .hpl-phase {
+      font-size: 12px; color: var(--text-secondary); margin: -4px 0 12px; line-height: 1.45;
+    }
+    .hpl-day-type {
+      margin-left: auto; align-self: center; flex-shrink: 0;
+      font-size: 9px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+      padding: 3px 8px; border-radius: 999px; background: #eef2ff; color: #3730a3;
+    }
+    .hpl-day--today .hpl-day-type { background: #dbeafe; color: #1d4ed8; }
 
     .hrc-progress-meta {
       display: flex; justify-content: space-between; gap: 10px;
@@ -1901,15 +1921,15 @@
   <div id="home-cols">
     <div class="home-col home-col--left">
       <div id="home-today-rec-card" class="card grp-training"></div>
-      <div id="home-weight-trend" class="card grp-weight"></div>
       <div id="home-race-card" class="card"></div>
+      <div id="home-weight-trend" class="card grp-weight"></div>
       <div id="home-performance-card" class="card grp-training"></div>
       <div id="home-top-row-right" class="grp-training"></div>
     </div>
     <div class="home-col home-col--right">
       <div id="home-next-up"></div>
-      <div id="home-training-card" class="card grp-training"></div>
       <div id="home-brief-week-plan-card" class="card"></div>
+      <div id="home-training-card" class="card grp-training"></div>
       <div id="home-recent-workouts-card" class="card grp-training"></div>
     </div>
   </div>
@@ -2071,18 +2091,16 @@
 <script src="js/lib/load-readiness-tiles.js?v=20260801a"></script>
 <script src="js/coach-brief.js?v=20260718brief9"></script>
 <script src="js/home-coach-digest.js?v=20260808revamp3"></script>
-<script src="js/home-readiness-training-sleep.js?v=20260814ux2"></script>
+<script src="js/home-readiness-training-sleep.js?v=20260929a"></script>
 <script src="js/checklist-ui.js"></script>
 <script src="js/checklist-shared.js"></script>
 <script src="js/home-today-checklist.js"></script>
-<script src="js/home-brief-week-plan-card.js?v=20260810phasea1"></script>
-<script src="js/lib/next-up-card.js?v=20260810phasea1"></script>
-<script src="js/home-morning.js?v=20260814ux1"></script>
-<script src="js/home-today-checklist.js"></script>
 <script src="js/home-today-session.js"></script>
+<script src="js/home-brief-week-plan-card.js?v=20260929a"></script>
+<script src="js/home-morning.js?v=20260814ux1"></script>
 <script src="js/home-weight-trend.js?v=20260808revamp3"></script>
 <script src="js/home-race-card.js?v=20260810phaseb1"></script>
-<script src="js/home.js?v=20260814ux1"></script>
+<script src="js/home.js?v=20260929a"></script>
 
 <script src="js/injury-log.js"></script>
 <script>

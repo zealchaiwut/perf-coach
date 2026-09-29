@@ -106,7 +106,9 @@ def write_version(
 
         old_stretch = int(get_field(prev.payload, "stretch_daily_min") or 0)
         new_stretch = int(get_field(normalized, "stretch_daily_min") or 0)
-        if old_stretch != new_stretch:
+        old_mob_role = get_field(prev.payload, "mobility_checklist_role") or "optional"
+        new_mob_role = get_field(normalized, "mobility_checklist_role") or "optional"
+        if old_stretch != new_stretch or old_mob_role != new_mob_role:
             try:
                 enqueue_week_rebuild(user_id, remaining_days_only=True)
             except Exception:

@@ -30,8 +30,10 @@ def plan_build_status(db: Session, user_id, *, week_start: date | None = None) -
 
     return {
         "state": state,
+        "status": state,
         "week_start": ws.isoformat(),
         "last_built": last_built,
+        "last_built_at": last_built,
         "draft_status": draft.status if draft else None,
         "pending_job_id": str(plan_jobs[0]["id"]) if plan_jobs else None,
     }
