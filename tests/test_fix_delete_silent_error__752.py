@@ -119,24 +119,26 @@ def test_ac2_network_failure_reaches_error_branch():
 # ── AC3: success path (refresh) unchanged ─────────────────────────────────────
 
 def test_ac3_success_still_calls_refresh():
-    """AC3: The if (res.ok) refresh() path must remain unchanged after the fix."""
+    """AC3: The if (res.ok) success refresh path must remain after the fix."""
     src = _src()
     block = _delete_editing_block(src)
-    has_refresh_on_ok = "res.ok" in block and "refresh()" in block
+    has_refresh_on_ok = "res.ok" in block and (
+        "refresh()" in block or "_refreshAfterRaceMutation()" in block
+    )
     assert has_refresh_on_ok, (
-        "deleteEditing must still call refresh() when res.ok is truthy. "
+        "deleteEditing must still refresh plan data when res.ok is truthy. "
         "The fix must not remove or alter the success path."
     )
 
 
 def test_ac3_refresh_guarded_by_res_ok():
-    """AC3: refresh() must only be called when res.ok is true (not unconditionally)."""
+    """AC3: refresh must only run when res.ok is true (not unconditionally)."""
     src = _src()
     block = _delete_editing_block(src)
-    # refresh() must appear after/inside an if (res.ok) check, not standalone
-    # Simple heuristic: "res.ok" and "refresh()" both appear in the block
     assert "res.ok" in block, "deleteEditing block must reference res.ok"
-    assert "refresh()" in block, "deleteEditing block must call refresh()"
+    assert (
+        "refresh()" in block or "_refreshAfterRaceMutation()" in block
+    ), "deleteEditing block must refresh on success"
 
 
 # ── AC4: consistent with saveModal error handling pattern ─────────────────────

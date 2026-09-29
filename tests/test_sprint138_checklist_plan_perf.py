@@ -55,7 +55,7 @@ def test_performance_what_moves_sidebar_and_race_order():
 
 def test_training_log_cache_bust_wc18_wc19():
     assert "training-plan.js?v=20260929e" in PAGE
-    assert "training-performance.js?v=20260929f" in PAGE
+    assert "training-performance.js?v=20260929n" in PAGE
     assert "checklist-ui.js?v=20260929e" in PAGE
 
 
