@@ -630,9 +630,6 @@ _BASELINE_ORPHANS_API: dict[str, str] = {
     # (see the PERMANENT_EXEMPT entry note and the checkpoints cluster
     # above). No frontend reference to the flat form survives. Phase E:
     # migrate tests then delete.
-    "/api/races": "Superseded by the plan-scoped /api/plans/{id}/races that _planRaceUrl() calls; no caller for the flat form.",
-    "/api/races/{race_id}": "Same flat-races family as /api/races above — no caller.",
-    "/api/races/{race_id}/calibrate": "No frontend caller for either calibrate verb.",
     "/api/races/{race_id}/calibrate/accept": "No frontend caller (see above).",
     "/api/races/{race_id}/checkpoints": "Same flat-races family as /api/races above — no caller.",
     "/api/races/{race_id}/checkpoints/{checkpoint_id}": "Same flat-races family as /api/races above — no caller.",

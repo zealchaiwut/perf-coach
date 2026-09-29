@@ -40,6 +40,7 @@ def test_checklist_settings_module_exports():
     assert "ChecklistSettings" in src
     assert "/api/preferences" in src
     assert "/api/plan/rebuild-week" in src
+    assert "/api/plan/build-status" in src
     assert "checklist_role" in src
 
 

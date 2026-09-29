@@ -100,20 +100,27 @@ def write_version(
     )
     db.add(row)
     db.flush()
-    if prev is not None:
-        from backend.services.pref_catalog import get_field
-        from backend.services.plan_build_status import enqueue_week_rebuild
-
-        old_stretch = int(get_field(prev.payload, "stretch_daily_min") or 0)
-        new_stretch = int(get_field(normalized, "stretch_daily_min") or 0)
-        old_mob_role = get_field(prev.payload, "mobility_checklist_role") or "optional"
-        new_mob_role = get_field(normalized, "mobility_checklist_role") or "optional"
-        if old_stretch != new_stretch or old_mob_role != new_mob_role:
-            try:
-                enqueue_week_rebuild(user_id, remaining_days_only=True)
-            except Exception:
-                pass
+    _maybe_enqueue_mobility_rebuild(user_id, prev, normalized)
     return row
+
+
+def _maybe_enqueue_mobility_rebuild(user_id, prev, normalized: dict) -> None:
+    """Enqueue plan rebuild when mobility prefs change; does not merge payloads."""
+    if prev is None:
+        return
+    from backend.services.pref_catalog import get_field
+    from backend.services.plan_build_status import enqueue_week_rebuild
+
+    prev_payload = prev.payload if isinstance(getattr(prev, "payload", None), dict) else {}
+    old_stretch = int(get_field(prev_payload, "stretch_daily_min") or 0)
+    new_stretch = int(get_field(normalized, "stretch_daily_min") or 0)
+    old_mob_role = get_field(prev_payload, "mobility_checklist_role") or "optional"
+    new_mob_role = get_field(normalized, "mobility_checklist_role") or "optional"
+    if old_stretch != new_stretch or old_mob_role != new_mob_role:
+        try:
+            enqueue_week_rebuild(user_id, remaining_days_only=True)
+        except Exception:
+            pass
 
 
 def confirm_active(db: Session, user_id) -> Any:

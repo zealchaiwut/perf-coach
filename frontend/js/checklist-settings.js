@@ -310,6 +310,17 @@
     return res.json();
   }
 
+  async function refreshBuildStatus() {
+    try {
+      var url = '/api/plan/build-status';
+      if (_opts.weekStart) {
+        url += '?week_start=' + encodeURIComponent(_opts.weekStart);
+      }
+      var res = await fetch(url, { credentials: 'same-origin' });
+      if (res.ok) _opts.buildStatus = await res.json();
+    } catch (_) { /* optional poll */ }
+  }
+
   async function reloadHabits() {
     var res = await fetch('/api/habits?include_archived=true', { credentials: 'same-origin' });
     if (!res.ok) throw new Error('Could not load habits');
@@ -436,6 +447,7 @@
           var data = await res.json().catch(function () { return {}; });
           if (!res.ok) throw new Error(data.detail || 'Rebuild failed');
           _opts.buildStatus = data;
+          await refreshBuildStatus();
           if (typeof _opts.onSaved === 'function') _opts.onSaved();
           render();
         } catch (e) {
@@ -465,6 +477,7 @@
       if (!prefRes.ok) throw new Error('Could not load preferences');
       var prefData = await prefRes.json();
       _prefsPayload = Object.assign({}, (prefData.active && prefData.active.payload) || {});
+      await refreshBuildStatus();
       await reloadHabits();
       render();
     } catch (e) {

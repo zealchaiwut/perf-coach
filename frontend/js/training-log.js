@@ -6972,6 +6972,7 @@
         : "") +
       "</div>" +
       '<div class="sd-supercomp-links">' +
+      '<a class="sd-supercomp-link" href="training-log.html#plan">&#8594; Plan</a>' +
       '<a class="sd-supercomp-link" href="training-log.html#performance">&#8594; Performance</a>' +
       "</div>" +
       "</div>";
