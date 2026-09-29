@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="css/habits.css">
   <link rel="stylesheet" href="css/checklist.css">
   <link rel="stylesheet" href="css/checklist-habits.css">
+  <link rel="stylesheet" href="css/checklist-settings.css">
 </head>
 <body class="habits-checklist-first">
   <main>
@@ -310,6 +311,23 @@
     </div>
   </div>
 
+  <!-- Manage checklist settings (WC-16) -->
+  <div id="checklist-settings-overlay" class="cl-set-overlay" role="dialog" aria-modal="true" aria-labelledby="checklist-settings-title">
+    <div class="cl-set-modal">
+      <div class="cl-set-hdr">
+        <div>
+          <h2 id="checklist-settings-title" class="cl-set-title">Manage checklist</h2>
+          <p class="cl-set-sub">Settings for Habits and Home. Opened from the gear on Habits.</p>
+        </div>
+        <button type="button" class="cl-set-close" aria-label="Close">&times;</button>
+      </div>
+      <p id="checklist-settings-error" class="cl-set-error" role="alert" hidden></p>
+      <div id="checklist-settings-body" class="cl-set-body">
+        <div class="cl-set-loading">Loading settings…</div>
+      </div>
+    </div>
+  </div>
+
   <!-- New / Edit habit modal -->
   <div id="habit-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div class="modal-box">
@@ -391,6 +409,7 @@
   <script src="js/checklist-ui.js"></script>
   <script src="js/checklist-shared.js"></script>
   <script src="js/checklist-habits-page.js"></script>
+  <script src="js/checklist-settings.js?v=20260929c"></script>
   <script src="js/habits.js"></script>
   <script src="js/habit-insights.js"></script>
   <script src="js/habit-nudges.js"></script>

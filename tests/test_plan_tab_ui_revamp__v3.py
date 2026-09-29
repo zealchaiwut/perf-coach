@@ -60,4 +60,4 @@ def test_mobile_chart_window_helpers():
 
 
 def test_cache_bust_bumped():
-    assert "training-plan.js?v=20260814ux2" in PAGE
+    assert "training-plan.js?v=20260929d" in PAGE

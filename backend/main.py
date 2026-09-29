@@ -3984,6 +3984,13 @@ _VALID_AUTO_FILL_SOURCES = frozenset({
 _CHECKLIST_ROLE_VALUES = frozenset({"core", "optional", "off"})
 
 
+def _habit_checklist_role(h: Habit) -> str:
+    role = getattr(h, "checklist_role", None)
+    if isinstance(role, str) and role in _CHECKLIST_ROLE_VALUES:
+        return role
+    return "core"
+
+
 def _habit_dict(h: Habit) -> dict:
     return {
         "id": str(h.id),
@@ -3999,7 +4006,7 @@ def _habit_dict(h: Habit) -> dict:
         "sort_order": h.sort_order,
         "is_archived": h.is_archived,
         "section": str(h.section) if h.section is not None else "general",
-        "checklist_role": getattr(h, "checklist_role", None) or "core",
+        "checklist_role": _habit_checklist_role(h),
         "created_at": h.created_at.isoformat() if h.created_at else None,
         "updated_at": h.updated_at.isoformat() if h.updated_at else None,
     }
@@ -4036,7 +4043,7 @@ def _habit_dict_v2(h: Habit) -> dict:
         "color": h.color,
         "auto_fill_source": h.auto_fill_source,
         "section": str(h.section) if h.section is not None else "general",
-        "checklist_role": getattr(h, "checklist_role", None) or "core",
+        "checklist_role": _habit_checklist_role(h),
         "created_at": h.created_at.isoformat() if h.created_at else None,
         "updated_at": h.updated_at.isoformat() if h.updated_at else None,
     }
@@ -4286,7 +4293,7 @@ def get_habits(
         rows = q.order_by(Habit.sort_order).all()
         visible = [
             r for r in rows
-            if include_archived or getattr(r, "checklist_role", "core") != "off"
+            if include_archived or _habit_checklist_role(r) != "off"
         ]
         return JSONResponse([_habit_dict(r) for r in visible])
 

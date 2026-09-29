@@ -45,6 +45,8 @@ def test_home_refetches_week_after_mark_done():
     assert "/api/home/summary" in src
     assert "_reloadWeekState" in src
     assert "HomeTodayChecklist" in src
+    assert "HomeTodaySession" in src
+    assert "_fetchChecklistWeek" in src
 
 
 def test_food_portions_for_targets():

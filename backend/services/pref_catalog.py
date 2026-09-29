@@ -62,11 +62,23 @@ PREF_FIELDS: dict[str, dict[str, Any]] = {
         "reads": ["skeleton"],
         "default": 0,
     },
+    # Mobility block role on the weekly checklist (WC-16 manage modal).
+    "mobility_checklist_role": {
+        "type": "enum:core|optional|off",
+        "reads": ["skeleton"],
+        "default": "optional",
+    },
+    # Show fuel targets on checklist days (informational; never ticked).
+    "checklist_fuel_enabled": {
+        "type": "bool",
+        "reads": [],
+        "default": True,
+    },
     # Master switch for the weekly checklist UI (WC-06). Off = legacy habits page.
     "weekly_checklist_enabled": {
         "type": "bool",
         "reads": [],
-        "default": False,
+        "default": True,
     },
     "notes": {
         "type": "str",
@@ -108,6 +120,7 @@ PREF_FIELDS: dict[str, dict[str, Any]] = {
 _ENUM_MAP = {
     "strength_emphasis": ("less", "same", "more"),
     "plyo_mode": ("standalone", "superset", "off"),
+    "mobility_checklist_role": ("core", "optional", "off"),
 }
 
 

@@ -28,21 +28,43 @@
     return '';
   }
 
-  function render(host, ctx) {
-    if (!host) return Promise.resolve(false);
-    ctx = ctx || {};
+  function showLoading(host) {
+    if (!host) return;
+    host.innerHTML =
+      '<div class="htc-card htc-card--loading" aria-busy="true">' +
+        '<div class="htc-head"><span class="htc-k">Today · core &amp; fuel</span></div>' +
+        '<div class="htc-body">' +
+          '<div class="htc-core-col"><div class="htc-skel htc-skel--row"></div>' +
+            '<div class="htc-skel htc-skel--row"></div>' +
+            '<div class="htc-skel htc-skel--row htc-skel--short"></div></div>' +
+          '<div class="htc-fuel-col"><div class="htc-skel htc-skel--fuel"></div></div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function _emptyState(host) {
+    host.innerHTML =
+      '<div class="htc-card htc-card--empty">' +
+        '<div class="htc-head"><span class="htc-k">Today · checklist</span></div>' +
+        '<div class="htc-body htc-body--empty">' +
+          '<p class="htc-empty-msg">No checklist for today yet.</p>' +
+          '<a href="/habits" class="htc-all-link">Open habits →</a>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function _paint(host, ctx, cl, fuelToday) {
     var today = _todayISO();
+    if (!cl || !cl.days) {
+      _emptyState(host);
+      return 'empty';
+    }
 
-    return Promise.all([
-      fetch('/api/checklist/week').then(function (r) { return r.ok ? r.json() : null; }),
-      fetch('/api/fuel/today').then(function (r) { return r.ok ? r.json() : null; }),
-    ]).then(function (res) {
-      var cl = res[0];
-      var fuelToday = res[1];
-      if (!cl || !cl.days) return false;
-
-      var day = cl.days.find(function (d) { return d.date === today; });
-      if (!day) return false;
+    var day = cl.days.find(function (d) { return d.date === today; });
+    if (!day) {
+      _emptyState(host);
+      return 'empty';
+    }
 
       var score = day.score || { core_done: 0, core_total: 0 };
       var items = day.items || [];
@@ -101,11 +123,32 @@
         });
       }
 
-      return true;
+      return 'ok';
+  }
+
+  function render(host, ctx) {
+    if (!host) return Promise.resolve('error');
+    ctx = ctx || {};
+
+    var clPromise = (ctx.checklistWeek !== undefined)
+      ? Promise.resolve(ctx.checklistWeek)
+      : fetch('/api/checklist/week')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .catch(function () { return null; });
+
+    var fuelPromise = (ctx.fuelToday !== undefined)
+      ? Promise.resolve(ctx.fuelToday)
+      : fetch('/api/fuel/today')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .catch(function () { return null; });
+
+    return Promise.all([clPromise, fuelPromise]).then(function (res) {
+      if (res[0] === null) return 'error';
+      return _paint(host, ctx, res[0], res[1]);
     }).catch(function () {
-      return false;
+      return 'error';
     });
   }
 
-  window.HomeTodayChecklist = { render: render };
+  window.HomeTodayChecklist = { render: render, showLoading: showLoading };
 })();
