@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="css/styles.css" />
     <link rel="stylesheet" href="css/training-form.css" />
     <link rel="stylesheet" href="css/training-detail.css" />
-    <link rel="stylesheet" href="css/run-detail-v4.css?v=20260927a" />
+    <link rel="stylesheet" href="css/run-detail-v4.css?v=20260929h" />
     <link rel="stylesheet" href="css/load-readiness-tiles.css?v=20260801a" />
     <link rel="stylesheet" href="css/checklist.css" />
     <link
@@ -4533,6 +4533,37 @@
       <div id="plan-tab-panel">
         <!-- ── Merged Plan panel (mock: plan-merge) ─────────────────────── -->
         <div class="plan-merged">
+          <!-- Calibration status -->
+          <div class="pm-card">
+            <h2 class="pm-sectitle pm-sectitle--plain">Calibration status</h2>
+            <div class="pm-calgrid">
+              <div class="pm-caltile">
+                <div class="pm-lab"><span class="pm-lab-full">Last recalibrated</span><span class="pm-lab-short">Recalibrated</span></div>
+                <div class="pm-v" id="plan-calib-date">
+                  <span class="pm-italic">Not yet calibrated</span>
+                </div>
+              </div>
+              <div class="pm-caltile">
+                <div class="pm-lab"><span class="pm-lab-full">Data sufficiency</span><span class="pm-lab-short">Data</span></div>
+                <div class="pm-v" id="plan-calib-sufficiency">
+                  <span class="pm-italic">—</span>
+                </div>
+              </div>
+              <div class="pm-caltile">
+                <div class="pm-lab"><span class="pm-lab-full">Band confidence</span><span class="pm-lab-short">Band</span></div>
+                <div class="pm-v" id="plan-calib-confidence">
+                  <span class="pm-italic">—</span>
+                </div>
+              </div>
+              <div class="pm-caltile">
+                <div class="pm-lab"><span class="pm-lab-full">Model correction</span><span class="pm-lab-short">Correction</span></div>
+                <div class="pm-v" id="plan-calib-correction">
+                  <span class="pm-italic">—</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- ── Score cards: Endurance + Speed (2-up) — moved here from the
                removed Performance tab ─────────────────────────────────── -->
           <div class="perf-scorewrap">
@@ -4643,91 +4674,49 @@
           </div>
           <!-- /.perf-scorewrap -->
 
-          <!-- Row: A-race header + calibration status -->
-          <div class="pm-row2">
-          <!-- 1. A-race header -->
-          <div class="pm-card" id="plan-race-header">
-            <div id="plan-race-header-content"></div>
-          </div>
-
-          <!-- 2. Calibration status -->
-          <div class="pm-card">
-            <h2 class="pm-sectitle pm-sectitle--plain">Calibration status</h2>
-            <div class="pm-calgrid">
-              <div class="pm-caltile">
-                <div class="pm-lab"><span class="pm-lab-full">Last recalibrated</span><span class="pm-lab-short">Recalibrated</span></div>
-                <div class="pm-v" id="plan-calib-date">
-                  <span class="pm-italic">Not yet calibrated</span>
+          <!-- Row: A-race hero + next-checkpoint projection tiles -->
+          <div class="pm-row2 pm-row2--hero">
+            <div class="pm-card" id="plan-race-header">
+              <div id="plan-race-header-content"></div>
+            </div>
+            <div id="perf-proj" class="pm-card perf-proj-card">
+              <div class="pm-ckhead">
+                <h2 class="pm-sectitle pm-sectitle--plain">Projected at next checkpoint</h2>
+                <span class="perf-tag">New</span>
+              </div>
+              <div id="perf-proj-body" hidden>
+                <div class="perf-proj-meta" id="perf-proj-meta"></div>
+                <div class="perf-projgrid">
+                  <div class="perf-projtile perf-projtile--e">
+                    <div class="perf-projtile-l">Est. finish</div>
+                    <div class="perf-projtile-v" id="perf-proj-endurance">–</div>
+                  </div>
                 </div>
               </div>
-              <div class="pm-caltile">
-                <div class="pm-lab"><span class="pm-lab-full">Data sufficiency</span><span class="pm-lab-short">Data</span></div>
-                <div class="pm-v" id="plan-calib-sufficiency">
-                  <span class="pm-italic">—</span>
-                </div>
-              </div>
-              <div class="pm-caltile">
-                <div class="pm-lab"><span class="pm-lab-full">Band confidence</span><span class="pm-lab-short">Band</span></div>
-                <div class="pm-v" id="plan-calib-confidence">
-                  <span class="pm-italic">—</span>
-                </div>
-              </div>
-              <div class="pm-caltile">
-                <div class="pm-lab"><span class="pm-lab-full">Model correction</span><span class="pm-lab-short">Correction</span></div>
-                <div class="pm-v" id="plan-calib-correction">
-                  <span class="pm-italic">—</span>
-                </div>
+              <div class="perf-proj-empty" id="perf-proj-empty" hidden>
+                No upcoming checkpoint — add one above.
               </div>
             </div>
-          </div>
-
-          </div><!-- /pm-row2 (header + calibration) -->
-
-          <!-- ── Projected at next checkpoint — moved here from the removed
-               Performance tab; sits above the races list so the headline
-               number the athlete cares about is visible without scrolling -->
-          <div id="perf-proj" class="pm-card perf-proj-card">
-            <div class="pm-ckhead">
-              <h2 class="pm-sectitle pm-sectitle--plain">Projected at next checkpoint</h2>
-              <span class="perf-tag">New</span>
-            </div>
-            <div id="perf-proj-body" hidden>
-              <div class="perf-proj-meta" id="perf-proj-meta"></div>
-              <div class="perf-projgrid">
-                <div class="perf-projtile perf-projtile--e">
-                  <div class="perf-projtile-l">Est. finish</div>
-                  <div class="perf-projtile-v" id="perf-proj-endurance">–</div>
-                </div>
-              </div>
-            </div>
-            <div class="perf-proj-empty" id="perf-proj-empty" hidden>
-              No upcoming checkpoint — add one above.
-            </div>
+            <div id="plan-what-moves" class="pm-card pm-what-moves-sidebar cl-hidden" hidden></div>
           </div>
 
           <!-- 3. Races & projections (HERO) -->
           <div class="pm-card">
             <div class="pm-ckhead">
               <h2 class="pm-sectitle pm-sectitle--plain">Races &amp; projections</h2>
-              <div class="pm-ckbtns">
-                <button id="plan-recalc-btn" class="pm-ckbtn" type="button" aria-label="Recalculate">
+              <div class="pm-ckbtns pm-ckbtns--icon">
+                <button id="plan-recalc-btn" class="pm-ckbtn pm-ckbtn--icon" type="button" aria-label="Recalculate" title="Recalculate">
                   <span class="pm-ckbtn-ico" aria-hidden="true">↻</span>
-                  <span class="pm-ckbtn-lab">Recalculate</span>
                 </button>
-                <button id="plan-add-race-btn" class="pm-ckbtn" type="button" aria-label="Add race">
+                <button id="plan-add-btn" class="pm-ckbtn pm-ckbtn--icon" type="button" aria-label="Add race or checkpoint" title="Add race or checkpoint">
                   <span class="pm-ckbtn-ico" aria-hidden="true">+</span>
-                  <span class="pm-ckbtn-lab">Add race</span>
-                </button>
-                <button id="plan-add-checkpoint-btn" class="pm-ckbtn" type="button" aria-label="Add checkpoint">
-                  <span class="pm-ckbtn-ico" aria-hidden="true">+</span>
-                  <span class="pm-ckbtn-lab">Checkpoint</span>
                 </button>
               </div>
             </div>
-            <div class="pm-csub" id="plan-hero-sub">
-              Projected finish time relative to your goal. Band widens with
-              distance, tightens after the B race recalibrates it.
-            </div>
+            <p class="pm-csub pm-csub--compact" id="plan-hero-sub">
+              Finish-time trend through race day.
+              <span class="pm-csub-extra"> Band tightens after a B-race recalibration.</span>
+            </p>
 
             <div id="plan-time-curve-empty" class="pm-empty" style="display: none">
               <p class="pm-empty-msg">No projection available</p>
@@ -4738,27 +4727,32 @@
             <div id="plan-time-curve-loading" class="pm-loading" style="display: none">
               Loading…
             </div>
-            <div
-              id="plan-projected-now"
-              class="pm-projnow"
-              style="display: none"
-            >
-              <div class="pm-projnow-top">
-                <span class="pm-projnow-lab">Projected now</span>
-                <span class="pm-projnow-val" id="plan-projected-now-val">—</span>
+            <div id="plan-projected-now" class="pm-projflow" style="display: none">
+              <div id="plan-projected-scores" class="pm-projflow-scores"></div>
+              <div class="pm-projflow-arr pm-projflow-arr--1" aria-hidden="true">→</div>
+              <div id="plan-projected-blend" class="pm-projflow-blend"></div>
+              <div class="pm-projflow-arr pm-projflow-arr--2" aria-hidden="true">→</div>
+              <div class="pm-projflow-hero">
+                <div class="pm-projflow-hero-lab" id="plan-projected-now-lab">Projected finish</div>
+                <div class="pm-projflow-hero-body">
+                  <div class="pm-projflow-hero-main">
+                    <div class="pm-projflow-val" id="plan-projected-now-val">—</div>
+                    <div class="pm-projflow-status" id="plan-projected-now-status"></div>
+                  </div>
+                  <div class="pm-projflow-kpis" id="plan-projected-now-meta"></div>
+                </div>
               </div>
-              <div class="pm-projnow-meta" id="plan-projected-now-meta"></div>
-              <div class="pm-projnow-basis" id="plan-projected-basis"></div>
+              <div class="pm-projflow-arr pm-projflow-arr--3" aria-hidden="true">↓</div>
             </div>
-            <svg
-              id="plan-timecurve"
-              viewBox="0 0 1140 200"
-              style="width: 100%; height: 200px; margin-bottom: 18px"
-              role="img"
-              aria-label="Projected finish-time curve with race markers"
-            ></svg>
-
-            <div id="plan-what-moves" class="pm-card cl-hidden" hidden></div>
+            <div class="pm-curve-wrap">
+              <svg
+                id="plan-timecurve"
+                viewBox="0 0 1140 200"
+                style="width: 100%; height: 200px"
+                role="img"
+                aria-label="Projected finish-time curve with race markers"
+              ></svg>
+            </div>
 
             <div id="plan-races" class="pm-races">
               <div id="plan-races-loading" class="pm-loading">Loading…</div>
@@ -4870,6 +4864,22 @@
         flex: 1 1 220px;
         min-width: 0;
       }
+      .plan-merged .pm-ckbtns--icon {
+        display: flex;
+        width: auto;
+        flex: 0 0 auto;
+        gap: 6px;
+      }
+      .plan-merged .pm-ckbtn--icon {
+        width: 34px;
+        height: 34px;
+        padding: 0;
+        flex-shrink: 0;
+      }
+      .plan-merged .pm-ckbtn--icon .pm-ckbtn-ico {
+        font-size: 16px;
+        line-height: 1;
+      }
       .plan-merged .pm-ckbtn {
         font-size: 12px;
         font-weight: 600;
@@ -4915,16 +4925,16 @@
         pointer-events: none;
       }
       @media (max-width: 640px) {
-        .plan-merged .pm-ckhead:has(.pm-ckbtns) {
+        .plan-merged .pm-ckhead:has(.pm-ckbtns:not(.pm-ckbtns--icon)) {
           flex-direction: column;
           align-items: stretch;
         }
-        .plan-merged .pm-ckbtns {
+        .plan-merged .pm-ckbtns:not(.pm-ckbtns--icon) {
           flex: none;
           width: 100%;
           gap: 6px;
         }
-        .plan-merged .pm-ckbtn {
+        .plan-merged .pm-ckbtns:not(.pm-ckbtns--icon) .pm-ckbtn {
           flex-direction: column;
           gap: 2px;
           padding: 8px 6px;
@@ -4937,6 +4947,15 @@
         font-size: 12px;
         color: var(--text-sub);
         margin: 6px 0 12px;
+      }
+      .plan-merged .pm-csub--compact {
+        margin: 2px 0 10px;
+        line-height: 1.4;
+      }
+      @media (max-width: 640px) {
+        .plan-merged .pm-csub-extra {
+          display: none;
+        }
       }
       .plan-merged .pm-lab {
         font-size: 10px;
@@ -4973,88 +4992,255 @@
         font-size: 12.5px;
         color: var(--text-sub);
       }
-      .plan-merged .pm-projnow {
+      /* Projection pipeline: scores → blend → finish (mock layout) */
+      .plan-merged .pm-projflow {
+        display: grid;
+        gap: 10px;
+        margin-bottom: 12px;
+        align-items: stretch;
+      }
+      .plan-merged .pm-projflow-arr {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #94a3b8;
+        font-size: 16px;
+        font-weight: 700;
+        line-height: 1;
+        user-select: none;
+        flex-shrink: 0;
+      }
+      .plan-merged .pm-projflow-arr[hidden] {
+        display: none;
+      }
+      .plan-merged .pm-projflow-scores {
         display: flex;
         flex-direction: column;
-        gap: 8px;
-        margin-bottom: 12px;
-        padding: 12px 14px;
+        gap: 0;
+        background: #fff;
+        border: 1px solid var(--border);
         border-radius: 10px;
-        background: #f2f5ff;
-        border: 1px solid #e0e7ff;
+        overflow: hidden;
+        min-width: 118px;
       }
-      .plan-merged .pm-projnow-top {
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        gap: 12px;
+      .plan-merged .pm-projflow-scores[hidden] {
+        display: none;
       }
-      .plan-merged .pm-projnow-lab {
-        font-size: 10px;
+      .plan-merged .pm-projflow-score {
+        padding: 10px 12px;
+      }
+      .plan-merged .pm-projflow-score + .pm-projflow-score {
+        border-top: 1px solid var(--border);
+      }
+      .plan-merged .pm-projflow-score-k {
+        display: block;
+        font-size: 11px;
+        color: var(--text-sub);
+        margin-bottom: 4px;
+      }
+      .plan-merged .pm-projflow-score-k b {
         font-weight: 800;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        color: #4a6bcc;
+        color: var(--ink);
       }
-      .plan-merged .pm-projnow-val {
-        font-size: 26px;
+      .plan-merged .pm-projflow-score-v {
+        display: block;
+        font-size: 15px;
+        font-weight: 700;
+        font-family: var(--mono);
+        color: var(--ink);
+        line-height: 1.1;
+      }
+      .plan-merged .pm-projflow-blend {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 2px;
+        padding: 10px 12px;
+        min-width: 118px;
+        border-radius: 10px;
+        background: #eef4ff;
+        border: 1px solid #dbeafe;
+      }
+      .plan-merged .pm-projflow-blend[hidden] {
+        display: none;
+      }
+      .plan-merged .pm-projflow-blend-k {
+        font-size: 11px;
+        font-weight: 700;
+        color: #1e40af;
+        line-height: 1.25;
+      }
+      .plan-merged .pm-projflow-blend-sub {
+        font-size: 10px;
+        color: #64748b;
+        line-height: 1.2;
+      }
+      .plan-merged .pm-projflow-blend-sub--mob {
+        display: none;
+      }
+      .plan-merged .pm-projflow-blend-v {
+        font-size: 18px;
         font-weight: 800;
         font-family: var(--mono);
-        color: var(--primary, #4f6ef7);
+        color: var(--ink);
+        line-height: 1.1;
+      }
+      .plan-merged .pm-projflow-hero {
+        flex: 1;
+        min-width: 0;
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: #ecfdf3;
+        border: 1px solid #bbf7d0;
+      }
+      .plan-merged .pm-projflow-hero-lab {
+        font-size: 11px;
+        font-weight: 700;
+        color: #15803d;
+        margin-bottom: 8px;
+        line-height: 1.25;
+      }
+      .plan-merged .pm-projflow-hero-body {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      .plan-merged .pm-projflow-val {
+        font-size: 32px;
+        font-weight: 800;
+        font-family: var(--mono);
+        color: #15803d;
         line-height: 1;
         letter-spacing: -0.02em;
       }
-      .plan-merged .pm-projnow-meta {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
+      .plan-merged .pm-projflow-status:empty {
+        display: none;
       }
-      .plan-merged .pm-projnow-chip {
-        display: inline-flex;
-        align-items: baseline;
-        gap: 5px;
-        padding: 4px 8px;
-        border-radius: 6px;
-        background: #fff;
-        border: 1px solid #dbe3ff;
+      .plan-merged .pm-projflow-status {
+        margin-top: 6px;
+      }
+      .plan-merged .pm-projflow-kpis {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
         font-size: 12px;
         color: var(--ink);
-        font-family: inherit;
-        line-height: 1.2;
+        line-height: 1.3;
+        flex-shrink: 0;
       }
-      .plan-merged .pm-projnow-chip b {
-        font-size: 9.5px;
+      .plan-merged .pm-projflow-kpi b {
+        font-size: 10px;
         font-weight: 800;
         letter-spacing: 0.04em;
         text-transform: uppercase;
         color: var(--text-sub);
+        margin-right: 4px;
       }
-      /* How the estimate was formed from the athlete's own scores. */
-      .plan-merged .pm-projnow-basis {
+      .plan-merged .pm-curve-wrap {
+        margin: 0 0 8px;
+        padding-top: 2px;
+        border-top: 1px solid var(--border);
+      }
+      .plan-merged .pm-races-bar {
         display: flex;
-        flex-direction: column;
-        gap: 3px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin: 0 0 8px;
+      }
+      .plan-merged .pm-races-bar .pm-races-hdr {
+        margin: 0;
+      }
+      .plan-merged .pm-races-seeall {
+        border: none;
+        background: none;
+        padding: 0;
         font-size: 12px;
-        color: var(--text-sub);
-        font-family: inherit;
-        line-height: 1.35;
-      }
-      .plan-merged .pm-projnow-basis:empty {
-        display: none;
-      }
-      .plan-merged .pm-projnow-basis-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 4px 8px;
-      }
-      .plan-merged .pm-projnow-basis-k {
         font-weight: 700;
-        color: var(--ink);
-        min-width: 5.5em;
+        color: var(--info-dark);
+        cursor: pointer;
+        font-family: inherit;
       }
-      .plan-merged .pm-projnow-basis-v {
-        font-family: var(--mono);
-        font-size: 11.5px;
+      .plan-merged .pm-races-seeall:hover {
+        text-decoration: underline;
+      }
+      .plan-merged .pm-projflow--hero-only {
+        grid-template-columns: 1fr;
+      }
+      .plan-merged .pm-projflow--hero-only .pm-projflow-hero {
+        grid-column: 1;
+        grid-row: 1;
+      }
+      @media (min-width: 641px) {
+        .plan-merged .pm-projflow:not(.pm-projflow--hero-only) {
+          grid-template-columns: auto min-content auto min-content minmax(0, 1fr);
+          gap: 8px;
+        }
+        .plan-merged .pm-projflow-scores { grid-column: 1; grid-row: 1; }
+        .plan-merged .pm-projflow-arr--1 { grid-column: 2; grid-row: 1; }
+        .plan-merged .pm-projflow-blend { grid-column: 3; grid-row: 1; }
+        .plan-merged .pm-projflow-arr--2 { grid-column: 4; grid-row: 1; }
+        .plan-merged .pm-projflow-hero { grid-column: 5; grid-row: 1; }
+        .plan-merged .pm-projflow-arr--3 { display: none; }
+      }
+      @media (max-width: 640px) {
+        .plan-merged .pm-projflow {
+          grid-template-columns: 1fr;
+        }
+        .plan-merged .pm-projflow-hero { grid-row: 1; }
+        .plan-merged .pm-projflow-scores {
+          grid-row: 2;
+          flex-direction: row;
+          gap: 8px;
+          background: transparent;
+          border: none;
+          overflow: visible;
+        }
+        .plan-merged .pm-projflow-score {
+          flex: 1;
+          background: #fff;
+          border: 1px solid var(--border);
+          border-radius: 10px;
+        }
+        .plan-merged .pm-projflow-score + .pm-projflow-score {
+          border-top: none;
+        }
+        .plan-merged .pm-projflow-arr--1,
+        .plan-merged .pm-projflow-arr--2 {
+          display: none;
+        }
+        .plan-merged .pm-projflow-arr--3 {
+          grid-row: 3;
+          font-size: 14px;
+          color: #64748b;
+        }
+        .plan-merged .pm-projflow-blend {
+          grid-row: 4;
+          flex-direction: row;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+        }
+        .plan-merged .pm-projflow-blend-sub:not(.pm-projflow-blend-sub--mob) {
+          display: none;
+        }
+        .plan-merged .pm-projflow-blend-sub--mob {
+          display: block;
+        }
+        .plan-merged .pm-projflow-hero-body {
+          flex-direction: column;
+          align-items: stretch;
+          gap: 10px;
+        }
+        .plan-merged .pm-projflow-val {
+          font-size: 36px;
+        }
+        .plan-merged .pm-projflow-kpis {
+          flex-direction: row;
+          flex-wrap: wrap;
+          gap: 8px 14px;
+        }
       }
       .plan-merged .pm-bb {
         display: flex;
@@ -5128,6 +5314,173 @@
         font-family: var(--mono);
         margin-top: 5px;
       }
+      .plan-merged .pm-hero-top {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        flex-wrap: wrap;
+        margin-bottom: 14px;
+      }
+      .plan-merged .pm-hero-id { flex: 1; min-width: 180px; }
+      .plan-merged .pm-hero-days {
+        text-align: center;
+        min-width: 52px;
+        padding: 6px 10px;
+        border-radius: 10px;
+        background: #eef2ff;
+      }
+      .plan-merged .pm-hero-days-n {
+        font-size: 22px;
+        font-weight: 800;
+        font-family: var(--mono);
+        line-height: 1;
+        color: var(--ink);
+      }
+      .plan-merged .pm-hero-days-k {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--text-sub);
+        margin-top: 2px;
+      }
+      .plan-merged .pm-hero-stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 10px;
+      }
+      .plan-merged .pm-hero-stat {
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: #f8fafc;
+        border: 1px solid var(--border);
+      }
+      .plan-merged .pm-hero-stat-k {
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        color: var(--text-sub);
+      }
+      .plan-merged .pm-hero-stat-v {
+        margin-top: 4px;
+        font-size: 22px;
+        font-weight: 700;
+        font-family: var(--mono);
+        color: var(--ink);
+        line-height: 1.1;
+      }
+      .plan-merged .pm-hero-stat-v--ok { color: #15803d; }
+      .plan-merged .pm-hero-stat-s {
+        margin-top: 4px;
+        font-size: 11px;
+        color: var(--text-sub);
+        font-family: var(--mono);
+      }
+      .plan-merged .pm-hero-scores {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border);
+      }
+      .plan-merged .pm-hero-scores-lab {
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        color: var(--text-sub);
+        margin-right: 4px;
+      }
+      .plan-merged .pm-hero-score-pill {
+        font-size: 12px;
+        font-weight: 700;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: #eef2ff;
+        color: var(--ink);
+        font-family: var(--mono);
+      }
+      .plan-merged .pm-row2--hero {
+        grid-template-columns: minmax(0, 1fr) minmax(168px, 220px);
+        align-items: stretch;
+      }
+      .plan-merged .pm-row2--hero > #plan-what-moves[hidden] {
+        display: none;
+      }
+      .plan-merged .pm-row2--hero #plan-race-header {
+        justify-content: flex-start;
+        height: 100%;
+      }
+      .plan-merged .perf-proj-card {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+      }
+      .plan-merged .perf-proj-card .pm-ckhead {
+        margin-bottom: 6px;
+      }
+      .plan-merged .perf-proj-card .pm-sectitle {
+        font-size: 10px;
+        line-height: 1.3;
+      }
+      .plan-merged .perf-proj-card #perf-proj-body {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+      .plan-merged .perf-proj-card .perf-proj-meta {
+        margin-bottom: 8px;
+        line-height: 1.3;
+      }
+      .plan-merged .perf-proj-card .perf-proj-meta-name {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--ink);
+        line-height: 1.25;
+      }
+      .plan-merged .perf-proj-card .perf-proj-meta-date {
+        margin-top: 2px;
+        font-size: 11px;
+        font-family: var(--mono);
+        color: var(--text-sub);
+        line-height: 1.25;
+      }
+      .plan-merged .perf-proj-card .perf-projgrid {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        margin: 0;
+        min-height: 0;
+      }
+      .plan-merged .perf-proj-card .perf-projtile {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--tile);
+        min-height: 0;
+      }
+      .plan-merged .perf-proj-card .perf-projtile-v {
+        font-size: 24px;
+        margin-top: 4px;
+      }
+      .plan-merged .perf-proj-card .perf-proj-empty {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        line-height: 1.4;
+        text-align: center;
+        padding: 8px 0;
+      }
       .plan-merged .pm-no-race {
         display: flex;
         align-items: center;
@@ -5143,7 +5496,7 @@
         letter-spacing: 0.09em;
         text-transform: uppercase;
         color: var(--text-sub);
-        margin: 4px 0 8px;
+        margin: 0 0 8px;
       }
       .plan-merged .pm-races-hdr + .pm-completed-grid,
       .plan-merged .pm-races-hdr + .pm-rc {
@@ -5259,10 +5612,29 @@
       }
       .plan-merged .pm-rchd {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         gap: 10px;
         margin-bottom: 13px;
+      }
+      .plan-merged .pm-rchd-main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .plan-merged .pm-rchd-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
         flex-wrap: wrap;
+        min-width: 0;
+      }
+      .plan-merged .pm-rchd-row--title .pm-rcname {
+        min-width: 0;
+      }
+      .plan-merged .pm-rchd-row--meta {
+        gap: 8px;
       }
       .plan-merged .pm-rclet {
         width: 26px;
@@ -6461,14 +6833,6 @@
       .plan-merged .pm-hdrgoalbox .pm-gval {
         font-size: 24px;
       }
-      .plan-merged .pm-projnow {
-        padding: 10px 12px;
-        margin-bottom: 9px;
-        gap: 7px;
-      }
-      .plan-merged .pm-projnow-val {
-        font-size: 24px;
-      }
       /* Specificity rows */
       .plan-merged .pm-specrow {
         margin-bottom: 8px;
@@ -6886,7 +7250,7 @@
         gap: 16px;
       }
 
-      /* Projected checkpoint */
+      /* Projected checkpoint (base; hero sidebar overrides in .plan-merged) */
       .perf-proj-meta {
         font-size: 12px;
         color: var(--text-sub);
@@ -6898,8 +7262,6 @@
         flex-direction: column;
         margin: 12px 0 10px;
       }
-      /* Flattened (was its own bordered/tinted tile) — a row divider between
-         siblings reads as one continuous panel instead of nested cards. */
       .perf-projtile {
         padding: 10px 0;
         border-top: 1px solid var(--border);
@@ -7059,17 +7421,19 @@
         );
       }
 
-      /* Personal records list (was an auto-fill grid of bordered/tinted
-         tiles) — flattened to a single-column list with row dividers, same
-         treatment as .perf-projtile above. */
+      /* Personal records — 5-column tile grid on wide screens. */
       .perf-prgrid {
-        display: flex;
-        flex-direction: column;
-        margin-top: 6px;
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 8px;
       }
       .perf-prtile {
-        padding: 12px 0;
-        border-top: 1px solid var(--border);
+        padding: 12px 10px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--surface-2, #f8f9fc);
+        min-width: 0;
       }
       .perf-prtile .perf-pr-name {
         font-size: 9px;
@@ -7077,31 +7441,33 @@
         color: var(--text-sub);
         letter-spacing: 0.04em;
         text-transform: uppercase;
+        line-height: 1.25;
       }
       .perf-prtile .perf-pr-val {
-        font-size: 22px;
+        font-size: 18px;
         font-weight: 700;
         font-family: var(--mono);
-        margin-top: 7px;
-        line-height: 1;
+        margin-top: 8px;
+        line-height: 1.1;
         color: var(--text-primary, #0b1530);
+        word-break: break-word;
       }
       .perf-prtile .perf-pr-val small {
-        font-size: 11px;
+        font-size: 10px;
         color: var(--text-sub);
         font-weight: 600;
       }
       .perf-prtile .perf-pr-date {
-        font-size: 11px;
+        font-size: 10px;
         color: var(--text-sub);
         font-family: var(--mono);
         margin-top: 6px;
       }
       .perf-prtile .perf-pr-link {
-        font-size: 11px;
+        font-size: 10px;
         font-weight: 700;
         color: var(--info-dark);
-        margin-top: 5px;
+        margin-top: 6px;
         display: inline-block;
         text-decoration: none;
       }
@@ -7113,6 +7479,7 @@
         font-size: 12.5px;
         color: var(--text-sub);
         margin: 0;
+        grid-column: 1 / -1;
       }
       .perf-prtile--unavailable {
         opacity: 0.55;
@@ -7125,10 +7492,23 @@
       }
 
       /* ── Responsive collapse (1024px tablet/desktop split, per DESIGN.md) ── */
+      @media (max-width: 1200px) {
+        .perf-prgrid {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+      }
       @media (max-width: 1024px) {
         .perf-scorewrap,
         .perf-row2 {
           grid-template-columns: 1fr;
+        }
+        .perf-prgrid {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+      }
+      @media (max-width: 640px) {
+        .perf-prgrid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
         }
       }
     </style>
@@ -9245,16 +9625,16 @@
     <script src="js/lib/training-format.js"></script>
     <script src="js/lib/load-readiness-tiles.js?v=20260801a"></script>
     <script src="js/zone2-constants.js"></script>
-    <script src="js/lib/run-detail-view.js?v=20260927b"></script>
+    <script src="js/lib/run-detail-view.js?v=20260929h"></script>
     <script src="js/training.js"></script>
-    <script src="js/training-log.js?v=20260929b"></script>
-    <script src="js/checklist-ui.js"></script>
-    <script src="js/training-performance.js?v=20260928b"></script>
+    <script src="js/training-log.js?v=20260929g"></script>
+    <script src="js/checklist-ui.js?v=20260929e"></script>
+    <script src="js/training-performance.js?v=20260929n"></script>
     <script src="js/lib/plan-session-helpers.js?v=20260810phasea1"></script>
     <script src="js/lib/session-budget.js?v=20260805sb1"></script>
     <script src="js/lib/plan-fill-preview.js?v=20260806align1"></script>
     <script src="js/lib/next-up-card.js?v=20260810done1"></script>
-    <script src="js/training-plan.js?v=20260929d"></script>
+    <script src="js/training-plan.js?v=20260929e"></script>
     <script src="js/user.js"></script>
     <script src="js/env.js"></script>
     <script>
@@ -9336,6 +9716,24 @@
           }
           history.pushState({ tab: "plan" }, "",
             window.location.pathname + window.location.search + "#plan");
+          activateTab("plan");
+        });
+
+        // Best-week personal records → Plan tab scoped to that week_start.
+        document.addEventListener("plan:open-week", function (e) {
+          var ws = e.detail && e.detail.weekStart;
+          if (window.TrainingPlan && window.TrainingPlan.openWeek) {
+            window.TrainingPlan.openWeek(ws);
+          }
+          var params = new URLSearchParams(window.location.search || "");
+          if (ws) params.set("week", ws);
+          else params.delete("week");
+          var qs = params.toString();
+          history.pushState(
+            { tab: "plan" },
+            "",
+            window.location.pathname + (qs ? "?" + qs : "") + "#plan",
+          );
           activateTab("plan");
         });
 

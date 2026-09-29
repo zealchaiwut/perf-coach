@@ -1034,8 +1034,8 @@
 .rd4-social-lap-head,
 .rd4-social-lap-row {
   display: grid;
-  grid-template-columns: 36px 72px 1fr 52px 52px;
-  gap: 8px;
+  grid-template-columns: 32px 56px 64px 1fr 48px 48px;
+  gap: 6px;
   align-items: center;
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 0.8125rem;
@@ -1064,6 +1064,12 @@
 
 .rd4-social-lap-km {
   font-weight: 700;
+  color: #d6d3d1;
+}
+
+.rd4-social-lap-time {
+  font-weight: 600;
+  font-size: 0.75rem;
   color: #d6d3d1;
 }
 
@@ -1114,6 +1120,7 @@
 }
 
 .rd4-social-leg--z2 { background: #22c55e; }
+.rd4-social-leg--ahead { background: #14b8a6; }
 .rd4-social-leg--fast { background: #f97316; }
 .rd4-social-leg--mid { background: #d97706; }
 .rd4-social-leg--slow { background: #ef4444; }
@@ -1183,6 +1190,102 @@
   font-size: 0.75rem;
   font-weight: 700;
   color: #0a0a0a;
+}
+
+/* Lap pace/power chart block (optional — export modal "With graph"). */
+.rd4-social-chart {
+  margin: 4px 0 22px;
+}
+
+.rd4-social-chart .rd4-chart2 {
+  height: 220px;
+  margin-bottom: 6px;
+}
+
+.rd4-social-chart .rd4-chart2-bars {
+  position: relative;
+}
+
+.rd4-social-chart .rd4-chart2-legend {
+  margin-top: 8px;
+  font-size: 0.75rem;
+}
+
+.rd4-social:not(.rd4-social--light) .rd4-social-chart .rd4-gl-lbl,
+.rd4-social:not(.rd4-social--light) .rd4-social-chart .rd4-axis2 .rd4-cell2,
+.rd4-social:not(.rd4-social--light) .rd4-social-chart .rd4-chart2-legend {
+  color: #a8a29e;
+}
+
+.rd4-social:not(.rd4-social--light) .rd4-social-chart .rd4-gl {
+  border-top-color: rgba(245, 240, 230, 0.12);
+}
+
+/* Light cream background variant for IG/FB export. */
+.rd4-social--light {
+  background: #f8f6f1;
+  color: #1c1917;
+}
+
+.rd4-social--light .rd4-social-event {
+  color: #ea580c;
+}
+
+.rd4-social--light .rd4-social-brand,
+.rd4-social--light .rd4-social-hero-time,
+.rd4-social--light .rd4-social-hero-row,
+.rd4-social--light .rd4-social-lap-row,
+.rd4-social--light .rd4-social-stat-val {
+  color: #1c1917;
+}
+
+.rd4-social--light .rd4-social-meta,
+.rd4-social--light .rd4-social-laps-title,
+.rd4-social--light .rd4-social-lap-head,
+.rd4-social--light .rd4-social-stat-lbl,
+.rd4-social--light .rd4-social-pz-head,
+.rd4-social--light .rd4-social-pz-ftp,
+.rd4-social--light .rd4-social-legend {
+  color: #78716c;
+}
+
+.rd4-social--light .rd4-social-lap-km {
+  color: #57534e;
+}
+
+.rd4-social--light .rd4-social-lap-time {
+  color: #57534e;
+}
+
+.rd4-social--light .rd4-social-lap-hr,
+.rd4-social--light .rd4-social-lap-pwr {
+  color: #44403c;
+}
+
+.rd4-social--light .rd4-social-lap-head {
+  border-bottom-color: #d6d3d1;
+}
+
+.rd4-social--light .rd4-social-lap-row--z2 {
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.rd4-social--light .rd4-social-stat {
+  border-top-color: #d6d3d1;
+}
+
+.rd4-social--light .rd4-social-pz-seg {
+  color: #1c1917;
+}
+
+.rd4-social--light .rd4-social-chart .rd4-gl-lbl,
+.rd4-social--light .rd4-social-chart .rd4-axis2 .rd4-cell2,
+.rd4-social--light .rd4-social-chart .rd4-chart2-legend {
+  color: #78716c;
+}
+
+.rd4-social--light .rd4-social-chart .rd4-gl {
+  border-top-color: rgba(28, 25, 23, 0.12);
 }
 
 /* ── Legacy landscape share card (kept for reference / fallback clones) ── */

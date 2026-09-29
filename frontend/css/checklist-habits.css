@@ -1,6 +1,6 @@
 /* Habits weekly checklist mock shell (WC-23) */
 
-/* Checklist-first: hide legacy hero/grid until /api/checklist/week fails */
+/* Checklist-first: legacy hero/grid stay hidden; checklist is the only Habits surface */
 body.habits-checklist-first .habits-page-header,
 body.habits-checklist-first #hero-row,
 body.habits-checklist-first #habit-evidence,
@@ -20,6 +20,36 @@ body.habits-checklist-first #checklist-root {
 
 .clh-page {
   margin-bottom: 10px;
+}
+
+.clh-page--error {
+  padding: 28px 24px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  text-align: center;
+}
+
+.clh-error-title {
+  margin: 0 0 8px;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.clh-error-msg {
+  margin: 0 0 16px;
+  color: var(--text-sub, rgba(255, 255, 255, 0.72));
+  font-size: 0.92rem;
+}
+
+.clh-error-retry {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--primary, #3b82f6);
+  color: #fff;
 }
 
 .clh-page--loading .clh-skel {

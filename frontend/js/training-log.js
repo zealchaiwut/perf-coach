@@ -2605,6 +2605,8 @@
       var share = RD.buildShareCard(contentEl, {
         workout: cachedDetailWorkout || {},
         brand: _athleteBrand || undefined,
+        theme: shotOpts.theme === "light" ? "light" : "dark",
+        includeGraph: !!shotOpts.includeGraph,
       });
       if (share) return share;
     }
@@ -2612,10 +2614,11 @@
   }
 
   /**
-   * Single screenshot modal with two sections + live preview:
-   *   Card  — Social (IG/FB) | Simple + graph | Simple (no graph)
-   *   Laps  — Manual | 1 km   (when both exist; dimmed if card doesn't need laps)
-   * Resolves { style, includeGraph, lapMode } or null if cancelled.
+   * Single screenshot modal with live preview:
+   *   Theme — Dark | Light
+   *   Graph — With graph | No graph (pace/HR lap chart above the lap table)
+   *   Laps  — Manual | 1 km (when both exist)
+   * Resolves { style, theme, includeGraph, lapMode } or null if cancelled.
    */
   function _promptScreenshotOptions(contentEl) {
     return new Promise(function (resolve) {
@@ -2623,27 +2626,20 @@
       var hasLapChoice =
         !!(toggle && toggle.querySelectorAll(".rd4-lm-btn").length >= 2);
 
-      var lastCard = "advanced";
+      var theme = "dark";
+      var includeGraph = false;
       var lastLap = "manual";
       try {
-        lastCard = localStorage.getItem("rd4_shot_card") || "advanced";
+        theme = localStorage.getItem("rd4_shot_theme") || "dark";
+        if (theme !== "light") theme = "dark";
+        if (localStorage.getItem("rd4_shot_graph") != null) {
+          includeGraph = localStorage.getItem("rd4_shot_graph") !== "0";
+        } else {
+          var oldCard = localStorage.getItem("rd4_shot_card");
+          includeGraph = oldCard === "simple_graph";
+        }
         lastLap = localStorage.getItem("rd4_shot_lap") || "manual";
       } catch (e) {}
-      if (
-        lastCard !== "advanced" &&
-        lastCard !== "simple_graph" &&
-        lastCard !== "simple"
-      ) {
-        try {
-          var oldStyle = localStorage.getItem("rd4_shot_style");
-          var oldGraph = localStorage.getItem("rd4_shot_graph") !== "0";
-          if (oldStyle === "simple")
-            lastCard = oldGraph ? "simple_graph" : "simple";
-          else lastCard = "advanced";
-        } catch (e2) {
-          lastCard = "advanced";
-        }
-      }
 
       var activeBtn =
         toggle &&
@@ -2655,7 +2651,6 @@
       if (lastLap !== "manual" && lastLap !== "distance")
         lastLap = liveLap || "manual";
 
-      var card = lastCard;
       var lapMode = lastLap;
 
       // Focus save/restore, matching the established modal pattern in this
@@ -2782,7 +2777,7 @@
       }
 
       function cardNeedsLaps() {
-        return card === "advanced" || card === "simple_graph";
+        return true;
       }
 
       function applyLapModeIfNeeded() {
@@ -2820,8 +2815,9 @@
         requestAnimationFrame(function () {
           requestAnimationFrame(function () {
             var opts = {
-              style: card === "advanced" ? "full" : "simple",
-              includeGraph: card === "simple_graph",
+              style: "full",
+              theme: theme,
+              includeGraph: includeGraph,
             };
             var node = buildDetailCaptureRoot(contentEl, opts);
             previewStage.innerHTML = "";
@@ -2864,7 +2860,8 @@
             } else if (isSocial) {
               previewStage.style.width = "";
               previewStage.style.maxWidth = "100%";
-              previewStage.style.backgroundColor = "#1a1a1a";
+              previewStage.style.backgroundColor =
+                theme === "light" ? "#f4f6fa" : "#1a1a1a";
               var stageW = previewStage.clientWidth || 400;
               var scale = Math.min(1, (stageW - 16) / measured);
               scaleWrap.style.transform = "scale(" + scale + ")";
@@ -2882,8 +2879,7 @@
                 Math.max(120, Math.ceil(measuredH * scale) + 16) + "px";
             }
 
-            previewHint.style.display =
-              card === "simple" || card === "simple_graph" ? "" : "none";
+            previewHint.style.display = "none";
           });
         });
       }
@@ -2893,49 +2889,68 @@
         refreshPreview();
       }
 
-      controls.appendChild(sectionTitle("Card"));
+      controls.appendChild(sectionTitle("Theme"));
       controls.appendChild(
         choiceBtn(
-          "card",
-          "Social (IG/FB)",
-          "advanced",
+          "theme",
+          "Dark",
+          "dark",
           function () {
-            return card;
+            return theme;
           },
           function (v) {
-            card = v;
+            theme = v;
           },
           onOptionsChange,
         ),
       );
       controls.appendChild(
         choiceBtn(
-          "card",
-          "Simple + graph",
-          "simple_graph",
+          "theme",
+          "Light",
+          "light",
           function () {
-            return card;
+            return theme;
           },
           function (v) {
-            card = v;
+            theme = v;
           },
           onOptionsChange,
         ),
       );
-      controls.appendChild(
+
+      var graphWrap = document.createElement("div");
+      graphWrap.style.cssText = "margin-top:8px;";
+      graphWrap.appendChild(sectionTitle("Graph"));
+      graphWrap.appendChild(
         choiceBtn(
-          "card",
-          "Simple (no graph)",
-          "simple",
+          "graph",
+          "With graph",
+          "1",
           function () {
-            return card;
+            return includeGraph ? "1" : "0";
           },
           function (v) {
-            card = v;
+            includeGraph = v === "1";
           },
           onOptionsChange,
         ),
       );
+      graphWrap.appendChild(
+        choiceBtn(
+          "graph",
+          "No graph",
+          "0",
+          function () {
+            return includeGraph ? "1" : "0";
+          },
+          function (v) {
+            includeGraph = v === "1";
+          },
+          onOptionsChange,
+        ),
+      );
+      controls.appendChild(graphWrap);
 
       var lapsWrap = document.createElement("div");
       lapsWrap.style.cssText = "margin-top:8px;";
@@ -2989,7 +3004,8 @@
         "background:var(--ink);color:var(--surface);";
       go.addEventListener("click", function () {
         try {
-          localStorage.setItem("rd4_shot_card", card);
+          localStorage.setItem("rd4_shot_theme", theme);
+          localStorage.setItem("rd4_shot_graph", includeGraph ? "1" : "0");
           localStorage.setItem("rd4_shot_lap", lapMode);
         } catch (e) {}
         applyLapModeIfNeeded();
@@ -2997,8 +3013,9 @@
         document.body.removeChild(overlay);
         _restoreShotFocus();
         resolve({
-          style: card === "advanced" ? "full" : "simple",
-          includeGraph: card === "simple_graph",
+          style: "full",
+          theme: theme,
+          includeGraph: includeGraph,
           lapMode: lapMode,
         });
       });
@@ -3088,7 +3105,13 @@
             clone.classList.contains("rd4-simple")
           );
           var captureWidth = isSocial ? 1080 : isSimple ? 360 : 540;
-          var bg = isSimple ? null : isSocial ? "#0a0a0a" : "#ffffff";
+          var bg = isSimple
+            ? null
+            : isSocial
+              ? shotOpts.theme === "light"
+                ? "#f8f6f1"
+                : "#0a0a0a"
+              : "#ffffff";
 
           var host = document.createElement("div");
           host.className =

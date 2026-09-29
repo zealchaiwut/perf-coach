@@ -54,26 +54,31 @@
     return res.ok;
   }
 
-  function _buildStatusHtml(st) {
+  function _buildStatusHtml(st, opts) {
+    opts = opts || {};
     if (!st) return '';
     var lab = st.status === 'updating' ? 'Updating plan…' :
       st.status === 'up_to_date' ? 'Up to date' : (st.status || '—');
     var sub = st.last_built_at ? 'Last built ' + esc(String(st.last_built_at).slice(0, 16)) : '';
+    var cls = 'cl-build-status cl-build-' + esc(st.status || 'unknown') +
+      (opts.light ? ' cl-build-status--light' : '');
     return (
-      '<div class="cl-build-status cl-build-' + esc(st.status || 'unknown') + '">' +
+      '<div class="' + cls + '">' +
         '<span class="cl-build-lab">' + esc(lab) + '</span>' +
         (sub ? '<span class="cl-build-sub">' + sub + '</span>' : '') +
       '</div>'
     );
   }
 
-  function _raceStripHtml(aRace) {
+  function _raceStripHtml(aRace, opts) {
+    opts = opts || {};
     if (!aRace || !aRace.name) return '';
     var date = aRace.race_date ? esc(aRace.race_date) : '';
+    var cls = 'cl-race-strip' + (opts.light ? ' cl-race-strip--light' : '');
     return (
-      '<div class="cl-race-strip">' +
+      '<div class="' + cls + '">' +
         '<i class="ti ti-flag-2"></i>' +
-        '<span>This week serves <strong>' + esc(aRace.name) + '</strong>' +
+        '<span>This week serves the A race · <strong>' + esc(aRace.name) + '</strong>' +
         (date ? ' · ' + date : '') + '</span>' +
       '</div>'
     );
@@ -233,29 +238,122 @@
 
   function renderPlanStrip(host, data) {
     if (!host) return;
-    host.innerHTML = _raceStripHtml(data && data.a_race) + _buildStatusHtml(data && data.build_status);
+    if (!data || !data.checklist_enabled) {
+      host.innerHTML = '';
+      host.hidden = true;
+      return;
+    }
+    host.hidden = false;
+    host.innerHTML =
+      _raceStripHtml(data.a_race, { light: true }) +
+      _buildStatusHtml(data.build_status, { light: true });
   }
 
-  function renderPlanDayExtras(dayEl, dayData) {
-    if (!dayEl || !dayData || !dayData.items) return;
-    var extras = dayData.items.filter(function (it) {
-      return it.kind === 'mobility' || it.kind === 'fuel' ||
-        (it.kind === 'planned_session' && it.session_type === 'mobility');
+  function _planColCell(label, sub, state, role) {
+    if (!label) {
+      return '<div class="cl-plan-col cl-plan-col--empty"><span class="cl-plan-col-k">—</span></div>';
+    }
+    var cls = _stateClass(state, role);
+    return (
+      '<div class="cl-plan-col ' + cls + '">' +
+        '<span class="cl-plan-col-k">' + esc(label) + '</span>' +
+        (sub ? '<span class="cl-plan-col-s">' + esc(sub) + '</span>' : '') +
+      '</div>'
+    );
+  }
+
+  function _planDayChip(dayData, today, raceDates) {
+    if (!dayData || !dayData.date) return '';
+    if (dayData.date === today) return 'TODAY';
+    if (raceDates && raceDates.indexOf(dayData.date) >= 0) return 'RACE DAY';
+    if (dayData.date > today) return 'PLANNED';
+    return '';
+  }
+
+  function renderPlanWeekHeader(host) {
+    if (!host) return;
+    var list = host.querySelector('#plan-week-list');
+    if (!list) return;
+    var hdr = host.querySelector('.cl-plan-week-hdr');
+    if (!hdr) {
+      hdr = document.createElement('div');
+      hdr.className = 'cl-plan-week-hdr';
+      hdr.innerHTML =
+        '<span class="cl-plan-week-hdr-gut"></span>' +
+        '<span class="cl-plan-week-hdr-cols">' +
+          '<span>Session</span><span>Mobility</span><span>Fuel</span>' +
+        '</span>';
+      list.parentNode.insertBefore(hdr, list);
+    }
+    hdr.hidden = false;
+  }
+
+  function hidePlanWeekHeader(host) {
+    if (!host) return;
+    var hdr = host.querySelector('.cl-plan-week-hdr');
+    if (hdr) hdr.hidden = true;
+  }
+
+  function renderPlanDayExtras(dayEl, dayData, ctx) {
+    if (!dayEl || !dayData) return;
+    ctx = ctx || {};
+    var today = ctx.today || _todayISO();
+    var raceDates = ctx.raceDates || [];
+    var chipLab = _planDayChip(dayData, today, raceDates);
+    var gut = dayEl.querySelector('.pl-gut');
+    if (gut) {
+      var chip = gut.querySelector('.cl-day-chip');
+      if (chipLab) {
+        if (!chip) {
+          chip = document.createElement('span');
+          chip.className = 'cl-day-chip';
+          gut.appendChild(chip);
+        }
+        chip.textContent = chipLab;
+        chip.className = 'cl-day-chip cl-day-chip--' + chipLab.toLowerCase().replace(/\s+/g, '-');
+      } else if (chip) {
+        chip.remove();
+      }
+    }
+
+    var items = dayData.items || [];
+    var sessionItem = items.find(function (it) {
+      return it.kind === 'planned_session' && (it.session_type || '').toLowerCase() !== 'mobility';
     });
-    if (!extras.length) return;
-    var box = dayEl.querySelector('.cl-plan-extras');
+    var mobilityItem = items.find(function (it) {
+      return it.kind === 'planned_session' && (it.session_type || '').toLowerCase() === 'mobility';
+    });
+    var fuelItem = items.find(function (it) { return it.kind === 'fuel'; });
+    var ribbon = dayData.ribbon || {};
+
+    if (!sessionItem && ribbon.label && ribbon.session_type !== 'rest') {
+      sessionItem = {
+        label: ribbon.label,
+        state: ribbon.core_done >= ribbon.core_total && ribbon.core_total > 0 ? 'done' : 'pending',
+        role: 'core',
+      };
+    }
+
+    var sessionSub = sessionItem && sessionItem.state ? sessionItem.state.replace(/_/g, ' ') : '';
+    var mobSub = mobilityItem && mobilityItem.state ? mobilityItem.state.replace(/_/g, ' ') : '';
+    var fuelType = fuelItem && fuelItem.fuel && fuelItem.fuel.day_type
+      ? String(fuelItem.fuel.day_type).replace(/_/g, ' ')
+      : (fuelItem ? fuelItem.label.replace(/^Fuel ·\s*/i, '') : '');
+
+    var box = dayEl.querySelector('.cl-plan-cols');
     if (!box) {
       box = document.createElement('div');
-      box.className = 'cl-plan-extras';
+      box.className = 'cl-plan-cols';
       dayEl.appendChild(box);
     }
-    box.innerHTML = extras.map(function (it) {
-      var cls = _stateClass(it.state, it.role);
-      return '<span class="cl-plan-chip ' + cls + '">' + esc(it.label) + '</span>';
-    }).join('');
+    box.innerHTML =
+      _planColCell(sessionItem ? sessionItem.label : (ribbon.label === 'Rest' ? 'Rest' : ''), sessionSub, sessionItem && sessionItem.state, sessionItem && sessionItem.role) +
+      _planColCell(mobilityItem ? mobilityItem.label : '', mobSub, mobilityItem && mobilityItem.state, mobilityItem && mobilityItem.role) +
+      _planColCell(fuelType ? 'Fuel' : '', fuelType, fuelItem && fuelItem.state, fuelItem && fuelItem.role);
   }
 
-  function renderWhatMoves(host, items) {
+  function renderWhatMoves(host, items, opts) {
+    opts = opts || {};
     if (!host) return;
     if (!items || !items.length) {
       host.hidden = true;
@@ -263,10 +361,15 @@
       return;
     }
     host.hidden = false;
+    host.classList.remove('cl-hidden');
+    var title = opts.title || 'What moves the estimate';
     host.innerHTML =
-      '<h2 class="pm-sectitle pm-sectitle--plain">What moves the estimate</h2>' +
+      '<h2 class="pm-sectitle pm-sectitle--plain">' + esc(title) + '</h2>' +
       items.map(function (ev) {
-        return '<div class="cl-evidence-row">' + esc(ev.sentence || '') + '</div>';
+        var habit = ev.habit
+          ? '<span class="cl-evidence-habit">' + esc(String(ev.habit).replace(/_/g, ' ')) + '</span>'
+          : '';
+        return '<div class="cl-evidence-row">' + habit + esc(ev.sentence || '') + '</div>';
       }).join('');
   }
 
@@ -324,24 +427,26 @@
     if (root) root.hidden = false;
   }
 
-  function showLegacyHabits() {
-    document.body.classList.remove('habits-checklist-first');
-    var root = document.getElementById('checklist-root');
-    if (root) {
-      root.hidden = true;
-      root.innerHTML = '';
-      root.removeAttribute('aria-busy');
+  function showChecklistError(host, message) {
+    if (!host) return;
+    host.hidden = false;
+    host.removeAttribute('aria-busy');
+    host.innerHTML =
+      '<div class="clh-page clh-page--error" role="alert">' +
+        '<p class="clh-error-title">Could not load checklist</p>' +
+        '<p class="clh-error-msg">' + esc(message || 'Try refreshing the page.') + '</p>' +
+        '<button type="button" class="clh-error-retry">Try again</button>' +
+      '</div>';
+    var btn = host.querySelector('.clh-error-retry');
+    if (btn) {
+      btn.addEventListener('click', function () {
+        if (window.HabitsPage && typeof window.HabitsPage.loadAndRender === 'function') {
+          window.HabitsPage.loadAndRender();
+        } else {
+          window.location.reload();
+        }
+      });
     }
-    ['hero-row', 'habits-day-grid-card', 'weekly-habits-card', 'insights-panel',
-      'nudges-panel', 'habits-history-cal', 'habit-evidence', 'starter-section',
-      'back-current-wrap'].forEach(function (id) {
-      var el = document.getElementById(id);
-      if (el) el.style.display = '';
-    });
-    var hdr = document.querySelector('.habits-page-header');
-    if (hdr) hdr.style.display = '';
-    var addBtn = document.getElementById('add-habit-btn');
-    if (addBtn) addBtn.style.display = '';
   }
 
   function wireItems(host, data, onRefresh) {
@@ -355,12 +460,14 @@
     wireItems: wireItems,
     renderHabitsPage: renderHabitsPage,
     renderPlanStrip: renderPlanStrip,
+    renderPlanWeekHeader: renderPlanWeekHeader,
+    hidePlanWeekHeader: hidePlanWeekHeader,
     renderPlanDayExtras: renderPlanDayExtras,
     renderWhatMoves: renderWhatMoves,
     renderHomeWeekPlan: renderHomeWeekPlan,
     showChecklistLoading: showChecklistLoading,
     hideLegacyHabits: hideLegacyHabits,
-    showLegacyHabits: showLegacyHabits,
+    showChecklistError: showChecklistError,
     raceStripHtml: _raceStripHtml,
     stateClass: _stateClass,
   };

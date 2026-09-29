@@ -6226,11 +6226,9 @@ def _workout_signal_scores(session, workout) -> dict:
 def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
     """Endurance/speed score for the athlete AS OF ``as_of_date``.
 
-    Uses the SAME machinery as ``_workout_signal_scores`` (the numbers shown on
-    the workout-detail/log card) — all run workouts with ``workout_date <=
-    as_of_date`` scored via compute_endurance_score / compute_speed_score. This
-    is deliberately the athlete-scale score, not a pace inversion, so a
-    completed race's demonstrated score matches the log for that date.
+    Uses the SAME machinery as ``get_athlete_performance`` — all run workouts
+    with ``workout_date <= as_of_date`` scored via compute_endurance_score /
+    compute_speed_score so projection estimate_basis matches the Perf tab cards.
 
     Returns ``{"endurance": float|None, "speed": float|None}``.
     """
@@ -6258,13 +6256,17 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
             "aerobic_decoupling_threshold": getattr(prefs_row, "aerobic_decoupling_threshold", None),
             "duration_curve_bests": None,
         }
+        curve_data = _get_athlete_duration_curve(user_id, session)
+        prefs_dict["duration_curve_bests"] = curve_data or {}
     zone_constants = make_zone_constants()
     try:
         compute_decoupling = _compute_decoupling
     except Exception:
         compute_decoupling = None
 
-    _window_start = as_of_date - _timedelta(days=89)
+    # Same history cap as get_athlete_performance (#1578) so projection
+    # estimate_basis scores match the End/Speed cards on the Perf tab.
+    _window_start = as_of_date - _timedelta(days=_RUN_HISTORY_CAP_DAYS)
     run_workouts = (
         session.query(Workout)
         .options(load_only(
@@ -6363,9 +6365,18 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
         )
 
     _race_perf = _latest_race_perf(session, user_id, as_of=as_of_date)
+    from backend.services.body_modifier import get_body_modifier_for_user as _get_bm
+
+    _bm = _get_bm(user_id)
 
     def _score(fn):
-        r = fn(runs, prefs_dict or None, zone_constants, race_perf=_race_perf)
+        r = fn(
+            runs,
+            prefs_dict or None,
+            zone_constants,
+            race_perf=_race_perf,
+            body_modifier=_bm,
+        )
         s = r.get("score") if isinstance(r, dict) else None
         return s if isinstance(s, (int, float)) and not isinstance(s, bool) else None
 
@@ -17693,6 +17704,25 @@ def _compute_plan_bundle(user) -> dict:
                     _log.warning("race suggest actual failed", exc_info=True)
             rd["computed"] = {"estimate": estimate, "scores": scores}
             race_out.append(rd)
+
+        # Keep projection pipeline scores in sync with the Perf tab cards
+        # (same get_athlete_performance source as current_scores above).
+        if (
+            primary_time_curve
+            and cur_end is not None
+            and cur_spd is not None
+            and primary_race
+            and primary_race.distance
+        ):
+            from backend.services.race_finish_estimator import (
+                blended_scores_estimate as _bundle_blend,
+            )
+
+            _dist = float(primary_race.distance)
+            if _dist > 0:
+                _new_basis = _bundle_blend(cur_end, cur_spd, _dist, tp).get("basis")
+                if _new_basis:
+                    primary_time_curve["estimate_basis"] = _new_basis
 
     return {
         "generated_at": _datetime.now(_timezone.utc).isoformat(),

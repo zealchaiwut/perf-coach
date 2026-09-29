@@ -293,8 +293,8 @@ def test_races_list_renders_met_status(plan_js):
 def test_add_race_button_present(html):
     """AC7: Add Race button exists in the Plan panel."""
     panel = _plan_panel_html(html)
-    assert 'id="plan-add-race-btn"' in panel or "Add Race" in panel, \
-        "Add Race button must be in the Plan panel"
+    assert 'id="plan-add-btn"' in panel or "Add race" in panel, \
+        "Add race/checkpoint button must be in the Plan panel"
 
 
 def test_race_modal_present(html):
@@ -331,8 +331,8 @@ def test_race_list_refreshes_on_save(plan_js):
 def test_add_checkpoint_button_present(html):
     """AC8: Add Checkpoint button exists in the Plan panel."""
     panel = _plan_panel_html(html)
-    assert 'id="plan-add-checkpoint-btn"' in panel or "Add Checkpoint" in panel, \
-        "Add Checkpoint button must be in the Plan panel"
+    assert 'data-type="checkpoint"' in panel or "Checkpoint" in panel, \
+        "Checkpoint type must be available in the Plan panel modal"
 
 
 def test_checkpoint_modal_uses_same_modal(plan_js):
@@ -586,8 +586,8 @@ def test_uat4_add_race_workflow(html, plan_js):
 def test_uat5_edit_checkpoint_workflow(html, plan_js):
     """UAT 5: Checkpoint editing uses the same modal with checkpoint type."""
     assert "checkpoint" in plan_js.lower(), "JS must handle checkpoints"
-    assert 'id="plan-add-checkpoint-btn"' in html or "Add Checkpoint" in html, \
-        "Add Checkpoint button must exist"
+    assert 'id="plan-add-btn"' in html or 'data-type="checkpoint"' in html, \
+        "Add button and checkpoint modal tab must exist"
 
 
 def test_uat6_mobile_layout(html):

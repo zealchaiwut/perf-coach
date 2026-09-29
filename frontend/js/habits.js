@@ -97,7 +97,6 @@ let selectedColor = COLORS[0];
 
 // Week-view state
 let weekData = null;        // last response from GET /api/habits/week
-let _checklistUiDisabled = false; // weekly_checklist_enabled off (WC-06 manage modal)
 let currentWeekStart = null; // ISO date string; null = use server default (current week)
 
 // Debounce handle for hero + grid-totals refresh after cell mutations
@@ -543,168 +542,95 @@ function _renderHabitEvidence(evidence) {
 async function loadAndRender() {
   clearError();
 
-  if (window.ChecklistUI) {
-    var checklistRoot = document.getElementById('checklist-root');
-    if (checklistRoot && !checklistRoot.querySelector('.clh-page:not(.clh-page--loading)')) {
-      ChecklistUI.hideLegacyHabits();
-      ChecklistUI.showChecklistLoading(checklistRoot);
-    }
-    try {
-      const clUrl = currentWeekStart
-        ? `/api/checklist/week?week_start=${currentWeekStart}`
-        : '/api/checklist/week';
-      const clRes = await fetch(clUrl);
-      if (clRes.ok) {
-        const clData = await clRes.json();
-        // Weekly checklist mock is the Habits surface when the read model loads.
-        if (clData.checklist_enabled === false) _checklistUiDisabled = true;
-        if (clData.checklist_enabled === true) _checklistUiDisabled = false;
-        if (clData.days && clData.days.length && !_checklistUiDisabled) {
-          currentWeekStart = clData.week_start;
-          weekData = {
-            week_start: clData.week_start,
-            week_end: clData.week_end,
-            is_current_week: clData.is_current_week,
-          };
-          ChecklistUI.hideLegacyHabits();
-          const root = document.getElementById('checklist-root');
-          const refresh = async () => {
-            const url = currentWeekStart
-              ? `/api/checklist/week?week_start=${currentWeekStart}`
-              : '/api/checklist/week';
-            const r = await fetch(url);
-            if (r.ok) ChecklistUI.renderHabitsPage(root, await r.json(), checklistOpts());
-          };
-          const checklistOpts = () => ({
-            onRefresh: refresh,
-            onOpenSettings: function (data) {
-              if (!window.ChecklistSettings) return;
-              window.ChecklistSettings.open({
-                weekStart: currentWeekStart || (data && data.week_start),
-                buildStatus: data && data.build_status,
-                forceChecklistOn: true,
-                onSaved: refresh,
-                onChecklistEnabled: async function () {
-                  _checklistUiDisabled = false;
-                  await loadAndRender();
-                },
-                onChecklistDisabled: async function () {
-                  window.ChecklistSettings.close();
-                  _checklistUiDisabled = true;
-                  if (window.ChecklistUI) ChecklistUI.showLegacyHabits();
-                  currentWeekStart = null;
-                  await loadAndRender();
-                },
-              });
-            },
-            onWeekPrev: async () => {
-              if (!currentWeekStart) return;
-              const [y, m, d] = currentWeekStart.split('-').map(Number);
-              currentWeekStart = isoDate(new Date(y, m - 1, d - 7));
-              await loadAndRender();
-            },
-            onWeekNext: async () => {
-              if (!currentWeekStart || weekData?.is_current_week) return;
-              const [y, m, d] = currentWeekStart.split('-').map(Number);
-              currentWeekStart = isoDate(new Date(y, m - 1, d + 7));
-              await loadAndRender();
-            },
-            onBackCurrent: async () => {
-              currentWeekStart = null;
-              await loadAndRender();
-            },
-          });
-          ChecklistUI.renderHabitsPage(root, clData, checklistOpts());
-          return;
-        }
-      }
-    } catch (_) { /* fall through to legacy habits */ }
-    ChecklistUI.showLegacyHabits();
+  if (!window.ChecklistUI) {
+    showError('Checklist UI failed to load.');
+    return;
   }
 
-  const todayStr = bangkokTodayStr();
-  const dates = weekDates();
-  const weekFrom = dates[0];
-  const weekTo = dates[6];
-
-  const gridEl = document.getElementById('day-grid-content');
-  if (typeof UIStates !== 'undefined' && gridEl) UIStates.setLoading(gridEl);
+  var root = document.getElementById('checklist-root');
+  ChecklistUI.hideLegacyHabits();
+  if (root && !root.querySelector('.clh-page:not(.clh-page--loading)')) {
+    ChecklistUI.showChecklistLoading(root);
+  }
 
   try {
-    const weekUrl = currentWeekStart
-      ? `/api/habits/week?week_start=${currentWeekStart}`
-      : '/api/habits/week';
-
-    const [weekRes, activeRes, archivedRes, logsRes, summaryRes] = await Promise.all([
-      fetch(weekUrl),
-      fetch('/api/habits'),
-      fetch('/api/habits?include_archived=true'),
-      fetch(`/api/habits/logs?from=${weekFrom}&to=${weekTo}`),
-      // Correlation evidence — what this surface shows INSTEAD of streaks.
-      // Not awaited separately and never fatal: it is decoration, and a habit
-      // grid that fails because a sentence could not be built is worse than a
-      // grid with no sentence (#1608).
-      fetch('/api/habits/summary').catch(() => null),
-    ]);
-
-    if (!weekRes.ok) throw new Error(`Server error ${weekRes.status}`);
-    if (!activeRes.ok) throw new Error(`Server error ${activeRes.status}`);
-    if (!archivedRes.ok) throw new Error(`Server error ${archivedRes.status}`);
-
-    weekData = await weekRes.json();
-    currentWeekStart = weekData.week_start;
-
-    if (summaryRes && summaryRes.ok) {
-      summaryRes.json()
-        .then(function (d) { _renderHabitEvidence(d.evidence || []); })
-        .catch(function () { _renderHabitEvidence([]); });
-    } else {
-      _renderHabitEvidence([]);
+    const clUrl = currentWeekStart
+      ? `/api/checklist/week?week_start=${currentWeekStart}`
+      : '/api/checklist/week';
+    const clRes = await fetch(clUrl);
+    if (!clRes.ok) {
+      ChecklistUI.showChecklistError(
+        root,
+        'Server returned ' + clRes.status + '. Try again in a moment.',
+      );
+      return;
     }
-
-    activeHabits = await activeRes.json();
-    const allHabits = await archivedRes.json();
-    archivedHabits = allHabits.filter(h => h.is_archived);
-    const logs = logsRes.ok ? await logsRes.json() : [];
-
-    // ── Page header (always updated) ──
-    renderPageHeader();
-
-    // ── Starter or dashboard ──
-    if (activeHabits.length === 0 && archivedHabits.length === 0) {
-      renderEmptyState();
+    const clData = await clRes.json();
+    if (!clData.days || !clData.days.length) {
+      ChecklistUI.showChecklistError(
+        root,
+        'No checklist data for this week yet. Open settings to configure your checklist.',
+      );
       return;
     }
 
-    document.getElementById('starter-section').style.display = 'none';
-    document.getElementById('hero-row').style.display = '';
-    document.getElementById('habits-day-grid-card').style.display = '';
-    document.getElementById('weekly-habits-card').style.display = '';
+    currentWeekStart = clData.week_start;
+    weekData = {
+      week_start: clData.week_start,
+      week_end: clData.week_end,
+      is_current_week: clData.is_current_week,
+    };
 
-    // ── Hero cards ──
-    renderHeroWheel();
-    renderHeroStats();
-
-    // Build log set (habit_id|date → log_id) for current-week done cell log IDs
-    const logSet = {};
-    logs.forEach(l => {
-      if (dates.includes(l.logged_date)) {
-        logSet[l.habit_id + '|' + l.logged_date] = l.id;
+    const refresh = async () => {
+      const url = currentWeekStart
+        ? `/api/checklist/week?week_start=${currentWeekStart}`
+        : '/api/checklist/week';
+      const r = await fetch(url);
+      if (r.ok) {
+        ChecklistUI.renderHabitsPage(root, await r.json(), checklistOpts());
+      } else {
+        ChecklistUI.showChecklistError(root, 'Could not refresh checklist.');
       }
+    };
+    const checklistOpts = () => ({
+      onRefresh: refresh,
+      onOpenSettings: function (data) {
+        if (!window.ChecklistSettings) return;
+        window.ChecklistSettings.open({
+          weekStart: currentWeekStart || (data && data.week_start),
+          buildStatus: data && data.build_status,
+          forceChecklistOn: true,
+          onSaved: refresh,
+          onChecklistEnabled: async function () {
+            await loadAndRender();
+          },
+          onChecklistDisabled: async function () {
+            window.ChecklistSettings.close();
+            currentWeekStart = null;
+            await loadAndRender();
+          },
+        });
+      },
+      onWeekPrev: async () => {
+        if (!currentWeekStart) return;
+        const [y, m, d] = currentWeekStart.split('-').map(Number);
+        currentWeekStart = isoDate(new Date(y, m - 1, d - 7));
+        await loadAndRender();
+      },
+      onWeekNext: async () => {
+        if (!currentWeekStart || weekData?.is_current_week) return;
+        const [y, m, d] = currentWeekStart.split('-').map(Number);
+        currentWeekStart = isoDate(new Date(y, m - 1, d + 7));
+        await loadAndRender();
+      },
+      onBackCurrent: async () => {
+        currentWeekStart = null;
+        await loadAndRender();
+      },
     });
-
-    // ── Today quick-log card — filter week logs down to today only ──
-    const todayLogs = logs.filter(l => l.logged_date === todayStr);
-    renderTodayCard(activeHabits, todayLogs);
-
-    // ── Daily grid (uses weekData.daily_habits for 4-state cells) ──
-    renderDailyGrid(logSet);
-    renderWeeklyHabits(weekData.weekly_habits || [], weekData, activeHabits);
-    renderArchivedList();
-    initHabitCal();
-
+    ChecklistUI.renderHabitsPage(root, clData, checklistOpts());
   } catch (e) {
-    showError('Unable to load habits: ' + e.message);
+    ChecklistUI.showChecklistError(root, e.message || 'Network error.');
   }
 }
 
@@ -3144,7 +3070,6 @@ window.addEventListener('userReady', () => {
 window.addEventListener('userChanged', () => {
   _hcalInitialized = false;
   hcalFetchedRange = null;
-  _checklistUiDisabled = false;
   loadAndRender();
   loadInsights();
 });

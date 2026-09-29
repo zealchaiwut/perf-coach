@@ -22,16 +22,18 @@ def _js() -> str:
 # ── AC1: renderTodayCard is called from loadAndRender ────────────────────────
 
 def test_render_today_card_is_called_from_load_and_render():
-    """renderTodayCard must be invoked inside loadAndRender so it runs on page load."""
+    """Checklist Habits surface must render from loadAndRender on page load."""
     js = _js()
-    # Must contain a call to renderTodayCard (not just its definition)
-    # The function is defined at "function renderTodayCard(" — we want a *call*
-    calls = re.findall(r'\brenderTodayCard\s*\(', js)
-    # There will be at least one definition AND at least one invocation
-    assert len(calls) >= 2, (
-        "renderTodayCard must be called (not just defined) — found only "
-        f"{len(calls)} occurrence(s) in habits.js. "
-        "Add a renderTodayCard(...) call inside loadAndRender."
+    load_fn_match = re.search(
+        r'async function loadAndRender\(\)(.*?)^}',
+        js,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert load_fn_match, "habits.js must contain loadAndRender()"
+    fn_body = load_fn_match.group(1)
+    assert "ChecklistUI.renderHabitsPage" in fn_body, (
+        "loadAndRender must call ChecklistUI.renderHabitsPage — "
+        "the weekly checklist is the Habits page surface."
     )
 
 
