@@ -55,5 +55,12 @@ def test_performance_what_moves_sidebar_and_race_order():
 
 def test_training_log_cache_bust_wc18_wc19():
     assert "training-plan.js?v=20260929e" in PAGE
-    assert "training-performance.js?v=20260929e" in PAGE
+    assert "training-performance.js?v=20260929f" in PAGE
     assert "checklist-ui.js?v=20260929e" in PAGE
+
+
+def test_race_save_recomputes_stale_plan_bundle():
+    assert "function _refreshAfterRaceMutation()" in PERF
+    assert "stale computed_cache" in PERF
+    assert "suggested_actual_time_seconds" in PERF
+    assert "_refreshAfterRaceMutation();" in PERF

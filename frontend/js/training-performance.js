@@ -471,7 +471,7 @@
           console.warn("[plan] failed to set primary race", res);
           return;
         }
-        refresh();
+        _refreshAfterRaceMutation();
       });
     };
     if (prevPrimary && prevPrimary.id !== raceId && prevPrimary.priority === "A") {
@@ -1113,7 +1113,7 @@
         window.alert("Could not record result — try Edit and pick from history.");
         return;
       }
-      refresh();
+      _refreshAfterRaceMutation();
     });
   }
 
@@ -1573,6 +1573,12 @@
     _loadPlanEntityId();
   }
 
+  // Race mutations update the DB immediately but GET /api/plan/computed can
+  // still return a stale computed_cache (cached:false) until recompute runs.
+  function _refreshAfterRaceMutation() {
+    recompute();
+  }
+
   // Force a server-side recompute (ignores cache), then re-render. Shows a
   // brief disabled/spinning state on the Recalculate button.
   function recompute() {
@@ -1959,6 +1965,14 @@
     // Tab + priority state (must run after _editingRaceId is set for the title).
     _setModalType(type);
     _setModalPriority(race && race.priority ? race.priority : "A");
+    if (race) {
+      var actualSec = race.actual_time_seconds != null
+        ? race.actual_time_seconds
+        : race.suggested_actual_time_seconds;
+      if (actualSec != null && actualSec > 0) {
+        _setActualState(actualSec);
+      }
+    }
     _updateGoalDerived();
 
     // Preload the history list up front so the History tab is instant.
@@ -2050,9 +2064,17 @@
       if (type === "race" && _pickedActualSeconds != null) {
         body.status = "done";
         body.actual_time_seconds = _pickedActualSeconds;
-      } else if (!_editingRaceId) {
-        // New races default to planned; editing without a history pick must not
-        // revert an already-completed race back to planned.
+      } else if (_editingRaceId) {
+        var existing = _raceById(_editingRaceId);
+        if (
+          existing &&
+          existing.status === "done" &&
+          existing.actual_time_seconds != null
+        ) {
+          body.status = "done";
+          body.actual_time_seconds = existing.actual_time_seconds;
+        }
+      } else {
         body.status = "planned";
       }
     }
@@ -2069,7 +2091,7 @@
           return;
         }
         closeModal();
-        refresh();
+        _refreshAfterRaceMutation();
       });
     } else {
       apiPost(_planRaceUrl(), body, function (res) {
@@ -2082,7 +2104,7 @@
           return;
         }
         closeModal();
-        refresh();
+        _refreshAfterRaceMutation();
       });
     }
   }
@@ -2127,7 +2149,7 @@
       function () {
         apiDelete(_planRaceUrl(rid), function (res) {
           if (res.ok) {
-            refresh();
+            _refreshAfterRaceMutation();
           } else {
             if (window.UIStates && UIStates.showToast)
               UIStates.showToast("Delete failed. Please try again.", true);
@@ -2152,7 +2174,7 @@
       function () {
         apiDelete(_planRaceUrl(raceId), function (res) {
           if (res.ok) {
-            refresh();
+            _refreshAfterRaceMutation();
           } else {
             if (window.UIStates && UIStates.showToast)
               UIStates.showToast("Delete failed. Please try again.", true);
