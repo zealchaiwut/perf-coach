@@ -4643,14 +4643,15 @@
           </div>
           <!-- /.perf-scorewrap -->
 
-          <!-- Row: A-race header + calibration status -->
-          <div class="pm-row2">
-          <!-- 1. A-race header -->
+          <!-- Row: A-race hero + what-moves sidebar (WC-19) -->
+          <div class="pm-row2 pm-row2--hero">
           <div class="pm-card" id="plan-race-header">
             <div id="plan-race-header-content"></div>
           </div>
+          <div id="plan-what-moves" class="pm-card pm-what-moves-sidebar cl-hidden" hidden></div>
+          </div>
 
-          <!-- 2. Calibration status -->
+          <!-- Calibration status -->
           <div class="pm-card">
             <h2 class="pm-sectitle pm-sectitle--plain">Calibration status</h2>
             <div class="pm-calgrid">
@@ -4680,8 +4681,6 @@
               </div>
             </div>
           </div>
-
-          </div><!-- /pm-row2 (header + calibration) -->
 
           <!-- ── Projected at next checkpoint — moved here from the removed
                Performance tab; sits above the races list so the headline
@@ -4757,8 +4756,6 @@
               role="img"
               aria-label="Projected finish-time curve with race markers"
             ></svg>
-
-            <div id="plan-what-moves" class="pm-card cl-hidden" hidden></div>
 
             <div id="plan-races" class="pm-races">
               <div id="plan-races-loading" class="pm-loading">Loading…</div>
@@ -5128,6 +5125,96 @@
         font-family: var(--mono);
         margin-top: 5px;
       }
+      .plan-merged .pm-hero-top {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        flex-wrap: wrap;
+        margin-bottom: 14px;
+      }
+      .plan-merged .pm-hero-id { flex: 1; min-width: 180px; }
+      .plan-merged .pm-hero-days {
+        text-align: center;
+        min-width: 52px;
+        padding: 6px 10px;
+        border-radius: 10px;
+        background: #eef2ff;
+      }
+      .plan-merged .pm-hero-days-n {
+        font-size: 22px;
+        font-weight: 800;
+        font-family: var(--mono);
+        line-height: 1;
+        color: var(--ink);
+      }
+      .plan-merged .pm-hero-days-k {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--text-sub);
+        margin-top: 2px;
+      }
+      .plan-merged .pm-hero-stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 10px;
+      }
+      .plan-merged .pm-hero-stat {
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: #f8fafc;
+        border: 1px solid var(--border);
+      }
+      .plan-merged .pm-hero-stat-k {
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        color: var(--text-sub);
+      }
+      .plan-merged .pm-hero-stat-v {
+        margin-top: 4px;
+        font-size: 22px;
+        font-weight: 700;
+        font-family: var(--mono);
+        color: var(--ink);
+        line-height: 1.1;
+      }
+      .plan-merged .pm-hero-stat-v--ok { color: #15803d; }
+      .plan-merged .pm-hero-stat-s {
+        margin-top: 4px;
+        font-size: 11px;
+        color: var(--text-sub);
+        font-family: var(--mono);
+      }
+      .plan-merged .pm-hero-scores {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border);
+      }
+      .plan-merged .pm-hero-scores-lab {
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        color: var(--text-sub);
+        margin-right: 4px;
+      }
+      .plan-merged .pm-hero-score-pill {
+        font-size: 12px;
+        font-weight: 700;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: #eef2ff;
+        color: var(--ink);
+        font-family: var(--mono);
+      }
+      .plan-merged .pm-row2--hero { margin-bottom: 16px; }
       .plan-merged .pm-no-race {
         display: flex;
         align-items: center;
@@ -9248,13 +9335,13 @@
     <script src="js/lib/run-detail-view.js?v=20260927b"></script>
     <script src="js/training.js"></script>
     <script src="js/training-log.js?v=20260929b"></script>
-    <script src="js/checklist-ui.js"></script>
-    <script src="js/training-performance.js?v=20260928b"></script>
+    <script src="js/checklist-ui.js?v=20260929e"></script>
+    <script src="js/training-performance.js?v=20260929e"></script>
     <script src="js/lib/plan-session-helpers.js?v=20260810phasea1"></script>
     <script src="js/lib/session-budget.js?v=20260805sb1"></script>
     <script src="js/lib/plan-fill-preview.js?v=20260806align1"></script>
     <script src="js/lib/next-up-card.js?v=20260810done1"></script>
-    <script src="js/training-plan.js?v=20260929d"></script>
+    <script src="js/training-plan.js?v=20260929e"></script>
     <script src="js/user.js"></script>
     <script src="js/env.js"></script>
     <script>

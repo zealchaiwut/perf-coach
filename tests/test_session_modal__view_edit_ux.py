@@ -77,4 +77,4 @@ def test_session_export_json_button():
 
 
 def test_cache_bust_updated():
-    assert "training-plan.js?v=20260929d" in PAGE
+    assert "training-plan.js?v=20260929e" in PAGE

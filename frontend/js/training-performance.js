@@ -256,7 +256,35 @@
       });
   }
 
-  // ── 1. A-race header ──────────────────────────────────────────────────────
+  function _daysUntil(iso) {
+    if (!iso) return null;
+    var a = new Date(todayISO() + "T00:00:00");
+    var b = new Date(String(iso).slice(0, 10) + "T00:00:00");
+    return Math.round((b - a) / 86400000);
+  }
+
+  function _fmtSignedTime(deltaSecs) {
+    if (deltaSecs == null || !isFinite(deltaSecs)) return "—";
+    var sign = deltaSecs > 0 ? "+" : deltaSecs < 0 ? "\u2212" : "";
+    var abs = Math.round(Math.abs(deltaSecs));
+    var m = Math.floor(abs / 60);
+    var s = abs % 60;
+    return sign + m + ":" + String(s).padStart(2, "0");
+  }
+
+  function _raceSpecificScoresHtml(r) {
+    var sc = r && r.computed && r.computed.scores;
+    if (!sc || sc.kind !== "required") return "";
+    return (
+      '<div class="pm-hero-scores">' +
+        '<span class="pm-hero-scores-lab">Race-specific</span>' +
+        '<span class="pm-hero-score-pill">End ' + esc(String(sc.end)) + "</span>" +
+        '<span class="pm-hero-score-pill">Spd ' + esc(String(sc.spd)) + "</span>" +
+      "</div>"
+    );
+  }
+
+  // ── 1. A-race hero (goal · estimate · range · race-specific End/Spd) ─────
   function renderRaceHeader() {
     var el = document.getElementById("plan-race-header-content");
     if (!el) return;
@@ -277,29 +305,66 @@
 
     var r = _primaryRace;
     var distKm = parseFloat(r.distance || 0);
-    var goalTime = r.goal_time_seconds ? fmtTime(r.goal_time_seconds) : "—";
-    var goalPaceSec =
-      r.goal_time_seconds && distKm ? r.goal_time_seconds / distKm : null;
+    var goalSec = r.goal_time_seconds || null;
+    var goalTime = goalSec ? fmtTime(goalSec) : "—";
+    var goalPaceSec = goalSec && distKm ? goalSec / distKm : null;
     var goalPace = goalPaceSec ? fmtPace(goalPaceSec) : "";
+    var est = r.computed && r.computed.estimate;
+    var estSec = est && est.est != null ? est.est : null;
+    var estPace = estSec != null && distKm ? fmtPace(estSec / distKm) : "";
+    var days = _daysUntil(r.date);
+    var rangeHtml = "";
+    if (estSec != null && est && est.band != null) {
+      rangeHtml =
+        '<div class="pm-hero-stat">' +
+          '<div class="pm-hero-stat-k">Range</div>' +
+          '<div class="pm-hero-stat-v">' +
+            esc(fmtTime(estSec - est.band)) + " – " + esc(fmtTime(estSec + est.band)) +
+          "</div>" +
+        "</div>";
+    }
+    var gapHtml = "";
+    if (goalSec != null && estSec != null) {
+      gapHtml =
+        '<div class="pm-hero-stat">' +
+          '<div class="pm-hero-stat-k">Gap</div>' +
+          '<div class="pm-hero-stat-v">' + esc(_fmtSignedTime(estSec - goalSec)) + "</div>" +
+        "</div>";
+    }
 
     el.innerHTML =
-      '<div class="pm-hdrbar">' +
-      '<span class="pm-hdrlet">A</span>' +
-      '<div class="pm-hdrid">' +
-      '<div class="pm-hdrname">' + esc(r.name || "Unnamed") + "</div>" +
-      '<div class="pm-hdrmeta">' +
-      esc(formatDate(r.date)) + " · " + distKm.toFixed(2) + " km · A-priority" +
-      "</div>" +
-      "</div>" +
-      '<div class="pm-hdrdiv"></div>' +
-      '<div class="pm-hdrgoalbox">' +
-      '<div class="pm-glab">Goal</div>' +
-      '<div class="pm-gval">' + esc(goalTime) + "</div>" +
-      (goalPace
-        ? '<div class="pm-gsub">' + esc(goalPace) + " · target pace</div>"
-        : "") +
-      "</div>" +
-      '<button id="plan-header-add-btn" class="pm-ckbtn" type="button">Change race</button>' +
+      '<div class="pm-hero">' +
+        '<div class="pm-hero-top">' +
+          '<span class="pm-hdrlet">A</span>' +
+          '<div class="pm-hero-id">' +
+            '<div class="pm-hdrname">' + esc(r.name || "Unnamed") + "</div>" +
+            '<div class="pm-hdrmeta">' +
+              esc(formatDate(r.date)) + " · " + distKm.toFixed(1) + " km · A-priority" +
+            "</div>" +
+          "</div>" +
+          (days != null
+            ? '<div class="pm-hero-days"><div class="pm-hero-days-n">' +
+                Math.max(0, days) + '</div><div class="pm-hero-days-k">days</div></div>'
+            : "") +
+          '<button id="plan-header-add-btn" class="pm-ckbtn" type="button">Change race</button>' +
+        "</div>" +
+        '<div class="pm-hero-stats">' +
+          '<div class="pm-hero-stat">' +
+            '<div class="pm-hero-stat-k">Goal</div>' +
+            '<div class="pm-hero-stat-v">' + esc(goalTime) + "</div>" +
+            (goalPace ? '<div class="pm-hero-stat-s">' + esc(goalPace) + " /km</div>" : "") +
+          "</div>" +
+          (estSec != null
+            ? '<div class="pm-hero-stat">' +
+                '<div class="pm-hero-stat-k">Estimate</div>' +
+                '<div class="pm-hero-stat-v pm-hero-stat-v--ok">' + esc(fmtTime(estSec)) + "</div>" +
+                (estPace ? '<div class="pm-hero-stat-s">' + esc(estPace) + " /km</div>" : "") +
+              "</div>"
+            : "") +
+          rangeHtml +
+          gapHtml +
+        "</div>" +
+        _raceSpecificScoresHtml(r) +
       "</div>";
 
     var chBtn = document.getElementById("plan-header-add-btn");
@@ -1270,7 +1335,27 @@
     var sections = document.createElement("div");
     sections.className = "pm-races-sections";
 
-    // COMPLETED first — a two-per-row grid of compact cards.
+    if (needsResult.length > 0) {
+      var nhdr = document.createElement("div");
+      nhdr.className = "pm-races-hdr";
+      nhdr.textContent = "Needs a result";
+      sections.appendChild(nhdr);
+      needsResult.forEach(function (r) {
+        sections.appendChild(_buildNeedsResultCard(r));
+      });
+    }
+
+    if (upcoming.length > 0) {
+      var uhdr = document.createElement("div");
+      uhdr.className = "pm-races-hdr";
+      uhdr.textContent = "Upcoming";
+      sections.appendChild(uhdr);
+
+      upcoming.forEach(function (r) {
+        sections.appendChild(_buildUpcomingCard(r));
+      });
+    }
+
     if (completed.length > 0) {
       var chdr = document.createElement("div");
       chdr.className = "pm-races-hdr";
@@ -1283,28 +1368,6 @@
         grid.appendChild(_buildCompletedCard(r));
       });
       sections.appendChild(grid);
-    }
-
-    if (needsResult.length > 0) {
-      var nhdr = document.createElement("div");
-      nhdr.className = "pm-races-hdr";
-      nhdr.textContent = "Needs a result";
-      sections.appendChild(nhdr);
-      needsResult.forEach(function (r) {
-        sections.appendChild(_buildNeedsResultCard(r));
-      });
-    }
-
-    // UPCOMING — full-width cards.
-    if (upcoming.length > 0) {
-      var uhdr = document.createElement("div");
-      uhdr.className = "pm-races-hdr";
-      uhdr.textContent = "Upcoming";
-      sections.appendChild(uhdr);
-
-      upcoming.forEach(function (r) {
-        sections.appendChild(_buildUpcomingCard(r));
-      });
     }
 
     container.appendChild(sections);
@@ -1489,7 +1552,9 @@
         }
         host.hidden = false;
         host.classList.remove("cl-hidden");
-        ChecklistUI.renderWhatMoves(host, data.what_moves_estimate || []);
+        ChecklistUI.renderWhatMoves(host, data.what_moves_estimate || [], {
+          title: "What moves the A-race estimate",
+        });
       })
       .catch(function () {});
   }

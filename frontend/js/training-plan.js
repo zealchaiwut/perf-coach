@@ -2038,16 +2038,30 @@ information about.
     _mergeChecklistIntoPlanRows();
   }
 
+  function _checklistRaceDates(data) {
+    var out = [];
+    if (!data) return out;
+    var rh = data.races_header || {};
+    [rh.a_race, rh.b_race, data.a_race].forEach(function (r) {
+      if (r && r.race_date && out.indexOf(r.race_date) < 0) out.push(r.race_date);
+    });
+    return out;
+  }
+
   function _loadChecklistForPlan() {
     if (!window.ChecklistUI) return;
     var ws = _iso(_weekStart);
+    var weekHost = document.getElementById('plan-week-section');
     fetch('/api/checklist/week?week_start=' + encodeURIComponent(ws))
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
         _checklistWeek = data && data.checklist_enabled ? data : null;
         var strip = document.getElementById('cl-plan-strip');
-        if (strip && _checklistWeek) ChecklistUI.renderPlanStrip(strip, _checklistWeek);
-        else if (strip) strip.innerHTML = '';
+        if (strip) ChecklistUI.renderPlanStrip(strip, _checklistWeek || {});
+        if (weekHost) {
+          if (_checklistWeek) ChecklistUI.renderPlanWeekHeader(weekHost);
+          else ChecklistUI.hidePlanWeekHeader(weekHost);
+        }
         _mergeChecklistIntoPlanRows();
       })
       .catch(function () {});
@@ -2057,9 +2071,13 @@ information about.
     if (!_checklistWeek || !window.ChecklistUI) return;
     var host = document.getElementById('plan-week-list');
     if (!host) return;
+    var ctx = {
+      today: _todayISO(),
+      raceDates: _checklistRaceDates(_checklistWeek),
+    };
     (_checklistWeek.days || []).forEach(function (dayData) {
       var row = host.querySelector('.pl-dayrow[data-date="' + dayData.date + '"]');
-      if (row) ChecklistUI.renderPlanDayExtras(row, dayData);
+      if (row) ChecklistUI.renderPlanDayExtras(row, dayData, ctx);
     });
   }
 

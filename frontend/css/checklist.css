@@ -12,6 +12,16 @@
   font-size: 13px;
 }
 .cl-race-strip i { opacity: 0.85; }
+.cl-race-strip--light {
+  background: #eef2ff;
+  border: 1px solid #dbeafe;
+  color: var(--text-primary, #1b2340);
+  margin-bottom: 8px;
+}
+.cl-race-strip--light i { color: var(--primary, #4f6ef7); opacity: 1; }
+.cl-build-status--light { color: var(--text-secondary, #6b7280); margin-bottom: 8px; }
+.cl-build-status--light .cl-build-up_to_date .cl-build-lab { color: #15803d; }
+.cl-build-status--light .cl-build-updating .cl-build-lab { color: #b45309; }
 
 .cl-build-status {
   display: flex;
@@ -144,6 +154,65 @@
 }
 .cl-evidence-row:first-of-type { border-top: none; padding-top: 0; }
 
+.cl-plan-week-hdr {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 8px;
+  align-items: center;
+  padding: 0 8px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-tertiary, #9ca3af);
+}
+.cl-plan-week-hdr-cols {
+  display: grid;
+  grid-template-columns: 1.2fr 0.9fr 0.7fr;
+  gap: 8px;
+}
+.cl-plan-cols {
+  display: grid;
+  grid-template-columns: 1.2fr 0.9fr 0.7fr;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 4px 0 2px;
+}
+.plan-panel .pl-dayrow .pl-gut { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.plan-panel .pl-dayrow .cl-plan-cols { flex: 1 1 240px; min-width: 0; }
+.cl-plan-col {
+  font-size: 12px;
+  line-height: 1.35;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(13,30,67,0.04);
+  min-height: 36px;
+}
+.cl-plan-col--empty { opacity: 0.45; }
+.cl-plan-col-k { display: block; font-weight: 600; color: var(--text-primary); }
+.cl-plan-col-s {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+}
+.cl-plan-col.cl-done { background: #ecfdf3; }
+.cl-plan-col.cl-missed { background: #fef2f2; }
+.cl-day-chip {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(13,30,67,0.08);
+  color: var(--text-tertiary);
+}
+.cl-day-chip--today { background: #dbeafe; color: #1d4ed8; }
+.cl-day-chip--race-day { background: #fee2e2; color: #b91c1c; }
+.cl-day-chip--planned { background: #f3f4f6; color: #6b7280; }
 .cl-plan-extras {
   display: flex;
   flex-wrap: wrap;
@@ -159,6 +228,16 @@
   color: var(--text-secondary);
 }
 .cl-plan-chip.cl-done { background: #dff5d6; color: #166534; }
+.cl-evidence-habit {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin-bottom: 2px;
+}
+.pm-what-moves-sidebar { align-self: start; }
 
 .cl-home-teaser {
   display: flex;
