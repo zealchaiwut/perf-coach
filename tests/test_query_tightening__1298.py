@@ -77,11 +77,13 @@ def test_athlete_scores_as_of_has_date_window_in_source():
     import backend.main as main_mod
     src = inspect.getsource(main_mod._athlete_scores_as_of)
     has_window = (
-        "89" in src or "90" in src or "timedelta(days=89)" in src or "timedelta(days=90)" in src
+        "_RUN_HISTORY_CAP_DAYS" in src
+        or "timedelta(days=89)" in src
+        or "timedelta(days=90)" in src
     )
     assert has_window, (
-        "_athlete_scores_as_of must add a date lower-bound (timedelta(days=89) or 90) "
-        "to the run_workouts query so the 90-day trailing window is pushed into SQL"
+        "_athlete_scores_as_of must add a date lower-bound (_RUN_HISTORY_CAP_DAYS or "
+        "timedelta) to the run_workouts query so the scoring window is pushed into SQL"
     )
 
 

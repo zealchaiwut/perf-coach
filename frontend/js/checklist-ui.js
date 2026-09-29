@@ -427,24 +427,26 @@
     if (root) root.hidden = false;
   }
 
-  function showLegacyHabits() {
-    document.body.classList.remove('habits-checklist-first');
-    var root = document.getElementById('checklist-root');
-    if (root) {
-      root.hidden = true;
-      root.innerHTML = '';
-      root.removeAttribute('aria-busy');
+  function showChecklistError(host, message) {
+    if (!host) return;
+    host.hidden = false;
+    host.removeAttribute('aria-busy');
+    host.innerHTML =
+      '<div class="clh-page clh-page--error" role="alert">' +
+        '<p class="clh-error-title">Could not load checklist</p>' +
+        '<p class="clh-error-msg">' + esc(message || 'Try refreshing the page.') + '</p>' +
+        '<button type="button" class="clh-error-retry">Try again</button>' +
+      '</div>';
+    var btn = host.querySelector('.clh-error-retry');
+    if (btn) {
+      btn.addEventListener('click', function () {
+        if (window.HabitsPage && typeof window.HabitsPage.loadAndRender === 'function') {
+          window.HabitsPage.loadAndRender();
+        } else {
+          window.location.reload();
+        }
+      });
     }
-    ['hero-row', 'habits-day-grid-card', 'weekly-habits-card', 'insights-panel',
-      'nudges-panel', 'habits-history-cal', 'habit-evidence', 'starter-section',
-      'back-current-wrap'].forEach(function (id) {
-      var el = document.getElementById(id);
-      if (el) el.style.display = '';
-    });
-    var hdr = document.querySelector('.habits-page-header');
-    if (hdr) hdr.style.display = '';
-    var addBtn = document.getElementById('add-habit-btn');
-    if (addBtn) addBtn.style.display = '';
   }
 
   function wireItems(host, data, onRefresh) {
@@ -465,7 +467,7 @@
     renderHomeWeekPlan: renderHomeWeekPlan,
     showChecklistLoading: showChecklistLoading,
     hideLegacyHabits: hideLegacyHabits,
-    showLegacyHabits: showLegacyHabits,
+    showChecklistError: showChecklistError,
     raceStripHtml: _raceStripHtml,
     stateClass: _stateClass,
   };

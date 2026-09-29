@@ -87,6 +87,35 @@
     return months[d.getMonth()] + " " + d.getDate() + ", " + d.getFullYear();
   }
 
+  function _formatWeekRange(weekStartIso) {
+    if (!weekStartIso) return "—";
+    var start = new Date(weekStartIso + "T00:00:00");
+    if (isNaN(start.getTime())) return weekStartIso;
+    var end = new Date(start);
+    end.setDate(end.getDate() + 6);
+    var months = [
+      "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    var sm = months[start.getMonth()];
+    var em = months[end.getMonth()];
+    if (start.getMonth() === end.getMonth()) {
+      return sm + " " + start.getDate() + "–" + end.getDate() + ", " + start.getFullYear();
+    }
+    return sm + " " + start.getDate() + " – " + em + " " + end.getDate() + ", " + end.getFullYear();
+  }
+
+  function _isWeeklyPrKey(key) {
+    return key === "weeklyDistanceRecord" || key === "weeklyLoadRecord";
+  }
+
+  function _weeklyPrWeekStart(rec) {
+    if (!rec || typeof rec !== "object") return null;
+    var sw = rec.sourceWorkout;
+    if (sw && sw.week_start) return sw.week_start;
+    return rec.date || null;
+  }
+
   function weeksUntil(isoDate) {
     if (!isoDate) return null;
     var now = new Date();
@@ -352,13 +381,13 @@
           '<div class="pm-hero-stat">' +
             '<div class="pm-hero-stat-k">Goal</div>' +
             '<div class="pm-hero-stat-v">' + esc(goalTime) + "</div>" +
-            (goalPace ? '<div class="pm-hero-stat-s">' + esc(goalPace) + " /km</div>" : "") +
+            (goalPace ? '<div class="pm-hero-stat-s">' + esc(goalPace) + "</div>" : "") +
           "</div>" +
           (estSec != null
             ? '<div class="pm-hero-stat">' +
                 '<div class="pm-hero-stat-k">Estimate</div>' +
                 '<div class="pm-hero-stat-v pm-hero-stat-v--ok">' + esc(fmtTime(estSec)) + "</div>" +
-                (estPace ? '<div class="pm-hero-stat-s">' + esc(estPace) + " /km</div>" : "") +
+                (estPace ? '<div class="pm-hero-stat-s">' + esc(estPace) + "</div>" : "") +
               "</div>"
             : "") +
           rangeHtml +
@@ -599,96 +628,8 @@
     if (emptyEl) emptyEl.style.display = "none";
     svg.style.display = "";
 
-    // Current projected finish readout (first projection sample, else the last
-    // history sample). Gives the user a directly readable prediction.
     var estInfo = _currentEstimate(_readiness);
-    var valEl = document.getElementById("plan-projected-now-val");
-    var metaEl = document.getElementById("plan-projected-now-meta");
-    if (estInfo && projNow) {
-      projNow.style.display = "";
-      if (valEl) valEl.textContent = fmtTime(estInfo.est);
-      if (metaEl) {
-        var chips = [];
-        var distKm = _primaryRace ? parseFloat(_primaryRace.distance || 0) : 0;
-        if (distKm)
-          chips.push(
-            '<span class="pm-projnow-chip"><b>Pace</b> ' +
-              fmtPace(estInfo.est / distKm) +
-              "</span>",
-          );
-        if (estInfo.band != null)
-          chips.push(
-            '<span class="pm-projnow-chip"><b>Band</b> ±' +
-              Math.max(1, Math.round(estInfo.band / 60)) +
-              " min</span>",
-          );
-        if (goalSec != null)
-          chips.push(
-            '<span class="pm-projnow-chip"><b>Goal</b> ' +
-              fmtTime(goalSec) +
-              "</span>",
-          );
-        metaEl.innerHTML = chips.join("");
-      }
-      // How the estimate was formed from the athlete's own scores — the
-      // interpretable decomposition (time_curve.estimate_basis).
-      var basisEl = document.getElementById("plan-projected-basis");
-      if (basisEl) {
-        var basis = tc && tc.estimate_basis;
-        if (basis && basis.blended_pace_seconds_per_km != null) {
-          var rows = [];
-          if (
-            basis.endurance_score != null &&
-            basis.endurance_pace_seconds_per_km != null
-          ) {
-            rows.push(
-              '<div class="pm-projnow-basis-row">' +
-                '<span class="pm-projnow-basis-k">Endurance (race-specific) ' +
-                Math.round(basis.endurance_score) +
-                "</span>" +
-                '<span class="pm-projnow-basis-v">' +
-                fmtPace(basis.endurance_pace_seconds_per_km) +
-                "</span>" +
-                "</div>",
-            );
-          }
-          if (
-            basis.speed_score != null &&
-            basis.speed_pace_seconds_per_km != null
-          ) {
-            rows.push(
-              '<div class="pm-projnow-basis-row">' +
-                '<span class="pm-projnow-basis-k">Speed (race-specific) ' +
-                Math.round(basis.speed_score) +
-                "</span>" +
-                '<span class="pm-projnow-basis-v">' +
-                fmtPace(basis.speed_pace_seconds_per_km) +
-                "</span>" +
-                "</div>",
-            );
-          }
-          var wPct =
-            basis.speed_weight != null
-              ? Math.round(basis.speed_weight * 100)
-              : null;
-          rows.push(
-            '<div class="pm-projnow-basis-row">' +
-              '<span class="pm-projnow-basis-k">Blend' +
-              (wPct != null ? " · " + wPct + "% speed" : "") +
-              "</span>" +
-              '<span class="pm-projnow-basis-v">' +
-              fmtPace(basis.blended_pace_seconds_per_km) +
-              "</span>" +
-              "</div>",
-          );
-          basisEl.innerHTML = rows.join("");
-        } else {
-          basisEl.textContent = "";
-        }
-      }
-    } else {
-      _hideProjNow();
-    }
+    _renderProjFlowPanel(estInfo, goalSec, tc);
 
     // Accessible name for the chart: this SVG is drawn point-by-point with no
     // text alternative, so give it a concise, real-data summary rather than a
@@ -857,7 +798,7 @@
         x: p.l + 4, y: y(goalSec) - 5, "font-size": FS(9),
         "font-family": "Inter Tight", fill: PERF_COLORS.goalGreen, "font-weight": 700,
       });
-      gl.textContent = "A goal " + fmtTime(goalSec);
+      gl.textContent = "Goal " + fmtTime(goalSec);
       svg.appendChild(gl);
     }
 
@@ -870,7 +811,7 @@
       x: nowX + 3, y: p.t + 8, "font-size": FS(8), "font-family": "JetBrains Mono",
       fill: PERF_COLORS.textMuted, "text-anchor": "start", "font-weight": 700,
     });
-    nt.textContent = "NOW";
+    nt.textContent = "Now";
     svg.appendChild(nt);
 
     // race markers along the projection window
@@ -931,6 +872,134 @@
     var goalSec = tc.goal_finish_seconds != null ? tc.goal_finish_seconds : null;
     var status = rd.on_track && rd.on_track.status_summary;
     return { est: est, band: band, goalSec: goalSec, status: status };
+  }
+
+  function _renderProjFlowPanel(estInfo, goalSec, tc) {
+    var root = document.getElementById("plan-projected-now");
+    if (!root) return;
+    if (!estInfo) {
+      root.style.display = "none";
+      return;
+    }
+    root.style.display = "";
+
+    var raceName =
+      _primaryRace && _primaryRace.name ? _primaryRace.name : "race day";
+    var labEl = document.getElementById("plan-projected-now-lab");
+    if (labEl) labEl.textContent = "Projected finish at " + raceName;
+
+    var valEl = document.getElementById("plan-projected-now-val");
+    if (valEl) valEl.textContent = fmtTime(estInfo.est);
+
+    var statusEl = document.getElementById("plan-projected-now-status");
+    if (statusEl) statusEl.innerHTML = _statusPill(estInfo);
+
+    var metaEl = document.getElementById("plan-projected-now-meta");
+    var distKm = _primaryRace ? parseFloat(_primaryRace.distance || 0) : 0;
+    if (metaEl) {
+      var kpis = [];
+      if (distKm) {
+        kpis.push(
+          '<span class="pm-projflow-kpi"><b>Pace</b>' +
+            esc(fmtPace(estInfo.est / distKm)) +
+            "</span>",
+        );
+      }
+      if (estInfo.band != null) {
+        kpis.push(
+          '<span class="pm-projflow-kpi"><b>Band</b>±' +
+            Math.max(1, Math.round(estInfo.band / 60)) +
+            " min</span>",
+        );
+      }
+      if (goalSec != null) {
+        kpis.push(
+          '<span class="pm-projflow-kpi"><b>Goal</b>' +
+            esc(fmtTime(goalSec)) +
+            "</span>",
+        );
+      }
+      metaEl.innerHTML = kpis.join("");
+    }
+
+    var basis = tc && tc.estimate_basis;
+    var hasBasis = basis && basis.blended_pace_seconds_per_km != null;
+    var scoresEl = document.getElementById("plan-projected-scores");
+    if (scoresEl) {
+      var scoreHtml = "";
+      if (
+        hasBasis &&
+        basis.endurance_score != null &&
+        basis.endurance_pace_seconds_per_km != null
+      ) {
+        scoreHtml +=
+          '<div class="pm-projflow-score pm-projflow-score--e">' +
+          '<span class="pm-projflow-score-k">Endurance <b>' +
+          Math.round(basis.endurance_score) +
+          "</b></span>" +
+          '<span class="pm-projflow-score-v">' +
+          esc(fmtPace(basis.endurance_pace_seconds_per_km)) +
+          "</span></div>";
+      }
+      if (
+        hasBasis &&
+        basis.speed_score != null &&
+        basis.speed_pace_seconds_per_km != null
+      ) {
+        scoreHtml +=
+          '<div class="pm-projflow-score pm-projflow-score--s">' +
+          '<span class="pm-projflow-score-k">Speed <b>' +
+          Math.round(basis.speed_score) +
+          "</b></span>" +
+          '<span class="pm-projflow-score-v">' +
+          esc(fmtPace(basis.speed_pace_seconds_per_km)) +
+          "</span></div>";
+      }
+      scoresEl.innerHTML = scoreHtml;
+      scoresEl.hidden = !scoreHtml;
+    }
+
+    var blendEl = document.getElementById("plan-projected-blend");
+    if (blendEl) {
+      if (hasBasis) {
+        var wPct =
+          basis.speed_weight != null
+            ? Math.round(basis.speed_weight * 100)
+            : null;
+        var blendLabel =
+          "Blended" + (wPct != null ? ", " + wPct + "% speed" : "");
+        var distTxt = distKm ? distKm.toFixed(1) + " km" : "";
+        blendEl.innerHTML =
+          '<div class="pm-projflow-blend-text">' +
+          '<span class="pm-projflow-blend-k">' +
+          esc(blendLabel) +
+          "</span>" +
+          (distTxt
+            ? '<span class="pm-projflow-blend-sub">over ' +
+              esc(distTxt) +
+              "</span>"
+            : "") +
+          '<span class="pm-projflow-blend-sub pm-projflow-blend-sub--mob">' +
+          esc(blendLabel) +
+          (distTxt ? " · " + esc(distTxt) : "") +
+          "</span></div>" +
+          '<span class="pm-projflow-blend-v">' +
+          esc(fmtPace(basis.blended_pace_seconds_per_km)) +
+          "</span>";
+        blendEl.hidden = false;
+      } else {
+        blendEl.innerHTML = "";
+        blendEl.hidden = true;
+      }
+    }
+
+    var arr1 = root.querySelector(".pm-projflow-arr--1");
+    var arr2 = root.querySelector(".pm-projflow-arr--2");
+    var arr3 = root.querySelector(".pm-projflow-arr--3");
+    if (arr1) arr1.hidden = !hasBasis;
+    if (arr2) arr2.hidden = !hasBasis;
+    if (arr3) arr3.hidden = !hasBasis;
+    root.classList.toggle("pm-projflow--hero-only", !hasBasis);
   }
 
   // Map a readiness on_track result to a status pill (label + ok/watch class).
@@ -1025,12 +1094,51 @@
   function _metaText(r, distKm) {
     return (
       formatDate(r.date) +
-      " · " +
+      " – " +
       (r.distance != null
         ? distKm.toFixed(2) + " km"
         : r.duration_seconds
           ? fmtTime(r.duration_seconds)
           : "—")
+    );
+  }
+
+  // Race/checkpoint card header — two lines:
+  //   [priority] Name [RACE|CHECKPOINT]
+  //   Date – distance [status badges…]
+  function _raceCardHeadHtml(r, opts) {
+    opts = opts || {};
+    var distKm =
+      opts.distKm != null ? opts.distKm : parseFloat(r.distance || 0);
+    var isCheckpoint =
+      opts.isCheckpoint != null ? opts.isCheckpoint : r.type === "checkpoint";
+    var priority =
+      opts.priority != null
+        ? opts.priority
+        : isCheckpoint
+          ? "C"
+          : r.priority || "A";
+    var typeLabel =
+      opts.typeLabel != null
+        ? opts.typeLabel
+        : isCheckpoint
+          ? "CHECKPOINT"
+          : "RACE";
+    return (
+      '<div class="pm-rchd">' +
+        '<div class="pm-rchd-main">' +
+          '<div class="pm-rchd-row pm-rchd-row--title">' +
+            _priorityBadge(isCheckpoint, priority) +
+            '<span class="pm-rcname">' + esc(r.name || "Unnamed") + "</span>" +
+            '<span class="pm-typetag">' + esc(typeLabel) + "</span>" +
+          "</div>" +
+          '<div class="pm-rchd-row pm-rchd-row--meta">' +
+            '<span class="pm-rcmeta">' + esc(_metaText(r, distKm)) + "</span>" +
+            (opts.metaRowExtra || "") +
+          "</div>" +
+        "</div>" +
+        (opts.actionsHtml || "") +
+      "</div>"
     );
   }
 
@@ -1129,18 +1237,18 @@
     card.className = "pm-rc pm-rc--needs";
     card.setAttribute("data-race-id", r.id);
 
-    var head =
-      '<div class="pm-rchd">' +
-      _priorityBadge(false, r.priority || "B") +
-      '<span class="pm-rcname">' + esc(r.name || "Unnamed") + "</span>" +
-      '<span class="pm-typetag">RACE</span>' +
-      '<span class="pm-rcmeta">' + esc(_metaText(r, distKm)) + "</span>" +
-      '<span class="pm-upc pm-needs">NEEDS RESULT</span>' +
-      '<span class="pm-rcactions">' +
-      '<button class="pm-rcact pm-rcact--primary" data-act="calibrate" type="button">' +
-      "Record and recalibrate</button>" +
-      '<button class="pm-rcact" data-act="edit" type="button">Edit</button>' +
-      "</span></div>";
+    var head = _raceCardHeadHtml(r, {
+      distKm: distKm,
+      isCheckpoint: false,
+      priority: r.priority || "B",
+      metaRowExtra: '<span class="pm-upc pm-needs">NEEDS RESULT</span>',
+      actionsHtml:
+        '<span class="pm-rcactions">' +
+        '<button class="pm-rcact pm-rcact--primary" data-act="calibrate" type="button">' +
+        "Record and recalibrate</button>" +
+        '<button class="pm-rcact" data-act="edit" type="button">Edit</button>' +
+        "</span>",
+    });
 
     var grid =
       '<div class="pm-rcgrid">' +
@@ -1178,20 +1286,20 @@
         : "";
     var rightTag = isTarget ? '<span class="pm-tgt">TARGET</span>' : recalHtml;
 
-    var head =
-      '<div class="pm-rchd">' +
-      _priorityBadge(isCheckpoint, priority) +
-      '<span class="pm-rcname">' + esc(r.name || "Unnamed") + "</span>" +
-      '<span class="pm-typetag">' +
-      (isCheckpoint ? "CHECKPOINT" : "RACE") + "</span>" +
-      '<span class="pm-rcmeta">' + esc(_metaText(r, distKm)) + "</span>" +
-      '<span class="pm-upc">UPCOMING</span>' +
-      rightTag +
-      '<span class="pm-rcactions">' +
-      '<button class="pm-rcact" data-act="edit" type="button">Edit</button>' +
-      '<button class="pm-rcact" data-act="del" type="button" aria-label="Remove ' + esc(r.name || "race") + '">✕</button>' +
-      "</span>" +
-      "</div>";
+    var head = _raceCardHeadHtml(r, {
+      distKm: distKm,
+      isCheckpoint: isCheckpoint,
+      priority: priority,
+      metaRowExtra:
+        '<span class="pm-upc">UPCOMING</span>' + rightTag,
+      actionsHtml:
+        '<span class="pm-rcactions">' +
+        '<button class="pm-rcact" data-act="edit" type="button">Edit</button>' +
+        '<button class="pm-rcact" data-act="del" type="button" aria-label="Remove ' +
+        esc(r.name || "race") +
+        '">✕</button>' +
+        "</span>",
+    });
 
     // Estimated column from the bundle's precomputed per-race estimate.
     var secondCol = "";
@@ -1246,21 +1354,20 @@
     card.className = "pm-rc pm-rc--done";
     card.setAttribute("data-race-id", r.id);
 
-    // Mirror upcoming: name/type, then date·distance + DONE, then actions.
-    // End/Spd live under the Goal/Actual grid (not in the tag row).
-    var head =
-      '<div class="pm-rchd">' +
-      _priorityBadge(isCheckpoint, priority) +
-      '<span class="pm-rcname">' + esc(r.name || "Unnamed") + "</span>" +
-      '<span class="pm-typetag">' +
-      (isCheckpoint ? "CHECKPOINT" : "RACE") + "</span>" +
-      '<span class="pm-rcmeta">' + esc(_metaText(r, distKm)) + "</span>" +
-      '<span class="pm-upc pm-done">DONE</span>' +
-      '<span class="pm-rcactions">' +
-      '<button class="pm-rcact" data-act="edit" type="button">Edit</button>' +
-      '<button class="pm-rcact" data-act="del" type="button" aria-label="Remove ' + esc(r.name || "race") + '">✕</button>' +
-      "</span>" +
-      "</div>";
+    // Two-line header; End/Spd live under the Goal/Actual grid (not in the tag row).
+    var head = _raceCardHeadHtml(r, {
+      distKm: distKm,
+      isCheckpoint: isCheckpoint,
+      priority: priority,
+      metaRowExtra: '<span class="pm-upc pm-done">DONE</span>',
+      actionsHtml:
+        '<span class="pm-rcactions">' +
+        '<button class="pm-rcact" data-act="edit" type="button">Edit</button>' +
+        '<button class="pm-rcact" data-act="del" type="button" aria-label="Remove ' +
+        esc(r.name || "race") +
+        '">✕</button>' +
+        "</span>",
+    });
 
     var actualLabel =
       "Actual" +
@@ -1346,10 +1453,31 @@
     }
 
     if (upcoming.length > 0) {
+      var ubar = document.createElement("div");
+      ubar.className = "pm-races-bar";
       var uhdr = document.createElement("div");
       uhdr.className = "pm-races-hdr";
       uhdr.textContent = "Upcoming";
-      sections.appendChild(uhdr);
+      ubar.appendChild(uhdr);
+      var totalRaces = _races.length;
+      if (totalRaces > 0) {
+        var seeAll = document.createElement("button");
+        seeAll.type = "button";
+        seeAll.className = "pm-races-seeall";
+        seeAll.textContent =
+          "See all " +
+          totalRaces +
+          " race" +
+          (totalRaces === 1 ? "" : "s");
+        seeAll.addEventListener("click", function () {
+          var target = document.getElementById("plan-races");
+          if (target && target.scrollIntoView) {
+            target.scrollIntoView({ behavior: "smooth", block: "start" });
+          }
+        });
+        ubar.appendChild(seeAll);
+      }
+      sections.appendChild(ubar);
 
       upcoming.forEach(function (r) {
         sections.appendChild(_buildUpcomingCard(r));
@@ -2322,6 +2450,19 @@
         closeRacePicker();
       }
     });
+
+    var prStrip = document.getElementById("perf-pr-strip");
+    if (prStrip) {
+      prStrip.addEventListener("click", function (e) {
+        var link = e.target.closest("[data-week-start]");
+        if (!link) return;
+        e.preventDefault();
+        var ws = link.getAttribute("data-week-start");
+        document.dispatchEvent(
+          new CustomEvent("plan:open-week", { detail: { weekStart: ws } }),
+        );
+      });
+    }
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -2793,7 +2934,15 @@
     }
     if (empty) empty.hidden = true;
     if (body) body.hidden = false;
-    if (metaEl) metaEl.textContent = (next.name || "Checkpoint") + " · " + formatDate(next.date);
+    if (metaEl) {
+      metaEl.innerHTML =
+        '<div class="perf-proj-meta-name">' +
+        esc(next.name || "Checkpoint") +
+        "</div>" +
+        '<div class="perf-proj-meta-date">' +
+        esc(formatDate(next.date)) +
+        "</div>";
+    }
     if (endEl) endEl.innerHTML = esc(fmtTime(est.est));
   }
 
@@ -2839,10 +2988,17 @@
           '<div class="perf-pr-reason">' + esc(rec.reason) + "</div></div>";
       }
       var v = _formatPerfPrValue(item.label, rec.value);
-      var date = rec.date || "—";
-      var src = rec.sourceWorkout && rec.sourceWorkout.id
-        ? '<a class="perf-pr-link" href="/log?workout=' + esc(String(rec.sourceWorkout.id)) + '">View workout</a>'
-        : "";
+      var isWeekly = _isWeeklyPrKey(item.label);
+      var weekStart = isWeekly ? _weeklyPrWeekStart(rec) : null;
+      var date = isWeekly && weekStart ? _formatWeekRange(weekStart) : (rec.date || "—");
+      var src = "";
+      if (isWeekly && weekStart) {
+        src =
+          '<a class="perf-pr-link" href="#" data-week-start="' + esc(weekStart) + '">View week in Plan</a>';
+      } else if (rec.sourceWorkout && rec.sourceWorkout.id) {
+        src =
+          '<a class="perf-pr-link" href="/log?workout=' + esc(String(rec.sourceWorkout.id)) + '">View workout</a>';
+      }
       return '<div class="perf-prtile">' +
         '<div class="perf-pr-name">' + esc(label) + "</div>" +
         '<div class="perf-pr-val">' + v + "</div>" +

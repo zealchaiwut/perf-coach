@@ -1549,9 +1549,14 @@
 
       // Pixel heights against the chart's measured height — no CSS %-resolution.
       var CH = chart.clientHeight || 130;
+      var barDurWeights = lapDurationFlexWeights(
+        laps.map(function (lap) { return lapDurationSecondsFromMeta(lap); }),
+      );
+
       chart.innerHTML = laps
         .map(function (lap, i) {
           var v = vals[i];
+          var flexW = barDurWeights[i] != null ? barDurWeights[i] : 1;
           var cls = "rd4-cbar2";
           if (lap.zone2) cls += " rd4-cbar2--z2";
           if (lap.anomaly) cls += " rd4-cbar2--break";
@@ -1569,12 +1574,12 @@
             cellCls += " rd4-cell2--rest";
           }
           if (v == null) {
-            return '<div class="' + cellCls + '" data-i="' + i + '" style="flex:1 0 0">' + repLbl + '<div class="' + cls + '" style="height:' + Math.round(0.05 * CH) + 'px;background:#e2e8f0"></div></div>';
+            return '<div class="' + cellCls + '" data-i="' + i + '" style="flex:' + flexW + ' 0 0">' + repLbl + '<div class="' + cls + '" style="height:' + Math.round(0.05 * CH) + 'px;background:#e2e8f0"></div></div>';
           }
           // Pace: faster (smaller sec/km) = taller → invert. Power: more = taller.
           var norm = barMetric === "pace" ? 1 - (v - mn) / rng : (v - mn) / rng;
           var hpx = Math.max(4, Math.round((10 + norm * 86) / 100 * CH));
-          return '<div class="' + cellCls + '" data-i="' + i + '" style="flex:1 0 0">' + repLbl + '<div class="' + cls + '" style="height:' + hpx + "px;background:" + barColor + '"></div></div>';
+          return '<div class="' + cellCls + '" data-i="' + i + '" style="flex:' + flexW + ' 0 0">' + repLbl + '<div class="' + cls + '" style="height:' + hpx + "px;background:" + barColor + '"></div></div>';
         })
         .join("");
 
@@ -1635,8 +1640,9 @@
       }
       var axisEl = container.querySelector("#rd4-lap-axis");
       if (axisEl) {
-        axisEl.innerHTML = laps.map(function (lap) {
-          return '<div class="rd4-cell2">' + lap.index + "</div>";
+        axisEl.innerHTML = laps.map(function (lap, i) {
+          var flexW = barDurWeights[i] != null ? barDurWeights[i] : 1;
+          return '<div class="rd4-cell2" style="flex:' + flexW + ' 0 0">' + lap.index + "</div>";
         }).join("");
       }
 
@@ -1646,7 +1652,6 @@
       var hmin = hValid.length ? Math.min.apply(null, hValid) : 0;
       var hmax = hValid.length ? Math.max.apply(null, hValid) : 0;
       var hrng = hmax - hmin || 1;
-      var n = laps.length;
       // Vertical band the HR curve occupies (viewBox 0..100). The old scale used
       // 8..88 (span 80), which slammed the lowest lap onto the chart baseline —
       // a warm-up lap (the HR minimum) read like a dropped/zero value — and
@@ -1656,10 +1661,13 @@
       var HR_PAD = 19;      // % margin at top and bottom
       var HR_SPAN = 100 - 2 * HR_PAD;
       var pts = [];
+      var cum = 0;
       laps.forEach(function (lap, i) {
         var hv = lap.split.avg_hr;
         if (hv == null || hv <= 0) return;
-        var x = ((i + 0.5) / n) * 100;
+        var w = barDurWeights[i] != null ? barDurWeights[i] : 1 / laps.length;
+        var x = (cum + w / 2) * 100;
+        cum += w;
         var y = 100 - (((hv - hmin) / hrng) * HR_SPAN + HR_PAD);
         pts.push(x.toFixed(2) + "," + y.toFixed(2));
       });
@@ -2031,9 +2039,51 @@
     return m * 60 + s;
   }
 
-  /** Pace bar colour tiers — matches the IG/FB share-card legend. */
-  function socialPaceBarColor(paceSec) {
+  function durationSecFromDisplay(durTxt) {
+    if (!durTxt || durTxt === "—") return null;
+    var parts = String(durTxt).trim().split(":");
+    if (parts.length === 2) {
+      var mm = parseInt(parts[0], 10);
+      var ss = parseInt(parts[1], 10);
+      if (!isFinite(mm) || !isFinite(ss)) return null;
+      return mm * 60 + ss;
+    }
+    if (parts.length === 3) {
+      var hh = parseInt(parts[0], 10);
+      mm = parseInt(parts[1], 10);
+      ss = parseInt(parts[2], 10);
+      if (!isFinite(hh) || !isFinite(mm) || !isFinite(ss)) return null;
+      return hh * 3600 + mm * 60 + ss;
+    }
+    return null;
+  }
+
+  /** Flex weights from lap durations (seconds); falls back to equal width. */
+  function lapDurationFlexWeights(durationSecs) {
+    if (!durationSecs || !durationSecs.length) return [];
+    var durs = durationSecs.map(function (d) {
+      return d != null && d > 0 ? d : null;
+    });
+    var known = durs.filter(function (d) { return d != null; });
+    if (!known.length) {
+      return durs.map(function () { return 1; });
+    }
+    var fallback = known.reduce(function (a, b) { return a + b; }, 0) / known.length;
+    durs = durs.map(function (d) { return d != null && d > 0 ? d : fallback; });
+    var total = durs.reduce(function (a, b) { return a + b; }, 0) || 1;
+    return durs.map(function (d) { return d / total; });
+  }
+
+  function lapDurationSecondsFromMeta(lap) {
+    if (!lap || !lap.split) return null;
+    var d = lap.split.duration_seconds;
+    return d != null && d > 0 ? d : null;
+  }
+
+  /** Pace bar colour tiers — share-card legend; teal when faster than run avg. */
+  function socialPaceBarColor(paceSec, estPaceSec) {
     if (paceSec == null) return "#64748b";
+    if (estPaceSec != null && paceSec < estPaceSec - 0.5) return "#14b8a6";
     if (paceSec <= 375) return "#f97316"; /* ≤ 6:15 */
     if (paceSec <= 400) return "#d97706"; /* ≤ 6:40 */
     return "#ef4444"; /* slower */
@@ -2083,17 +2133,37 @@
     tbody.querySelectorAll("tr").forEach(function (tr) {
       var cells = tr.querySelectorAll("td");
       if (cells.length < 5) return;
+      var distIdx = 1;
+      var durIdx = withDur ? 2 : -1;
       var paceIdx = withDur ? 3 : 2;
       var hrIdx = withDur ? 4 : 3;
       var pwrIdx = withDur ? 5 : 4;
       var lapNum = cells[0].querySelector(".rd4-lap-num");
+      var paceTxt = cells[paceIdx].textContent.trim();
+      var paceSec = paceSecFromDisplay(paceTxt);
+      var durationTxt = durIdx >= 0 ? cells[durIdx].textContent.trim() : "—";
+      var durationSec = durationSecFromDisplay(durationTxt);
+      if (durationSec == null && paceSec != null) {
+        var distTxt = cells[distIdx].textContent.trim();
+        var distKm = parseFloat(distTxt);
+        if (isFinite(distKm) && distKm > 0) {
+          durationSec = Math.round(paceSec * distKm);
+          if (!durationTxt || durationTxt === "—") {
+            durationTxt = fmtDuration(durationSec);
+          }
+        }
+      }
+      var hrTxt = cells[hrIdx].textContent.trim();
       rows.push({
         index: lapNum ? lapNum.textContent.trim() : cells[0].textContent.trim(),
-        pace: cells[paceIdx].textContent.trim(),
-        hr: cells[hrIdx].textContent.trim(),
+        duration: durationTxt || "—",
+        durationSec: durationSec,
+        pace: paceTxt,
+        hr: hrTxt,
+        hrNum: parseInt(hrTxt, 10),
         power: cells[pwrIdx].textContent.trim(),
         zone2: tr.classList.contains("rd4-lap-row--z2"),
-        paceSec: paceSecFromDisplay(cells[paceIdx].textContent.trim()),
+        paceSec: paceSec,
       });
     });
     return rows;
@@ -2108,7 +2178,7 @@
     return "laps";
   }
 
-  function buildSocialLapColumn(rows, startIdx) {
+  function buildSocialLapColumn(rows, estPaceSec) {
     if (!rows.length) return "";
     var paceSecs = rows.map(function (r) { return r.paceSec; }).filter(function (v) { return v != null; });
     var minP = paceSecs.length ? Math.min.apply(null, paceSecs) : null;
@@ -2116,16 +2186,17 @@
 
     var html =
       '<div class="rd4-social-lap-head">' +
-      '<span>KM</span><span>PACE</span><span></span><span>HR</span><span>W</span>' +
+      '<span>KM</span><span>TIME</span><span>PACE</span><span></span><span>HR</span><span>W</span>' +
       "</div>";
 
     rows.forEach(function (row) {
       var barW = socialPaceBarWidth(row.paceSec, minP, maxP);
-      var barC = socialPaceBarColor(row.paceSec);
+      var barC = socialPaceBarColor(row.paceSec, estPaceSec);
       var rowCls = "rd4-social-lap-row" + (row.zone2 ? " rd4-social-lap-row--z2" : "");
       html +=
         '<div class="' + rowCls + '">' +
         '<span class="rd4-social-lap-km">' + esc(row.index) + "</span>" +
+        '<span class="rd4-social-lap-time">' + esc(row.duration || "—") + "</span>" +
         '<span class="rd4-social-lap-pace">' + esc(row.pace) + "</span>" +
         '<span class="rd4-social-lap-bar"><i style="width:' + barW + "px;background:" + barC + '"></i></span>' +
         '<span class="rd4-social-lap-hr">' + esc(row.hr) + "</span>" +
@@ -2133,6 +2204,58 @@
         "</div>";
     });
     return html;
+  }
+
+  function applyDurationFlexToChart(chartRoot, durationSecs, hrValues) {
+    var weights = lapDurationFlexWeights(durationSecs);
+    if (!weights.length) return;
+    var barRow = chartRoot.querySelector(".rd4-chart2-bars");
+    if (barRow) {
+      var barCells = barRow.querySelectorAll(".rd4-cell2");
+      barCells.forEach(function (cell, i) {
+        if (i >= weights.length) return;
+        cell.style.flex = weights[i] + " 0 0";
+      });
+    }
+    var axisRow = chartRoot.querySelector(".rd4-axis2");
+    if (axisRow) {
+      var axisCells = axisRow.querySelectorAll(".rd4-cell2");
+      axisCells.forEach(function (cell, i) {
+        if (i >= weights.length) return;
+        cell.style.flex = weights[i] + " 0 0";
+      });
+    }
+    var svg = chartRoot.querySelector(".rd4-hr-svg");
+    if (!svg || !hrValues || !hrValues.length) return;
+    var hValid = hrValues.filter(function (v) { return v != null && v > 0; });
+    if (!hValid.length) return;
+    var hmin = Math.min.apply(null, hValid);
+    var hmax = Math.max.apply(null, hValid);
+    var hrng = hmax - hmin || 1;
+    var HR_PAD = 19;
+    var HR_SPAN = 100 - 2 * HR_PAD;
+    var pts = [];
+    var cum = 0;
+    hrValues.forEach(function (hv, i) {
+      if (hv == null || hv <= 0 || i >= weights.length) return;
+      var x = (cum + weights[i] / 2) * 100;
+      cum += weights[i];
+      var y = 100 - (((hv - hmin) / hrng) * HR_SPAN + HR_PAD);
+      pts.push(x.toFixed(2) + "," + y.toFixed(2));
+    });
+    var inner = "";
+    if (pts.length >= 2) {
+      inner +=
+        '<polyline points="' + pts.join(" ") +
+        '" fill="none" stroke="#ef4444" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>';
+    }
+    pts.forEach(function (p) {
+      var xy = p.split(",");
+      inner +=
+        '<path d="M' + xy[0] + " " + xy[1] +
+        'l0 0" stroke="#ef4444" stroke-width="6" stroke-linecap="round" vector-effect="non-scaling-stroke"/>';
+    });
+    svg.innerHTML = inner;
   }
 
   function buildSocialPowerZones(stack) {
@@ -2180,8 +2303,45 @@
     return dd + "." + mm + "." + yy;
   }
 
+  /** Pace/power lap chart for the portrait social card (cloned from live DOM). */
+  function buildSocialLapChart(stack, lapRows) {
+    var lapsSrc = stack.querySelector(".rd4-laps-card");
+    if (!lapsSrc) return null;
+    var chart = lapsSrc.querySelector(".rd4-chart2");
+    if (!chart) return null;
+
+    var wrap = document.createElement("div");
+    wrap.className = "rd4-social-chart";
+
+    wrap.appendChild(chart.cloneNode(true));
+    var tip = wrap.querySelector(".rd4-lap-tip");
+    if (tip && tip.parentNode) tip.parentNode.removeChild(tip);
+
+    var axis = lapsSrc.querySelector(".rd4-axis2");
+    if (axis) wrap.appendChild(axis.cloneNode(true));
+
+    var legend = lapsSrc.querySelector(".rd4-chart2-legend");
+    if (legend) wrap.appendChild(legend.cloneNode(true));
+
+    realignShareHrSvg(wrap);
+    stripCloneIds(wrap);
+
+    lapRows = lapRows || parseSocialLapRows(stack);
+    if (lapRows.length) {
+      applyDurationFlexToChart(
+        wrap,
+        lapRows.map(function (r) { return r.durationSec; }),
+        lapRows.map(function (r) {
+          return isFinite(r.hrNum) ? r.hrNum : null;
+        }),
+      );
+    }
+    return wrap;
+  }
+
   /**
-   * Portrait social share card (IG / FB stories) — dark theme, two-column laps.
+   * Portrait social share card (IG / FB stories) — dark or light theme.
+   * opts.theme: "dark" | "light"; opts.includeGraph adds the pace/HR lap chart.
    * Returns null when the panel is not an rd4 run view (caller falls back).
    */
   function buildShareCard(contentEl, opts) {
@@ -2189,6 +2349,9 @@
     if (!contentEl) return null;
     var stack = contentEl.querySelector(".rd4-stack");
     if (!stack) return null;
+
+    var theme = opts.theme === "light" ? "light" : "dark";
+    var includeGraph = !!opts.includeGraph;
 
     var w = opts.workout || {};
     var stats = parseSocialStatGrid(stack);
@@ -2232,7 +2395,8 @@
     var brand = String(brandRaw).trim().toLowerCase().replace(/\s+/g, "") || "perf-coach";
 
     var root = document.createElement("div");
-    root.className = "rd4-social";
+    root.className =
+      "rd4-social" + (theme === "light" ? " rd4-social--light" : "");
     root.innerHTML =
       '<div class="rd4-social-top">' +
       '<div class="rd4-social-event">' + esc(title) + "</div>" +
@@ -2249,31 +2413,55 @@
       "<span>" + esc(dist) + "</span>" +
       "<span>" + esc(pace) + "</span>" +
       "<span>" + esc(avgHr) + "</span>" +
-      "</div>" +
-      (lapRows.length
-        ? '<div class="rd4-social-laps-title">' + esc(lapLabel) + "</div>" +
-          '<div class="rd4-social-laps">' +
-          '<div class="rd4-social-lap-col">' + buildSocialLapColumn(colA) + "</div>" +
-          '<div class="rd4-social-lap-col">' + buildSocialLapColumn(colB) + "</div>" +
-          "</div>" +
-          '<div class="rd4-social-legend">' +
-          '<span><i class="rd4-social-leg rd4-social-leg--z2"></i> HR zone 2 (' +
-          z2min + "–" + z2max +
-          ")</span>" +
-          '<span><i class="rd4-social-leg rd4-social-leg--fast"></i> ≤ 6:15</span>' +
-          '<span><i class="rd4-social-leg rd4-social-leg--mid"></i> ≤ 6:40</span>' +
-          '<span><i class="rd4-social-leg rd4-social-leg--slow"></i> slower</span>' +
-          "</div>"
-        : "") +
-      '<div class="rd4-social-stats">' +
+      "</div>";
+
+    var estPaceLabel =
+      paceSec != null ? fmtPaceSec2(paceSec) + "/km avg" : "run avg";
+
+    if (includeGraph) {
+      var chartEl = buildSocialLapChart(stack, lapRows);
+      if (chartEl) root.appendChild(chartEl);
+    }
+
+    if (lapRows.length) {
+      var lapsFrag = document.createElement("div");
+      lapsFrag.innerHTML =
+        '<div class="rd4-social-laps-title">' + esc(lapLabel) + "</div>" +
+        '<div class="rd4-social-laps">' +
+        '<div class="rd4-social-lap-col">' + buildSocialLapColumn(colA, paceSec) + "</div>" +
+        '<div class="rd4-social-lap-col">' + buildSocialLapColumn(colB, paceSec) + "</div>" +
+        "</div>" +
+        '<div class="rd4-social-legend">' +
+        '<span><i class="rd4-social-leg rd4-social-leg--z2"></i> HR zone 2 (' +
+        z2min + "–" + z2max +
+        ")</span>" +
+        '<span><i class="rd4-social-leg rd4-social-leg--ahead"></i> faster than ' +
+        esc(estPaceLabel) +
+        "</span>" +
+        '<span><i class="rd4-social-leg rd4-social-leg--fast"></i> ≤ 6:15</span>' +
+        '<span><i class="rd4-social-leg rd4-social-leg--mid"></i> ≤ 6:40</span>' +
+        '<span><i class="rd4-social-leg rd4-social-leg--slow"></i> slower</span>' +
+        "</div>";
+      while (lapsFrag.firstChild) root.appendChild(lapsFrag.firstChild);
+    }
+
+    var statsEl = document.createElement("div");
+    statsEl.className = "rd4-social-stats";
+    statsEl.innerHTML =
       statSocialTile("TSS", stats.TSS || dash(w.tss != null ? Math.round(w.tss) : null)) +
       statSocialTile("NP", stats.NP || dash(w.np)) +
       statSocialTile("AVG PWR", stats["Avg power"] || dash(w.avg_power)) +
       statSocialTile("CADENCE", stats.Cadence || dash(w.avg_cadence_spm)) +
       statSocialTile("STRIDE", stats.Stride || dash(w.avg_stride_m)) +
-      statSocialTile("ZONE 2", stats["Zone 2"] || dash(w.zone2_minutes)) +
-      "</div>" +
-      buildSocialPowerZones(stack);
+      statSocialTile("ZONE 2", stats["Zone 2"] || dash(w.zone2_minutes));
+    root.appendChild(statsEl);
+
+    var pzHtml = buildSocialPowerZones(stack);
+    if (pzHtml) {
+      var pzFrag = document.createElement("div");
+      pzFrag.innerHTML = pzHtml;
+      while (pzFrag.firstChild) root.appendChild(pzFrag.firstChild);
+    }
 
     return root;
 

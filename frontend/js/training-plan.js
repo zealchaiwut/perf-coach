@@ -186,6 +186,14 @@ information about.
       if (dateIso) _weekStart = _mondayOf(_parseISO(dateIso));
       _pendingOpenId = sessionId;
     },
+    // Deep link from Performance PR tiles (best week km/TSS): jump Plan to
+    // that ISO week_start (Monday). Call before activateTab('plan').
+    openWeek: function (weekStartIso) {
+      if (!weekStartIso) return;
+      try {
+        _weekStart = _mondayOf(_parseISO(weekStartIso));
+      } catch (e) { /* ignore bad dates */ }
+    },
     // Plan-guard helpers (issue #1383), exported for the suggestions module
     // — it is a SEPARATE closure below in this file, so bare references to
     // _planCheck/_planGuardHtml there throw ReferenceError (which killed
