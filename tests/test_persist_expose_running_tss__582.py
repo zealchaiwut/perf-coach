@@ -3,7 +3,7 @@
 Acceptance criteria covered:
   AC1  - thin caller persist_running_tss exists, importable, loads workout/splits/prefs
          from DB, delegates to compute_running_tss, writes result back
-  AC2  - only writes computed TSS to workout.tss when field is currently null
+  AC2  - writes computed TSS unless tss_source is manual (overwrites Stryd etc.)
   AC3  - when manual TSS exists, computed TSS still derived and returned alongside
   AC4  - TSS rounded to whole number before persistence or serialisation
   AC5  - tss_method persisted alongside TSS value
@@ -154,6 +154,21 @@ def test_does_not_overwrite_manual_tss():
     assert workout.tss == 75, "manual TSS must not be overwritten"
 
 
+def test_overwrites_stryd_tss_with_computed():
+    """AC2: Stryd stress on the row is replaced by app-computed TSS."""
+    from backend.services.tss import persist_running_tss
+
+    workout = _workout_ns(tss=22, np=280, duration_seconds=3600)
+    workout.tss_source = "stryd"
+    prefs = _prefs_ns(ftp_w=280)
+    session = _MockSession(workout, [], prefs)
+
+    persist_running_tss(workout_id=workout.id, session=session)
+
+    assert workout.tss == 100
+    assert workout.tss_source == "calculated"
+
+
 def test_does_not_overwrite_manual_tss_even_with_different_computed():
     """AC2: manual TSS=50 stays 50 even when computation yields a different value."""
     from backend.services.tss import persist_running_tss
@@ -296,7 +311,8 @@ def test_full_endpoint_returns_authoritative_tss():
     src = pathlib.Path(__file__).resolve().parents[1] / "backend" / "main.py"
     code = src.read_text()
     func_start = code.find("def get_workout_full")
-    func_body = code[func_start:func_start + 6000]
+    func_end = code.find("\ndef ", func_start + 1)
+    func_body = code[func_start:func_end if func_end != -1 else func_start + 12000]
     assert "workout.tss" in func_body, (
         "get_workout_full must reference workout.tss for the authoritative value"
     )

@@ -16,6 +16,8 @@
   var activeRowEl = null;
   var panelMode = "view"; // 'view' | 'edit' | 'create'
   var cachedDetailWorkout = null;
+  /** Last GET /api/workouts/{id}/full payload (computed TSS, sources, …). */
+  var cachedDetailFull = null;
   var _athleteBrand = "";
   // issue: perf — fetchAndRender() defaults to a trailing window rather than
   // full history (see the fetchAndRender comment below); this flags whether
@@ -2008,6 +2010,7 @@
     activeTriggerEl = triggerEl || null;
     activePosIndex = findPosIndex(workoutId);
     cachedDetailWorkout = null;
+    cachedDetailFull = null;
 
     closeOverflowMenu();
     setPanelMode("view");
@@ -2125,6 +2128,7 @@
     activeDetailWorkoutId = null;
     activePosIndex = -1;
     cachedDetailWorkout = null;
+    cachedDetailFull = null;
 
     closeOverflowMenu();
     var dateToUse = presetDate || createPresetDate();
@@ -2375,6 +2379,7 @@
     activeTriggerEl = null;
     activePosIndex = -1;
     cachedDetailWorkout = null;
+    cachedDetailFull = null;
     panelMode = "view";
 
     closeOverflowMenu();
@@ -2584,9 +2589,20 @@
     return out.childElementCount ? out : contentEl.cloneNode(true);
   }
 
+  function applyScreenshotLapMode(contentEl, lapMode) {
+    if (!contentEl || !lapMode) return;
+    var toggle = contentEl.querySelector("#rd4-lapmode-toggle");
+    if (!toggle) return;
+    var target = toggle.querySelector(
+      '.rd4-lm-btn[data-lap-mode="' + lapMode + '"]',
+    );
+    if (target && !target.classList.contains("rd4-lm-btn--on")) target.click();
+  }
+
   /** Prefer the landscape / simple share card; fall back to the vertical panel clone. */
   function buildDetailCaptureRoot(contentEl, shotOpts) {
     shotOpts = shotOpts || {};
+    applyScreenshotLapMode(contentEl, shotOpts.lapMode);
     var RD = window.RunDetailView;
     if (!RD) return buildScreenshotClone(contentEl);
 
@@ -2604,7 +2620,9 @@
     if (typeof RD.buildShareCard === "function") {
       var share = RD.buildShareCard(contentEl, {
         workout: cachedDetailWorkout || {},
-        brand: _athleteBrand || undefined,
+        full: cachedDetailFull || null,
+        lapSets: RD._lastLapSets || null,
+        lapMode: shotOpts.lapMode || null,
         theme: shotOpts.theme === "light" ? "light" : "dark",
         includeGraph: !!shotOpts.includeGraph,
       });
@@ -2818,6 +2836,7 @@
               style: "full",
               theme: theme,
               includeGraph: includeGraph,
+              lapMode: lapMode,
             };
             var node = buildDetailCaptureRoot(contentEl, opts);
             previewStage.innerHTML = "";
@@ -3273,6 +3292,7 @@
       })
       .catch(function (_) {
         cachedDetailWorkout = null;
+    cachedDetailFull = null;
         updateOverflowMenu(null);
         if (loadingEl) loadingEl.style.display = "none";
         if (errorEl) errorEl.style.display = "";
@@ -3612,6 +3632,7 @@
     });
 
   function renderRunView(full, prefs, stravaLatest, strydLatest) {
+    cachedDetailFull = full || null;
     var contentEl = document.getElementById("dp-content");
     if (!contentEl || !window.RunDetailView) return;
     window.RunDetailView.render(contentEl, full, prefs, {

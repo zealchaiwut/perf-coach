@@ -336,11 +336,26 @@
     return options;
   }
 
-  function pickDefaultTssId(options) {
+  function pickDefaultTssId(options, w) {
+    if (w && w.tss_source === "manual") {
+      for (var m = 0; m < options.length; m++) {
+        if (options[m].id === "manual") return "manual";
+      }
+    }
     for (var i = 0; i < options.length; i++) {
       if (options[i].id === "computed") return "computed";
     }
     return options.length ? options[0].id : null;
+  }
+
+  /** Share export always prefers app-computed TSS over Stryd/Strava stored values. */
+  function resolveShareTssValue(stats, full, w) {
+    if (full && full.computed_tss != null && isFinite(full.computed_tss)) {
+      return String(Math.round(full.computed_tss));
+    }
+    if (stats && stats.TSS) return stats.TSS;
+    if (w && w.tss != null) return String(Math.round(w.tss));
+    return dash(null);
   }
 
   function tssOptionById(options, id) {
@@ -555,6 +570,23 @@
     });
   }
 
+  /** Work reps for the interval summary — prefer Stryd manual 2 km presses. */
+  function manualWorkLapsForInterval(manualLapMeta) {
+    if (!manualLapMeta || !manualLapMeta.length) return [];
+    var tagged = manualLapMeta.filter(function (m) {
+      return m.role === "work";
+    });
+    if (tagged.length >= 2) return tagged;
+    var byDist = manualLapMeta.filter(function (m) {
+      if (m.role === "recovery") return false;
+      var d =
+        m.split && m.split.distance_km != null ? +m.split.distance_km : 0;
+      return d >= 1.75 && !m.anomaly;
+    });
+    if (byDist.length >= 2) return byDist;
+    return [];
+  }
+
   function extractIntervalSet(lapMeta) {
     if (lapMeta.length < 3) return null;
     var firstRest = -1, lastRest = -1;
@@ -762,7 +794,7 @@
     var startTime = fmtTime(startIso);
 
     var tssOptions = buildTssOptions(full, w, strava, stryd);
-    var defaultTssId = pickDefaultTssId(tssOptions);
+    var defaultTssId = pickDefaultTssId(tssOptions, w);
 
     // Backend per-lap interval roles: aligned by 0-based position with the lap
     // set the backend ran detection on (detected.lap_source: "manual" laps for
@@ -771,14 +803,24 @@
       detected && detected.confident && detected.lap_roles
         ? detected.lap_roles
         : null;
-    var rolesForManual = lapRoles && detected.lap_source === "manual" ? lapRoles : null;
-    var rolesForSplits = lapRoles && detected.lap_source !== "manual" ? lapRoles : null;
+    var profileLapSource =
+      detected && detected.lap_source ? detected.lap_source : "splits";
+    var rolesForManual = lapRoles && profileLapSource === "manual" ? lapRoles : null;
+    var rolesForSplits = lapRoles && profileLapSource !== "manual" ? lapRoles : null;
     var distanceLapMeta = buildLapMeta(splits, z2min, z2max, rolesForSplits);
     var manualLapMeta = manualSplits.length
       ? buildLapMeta(manualSplits, z2min, z2max, rolesForManual)
       : [];
     var hasDistanceLaps = distanceLapMeta.length > 0;
     var hasManualLaps = manualLapMeta.length > 0;
+    var defaultLapMode =
+      profileLapSource === "manual" && hasManualLaps
+        ? "manual"
+        : hasDistanceLaps
+          ? "distance"
+          : hasManualLaps
+            ? "manual"
+            : "distance";
 
     var bandMap = lapBandMap(detected, distanceLapMeta.length);
     var halves = computeHalves(distanceLapMeta);
@@ -1077,9 +1119,12 @@
 
     // ── 5 Laps ──
     var lapsBlock = "";
-    var activeLapMeta = hasDistanceLaps
-      ? distanceLapMeta
-      : manualLapMeta;
+    var activeLapMeta =
+      defaultLapMode === "manual" && hasManualLaps
+        ? manualLapMeta
+        : hasDistanceLaps
+          ? distanceLapMeta
+          : manualLapMeta;
     if (activeLapMeta.length) {
       var lapTitle =
         hasDistanceLaps && hasManualLaps
@@ -1090,8 +1135,12 @@
       var lapModeToggle =
         hasDistanceLaps && hasManualLaps
           ? '<div class="rd4-lapmode-toggle" id="rd4-lapmode-toggle">' +
-            '<button type="button" class="rd4-lm-btn rd4-lm-btn--on" data-lap-mode="distance">1 km</button>' +
-            '<button type="button" class="rd4-lm-btn" data-lap-mode="manual">Manual</button>' +
+            '<button type="button" class="rd4-lm-btn' +
+            (defaultLapMode === "distance" ? " rd4-lm-btn--on" : "") +
+            '" data-lap-mode="distance">1 km</button>' +
+            '<button type="button" class="rd4-lm-btn' +
+            (defaultLapMode === "manual" ? " rd4-lm-btn--on" : "") +
+            '" data-lap-mode="manual">Manual</button>' +
             "</div>"
           : "";
       var showDetailCols = typeof localStorage !== "undefined" && localStorage.getItem("rd4_lap_detail_cols") === "1";
@@ -1126,25 +1175,41 @@
         z2max +
         ") · grey = break / anomaly</div>" +
         '<div class="rd4-lap-scroll"><table class="rd4-lap-table"><thead><tr>' +
-        renderLapTableHead(hasManualLaps && !hasDistanceLaps) +
+        renderLapTableHead(defaultLapMode === "manual") +
         '</tr></thead><tbody id="rd4-lap-tbody">' +
         renderLapTableRows(activeLapMeta, {
-          withDuration: hasManualLaps && !hasDistanceLaps,
+          withDuration: defaultLapMode === "manual",
         }) +
         "</tbody></table></div></section>";
     }
 
     // ── 5b Interval set ──
     var intervalsBlock = "";
-    if (activeLapMeta.length) {
-      // Prefer the backend's role-tagged work laps (numbered) when they apply to
-      // the active lap set; fall back to the frontend anomaly heuristic.
-      var activeHasRoles = activeLapMeta.some(function (m) { return m.role === "work"; });
-      var repsPerSet = (detected && detected.confident) ? detected.reps_per_set : null;
-      var intervalWorkLaps = activeHasRoles
-        ? activeLapMeta.filter(function (m) { return m.role === "work"; })
-        : extractIntervalSet(activeLapMeta);
-      intervalsBlock = renderIntervalBlock(intervalWorkLaps, activeHasRoles ? repsPerSet : null);
+    var intervalLapMeta =
+      profileLapSource === "manual" && manualLapMeta.length
+        ? manualLapMeta
+        : hasManualLaps &&
+            manualLapMeta.some(function (m) { return m.role === "work"; })
+          ? manualLapMeta
+          : activeLapMeta;
+    var intervalWorkLaps = manualWorkLapsForInterval(manualLapMeta);
+    var intervalHasRoles = intervalWorkLaps.some(function (m) {
+      return m.role === "work";
+    });
+    if (!intervalWorkLaps.length && intervalLapMeta.length) {
+      intervalHasRoles = intervalLapMeta.some(function (m) {
+        return m.role === "work";
+      });
+      intervalWorkLaps = intervalHasRoles
+        ? intervalLapMeta.filter(function (m) { return m.role === "work"; })
+        : extractIntervalSet(intervalLapMeta);
+    }
+    if (intervalWorkLaps.length) {
+      var repsPerSet = detected && detected.confident ? detected.reps_per_set : null;
+      intervalsBlock = renderIntervalBlock(
+        intervalWorkLaps,
+        intervalHasRoles ? repsPerSet : null,
+      );
     }
 
     // ── 6 Aerobic decoupling ──
@@ -1343,6 +1408,8 @@
       },
       hasDistanceLaps: hasDistanceLaps,
       hasManualLaps: hasManualLaps,
+      lapSource: profileLapSource,
+      defaultLapMode: defaultLapMode,
       tssOptions: tssOptions,
       defaultTssId: defaultTssId,
       workout: w,
@@ -1354,11 +1421,12 @@
     var w = rendered.workout;
     var lapSets = rendered.lapSets || { distance: [], manual: [] };
     var lapMode =
-      rendered.hasDistanceLaps
+      rendered.defaultLapMode ||
+      (rendered.hasDistanceLaps
         ? "distance"
         : rendered.hasManualLaps
           ? "manual"
-          : "distance";
+          : "distance");
     var metric = "pace";
     var tssSource = rendered.defaultTssId;
     var tssOptions = rendered.tssOptions || [];
@@ -2080,8 +2148,11 @@
     return d != null && d > 0 ? d : null;
   }
 
+  var SOCIAL_REST_BAR = "#94a3b8";
+
   /** Pace bar colour tiers — share-card legend; teal when faster than run avg. */
-  function socialPaceBarColor(paceSec, estPaceSec) {
+  function socialPaceBarColor(paceSec, estPaceSec, isRest) {
+    if (isRest) return SOCIAL_REST_BAR;
     if (paceSec == null) return "#64748b";
     if (estPaceSec != null && paceSec < estPaceSec - 0.5) return "#14b8a6";
     if (paceSec <= 375) return "#f97316"; /* ≤ 6:15 */
@@ -2121,48 +2192,145 @@
     return out;
   }
 
-  function parseSocialLapRows(stack) {
-    var tbody = stack.querySelector(".rd4-lap-table tbody");
-    if (!tbody) return [];
-    var withDur = !!stack.querySelector('.rd4-lap-table thead th:nth-child(3)');
-    var headCells = stack.querySelectorAll(".rd4-lap-table thead th");
-    if (headCells.length >= 3 && headCells[2].textContent.trim() === "Dur") {
-      withDur = true;
+  function shareLapTable(stack) {
+    return (
+      stack.querySelector(".rd4-laps-card .rd4-lap-table:not(.rd4-int-table)") ||
+      stack.querySelector(".rd4-lap-table:not(.rd4-int-table)")
+    );
+  }
+
+  function lapTableColumnIndex(stack) {
+    var table = shareLapTable(stack);
+    var map = {};
+    if (!table) return map;
+    table.querySelectorAll("thead th").forEach(function (th, i) {
+      var key = th.textContent.replace(/\s+/g, " ").trim().toLowerCase();
+      if (key) map[key] = i;
+    });
+    return map;
+  }
+
+  /** Share-card lap rows from the same lap meta the chart/table render uses. */
+  function lapMetaToSocialRows(lapMeta) {
+    if (!lapMeta || !lapMeta.length) return [];
+    return lapMeta.map(function (m) {
+      var s = m.split || {};
+      var distKmRaw = s.distance_km != null ? parseFloat(s.distance_km) : null;
+      var distTxt =
+        distKmRaw != null && isFinite(distKmRaw) ? distKmRaw.toFixed(2) : "—";
+      var durationSec =
+        s.duration_seconds != null && isFinite(s.duration_seconds)
+          ? s.duration_seconds
+          : null;
+      var durationTxt = fmtDuration(durationSec);
+      var paceSec =
+        m.paceSec != null && isFinite(m.paceSec)
+          ? m.paceSec
+          : distKmRaw && durationSec
+            ? durationSec / distKmRaw
+            : null;
+      var paceTxt = fmtPace(paceSec);
+      var hrVal = s.avg_hr != null ? s.avg_hr : null;
+      var hrTxt = hrVal != null ? String(Math.round(hrVal)) : "—";
+      var pwrVal =
+        s.avg_power != null
+          ? s.avg_power
+          : m.power != null
+            ? m.power
+            : null;
+      var pwrTxt = pwrVal != null ? String(Math.round(pwrVal)) : "—";
+      return {
+        index: String(m.index),
+        dist: distTxt,
+        duration: durationTxt,
+        durationSec: durationSec,
+        pace: paceTxt,
+        hr: hrTxt,
+        hrNum: hrVal != null ? parseInt(hrVal, 10) : NaN,
+        power: pwrTxt,
+        zone2: !!m.zone2,
+        isRest: m.role === "recovery" || !!m.anomaly,
+        paceSec: paceSec,
+      };
+    });
+  }
+
+  function resolveShareLapRows(stack, opts) {
+    opts = opts || {};
+    var lapSets = opts.lapSets;
+    var lapMode = opts.lapMode;
+    if (lapSets) {
+      var useManual =
+        lapMode === "manual" &&
+        lapSets.manual &&
+        lapSets.manual.length;
+      var useDistance =
+        !useManual &&
+        lapSets.distance &&
+        lapSets.distance.length;
+      if (useManual) return lapMetaToSocialRows(lapSets.manual);
+      if (useDistance) return lapMetaToSocialRows(lapSets.distance);
+      if (lapSets.manual && lapSets.manual.length) {
+        return lapMetaToSocialRows(lapSets.manual);
+      }
+      if (lapSets.distance && lapSets.distance.length) {
+        return lapMetaToSocialRows(lapSets.distance);
+      }
     }
+    return parseSocialLapRows(stack);
+  }
+
+  function parseSocialLapRows(stack) {
+    var table = shareLapTable(stack);
+    var tbody = table && table.querySelector("tbody");
+    if (!tbody) return [];
+    var col = lapTableColumnIndex(stack);
+    var distIdx = col.dist != null ? col.dist : 1;
+    var durIdx =
+      col.dur != null ? col.dur : col.time != null ? col.time : -1;
+    var hasDur = durIdx >= 0;
+    var paceIdx = col.pace != null ? col.pace : hasDur ? 3 : 2;
+    var hrIdx = col.hr != null ? col.hr : hasDur ? 4 : 3;
+    var pwrIdx = col.pwr != null ? col.pwr : hasDur ? 5 : 4;
+
     var rows = [];
     tbody.querySelectorAll("tr").forEach(function (tr) {
       var cells = tr.querySelectorAll("td");
       if (cells.length < 5) return;
-      var distIdx = 1;
-      var durIdx = withDur ? 2 : -1;
-      var paceIdx = withDur ? 3 : 2;
-      var hrIdx = withDur ? 4 : 3;
-      var pwrIdx = withDur ? 5 : 4;
       var lapNum = cells[0].querySelector(".rd4-lap-num");
-      var paceTxt = cells[paceIdx].textContent.trim();
+      var distTxt =
+        cells[distIdx] != null ? cells[distIdx].textContent.trim() : "—";
+      var distKm = parseFloat(distTxt);
+      var paceTxt =
+        cells[paceIdx] != null ? cells[paceIdx].textContent.trim() : "—";
       var paceSec = paceSecFromDisplay(paceTxt);
       var durationTxt = durIdx >= 0 ? cells[durIdx].textContent.trim() : "—";
       var durationSec = durationSecFromDisplay(durationTxt);
-      if (durationSec == null && paceSec != null) {
-        var distTxt = cells[distIdx].textContent.trim();
-        var distKm = parseFloat(distTxt);
-        if (isFinite(distKm) && distKm > 0) {
-          durationSec = Math.round(paceSec * distKm);
-          if (!durationTxt || durationTxt === "—") {
-            durationTxt = fmtDuration(durationSec);
-          }
-        }
+      if (durationSec == null && paceSec != null && isFinite(distKm) && distKm > 0) {
+        durationSec = Math.round(paceSec * distKm);
+        durationTxt = fmtDuration(durationSec);
       }
-      var hrTxt = cells[hrIdx].textContent.trim();
+      if (paceSec == null && durationSec != null && isFinite(distKm) && distKm > 0) {
+        paceSec = durationSec / distKm;
+        paceTxt = fmtPaceSec2(paceSec);
+      }
+      var hrTxt =
+        cells[hrIdx] != null ? cells[hrIdx].textContent.trim() : "—";
+      var pwrTxt =
+        cells[pwrIdx] != null ? cells[pwrIdx].textContent.trim() : "—";
       rows.push({
         index: lapNum ? lapNum.textContent.trim() : cells[0].textContent.trim(),
+        dist: distTxt,
         duration: durationTxt || "—",
         durationSec: durationSec,
         pace: paceTxt,
         hr: hrTxt,
         hrNum: parseInt(hrTxt, 10),
-        power: cells[pwrIdx].textContent.trim(),
+        power: pwrTxt,
         zone2: tr.classList.contains("rd4-lap-row--z2"),
+        isRest:
+          tr.classList.contains("rd4-lap-row--break") ||
+          tr.classList.contains("rd4-lap-row--rest"),
         paceSec: paceSec,
       });
     });
@@ -2180,22 +2348,29 @@
 
   function buildSocialLapColumn(rows, estPaceSec) {
     if (!rows.length) return "";
-    var paceSecs = rows.map(function (r) { return r.paceSec; }).filter(function (v) { return v != null; });
+    var paceSecs = rows
+      .filter(function (r) { return !r.isRest; })
+      .map(function (r) { return r.paceSec; })
+      .filter(function (v) { return v != null; });
     var minP = paceSecs.length ? Math.min.apply(null, paceSecs) : null;
     var maxP = paceSecs.length ? Math.max.apply(null, paceSecs) : null;
 
     var html =
       '<div class="rd4-social-lap-head">' +
-      '<span>KM</span><span>TIME</span><span>PACE</span><span></span><span>HR</span><span>W</span>' +
+      '<span>LAP</span><span>DIST</span><span>TIME</span><span>PACE</span><span></span><span>HR</span><span>W</span>' +
       "</div>";
 
     rows.forEach(function (row) {
-      var barW = socialPaceBarWidth(row.paceSec, minP, maxP);
-      var barC = socialPaceBarColor(row.paceSec, estPaceSec);
-      var rowCls = "rd4-social-lap-row" + (row.zone2 ? " rd4-social-lap-row--z2" : "");
+      var isRest = !!row.isRest;
+      var barW = isRest ? 10 : socialPaceBarWidth(row.paceSec, minP, maxP);
+      var barC = socialPaceBarColor(row.paceSec, estPaceSec, isRest);
+      var rowCls = "rd4-social-lap-row";
+      if (isRest) rowCls += " rd4-social-lap-row--rest";
+      else if (row.zone2) rowCls += " rd4-social-lap-row--z2";
       html +=
         '<div class="' + rowCls + '">' +
         '<span class="rd4-social-lap-km">' + esc(row.index) + "</span>" +
+        '<span class="rd4-social-lap-dist">' + esc(row.dist || "—") + "</span>" +
         '<span class="rd4-social-lap-time">' + esc(row.duration || "—") + "</span>" +
         '<span class="rd4-social-lap-pace">' + esc(row.pace) + "</span>" +
         '<span class="rd4-social-lap-bar"><i style="width:' + barW + "px;background:" + barC + '"></i></span>' +
@@ -2355,8 +2530,18 @@
 
     var w = opts.workout || {};
     var stats = parseSocialStatGrid(stack);
-    var lapRows = parseSocialLapRows(stack);
-    var lapLabel = socialLapModeLabel(stack);
+    var fullPayload = opts.full || null;
+    var shareTss = resolveShareTssValue(stats, fullPayload, w);
+    var lapRows = resolveShareLapRows(stack, {
+      lapSets: opts.lapSets,
+      lapMode: opts.lapMode,
+    });
+    var lapLabel =
+      opts.lapMode === "manual"
+        ? "manual"
+        : opts.lapMode === "distance"
+          ? "lap1km"
+          : socialLapModeLabel(stack);
 
     var titleEl = stack.querySelector(".rd4-title");
     var title = titleEl ? titleEl.textContent.trim() : w.name || "Run";
@@ -2391,16 +2576,12 @@
     var z2min = _Z2.ZONE2_HR_MIN;
     var z2max = _Z2.ZONE2_HR_MAX;
 
-    var brandRaw = opts.brand || "perf-coach";
-    var brand = String(brandRaw).trim().toLowerCase().replace(/\s+/g, "") || "perf-coach";
-
     var root = document.createElement("div");
     root.className =
       "rd4-social" + (theme === "light" ? " rd4-social--light" : "");
     root.innerHTML =
       '<div class="rd4-social-top">' +
       '<div class="rd4-social-event">' + esc(title) + "</div>" +
-      '<div class="rd4-social-brand">' + esc(brand) + "</div>" +
       "</div>" +
       '<div class="rd4-social-meta">' +
       esc(typeLine) +
@@ -2432,6 +2613,7 @@
         '<div class="rd4-social-lap-col">' + buildSocialLapColumn(colB, paceSec) + "</div>" +
         "</div>" +
         '<div class="rd4-social-legend">' +
+        '<span><i class="rd4-social-leg rd4-social-leg--rest"></i> Rest / recovery lap</span>' +
         '<span><i class="rd4-social-leg rd4-social-leg--z2"></i> HR zone 2 (' +
         z2min + "–" + z2max +
         ")</span>" +
@@ -2448,7 +2630,7 @@
     var statsEl = document.createElement("div");
     statsEl.className = "rd4-social-stats";
     statsEl.innerHTML =
-      statSocialTile("TSS", stats.TSS || dash(w.tss != null ? Math.round(w.tss) : null)) +
+      statSocialTile("TSS", shareTss) +
       statSocialTile("NP", stats.NP || dash(w.np)) +
       statSocialTile("AVG PWR", stats["Avg power"] || dash(w.avg_power)) +
       statSocialTile("CADENCE", stats.Cadence || dash(w.avg_cadence_spm)) +
@@ -2584,10 +2766,12 @@
   win.RunDetailView = {
     buildShareCard: buildShareCard,
     buildSimpleShareCard: buildSimpleShareCard,
+    _lastLapSets: null,
     render: function (contentEl, full, prefs, syncMeta) {
       if (!contentEl) return;
       var out = render(full, prefs, syncMeta);
       contentEl.innerHTML = out.html;
+      win.RunDetailView._lastLapSets = out.lapSets || null;
       wireInteractions(contentEl, out);
     },
   };

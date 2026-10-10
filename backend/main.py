@@ -7019,7 +7019,11 @@ def get_workout_full(
             .filter(UserPreferences.user_id == workout.user_id)
             .first()
         )
-        tss_result = _compute_running_tss(workout, split_rows, prefs or UserPreferences())
+        _is_run = (workout.workout_type or "").lower().find("run") >= 0
+        if _is_run:
+            tss_result = _persist_running_tss(workout.id, session)
+        else:
+            tss_result = _compute_running_tss(workout, split_rows, prefs or UserPreferences())
         from backend.models import ActivityStream as _ActivityStream
         from backend.services.activity_streams import activity_streams_to_strava_dict as _as_to_strava
         # Phase C: streams=none must not hydrate deferred GPS/power/HR arrays.
@@ -7085,8 +7089,15 @@ def get_workout_full(
             "has_power": unified["avg_power_w"] is not None,
             "has_tss": unified["tss"] is not None,
         }
-        # Authoritative TSS: manual entry wins; fall back to freshly-computed value.
-        authoritative_tss = int(workout.tss) if workout.tss is not None else tss_result["tss"]
+        # Authoritative TSS: manual entry wins; else app-computed (not Stryd stress).
+        if workout.tss_source == "manual" and workout.tss is not None:
+            authoritative_tss = int(workout.tss)
+        elif tss_result.get("tss") is not None:
+            authoritative_tss = int(round(tss_result["tss"]))
+        elif workout.tss is not None:
+            authoritative_tss = int(workout.tss)
+        else:
+            authoritative_tss = None
         # Manual lap presses expose real interval reps that stored 1 km splits hide;
         # pass them so detection/pairing runs on them.  Use the persisted manual_laps
         # column (issue #1295) to avoid re-materialising streams_payload.
@@ -7151,6 +7162,8 @@ def get_workout_full(
         }
         if _aerobic_reason is not None:
             response_body["aerobic_decoupling_reason"] = _aerobic_reason
+        if _is_run:
+            session.commit()
         return JSONResponse(response_body)
 
 
@@ -10154,6 +10167,7 @@ def get_training_log(
     today = _today_bkk()
 
     uid = user.id
+    snap_ctl = snap_atl = snap_tsb = None
 
     from_d = today - timedelta(days=29) if from_date is None else None
     if from_date is not None:
@@ -10228,31 +10242,44 @@ def get_training_log(
                     TrainingLoadSnapshot.snapshot_date == today,
                 ).first()
 
-    workout_entries = [
-        {
-            "date": str(w.workout_date),
-            "type": w.workout_type,
-            "run_subtype": w.run_subtype,
-            "id": str(w.id),
-            "title": w.name,
-            "duration_seconds": w.duration_seconds,
-            "duration_minutes": round(w.duration_seconds / 60, 2) if w.duration_seconds is not None else None,
-            "distance_km": float(w.distance_km) if w.distance_km is not None else None,
-            "avg_hr": w.avg_hr,
-            "elevation_m": w.elevation_m,
-            "average_pace_seconds_per_km": _pace(w.workout_type, w.duration_seconds, w.distance_km),
-            "tss": float(w.tss) if w.tss is not None else None,
-            "source": w.source or w.tss_source or "manual",
-            "strava_activity_url": w.strava_activity_url,  # issue #530: list/detail source parity
-            "is_stryd_synced": w.stryd_activity_pk is not None,
-            "has_strava": "strava" in (w.source or "") or w.strava_activity_pk is not None,
-            "has_stryd": "stryd" in (w.source or "") or w.stryd_activity_pk is not None,
-            "notes": w.remarks or "",
-            "feeling": w.feeling,
-            "weight_context": w.remarks,
-        }
-        for w in workouts
-    ]
+        # Training log / calendar rollups use workout.tss — refresh app-computed
+        # values for runs (overwrites Stryd etc.; manual athlete entry wins).
+        for w in workouts:
+            wt = (w.workout_type or "").lower()
+            if "run" in wt and w.tss_source != "manual":
+                _persist_running_tss(w.id, session)
+
+        if today_snap is not None:
+            snap_ctl = round(today_snap.ctl, 1)
+            snap_atl = round(today_snap.atl, 1)
+            snap_tsb = round(today_snap.tsb, 1)
+
+        workout_entries = [
+            {
+                "date": str(w.workout_date),
+                "type": w.workout_type,
+                "run_subtype": w.run_subtype,
+                "id": str(w.id),
+                "title": w.name,
+                "duration_seconds": w.duration_seconds,
+                "duration_minutes": round(w.duration_seconds / 60, 2) if w.duration_seconds is not None else None,
+                "distance_km": float(w.distance_km) if w.distance_km is not None else None,
+                "avg_hr": w.avg_hr,
+                "elevation_m": w.elevation_m,
+                "average_pace_seconds_per_km": _pace(w.workout_type, w.duration_seconds, w.distance_km),
+                "tss": float(w.tss) if w.tss is not None else None,
+                "source": w.source or w.tss_source or "manual",
+                "strava_activity_url": w.strava_activity_url,  # issue #530: list/detail source parity
+                "is_stryd_synced": w.stryd_activity_pk is not None,
+                "has_strava": "strava" in (w.source or "") or w.strava_activity_pk is not None,
+                "has_stryd": "stryd" in (w.source or "") or w.stryd_activity_pk is not None,
+                "notes": w.remarks or "",
+                "feeling": w.feeling,
+                "weight_context": w.remarks,
+            }
+            for w in workouts
+        ]
+        session.commit()
 
     all_entries = workout_entries + rest_entries
     all_entries.sort(key=lambda e: e["date"], reverse=True)
@@ -10300,10 +10327,10 @@ def get_training_log(
     if include_load_context:
         load_context = None
         if total_workout_days >= 7:
-            if today_snap is not None:
-                lc_ctl = round(today_snap.ctl, 1)
-                lc_atl = round(today_snap.atl, 1)
-                lc_tsb = round(today_snap.tsb, 1)
+            if snap_ctl is not None:
+                lc_ctl = snap_ctl
+                lc_atl = snap_atl
+                lc_tsb = snap_tsb
             else:
                 _load = current_load(str(uid), as_of=today)
                 lc_ctl = round(_load["ctl"], 1)
