@@ -11,8 +11,8 @@ Acceptance criteria:
         (threshold-refresh path works)
   AC2 - persist_running_tss does NOT overwrite workout.tss when tss_source is "manual"
         (manual entries are still protected)
-  AC3 - persist_running_tss does NOT overwrite workout.tss when tss_source is any other
-        non-"calculated" value (defensive: treat unknown source as protected)
+  AC3 - persist_running_tss overwrites Stryd/Strava/unknown sources with app-computed
+        TSS (only tss_source == "manual" is protected)
   AC4 - recompute_user_running_tss causes tss to reflect new threshold on all running
         workouts with tss_source == "calculated"
 """
@@ -84,6 +84,9 @@ class _MockSession:
         return _MockQuery([])
 
     def expire(self, obj):
+        pass
+
+    def flush(self):
         pass
 
 
@@ -163,33 +166,34 @@ def test_manual_tss_source_unchanged():
     assert workout.tss_source == "manual"
 
 
-# ── AC3: does NOT overwrite when tss_source is unknown / None-with-value ──────
+# ── AC3: overwrites non-manual external sources ─────────────────────────────
 
-def test_does_not_overwrite_when_tss_set_and_source_is_none():
-    """AC3: tss is not overwritten when it has a value but tss_source is None (ambiguous)."""
+def test_overwrites_when_tss_set_and_source_is_none():
+    """AC3: unset source is treated as non-manual — refresh with app-computed TSS."""
     from backend.services.tss import persist_running_tss
 
-    # Ambiguous state: tss set but source unknown → treat as protected
     workout = _workout_ns(tss=60, tss_source=None, np=280, duration_seconds=3600)
     prefs = _prefs_ns(ftp_w=280)
     session = _MockSession(workout, [], prefs)
 
     persist_running_tss(workout_id=workout.id, session=session)
 
-    assert workout.tss == 60, "TSS with unknown source must not be overwritten"
+    assert workout.tss == 100
+    assert workout.tss_source == "calculated"
 
 
-def test_does_not_overwrite_when_tss_source_is_strava():
-    """AC3: tss is not overwritten when tss_source == 'strava' (external source)."""
+def test_overwrites_when_tss_source_is_stryd():
+    """AC3: Stryd stress on the row is replaced by app-computed TSS."""
     from backend.services.tss import persist_running_tss
 
-    workout = _workout_ns(tss=80, tss_source="strava", np=280, duration_seconds=3600)
+    workout = _workout_ns(tss=22, tss_source="stryd", np=280, duration_seconds=3600)
     prefs = _prefs_ns(ftp_w=280)
     session = _MockSession(workout, [], prefs)
 
     persist_running_tss(workout_id=workout.id, session=session)
 
-    assert workout.tss == 80, "Strava-sourced TSS must not be overwritten"
+    assert workout.tss == 100
+    assert workout.tss_source == "calculated"
 
 
 # ── AC4: recompute_user_running_tss refreshes calculated workouts ─────────────
@@ -225,6 +229,9 @@ def test_recompute_user_running_tss_refreshes_calculated_workouts():
             return _MockQuery([])
 
         def expire(self, obj):
+            pass
+
+        def flush(self):
             pass
 
     class _WorkoutQuery:
