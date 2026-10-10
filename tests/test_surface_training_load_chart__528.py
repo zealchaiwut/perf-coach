@@ -140,10 +140,11 @@ def test_ac2_widget_container_present_in_html():
 
 
 def test_ac2_widget_renders_ctl_atl_tsb_and_interpretation():
-    # readiness widget (#640) reads ctl/atl/tsb + recovery_hint from /api/readiness/current
+    # Readiness tiles on log use shared LoadReadinessTiles + load_context from list fetch.
+    assert "LoadReadinessTiles" in _JS
+    assert "load_context" in _JS or "include_load_context" in _JS
     assert "ctl" in _JS and "atl" in _JS and "tsb" in _JS
-    assert "recovery_hint" in _JS
-    assert "CTL" in _JS and "ATL" in _JS and "TSB" in _JS
+    assert 'id="load-widget"' in _HTML
 
 
 # ── AC3: weekly volume chart, Chart.js, >= 8 weeks, distance or TSS ───────────

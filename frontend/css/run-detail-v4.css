@@ -1034,7 +1034,7 @@
 .rd4-social-lap-head,
 .rd4-social-lap-row {
   display: grid;
-  grid-template-columns: 32px 56px 64px 1fr 48px 48px;
+  grid-template-columns: 28px 44px 52px 52px 1fr 40px 40px;
   gap: 6px;
   align-items: center;
   font-family: "JetBrains Mono", ui-monospace, monospace;
@@ -1060,6 +1060,18 @@
 
 .rd4-social-lap-row--z2 {
   background: rgba(34, 197, 94, 0.14);
+}
+
+.rd4-social-lap-row--rest {
+  background: rgba(148, 163, 184, 0.16);
+  color: #a8a29e;
+}
+
+.rd4-social-lap-row--rest .rd4-social-lap-pace,
+.rd4-social-lap-row--rest .rd4-social-lap-time,
+.rd4-social-lap-row--rest .rd4-social-lap-hr,
+.rd4-social-lap-row--rest .rd4-social-lap-pwr {
+  color: #a8a29e;
 }
 
 .rd4-social-lap-km {
@@ -1123,6 +1135,7 @@
 .rd4-social-leg--ahead { background: #14b8a6; }
 .rd4-social-leg--fast { background: #f97316; }
 .rd4-social-leg--mid { background: #d97706; }
+.rd4-social-leg--rest { background: #94a3b8; }
 .rd4-social-leg--slow { background: #ef4444; }
 
 .rd4-social-stats {
@@ -1264,6 +1277,18 @@
 
 .rd4-social--light .rd4-social-lap-head {
   border-bottom-color: #d6d3d1;
+}
+
+.rd4-social--light .rd4-social-lap-row--rest {
+  background: rgba(148, 163, 184, 0.22);
+  color: #57534e;
+}
+
+.rd4-social--light .rd4-social-lap-row--rest .rd4-social-lap-pace,
+.rd4-social--light .rd4-social-lap-row--rest .rd4-social-lap-time,
+.rd4-social--light .rd4-social-lap-row--rest .rd4-social-lap-hr,
+.rd4-social--light .rd4-social-lap-row--rest .rd4-social-lap-pwr {
+  color: #78716c;
 }
 
 .rd4-social--light .rd4-social-lap-row--z2 {
